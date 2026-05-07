@@ -7,6 +7,15 @@
  * @flow strict
  */
 
-/**
- * LexicalTouchIndentationPlugin
- */
+import type {LexicalEditor} from 'lexical';
+
+declare export function registerTouchIndentation(
+  editor: LexicalEditor,
+  swipeThreshold?: number,
+): () => void;
+
+type Props = Readonly<{
+  swipeThreshold?: number,
+}>;
+
+declare export function TouchIndentationPlugin(props: Props): null;

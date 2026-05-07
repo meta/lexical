@@ -47,17 +47,25 @@ export function registerTouchIndentation(
       let startX = 0;
       let startY = 0;
       let isSwiping = false;
+      let isInListItem = false;
 
       const handleTouchStart = (event: TouchEvent) => {
+        if (event.touches.length > 1) {
+          return;
+        }
         const touch = event.touches[0];
-        if (touch != null) {
+        if (touch != null && editor.isEditable()) {
           startX = touch.clientX;
           startY = touch.clientY;
           isSwiping = false;
+          isInListItem = editor.read(() => $isSelectionInListItem());
         }
       };
 
       const handleTouchMove = (event: TouchEvent) => {
+        if (!isInListItem || event.touches.length > 1) {
+          return;
+        }
         const touch = event.touches[0];
         if (touch != null) {
           const deltaX = touch.clientX - startX;
@@ -74,6 +82,8 @@ export function registerTouchIndentation(
 
       const handleTouchEnd = (event: TouchEvent) => {
         if (!isSwiping) {
+          isSwiping = false;
+          isInListItem = false;
           return;
         }
         const touch = event.changedTouches[0];
@@ -84,23 +94,21 @@ export function registerTouchIndentation(
             Math.abs(deltaX) > swipeThreshold &&
             Math.abs(deltaY) < DEFAULT_VERTICAL_GUARD
           ) {
-            const isInList = editor.read(() => $isSelectionInListItem());
-            if (isInList) {
-              event.preventDefault();
-              if (deltaX > 0) {
-                editor.dispatchCommand(INDENT_CONTENT_COMMAND, undefined);
-              } else {
-                editor.dispatchCommand(OUTDENT_CONTENT_COMMAND, undefined);
-              }
+            event.preventDefault();
+            if (deltaX > 0) {
+              editor.dispatchCommand(INDENT_CONTENT_COMMAND, undefined);
+            } else {
+              editor.dispatchCommand(OUTDENT_CONTENT_COMMAND, undefined);
             }
           }
         }
         isSwiping = false;
+        isInListItem = false;
       };
 
       rootElement.addEventListener('touchstart', handleTouchStart, {
         capture: true,
-        passive: false,
+        passive: true,
       });
       rootElement.addEventListener('touchmove', handleTouchMove, {
         capture: true,
