@@ -707,6 +707,36 @@
       "production": "./dist/LexicalTablePlugin.prod.js",
       "default": "./dist/LexicalTablePlugin.js"
     },
+    "./LexicalTouchIndentationPlugin": {
+      "import": {
+        "types": "./LexicalTouchIndentationPlugin.d.ts",
+        "development": "./LexicalTouchIndentationPlugin.dev.mjs",
+        "production": "./LexicalTouchIndentationPlugin.prod.mjs",
+        "node": "./LexicalTouchIndentationPlugin.node.mjs",
+        "default": "./LexicalTouchIndentationPlugin.mjs"
+      },
+      "require": {
+        "types": "./LexicalTouchIndentationPlugin.d.ts",
+        "development": "./LexicalTouchIndentationPlugin.dev.js",
+        "production": "./LexicalTouchIndentationPlugin.prod.js",
+        "default": "./LexicalTouchIndentationPlugin.js"
+      }
+    },
+    "./LexicalTouchIndentationPlugin.js": {
+      "import": {
+        "types": "./LexicalTouchIndentationPlugin.d.ts",
+        "development": "./LexicalTouchIndentationPlugin.dev.mjs",
+        "production": "./LexicalTouchIndentationPlugin.prod.mjs",
+        "node": "./LexicalTouchIndentationPlugin.node.mjs",
+        "default": "./LexicalTouchIndentationPlugin.mjs"
+      },
+      "require": {
+        "types": "./LexicalTouchIndentationPlugin.d.ts",
+        "development": "./LexicalTouchIndentationPlugin.dev.js",
+        "production": "./LexicalTouchIndentationPlugin.prod.js",
+        "default": "./LexicalTouchIndentationPlugin.js"
+      }
+    },
     "./LexicalTreeView": {
       "source": "./src/LexicalTreeView.tsx",
       "types@<5.2": "./dist/typescript-too-old.d.ts",
