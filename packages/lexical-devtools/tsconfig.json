@@ -300,9 +300,6 @@
       "@lexical/react/LexicalTablePlugin": [
         "../lexical-react/src/LexicalTablePlugin.ts"
       ],
-      "@lexical/react/LexicalTouchIndentationPlugin": [
-        "../lexical-react/src/LexicalTouchIndentationPlugin.tsx"
-      ],
       "@lexical/react/LexicalTreeView": [
         "../lexical-react/src/LexicalTreeView.tsx"
       ],

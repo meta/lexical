@@ -138,7 +138,6 @@ module.name_mapper='^@lexical/react/LexicalSelectionAlwaysOnDisplay$' -> '<PROJE
 module.name_mapper='^@lexical/react/LexicalTabIndentationPlugin$' -> '<PROJECT_ROOT>/packages/lexical-react/flow/LexicalTabIndentationPlugin.js.flow'
 module.name_mapper='^@lexical/react/LexicalTableOfContentsPlugin$' -> '<PROJECT_ROOT>/packages/lexical-react/flow/LexicalTableOfContentsPlugin.js.flow'
 module.name_mapper='^@lexical/react/LexicalTablePlugin$' -> '<PROJECT_ROOT>/packages/lexical-react/flow/LexicalTablePlugin.js.flow'
-module.name_mapper='^@lexical/react/LexicalTouchIndentationPlugin$' -> '<PROJECT_ROOT>/packages/lexical-react/flow/LexicalTouchIndentationPlugin.js.flow'
 module.name_mapper='^@lexical/react/LexicalTreeView$' -> '<PROJECT_ROOT>/packages/lexical-react/flow/LexicalTreeView.js.flow'
 module.name_mapper='^@lexical/react/LexicalTypeaheadMenuPlugin$' -> '<PROJECT_ROOT>/packages/lexical-react/flow/LexicalTypeaheadMenuPlugin.js.flow'
 module.name_mapper='^@lexical/react/LexicalTypeaheadMenuPluginUtils$' -> '<PROJECT_ROOT>/packages/lexical-react/flow/LexicalTypeaheadMenuPluginUtils.js.flow'

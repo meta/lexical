@@ -6,7 +6,10 @@
  *
  */
 
-import {registerTouchIndentation} from '@lexical/extension';
+import {
+  buildEditorFromExtensions,
+  TouchIndentationExtension,
+} from '@lexical/extension';
 import {
   $createListItemNode,
   $createListNode,
@@ -17,7 +20,8 @@ import {
   $createParagraphNode,
   $createTextNode,
   $getRoot,
-  createEditor,
+  configExtension,
+  defineExtension,
   INDENT_CONTENT_COMMAND,
   OUTDENT_CONTENT_COMMAND,
 } from 'lexical';
@@ -61,13 +65,10 @@ function setupEditorWithList() {
   root.contentEditable = 'true';
   document.body.appendChild(root);
 
-  const editor = createEditor({
-    namespace: 'test',
-    nodes: [ListNode, ListItemNode],
-    onError: e => {
-      throw e;
-    },
-  });
+  const editor = buildEditorFromExtensions(
+    TouchIndentationExtension,
+    defineExtension({name: 'test-nodes', nodes: [ListNode, ListItemNode]}),
+  );
   editor.setRootElement(root);
 
   editor.update(
@@ -90,13 +91,10 @@ function setupEditorWithParagraph() {
   root.contentEditable = 'true';
   document.body.appendChild(root);
 
-  const editor = createEditor({
-    namespace: 'test',
-    nodes: [ListNode, ListItemNode],
-    onError: e => {
-      throw e;
-    },
-  });
+  const editor = buildEditorFromExtensions(
+    TouchIndentationExtension,
+    defineExtension({name: 'test-nodes', nodes: [ListNode, ListItemNode]}),
+  );
   editor.setRootElement(root);
 
   editor.update(
@@ -113,111 +111,122 @@ function setupEditorWithParagraph() {
 }
 
 describe('TouchIndentationExtension', () => {
-  describe('registerTouchIndentation', () => {
-    it('dispatches INDENT_CONTENT_COMMAND on swipe right in list item', () => {
-      const {editor, root} = setupEditorWithList();
-      const indentHandler = vi.fn(() => true);
+  it('dispatches INDENT_CONTENT_COMMAND on swipe right in list item', () => {
+    const {editor, root} = setupEditorWithList();
+    const indentHandler = vi.fn(() => true);
 
-      editor.registerCommand(INDENT_CONTENT_COMMAND, indentHandler, 1);
-      const cleanup = registerTouchIndentation(editor);
+    editor.registerCommand(INDENT_CONTENT_COMMAND, indentHandler, 1);
 
-      simulateSwipe(root, 100, 200, 200, 200);
+    simulateSwipe(root, 100, 200, 200, 200);
 
-      expect(indentHandler).toHaveBeenCalledTimes(1);
-      cleanup();
-      root.remove();
-    });
+    expect(indentHandler).toHaveBeenCalledTimes(1);
+    editor.dispose();
+    root.remove();
+  });
 
-    it('dispatches OUTDENT_CONTENT_COMMAND on swipe left in list item', () => {
-      const {editor, root} = setupEditorWithList();
-      const outdentHandler = vi.fn(() => true);
+  it('dispatches OUTDENT_CONTENT_COMMAND on swipe left in list item', () => {
+    const {editor, root} = setupEditorWithList();
+    const outdentHandler = vi.fn(() => true);
 
-      editor.registerCommand(OUTDENT_CONTENT_COMMAND, outdentHandler, 1);
-      const cleanup = registerTouchIndentation(editor);
+    editor.registerCommand(OUTDENT_CONTENT_COMMAND, outdentHandler, 1);
 
-      simulateSwipe(root, 200, 200, 50, 200);
+    simulateSwipe(root, 200, 200, 50, 200);
 
-      expect(outdentHandler).toHaveBeenCalledTimes(1);
-      cleanup();
-      root.remove();
-    });
+    expect(outdentHandler).toHaveBeenCalledTimes(1);
+    editor.dispose();
+    root.remove();
+  });
 
-    it('does NOT trigger on paragraph (non-list) content', () => {
-      const {editor, root} = setupEditorWithParagraph();
-      const indentHandler = vi.fn(() => true);
-      const outdentHandler = vi.fn(() => true);
+  it('does NOT trigger on paragraph (non-list) content', () => {
+    const {editor, root} = setupEditorWithParagraph();
+    const indentHandler = vi.fn(() => true);
+    const outdentHandler = vi.fn(() => true);
 
-      editor.registerCommand(INDENT_CONTENT_COMMAND, indentHandler, 1);
-      editor.registerCommand(OUTDENT_CONTENT_COMMAND, outdentHandler, 1);
-      const cleanup = registerTouchIndentation(editor);
+    editor.registerCommand(INDENT_CONTENT_COMMAND, indentHandler, 1);
+    editor.registerCommand(OUTDENT_CONTENT_COMMAND, outdentHandler, 1);
 
-      simulateSwipe(root, 100, 200, 200, 200);
+    simulateSwipe(root, 100, 200, 200, 200);
 
-      expect(indentHandler).not.toHaveBeenCalled();
-      expect(outdentHandler).not.toHaveBeenCalled();
-      cleanup();
-      root.remove();
-    });
+    expect(indentHandler).not.toHaveBeenCalled();
+    expect(outdentHandler).not.toHaveBeenCalled();
+    editor.dispose();
+    root.remove();
+  });
 
-    it('does NOT trigger on vertical swipe (scroll)', () => {
-      const {editor, root} = setupEditorWithList();
-      const indentHandler = vi.fn(() => true);
+  it('does NOT trigger on vertical swipe (scroll)', () => {
+    const {editor, root} = setupEditorWithList();
+    const indentHandler = vi.fn(() => true);
 
-      editor.registerCommand(INDENT_CONTENT_COMMAND, indentHandler, 1);
-      const cleanup = registerTouchIndentation(editor);
+    editor.registerCommand(INDENT_CONTENT_COMMAND, indentHandler, 1);
 
-      simulateSwipe(root, 100, 100, 120, 300);
+    simulateSwipe(root, 100, 100, 120, 300);
 
-      expect(indentHandler).not.toHaveBeenCalled();
-      cleanup();
-      root.remove();
-    });
+    expect(indentHandler).not.toHaveBeenCalled();
+    editor.dispose();
+    root.remove();
+  });
 
-    it('does NOT trigger when horizontal movement is below threshold', () => {
-      const {editor, root} = setupEditorWithList();
-      const indentHandler = vi.fn(() => true);
+  it('does NOT trigger when horizontal movement is below threshold', () => {
+    const {editor, root} = setupEditorWithList();
+    const indentHandler = vi.fn(() => true);
 
-      editor.registerCommand(INDENT_CONTENT_COMMAND, indentHandler, 1);
-      const cleanup = registerTouchIndentation(editor);
+    editor.registerCommand(INDENT_CONTENT_COMMAND, indentHandler, 1);
 
-      simulateSwipe(root, 100, 200, 130, 200);
+    simulateSwipe(root, 100, 200, 130, 200);
 
-      expect(indentHandler).not.toHaveBeenCalled();
-      cleanup();
-      root.remove();
-    });
+    expect(indentHandler).not.toHaveBeenCalled();
+    editor.dispose();
+    root.remove();
+  });
 
-    it('respects custom swipeThreshold', () => {
-      const {editor, root} = setupEditorWithList();
-      const indentHandler = vi.fn(() => true);
+  it('respects custom swipeThreshold', () => {
+    const root = document.createElement('div');
+    root.contentEditable = 'true';
+    document.body.appendChild(root);
 
-      editor.registerCommand(INDENT_CONTENT_COMMAND, indentHandler, 1);
-      const cleanup = registerTouchIndentation(editor, 100);
+    const editor = buildEditorFromExtensions(
+      configExtension(TouchIndentationExtension, {swipeThreshold: 100}),
+      defineExtension({name: 'test-nodes', nodes: [ListNode, ListItemNode]}),
+    );
+    editor.setRootElement(root);
 
-      // 60px swipe — below custom threshold of 100
-      simulateSwipe(root, 100, 200, 160, 200);
-      expect(indentHandler).not.toHaveBeenCalled();
+    editor.update(
+      () => {
+        const list = $createListNode('bullet');
+        const item = $createListItemNode();
+        item.append($createTextNode('Hello'));
+        list.append(item);
+        $getRoot().append(list);
+        item.selectEnd();
+      },
+      {discrete: true},
+    );
 
-      // 120px swipe — above custom threshold of 100
-      simulateSwipe(root, 100, 200, 220, 200);
-      expect(indentHandler).toHaveBeenCalledTimes(1);
+    const indentHandler = vi.fn(() => true);
+    editor.registerCommand(INDENT_CONTENT_COMMAND, indentHandler, 1);
 
-      cleanup();
-      root.remove();
-    });
+    // 60px swipe — below custom threshold of 100
+    simulateSwipe(root, 100, 200, 160, 200);
+    expect(indentHandler).not.toHaveBeenCalled();
 
-    it('cleans up event listeners on unregister', () => {
-      const {editor, root} = setupEditorWithList();
-      const indentHandler = vi.fn(() => true);
+    // 120px swipe — above custom threshold of 100
+    simulateSwipe(root, 100, 200, 220, 200);
+    expect(indentHandler).toHaveBeenCalledTimes(1);
 
-      editor.registerCommand(INDENT_CONTENT_COMMAND, indentHandler, 1);
-      const cleanup = registerTouchIndentation(editor);
+    editor.dispose();
+    root.remove();
+  });
 
-      cleanup();
+  it('cleans up event listeners on dispose', () => {
+    const {editor, root} = setupEditorWithList();
+    const indentHandler = vi.fn(() => true);
 
-      simulateSwipe(root, 100, 200, 200, 200);
-      expect(indentHandler).not.toHaveBeenCalled();
-      root.remove();
-    });
+    editor.registerCommand(INDENT_CONTENT_COMMAND, indentHandler, 1);
+
+    editor.dispose();
+
+    simulateSwipe(root, 100, 200, 200, 200);
+    expect(indentHandler).not.toHaveBeenCalled();
+    root.remove();
   });
 });

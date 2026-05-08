@@ -24,6 +24,7 @@ import {
   SelectBlockExtension,
   SelectionAlwaysOnDisplayExtension,
   TabIndentationExtension,
+  TouchIndentationExtension,
   WatchEditableExtension,
 } from '@lexical/extension';
 import {HashtagExtension} from '@lexical/hashtag';
@@ -300,6 +301,7 @@ const AppExtension = defineExtension({
     FocusTrapExtension,
     RovingTabIndexExtension,
     FocusManagerExtension,
+    TouchIndentationExtension,
   ],
   name: '@lexical/playground',
   namespace: 'Playground',

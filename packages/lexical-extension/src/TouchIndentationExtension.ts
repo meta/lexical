@@ -20,7 +20,7 @@ import {
 } from 'lexical';
 
 import {namedSignals} from './namedSignals';
-import {effect} from './signals';
+import {effect, type Signal} from './signals';
 
 const DEFAULT_SWIPE_THRESHOLD = 50;
 const DEFAULT_VERTICAL_GUARD = 30;
@@ -38,9 +38,9 @@ function $isSelectionInListItem(): boolean {
   return listItem != null;
 }
 
-export function registerTouchIndentation(
+function registerTouchIndentation(
   editor: LexicalEditor,
-  swipeThreshold: number = DEFAULT_SWIPE_THRESHOLD,
+  swipeThreshold: Signal<number>,
 ): () => void {
   return editor.registerRootListener(rootElement => {
     if (rootElement !== null) {
@@ -71,7 +71,7 @@ export function registerTouchIndentation(
           const deltaX = touch.clientX - startX;
           const deltaY = touch.clientY - startY;
           if (
-            Math.abs(deltaX) > swipeThreshold &&
+            Math.abs(deltaX) > swipeThreshold.peek() &&
             Math.abs(deltaY) < DEFAULT_VERTICAL_GUARD
           ) {
             isSwiping = true;
@@ -91,15 +91,14 @@ export function registerTouchIndentation(
           const deltaX = touch.clientX - startX;
           const deltaY = touch.clientY - startY;
           if (
-            Math.abs(deltaX) > swipeThreshold &&
+            Math.abs(deltaX) > swipeThreshold.peek() &&
             Math.abs(deltaY) < DEFAULT_VERTICAL_GUARD
           ) {
             event.preventDefault();
-            if (deltaX > 0) {
-              editor.dispatchCommand(INDENT_CONTENT_COMMAND, undefined);
-            } else {
-              editor.dispatchCommand(OUTDENT_CONTENT_COMMAND, undefined);
-            }
+            editor.dispatchCommand(
+              deltaX > 0 ? INDENT_CONTENT_COMMAND : OUTDENT_CONTENT_COMMAND,
+              undefined,
+            );
           }
         }
         isSwiping = false;
@@ -152,7 +151,7 @@ export const TouchIndentationExtension = defineExtension({
     const {disabled, swipeThreshold} = state.getOutput();
     return effect(() => {
       if (!disabled.value) {
-        return registerTouchIndentation(editor, swipeThreshold.value);
+        return registerTouchIndentation(editor, swipeThreshold);
       }
     });
   },
