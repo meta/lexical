@@ -6,6 +6,7 @@
  *
  * @flow strict
  */
+import type {NamedSignalsOutput} from '@lexical/extension';
 import type {
   DOMConversionMap,
   EditorConfig,
@@ -77,11 +78,16 @@ export type EscapeFormatTriggerConfig = {
   [K in TextFormatType]?: TriggerConfig | null,
 };
 
+export type ShouldHandlePasteAsFiles = (files: Array<File>, hasTextContent: boolean) => boolean;
+
 export type RichTextConfig = {
   escapeFormatTriggers: EscapeFormatTriggerConfig,
+  shouldHandlePasteAsFiles: ShouldHandlePasteAsFiles,
 };
 
-declare export function registerRichText(editor: LexicalEditor, escapeFormatTriggers?: EscapeFormatTriggerConfig): () => void;
+declare export function registerRichText(editor: LexicalEditor, escapeFormatTriggers?: EscapeFormatTriggerConfig, shouldHandlePasteAsFiles?: ShouldHandlePasteAsFiles): () => void;
+
+declare export function defaultShouldHandlePasteAsFiles(files: Array<File>, hasTextContent: boolean): boolean;
 
 export type SerializedQuoteNode = {
   ...SerializedElementNode,
@@ -96,3 +102,15 @@ export type SerializedHeadingNode = {
 
 
 declare export var RichTextExtension: LexicalExtension<RichTextConfig, "@lexical/rich-text", void, void>;
+
+export type HeadingAnnounceExtensionConfig = {
+  created: string,
+  destroyed: string,
+  disabled: boolean,
+};
+declare export var HeadingAnnounceExtension: LexicalExtension<
+  HeadingAnnounceExtensionConfig,
+  '@lexical/rich-text/HeadingAnnounce',
+  NamedSignalsOutput<HeadingAnnounceExtensionConfig>,
+  void,
+>;

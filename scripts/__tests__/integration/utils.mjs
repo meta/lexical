@@ -21,6 +21,14 @@ const monorepoVersion = readMonorepoPackageJson().version;
 
 const LONG_TIMEOUT = 240 * 1000;
 
+// See expectSuccessfulExec -- an install may have to wait out a dependency
+// that is moments short of the monorepo's minimumReleaseAge, so the hooks
+// that install get that budget on top of the usual timeout.
+const MATURITY_RETRY_DELAY_MS = 60 * 1000;
+const MATURITY_RETRIES = 3;
+const INSTALL_TIMEOUT =
+  LONG_TIMEOUT + MATURITY_RETRIES * MATURITY_RETRY_DELAY_MS;
+
 /**
  * @function
  * @template T
@@ -39,22 +47,77 @@ async function withCwd(dir, cb) {
 }
 
 /**
+ * @param {number} ms
+ * @returns {Promise<void>}
+ */
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+/**
+ * The examples resolve their third-party dependencies straight from the
+ * registry with no lockfile, so the monorepo's minimumReleaseAge applies to
+ * them (it reaches these installs as the npm_config_minimum_release_age that
+ * pnpm exports to child processes) exactly as it does anywhere else.
+ *
+ * It has one sharp edge. npm does not require a dependency to exist when the
+ * package depending on it is published, so a family that publishes
+ * exact-pinned siblings in a loop lands its parent on the registry seconds
+ * ahead of the children -- 8 of the 10 dependencies @zag-js/combobox pins to
+ * its own version are published after it. Once that gap ages past the
+ * cooldown there is a window, 26s to 88s wide across recent @zag-js releases
+ * and recurring after every one of them, where the parent is mature, an
+ * exactly-pinned child is not, and pnpm errors out rather than backtracking
+ * to a parent whose whole closure is mature.
+ *
+ * The window closes on its own, so wait it out instead of failing a PR that
+ * has nothing to do with it. This does not soften the cooldown: no version is
+ * excluded and nothing immature is installed, a retry only succeeds once pnpm
+ * accepts the version on its own terms.
+ *
+ * @param {unknown} err
+ * @returns {boolean}
+ */
+function isImmatureDependencyError(err) {
+  const {stdout, stderr} =
+    /** @type {{stdout?: string; stderr?: string}} */ (err) || {};
+  return `${stdout || ''}${stderr || ''}`.includes(
+    'ERR_PNPM_NO_MATURE_MATCHING_VERSION',
+  );
+}
+
+/**
  * @param {string} cmd
+ * @param {number} [retriesLeft=MATURITY_RETRIES]
  * @returns {Promise<{stdout: string; stderr: string}>}
  */
-function expectSuccessfulExec(cmd) {
+async function expectSuccessfulExec(cmd, retriesLeft = MATURITY_RETRIES) {
   // Filter out VITEST_WORKER_ID to prevent Playwright from detecting Vitest environment
   const env = Object.fromEntries(
     Object.entries(process.env).filter(([k]) => k !== 'VITEST_WORKER_ID'),
   );
-  return exec(cmd, {env}).catch(err => {
+  try {
+    return await exec(cmd, {env});
+  } catch (caught) {
+    // `.catch(err => ...)` used to hand this back as `any`; a catch binding is
+    // `unknown` under strict, so restore the shape the reporting below reads.
+    const err = /** @type {Record<string, unknown>} */ (caught);
+    if (retriesLeft > 0 && isImmatureDependencyError(err)) {
+      console.warn(
+        `${cmd}: a dependency is short of the minimumReleaseAge cooldown, ` +
+          `waiting ${MATURITY_RETRY_DELAY_MS / 1000}s to retry ` +
+          `(${retriesLeft} ${retriesLeft === 1 ? 'retry' : 'retries'} left)`,
+      );
+      await sleep(MATURITY_RETRY_DELAY_MS);
+      return expectSuccessfulExec(cmd, retriesLeft - 1);
+    }
     expect(
       Object.fromEntries(
         ['code', 'stdout', 'stderr'].map(prop => [prop, err[prop]]),
       ),
     ).toBe(null);
     throw err;
-  });
+  }
 }
 
 /**
@@ -158,7 +221,7 @@ function describeExample(packageJsonPath, bodyFun = undefined) {
     const deps = [];
     beforeAll(async () => {
       deps.push(...(await buildExample(ctx)).values());
-    }, LONG_TIMEOUT);
+    }, INSTALL_TIMEOUT);
     test('install & build succeeded', () => {
       expect(true).toBe(true);
     });
@@ -228,7 +291,7 @@ function describeDevExample(packageJsonPath) {
         await expectSuccessfulExec('pnpm install');
         await expectSuccessfulExec('pnpm run build');
       });
-    }, LONG_TIMEOUT);
+    }, INSTALL_TIMEOUT);
     test('build succeeded', () => {
       expect(true).toBe(true);
     });
@@ -268,7 +331,7 @@ function describeLinkedFixture(packageJsonPath) {
         await expectSuccessfulExec('pnpm install --ignore-workspace');
         await expectSuccessfulExec('pnpm run build');
       });
-    }, LONG_TIMEOUT);
+    }, INSTALL_TIMEOUT);
     test('build succeeded', () => {
       expect(true).toBe(true);
     });

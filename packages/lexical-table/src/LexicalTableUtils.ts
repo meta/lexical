@@ -560,7 +560,10 @@ export function $insertTableColumnAtNode(
       let insertAfterCellRowStart = currentStartRow;
       let prevCellIndex = insertAfterColumn;
       while (insertAfterCellRowStart !== i && insertAfterCell.__rowSpan > 1) {
-        prevCellIndex -= currentCell.__colSpan;
+        // prevCellIndex always sits on the last grid column of insertAfterCell,
+        // so stepping to the column before it means subtracting *that* cell's
+        // colSpan, not the colSpan of the cell we started from.
+        prevCellIndex -= insertAfterCell.__colSpan;
         if (prevCellIndex >= 0) {
           const {cell: cell_, startRow: startRow_} = rowMap[prevCellIndex];
           insertAfterCell = cell_;

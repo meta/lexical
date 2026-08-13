@@ -31,6 +31,7 @@ import {
   TextNode,
 } from 'lexical';
 import {
+  DECORATOR_BOUNDARY_ANCHOR_HTML,
   expectHtmlToBeEqual,
   html,
   invariant,
@@ -190,6 +191,7 @@ describe('LexicalNestedComposer', () => {
               <p dir="auto"><span data-lexical-text="true">nested</span></p>
             </div>
           </div>
+          ${DECORATOR_BOUNDARY_ANCHOR_HTML}
         </div>
       `,
     );
@@ -289,6 +291,7 @@ describe('LexicalNestedComposer', () => {
               <p dir="auto"><span data-lexical-text="true">nested</span></p>
             </div>
           </div>
+          ${DECORATOR_BOUNDARY_ANCHOR_HTML}
         </div>
       `,
     );
@@ -386,6 +389,7 @@ describe('LexicalNestedComposer', () => {
               <p dir="auto"><span data-lexical-text="true">nested</span></p>
             </div>
           </div>
+          ${DECORATOR_BOUNDARY_ANCHOR_HTML}
         </div>
       `,
     );
@@ -488,6 +492,7 @@ describe('LexicalNestedComposer', () => {
               <p dir="auto"><span data-lexical-text="true">nested</span></p>
             </div>
           </div>
+          ${DECORATOR_BOUNDARY_ANCHOR_HTML}
         </div>
       `,
     );
@@ -594,6 +599,7 @@ describe('LexicalNestedComposer', () => {
               <p dir="auto"><span data-lexical-text="true">nested</span></p>
             </div>
           </div>
+          ${DECORATOR_BOUNDARY_ANCHOR_HTML}
         </div>
       `,
     );
@@ -633,6 +639,7 @@ describe('LexicalNestedComposer', () => {
               <p dir="auto"><span data-lexical-text="true">nested</span></p>
             </div>
           </div>
+          ${DECORATOR_BOUNDARY_ANCHOR_HTML}
         </div>
       `,
     );
@@ -750,6 +757,7 @@ describe('LexicalNestedComposer', () => {
               <p dir="auto"><span data-lexical-text="true">nested</span></p>
             </div>
           </div>
+          ${DECORATOR_BOUNDARY_ANCHOR_HTML}
         </div>
       `,
     );
@@ -789,6 +797,7 @@ describe('LexicalNestedComposer', () => {
               <p dir="auto"><span data-lexical-text="true">nested</span></p>
             </div>
           </div>
+          ${DECORATOR_BOUNDARY_ANCHOR_HTML}
         </div>
       `,
     );

@@ -3943,6 +3943,98 @@ describe('LexicalEditor tests', () => {
       expect(onError).not.toHaveBeenCalled();
       removeTransform();
     });
+
+    it('applies the replacement when deserializing a base node type via parseEditorState (#8640 regression)', async () => {
+      class CustomParagraphNode extends ParagraphNode {
+        $config() {
+          return this.config('custom-paragraph', {extends: ParagraphNode});
+        }
+      }
+      const onError = vi.fn();
+
+      const newEditor = createTestEditor({
+        nodes: [
+          CustomParagraphNode,
+          {
+            replace: ParagraphNode,
+            with: () => new CustomParagraphNode(),
+            withKlass: CustomParagraphNode,
+          },
+        ],
+        onError: onError,
+      });
+
+      // Serialized state whose paragraph uses the default type ("paragraph"), as
+      // an older persisted document (or one produced without the replacement)
+      // would contain.
+      const json = {
+        root: {
+          children: [
+            {
+              children: [],
+              type: 'paragraph',
+            },
+          ],
+          type: 'root',
+        },
+      };
+
+      newEditor.setEditorState(
+        newEditor.parseEditorState(JSON.stringify(json)),
+      );
+
+      newEditor.read(() => {
+        const paragraph = $getRoot().getFirstChild();
+        expect(paragraph instanceof CustomParagraphNode).toBe(true);
+        expect(paragraph!.getType()).toBe('custom-paragraph');
+      });
+
+      expect(onError).not.toHaveBeenCalled();
+    });
+
+    it('applies the replacement on import for `with` without `withKlass`', async () => {
+      class CustomParagraphNode extends ParagraphNode {
+        $config() {
+          return this.config('custom-paragraph', {extends: ParagraphNode});
+        }
+      }
+      const onError = vi.fn();
+
+      const newEditor = createTestEditor({
+        nodes: [
+          CustomParagraphNode,
+          {
+            replace: ParagraphNode,
+            with: () => new CustomParagraphNode(),
+          },
+        ],
+        onError: onError,
+      });
+
+      const json = {
+        root: {
+          children: [
+            {
+              children: [],
+              type: 'paragraph',
+            },
+          ],
+          type: 'root',
+        },
+      };
+
+      newEditor.setEditorState(
+        newEditor.parseEditorState(JSON.stringify(json)),
+      );
+
+      newEditor.read(() => {
+        const paragraph = $getRoot().getFirstChild();
+        expect(paragraph instanceof CustomParagraphNode).toBe(true);
+        expect(paragraph!.getType()).toBe('custom-paragraph');
+      });
+
+      expect(onError).not.toHaveBeenCalled();
+    });
   });
 
   it('recovers from reconciler failure and trigger proper prev editor state', async () => {

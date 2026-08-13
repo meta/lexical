@@ -73,6 +73,30 @@ describe('Issue #7876: setEditorState triggers transforms on parsed state', () =
     );
   });
 
+  test('text-node transform fires for a cloned parsed state (the documented no-focus form)', () => {
+    using editor = buildEditor(node => {
+      const text = node.getTextContent();
+      if (text.includes('{{') && text !== TRANSFORMED_TEXT) {
+        node.setTextContent(TRANSFORMED_TEXT);
+      }
+    });
+
+    const parsed = editor.parseEditorState(makeParsedJSON(PARSED_TEXT));
+    expect(parsed._parsed).toBe(true);
+
+    // `editorState.clone(null)` is the form documented in
+    // docs/concepts/editor-state.md for applying a state without focusing
+    // the editor.
+    const cloned = parsed.clone(null);
+    expect(cloned._parsed).toBe(true);
+
+    editor.setEditorState(cloned);
+
+    expect(editor.read(() => $getRoot().getTextContent())).toBe(
+      TRANSFORMED_TEXT,
+    );
+  });
+
   test('setEditorState consumes the `_parsed` flag so re-applying the resulting state does not re-trigger transforms', () => {
     let transformCalls = 0;
     using editor = buildEditor(node => {

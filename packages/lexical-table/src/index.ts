@@ -6,7 +6,10 @@
  *
  */
 
-export type {SerializedTableCellNode} from './LexicalTableCellNode';
+export type {
+  SerializedTableCellNode,
+  TableCellHeaderState,
+} from './LexicalTableCellNode';
 export {
   $createTableCellNode,
   $isTableCellNode,

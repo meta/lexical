@@ -15,8 +15,18 @@ import {
   type NodeKey,
   type SerializedTextNode,
   type Spread,
+  type TextFormatType,
   TextNode,
 } from 'lexical';
+
+// The element TextNode.exportDOM wraps its output with, one per text format,
+// innermost first.
+const FORMAT_WRAPPER_TAGS: readonly (readonly [TextFormatType, string])[] = [
+  ['bold', 'b'],
+  ['italic', 'i'],
+  ['strikethrough', 's'],
+  ['underline', 'u'],
+];
 
 export type SerializedMentionNode = Spread<
   {
@@ -64,13 +74,30 @@ export class MentionNode extends TextNode {
   }
 
   exportDOM(): DOMExportOutput {
-    const element = $getDocument().createElement('span');
+    const document = $getDocument();
+    const element = document.createElement('span');
     element.setAttribute('data-lexical-mention', 'true');
     if (this.__text !== this.__mention) {
       element.setAttribute('data-lexical-mention-name', this.__mention);
     }
     element.textContent = this.__text;
-    return {element};
+    // Carry the inline style (e.g. a font-size applied from the toolbar) and
+    // the text formats onto the exported markup the way TextNode.exportDOM
+    // does, otherwise they are silently dropped from the HTML. The mention
+    // itself stays a <span> so the `span[data-lexical-mention]` import rule
+    // keeps matching it.
+    if (this.__style !== '') {
+      element.style.cssText = this.__style;
+    }
+    let wrapped: HTMLElement = element;
+    for (const [format, tag] of FORMAT_WRAPPER_TAGS) {
+      if (this.hasFormat(format)) {
+        const wrapper = document.createElement(tag);
+        wrapper.appendChild(wrapped);
+        wrapped = wrapper;
+      }
+    }
+    return {element: wrapped};
   }
 
   isTextEntity(): true {
@@ -90,7 +117,7 @@ export function $createMentionNode(
   mentionName: string,
   textContent?: string,
 ): MentionNode {
-  const mentionNode = new MentionNode(mentionName, (textContent = mentionName));
+  const mentionNode = new MentionNode(mentionName, textContent);
   mentionNode.setMode('segmented').toggleDirectionless();
   return $applyNodeReplacement(mentionNode);
 }

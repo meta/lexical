@@ -559,19 +559,12 @@ export class AutoLinkNode extends LinkNode {
     };
   }
 
-  insertNewAfter(
-    _: RangeSelection,
-    restoreSelection = true,
-  ): null | ElementNode {
-    const linkNode = $createAutoLinkNode(this.__url, {
-      isUnlinked: this.__isUnlinked,
-      rel: this.__rel,
-      target: this.__target,
-      title: this.__title,
-    });
-    this.insertAfter(linkNode, restoreSelection);
-    return linkNode;
-  }
+  // insertNewAfter is deliberately not overridden: LinkNode's implementation
+  // uses $copyNode, which runs clone() + afterCloneFrom() and so carries the
+  // element props (format/indent/style/dir/textFormat/textStyle) and NodeState
+  // as well as the link attributes. Enumerating properties by hand here
+  // dropped all of those, and rebuilt the node as a base AutoLinkNode even for
+  // a subclass. AutoLinkNode.afterCloneFrom already carries __isUnlinked.
 }
 
 /**
@@ -787,8 +780,11 @@ export function $toggleLink(
           if (rel !== undefined) {
             existingLink.setRel(rel);
           }
+          if (title !== undefined) {
+            existingLink.setTitle(title);
+          }
         } else {
-          const linkNode = $createLinkNode(url, {rel, target});
+          const linkNode = $createLinkNode(url, {rel, target, title});
           node.insertBefore(linkNode);
           linkNode.append(node);
         }

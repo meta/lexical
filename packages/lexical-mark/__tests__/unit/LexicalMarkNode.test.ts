@@ -6,12 +6,17 @@
  *
  */
 import {$generateNodesFromDOM} from '@lexical/html';
-import {$isMarkNode, $wrapSelectionInMarkNode} from '@lexical/mark';
+import {
+  $createMarkNode,
+  $isMarkNode,
+  $wrapSelectionInMarkNode,
+} from '@lexical/mark';
 import {$insertNodeIntoLeaf} from '@lexical/utils';
 import {
   $createParagraphNode,
   $createRangeSelection,
   $createTextNode,
+  $getNodeByKey,
   $getRoot,
   $isElementNode,
   $isParagraphNode,
@@ -293,4 +298,54 @@ describe('LexicalMarkNode tests', () => {
       });
     });
   });
+});
+
+describe('MarkNode overlap theme class', () => {
+  initializeUnitTest(
+    testEnv => {
+      function markElement(ids: string[], nextIds?: string[]): HTMLElement {
+        const {editor} = testEnv;
+        let key = '';
+        editor.update(
+          () => {
+            const markNode = $createMarkNode(ids);
+            markNode.append($createTextNode('marked'));
+            key = markNode.getKey();
+            $getRoot().clear().append($createParagraphNode().append(markNode));
+          },
+          {discrete: true},
+        );
+        if (nextIds) {
+          editor.update(
+            () => {
+              const markNode = $getNodeByKey(key);
+              assert($isMarkNode(markNode), 'Expected a MarkNode');
+              markNode.setIDs(nextIds);
+            },
+            {discrete: true},
+          );
+        }
+        const element = editor.getElementByKey(key);
+        assert(element !== null, 'Expected a rendered MarkNode');
+        return element;
+      }
+
+      test('createDOM adds the overlap class for more than one id', () => {
+        expect(markElement(['a', 'b', 'c']).className).toContain('mk-overlap');
+      });
+
+      test('updateDOM adds the overlap class when going from 1 to 3 ids', () => {
+        expect(markElement(['a'], ['a', 'b', 'c']).className).toContain(
+          'mk-overlap',
+        );
+      });
+
+      test('updateDOM removes the overlap class when going from 2 to 0 ids', () => {
+        expect(markElement(['a', 'b'], []).className).not.toContain(
+          'mk-overlap',
+        );
+      });
+    },
+    {namespace: 'test', theme: {mark: 'mk', markOverlap: 'mk-overlap'}},
+  );
 });

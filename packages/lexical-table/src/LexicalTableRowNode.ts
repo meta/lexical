@@ -10,6 +10,7 @@ import {$descendantsMatching} from '@lexical/utils';
 import {
   $applyNodeReplacement,
   $getDocument,
+  $setDirectionFromDOM,
   addClassNamesToElement,
   type BaseSelection,
   type DOMConversionOutput,
@@ -134,7 +135,7 @@ export function $convertTableRowElement(domNode: Node): DOMConversionOutput {
 
   return {
     after: children => $descendantsMatching(children, $isTableCellNode),
-    node: $createTableRowNode(height),
+    node: $setDirectionFromDOM($createTableRowNode(height), domNode_),
   };
 }
 

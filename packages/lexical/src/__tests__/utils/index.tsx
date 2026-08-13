@@ -598,6 +598,18 @@ export function polyfillContentEditable() {
   });
 }
 
+/**
+ * The zero-size, out-of-flow `<img>` the reconciler parks outside a leading or
+ * trailing block DecoratorNode so browsers keep painting the selection
+ * highlight for a range that ends on that boundary (#8922). Interpolate it into
+ * an expected-HTML template wherever a block decorator sits on an element's
+ * first / last edge.
+ */
+export const DECORATOR_BOUNDARY_ANCHOR_HTML =
+  '<img alt="" style="position: absolute !important; width: 0px !important; ' +
+  'height: 0px !important; border: 0px !important; margin: 0px !important; ' +
+  'padding: 0px !important;" data-lexical-decorator-boundary="true" />';
+
 export function expectHtmlToBeEqual(actual: string, expected: string): void {
   expect(prettifyHtml(actual)).toBe(prettifyHtml(expected));
 }

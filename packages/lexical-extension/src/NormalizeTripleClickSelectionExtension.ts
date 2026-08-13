@@ -174,7 +174,7 @@ export const NormalizeTripleClickSelectionExtension =
           }
           let lastTripleClick = 0;
           const refreshTripleClick = (event: null | MouseEvent) => {
-            if (event ? event.detail === 3 : lastTripleClick > 0) {
+            if (event ? event.detail > 2 : lastTripleClick > 0) {
               const now = stores.dateNow.peek()();
               lastTripleClick =
                 (event && event.type === 'mousedown') ||

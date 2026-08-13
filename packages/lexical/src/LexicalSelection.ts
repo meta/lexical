@@ -1744,24 +1744,6 @@ export class RangeSelection implements BaseSelection {
             } else if ($isDecoratorNode(caret.origin)) {
               if (caret.origin.isIsolated()) {
                 // do nothing, shouldn't delete an isolated decorator
-              } else if ($getSlotNames(caret.origin).length > 0) {
-                // A slot-bearing decorator is removed only as a unit by an
-                // explicit host deletion, never silently via backspace —
-                // same policy as the merge-block branch below for
-                // ElementNode-as-host. When the anchor is an empty
-                // paragraph next to the host, drop the paragraph and
-                // select the host (matches the shadow-root ElementNode
-                // path at line 1951–1962 above); otherwise leave both in
-                // place.
-                if (
-                  $isElementNode(initialRange.anchor.origin) &&
-                  initialRange.anchor.origin.isEmpty()
-                ) {
-                  initialRange.anchor.origin.remove();
-                  const nodeSelection = $createNodeSelection();
-                  nodeSelection.add(caret.origin.getKey());
-                  $setSelection(nodeSelection);
-                }
               } else if (
                 state.type === 'merge-next-block' &&
                 (caret.origin.isKeyboardSelectable() ||
@@ -1800,8 +1782,10 @@ export class RangeSelection implements BaseSelection {
           // The cross-block merge below removes `block` (it merges into the
           // adjacent block). If `block` owns slots, that removal would discard
           // them, since slots are not children and are not carried over. Leave
-          // the caret in place instead: a slot-bearing host is removed only as
-          // a unit by an explicit host deletion, never silently via backspace.
+          // the caret in place instead: unlike an adjacent decorator host,
+          // which backspace removes as a whole unit (slots included, #8904),
+          // merging would keep the host's children while silently dropping
+          // its slots.
           if ($getSlotNames(block).length > 0) {
             return;
           }
@@ -4001,7 +3985,13 @@ export function $updateDOMSelection(
     }
   }
 
-  markSelectionChangeFromDOMUpdate(editor);
+  markSelectionChangeFromDOMUpdate(
+    editor,
+    nextAnchorNode,
+    nextAnchorOffset,
+    nextFocusNode,
+    nextFocusOffset,
+  );
 }
 
 /** Inserts nodes into the current selection, falling back to the previous selection or the end of the root. */

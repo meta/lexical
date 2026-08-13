@@ -545,7 +545,17 @@ function exportTextFormat(
     }
 
     // dedup applied formats
-    if (checkHasFormat(node, format) && !applied.has(format)) {
+    // `checkHasFormat` reads the node's whole text, but the text being
+    // exported may be a selection slice of it. When the slice is entirely
+    // whitespace the tags are dropped by the early return below, so
+    // registering them here would leave an unclosed tag for a later node to
+    // close. In the full-document path `checkHasFormat` already rejects
+    // whitespace-only nodes, so this guard only affects sliced content.
+    if (
+      !isWhitespaceOnly &&
+      checkHasFormat(node, format) &&
+      !applied.has(format)
+    ) {
       applied.add(format);
 
       // append the tag to openingTags, if it's not applied to the previous nodes,

@@ -26,6 +26,7 @@ import {
   $createParagraphNode,
   $createRangeSelection,
   $createTextNode,
+  $extendCaretToRange,
   $getCaretRange,
   $getChildCaret,
   $getChildCaretAtIndex,
@@ -1691,6 +1692,87 @@ describe('LexicalCaret', () => {
               'listnested',
             ]);
           });
+        });
+      });
+    });
+    describe('$extendCaretToRange', () => {
+      test('next direction: focus can be flipped and used to delete to end of document (regression for #8927)', () => {
+        testEnv.editor.update(
+          () => {
+            const t1 = $createTextNode('hello');
+            const t2 = $createTextNode('world');
+            const p1 = $createParagraphNode().append(t1);
+            const p2 = $createParagraphNode().append(t2);
+            $getRoot().clear().append(p1, p2);
+            const range = $extendCaretToRange(
+              $getTextPointCaret(t1, 'next', 2),
+            );
+            expect(range.focus).toEqual($getSiblingCaret(p2, 'next'));
+            expect(range.focus.getFlipped()).toEqual(
+              $getChildCaret($getRoot(), 'previous'),
+            );
+            expect(range.focus.getFlipped().getFlipped()).toEqual(range.focus);
+            $removeTextFromCaretRange(range);
+            expect($getRoot().getChildren()).toEqual([p1]);
+            expect($getRoot().getAllTextNodes()).toEqual([t1]);
+            expect($getRoot().getTextContent()).toBe('he');
+          },
+          {discrete: true},
+        );
+      });
+
+      test('previous direction: focus can be flipped and used to delete to start of document', () => {
+        testEnv.editor.update(
+          () => {
+            const t1 = $createTextNode('hello');
+            const t2 = $createTextNode('world');
+            const p1 = $createParagraphNode().append(t1);
+            const p2 = $createParagraphNode().append(t2);
+            $getRoot().clear().append(p1, p2);
+
+            const range = $extendCaretToRange(
+              $getTextPointCaret(t2, 'previous', 2),
+            );
+            expect(range.focus).toEqual($getSiblingCaret(p1, 'previous'));
+            expect(range.focus.getFlipped()).toEqual(
+              $getChildCaret($getRoot(), 'next'),
+            );
+            expect(range.focus.getFlipped().getFlipped()).toEqual(range.focus);
+            $removeTextFromCaretRange(range);
+            expect($getRoot().getChildren()).toEqual([p2]);
+            expect($getRoot().getAllTextNodes()).toEqual([t2]);
+            expect($getRoot().getTextContent()).toBe('rld');
+          },
+          {discrete: true},
+        );
+      });
+
+      test("doesn't change which nodes plain iteration visits", () => {
+        testEnv.editor.update(() => {
+          const t1 = $createTextNode('hello');
+          const t2 = $createTextNode('world');
+          const p1 = $createParagraphNode().append(t1);
+          const p2 = $createParagraphNode().append(t2);
+          $getRoot().clear().append(p1, p2);
+          const visited = [
+            ...$extendCaretToRange($getTextPointCaret(t1, 'next', 2)),
+          ];
+          // Same sequence a plain for...of produced before this fix — the fix
+          // only changes whether the focus can be flipped, not what iteration visits.
+          expect(visited).toEqual([
+            $getSiblingCaret(p1, 'next'),
+            $getChildCaret(p2, 'next'),
+            $getSiblingCaret(t2, 'next'),
+            $getSiblingCaret(p2, 'next'),
+          ]);
+        });
+      });
+
+      test('empty document: focus can still be flipped without throwing', () => {
+        testEnv.editor.update(() => {
+          $getRoot().clear();
+          const range = $extendCaretToRange($getChildCaret($getRoot(), 'next'));
+          expect(() => range.focus.getFlipped()).not.toThrow();
         });
       });
     });

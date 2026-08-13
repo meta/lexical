@@ -53,7 +53,12 @@ export const SKIP_SCROLL_INTO_VIEW_TAG = 'skip-scroll-into-view';
 
 /**
  * Indicates that the update should skip updating the DOM selection
- * This is useful when you want to make updates without changing the selection or focus
+ * This is useful when you want to make updates without changing the selection or focus.
+ *
+ * Note: this tag has no effect on the initial editor state setup (e.g. an `editorState`
+ * supplied via `createEditor` or `$initialEditorState`). If you need the editor to not
+ * scroll to or focus the initial selection on first mount, call `$setSelection(null)`
+ * inside your initial state setup function instead.
  */
 export const SKIP_DOM_SELECTION_TAG = 'skip-dom-selection';
 

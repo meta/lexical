@@ -37,6 +37,7 @@ import {
 import {
   $comparePointCaretNext,
   $getAdjacentChildCaret,
+  $getCaretInDirection,
   $getCaretRange,
   $getChildCaret,
   $getCollapsedCaretRange,
@@ -590,32 +591,6 @@ export function $isExtendableTextPointCaret<D extends CaretDirection>(
     $isTextPointCaret(caret) &&
     caret.offset !== $getTextNodeOffset(caret.origin, caret.direction)
   );
-}
-
-/**
- * Return the caret if it's in the given direction, otherwise return
- * caret.getFlipped().
- *
- * @param caret Any PointCaret
- * @param direction The desired direction
- * @returns A PointCaret in direction
- */
-export function $getCaretInDirection<
-  Caret extends PointCaret<CaretDirection>,
-  D extends CaretDirection,
->(
-  caret: Caret,
-  direction: D,
-):
-  | NodeCaret<D>
-  | (Caret extends TextPointCaret<TextNode, CaretDirection>
-      ? TextPointCaret<TextNode, D>
-      : never) {
-  return (caret.direction === direction ? caret : caret.getFlipped()) as
-    | NodeCaret<D>
-    | (Caret extends TextPointCaret<TextNode, CaretDirection>
-        ? TextPointCaret<TextNode, D>
-        : never);
 }
 
 /**

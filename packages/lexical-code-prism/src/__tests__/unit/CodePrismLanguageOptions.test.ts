@@ -21,4 +21,28 @@ describe('Prism code language options', () => {
     expect(normalizeCodeLanguage('golang')).toBe('go');
     expect(isCodeLanguageLoaded('go')).toBe(true);
   });
+
+  test('returns a string for a language named after an Object member', () => {
+    // A markdown fence carries whatever the author typed, so these arrive as
+    // ordinary language names. Read off the prototype they come back as
+    // functions and reach the DOM as the source text of `Object`.
+    for (const lang of [
+      'constructor',
+      'toString',
+      'valueOf',
+      'hasOwnProperty',
+      'isPrototypeOf',
+      '__proto__',
+    ]) {
+      expect(normalizeCodeLanguage(lang)).toBe(lang);
+      expect(getLanguageFriendlyName(lang)).toBe(lang);
+    }
+  });
+
+  test('still maps and names the languages it knows', () => {
+    expect(normalizeCodeLanguage('javascript')).toBe('js');
+    expect(getLanguageFriendlyName('javascript')).toBe('JavaScript');
+    expect(normalizeCodeLanguage('rust')).toBe('rust');
+    expect(getLanguageFriendlyName('rust')).toBe('Rust');
+  });
 });

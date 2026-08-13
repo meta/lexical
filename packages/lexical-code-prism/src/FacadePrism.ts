@@ -83,13 +83,25 @@ export const CODE_LANGUAGE_MAP: Record<string, string> = {
   ts: 'typescript',
 };
 
+// The two maps above are plain objects, so a language whose name matches a
+// member of `Object.prototype` reads the inherited value: `CODE_LANGUAGE_MAP`
+// indexed with `constructor` hands back the `Object` function, not a string.
+// A code block's language comes from the document, so the name is not ours to
+// choose.
+function ownValue(
+  map: Record<string, string>,
+  key: string,
+): string | undefined {
+  return Object.prototype.hasOwnProperty.call(map, key) ? map[key] : undefined;
+}
+
 export function normalizeCodeLanguage(lang: string) {
-  return CODE_LANGUAGE_MAP[lang] || lang;
+  return ownValue(CODE_LANGUAGE_MAP, lang) || lang;
 }
 
 export function getLanguageFriendlyName(lang: string) {
   const _lang = normalizeCodeLanguage(lang);
-  return CODE_LANGUAGE_FRIENDLY_NAME_MAP[_lang] || _lang;
+  return ownValue(CODE_LANGUAGE_FRIENDLY_NAME_MAP, _lang) || _lang;
 }
 
 export const getCodeLanguages = (): string[] =>

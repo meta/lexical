@@ -40,9 +40,17 @@ export const INSERT_DATETIME_COMMAND: LexicalCommand<CommandPayload> =
   /* @__PURE__ */ createCommand('INSERT_DATETIME_COMMAND');
 
 const DateTimeRule = /* @__PURE__ */ defineImportRule({
-  $import: (ctx, el) => {
+  $import: (ctx, el, $next) => {
     const dateTimeValue = el.getAttribute('data-lexical-datetime')!;
-    const node = $createDateTimeNode(new Date(Date.parse(dateTimeValue)));
+    const parsedDate = Date.parse(dateTimeValue);
+    // An unparseable attribute would build a node around an Invalid Date,
+    // whose dateTime state cannot be serialized (toISOString throws). Fall
+    // through and keep the element's own content instead, the same way
+    // GoogleDocsDateRule below does.
+    if (isNaN(parsedDate)) {
+      return $next();
+    }
+    const node = $createDateTimeNode(new Date(parsedDate));
     const [firstChild] = ctx.$importChildren(el);
     if ($isTextNode(firstChild)) {
       node.setFormat(firstChild.getFormat());

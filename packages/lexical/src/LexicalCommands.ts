@@ -242,10 +242,26 @@ export const CLEAR_EDITOR_COMMAND: LexicalCommand<void> =
 /** Dispatched to clear the undo/redo history stack. */
 export const CLEAR_HISTORY_COMMAND: LexicalCommand<void> =
   /* @__PURE__ */ createCommand('CLEAR_HISTORY_COMMAND');
-/** Dispatched when the redo availability changes. Payload is true if redo is available. */
+/**
+ * @deprecated in v0.49.0, use the `canRedo` signal from `HistoryExtension`.
+ *
+ * A command only reports a change, so a listener registered after the editor
+ * is initialized has no way to read the current value. The signal always
+ * holds it.
+ *
+ * Dispatched when the redo availability changes. Payload is true if redo is available.
+ */
 export const CAN_REDO_COMMAND: LexicalCommand<boolean> =
   /* @__PURE__ */ createCommand('CAN_REDO_COMMAND');
-/** Dispatched when the undo availability changes. Payload is true if undo is available. */
+/**
+ * @deprecated in v0.49.0, use the `canUndo` signal from `HistoryExtension`.
+ *
+ * A command only reports a change, so a listener registered after the editor
+ * is initialized has no way to read the current value. The signal always
+ * holds it.
+ *
+ * Dispatched when the undo availability changes. Payload is true if undo is available.
+ */
 export const CAN_UNDO_COMMAND: LexicalCommand<boolean> =
   /* @__PURE__ */ createCommand('CAN_UNDO_COMMAND');
 /** Dispatched when the editor receives focus. */

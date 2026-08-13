@@ -468,6 +468,7 @@ const config: Config = {
         hideable: true,
       },
     },
+    image: 'img/opengraph-image.png',
     navbar: {
       items: [
         {

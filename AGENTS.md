@@ -286,14 +286,27 @@ For full details on the browser platform APIs involved, see
 [Shadow DOM and iframes](packages/lexical-website/docs/concepts/shadow-dom.md).
 
 ### Commits and Pull Requests
-- Write every commit message to match `.github/pull_request_template.md` so it can seed a PR directly: a `[Affected Packages] PR Type: title` subject line, then the `## Description` and `## Test plan` (Before/After) sections.
+Every commit message — not just PR bodies — must be written to the shape of
+`.github/pull_request_template.md`, so any commit can seed a PR directly
+without being rewritten. This applies to every commit you author, including
+one-line fixes; do not wait to be asked. Read the template rather than working
+from memory, and fill in its sections:
 
-### Build System
-- Uses Rollup for bundling
-- Build script: `scripts/build.mjs`
-- Supports multiple build modes: development, production, www (Meta internal)
-- TypeScript source → compiled to CommonJS and ESM
-- Package manager logic in `scripts/shared/packagesManager.mjs`
+- **Subject line**: `[Affected Packages] PR Type: title`, where the packages are
+  the directory names under `packages/` that the diff touches and the type is
+  one of Breaking change / Refactor / Feature / Bug Fix / Documentation Update /
+  Chore. Test-only and tooling changes are `Chore`.
+- **`## Description`**: what the current behavior is and what this change makes
+  it do. Add `Closes #<issue>` only when there is a real issue number; drop the
+  line otherwise rather than leaving the template's placeholder behind.
+- **`## Test plan`** with `### Before` and `### After` subsections: the command
+  you ran, plus the actual failing output before and passing output after.
+  Paste real output — do not describe it. If a platform or browser in the
+  matrix could not be exercised, say so explicitly under `### After`.
+
+Drop any template section that does not apply to the diff instead of carrying
+an empty heading, and treat the template's HTML comments as instructions to
+follow, not text to copy into the message.
 
 ### Commit and PR Hygiene for Agents
 This is an open source project: never include agent-session URLs or other
@@ -304,3 +317,10 @@ everyone else. Co-authorship attribution (e.g. `Co-Authored-By:`) is fine.
 For Claude Code this is enforced mechanically via `attribution.sessionUrl:
 false` in the checked-in `.claude/settings.json`; agents from other vendors
 should follow this rule as written.
+
+### Build System
+- Uses Rollup for bundling
+- Build script: `scripts/build.mjs`
+- Supports multiple build modes: development, production, www (Meta internal)
+- TypeScript source → compiled to CommonJS and ESM
+- Package manager logic in `scripts/shared/packagesManager.mjs`

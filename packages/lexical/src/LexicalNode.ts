@@ -49,14 +49,9 @@ import {
 } from './LexicalSelection';
 import {
   $errorOnSlotCycleChild,
-  $getSlot,
   $getSlotHost,
   $getSlotHostKey,
-  $getSlotNames,
   $getSlotsTextContent,
-  $isSlotHost,
-  $removeSlot,
-  $setSlot,
 } from './LexicalSlot';
 import {
   errorOnReadOnly,
@@ -1623,6 +1618,12 @@ export class LexicalNode {
    * Replaces this LexicalNode with the provided node, optionally transferring the children
    * of the replaced node to the replacing node.
    *
+   * Named slots are bound to their host node and are never transferred: this
+   * node keeps its slot map, so if it is reattached elsewhere (as
+   * `$wrapNodeInElement` does) its slots come with it, and if it stays
+   * detached the slot subtrees are garbage-collected along with it. To move a
+   * slot value onto another host, use `$setSlot` explicitly.
+   *
    * @param replaceWith - The node to replace this one with.
    * @param includeChildren - Whether or not to transfer the children of this node to the replacing node.
    * */
@@ -1635,6 +1636,22 @@ export class LexicalNode {
     errorOnInsertTextNodeOnRoot(this, replaceWith);
     const self = this.getLatest();
     const toReplaceKey = this.__key;
+    // A named-slot value has no parent (its up-link is __slotHost), so the
+    // getParentOrThrow below would throw an unhelpful generic error. Fail with
+    // an actionable one instead, mirroring the $removeFromParent guard for
+    // remove(): the slot assignment is managed by the node or extension that
+    // owns the slot, so generic tree surgery must go through $setSlot.
+    const slotHost = $getSlotHost(self);
+    if (slotHost !== null) {
+      invariant(
+        false,
+        'replace: node %s (type %s) is slotted into host %s (type %s); a slot value cannot be replaced through the tree API. Use $setSlot on its host to assign a replacement.',
+        toReplaceKey,
+        self.getType(),
+        slotHost.getKey(),
+        slotHost.getType(),
+      );
+    }
     const key = replaceWith.__key;
     const writableReplaceWith = replaceWith.getWritable();
     const writableParent = this.getParentOrThrow().getWritable();
@@ -1681,7 +1698,13 @@ export class LexicalNode {
     }
     writableReplaceWith.__next = nextKey;
     writableReplaceWith.__parent = parentKey;
-    writableParent.__size = size;
+    // `size` was read before replaceWith was detached. When replaceWith was
+    // already a child of this same parent, two children collapse into one, so
+    // the restored size must account for the node that is not coming back.
+    writableParent.__size =
+      replaceWithOldParent !== null && replaceWithOldParent.is(writableParent)
+        ? size - 1
+        : size;
     // Snapshot replaceWith's children count before children transfer so
     // element-anchored selections on `this` can map to the equivalent offset
     // in writableReplaceWith.
@@ -1697,31 +1720,6 @@ export class LexicalNode {
         0,
         this.getChildren(),
       );
-    }
-    // Slots live in a separate Map keyed off __slotHost, not the child list,
-    // so the splice above (when includeChildren) never moves them — and
-    // decorator hosts skip that branch entirely. Re-home each slot onto the
-    // replacement regardless of includeChildren ($setSlot has move semantics;
-    // the explicit $removeSlot keeps the doomed host's map consistent before
-    // it is destroyed); otherwise they orphan and GC. Slot-less nodes have no
-    // names, so this is a no-op.
-    const slotNames = $getSlotNames(this);
-    if (slotNames.length > 0) {
-      if (!$isSlotHost(this) || !$isSlotHost(writableReplaceWith)) {
-        invariant(
-          false,
-          'replace: node %s has slots but %s cannot host them; only ElementNodes and DecoratorNodes can host slots.',
-          this.__key,
-          writableReplaceWith.__key,
-        );
-      }
-      for (const slotName of slotNames) {
-        const slot = $getSlot(this, slotName);
-        if (slot !== null) {
-          $removeSlot(this, slotName);
-          $setSlot(writableReplaceWith, slotName, slot);
-        }
-      }
     }
     if ($isRangeSelection(selection)) {
       $setSelection(selection);

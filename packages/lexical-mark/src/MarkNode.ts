@@ -82,12 +82,15 @@ export class MarkNode extends ElementNode {
     const nextIDsCount = nextIDs.length;
     const overlapTheme = config.theme.markOverlap;
 
-    if (prevIDsCount !== nextIDsCount) {
-      if (prevIDsCount === 1) {
-        if (nextIDsCount === 2) {
-          addClassNamesToElement(element, overlapTheme);
-        }
-      } else if (nextIDsCount === 1) {
+    // Mirror createDOM's rule (`ids.length > 1` carries the overlap class)
+    // rather than enumerating transitions: only 1 -> 2 and N -> 1 used to be
+    // handled, so e.g. 1 -> 3 never gained the class and 2 -> 0 never lost it.
+    const hadOverlap = prevIDsCount > 1;
+    const hasOverlap = nextIDsCount > 1;
+    if (hadOverlap !== hasOverlap) {
+      if (hasOverlap) {
+        addClassNamesToElement(element, overlapTheme);
+      } else {
         removeClassNamesFromElement(element, overlapTheme);
       }
     }

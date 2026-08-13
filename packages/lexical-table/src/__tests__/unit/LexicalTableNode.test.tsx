@@ -9,7 +9,7 @@
 import type {TableNode} from '@lexical/table';
 
 import {$insertDataTransferForRichText} from '@lexical/clipboard';
-import {$generateHtmlFromNodes} from '@lexical/html';
+import {$generateHtmlFromNodes, $generateNodesFromDOM} from '@lexical/html';
 import {TablePlugin} from '@lexical/react/LexicalTablePlugin';
 import {
   $createTableCellNode,
@@ -22,6 +22,7 @@ import {
   $isScrollableTablesActive,
   $isTableCellNode,
   $isTableNode,
+  $isTableRowNode,
 } from '@lexical/table';
 import {$dfs} from '@lexical/utils';
 import {
@@ -65,7 +66,7 @@ const editorConfig = Object.freeze({
 function wrapTableHtml(expected: string): string {
   return expected
     .replace(
-      /<table( dir="auto")?/g,
+      /<table( dir="(?:auto|ltr|rtl)")?/g,
       `<div$1 class="table-scrollable-wrapper"><table`,
     )
     .replace(/<\/table>/g, `</table></div>`);
@@ -134,10 +135,11 @@ describe('LexicalTableNode tests', () => {
       function expectReconciledTableHtmlToBeEqual(
         actual: string,
         expected: string,
+        dir: 'auto' | 'ltr' | 'rtl' = 'auto',
       ): void {
         return expectTableHtmlToBeEqual(
           actual,
-          expected.replace(/<table/g, '<table dir="auto"'),
+          expected.replace(/<table/g, `<table dir="${dir}"`),
         );
       }
 
@@ -799,6 +801,9 @@ describe('LexicalTableNode tests', () => {
               },
               {discrete: true},
             );
+            // The pasted table carries dir="ltr", which importDOM now
+            // preserves, so the table is explicitly ltr rather than auto and
+            // its rows no longer bidi-auto-detect.
             expectReconciledTableHtmlToBeEqual(
               testEnv.innerHTML,
               html`
@@ -808,7 +813,7 @@ describe('LexicalTableNode tests', () => {
                     <col style="width: 189px" />
                     <col style="width: 171px" />
                   </colgroup>
-                  <tr dir="auto" style="height: 21px;">
+                  <tr style="height: 21px;">
                     <td dir="auto" style="vertical-align: bottom">
                       <p dir="auto">
                         <strong data-lexical-text="true">Surface</strong>
@@ -825,7 +830,7 @@ describe('LexicalTableNode tests', () => {
                       </p>
                     </td>
                   </tr>
-                  <tr dir="auto" style="height: 21px;">
+                  <tr style="height: 21px;">
                     <td dir="auto" style="vertical-align: bottom">
                       <p dir="auto">
                         <span data-lexical-text="true">Lexical</span>
@@ -845,6 +850,7 @@ describe('LexicalTableNode tests', () => {
                   </tr>
                 </table>
               `,
+              'ltr',
             );
           }, 15000);
 
@@ -1899,5 +1905,73 @@ describe('LexicalTableNode tests', () => {
       {theme: editorConfig.theme},
       <TablePluginWrapper />,
     );
+  });
+
+  describe('importDOM preserves the dir attribute', () => {
+    initializeUnitTest(testEnv => {
+      test.for(['rtl', 'ltr', null] as const)('dir=%s', expected => {
+        const attr = expected === null ? '' : ` dir="${expected}"`;
+        const inputHtml = `<table${attr}><tr${attr}><td${attr}>a</td></tr></table>`;
+        const {editor} = testEnv;
+        editor.update(
+          () => {
+            const dom = new DOMParser().parseFromString(inputHtml, 'text/html');
+            $getRoot()
+              .clear()
+              .append(...$generateNodesFromDOM(editor, dom));
+          },
+          {discrete: true},
+        );
+        editor.read(() => {
+          const table = $assertNodeType(
+            $getRoot().getFirstChild(),
+            $isTableNode,
+          );
+          const row = $assertNodeType(table.getFirstChild(), $isTableRowNode);
+          const cell = $assertNodeType(row.getFirstChild(), $isTableCellNode);
+          expect(table.getDirection()).toBe(expected);
+          expect(row.getDirection()).toBe(expected);
+          expect(cell.getDirection()).toBe(expected);
+        });
+      });
+
+      test('round trips the dir attribute through exportDOM', () => {
+        const {editor} = testEnv;
+        let exported = '';
+        editor.update(
+          () => {
+            const table = $createTableNodeWithDimensions(1, 1, false);
+            table.setDirection('rtl');
+            $assertNodeType(
+              table.getFirstChild(),
+              $isTableRowNode,
+            ).setDirection('rtl');
+            $getRoot().clear().append(table);
+          },
+          {discrete: true},
+        );
+        editor.read(() => {
+          exported = $generateHtmlFromNodes(editor);
+        });
+        editor.update(
+          () => {
+            const dom = new DOMParser().parseFromString(exported, 'text/html');
+            $getRoot()
+              .clear()
+              .append(...$generateNodesFromDOM(editor, dom));
+          },
+          {discrete: true},
+        );
+        editor.read(() => {
+          const table = $assertNodeType(
+            $getRoot().getFirstChild(),
+            $isTableNode,
+          );
+          const row = $assertNodeType(table.getFirstChild(), $isTableRowNode);
+          expect(table.getDirection()).toBe('rtl');
+          expect(row.getDirection()).toBe('rtl');
+        });
+      });
+    });
   });
 });

@@ -1128,6 +1128,28 @@ describe('LexicalNode tests', () => {
         );
       });
 
+      test('LexicalNode.replace(): with a sibling in the same parent', async () => {
+        const {editor} = testEnv;
+
+        await editor.update(() => {
+          const paragraph = textNode.getParentOrThrow();
+          const barTextNode = new TextNode('bar');
+          paragraph.append(barTextNode);
+
+          // Replacing a node with one of its own siblings must not leave the
+          // parent's __size counting the sibling twice.
+          textNode.replace(barTextNode);
+
+          expect(paragraph.getChildrenSize()).toBe(1);
+          expect(paragraph.getChildren()).toHaveLength(1);
+          expect(paragraph.getFirstChild()!.getTextContent()).toBe('bar');
+        });
+
+        expect(testEnv.outerHTML).toBe(
+          '<div contenteditable="true" style="user-select: text; white-space: pre-wrap; word-break: break-word;" data-lexical-editor="true"><p dir="auto"><span data-lexical-text="true">bar</span></p></div>',
+        );
+      });
+
       test('LexicalNode.replace(): text', async () => {
         const {editor} = testEnv;
 

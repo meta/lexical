@@ -512,8 +512,13 @@ function $appendNodesToJSON(
 ): boolean {
   let shouldInclude =
     selection !== null ? currentNode.isSelected(selection) : true;
+  // 'clone', not 'html': this builds the internal
+  // `application/x-lexical-editor` payload, the same destination the
+  // $sliceSelectedTextNodeContent and extractWithChild calls below already
+  // pass. Asking with 'html' dropped nodes that opt out of HTML export while
+  // asking to survive a clone (e.g. MarkNode).
   const shouldExclude =
-    $isElementNode(currentNode) && currentNode.excludeFromCopy('html');
+    $isElementNode(currentNode) && currentNode.excludeFromCopy('clone');
   let target = currentNode;
 
   if (selection !== null && $isTextNode(target)) {

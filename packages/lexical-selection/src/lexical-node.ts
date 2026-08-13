@@ -320,10 +320,15 @@ export function $patchStyleText(
       ) => string)
   >,
 ): void {
+  // Shared with the empty-element loop below so that a node patched here is
+  // not patched a second time. A function-valued patch is not idempotent —
+  // it is evaluated against the value the previous application wrote.
+  const patchedElementKeys = new Set<NodeKey>();
   if ($isRangeSelection(selection) && selection.isCollapsed()) {
     $patchStyle(selection, patch);
     const emptyNode = selection.anchor.getNode();
     if ($isElementNode(emptyNode) && emptyNode.isEmpty()) {
+      patchedElementKeys.add(emptyNode.getKey());
       $patchStyle(emptyNode, patch);
     }
   }
@@ -333,7 +338,6 @@ export function $patchStyleText(
 
   const nodes = selection.getNodes();
   if (nodes.length > 0) {
-    const patchedElementKeys = new Set<NodeKey>();
     for (const node of nodes) {
       if (
         !$isElementNode(node) ||

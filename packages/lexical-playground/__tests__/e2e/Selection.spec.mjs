@@ -1029,6 +1029,59 @@ test.describe('Selection', () => {
     );
   });
 
+  test('Can adjust selection on 3+ clicks', async ({
+    page,
+    isPlainText,
+    isCollab,
+  }) => {
+    test.skip(isPlainText || isCollab);
+
+    await page.keyboard.type('Paragraph 1');
+    await page.keyboard.press('Enter');
+    await page.keyboard.type('Paragraph 2');
+    await page
+      .locator('div[contenteditable="true"] > p')
+      .first()
+      .click({clickCount: 4});
+    const expectedSelection = createHumanReadableSelection(
+      'the whole first paragraph',
+      {
+        anchorOffset: {desc: 'start of Paragraph 1 text', value: 0},
+        anchorPath: [
+          {desc: 'first paragraph', value: 0},
+          {desc: 'first span', value: 0},
+          {desc: 'Text node', value: 0},
+        ],
+        focusOffset: {
+          desc: 'end of Paragraph 1 text',
+          value: 'Paragraph 1'.length,
+        },
+        focusPath: [
+          {desc: 'first paragraph', value: 0},
+          {desc: 'first span', value: 0},
+          {desc: 'Text node', value: 0},
+        ],
+      },
+    );
+
+    await assertSelection(page, expectedSelection);
+
+    await click(page, '.block-controls');
+    await click(page, '.dropdown .item:has(.icon.h1)');
+
+    await assertHTML(
+      page,
+      html`
+        <h1 class="PlaygroundEditorTheme__h1" dir="auto">
+          <span data-lexical-text="true">Paragraph 1</span>
+        </h1>
+        <p class="PlaygroundEditorTheme__paragraph" dir="auto">
+          <span data-lexical-text="true">Paragraph 2</span>
+        </p>
+      `,
+    );
+  });
+
   test('Can adjust triple click selection linebreak', async ({
     page,
     isCollab,

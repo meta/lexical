@@ -1130,13 +1130,47 @@ export function $isTextPointCaretSlice<D extends CaretDirection>(
 }
 
 /**
+ * Return the caret if it's in the given direction, otherwise return
+ * caret.getFlipped().
+ *
+ * @param caret Any PointCaret
+ * @param direction The desired direction
+ * @returns A PointCaret in direction
+ */
+export function $getCaretInDirection<
+  Caret extends PointCaret<CaretDirection>,
+  D extends CaretDirection,
+>(
+  caret: Caret,
+  direction: D,
+):
+  | NodeCaret<D>
+  | (Caret extends TextPointCaret<TextNode, CaretDirection>
+      ? TextPointCaret<TextNode, D>
+      : never) {
+  return (caret.direction === direction ? caret : caret.getFlipped()) as
+    | NodeCaret<D>
+    | (Caret extends TextPointCaret<TextNode, CaretDirection>
+        ? TextPointCaret<TextNode, D>
+        : never);
+}
+
+/**
  * Construct a CaretRange that starts at anchor and goes to the end of the
  * document in the anchor caret's direction.
  */
 export function $extendCaretToRange<D extends CaretDirection>(
   anchor: PointCaret<D>,
 ): CaretRange<D> {
-  return $getCaretRange(anchor, $getSiblingCaret($getRoot(), anchor.direction));
+  // Use an in-document point to represent the end,
+  // iteration is inclusive of the endpoint.
+  return $getCaretRange(
+    anchor,
+    $getCaretInDirection(
+      $getChildCaret($getRoot(), flipDirection(anchor.direction)),
+      anchor.direction,
+    ),
+  );
 }
 
 /**

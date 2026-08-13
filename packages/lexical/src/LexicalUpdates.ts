@@ -865,7 +865,11 @@ export function triggerListeners<T extends keyof MapListeners>(
       if (unregister) {
         unregister();
       }
-      const nextUnregister = listener(...payload);
+      // TypeScript's void-return rule lets a `=> void` callback return any value,
+      // so a listener like `() => arr.push(x)` hands back a number. Only a
+      // function is an unregister callback.
+      const result = listener(...payload);
+      const nextUnregister = typeof result === 'function' ? result : undefined;
       if (listenerMap.has(listener)) {
         listenerMap.set(listener, nextUnregister);
       } else if (nextUnregister) {

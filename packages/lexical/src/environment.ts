@@ -43,12 +43,15 @@ export const CAN_USE_BEFORE_INPUT: boolean =
       'getTargetRanges' in new window.InputEvent('input')
     : false;
 
-/** Whether the current platform is iOS (iPhone, iPad, iPod). */
+/** Whether the current platform is iOS or iPadOS (iPhone, iPad, iPod). */
 export const IS_IOS: boolean =
   CAN_USE_DOM &&
-  /iPad|iPhone|iPod/.test(navigator.userAgent) &&
   // eslint-disable-next-line no-restricted-syntax
-  !window.MSStream;
+  !window.MSStream &&
+  (/iPad|iPhone|iPod/.test(navigator.userAgent) ||
+    // iPadOS may report a desktop-class Macintosh user agent.
+    // Real Macs don't support multi-touch, so maxTouchPoints distinguishes them.
+    (/Macintosh/.test(navigator.userAgent) && navigator.maxTouchPoints > 1));
 
 /** Whether the current platform is Android. */
 export const IS_ANDROID: boolean =

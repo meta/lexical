@@ -17,6 +17,7 @@ import {
   $getDocument,
   $getEditor,
   $getNearestNodeFromDOMNode,
+  $setDirectionFromDOM,
   addClassNamesToElement,
   type BaseSelection,
   type DOMConversionOutput,
@@ -861,6 +862,7 @@ export function $convertTableElement(
       tableNode.setColWidths(columns);
     }
   }
+  $setDirectionFromDOM(tableNode, domNode);
   return {
     after: children => $descendantsMatching(children, $isTableRowNode),
     node: tableNode,

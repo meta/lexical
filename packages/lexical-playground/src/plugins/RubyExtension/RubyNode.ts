@@ -21,6 +21,7 @@ import {
   type DOMExportOutput,
   type DOMSlot,
   type EditorConfig,
+  isHTMLElement,
   type LexicalNode,
   type NodeStateVersion,
   type StateConfigValue,
@@ -59,21 +60,25 @@ export class RubyNode extends TextNode {
   }
 
   getDOMSlot(dom: HTMLElement): DOMSlot<HTMLElement> {
-    const inner = dom.firstElementChild as HTMLElement | null;
-    if (inner) {
+    const inner = dom.firstElementChild;
+    if (isHTMLElement(inner)) {
       return super.getDOMSlot(dom).withElement(inner);
     }
     return super.getDOMSlot(dom);
   }
 
   updateDOM(prevNode: this, dom: HTMLElement, config: EditorConfig): boolean {
-    const updated = super.updateDOM(prevNode, dom, config);
+    // `dom` is the wrapper, but createDOM applies the text format classes and
+    // the node style to the inner element, so super has to be handed the same
+    // element or the two disagree about where those live.
+    const inner = dom.firstElementChild;
+    if (!isHTMLElement(inner)) {
+      return true;
+    }
+    const updated = super.updateDOM(prevNode, inner, config);
     const annotationChange = $getStateChange(this, prevNode, annotationState);
     if (annotationChange || prevNode.__text !== this.__text) {
-      const inner = dom.firstElementChild as HTMLElement;
-      if (inner) {
-        inner.dataset.rubyAnnotation = this.getAnnotation();
-      }
+      inner.dataset.rubyAnnotation = this.getAnnotation();
       dom.setAttribute(
         'aria-label',
         `${this.__text} (${this.getAnnotation()})`,

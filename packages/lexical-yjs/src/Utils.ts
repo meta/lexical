@@ -82,7 +82,11 @@ const elementExcludedProperties = new Set<string>([
   '__last',
   '__size',
 ]);
-const rootExcludedProperties = new Set<string>(['__cachedText']);
+const rootExcludedProperties = new Set<string>([
+  '__cachedText',
+  '__textFormat',
+  '__textStyle',
+]);
 const textExcludedProperties = new Set<string>(['__text']);
 
 // @experimental named-slots. Writes the slots Y.Map onto a host shared type.

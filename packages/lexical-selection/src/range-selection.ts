@@ -12,6 +12,7 @@ import {
   $extendCaretToRange,
   $findMatchingParent,
   $getPreviousSelection,
+  $getSlotFrame,
   $getSlotHost,
   $hasAncestor,
   $isChildCaret,
@@ -234,6 +235,20 @@ export function $wrapNodes(
   const anchor = anchorAndFocus ? anchorAndFocus[0] : null;
   const nodes = selection.getNodes();
   const nodesLength = nodes.length;
+
+  // A selection inside a bare-block named-slot value has nothing eligible to
+  // wrap: the slot value is the only block in its virtual scope and its slot
+  // assignment is managed by the node or extension that owns the slot, so
+  // this is a no-op (same rule as $setBlocksType). A shadow-root slot value
+  // is root-like and wraps its own subtree below, as usual. (A selection
+  // never crosses a slot boundary, so checking the anchor covers the whole
+  // selection.)
+  if (anchor !== null) {
+    const slotFrame = $getSlotFrame(anchor.getNode());
+    if (slotFrame !== null && !$isRootOrShadowRoot(slotFrame)) {
+      return;
+    }
+  }
 
   if (
     anchor !== null &&

@@ -161,6 +161,27 @@ describe('LexicalHeadingNode tests', () => {
       );
     });
 
+    test('HeadingNode.insertNewAfter() middle keeps format and style', async () => {
+      const {editor} = testEnv;
+      let headingNode: HeadingNode;
+      await editor.update(() => {
+        const root = $getRoot();
+        headingNode = new HeadingNode('h1');
+        headingNode.setFormat('center');
+        headingNode.setStyle('color: red;');
+        const headingTextNode = $createTextNode('hello world');
+        root.append(headingNode.append(headingTextNode));
+        headingTextNode.select(5, 5);
+      });
+      await editor.update(() => {
+        const selection = $getSelection() as RangeSelection;
+        const result = headingNode.insertNewAfter(selection);
+        expect(result).toBeInstanceOf(HeadingNode);
+        expect(result.getFormatType()).toBe('center');
+        expect(result.getStyle()).toBe('color: red;');
+      });
+    });
+
     test('HeadingNode.insertNewAfter() end', async () => {
       const {editor} = testEnv;
       let headingNode: HeadingNode;

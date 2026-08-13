@@ -352,14 +352,25 @@ function $appendNodesToHTML(
         element.append(fragment);
       }
     }
-    parentElementAppend(element);
-
-    if (after) {
-      const newElement = after.call(target, element);
-      if (newElement) {
-        if (isDocumentFragment(element)) {
+    if (isDocumentFragment(element)) {
+      // Resolve `after` before handing the fragment to the parent: appending a
+      // DocumentFragment moves its children out and leaves it empty, so a
+      // replacement written into it afterwards would land in a detached,
+      // already-drained fragment and never reach the output.
+      if (after) {
+        const newElement = after.call(target, element);
+        if (newElement) {
           element.replaceChildren(newElement);
-        } else {
+        }
+      }
+      parentElementAppend(element);
+    } else {
+      // An HTMLElement has to be in the tree first so replaceWith() can swap
+      // it in place.
+      parentElementAppend(element);
+      if (after) {
+        const newElement = after.call(target, element);
+        if (newElement) {
           element.replaceWith(newElement);
         }
       }

@@ -7,7 +7,10 @@
  */
 
 import {buildEditorFromExtensions} from '@lexical/extension';
-import {$generateNodesFromDOMViaExtension} from '@lexical/html';
+import {
+  $generateHtmlFromNodes,
+  $generateNodesFromDOMViaExtension,
+} from '@lexical/html';
 import {
   $createParagraphNode,
   $createTextNode,
@@ -446,5 +449,58 @@ describe('CollapsibleExtension transforms', () => {
       );
       expect($isParagraphNode(children[2])).toBe(true);
     });
+  });
+});
+
+describe('CollapsibleContainerNode open round trip', () => {
+  function buildEditor() {
+    return buildEditorFromExtensions(CollapsibleImportTestExtension);
+  }
+
+  function $seed(open: boolean): void {
+    $getRoot()
+      .clear()
+      .append(
+        $createCollapsibleContainerNode(open).append(
+          $createCollapsibleTitleNode().append($createTextNode('Title')),
+          $createCollapsibleContentNode().append(
+            $createParagraphNode().append($createTextNode('Body')),
+          ),
+        ),
+      );
+  }
+
+  function $getContainerOpen(): boolean {
+    const container = $getRoot().getFirstChild();
+    assert($isCollapsibleContainerNode(container), 'expected a container');
+    return container.getOpen();
+  }
+
+  it.each([true, false])('round-trips open=%s through HTML', open => {
+    using editor = buildEditor();
+    editor.update(() => $seed(open), {discrete: true});
+
+    const html = editor.read(() => $generateHtmlFromNodes(editor, null));
+
+    using target = buildEditor();
+    target.update(
+      () => {
+        $getRoot().clear().select();
+        $importHtml(html);
+      },
+      {discrete: true},
+    );
+
+    expect(target.read($getContainerOpen)).toBe(open);
+  });
+
+  it('does not write a value for the boolean open attribute', () => {
+    using editor = buildEditor();
+    editor.update(() => $seed(false), {discrete: true});
+
+    const html = editor.read(() => $generateHtmlFromNodes(editor, null));
+    // `open` is an HTML boolean attribute: any value, including "false",
+    // means open. A closed container must omit it entirely.
+    expect(html).not.toContain('open=');
   });
 });

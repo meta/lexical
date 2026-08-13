@@ -475,16 +475,24 @@ function handleLinkEdit(
   }
 
   if (match.attributes) {
-    const rel = linkNode.getRel();
-    if (rel !== match.attributes.rel) {
+    // `ChangeHandler` is documented as receiving the new url and the previous
+    // url, so an attribute refresh is not something it can describe: passing a
+    // rel or target through it reports that value as the link's url. These
+    // assignments keep the node in sync with the matcher without reporting a
+    // url change that did not happen.
+    if (linkNode.getRel() !== match.attributes.rel) {
       linkNode.setRel(match.attributes.rel || null);
-      onChange(match.attributes.rel || null, rel);
     }
 
-    const target = linkNode.getTarget();
-    if (target !== match.attributes.target) {
+    if (linkNode.getTarget() !== match.attributes.target) {
       linkNode.setTarget(match.attributes.target || null);
-      onChange(match.attributes.target || null, target);
+    }
+
+    // `title` is the third member of LinkAttributes and the creation path
+    // ($createAutoLinkNode(match.url, match.attributes)) already applies it,
+    // so the edit path has to refresh it too or it goes stale.
+    if (linkNode.getTitle() !== match.attributes.title) {
+      linkNode.setTitle(match.attributes.title || null);
     }
   }
 }

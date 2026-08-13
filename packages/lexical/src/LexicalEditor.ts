@@ -274,6 +274,20 @@ export interface InputState {
   postDeleteSelectionToRestore: RangeSelection | null;
 
   isSelectionChangeFromDOMUpdate: boolean;
+  /**
+   * The DOM boundary points the reconciler applied when it set
+   * isSelectionChangeFromDOMUpdate, so the selectionchange handler can tell
+   * "the event for our own update" apart from a user selection that arrives
+   * while the flag is stale. WebKit fires no selectionchange at all when the
+   * applied selection matches what the DOM already had, so the flag alone can
+   * outlive its event and swallow the next real one.
+   */
+  selectionChangeFromDOMUpdatePoints: null | {
+    anchorNode: Node;
+    anchorOffset: number;
+    focusNode: Node;
+    focusOffset: number;
+  };
   isSelectionChangeFromMouseDown: boolean;
   isInsertLineBreak: boolean;
 
@@ -303,6 +317,7 @@ export function createInputState(): InputState {
     lastKeyCode: null,
     lastKeyDownTimeStamp: 0,
     postDeleteSelectionToRestore: null,
+    selectionChangeFromDOMUpdatePoints: null,
     unprocessedBeforeInputData: null,
   };
 }

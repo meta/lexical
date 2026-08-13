@@ -82,6 +82,7 @@ export default [
       '**/.wxt/',
       '**/*.www.cjs',
       '**/typedoc-sidebar.cjs',
+      '**/.next/',
     ],
   },
 

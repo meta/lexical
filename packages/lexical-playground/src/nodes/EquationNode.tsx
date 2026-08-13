@@ -32,6 +32,31 @@ export type SerializedEquationNode = Spread<
   SerializedLexicalNode
 >;
 
+/**
+ * btoa/atob only handle Latin-1, so go through the UTF-8 bytes -- the same way
+ * docSerialization does. An equation is free-form LaTeX and routinely holds
+ * code points above U+00FF (`\text{α}`, CJK, an emoji), which btoa throws on.
+ * Pure ASCII encodes byte for byte, so previously exported HTML still decodes.
+ */
+export function encodeEquation(equation: string): string {
+  const bytes = new TextEncoder().encode(equation);
+  let binary = '';
+  for (let i = 0; i < bytes.length; i++) {
+    binary += String.fromCharCode(bytes[i]);
+  }
+  return btoa(binary);
+}
+
+/** Inverse of {@link encodeEquation}. */
+export function decodeEquation(encoded: string): string {
+  const binary = atob(encoded);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return new TextDecoder().decode(bytes);
+}
+
 export class EquationNode extends DecoratorNode<JSX.Element> {
   __equation: string;
   __inline: boolean;
@@ -83,7 +108,7 @@ export class EquationNode extends DecoratorNode<JSX.Element> {
       this.__inline ? 'span' : 'div',
     );
     // Encode the equation as base64 to avoid issues with special characters
-    const equation = btoa(this.__equation);
+    const equation = encodeEquation(this.__equation);
     element.setAttribute('data-lexical-equation', equation);
     element.setAttribute('data-lexical-inline', `${this.__inline}`);
     katex.render(this.__equation, element, {

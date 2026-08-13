@@ -18,7 +18,10 @@ import {
   $createParagraphNode,
   $createRangeSelection,
   $getRoot,
+  $getState,
   $selectAll,
+  $setState,
+  createState,
   ParagraphNode,
   type SerializedParagraphNode,
   TextNode,
@@ -525,6 +528,67 @@ describe('LexicalAutoAutoLinkNode tests', () => {
         expect(paragraph.getChildrenSize()).toBe(2);
         // No new paragraph should be created
         expect(root.getChildrenSize()).toBe(1);
+      });
+    });
+  });
+});
+
+const autoLinkTestState = createState('autoLinkTestState', {
+  parse: (v: unknown) => (typeof v === 'string' ? v : ''),
+});
+
+describe('AutoLinkNode.insertNewAfter carries the node over', () => {
+  initializeUnitTest(testEnv => {
+    function $seed() {
+      const root = $getRoot();
+      root.clear();
+      const paragraph = $createParagraphNode();
+      const autoLink = $createAutoLinkNode('https://example.com', {
+        isUnlinked: true,
+        rel: 'noopener',
+        target: '_blank',
+        title: 'Example',
+      });
+      autoLink.setStyle('color: red');
+      autoLink.setTextStyle('font-size: 20px');
+      autoLink.setTextFormat(1);
+      $setState(autoLink, autoLinkTestState, 'carried');
+      autoLink.append(new TextNode('https://example.com'));
+      paragraph.append(autoLink);
+      root.append(paragraph);
+      return autoLink;
+    }
+
+    test('keeps the element style, text style and text format', async () => {
+      const {editor} = testEnv;
+      await editor.update(() => {
+        const next = $seed().insertNewAfter($createRangeSelection(), false);
+        expect($isAutoLinkNode(next)).toBe(true);
+        expect(next!.getStyle()).toBe('color: red');
+        expect(next!.getTextStyle()).toBe('font-size: 20px');
+        expect(next!.getTextFormat()).toBe(1);
+      });
+    });
+
+    test('keeps the NodeState', async () => {
+      const {editor} = testEnv;
+      await editor.update(() => {
+        const next = $seed().insertNewAfter($createRangeSelection(), false);
+        expect($getState(next!, autoLinkTestState)).toBe('carried');
+      });
+    });
+
+    test('keeps the link attributes (control)', async () => {
+      const {editor} = testEnv;
+      await editor.update(() => {
+        const next = $seed().insertNewAfter($createRangeSelection(), false);
+        expect($isAutoLinkNode(next)).toBe(true);
+        const autoLink = next as AutoLinkNode;
+        expect(autoLink.getURL()).toBe('https://example.com');
+        expect(autoLink.getRel()).toBe('noopener');
+        expect(autoLink.getTarget()).toBe('_blank');
+        expect(autoLink.getTitle()).toBe('Example');
+        expect(autoLink.getIsUnlinked()).toBe(true);
       });
     });
   });

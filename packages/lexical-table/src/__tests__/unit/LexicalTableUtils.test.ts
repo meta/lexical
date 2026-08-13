@@ -8,9 +8,11 @@
 
 import {buildEditorFromExtensions} from '@lexical/extension';
 import {
+  $computeTableMapSkipCellCheck,
   $createTableCellNode,
   $createTableNode,
   $createTableRowNode,
+  $insertTableColumnAtNode,
   $isTableCellNode,
   $isTableNode,
   $isTableRowNode,
@@ -1260,6 +1262,62 @@ describe('$setTableColumnIsHeader', () => {
       ]);
       expect($getHeaderStates(table, TableCellHeaderStates.ROW)).toEqual([
         [true],
+      ]);
+    });
+  });
+});
+
+describe('$insertTableColumnAtNode', () => {
+  // Renders the resolved grid (accounting for row/col spans) as a matrix of the
+  // text at each grid coordinate, so column alignment across rows is asserted
+  // directly rather than via raw DOM child order.
+  function $getGridTexts(table: TableNode): string[][] {
+    const [tableMap] = $computeTableMapSkipCellCheck(table, null, null);
+    return tableMap.map(row => row.map(({cell}) => cell.getTextContent()));
+  }
+
+  test('walks left by each visited cell colSpan when a row is spanned', () => {
+    // Grid:
+    //   row0: [A0][X(rowSpan=2)][C(colSpan=2,rowSpan=2)][D0]
+    //   row1: [A1]                                      [D1]
+    editor.update(
+      () => {
+        const $mkCell = (text: string) =>
+          $createTableCellNode().append(
+            $createParagraphNode().append($createTextNode(text)),
+          );
+        const x = $mkCell('X');
+        x.setRowSpan(2);
+        const c = $mkCell('C');
+        c.setColSpan(2);
+        c.setRowSpan(2);
+        const row0 = $createTableRowNode().append(
+          $mkCell('A0'),
+          x,
+          c,
+          $mkCell('D0'),
+        );
+        const row1 = $createTableRowNode().append($mkCell('A1'), $mkCell('D1'));
+        $getRoot().append($createTableNode().append(row0, row1));
+      },
+      {discrete: true},
+    );
+
+    editor.update(
+      () => {
+        const table = $assertNodeType($getRoot().getFirstChild(), $isTableNode);
+        const [tableMap] = $computeTableMapSkipCellCheck(table, null, null);
+        // C occupies grid columns 2-3 of row 0; insert a column after it.
+        $insertTableColumnAtNode(tableMap[0][2].cell, true, false);
+      },
+      {discrete: true},
+    );
+
+    editor.read('latest', () => {
+      const table = $assertNodeType($getRoot().getFirstChild(), $isTableNode);
+      expect($getGridTexts(table)).toEqual([
+        ['A0', 'X', 'C', 'C', '', 'D0'],
+        ['A1', 'X', 'C', 'C', '', 'D1'],
       ]);
     });
   });

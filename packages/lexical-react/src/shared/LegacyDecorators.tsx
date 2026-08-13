@@ -5,6 +5,7 @@
  * LICENSE file in the root directory of this source tree.
  *
  */
+import type {ErrorBoundaryType} from './types';
 import type {LexicalEditor} from 'lexical';
 import type {JSX} from 'react';
 
@@ -12,9 +13,7 @@ import {LexicalBuilder} from '@lexical/extension';
 import invariant from '@lexical/internal/invariant';
 import {ReactProviderExtension} from '@lexical/react/ReactProviderExtension';
 
-import {type ErrorBoundaryType, useDecorators} from './useDecorators';
-
-export {type ErrorBoundaryType};
+import {useReactDecorators} from './useReactDecorators';
 
 function isUsingReactExtension(editor: LexicalEditor): boolean {
   const builder = LexicalBuilder.maybeFromEditor(editor);
@@ -38,7 +37,7 @@ function Decorators({
   editor: LexicalEditor;
   ErrorBoundary: ErrorBoundaryType;
 }) {
-  return useDecorators(editor, ErrorBoundary);
+  return useReactDecorators(editor, ErrorBoundary);
 }
 
 /**

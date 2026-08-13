@@ -32,6 +32,7 @@ import {
   $getSlotNameWithinHost,
   $isElementNode,
   $isLineBreakNode,
+  $isNodeSelection,
   $isParagraphNode,
   $isRangeSelection,
   $isSlotHost,
@@ -410,6 +411,31 @@ describe('named-slots: core foundation', () => {
         expect(() => sibling.insertAfter(slot)).toThrow();
         expect(() => sibling.insertBefore(slot)).toThrow();
         expect(() => sibling.replace(slot)).toThrow();
+      },
+      {discrete: true},
+    );
+  });
+
+  test('replace() on a slotted node throws (use $setSlot)', () => {
+    using editor = createSlotEditor();
+
+    editor.update(
+      () => {
+        const host = $createParagraphNode();
+        $getRoot().append(host);
+        const slot = $createTestShadowRootNode();
+        $setSlot(host, 'title', slot);
+
+        // Without the slot-aware guard this would throw the generic
+        // getParentOrThrow invariant; the guard names the actual mistake
+        // (including the node and host types) and the fix ($setSlot on
+        // the host).
+        expect(() => slot.replace($createParagraphNode())).toThrow(
+          /\(type paragraph\)[\s\S]*\$setSlot/,
+        );
+        // Nothing was mutated by the failed replace.
+        expect($getSlot(host, 'title')).not.toBe(null);
+        expect($getSlot(host, 'title')!.is(slot)).toBe(true);
       },
       {discrete: true},
     );
@@ -1755,49 +1781,102 @@ describe('named-slots: core foundation', () => {
     expect(text).toContain('SLOTTEXT');
   });
 
-  test('replace(includeChildren) carries slots onto the replacement', () => {
+  // Slots are tightly bound to their host node, so replace() must not move
+  // them onto the replacement — the replaced host keeps its slot map, and when
+  // it stays detached the slot subtree is garbage-collected with it at commit
+  // (via the dual-channel slot GC).
+  test('replace(includeChildren) does not transfer slots; they GC with the replaced host', () => {
     using editor = createSlotEditor();
-    let survived = false;
+    let newHostKey = '';
+    let oldHostKey = '';
+    let slotKey = '';
     editor.update(
       () => {
         const host = $createParagraphNode();
         const slot = $slotContainer('SLOTTEXT');
         $getRoot().append(host);
         $setSlot(host, 'title', slot);
+        oldHostKey = host.getKey();
+        slotKey = slot.getKey();
         const newHost = $createParagraphNode();
         host.replace(newHost, true);
-        const got = $getSlot(newHost, 'title');
-        survived = got !== null && got.getTextContent() === 'SLOTTEXT';
+        newHostKey = newHost.getKey();
+        // The slot stays on the replaced host, not the replacement.
+        expect($getSlot(newHost, 'title')).toBe(null);
+        expect($getSlotNames(newHost)).toEqual([]);
+        expect($getSlot(host, 'title')!.is(slot)).toBe(true);
+        expect(host.isAttached()).toBe(false);
       },
       {discrete: true},
     );
-    expect(survived).toBe(true);
+    editor.read(() => {
+      // The detached host and its slot subtree were garbage-collected.
+      expect($getNodeByKey(oldHostKey)).toBe(null);
+      expect($getNodeByKey(slotKey)).toBe(null);
+      expect($getNodeByKey(newHostKey)!.isAttached()).toBe(true);
+    });
   });
 
-  // Decorator hosts can't carry children (includeChildren stays false), so the
-  // slot re-home must run independently of that gate; otherwise replacing a
-  // decorator host orphans its slots. Fails before the re-home left the
-  // includeChildren branch, passes after.
-  test('replace carries slots onto a decorator host without includeChildren', () => {
+  test('replace on a decorator host does not transfer slots; they GC with it', () => {
     using editor = createSlotEditor();
-    let survived = false;
-    let oldHostAttached = true;
+    let oldHostKey = '';
+    let slotKey = '';
     editor.update(
       () => {
         const host = $createTestDecoratorNode().setIsInline(false);
         const slot = $slotContainer('SLOTTEXT');
         $getRoot().append(host);
         $setSlot(host, 'media', slot);
+        oldHostKey = host.getKey();
+        slotKey = slot.getKey();
         const newHost = $createTestDecoratorNode().setIsInline(false);
         host.replace(newHost);
-        const got = $getSlot(newHost, 'media');
-        survived = got !== null && got.getTextContent() === 'SLOTTEXT';
-        oldHostAttached = host.isAttached();
+        expect($getSlot(newHost, 'media')).toBe(null);
+        expect($getSlot(host, 'media')!.is(slot)).toBe(true);
+        expect(host.isAttached()).toBe(false);
       },
       {discrete: true},
     );
-    expect(survived).toBe(true);
-    expect(oldHostAttached).toBe(false);
+    editor.read(() => {
+      expect($getNodeByKey(oldHostKey)).toBe(null);
+      expect($getNodeByKey(slotKey)).toBe(null);
+    });
+  });
+
+  // Regression for facebook/lexical#8936: $wrapNodeInElement is
+  // `node.replace(wrapper); wrapper.append(node)`. Because replace leaves the
+  // slot map on the node, the wrapped host keeps its slots when it is
+  // reattached in the same update.
+  test('a replaced host reattached in the same update keeps its slots (wrap pattern)', () => {
+    using editor = createSlotEditor();
+    let hostKey = '';
+    let slotKey = '';
+    editor.update(
+      () => {
+        const host = $createParagraphNode();
+        const slot = $slotContainer('SLOTTEXT');
+        $getRoot().append(host);
+        $setSlot(host, 'title', slot);
+        hostKey = host.getKey();
+        slotKey = slot.getKey();
+        // the $wrapNodeInElement pattern from @lexical/utils
+        const wrapper = $createTestShadowRootNode();
+        host.replace(wrapper);
+        wrapper.append(host);
+        expect($getSlot(host, 'title')!.is(slot)).toBe(true);
+        expect($getSlotNames(wrapper)).toEqual([]);
+      },
+      {discrete: true},
+    );
+    editor.read(() => {
+      const host = $assertNodeType($getNodeByKey(hostKey), $isParagraphNode);
+      expect(host.isAttached()).toBe(true);
+      const slot = $getSlot(host, 'title');
+      expect(slot).not.toBe(null);
+      expect(slot!.getKey()).toBe(slotKey);
+      expect(slot!.getTextContent()).toBe('SLOTTEXT');
+      expect($getSlotHost(slot!)!.is(host)).toBe(true);
+    });
   });
 
   // Slots are a separate channel, so $destroyNode's child recursion doesn't
@@ -1988,6 +2067,79 @@ describe('named-slots: core foundation', () => {
       remaining = $getSlot(host, 'title')!.getTextContent();
     });
     expect(remaining).toBe('TEXT');
+  });
+
+  // #8904: a slot-bearing decorator host at the selection boundary is
+  // deleted by backspace like any other block decorator — as a whole unit,
+  // slots included. (Merging an ElementNode host away is still refused, see
+  // the next test: a merge keeps children but silently drops slots.)
+  test('backspace after a slot-bearing decorator host removes it (#8904)', () => {
+    using editor = createSlotEditor();
+    let hostKey = '';
+    let textKey = '';
+    editor.update(
+      () => {
+        const host = $createTestDecoratorNode().setIsInline(false);
+        $setSlot(host, 'quote', $slotContainer('QUOTE'));
+        const text = $createTextNode('after');
+        $getRoot().append(host, $createParagraphNode().append(text));
+        hostKey = host.getKey();
+        textKey = text.getKey();
+      },
+      {discrete: true},
+    );
+    editor.update(
+      () => {
+        const sel = $createRangeSelection();
+        sel.anchor.set(textKey, 0, 'text');
+        sel.focus.set(textKey, 0, 'text');
+        $setSelection(sel);
+        sel.deleteCharacter(true);
+      },
+      {discrete: true},
+    );
+    editor.read(() => {
+      expect($getNodeByKey(hostKey)).toBe(null);
+      expect($getRoot().getChildrenSize()).toBe(1);
+      expect($getRoot().getTextContent()).toBe('after');
+    });
+  });
+
+  test('backspace in an empty paragraph after a slot-bearing decorator host selects it (#8904)', () => {
+    using editor = createSlotEditor();
+    let hostKey = '';
+    let paragraphKey = '';
+    editor.update(
+      () => {
+        const host = $createTestDecoratorNode().setIsInline(false);
+        $setSlot(host, 'quote', $slotContainer('QUOTE'));
+        const paragraph = $createParagraphNode();
+        $getRoot().append(host, paragraph);
+        hostKey = host.getKey();
+        paragraphKey = paragraph.getKey();
+      },
+      {discrete: true},
+    );
+    editor.update(
+      () => {
+        const sel = $createRangeSelection();
+        sel.anchor.set(paragraphKey, 0, 'element');
+        sel.focus.set(paragraphKey, 0, 'element');
+        $setSelection(sel);
+        sel.deleteCharacter(true);
+      },
+      {discrete: true},
+    );
+    editor.read(() => {
+      // The empty paragraph is dropped and the host is node-selected, same
+      // as any other block decorator; the next backspace deletes it.
+      expect($getNodeByKey(paragraphKey)).toBe(null);
+      const host = $getNodeByKey(hostKey);
+      expect(host).not.toBe(null);
+      const sel = $getSelection();
+      assert($isNodeSelection(sel));
+      expect(sel.getNodes().map(node => node.getKey())).toEqual([hostKey]);
+    });
   });
 
   test('backspace at the start of a host child does not merge the slot-bearing host away', () => {

@@ -15,6 +15,7 @@ import {
   $createParagraphNode,
   $getChildCaret,
   $getSelection,
+  $getSlotHost,
   $isElementNode,
   $isLeafNode,
   $isRangeSelection,
@@ -98,8 +99,14 @@ export function $insertList(listType: ListType): void {
           list.append(listItem);
         } else if ($isListItemNode(anchorNode)) {
           const parent = anchorNode.getParentOrThrow();
-          append(list, parent.getChildren());
-          parent.replace(list);
+          // A named-slot value has no __parent (its up-link is __slotHost);
+          // its slot assignment is managed by the node or extension that
+          // owns the slot, so converting it is a no-op rather than a
+          // replace (which would throw).
+          if ($getSlotHost(parent) === null) {
+            append(list, parent.getChildren());
+            parent.replace(list);
+          }
         }
 
         return;
@@ -114,6 +121,10 @@ export function $insertList(listType: ListType): void {
         $isElementNode(node) &&
         node.isEmpty() &&
         !$isListItemNode(node) &&
+        // A named-slot value's slot assignment is managed by the node or
+        // extension that owns the slot, so it is not eligible for list
+        // conversion (see $setBlocksType).
+        $getSlotHost(node) === null &&
         !handled.has(node.getKey())
       ) {
         $createListOrMerge(node, listType);
@@ -130,7 +141,10 @@ export function $insertList(listType: ListType): void {
         const parentKey = parent.getKey();
 
         if ($isListNode(parent)) {
-          if (!handled.has(parentKey)) {
+          // A list occupying a named slot is left as-is — its slot
+          // assignment is managed by the node or extension that owns the
+          // slot.
+          if (!handled.has(parentKey) && $getSlotHost(parent) === null) {
             const newListNode = $createListNode(listType);
             append(newListNode, parent.getChildren());
             parent.replace(newListNode);
@@ -275,6 +289,13 @@ export function $removeList(): void {
     }
 
     for (const listNode of listNodes) {
+      // A list occupying a named slot is left as-is: unwinding it would
+      // insert siblings through the tree API (which would throw) and vacate
+      // a slot whose assignment is managed by the node or extension that
+      // owns it.
+      if ($getSlotHost(listNode) !== null) {
+        continue;
+      }
       let insertionPoint: ListNode | ParagraphNode = listNode;
 
       const listItems = $getAllListItems(listNode);

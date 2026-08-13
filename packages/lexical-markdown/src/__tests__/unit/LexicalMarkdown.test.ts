@@ -3193,3 +3193,31 @@ describe('$generateNodesFromMarkdownString', () => {
     expect(nodes[0].getType()).toBe('paragraph');
   });
 });
+
+describe('$convertSelectionToMarkdownString whitespace slices', () => {
+  it('does not emit a dangling closing tag when the selection slices a format down to whitespace', () => {
+    const editor = createHeadlessEditor({nodes: [LinkNode]});
+    editor.update(
+      () => {
+        const root = $getRoot();
+        const first = $createTextNode('a  ');
+        first.toggleFormat('bold');
+        first.setStyle('color: red');
+        const second = $createTextNode('b');
+        second.toggleFormat('bold');
+        root.append($createParagraphNode().append(first, second));
+        $setSelectionFromCaretRange(
+          $getCaretRange(
+            $getTextPointCaret(first, 'next', 1),
+            $getTextPointCaret(second, 'next', 1),
+          ),
+        );
+      },
+      {discrete: true},
+    );
+    const result = editor.read('latest', () =>
+      $convertSelectionToMarkdownString(TRANSFORMERS, $getSelection()),
+    );
+    expect(result).toBe('  **b**');
+  });
+});

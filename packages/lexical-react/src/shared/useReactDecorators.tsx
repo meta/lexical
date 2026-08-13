@@ -12,6 +12,8 @@ import type {LexicalEditor} from 'lexical';
 import {type JSX, Suspense, useMemo, useSyncExternalStore} from 'react';
 import {createPortal} from 'react-dom';
 
+import {useRootElement} from './useRootElement';
+
 /** @internal */
 export function useReactDecorators(
   editor: LexicalEditor,
@@ -26,19 +28,20 @@ export function useReactDecorators(
     [editor],
   );
   const decorators = useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
+  const rootElement = useRootElement(editor);
 
   // Return decorators defined as React Portals
   return useMemo(() => {
+    // Declare a dependency on rootElement for the lint
+    void rootElement;
+    const onError = (e: Error) => editor._onError(e);
     const decoratedPortals = [];
     for (const nodeKey in decorators) {
       const element = editor.getElementByKey(nodeKey);
 
       if (element !== null) {
         const reactDecorator = (
-          <ErrorBoundary
-            onError={e => {
-              editor._onError(e);
-            }}>
+          <ErrorBoundary onError={onError}>
             <Suspense fallback={null}>{decorators[nodeKey]}</Suspense>
           </ErrorBoundary>
         );
@@ -47,5 +50,5 @@ export function useReactDecorators(
     }
 
     return decoratedPortals;
-  }, [ErrorBoundary, decorators, editor]);
+  }, [ErrorBoundary, decorators, editor, rootElement]);
 }

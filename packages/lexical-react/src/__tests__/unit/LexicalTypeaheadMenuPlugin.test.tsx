@@ -20,6 +20,10 @@ import {
 import {
   $createParagraphNode,
   $getRoot,
+  $getSelection,
+  $isRangeSelection,
+  $isTextNode,
+  $setCompositionKey,
   DELETE_CHARACTER_COMMAND,
   type LexicalEditor,
   ParagraphNode,
@@ -170,7 +174,10 @@ describe('LexicalTypeaheadMenuPlugin', () => {
     reactRoot = createRoot(container);
   });
 
-  afterEach(() => {
+  afterEach(async () => {
+    await act(async () => {
+      reactRoot.unmount();
+    });
     document.body.removeChild(container);
     vi.restoreAllMocks();
   });
@@ -493,6 +500,221 @@ describe('LexicalTypeaheadMenuPlugin', () => {
       });
 
       expect(callOrder).toEqual(['onClose']);
+      expect(onClose).toHaveBeenCalledTimes(1);
+      expect(
+        document.querySelector('[data-testid="custom-typeahead"]'),
+      ).toBeNull();
+    });
+  });
+
+  describe('IME composition', () => {
+    beforeEach(() => {
+      class ResizeObserverMock {
+        constructor(_callback: unknown) {}
+        observe() {}
+        unobserve() {}
+        disconnect() {}
+      }
+      vi.stubGlobal('ResizeObserver', ResizeObserverMock);
+    });
+
+    afterEach(() => {
+      vi.unstubAllGlobals();
+    });
+
+    const menuRenderFn: MenuRenderFn<TestMenuOption> = (
+      anchorElementRef,
+      itemProps,
+      matchingString,
+    ) => {
+      return anchorElementRef.current && itemProps.options.length
+        ? ReactDOM.createPortal(
+            <div
+              className="custom-typeahead-menu"
+              data-testid="custom-typeahead">
+              <ul />
+              {matchingString != null && (
+                <span data-testid="matching-string">{matchingString}</span>
+              )}
+            </div>,
+            anchorElementRef.current,
+          )
+        : null;
+    };
+
+    function Harness({
+      onQueryChange = vi.fn(),
+      onClose,
+    }: {
+      onQueryChange?: (matchingString: string | null) => void;
+      onClose?: () => void;
+    }) {
+      const checkForTriggerMatch = useBasicTypeaheadTriggerMatch('/', {
+        minLength: 0,
+      });
+      const onSelectOption = useCallback(
+        (
+          _option: TestMenuOption,
+          _nodeToRemove: TextNode | null,
+          closeMenu: () => void,
+        ) => {
+          closeMenu();
+        },
+        [],
+      );
+      return (
+        <LexicalTypeaheadMenuPlugin<TestMenuOption>
+          onQueryChange={onQueryChange}
+          onSelectOption={onSelectOption}
+          triggerFn={checkForTriggerMatch}
+          options={TEST_OPTIONS}
+          menuRenderFn={menuRenderFn}
+          onClose={onClose}
+        />
+      );
+    }
+
+    function $insertTrigger(): void {
+      $getRoot()
+        .clear()
+        .append($createParagraphNode())
+        .select()
+        .insertText('/');
+    }
+
+    function $getQueryTextNode(): TextNode {
+      const textNode = $getRoot().getFirstDescendant();
+      if (!$isTextNode(textNode)) {
+        throw new Error('expected a text node holding the query');
+      }
+      return textNode;
+    }
+
+    function $compose(text: string): void {
+      const selection = $getSelection();
+      if (!$isRangeSelection(selection)) {
+        throw new Error('expected a range selection');
+      }
+      selection.insertText(text);
+      $setCompositionKey(selection.anchor.key);
+    }
+
+    function $dropTriggerWhileComposing(): void {
+      const textNode = $getQueryTextNode();
+      textNode.setTextContent('햄');
+      $setCompositionKey(textNode.getKey());
+    }
+
+    async function mountAndCompose(
+      props: React.ComponentProps<typeof Harness>,
+    ): Promise<LexicalEditor> {
+      const editorRef = React.createRef<LexicalEditor>();
+      const App = createApp(
+        <>
+          <EditorRefPlugin editorRef={editorRef} />
+          <Harness {...props} />
+        </>,
+        [ParagraphNode],
+      );
+
+      await act(async () => {
+        reactRoot.render(<App />);
+      });
+
+      const editor = editorRef.current;
+      if (editor === null) {
+        throw new Error('expected the editor ref to be populated');
+      }
+
+      await act(async () => {
+        editor.update($insertTrigger);
+      });
+
+      await act(async () => {
+        editor.update(() => $compose('햄'));
+      });
+
+      return editor;
+    }
+
+    it('reports the query while composing without closing the menu', async () => {
+      const onQueryChange = vi.fn();
+      const editorRef = React.createRef<LexicalEditor>();
+      const App = createApp(
+        <>
+          <EditorRefPlugin editorRef={editorRef} />
+          <Harness onQueryChange={onQueryChange} />
+        </>,
+        [ParagraphNode],
+      );
+
+      await act(async () => {
+        reactRoot.render(<App />);
+      });
+
+      const editor = editorRef.current;
+      expect(editor).not.toBeNull();
+
+      await act(async () => {
+        editor!.update($insertTrigger);
+      });
+
+      expect(
+        document.querySelector('[data-testid="custom-typeahead"]'),
+      ).not.toBeNull();
+
+      onQueryChange.mockClear();
+
+      await act(async () => {
+        editor!.update(() => $compose('햄'));
+      });
+
+      expect(editor!.isComposing()).toBe(true);
+      expect(onQueryChange).toHaveBeenCalledWith('햄');
+      expect(
+        document.querySelector('[data-testid="custom-typeahead"]'),
+      ).not.toBeNull();
+      expect(
+        document.querySelector('[data-testid="matching-string"]')?.textContent,
+      ).toBe('햄');
+    });
+
+    it('keeps the menu open when the trigger match is lost while composing', async () => {
+      const onClose = vi.fn();
+      const editor = await mountAndCompose({onClose});
+
+      await act(async () => {
+        editor.update($dropTriggerWhileComposing);
+      });
+
+      expect(editor.isComposing()).toBe(true);
+      expect(onClose).not.toHaveBeenCalled();
+      expect(
+        document.querySelector('[data-testid="custom-typeahead"]'),
+      ).not.toBeNull();
+    });
+
+    it('closes the menu once composition ends without a trigger match', async () => {
+      const onClose = vi.fn();
+      const editor = await mountAndCompose({onClose});
+
+      await act(async () => {
+        editor.update($dropTriggerWhileComposing);
+      });
+
+      expect(
+        document.querySelector('[data-testid="custom-typeahead"]'),
+      ).not.toBeNull();
+
+      await act(async () => {
+        editor.update(() => {
+          $setCompositionKey(null);
+          $getQueryTextNode().markDirty();
+        });
+        await Promise.resolve();
+      });
+
+      expect(editor.isComposing()).toBe(false);
       expect(onClose).toHaveBeenCalledTimes(1);
       expect(
         document.querySelector('[data-testid="custom-typeahead"]'),

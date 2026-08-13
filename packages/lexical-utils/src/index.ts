@@ -211,10 +211,22 @@ export function $getAdjacentCaret<D extends CaretDirection>(
 }
 
 /**
- * $dfs iterator (right to left). Tree traversal is done on the fly as new values are requested with O(1) memory.
- * @param startNode - The node to start the search, if omitted, it will start at the root node.
- * @param endNode - The node to end the search, if omitted, it will find all descendants of the startingNode.
- * @returns An iterator, each yielded value is a DFSNode. It will always return at least 1 node (the start node).
+ * Right-to-left mirror of {@link $dfs}. It returns all the nodes found in the
+ * search in an array of objects.
+ * Preorder traversal is used, meaning that nodes are listed in the order of when they are FIRST encountered.
+ *
+ * Children-only spine: named slot subtrees are skipped. Use {@link $reverseDfsWithSlots}
+ * when you need to descend into slots (e.g. character counting, slot-aware
+ * content extraction).
+ *
+ * The whole traversal is materialized. Use {@link $reverseDfsIterator} to walk
+ * it on the fly with O(1) memory.
+ *
+ * @param startNode - The node to start the search (inclusive), if omitted, it will start at the root node.
+ * @param endNode - The node to end the search (inclusive), if omitted, it will find all descendants of the startingNode. If endNode
+ * is an ElementNode, it will stop before visiting any of its children.
+ * @returns An array of objects of all the nodes found by the search, including their depth into the tree.
+ * \\{depth: number, node: LexicalNode\\} It will always return at least 1 node (the start node).
  */
 export function $reverseDfs(
   startNode?: LexicalNode,

@@ -6,15 +6,13 @@
  *
  */
 
+import type {ErrorBoundaryType} from './shared/types';
 import type {JSX} from 'react';
 
 import {useLexicalComposerContext} from '@lexical/react/LexicalComposerContext';
 import {useLexicalEditable} from '@lexical/react/useLexicalEditable';
 
-import {
-  type ErrorBoundaryType,
-  LegacyDecorators,
-} from './shared/LegacyDecorators';
+import {LegacyDecorators} from './shared/LegacyDecorators';
 import {useCanShowPlaceholder} from './shared/useCanShowPlaceholder';
 import {usePlainTextSetup} from './shared/usePlainTextSetup';
 

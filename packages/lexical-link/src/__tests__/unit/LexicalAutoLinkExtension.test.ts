@@ -10,7 +10,9 @@ import {buildEditorFromExtensions} from '@lexical/extension';
 import {
   $isAutoLinkNode,
   AutoLinkExtension,
+  type AutoLinkNode,
   createLinkMatcherWithRegExp,
+  type LinkMatcher,
 } from '@lexical/link';
 import {
   $create,
@@ -22,8 +24,10 @@ import {
   configExtension,
   defineExtension,
   ElementNode,
+  type LexicalEditor,
   type LexicalNode,
 } from 'lexical';
+import {$assertNodeType} from 'lexical/src/__tests__/utils';
 import {assert, describe, expect, test} from 'vitest';
 
 class ExcludedParentNode extends ElementNode {
@@ -279,6 +283,126 @@ describe('LexicalAutoLinkExtension tests', () => {
       const nextSibling = autoLinkNode.getNextSibling();
       assert($isTextNode(nextSibling), 'next sibling must be a TextNode');
       expect(nextSibling.getTextContent()).toBe(' ');
+    });
+  });
+
+  describe('handleLinkEdit keeps the matcher attributes in sync', () => {
+    // Every attribute in LinkAttributes is derived from the matched url, so
+    // re-running the matcher on edited text must refresh all of them.
+    const ATTRIBUTE_MATCHER: LinkMatcher = text => {
+      const match = /https?:\/\/[a-z]+\.com/.exec(text);
+      if (match === null) {
+        return null;
+      }
+      const host = match[0].replace('https://', '');
+      return {
+        attributes: {
+          rel: `rel-${host}`,
+          target: `target-${host}`,
+          title: `title-${host}`,
+        },
+        index: match.index,
+        length: match[0].length,
+        text: match[0],
+        url: match[0],
+      };
+    };
+
+    function buildEditor() {
+      return buildEditorFromExtensions({
+        $initialEditorState() {
+          $getRoot().append(
+            $createParagraphNode().append($createTextNode('https://a.com')),
+          );
+        },
+        dependencies: [
+          TestLexicalAutoLinkExtension,
+          configExtension(AutoLinkExtension, {
+            matchers: [ATTRIBUTE_MATCHER],
+          }),
+        ],
+        name: '[test attributes]',
+      });
+    }
+
+    function $getAutoLink(): AutoLinkNode {
+      const paragraph = $assertNodeType(
+        $getRoot().getFirstChild(),
+        $isParagraphNode,
+      );
+      return $assertNodeType(paragraph.getFirstChild(), $isAutoLinkNode);
+    }
+
+    function retypeAsB(editor: LexicalEditor) {
+      editor.update(
+        () => {
+          const textNode = $assertNodeType(
+            $getAutoLink().getFirstChild(),
+            $isTextNode,
+          );
+          textNode.setTextContent('https://b.com');
+        },
+        {discrete: true},
+      );
+    }
+
+    test('the creation path applies every attribute', () => {
+      using editor = buildEditor();
+      editor.read(() => {
+        const autoLink = $getAutoLink();
+        expect(autoLink.getURL()).toBe('https://a.com');
+        expect(autoLink.getRel()).toBe('rel-a.com');
+        expect(autoLink.getTarget()).toBe('target-a.com');
+        expect(autoLink.getTitle()).toBe('title-a.com');
+      });
+    });
+
+    test('editing the link text refreshes rel and target', () => {
+      using editor = buildEditor();
+      retypeAsB(editor);
+      editor.read(() => {
+        const autoLink = $getAutoLink();
+        expect(autoLink.getURL()).toBe('https://b.com');
+        expect(autoLink.getRel()).toBe('rel-b.com');
+        expect(autoLink.getTarget()).toBe('target-b.com');
+      });
+    });
+
+    test('editing the link text refreshes the title', () => {
+      using editor = buildEditor();
+      retypeAsB(editor);
+      editor.read(() => {
+        expect($getAutoLink().getTitle()).toBe('title-b.com');
+      });
+    });
+
+    test('an attribute refresh is not reported as a url change', () => {
+      const changes: [string | null, string | null][] = [];
+      using editor = buildEditorFromExtensions({
+        $initialEditorState() {
+          $getRoot().append(
+            $createParagraphNode().append($createTextNode('https://a.com')),
+          );
+        },
+        dependencies: [
+          TestLexicalAutoLinkExtension,
+          configExtension(AutoLinkExtension, {
+            changeHandlers: [
+              (url, prevUrl) => {
+                changes.push([url, prevUrl]);
+              },
+            ],
+            matchers: [ATTRIBUTE_MATCHER],
+          }),
+        ],
+        name: '[test change handler]',
+      });
+      changes.length = 0;
+      retypeAsB(editor);
+
+      // ChangeHandler is documented as (url, prevUrl). Every reported pair must
+      // be a url, never a rel/target/title carried over from the same edit.
+      expect(changes).toEqual([['https://b.com', 'https://a.com']]);
     });
   });
 });

@@ -294,9 +294,11 @@ export function LexicalTypeaheadMenuPlugin<TOption extends MenuOption>({
           return;
         }
 
-        if (editor.isComposing()) {
-          return;
-        }
+        const closeUnlessComposing = () => {
+          if (!editor.isComposing()) {
+            closeTypeahead();
+          }
+        };
 
         const editorWindow = editor._window || window;
         const range = editorWindow.document.createRange();
@@ -309,7 +311,7 @@ export function LexicalTypeaheadMenuPlugin<TOption extends MenuOption>({
           text === null ||
           range === null
         ) {
-          closeTypeahead();
+          closeUnlessComposing();
           return;
         }
 
@@ -337,7 +339,7 @@ export function LexicalTypeaheadMenuPlugin<TOption extends MenuOption>({
             return;
           }
         }
-        closeTypeahead();
+        closeUnlessComposing();
       });
     };
 

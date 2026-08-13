@@ -438,7 +438,11 @@ export class HeadingNode extends ElementNode {
     const newElement =
       isAtEnd || !selection
         ? $createParagraphNode()
-        : $createHeadingNode(this.getTag());
+        : // The heading is split in two, so the second half keeps the
+          // block format and style of the first, like ParagraphNode does.
+          $createHeadingNode(this.getTag())
+            .setFormat(this.getFormatType())
+            .setStyle(this.getStyle());
     const direction = this.getDirection();
     newElement.setDirection(direction);
     this.insertAfter(newElement, restoreSelection);
@@ -1125,18 +1129,62 @@ function $promoteNodeSelectionToBlockEdge(
   return true;
 }
 
+/**
+ * Decides whether a paste event carrying files should be handled by
+ * dispatching {@link DRAG_DROP_PASTE} with those files, rather than falling
+ * through to the regular HTML paste handling.
+ *
+ * @param files - The files present on the clipboard, if any
+ * @param hasTextContent - Whether the clipboard also carries text/html or
+ * text/plain content
+ */
+export type ShouldHandlePasteAsFiles = (
+  files: File[],
+  hasTextContent: boolean,
+) => boolean;
+
+/**
+ * The historical behavior: files are only handled when the clipboard carries
+ * no text content at all. Note that browsers put a text/html fallback on the
+ * clipboard alongside the file when an image is copied via the context menu,
+ * so this default routes such images through the HTML importer.
+ */
+export function defaultShouldHandlePasteAsFiles(
+  files: File[],
+  hasTextContent: boolean,
+): boolean {
+  return files.length > 0 && !hasTextContent;
+}
+
 export function registerRichText(
   editor: LexicalEditor,
   escapeFormatTriggers: ReadonlySignal<EscapeFormatTriggerConfig> = signal(
     DEFAULT_ESCAPE_FORMAT_TRIGGERS,
   ),
+  shouldHandlePasteAsFiles: ReadonlySignal<ShouldHandlePasteAsFiles> = signal(
+    defaultShouldHandlePasteAsFiles,
+  ),
 ): () => void {
   const removeListener = mergeRegister(
     editor.registerCommand(
       CLICK_COMMAND,
-      () => {
+      event => {
         const selection = $getSelection();
         if ($isNodeSelection(selection)) {
+          // A click on an already-selected node is an interaction with that
+          // node (its own click handler may select it, open an editor, …),
+          // not a deselect gesture. Keep the selection when the click target
+          // is inside the selected node's DOM; clicking anywhere else still
+          // deselects (facebook/lexical#8907).
+          const eventTarget = event.target;
+          if (isHTMLElement(eventTarget)) {
+            for (const node of selection.getNodes()) {
+              const dom = editor.getElementByKey(node.getKey());
+              if (dom !== null && dom.contains(eventTarget)) {
+                return false;
+              }
+            }
+          }
           selection.clear();
           return true;
         }
@@ -1779,7 +1827,7 @@ export function registerRichText(
       PASTE_COMMAND,
       event => {
         const [, files, hasTextContent] = eventFiles(event);
-        if (files.length > 0 && !hasTextContent) {
+        if (shouldHandlePasteAsFiles.peek()(files, hasTextContent)) {
           editor.dispatchCommand(DRAG_DROP_PASTE, files);
           return true;
         }
@@ -1938,6 +1986,10 @@ export function registerRichText(
   return removeListener;
 }
 
+export {
+  HeadingAnnounceExtension,
+  type HeadingAnnounceExtensionConfig,
+} from './HeadingAnnounceExtension';
 export {
   type RichTextConfig,
   RichTextExtension,

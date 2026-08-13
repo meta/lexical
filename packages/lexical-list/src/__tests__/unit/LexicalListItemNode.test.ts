@@ -1503,6 +1503,53 @@ describe('LexicalListItemNode tests', () => {
       );
     });
 
+    test('Option Enabled: Preserves numbering when a nested sublist precedes the split', async () => {
+      const {editor} = testEnv;
+      await editor.update(() => {
+        const root = $getRoot();
+        const list = $createListNode('number');
+        const item1 = $createListItemNode();
+        item1.append($createTextNode('A'));
+
+        // A nested sublist lives inside its own wrapper <li>, which renders no
+        // marker of its own and so does not consume a number.
+        const nestedHolder = $createListItemNode();
+        const nested = $createListNode('bullet');
+        const nestedItem = $createListItemNode();
+        nestedItem.append($createTextNode('A.1'));
+        nested.append(nestedItem);
+        nestedHolder.append(nested);
+
+        const item2 = $createListItemNode();
+        item2.append($createTextNode('B'));
+        const emptyItem = $createListItemNode();
+        const item3 = $createListItemNode();
+        item3.append($createTextNode('C'));
+
+        list.append(item1, nestedHolder, item2, emptyItem, item3);
+        root.append(list);
+
+        emptyItem.select();
+      });
+
+      await editor.update(() => {
+        $handleListInsertParagraph(true);
+      });
+
+      editor.read('latest', () => {
+        // A is 1 and B is 2, so the removed empty item was 3 and the split-off
+        // list has to continue from 3 -- the same rule the flat case follows.
+        const [firstList, paragraph, secondList] = $getRoot().getChildren();
+        expect($isListNode(firstList)).toBe(true);
+        expect($isParagraphNode(paragraph)).toBe(true);
+        expect($isListNode(secondList)).toBe(true);
+        expect((secondList as ListNode).getStart()).toBe(3);
+        const firstItem = (secondList as ListNode).getFirstChild();
+        expect($isListItemNode(firstItem)).toBe(true);
+        expect((firstItem as ListItemNode).getValue()).toBe(3);
+      });
+    });
+
     describe('ListItemNode $transform wraps orphan ListItemNodes', () => {
       test('wraps a single orphan ListItemNode under root in a ListNode', () => {
         const {editor} = testEnv;

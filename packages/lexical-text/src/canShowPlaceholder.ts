@@ -54,7 +54,7 @@ export function $canShowPlaceholder(isComposing: boolean): boolean {
       const topBlockChildrenLength = topBlockChildren.length;
 
       for (let s = 0; s < topBlockChildrenLength; s++) {
-        const child = topBlockChildren[i];
+        const child = topBlockChildren[s];
 
         if (!$isTextNode(child)) {
           return false;

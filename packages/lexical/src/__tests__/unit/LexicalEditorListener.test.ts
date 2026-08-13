@@ -6,6 +6,8 @@
  *
  */
 import {buildEditorFromExtensions} from '@lexical/extension';
+import {RichTextExtension} from '@lexical/rich-text';
+import {$createParagraphNode, $createTextNode, $getRoot} from 'lexical';
 import {describe, expect, test, vi} from 'vitest';
 
 describe('LexicalEditor listeners', () => {
@@ -150,6 +152,67 @@ describe('LexicalEditor listeners', () => {
         [true],
         [false],
       ]);
+    });
+  });
+
+  // UpdateListener / DecoratorListener / TextContentListener are typed
+  // `=> void`, so TypeScript lets them return any value. Those values must not
+  // be treated as unregister callbacks — doing so threw
+  // "unregister is not a function" out of the next commit.
+  describe('listener return values', () => {
+    function buildRichTextEditor() {
+      return buildEditorFromExtensions({
+        dependencies: [RichTextExtension],
+        name: '@test-void-listeners',
+      });
+    }
+
+    function $appendParagraph(text: string) {
+      $getRoot()
+        .clear()
+        .append($createParagraphNode().append($createTextNode(text)));
+    }
+
+    test('an update listener may return a non-function value', () => {
+      using editor = buildRichTextEditor();
+      const seen: string[] = [];
+      // `Array.prototype.push` returns a number; assignable to `=> void`.
+      const unregister = editor.registerUpdateListener(() => seen.push('x'));
+
+      editor.update(() => $appendParagraph('a'), {discrete: true});
+      editor.update(() => $appendParagraph('b'), {discrete: true});
+      unregister();
+
+      expect(seen).toEqual(['x', 'x']);
+      expect(editor._listeners.update.size).toBe(0);
+    });
+
+    test('a text content listener may return a non-function value', () => {
+      using editor = buildRichTextEditor();
+      const seen: string[] = [];
+      const unregister = editor.registerTextContentListener(text =>
+        seen.push(text),
+      );
+
+      editor.update(() => $appendParagraph('a'), {discrete: true});
+      editor.update(() => $appendParagraph('b'), {discrete: true});
+      unregister();
+
+      expect(seen).toEqual(['a', 'b']);
+    });
+
+    test('an update listener returning a function gets it called as cleanup', () => {
+      using editor = buildRichTextEditor();
+      const cleanup = vi.fn();
+      const unregister = editor.registerUpdateListener(() => cleanup);
+
+      editor.update(() => $appendParagraph('a'), {discrete: true});
+      // The cleanup from the first call runs before the second call.
+      expect(cleanup).toHaveBeenCalledTimes(0);
+      editor.update(() => $appendParagraph('b'), {discrete: true});
+      expect(cleanup).toHaveBeenCalledTimes(1);
+      unregister();
+      expect(cleanup).toHaveBeenCalledTimes(2);
     });
   });
 });

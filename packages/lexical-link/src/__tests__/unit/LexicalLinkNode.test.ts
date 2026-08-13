@@ -26,6 +26,7 @@ import {
 import {
   $cloneWithProperties,
   $createLineBreakNode,
+  $createNodeSelection,
   $createParagraphNode,
   $createRangeSelection,
   $createTextNode,
@@ -1638,6 +1639,102 @@ describe('LinkNode.extractWithChild (Issue #5046 — preserve link wrap across b
         },
         {discrete: true},
       );
+    });
+  });
+});
+
+describe('$toggleLink with a NodeSelection', () => {
+  const extension = defineExtension({
+    $initialEditorState: () => {
+      $getRoot()
+        .clear()
+        .append($createParagraphNode().append($createTextNode('hello')));
+    },
+    dependencies: [LinkExtension, RichTextExtension],
+    name: '[root-node-selection]',
+  });
+
+  function $selectTheTextNode(): void {
+    const textNode = $getRoot().getLastDescendant();
+    assert($isTextNode(textNode), 'Expected a TextNode');
+    const selection = $createNodeSelection();
+    selection.add(textNode.getKey());
+    $setSelection(selection);
+  }
+
+  function $getLink(): LinkNode {
+    const paragraph = $getRoot().getFirstChild();
+    assert($isParagraphNode(paragraph), 'Expected a ParagraphNode');
+    const link = paragraph.getFirstChild();
+    assert($isLinkNode(link), 'Expected a LinkNode');
+    return link;
+  }
+
+  it('applies the title when creating a link', () => {
+    using editor = buildEditorFromExtensions(extension);
+    editor.update(
+      () => {
+        $selectTheTextNode();
+        $toggleLink('https://lexical.dev/', {
+          rel: 'noopener',
+          target: '_blank',
+          title: 'Lexical',
+        });
+      },
+      {discrete: true},
+    );
+    editor.read(() => {
+      const link = $getLink();
+      expect(link.getURL()).toBe('https://lexical.dev/');
+      expect(link.getRel()).toBe('noopener');
+      expect(link.getTarget()).toBe('_blank');
+      expect(link.getTitle()).toBe('Lexical');
+    });
+  });
+
+  it('applies the title when updating an existing link', () => {
+    using editor = buildEditorFromExtensions(extension);
+    editor.update(
+      () => {
+        $selectTheTextNode();
+        $toggleLink('https://lexical.dev/', {title: 'First'});
+      },
+      {discrete: true},
+    );
+    editor.update(
+      () => {
+        $selectTheTextNode();
+        $toggleLink('https://lexical.dev/docs', {title: 'Second'});
+      },
+      {discrete: true},
+    );
+    editor.read(() => {
+      const link = $getLink();
+      expect(link.getURL()).toBe('https://lexical.dev/docs');
+      expect(link.getTitle()).toBe('Second');
+    });
+  });
+
+  it('leaves an existing title alone when none is supplied', () => {
+    using editor = buildEditorFromExtensions(extension);
+    editor.update(
+      () => {
+        $selectTheTextNode();
+        $toggleLink('https://lexical.dev/', {title: 'Kept'});
+      },
+      {discrete: true},
+    );
+    editor.update(
+      () => {
+        $selectTheTextNode();
+        $toggleLink('https://lexical.dev/docs');
+      },
+      {discrete: true},
+    );
+    editor.read(() => {
+      const link = $getLink();
+      expect(link.getURL()).toBe('https://lexical.dev/docs');
+      expect(link.getTitle()).toBe('Kept');
     });
   });
 });

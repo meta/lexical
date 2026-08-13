@@ -39,6 +39,7 @@ import {
   type StateValueOrUpdater,
 } from 'lexical';
 import {
+  DECORATOR_BOUNDARY_ANCHOR_HTML,
   expectHtmlToBeEqual,
   html,
   invariant,
@@ -178,6 +179,7 @@ describe('LexicalExtensionEditorComposer', () => {
               <p dir="auto"><span data-lexical-text="true">nested</span></p>
             </div>
           </div>
+          ${DECORATOR_BOUNDARY_ANCHOR_HTML}
         </div>
       `,
     );

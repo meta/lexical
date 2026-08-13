@@ -1394,6 +1394,9 @@ importers:
 
   packages/lexical-rich-text:
     dependencies:
+      '@lexical/a11y':
+        specifier: workspace:*
+        version: link:../lexical-a11y
       '@lexical/clipboard':
         specifier: workspace:*
         version: link:../lexical-clipboard

@@ -687,7 +687,7 @@ export class ElementNode
     const writableSelfKey = writableSelf.__key;
     const nodesToInsertKeys = [];
     const nodesToRemoveKeys = [];
-    const nodeAfterRange = this.getChildAtIndex(start + deleteCount);
+    let nodeAfterRange = this.getChildAtIndex(start + deleteCount);
     let nodeBeforeRange = null;
     let newSize = oldSize - deleteCount + nodesToInsert.length;
 
@@ -725,6 +725,9 @@ export class ElementNode
       if (prevNode !== null && nodeToInsert.is(prevNode)) {
         nodeBeforeRange = prevNode = prevNode.getPreviousSibling();
       }
+      if (nodeAfterRange !== null && nodeToInsert.is(nodeAfterRange)) {
+        nodeAfterRange = nodeAfterRange.getNextSibling();
+      }
       const writableNodeToInsert = nodeToInsert.getWritable();
       if (writableNodeToInsert.__parent === writableSelfKey) {
         newSize--;
@@ -748,13 +751,13 @@ export class ElementNode
       prevNode = nodeToInsert;
     }
 
-    if (start + deleteCount === oldSize) {
+    if (nodeAfterRange === null) {
       if (prevNode !== null) {
         const writablePrevNode = prevNode.getWritable();
         writablePrevNode.__next = null;
         writableSelf.__last = prevNode.__key;
       }
-    } else if (nodeAfterRange !== null) {
+    } else {
       const writableNodeAfterRange = nodeAfterRange.getWritable();
       if (prevNode !== null) {
         const writablePrevNode = prevNode.getWritable();

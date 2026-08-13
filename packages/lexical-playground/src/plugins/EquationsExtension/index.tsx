@@ -26,7 +26,11 @@ import {
 } from 'lexical';
 import {type JSX, useCallback} from 'react';
 
-import {$createEquationNode, EquationNode} from '../../nodes/EquationNode';
+import {
+  $createEquationNode,
+  decodeEquation,
+  EquationNode,
+} from '../../nodes/EquationNode';
 import KatexEquationAlterer from '../../ui/KatexEquationAlterer';
 
 type CommandPayload = {
@@ -42,7 +46,7 @@ function $convertEquationElement(el: HTMLElement) {
   if (!encoded) {
     return null;
   }
-  const equation = atob(encoded);
+  const equation = decodeEquation(encoded);
   if (!equation) {
     return null;
   }

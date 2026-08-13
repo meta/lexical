@@ -3278,4 +3278,40 @@ describe('$patchStyleText', () => {
       expect(newFocus.offset).toBe(0);
     });
   });
+
+  test('applies a function-valued patch exactly once to an empty element', async () => {
+    const editor = createTestEditor();
+
+    const element = document.createElement('div');
+
+    editor.setRootElement(element);
+
+    let paragraphStyle = '';
+    let selectionStyle = '';
+
+    await editor.update(() => {
+      const root = $getRoot();
+
+      const paragraph = $createParagraphNode();
+      root.append(paragraph);
+      paragraph.selectStart();
+
+      const selection = $getSelection()!;
+
+      // Mirrors the playground font-size +/- buttons, which patch with a
+      // function of the previous value rather than a constant.
+      $patchStyleText(selection, {
+        'font-size': currentValue => {
+          const size = parseInt(currentValue || '', 10);
+          return `${(Number.isNaN(size) ? 16 : size) + 2}px`;
+        },
+      });
+
+      selectionStyle = ($getSelection() as RangeSelection).style;
+      paragraphStyle = paragraph.getTextStyle();
+    });
+
+    expect(selectionStyle).toBe('font-size: 18px;');
+    expect(paragraphStyle).toBe('font-size: 18px;');
+  });
 });
