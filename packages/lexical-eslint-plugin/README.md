@@ -46,6 +46,69 @@ export default [
 ];
 ```
 
+### Preventing nested editor updates
+
+`@lexical/no-nested-editor-updates` reports `editor.update()` calls that are
+already inside a Lexical editor context. This includes \$functions and the
+callbacks passed to `editor.update`, `editor.registerCommand`, and
+`editor.registerNodeTransform`.
+
+The rule is opt-in because enabling it can expose existing nested updates. Add
+it to the `rules` object in either configuration format:
+
+```js
+const rules = {
+  '@lexical/no-nested-editor-updates': 'error'
+};
+```
+
+For example, this command listener schedules a nested update:
+
+```js
+editor.registerCommand(
+  REMOVE_NODE_COMMAND,
+  () => {
+    editor.update(() => {
+      $getSelection().removeText();
+    });
+    return true;
+  },
+  COMMAND_PRIORITY_EDITOR,
+);
+```
+
+The listener already has an implicit update context, so the callback should run
+directly:
+
+```js
+editor.registerCommand(
+  REMOVE_NODE_COMMAND,
+  () => {
+    $getSelection().removeText();
+    return true;
+  },
+  COMMAND_PRIORITY_EDITOR,
+);
+```
+
+To avoid matching unrelated APIs that also have an `update` method, editor
+expressions must end in `editor`, ignoring case. This covers names such as
+`editor`, `nestedEditor`, `props.editor`, and `$getEditor()`. Additional names
+or patterns can be configured with `isEditor`. The `isDollarFunction` option
+extends the default `/^\$[a-z_]/` function-name matcher:
+
+```js
+const rules = {
+  '@lexical/no-nested-editor-updates': [
+    'error',
+    {
+      isDollarFunction: '^INTERNAL_\\$',
+      isEditor: '^lexicalInstance$',
+    },
+  ],
+};
+```
+
 ### Advanced configuration
 
 Most of the heuristics in `@lexical/rules-of-lexical` can be extended with
