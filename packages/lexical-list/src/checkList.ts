@@ -201,14 +201,12 @@ export function registerCheckList(
         const activeItem = getActiveCheckListItem(editor);
 
         if (activeItem != null && editor.isEditable()) {
-          editor.update(() => {
-            const listItemNode = $getNearestNodeFromDOMNode(activeItem);
+          const listItemNode = $getNearestNodeFromDOMNode(activeItem);
 
-            if ($isListItemNode(listItemNode)) {
-              event.preventDefault();
-              listItemNode.toggleChecked();
-            }
-          });
+          if ($isListItemNode(listItemNode)) {
+            event.preventDefault();
+            listItemNode.toggleChecked();
+          }
           return true;
         }
 

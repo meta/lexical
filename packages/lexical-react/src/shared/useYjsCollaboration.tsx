@@ -713,15 +713,7 @@ function initializeEditor(
               break;
             }
             case 'function': {
-              editor.update(
-                () => {
-                  const root1 = $getRoot();
-                  if (root1.isEmpty()) {
-                    initialEditorState(editor);
-                  }
-                },
-                {tag: HISTORY_MERGE_TAG},
-              );
+              initialEditorState(editor);
               break;
             }
           }

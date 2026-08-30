@@ -347,6 +347,11 @@ export default [
   })),
   lexicalPlugin.configs['flat/all'],
   {
+    rules: {
+      '@lexical/no-nested-editor-updates': ERROR,
+    },
+  },
+  {
     files: ['**/*.ts', '**/*.tsx', '**/*.mts'],
     languageOptions: {
       globals: {
@@ -529,6 +534,14 @@ export default [
     rules: {
       'react-hooks/globals': OFF,
       'react-hooks/immutability': OFF,
+    },
+  },
+
+  // Override: these tests intentionally exercise nested update behavior.
+  {
+    files: ['packages/lexical/src/__tests__/unit/LexicalEditor.test.tsx'],
+    rules: {
+      '@lexical/no-nested-editor-updates': OFF,
     },
   },
 

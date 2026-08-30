@@ -157,6 +157,21 @@ const EditorKey = createState('editor', {
   parse: (): null | LexicalEditorWithDispose => null,
 });
 
+function createChildEditor(
+  parentEditor?: LexicalEditor,
+): LexicalEditorWithDispose {
+  const nestedEditorExtension =
+    parentEditor === undefined
+      ? NestedEditorExtension
+      : configExtension(NestedEditorExtension, {
+          $getParentEditor: () => parentEditor,
+        });
+  return buildEditorFromExtensions({
+    dependencies: [SharedHistoryExtension, nestedEditorExtension],
+    name: 'ChildEditorNode',
+  });
+}
+
 class ChildEditorNode extends DecoratorNode<null> {
   $config() {
     return this.config('child-editor', {extends: DecoratorNode});
@@ -175,10 +190,7 @@ class ChildEditorNode extends DecoratorNode<null> {
     if (prevEditor) {
       return prevEditor;
     }
-    const editor = buildEditorFromExtensions({
-      dependencies: [SharedHistoryExtension, NestedEditorExtension],
-      name: 'ChildEditorNode',
-    });
+    const editor = createChildEditor();
     $setState(this, EditorKey, editor);
     return editor;
   }
@@ -815,16 +827,18 @@ describe('SharedHistoryExtension', () => {
         <p dir="auto"><span data-lexical-text="true">parent editor</span></p>
       `,
     );
+    const childEditor = createChildEditor(editor);
+    childEditor.update(
+      () => {
+        $selectAll().insertText('Child editor');
+        $setSelection(null);
+      },
+      {discrete: true},
+    );
     editor.update(
       () => {
         const child = $create(ChildEditorNode);
-        child.getOrResetEditor().update(
-          () => {
-            $selectAll().insertText('Child editor');
-            $setSelection(null);
-          },
-          {discrete: true},
-        );
+        $setState(child, EditorKey, childEditor);
         $getRoot().selectEnd().insertNodes([child]);
       },
       {discrete: true},

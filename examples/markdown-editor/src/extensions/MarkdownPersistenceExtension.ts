@@ -97,7 +97,7 @@ export const MarkdownPersistenceExtension = defineExtension({
           if (hasStorage) {
             window.localStorage.removeItem(storageKey);
           }
-          editor.update(() => $fromString(defaultMarkdown));
+          $fromString(defaultMarkdown);
           return true;
         },
         COMMAND_PRIORITY_EDITOR,
