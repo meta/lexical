@@ -8,10 +8,17 @@
 // @ts-check
 
 import {buildMatcher} from '../util/buildMatcher.js';
+import {getIdentifierVariable} from '../util/getIdentifierVariable.js';
 import {
   getFunctionNameIdentifier,
   getLexicalFunctionName,
 } from '../util/getLexicalFunctionName.js';
+import {
+  DEFAULT_DOLLAR_FUNCTION_MATCHER,
+  getSourceCode,
+  matcherSchema,
+  parseMatcherOption,
+} from '../util/ruleOptions.js';
 
 /**
  * @typedef {import('eslint').Rule.NodeParentExtension} NodeParentExtension
@@ -22,40 +29,9 @@ import {
  * @typedef {import('eslint').Rule.Node} Node
  * @typedef {import('eslint').Rule.RuleModule} RuleModule
  * @typedef {import('eslint').Rule.ReportFixer} ReportFixer
- * @typedef {import('eslint').SourceCode} SourceCode
  * @typedef {import('eslint').Scope.Variable} Variable
  * @typedef {import('eslint').Scope.Scope} Scope
  */
-
-/**
- * Find the variable associated with the given Identifier
- *
- * @param {SourceCode} sourceCode
- * @param {Identifier} identifier
- */
-function getIdentifierVariable(sourceCode, identifier) {
-  const scopeManager = sourceCode.scopeManager;
-  for (
-    let node = /** @type {Node | null} */ (identifier);
-    node;
-    node = /** @type {Node | null}*/ (node.parent)
-  ) {
-    const variable = scopeManager
-      .getDeclaredVariables(node)
-      .find(v => v.identifiers.includes(identifier));
-    if (variable) {
-      return variable;
-    }
-    const scope = scopeManager.acquire(node);
-    if (scope) {
-      return (
-        scope.set.get(identifier.name) ||
-        (scope.upper ? scope.upper.set.get(identifier.name) : undefined)
-      );
-    }
-  }
-  return undefined;
-}
 
 /**
  * @typedef {import('../util/buildMatcher.js').ToMatcher} ToMatcher
@@ -73,7 +49,7 @@ function getIdentifierVariable(sourceCode, identifier) {
 
 /** @type {BaseMatchers<Exclude<ToMatcher, undefined>[]>} */
 const BaseMatchers = {
-  isDollarFunction: [/^\$[a-z_]/],
+  isDollarFunction: [DEFAULT_DOLLAR_FUNCTION_MATCHER],
   isIgnoredFunction: [],
   isLexicalProvider: [
     'parseEditorState',
@@ -177,31 +153,6 @@ function getExportDeclaration(variable) {
 function renameExportText({caller, suggestName}) {
   return `\n/** @deprecated renamed to {@link ${suggestName}} by @lexical/eslint-plugin rules-of-lexical */\nexport const ${caller} = ${suggestName};`;
 }
-
-/**
- * @param {RuleContext} context
- * @param {string} optionName
- * @returns {ToMatcher}
- */
-function parseMatcherOption(context, optionName) {
-  const options = Array.isArray(context.options)
-    ? context.options[0]
-    : undefined;
-  return options && optionName in options ? options[optionName] : undefined;
-}
-
-/** @param {RuleContext} context */
-function getSourceCode(context) {
-  if (context.sourceCode) {
-    return context.sourceCode;
-  }
-  // @ts-expect-error -- getSourceCode() removed from types in ESLint 10, kept for ESLint 8 compat
-  return context.getSourceCode();
-}
-
-const matcherSchema = {
-  oneOf: [{type: 'string'}, {contains: {type: 'string'}, type: 'array'}],
-};
 
 /** @type {RuleModule} */
 export const rulesOfLexical = {

@@ -21,7 +21,7 @@ const ruleTester = new RuleTester({
 const rule = plugin.rules['no-nested-editor-updates'];
 
 describe('no-nested-editor-updates', () => {
-  it('reports editor.update calls from $functions', () => {
+  it('reports ambiguous $function ownership without flagging child editors', () => {
     ruleTester.run('$functions', rule, {
       invalid: [
         {
@@ -34,27 +34,21 @@ describe('no-nested-editor-updates', () => {
                 callee: 'editor.update',
                 context: '$updateSomething',
               },
-              messageId: 'noNestedEditorUpdates',
+              messageId: 'dollarFunctionUpdate',
             },
           ],
-        },
-        {
-          code: `const $updateSomething = () => {
-  nestedEditor.update(() => {});
-};`,
-          errors: [{messageId: 'noNestedEditorUpdates'}],
         },
         {
           code: `const $updateSomething = useCallback(() => {
   editor.update(() => {});
 }, [editor]);`,
-          errors: [{messageId: 'noNestedEditorUpdates'}],
+          errors: [{messageId: 'dollarFunctionUpdate'}],
         },
         {
           code: `function $updateSomething() {
   $getEditor().update(() => {});
 }`,
-          errors: [{messageId: 'noNestedEditorUpdates'}],
+          errors: [{messageId: 'dollarFunctionUpdate'}],
         },
       ],
       valid: [
@@ -64,6 +58,15 @@ describe('no-nested-editor-updates', () => {
         `function $updateSomething(session) {
   session.update(() => {});
 }`,
+        `function $syncChild(childEditor) {
+  childEditor.update(() => {});
+}`,
+        `function $updateSomething(nestedEditor) {
+  nestedEditor.update(() => {});
+}`,
+        `function $updateSomething(props) {
+  props.editor.update(() => {});
+}`,
         `function $updateSomething(editor) {
   setTimeout(() => editor.update(() => {}), 0);
 }`,
@@ -71,7 +74,7 @@ describe('no-nested-editor-updates', () => {
     });
   });
 
-  it('reports nested updates from implicit update callbacks', () => {
+  it('reports nested updates only when the receiver binding is the same', () => {
     ruleTester.run('implicit update callbacks', rule, {
       invalid: [
         {
@@ -89,7 +92,8 @@ describe('no-nested-editor-updates', () => {
           ],
         },
         {
-          code: `editor.registerCommand(COMMAND, () => {
+          code: `const editor = getEditor();
+editor.registerCommand(COMMAND, () => {
   editor.update(() => {});
 }, PRIORITY);`,
           errors: [
@@ -103,13 +107,53 @@ describe('no-nested-editor-updates', () => {
           ],
         },
         {
-          code: `editor.registerNodeTransform(Node, node => {
-  nestedEditor.update(() => node.remove());
+          code: `editor.registerNodeTransform(Node, () => {
+  editor.update(() => {});
+});`,
+          errors: [{messageId: 'noNestedEditorUpdates'}],
+        },
+        {
+          code: `editor.read(() => {
+  editor.update(() => {});
+});`,
+          errors: [{messageId: 'noNestedEditorUpdates'}],
+        },
+        {
+          code: `props.editor.update(() => {
+  props.editor.update(() => {});
+});`,
+          errors: [{messageId: 'noNestedEditorUpdates'}],
+        },
+        {
+          code: `$getEditor().read(() => {
+  $getEditor().update(() => {});
 });`,
           errors: [{messageId: 'noNestedEditorUpdates'}],
         },
       ],
       valid: [
+        `editor.update(() => {
+  nestedEditor.update(() => {});
+});`,
+        `editor.registerCommand(COMMAND, () => {
+  const nestedEditor = getNestedEditor();
+  nestedEditor.update(() => {});
+  return true;
+}, PRIORITY);`,
+        `editor.registerNodeTransform(Node, node => {
+  childEditor.update(() => node.remove());
+});`,
+        `editor.update(() => {
+  child.getOrResetEditor().update(() => {});
+});`,
+        `editor.read(() => {
+  childEditor.update(() => {});
+});`,
+        `const editor = getEditor();
+editor.update(() => {
+  const editor = getNestedEditor();
+  editor.update(() => {});
+});`,
         `session.update(() => {
   editor.update(() => {});
 });`,
@@ -136,6 +180,14 @@ describe('no-nested-editor-updates', () => {
           code: `function $updateSomething(lexicalInstance) {
   lexicalInstance.update(() => {});
 }`,
+          errors: [{messageId: 'dollarFunctionUpdate'}],
+          options: [{isEditor: '^lexicalInstance$'}],
+        },
+        {
+          code: `const lexicalInstance = getEditor();
+lexicalInstance.update(() => {
+  lexicalInstance.update(() => {});
+});`,
           errors: [{messageId: 'noNestedEditorUpdates'}],
           options: [{isEditor: '^lexicalInstance$'}],
         },

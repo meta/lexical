@@ -49,9 +49,15 @@ export default [
 ### Preventing nested editor updates
 
 `@lexical/no-nested-editor-updates` reports `editor.update()` calls that are
-already inside a Lexical editor context. This includes \$functions and the
-callbacks passed to `editor.update`, `editor.registerCommand`, and
-`editor.registerNodeTransform`.
+already inside an update context for the same editor. This includes the
+callbacks passed to `editor.update`, `editor.read`, `editor.registerCommand`,
+and `editor.registerNodeTransform` when the outer and inner receiver resolve to
+the same identifier binding.
+
+The rule also reports an `editor.update()` directly inside a \$function. In
+that case the diagnostic explains both valid fixes: remove the update wrapper
+if the function uses the active editor context, or remove the `$` prefix if the
+function intentionally owns the update.
 
 The rule is opt-in because enabling it can expose existing nested updates. Add
 it to the `rules` object in either configuration format:
@@ -91,11 +97,34 @@ editor.registerCommand(
 );
 ```
 
+An update to a different editor is valid and is not reported:
+
+```js
+editor.registerCommand(
+  SYNC_CHILD_COMMAND,
+  () => {
+    childEditor.update(() => {
+      $getRoot().clear();
+    });
+    return true;
+  },
+  COMMAND_PRIORITY_EDITOR,
+);
+```
+
+Some nested updates intentionally use options such as `{discrete: true}` to
+change commit timing. Suppress those specific calls with an ESLint disable
+comment rather than removing the wrapper.
+
 To avoid matching unrelated APIs that also have an `update` method, editor
-expressions must end in `editor`, ignoring case. This covers names such as
-`editor`, `nestedEditor`, `props.editor`, and `$getEditor()`. Additional names
-or patterns can be configured with `isEditor`. The `isDollarFunction` option
-extends the default `/^\$[a-z_]/` function-name matcher:
+expressions must end in `editor`, ignoring case. This recognizes names such as
+`editor`, `childEditor`, `props.editor`, and `$getEditor()`, but callback checks
+report only when the inner expression can be tied to the outer expression.
+Inside a \$function, the default active-editor names are `editor` and
+`$getEditor()`; differently named receivers are left alone because they may
+refer to another editor. Additional names or patterns can be configured with
+`isEditor`. The `isDollarFunction` option extends the default `/^\$[a-z_]/`
+function-name matcher:
 
 ```js
 const rules = {
@@ -108,6 +137,12 @@ const rules = {
   ],
 };
 ```
+
+The analysis is deliberately local. It does not follow callbacks passed by
+reference, aliases between differently named editor variables, or updates
+inside another nested callback such as `setTimeout(() => editor.update(...))`.
+These limits avoid suggestions that could change behavior when the editor or
+execution context cannot be proven statically.
 
 ### Advanced configuration
 

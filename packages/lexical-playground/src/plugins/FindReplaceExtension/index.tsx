@@ -671,11 +671,19 @@ export const FindReplaceExtension = defineExtension({
                 output.caseSensitive.peek(),
               )
             : null;
-          const offsetMap = $buildOffsetMap();
-          const points = $resolveMatchToPoints(m[idx], offsetMap);
-          if (points) {
-            $replaceMatch(points, replaceText, m[idx], regex);
-          }
+          // The discrete nested update intentionally flushes the pending
+          // command update before this synchronous command returns.
+          // eslint-disable-next-line @lexical/no-nested-editor-updates
+          editor.update(
+            () => {
+              const offsetMap = $buildOffsetMap();
+              const points = $resolveMatchToPoints(m[idx], offsetMap);
+              if (points) {
+                $replaceMatch(points, replaceText, m[idx], regex);
+              }
+            },
+            {discrete: true},
+          );
           return true;
         },
         COMMAND_PRIORITY_LOW,
@@ -695,8 +703,16 @@ export const FindReplaceExtension = defineExtension({
                 output.caseSensitive.peek(),
               )
             : null;
-          const offsetMap = $buildOffsetMap();
-          $replaceAllMatches(m, offsetMap, replaceText, regex);
+          // The discrete nested update intentionally flushes the pending
+          // command update before this synchronous command returns.
+          // eslint-disable-next-line @lexical/no-nested-editor-updates
+          editor.update(
+            () => {
+              const offsetMap = $buildOffsetMap();
+              $replaceAllMatches(m, offsetMap, replaceText, regex);
+            },
+            {discrete: true},
+          );
           return true;
         },
         COMMAND_PRIORITY_LOW,

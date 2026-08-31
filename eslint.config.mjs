@@ -537,14 +537,6 @@ export default [
     },
   },
 
-  // Override: these tests intentionally exercise nested update behavior.
-  {
-    files: ['packages/lexical/src/__tests__/unit/LexicalEditor.test.tsx'],
-    rules: {
-      '@lexical/no-nested-editor-updates': OFF,
-    },
-  },
-
   // Override: Playwright e2e tests - flag unawaited promise-returning
   // Playwright calls. An un-awaited `page.setViewportSize(...)` (or any
   // method with `pause: true` metainfo) under `--debug` leaves
