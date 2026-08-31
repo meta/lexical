@@ -50,6 +50,21 @@ describe('no-nested-editor-updates', () => {
 }`,
           errors: [{messageId: 'dollarFunctionUpdate'}],
         },
+        {
+          code: `function $updateSomething(editor) {
+  editor.update(() => {}, {discrete: true});
+}`,
+          errors: [
+            {
+              data: {
+                callee: 'editor.update',
+                context: '$updateSomething',
+                migrations: '`discrete` with `$flushSyncAfterUpdate`',
+              },
+              messageId: 'dollarFunctionUpdateWithOptions',
+            },
+          ],
+        },
       ],
       valid: [
         `function updateSomething(editor) {
@@ -71,7 +86,10 @@ describe('no-nested-editor-updates', () => {
   setTimeout(() => editor.update(() => {}), 0);
 }`,
         `function $updateSomething(editor) {
-  editor.update(() => {}, {discrete: true});
+  editor.update(() => {}, {skipTransforms: true});
+}`,
+        `function $updateSomething(editor, updateOptions) {
+  editor.update(() => {}, updateOptions);
 }`,
       ],
     });
@@ -93,6 +111,32 @@ describe('no-nested-editor-updates', () => {
               messageId: 'noNestedEditorUpdates',
             },
           ],
+        },
+        {
+          code: `editor.update(() => {
+  editor.update(() => {}, {
+    tag: ['a', 'b'],
+    discrete: true,
+    onUpdate() {},
+  });
+});`,
+          errors: [
+            {
+              data: {
+                callee: 'editor.update',
+                context: 'editor.update callback',
+                migrations:
+                  '`tag` with `$addUpdateTag`, `discrete` with `$flushSyncAfterUpdate`, and `onUpdate` with `$onUpdate`',
+              },
+              messageId: 'noNestedEditorUpdatesWithOptions',
+            },
+          ],
+        },
+        {
+          code: `editor.update(() => {
+  editor.update(() => {}, {});
+});`,
+          errors: [{messageId: 'noNestedEditorUpdates'}],
         },
         {
           code: `const editor = getEditor();
@@ -132,6 +176,18 @@ editor.registerCommand(COMMAND, () => {
         {
           code: `editor.read('latest', () => {
   editor.update(() => {});
+});`,
+          errors: [{messageId: 'readOnlyUpdate'}],
+        },
+        {
+          code: `editor.read(() => {
+  editor.update(() => {}, {tag: 'after-read'});
+});`,
+          errors: [{messageId: 'readOnlyUpdate'}],
+        },
+        {
+          code: `editor.read(() => {
+  editor.update(() => {}, updateOptions);
 });`,
           errors: [{messageId: 'readOnlyUpdate'}],
         },
@@ -209,13 +265,14 @@ editor.update(() => {
   setTimeout(() => editor.update(() => {}), 0);
 });`,
         `editor.update(() => {
-  editor.update(() => {}, {discrete: true});
-  editor.update(() => {}, {tag: 'history-merge'});
-  editor.update(() => {}, {onUpdate() {}});
   editor.update(() => {}, {skipTransforms: true});
+  editor.update(() => {}, {tag: 'history-merge', skipTransforms: true});
 });`,
-        `editor.read(() => {
-  editor.update(() => {}, {tag: 'after-read'});
+        `editor.update(() => {
+  editor.update(() => {}, updateOptions);
+  editor.update(() => {}, {...updateOptions});
+  editor.update(() => {}, {['tag']: 'history-merge'});
+  editor.update(() => {}, {event: null});
 });`,
         `class Example {
   run() {

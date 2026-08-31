@@ -136,10 +136,17 @@ editor.registerCommand(
 );
 ```
 
-Nested updates with a second `options` argument are not reported. Options such
-as `discrete`, `tag`, `onUpdate`, and `skipTransforms` carry behavior that would
-be lost by simply removing the wrapper, so the rule leaves those calls for a
-human to assess.
+When a nested update has a statically analyzable `options` object, the diagnostic
+also explains how to preserve options that can be applied to the current update
+context: use `$addUpdateTag` for `tag`, `$flushSyncAfterUpdate` for `discrete`,
+and `$onUpdate` for `onUpdate`, then remove the wrapper. Call `$addUpdateTag`
+once for each value when `tag` is an array.
+
+`skipTransforms` has no in-place equivalent. The rule therefore leaves alone
+options objects containing `skipTransforms` as well as identifiers, spreads,
+computed properties, and unknown properties that might hide it. Options on an
+update inside `read()` are preserved unchanged when that update is moved after
+the read callback.
 
 To avoid matching unrelated APIs that also have an `update` method, editor
 expressions must end in `editor`, ignoring case. This recognizes names such as

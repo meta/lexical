@@ -58,6 +58,7 @@ const CurrentEditorBaseMatchers = ['editor', '$getEditor'];
  * @typedef {{method: Identifier, receiver: Node}} EditorMethod
  * @typedef {{name: string}} DollarFunctionContext
  * @typedef {{method: string, name: string, receiver: Node}} EditorCallbackContext
+ * @typedef {{helper: string, option: string}} UpdateOptionMigration
  */
 
 const implicitUpdateCallbackIndex = new Map([
@@ -65,6 +66,79 @@ const implicitUpdateCallbackIndex = new Map([
   ['registerNodeTransform', 1],
   ['update', 0],
 ]);
+
+const updateOptionHelpers = new Map([
+  ['discrete', '$flushSyncAfterUpdate'],
+  ['onUpdate', '$onUpdate'],
+  ['tag', '$addUpdateTag'],
+]);
+
+/**
+ * Return the update options that can be applied to the active update context.
+ * An unknown options expression is left alone because it may contain
+ * `skipTransforms`, which has no in-place equivalent.
+ *
+ * @param {CallExpression} node
+ * @returns {UpdateOptionMigration[] | undefined}
+ */
+function getUpdateOptionMigrations(node) {
+  if (node.arguments.length <= 1) {
+    return [];
+  }
+  if (node.arguments.length !== 2) {
+    return;
+  }
+  const options = node.arguments[1];
+  if (options.type !== 'ObjectExpression') {
+    return;
+  }
+
+  /** @type {UpdateOptionMigration[]} */
+  const migrations = [];
+  const seenOptions = new Set();
+  for (const property of options.properties) {
+    if (
+      property.type !== 'Property' ||
+      property.computed ||
+      property.kind !== 'init'
+    ) {
+      return;
+    }
+    const key = property.key;
+    const option =
+      key.type === 'Identifier'
+        ? key.name
+        : key.type === 'Literal' && typeof key.value === 'string'
+          ? key.value
+          : undefined;
+    const helper = option ? updateOptionHelpers.get(option) : undefined;
+    if (!option || !helper) {
+      return;
+    }
+    if (!seenOptions.has(option)) {
+      migrations.push({helper, option});
+      seenOptions.add(option);
+    }
+  }
+  return migrations;
+}
+
+/**
+ * @param {UpdateOptionMigration[]} migrations
+ * @returns {string}
+ */
+function formatUpdateOptionMigrations(migrations) {
+  const items = migrations.map(
+    ({helper, option}) => `\`${option}\` with \`${helper}\``,
+  );
+  if (items.length < 2) {
+    return items[0] || '';
+  }
+  if (items.length === 2) {
+    return `${items[0]} and ${items[1]}`;
+  }
+  return `${items.slice(0, -1).join(', ')}, and ${items[items.length - 1]}`;
+}
 
 /**
  * @param {RuleContext} context
@@ -333,11 +407,6 @@ module.exports.noNestedEditorUpdates = {
         if (!editorMethod || editorMethod.method.name !== 'update') {
           return;
         }
-        // An options object can carry commit timing, tags, callbacks, or
-        // transform behavior. Removing that wrapper is not mechanically safe.
-        if (callExpression.arguments.length > 1) {
-          return;
-        }
         const enclosingFunction = getEnclosingFunction(node);
         if (!enclosingFunction) {
           return;
@@ -356,15 +425,31 @@ module.exports.noNestedEditorUpdates = {
             enclosingFunction.type === 'ArrowFunctionExpression',
           )
         ) {
+          if (editorCallbackContext.method === 'read') {
+            context.report({
+              data: {
+                callee: sourceCode.getText(callExpression.callee),
+                context: editorCallbackContext.name,
+              },
+              messageId: 'readOnlyUpdate',
+              node: callExpression.callee,
+            });
+            return;
+          }
+          const optionMigrations = getUpdateOptionMigrations(callExpression);
+          if (!optionMigrations) {
+            return;
+          }
           context.report({
             data: {
               callee: sourceCode.getText(callExpression.callee),
               context: editorCallbackContext.name,
+              migrations: formatUpdateOptionMigrations(optionMigrations),
             },
             messageId:
-              editorCallbackContext.method === 'read'
-                ? 'readOnlyUpdate'
-                : 'noNestedEditorUpdates',
+              optionMigrations.length === 0
+                ? 'noNestedEditorUpdates'
+                : 'noNestedEditorUpdatesWithOptions',
             node: callExpression.callee,
           });
           return;
@@ -378,12 +463,20 @@ module.exports.noNestedEditorUpdates = {
           dollarFunctionContext &&
           isCurrentEditorInDollarFunction(editorMethod.receiver, matchers)
         ) {
+          const optionMigrations = getUpdateOptionMigrations(callExpression);
+          if (!optionMigrations) {
+            return;
+          }
           context.report({
             data: {
               callee: sourceCode.getText(callExpression.callee),
               context: dollarFunctionContext.name,
+              migrations: formatUpdateOptionMigrations(optionMigrations),
             },
-            messageId: 'dollarFunctionUpdate',
+            messageId:
+              optionMigrations.length === 0
+                ? 'dollarFunctionUpdate'
+                : 'dollarFunctionUpdateWithOptions',
             node: callExpression.callee,
           });
         }
@@ -399,8 +492,12 @@ module.exports.noNestedEditorUpdates = {
     messages: {
       dollarFunctionUpdate:
         '{{context}} is named as a Lexical $function but calls {{callee}}. Remove the update wrapper, or remove the $ prefix if this function intentionally starts the update.',
+      dollarFunctionUpdateWithOptions:
+        '{{context}} is named as a Lexical $function but calls {{callee}}. Apply {{migrations}} in the current context and remove the update wrapper, or remove the $ prefix if this function intentionally starts the update.',
       noNestedEditorUpdates:
         '{{context}} already provides an update context for this editor. Remove the nested {{callee}} wrapper.',
+      noNestedEditorUpdatesWithOptions:
+        '{{context}} already provides an update context for this editor. Apply {{migrations}} in the current context, then remove the nested {{callee}} wrapper.',
       readOnlyUpdate:
         '{{context}} is read-only. The nested {{callee}} is deferred until the read returns; move the update after the read callback instead of removing its wrapper.',
     },
