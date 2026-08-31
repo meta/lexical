@@ -27,7 +27,10 @@ export default [
 
 `lexical.configs['flat/recommended']` and `lexical.configs['flat/all']` are
 aliases of `recommended` and `all` from when those names were the legacy
-configs.
+configs. The default presets enable `@lexical/rules-of-lexical` and
+`@lexical/no-nested-editor-updates` as warnings.
+`@lexical/no-document-in-dom-methods` remains opt-in because it is specific
+to Lexical DOM method implementations.
 
 ### Custom Configuration
 
@@ -49,18 +52,24 @@ export default [
 ### Preventing nested editor updates
 
 `@lexical/no-nested-editor-updates` reports `editor.update()` calls that are
-already inside an update context for the same editor. This includes the
-callbacks passed to `editor.update`, `editor.read`, `editor.registerCommand`,
-and `editor.registerNodeTransform` when the outer and inner receiver resolve to
-the same identifier binding.
+already inside an update context for the same editor. This includes callbacks
+passed directly to `editor.update`, `editor.registerCommand`, and
+`editor.registerNodeTransform` when the outer and inner receiver can be tied to
+the same expression and identifier binding.
 
-The rule also reports an `editor.update()` directly inside a \$function. In
+The rule also reports a same-editor update directly inside `editor.read()`,
+including the `editor.read(mode, callback)` overload. A read callback is
+read-only, so this diagnostic does not suggest removing the wrapper. It explains
+that the update is deferred until the read returns and should be moved after the
+read callback.
+
+The rule also reports an `editor.update()` directly inside a $function. In
 that case the diagnostic explains both valid fixes: remove the update wrapper
 if the function uses the active editor context, or remove the `$` prefix if the
 function intentionally owns the update.
 
-The rule is opt-in because enabling it can expose existing nested updates. Add
-it to the `rules` object in either configuration format:
+The default presets enable the rule as a warning. You can promote it to an error
+or turn it off in the `rules` object in either configuration format:
 
 ```js
 const rules = {
@@ -97,6 +106,21 @@ editor.registerCommand(
 );
 ```
 
+A nested update in a read callback must retain its wrapper, but it should run
+after the read:
+
+```js
+const shouldRemove = editor.read('latest', () => {
+  return $getSelection()?.isCollapsed() === false;
+});
+
+if (shouldRemove) {
+  editor.update(() => {
+    $getSelection()?.removeText();
+  });
+}
+```
+
 An update to a different editor is valid and is not reported:
 
 ```js
@@ -112,15 +136,20 @@ editor.registerCommand(
 );
 ```
 
-Some nested updates intentionally use options such as `{discrete: true}` to
-change commit timing. Suppress those specific calls with an ESLint disable
-comment rather than removing the wrapper.
+Nested updates with a second `options` argument are not reported. Options such
+as `discrete`, `tag`, `onUpdate`, and `skipTransforms` carry behavior that would
+be lost by simply removing the wrapper, so the rule leaves those calls for a
+human to assess.
 
 To avoid matching unrelated APIs that also have an `update` method, editor
 expressions must end in `editor`, ignoring case. This recognizes names such as
-`editor`, `childEditor`, `props.editor`, and `$getEditor()`, but callback checks
-report only when the inner expression can be tied to the outer expression.
-Inside a \$function, the default active-editor names are `editor` and
+`editor`, `childEditor`, `props.editor`, `$getEditor()`, and `this.editor`, but
+callback checks report only when the inner expression can be tied to the outer
+expression. `this.editor` is treated as the same receiver across an arrow
+callback, where `this` is lexical; it is not assumed to be the same across an
+ordinary function callback.
+
+Inside a $function, the default active-editor names are `editor` and
 `$getEditor()`; differently named receivers are left alone because they may
 refer to another editor. Additional names or patterns can be configured with
 `isEditor`. The `isDollarFunction` option extends the default `/^\$[a-z_]/`
@@ -132,11 +161,15 @@ const rules = {
     'error',
     {
       isDollarFunction: '^INTERNAL_\\$',
-      isEditor: '^lexicalInstance$',
+      isEditor: ['^lexicalInstance$', '^getMyEditor$'],
     },
   ],
 };
 ```
+
+Configured zero-argument accessors are compared consistently, so repeated
+`getMyEditor()` calls in the same direct callback are recognized as the same
+editor expression.
 
 The analysis is deliberately local. It does not follow callbacks passed by
 reference, aliases between differently named editor variables, or updates

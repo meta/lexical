@@ -56,11 +56,11 @@ const CurrentEditorBaseMatchers = ['editor', '$getEditor'];
  * @typedef {Partial<BaseMatchers<ToMatcher | ToMatcher[]>>} NoNestedEditorUpdatesOptions
  * @typedef {BaseMatchers<IdentifierMatcher> & {isCurrentEditor: IdentifierMatcher}} Matchers
  * @typedef {{method: Identifier, receiver: Node}} EditorMethod
- * @typedef {{kind: 'dollarFunction', name: string} | {kind: 'editorCallback', name: string, receiver: Node}} UpdateContext
+ * @typedef {{name: string}} DollarFunctionContext
+ * @typedef {{method: string, name: string, receiver: Node}} EditorCallbackContext
  */
 
 const implicitUpdateCallbackIndex = new Map([
-  ['read', 0],
   ['registerCommand', 1],
   ['registerNodeTransform', 1],
   ['update', 0],
@@ -152,14 +152,23 @@ function isSameIdentifier(sourceCode, left, right) {
 
 /**
  * Return true only when two receiver expressions can be statically tied to
- * the same editor. Aliases and arbitrary getter calls are intentionally out of
- * scope because a false positive can recommend a behavior-changing rewrite.
+ * the same editor. Aliases and unconfigured getter calls are intentionally out
+ * of scope because a false positive can recommend a behavior-changing rewrite.
  *
  * @param {SourceCode} sourceCode
  * @param {Node} leftNode
  * @param {Node} rightNode
+ * @param {Matchers} matchers
+ * @param {boolean} allowThisExpression
+ * @returns {boolean}
  */
-function isSameEditorExpression(sourceCode, leftNode, rightNode) {
+function isSameEditorExpression(
+  sourceCode,
+  leftNode,
+  rightNode,
+  matchers,
+  allowThisExpression,
+) {
   const left = unwrapChainExpression(leftNode);
   const right = unwrapChainExpression(rightNode);
   if (left.type !== right.type) {
@@ -171,6 +180,9 @@ function isSameEditorExpression(sourceCode, leftNode, rightNode) {
       /** @type {Identifier} */ (left),
       /** @type {Identifier} */ (right),
     );
+  }
+  if (allowThisExpression && left.type === 'ThisExpression') {
+    return true;
   }
   if (
     left.type === 'MemberExpression' &&
@@ -185,6 +197,8 @@ function isSameEditorExpression(sourceCode, leftNode, rightNode) {
       sourceCode,
       /** @type {Node} */ (left.object),
       /** @type {Node} */ (right.object),
+      matchers,
+      allowThisExpression,
     );
   }
   if (
@@ -202,8 +216,15 @@ function isSameEditorExpression(sourceCode, leftNode, rightNode) {
     return (
       leftName != null &&
       rightName != null &&
-      leftName.name === '$getEditor' &&
-      isSameIdentifier(sourceCode, leftName, rightName)
+      matchers.isEditor(leftName) &&
+      matchers.isEditor(rightName) &&
+      isSameEditorExpression(
+        sourceCode,
+        /** @type {Node} */ (left.callee),
+        /** @type {Node} */ (right.callee),
+        matchers,
+        allowThisExpression,
+      )
     );
   }
   return false;
@@ -247,9 +268,9 @@ function getEnclosingFunction(node) {
 /**
  * @param {Node} node
  * @param {Matchers} matchers
- * @returns {UpdateContext | undefined}
+ * @returns {DollarFunctionContext | undefined}
  */
-function getImplicitUpdateContext(node, matchers) {
+function getDollarFunctionContext(node, matchers) {
   const functionName = getLexicalFunctionName(node);
   const functionNameIdentifier = getFunctionNameIdentifier(
     /** @type {Node | undefined} */ (functionName),
@@ -258,9 +279,16 @@ function getImplicitUpdateContext(node, matchers) {
     functionNameIdentifier &&
     matchers.isDollarFunction(functionNameIdentifier)
   ) {
-    return {kind: 'dollarFunction', name: functionNameIdentifier.name};
+    return {name: functionNameIdentifier.name};
   }
+}
 
+/**
+ * @param {Node} node
+ * @param {Matchers} matchers
+ * @returns {EditorCallbackContext | undefined}
+ */
+function getEditorCallbackContext(node, matchers) {
   const parent = node.parent;
   if (parent == null || parent.type !== 'CallExpression') {
     return;
@@ -272,17 +300,21 @@ function getImplicitUpdateContext(node, matchers) {
   if (!editorMethod) {
     return;
   }
-  const callbackIndex = implicitUpdateCallbackIndex.get(
-    editorMethod.method.name,
-  );
+  const method = editorMethod.method.name;
+  const callbackIndex =
+    method === 'read'
+      ? parent.arguments[0] === node
+        ? 0
+        : 1
+      : implicitUpdateCallbackIndex.get(method);
   if (callbackIndex == null || parent.arguments[callbackIndex] !== node) {
     return;
   }
   const editorName = getExpressionNameIdentifier(editorMethod.receiver);
   return editorName
     ? {
-        kind: 'editorCallback',
-        name: `${editorName.name}.${editorMethod.method.name} callback`,
+        method,
+        name: `${editorName.name}.${method} callback`,
         receiver: editorMethod.receiver,
       }
     : undefined;
@@ -301,41 +333,57 @@ module.exports.noNestedEditorUpdates = {
         if (!editorMethod || editorMethod.method.name !== 'update') {
           return;
         }
+        // An options object can carry commit timing, tags, callbacks, or
+        // transform behavior. Removing that wrapper is not mechanically safe.
+        if (callExpression.arguments.length > 1) {
+          return;
+        }
         const enclosingFunction = getEnclosingFunction(node);
         if (!enclosingFunction) {
           return;
         }
-        const updateContext = getImplicitUpdateContext(
+        const editorCallbackContext = getEditorCallbackContext(
           enclosingFunction,
           matchers,
         );
-        if (!updateContext) {
-          return;
-        }
-        const data = {
-          callee: sourceCode.getText(callExpression.callee),
-          context: updateContext.name,
-        };
-        if (updateContext.kind === 'dollarFunction') {
-          if (
-            isCurrentEditorInDollarFunction(editorMethod.receiver, matchers)
-          ) {
-            context.report({
-              data,
-              messageId: 'dollarFunctionUpdate',
-              node: callExpression.callee,
-            });
-          }
-        } else if (
+        if (
+          editorCallbackContext &&
           isSameEditorExpression(
             sourceCode,
-            updateContext.receiver,
+            editorCallbackContext.receiver,
             editorMethod.receiver,
+            matchers,
+            enclosingFunction.type === 'ArrowFunctionExpression',
           )
         ) {
           context.report({
-            data,
-            messageId: 'noNestedEditorUpdates',
+            data: {
+              callee: sourceCode.getText(callExpression.callee),
+              context: editorCallbackContext.name,
+            },
+            messageId:
+              editorCallbackContext.method === 'read'
+                ? 'readOnlyUpdate'
+                : 'noNestedEditorUpdates',
+            node: callExpression.callee,
+          });
+          return;
+        }
+
+        const dollarFunctionContext = getDollarFunctionContext(
+          enclosingFunction,
+          matchers,
+        );
+        if (
+          dollarFunctionContext &&
+          isCurrentEditorInDollarFunction(editorMethod.receiver, matchers)
+        ) {
+          context.report({
+            data: {
+              callee: sourceCode.getText(callExpression.callee),
+              context: dollarFunctionContext.name,
+            },
+            messageId: 'dollarFunctionUpdate',
             node: callExpression.callee,
           });
         }
@@ -344,8 +392,8 @@ module.exports.noNestedEditorUpdates = {
   },
   meta: {
     docs: {
-      description: 'disallows redundant same-editor updates',
-      recommended: false,
+      description: 'reports hazardous same-editor nested updates',
+      recommended: true,
       url: 'https://lexical.dev/docs/packages/lexical-eslint-plugin',
     },
     messages: {
@@ -353,6 +401,8 @@ module.exports.noNestedEditorUpdates = {
         '{{context}} is named as a Lexical $function but calls {{callee}}. Remove the update wrapper, or remove the $ prefix if this function intentionally starts the update.',
       noNestedEditorUpdates:
         '{{context}} already provides an update context for this editor. Remove the nested {{callee}} wrapper.',
+      readOnlyUpdate:
+        '{{context}} is read-only. The nested {{callee}} is deferred until the read returns; move the update after the read callback instead of removing its wrapper.',
     },
     schema: [
       {

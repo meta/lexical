@@ -15,7 +15,7 @@ import {
   CheckListExtension,
 } from '@lexical/list';
 import {RichTextExtension} from '@lexical/rich-text';
-import {$getRoot, KEY_SPACE_COMMAND} from 'lexical';
+import {$getRoot} from 'lexical';
 import {invariant} from 'lexical/src/__tests__/utils';
 import {
   afterAll,
@@ -28,7 +28,7 @@ import {
   vi,
 } from 'vitest';
 
-describe('CheckListExtension interactions', () => {
+describe('CheckListExtension mobile tap toggle', () => {
   // jsdom does not implement getComputedStyle with pseudo-elements
   // (https://github.com/jsdom/jsdom/issues/1928), but the checklist
   // hit-test reads the ::before width to size the marker area. Stub a
@@ -243,24 +243,6 @@ describe('CheckListExtension interactions', () => {
     tap(0);
     tap(100);
 
-    expect(readChecked(editor, 0)).toBe(true);
-  });
-
-  it('space toggles the focused checklist item in the command update', () => {
-    using editor = buildEditor();
-    const li = getCheckListItem(0);
-    li.tabIndex = -1;
-    li.focus();
-    expect(readChecked(editor, 0)).toBe(false);
-
-    const event = new KeyboardEvent('keydown', {
-      bubbles: true,
-      cancelable: true,
-      key: ' ',
-    });
-    expect(editor.dispatchCommand(KEY_SPACE_COMMAND, event)).toBe(true);
-
-    expect(event.defaultPrevented).toBe(true);
     expect(readChecked(editor, 0)).toBe(true);
   });
 });

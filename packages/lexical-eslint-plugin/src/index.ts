@@ -24,6 +24,7 @@ export interface FlatConfig {
     '@lexical': Plugin;
   };
   rules: {
+    '@lexical/no-nested-editor-updates': 'warn' | 'error' | 'off';
     '@lexical/rules-of-lexical': 'warn' | 'error' | 'off';
   };
 }

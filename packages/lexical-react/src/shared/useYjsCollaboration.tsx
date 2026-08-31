@@ -33,7 +33,6 @@ import {
   TOGGLE_CONNECT_COMMAND,
 } from '@lexical/yjs';
 import {
-  $addUpdateTag,
   $createParagraphNode,
   $getRoot,
   $getSelection,
@@ -714,11 +713,7 @@ function initializeEditor(
               break;
             }
             case 'function': {
-              const root1 = $getRoot();
-              if (root1.isEmpty()) {
-                $addUpdateTag(HISTORY_MERGE_TAG);
-                initialEditorState(editor);
-              }
+              initialEditorState(editor);
               break;
             }
           }

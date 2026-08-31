@@ -15,7 +15,7 @@ import {SOURCE_VERSION} from './version.js';
 
 /**
  * @typedef {import('eslint').Rule.RuleModule} RuleModule
- * @typedef {{plugins: {'@lexical': Plugin}; rules: {'@lexical/rules-of-lexical': 'warn' | 'error' | 'off'}}} FlatConfig
+ * @typedef {{plugins: {'@lexical': Plugin}; rules: {'@lexical/no-nested-editor-updates': 'warn' | 'error' | 'off'; '@lexical/rules-of-lexical': 'warn' | 'error' | 'off'}}} FlatConfig
  * @typedef {{meta: {name: string; version: string}; rules: Rules; configs: Configs}} Plugin
  * @typedef {{'no-document-in-dom-methods': RuleModule; 'no-nested-editor-updates': RuleModule; 'rules-of-lexical': RuleModule}} Rules
  * @typedef {{all: FlatConfig; recommended: FlatConfig; 'flat/all': FlatConfig; 'flat/recommended': FlatConfig}} Configs
@@ -67,6 +67,7 @@ function createConfigs(pluginMeta, pluginRules) {
       '@lexical': plugin,
     },
     rules: {
+      '@lexical/no-nested-editor-updates': 'warn',
       '@lexical/rules-of-lexical': 'warn',
     },
   };

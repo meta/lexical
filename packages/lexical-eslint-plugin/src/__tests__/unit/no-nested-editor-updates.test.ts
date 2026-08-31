@@ -7,7 +7,7 @@
  */
 
 import {RuleTester} from 'eslint';
-import {describe, it} from 'vitest';
+import {describe, expect, it} from 'vitest';
 
 import plugin from '../../LexicalEslintPlugin.js';
 
@@ -70,6 +70,9 @@ describe('no-nested-editor-updates', () => {
         `function $updateSomething(editor) {
   setTimeout(() => editor.update(() => {}), 0);
 }`,
+        `function $updateSomething(editor) {
+  editor.update(() => {}, {discrete: true});
+}`,
       ],
     });
   });
@@ -116,7 +119,27 @@ editor.registerCommand(COMMAND, () => {
           code: `editor.read(() => {
   editor.update(() => {});
 });`,
-          errors: [{messageId: 'noNestedEditorUpdates'}],
+          errors: [
+            {
+              data: {
+                callee: 'editor.update',
+                context: 'editor.read callback',
+              },
+              messageId: 'readOnlyUpdate',
+            },
+          ],
+        },
+        {
+          code: `editor.read('latest', () => {
+  editor.update(() => {});
+});`,
+          errors: [{messageId: 'readOnlyUpdate'}],
+        },
+        {
+          code: `editor.read(function $inspect() {
+  editor.update(() => {});
+});`,
+          errors: [{messageId: 'readOnlyUpdate'}],
         },
         {
           code: `props.editor.update(() => {
@@ -128,6 +151,22 @@ editor.registerCommand(COMMAND, () => {
           code: `$getEditor().read(() => {
   $getEditor().update(() => {});
 });`,
+          errors: [{messageId: 'readOnlyUpdate'}],
+        },
+        {
+          code: `childEditor.update(function $inner() {
+  childEditor.update(() => {});
+});`,
+          errors: [{messageId: 'noNestedEditorUpdates'}],
+        },
+        {
+          code: `class Example {
+  run() {
+    this.editor.update(() => {
+      this.editor.update(() => {});
+    });
+  }
+}`,
           errors: [{messageId: 'noNestedEditorUpdates'}],
         },
       ],
@@ -169,6 +208,26 @@ editor.update(() => {
         `editor.update(() => {
   setTimeout(() => editor.update(() => {}), 0);
 });`,
+        `editor.update(() => {
+  editor.update(() => {}, {discrete: true});
+  editor.update(() => {}, {tag: 'history-merge'});
+  editor.update(() => {}, {onUpdate() {}});
+  editor.update(() => {}, {skipTransforms: true});
+});`,
+        `editor.read(() => {
+  editor.update(() => {}, {tag: 'after-read'});
+});`,
+        `class Example {
+  run() {
+    this.editor.update(function () {
+      this.editor.update(() => {});
+    });
+  }
+}`,
+        `const $handler = useCallback(() => {
+  childEditor.update(() => {});
+}, [childEditor]);
+childEditor.registerCommand(COMMAND, $handler, PRIORITY);`,
       ],
     });
   });
@@ -191,6 +250,13 @@ lexicalInstance.update(() => {
           errors: [{messageId: 'noNestedEditorUpdates'}],
           options: [{isEditor: '^lexicalInstance$'}],
         },
+        {
+          code: `getMyEditor().update(() => {
+  getMyEditor().update(() => {});
+});`,
+          errors: [{messageId: 'noNestedEditorUpdates'}],
+          options: [{isEditor: '^getMyEditor$'}],
+        },
       ],
       valid: [
         `function $updateSomething(lexicalInstance) {
@@ -198,5 +264,18 @@ lexicalInstance.update(() => {
 }`,
       ],
     });
+  });
+
+  it('is enabled by the default presets', () => {
+    expect(
+      plugin.configs['legacy-recommended'].rules[
+        '@lexical/no-nested-editor-updates'
+      ],
+    ).toBe('warn');
+    expect(
+      plugin.configs['flat/recommended'].rules[
+        '@lexical/no-nested-editor-updates'
+      ],
+    ).toBe('warn');
   });
 });
