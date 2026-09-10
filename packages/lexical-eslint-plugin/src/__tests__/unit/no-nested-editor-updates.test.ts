@@ -9,7 +9,7 @@
 import {RuleTester} from 'eslint';
 import {describe, expect, it} from 'vitest';
 
-import plugin from '../../LexicalEslintPlugin.js';
+import plugin, * as pluginNamespace from '../../LexicalEslintPlugin.js';
 
 const ruleTester = new RuleTester({
   languageOptions: {
@@ -324,15 +324,19 @@ lexicalInstance.update(() => {
   });
 
   it('is enabled by the default presets', () => {
-    expect(
-      plugin.configs['legacy-recommended'].rules[
-        '@lexical/no-nested-editor-updates'
-      ],
-    ).toBe('warn');
-    expect(
-      plugin.configs['flat/recommended'].rules[
-        '@lexical/no-nested-editor-updates'
-      ],
-    ).toBe('warn');
+    for (const exportedPlugin of [plugin, pluginNamespace]) {
+      for (const config of Object.values(exportedPlugin.configs)) {
+        expect(config.rules['@lexical/no-nested-editor-updates']).toBe('warn');
+        expect(
+          config.plugins['@lexical'].rules['no-nested-editor-updates'],
+        ).toBe(rule);
+      }
+      expect(exportedPlugin.configs['flat/recommended']).toBe(
+        exportedPlugin.configs.recommended,
+      );
+      expect(exportedPlugin.configs['flat/all']).toBe(
+        exportedPlugin.configs.all,
+      );
+    }
   });
 });

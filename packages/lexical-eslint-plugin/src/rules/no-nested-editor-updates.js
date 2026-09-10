@@ -7,18 +7,18 @@
  */
 // @ts-check
 
-const {buildMatcher} = require('../util/buildMatcher.js');
-const {getIdentifierVariable} = require('../util/getIdentifierVariable.js');
-const {
+import {buildMatcher} from '../util/buildMatcher.js';
+import {getIdentifierVariable} from '../util/getIdentifierVariable.js';
+import {
   getFunctionNameIdentifier,
   getLexicalFunctionName,
-} = require('../util/getLexicalFunctionName.js');
-const {
+} from '../util/getLexicalFunctionName.js';
+import {
   DEFAULT_DOLLAR_FUNCTION_MATCHER,
   getSourceCode,
   matcherSchema,
   parseMatcherOption,
-} = require('../util/ruleOptions.js');
+} from '../util/ruleOptions.js';
 
 /**
  * @typedef {import('eslint').Rule.NodeParentExtension} NodeParentExtension
@@ -395,7 +395,7 @@ function getEditorCallbackContext(node, matchers) {
 }
 
 /** @type {RuleModule} */
-module.exports.noNestedEditorUpdates = {
+export const noNestedEditorUpdates = {
   create(context) {
     const matchers = compileMatchers(context);
     const sourceCode = getSourceCode(context);

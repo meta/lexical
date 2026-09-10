@@ -39,7 +39,7 @@ const matcherSchema = {
   oneOf: [{type: 'string'}, {contains: {type: 'string'}, type: 'array'}],
 };
 
-module.exports = {
+export {
   DEFAULT_DOLLAR_FUNCTION_MATCHER,
   getSourceCode,
   matcherSchema,

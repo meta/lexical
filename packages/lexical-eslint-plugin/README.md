@@ -69,7 +69,7 @@ if the function uses the active editor context, or remove the `$` prefix if the
 function intentionally owns the update.
 
 The default presets enable the rule as a warning. You can promote it to an error
-or turn it off in the `rules` object in either configuration format:
+or turn it off in the `rules` object in your flat configuration:
 
 ```js
 const rules = {

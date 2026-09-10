@@ -7,8 +7,8 @@
  */
 // @ts-check
 
-const {getFunctionName} = require('./getFunctionName.js');
-const {getParentAssignmentName} = require('./getParentAssignmentName.js');
+import {getFunctionName} from './getFunctionName.js';
+import {getParentAssignmentName} from './getParentAssignmentName.js';
 
 /**
  * @typedef {import('eslint').Rule.Node} Node
@@ -72,4 +72,4 @@ function getLexicalFunctionName(node) {
   }
 }
 
-module.exports = {getFunctionNameIdentifier, getLexicalFunctionName};
+export {getFunctionNameIdentifier, getLexicalFunctionName};

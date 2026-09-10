@@ -36,4 +36,4 @@ function getIdentifierVariable(sourceCode, identifier) {
   return undefined;
 }
 
-module.exports = {getIdentifierVariable};
+export {getIdentifierVariable};

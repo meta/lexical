@@ -65,7 +65,7 @@ class AlignCellNode extends TableCellNode {
 }
 
 /** An editor that knows the two subclasses and their bases, and nothing else. */
-function $withEditor(fn: () => void): void {
+function withEditor(fn: () => void): void {
   using editor = buildEditorFromExtensions(
     defineExtension({
       $initialEditorState: null,
@@ -78,7 +78,7 @@ function $withEditor(fn: () => void): void {
 
 describe('the accessors the table field declarations stand in for', () => {
   test('a subclass override of a named setter still decides', () => {
-    $withEditor(() => {
+    withEditor(() => {
       const node = CappedTableNode.importJSON({
         children: [],
         direction: null,
@@ -95,7 +95,7 @@ describe('the accessors the table field declarations stand in for', () => {
   });
 
   test('and one of a setter named only by convention', () => {
-    $withEditor(() => {
+    withEditor(() => {
       const node = CappedTableNode.importJSON({
         children: [],
         direction: null,
@@ -110,7 +110,7 @@ describe('the accessors the table field declarations stand in for', () => {
   });
 
   test('including a cell whose vertical alignment is overridden', () => {
-    $withEditor(() => {
+    withEditor(() => {
       const node = AlignCellNode.importJSON({
         children: [],
         colSpan: 1,
