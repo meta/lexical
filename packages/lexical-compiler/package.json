@@ -1,0 +1,116 @@
+{
+  "name": "@lexical/compiler",
+  "description": "Build-time compiler for Lexical: tree-shaking annotations and inlining for the side-effect-free factories",
+  "keywords": [
+    "lexical",
+    "editor",
+    "compiler",
+    "vite-plugin",
+    "rollup-plugin",
+    "tree-shaking"
+  ],
+  "version": "0.50.0",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/facebook/lexical.git",
+    "directory": "packages/lexical-compiler"
+  },
+  "bugs": {
+    "url": "https://github.com/facebook/lexical/issues"
+  },
+  "homepage": "https://lexical.dev/docs/packages/lexical-compiler",
+  "dependencies": {
+    "@babel/parser": "^8.0.0",
+    "magic-string": "^0.30.21"
+  },
+  "devDependencies": {
+    "rollup": "^4.61.0"
+  },
+  "sideEffects": false,
+  "exports": {
+    "./PureAnnotations": {
+      "source": "./src/PureAnnotations.ts",
+      "import": {
+        "types@<5.2": "./dist/typescript-too-old.d.ts",
+        "types": "./dist/PureAnnotations.d.ts",
+        "development": "./dist/LexicalCompilerPureAnnotations.dev.mjs",
+        "production": "./dist/LexicalCompilerPureAnnotations.prod.mjs",
+        "node": "./dist/LexicalCompilerPureAnnotations.node.mjs",
+        "default": "./dist/LexicalCompilerPureAnnotations.mjs"
+      },
+      "require": {
+        "types@<5.2": "./dist/typescript-too-old.d.ts",
+        "types": "./dist/PureAnnotations.d.ts",
+        "development": "./dist/LexicalCompilerPureAnnotations.dev.js",
+        "production": "./dist/LexicalCompilerPureAnnotations.prod.js",
+        "default": "./dist/LexicalCompilerPureAnnotations.js"
+      }
+    },
+    "./PureAnnotations.js": {
+      "source": "./src/PureAnnotations.ts",
+      "import": {
+        "types@<5.2": "./dist/typescript-too-old.d.ts",
+        "types": "./dist/PureAnnotations.d.ts",
+        "development": "./dist/LexicalCompilerPureAnnotations.dev.mjs",
+        "production": "./dist/LexicalCompilerPureAnnotations.prod.mjs",
+        "node": "./dist/LexicalCompilerPureAnnotations.node.mjs",
+        "default": "./dist/LexicalCompilerPureAnnotations.mjs"
+      },
+      "require": {
+        "types@<5.2": "./dist/typescript-too-old.d.ts",
+        "types": "./dist/PureAnnotations.d.ts",
+        "development": "./dist/LexicalCompilerPureAnnotations.dev.js",
+        "production": "./dist/LexicalCompilerPureAnnotations.prod.js",
+        "default": "./dist/LexicalCompilerPureAnnotations.js"
+      }
+    },
+    ".": {
+      "source": "./src/index.ts",
+      "import": {
+        "types@<5.2": "./dist/typescript-too-old.d.ts",
+        "types": "./dist/index.d.ts",
+        "development": "./dist/LexicalCompiler.dev.mjs",
+        "production": "./dist/LexicalCompiler.prod.mjs",
+        "node": "./dist/LexicalCompiler.node.mjs",
+        "default": "./dist/LexicalCompiler.mjs"
+      },
+      "require": {
+        "types@<5.2": "./dist/typescript-too-old.d.ts",
+        "types": "./dist/index.d.ts",
+        "development": "./dist/LexicalCompiler.dev.js",
+        "production": "./dist/LexicalCompiler.prod.js",
+        "default": "./dist/LexicalCompiler.js"
+      }
+    }
+  },
+  "types": "./dist/typescript-too-old.d.ts",
+  "typesVersions": {
+    "*": {
+      "*": [
+        "./dist/typescript-too-old.d.ts"
+      ]
+    }
+  },
+  "peerDependencies": {
+    "typescript": ">=5.2"
+  },
+  "peerDependenciesMeta": {
+    "typescript": {
+      "optional": true
+    }
+  },
+  "files": [
+    "dist",
+    "src",
+    "!src/__tests__",
+    "!src/__bench__",
+    "!src/__mocks__",
+    "!src/**/*.test.ts",
+    "!src/**/*.test.tsx",
+    "!src/**/*.bench.ts",
+    "!src/**/*.bench.tsx",
+    "README.md",
+    "LICENSE"
+  ]
+}

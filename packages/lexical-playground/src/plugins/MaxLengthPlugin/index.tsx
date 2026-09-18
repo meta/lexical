@@ -23,9 +23,9 @@ export interface MaxLengthConfig {
   maxLength: number;
 }
 
-export const MaxLengthExtension = /* @__PURE__ */ defineExtension({
+export const MaxLengthExtension = defineExtension({
   build: (editor, config) => namedSignals(config),
-  config: /* @__PURE__ */ safeCast<MaxLengthConfig>({
+  config: safeCast<MaxLengthConfig>({
     disabled: true,
     maxLength: 30,
   }),

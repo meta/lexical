@@ -7,17 +7,14 @@
  */
 
 import {useLexicalComposerContext} from '@lexical/react/LexicalComposerContext';
-import {getScrollParent as getScrollParent_} from '@lexical/utils';
 import {
   $getSelection,
   $isRangeSelection,
   $isTextNode,
   COMMAND_PRIORITY_LOW,
   type CommandListenerPriority,
-  createCommand,
   getDOMSelection,
   getDOMSelectionPoints,
-  type LexicalCommand,
   type LexicalEditor,
   type RangeSelection,
   type TextNode,
@@ -39,14 +36,6 @@ import {
   type TriggerFn,
   useMenuAnchorRef,
 } from './shared/LexicalMenu';
-
-/**
- * The default set of punctuation characters (as a character-class fragment)
- * that terminate a typeahead query. Used as the default `punctuation` option of
- * {@link useBasicTypeaheadTriggerMatch}.
- */
-export const PUNCTUATION =
-  '\\.,\\+\\*\\?\\$\\@\\|#{}\\(\\)\\^\\-\\[\\]\\\\/!%\'"~=<>_:;';
 
 function getTextUpToAnchor(selection: RangeSelection): string | null {
   const anchor = selection.anchor;
@@ -122,75 +111,12 @@ function isSelectionOnEntityBoundary(
 }
 
 export {useDynamicPositioning} from './shared/LexicalMenu';
-/** @deprecated Moved to `@lexical/utils`. Import `getScrollParent` from there. */
-export const getScrollParent = getScrollParent_;
-
-/**
- * Command dispatched while the typeahead menu is open to scroll the option at
- * the given `index` into view. The default menu renderer listens for it; custom
- * {@link MenuRenderFn}s can handle it to implement their own scrolling.
- */
-export const SCROLL_TYPEAHEAD_OPTION_INTO_VIEW_COMMAND: LexicalCommand<{
-  index: number;
-  option: MenuOption;
-}> = /* @__PURE__ */ createCommand('SCROLL_TYPEAHEAD_OPTION_INTO_VIEW_COMMAND');
-
-/**
- * Builds a {@link TriggerFn} for the common case of a single-character
- * `trigger` (such as `@` or `#`) followed by a query. The returned function
- * matches when the trigger is preceded by whitespace or the start of the line
- * and is followed by between `minLength` and `maxLength` non-`punctuation`
- * characters (optionally allowing whitespace).
- *
- * @returns A memoized trigger function for {@link LexicalTypeaheadMenuPlugin}.
- */
-export function useBasicTypeaheadTriggerMatch(
-  trigger: string,
-  {
-    minLength = 1,
-    maxLength = 75,
-    punctuation = PUNCTUATION,
-    allowWhitespace = false,
-  }: {
-    minLength?: number;
-    maxLength?: number;
-    punctuation?: string;
-    allowWhitespace?: boolean;
-  },
-): TriggerFn {
-  return useCallback(
-    (text: string) => {
-      const validCharsSuffix = allowWhitespace ? '' : '\\s';
-      const validChars = '[^' + trigger + punctuation + validCharsSuffix + ']';
-      const TypeaheadTriggerRegex = new RegExp(
-        '(^|\\s|\\()(' +
-          '[' +
-          trigger +
-          ']' +
-          '((?:' +
-          validChars +
-          '){0,' +
-          maxLength +
-          '})' +
-          ')$',
-      );
-      const match = TypeaheadTriggerRegex.exec(text);
-      if (match !== null) {
-        const maybeLeadingWhitespace = match[1];
-        const matchingString = match[3];
-        if (matchingString.length >= minLength) {
-          return {
-            leadOffset: match.index + maybeLeadingWhitespace.length,
-            matchingString,
-            replaceableString: match[2],
-          };
-        }
-      }
-      return null;
-    },
-    [allowWhitespace, trigger, punctuation, maxLength, minLength],
-  );
-}
+export {
+  getScrollParent,
+  PUNCTUATION,
+  SCROLL_TYPEAHEAD_OPTION_INTO_VIEW_COMMAND,
+  useBasicTypeaheadTriggerMatch,
+} from '@lexical/react/LexicalTypeaheadMenuPluginUtils';
 
 /**
  * Props for the {@link LexicalTypeaheadMenuPlugin} component.

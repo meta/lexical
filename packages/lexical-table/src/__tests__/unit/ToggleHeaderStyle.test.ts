@@ -23,7 +23,11 @@ function toggle(
   toToggle: TableCellHeaderState,
 ): TableCellHeaderState {
   using editor = buildEditorFromExtensions(
-    defineExtension({dependencies: [TableExtension], name: 'toggle-host'}),
+    defineExtension({
+      dependencies: [TableExtension],
+      name: 'toggle-host',
+      theme: {tableScrollableWrapper: 'table-scrollable-wrapper'},
+    }),
   );
   let result: TableCellHeaderState = NO_STATUS;
   editor.update(

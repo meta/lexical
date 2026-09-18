@@ -28,6 +28,7 @@ import {
 import {JSDOM} from 'jsdom';
 import * as lexical from 'lexical';
 import {
+  $create,
   $createLineBreakNode,
   $createNodeSelection,
   $createParagraphNode,
@@ -3992,6 +3993,68 @@ describe('LexicalEditor tests', () => {
       expect(onError).not.toHaveBeenCalled();
     });
 
+    it('$create resolves withKlass directly, and still honors a `with` without one', () => {
+      // $create looks the replacement class up rather than building the
+      // replaced node and throwing it away, which is why importing a document
+      // is not paying for a construction per replaced node. A `with` given
+      // without a `withKlass` is the case that cannot be resolved ahead of
+      // construction — only its function knows what to build — so it is
+      // applied the old way instead of being skipped.
+      class ResolvedParagraph extends ParagraphNode {
+        $config() {
+          return this.config('resolved-paragraph', {extends: ParagraphNode});
+        }
+      }
+      class LegacyParagraph extends ParagraphNode {
+        $config() {
+          return this.config('legacy-paragraph', {extends: ParagraphNode});
+        }
+      }
+
+      const resolved = createTestEditor({
+        nodes: [
+          ResolvedParagraph,
+          {
+            replace: ParagraphNode,
+            with: () => new ResolvedParagraph(),
+            withKlass: ResolvedParagraph,
+          },
+        ],
+        onError: err => {
+          throw err;
+        },
+      });
+      resolved.update(
+        () => {
+          expect($create(ParagraphNode)).toBeInstanceOf(ResolvedParagraph);
+        },
+        {discrete: true},
+      );
+
+      const mockWarning = vi
+        .spyOn(console, 'warn')
+        .mockImplementationOnce(() => {});
+      const legacy = createTestEditor({
+        nodes: [
+          LegacyParagraph,
+          {replace: ParagraphNode, with: () => new LegacyParagraph()},
+        ],
+        onError: err => {
+          throw err;
+        },
+      });
+      expect(mockWarning).toHaveBeenCalledWith(
+        `Override for ParagraphNode specifies 'replace' without 'withKlass'. 'withKlass' will be required in a future version.`,
+      );
+      mockWarning.mockRestore();
+      legacy.update(
+        () => {
+          expect($create(ParagraphNode)).toBeInstanceOf(LegacyParagraph);
+        },
+        {discrete: true},
+      );
+    });
+
     it('applies the replacement on import for `with` without `withKlass`', async () => {
       class CustomParagraphNode extends ParagraphNode {
         $config() {
@@ -4000,6 +4063,9 @@ describe('LexicalEditor tests', () => {
       }
       const onError = vi.fn();
 
+      const mockWarning = vi
+        .spyOn(console, 'warn')
+        .mockImplementationOnce(() => {});
       const newEditor = createTestEditor({
         nodes: [
           CustomParagraphNode,
@@ -4010,6 +4076,10 @@ describe('LexicalEditor tests', () => {
         ],
         onError: onError,
       });
+      expect(mockWarning).toHaveBeenCalledWith(
+        `Override for ParagraphNode specifies 'replace' without 'withKlass'. 'withKlass' will be required in a future version.`,
+      );
+      mockWarning.mockRestore();
 
       const json = {
         root: {

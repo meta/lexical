@@ -1,0 +1,19 @@
+# This example is a standalone project rather than a member of the Lexical
+# monorepo workspace. Its own pnpm-workspace.yaml makes this directory the
+# workspace root for a `pnpm install` run here, so pnpm never climbs into the
+# monorepo above it, and it is where pnpm 11 reads the settings below from.
+packages: []
+
+# No dependency build script is approved here, which is how this project has
+# always installed: they were reported and skipped under pnpm 10 and never
+# ran. pnpm 11 fails the install unless each one is decided explicitly.
+allowBuilds:
+  esbuild: false
+  protobufjs: false
+
+# Keep the heavy native dependencies of @huggingface/transformers out of the
+# install; ./stubs/empty stands in for them. This was `pnpm.overrides` in
+# package.json, which pnpm 11 no longer reads.
+overrides:
+  onnxruntime-node: 'link:./stubs/empty'
+  sharp: 'link:./stubs/empty'

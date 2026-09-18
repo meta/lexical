@@ -72,7 +72,7 @@ const initialConfig: ReactConfig = {
  * location-dependent (e.g. floating UI that does not need to be mounted in
  * some specific location, or effects that return null).
  */
-export const ReactExtension = /* @__PURE__ */ defineExtension({
+export const ReactExtension = defineExtension({
   build(editor, config, state) {
     const providerPeer = state.getPeer<typeof ReactProviderExtension>(
       ReactProviderExtension.name,
@@ -106,7 +106,7 @@ export const ReactExtension = /* @__PURE__ */ defineExtension({
   peerDependencies: [
     // We are not trying to avoid the import, just the direct dependency,
     // so using the extension directly is fine.
-    /* @__PURE__ */ declarePeerDependency<typeof ReactProviderExtension>(
+    declarePeerDependency<typeof ReactProviderExtension>(
       ReactProviderExtension.name,
     ),
   ],

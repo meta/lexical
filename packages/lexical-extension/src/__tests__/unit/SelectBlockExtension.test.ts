@@ -14,13 +14,13 @@ import {
   SelectBlockExtension,
 } from '@lexical/extension';
 import {RichTextExtension} from '@lexical/rich-text';
-import {$isBlockFullySelected} from '@lexical/utils';
 import {
   $createNodeSelection,
   $createParagraphNode,
   $createTextNode,
   $getRoot,
   $getSelection,
+  $isBlockFullySelected,
   $isElementNode,
   $isNodeSelection,
   $isRangeSelection,

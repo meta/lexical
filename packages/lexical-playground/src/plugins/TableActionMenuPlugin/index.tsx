@@ -15,7 +15,6 @@ import {
   $deleteTableRowAtSelection,
   $getNodeTriplet,
   $getTableCellNodeFromLexicalNode,
-  $getTableColumnIndexFromTableCellNode,
   $getTableNodeFromLexicalNodeOrThrow,
   $getTableRowIndexFromTableCellNode,
   $insertTableColumnAtSelection,
@@ -364,7 +363,16 @@ function TableActionMenu({
   const toggleTableColumnIsHeader = useCallback(() => {
     editor.update(() => {
       const tableNode = $getTableNodeFromLexicalNodeOrThrow(tableCellNode);
-      const columnIndex = $getTableColumnIndexFromTableCellNode(tableCellNode);
+      // $setTableColumnIsHeader indexes the table grid, so the cell's position
+      // has to come from the table map rather than from its index among its
+      // row's children — the two diverge once an earlier cell in the row spans
+      // more than one column.
+      const [, cellMap] = $computeTableMap(
+        tableNode,
+        tableCellNode,
+        tableCellNode,
+      );
+      const columnIndex = cellMap.startColumn;
       const isHeader = !tableCellNode.hasHeaderState(
         TableCellHeaderStates.COLUMN,
       );

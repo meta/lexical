@@ -1110,6 +1110,18 @@ function $processNestedUpdates(
   return skipTransforms;
 }
 
+/**
+ * Equivalent to setting `{discrete: true}` on the containing `editor.update`,
+ * generally used to ensure that the DOM is updated before returning from
+ * an event listener where the browser is expected to natively finish handling
+ * the event.
+ */
+export function $flushSyncAfterUpdate() {
+  const editorState = getActiveEditorState();
+  errorOnReadOnly();
+  editorState._flushSync = true;
+}
+
 function $beginUpdate(
   editor: LexicalEditor,
   updateFn: () => void,

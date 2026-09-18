@@ -37,9 +37,9 @@ type CommandPayload = {
 };
 
 export const INSERT_DATETIME_COMMAND: LexicalCommand<CommandPayload> =
-  /* @__PURE__ */ createCommand('INSERT_DATETIME_COMMAND');
+  createCommand('INSERT_DATETIME_COMMAND');
 
-const DateTimeRule = /* @__PURE__ */ defineImportRule({
+const DateTimeRule = defineImportRule({
   $import: (ctx, el, $next) => {
     const dateTimeValue = el.getAttribute('data-lexical-datetime')!;
     const parsedDate = Date.parse(dateTimeValue);
@@ -61,7 +61,7 @@ const DateTimeRule = /* @__PURE__ */ defineImportRule({
   name: '@lexical/playground/datetime',
 });
 
-const GoogleDocsDateRule = /* @__PURE__ */ defineImportRule({
+const GoogleDocsDateRule = defineImportRule({
   $import: (_ctx, el, $next) => {
     let parsed: {dat_df?: {dfie_ts?: {tv?: {tv_s?: number}}; dfie_dt?: string}};
     try {
@@ -86,7 +86,7 @@ const GoogleDocsDateRule = /* @__PURE__ */ defineImportRule({
   name: '@lexical/playground/datetime-google-docs',
 });
 
-export const DateTimeExtension = /* @__PURE__ */ defineExtension({
+export const DateTimeExtension = defineExtension({
   // Depend on CoreImportExtension so this extension's rules are merged after
   // the core rules (later-merged rules win dispatch). Without this the core
   // inline-format `<span>` rule could out-prioritize the `<span
@@ -94,7 +94,7 @@ export const DateTimeExtension = /* @__PURE__ */ defineExtension({
   // extension relative to the import baseline.
   dependencies: [
     CoreImportExtension,
-    /* @__PURE__ */ configExtension(DOMImportExtension, {
+    configExtension(DOMImportExtension, {
       rules: [DateTimeRule, GoogleDocsDateRule],
     }),
   ],

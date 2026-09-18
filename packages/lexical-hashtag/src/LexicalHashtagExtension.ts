@@ -294,7 +294,7 @@ export interface HashtagConfig {
 /**
  * Add `#hashtag` support to the editor
  */
-export const HashtagExtension = /* @__PURE__ */ defineExtension({
+export const HashtagExtension = defineExtension({
   config: defaultHashtagConfig,
   name: '@lexical/hashtag/Hashtag',
   nodes: () => [HashtagNode],

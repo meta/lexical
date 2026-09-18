@@ -17,7 +17,7 @@ import {watchedSignal} from './watchedSignal';
  * `effect`/`computed` to react to editability changes without subscribing
  * through React (or any other framework).
  */
-export const WatchEditableExtension = /* @__PURE__ */ defineExtension({
+export const WatchEditableExtension = defineExtension({
   build(editor) {
     return watchedSignal(
       () => editor.isEditable(),

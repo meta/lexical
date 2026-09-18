@@ -137,6 +137,21 @@ declare export function getPeerDependencyFromEditorOrThrow<
   extensionName: Extension['name'],
 ): LexicalExtensionDependency<Extension>;
 
+export type HotContext = {
+  readonly data: {[string]: unknown},
+};
+
+export type HMRConfig = {
+  hot: HotContext | null,
+  id?: string,
+};
+
+export type HMROutput = {
+  restoreCount: ReadonlySignal<number>,
+};
+
+declare export var HMRExtension: LexicalExtension<HMRConfig, "@lexical/extension/HMR", HMROutput, {restoreCount: Signal<number>}>;
+
 export type SerializedHorizontalRuleNode = SerializedLexicalNode;
 declare export class HorizontalRuleNode extends DecoratorNode<React.Node> {
   createDOM(): HTMLElement;
@@ -192,6 +207,7 @@ export type TabIndentationConfig = {
   maxIndent: null | number;
 }
 declare export var TabIndentationExtension: LexicalExtension<TabIndentationConfig, "@lexical/extension/TabIndentation", NamedSignalsOutput<TabIndentationConfig>, void>;
+declare export var WatchEditableExtension: LexicalExtension<ExtensionConfigBase, "@lexical/extension/WatchEditable", Signal<boolean>, void>;
 declare export function watchedSignal<T>(
   getSnapshot: () => T,
   register: (self: Signal<T>) => () => void,

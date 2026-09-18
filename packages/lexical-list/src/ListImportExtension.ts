@@ -29,7 +29,7 @@ import {
   $isListItemNode,
   type ListItemNode,
 } from './LexicalListItemNode';
-import {$createListNode, $isListNode} from './LexicalListNode';
+import {$createListNode, $isListNode, type ListNode} from './LexicalListNode';
 
 /**
  * Mirrors the legacy `isDomChecklist` heuristic from
@@ -47,8 +47,15 @@ function isDomChecklist(domNode: HTMLElement): boolean {
  * Lift nested `ListNode`s out of `ListItemNode`s into sibling
  * `ListItemNode`s (the legacy `$normalizeChildren` shape). Also wraps any
  * non-`ListItemNode` children in a new `ListItemNode`.
+ *
+ * The wrapper items come from `listNode.createListItemNode()` — the same
+ * subclass hook the legacy `$normalizeChildren` uses — so a `ListNode`
+ * subclass gets its own item type here too.
  */
-function $normalizeListChildren(children: LexicalNode[]): ListItemNode[] {
+function $normalizeListChildren(
+  children: LexicalNode[],
+  listNode: ListNode,
+): ListItemNode[] {
   const out: ListItemNode[] = [];
   for (const child of children) {
     if ($isListItemNode(child)) {
@@ -57,18 +64,18 @@ function $normalizeListChildren(children: LexicalNode[]): ListItemNode[] {
       if (innerChildren.length > 1) {
         for (const inner of innerChildren) {
           if ($isListNode(inner)) {
-            out.push($createListItemNode().append(inner));
+            out.push(listNode.createListItemNode().append(inner));
           }
         }
       }
     } else {
-      out.push($createListItemNode().append(child));
+      out.push(listNode.createListItemNode().append(child));
     }
   }
   return out;
 }
 
-const ListRule = /* @__PURE__ */ defineImportRule({
+const ListRule = defineImportRule({
   $import: (ctx, el) => {
     let node;
     if (isElementOfTag(el, 'ol')) {
@@ -89,7 +96,7 @@ const ListRule = /* @__PURE__ */ defineImportRule({
         0,
         0,
         $propagateTextAlignToBlockChildren(
-          $normalizeListChildren(ctx.$importChildren(el)),
+          $normalizeListChildren(ctx.$importChildren(el), node),
           el,
         ),
       ),
@@ -179,7 +186,7 @@ function $flattenListItemBlocks(children: LexicalNode[]): LexicalNode[] {
   return out;
 }
 
-const ListItemRule = /* @__PURE__ */ defineImportRule({
+const ListItemRule = defineImportRule({
   $import: (ctx, el) => {
     const ariaChecked = el.getAttribute('aria-checked');
     const checked =
@@ -234,7 +241,7 @@ function $buildChecklistItem(
   ];
 }
 
-const TaskListItemRule = /* @__PURE__ */ defineImportRule({
+const TaskListItemRule = defineImportRule({
   $import: (ctx, el, $next) => {
     const input = el.querySelector(':scope > input[type="checkbox"]');
     if (!input) {
@@ -246,7 +253,7 @@ const TaskListItemRule = /* @__PURE__ */ defineImportRule({
   name: '@lexical/list/li-task-list-item',
 });
 
-const JoplinChecklistItemRule = /* @__PURE__ */ defineImportRule({
+const JoplinChecklistItemRule = defineImportRule({
   $import: (ctx, el, $next) => {
     const wrapper = el.querySelector(':scope > .checkbox-wrapper');
     if (!wrapper) {

@@ -28,5 +28,14 @@ describe('LexicalUtilsKlassEqual tests', () => {
       expect(eventInstance instanceof MyEventShadow).toBeFalsy();
       expect(objectKlassEquals(eventInstance, MyEventShadow)).toBeTruthy();
     });
+    it('objectKlassEquals with a nullish or prototype-less value', async () => {
+      // The parameter is typed `unknown`, and the existing `!== null` guard
+      // shows nullish input is expected to be answered, not thrown on.
+      expect(objectKlassEquals(null, MyEvent)).toBe(false);
+      expect(objectKlassEquals(undefined, MyEvent)).toBe(false);
+      // Object.getPrototypeOf() returns null for these, so reading
+      // .constructor off it throws.
+      expect(objectKlassEquals(Object.create(null), MyEvent)).toBe(false);
+    });
   });
 });

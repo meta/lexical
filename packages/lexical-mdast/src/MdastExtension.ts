@@ -24,7 +24,7 @@ import {MdastImportExtension} from './MdastImportExtension';
  * bundling the serializer (`mdast-util-to-markdown`).
  * @experimental
  */
-export const MdastExtension = /* @__PURE__ */ defineExtension({
+export const MdastExtension = defineExtension({
   dependencies: [MdastImportExtension, MdastExportExtension],
   name: '@lexical/mdast/Mdast',
 });

@@ -49,7 +49,7 @@ import {effect, type Signal, signal} from './signals';
  *   new TextNode.
  *
  */
-export const IMEExtension = /* @__PURE__ */ defineExtension({
+export const IMEExtension = defineExtension({
   build(_editor: LexicalEditor): {
     compositionKey: Signal<null | NodeKey>;
     composingTextNode: Signal<null | TextNode>;

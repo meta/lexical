@@ -15,6 +15,6 @@ import {defineExtension} from 'lexical';
  *
  * It is a separate extension so it can be used as a peer dependency.
  */
-export const ReactProviderExtension = /* @__PURE__ */ defineExtension({
+export const ReactProviderExtension = defineExtension({
   name: '@lexical/react/ReactProvider',
 });

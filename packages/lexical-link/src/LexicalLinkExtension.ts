@@ -154,7 +154,7 @@ export function registerLink(
  * listener to wrap selected nodes in a link when a
  * URL is pasted and `validateUrl` is defined.
  */
-export const LinkExtension = /* @__PURE__ */ defineExtension({
+export const LinkExtension = defineExtension({
   build(editor, config, state) {
     return namedSignals(config);
   },
@@ -164,7 +164,7 @@ export const LinkExtension = /* @__PURE__ */ defineExtension({
     // unless the editor routes HTML through the pipeline (e.g. via
     // ClipboardDOMImportExtension or $generateNodesFromDOMViaExtension).
     CoreImportExtension,
-    /* @__PURE__ */ configExtension(DOMImportExtension, {
+    configExtension(DOMImportExtension, {
       rules: LinkImportRules,
     }),
   ],
@@ -194,7 +194,7 @@ export const LinkExtension = /* @__PURE__ */ defineExtension({
  * {@link LinkImportRules} (and `CoreImportExtension`) itself — depend on
  * it directly instead.
  */
-export const LinkImportExtension = /* @__PURE__ */ defineExtension({
+export const LinkImportExtension = defineExtension({
   dependencies: [LinkExtension],
   name: '@lexical/link/Import',
 });

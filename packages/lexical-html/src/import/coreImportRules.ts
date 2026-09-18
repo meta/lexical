@@ -33,6 +33,7 @@ import {
   isOnlyChildInBlockNode,
   type LexicalNode,
   setNodeIndentFromDOM,
+  TEXT_TYPE_TO_FORMAT,
 } from 'lexical';
 
 import {contextValue} from '../ContextRecord';
@@ -90,6 +91,7 @@ interface FormatStyle {
   fontStyle?: string;
   textDecoration?: string;
   verticalAlign?: string;
+  textTransform?: string;
 }
 
 /**
@@ -124,6 +126,7 @@ function readElementFormatStyle(el: HTMLElement): FormatStyle {
     fontStyle: el.style.fontStyle,
     fontWeight: el.style.fontWeight,
     textDecoration: el.style.textDecoration,
+    textTransform: el.style.textTransform,
     verticalAlign: el.style.verticalAlign,
   };
 }
@@ -136,6 +139,7 @@ function mergeStyles(
     fontStyle: override.fontStyle || defaults.fontStyle,
     fontWeight: override.fontWeight || defaults.fontWeight,
     textDecoration: override.textDecoration || defaults.textDecoration,
+    textTransform: override.textTransform || defaults.textTransform,
     verticalAlign: override.verticalAlign || defaults.verticalAlign,
   };
 }
@@ -153,6 +157,7 @@ const FORMAT_BIT_STYLE_PROPS: ReadonlySet<string> = new Set([
   'font-weight',
   'font-style',
   'text-decoration',
+  'text-transform',
   'vertical-align',
 ]);
 
@@ -166,7 +171,8 @@ function styleFormatOverride(style: FormatStyle): FormatOverride {
   let set = 0;
   let clear = 0;
 
-  const {fontWeight, fontStyle, textDecoration, verticalAlign} = style;
+  const {fontWeight, fontStyle, textDecoration, textTransform, verticalAlign} =
+    style;
 
   if (fontWeight === '700' || fontWeight === 'bold') {
     set |= IS_BOLD;
@@ -191,6 +197,24 @@ function styleFormatOverride(style: FormatStyle): FormatOverride {
     if (parts.includes('none')) {
       clear |= IS_UNDERLINE | IS_STRIKETHROUGH;
     }
+  }
+
+  // TextNode.exportDOM writes exactly one of these three for the
+  // capitalization formats, and they are mutually exclusive (#8915).
+  if (textTransform === 'lowercase') {
+    set |= TEXT_TYPE_TO_FORMAT.lowercase;
+    clear |= TEXT_TYPE_TO_FORMAT.uppercase | TEXT_TYPE_TO_FORMAT.capitalize;
+  } else if (textTransform === 'uppercase') {
+    set |= TEXT_TYPE_TO_FORMAT.uppercase;
+    clear |= TEXT_TYPE_TO_FORMAT.lowercase | TEXT_TYPE_TO_FORMAT.capitalize;
+  } else if (textTransform === 'capitalize') {
+    set |= TEXT_TYPE_TO_FORMAT.capitalize;
+    clear |= TEXT_TYPE_TO_FORMAT.lowercase | TEXT_TYPE_TO_FORMAT.uppercase;
+  } else if (textTransform === 'none') {
+    clear |=
+      TEXT_TYPE_TO_FORMAT.lowercase |
+      TEXT_TYPE_TO_FORMAT.uppercase |
+      TEXT_TYPE_TO_FORMAT.capitalize;
   }
 
   if (verticalAlign === 'sub') {
@@ -225,7 +249,7 @@ function applyFormatOverride(format: number, ov: FormatOverride): number {
  * - `<span style="text-decoration: none">` strip inherited underline /
  *   line-through.
  */
-const InlineFormatRule = /* @__PURE__ */ defineImportRule({
+const InlineFormatRule = defineImportRule({
   $import: (ctx, el) => {
     const inherited = ctx.get(ImportTextFormat);
     const tagDefault = TAG_DEFAULT_STYLE[el.nodeName];
@@ -407,7 +431,7 @@ function $applyTextStyle(
  * collapse whitespace using the same neighbor-aware rules as the legacy
  * `$convertTextDOMNode`.
  */
-const TextRule = /* @__PURE__ */ defineImportRule({
+const TextRule = defineImportRule({
   $import: (ctx, el) => {
     const format = ctx.get(ImportTextFormat);
     const style = ctx.get(ImportTextStyle);
@@ -439,13 +463,13 @@ const TextRule = /* @__PURE__ */ defineImportRule({
  * a higher-priority `<style>` rule to capture stylesheet text into the
  * import session for later use.
  */
-const IgnoreScriptStyleRule = /* @__PURE__ */ defineImportRule({
+const IgnoreScriptStyleRule = defineImportRule({
   $import: () => [],
   match: sel.tag('script', 'style'),
   name: '@lexical/html/script-style-ignore',
 });
 
-const LineBreakRule = /* @__PURE__ */ defineImportRule({
+const LineBreakRule = defineImportRule({
   // Mirror the legacy LineBreakNode.importDOM filter: stray `<br>` that
   // are the sole or trailing child of a block parent (e.g. Apple's
   // `<br class="Apple-interchange-newline">` clipboard sentinel, or the
@@ -464,7 +488,7 @@ const LineBreakRule = /* @__PURE__ */ defineImportRule({
  * `<p>` rule. Re-applies format, indent, direction, and the legacy
  * `align` attribute fallback.
  */
-const ParagraphRule = /* @__PURE__ */ defineImportRule({
+const ParagraphRule = defineImportRule({
   $import: (ctx, el) => {
     const p = $createParagraphNode();
     $setFormatFromDOM(p, el);
@@ -501,7 +525,7 @@ const ParagraphRule = /* @__PURE__ */ defineImportRule({
  *
  * @internal
  */
-export const HorizontalRuleRule = /* @__PURE__ */ defineImportRule({
+export const HorizontalRuleRule = defineImportRule({
   $import: (_ctx, _el, $next) =>
     $getEditor().hasNode(HorizontalRuleNode)
       ? [$createHorizontalRuleNode()]
@@ -540,7 +564,7 @@ export const HorizontalRuleRule = /* @__PURE__ */ defineImportRule({
  * `ParagraphNode` intermediate, and there is no need for a marker node
  * to distinguish them.
  */
-const TransparentBlockRule = /* @__PURE__ */ defineImportRule({
+const TransparentBlockRule = defineImportRule({
   $import: (ctx, el, $next) => {
     if (!isBlockDomNode(el)) {
       // Inline element with no dedicated rule — let the inline rules (or

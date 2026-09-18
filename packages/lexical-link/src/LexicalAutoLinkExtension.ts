@@ -24,6 +24,7 @@ import {
   TextNode,
 } from 'lexical';
 
+import {AutoLinkAnnounceExtension} from './AutoLinkAnnounceExtension';
 import {LinkExtension} from './LexicalLinkExtension';
 import {
   $createAutoLinkNode,
@@ -692,9 +693,9 @@ export function registerAutoLink(
  * The given `matchers` and `changeHandlers` will be merged by
  * concatenating the configured arrays.
  */
-export const AutoLinkExtension = /* @__PURE__ */ defineExtension({
+export const AutoLinkExtension = defineExtension({
   config: defaultConfig,
-  dependencies: [LinkExtension],
+  dependencies: [AutoLinkAnnounceExtension, LinkExtension],
   mergeConfig(config, overrides) {
     const merged = shallowMergeConfig(config, overrides);
     for (const k of ['matchers', 'changeHandlers', 'excludeParents'] as const) {

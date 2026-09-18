@@ -1,0 +1,37 @@
+{
+  "name": "@lexical/react-mathtype-example",
+  "private": true,
+  "version": "0.50.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "monorepo:dev": "vite -c vite.config.monorepo.ts",
+    "build": "tsc && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@lexical/extension": "0.50.0",
+    "@lexical/history": "0.50.0",
+    "@lexical/react": "0.50.0",
+    "@lexical/rich-text": "0.50.0",
+    "@wiris/mathtype-generic": "^8.15.2",
+    "lexical": "0.50.0",
+    "react": "^19.2.5",
+    "react-dom": "^19.2.5"
+  },
+  "devDependencies": {
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.1.9",
+    "@vitejs/plugin-react": "^5.0.2",
+    "cross-env": "^7.0.3",
+    "typescript": "^5.9.2",
+    "vite": "^7.3.2"
+  },
+  "optionalDependencies": {
+    "@rollup/rollup-linux-x64-gnu": "4.52.0",
+    "@rollup/rollup-darwin-arm64": "4.52.0",
+    "@rollup/rollup-win32-x64-msvc": "4.52.0",
+    "@rollup/wasm-node": "4.52.0"
+  }
+}

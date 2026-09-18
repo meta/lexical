@@ -24,7 +24,7 @@ import {
   RubyNode,
 } from '../../src/plugins/RubyExtension/RubyNode';
 
-const RubyTestExtension = /* @__PURE__ */ defineExtension({
+const RubyTestExtension = defineExtension({
   $initialEditorState: null,
   afterRegistration: editor => {
     editor.setRootElement(document.createElement('div'));

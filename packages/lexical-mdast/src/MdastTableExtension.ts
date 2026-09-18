@@ -37,7 +37,7 @@ import {$append} from './handlers';
 import {MdastImportExtension} from './MdastImportExtension';
 
 /** The per-column alignment (`| :-: |`) a table's delimiter row declared. */
-const tableAlignState = /* @__PURE__ */ createState('mdastTableAlign', {
+const tableAlignState = createState('mdastTableAlign', {
   parse: (v): AlignType[] =>
     Array.isArray(v)
       ? v.map(a => (a === 'center' || a === 'left' || a === 'right' ? a : null))
@@ -129,9 +129,9 @@ const $exportTable: MdastExportHandler = (node, ctx) => {
  * ```
  * @experimental
  */
-export const MdastTableExtension = /* @__PURE__ */ defineExtension({
+export const MdastTableExtension = defineExtension({
   dependencies: [
-    /* @__PURE__ */ configExtension(MdastImportExtension, {
+    configExtension(MdastImportExtension, {
       exportRules: [{$export: $exportTable, type: 'table'}],
       importRules: [{$import: $importTable, type: 'table'}],
       mdastExtensions: [/* @__PURE__ */ gfmTableFromMarkdown()],

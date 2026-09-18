@@ -85,12 +85,14 @@ function parseSimpleSelector(c: Cursor): ParsedSimpleSelector {
   const tags = new Set<string>();
   const predicates: Predicate[] = [];
   const classes: string[] = [];
+  let isUniversal = false;
 
   c.skipWhitespace();
 
   // Optional tag or '*'
   if (c.peek() === '*') {
     c.consume();
+    isUniversal = true;
   } else if (IDENT_CHAR.test(c.peek())) {
     const tag = c.readIdent();
     if (tag) {
@@ -142,6 +144,14 @@ function parseSimpleSelector(c: Cursor): ParsedSimpleSelector {
     predicates.push(buildClassAllPredicate(classes));
   }
 
+  // Neither tag nor refinement is only legitimate when the group came from a
+  // lone `*`. Otherwise the source is empty or its list has a hole, and
+  // accepting it would silently turn a typo into a universal selector.
+  c.assert(
+    isUniversal || tags.size > 0 || predicates.length > 0,
+    'expected a selector',
+  );
+
   return {predicates, tags};
 }
 
@@ -168,13 +178,7 @@ export function parseSelector(
   const groups: ParsedSimpleSelector[] = [];
 
   while (true) {
-    const group = parseSimpleSelector(c);
-    if (group.tags.size === 0 && group.predicates.length === 0) {
-      // Empty group with neither tag nor refinement — only OK if it came
-      // from the lone `*` (which produces zero tags but no preds either).
-      // We accept this as "wildcard element".
-    }
-    groups.push(group);
+    groups.push(parseSimpleSelector(c));
     c.skipWhitespace();
     if (c.eof()) {
       break;

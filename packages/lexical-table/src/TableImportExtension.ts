@@ -122,7 +122,7 @@ function $packageCellChildren(children: LexicalNode[]): LexicalNode[] {
   return result;
 }
 
-const TableRule = /* @__PURE__ */ defineImportRule({
+const TableRule = defineImportRule({
   $import: (ctx, el) => {
     const node = $createTableNode();
     if (el.hasAttribute('data-lexical-row-striping')) {
@@ -166,7 +166,7 @@ const TableRule = /* @__PURE__ */ defineImportRule({
   name: '@lexical/table/table',
 });
 
-const TableRowRule = /* @__PURE__ */ defineImportRule({
+const TableRowRule = defineImportRule({
   $import: (ctx, el) => {
     const height = PIXEL_VALUE_REG_EXP.test(el.style.height)
       ? parseFloat(el.style.height)
@@ -183,7 +183,7 @@ const TableRowRule = /* @__PURE__ */ defineImportRule({
   name: '@lexical/table/tr',
 });
 
-const TableCellRule = /* @__PURE__ */ defineImportRule({
+const TableCellRule = defineImportRule({
   $import: (ctx, el) => {
     const isHeader = el.nodeName === 'TH';
     const width = PIXEL_VALUE_REG_EXP.test(el.style.width)

@@ -52,8 +52,9 @@ const COLORS = [
 
 type User = string; // username
 
-export const SHOW_VERSIONS_COMMAND: LexicalCommand<void> =
-  /* @__PURE__ */ createCommand('SHOW_VERSIONS_COMMAND');
+export const SHOW_VERSIONS_COMMAND: LexicalCommand<void> = createCommand(
+  'SHOW_VERSIONS_COMMAND',
+);
 
 export function VersionsPlugin({id}: {id: string}) {
   const [editor] = useLexicalComposerContext();

@@ -800,7 +800,7 @@ async function pasteWithClipboardDataFromPageOrFrame(
         eventClipboardData = {
           files,
           getData(type, value) {
-            return _clipboardData[type];
+            return _clipboardData[type] || '';
           },
           types: [...Object.keys(_clipboardData), 'Files'],
         };
@@ -808,7 +808,7 @@ async function pasteWithClipboardDataFromPageOrFrame(
         eventClipboardData = {
           files,
           getData(type, value) {
-            return _clipboardData[type];
+            return _clipboardData[type] || '';
           },
           types: Object.keys(_clipboardData),
         };

@@ -7,7 +7,11 @@
  */
 import {expect} from '@playwright/test';
 
-import {moveToPrevWord} from '../../../keyboardShortcuts/index.mjs';
+import {
+  moveToLineBeginning,
+  moveToPrevWord,
+  pressShiftEnter,
+} from '../../../keyboardShortcuts/index.mjs';
 import {
   assertHTML,
   assertSelection,
@@ -48,6 +52,103 @@ test.describe('HTML CopyAndPaste', () => {
     await expect(paragraphs.nth(3)).toHaveText('Hello World !', {
       useInnerText: true,
     });
+  });
+
+  test('Copy + paste blocks after two line breaks', async ({
+    page,
+    isPlainText,
+  }) => {
+    test.skip(isPlainText);
+
+    await focusEditor(page);
+    await page.keyboard.type('Line of text');
+    await pressShiftEnter(page);
+    await pressShiftEnter(page);
+    await pasteFromClipboard(page, {
+      'text/html': '<h3>Heading 3</h3><p>Some paragraph</p>',
+    });
+
+    // The pasted heading keeps its own block instead of merging into the
+    // paragraph above it, and the empty line the user typed survives: only the
+    // break that terminated the caret's own line goes with it (#4815).
+    await assertHTML(
+      page,
+      html`
+        <p class="PlaygroundEditorTheme__paragraph" dir="auto">
+          <span data-lexical-text="true">Line of text</span>
+          <br />
+          <br data-lexical-managed-linebreak="true" />
+        </p>
+        <h3 class="PlaygroundEditorTheme__h3" dir="auto">
+          <span data-lexical-text="true">Heading 3</span>
+        </h3>
+        <p class="PlaygroundEditorTheme__paragraph" dir="auto">
+          <span data-lexical-text="true">Some paragraph</span>
+        </p>
+      `,
+    );
+    await assertSelection(page, {
+      anchorOffset: 14,
+      anchorPath: [2, 0, 0],
+      focusOffset: 14,
+      focusPath: [2, 0, 0],
+    });
+  });
+
+  test('Copy + paste blocks ending in an empty block keeps the caret at the join', async ({
+    page,
+    isPlainText,
+  }) => {
+    test.skip(isPlainText);
+
+    await focusEditor(page);
+    await page.keyboard.type('asdf');
+    await moveToLineBeginning(page);
+    // Copying several blocks out of an editor carries a trailing empty
+    // paragraph, which is the block the split-off text is appended into.
+    await pasteFromClipboard(page, {
+      'text/html': '<p>AA</p><p>BB</p><p></p>',
+    });
+
+    await assertHTML(
+      page,
+      html`
+        <p class="PlaygroundEditorTheme__paragraph" dir="auto">
+          <span data-lexical-text="true">AA</span>
+        </p>
+        <p class="PlaygroundEditorTheme__paragraph" dir="auto">
+          <span data-lexical-text="true">BB</span>
+        </p>
+        <p class="PlaygroundEditorTheme__paragraph" dir="auto">
+          <span data-lexical-text="true">asdf</span>
+        </p>
+      `,
+    );
+    // The caret belongs where the pasted content ends, not at the end of the
+    // document past the text that was moved in.
+    await assertSelection(page, {
+      anchorOffset: 0,
+      anchorPath: [2, 0, 0],
+      focusOffset: 0,
+      focusPath: [2, 0, 0],
+    });
+
+    // Typing lands at the join rather than after the "f".
+    await page.keyboard.type('X');
+    await assertHTML(
+      page,
+      html`
+        <p class="PlaygroundEditorTheme__paragraph" dir="auto">
+          <span data-lexical-text="true">AA</span>
+        </p>
+        <p class="PlaygroundEditorTheme__paragraph" dir="auto">
+          <span data-lexical-text="true">BB</span>
+        </p>
+        <p class="PlaygroundEditorTheme__paragraph" dir="auto">
+          <span data-lexical-text="true">Xasdf</span>
+        </p>
+      `,
+    );
   });
 
   test('Copy + paste a code block with BR', async ({page, isPlainText}) => {

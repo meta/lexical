@@ -1,5 +1,0 @@
-# Use hoisted node_modules structure for ESM compatibility
-# This is needed because test files use ESM (.mjs) which has issues
-# with pnpm's default symlinked structure
-node-linker=hoisted
-onnxruntime-node-install=skip

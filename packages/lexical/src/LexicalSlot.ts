@@ -14,13 +14,24 @@ import type {
   SlotChildNode,
   SlotHostNode,
 } from './LexicalNode';
+import type {BaseSelection} from './LexicalSelection';
 import type {DecoratorNode} from './nodes/LexicalDecoratorNode';
 import type {ElementNode} from './nodes/LexicalElementNode';
 
 import invariant from '@lexical/internal/invariant';
 
-import {$getEditor, $getNodeByKey, $isDecoratorNode, $isElementNode} from '.';
-import {$removeFromParent, iterStaticNodeConfigChain} from './LexicalUtils';
+import {
+  $getEditor,
+  $getNodeByKey,
+  $isDecoratorNode,
+  $isElementNode,
+  $isRangeSelection,
+} from '.';
+import {
+  $markSlotsUsed,
+  $removeFromParent,
+  iterStaticNodeConfigChain,
+} from './LexicalUtils';
 
 const __DEV__ = process.env.NODE_ENV !== 'production';
 
@@ -142,6 +153,42 @@ export function $getSlotFrame(node: LexicalNode): LexicalNode | null {
     current = current.getParent();
   }
   return null;
+}
+
+/**
+ * Returns the slot frame that `selection` lives in, or null when it is outside
+ * any slot (or there is no selection). Thin wrapper over {@link $getSlotFrame}
+ * that picks the node to anchor the walk on.
+ *
+ * Selection-driven exporters walk this frame instead of the root's children: a
+ * selection wholly inside a slot subtree never includes its host (slots are
+ * shadow-root isolated), so a root-children walk would miss the selected nodes
+ * entirely and produce an empty payload (cut = data loss).
+ *
+ * Every selection type participates. A RangeSelection anchors on its anchor
+ * point; anything else (NodeSelection, TableSelection, or an app-defined
+ * BaseSelection) anchors on the first node it reports, which is where a click
+ * that selects a decorator or a table nested in a slot is handled.
+ *
+ * `NodeSelection.getNodes()[0]` is the first node by insertion order (the
+ * internal `_nodes` Set's iteration order), not document order. For the common
+ * single-node case this is the only node and the frame is unambiguous. A
+ * multi-node selection that straddles a slot boundary is currently undefined —
+ * slots are shadow-isolated, so straddling is already invalid construction, and
+ * we pick the first node's frame rather than asserting.
+ *
+ * @experimental
+ */
+export function $getSelectionSlotFrame(
+  selection: null | BaseSelection,
+): LexicalNode | null {
+  if (selection === null) {
+    return null;
+  }
+  const anchorNode = $isRangeSelection(selection)
+    ? selection.anchor.getNode()
+    : (selection.getNodes()[0] ?? null);
+  return anchorNode === null ? null : $getSlotFrame(anchorNode);
 }
 
 /**
@@ -482,16 +529,8 @@ export function $setSlot<T extends LexicalNode & SlotHostNode>(
   writableNode.__slotHost = writableSelf.__key;
   slots.set(name, writableNode.__key);
   $canonicalizeSlotOrder(writableSelf);
-  $setSlotsUsed();
+  $markSlotsUsed();
   return writableSelf;
-}
-
-function $setSlotsUsed() {
-  const editor = $getEditor();
-  editor._slotsUsed = true;
-  if (editor._pendingEditorState) {
-    editor._pendingEditorState._slotsUsed = true;
-  }
 }
 
 /**

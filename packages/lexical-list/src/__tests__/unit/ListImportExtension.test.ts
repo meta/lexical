@@ -8,42 +8,43 @@
 
 import {
   buildEditorFromExtensions,
-  configExtension,
   getExtensionDependencyFromEditor,
   HorizontalRuleExtension,
 } from '@lexical/extension';
+import {DOMImportExtension} from '@lexical/html';
 import {
-  createImportState,
-  defineImportRule,
-  defineOverlayRules,
-  type DOMImportContext,
-  DOMImportExtension,
-  type DOMPreprocessFn,
-  ImportOverlays,
-  InlineSchema,
-  sel,
-} from '@lexical/html';
-import {
-  $createListItemNode,
-  $createListNode,
   $isListItemNode,
   $isListNode,
   ListExtension,
   ListImportExtension,
-  type ListItemNode,
-  type ListNode,
+  ListItemNode,
+  ListNode,
+  WordListImportExtension,
 } from '@lexical/list';
 import {JSDOM} from 'jsdom';
 import {
   $getEditor,
   $getRoot,
   defineExtension,
-  getStyleObjectFromCSS,
-  isHTMLElement,
   type LexicalEditor,
   type LexicalNode,
 } from 'lexical';
 import {assert, describe, expect, test} from 'vitest';
+
+class CustomListItemNode extends ListItemNode {
+  $config() {
+    return this.config('custom-listitem', {extends: ListItemNode});
+  }
+}
+
+class CustomListNode extends ListNode {
+  $config() {
+    return this.config('custom-list', {extends: ListNode});
+  }
+  createListItemNode(): ListItemNode {
+    return new CustomListItemNode();
+  }
+}
 
 function buildEditor() {
   return buildEditorFromExtensions(
@@ -152,6 +153,39 @@ describe('ListImportExtension', () => {
     });
   });
 
+  test('wrapper items come from ListNode.createListItemNode()', () => {
+    using editor = buildEditorFromExtensions(
+      defineExtension({
+        dependencies: [ListExtension],
+        name: 'custom-list-host',
+        nodes: [
+          CustomListNode,
+          CustomListItemNode,
+          {
+            replace: ListNode,
+            with: (node: ListNode) =>
+              new CustomListNode(node.getListType(), node.getStart()),
+            withKlass: CustomListNode,
+          },
+        ],
+      }),
+    );
+    // Both $normalizeListChildren branches: the nested <ul> is lifted into a
+    // wrapper item, and the stray text is wrapped in one.
+    importInto(editor, '<ul>stray<li>parent<ul><li>child</li></ul></li></ul>');
+    editor.read(() => {
+      const list = $rootList();
+      expect(list.getType()).toBe('custom-list');
+      const wrappers = $items(list).filter(
+        item => !item.getTextContent().startsWith('parent'),
+      );
+      expect(wrappers.length).toBeGreaterThanOrEqual(2);
+      for (const wrapper of wrappers) {
+        expect(wrapper.getType()).toBe('custom-listitem');
+      }
+    });
+  });
+
   test('deprecated ListImportExtension alias still imports lists', () => {
     using editor = buildEditorFromExtensions(
       defineExtension({
@@ -167,7 +201,7 @@ describe('ListImportExtension', () => {
 });
 
 // ----------------------------------------------------------------------------
-// Word paste example
+// MS Word paste
 //
 // MS Word produces HTML where "lists" are actually flat runs of
 // <p class="MsoListParagraph*"> with a marker like "1." or "·" inside a
@@ -175,179 +209,17 @@ describe('ListImportExtension', () => {
 // or <li> elements. The <p>'s carry style='mso-list:l<N> level<M> lfo<X>'
 // where <N> identifies the list and <M> the nesting depth.
 //
-// The trick is twofold:
-//   (1) The preprocess only installs the Word-paste overlay when the
-//       generator meta tag is present, so pastes from other sources pay
-//       nothing for Word handling.
-//   (2) The overlay rule walks forward through siblings to collect a
-//       complete list run, uses a session-tracked WeakSet to mark the
-//       siblings as consumed, and builds a nested list tree from the
-//       level transitions.
+// `WordListImportExtension` (shipped by this package, opt-in) installs the
+// preprocess that handles this: the overlay goes on only when the generator
+// meta tag is present, so pastes from other sources pay nothing, and its
+// rule walks forward through siblings to collect a complete list run and
+// rebuild it as a nested list tree.
 // ----------------------------------------------------------------------------
-
-const WordListConsumed = createImportState<WeakSet<Element>>(
-  'word/consumed-list-items',
-  () => new WeakSet(),
-);
-
-const WORD_LIST_CLASS_RE = /^MsoListParagraph(CxSp(First|Middle|Last))?$/;
-const WORD_NUMBERED_RE = /^[A-Za-z0-9]+[.)]/;
-
-function readMsoStyles(el: Element): Record<string, string> {
-  // mso-* are Microsoft non-standard CSS properties; browsers and JSDOM
-  // don't surface them via el.style, so parse the raw style attribute.
-  return getStyleObjectFromCSS(el.getAttribute('style') || '');
-}
-
-function readWordListLevel(el: HTMLElement): number {
-  // mso-list looks like "l<N> level<M> lfo<X>"; pluck the level number.
-  const msoList = readMsoStyles(el)['mso-list'] || '';
-  const m = msoList.match(/level(\d+)/);
-  return m ? parseInt(m[1], 10) : 1;
-}
-
-function $findMarkerSpan(el: HTMLElement): HTMLElement | null {
-  for (const span of Array.from(el.querySelectorAll('span'))) {
-    if (readMsoStyles(span)['mso-list'] === 'Ignore') {
-      return span;
-    }
-  }
-  return null;
-}
-
-function $readWordMarker(el: HTMLElement): string {
-  const span = $findMarkerSpan(el);
-  return span ? (span.textContent || '').trim() : '';
-}
-
-function classifyWordListType(marker: string): 'number' | 'bullet' {
-  return WORD_NUMBERED_RE.test(marker) ? 'number' : 'bullet';
-}
-
-function $stripWordMarker(el: HTMLElement): void {
-  // The marker span is wrapped in an outer <span> directly under the
-  // <p>; remove that outer wrapper.
-  const inner = $findMarkerSpan(el);
-  if (!inner) {
-    return;
-  }
-  let outer: Element = inner;
-  while (
-    outer.parentElement &&
-    outer.parentElement !== el &&
-    outer.parentElement.nodeName === 'SPAN'
-  ) {
-    outer = outer.parentElement;
-  }
-  outer.remove();
-}
-
-function isWordListParagraph(node: Node): node is HTMLElement {
-  return isHTMLElement(node) && WORD_LIST_CLASS_RE.test(node.className);
-}
-
-function $buildWordListTree(
-  ctx: DOMImportContext,
-  items: readonly {el: HTMLElement; level: number; marker: string}[],
-): ListNode {
-  const root = $createListNode(classifyWordListType(items[0].marker));
-  type Frame = {list: ListNode; level: number};
-  const stack: Frame[] = [{level: items[0].level, list: root}];
-  for (const item of items) {
-    // Close levels deeper than this one.
-    while (stack.length > 1 && stack[stack.length - 1].level > item.level) {
-      stack.pop();
-    }
-    // Open a new sublist if we just stepped deeper. Lexical's
-    // nested-list convention (see `$isNestedListNode` in @lexical/list):
-    // a sublist lives inside its OWN ListItemNode wrapper that is a
-    // sibling of the content items above it, not inside the previous
-    // one. The wrapper holds the sublist as its first (and only) child.
-    if (item.level > stack[stack.length - 1].level) {
-      const sub = $createListNode(classifyWordListType(item.marker));
-      const wrapper = $createListItemNode();
-      wrapper.append(sub);
-      stack[stack.length - 1].list.append(wrapper);
-      stack.push({level: item.level, list: sub});
-    }
-    $stripWordMarker(item.el);
-    const li = $createListItemNode();
-    li.splice(0, 0, ctx.$importChildren(item.el, {schema: InlineSchema}));
-    stack[stack.length - 1].list.append(li);
-  }
-  return root;
-}
-
-const WordListParagraphRule = defineImportRule({
-  $import: (ctx, el) => {
-    const consumed = ctx.session.get(WordListConsumed);
-    if (consumed.has(el)) {
-      // Already collected by an earlier sibling's run.
-      return [];
-    }
-    const items: {el: HTMLElement; level: number; marker: string}[] = [];
-    let cur: Node | null = el;
-    while (cur && isWordListParagraph(cur)) {
-      consumed.add(cur);
-      items.push({
-        el: cur,
-        level: readWordListLevel(cur),
-        marker: $readWordMarker(cur),
-      });
-      // Stop at the explicitly-terminal class. The standalone
-      // MsoListParagraph (no CxSp suffix) is a single-item run.
-      if (
-        cur.classList.contains('MsoListParagraphCxSpLast') ||
-        cur.className === 'MsoListParagraph'
-      ) {
-        break;
-      }
-      cur = cur.nextElementSibling;
-    }
-    return [$buildWordListTree(ctx, items)];
-  },
-  match: sel
-    .tag('p')
-    .classAny(
-      'MsoListParagraph',
-      'MsoListParagraphCxSpFirst',
-      'MsoListParagraphCxSpMiddle',
-      'MsoListParagraphCxSpLast',
-    ),
-  name: 'word/list-paragraph',
-});
-
-// <o:p> is Office's "paragraph end" marker; it always produces nothing.
-const WordOPRule = defineImportRule({
-  $import: () => [],
-  match: sel.tag('o:p'),
-  name: 'word/o-p',
-});
-
-const WordPasteOverlay = defineOverlayRules([
-  WordOPRule,
-  WordListParagraphRule,
-]);
-
-const WORD_GENERATOR_RE = /Microsoft Word/i;
-
-const $installWordOverlay: DOMPreprocessFn = (dom, ctx, $next) => {
-  const meta = dom.querySelector('meta[name="Generator"]');
-  if (meta && WORD_GENERATOR_RE.test(meta.getAttribute('content') || '')) {
-    ctx.session.update(ImportOverlays, prev => [...prev, WordPasteOverlay]);
-  }
-  $next();
-};
 
 function buildWordPasteEditor() {
   return buildEditorFromExtensions(
     defineExtension({
-      dependencies: [
-        ListExtension,
-        configExtension(DOMImportExtension, {
-          preprocess: [$installWordOverlay],
-        }),
-      ],
+      dependencies: [WordListImportExtension],
       name: 'word-paste-host',
     }),
   );
@@ -462,6 +334,42 @@ describe('MS Word paste — preprocess-installed overlay', () => {
       const lastContent = outlineItems[2].getFirstChild();
       assert(lastContent !== null, 'expected last content child');
       expect(lastContent.getTextContent().trim()).toBe('Outline numbered 2');
+    });
+  });
+
+  test('survives the stylesheet-inlining preprocess', () => {
+    // Real Word output carries a <style> block, which makes the default
+    // `$inlineStylesFromStyleSheets` preprocess rewrite every element's
+    // style attribute through CSSStyleDeclaration and drop the unknown
+    // `mso-list` property. The overlay's preprocess runs first and
+    // snapshots `mso-list` onto data-mso-list precisely so the levels and
+    // markers still resolve afterwards; without that snapshot every item
+    // reads as level 1 with no marker and the nesting collapses.
+    using editor = buildWordPasteEditor();
+    importHTMLDocument(
+      editor,
+      WORD_HTML_WITH_LISTS.replace(
+        '</head>',
+        `<style>
+          p.MsoListParagraphCxSpFirst, p.MsoListParagraphCxSpMiddle,
+          p.MsoListParagraphCxSpLast, p.MsoListParagraph
+            {margin-top:0in; margin-left:.5in;}
+        </style></head>`,
+      ),
+    );
+    editor.read(() => {
+      const lists = $getRoot().getChildren().filter($isListNode);
+      expect(lists).toHaveLength(3);
+      expect(lists[0].getListType()).toBe('number');
+      expect(lists[1].getListType()).toBe('bullet');
+      const outlineItems = $items(lists[2]);
+      expect(outlineItems).toHaveLength(3);
+      const nested = outlineItems[1].getFirstChild();
+      assert($isListNode(nested), 'expected nested sublist on wrapper item');
+      expect($items(nested).map(li => li.getTextContent().trim())).toEqual([
+        'Outline numbered 1.a',
+        'Outline numbered 1.b',
+      ]);
     });
   });
 

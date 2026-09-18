@@ -55,19 +55,13 @@ export function createRenderState<V>(
  * Render context state that is true if the export was initiated from the root of the document.
  * @experimental
  */
-export const RenderContextRoot = /* @__PURE__ */ createRenderState(
-  'root',
-  Boolean,
-);
+export const RenderContextRoot = createRenderState('root', Boolean);
 
 /**
  * Render context state that is true if this is an export operation ($generateHtmlFromNodes).
  * @experimental
  */
-export const RenderContextExport = /* @__PURE__ */ createRenderState(
-  'isExport',
-  Boolean,
-);
+export const RenderContextExport = createRenderState('isExport', Boolean);
 
 function getDefaultRenderContext(
   editor: LexicalEditor,

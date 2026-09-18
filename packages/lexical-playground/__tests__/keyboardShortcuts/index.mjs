@@ -307,9 +307,7 @@ export async function moveToStart(page) {
     await page.keyboard.press('ArrowLeft');
     await page.keyboard.up('Meta');
   } else {
-    await page.keyboard.down('Control');
-    await page.keyboard.press('ArrowLeft');
-    await page.keyboard.up('Control');
+    await page.keyboard.press('Home');
   }
 }
 
@@ -319,9 +317,7 @@ export async function moveToEnd(page) {
     await page.keyboard.press('ArrowRight');
     await page.keyboard.up('Meta');
   } else {
-    await page.keyboard.down('Control');
-    await page.keyboard.press('ArrowRight');
-    await page.keyboard.up('Control');
+    await page.keyboard.press('End');
   }
 }
 

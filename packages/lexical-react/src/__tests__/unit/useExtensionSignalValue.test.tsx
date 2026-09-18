@@ -219,6 +219,12 @@ describe('useExtensionSignalValue', () => {
     });
 
     expect(container?.textContent).toBe('updated');
+
+    // Unmount before `using` disposes the editor so the disposal does not
+    // update the still-mounted EditorComponent outside of act().
+    await act(async () => {
+      reactRoot.unmount();
+    });
   });
 
   test('works with multiple signal properties', async () => {
@@ -317,6 +323,12 @@ describe('useExtensionSignalValue', () => {
     });
 
     expect(container?.textContent).toBe('A: 5B: 5');
+
+    // Unmount before `using` disposes the editor so the disposal does not
+    // update the still-mounted EditorComponent outside of act().
+    await act(async () => {
+      reactRoot.unmount();
+    });
   });
 
   test('works with complex object signals', async () => {
@@ -372,6 +384,12 @@ describe('useExtensionSignalValue', () => {
     });
 
     expect(container?.textContent).toBe('Jane Smith (jane@example.com)');
+
+    // Unmount before `using` disposes the editor so the disposal does not
+    // update the still-mounted EditorComponent outside of act().
+    await act(async () => {
+      reactRoot.unmount();
+    });
   });
 
   test('updates correctly with rapid signal changes', async () => {
@@ -410,5 +428,11 @@ describe('useExtensionSignalValue', () => {
     });
 
     expect(container?.textContent).toBe('10');
+
+    // Unmount before `using` disposes the editor so the disposal does not
+    // update the still-mounted EditorComponent outside of act().
+    await act(async () => {
+      reactRoot.unmount();
+    });
   });
 });

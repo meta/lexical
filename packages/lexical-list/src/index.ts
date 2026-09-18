@@ -45,6 +45,7 @@ export {
   REMOVE_LIST_COMMAND,
   UPDATE_LIST_START_COMMAND,
 } from './registerList';
+export {WordListImportExtension} from './WordListImportExtension';
 
 export {
   $createListItemNode,

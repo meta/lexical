@@ -61,11 +61,11 @@ export function registerClearEditor(
 /**
  * An extension to provide an implementation of {@link CLEAR_EDITOR_COMMAND}
  */
-export const ClearEditorExtension = /* @__PURE__ */ defineExtension({
+export const ClearEditorExtension = defineExtension({
   build(editor, config, state) {
     return namedSignals(config);
   },
-  config: /* @__PURE__ */ safeCast<ClearEditorConfig>({
+  config: safeCast<ClearEditorConfig>({
     $onClear: $defaultOnClear,
   }),
   name: '@lexical/extension/ClearEditor',

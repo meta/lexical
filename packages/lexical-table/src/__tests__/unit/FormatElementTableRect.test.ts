@@ -41,6 +41,7 @@ function buildTestEditor($initialEditorState?: InitialEditorStateType) {
       },
       dependencies: [TableExtension],
       name: 'format-element-rect-host',
+      theme: {tableScrollableWrapper: 'table-scrollable-wrapper'},
     }),
   );
 }

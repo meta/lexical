@@ -125,6 +125,19 @@ describe('ElementDOMSlot class', () => {
     expect(updated).toBe(original);
   });
 
+  test('setManagedLineBreak ignores slot containers before the managed range', () => {
+    const el = makeElement();
+    const slotContainer = document.createElement('div');
+    slotContainer.setAttribute('data-lexical-slot', 'title');
+    const after = document.createElement('span');
+    el.append(slotContainer, after);
+    const slot = new ElementDOMSlot(el, null, after);
+
+    inEditor(() => slot.setManagedLineBreak('empty'));
+
+    expect(slot.getManagedLineBreak()).not.toBe(null);
+  });
+
   test('insertChild appends when before is null', () => {
     const el = makeElement();
     const slot = new ElementDOMSlot(el);

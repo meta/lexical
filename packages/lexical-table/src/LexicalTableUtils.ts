@@ -11,6 +11,7 @@ import type {TableDOMTable} from './LexicalTableObserver';
 
 import invariant from '@lexical/internal/invariant';
 import {
+  $copyNode,
   $createParagraphNode,
   $createTextNode,
   $findMatchingParent,
@@ -524,7 +525,7 @@ export function $insertTableColumnAtNode(
     return cell;
   }
   let loopRow: TableRowNode = gridFirstChild;
-  rowLoop: for (let i = 0; i < rowCount; i++) {
+  for (let i = 0; i < rowCount; i++) {
     if (i !== 0) {
       const currentRow = loopRow.getNextSibling();
       invariant(
@@ -550,32 +551,37 @@ export function $insertTableColumnAtNode(
       );
       continue;
     }
-    const {
-      cell: currentCell,
-      startColumn: currentStartColumn,
-      startRow: currentStartRow,
-    } = rowMap[insertAfterColumn];
+    const {cell: currentCell, startColumn: currentStartColumn} =
+      rowMap[insertAfterColumn];
     if (currentStartColumn + currentCell.__colSpan - 1 <= insertAfterColumn) {
-      let insertAfterCell: TableCellNode = currentCell;
-      let insertAfterCellRowStart = currentStartRow;
-      let prevCellIndex = insertAfterColumn;
-      while (insertAfterCellRowStart !== i && insertAfterCell.__rowSpan > 1) {
-        // prevCellIndex always sits on the last grid column of insertAfterCell,
-        // so stepping to the column before it means subtracting *that* cell's
-        // colSpan, not the colSpan of the cell we started from.
-        prevCellIndex -= insertAfterCell.__colSpan;
-        if (prevCellIndex >= 0) {
-          const {cell: cell_, startRow: startRow_} = rowMap[prevCellIndex];
-          insertAfterCell = cell_;
-          insertAfterCellRowStart = startRow_;
-        } else {
-          loopRow.append($createTableCellNodeForInsertTableColumn(headerState));
-          continue rowLoop;
+      // Find the last cell this row actually owns at or before the insertion
+      // column. Grid positions covered by a rowSpan from an earlier row are not
+      // children of this row, so they can not be inserted after. Stepping over
+      // the rest of a wide cell's span is only an optimization: those positions
+      // map back to the same cell, so visiting them would reach the same
+      // answer.
+      let insertAfterCell: null | TableCellNode = null;
+      for (let column = 0; column <= insertAfterColumn; column++) {
+        const currentCellMap = rowMap[column];
+        if (currentCellMap.startRow === i) {
+          insertAfterCell = currentCellMap.cell;
+        }
+        if (currentCellMap.cell.__colSpan > 1) {
+          column += currentCellMap.cell.__colSpan - 1;
         }
       }
-      insertAfterCell.insertAfter(
-        $createTableCellNodeForInsertTableColumn(headerState),
-      );
+      if (insertAfterCell === null) {
+        // Every grid column to the left is covered by a rowSpan from an earlier
+        // row, so the new cell is this row's first child.
+        $insertFirst(
+          loopRow,
+          $createTableCellNodeForInsertTableColumn(headerState),
+        );
+      } else {
+        insertAfterCell.insertAfter(
+          $createTableCellNodeForInsertTableColumn(headerState),
+        );
+      }
     } else {
       currentCell.setColSpan(currentCell.__colSpan + 1);
     }
@@ -640,7 +646,11 @@ export function $deleteTableRowAtSelection(): void {
   const {startRow: focusStartRow} = focusCellMap;
   const focusEndRow = focusStartRow + focusCell.__rowSpan - 1;
   if (gridMap.length === focusEndRow - anchorStartRow + 1) {
-    // Empty grid
+    // Empty grid. Move the selection out of the table before removing it,
+    // otherwise a TableSelection is left pointing at cells that no longer
+    // exist — $deleteTableColumnAtSelection and TableObserver.$clearText both
+    // call selectPrevious() here for the same reason.
+    grid.selectPrevious();
     grid.remove();
     return;
   }
@@ -987,13 +997,26 @@ export function $unmergeCellNode(cellNode: TableCellNode): void {
     return rowStyle;
   });
 
+  // The cells the merged cell splits into cover the region the merged cell
+  // covered, so they keep its presentation: the background and vertical align
+  // it carries as a TableCellNode, and the format, style, direction and indent
+  // it carries as an ElementNode. $copyNode carries all of it, preserves a
+  // TableCellNode subclass, and returns the copy childless. Only the state that
+  // describes a position rather than the cell is reset — the spans, set by the
+  // loops below, the header state, recomputed above, and the width, which
+  // measured a cell colSpan grid columns wide and which every other path that
+  // creates a cell here leaves to the table's colWidths.
+  const $createSplitCell = (headerState: TableCellHeaderState) =>
+    $copyNode(cell)
+      .setColSpan(1)
+      .setRowSpan(1)
+      .setHeaderStyles(headerState)
+      .setWidth(undefined)
+      .append($createParagraphNode());
+
   if (colSpan > 1) {
     for (let i = 1; i < colSpan; i++) {
-      cell.insertAfter(
-        $createTableCellNode(colStyles[i] | rowStyles[0]).append(
-          $createParagraphNode(),
-        ),
-      );
+      cell.insertAfter($createSplitCell(colStyles[i] | rowStyles[0]));
     }
     cell.setColSpan(1);
   }
@@ -1023,17 +1046,13 @@ export function $unmergeCellNode(cellNode: TableCellNode): void {
         for (let j = colSpan - 1; j >= 0; j--) {
           $insertFirst(
             currentRowNode,
-            $createTableCellNode(colStyles[j] | rowStyles[i]).append(
-              $createParagraphNode(),
-            ),
+            $createSplitCell(colStyles[j] | rowStyles[i]),
           );
         }
       } else {
         for (let j = colSpan - 1; j >= 0; j--) {
           insertAfterCell.insertAfter(
-            $createTableCellNode(colStyles[j] | rowStyles[i]).append(
-              $createParagraphNode(),
-            ),
+            $createSplitCell(colStyles[j] | rowStyles[i]),
           );
         }
       }
@@ -1590,6 +1609,10 @@ export function $insertTableIntoGrid(
       const backgroundColor = templateCell.getBackgroundColor();
       if (backgroundColor !== null && backgroundColor !== undefined) {
         cell.setBackgroundColor(backgroundColor);
+      }
+      const verticalAlign = templateCell.getVerticalAlign();
+      if (verticalAlign !== undefined) {
+        cell.setVerticalAlign(verticalAlign);
       }
       const originalChildren = cell.getChildren();
       templateCell.getChildren().forEach(child => {

@@ -124,6 +124,24 @@ describe('LINK', () => {
     });
   });
 
+  test('a destination between angle brackets keeps the whitespace in the URL', () => {
+    using editor = buildEditorFromExtensions([MarkdownShortcutTestExtension]);
+    typeMarkdown(editor, '[test](<https://example.com/a b>)');
+
+    editor.read(() => {
+      const paragraph = $getRoot().getFirstChildOrThrow();
+      assert($isParagraphNode(paragraph), 'Root child must be a paragraph');
+      const children = paragraph.getChildren();
+
+      expect(children).toHaveLength(1);
+
+      const linkNode = children[0];
+      assert($isLinkNode(linkNode), 'First child must be a LinkNode');
+      expect(linkNode.getTextContent()).toBe('test');
+      expect(linkNode.getURL()).toBe('https://example.com/a b');
+    });
+  });
+
   test('markdown link should not be created inside another link.', async () => {
     using editor = buildEditorFromExtensions([MarkdownShortcutTestExtension]);
     editor.update(

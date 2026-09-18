@@ -13,9 +13,8 @@ import {PLAYGROUND_TRANSFORMERS} from '../MarkdownTransformers';
 
 // This is not a published extension because markdown transformers
 // should get a refactor to require less manual configuration
-export const PlaygroundMarkdownShortcutsExtension =
-  /* @__PURE__ */ defineExtension({
-    name: '@lexical/playground/MarkdownShortcuts',
-    register: editor =>
-      registerMarkdownShortcuts(editor, PLAYGROUND_TRANSFORMERS),
-  });
+export const PlaygroundMarkdownShortcutsExtension = defineExtension({
+  name: '@lexical/playground/MarkdownShortcuts',
+  register: editor =>
+    registerMarkdownShortcuts(editor, PLAYGROUND_TRANSFORMERS),
+});

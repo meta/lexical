@@ -16,6 +16,10 @@
       "@lexical/code-core": ["../lexical-code-core/src/index.ts"],
       "@lexical/code-prism": ["../lexical-code-prism/src/index.ts"],
       "@lexical/code-shiki": ["../lexical-code-shiki/src/index.ts"],
+      "@lexical/compiler": ["../lexical-compiler/src/index.ts"],
+      "@lexical/compiler/PureAnnotations": [
+        "../lexical-compiler/src/PureAnnotations.ts"
+      ],
       "@lexical/devtools-core": ["../lexical-devtools-core/src/index.ts"],
       "@lexical/dragon": ["../lexical-dragon/src/index.ts"],
       "@lexical/eslint-plugin": ["../lexical-eslint-plugin/src/index.ts"],
@@ -60,6 +64,9 @@
       "@lexical/react/LexicalAutoEmbedPlugin": [
         "../lexical-react/src/LexicalAutoEmbedPlugin.tsx"
       ],
+      "@lexical/react/LexicalAutoEmbedPluginUtils": [
+        "../lexical-react/src/LexicalAutoEmbedPluginUtils.ts"
+      ],
       "@lexical/react/LexicalAutoFocusPlugin": [
         "../lexical-react/src/LexicalAutoFocusPlugin.ts"
       ],
@@ -83,6 +90,9 @@
       ],
       "@lexical/react/LexicalCollaborationContext": [
         "../lexical-react/src/LexicalCollaborationContext.tsx"
+      ],
+      "@lexical/react/LexicalCollaborationContextUtils": [
+        "../lexical-react/src/LexicalCollaborationContextUtils.ts"
       ],
       "@lexical/react/LexicalCollaborationPlugin": [
         "../lexical-react/src/LexicalCollaborationPlugin.tsx"
@@ -135,6 +145,9 @@
       "@lexical/react/LexicalMarkdownShortcutPlugin": [
         "../lexical-react/src/LexicalMarkdownShortcutPlugin.tsx"
       ],
+      "@lexical/react/LexicalMenuOption": [
+        "../lexical-react/src/LexicalMenuOption.ts"
+      ],
       "@lexical/react/LexicalNestedComposer": [
         "../lexical-react/src/LexicalNestedComposer.tsx"
       ],
@@ -173,6 +186,9 @@
       ],
       "@lexical/react/LexicalTypeaheadMenuPlugin": [
         "../lexical-react/src/LexicalTypeaheadMenuPlugin.tsx"
+      ],
+      "@lexical/react/LexicalTypeaheadMenuPluginUtils": [
+        "../lexical-react/src/LexicalTypeaheadMenuPluginUtils.ts"
       ],
       "@lexical/react/ReactExtension": [
         "../lexical-react/src/ReactExtension.tsx"

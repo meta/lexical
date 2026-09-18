@@ -9592,17 +9592,12 @@ test.describe('Tables', () => {
     }
 
     test('Range-select from above nested table into it selects the entire table, but not the outer table', async ({
-      browserName,
       page,
       isPlainText,
       isCollab,
     }) => {
       test.skip(isPlainText);
       test.skip(isCollab);
-      test.fixme(
-        browserName === 'firefox',
-        'Erroneously selects the text after the table as well',
-      );
       await initialize({hasNestedTables: true, page});
 
       await setupTables(page);
@@ -9631,7 +9626,6 @@ test.describe('Tables', () => {
     });
 
     test('Range-select from below nested table into it selects the entire table, but not the outer table', async ({
-      browserName,
       page,
       isPlainText,
       isCollab,
@@ -9670,7 +9664,7 @@ test.describe('Tables', () => {
       test.skip(isCollab);
       test.fixme(
         browserName === 'firefox',
-        'Erroneously selects the entire outer cell',
+        'Firefox resolves this shift-click as whole cells of the nested table, so what is imported is a TableSelection rather than a range and $fixRangeSelectionForSelectedTable never gets to clamp the anchor',
       );
       await initialize({hasNestedTables: true, page});
 
@@ -9708,7 +9702,9 @@ test.describe('Tables', () => {
       test.skip(isCollab);
       test.fixme(
         browserName === 'firefox',
-        'Erroneously selects the entire outer cell',
+        'No longer selects the entire outer cell, but the rest is left to the ' +
+          'engine and only linux Firefox resolves it the same way as the other ' +
+          'engines -- on windows the focus stays at offset 0 of the text below',
       );
       await initialize({hasNestedTables: true, page});
 

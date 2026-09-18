@@ -28,10 +28,10 @@ function $defaultGetParentEditor() {
   return editor;
 }
 
-export const NestedEditorExtension = /* @__PURE__ */ defineExtension({
+export const NestedEditorExtension = defineExtension({
   build: (editor, config) =>
     namedSignals({inheritEditableFromParent: config.inheritEditableFromParent}),
-  config: /* @__PURE__ */ safeCast<NestedEditorConfig>({
+  config: safeCast<NestedEditorConfig>({
     $getParentEditor: $defaultGetParentEditor,
     inheritEditableFromParent: false,
   }),

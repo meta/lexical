@@ -635,7 +635,14 @@
   background: rgba(255, 212, 0, 0.7);
   border-bottom: 2px solid rgba(255, 212, 0, 0.7);
 }
-.PlaygroundEditorTheme__embedBlock {
+/*
+  Keep the embed's contents unselectable, but leave the decorator host and this
+  wrapper itself selectable: a browser will not extend a triple click past an
+  unselectable block, so an unselectable wrapper collapses the selection when
+  the paragraph before the embed is triple clicked (#7618). `user-select` is
+  inherited, so scoping it to the children still covers the whole embed.
+*/
+.PlaygroundEditorTheme__embedBlock > * {
   user-select: none;
 }
 .PlaygroundEditorTheme__embedBlockFocus {

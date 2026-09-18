@@ -6,7 +6,19 @@
  *
  */
 
-@import 'https://fonts.googleapis.com/css?family=Reenie+Beanie';
+/* Reenie Beanie is served from the app rather than fetched from Google Fonts.
+   A third-party stylesheet in the critical path delays `load` for every visitor
+   (and every e2e run) on whatever the network does that day, and it hands a
+   request from each of them to a third party. See src/fonts/OFL.txt for the
+   license. */
+@font-face {
+  font-family: 'Reenie Beanie';
+  font-style: normal;
+  font-weight: 400;
+  /* The sticky note is decorative, so let it paint in the fallback and swap. */
+  font-display: swap;
+  src: url(fonts/ReenieBeanie-Regular.woff2) format('woff2');
+}
 
 :root {
   --playground-font-size: 16px;
@@ -680,6 +692,11 @@ i.sticky {
 i.star {
   -webkit-mask-image: url(images/icons/star.svg);
   mask-image: url(images/icons/star.svg);
+}
+
+i.keyboard-shortcuts {
+  -webkit-mask-image: url(images/icons/keyboard.svg);
+  mask-image: url(images/icons/keyboard.svg);
 }
 
 i.mic {
@@ -1794,7 +1811,7 @@ button.toolbar-item.active i {
   padding: 20px 10px;
   position: relative;
   border: 1px solid #e8e8e8;
-  font-family: 'Reenie Beanie';
+  font-family: 'Reenie Beanie', cursive;
   font-size: 24px;
   border-bottom-right-radius: 60px 5px;
   display: block;

@@ -8,7 +8,6 @@
 
 import {
   $applyNodeReplacement,
-  $createTextNode,
   $getDocument,
   $isElementNode,
   $setDirectionFromDOM,
@@ -169,6 +168,13 @@ export class ListNode extends ElementNode {
       if (this.__listType === 'check') {
         element.setAttribute('__lexicalListType', 'check');
       }
+      // $convertListNode reads `dir` back off the <ol>/<ul>, so it has to be
+      // written here — this override does not call super.exportDOM, which is
+      // where ElementNode would otherwise emit it.
+      const direction = this.getDirection();
+      if (direction) {
+        element.dir = direction;
+      }
     }
     return {
       element,
@@ -204,11 +210,18 @@ export class ListNode extends ElementNode {
         if (listItemNodesToInsert === nodesToInsert) {
           listItemNodesToInsert = [...nodesToInsert];
         }
-        listItemNodesToInsert[i] = this.createListItemNode().append(
-          $isElementNode(node) && !($isListNode(node) || node.isInline())
-            ? $createTextNode(node.getTextContent())
-            : node,
-        );
+        const listItem = this.createListItemNode();
+        if ($isElementNode(node) && !($isListNode(node) || node.isInline())) {
+          // A block can't stay a block inside a list item, so it is unwrapped
+          // into its own children — the same conversion $createListOrMerge and
+          // ListItemNode.append already perform. Stringifying it with
+          // getTextContent() instead would drop every text format and style and
+          // replace inline nodes (links, mentions, …) with plain text.
+          listItem.append(...node.getChildren());
+        } else {
+          listItem.append(node);
+        }
+        listItemNodesToInsert[i] = listItem;
       }
     }
     return super.splice(start, deleteCount, listItemNodesToInsert);
@@ -264,7 +277,7 @@ function $setListThemeClassNames(
       classesToAdd.push(...normalizeClassNames(listLevelClassName));
       for (let i = 0; i < listLevelsClassNames.length; i++) {
         if (i !== normalizedListDepth) {
-          classesToRemove.push(node.__tag + i);
+          classesToRemove.push(...normalizeClassNames(listLevelsClassNames[i]));
         }
       }
     }

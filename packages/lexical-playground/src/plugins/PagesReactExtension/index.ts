@@ -16,7 +16,7 @@ export {
   type PageSetupDropdownProps,
 } from './PageSetupDropdown';
 
-export const PagesReactExtension = /* @__PURE__ */ defineExtension({
+export const PagesReactExtension = defineExtension({
   build: () => ({Component: PageSetupDropdownComponent}),
   dependencies: [ReactExtension, PagesExtension],
   name: '@lexical/playground/PagesReact',

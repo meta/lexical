@@ -21,14 +21,14 @@ Lexical DevTools extension uses [WXT](https://wxt.dev/) framework to simplify de
 
 **TLDR:**
 ```bash
-$ npm run dev
+$ pnpm run dev
 # In browser: Alt+R to force reload extension
 ```
 
 **Useful Hints:**
 - Extension activity log: [chrome://extensions/?activity=eddfjidloofnnmloonifcjkpmfmlblab](chrome://extensions/?activity=eddfjidloofnnmloonifcjkpmfmlblab)
 - Status of ServiceWorkers: [chrome://serviceworker-internals/?devtools](chrome://serviceworker-internals/?devtools)
-- WXT Framework debugging: `DEBUG_WXT=1 npm run dev`
+- WXT Framework debugging: `DEBUG_WXT=1 pnpm run dev`
 - If you detach the Dev Tools in a separate window, and press `Cmd+Option+I` while Dev Tools window is focused, you will invoke the Dev Tools for the Dev Tools window.
 
 **Safari:**
@@ -45,11 +45,11 @@ sudo xcodebuild -license
 xcodebuild -runFirstLaunch
 
 # Normal operation
-npm run dev:safari
+pnpm run dev:safari
 
 # Build & upload to Apple Connect
-BUILD_VERSION=0 npm run safari:archive 
-PASSWORD="XXX" npm run safari:upload
+BUILD_VERSION=0 pnpm run safari:archive 
+PASSWORD="XXX" pnpm run safari:upload
 ```
 
 ## Publishing flow

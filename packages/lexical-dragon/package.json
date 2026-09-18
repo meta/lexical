@@ -9,7 +9,7 @@
     "accessibility"
   ],
   "license": "MIT",
-  "version": "0.49.0",
+  "version": "0.50.0",
   "main": "./dist/LexicalDragon.js",
   "types": "./dist/typescript-too-old.d.ts",
   "repository": {

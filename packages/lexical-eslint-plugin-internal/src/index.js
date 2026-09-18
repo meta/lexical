@@ -8,18 +8,18 @@
 
 import noImportsFromSelf from './rules/no-imports-from-self.js';
 import noOptionalChaining from './rules/no-optional-chaining.js';
-import requirePureAnnotation from './rules/require-pure-annotation.js';
+import noPureAnnotation from './rules/no-pure-annotation.js';
 
 const rules = {
   'no-imports-from-self': noImportsFromSelf,
   'no-optional-chaining': noOptionalChaining,
-  'require-pure-annotation': requirePureAnnotation,
+  'no-pure-annotation': noPureAnnotation,
 };
 
 // Legacy config format (ESLint 7-8)
-// Note: require-pure-annotation is deliberately not part of the default
-// configs — it only applies to package sources (never tests), so the
-// root eslint.config.mjs enables it with its own files scope.
+// Note: no-pure-annotation is deliberately not part of the default configs —
+// it is about how this repository builds its own sources, so the root
+// eslint.config.mjs enables it with its own files scope.
 const legacyAll = {
   rules: {
     '@lexical/internal/no-imports-from-self': 'error',

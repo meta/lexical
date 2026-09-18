@@ -12,6 +12,7 @@
  * property with {@link defineExtension})
  *
  * @__NO_SIDE_EFFECTS__
+ * @lexical-inline identity
  */
 export function safeCast<T>(value: T): T {
   return value;

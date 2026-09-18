@@ -55,9 +55,9 @@ export interface SpecialTextConfig {
   disabled: boolean;
 }
 
-export const SpecialTextExtension = /* @__PURE__ */ defineExtension({
+export const SpecialTextExtension = defineExtension({
   build: (editor, config) => namedSignals(config),
-  config: /* @__PURE__ */ safeCast<SpecialTextConfig>({disabled: true}),
+  config: safeCast<SpecialTextConfig>({disabled: true}),
   name: '@lexical/playground/SpecialText',
   nodes: [SpecialTextNode],
   register: (editor, config, state) =>

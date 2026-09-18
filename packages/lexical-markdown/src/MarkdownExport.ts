@@ -113,10 +113,13 @@ export function createSelectionMarkdownExport(
 
   return selection => {
     const output = [];
-    const children = $getRoot().getChildren();
+    // The separator depends on the previously *emitted* block, not on the
+    // previous root child: unselected children produce no output, so keying
+    // off the child index would prefix a newline to the first emitted block
+    // whenever the selection starts below the top of the document.
+    let previousExported: LexicalNode | null = null;
 
-    for (let i = 0; i < children.length; i++) {
-      const child = children[i];
+    for (const child of $getRoot().getChildren()) {
       const {shouldInclude, markdown} = $processNodeForSelection(
         child,
         selection,
@@ -129,12 +132,13 @@ export function createSelectionMarkdownExport(
       if (shouldInclude && markdown != null) {
         output.push(
           isNewlineDelimited &&
-            i > 0 &&
+            previousExported !== null &&
             !isEmptyParagraph(child) &&
-            !isEmptyParagraph(children[i - 1])
+            !isEmptyParagraph(previousExported)
             ? '\n'.concat(markdown)
             : markdown,
         );
+        previousExported = child;
       }
     }
     return output.join('\n');

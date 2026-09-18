@@ -49,7 +49,7 @@ import {
   CollapsibleTitleNode,
 } from './CollapsibleTitleNode';
 
-const SummaryRule = /* @__PURE__ */ defineImportRule({
+const SummaryRule = defineImportRule({
   $import: (ctx, el) => [
     $createCollapsibleTitleNode().splice(0, 0, ctx.$importChildren(el)),
   ],
@@ -57,7 +57,7 @@ const SummaryRule = /* @__PURE__ */ defineImportRule({
   name: '@lexical/playground/summary',
 });
 
-const CollapsibleContentRule = /* @__PURE__ */ defineImportRule({
+const CollapsibleContentRule = defineImportRule({
   $import: (ctx, el) => [
     $createCollapsibleContentNode().splice(
       0,
@@ -69,7 +69,7 @@ const CollapsibleContentRule = /* @__PURE__ */ defineImportRule({
   name: '@lexical/playground/collapsible-content',
 });
 
-const DetailsRule = /* @__PURE__ */ defineImportRule({
+const DetailsRule = defineImportRule({
   $import: (ctx, el) => {
     let titleNode: CollapsibleTitleNode | null = null;
     // BlockSchema wraps inline runs in paragraphs, and `$onChild` siphons
@@ -120,7 +120,7 @@ const DetailsRule = /* @__PURE__ */ defineImportRule({
   name: '@lexical/playground/details',
 });
 
-export const INSERT_COLLAPSIBLE_COMMAND = /* @__PURE__ */ createCommand<void>(
+export const INSERT_COLLAPSIBLE_COMMAND = createCommand<void>(
   'INSERT_COLLAPSIBLE_COMMAND',
 );
 
@@ -184,9 +184,9 @@ const $onEscapeDown = () => {
   return false;
 };
 
-export const CollapsibleExtension = /* @__PURE__ */ defineExtension({
+export const CollapsibleExtension = defineExtension({
   dependencies: [
-    /* @__PURE__ */ configExtension(DOMImportExtension, {
+    configExtension(DOMImportExtension, {
       rules: [DetailsRule, SummaryRule, CollapsibleContentRule],
     }),
   ],

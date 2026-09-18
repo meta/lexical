@@ -1,12 +1,18 @@
 name: Internal registry dependency check
 description: >-
   Checks that every dependency version pinned in the lockfile is available from
-  the configured registry. Authenticates with a short-lived token minted from
-  the job's GitHub OIDC identity. The calling job must grant
-  `permissions: id-token: write` and check out the repo. Fork PRs can't mint
-  OIDC and are skipped with a notice; enforce via a required merge_group run.
+  the configured registry. Takes a credential from the sibling `auth` action
+  rather than minting one itself, so there is a single implementation of the
+  OIDC exchange. The calling job must check out the repo. A fork pull request
+  cannot mint OIDC, so `auth` yields an empty token and this check is skipped
+  with a notice; enforce via a required merge_group run.
 
 inputs:
+  token:
+    description: >-
+      Registry credential, as produced by the sibling `auth` action. An empty
+      value skips the check, which is what a fork pull request produces.
+    required: true
   lockfile:
     description: >-
       Path to the lockfile to check. Format is auto-detected by filename:
@@ -28,35 +34,15 @@ runs:
     - uses: actions/setup-node@v6
       with:
         node-version: ${{ inputs.node-version }}
+    - name: Skip when no credential is available
+      if: inputs.token == ''
+      shell: bash
+      run: echo "::notice::No registry credential (most likely a fork pull request) — deferring to the required merge-queue run."
     - name: Check dependencies are available in the registry
+      if: inputs.token != ''
       shell: bash
       env:
         REGISTRY_URL: ${{ inputs.registry-url }}
+        REGISTRY_TOKEN: ${{ inputs.token }}
         LOCKFILE: ${{ inputs.lockfile }}
-      run: |
-        set -euo pipefail
-
-        # Fork PRs get a read-only token with no OIDC, so they can't
-        # authenticate. Pass with a notice (the required merge-queue run gates
-        # them) so this check always reports a conclusion and is never stuck.
-        if [ -z "${ACTIONS_ID_TOKEN_REQUEST_TOKEN:-}" ]; then
-          echo "::notice::No OIDC identity available (likely a fork PR) — deferring to the required merge-queue run."
-          exit 0
-        fi
-
-        # 1) Mint this job's GitHub OIDC token.
-        ID=$(curl -sS --max-time 20 \
-          -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
-          "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=meta_jwt_access_token" \
-          | python3 -c "import sys,json;print(json.load(sys.stdin)['value'])")
-
-        # 2) Exchange it for a short-lived registry token.
-        TOKEN=$(curl -sS --max-time 25 -H "Accept: application/jwt" \
-          --data-urlencode "id_token=$ID" \
-          --data-urlencode "peer=metaccio" \
-          --data-urlencode "audience=metaccio" \
-          https://www.internalfb.com/intern/crypto_jwt/access_token_exchange/)
-        [ "$(printf '%s' "$TOKEN" | tr -cd '.' | wc -c)" -eq 2 ] || { echo "::error::OIDC token exchange failed"; exit 1; }
-
-        # 3) Assert every pinned dependency version is served by the registry.
-        REGISTRY_TOKEN="$TOKEN" node "${{ github.action_path }}/check.mjs"
+      run: node "${{ github.action_path }}/check.mjs"

@@ -28,11 +28,11 @@ export interface AutoFocusConfig {
  * An Extension to focus the LexicalEditor when the root element is set
  * (typically only when the editor is first created).
  */
-export const AutoFocusExtension = /* @__PURE__ */ defineExtension({
+export const AutoFocusExtension = defineExtension({
   build: (editor, config, state) => {
     return namedSignals(config);
   },
-  config: /* @__PURE__ */ safeCast<AutoFocusConfig>({
+  config: safeCast<AutoFocusConfig>({
     defaultSelection: 'rootEnd',
     disabled: false,
   }),

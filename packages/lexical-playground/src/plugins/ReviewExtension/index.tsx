@@ -50,8 +50,9 @@ import {
 import {$appendInline} from '../../nodes/slotImport';
 import {$createReviewNode, $isReviewNode, ReviewNode} from './ReviewNode';
 
-export const INSERT_REVIEW_COMMAND: LexicalCommand<void> =
-  /* @__PURE__ */ createCommand('INSERT_REVIEW_COMMAND');
+export const INSERT_REVIEW_COMMAND: LexicalCommand<void> = createCommand(
+  'INSERT_REVIEW_COMMAND',
+);
 
 const STARS = [1, 2, 3, 4, 5];
 
@@ -199,7 +200,7 @@ export function ReviewPlugin({context}: DecoratorComponentProps): JSX.Element {
 // projection; the body imports through the normal child path; the `rating`
 // NodeState is restored from the data attribute, clamped to 0-5 so
 // hand-authored HTML can't push it out of range.
-const ReviewImportRule = /* @__PURE__ */ defineImportRule({
+const ReviewImportRule = defineImportRule({
   $import: (ctx, el) => {
     // Clear any seeded default body paragraph so imported children replace it.
     const review = $createReviewNode().clear();
@@ -228,7 +229,7 @@ const ReviewImportRule = /* @__PURE__ */ defineImportRule({
   name: '@lexical/playground/review-host',
 });
 
-export const ReviewExtension = /* @__PURE__ */ defineExtension({
+export const ReviewExtension = defineExtension({
   // The Review's HTML import rule rides its own extension — like every other
   // node extension that registers its own DOM-import rules — rather than a
   // central playground aggregate. CoreImportExtension supplies the
@@ -237,7 +238,7 @@ export const ReviewExtension = /* @__PURE__ */ defineExtension({
   // ClipboardDOMImportExtension routes pastes through this pipeline).
   dependencies: [
     CoreImportExtension,
-    /* @__PURE__ */ configExtension(DOMImportExtension, {
+    configExtension(DOMImportExtension, {
       rules: [ReviewImportRule],
     }),
   ],
@@ -275,10 +276,10 @@ export const ReviewExtension = /* @__PURE__ */ defineExtension({
 /**
  * This provides the in-editor React rendering for the review extension
  */
-export const ReactReviewExtension = /* @__PURE__ */ defineExtension({
+export const ReactReviewExtension = defineExtension({
   build: () => namedSignals({nodeMap: new Map<NodeKey, ReviewNode>()}),
   dependencies: [
-    /* @__PURE__ */ configExtension(ReactExtension, {
+    configExtension(ReactExtension, {
       decorators: [ReviewPlugin],
     }),
     WatchEditableExtension,

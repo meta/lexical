@@ -17,7 +17,10 @@ import {type CompiledDispatch, compileImportRules} from './compileImportRules';
  *
  * To merge two or more overlays into a single one, pass them (alongside
  * raw {@link DOMImportRule}s if desired) to a fresh
- * {@link defineOverlayRules} — earlier arguments are higher priority.
+ * {@link defineOverlayRules} — the entries are flattened into a single
+ * ordered list that is dispatched front to back, so earlier entries are
+ * higher priority. (Unlike {@link DOMImportConfig.rules}, nothing
+ * prepends here: what you write is the evaluation order.)
  *
  * The internal shape is intentionally not part of the public API: it's a
  * compiled dispatch table tagged with `__type` so callers cannot pass a
@@ -83,8 +86,12 @@ function isCompiledOverlayRules(
  *
  * Entries can be raw {@link DOMImportRule}s or other
  * {@link CompiledOverlayRules} (the latter are inlined at their
- * position in priority order, so the same call composes any number of
- * overlays). Earlier entries are higher priority.
+ * position in the list, so the same call composes any number of
+ * overlays). The resulting list is dispatched front to back: earlier
+ * entries are higher priority, and a rule defers to the next matching
+ * entry by calling `$next()`. When the overlay is installed via
+ * `$importChildren({rules})` its whole list is tried before the rules
+ * from {@link DOMImportConfig.rules}.
  *
  * Overlay rules installed as a raw array would be re-compiled on every
  * `$importChildren` call. For overlays that are reused (e.g. a GitHub
@@ -92,6 +99,7 @@ function isCompiledOverlayRules(
  * module scope so the dispatch table is built up front.
  *
  * @experimental
+ * @__NO_SIDE_EFFECTS__
  */
 export function defineOverlayRules(
   entries: readonly DOMImportRuleEntry[],

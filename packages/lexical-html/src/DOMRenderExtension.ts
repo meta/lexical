@@ -40,7 +40,7 @@ interface DOMRenderInitResult {
  * editor. This is highly experimental and subject to change from one version
  * to the next.
  **/
-export const DOMRenderExtension = /* @__PURE__ */ defineExtension<
+export const DOMRenderExtension = defineExtension<
   DOMRenderConfig,
   typeof DOMRenderExtensionName,
   DOMRenderExtensionOutput,

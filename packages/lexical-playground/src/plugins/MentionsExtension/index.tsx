@@ -24,7 +24,7 @@ import {type JSX, useCallback, useEffect, useMemo, useState} from 'react';
 
 import {$createMentionNode, MentionNode} from '../../nodes/MentionNode';
 
-const MentionImportRule = /* @__PURE__ */ defineImportRule({
+const MentionImportRule = defineImportRule({
   $import: (_ctx, el) => {
     const textContent = el.textContent ?? '';
     const mentionName =
@@ -35,14 +35,14 @@ const MentionImportRule = /* @__PURE__ */ defineImportRule({
   name: '@lexical/playground/mention',
 });
 
-export const MentionsExtension = /* @__PURE__ */ defineExtension({
+export const MentionsExtension = defineExtension({
   // Depend on CoreImportExtension so the `<span data-lexical-mention>` rule is
   // merged after — and therefore out-prioritizes — the core inline-format
   // `<span>` rule, regardless of where the app lists this extension relative
   // to the import baseline.
   dependencies: [
     CoreImportExtension,
-    /* @__PURE__ */ configExtension(DOMImportExtension, {
+    configExtension(DOMImportExtension, {
       rules: [MentionImportRule],
     }),
   ],

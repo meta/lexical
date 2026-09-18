@@ -430,6 +430,14 @@ function useFloatingLinkEditorToolbar(
 
   useEffect(() => {
     function $updateToolbar() {
+      if (!editor.isEditable()) {
+        // The link editor is an editing affordance (edit / delete the link),
+        // and `$updateLinkEditor` does not even resolve a URL for it while the
+        // editor is read-only. Clicking a link in read-only mode follows it
+        // (ClickableLinkExtension), so there is nothing to pop up.
+        setIsLink(false);
+        return;
+      }
       const selection = $getSelection();
       if ($isRangeSelection(selection)) {
         const focusLinkNode = $getSelectedLinkNode(selection);
@@ -478,6 +486,13 @@ function useFloatingLinkEditorToolbar(
       }
     }
     return mergeRegister(
+      // Close an open link editor the moment the editor becomes read-only,
+      // rather than leaving the last one on screen until the next update.
+      editor.registerEditableListener(editable => {
+        if (!editable) {
+          setIsLink(false);
+        }
+      }),
       editor.registerUpdateListener(({editorState}) => {
         editorState.read(() => {
           $updateToolbar();

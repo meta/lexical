@@ -417,7 +417,10 @@ export function $isCodeNode(
 
 function $convertPreElement(domNode: HTMLElement): DOMConversionOutput {
   const language = domNode.getAttribute(LANGUAGE_DATA_ATTRIBUTE);
-  return {node: $createCodeNode(language)};
+  // exportDOM writes data-theme next to data-language, so read it back here
+  // too — otherwise the theme is dropped on every HTML round trip.
+  const theme = domNode.getAttribute(THEME_DATA_ATTRIBUTE);
+  return {node: $createCodeNode(language, theme)};
 }
 
 function $convertDivElement(domNode: Node): DOMConversionOutput {

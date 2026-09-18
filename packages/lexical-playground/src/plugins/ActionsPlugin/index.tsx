@@ -58,6 +58,7 @@ import {docFromHash, docToHash} from '../../utils/docSerialization';
 import {formatCodeWithPrettier} from '../CodeActionMenuPlugin/formatCodeWithPrettier';
 import {PLAYGROUND_TRANSFORMERS} from '../MarkdownTransformers';
 import {PagesExtension} from '../PagesExtension';
+import ShortcutsHelpDialog from '../ShortcutsExtension/ShortcutsHelpDialog';
 import {
   SPEECH_TO_TEXT_COMMAND,
   SUPPORT_SPEECH_RECOGNITION,
@@ -285,6 +286,16 @@ export default function ActionsPlugin({
 
   return (
     <div className="actions">
+      <button
+        className="action-button"
+        title="Keyboard shortcuts"
+        aria-label="Show keyboard shortcuts"
+        onClick={() =>
+          showModal('Keyboard shortcuts', () => <ShortcutsHelpDialog />)
+        }>
+        <i className="keyboard-shortcuts" />
+      </button>
+
       {SUPPORT_SPEECH_RECOGNITION && (
         <button
           onClick={() => {

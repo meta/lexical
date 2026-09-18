@@ -28,6 +28,29 @@ const publicNpmNames = new Set(
   packagesManager.getPublicPackages().map(pkg => pkg.getNpmName()),
 );
 
+describe('standalone projects are their own pnpm workspace root', () => {
+  // Examples and integration fixtures live inside the monorepo tree but are
+  // not workspace members. Each needs its own pnpm-workspace.yaml: it is what
+  // stops a `pnpm install` there from climbing into the monorepo and picking
+  // up its settings, and it is the only place pnpm reads that project's
+  // `overrides` and build-script decisions from (`package.json#pnpm` is
+  // ignored). Without one, `pnpm install` in the project fails with
+  // ERR_PNPM_IGNORED_BUILDS as soon as a dependency has a build script.
+  for (const packageJsonPath of [
+    'examples',
+    'scripts/__tests__/integration/fixtures',
+  ].flatMap(dir =>
+    glob.sync(`${dir}/*/package.json`, {windowsPathsNoEscape: true}),
+  )) {
+    const projectDir = path.dirname(packageJsonPath);
+    it(projectDir, () => {
+      expect(
+        fs.existsSync(path.resolve(projectDir, 'pnpm-workspace.yaml')),
+      ).toBe(true);
+    });
+  }
+});
+
 describe('public package.json audits (`pnpm run update-packages` to fix most issues)', () => {
   packagesManager.getPublicPackages().forEach(pkg => {
     const npmName = pkg.getNpmName();

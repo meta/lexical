@@ -45,7 +45,7 @@ import {
   RubyNode,
 } from './RubyNode';
 
-const RubyImportRule = /* @__PURE__ */ defineImportRule({
+const RubyImportRule = defineImportRule({
   $import: (_ctx, el) => {
     const children = el.childNodes;
     const results = [];
@@ -219,10 +219,10 @@ function $nudgeOffRuby(): boolean {
   return false;
 }
 
-export const RubyExtension = /* @__PURE__  */ defineExtension({
+export const RubyExtension = defineExtension({
   dependencies: [
     CoreImportExtension,
-    /* @__PURE__ */ configExtension(DOMImportExtension, {
+    configExtension(DOMImportExtension, {
       rules: [RubyImportRule],
     }),
   ],

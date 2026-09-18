@@ -3,7 +3,7 @@
     "checkJs": true,
     "noEmit": true
   },
-  "include": ["scripts"],
+  "include": ["scripts", "packages/lexical-compiler/src/passes"],
   "exclude": [
     "**/node_modules/**",
     "**/dist/**",

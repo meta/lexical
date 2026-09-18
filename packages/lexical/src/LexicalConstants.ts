@@ -161,4 +161,12 @@ export const TEXT_TYPE_TO_MODE: Record<number, TextModeType> = {
 
 /** The property key used to store node state on serialized node JSON. */
 export const NODE_STATE_KEY = '$';
+
+/**
+ * @internal
+ *
+ * The property key on a {@link KeyboardEventModifierMask} that names the
+ * Apple-platform counterpart of ctrlKey.
+ */
+export const CONTROL_OR_OTHER_KEY = Symbol.for('@lexical/ctrlOrOtherKey');
 export const PROTOTYPE_CONFIG_METHOD = '$config';

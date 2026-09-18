@@ -21,7 +21,7 @@ import {
 } from 'lexical';
 import {act, useEffect} from 'react';
 import {createRoot, type Root} from 'react-dom/client';
-import {afterEach, beforeEach, describe, expect, it} from 'vitest';
+import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
 
 describe('LexicalExtensionComposer', () => {
   const extension = defineExtension({
@@ -92,9 +92,16 @@ describe('LexicalExtensionComposer', () => {
     // editor. This makes editor.focus() → updateEditorSync take the
     // inline path: $onUpdate pushes to _deferred, but NO $beginUpdate,
     // NO pending state, NO microtask. The callback is orphaned.
+    // updateEditorSync warns in DEV because the root listener runs
+    // with a read-only context on the stack — expected for this
+    // deliberate reproduction.
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
     editor.update(() => {
       editor.setRootElement(rootElement);
     });
+    expect(warnSpy).toHaveBeenCalledTimes(1);
+    expect(warnSpy.mock.calls[0][0]).toMatch(/read-only context/);
+    warnSpy.mockRestore();
 
     // _deferred has the stuck focus callback.
     expect(editor._deferred.length).toBeGreaterThan(0);

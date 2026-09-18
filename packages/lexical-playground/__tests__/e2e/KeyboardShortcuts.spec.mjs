@@ -371,7 +371,7 @@ test.describe('Keyboard shortcuts', () => {
     await assertHTML(
       page,
       html`
-        <p class="PlaygroundEditorTheme__paragraph" dir="auto" style="">
+        <p class="PlaygroundEditorTheme__paragraph" dir="auto">
           <span data-lexical-text="true">abc</span>
         </p>
       `,

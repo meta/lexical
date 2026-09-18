@@ -23,9 +23,9 @@ import {DOMImportExtension} from './DOMImportExtension';
  *
  * @experimental
  */
-export const CoreImportExtension = /* @__PURE__ */ defineExtension({
+export const CoreImportExtension = defineExtension({
   dependencies: [
-    /* @__PURE__ */ configExtension(DOMImportExtension, {
+    configExtension(DOMImportExtension, {
       rules: CoreImportRules,
     }),
   ],

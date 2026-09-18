@@ -337,9 +337,9 @@ function mergeAutocompleteConfig(
   return merged;
 }
 
-export const AutocompleteExtension = /* @__PURE__ */ defineExtension({
+export const AutocompleteExtension = defineExtension({
   build: (editor, config) => namedSignals(config),
-  config: /* @__PURE__ */ safeCast<AutocompleteConfig>({
+  config: safeCast<AutocompleteConfig>({
     compositionIdleDebounceMs: DEFAULT_COMPOSITION_IDLE_DEBOUNCE_MS,
     detectLanguage: defaultDetectLanguage,
     dictionaries: defaultDictionaries,

@@ -54,6 +54,7 @@ describe('LexicalTableSelectionHelpers', () => {
         defineExtension({
           dependencies: [TableExtension],
           name: 'regression-8670-test',
+          theme: {tableScrollableWrapper: ''},
         }),
       );
       editor.setRootElement(container);
@@ -137,6 +138,7 @@ describe('LexicalTableSelectionHelpers', () => {
         defineExtension({
           dependencies: [TableExtension],
           name: 'regression-8832-test',
+          theme: {tableScrollableWrapper: ''},
         }),
       );
       editor.setRootElement(container);
@@ -314,6 +316,7 @@ describe('LexicalTableSelectionHelpers', () => {
         defineExtension({
           dependencies: [TableExtension],
           name: 'delete-line-test',
+          theme: {tableScrollableWrapper: ''},
         }),
       );
       editor.setRootElement(container);

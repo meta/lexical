@@ -27,7 +27,7 @@ import {MdastTableExtension} from './MdastTableExtension';
  * (e.g. task lists without tables).
  * @experimental
  */
-export const MdastGfmExtension = /* @__PURE__ */ defineExtension({
+export const MdastGfmExtension = defineExtension({
   dependencies: [
     MdastStrikethroughExtension,
     MdastTaskListExtension,

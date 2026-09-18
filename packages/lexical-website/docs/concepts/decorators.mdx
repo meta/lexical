@@ -1,0 +1,204 @@
+# Decorators
+
+Decorator nodes are used when a piece of editor content needs a custom view
+instead of a text-only or element-only DOM representation. Common examples are
+media embeds, mentions, cards, horizontal rules, or interactive controls that
+need application UI inside the editor.
+
+A `DecoratorNode` still belongs to the `EditorState`, but its visible UI comes
+from `decorate()`. The DOM element returned by `createDOM()` is the host that
+Lexical reconciles. The decorated value returned by `decorate()` is rendered
+into that host by the framework integration, such as React's decorators in
+`@lexical/react`.
+
+## When to use a decorator
+
+Use a decorator node when:
+
+- The content is represented by structured data rather than editable text.
+- The rendered UI is owned by your application or framework.
+- Selection should treat the content as a single node or custom interactive
+  region.
+- The node needs a separate DOM import, DOM export, or JSON serialization shape.
+
+Prefer `TextNode` or `ElementNode` when the content can be edited directly as
+normal text or nested editor content. For example, a custom paragraph style is
+usually an `ElementNode`, while a video embed is a decorator.
+
+## Inline and block decorators
+
+`DecoratorNode` is inline by default. Override `isInline()` to return `false`
+for block-level content such as horizontal rules, video embeds, or cards.
+
+```ts
+class VideoNode extends DecoratorNode<ReactNode> {
+  isInline(): false {
+    return false;
+  }
+
+  createDOM(): HTMLElement {
+    return document.createElement('div');
+  }
+
+  updateDOM(): false {
+    return false;
+  }
+
+  decorate(): ReactNode {
+    return <VideoPlayer />;
+  }
+}
+```
+
+Block decorators often also need custom selection behavior. The built-in
+`HorizontalRuleNode` is a useful reference because it is a block decorator that
+registers click handling and node selection support.
+
+## Registering decorators
+
+Keep a decorator's node registration and behavior in one extension instead of
+splitting them across an editor config and a framework plug-in. The extension
+can provide the node and register commands, transforms, or listeners that
+belong to it:
+
+```ts
+export const INSERT_VIDEO_COMMAND = /* @__PURE__ */ createCommand<string>(
+  'INSERT_VIDEO_COMMAND',
+);
+
+export const VideoExtension = /* @__PURE__ */ defineExtension({
+  name: 'example/Video',
+  nodes: () => [VideoNode],
+  register(editor) {
+    return editor.registerCommand(
+      INSERT_VIDEO_COMMAND,
+      videoID => {
+        $insertNodes([$createVideoNode(videoID)]);
+        return true;
+      },
+      COMMAND_PRIORITY_EDITOR,
+    );
+  },
+});
+```
+
+Add that extension to the root editor extension. React applications mount the
+result with
+[`LexicalExtensionComposer`](/docs/api/modules/lexical_react_LexicalExtensionComposer#lexicalextensioncomposer):
+
+```tsx
+const editorExtension = /* @__PURE__ */ defineExtension({
+  name: 'ExampleEditor',
+  namespace: 'Example',
+  dependencies: [VideoExtension],
+});
+
+<LexicalExtensionComposer extension={editorExtension}>
+  {/* toolbar and other editor UI */}
+</LexicalExtensionComposer>;
+```
+
+The command can then be dispatched from a toolbar, menu, or any other UI:
+
+```ts
+editor.dispatchCommand(INSERT_VIDEO_COMMAND, videoID);
+```
+
+This keeps the configuration and registration together. A framework-independent
+decorator whose `decorate()` returns `null` can use the same extension shape with
+[`buildEditorFromExtensions`](/docs/api/modules/lexical_extension#buildeditorfromextensions)
+outside React.
+
+## State and serialization
+
+Store only serializable data on the node or in [NodeState](/docs/concepts/node-state).
+The decorated UI should be derived from that data. Do not store React elements,
+DOM nodes, functions, `Map`, `Set`, or other non-serializable values in node
+state.
+
+The example below stores a video id with NodeState and renders a React
+component from that id:
+
+```tsx
+const videoIDState = createState('videoID', {
+  parse: value => (typeof value === 'string' ? value : ''),
+});
+
+class VideoNode extends DecoratorNode<ReactNode> {
+  $config() {
+    return this.config('video', {
+      extends: DecoratorNode,
+      stateConfigs: [{flat: true, stateConfig: videoIDState}],
+    });
+  }
+
+  createDOM(): HTMLElement {
+    return document.createElement('div');
+  }
+
+  updateDOM(): false {
+    return false;
+  }
+
+  decorate(): ReactNode {
+    return <VideoPlayer videoID={$getState(this, videoIDState)} />;
+  }
+}
+
+export function $createVideoNode(videoID: string): VideoNode {
+  return $setState($create(VideoNode), videoIDState, videoID);
+}
+```
+
+NodeState can hold richer serializable shapes as long as the state config
+knows how to parse them. Use a
+[`StateValueConfig`](/docs/api/modules/lexical#statevalueconfig) when a
+decorator needs structured data such as ids, dimensions, captions, or embed
+metadata.
+
+If the node needs to survive copy and paste outside Lexical, implement
+`exportDOM()` in addition to JSON serialization. For importing HTML, prefer
+[`DOMImportExtension`](/docs/serialization/dom-import) for new code.
+
+Static `importDOM()` remains the legacy alternative, but it is a separate
+import mechanism and cannot be combined with `DOMImportExtension`. Choose one
+pipeline; new extension-based editors should contribute their rules through
+`DOMImportExtension`.
+
+## Rendering model
+
+`createDOM()` should create the stable host element for the node. `updateDOM()`
+returns whether Lexical should replace that host when the node changes. Most
+decorator nodes return `false` because the host can stay in place while the
+decorated value changes.
+
+`decorate()` returns the framework-specific rendered value. In React, the
+React plugin renders this value with a portal into the host element created by
+`createDOM()`. Non-React integrations can use the same node data and provide
+their own rendering layer.
+
+Keep editor data and UI state separate. The node should store the content that
+belongs in the editor state, while transient UI details such as hover state,
+loading state, or local component state should live inside the decorated
+component.
+
+Decorators do not have to be tied to a UI framework. A `DecoratorNode` can
+return `null` from `decorate()` and do its visible work in `createDOM()` and
+`updateDOM()`, or delegate behavior to extension hooks such as
+[`DOMRenderExtension`](/docs/serialization/dom-render) or a mutation listener.
+`HorizontalRuleNode` from `@lexical/extension` is an example of a decorator
+node whose behavior can be managed without rendering a React component from
+`decorate()`.
+
+Decorator nodes also combine well with
+[named slots](/docs/concepts/named-slots) when surrounding
+application UI needs to be mounted in predictable places around the editor. For
+advanced DOM ownership, `DOMSlot` and `ElementNode` patterns let an extension
+place arbitrary DOM inside or around lexical content while still letting
+Lexical manage the actual editor children. Use those patterns when the content
+inside the custom UI should remain editable by Lexical. The playground's
+`ReviewExtension` and `ReviewNode` on main are a useful example: the node uses
+`getDOMSlot()` for its editable body, while the extension tracks live review
+nodes with a mutation listener and renders the surrounding review UI. Use these
+patterns only when a plain `ElementNode`, framework decorator, or portal would
+not give enough control.

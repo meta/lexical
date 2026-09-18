@@ -30,8 +30,9 @@ import Button from '../../ui/Button';
 import {DialogActions} from '../../ui/Dialog';
 import TextInput from '../../ui/TextInput';
 
-export const INSERT_POLL_COMMAND: LexicalCommand<string> =
-  /* @__PURE__ */ createCommand('INSERT_POLL_COMMAND');
+export const INSERT_POLL_COMMAND: LexicalCommand<string> = createCommand(
+  'INSERT_POLL_COMMAND',
+);
 
 function $convertPollElement(el: HTMLElement) {
   const question = el.getAttribute('data-lexical-poll-question');
@@ -42,7 +43,7 @@ function $convertPollElement(el: HTMLElement) {
   return $createPollNode(question, JSON.parse(options));
 }
 
-const PollImportRule = /* @__PURE__ */ defineImportRule({
+const PollImportRule = defineImportRule({
   $import: (_ctx, el, $next) => {
     const node = $convertPollElement(el);
     return node ? [node] : $next();
@@ -51,9 +52,9 @@ const PollImportRule = /* @__PURE__ */ defineImportRule({
   name: '@lexical/playground/poll',
 });
 
-export const PollExtension = /* @__PURE__ */ defineExtension({
+export const PollExtension = defineExtension({
   dependencies: [
-    /* @__PURE__ */ configExtension(DOMImportExtension, {
+    configExtension(DOMImportExtension, {
       rules: [PollImportRule],
     }),
   ],

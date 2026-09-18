@@ -64,6 +64,7 @@ import {
   COMMAND_PRIORITY_BEFORE_EDITOR,
   COMMAND_PRIORITY_EDITOR,
   configExtension,
+  CONTROL_OR_META,
   createCommand,
   createState,
   defineExtension,
@@ -72,7 +73,6 @@ import {
   type ElementDOMSlot,
   ElementNode,
   HISTORIC_TAG,
-  IS_APPLE,
   isExactShortcutMatch,
   isHTMLElement,
   KEY_DOWN_COMMAND,
@@ -1142,9 +1142,12 @@ export const MdastFootnoteExtension = defineExtension({
         {$import: $importFootnoteReference, type: 'footnoteReference'},
         {$import: $importFootnoteDefinition, type: 'footnoteDefinition'},
       ],
-      mdastExtensions: [gfmFootnoteFromMarkdown()],
-      micromarkExtensions: [gfmFootnote()],
-      toMarkdownExtensions: [gfmFootnoteToMarkdown(), footnotesRootHandler],
+      mdastExtensions: [/* @__PURE__ */ gfmFootnoteFromMarkdown()],
+      micromarkExtensions: [/* @__PURE__ */ gfmFootnote()],
+      toMarkdownExtensions: [
+        /* @__PURE__ */ gfmFootnoteToMarkdown(),
+        footnotesRootHandler,
+      ],
     }),
   ],
   name: '@lexical/dev-mdast-editor-example/MdastFootnote',
@@ -1159,9 +1162,8 @@ export const MdastFootnoteExtension = defineExtension({
           if (
             editor.isEditable() &&
             isExactShortcutMatch(event, 'f', {
+              ...CONTROL_OR_META,
               altKey: true,
-              ctrlKey: !IS_APPLE,
-              metaKey: IS_APPLE,
             })
           ) {
             event.preventDefault();

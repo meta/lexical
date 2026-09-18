@@ -39,6 +39,7 @@ import {
   KEY_TAB_COMMAND,
   type SerializedElementNode,
 } from 'lexical';
+import {$assertNodeType} from 'lexical/src/__tests__/utils';
 import {assert, describe, expect, it} from 'vitest';
 
 import {CardExtension} from '../../src/plugins/CardExtension';
@@ -328,6 +329,58 @@ describe('CardNode named slots', () => {
       expect($getRoot().getChildrenSize()).toBe(1);
     });
   });
+
+  // A Card is a shadow root, so a caret placed between two of them renders a
+  // block cursor rather than a text position. Backspace there has to delete
+  // the Card it sits against — including its named slots — the same way it
+  // deletes an adjacent block DecoratorNode (#8939).
+  it.for([
+    {isBackward: true, survivor: 'B'},
+    {isBackward: false, survivor: 'A'},
+  ])(
+    'block cursor between two Cards deletes one (isBackward: $isBackward)',
+    ({isBackward, survivor}) => {
+      using editor = buildEditorFromExtensions(CardTestExtension);
+
+      editor.update(
+        () => {
+          const a = $createCardNode();
+          const b = $createCardNode();
+          for (const [card, label] of [
+            [a, 'A'],
+            [b, 'B'],
+          ] as const) {
+            const title = $assertNodeType(
+              $getSlot(card, 'title'),
+              $isParagraphNode,
+            );
+            title.append($createTextNode(label));
+          }
+          $getRoot().clear().append(a, b);
+          // The block cursor sits between the two Cards.
+          $getRoot().select(1, 1);
+        },
+        {discrete: true},
+      );
+
+      editor.update(
+        () => {
+          const selection = $getSelection();
+          assert($isRangeSelection(selection), 'Expected a RangeSelection');
+          selection.deleteCharacter(isBackward);
+        },
+        {discrete: true},
+      );
+
+      editor.read(() => {
+        expect($getRoot().getChildrenSize()).toBe(1);
+        // The other Card must survive: the slot went with the deleted host,
+        // and the survivor kept its own.
+        const card = $assertNodeType($getRoot().getFirstChild(), $isCardNode);
+        expect($getSlot(card, 'title')?.getTextContent()).toBe(survivor);
+      });
+    },
+  );
 
   // Mid-text deletion inside the bare title value rides core's
   // deleteCharacter: $getNearestRootOrShadowRoot treats the slotted value as

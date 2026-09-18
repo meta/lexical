@@ -65,6 +65,7 @@ import {
 } from 'lexical';
 import {
   createTestEditor,
+  DECORATOR_BOUNDARY_ANCHOR_HTML,
   expectHtmlToBeEqual,
   html,
   TestComposer,
@@ -732,6 +733,57 @@ describe('HistoryExtension maxDepth', () => {
   });
 });
 
+describe('shared HistoryState across editors', () => {
+  function $setParagraphText(text: string) {
+    $getRoot().clear().append($createParagraphNodeWithText(text));
+  }
+  function $getText(target: LexicalEditor) {
+    return target.getEditorState().read(() => $getRoot().getTextContent());
+  }
+
+  // https://github.com/facebook/lexical/issues/8623
+  test('undo and redo apply to the editor that changed', async () => {
+    const parentEditor = createTestEditor({namespace: 'parent'});
+    const nestedEditor = createTestEditor({namespace: 'nested'});
+    // Give both editors content before registering history so that the edits
+    // below are changes rather than initialization.
+    for (const target of [parentEditor, nestedEditor]) {
+      target.update(() => $setParagraphText('initial'), {discrete: true});
+    }
+    const sharedHistory = createEmptyHistoryState();
+    registerHistory(parentEditor, sharedHistory, 0);
+    registerHistory(nestedEditor, sharedHistory, 0);
+
+    parentEditor.update(() => $setParagraphText('parent 1'), {discrete: true});
+    parentEditor.update(() => $setParagraphText('parent 2'), {discrete: true});
+    nestedEditor.update(() => $setParagraphText('nested 1'), {discrete: true});
+    expect(sharedHistory.undoStack).toHaveLength(2);
+    expect(sharedHistory.undoStack[0].editor).toBe(parentEditor);
+    expect(sharedHistory.undoStack[1].editor).toBe(nestedEditor);
+
+    // The most recent change was made in the nested editor, so that is the
+    // editor the undo has to apply to.
+    await nestedEditor.dispatchCommand(UNDO_COMMAND, undefined);
+    expect($getText(nestedEditor)).toBe('initial');
+    expect($getText(parentEditor)).toBe('parent 2');
+
+    // The next entry belongs to the parent editor.
+    await nestedEditor.dispatchCommand(UNDO_COMMAND, undefined);
+    expect($getText(nestedEditor)).toBe('initial');
+    expect($getText(parentEditor)).toBe('parent 1');
+    expect(sharedHistory.undoStack).toHaveLength(0);
+
+    await nestedEditor.dispatchCommand(REDO_COMMAND, undefined);
+    expect($getText(nestedEditor)).toBe('initial');
+    expect($getText(parentEditor)).toBe('parent 2');
+
+    await nestedEditor.dispatchCommand(REDO_COMMAND, undefined);
+    expect($getText(nestedEditor)).toBe('nested 1');
+    expect($getText(parentEditor)).toBe('parent 2');
+    expect(sharedHistory.redoStack).toHaveLength(0);
+  });
+});
+
 describe('SharedHistoryExtension', () => {
   test('can create a parent editor', async () => {
     const clock = Date.now();
@@ -777,6 +829,8 @@ describe('SharedHistoryExtension', () => {
       },
       {discrete: true},
     );
+    // insertNodes at the end of the paragraph no longer leaves a stray empty
+    // paragraph after the block decorator (#9095).
     expectHtmlToBeEqual(
       dom.innerHTML,
       html`
@@ -788,7 +842,7 @@ describe('SharedHistoryExtension', () => {
           data-lexical-editor="true">
           <p dir="auto"><span data-lexical-text="true">Child editor</span></p>
         </div>
-        <p dir="auto"><br data-lexical-managed-linebreak="true" /></p>
+        ${DECORATOR_BOUNDARY_ANCHOR_HTML}
       `,
     );
     editor.read(() => {
@@ -813,7 +867,7 @@ describe('SharedHistoryExtension', () => {
             <span data-lexical-text="true">Child editor. Updated!</span>
           </p>
         </div>
-        <p dir="auto"><br data-lexical-managed-linebreak="true" /></p>
+        ${DECORATOR_BOUNDARY_ANCHOR_HTML}
       `,
     );
     expect(
@@ -828,7 +882,8 @@ describe('SharedHistoryExtension', () => {
       ).output.historyState.peek(),
     );
 
-    editor.dispatchCommand(UNDO_COMMAND);
+    // The last change was made in the child editor, so a single undo reverts
+    // it and leaves the parent alone.
     editor.dispatchCommand(UNDO_COMMAND);
     editor.read(() => {
       expect($getChildEditor().read(() => $getRoot().getTextContent())).toEqual(
@@ -846,7 +901,7 @@ describe('SharedHistoryExtension', () => {
           data-lexical-editor="true">
           <p dir="auto"><span data-lexical-text="true">Child editor</span></p>
         </div>
-        <p dir="auto"><br data-lexical-managed-linebreak="true" /></p>
+        ${DECORATOR_BOUNDARY_ANCHOR_HTML}
       `,
     );
     editor.update(() => editor.dispatchCommand(UNDO_COMMAND), {

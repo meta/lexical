@@ -4,7 +4,46 @@ packages:
   - '!examples/**/*'
   - '!scripts/__tests__/integration/fixtures/**/*'
 
+# Was `engineStrict: true` in package.json, where pnpm never read it, so the
+# `engines` fields it was meant to enforce went unchecked. pnpm looks here.
+engineStrict: true
+
 minimumReleaseAge: 10080
 minimumReleaseAgeExclude:
   - '@lexical/*'
   - 'lexical'
+
+catalog:
+  yjs: '^13.6.31'
+
+overrides:
+  react: '19.2.5'
+  react-dom: '19.2.5'
+  '@types/node': '25.9.1'
+  postcss: '8.5.15'
+  prettier: '3.8.1'
+  'yaml@^1': '^1.10.3'
+  uuid: '>=14.0.0'
+  webpack-dev-server: '>=5.2.4'
+  onnxruntime-node: 'link:./stubs/empty'
+  serialize-javascript: '>=7.0.5'
+  sharp: 'link:./stubs/empty'
+  tmp: '>=0.2.6'
+  yjs: 'catalog:'
+  qs: '>=6.15.2'
+
+peerDependencyRules:
+  allowedVersions:
+    eslint: '10'
+
+# Build scripts stay disabled — matches pre-migration (pnpm 10) behavior where
+# no dependency build scripts were approved and CI passed on prebuilt binaries.
+allowBuilds:
+  '@parcel/watcher': false
+  '@swc/core': false
+  core-js: false
+  esbuild: false
+  leveldown: false
+  protobufjs: false
+  spawn-sync: false
+  unrs-resolver: false

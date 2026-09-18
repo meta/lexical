@@ -194,4 +194,55 @@ describe('CheckListExtension mobile tap toggle', () => {
     expect(readChecked(editor, 0)).toBe(true);
     expect(readChecked(editor, 1)).toBe(true);
   });
+
+  it('rapid mouse clicks on the same item all toggle (desktop not throttled)', () => {
+    using editor = buildEditor();
+    expect(readChecked(editor, 0)).toBe(false);
+
+    const baseTimeStamp = 1000;
+    const click = (offsetMs: number) => {
+      const event = new MouseEvent('click', {
+        bubbles: true,
+        cancelable: true,
+        clientX: 10,
+        clientY: 5,
+      });
+      Object.defineProperty(event, 'timeStamp', {
+        value: baseTimeStamp + offsetMs,
+      });
+      getCheckListItem(0).dispatchEvent(event);
+    };
+
+    // Two rapid mouse clicks within the dedup window must both toggle.
+    click(0);
+    click(100);
+
+    expect(readChecked(editor, 0)).toBe(false);
+  });
+
+  it('rapid touch taps on the same item are throttled (mobile preserved)', () => {
+    using editor = buildEditor();
+    expect(readChecked(editor, 0)).toBe(false);
+
+    const baseTimeStamp = 1000;
+    const tap = (offsetMs: number) => {
+      const event = new PointerEvent('pointerup', {
+        bubbles: true,
+        cancelable: true,
+        clientX: 10,
+        clientY: 5,
+        pointerType: 'touch',
+      });
+      Object.defineProperty(event, 'timeStamp', {
+        value: baseTimeStamp + offsetMs,
+      });
+      getCheckListItem(0).dispatchEvent(event);
+    };
+
+    // First tap toggles, second tap within DEDUP_WINDOW_MS is throttled.
+    tap(0);
+    tap(100);
+
+    expect(readChecked(editor, 0)).toBe(true);
+  });
 });

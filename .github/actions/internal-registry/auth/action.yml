@@ -1,0 +1,59 @@
+name: Internal registry auth
+description: >-
+  Mints a short-lived registry credential from the job's GitHub OIDC identity,
+  and optionally writes it into the npm user config so later steps can install
+  or publish. No static token is involved: the credential is minted per run and
+  never persisted. The calling job must grant `permissions: id-token: write`.
+  Run `actions/setup-node` BEFORE this action — setup-node rewrites the npm
+  config that this action appends to.
+
+inputs:
+  registry-url:
+    description: Registry base URL.
+    required: false
+    default: https://registry.facebook.net
+  scopes:
+    description: >-
+      Space-separated npm scopes to route to the registry, for example
+      "@acme @acme-ui". Leave empty to mint a credential without routing any
+      scope, which is what a read-only check wants.
+    required: false
+    default: ''
+  write-npmrc:
+    description: >-
+      Whether to append the credential and the scope routing to the npm user
+      config. Set to false to receive the token as an output only.
+    required: false
+    default: 'true'
+  on-missing-oidc:
+    description: >-
+      What to do when the job has no OIDC identity, which is the case for a
+      fork pull request: "fail" or "skip". When skipping, the outputs are empty
+      so the caller can branch on them.
+    required: false
+    default: fail
+
+outputs:
+  token:
+    description: >-
+      The minted credential. Empty when the job had no OIDC identity and
+      on-missing-oidc was "skip".
+    value: ${{ steps.mint.outputs.token }}
+  subject:
+    description: >-
+      The OIDC subject the credential was minted for. This is the exact string
+      the registry authorizes against, so it is what to quote when a request is
+      rejected.
+    value: ${{ steps.mint.outputs.subject }}
+
+runs:
+  using: composite
+  steps:
+    - id: mint
+      shell: bash
+      env:
+        REGISTRY_URL: ${{ inputs.registry-url }}
+        REGISTRY_SCOPES: ${{ inputs.scopes }}
+        WRITE_NPMRC: ${{ inputs.write-npmrc }}
+        ON_MISSING_OIDC: ${{ inputs.on-missing-oidc }}
+      run: node "${{ github.action_path }}/mint.mjs"

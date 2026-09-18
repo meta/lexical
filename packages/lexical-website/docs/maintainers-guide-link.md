@@ -70,18 +70,38 @@ package-internal; and the dev/prod branch is `process.env.NODE_ENV !==
 `source` mode works without any `resolve.alias` entries or build-time globals
 — including for the transitive `@lexical/*` packages.
 
+One thing the compiled bundles have that the sources do not is the
+`/* @__PURE__ */` annotations on module-scope calls to `defineExtension`,
+`createCommand`, `createState`, and friends. Lexical's own build injects
+them, and without them a bundler has to assume those calls have side effects
+and will keep every extension, command, and rule definition your app never
+uses. Add [`@lexical/compiler`](https://www.npmjs.com/package/@lexical/compiler)
+to your build to get the same annotations out of `source` mode — it annotates
+the factory calls in your own code too.
+
 ### Minimal Vite setup
 
 ```ts
 // vite.config.ts
+import {pureAnnotations} from '@lexical/compiler/PureAnnotations';
 import {defineConfig} from 'vite';
 
 export default defineConfig({
+  plugins: [pureAnnotations()],
   resolve: {
     conditions: ['source', 'development', 'module', 'browser', 'default'],
   },
 });
 ```
+
+Because a `link:`ed checkout is the same version as the plugin, you can also
+pass `pureAnnotations({inline: true})`, which replaces calls to the trivial
+factories (`safeCast`, `defineExtension`, `configExtension`, ...) with the
+literal they would have returned rather than annotating them.
+
+`@lexical/compiler/PureAnnotations` also exports the transform itself
+(`transformPureAnnotations`) for bundlers without a Rollup-style plugin API;
+see its README for the options.
 
 The integration fixture at
 `scripts/__tests__/integration/fixtures/lexical-link-source-mode/`

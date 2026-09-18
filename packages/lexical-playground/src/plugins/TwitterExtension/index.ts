@@ -18,18 +18,19 @@ import {
 
 import {$createTweetNode, TweetNode} from '../../nodes/TweetNode';
 
-export const INSERT_TWEET_COMMAND: LexicalCommand<string> =
-  /* @__PURE__ */ createCommand('INSERT_TWEET_COMMAND');
+export const INSERT_TWEET_COMMAND: LexicalCommand<string> = createCommand(
+  'INSERT_TWEET_COMMAND',
+);
 
-const TweetImportRule = /* @__PURE__ */ defineImportRule({
+const TweetImportRule = defineImportRule({
   $import: ctx => [$createTweetNode(ctx.captures.id[0])],
   match: sel.tag('div').attr('data-lexical-tweet-id', /^.+$/, {capture: 'id'}),
   name: '@lexical/playground/tweet',
 });
 
-export const TwitterExtension = /* @__PURE__ */ defineExtension({
+export const TwitterExtension = defineExtension({
   dependencies: [
-    /* @__PURE__ */ configExtension(DOMImportExtension, {
+    configExtension(DOMImportExtension, {
       rules: [TweetImportRule],
     }),
   ],

@@ -20,10 +20,9 @@ import {
 
 import {$createPageBreakNode, PageBreakNode} from '../../nodes/PageBreakNode';
 
-export const INSERT_PAGE_BREAK: LexicalCommand<undefined> =
-  /* @__PURE__ */ createCommand();
+export const INSERT_PAGE_BREAK: LexicalCommand<undefined> = createCommand();
 
-const PageBreakImportRule = /* @__PURE__ */ defineImportRule({
+const PageBreakImportRule = defineImportRule({
   $import: () => [$createPageBreakNode()],
   match: sel.tag('hr').attr('data-lexical-page-break', 'true'),
   name: '@lexical/playground/page-break',
@@ -33,15 +32,15 @@ const PageBreakImportRule = /* @__PURE__ */ defineImportRule({
 // as `<figure type="page-break">`. Match that form too so older documents
 // still round-trip into a PageBreakNode instead of being silently dropped
 // by the generic `<figure>` rule from ImagesExtension.
-const PageBreakLegacyImportRule = /* @__PURE__ */ defineImportRule({
+const PageBreakLegacyImportRule = defineImportRule({
   $import: () => [$createPageBreakNode()],
   match: sel.tag('figure').attr('type', 'page-break'),
   name: '@lexical/playground/page-break-legacy',
 });
 
-export const PageBreakExtension = /* @__PURE__ */ defineExtension({
+export const PageBreakExtension = defineExtension({
   dependencies: [
-    /* @__PURE__ */ configExtension(DOMImportExtension, {
+    configExtension(DOMImportExtension, {
       rules: [PageBreakImportRule, PageBreakLegacyImportRule],
     }),
   ],

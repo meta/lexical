@@ -213,7 +213,7 @@ const CORE_EXPORT_RULES: readonly MdastExportRule[] = [
  * ```
  * @experimental
  */
-export const MdastImportExtension = /* @__PURE__ */ defineExtension<
+export const MdastImportExtension = defineExtension<
   MdastConfig,
   '@lexical/mdast/Import',
   MdastImportExtensionOutput,
@@ -235,7 +235,7 @@ export const MdastImportExtension = /* @__PURE__ */ defineExtension<
       registry,
     };
   },
-  config: /* @__PURE__ */ safeCast<MdastConfig>({
+  config: safeCast<MdastConfig>({
     exportRules: CORE_EXPORT_RULES,
     importRules: CORE_IMPORT_RULES,
     // Core CommonMark inline formatting; feature extensions contribute
@@ -290,9 +290,9 @@ export const MdastImportExtension = /* @__PURE__ */ defineExtension<
  * ATX (`# …`) and setext headings, shipping {@link HeadingNode}.
  * @experimental
  */
-export const MdastHeadingExtension = /* @__PURE__ */ defineExtension({
+export const MdastHeadingExtension = defineExtension({
   dependencies: [
-    /* @__PURE__ */ configExtension(MdastImportExtension, {
+    configExtension(MdastImportExtension, {
       exportRules: [{$export: $exportHeading, type: 'heading'}],
       importRules: [{$import: $importHeading, type: 'heading'}],
     }),
@@ -307,9 +307,9 @@ export const MdastHeadingExtension = /* @__PURE__ */ defineExtension({
  * {@link MdastShadowRootQuoteExtension}.
  * @experimental
  */
-export const MdastBlockquoteExtension = /* @__PURE__ */ defineExtension({
+export const MdastBlockquoteExtension = defineExtension({
   dependencies: [
-    /* @__PURE__ */ configExtension(MdastImportExtension, {
+    configExtension(MdastImportExtension, {
       exportRules: [{$export: exportQuote, type: 'quote'}],
       importRules: [{$import: $importBlockquote, type: 'blockquote'}],
     }),
@@ -324,7 +324,7 @@ export const MdastBlockquoteExtension = /* @__PURE__ */ defineExtension({
  * `@lexical/rich-text` nodes.
  * @experimental
  */
-export const MdastRichTextExtension = /* @__PURE__ */ defineExtension({
+export const MdastRichTextExtension = defineExtension({
   dependencies: [MdastHeadingExtension, MdastBlockquoteExtension],
   name: '@lexical/mdast/RichText',
 });
@@ -335,9 +335,9 @@ export const MdastRichTextExtension = /* @__PURE__ */ defineExtension({
  * {@link MdastTaskListExtension}.
  * @experimental
  */
-export const MdastListExtension = /* @__PURE__ */ defineExtension({
+export const MdastListExtension = defineExtension({
   dependencies: [
-    /* @__PURE__ */ configExtension(MdastImportExtension, {
+    configExtension(MdastImportExtension, {
       exportRules: [{$export: $exportList, type: 'list'}],
       importRules: [
         {$import: $importList, type: 'list'},
@@ -357,10 +357,10 @@ export const MdastListExtension = /* @__PURE__ */ defineExtension({
  * presence in the registry.
  * @experimental
  */
-export const MdastTaskListExtension = /* @__PURE__ */ defineExtension({
+export const MdastTaskListExtension = defineExtension({
   dependencies: [
     MdastListExtension,
-    /* @__PURE__ */ configExtension(MdastImportExtension, {
+    configExtension(MdastImportExtension, {
       mdastExtensions: [/* @__PURE__ */ gfmTaskListItemFromMarkdown()],
       micromarkExtensions: [/* @__PURE__ */ gfmTaskListItem()],
       toMarkdownExtensions: [/* @__PURE__ */ gfmTaskListItemToMarkdown()],
@@ -373,9 +373,9 @@ export const MdastTaskListExtension = /* @__PURE__ */ defineExtension({
  * Fenced and indented code blocks, shipping {@link CodeNode}.
  * @experimental
  */
-export const MdastCodeExtension = /* @__PURE__ */ defineExtension({
+export const MdastCodeExtension = defineExtension({
   dependencies: [
-    /* @__PURE__ */ configExtension(MdastImportExtension, {
+    configExtension(MdastImportExtension, {
       exportRules: [{$export: $exportCode, type: 'code'}],
       importRules: [{$import: $importCode, type: 'code'}],
     }),
@@ -392,9 +392,9 @@ export const MdastCodeExtension = /* @__PURE__ */ defineExtension({
  * (bare `https://…` in prose) add {@link MdastAutolinkLiteralExtension}.
  * @experimental
  */
-export const MdastLinkExtension = /* @__PURE__ */ defineExtension({
+export const MdastLinkExtension = defineExtension({
   dependencies: [
-    /* @__PURE__ */ configExtension(MdastImportExtension, {
+    configExtension(MdastImportExtension, {
       exportRules: [{$export: $exportLink, type: 'link'}],
       importRules: [
         {$import: $importLink, type: 'link'},
@@ -419,10 +419,10 @@ export const MdastLinkExtension = /* @__PURE__ */ defineExtension({
  * ```
  * @experimental
  */
-export const MdastAutolinkLiteralExtension = /* @__PURE__ */ defineExtension({
+export const MdastAutolinkLiteralExtension = defineExtension({
   dependencies: [
     MdastLinkExtension,
-    /* @__PURE__ */ configExtension(MdastImportExtension, {
+    configExtension(MdastImportExtension, {
       mdastExtensions: [/* @__PURE__ */ gfmAutolinkLiteralFromMarkdown()],
       micromarkExtensions: [/* @__PURE__ */ gfmAutolinkLiteral()],
       toMarkdownExtensions: [/* @__PURE__ */ gfmAutolinkLiteralToMarkdown()],
@@ -446,12 +446,12 @@ export const MdastAutolinkLiteralExtension = /* @__PURE__ */ defineExtension({
  * (e.g. created by the `> ` shortcut) and shadow root quotes can coexist.
  * @experimental
  */
-export const MdastShadowRootQuoteExtension = /* @__PURE__ */ defineExtension({
+export const MdastShadowRootQuoteExtension = defineExtension({
   dependencies: [
     MdastBlockquoteExtension,
     // Declared after (and depending on) MdastBlockquoteExtension so this
     // blockquote rule merges later and takes priority over the default.
-    /* @__PURE__ */ configExtension(MdastImportExtension, {
+    configExtension(MdastImportExtension, {
       importRules: [{$import: $importShadowRootBlockquote, type: 'blockquote'}],
     }),
   ],
@@ -490,10 +490,10 @@ const $exportThematicBreak: MdastExportHandler = node => {
  * character is preserved on round-trip.
  * @experimental
  */
-export const MdastHorizontalRuleExtension = /* @__PURE__ */ defineExtension({
+export const MdastHorizontalRuleExtension = defineExtension({
   dependencies: [
     HorizontalRuleExtension,
-    /* @__PURE__ */ configExtension(MdastImportExtension, {
+    configExtension(MdastImportExtension, {
       exportRules: [{$export: $exportThematicBreak, type: 'horizontalrule'}],
       importRules: [{$import: $importThematicBreak, type: 'thematicBreak'}],
     }),
@@ -506,9 +506,9 @@ export const MdastHorizontalRuleExtension = /* @__PURE__ */ defineExtension({
  * Needs no extra nodes (the core text handlers carry the format bit).
  * @experimental
  */
-export const MdastStrikethroughExtension = /* @__PURE__ */ defineExtension({
+export const MdastStrikethroughExtension = defineExtension({
   dependencies: [
-    /* @__PURE__ */ configExtension(MdastImportExtension, {
+    configExtension(MdastImportExtension, {
       importRules: [{$import: importDelete, type: 'delete'}],
       inlineShortcutTriggers: ['~'],
       inlineShortcutTypes: ['delete'],
@@ -528,7 +528,7 @@ export const MdastStrikethroughExtension = /* @__PURE__ */ defineExtension({
  * `MdastExtension` bundle) adds serialization back to Markdown.
  * @experimental
  */
-export const MdastCommonMarkExtension = /* @__PURE__ */ defineExtension({
+export const MdastCommonMarkExtension = defineExtension({
   dependencies: [
     MdastRichTextExtension,
     MdastListExtension,
@@ -554,9 +554,9 @@ export interface MdastShortcutsConfig {
  * only wires up the behavior, it does not pull in any grammar of its own.
  * @experimental
  */
-export const MdastShortcutsExtension = /* @__PURE__ */ defineExtension({
+export const MdastShortcutsExtension = defineExtension({
   build: (editor, config) => namedSignals(config),
-  config: /* @__PURE__ */ safeCast<MdastShortcutsConfig>({disabled: false}),
+  config: safeCast<MdastShortcutsConfig>({disabled: false}),
   dependencies: [MdastImportExtension],
   name: '@lexical/mdast/Shortcuts',
   register: (editor, config, state) => {

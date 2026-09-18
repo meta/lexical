@@ -26,6 +26,7 @@ import {
   $getEditor,
   $getRoot,
   $isParagraphNode,
+  type AnyLexicalExtension,
   defineExtension,
   isHTMLElement,
   type LexicalEditor,
@@ -272,5 +273,41 @@ describe('DOMImportExtension preprocess', () => {
     );
     // Per-call appends to the stack (highest index = runs first).
     expect(log).toEqual(['per-call', 'config']);
+  });
+
+  test('preprocessors contributed by dependents run before their dependencies', () => {
+    const log: string[] = [];
+    const trace =
+      (name: string): DOMPreprocessFn =>
+      (_dom, _ctx, $next) => {
+        log.push(name);
+        $next();
+      };
+    const makeExtension = (
+      name: string,
+      dependencies: AnyLexicalExtension[] = [],
+    ) =>
+      defineExtension({
+        dependencies: [
+          ...dependencies,
+          configExtension(DOMImportExtension, {
+            preprocess: [trace(`${name}-a`), trace(`${name}-b`)],
+          }),
+        ],
+        name: `preprocess-${name}`,
+      });
+    const leaf = makeExtension('leaf');
+    const mid = makeExtension('mid', [leaf]);
+    using editor = buildEditorFromExtensions(
+      defineExtension({
+        dependencies: [CoreImportExtension, mid],
+        name: 'preprocess-root',
+      }),
+    );
+    importInto(editor, '<p>x</p>');
+    // The stack is run from its end, so the LAST entry of a contribution
+    // runs first, and a dependent extension's whole contribution runs
+    // before its dependency's.
+    expect(log).toEqual(['mid-b', 'mid-a', 'leaf-b', 'leaf-a']);
   });
 });

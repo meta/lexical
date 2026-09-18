@@ -259,7 +259,12 @@ const COMMENT_SELECTOR = {
  * available without a circular import); consumers outside `@lexical/html`
  * should always import the public `sel` from the package root.
  *
+ * Every method builds a selector and returns it; none of them touch anything
+ * outside their arguments, which is what the marker declares. The build
+ * annotates module-scope calls to them so an unused rule can be dropped.
+ *
  * @internal
+ * @lexical-pure-namespace
  */
 export const selBase = {
   /** Match any {@link HTMLElement}. */

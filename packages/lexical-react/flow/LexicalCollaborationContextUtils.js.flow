@@ -1,0 +1,25 @@
+/**
+ * Copyright (c) Meta Platforms, Inc. and affiliates.
+ *
+ * This source code is licensed under the MIT license found in the
+ * LICENSE file in the root directory of this source tree.
+ *
+ * @flow strict
+ */
+
+import type {Doc} from 'yjs';
+import type {Context} from 'react';
+
+export type CollaborationContextType = {
+  color: string,
+  isCollabActive: boolean,
+  name: string,
+  yjsDocMap: Map<string, Doc>,
+};
+
+declare export var CollaborationContext: Context<CollaborationContextType | null>;
+declare export function newContext(): CollaborationContextType;
+declare export hook useCollaborationContext(
+  username?: string,
+  color?: string,
+): CollaborationContextType;

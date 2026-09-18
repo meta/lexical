@@ -167,6 +167,11 @@ The core API surface (all exported from `lexical`):
 - [`$getSlotFrame(node)`](/docs/api/modules/lexical#getslotframe) — the innermost slot value containing a node (the
   "frame" whose virtual shadow root scopes editing), or `null` when the node
   is not inside any slot.
+- [`$getSelectionSlotFrame(selection)`](/docs/api/modules/lexical#getselectionslotframe) — the slot frame a
+  selection lives in, or `null` when it is outside any slot. Selection-driven
+  exporters walk this frame instead of the root's children, because a
+  selection inside a slot never contains its host and a root walk would
+  export nothing. Works for every selection type, not just `RangeSelection`.
 - [`$isSlotHost(node)`](/docs/api/modules/lexical#isslothost) /
   [`$isSlotChild(node)`](/docs/api/modules/lexical#isslotchild) — type guards
   for the [`SlotHostNode`](/docs/api/modules/lexical#slothostnode) /

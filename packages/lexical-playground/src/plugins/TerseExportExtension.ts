@@ -19,10 +19,7 @@ import {
   ParagraphNode,
 } from 'lexical';
 
-export const RenderContextTerse = /* @__PURE__ */ createRenderState(
-  'isTerse',
-  Boolean,
-);
+export const RenderContextTerse = createRenderState('isTerse', Boolean);
 
 /**
  * Install these overrides only for export sessions where terse output was
@@ -33,11 +30,11 @@ const terseOnly: DOMOverrideOptions = {
   disabledForSession: ctx => !ctx.get(RenderContextTerse),
 };
 
-export const TerseExportExtension = /* @__PURE__ */ defineExtension({
+export const TerseExportExtension = defineExtension({
   dependencies: [
-    /* @__PURE__ */ configExtension(DOMRenderExtension, {
+    configExtension(DOMRenderExtension, {
       overrides: [
-        /* @__PURE__ */ domOverride(
+        domOverride(
           '*',
           {
             $exportDOM: (node, $next) => {
@@ -72,7 +69,7 @@ export const TerseExportExtension = /* @__PURE__ */ defineExtension({
           },
           terseOnly,
         ),
-        /* @__PURE__ */ domOverride(
+        domOverride(
           [ParagraphNode],
           {
             $exportDOM: (node, $next) => {

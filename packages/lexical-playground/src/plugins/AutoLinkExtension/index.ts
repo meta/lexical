@@ -14,10 +14,7 @@ import {
 } from '@lexical/link';
 import {configExtension} from 'lexical';
 
-export const PlaygroundAutoLinkExtension = /* @__PURE__ */ configExtension(
-  AutoLinkExtension,
-  {
-    excludeParents: [$isCodeNode],
-    matchers: [autoLinkUrlMatcher, autoLinkEmailMatcher],
-  },
-);
+export const PlaygroundAutoLinkExtension = configExtension(AutoLinkExtension, {
+  excludeParents: [$isCodeNode],
+  matchers: [autoLinkUrlMatcher, autoLinkEmailMatcher],
+});

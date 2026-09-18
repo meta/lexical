@@ -16,7 +16,11 @@ import {
 } from '@lexical/extension';
 import {HistoryExtension} from '@lexical/history';
 import {LinkExtension} from '@lexical/link';
-import {CheckListExtension, ListExtension} from '@lexical/list';
+import {
+  CheckListExtension,
+  ListExtension,
+  WordListImportExtension,
+} from '@lexical/list';
 import {ContentEditable} from '@lexical/react/LexicalContentEditable';
 import {LexicalExtensionComposer} from '@lexical/react/LexicalExtensionComposer';
 import {RichTextExtension} from '@lexical/rich-text';
@@ -27,7 +31,6 @@ import ExampleTheme from './ExampleTheme';
 import {ImportHtmlButton} from './ImportHtmlDialog';
 import {MarkdownShortcutsExtension} from './MarkdownShortcutsExtension';
 import {Toolbar, ToolbarExtension} from './ToolbarExtension';
-import {WordPasteExtension} from './wordPaste';
 
 const placeholder =
   'Try pasting from Word, GitHub, a webpage, or click "Import HTML"…';
@@ -53,8 +56,9 @@ const editorExtension = defineExtension({
     CodeShikiExtension,
     MarkdownShortcutsExtension,
     ToolbarExtension,
-    // Word-only overlay, installed conditionally by a preprocess.
-    WordPasteExtension,
+    // Word list handling is opt-in: the preprocess installs the
+    // overlay only when the paste carries Word's Generator meta tag.
+    WordListImportExtension,
     // Route real `text/html` pastes through the DOMImportExtension
     // pipeline so the rules / overlays above actually fire on pastes,
     // not just on the "Import HTML" dialog.

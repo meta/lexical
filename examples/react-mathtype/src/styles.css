@@ -1,0 +1,120 @@
+/**
+ * Copyright (c) Meta Platforms, Inc. and affiliates.
+ *
+ * This source code is licensed under the MIT license found in the
+ * LICENSE file in the root directory of this source tree.
+ *
+ */
+
+body {
+  margin: 0;
+  background: #eceff3;
+  color: #202124;
+  font-family:
+    system-ui,
+    -apple-system,
+    BlinkMacSystemFont,
+    '.SFNSText-Regular',
+    sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+.App {
+  padding: 32px 16px;
+}
+
+h1 {
+  margin: 0 auto 16px auto;
+  max-width: 720px;
+  font-size: 24px;
+  font-weight: 650;
+}
+
+.editor-shell {
+  max-width: 720px;
+  margin: 0 auto;
+  border: 1px solid #d3d8df;
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: 0 1px 3px rgb(0 0 0 / 8%);
+  overflow: hidden;
+}
+
+.mathtype-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 8px 12px;
+  border-bottom: 1px solid #e3e6ea;
+  background: #f7f8fa;
+}
+
+.mathtype-toolbar img {
+  width: 28px;
+  height: 28px;
+  padding: 4px;
+  border-radius: 6px;
+}
+
+.mathtype-toolbar img:hover {
+  background: #e7ebf0;
+}
+
+.mathtype-target {
+  position: fixed;
+  top: 0;
+  left: -10000px;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+}
+
+.editor-inner {
+  position: relative;
+}
+
+.editor-input {
+  min-height: 180px;
+  padding: 16px;
+  font-size: 16px;
+  line-height: 1.5;
+  outline: 0;
+  tab-size: 1;
+}
+
+.editor-placeholder {
+  position: absolute;
+  top: 16px;
+  left: 16px;
+  color: #7c8590;
+  pointer-events: none;
+  user-select: none;
+}
+
+.editor-paragraph {
+  margin: 0 0 8px 0;
+}
+
+.editor-paragraph:last-child {
+  margin-bottom: 0;
+}
+
+.editor-mathtype {
+  display: inline-flex;
+  align-items: center;
+  vertical-align: middle;
+  border-radius: 4px;
+}
+
+.editor-mathtype.selected {
+  outline: 2px solid #1a73e8;
+  outline-offset: 2px;
+}
+
+.editor-mathtype img {
+  max-width: none;
+  vertical-align: middle;
+  user-select: none;
+}

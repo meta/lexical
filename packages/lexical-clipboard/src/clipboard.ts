@@ -26,8 +26,8 @@ import {
   $getNearestNodeFromDOMNode,
   $getRoot,
   $getSelection,
+  $getSelectionSlotFrame,
   $getSlot,
-  $getSlotFrame,
   $getSlotNames,
   $getTextPointCaret,
   $isElementNode,
@@ -151,6 +151,12 @@ export function $insertDataTransferForPlainText(
  * Insert the contents of `dataTransfer` at `selection` using the rich-text
  * import pipeline (`application/x-lexical-editor` → `text/html` → `text/plain`
  * → `text/uri-list`, in descending order of priority).
+ *
+ * Every payload type leaves the editor's selection after the inserted content,
+ * so `selection` must be a live selection this update may write to — the one
+ * from `$getSelection()`, or one built with `$createRangeSelection()`. Passing
+ * a selection read out of an already-committed EditorState is not supported and
+ * raises an invariant in development builds.
  *
  * @param dataTransfer an object conforming to the [DataTransfer interface] (https://html.spec.whatwg.org/multipage/dnd.html#the-datatransfer-interface)
  * @param selection the selection to use as the insertion point for the content in the DataTransfer object
@@ -643,24 +649,9 @@ export function $generateJSONFromSelectedNodes<
   // are shadow-root isolated), so a root-children walk would miss the
   // selected nodes entirely and export an empty payload (cut = data loss).
   // Walk the selection's slot frame instead; outside slots this is the root.
-  // NodeSelection participates here too — a click that selects a decorator
-  // nested in a slot needs the same frame redirect, otherwise its export
-  // pipeline silently produces an empty clipboard.
-  //
-  // NodeSelection.getNodes()[0] is the first node by insertion order (the
-  // internal _nodes Set's iteration order), not document order. For the
-  // common single-decorator case this is the only node and the frame is
-  // unambiguous. A multi-node NodeSelection that straddles a slot boundary
-  // is currently undefined — slots are shadow-isolated, so straddling is
-  // already invalid construction, and we pick the first inserted node's
-  // frame rather than asserting.
-  const slotFrameAnchor = $isRangeSelection(selection)
-    ? selection.anchor.getNode()
-    : $isNodeSelection(selection)
-      ? (selection.getNodes()[0] ?? null)
-      : null;
-  const slotFrame =
-    slotFrameAnchor !== null ? $getSlotFrame(slotFrameAnchor) : null;
+  // $generateDOMFromNodes in @lexical/html redirects the text/html channel
+  // through the same frame, so the two clipboard payloads stay in agreement.
+  const slotFrame = $getSelectionSlotFrame(selection);
   const topLevelChildren = (
     $isElementNode(slotFrame) ? slotFrame : root
   ).getChildren();
@@ -1032,11 +1023,11 @@ export function $exportMimeTypeFromSelection(
  * });
  * ```
  */
-export const GetClipboardDataExtension = /* @__PURE__ */ defineExtension({
+export const GetClipboardDataExtension = defineExtension({
   build(editor, config, state) {
     return config.$exportMimeType;
   },
-  config: /* @__PURE__ */ safeCast<GetClipboardDataConfig>({
+  config: safeCast<GetClipboardDataConfig>({
     $exportMimeType: DEFAULT_EXPORT_MIME_TYPE,
   }),
   mergeConfig(config, partial) {

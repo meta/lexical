@@ -22,8 +22,9 @@ import {useEffect, useRef, useState} from 'react';
 
 import useReport from '../../hooks/useReport';
 
-export const SPEECH_TO_TEXT_COMMAND: LexicalCommand<boolean> =
-  /* @__PURE__ */ createCommand('SPEECH_TO_TEXT_COMMAND');
+export const SPEECH_TO_TEXT_COMMAND: LexicalCommand<boolean> = createCommand(
+  'SPEECH_TO_TEXT_COMMAND',
+);
 
 const VOICE_COMMANDS: Readonly<
   Record<

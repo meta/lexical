@@ -49,7 +49,7 @@ import {
   useState,
 } from 'react';
 
-import {createWebsocketProvider} from '../collaboration';
+import {createWebsocketProvider, skipCollaborationInit} from '../collaboration';
 import {useSettings} from '../context/SettingsContext';
 import brokenImage from '../images/image-broken.svg';
 import TreeViewPlugin from '../plugins/TreeViewPlugin';
@@ -63,7 +63,7 @@ type ImageStatus =
 const imageCache = new Map<string, Promise<ImageStatus> | ImageStatus>();
 
 export const RIGHT_CLICK_IMAGE_COMMAND: LexicalCommand<MouseEvent> =
-  /* @__PURE__ */ createCommand('RIGHT_CLICK_IMAGE_COMMAND');
+  createCommand('RIGHT_CLICK_IMAGE_COMMAND');
 
 function DisableCaptionOnBlur({
   setShowCaption,
@@ -495,7 +495,7 @@ export default function ImageComponent({
                 <CollaborationPlugin
                   id={caption.getKey()}
                   providerFactory={createWebsocketProvider}
-                  shouldBootstrap={true}
+                  shouldBootstrap={!skipCollaborationInit}
                   selectionHighlight={true}
                 />
               ) : null}

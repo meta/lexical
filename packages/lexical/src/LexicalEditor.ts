@@ -7,6 +7,8 @@
  */
 
 import type {DOMSlot, ElementDOMSlot} from './LexicalDOMSlot';
+import type {KeyDownShortcut} from './LexicalEvents';
+import type {CompiledKeyboardShortcuts} from './LexicalKeyboardShortcuts';
 import type {ElementNode} from './nodes/LexicalElementNode';
 
 import invariant from '@lexical/internal/invariant';
@@ -1194,6 +1196,8 @@ export class LexicalEditor {
    */
   _slotsUsed: boolean;
   /** @internal */
+  _keyDownShortcuts: null | CompiledKeyboardShortcuts<KeyDownShortcut>;
+  /** @internal */
   _inputState: InputState;
   /** @internal */
   _createEditorArgs?: undefined | CreateEditorArgs;
@@ -1264,6 +1268,7 @@ export class LexicalEditor {
     this._window = null;
     this._blockCursorElement = null;
     this._slotsUsed = false;
+    this._keyDownShortcuts = null;
     this._inputState = createInputState();
   }
 

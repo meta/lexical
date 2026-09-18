@@ -42,7 +42,7 @@ import {$append, $isBlockLevelNode, $prepend} from './handlers';
  * `$getImportContextValue` from an mdast handler).
  * @experimental
  */
-export const ImportContextMarkdown = /* @__PURE__ */ createImportState(
+export const ImportContextMarkdown = createImportState(
   'isMarkdownImport',
   Boolean,
 );

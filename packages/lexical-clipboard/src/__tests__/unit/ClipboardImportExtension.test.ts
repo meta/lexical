@@ -24,6 +24,7 @@ import {
 } from '@lexical/html';
 import {
   $createParagraphNode,
+  $createRangeSelection,
   $createTextNode,
   $getEditor,
   $getRoot,
@@ -40,6 +41,12 @@ function $initialEditorState(): void {
 function dataTransferWithHtml(html: string): DataTransfer {
   const dt = new DataTransfer();
   dt.setData('text/html', html);
+  return dt as unknown as DataTransfer;
+}
+
+function dataTransferWithPlainText(text: string): DataTransfer {
+  const dt = new DataTransfer();
+  dt.setData('text/plain', text);
   return dt as unknown as DataTransfer;
 }
 
@@ -266,5 +273,104 @@ describe('ClipboardImportExtension', () => {
       assert($isParagraphNode(lastChild), 'expected paragraph');
       expect(lastChild.getTextContent()).toBe('via new pipeline');
     });
+  });
+});
+
+describe('$insertDataTransferForRichText selection argument (#6278)', () => {
+  // Two paragraphs, with the *editor's* selection parked at the end of the
+  // second one so that inserting at the current selection is distinguishable
+  // from inserting at the supplied one.
+  function makeEditor() {
+    return buildEditorFromExtensions(
+      defineExtension({
+        $initialEditorState() {
+          const second = $createTextNode('second');
+          $getRoot()
+            .clear()
+            .append(
+              $createParagraphNode().append($createTextNode('first')),
+              $createParagraphNode().append(second),
+            );
+          second.select();
+        },
+        name: 'host',
+      }),
+    );
+  }
+
+  function $insertOverFirstParagraph(
+    editor: ReturnType<typeof buildEditorFromExtensions>,
+    dataTransfer: DataTransfer,
+  ) {
+    editor.update(
+      () => {
+        const [firstParagraph] = $getRoot().getChildren();
+        const selection = $createRangeSelection();
+        selection.anchor.set(firstParagraph.getKey(), 0, 'element');
+        selection.focus.set(firstParagraph.getKey(), 1, 'element');
+        $insertDataTransferForRichText(dataTransfer, selection, editor);
+      },
+      {discrete: true},
+    );
+  }
+
+  function paragraphTexts(
+    editor: ReturnType<typeof buildEditorFromExtensions>,
+  ): string[] {
+    return editor.read(() =>
+      $getRoot()
+        .getChildren()
+        .map(node => node.getTextContent()),
+    );
+  }
+
+  test('text/plain is inserted at the supplied selection', () => {
+    using editor = makeEditor();
+    $insertOverFirstParagraph(editor, dataTransferWithPlainText('replacement'));
+    expect(paragraphTexts(editor)).toEqual(['replacement', 'second']);
+  });
+
+  test('multi-line text/plain is inserted at the supplied selection', () => {
+    using editor = makeEditor();
+    $insertOverFirstParagraph(editor, dataTransferWithPlainText('one\ntwo'));
+    expect(paragraphTexts(editor)).toEqual(['one', 'two', 'second']);
+  });
+
+  test('text/uri-list is inserted at the supplied selection', () => {
+    using editor = makeEditor();
+    const dt = new DataTransfer();
+    dt.setData('text/uri-list', 'https://lexical.dev');
+    $insertOverFirstParagraph(editor, dt as unknown as DataTransfer);
+    expect(paragraphTexts(editor)).toEqual(['https://lexical.dev', 'second']);
+  });
+
+  test('text/html is inserted at the supplied selection', () => {
+    // Control: the text/html handler already honored the argument before
+    // this fix, so this passes with or without it.
+    using editor = makeEditor();
+    $insertOverFirstParagraph(
+      editor,
+      dataTransferWithHtml('<p>replacement</p>'),
+    );
+    expect(paragraphTexts(editor)).toEqual(['replacement', 'second']);
+  });
+
+  test('text/plain still lands at the caret on the ordinary paste path', () => {
+    // Control: when the argument *is* the editor's selection (every paste
+    // and drop), behaviour is unchanged. Passes with or without the fix.
+    using editor = makeEditor();
+    editor.update(
+      () => {
+        const selection = $getSelection();
+        assert($isRangeSelection(selection), 'expected RangeSelection');
+        $insertDataTransferForRichText(
+          dataTransferWithPlainText('!'),
+          selection,
+          editor,
+        );
+      },
+      {discrete: true},
+    );
+    expect(paragraphTexts(editor)).toEqual(['first', 'second!']);
   });
 });

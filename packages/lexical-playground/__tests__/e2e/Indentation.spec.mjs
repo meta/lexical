@@ -404,13 +404,13 @@ test.describe('Identation', () => {
     await assertHTML(
       page,
       html`
-        <p class="PlaygroundEditorTheme__paragraph" dir="auto" style="">
+        <p class="PlaygroundEditorTheme__paragraph" dir="auto">
           <span data-lexical-text="true">foo</span>
         </p>
-        <p class="PlaygroundEditorTheme__paragraph" dir="auto" style="">
+        <p class="PlaygroundEditorTheme__paragraph" dir="auto">
           <span data-lexical-text="true">bar</span>
         </p>
-        <p class="PlaygroundEditorTheme__paragraph" dir="auto" style="">
+        <p class="PlaygroundEditorTheme__paragraph" dir="auto">
           <span data-lexical-text="true">yar</span>
         </p>
         <ul class="PlaygroundEditorTheme__ul" dir="auto">
@@ -434,7 +434,7 @@ test.describe('Identation', () => {
           data-gutter="1">
           <span data-lexical-text="true">code</span>
         </code>
-        <p class="PlaygroundEditorTheme__paragraph" dir="auto" style="">
+        <p class="PlaygroundEditorTheme__paragraph" dir="auto">
           <br data-lexical-managed-linebreak="true" />
         </p>
         <table
@@ -447,13 +447,13 @@ test.describe('Identation', () => {
             <th
               class="PlaygroundEditorTheme__tableCell PlaygroundEditorTheme__tableCellHeader PlaygroundEditorTheme__tableCellSelected"
               dir="auto">
-              <p class="PlaygroundEditorTheme__paragraph" dir="auto" style="">
+              <p class="PlaygroundEditorTheme__paragraph" dir="auto">
                 <span data-lexical-text="true">foo</span>
               </p>
             </th>
           </tr>
         </table>
-        <p class="PlaygroundEditorTheme__paragraph" dir="auto" style="">
+        <p class="PlaygroundEditorTheme__paragraph" dir="auto">
           <br data-lexical-managed-linebreak="true" />
         </p>
       `,

@@ -21,10 +21,12 @@ import {
   $createParagraphNode,
   $createTextNode,
   $getRoot,
+  $getSelection,
   $getSlot,
   $getSlotHost,
   $getSlotNames,
   $isParagraphNode,
+  $isRangeSelection,
   $setSelection,
   $setSlot,
   defineExtension,
@@ -391,6 +393,40 @@ describe('PullQuoteNode atomic decorator host', () => {
         'Quoted',
         'loose',
       ]);
+    });
+  });
+
+  // Regression test for #9095: pasting a PullQuote (a block-level
+  // DecoratorNode) with the caret at the end of a paragraph used to leave a
+  // stray empty paragraph after it, because the insertNodes cleanup only
+  // handled an ElementNode as the last inserted block.
+  it('pastes at the end of a paragraph without leaving an empty paragraph', () => {
+    using editor = buildEditorFromExtensions(PullQuoteTestExtension);
+
+    editor.update(
+      () => {
+        const text = $createTextNode('hello');
+        $getRoot().clear().append($createParagraphNode().append(text));
+        text.select(5, 5);
+      },
+      {discrete: true},
+    );
+
+    editor.update(
+      () => {
+        const selection = $getSelection();
+        assert($isRangeSelection(selection), 'Expected RangeSelection');
+        selection.insertNodes([$createPullQuoteNode()]);
+      },
+      {discrete: true},
+    );
+
+    editor.read(() => {
+      const children = $getRoot().getChildren();
+      expect(children).toHaveLength(2);
+      assert($isParagraphNode(children[0]), 'paragraph keeps its place');
+      expect(children[0].getTextContent()).toBe('hello');
+      assert($isPullQuoteNode(children[1]), 'pullquote is the last child');
     });
   });
 });

@@ -60,9 +60,10 @@ function mergeSortedAsc(a: readonly number[], b: readonly number[]): number[] {
 
 /**
  * Compile an ordered list of {@link DOMImportRule}s into the dispatch tables
- * used by the import runtime. The rule at index 0 is the highest-priority
- * (`mergeConfig` prepends partial.rules so later-merged extensions land
- * first).
+ * used by the import runtime. Dispatch reads the list front to back, so the
+ * rule at index 0 is the highest-priority one. `DOMImportExtension.mergeConfig`
+ * prepends each contribution to the list, so the rules of the most dependent
+ * contributor occupy the lowest indices.
  *
  * @internal
  */

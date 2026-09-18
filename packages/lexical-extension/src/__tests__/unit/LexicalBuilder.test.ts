@@ -6,6 +6,8 @@
  *
  */
 
+import type {AnyLexicalExtensionArgument} from '@lexical/extension';
+
 import {
   buildEditorFromExtensions,
   configExtension,
@@ -91,6 +93,61 @@ describe('LexicalBuilder', () => {
     expect(rep.extension).toBe(ConfigExtension);
     expect(rep.getState().config).toEqual({a: 1, b: null});
   });
+  describe('a dependency configured more than once by one extension', () => {
+    const PairExtension = defineExtension({
+      config: safeCast<{first: string; second: string}>({
+        first: 'default',
+        second: 'default',
+      }),
+      name: 'Pair',
+    });
+    const configOf = (...dependencies: AnyLexicalExtensionArgument[]) => {
+      const builder = LexicalBuilder.fromEditor(
+        buildEditorFromExtensions(
+          defineExtension({dependencies, name: 'root'}),
+        ),
+      );
+      const rep = builder
+        .sortedExtensionReps()
+        .find(r => r.extension === PairExtension);
+      assert(rep, 'PairExtension not found');
+      return rep.getState().config;
+    };
+
+    it('applies every config rather than only the last', () => {
+      expect(
+        configOf(
+          configExtension(PairExtension, {first: 'one'}),
+          configExtension(PairExtension, {second: 'two'}),
+        ),
+      ).toEqual({first: 'one', second: 'two'});
+    });
+
+    it('applies them in order, so the last one wins a conflict', () => {
+      expect(
+        configOf(
+          configExtension(PairExtension, {first: 'one'}),
+          configExtension(PairExtension, {first: 'two'}),
+        ),
+      ).toEqual({first: 'two', second: 'default'});
+    });
+
+    it('keeps a peer dependency config alongside a direct one', () => {
+      const PeerExtension = defineExtension({
+        name: 'Peer',
+        peerDependencies: [
+          declarePeerDependency<typeof PairExtension>('Pair', {second: 'peer'}),
+        ],
+      });
+      expect(
+        configOf(
+          configExtension(PairExtension, {first: 'direct'}),
+          PeerExtension,
+        ),
+      ).toEqual({first: 'direct', second: 'peer'});
+    });
+  });
+
   it('handles circular dependencies', () => {
     const ExtensionA = defineExtension({dependencies: [], name: 'A'});
     const ExtensionB = defineExtension({dependencies: [ExtensionA], name: 'B'});

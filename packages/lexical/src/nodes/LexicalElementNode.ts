@@ -285,10 +285,14 @@ export class ElementNode
     // never leak into selection placement. A slot value is always a non-inline
     // element or decorator (setSlot enforces this), so only element slots
     // contribute text nodes.
+    // Concatenated with a loop rather than push(...spread): one argument per
+    // text node overflows the call stack on a document with enough of them.
     for (const name of $getSlotNames(this)) {
       const slot = $getSlot(this, name);
       if ($isElementNode(slot)) {
-        textNodes.push(...slot.getAllTextNodes());
+        for (const textNode of slot.getAllTextNodes()) {
+          textNodes.push(textNode);
+        }
       }
     }
     let child: LexicalNode | null = this.getFirstChild();
@@ -297,8 +301,9 @@ export class ElementNode
         textNodes.push(child);
       }
       if ($isElementNode(child)) {
-        const subChildrenNodes = child.getAllTextNodes();
-        textNodes.push(...subChildrenNodes);
+        for (const textNode of child.getAllTextNodes()) {
+          textNodes.push(textNode);
+        }
       }
       child = child.getNextSibling();
     }

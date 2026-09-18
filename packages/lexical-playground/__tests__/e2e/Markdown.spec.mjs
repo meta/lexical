@@ -9,6 +9,7 @@
 import {
   moveLeft,
   moveRight,
+  moveToLineBeginning,
   redo,
   selectAll,
   selectCharacters,
@@ -1058,6 +1059,25 @@ test.describe('Markdown', () => {
       focusOffset: 0,
       focusPath: [0, 2, 0],
     });
+  });
+
+  // The hashtag entity claims the "#Welcome" inside "##Welcome", which moves
+  // the caret into a different leaf while the shortcut is being typed.
+  test('can type a heading shortcut in front of existing text (#5366)', async ({
+    page,
+  }) => {
+    await focusEditor(page);
+    await page.keyboard.type('Welcome to the playground');
+    await moveToLineBeginning(page);
+    await page.keyboard.type('## ');
+    await assertHTML(
+      page,
+      html`
+        <h2 class="PlaygroundEditorTheme__h2" dir="auto">
+          <span data-lexical-text="true">Welcome to the playground</span>
+        </h2>
+      `,
+    );
   });
 
   test('keep list marker on its own items', async ({page}) => {

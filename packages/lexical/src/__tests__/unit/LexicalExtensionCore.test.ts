@@ -74,7 +74,14 @@ describe('declarePeerDependency', () => {
     const _other = defineExtension({config: {other: true}, name: 'other'});
     const dep = declarePeerDependency<typeof _other>('other');
     assertType<NormalizedPeerDependency<typeof _other>>(dep);
-    expect(dep).toEqual(['other', undefined]);
+    // The config is an optional element of the tuple, so declaring a peer
+    // dependency without one gives a one element tuple. Every consumer
+    // destructures it, and the build relies on this to replace the call
+    // with its arguments.
+    expect(dep).toEqual(['other']);
+    expect(
+      declarePeerDependency<typeof _other>('other', {other: false}),
+    ).toEqual(['other', {other: false}]);
     // @ts-expect-error -- name doesn't match
     declarePeerDependency<typeof other>('wrong');
   });

@@ -774,3 +774,44 @@ describe('ListItemNode.collapseAtStart', () => {
     });
   });
 });
+
+describe('mergeNextSiblingListIfSameType', () => {
+  initializeUnitTest(testEnv => {
+    test('does not merge nested sublists of a different listType', async () => {
+      const {editor} = testEnv;
+
+      await editor.update(
+        () => {
+          const $nested = (listType: ListType, text: string) =>
+            $createListItemNode().append(
+              $createListNode(listType).append(
+                $createListItemNode().append($createTextNode(text)),
+              ),
+            );
+          const list1 = $createListNode('bullet').append(
+            $createListItemNode().append($createTextNode('a')),
+            $nested('number', 'one'),
+          );
+          const list2 = $createListNode('bullet').append(
+            $nested('bullet', 'two'),
+            $createListItemNode().append($createTextNode('b')),
+          );
+          $getRoot().clear().append(list1, list2);
+        },
+        {discrete: true},
+      );
+
+      editor.read(() => {
+        const [list] = $getRoot().getChildren();
+        invariant($isListNode(list), 'Expected ListNode');
+        // The two bullet lists merge, but their sublists stay separate.
+        const sublistTypes = list
+          .getChildren()
+          .map(child => ($isListItemNode(child) ? child.getFirstChild() : null))
+          .filter($isListNode)
+          .map(sublist => sublist.getListType());
+        expect(sublistTypes).toEqual(['number', 'bullet']);
+      });
+    });
+  });
+});

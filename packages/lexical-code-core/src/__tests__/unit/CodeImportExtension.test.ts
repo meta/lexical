@@ -83,6 +83,32 @@ describe('CodeImportExtension', () => {
     });
   });
 
+  test('<pre data-theme="poimandres"> restores the theme', () => {
+    using editor = buildEditor();
+    importInto(
+      editor,
+      '<pre data-language="ts" data-theme="poimandres">x</pre>',
+    );
+    editor.read(() => {
+      const node = $rootCode();
+      expect(node.getLanguage()).toBe('ts');
+      expect(node.getTheme()).toBe('poimandres');
+    });
+  });
+
+  test('multi-line <code data-theme> restores the theme', () => {
+    using editor = buildEditor();
+    importInto(
+      editor,
+      '<code data-language="ts" data-theme="poimandres">a\nb</code>',
+    );
+    editor.read(() => {
+      const node = $rootCode();
+      expect(node.getLanguage()).toBe('ts');
+      expect(node.getTheme()).toBe('poimandres');
+    });
+  });
+
   test('multi-line <code> imports as CodeNode (not inline)', () => {
     using editor = buildEditor();
     importInto(editor, '<code>line1\nline2</code>');
@@ -143,6 +169,7 @@ describe('CodeImportExtension', () => {
         // <table> rule out-prioritizes TableExtension's generic one.
         dependencies: [TableExtension, CodeExtension],
         name: 'table-code-host',
+        theme: {tableScrollableWrapper: ''},
       }),
     );
     importInto(

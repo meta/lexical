@@ -75,6 +75,12 @@ export default [
       '**/node_modules/',
       '.ts-temp/',
       '**/.docusaurus/',
+      // Build output that only the package's own .gitignore names, which
+      // ESLint does not read: next build writes .next/, wxt writes .output/.
+      // Linting a bundle is meaningless and the rules that walk its AST can
+      // fail outright on generated code.
+      '**/.next/',
+      '**/.output/',
       'playwright-report/',
       'test-results/',
       'examples/*svelte*/',
@@ -450,16 +456,17 @@ export default [
     },
   },
 
-  // Override: Package sources - require /* @__PURE__ */ annotations on
-  // module-scope calls to the side-effect-free lexical factories
-  // (defineExtension, createCommand, defineImportRule, ...) so bundlers
-  // can tree-shake unused definitions. The pre-commit `eslint --fix`
-  // inserts them automatically. Not applied to tests (never bundled).
+  // Override: the /* @__PURE__ */ annotations on module-scope calls to the
+  // side-effect-free lexical factories are injected at build time by
+  // @lexical/compiler, so they do not belong in the sources. The
+  // rule is autofixable, which is how a branch written before the transform
+  // existed migrates: `pnpm run lint:fix`. Annotations on anything else
+  // (a third-party factory, a call inside a function body) are untouched.
   {
-    files: ['packages/**/src/**'],
-    ignores: ['packages/**/src/__tests__/**'],
+    files: ['packages/**', 'examples/**', 'dev-examples/**'],
+    ignores: ['packages/lexical-compiler/**'],
     rules: {
-      '@lexical/internal/require-pure-annotation': ERROR,
+      '@lexical/internal/no-pure-annotation': ERROR,
     },
   },
 

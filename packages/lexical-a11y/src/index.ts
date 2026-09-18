@@ -500,7 +500,7 @@ export type AriaLiveRegion =
  * own document (e.g. an iframe-portaled editor) rather than the top-level
  * `document`.
  */
-export const AriaLiveRegionExtension = /* @__PURE__ */ defineExtension({
+export const AriaLiveRegionExtension = defineExtension({
   build(_editor, config, state): AriaLiveRegion {
     const message = state.getInitResult();
     return {
@@ -512,7 +512,7 @@ export const AriaLiveRegionExtension = /* @__PURE__ */ defineExtension({
       },
     };
   },
-  config: /* @__PURE__ */ safeCast<AriaLiveRegionExtensionConfig>({
+  config: safeCast<AriaLiveRegionExtensionConfig>({
     owner: null,
     politeness: 'polite',
   }),
@@ -584,9 +584,9 @@ export interface HistoryAnnounceExtensionConfig {
  * Platform-independent extension that announces undo / redo through the
  * `AriaLiveRegionExtension`'s shared sink.
  */
-export const HistoryAnnounceExtension = /* @__PURE__ */ defineExtension({
+export const HistoryAnnounceExtension = defineExtension({
   build: (_editor, config) => namedSignals(config),
-  config: /* @__PURE__ */ safeCast<HistoryAnnounceExtensionConfig>({
+  config: safeCast<HistoryAnnounceExtensionConfig>({
     disabled: false,
     redone: 'Redone',
     undone: 'Undone',
@@ -643,9 +643,9 @@ export interface EditorModeAnnounceExtensionConfig {
  * `editor.setEditable(true|false)` transitions through the
  * `AriaLiveRegionExtension`'s shared sink.
  */
-export const EditorModeAnnounceExtension = /* @__PURE__ */ defineExtension({
+export const EditorModeAnnounceExtension = defineExtension({
   build: (_editor, config) => namedSignals(config),
-  config: /* @__PURE__ */ safeCast<EditorModeAnnounceExtensionConfig>({
+  config: safeCast<EditorModeAnnounceExtensionConfig>({
     disabled: false,
     editable: 'Editor is editable',
     readOnly: 'Editor is read-only',
@@ -690,7 +690,7 @@ export type ContainerRegistry<Options> = RefCountedRegistry<
  * ({@link ContainerRegistry.register}); the React adapter is
  * `useLexicalFocusTrapRef` from `@lexical/react`.
  */
-export const FocusTrapExtension = /* @__PURE__ */ defineExtension({
+export const FocusTrapExtension = defineExtension({
   build: (): ContainerRegistry<FocusTrapOptions> =>
     createRefCountedRegistry(registerFocusTrap),
   name: '@lexical/a11y/FocusTrap',
@@ -703,7 +703,7 @@ export const FocusTrapExtension = /* @__PURE__ */ defineExtension({
  * extension output ({@link ContainerRegistry.register}); the React adapter is
  * `useLexicalRovingTabIndexRef` from `@lexical/react`.
  */
-export const RovingTabIndexExtension = /* @__PURE__ */ defineExtension({
+export const RovingTabIndexExtension = defineExtension({
   build: (): ContainerRegistry<RovingTabIndexOptions> =>
     createRefCountedRegistry(registerRovingTabIndex),
   name: '@lexical/a11y/RovingTabIndex',
@@ -716,7 +716,7 @@ export const RovingTabIndexExtension = /* @__PURE__ */ defineExtension({
  * through the extension output ({@link ContainerRegistry.register}); the React
  * adapter is `useLexicalFocusManagerRef` from `@lexical/react`.
  */
-export const FocusManagerExtension = /* @__PURE__ */ defineExtension({
+export const FocusManagerExtension = defineExtension({
   build: (editor): ContainerRegistry<FocusManagerOptions> =>
     createRefCountedRegistry<HTMLElement, FocusManagerOptions>(
       (toolbar, options) => registerFocusManager(editor, toolbar, options),

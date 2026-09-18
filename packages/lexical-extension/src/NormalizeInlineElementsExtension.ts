@@ -40,32 +40,30 @@ function deleteEmptyInline(node: LexicalNode) {
  * the plugin API with the option to disable it, but it may be removed
  * in the future and integrated into the core
  */
-export const NormalizeInlineElementsExtension = /* @__PURE__ */ defineExtension(
-  {
-    build: (editor, config, state) => namedSignals(config),
-    config: /* @__PURE__ */ safeCast<NormalizeInlineElementsConfig>({
-      disabled: false,
-    }),
-    name: '@lexical/NormalizeInlineElements',
-    register: (editor, config, state) => {
-      const stores = state.getOutput();
-      return effect(() => {
-        if (!stores.disabled.value) {
-          const disposeTransformers: VoidFunction[] = [];
-          for (const {klass, transforms} of editor._nodes.values()) {
-            if (
-              klass.prototype instanceof ElementNode &&
-              klass.prototype.isInline !== ElementNode.prototype.isInline
-            ) {
-              transforms.add(deleteEmptyInline);
-              disposeTransformers.push(() =>
-                transforms.delete(deleteEmptyInline),
-              );
-            }
+export const NormalizeInlineElementsExtension = defineExtension({
+  build: (editor, config, state) => namedSignals(config),
+  config: safeCast<NormalizeInlineElementsConfig>({
+    disabled: false,
+  }),
+  name: '@lexical/NormalizeInlineElements',
+  register: (editor, config, state) => {
+    const stores = state.getOutput();
+    return effect(() => {
+      if (!stores.disabled.value) {
+        const disposeTransformers: VoidFunction[] = [];
+        for (const {klass, transforms} of editor._nodes.values()) {
+          if (
+            klass.prototype instanceof ElementNode &&
+            klass.prototype.isInline !== ElementNode.prototype.isInline
+          ) {
+            transforms.add(deleteEmptyInline);
+            disposeTransformers.push(() =>
+              transforms.delete(deleteEmptyInline),
+            );
           }
-          return () => disposeTransformers.forEach(fn => fn());
         }
-      });
-    },
+        return () => disposeTransformers.forEach(fn => fn());
+      }
+    });
   },
-);
+});

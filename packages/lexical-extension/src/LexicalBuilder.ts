@@ -244,6 +244,10 @@ export class LexicalBuilder {
     }
   }
 
+  /**
+   * @param configs - Ownership passes to the builder, which retains the array
+   *   and may append to it. Callers must pass an array nobody else holds.
+   */
   addEdge(
     fromExtensionName: string,
     toExtensionName: string,
@@ -251,7 +255,17 @@ export class LexicalBuilder {
   ) {
     const outgoing = this.outgoingConfigEdges.get(fromExtensionName);
     if (outgoing) {
-      outgoing.set(toExtensionName, configs);
+      // An extension may reach the same dependency more than once (e.g. two
+      // configExtension entries for it, or both a direct and a peer
+      // dependency). Every config has to be kept in the order it was seen,
+      // otherwise all but the last would be silently discarded instead of
+      // merged.
+      const existing = outgoing.get(toExtensionName);
+      if (existing) {
+        existing.push(...configs);
+      } else {
+        outgoing.set(toExtensionName, configs);
+      }
     } else {
       this.outgoingConfigEdges.set(
         fromExtensionName,

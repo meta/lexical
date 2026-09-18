@@ -34,7 +34,7 @@ import {
 // The star rating (0–5), persisted as NodeState rather than a bespoke
 // serialized field, so it rides copy/paste, undo, collab and JSON for free.
 // parse() doubles as the default (0) and the clamp for untrusted input.
-const ratingState = /* @__PURE__ */ createState('rating', {
+const ratingState = createState('rating', {
   parse: (v): number =>
     typeof v === 'number' && v >= 0 && v <= 5 ? Math.round(v) : 0,
 });

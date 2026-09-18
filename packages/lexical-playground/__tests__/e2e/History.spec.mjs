@@ -452,6 +452,13 @@ test.describe('History', () => {
     test.skip(isCollab || isPlainText);
 
     await focusEditor(page);
+    // Freeze the history merge clock: without it each burst is typed against
+    // the real 300ms merge window, and under WebKit/CI load a slow
+    // inter-keystroke gap splits one burst across two undo entries, so the
+    // first undo leaves part of the run behind ("bar" -> "b") and every
+    // assertion below desyncs. Frozen, the only boundaries are the style
+    // switches, which is what this test is about.
+    await advanceHistoryClock(page);
     await toggleBold(page);
     await page.keyboard.type('foo');
     await toggleBold(page);

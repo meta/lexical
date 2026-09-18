@@ -6,6 +6,7 @@
  *
  */
 
+import {addClassNamesToElement} from '@lexical/utils';
 import {
   $applyNodeReplacement,
   $getDocument,
@@ -67,7 +68,10 @@ export class MentionNode extends TextNode {
   createDOM(config: EditorConfig): HTMLElement {
     const dom = super.createDOM(config);
     dom.style.backgroundColor = mentionBackgroundColor;
-    dom.className = 'mention';
+    // Add to the class names TextNode.createDOM applied for the text formats
+    // rather than replacing them, otherwise a formatted mention renders
+    // unstyled every time the element is rebuilt.
+    addClassNamesToElement(dom, 'mention');
     dom.spellcheck = false;
 
     return dom;

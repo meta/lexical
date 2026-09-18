@@ -59,7 +59,7 @@ export type SerializedDateTimeNode = Spread<
   SerializedDecoratorTextNode
 >;
 
-const dateTimeState = /* @__PURE__ */ createState('dateTime', {
+const dateTimeState = createState('dateTime', {
   parse: v => new Date(v as string),
   unparse: v => v.toISOString(),
 });

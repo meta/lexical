@@ -312,8 +312,16 @@ describe('footnotes', () => {
 
   test('clicking a ref moves the caret into the definition body', async () => {
     const {editor, root} = mountEditor('body[^a]\n\n[^a]: the note');
-    root.querySelector<HTMLElement>('.footnote-ref a')!.click();
+    // The click is inside the waitFor, so the *interaction* retries rather
+    // than only the observation. The selection follow-up rides on the
+    // fragment navigation's settle signal, and the navigation's focus fixup
+    // can land later still (observed intermittently on the windows/firefox
+    // CI runners), clobbering a single application; deferring the follow-up
+    // past the signal just changes who loses that race. A repeat click is a
+    // same-fragment navigation, which takes the timeout fallback and
+    // re-applies — the same recovery a person gets by clicking again.
     await vi.waitFor(() => {
+      root.querySelector<HTMLElement>('.footnote-ref a')!.click();
       const inDefinition = editor.read(() => {
         const selection = $getSelection();
         if (!$isRangeSelection(selection)) {
@@ -394,10 +402,16 @@ describe('footnotes', () => {
         const top = selection.anchor.getNode().getTopLevelElement();
         return top === null ? '' : top.getTextContent();
       });
-    backlinks[0].click();
-    await vi.waitFor(() => expect($anchorBlockText()).toContain('first'));
-    backlinks[1].click();
-    await vi.waitFor(() => expect($anchorBlockText()).toContain('second'));
+    // Click inside the waitFor for the same reason as the ref-click test:
+    // retry the interaction, not just the observation.
+    await vi.waitFor(() => {
+      backlinks[0].click();
+      expect($anchorBlockText()).toContain('first');
+    });
+    await vi.waitFor(() => {
+      backlinks[1].click();
+      expect($anchorBlockText()).toContain('second');
+    });
   });
 });
 
@@ -461,9 +475,11 @@ describe('read-only', () => {
     editor.dispatchCommand(INSERT_ALERT_COMMAND, 'note');
     editor.dispatchCommand(FORMAT_KBD_COMMAND);
     expect(markdownOf(editor)).toBe(before);
-    // The one thing read-only still allows: moving the selection.
-    root.querySelector<HTMLElement>('.footnote-ref a')!.click();
+    // The one thing read-only still allows: moving the selection. The click
+    // is inside the waitFor, so the interaction retries rather than only the
+    // observation — see the ref-click test above.
     await vi.waitFor(() => {
+      root.querySelector<HTMLElement>('.footnote-ref a')!.click();
       const inDefinition = editor.read(() => {
         const selection = $getSelection();
         if (!$isRangeSelection(selection)) {

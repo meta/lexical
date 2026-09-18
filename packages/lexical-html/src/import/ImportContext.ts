@@ -82,10 +82,7 @@ export type ImportSourceKind = 'paste' | 'unknown';
  * @experimental
  */
 export const ImportSource: ImportStateConfig<ImportSourceKind> =
-  /* @__PURE__ */ createImportState<ImportSourceKind>(
-    'importSource',
-    () => 'unknown',
-  );
+  createImportState<ImportSourceKind>('importSource', () => 'unknown');
 
 /**
  * Built-in import-context state holding the {@link DataTransfer} the
@@ -111,7 +108,7 @@ export const ImportSource: ImportStateConfig<ImportSourceKind> =
  * @experimental
  */
 export const ImportSourceDataTransfer: ImportStateConfig<DataTransfer | null> =
-  /* @__PURE__ */ createImportState<DataTransfer | null>(
+  createImportState<DataTransfer | null>(
     'importSourceDataTransfer',
     () => null,
   );
@@ -125,8 +122,10 @@ export const ImportSourceDataTransfer: ImportStateConfig<DataTransfer | null> =
  *
  * @experimental
  */
-export const ImportTextFormat: ImportStateConfig<number> =
-  /* @__PURE__ */ createImportState('textFormat', () => 0);
+export const ImportTextFormat: ImportStateConfig<number> = createImportState(
+  'textFormat',
+  () => 0,
+);
 
 /**
  * Built-in import-context state holding a parsed CSS-style record
@@ -146,7 +145,7 @@ export const ImportTextFormat: ImportStateConfig<number> =
  */
 export const ImportTextStyle: ImportStateConfig<
   Readonly<Record<string, string>>
-> = /* @__PURE__ */ createImportState<Readonly<Record<string, string>>>(
+> = createImportState<Readonly<Record<string, string>>>(
   'textStyle',
   () => ({}),
 );
@@ -240,13 +239,10 @@ export function defaultIsInline(node: Node): boolean {
  * @experimental
  */
 export const ImportWhitespaceConfig: ImportStateConfig<WhitespaceImportConfig> =
-  /* @__PURE__ */ createImportState<WhitespaceImportConfig>(
-    'whitespaceConfig',
-    () => ({
-      isInline: defaultIsInline,
-      preservesWhitespace: defaultPreservesWhitespace,
-    }),
-  );
+  createImportState<WhitespaceImportConfig>('whitespaceConfig', () => ({
+    isInline: defaultIsInline,
+    preservesWhitespace: defaultPreservesWhitespace,
+  }));
 
 /**
  * Built-in session slot for runtime overlay rules that should be in
@@ -268,7 +264,7 @@ export const ImportWhitespaceConfig: ImportStateConfig<WhitespaceImportConfig> =
  */
 export const ImportOverlays: ImportStateConfig<
   readonly CompiledOverlayRules[]
-> = /* @__PURE__ */ createImportState<readonly CompiledOverlayRules[]>(
+> = createImportState<readonly CompiledOverlayRules[]>(
   'importOverlays',
   () => [],
 );

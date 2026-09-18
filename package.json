@@ -1,21 +1,16 @@
 {
   "name": "@lexical/monorepo",
   "description": "Lexical is an extensible text editor framework that provides excellent reliability, accessibility and performance.",
-  "version": "0.49.0",
+  "version": "0.50.0",
   "license": "MIT",
   "private": true,
-  "packageManager": "pnpm@10.34.1",
-  "workspaces": [
-    "packages/*",
-    "dev-examples/*"
-  ],
+  "packageManager": "pnpm@11.24.0",
   "engines": {
     "node": ">=20.19.0",
-    "pnpm": ">=9.0.0"
+    "pnpm": ">=11.0.0"
   },
-  "engineStrict": true,
   "scripts": {
-    "capture-gallery-screenshots": "npx tsx scripts/capture-gallery-screenshots.ts",
+    "capture-gallery-screenshots": "pnpm dlx tsx scripts/capture-gallery-screenshots.ts",
     "start:example": "sh -c '(cd \"examples/$0\"; pnpm i && pnpm run monorepo:dev)'",
     "start:dev-example": "sh -c '(cd \"dev-examples/$0\"; pnpm run dev)'",
     "start:dev-example:mdast-editor": "pnpm run start:dev-example mdast-editor",
@@ -43,7 +38,7 @@
     "tsc-extension": "pnpm --filter @lexical/devtools run compile",
     "tsc-website": "pnpm --filter @lexical/website run tsc",
     "tsc-watch": "tsc -w",
-    "collab": "cross-env HOST=localhost PORT=1234 npx y-websocket",
+    "collab": "cross-env HOST=localhost PORT=1234 pnpm exec y-websocket",
     "vitest": "vitest",
     "test-unit": "vitest --project unit --project scripts-unit --no-watch",
     "test-unit-watch": "vitest --project unit --project scripts-unit",
@@ -131,7 +126,7 @@
     "@eslint/js": "^10.0.0",
     "@lexical/eslint-plugin": "workspace:*",
     "@lexical/eslint-plugin-internal": "workspace:*",
-    "@playwright/test": "^1.60.0",
+    "@playwright/test": "^1.62.1",
     "@prettier/sync": "^0.6.1",
     "@rollup/plugin-alias": "^6.0.0",
     "@rollup/plugin-babel": "^7.1.0",
@@ -185,7 +180,7 @@
     "lint-staged": "^17.0.7",
     "minimist": "^1.2.5",
     "npm-run-all": "^4.1.5",
-    "playwright": "^1.60.0",
+    "playwright": "^1.62.1",
     "prettier": "^3.8.1",
     "prettier-plugin-hermes-parser": "^0.36.1",
     "prettier-plugin-organize-attributes": "^1.0.0",
@@ -212,27 +207,5 @@
     "Firefox >= 115",
     "Safari >= 15",
     "Edge >= 86"
-  ],
-  "pnpm": {
-    "peerDependencyRules": {
-      "allowedVersions": {
-        "eslint": "10"
-      }
-    },
-    "overrides": {
-      "react": "19.2.5",
-      "react-dom": "19.2.5",
-      "@types/node": "25.9.1",
-      "postcss": "8.5.15",
-      "prettier": "3.8.1",
-      "yaml@^1": "^1.10.3",
-      "uuid": ">=14.0.0",
-      "webpack-dev-server": ">=5.2.4",
-      "onnxruntime-node": "link:./stubs/empty",
-      "serialize-javascript": ">=7.0.5",
-      "sharp": "link:./stubs/empty",
-      "tmp": ">=0.2.6",
-      "yjs": "$yjs"
-    }
-  }
+  ]
 }

@@ -19,7 +19,7 @@ import {watchedSignal} from './watchedSignal';
  * (e.g. into a different document such as an iframe) without subscribing
  * through React (or any other framework).
  */
-export const RootElementExtension = /* @__PURE__ */ defineExtension({
+export const RootElementExtension = defineExtension({
   build(editor) {
     return watchedSignal(
       () => editor.getRootElement(),

@@ -21,7 +21,7 @@ import {
   type CollabElementNode,
 } from './CollabElementNode';
 import {CollabV2Mapping} from './CollabV2Mapping';
-import {initializeNodeProperties} from './Utils';
+import {initializeNodeProperties, ROOT_NODE_NAME} from './Utils';
 
 export type ClientID = number;
 export interface BaseBinding {
@@ -39,6 +39,16 @@ export interface BaseBinding {
   id: string;
   nodeProperties: Map<string, {[property: string]: unknown}>; // node type to property to default value
   excludedProperties: ExcludedProperties;
+  /**
+   * True only while the initial editor state is being written into an empty
+   * shared document (the `shouldBootstrap` path). Bootstrapping is not a user
+   * edit, so the {@link UndoManager} returned by `createUndoManager` does not
+   * capture transactions produced while this is set.
+   *
+   * @internal Set by the collaboration plugin around the bootstrap update;
+   * not part of the supported surface for application code.
+   */
+  isBootstrapping: boolean;
 }
 
 export interface Binding extends BaseBinding {
@@ -78,6 +88,7 @@ function createBaseBinding(
     editor,
     excludedProperties: excludedProperties || new Map(),
     id,
+    isBootstrapping: false,
     nodeProperties: new Map(),
   };
   initializeNodeProperties(binding);
@@ -94,6 +105,26 @@ export interface CreateYjsBindingOptions {
   excludedProperties?: ExcludedProperties;
   /** The key used to look up the root `XmlText` shared type on the Yjs `Doc`. Defaults to `'root'`. */
   rootName?: string;
+  /**
+   * Resolve the root `XmlText` from the `Doc` yourself, for roots that are not
+   * a top-level shared type (e.g. an `XmlText` held in a `Y.Map` or `Y.Array`,
+   * as when one `Doc` stores many independently editable documents).
+   *
+   * Called while the binding is constructed — before any provider has synced —
+   * so it must resolve (or create) the root from whatever the `Doc` holds
+   * locally at that moment, and it must be idempotent: a caller may build more
+   * than one binding over the same root (React StrictMode's double-invoked
+   * render, a remount), and creating a shared type twice would replace what the
+   * first call created.
+   *
+   * The returned type is checked to be an `XmlText` integrated into `doc`
+   * (reachable from a top-level shared type). It must also not be in use by
+   * another live binding, which cannot be checked — a second binding over one
+   * root replaces the collab nodes cached on its shared types. A binding cannot
+   * be repointed at a different root afterwards. When given, this takes
+   * precedence over {@link CreateYjsBindingOptions.rootName}.
+   */
+  getXmlText?: (doc: Doc) => XmlText;
 }
 
 /**
@@ -109,8 +140,15 @@ export function createYjsBinding({
   docMap,
   excludedProperties,
   rootName = 'root',
+  getXmlText,
 }: CreateYjsBindingOptions): Binding {
-  const rootXmlText = doc.get(rootName, XmlText) as XmlText;
+  const rootXmlText = getXmlText
+    ? getXmlText(doc)
+    : (doc.get(rootName, XmlText) as XmlText);
+  invariant(
+    rootXmlText instanceof XmlText && rootXmlText.doc === doc,
+    'createYjsBinding: getXmlText must return an XmlText that is already integrated into the given doc',
+  );
   const root: CollabElementNode = $createCollabElementNode(
     rootXmlText,
     null,
@@ -139,22 +177,61 @@ export function createBinding(
   return createYjsBinding({doc, docMap, editor, excludedProperties, id});
 }
 
+/** Options for {@link createBindingV2__EXPERIMENTAL}. */
+export interface CreateBindingV2Options__EXPERIMENTAL {
+  excludedProperties?: ExcludedProperties;
+  /** The key used to look up the root `XmlElement` shared type on the Yjs `Doc`. Defaults to `'root-v2'`. */
+  rootName?: string;
+  /**
+   * Resolve the root `XmlElement` from the `Doc` yourself, for roots that are
+   * not a top-level shared type (e.g. an `XmlElement` held in a `Y.Map` or
+   * `Y.Array`, as when one `Doc` stores many independently editable
+   * documents). The V2 equivalent of
+   * {@link CreateYjsBindingOptions.getXmlText}, with the same before-any-sync
+   * timing and the same idempotency requirement.
+   *
+   * The returned type is checked to be an `XmlElement` integrated into `doc`
+   * (reachable from a top-level shared type) that was created as
+   * `new XmlElement()` without a `nodeName` — the root is identified by its
+   * default `'UNDEFINED'` node name, which is also what
+   * `doc.get(rootName, XmlElement)` produces — and fails with an invariant
+   * rather than corrupting the document. As in V1, that it is not in use by
+   * another live binding cannot be checked and is the caller's to guarantee.
+   * When given, it takes precedence over
+   * {@link CreateBindingV2Options__EXPERIMENTAL.rootName}.
+   */
+  getXmlElement?: (doc: Doc) => XmlElement;
+}
+
 export function createBindingV2__EXPERIMENTAL(
   editor: LexicalEditor,
   id: string,
   doc: Doc | null | undefined,
   docMap: Map<string, Doc>,
-  options: {excludedProperties?: ExcludedProperties; rootName?: string} = {},
+  options: CreateBindingV2Options__EXPERIMENTAL = {},
 ): BindingV2 {
   invariant(
     doc !== undefined && doc !== null,
     'createBinding: doc is null or undefined',
   );
-  const {excludedProperties, rootName = 'root-v2'} = options;
+  const {excludedProperties, rootName = 'root-v2', getXmlElement} = options;
+  const root = getXmlElement
+    ? getXmlElement(doc)
+    : (doc.get(rootName, XmlElement) as XmlElement);
+  invariant(
+    root instanceof XmlElement && root.doc === doc,
+    'createBindingV2: getXmlElement must return an XmlElement that is already integrated into the given doc',
+  );
+  invariant(
+    root.nodeName === ROOT_NODE_NAME,
+    'createBindingV2: the root XmlElement must be created without a nodeName (its nodeName is %s, expected %s)',
+    root.nodeName,
+    ROOT_NODE_NAME,
+  );
   return {
     ...createBaseBinding(editor, id, doc, docMap, excludedProperties),
     mapping: new CollabV2Mapping(),
-    root: doc.get(rootName, XmlElement) as XmlElement,
+    root,
   };
 }
 

@@ -50,6 +50,7 @@ import type {
  * ```
  *
  * @__NO_SIDE_EFFECTS__
+ * @lexical-inline identity
  */
 export function defineExtension<
   Config extends ExtensionConfigBase,
@@ -87,6 +88,7 @@ export function defineExtension<
  * ```
  *
  * @__NO_SIDE_EFFECTS__
+ * @lexical-inline args
  */
 export function configExtension<
   Config extends ExtensionConfigBase,
@@ -123,12 +125,15 @@ export function configExtension<
  * ```
  *
  * @__NO_SIDE_EFFECTS__
+ * @lexical-inline args
  */
 export function declarePeerDependency<
   Extension extends AnyLexicalExtension = never,
 >(
-  name: Extension['name'],
-  config?: Partial<LexicalExtensionConfig<Extension>>,
+  ...args: [
+    name: Extension['name'],
+    config?: Partial<LexicalExtensionConfig<Extension>>,
+  ]
 ): NormalizedPeerDependency<Extension> {
-  return [name, config] as NormalizedPeerDependency<Extension>;
+  return args as NormalizedPeerDependency<Extension>;
 }

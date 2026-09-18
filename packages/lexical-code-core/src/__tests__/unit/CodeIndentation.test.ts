@@ -14,6 +14,7 @@ import {
 import {buildEditorFromExtensions} from '@lexical/extension';
 import {RichTextExtension} from '@lexical/rich-text';
 import {
+  $createLineBreakNode,
   $createParagraphNode,
   $getRoot,
   $isParagraphNode,
@@ -23,6 +24,7 @@ import {
   KEY_ARROW_LEFT_COMMAND,
   KEY_ARROW_RIGHT_COMMAND,
   KEY_ARROW_UP_COMMAND,
+  type LexicalCommand,
 } from 'lexical';
 import {describe, expect, it} from 'vitest';
 
@@ -373,6 +375,65 @@ describe('CodeIndentExtension', () => {
         },
         {discrete: true},
       );
+    });
+  });
+
+  describe('shiftLines', () => {
+    // "A", "" and "B" — a blank line between two lines of code.
+    function buildBlankLineEditor(caretOnLastLine: boolean) {
+      const ext = defineExtension({
+        $initialEditorState: () => {
+          const codeNode = $createCodeNode('javascript');
+          const first = $createCodeHighlightNode('A');
+          const last = $createCodeHighlightNode('B');
+          codeNode.append(
+            first,
+            $createLineBreakNode(),
+            $createLineBreakNode(),
+            last,
+          );
+          $getRoot().append(codeNode);
+          (caretOnLastLine ? last : first).select(0, 0);
+        },
+        dependencies: [CodeIndentExtension, RichTextExtension],
+        name: '[root-shift-lines]',
+      });
+      return buildEditorFromExtensions(ext);
+    }
+
+    function shift(
+      editor: ReturnType<typeof buildBlankLineEditor>,
+      command: LexicalCommand<KeyboardEvent>,
+    ) {
+      const key = command === KEY_ARROW_UP_COMMAND ? 'ArrowUp' : 'ArrowDown';
+      editor.dispatchCommand(
+        command,
+        new KeyboardEvent('keydown', {altKey: true, key}),
+      );
+    }
+
+    it('moves a line up past a blank line without merging it into the line above', () => {
+      using editor = buildBlankLineEditor(true);
+
+      shift(editor, KEY_ARROW_UP_COMMAND);
+
+      editor.read(() => {
+        const codeNode = $getRoot().getFirstChildOrThrow();
+        expect($isCodeNode(codeNode)).toBe(true);
+        expect(codeNode.getTextContent()).toBe('A\nB\n');
+      });
+    });
+
+    it('moves a line down past a blank line without merging it into the line below', () => {
+      using editor = buildBlankLineEditor(false);
+
+      shift(editor, KEY_ARROW_DOWN_COMMAND);
+
+      editor.read(() => {
+        const codeNode = $getRoot().getFirstChildOrThrow();
+        expect($isCodeNode(codeNode)).toBe(true);
+        expect(codeNode.getTextContent()).toBe('\nA\nB');
+      });
     });
   });
 });

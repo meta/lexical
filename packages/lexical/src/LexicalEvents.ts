@@ -6,7 +6,8 @@
  *
  */
 
-import type {InputState, LexicalEditor} from './LexicalEditor';
+import type {InputState, LexicalCommand, LexicalEditor} from './LexicalEditor';
+import type {KeyboardShortcutMatch} from './LexicalKeyboardShortcuts';
 import type {NodeKey} from './LexicalNode';
 import type {ElementNode} from './nodes/LexicalElementNode';
 import type {TextNode} from './nodes/LexicalTextNode';
@@ -71,6 +72,7 @@ import {
 import {
   CAN_USE_BEFORE_INPUT,
   IS_ANDROID_CHROME,
+  IS_APPLE,
   IS_APPLE_WEBKIT,
   IS_FIREFOX,
   IS_IOS,
@@ -89,6 +91,11 @@ import {
   DOUBLE_LINE_BREAK,
   IS_ALL_FORMATTING,
 } from './LexicalConstants';
+import {
+  compileKeyboardShortcuts,
+  CONTROL_OR_ALT,
+  CONTROL_OR_META,
+} from './LexicalKeyboardShortcuts';
 import {createRefCountedRegistry} from './LexicalRefCountedRegistry';
 import {
   $internalCreateRangeSelection,
@@ -123,42 +130,16 @@ import {
   getNearestEditorFromDOMNode,
   getWindow,
   isBackspace,
-  isBold,
-  isCopy,
-  isCut,
-  isDelete,
-  isDeleteBackward,
-  isDeleteForward,
-  isDeleteLineBackward,
-  isDeleteLineForward,
-  isDeleteWordBackward,
-  isDeleteWordForward,
   isDOMCapturingSelection,
   isDOMNode,
   isDOMShadowRoot,
   isDOMTextNode,
-  isEscape,
   isFirefoxClipboardEvents,
   isHTMLElement,
-  isItalic,
   isLexicalEditor,
-  isLineBreak,
   isModifier,
-  isMoveBackward,
-  isMoveDown,
-  isMoveForward,
-  isMoveToEnd,
-  isMoveToStart,
-  isMoveUp,
-  isOpenLineBreak,
-  isParagraph,
-  isRedo,
-  isSelectAll,
   isSelectionWithinEditor,
-  isSpace,
-  isTab,
-  isUnderline,
-  isUndo,
+  type KeyboardEventModifierMask,
 } from './LexicalUtils';
 import {registerEventListener} from './utils/registerEventListener';
 
@@ -998,6 +979,29 @@ function $handleBeforeInput(event: InputEvent): boolean {
   }
 
   if (!$isRangeSelection(selection)) {
+    if (inputType === 'historyUndo' || inputType === 'historyRedo') {
+      // Chromium and WebKit walk up the browser's undo scope, so they
+      // dispatch history undo/redo at the editor root when the focused
+      // control is outside of it and has exhausted its own history — e.g. the
+      // URL field of a floating link toolbar (#6714) — at which point the
+      // editor no longer has a selection. Returning without preventing the
+      // default lets the browser run its native history over a
+      // Lexical-managed contenteditable, rewriting the DOM behind the
+      // editor's back; the editor state is then rebuilt from that DOM into a
+      // document that was never in Lexical's history. `@lexical/history`
+      // restores a whole editor state, so it does not need a selection.
+      //
+      // The default is prevented whether or not anything handles the command:
+      // with no history extension registered undo becomes a no-op rather than
+      // native undo, which is what the same inputType already does on the
+      // RangeSelection path below (that one prevents the default before it
+      // reaches the switch).
+      event.preventDefault();
+      dispatchCommand(
+        editor,
+        inputType === 'historyUndo' ? UNDO_COMMAND : REDO_COMMAND,
+      );
+    }
     return true;
   }
 
@@ -1589,6 +1593,167 @@ function onKeyDown(event: KeyboardEvent, editor: LexicalEditor): void {
   dispatchCommand(editor, KEY_DOWN_COMMAND, event);
 }
 
+/** @internal */
+export interface KeyDownShortcut extends KeyboardShortcutMatch {
+  onMatch: (event: KeyboardEvent, editor: LexicalEditor) => void;
+}
+
+const ANY_MODIFIERS = {
+  altKey: 'any',
+  ctrlKey: 'any',
+  metaKey: 'any',
+  shiftKey: 'any',
+} as const;
+const CTRL_KEY = {ctrlKey: true} as const;
+const META_KEY = {metaKey: true} as const;
+const SHIFT_KEY_ANY = {shiftKey: 'any'} as const;
+const ALT_SHIFT_KEY_ANY = {...SHIFT_KEY_ANY, altKey: 'any'} as const;
+
+/**
+ * The keydown shortcuts that the editor handles natively, compiled to
+ * dispatch by the pressed key and modifiers in O(1). Each shortcut's mask
+ * is exclusive of every other mask on the same key, so at most one entry
+ * matches any given event.
+ */
+function buildKeyDownShortcuts(): KeyDownShortcut[] {
+  /** Dispatch the command with the KeyboardEvent as its payload */
+  const dispatch = (
+    key: string,
+    modifiers: KeyboardEventModifierMask,
+    command: LexicalCommand<KeyboardEvent>,
+  ): KeyDownShortcut => ({
+    key,
+    modifiers,
+    onMatch: (event, editor) => {
+      dispatchCommand(editor, command, event);
+    },
+  });
+  /** preventDefault() and dispatch the command with a fixed payload */
+  const prevent = <T>(
+    key: string,
+    modifiers: KeyboardEventModifierMask,
+    command: LexicalCommand<T>,
+    payload: T,
+  ): KeyDownShortcut => ({
+    key,
+    modifiers,
+    onMatch: (event, editor) => {
+      event.preventDefault();
+      dispatchCommand(editor, command, payload);
+    },
+  });
+  const enter = (
+    modifiers: KeyboardEventModifierMask,
+    isInsertLineBreak: boolean,
+  ): KeyDownShortcut => ({
+    key: 'Enter',
+    modifiers,
+    onMatch: (event, editor) => {
+      editor._inputState.isInsertLineBreak = isInsertLineBreak;
+      dispatchCommand(editor, KEY_ENTER_COMMAND, event);
+    },
+  });
+  // Only RangeSelection can use the native cut/copy
+  const copyOrCut = (
+    key: string,
+    command: LexicalCommand<ClipboardEvent | KeyboardEvent | null>,
+  ): KeyDownShortcut => ({
+    key,
+    modifiers: CONTROL_OR_META,
+    onMatch: (event, editor) => {
+      const prevSelection = editor._editorState._selection;
+      if (prevSelection !== null && !$isRangeSelection(prevSelection)) {
+        event.preventDefault();
+        dispatchCommand(editor, command, event);
+      }
+    },
+  });
+  return [
+    // moveForward / moveToEnd / moveBackward / moveToStart / moveUp / moveDown
+    dispatch('ArrowRight', SHIFT_KEY_ANY, KEY_ARROW_RIGHT_COMMAND),
+    dispatch('ArrowLeft', SHIFT_KEY_ANY, KEY_ARROW_LEFT_COMMAND),
+    dispatch('ArrowUp', ALT_SHIFT_KEY_ANY, KEY_ARROW_UP_COMMAND),
+    dispatch('ArrowDown', ALT_SHIFT_KEY_ANY, KEY_ARROW_DOWN_COMMAND),
+    // lineBreak / paragraph
+    enter({...ANY_MODIFIERS, shiftKey: true}, true),
+    enter({...ANY_MODIFIERS, shiftKey: false}, false),
+    dispatch(' ', ANY_MODIFIERS, KEY_SPACE_COMMAND),
+    // deleteBackward
+    {
+      key: 'Backspace',
+      modifiers: SHIFT_KEY_ANY,
+      onMatch: (event, editor) => {
+        if (dispatchCommand(editor, KEY_BACKSPACE_COMMAND, event)) {
+          markHandledSelectionCommandInsertText(editor._inputState);
+        }
+      },
+    },
+    dispatch('Escape', ANY_MODIFIERS, KEY_ESCAPE_COMMAND),
+    // deleteForward
+    dispatch('Delete', {}, KEY_DELETE_COMMAND),
+    // deleteWordBackward / deleteWordForward
+    prevent('Backspace', CONTROL_OR_ALT, DELETE_WORD_COMMAND, true),
+    prevent('Delete', CONTROL_OR_ALT, DELETE_WORD_COMMAND, false),
+    prevent('b', CONTROL_OR_META, FORMAT_TEXT_COMMAND, 'bold'),
+    prevent('u', CONTROL_OR_META, FORMAT_TEXT_COMMAND, 'underline'),
+    prevent('i', CONTROL_OR_META, FORMAT_TEXT_COMMAND, 'italic'),
+    dispatch('Tab', SHIFT_KEY_ANY, KEY_TAB_COMMAND),
+    // undo / redo
+    prevent('z', CONTROL_OR_META, UNDO_COMMAND, undefined),
+    prevent('z', {...CONTROL_OR_META, shiftKey: true}, REDO_COMMAND, undefined),
+    ...(IS_APPLE
+      ? [
+          // openLineBreak
+          {
+            key: 'o',
+            modifiers: CTRL_KEY,
+            onMatch: (event: KeyboardEvent, editor: LexicalEditor) => {
+              event.preventDefault();
+              editor._inputState.isInsertLineBreak = true;
+              dispatchCommand(editor, INSERT_LINE_BREAK_COMMAND, true);
+            },
+          },
+          // moveToStart / moveToEnd mac
+          dispatch(
+            'ArrowLeft',
+            {metaKey: true, ...SHIFT_KEY_ANY},
+            MOVE_TO_START,
+          ),
+          dispatch(
+            'ArrowRight',
+            {metaKey: true, ...SHIFT_KEY_ANY},
+            MOVE_TO_END,
+          ),
+
+          // deleteBackward / deleteForward
+          prevent('h', CTRL_KEY, DELETE_CHARACTER_COMMAND, true),
+          prevent('d', CTRL_KEY, DELETE_CHARACTER_COMMAND, false),
+          // deleteLineBackward / deleteLineForward
+          prevent('Backspace', META_KEY, DELETE_LINE_COMMAND, true),
+          prevent('Delete', META_KEY, DELETE_LINE_COMMAND, false),
+          prevent('k', CTRL_KEY, DELETE_LINE_COMMAND, false),
+        ]
+      : [
+          dispatch('Home', SHIFT_KEY_ANY, MOVE_TO_START),
+          dispatch('End', SHIFT_KEY_ANY, MOVE_TO_END),
+          prevent('y', CTRL_KEY, REDO_COMMAND, undefined),
+        ]),
+    // selectAll
+    {
+      key: 'a',
+      modifiers: CONTROL_OR_META,
+      onMatch: (event, editor) => {
+        event.preventDefault();
+        if (dispatchCommand(editor, SELECT_ALL_COMMAND, event)) {
+          markHandledSelectionCommandInsertText(editor._inputState);
+        }
+      },
+    },
+    copyOrCut('c', COPY_COMMAND),
+    copyOrCut('x', CUT_COMMAND),
+  ];
+}
+
 function $handleKeyDown(event: KeyboardEvent): boolean {
   const editor = getActiveEditor();
   const inputState = editor._inputState;
@@ -1609,94 +1774,14 @@ function $handleKeyDown(event: KeyboardEvent): boolean {
     }
   }
 
-  if (isMoveForward(event)) {
-    dispatchCommand(editor, KEY_ARROW_RIGHT_COMMAND, event);
-  } else if (isMoveToEnd(event)) {
-    dispatchCommand(editor, MOVE_TO_END, event);
-  } else if (isMoveBackward(event)) {
-    dispatchCommand(editor, KEY_ARROW_LEFT_COMMAND, event);
-  } else if (isMoveToStart(event)) {
-    dispatchCommand(editor, MOVE_TO_START, event);
-  } else if (isMoveUp(event)) {
-    dispatchCommand(editor, KEY_ARROW_UP_COMMAND, event);
-  } else if (isMoveDown(event)) {
-    dispatchCommand(editor, KEY_ARROW_DOWN_COMMAND, event);
-  } else if (isLineBreak(event)) {
-    inputState.isInsertLineBreak = true;
-    dispatchCommand(editor, KEY_ENTER_COMMAND, event);
-  } else if (isSpace(event)) {
-    dispatchCommand(editor, KEY_SPACE_COMMAND, event);
-  } else if (isOpenLineBreak(event)) {
-    event.preventDefault();
-    inputState.isInsertLineBreak = true;
-    dispatchCommand(editor, INSERT_LINE_BREAK_COMMAND, true);
-  } else if (isParagraph(event)) {
-    inputState.isInsertLineBreak = false;
-    dispatchCommand(editor, KEY_ENTER_COMMAND, event);
-  } else if (isDeleteBackward(event)) {
-    if (isBackspace(event)) {
-      if (dispatchCommand(editor, KEY_BACKSPACE_COMMAND, event)) {
-        markHandledSelectionCommandInsertText(inputState);
-      }
-    } else {
-      event.preventDefault();
-      dispatchCommand(editor, DELETE_CHARACTER_COMMAND, true);
-    }
-  } else if (isEscape(event)) {
-    dispatchCommand(editor, KEY_ESCAPE_COMMAND, event);
-  } else if (isDeleteForward(event)) {
-    if (isDelete(event)) {
-      dispatchCommand(editor, KEY_DELETE_COMMAND, event);
-    } else {
-      event.preventDefault();
-      dispatchCommand(editor, DELETE_CHARACTER_COMMAND, false);
-    }
-  } else if (isDeleteWordBackward(event)) {
-    event.preventDefault();
-    dispatchCommand(editor, DELETE_WORD_COMMAND, true);
-  } else if (isDeleteWordForward(event)) {
-    event.preventDefault();
-    dispatchCommand(editor, DELETE_WORD_COMMAND, false);
-  } else if (isDeleteLineBackward(event)) {
-    event.preventDefault();
-    dispatchCommand(editor, DELETE_LINE_COMMAND, true);
-  } else if (isDeleteLineForward(event)) {
-    event.preventDefault();
-    dispatchCommand(editor, DELETE_LINE_COMMAND, false);
-  } else if (isBold(event)) {
-    event.preventDefault();
-    dispatchCommand(editor, FORMAT_TEXT_COMMAND, 'bold');
-  } else if (isUnderline(event)) {
-    event.preventDefault();
-    dispatchCommand(editor, FORMAT_TEXT_COMMAND, 'underline');
-  } else if (isItalic(event)) {
-    event.preventDefault();
-    dispatchCommand(editor, FORMAT_TEXT_COMMAND, 'italic');
-  } else if (isTab(event)) {
-    dispatchCommand(editor, KEY_TAB_COMMAND, event);
-  } else if (isUndo(event)) {
-    event.preventDefault();
-    dispatchCommand(editor, UNDO_COMMAND);
-  } else if (isRedo(event)) {
-    event.preventDefault();
-    dispatchCommand(editor, REDO_COMMAND);
-  } else {
-    const prevSelection = editor._editorState._selection;
-    if (isSelectAll(event)) {
-      event.preventDefault();
-      if (dispatchCommand(editor, SELECT_ALL_COMMAND, event)) {
-        markHandledSelectionCommandInsertText(inputState);
-      }
-    } else if (prevSelection !== null && !$isRangeSelection(prevSelection)) {
-      // Only RangeSelection can use the native cut/copy/select all
-      if (isCopy(event)) {
-        event.preventDefault();
-        dispatchCommand(editor, COPY_COMMAND, event);
-      } else if (isCut(event)) {
-        event.preventDefault();
-        dispatchCommand(editor, CUT_COMMAND, event);
-      }
-    }
+  let keyDownShortcuts = editor._keyDownShortcuts;
+  if (keyDownShortcuts === null) {
+    keyDownShortcuts = compileKeyboardShortcuts(buildKeyDownShortcuts());
+    editor._keyDownShortcuts = keyDownShortcuts;
+  }
+  const shortcut = keyDownShortcuts.match(event);
+  if (shortcut) {
+    shortcut.onMatch(event, editor);
   }
 
   if (isModifier(event)) {

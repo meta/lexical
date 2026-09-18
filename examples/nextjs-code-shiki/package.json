@@ -1,6 +1,6 @@
 {
   "name": "@lexical/nextjs-code-shiki-example",
-  "version": "0.49.0",
+  "version": "0.50.0",
   "private": true,
   "scripts": {
     "dev": "next dev",
@@ -9,20 +9,20 @@
     "test": "playwright test"
   },
   "dependencies": {
-    "@lexical/code-core": "0.49.0",
-    "@lexical/code-shiki": "0.49.0",
-    "@lexical/extension": "0.49.0",
-    "@lexical/headless": "0.49.0",
-    "@lexical/history": "0.49.0",
-    "@lexical/react": "0.49.0",
-    "@lexical/rich-text": "0.49.0",
-    "lexical": "0.49.0",
+    "@lexical/code-core": "0.50.0",
+    "@lexical/code-shiki": "0.50.0",
+    "@lexical/extension": "0.50.0",
+    "@lexical/headless": "0.50.0",
+    "@lexical/history": "0.50.0",
+    "@lexical/react": "0.50.0",
+    "@lexical/rich-text": "0.50.0",
+    "lexical": "0.50.0",
     "next": "^15.5.14",
     "react": "^19",
     "react-dom": "^19"
   },
   "devDependencies": {
-    "@playwright/test": "^1.60.0",
+    "@playwright/test": "^1.62.1",
     "@types/node": "^20",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.1.9",

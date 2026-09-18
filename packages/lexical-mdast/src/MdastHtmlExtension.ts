@@ -444,7 +444,7 @@ function stripPositions<T extends Nodes>(node: T): T {
  * serializing slot HTML that the Markdown embedding replaces anyway.
  * @experimental
  */
-export const RenderContextMarkdownExport = /* @__PURE__ */ createRenderState(
+export const RenderContextMarkdownExport = createRenderState(
   'isMarkdownExport',
   Boolean,
 );
@@ -452,9 +452,10 @@ export const RenderContextMarkdownExport = /* @__PURE__ */ createRenderState(
 // Carries the pre-imported Markdown children of the raw HTML being imported
 // into the DOM walk, so the placeholder rule can splice them back in
 // wherever the HTML structure put their placeholder stand-ins.
-const htmlChildBatches = /* @__PURE__ */ createImportState<
-  readonly (readonly LexicalNode[])[]
->('mdastHtmlChildBatches', () => []);
+const htmlChildBatches = createImportState<readonly (readonly LexicalNode[])[]>(
+  'mdastHtmlChildBatches',
+  () => [],
+);
 
 // Style properties owned by the ImportTextFormat bit mask (mirrors the core
 // `#text` rule) — excluded when materializing an inherited style record so
@@ -493,7 +494,7 @@ function $applyImportContext(
   }
 }
 
-const HtmlChildPlaceholderRule = /* @__PURE__ */ defineImportRule({
+const HtmlChildPlaceholderRule = defineImportRule({
   $import: (ctx, el) => {
     const batch =
       ctx.get(htmlChildBatches)[Number(el.getAttribute('data-mdast-child'))];
@@ -516,9 +517,7 @@ const HtmlChildPlaceholderRule = /* @__PURE__ */ defineImportRule({
     }
     return [...batch];
   },
-  match: /* @__PURE__ */ sel
-    .tag('template', 'span')
-    .attr('data-mdast-child', true),
+  match: sel.tag('template', 'span').attr('data-mdast-child', true),
   name: '@lexical/mdast/html-child-placeholder',
 });
 
@@ -601,17 +600,17 @@ function $flattenToInline(nodes: LexicalNode[]): LexicalNode[] {
 // root schema — which wraps stray inline runs in paragraphs and drops
 // boundary line breaks, correct for a document but wrong for a fragment
 // that re-enters the middle of a paragraph.
-const htmlInlineResult = /* @__PURE__ */ createImportState<{
+const htmlInlineResult = createImportState<{
   nodes: LexicalNode[] | null;
 }>('mdastHtmlInlineResult', () => ({nodes: null}));
 
-const HtmlInlineRootRule = /* @__PURE__ */ defineImportRule({
+const HtmlInlineRootRule = defineImportRule({
   $import: (ctx, el) => {
     // No schema: the children come back exactly as the rules produced them.
     ctx.get(htmlInlineResult).nodes = ctx.$importChildren(el);
     return [];
   },
-  match: /* @__PURE__ */ sel.tag('span').attr('data-mdast-inline-root', true),
+  match: sel.tag('span').attr('data-mdast-inline-root', true),
   name: '@lexical/mdast/html-inline-root',
 });
 
@@ -996,13 +995,13 @@ const htmlBlockToMarkdown: ToMarkdownExtension = {
  * ```
  * @experimental
  */
-export const MdastHtmlExtension = /* @__PURE__ */ defineExtension({
+export const MdastHtmlExtension = defineExtension({
   dependencies: [
     CoreImportExtension,
-    /* @__PURE__ */ configExtension(DOMImportExtension, {
+    configExtension(DOMImportExtension, {
       rules: [HtmlChildPlaceholderRule, HtmlInlineRootRule],
     }),
-    /* @__PURE__ */ configExtension(MdastImportExtension, {
+    configExtension(MdastImportExtension, {
       importRules: [
         {$import: $importHtmlBlock, type: 'htmlBlock'},
         {$import: $importHtmlInline, type: 'htmlInline'},

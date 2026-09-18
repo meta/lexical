@@ -397,5 +397,10 @@
   "395": "insertText: lastNode is not a TextNode",
   "396": "Table row index %s out of range",
   "397": "Table column index %s out of range",
-  "398": "insertText: anchor is not a text node"
+  "398": "insertText: anchor is not a text node",
+  "399": "KeyboardShortcutMatch: key must be non-empty",
+  "400": "replace: node %s (type %s) is slotted into host %s (type %s); a slot value cannot be replaced through the tree API. Use $setSlot on its host to assign a replacement.",
+  "401": "createYjsBinding: getXmlText must return an XmlText that is already integrated into the given doc",
+  "402": "createBindingV2: getXmlElement must return an XmlElement that is already integrated into the given doc",
+  "403": "createBindingV2: the root XmlElement must be created without a nodeName (its nodeName is %s, expected %s)"
 }

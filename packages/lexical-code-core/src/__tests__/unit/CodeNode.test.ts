@@ -6,10 +6,11 @@
  *
  */
 
-import {$createCodeNode} from '@lexical/code-core';
+import {$createCodeNode, $isCodeNode, CodeNode} from '@lexical/code-core';
+import {$generateNodesFromDOM} from '@lexical/html';
 import {$getRoot, type EditorConfig} from 'lexical';
 import {initializeUnitTest} from 'lexical/src/__tests__/utils';
-import {describe, expect, it} from 'vitest';
+import {assert, describe, expect, it} from 'vitest';
 
 const editorConfig = {
   namespace: '',
@@ -68,10 +69,37 @@ describe('CodeNode', () => {
         expect(exportedElement!.style.padding).toBe('1px');
         expect(exportedElement!.style.color).toBe('blue');
       });
+
+      it('round-trips the theme through exportDOM/importDOM', async () => {
+        const {editor} = testEnv;
+
+        let exportedElement!: HTMLElement;
+
+        await editor.update(() => {
+          const codeNode = $createCodeNode('javascript', 'poimandres');
+          $getRoot().append(codeNode);
+          exportedElement = codeNode.exportDOM(editor).element as HTMLElement;
+        });
+
+        expect(exportedElement.getAttribute('data-language')).toBe(
+          'javascript',
+        );
+        expect(exportedElement.getAttribute('data-theme')).toBe('poimandres');
+
+        const doc = document.implementation.createHTMLDocument();
+        doc.body.append(exportedElement);
+
+        await editor.update(() => {
+          const [node] = $generateNodesFromDOM(editor, doc);
+          assert($isCodeNode(node), 'expected a CodeNode');
+          expect(node.getLanguage()).toBe('javascript');
+          expect(node.getTheme()).toBe('poimandres');
+        });
+      });
     },
     {
       namespace: 'test',
-      nodes: [],
+      nodes: [CodeNode],
       theme: editorConfig.theme,
     },
   );

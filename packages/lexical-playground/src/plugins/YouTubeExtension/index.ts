@@ -18,10 +18,11 @@ import {
 
 import {$createYouTubeNode, YouTubeNode} from '../../nodes/YouTubeNode';
 
-export const INSERT_YOUTUBE_COMMAND: LexicalCommand<string> =
-  /* @__PURE__ */ createCommand('INSERT_YOUTUBE_COMMAND');
+export const INSERT_YOUTUBE_COMMAND: LexicalCommand<string> = createCommand(
+  'INSERT_YOUTUBE_COMMAND',
+);
 
-const YouTubeImportRule = /* @__PURE__ */ defineImportRule({
+const YouTubeImportRule = defineImportRule({
   $import: ctx => [$createYouTubeNode(ctx.captures.id[0])],
   match: sel
     .tag('iframe')
@@ -29,9 +30,9 @@ const YouTubeImportRule = /* @__PURE__ */ defineImportRule({
   name: '@lexical/playground/youtube',
 });
 
-export const YouTubeExtension = /* @__PURE__ */ defineExtension({
+export const YouTubeExtension = defineExtension({
   dependencies: [
-    /* @__PURE__ */ configExtension(DOMImportExtension, {
+    configExtension(DOMImportExtension, {
       rules: [YouTubeImportRule],
     }),
   ],

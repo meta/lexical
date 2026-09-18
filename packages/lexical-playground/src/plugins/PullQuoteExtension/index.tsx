@@ -50,8 +50,9 @@ import {
   PullQuoteNode,
 } from './PullQuoteNode';
 
-export const INSERT_PULLQUOTE_COMMAND: LexicalCommand<void> =
-  /* @__PURE__ */ createCommand('INSERT_PULLQUOTE_COMMAND');
+export const INSERT_PULLQUOTE_COMMAND: LexicalCommand<void> = createCommand(
+  'INSERT_PULLQUOTE_COMMAND',
+);
 
 // Enter while the PullQuote is the only selected node drops the caret into its
 // quote slot, so the keyboard can step into the box the way a chrome click does.
@@ -100,7 +101,7 @@ function $handlePullQuoteEscape(): boolean {
 // slot can't inherit the default text. The host is a DecoratorNode with no
 // children channel, so non-slot children land in the quote slot rather than
 // being dropped.
-const PullQuoteImportRule = /* @__PURE__ */ defineImportRule({
+const PullQuoteImportRule = defineImportRule({
   $import: (ctx, el) => {
     const quote = $createSlotContainerNode();
     const attribution = $createParagraphNode();
@@ -122,11 +123,11 @@ const PullQuoteImportRule = /* @__PURE__ */ defineImportRule({
   name: '@lexical/playground/pullquote-host',
 });
 
-export const PullQuoteExtension = /* @__PURE__ */ defineExtension({
+export const PullQuoteExtension = defineExtension({
   dependencies: [
     // Mirror NodeSelection state onto a `data-selected` attribute on the
     // host DOM so CSS can render the selected outline.
-    /* @__PURE__ */ configExtension(NodeSelectionDataSelectedExtension, {
+    configExtension(NodeSelectionDataSelectedExtension, {
       nodes: [PullQuoteNode],
     }),
     // The PullQuote's HTML import rule rides its own extension (like every
@@ -134,7 +135,7 @@ export const PullQuoteExtension = /* @__PURE__ */ defineExtension({
     // supplies the paragraph/text rules the rule's children-import relies on
     // and orders this host rule ahead of the generic block rules.
     CoreImportExtension,
-    /* @__PURE__ */ configExtension(DOMImportExtension, {
+    configExtension(DOMImportExtension, {
       rules: [PullQuoteImportRule],
     }),
   ],

@@ -52,9 +52,9 @@ function $readHeadingTag(key: NodeKey): HeadingTagType | null {
  * A destroyed node is gone from the current editor state, so its level is read
  * from the previous state `registerMutationListener` provides.
  */
-export const HeadingAnnounceExtension = /* @__PURE__ */ defineExtension({
+export const HeadingAnnounceExtension = defineExtension({
   build: (_editor, config) => namedSignals(config),
-  config: /* @__PURE__ */ safeCast<HeadingAnnounceExtensionConfig>({
+  config: safeCast<HeadingAnnounceExtensionConfig>({
     created: 'Heading level %s',
     destroyed: 'Heading level %s removed',
     disabled: false,

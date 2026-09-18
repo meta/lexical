@@ -23,14 +23,16 @@ all the configuration the pipeline needs —
   paste consolidation preprocess).
 - **Markdown shortcuts** — type `# `, `* `, `1. `, `> `, ``` ``` ```, etc.
   to convert on the fly.
-- **MS Word paste** — a preprocess detects the
+- **MS Word paste** — `$installWordListPasteOverlay` from
+  `@lexical/list` detects the
   `<meta name="Generator" content="Microsoft Word…">` tag and pushes
   a Word-specific overlay onto `ImportOverlays`. The overlay groups
   flat `<p class="MsoListParagraph*">` runs into proper nested
   `ListNode` trees. Pastes from other sources pay nothing for Word
-  handling. See [`src/wordPaste.ts`](src/wordPaste.ts) for the rule
-  and preprocess; [`src/fixtures/word.html`](src/fixtures/word.html)
-  is the bundled clipboard payload the dialog uses to demo it.
+  handling. It is opt-in — `ListExtension` does not install it, so
+  `App.tsx` adds it through the `DOMImportExtension` config.
+  [`src/fixtures/word.html`](src/fixtures/word.html) is the bundled
+  clipboard payload the dialog uses to demo it.
 - **VS Code paste** — a preprocess shipped by `@lexical/code-core`
   detects either browser's VS Code paste shape (Chrome's outer
   monospace+pre wrapper, Safari's flat sibling run) and pushes a

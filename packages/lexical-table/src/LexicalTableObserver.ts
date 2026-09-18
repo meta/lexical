@@ -8,6 +8,7 @@
 
 import invariant from '@lexical/internal/invariant';
 import {
+  $copyNode,
   $createParagraphNode,
   $createRangeSelection,
   $createTextNode,
@@ -229,6 +230,19 @@ export class TableObserver {
   tableSelection: TableSelection | null;
   hasHijackedSelectionStyles: boolean;
   isSelecting: boolean;
+  /**
+   * Whether the pointer gesture currently in progress has travelled beyond
+   * the tap slop box, i.e. it is a drag rather than a tap. Only a drag may
+   * start a table selection from touch input. Set by the pointermove handler
+   * and reset whenever the gesture ends.
+   */
+  isPointerDrag: boolean;
+  /**
+   * The cell the pointer gesture currently in progress started on, null when
+   * no gesture is in progress. A drag that never leaves this cell is
+   * selecting text within it, not selecting cells.
+   */
+  pointerStartCell: TableDOMCell | null;
   pointerType: string | null;
   abortController: AbortController;
   listenerOptions: {signal: AbortSignal};
@@ -254,6 +268,8 @@ export class TableObserver {
     this.focusCell = null;
     this.hasHijackedSelectionStyles = false;
     this.isSelecting = false;
+    this.isPointerDrag = false;
+    this.pointerStartCell = null;
     this.pointerType = null;
     this.abortController = new AbortController();
     this.listenerOptions = {signal: this.abortController.signal};
@@ -308,6 +324,7 @@ export class TableObserver {
         this.table = getTable(tableNode, tableElement);
       });
     });
+    this.listenersToRemove.add(() => observer.disconnect());
     this.editor.read('latest', () => {
       const {tableNode, tableElement} = this.$lookup();
       this.table = getTable(tableNode, tableElement);
@@ -606,7 +623,15 @@ export class TableObserver {
 
     selectedNodes.forEach(cellNode => {
       if ($isElementNode(cellNode)) {
-        const paragraphNode = $createParagraphNode();
+        // Clearing a cell empties its content; it does not reset how that
+        // content is laid out. A fresh ParagraphNode would start with no
+        // format, style, direction or indent, so the cell's paragraph is
+        // copied instead when there is one — $copyNode carries that state and
+        // returns it childless.
+        const firstChild = cellNode.getFirstChild();
+        const paragraphNode = $isParagraphNode(firstChild)
+          ? $copyNode(firstChild)
+          : $createParagraphNode();
         const textNode = $createTextNode();
         paragraphNode.append(textNode);
         cellNode.append(paragraphNode);

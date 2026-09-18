@@ -20,6 +20,7 @@ import minimist from 'minimist';
 import path from 'path';
 import {rollup} from 'rollup';
 
+import {pureAnnotations} from '../packages/lexical-compiler/src/passes/pureAnnotations.mjs';
 import transformErrorMessages from './error-codes/transform-error-messages.mjs';
 import {exec} from './shared/childProcess.mjs';
 import {packagesManager} from './shared/packagesManager.mjs';
@@ -139,6 +140,12 @@ function resolveExternalEsm(id) {
  */
 const monorepoExternalsSet = new Set(Object.entries(wwwMappings).flat());
 const thirdPartyExternals = [
+  // @lexical/compiler is a build-time tool: it wraps @babel/parser
+  // and magic-string (declared dependencies that must not be inlined into
+  // its published bundle) and reads relatively imported modules from disk.
+  '@babel/parser',
+  'magic-string',
+  'node:[a-z_]+',
   'react',
   'react-dom',
   'yjs',
@@ -350,6 +357,22 @@ async function build(
         ],
         presets: ['@babel/preset-typescript'],
       }),
+      // Runs on the JavaScript babel emits so that every module-scope call
+      // to a side-effect-free factory (defineExtension, createCommand, ...)
+      // carries a /* @__PURE__ */ annotation. The sources do not carry them:
+      // they are injected here (and by the same plugin for consumers that
+      // build from the `source` export condition) so that both this build
+      // and downstream bundlers can drop unused definitions.
+      //
+      // `inline` additionally replaces the calls whose result is a trivial
+      // expression over their arguments with that expression. It is off by
+      // default in the published plugin because it reproduces those bodies,
+      // but here the Lexical being built is this one.
+      //
+      // `strict` fails the build on a call inside one of those definitions
+      // that nothing has established is side-effect free, because such a
+      // call pins the definition into every bundle that imports the module.
+      pureAnnotations({inline: true, strict: true}),
       commonjs(),
       json(),
       replace(

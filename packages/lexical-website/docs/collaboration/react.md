@@ -10,7 +10,7 @@ This is on top of the Yjs bindings provided by `@lexical/yjs`.
 
 :::tip
 
-Clone [Lexical GitHub repo](https://github.com/facebook/lexical), run `npm i && npm run start` and open [`http://localhost:3000/split/?isCollab=true`](http://localhost:3000/split/?isCollab=true) to launch playground in collaborative mode.
+Clone [Lexical GitHub repo](https://github.com/facebook/lexical), run `pnpm i && pnpm run start` and open [`http://localhost:3000/split/?isCollab=true`](http://localhost:3000/split/?isCollab=true) to launch playground in collaborative mode.
 
 :::
 
@@ -146,6 +146,79 @@ shouldBootstrap={true}
 Source code: [examples/react-rich-collab](https://github.com/facebook/lexical/tree/main/examples/react-rich-collab)
 
 <iframe width="100%" height="600" src="https://stackblitz.com/github/facebook/lexical/tree/main/examples/react-rich-collab?embed=1&file=src%2FApp.tsx&terminalHeight=0&ctl=1&showSidebar=0&devtoolsheight=0&view=preview" sandbox="allow-forms allow-modals allow-popups allow-popups-to-escape-sandbox allow-presentation allow-same-origin allow-scripts"></iframe>
+
+## Sharing one Yjs document between editors
+
+By default a binding uses the `XmlText` shared type named `root` on the Yjs
+`Doc`, so each editor needs its own document. Two options let several editors
+live in one document instead, which is what applications like collaborative
+sticky notes or comment threads usually want:
+
+- `rootName` picks a different top-level shared type, one per editor:
+
+```jsx
+<CollaborationPlugin
+  id={`note-${noteId}`}
+  providerFactory={providerFactory}
+  rootName={`note-${noteId}`}
+  shouldBootstrap={true}
+/>
+```
+
+- `getXmlText` resolves the root yourself, for roots that are not top-level
+  shared types (for example an `XmlText` stored in a `Y.Map`). It takes
+  precedence over `rootName`:
+
+```jsx
+const getXmlText = useCallback(
+  (doc) => doc.getMap('notes').get(noteId),
+  [noteId],
+);
+
+<CollaborationPlugin
+  id={`note-${noteId}`}
+  providerFactory={providerFactory}
+  getXmlText={getXmlText}
+  shouldBootstrap={true}
+/>
+```
+
+Give each editor its own `id`, as above: the `id` keys the document map and the
+remote-cursor highlight registry, both of which are shared across the page, so
+two editors mounted under one `id` overwrite each other's entries.
+
+Both options are also available on `createYjsBinding` for non-React usage.
+
+:::warning
+
+The root is chosen when the binding is created, and a mounted editor cannot be
+repointed at another root: changing `rootName` or `getXmlText` afterwards has no
+effect. To switch documents, remount the **editor** — put a `key` that changes
+with the document on the component that owns the `LexicalComposer`. Remounting
+only the plugin is not enough: the editor would keep the previous document's
+content and write it into the newly selected root.
+
+:::
+
+`getXmlText` runs while the binding is constructed, before the provider has
+synced, so it has to resolve the root from whatever the local `Doc` holds at
+that moment — reaching into a `Y.Array` that the server has not sent yet throws.
+Either mount the editor only once the note exists locally, or have the callback
+create the missing shared type. Write it to be idempotent: it can run more than
+once for one editor (React StrictMode double-invokes render, and a remount
+builds a new binding), and a callback that unconditionally stores a new
+`XmlText` would throw away what the previous call stored.
+
+The returned `XmlText` is checked to be an `XmlText` that is integrated into the
+document; that it is not already driving another live binding is yours to
+guarantee, since a second binding over one root takes over the collab nodes
+cached on its shared types.
+
+The experimental `CollaborationPluginV2__EXPERIMENTAL` (and
+`createBindingV2__EXPERIMENTAL`) take the same two options, except that its
+root is an `XmlElement`, so the callback is named `getXmlElement`. Create that
+element as `new Y.XmlElement()` without a `nodeName`, which is how the root is
+recognized.
 
 ## Building collaborative plugins
 

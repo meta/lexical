@@ -251,9 +251,12 @@ export interface ImportChildrenOpts {
   /**
    * Additional {@link DOMImportRule}s active only for this children
    * traversal (and any nested `$importChildren` calls that don't push
-   * their own overlay). The overlay is checked BEFORE the main
-   * dispatcher, so its rules take precedence; calling `$next()` from an
-   * overlay rule falls through to the next overlay-or-main rule.
+   * their own overlay). Overlays form a stack: the most recently pushed
+   * one is checked first, then the ones below it, then the main
+   * dispatcher — so an overlay's rules take precedence over everything
+   * in {@link DOMImportConfig.rules}. Within one overlay, rules are
+   * tried in their own list order. Calling `$next()` from an overlay
+   * rule falls through to the next overlay-or-main rule.
    *
    * Use this to scope cost-bearing rules to where they apply. For
    * example, a GitHub code-table rule installs an overlay that
@@ -345,6 +348,13 @@ export interface ChildSchema {
  * the next-matching rule for this node (returning its result, which may then
  * be inspected or wrapped); return `[]` to drop the node.
  *
+ * "Next" means the next rule in `DOMImportConfig.rules` order — rules are
+ * tried front to back, there is no numeric priority. Since each
+ * extension's contribution is prepended to its dependencies'
+ * contributions, `$next()` from a rule typically lands on the equivalent
+ * rule from a lower-level package, and finally on
+ * `DefaultHoistRule`. See {@link DOMImportConfig.rules}.
+ *
  * @experimental
  */
 export type DOMImportFn<
@@ -417,9 +427,12 @@ export interface DOMPreprocessContext {
  * editor-context expectation visible to readers and lints.
  *
  * Append-style merge applies: an extension's preprocessors are appended
- * to the existing stack, so later-registered preprocessors run first
- * and may delegate to earlier (lower-priority) ones via `$next()`. Same
- * convention as {@link ExportMimeTypeFunction} on the export side.
+ * to the existing stack and the stack is run from its END, so the last
+ * entry runs first and may delegate to the entries below it via
+ * `$next()`. Because configs merge in dependency order, that means an
+ * extension's preprocessors wrap those of its dependencies, and the
+ * built-in `$inlineStylesFromStyleSheets` runs last. Same convention as
+ * {@link ExportMimeTypeFunction} on the export side.
  *
  * @experimental
  */
@@ -441,9 +454,11 @@ export interface GenerateNodesFromDOMOptions {
    */
   readonly context?: readonly ImportContextPairOrUpdater[];
   /**
-   * Additional preprocessors to run on this call only, on top of the
-   * extension's configured {@link DOMImportConfig.preprocess}. Per-call
-   * preprocessors run AFTER the configured ones.
+   * Additional preprocessors to run on this call only, appended to the
+   * extension's configured {@link DOMImportConfig.preprocess}. The stack
+   * is run from its end, so per-call preprocessors run BEFORE the
+   * configured ones and can wrap them via `$next()`; the last entry of
+   * this array is the very first function to run.
    */
   readonly preprocess?: readonly DOMPreprocessFn[];
 }

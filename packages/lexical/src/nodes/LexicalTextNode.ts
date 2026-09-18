@@ -70,6 +70,7 @@ import {
   isDOMTextNode,
   isHTMLElement,
   isInlineDomNode,
+  removeEmptyDOMAttribute,
   toggleTextFormatType,
 } from '../LexicalUtils';
 import {setDOMStyleFromCSS} from '../utils/setDOMStyle';
@@ -198,6 +199,7 @@ function setTextThemeClassNames(
       }
     }
   }
+  removeEmptyDOMAttribute(dom, 'class');
 }
 
 function diffComposedText(a: string, b: string): [number, number, string] {
@@ -650,6 +652,7 @@ export class TextNode extends LexicalNode implements InlineFormattableNode {
     const nextStyle = this.__style;
     if (prevStyle !== nextStyle) {
       setDOMStyleFromCSS(dom.style, nextStyle, prevStyle);
+      removeEmptyDOMAttribute(dom, 'style');
     }
     return false;
   }
@@ -1420,6 +1423,9 @@ function applyTextFormatFromStyle(
   const hasUnderlineTextDecoration = textDecoration.includes('underline');
   // Google Docs uses span tags + vertical-align to specify subscript and superscript
   const verticalAlign = style.verticalAlign;
+  // TextNode.exportDOM writes text-transform for the capitalization formats,
+  // so read it back here or they are lost on every HTML round trip (#8915).
+  const textTransform = style.textTransform;
 
   return (lexicalNode: LexicalNode) => {
     if (!$isTextNode(lexicalNode) && !$isInlineFormattable(lexicalNode)) {
@@ -1445,6 +1451,14 @@ function applyTextFormatFromStyle(
     }
     if (verticalAlign === 'super' && !lexicalNode.hasFormat('superscript')) {
       lexicalNode.toggleFormat('superscript');
+    }
+    if (
+      (textTransform === 'lowercase' ||
+        textTransform === 'uppercase' ||
+        textTransform === 'capitalize') &&
+      !lexicalNode.hasFormat(textTransform)
+    ) {
+      lexicalNode.toggleFormat(textTransform);
     }
 
     if (shouldApply && !lexicalNode.hasFormat(shouldApply)) {

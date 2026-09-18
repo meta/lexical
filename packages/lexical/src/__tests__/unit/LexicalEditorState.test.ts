@@ -24,6 +24,15 @@ import {initializeUnitTest} from '../utils';
 
 describe('LexicalEditorState tests', () => {
   initializeUnitTest(testEnv => {
+    test('isEmpty', async () => {
+      const root = $createRootNode();
+      expect(new EditorState(new Map([['root', root]])).isEmpty()).toBe(true);
+      // A state with nothing in it at all is emptier still. Reporting it as
+      // non-empty let `setEditorState` commit an editor with no root for
+      // `$getRoot` to find, rather than refusing it.
+      expect(new EditorState(new Map()).isEmpty()).toBe(true);
+    });
+
     test('constructor', async () => {
       const root = $createRootNode();
       const nodeMap = new Map([['root', root]]);

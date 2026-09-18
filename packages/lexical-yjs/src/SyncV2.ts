@@ -67,6 +67,7 @@ import {
   $syncPropertiesFromYjs,
   getDefaultNodeProperties,
   isReservedSlotName,
+  ROOT_NODE_NAME,
   setSlotsAttr,
   SLOTS_ATTR_KEY,
 } from './Utils';
@@ -84,9 +85,8 @@ type TextAttributes = {
   ychange?: Record<string, unknown>;
 };
 
-// https://docs.yjs.dev/api/shared-types/y.xmlelement
-// "Define a top-level type; Note that the nodeName is always "undefined""
-const isRootElement = (el: XmlElement): boolean => el.nodeName === 'UNDEFINED';
+const isRootElement = (el: XmlElement): boolean =>
+  el.nodeName === ROOT_NODE_NAME;
 
 export const $createOrUpdateNodeFromYElement = (
   el: XmlElement,

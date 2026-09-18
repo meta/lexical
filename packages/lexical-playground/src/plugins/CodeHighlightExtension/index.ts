@@ -37,19 +37,19 @@ const NULL_LANG_SHIKI_TOKENIZER = {
  * extensions start in `disabled: true` state and this extension flips
  * their `disabled` signals to route highlighting to the selected engine.
  */
-export const CodeHighlightExtension = /* @__PURE__ */ defineExtension({
+export const CodeHighlightExtension = defineExtension({
   build: (editor, config) => namedSignals(config),
-  config: /* @__PURE__ */ safeCast<CodeHighlightConfig>({mode: 'off'}),
+  config: safeCast<CodeHighlightConfig>({mode: 'off'}),
   dependencies: [
-    /* @__PURE__ */ configExtension(CodePrismExtension, {
+    configExtension(CodePrismExtension, {
       disabled: true,
       tokenizer: NULL_LANG_PRISM_TOKENIZER,
     }),
-    /* @__PURE__ */ configExtension(CodeShikiExtension, {
+    configExtension(CodeShikiExtension, {
       disabled: true,
       tokenizer: NULL_LANG_SHIKI_TOKENIZER,
     }),
-    /* @__PURE__ */ configExtension(CodeIndentExtension, {
+    configExtension(CodeIndentExtension, {
       escapeWithArrows: true,
       tabSize: 2,
     }),

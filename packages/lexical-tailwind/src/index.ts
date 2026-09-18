@@ -170,10 +170,10 @@ const theme: EditorThemeClasses = {
 /**
  * Configures the lexical theme ({@link EditorThemeClasses}) with tailwind defaults
  */
-export const TailwindExtension = /* @__PURE__ */ defineExtension({
+export const TailwindExtension = defineExtension({
   name: '@lexical/tailwind',
   peerDependencies: [
-    /* @__PURE__ */ declarePeerDependency('@lexical/react/TreeView', {
+    declarePeerDependency('@lexical/react/TreeView', {
       timeTravelButtonClassName:
         'absolute top-[10px] right-[15px] border-0 p-0 text-xs bg-transparent text-white hover:underline cursor-pointer',
       timeTravelPanelButtonClassName:

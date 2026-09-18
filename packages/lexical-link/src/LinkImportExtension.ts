@@ -10,7 +10,7 @@ import {$distributeInlineWrapper, defineImportRule, sel} from '@lexical/html';
 
 import {$createLinkNode} from './LexicalLinkNode';
 
-const AnchorRule = /* @__PURE__ */ defineImportRule({
+const AnchorRule = defineImportRule({
   $import: (ctx, el) => {
     if (!el.textContent && el.children.length === 0) {
       return [];

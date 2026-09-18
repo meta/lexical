@@ -46,6 +46,7 @@ import {
 import {
   $createTableCellNode,
   $isTableCellNode,
+  TableCellHeaderStates,
   TableCellNode,
 } from './LexicalTableCellNode';
 import {
@@ -152,9 +153,16 @@ function $tableTransform(node: TableNode) {
     if (rowLength === maxRowLength) {
       continue;
     }
+    // Padding cells are appended to the end of the row, so they are never in
+    // a header column — but they are in a header row whenever the row they
+    // extend is one. Inherit only that bit from the row's last cell, the same
+    // reference $insertTableColumnAtNode uses when it appends a column.
+    const lastCell = rowNode.getLastChild();
+    const headerState = $isTableCellNode(lastCell)
+      ? lastCell.getHeaderStyles() & TableCellHeaderStates.ROW
+      : TableCellHeaderStates.NO_STATUS;
     for (let j = rowLength; j < maxRowLength; ++j) {
-      // TODO: inherit header state from another header or body
-      const newCell = $createTableCellNode();
+      const newCell = $createTableCellNode(headerState);
       newCell.append($createParagraphNode());
       rowNode.append(newCell);
     }

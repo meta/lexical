@@ -8,7 +8,7 @@
     "headless"
   ],
   "license": "MIT",
-  "version": "0.49.0",
+  "version": "0.50.0",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/facebook/lexical.git",

@@ -27,7 +27,7 @@ const EMPTY_SET = new Set<NodeKey>();
  * currently selected or not. A framework independent
  * alternative to {@link useLexicalNodeSelection}.
  */
-export const NodeSelectionExtension = /* @__PURE__ */ defineExtension({
+export const NodeSelectionExtension = defineExtension({
   build(editor, config, state) {
     const editorStateStore = state.getDependency(EditorStateExtension).output;
     const watchedNodeStore = signal({

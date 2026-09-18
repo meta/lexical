@@ -37,6 +37,13 @@
 
 ## Quick Start
 
+For framework-agnostic usage, start with the
+[Vanilla JS quick start](https://lexical.dev/docs/getting-started/quick-start)
+or the
+[Vanilla JS example](https://stackblitz.com/github/facebook/lexical/tree/main/examples/vanilla-js?file=src%2Fmain.ts).
+
+For React applications, install Lexical with the official React bindings:
+
 ```bash
 npm install lexical @lexical/react
 ```

@@ -40,6 +40,10 @@ For E2E testing workflow:
 - `pnpm run tsc` - Run TypeScript compiler
 - `pnpm run ci-check` - Run all checks (TypeScript, Flow, Prettier, ESLint)
 
+**Never commit changes to `scripts/error-codes/codes.json`.**
+That edit is not yours to make — revert it to the state of
+`main` before staging, and never `git add` the file.
+
 ### Searching and refactoring
 
 Prefer **ast-grep** over line-oriented regex (`grep`/`sed`) for anything
@@ -68,15 +72,49 @@ a direct `lexical` import.
 
 Module-scope calls to the side-effect-free factories (`defineExtension`,
 `configExtension`, `safeCast`, `createCommand`, `createState`,
-`defineImportRule`, etc.) must be annotated with `/* @__PURE__ */` so
-bundlers can drop unused definitions from application bundles. This is
-enforced (with an autofixer) by the
-`@lexical/internal/require-pure-annotation` ESLint rule — run
-`pnpm run lint:fix` (also run by the pre-commit hook) to insert the
-annotations automatically. When adding a new factory of this kind,
-annotate its definition with `@__NO_SIDE_EFFECTS__` and add its name to
-the rule's default list in
-`packages/lexical-eslint-plugin-internal/src/rules/require-pure-annotation.js`.
+`defineImportRule`, etc.) need a `/* @__PURE__ */` annotation so bundlers
+can drop unused definitions from application bundles. **Do not write those
+annotations by hand** — they are injected at build time by
+`@lexical/compiler` (`packages/lexical-compiler`), which
+runs as a Rollup plugin in `scripts/build.mjs` for the published bundles
+and as a Vite plugin in `scripts/vite/lexicalMonorepoPlugin.ts` for
+everything the monorepo builds from source. The published package is also
+what consumers add to their own build when they compile Lexical from its
+`source` export condition rather than from `dist`.
+
+A hand-written annotation on one of these calls is a lint error
+(`@lexical/internal/no-pure-annotation`), and the rule is autofixable, so a
+branch written before the transform existed migrates with
+`pnpm run lint:fix`. Annotations on anything else — a third-party factory, or
+a call inside a function body, where the build never injects one — are left
+alone.
+
+When adding a new factory of this kind, annotate its definition with
+`@__NO_SIDE_EFFECTS__`. That alone is enough for calls in the same package to
+be annotated; add its name to `PURE_FACTORY_FUNCTIONS` in
+`packages/lexical-compiler/src/LexicalCompiler.mjs` so that
+calls in code that imports it by package name are too. An object whose
+methods build values and touch nothing else (like `@lexical/html`'s `sel`) is
+marked `@lexical-pure-namespace` instead, so that `sel.tag('p')` is annotated
+the way a factory call is.
+
+The build runs with `strict`, which fails on a call inside one of these
+definitions that nothing has established is side-effect free — such a call
+pins the definition into every bundle that imports the module, however well
+annotated the definition itself is. If it stops you, either make the call
+lazy (a `nodes: () => [...]` callback is not evaluated at module scope), or
+declare the function side-effect free so its calls are annotated too. A
+third-party factory that cannot be declared is annotated by hand at the call
+site, which is what the remaining hand-written annotations in the tree are.
+
+A factory whose body is a trivial expression over its own arguments (like
+`safeCast`, `defineExtension`, or `configExtension`) is additionally marked
+`@lexical-inline <form>` and listed in that file's `INLINE_FACTORIES`: the
+build replaces calls to it with the expression it would have returned, which
+needs no annotation at all. **The body of a marked function is reproduced by
+the build**, so keep it trivial — `packages/lexical-compiler`'s unit
+tests compare what the transform emits against what the real function returns
+and will fail if the two drift apart.
 
 ## High-Level Architecture
 

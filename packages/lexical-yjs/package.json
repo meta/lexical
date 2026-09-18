@@ -11,7 +11,7 @@
     "crdt"
   ],
   "license": "MIT",
-  "version": "0.49.0",
+  "version": "0.50.0",
   "main": "./dist/LexicalYjs.js",
   "types": "./dist/typescript-too-old.d.ts",
   "dependencies": {
@@ -24,7 +24,7 @@
   },
   "peerDependencies": {
     "typescript": ">=5.2",
-    "yjs": ">=13.5.22"
+    "yjs": ">=13.5.37"
   },
   "repository": {
     "type": "git",

@@ -29,7 +29,7 @@ import {
   TextNode,
 } from 'lexical';
 
-const annotationState = /* @__PURE__ */ createState('annotation', {
+const annotationState = createState('annotation', {
   parse: v => (typeof v === 'string' ? v : ''),
 });
 

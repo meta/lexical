@@ -1,7 +1,7 @@
 {
   "name": "@lexical/vanilla-js-iframe-example",
   "private": true,
-  "version": "0.49.0",
+  "version": "0.50.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -10,11 +10,11 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@lexical/dragon": "0.49.0",
-    "@lexical/history": "0.49.0",
-    "@lexical/rich-text": "0.49.0",
-    "@lexical/utils": "0.49.0",
-    "lexical": "0.49.0"
+    "@lexical/dragon": "0.50.0",
+    "@lexical/history": "0.50.0",
+    "@lexical/rich-text": "0.50.0",
+    "@lexical/utils": "0.50.0",
+    "lexical": "0.50.0"
   },
   "devDependencies": {
     "cross-env": "^7.0.3",

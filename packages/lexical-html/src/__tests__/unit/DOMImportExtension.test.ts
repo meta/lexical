@@ -39,6 +39,7 @@ import {
   $isParagraphNode,
   $isTextNode,
   $setState,
+  type AnyLexicalExtension,
   configExtension,
   createState,
   defineExtension,
@@ -355,7 +356,7 @@ describe('DOMImportExtension', () => {
     });
   });
 
-  test('rule priority: later-registered rule runs first; can call $next()', () => {
+  test('rule priority: the earlier entry in `rules` runs first; can call $next()', () => {
     using editor = buildTestEditor([
       IdAttributeRule,
       AnchorRule,
@@ -368,6 +369,87 @@ describe('DOMImportExtension', () => {
       assert($isLinkNode(link), 'expected LinkNode');
       expect($getState(link, idState)).toBe('link-x');
     });
+  });
+
+  test('rules contributed by dependents outrank their dependencies', () => {
+    // A rule that records the extension that contributed it and then
+    // defers, so the visit order of the whole chain is observable.
+    const visited: string[] = [];
+    const traceRule = (name: string) =>
+      defineImportRule({
+        $import: (_ctx, _el, $next) => {
+          visited.push(name);
+          return $next();
+        },
+        match: sel.tag('p'),
+        name: `test/trace-${name}`,
+      });
+    const makeExtension = (
+      name: string,
+      dependencies: AnyLexicalExtension[] = [],
+    ) =>
+      defineExtension({
+        dependencies: [
+          ...dependencies,
+          configExtension(DOMImportExtension, {
+            // Two rules from the same extension, to show that a
+            // contribution is inlined as a contiguous chunk.
+            rules: [traceRule(`${name}-a`), traceRule(`${name}-b`)],
+          }),
+        ],
+        name: `test-${name}`,
+      });
+    const leaf = makeExtension('leaf');
+    const mid = makeExtension('mid', [leaf]);
+    using editor = buildEditorFromExtensions(
+      defineExtension({
+        dependencies: [mid],
+        name: 'test-root',
+        nodes: [LinkNode],
+      }),
+      // Configuration passed directly to the builder is merged last of
+      // all, so it outranks every extension's contribution.
+      configExtension(DOMImportExtension, {rules: [traceRule('builder')]}),
+    );
+    importInto(editor, '<p>x</p>');
+    // Each extension's chunk keeps its own order (a before b), and the
+    // chunks are ordered from the most dependent contributor to the
+    // least.
+    expect(visited).toEqual(['builder', 'mid-a', 'mid-b', 'leaf-a', 'leaf-b']);
+  });
+
+  test('among sibling dependencies, the later-listed one outranks', () => {
+    // Pins the order that falls out of the topological sort for two
+    // extensions where neither depends on the other. Documented as an
+    // implementation detail rather than an API guarantee — an extension
+    // that must override another's rules should depend on it — but the
+    // behavior is worth knowing about when debugging dispatch.
+    const visited: string[] = [];
+    const traceRule = (name: string) =>
+      defineImportRule({
+        $import: (_ctx, _el, $next) => {
+          visited.push(name);
+          return $next();
+        },
+        match: sel.tag('p'),
+        name: `test/sibling-${name}`,
+      });
+    const makeExtension = (name: string) =>
+      defineExtension({
+        dependencies: [
+          configExtension(DOMImportExtension, {rules: [traceRule(name)]}),
+        ],
+        name: `test-sibling-${name}`,
+      });
+    using editor = buildEditorFromExtensions(
+      defineExtension({
+        dependencies: [makeExtension('first'), makeExtension('second')],
+        name: 'test-sibling-root',
+        nodes: [LinkNode],
+      }),
+    );
+    importInto(editor, '<p>x</p>');
+    expect(visited).toEqual(['second', 'first']);
   });
 
   test('CSS parser: parseSelector("p.foo") matches as expected', () => {
@@ -431,6 +513,17 @@ describe('DOMImportExtension', () => {
     expect(importedTags('p, .foo')).toEqual(['p', 'div']);
     expect(importedTags('.foo, p')).toEqual(['p', 'div']);
     expect(importedTags('p, .foo, article')).toEqual(['p', 'div', 'article']);
+  });
+
+  test('CSS parser rejects an empty selector or a hole in a selector list', () => {
+    for (const selector of ['', '   ', 'h1,', ',h1', 'h1,,h2', 'h1, ,h2']) {
+      expect(() => parseSelector(selector)).toThrow(/expected a selector/);
+    }
+    // A lone `*` is the one group that legitimately has neither tag nor
+    // refinement, so it and any list containing it still parse.
+    expect(() => parseSelector('*')).not.toThrow();
+    expect(() => parseSelector('h1, *')).not.toThrow();
+    expect(() => parseSelector('*.foo')).not.toThrow();
   });
 
   test('isElementOfTag narrows correctly without instanceof', () => {

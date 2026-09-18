@@ -21,20 +21,19 @@ export interface SelectionAlwaysOnDisplayConfig {
  * An extension that highlights selected content in the Lexical editor
  * even when the editor is not currently focused.
  */
-export const SelectionAlwaysOnDisplayExtension =
-  /* @__PURE__ */ defineExtension({
-    build: (editor, config, state) => namedSignals(config),
-    config: /* @__PURE__ */ safeCast<SelectionAlwaysOnDisplayConfig>({
-      disabled: false,
-      onReposition: undefined,
-    }),
-    name: '@lexical/utils/SelectionAlwaysOnDisplay',
-    register: (editor, config, state) => {
-      const stores = state.getOutput();
-      return effect(() => {
-        if (!stores.disabled.value) {
-          return selectionAlwaysOnDisplay(editor, stores.onReposition.value);
-        }
-      });
-    },
-  });
+export const SelectionAlwaysOnDisplayExtension = defineExtension({
+  build: (editor, config, state) => namedSignals(config),
+  config: safeCast<SelectionAlwaysOnDisplayConfig>({
+    disabled: false,
+    onReposition: undefined,
+  }),
+  name: '@lexical/utils/SelectionAlwaysOnDisplay',
+  register: (editor, config, state) => {
+    const stores = state.getOutput();
+    return effect(() => {
+      if (!stores.disabled.value) {
+        return selectionAlwaysOnDisplay(editor, stores.onReposition.value);
+      }
+    });
+  },
+});

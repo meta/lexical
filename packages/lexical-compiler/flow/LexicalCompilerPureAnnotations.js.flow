@@ -1,0 +1,78 @@
+/**
+ * Copyright (c) Meta Platforms, Inc. and affiliates.
+ *
+ * This source code is licensed under the MIT license found in the
+ * LICENSE file in the root directory of this source tree.
+ *
+ * @flow strict
+ */
+
+/**
+ * LexicalCompilerPureAnnotations
+ */
+
+export type PureAnnotationsSourceMap = {
+  file?: string,
+  mappings: string,
+  names: Array<string>,
+  sources: Array<string>,
+  sourcesContent?: Array<string | null>,
+  version: number,
+};
+
+export type TransformPureAnnotationsOptions = {
+  filename?: string,
+  functions?: Iterable<string>,
+  inline?: boolean,
+  namespaces?: Iterable<string>,
+  parserPlugins?: ReadonlyArray<unknown>,
+  relativeImports?: boolean,
+  sourceMap?: boolean,
+  sources?: RegExp | ReadonlyArray<RegExp>,
+  strict?: boolean,
+};
+
+export type PureAnnotationsResult = {
+  code: string,
+  count: number,
+  inlined: number,
+  map?: PureAnnotationsSourceMap,
+};
+
+export type PureAnnotationsOptions = {
+  ...TransformPureAnnotationsOptions,
+  enforce?: 'post' | 'pre',
+  exclude?: RegExp | ReadonlyArray<RegExp>,
+  include?: RegExp | ReadonlyArray<RegExp>,
+};
+
+/**
+ * The structural shape of the returned plugin, assignable to Vite's and
+ * Rollup's `Plugin`.
+ */
+export type PureAnnotationsPlugin = {
+  enforce?: 'post' | 'pre',
+  name: string,
+  transform(
+    code: string,
+    id: string,
+  ): {code: string, map: PureAnnotationsSourceMap | null} | null,
+};
+
+declare export var PURE_FACTORY_FUNCTIONS: ReadonlyArray<string>;
+declare export var PURE_NAMESPACES: ReadonlyArray<string>;
+declare export var INLINE_FACTORY_FORMS: ReadonlyMap<string, string>;
+
+declare export function transformPureAnnotations(
+  code: string,
+  options?: TransformPureAnnotationsOptions,
+): PureAnnotationsResult | null;
+
+declare export function pureCallNames(
+  code: string,
+  options?: TransformPureAnnotationsOptions,
+): {functions: ReadonlySet<string>, namespaces: ReadonlySet<string>};
+
+declare export function pureAnnotations(
+  options?: PureAnnotationsOptions,
+): PureAnnotationsPlugin;

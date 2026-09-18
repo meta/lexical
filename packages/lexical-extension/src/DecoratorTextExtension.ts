@@ -34,7 +34,7 @@ export type SerializedDecoratorTextNode = Spread<
   SerializedLexicalNode
 >;
 
-const formatState = /* @__PURE__ */ createState('format', {
+const formatState = createState('format', {
   parse: value => (typeof value === 'number' ? value : 0),
 });
 
@@ -201,7 +201,7 @@ const DEFAULT_TAG_NAME_TO_FORMAT: {[key: string]: TextFormatType} = {
 /**
  * An extension that registers DecoratorTextNode with the editor.
  */
-export const DecoratorTextExtension = /* @__PURE__ */ defineExtension({
+export const DecoratorTextExtension = defineExtension({
   name: '@lexical/extension/DecoratorText',
   nodes: () => [DecoratorTextNode],
 });

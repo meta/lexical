@@ -1,0 +1,33 @@
+{
+  "name": "@lexical/dev-hmr-example",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@lexical/extension": "workspace:*",
+    "@lexical/history": "workspace:*",
+    "@lexical/react": "workspace:*",
+    "@lexical/rich-text": "workspace:*",
+    "lexical": "workspace:*",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.1.2",
+    "@types/react-dom": "^19.1.2",
+    "@vitejs/plugin-react": "^6.0.2",
+    "typescript": "^6.0.3",
+    "vite": "^8.0.16"
+  },
+  "optionalDependencies": {
+    "@rollup/rollup-linux-x64-gnu": "4.61.0",
+    "@rollup/rollup-darwin-arm64": "4.61.0",
+    "@rollup/rollup-win32-x64-msvc": "4.61.0",
+    "@rollup/wasm-node": "4.61.0"
+  }
+}

@@ -163,3 +163,17 @@ declare export function registerLink(
   editor: LexicalEditor,
   stores: NamedSignalsOutput<LinkConfig>,
 ): () => void;
+
+export type AutoLinkAnnounceExtensionConfig = {
+  created: string,
+  createdMany: string,
+  destroyed: string,
+  destroyedMany: string,
+  disabled: boolean,
+};
+declare export var AutoLinkAnnounceExtension: LexicalExtension<
+  AutoLinkAnnounceExtensionConfig,
+  '@lexical/link/AutoLinkAnnounce',
+  NamedSignalsOutput<AutoLinkAnnounceExtensionConfig>,
+  void,
+>;

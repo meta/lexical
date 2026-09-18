@@ -341,6 +341,8 @@ function extractExtraStyles(el: HTMLElement): StyleObject | null {
  * This is the {@link DOMImportExtension}-native replacement for the
  * legacy `constructStyleImportMap` workaround that wrapped every TextNode
  * importer in turn.
+ *
+ * @__NO_SIDE_EFFECTS__
  */
 export function createStyleImportRule(
   styleMapping: StyleMapping = input => input,

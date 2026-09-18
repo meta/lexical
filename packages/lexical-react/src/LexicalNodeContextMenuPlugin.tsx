@@ -221,6 +221,27 @@ const NodeContextMenuPlugin = forwardRef<
 
   useEffect(() => {
     function onContextMenu(e: MouseEvent) {
+      let visibleItems: ContextMenuType[] = [];
+      if (items) {
+        editor.read(() => {
+          const node =
+            $getNearestNodeFromDOMNode(e.target as Element) ?? $getRoot();
+          if (node) {
+            visibleItems = items!.filter(option =>
+              option.$showOn ? option.$showOn(node) : true,
+            );
+          }
+        });
+      }
+
+      // Nothing is left to show for this node -- separators on their own draw
+      // a menu with no items in it -- so let the browser's own context menu
+      // open rather than suppressing it and mounting a scroll-locking overlay
+      // around nothing.
+      if (!visibleItems.some(option => option.type !== 'separator')) {
+        return;
+      }
+
       e.preventDefault();
 
       refs.setPositionReference({
@@ -237,19 +258,6 @@ const NodeContextMenuPlugin = forwardRef<
           };
         },
       });
-
-      let visibleItems: ContextMenuType[] = [];
-      if (items) {
-        editor.read(() => {
-          const node =
-            $getNearestNodeFromDOMNode(e.target as Element) ?? $getRoot();
-          if (node) {
-            visibleItems = items!.filter(option =>
-              option.$showOn ? option.$showOn(node) : true,
-            );
-          }
-        });
-      }
 
       const renderableItems = visibleItems.map((option, index) => {
         if (option.type === 'separator') {

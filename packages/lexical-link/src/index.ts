@@ -7,6 +7,10 @@
  */
 
 export {
+  AutoLinkAnnounceExtension,
+  type AutoLinkAnnounceExtensionConfig,
+} from './AutoLinkAnnounceExtension';
+export {
   type ClickableLinkConfig,
   ClickableLinkExtension,
   registerClickableLink,

@@ -1,0 +1,137 @@
+.ShortcutsHelpDialog {
+  min-width: min(420px, 100%);
+  overflow-x: auto;
+}
+.ShortcutsHelpDialog table {
+  width: 100%;
+  border-collapse: collapse;
+}
+.ShortcutsHelpDialog__platforms {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 4px;
+  margin-bottom: 18px;
+  padding: 4px;
+  background-color: #f1f2f4;
+  border-radius: 10px;
+}
+.ShortcutsHelpDialog__platform {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  border: 0;
+  border-radius: 7px;
+  padding: 8px 12px;
+  background-color: transparent;
+  color: #555;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 16px;
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    background-color 0.15s,
+    color 0.15s;
+}
+.ShortcutsHelpDialog__platform:hover {
+  color: #222;
+  background-color: rgba(0, 0, 0, 0.04);
+}
+.ShortcutsHelpDialog__platform[aria-checked='true'] {
+  background-color: #fff;
+  color: rgb(24, 119, 242);
+  box-shadow:
+    0 0 0 1px rgba(0, 0, 0, 0.05),
+    0 1px 2px rgba(0, 0, 0, 0.12);
+}
+.ShortcutsHelpDialog__platformIcon {
+  display: inline-block;
+  width: 15px;
+  height: 15px;
+  background-color: currentColor;
+  -webkit-mask-size: contain;
+  mask-size: contain;
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  -webkit-mask-position: center;
+  mask-position: center;
+}
+.ShortcutsHelpDialog__platformIcon.apple {
+  -webkit-mask-image: url(../../images/icons/apple.svg);
+  mask-image: url(../../images/icons/apple.svg);
+}
+.ShortcutsHelpDialog__platformIcon.windows {
+  width: 13px;
+  height: 13px;
+  -webkit-mask-image: url(../../images/icons/windows.svg);
+  mask-image: url(../../images/icons/windows.svg);
+}
+.ShortcutsHelpDialog__heading__action,
+.ShortcutsHelpDialog__heading__shortcut {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding-bottom: 8px;
+  background-color: #fff;
+  border-bottom: 1px solid #e0e0e0;
+  color: #888;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.ShortcutsHelpDialog__heading__action {
+  text-align: left;
+}
+.ShortcutsHelpDialog__heading__shortcut {
+  text-align: right;
+}
+.ShortcutsHelpDialog__action,
+.ShortcutsHelpDialog__shortcut {
+  padding-top: 8px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid #f0f0f0;
+}
+.ShortcutsHelpDialog tbody tr:last-child td {
+  border-bottom: 0;
+}
+.ShortcutsHelpDialog__action {
+  padding-right: 2em;
+  color: #333;
+  font-size: 14px;
+}
+.ShortcutsHelpDialog__shortcut {
+  text-align: right;
+  white-space: nowrap;
+}
+.ShortcutsHelpDialog__shortcut kbd {
+  min-width: 1em;
+  text-align: center;
+  white-space: nowrap;
+  font-size: 0.85em;
+  display: inline-block;
+  font-family:
+    -apple-system, BlinkMacSystemFont, system-ui, 'Segoe UI', Helvetica, Arial,
+    sans-serif;
+}
+.ShortcutsHelpDialog__shortcut[data-platform='apple'] kbd {
+  font-size: 1em;
+  color: #333;
+}
+.ShortcutsHelpDialog__shortcut[data-platform='other'] kbd {
+  font-weight: 600;
+  background-color: #f7f7f7;
+  color: #333333;
+  border: 1px solid #ccc;
+  border-bottom-width: 3px;
+  border-radius: 3px;
+  padding: 0.1em 0.4em;
+}
+.ShortcutsHelpDialog__shortcut[data-platform='other']
+  .ShortcutsHelpDialog__separator::before {
+  content: ' + ';
+  font-weight: normal;
+  color: #666; /* Gives the plus sign a slightly muted color */
+  margin: 0 0.2em;
+}

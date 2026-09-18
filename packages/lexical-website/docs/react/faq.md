@@ -58,13 +58,61 @@ The most common root causes of this issue are:
   precisely which tools (and even versions of those tools) that your project
   is using.
 
-## Other complications when using dev mode with fast refresh (aka hot module replacement)
+## Hot Module Replacement (HMR)
 
-Depending on precisely how the fast refresh implementation you're
-using works, you may need to mark the files that create your editor or the
-implementation of your LexicalNode subclasses as needing a full refresh.
-When things seem broken in dev mode after changing a file, try refreshing the
-page first. If that fixes the problem, then mark the file you're working on as
-needing a full refresh. For example
-[Next.js fast refresh](https://nextjs.org/docs/architecture/fast-refresh#tips)
-has a `// @refresh reset` comment that can be used.
+During development, HMR re-executes modules on every code change. Because Lexical uses object identity for node class registration, command dispatch, and extension deduplication, a naive HMR cycle destroys the editor state and resets the document.
+
+### HMRExtension
+
+`@lexical/extension` exports an `HMRExtension` that preserves editor state, the selection, the editable flag, and undo/redo history across HMR cycles. It stashes a reference to the current `EditorState` in the bundler's HMR data store, and the module instance that replaces it serializes that state and rebuilds it against the new node classes. Serializing only at that point keeps the cost off of every editor update.
+
+The editor state and the undo/redo entries are serialized together, as one family of related states, rather than one at a time. Serializing each state on its own (`toJSON()` / `parseEditorState()`) would lose two properties the editor depends on: consecutive versions of a document share nearly all of their node objects, because an update clones only what it touches, and reconciliation is a diff over `NodeKey`s. Independently parsed states share nothing and have disjoint key spaces, so the history would cost memory proportional to its depth and the first undo after a reload would rebuild the whole document instead of the part that changed. The family format stores one entry per distinct node *version* and rebuilds each one once, so what was shared comes back shared and every version of a node answers to one key — which is also what lets the selection be carried by key.
+
+```ts
+import {buildEditorFromExtensions, configExtension, defineExtension, HMRExtension} from '@lexical/extension';
+import {RichTextExtension} from '@lexical/rich-text';
+import {HistoryExtension} from '@lexical/history';
+
+const editor = buildEditorFromExtensions(
+  defineExtension({
+    name: '[root]',
+    namespace: 'my-editor',
+    dependencies: [
+      RichTextExtension,
+      HistoryExtension,
+      configExtension(HMRExtension, {hot: import.meta.hot ?? null}),
+    ],
+  }),
+);
+```
+
+The `hot` config accepts any object with a `data: Record<string, unknown>` property — this is satisfied by Vite's `import.meta.hot` and similar bundler HMR APIs. Pass `null` in production or when HMR is not available; the extension becomes a no-op.
+
+When `HistoryExtension` is present as a peer, undo/redo stacks are preserved automatically. The extension does not declare `HistoryExtension` as a dependency — it detects it at runtime via peer dependency lookup.
+
+Editors with distinct `namespace` values — set via `namespace` in `defineExtension` or `createEditor` — are isolated automatically, so no `id` is needed. An editor given no namespace at all is keyed without one, since the namespace `createEditor` generates in that case is a new random string on every reload; those editors all share a single key. When two editors share both the same `import.meta.hot` context and the same key, pass a stable `id` string to keep their states independent:
+
+```ts
+defineExtension({ name: '[main]', namespace: 'shared', dependencies: [configExtension(HMRExtension, {hot: import.meta.hot ?? null, id: 'main'})] })
+defineExtension({ name: '[sidebar]', namespace: 'shared', dependencies: [configExtension(HMRExtension, {hot: import.meta.hot ?? null, id: 'sidebar'})] })
+```
+
+A nested editor inherits its parent's namespace, so the two are not isolated from each other automatically the way independent editors are; give the nested editor a distinct `id`. In development, sharing a key with the parent is warned about.
+
+Saved state belongs to the namespace and `id` for as long as the page lives, not to the reload that produced it. An editor that is unmounted and later remounted under the same key during development restores what the previous one had rather than its own `$initialEditorState` — so two editors showing different documents need distinct namespaces even when they are never on screen at the same time.
+
+### Fast Refresh compatibility
+
+Vite (and similar tools) apply React Fast Refresh — state-preserving HMR for React components — only when a module exports nothing but React components. Modules that also export hooks, classes, commands, or constants fall back to a full remount, which discards component state.
+
+Several `@lexical/react` plugin modules split their non-component exports into companion `*Utils` files. Consumers that import non-component values directly from the `*Utils` module get more granular HMR boundaries, since changes to the component file don't invalidate those imports. The original module re-exports these for backwards compatibility.
+
+A companion module only earns that boundary if it imports no component module itself, so shared values it needs have to live somewhere component-free too: `MenuOption` — the class a menu plugin's options extend — is exported from `@lexical/react/LexicalMenuOption` for that reason, and re-exported from the plugin modules that used to define it.
+
+Values shared between entry points also have to be defined in one, not in an internal module: an internal module is inlined into every entry point that imports it, so a command or class defined there is a different object in each of them, and commands and `instanceof` are matched by identity.
+
+If you're building custom plugins, follow the same pattern: keep React components in one file and export hooks, constants, or classes from a separate file.
+
+### Fallback: `// @refresh reset`
+
+If a module can't be split (e.g. it defines both a component and tightly-coupled non-component logic), you can mark it for a full refresh using your framework's directive. For example, [Next.js fast refresh](https://nextjs.org/docs/architecture/fast-refresh#tips) supports a `// @refresh reset` comment at the top of the file. This forces a full remount of all components in the file on every change.

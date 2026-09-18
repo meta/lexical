@@ -127,7 +127,7 @@ export function initializeUnitTest(
       testEnv.editor = useLexicalEditor(ref);
       const context = createLexicalComposerContext(
         null,
-        editorConfig?.theme ?? {},
+        editorConfig?.theme ?? {tableScrollableWrapper: ''},
       );
       return (
         <LexicalComposerContext.Provider value={[testEnv.editor, context]}>

@@ -47,7 +47,7 @@ import {
 
 import {$createListNode, $isListNode, type ListNode, type ListType} from './';
 import {$handleIndent, $handleOutdent, mergeLists} from './formatList';
-import {$isNestedListNode} from './utils';
+import {$getNewListStart, $isNestedListNode} from './utils';
 
 export type SerializedListItemNode = Spread<
   {
@@ -354,6 +354,17 @@ export class ListItemNode extends ElementNode {
 
     if (siblings.length !== 0) {
       const newListNode = $copyNode(listNode);
+      // $copyNode carries the original list's start, which would restart the
+      // numbering at the split. The items moving into the new list keep the
+      // numbers they were already rendered with, so the new list has to start
+      // from the first of them (see issue #7032).
+      const firstSibling = siblings[0];
+      if (
+        newListNode.getListType() === 'number' &&
+        $isListItemNode(firstSibling)
+      ) {
+        newListNode.setStart($getNewListStart(listNode, firstSibling));
+      }
 
       siblings.forEach(sibling => newListNode.append(sibling));
 
@@ -372,7 +383,11 @@ export class ListItemNode extends ElementNode {
       prevSibling &&
       nextSibling &&
       $isNestedListNode(prevSibling) &&
-      $isNestedListNode(nextSibling)
+      $isNestedListNode(nextSibling) &&
+      // Only join the surrounding sublists when they are the same kind of
+      // list, otherwise the second one loses its listType.
+      prevSibling.getFirstChild().getListType() ===
+        nextSibling.getFirstChild().getListType()
     ) {
       mergeLists(prevSibling.getFirstChild(), nextSibling.getFirstChild());
       nextSibling.remove();

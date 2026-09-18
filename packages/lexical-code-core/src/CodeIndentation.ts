@@ -206,6 +206,32 @@ function $handleTab(shiftKey: boolean): null | LexicalCommand<void> {
   return indentOrOutdent;
 }
 
+/**
+ * Outdent the single line the collapsed caret sits on.
+ *
+ * `$getCodeLines` drops a trailing line when the selection ends exactly at its
+ * start — for a collapsed caret that is always true, so the caret's own line
+ * never reaches the outdent loop and the line has to be resolved from the
+ * anchor here. Applies the same rule as that loop: strip a leading TabNode, or
+ * `tabSize` leading spaces when the extension is configured for them.
+ */
+function $outdentLineAtCaret(
+  selection: RangeSelection,
+  tabSize: number | undefined,
+): void {
+  const anchorNode = selection.anchor.getNode();
+  // An element point (e.g. the caret on a blank line) has no line to outdent.
+  if (!$isCodeHighlightNode(anchorNode) && !$isTabNode(anchorNode)) {
+    return;
+  }
+  const firstOfLine = $getFirstCodeNodeOfLine(anchorNode);
+  if ($isTabNode(firstOfLine)) {
+    firstOfLine.remove();
+  } else if (tabSize !== undefined && $isCodeHighlightNode(firstOfLine)) {
+    $outdentLeadingSpaces(firstOfLine, tabSize, selection);
+  }
+}
+
 function $handleMultilineIndent(
   type: LexicalCommand<void>,
   tabSize?: number,
@@ -223,6 +249,8 @@ function $handleMultilineIndent(
   if (codeLinesLength === 0 && selection.isCollapsed()) {
     if (type === INDENT_CONTENT_COMMAND) {
       selection.insertNodes([$createTabNode()]);
+    } else {
+      $outdentLineAtCaret(selection, tabSize);
     }
     return true;
   }
@@ -392,10 +420,15 @@ function $handleShiftLines(
     return true;
   }
 
+  // A LineBreakNode sibling means the adjacent line is blank, so it has no
+  // node of its own to anchor the move to — $getFirstCodeNodeOfLine /
+  // $getLastCodeNodeOfLine hand that linebreak straight back, and it belongs
+  // to a *different* line. Anchoring on it splices the moving line into the
+  // line on the far side of the blank one, merging the two.
+  const adjacentLineIsBlank = $isLineBreakNode(sibling);
   const maybeInsertionPoint =
-    $isCodeHighlightNode(sibling) ||
-    $isTabNode(sibling) ||
-    $isLineBreakNode(sibling)
+    !adjacentLineIsBlank &&
+    ($isCodeHighlightNode(sibling) || $isTabNode(sibling))
       ? arrowIsUp
         ? $getFirstCodeNodeOfLine(sibling)
         : $getLastCodeNodeOfLine(sibling)
@@ -404,7 +437,15 @@ function $handleShiftLines(
     maybeInsertionPoint != null ? maybeInsertionPoint : sibling;
   linebreak.remove();
   range.forEach(node => node.remove());
-  if (type === KEY_ARROW_UP_COMMAND) {
+  if (adjacentLineIsBlank) {
+    // The blank line's position is immediately after the sibling linebreak,
+    // in both directions.
+    range.forEach(node => {
+      insertionPoint.insertAfter(node);
+      insertionPoint = node;
+    });
+    insertionPoint.insertAfter(linebreak);
+  } else if (type === KEY_ARROW_UP_COMMAND) {
     range.forEach(node => insertionPoint.insertBefore(node));
     insertionPoint.insertBefore(linebreak);
   } else {
@@ -676,9 +717,9 @@ export interface CodeIndentConfig {
  * Code blocks without syntax highlighting can use this extension on its
  * own.
  */
-export const CodeIndentExtension = /* @__PURE__ */ defineExtension({
+export const CodeIndentExtension = defineExtension({
   build: (editor, config) => namedSignals(config),
-  config: /* @__PURE__ */ safeCast<CodeIndentConfig>({
+  config: safeCast<CodeIndentConfig>({
     disabled: false,
     escapeWithArrows: false,
     tabSize: undefined,

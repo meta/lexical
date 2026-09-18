@@ -25,6 +25,7 @@ import {
   $getNodeByKey,
   $getRoot,
   $getSelection,
+  $getSelectionSlotFrame,
   $getSlot,
   $getSlotFrame,
   $getSlotHost,
@@ -143,6 +144,30 @@ class ReservedDeclaredHostNode extends ElementNode {
   }
 }
 
+class WrappedSlotHostNode extends ElementNode {
+  $config() {
+    return this.config('wrapped_slot_host', {
+      extends: ElementNode,
+      slots: ['title'],
+    });
+  }
+  createDOM() {
+    const host = document.createElement('div');
+    const content = document.createElement('span');
+    content.dataset.content = 'true';
+    host.appendChild(content);
+    return host;
+  }
+  updateDOM() {
+    return false;
+  }
+  getDOMSlot(dom: HTMLElement) {
+    return super
+      .getDOMSlot(dom)
+      .withElement(dom.querySelector<HTMLElement>('[data-content]') ?? dom);
+  }
+}
+
 const mountedRoots: HTMLElement[] = [];
 afterEach(() => {
   while (mountedRoots.length > 0) {
@@ -170,6 +195,7 @@ function createSlotEditor(): LexicalEditorWithDispose {
         ReorderedHostNode,
         DupDeclaredHostNode,
         ReservedDeclaredHostNode,
+        WrappedSlotHostNode,
       ],
     }),
   );
@@ -182,6 +208,35 @@ function createSlotEditor(): LexicalEditorWithDispose {
 }
 
 describe('named-slots: core foundation', () => {
+  test('an empty wrapped child area gets a managed line break', () => {
+    using editor = createSlotEditor();
+    let hostKey = '';
+
+    editor.update(
+      () => {
+        const host = $create(WrappedSlotHostNode).append(
+          $createTextNode('Body'),
+        );
+        $getRoot().append(host);
+        $setSlot(host, 'title', $slotContainer('Title'));
+        hostKey = host.getKey();
+      },
+      {discrete: true},
+    );
+    editor.update(
+      () => {
+        $assertNodeType($getNodeByKey(hostKey), $isElementNode).clear();
+      },
+      {discrete: true},
+    );
+
+    const hostDom = editor.getElementByKey(hostKey)!;
+    const content = hostDom.querySelector('[data-content]')!;
+    expect(
+      content.querySelector('[data-lexical-managed-linebreak="true"]'),
+    ).not.toBe(null);
+  });
+
   test('a slotted node is reachable, parentless, and attached', () => {
     using editor = createSlotEditor();
     let hostKey = '';
@@ -1398,6 +1453,29 @@ describe('named-slots: core foundation', () => {
     // A truly empty host (no slots, no children) still gets the br — the
     // gate is scoped to slots-only hosts.
     expect(directBr(editor.getElementByKey(emptyHostKey)!)).not.toBe(undefined);
+
+    editor.update(
+      () => {
+        $removeSlot(
+          $assertNodeType($getNodeByKey(slotHostKey), $isElementNode),
+          'title',
+        );
+      },
+      {discrete: true},
+    );
+    expect(directBr(editor.getElementByKey(slotHostKey)!)).not.toBe(undefined);
+
+    editor.update(
+      () => {
+        $setSlot(
+          $assertNodeType($getNodeByKey(slotHostKey), $isElementNode),
+          'title',
+          $slotContainer('New title'),
+        );
+      },
+      {discrete: true},
+    );
+    expect(directBr(editor.getElementByKey(slotHostKey)!)).toBeUndefined();
   });
 
   test('descendant navigation stays children-only (slots stay out of selection)', () => {
@@ -2639,6 +2717,97 @@ describe('named-slots: slot-name type hints', () => {
     const declared: SlotName<DeclaredHostNode> = 'title';
     const undeclared: SlotName<DeclaredHostNode> = 'anything';
     expect([declared, undeclared]).toEqual(['title', 'anything']);
+  });
+});
+
+describe('$getSelectionSlotFrame', () => {
+  test('returns null for a null selection', () => {
+    using editor = createSlotEditor();
+    editor.read(() => {
+      expect($getSelectionSlotFrame(null)).toBe(null);
+    });
+  });
+
+  test('returns null for a selection outside any slot', () => {
+    using editor = createSlotEditor();
+    editor.update(
+      () => {
+        const text = $createTextNode('plain');
+        $getRoot().append($createParagraphNode().append(text));
+        text.select(0, 'plain'.length);
+      },
+      {discrete: true},
+    );
+
+    editor.read(() => {
+      expect($getSelectionSlotFrame($getSelection())).toBe(null);
+    });
+  });
+
+  test('returns the slot frame for a RangeSelection inside a slot', () => {
+    using editor = createSlotEditor();
+    let containerKey = '';
+    editor.update(
+      () => {
+        const host = $createParagraphNode();
+        const container = $slotContainer('inside');
+        $getRoot().append(host);
+        $setSlot(host, 'title', container);
+        containerKey = container.getKey();
+        $assertNodeType(
+          container.getFirstChildOrThrow(),
+          $isParagraphNode,
+        ).selectStart();
+      },
+      {discrete: true},
+    );
+
+    editor.read(() => {
+      const frame = $getSelectionSlotFrame($getSelection());
+      expect(frame && frame.getKey()).toBe(containerKey);
+    });
+  });
+
+  test('returns the slot frame for a NodeSelection inside a slot', () => {
+    // A NodeSelection is not a RangeSelection, so the frame has to come from
+    // the nodes it reports rather than from an anchor point. The same path
+    // carries every other BaseSelection implementation (TableSelection, and
+    // anything an app defines).
+    using editor = createSlotEditor();
+    let containerKey = '';
+    editor.update(
+      () => {
+        const host = $createParagraphNode();
+        const container = $slotContainer('inside');
+        $getRoot().append(host);
+        $setSlot(host, 'title', container);
+        containerKey = container.getKey();
+        const nodeSelection = $createNodeSelection();
+        nodeSelection.add(container.getFirstChildOrThrow().getKey());
+        $setSelection(nodeSelection);
+      },
+      {discrete: true},
+    );
+
+    editor.read(() => {
+      const frame = $getSelectionSlotFrame($getSelection());
+      expect(frame && frame.getKey()).toBe(containerKey);
+    });
+  });
+
+  test('returns null for an empty NodeSelection', () => {
+    using editor = createSlotEditor();
+    editor.update(
+      () => {
+        $getRoot().append($createParagraphNode());
+        $setSelection($createNodeSelection());
+      },
+      {discrete: true},
+    );
+
+    editor.read(() => {
+      expect($getSelectionSlotFrame($getSelection())).toBe(null);
+    });
   });
 });
 

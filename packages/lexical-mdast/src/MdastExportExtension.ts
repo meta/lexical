@@ -64,7 +64,7 @@ export interface MdastExportExtensionOutput {
  * ```
  * @experimental
  */
-export const MdastExportExtension = /* @__PURE__ */ defineExtension<
+export const MdastExportExtension = defineExtension<
   Record<never, never>,
   '@lexical/mdast/Export',
   MdastExportExtensionOutput,

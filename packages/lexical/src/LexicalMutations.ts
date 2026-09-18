@@ -57,7 +57,10 @@ function initTextEntryListener(editor: LexicalEditor): void {
   }
 }
 
-function isManagedLineBreak(
+// True when `dom` is a line break the editor is actively managing in the
+// live DOM — identified by the `__lexicalLineBreak` slot reference or by
+// having a node key.
+function isEditorManagedLineBreak(
   dom: Node,
   target: Node & LexicalPrivateDOM,
   editor: LexicalEditor,
@@ -204,7 +207,7 @@ function flushMutations(
               parentDOM != null &&
               addedDOM !== blockCursorElement &&
               node === null &&
-              !isManagedLineBreak(addedDOM, parentDOM, editor) &&
+              !isEditorManagedLineBreak(addedDOM, parentDOM, editor) &&
               // The zero-size selection anchors the reconciler parks outside
               // a leading / trailing block decorator (#8922) are keyless
               // scaffolding, like the managed line break — don't evict them
@@ -250,7 +253,7 @@ function flushMutations(
               const removedDOM = removedDOMs[s];
 
               if (
-                isManagedLineBreak(removedDOM, targetDOM, editor) ||
+                isEditorManagedLineBreak(removedDOM, targetDOM, editor) ||
                 blockCursorElement === removedDOM
               ) {
                 targetDOM.appendChild(removedDOM);
@@ -301,7 +304,7 @@ function flushMutations(
             if (
               parentDOM != null &&
               addedDOM.nodeName === 'BR' &&
-              !isManagedLineBreak(addedDOM, target, editor)
+              !isEditorManagedLineBreak(addedDOM, target, editor)
             ) {
               parentDOM.removeChild(addedDOM);
             }

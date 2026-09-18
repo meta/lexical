@@ -168,6 +168,78 @@ describe('@lexical/mdast streaming shortcuts', () => {
     });
   });
 
+  // `> ## H2` imports as a QuoteNode holding a HeadingNode, so typing the
+  // same markers has to build the same tree instead of leaving the marker as
+  // literal text inside the quote.
+  describe('block shortcuts inside a quote (#7407)', () => {
+    it('## -> heading nested in the quote', () => {
+      using editor = createEditor();
+      type(editor, ['>', ' ', '#', '#', ' ', 'H2']);
+      editor.read(() => {
+        const quote = $assertNodeType($getRoot().getFirstChild(), $isQuoteNode);
+        const heading = $assertNodeType(quote.getFirstChild(), $isHeadingNode);
+        expect(heading.getTag()).toBe('h2');
+        expect(heading.getTextContent()).toBe('H2');
+        expect(quote.getChildrenSize()).toBe(1);
+        // A quote may only hold block children as a shadow root.
+        expect(quote.isShadowRoot()).toBe(true);
+      });
+    });
+
+    it('- -> bullet list nested in the quote', () => {
+      using editor = createEditor();
+      type(editor, ['>', ' ', '-', ' ', 'a']);
+      editor.read(() => {
+        const quote = $assertNodeType($getRoot().getFirstChild(), $isQuoteNode);
+        const list = $assertNodeType(quote.getFirstChild(), $isListNode);
+        expect(list.getListType()).toBe('bullet');
+        expect(list.getTextContent()).toBe('a');
+      });
+    });
+
+    it('1. -> ordered list nested in the quote', () => {
+      using editor = createEditor();
+      type(editor, ['>', ' ', '1', '.', ' ', 'a']);
+      editor.read(() => {
+        const quote = $assertNodeType($getRoot().getFirstChild(), $isQuoteNode);
+        const list = $assertNodeType(quote.getFirstChild(), $isListNode);
+        expect(list.getListType()).toBe('number');
+        expect(list.getTextContent()).toBe('a');
+      });
+    });
+
+    it('```js + Enter -> code block nested in the quote', () => {
+      using editor = createEditor();
+      type(editor, ['>', ' ', '```js']);
+      editor.dispatchCommand(KEY_ENTER_COMMAND, null);
+      editor.read(() => {
+        const quote = $assertNodeType($getRoot().getFirstChild(), $isQuoteNode);
+        const code = $assertNodeType(quote.getFirstChild(), $isCodeNode);
+        expect(code.getLanguage()).toBe('js');
+        expect(code.getTextContent()).toBe('');
+      });
+    });
+
+    it('leaves the quote alone once it holds a block', () => {
+      using editor = createEditor();
+      type(editor, ['>', ' ', '#', ' ', 'A']);
+      editor.read(() => {
+        const quote = $assertNodeType($getRoot().getFirstChild(), $isQuoteNode);
+        $assertNodeType(quote.getFirstChild(), $isHeadingNode);
+      });
+      // The caret sits in the heading, which is not the quote's leading text,
+      // so a second marker must stay literal rather than restructure anything.
+      type(editor, [' ', '#', '#', ' ']);
+      editor.read(() => {
+        const quote = $assertNodeType($getRoot().getFirstChild(), $isQuoteNode);
+        expect(quote.getChildrenSize()).toBe(1);
+        const heading = $assertNodeType(quote.getFirstChild(), $isHeadingNode);
+        expect(heading.getTag()).toBe('h1');
+        expect(heading.getTextContent()).toBe('A ## ');
+      });
+    });
+  });
+
   describe('inline shortcuts (on closing delimiter)', () => {
     function inlineFormats(editor: LexicalEditor): number[] {
       return editor.read(() => {

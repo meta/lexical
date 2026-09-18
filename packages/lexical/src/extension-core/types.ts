@@ -32,11 +32,14 @@ export type AnyLexicalExtensionArgument =
 export type ExtensionConfigBase = Record<never, never>;
 /**
  * The result of {@link declarePeerDependency}, a tuple of a peer dependency
- * name and its associated configuration.
+ * name and its associated configuration. The configuration is an optional
+ * element rather than a required one that may be undefined, so a declaration
+ * without a config is `[name]` — every consumer destructures the tuple, and
+ * this is what lets the build inline the call to its arguments.
  */
 export type NormalizedPeerDependency<Extension extends AnyLexicalExtension> = [
-  Extension['name'],
-  Partial<LexicalExtensionConfig<Extension>> | undefined,
+  name: Extension['name'],
+  config?: Partial<LexicalExtensionConfig<Extension>>,
 ] & {readonly [peerDependencySymbol]?: Extension};
 
 /**

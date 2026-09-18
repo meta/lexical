@@ -23,6 +23,7 @@ import {
 import {$createCodeNode} from './CodeNode';
 
 const LANGUAGE_DATA_ATTRIBUTE = 'data-language';
+const THEME_DATA_ATTRIBUTE = 'data-theme';
 
 /**
  * True for elements whose `font-family` mentions `monospace` — the
@@ -53,21 +54,20 @@ function isMonospaceDescendant(node: HTMLElement): boolean {
  * the cost of these rules is never paid against unrelated `<tr>` /
  * `<td>` pastes.
  */
-const GitHubCodeTableOverlayRules = /* @__PURE__ */ defineOverlayRules([
-  /* @__PURE__ */ defineImportRule({
+const GitHubCodeTableOverlayRules = defineOverlayRules([
+  defineImportRule({
     $import: (ctx, el) => ctx.$importChildren(el),
     match: sel.tag('tr', 'td'),
     name: '@lexical/code/github-code-table/unwrap',
   }),
 ]);
 
-const PreRule = /* @__PURE__ */ defineImportRule({
+const PreRule = defineImportRule({
   $import: (ctx, el) => [
-    $createCodeNode(el.getAttribute(LANGUAGE_DATA_ATTRIBUTE)).splice(
-      0,
-      0,
-      ctx.$importChildren(el),
-    ),
+    $createCodeNode(
+      el.getAttribute(LANGUAGE_DATA_ATTRIBUTE),
+      el.getAttribute(THEME_DATA_ATTRIBUTE),
+    ).splice(0, 0, ctx.$importChildren(el)),
   ],
   match: sel.tag('pre'),
   name: '@lexical/code/pre',
@@ -79,7 +79,7 @@ const PreRule = /* @__PURE__ */ defineImportRule({
  * defers to the inline-format rule from `CoreImportExtension` so it
  * becomes a TextNode with IS_CODE.
  */
-const MultilineCodeRule = /* @__PURE__ */ defineImportRule({
+const MultilineCodeRule = defineImportRule({
   $import: (ctx, el, $next) => {
     const text = el.textContent || '';
     const isMultiLine = /\r?\n/.test(text) || el.querySelector('br') !== null;
@@ -87,11 +87,10 @@ const MultilineCodeRule = /* @__PURE__ */ defineImportRule({
       return $next();
     }
     return [
-      $createCodeNode(el.getAttribute(LANGUAGE_DATA_ATTRIBUTE)).splice(
-        0,
-        0,
-        ctx.$importChildren(el),
-      ),
+      $createCodeNode(
+        el.getAttribute(LANGUAGE_DATA_ATTRIBUTE),
+        el.getAttribute(THEME_DATA_ATTRIBUTE),
+      ).splice(0, 0, ctx.$importChildren(el)),
     ];
   },
   match: sel.tag('code'),
@@ -205,7 +204,7 @@ function looksLikeVscodePaste(root: ParentNode): boolean {
  * around per-line `<div>`s and `<br>`s. Emits a single CodeNode whose
  * text is the wrapper's lines joined by `\n`.
  */
-const VscodeWrapperRule = /* @__PURE__ */ defineImportRule({
+const VscodeWrapperRule = defineImportRule({
   $import: (_ctx, el, $next) => {
     if (!isMonospacePreElement(el) || isMonospaceDescendant(el)) {
       return $next();
@@ -233,7 +232,7 @@ const VscodeWrapperRule = /* @__PURE__ */ defineImportRule({
  * subsequent sibling in the same run, the prev-sibling check below
  * returns `[]` so the run is only emitted once.
  */
-const VscodeLineRunRule = /* @__PURE__ */ defineImportRule({
+const VscodeLineRunRule = defineImportRule({
   $import: (_ctx, el, $next) => {
     if (!isMonospacePreElement(el) || isMonospaceDescendant(el)) {
       return $next();
@@ -264,7 +263,7 @@ const VscodeLineRunRule = /* @__PURE__ */ defineImportRule({
   name: '@lexical/code/vscode-line-run',
 });
 
-const VscodeCodePasteOverlay = /* @__PURE__ */ defineOverlayRules([
+const VscodeCodePasteOverlay = defineOverlayRules([
   VscodeWrapperRule,
   VscodeLineRunRule,
 ]);
@@ -312,7 +311,7 @@ export const $installVscodeCodePasteOverlay: DOMPreprocessFn = (
  * wrapper just unwrap so their text content flows into the surrounding
  * CodeNode.
  */
-const DivRule = /* @__PURE__ */ defineImportRule({
+const DivRule = defineImportRule({
   $import: (ctx, el, $next) => {
     if (isMonospaceElement(el)) {
       return [$createCodeNode().splice(0, 0, ctx.$importChildren(el))];
@@ -334,7 +333,7 @@ const DivRule = /* @__PURE__ */ defineImportRule({
  * subtree unwrap unconditionally — without paying the predicate cost
  * on every other `<tr>` / `<td>` paste elsewhere.
  */
-const GitHubCodeTableRule = /* @__PURE__ */ defineImportRule({
+const GitHubCodeTableRule = defineImportRule({
   $import: (ctx, el) => [
     $createCodeNode().splice(
       0,
@@ -352,7 +351,7 @@ const GitHubCodeTableRule = /* @__PURE__ */ defineImportRule({
  * descendant text flows up into whatever context the cell is in. The
  * class is part of the selector itself, so no runtime guard.
  */
-const GitHubCodeCellByClassRule = /* @__PURE__ */ defineImportRule({
+const GitHubCodeCellByClassRule = defineImportRule({
   $import: (ctx, el) => ctx.$importChildren(el),
   match: sel.tag('td').classAll('js-file-line'),
   name: '@lexical/code/github-code-cell-by-class',

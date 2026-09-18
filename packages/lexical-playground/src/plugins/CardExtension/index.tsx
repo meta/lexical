@@ -55,8 +55,9 @@ import {
 import {$appendInline} from '../../nodes/slotImport';
 import {$createCardNode, $isCardNode, CardNode} from './CardNode';
 
-export const INSERT_CARD_COMMAND: LexicalCommand<void> =
-  /* @__PURE__ */ createCommand('INSERT_CARD_COMMAND');
+export const INSERT_CARD_COMMAND: LexicalCommand<void> = createCommand(
+  'INSERT_CARD_COMMAND',
+);
 
 // Promote a RangeSelection adjacent to a CardNode boundary into a
 // NodeSelection on the Card. Once the NodeSelection is set, the
@@ -231,7 +232,7 @@ function $handleCardTab(
 // a single-line bare paragraph) and append every other direct child as a
 // regular Card child. Slots are intentionally NOT auto-imported (mirroring the
 // export side and NodeState) — a host opts in with a rule.
-const CardImportRule = /* @__PURE__ */ defineImportRule({
+const CardImportRule = defineImportRule({
   $import: (ctx, el) => {
     // Clear any seeded default body paragraph so imported children replace it.
     const card = $createCardNode().clear();
@@ -257,7 +258,7 @@ const CardImportRule = /* @__PURE__ */ defineImportRule({
   name: '@lexical/playground/card',
 });
 
-export const CardExtension = /* @__PURE__ */ defineExtension({
+export const CardExtension = defineExtension({
   dependencies: [
     // No ClickAfterLastBlockExtension override: CardNode.isShadowRoot() is
     // true, so `$defaultShouldInsertAfter` already matches a trailing Card
@@ -269,7 +270,7 @@ export const CardExtension = /* @__PURE__ */ defineExtension({
     // chrome is rendered through `decorate()`, but selecting the whole Card is
     // driven from the extension's CLICK_COMMAND below, so the attribute is set
     // here rather than via `useLexicalNodeSelection` inside the component.
-    /* @__PURE__ */ configExtension(NodeSelectionDataSelectedExtension, {
+    configExtension(NodeSelectionDataSelectedExtension, {
       nodes: [CardNode],
     }),
     // The Card renders its slots entirely in-lexical (no React chrome), so
@@ -277,9 +278,9 @@ export const CardExtension = /* @__PURE__ */ defineExtension({
     // returning the host DOM reveals the container in its default
     // slots-first position within the same commit that renders it — the
     // named-slot analog of $getDOMSlot.
-    /* @__PURE__ */ configExtension(DOMRenderExtension, {
+    configExtension(DOMRenderExtension, {
       overrides: [
-        /* @__PURE__ */ domOverride([CardNode], {
+        domOverride([CardNode], {
           $getSlotTargetElement: (_node, _slotName, hostDom) => hostDom,
         }),
       ],
@@ -289,7 +290,7 @@ export const CardExtension = /* @__PURE__ */ defineExtension({
     // supplies the paragraph/text rules the rule's children-import relies on
     // and orders this host rule ahead of the generic block rules.
     CoreImportExtension,
-    /* @__PURE__ */ configExtension(DOMImportExtension, {
+    configExtension(DOMImportExtension, {
       rules: [CardImportRule],
     }),
   ],

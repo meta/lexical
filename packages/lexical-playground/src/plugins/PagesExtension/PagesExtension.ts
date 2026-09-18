@@ -48,7 +48,7 @@ export interface PagesConfig {
   pageClass: string;
 }
 
-export const PagesExtension = /* @__PURE__ */ defineExtension({
+export const PagesExtension = defineExtension({
   build: (editor, config) => {
     const getPageSetup = () => editor.read('latest', $getPageSetup);
 
@@ -61,7 +61,7 @@ export const PagesExtension = /* @__PURE__ */ defineExtension({
       ),
     };
   },
-  config: /* @__PURE__ */ safeCast<PagesConfig>({
+  config: safeCast<PagesConfig>({
     disabled: false,
     pageClass: 'PlaygroundEditorTheme__page',
     pageContentClass: 'PlaygroundEditorTheme__pageContent',

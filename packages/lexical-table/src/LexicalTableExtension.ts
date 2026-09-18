@@ -138,11 +138,11 @@ function registerStickyScrollbar(editor: LexicalEditor) {
  * Configures {@link TableNode}, {@link TableRowNode}, {@link TableCellNode} and
  * registers table behaviors (see {@link TableConfig})
  */
-export const TableExtension = /* @__PURE__ */ defineExtension({
+export const TableExtension = defineExtension({
   build(editor, config, state) {
     return namedSignals(config);
   },
-  config: /* @__PURE__ */ safeCast<TableConfig>({
+  config: safeCast<TableConfig>({
     hasCellBackgroundColor: true,
     hasCellMerge: true,
     hasHorizontalScroll: true,
@@ -155,7 +155,7 @@ export const TableExtension = /* @__PURE__ */ defineExtension({
     // unless the editor routes HTML through the pipeline (e.g. via
     // ClipboardDOMImportExtension or $generateNodesFromDOMViaExtension).
     CoreImportExtension,
-    /* @__PURE__ */ configExtension(DOMImportExtension, {
+    configExtension(DOMImportExtension, {
       rules: TableImportRules,
     }),
   ],
@@ -228,7 +228,7 @@ export const TableExtension = /* @__PURE__ */ defineExtension({
  * {@link TableImportRules} (and `CoreImportExtension`) itself — depend on
  * it directly instead.
  */
-export const TableImportExtension = /* @__PURE__ */ defineExtension({
+export const TableImportExtension = defineExtension({
   dependencies: [TableExtension],
   name: '@lexical/table/Import',
 });

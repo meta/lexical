@@ -431,11 +431,23 @@ export class ElementDOMSlot<
     lineBreakType: null | 'empty' | 'line-break' | 'decorator',
   ): void {
     const element: HTMLElement & LexicalPrivateDOM = this.element;
-    element.__lexicalLastChildKind = lineBreakType;
-    if (lineBreakType === null) {
+    // Slot containers are a contiguous prefix of the managed range, so only
+    // its first node needs to be inspected. This also excludes containers
+    // outside an `after` boundary.
+    const firstNode =
+      this.after === null ? element.firstChild : this.after.nextSibling;
+    const nextLineBreakType =
+      lineBreakType === 'empty' && isSlotContainerDOM(firstNode)
+        ? null
+        : lineBreakType;
+    if (element.__lexicalLastChildKind === nextLineBreakType) {
+      return;
+    }
+    element.__lexicalLastChildKind = nextLineBreakType;
+    if (nextLineBreakType === null) {
       this.removeManagedLineBreak();
     } else {
-      const webkitHack = lineBreakType === 'decorator' && IS_WEBKIT_BROWSER;
+      const webkitHack = nextLineBreakType === 'decorator' && IS_WEBKIT_BROWSER;
       this.insertManagedLineBreak(webkitHack);
     }
   }

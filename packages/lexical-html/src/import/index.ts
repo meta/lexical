@@ -14,6 +14,7 @@ import {selBase} from './sel';
  * should never inspect or construct selector objects directly.
  *
  * @experimental
+ * @lexical-pure-namespace
  */
 export const sel = {
   any: selBase.any,

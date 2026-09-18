@@ -28,6 +28,7 @@ import {
   $isTextNode,
   COMMAND_PRIORITY_LOW,
   configExtension,
+  CONTROL_OR_META,
   createCommand,
   defineExtension,
   IS_APPLE,
@@ -64,12 +65,6 @@ export interface MatchPoints {
   focusOffset: number;
   format: number;
 }
-
-// ---------------------------------------------------------------------------
-// Constants
-// ---------------------------------------------------------------------------
-
-const CONTROL_OR_META = {ctrlKey: !IS_APPLE, metaKey: IS_APPLE};
 
 // ---------------------------------------------------------------------------
 // Pure functions
@@ -502,41 +497,48 @@ function $updateOverlayHighlights(
 // Commands
 // ---------------------------------------------------------------------------
 
-export const TOGGLE_FIND_REPLACE_COMMAND: LexicalCommand<void> =
-  /* @__PURE__ */ createCommand('TOGGLE_FIND_REPLACE_COMMAND');
+export const TOGGLE_FIND_REPLACE_COMMAND: LexicalCommand<void> = createCommand(
+  'TOGGLE_FIND_REPLACE_COMMAND',
+);
 
-export const CLOSE_FIND_REPLACE_COMMAND: LexicalCommand<void> =
-  /* @__PURE__ */ createCommand('CLOSE_FIND_REPLACE_COMMAND');
+export const CLOSE_FIND_REPLACE_COMMAND: LexicalCommand<void> = createCommand(
+  'CLOSE_FIND_REPLACE_COMMAND',
+);
 
 export const FIND_NEXT_COMMAND: LexicalCommand<void> =
-  /* @__PURE__ */ createCommand('FIND_NEXT_COMMAND');
+  createCommand('FIND_NEXT_COMMAND');
 
 export const FIND_PREV_COMMAND: LexicalCommand<void> =
-  /* @__PURE__ */ createCommand('FIND_PREV_COMMAND');
+  createCommand('FIND_PREV_COMMAND');
 
-export const REPLACE_CURRENT_COMMAND: LexicalCommand<void> =
-  /* @__PURE__ */ createCommand('REPLACE_CURRENT_COMMAND');
+export const REPLACE_CURRENT_COMMAND: LexicalCommand<void> = createCommand(
+  'REPLACE_CURRENT_COMMAND',
+);
 
-export const REPLACE_ALL_COMMAND: LexicalCommand<void> =
-  /* @__PURE__ */ createCommand('REPLACE_ALL_COMMAND');
+export const REPLACE_ALL_COMMAND: LexicalCommand<void> = createCommand(
+  'REPLACE_ALL_COMMAND',
+);
 
-export const SET_SEARCH_TERM_COMMAND: LexicalCommand<string> =
-  /* @__PURE__ */ createCommand('SET_SEARCH_TERM_COMMAND');
+export const SET_SEARCH_TERM_COMMAND: LexicalCommand<string> = createCommand(
+  'SET_SEARCH_TERM_COMMAND',
+);
 
-export const SET_REPLACE_TERM_COMMAND: LexicalCommand<string> =
-  /* @__PURE__ */ createCommand('SET_REPLACE_TERM_COMMAND');
+export const SET_REPLACE_TERM_COMMAND: LexicalCommand<string> = createCommand(
+  'SET_REPLACE_TERM_COMMAND',
+);
 
 export const TOGGLE_CASE_SENSITIVE_COMMAND: LexicalCommand<void> =
-  /* @__PURE__ */ createCommand('TOGGLE_CASE_SENSITIVE_COMMAND');
+  createCommand('TOGGLE_CASE_SENSITIVE_COMMAND');
 
-export const TOGGLE_REGEX_COMMAND: LexicalCommand<void> =
-  /* @__PURE__ */ createCommand('TOGGLE_REGEX_COMMAND');
+export const TOGGLE_REGEX_COMMAND: LexicalCommand<void> = createCommand(
+  'TOGGLE_REGEX_COMMAND',
+);
 
 // ---------------------------------------------------------------------------
 // Extension
 // ---------------------------------------------------------------------------
 
-export const FindReplaceExtension = /* @__PURE__ */ defineExtension({
+export const FindReplaceExtension = defineExtension({
   build: editor => {
     const named = namedSignals({
       caseSensitive: false,
@@ -1001,10 +1003,10 @@ function FindReplacePanel({
   );
 }
 
-export const ReactFindReplaceExtension = /* @__PURE__ */ defineExtension({
+export const ReactFindReplaceExtension = defineExtension({
   dependencies: [
     FindReplaceExtension,
-    /* @__PURE__ */ configExtension(ReactExtension, {
+    configExtension(ReactExtension, {
       decorators: [FindReplacePanel],
     }),
   ],

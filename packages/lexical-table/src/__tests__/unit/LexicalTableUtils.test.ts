@@ -21,6 +21,7 @@ import {
   $setTableColumnIsHeader,
   $setTableRowIsHeader,
   TableCellHeaderStates,
+  type TableCellNode,
   TableExtension,
   type TableNode,
 } from '@lexical/table';
@@ -76,6 +77,7 @@ beforeEach(() => {
     defineExtension({
       dependencies: [TableExtension],
       name: 'LexicalTableUtils-test',
+      theme: {tableScrollableWrapper: ''},
     }),
   );
   editor.update(
@@ -1276,6 +1278,28 @@ describe('$insertTableColumnAtNode', () => {
     return tableMap.map(row => row.map(({cell}) => cell.getTextContent()));
   }
 
+  function $cell(text: string, rowSpan = 1, colSpan = 1): TableCellNode {
+    const cell = $createTableCellNode();
+    cell.setRowSpan(rowSpan);
+    cell.setColSpan(colSpan);
+    return cell.append($createParagraphNode().append($createTextNode(text)));
+  }
+
+  function $appendTable(rows: TableCellNode[][]): void {
+    const table = $createTableNode();
+    for (const cells of rows) {
+      table.append($createTableRowNode().append(...cells));
+    }
+    $getRoot().append(table);
+  }
+
+  // Inserts a column after the cell that occupies the given grid coordinate.
+  function $insertColumnAfterGridCell(row: number, column: number): void {
+    const table = $assertNodeType($getRoot().getFirstChild(), $isTableNode);
+    const [tableMap] = $computeTableMapSkipCellCheck(table, null, null);
+    $insertTableColumnAtNode(tableMap[row][column].cell, true, false);
+  }
+
   test('walks left by each visited cell colSpan when a row is spanned', () => {
     // Grid:
     //   row0: [A0][X(rowSpan=2)][C(colSpan=2,rowSpan=2)][D0]
@@ -1318,6 +1342,92 @@ describe('$insertTableColumnAtNode', () => {
       expect($getGridTexts(table)).toEqual([
         ['A0', 'X', 'C', 'C', '', 'D0'],
         ['A1', 'X', 'C', 'C', '', 'D1'],
+      ]);
+    });
+  });
+
+  test('inserts the new cell in the correct column for rows spanned by a rowSpan cell', () => {
+    // Grid:
+    //   row0: [A(rowSpan=2), B]
+    //   row1: [C]              (grid col 0 is covered by A's rowSpan)
+    //   row2: [D, E]
+    editor.update(
+      () => {
+        $appendTable([
+          [$cell('A', 2), $cell('B')],
+          [$cell('C')],
+          [$cell('D'), $cell('E')],
+        ]);
+      },
+      {discrete: true},
+    );
+
+    editor.update(() => $insertColumnAfterGridCell(0, 0), {discrete: true});
+
+    editor.read('latest', () => {
+      const table = $assertNodeType($getRoot().getFirstChild(), $isTableNode);
+      // The inserted (empty) column must line up at grid column 1 in every row.
+      // Row 1 is entirely covered at column 0 by A's rowSpan, so the new cell
+      // has to be prepended before C rather than appended after it.
+      expect($getGridTexts(table)).toEqual([
+        ['A', '', 'B'],
+        ['A', '', 'C'],
+        ['D', '', 'E'],
+      ]);
+    });
+  });
+
+  test('does not prepend when a spanned row still owns a cell left of a colSpan > 1 anchor', () => {
+    // Grid:
+    //   row0: [P, A(rowSpan=2), C(rowSpan=2, colSpan=2)]  cols P=0 A=1 C=2-3
+    //   row1: [B]                                         cols 1-3 are covered
+    editor.update(
+      () => {
+        $appendTable([
+          [$cell('P'), $cell('A', 2), $cell('C', 2, 2)],
+          [$cell('B')],
+        ]);
+      },
+      {discrete: true},
+    );
+
+    // Insert after C, i.e. after grid column 3.
+    editor.update(() => $insertColumnAfterGridCell(0, 3), {discrete: true});
+
+    editor.read('latest', () => {
+      const table = $assertNodeType($getRoot().getFirstChild(), $isTableNode);
+      // Row 1 owns B at column 0, so the new cell belongs after B, not before.
+      expect($getGridTexts(table)).toEqual([
+        ['P', 'A', 'C', 'C', ''],
+        ['B', 'A', 'C', 'C', ''],
+      ]);
+    });
+  });
+
+  test('inserts after the last owned cell of a spanned row, not an earlier one', () => {
+    // Grid:
+    //   row0: [A, B, V(rowSpan=2), X(rowSpan=2, colSpan=2)]  cols V=2 X=3-4
+    //   row1: [C0, C1]                                       cols 2-4 covered
+    editor.update(
+      () => {
+        $appendTable([
+          [$cell('A'), $cell('B'), $cell('V', 2), $cell('X', 2, 2)],
+          [$cell('C0'), $cell('C1')],
+        ]);
+      },
+      {discrete: true},
+    );
+
+    // Insert after X, i.e. after grid column 4.
+    editor.update(() => $insertColumnAfterGridCell(0, 4), {discrete: true});
+
+    editor.read('latest', () => {
+      const table = $assertNodeType($getRoot().getFirstChild(), $isTableNode);
+      // C1 is the last cell row 1 owns before the insertion column, so the new
+      // cell goes after C1 rather than after C0.
+      expect($getGridTexts(table)).toEqual([
+        ['A', 'B', 'V', 'X', 'X', ''],
+        ['C0', 'C1', 'V', 'X', 'X', ''],
       ]);
     });
   });

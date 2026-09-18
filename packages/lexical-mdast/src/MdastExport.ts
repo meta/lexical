@@ -506,7 +506,7 @@ function $dominantInlineMarkers(node: ElementNode): {
  * comments) can emit everything for a document export but only the
  * selection-referenced subset for a clipboard copy.
  */
-export const RenderContextMarkdownSelection = /* @__PURE__ */ createRenderState(
+export const RenderContextMarkdownSelection = createRenderState(
   'markdownSelection',
   (): BaseSelection | null => null,
 );

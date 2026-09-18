@@ -1,7 +1,7 @@
 {
   "name": "@lexical/react-rich-collab-example",
   "private": true,
-  "version": "0.49.0",
+  "version": "0.50.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -14,10 +14,10 @@
     "server:webrtc": "cross-env HOST=localhost PORT=1235 npx y-webrtc"
   },
   "dependencies": {
-    "@lexical/react": "0.49.0",
-    "@lexical/utils": "0.49.0",
-    "@lexical/yjs": "0.49.0",
-    "lexical": "0.49.0",
+    "@lexical/react": "0.50.0",
+    "@lexical/utils": "0.50.0",
+    "@lexical/yjs": "0.50.0",
+    "lexical": "0.50.0",
     "react": "^19.2.5",
     "react-dom": "^19.2.5",
     "y-webrtc": "^10.3.0",

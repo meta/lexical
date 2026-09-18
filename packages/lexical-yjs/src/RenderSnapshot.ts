@@ -29,10 +29,7 @@ export type YChange<UserT = any> = {
   user: UserT | null;
 };
 
-const ychangeState = /* @__PURE__ */ createState<
-  typeof STATE_KEY,
-  YChange | null
->(STATE_KEY, {
+const ychangeState = createState<typeof STATE_KEY, YChange | null>(STATE_KEY, {
   isEqual: (a, b) => a === b,
   parse: value => (value as YChange) ?? null,
 });

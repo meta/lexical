@@ -17,7 +17,12 @@ import {
   $isListItemNode,
   $isListNode,
 } from '@lexical/list';
-import {$createHeadingNode, $createQuoteNode} from '@lexical/rich-text';
+import {
+  $createHeadingNode,
+  $createQuoteNode,
+  $isQuoteNode,
+  type QuoteNode,
+} from '@lexical/rich-text';
 import {
   $addUpdateTag,
   $getNodeByKey,
@@ -69,8 +74,29 @@ function $stripLeading(element: ElementNode, n: number): void {
 }
 
 /**
+ * Installs `block` in place of `container`, except for an inline-content quote
+ * (see {@link $isShortcutQuote}) which keeps its identity and adopts the block
+ * as a child instead.
+ *
+ * A QuoteNode may only hold block-level children once it has opted in to
+ * shadow root behaviour, so adopting the block also sets that flag — leaving
+ * it unset would produce a quote holding a block without the state that makes
+ * it legal, which is not the tree {@link MdastShadowRootQuoteExtension}
+ * imports for `> ## H2`.
+ */
+function $placeBlock(container: ElementNode, block: ElementNode): void {
+  if ($isQuoteNode(container)) {
+    container.setIsShadowRoot(true).append(block);
+  } else {
+    container.replace(block);
+  }
+}
+
+/**
  * Replaces `paragraph` with the block construct described by `match`, keeping
- * the content that followed the marker.
+ * the content that followed the marker. `paragraph` is the shortcut container:
+ * a ParagraphNode, or an inline-content QuoteNode that adopts the new block
+ * rather than being replaced by it.
  */
 function $applyBlock(paragraph: ElementNode, match: MdastBlockMatch): boolean {
   // Capture the fence before the marker is stripped from the paragraph.
@@ -91,7 +117,7 @@ function $applyBlock(paragraph: ElementNode, match: MdastBlockMatch): boolean {
       $setState(code, codeMetaState, match.node.meta);
     }
     $append(code, remaining);
-    paragraph.replace(code);
+    $placeBlock(paragraph, code);
     code.selectStart();
     return true;
   }
@@ -128,7 +154,7 @@ function $applyBlock(paragraph: ElementNode, match: MdastBlockMatch): boolean {
     selectInto = item;
   }
 
-  paragraph.replace(target);
+  $placeBlock(paragraph, target);
   selectInto.selectStart();
   return true;
 }
@@ -256,6 +282,41 @@ function $isShortcutParagraph(
   );
 }
 
+const ShortcutQuoteBrand: unique symbol = Symbol.for(
+  '@lexical/mdast/ShortcutQuoteBrand',
+);
+
+/**
+ * A blockquote imported by the default handler holds inline content directly,
+ * so a block marker typed at its start has no enclosing paragraph to convert.
+ * The marker still has to take effect, because import already produces the
+ * nested shape: `> ## H2` imports as a QuoteNode holding a HeadingNode. Only
+ * the leading text is eligible, so a quote that already starts with a block is
+ * left alone. Shadow root quotes are excluded — they hold paragraphs, which
+ * {@link $isShortcutParagraph} already accepts. See #7407.
+ */
+function $isShortcutQuote(
+  node: LexicalNode,
+  anchorNode: TextNode,
+): node is QuoteNode & {[ShortcutQuoteBrand]: never} {
+  return (
+    $isQuoteNode(node) &&
+    !node.isShadowRoot() &&
+    $isRootOrShadowRoot(node.getParent()) &&
+    node.getFirstChild() === anchorNode
+  );
+}
+
+/** The element a block marker typed at `anchorNode` may convert. */
+function $isShortcutContainer(
+  node: LexicalNode,
+  anchorNode: TextNode,
+): boolean {
+  return (
+    $isShortcutParagraph(node, anchorNode) || $isShortcutQuote(node, anchorNode)
+  );
+}
+
 /**
  * Registers streaming Markdown shortcuts on `editor` from the
  * {@link CompiledMdast} registry. As the user types, the current line/inline
@@ -264,6 +325,8 @@ function $isShortcutParagraph(
  *
  * - Block markers (`# `, `> `, `- `, `1. `, `- [ ] `) convert the paragraph
  *   into the matching Lexical block as soon as the trailing space is typed.
+ *   Typed at the start of a blockquote they nest the block inside the quote,
+ *   matching what import produces for `> ## H2`.
  * - A marker-only line (`` ```lang ``, `## `, `- `) converts on
  *   <kbd>Enter</kbd>.
  * - Inline constructs (`*em*`, `**strong**`, `` `code` ``, `~~del~~`,
@@ -378,7 +441,7 @@ export function registerMarkdownShortcuts(
               transformed = true;
             } else if (
               anchorOffset <= MAX_BLOCK_MARKER_LENGTH &&
-              $isShortcutParagraph(parent, node)
+              $isShortcutContainer(parent, node)
             ) {
               // The marker must end exactly at the caret, so scanning the
               // prefix is sufficient (and cheaper than the whole line).
@@ -422,7 +485,7 @@ export function registerMarkdownShortcuts(
         if (
           parent === null ||
           $isCodeNode(parent) ||
-          !$isShortcutParagraph(parent, anchorNode) ||
+          !$isShortcutContainer(parent, anchorNode) ||
           anchorOffset !== anchorNode.getTextContentSize()
         ) {
           return false;

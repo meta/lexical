@@ -6,10 +6,9 @@
  *
  */
 
-import type {LexicalEditor} from 'lexical';
-
 import './fontSize.css';
 
+import {type LexicalEditor} from 'lexical';
 import * as React from 'react';
 
 import {
@@ -17,7 +16,7 @@ import {
   MIN_ALLOWED_FONT_SIZE,
 } from '../../context/ToolbarContext';
 import {isKeyboardInput} from '../../utils/focusUtils';
-import {SHORTCUTS} from '../ShortcutsPlugin/shortcuts';
+import {shortcut} from '../ShortcutsExtension/shortcuts';
 import {
   updateFontSize,
   updateFontSizeInSelection,
@@ -151,7 +150,7 @@ export default function FontSize({
         }}
         className="toolbar-item font-decrement"
         aria-label="Decrease font size"
-        title={`Decrease font size (${SHORTCUTS.DECREASE_FONT_SIZE})`}>
+        title={`Decrease font size (${shortcut('DECREASE_FONT_SIZE')})`}>
         <i className="format minus-icon" />
       </button>
 
@@ -186,7 +185,7 @@ export default function FontSize({
         }}
         className="toolbar-item font-increment"
         aria-label="Increase font size"
-        title={`Increase font size (${SHORTCUTS.INCREASE_FONT_SIZE})`}>
+        title={`Increase font size (${shortcut('INCREASE_FONT_SIZE')})`}>
         <i className="format add-icon" />
       </button>
     </>

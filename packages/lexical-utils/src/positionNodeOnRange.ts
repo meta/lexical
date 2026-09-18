@@ -155,7 +155,19 @@ export default function mlcPositionNodeOnRange(
     position();
   }
 
-  const removeRootListener = editor.registerRootListener(restart);
+  // Returning stop() hands the teardown to the root listener registry.
+  // registerRootListener runs the previous invocation's cleanup before it
+  // re-invokes the listener, and runs it again when the listener is
+  // unregistered, so the wrapper element and the MutationObserver never
+  // outlive the invocation of restart() that created them. Without a cleanup
+  // to call, an invocation that lands after this positionNodeOnRange has
+  // already been disposed of (root listeners are triggered from a snapshot of
+  // the registry, so a listener removed mid-pass is still called) would leave
+  // its wrapper element in the document with nothing left to remove it.
+  const removeRootListener = editor.registerRootListener(() => {
+    restart();
+    return stop;
+  });
 
   return () => {
     removeRootListener();

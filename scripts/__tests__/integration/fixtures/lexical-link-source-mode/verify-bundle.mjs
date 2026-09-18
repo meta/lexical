@@ -13,6 +13,7 @@
 // against everything else. A source build inlines each package's TypeScript
 // (e.g. the LexicalEditor class); a dist build would instead pull in a
 // pre-bundled `Lexical*.dev.mjs`.
+import {transformPureAnnotations} from '@lexical/compiler';
 import fs from 'node:fs';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
@@ -45,6 +46,33 @@ const assertions = [
     description:
       'bundle does not reference any prebuilt artifact (no `Lexical*.{dev,prod,node}.{js,mjs}` paths)',
     test: () => !/Lexical[A-Za-z]*\.(dev|prod|node)\.m?js/.test(bundle),
+  },
+  {
+    // The TypeScript sources carry no /* @__PURE__ */ annotations; they are
+    // injected at build time, by Lexical's own build for the published
+    // bundles and by the @lexical/compiler vite plugin here. Without
+    // them a bundler that does not infer purity across modules (webpack,
+    // esbuild) cannot drop unused extension and command definitions.
+    //
+    // Re-running the transform over the finished bundle is the check: it
+    // returns null when every module-scope factory call already carries an
+    // annotation. (A Rollup-based bundler like this one adds annotations of
+    // its own for calls it proves pure, so this asserts the property the
+    // bundle needs to have, not which step produced it.)
+    description: 'every module-scope factory call in the bundle is annotated',
+    test: () =>
+      transformPureAnnotations(bundle, {filename: bundlePath}) === null,
+  },
+  {
+    // With `inline`, the trivial factories are not called at all: the calls
+    // are replaced by the literal they would have returned, here and in the
+    // linked Lexical source alike.
+    description:
+      'the trivial factories are inlined away (no calls left in the bundle)',
+    test: () =>
+      !/\b(safeCast|defineExtension|configExtension|defineImportRule)\(/.test(
+        bundle,
+      ),
   },
 ];
 

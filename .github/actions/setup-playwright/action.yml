@@ -8,6 +8,16 @@ inputs:
   fail-on-cache-miss:
     required: false
     description: 'true to fail on cache miss'
+  browsers:
+    required: false
+    default: 'chromium firefox'
+    description: >
+      Space-separated list of browsers whose Linux system dependencies to
+      install. WebKit is only exercised on macOS in this repository (see the
+      `browser != webkit` guard in call-e2e-test.yml and the browser-tests
+      matrix in tests-extended.yml), and its apt closure is roughly 150
+      packages larger than chromium + firefox, so it is left out by default.
+      Ignored on macOS and Windows, where `playwright install-deps` is not run.
 
 runs:
   using: 'composite'
@@ -16,11 +26,76 @@ runs:
       id: vars
       shell: bash
       run: echo "cache_playwright_path=${{ runner.os == 'macOS' && '~/Library/Caches/ms-playwright' || runner.os == 'Windows' && 'C:\\Users\\runneradmin\\AppData\\Local\\ms-playwright' || '~/.cache/ms-playwright' }}" >> "$GITHUB_OUTPUT"
-    # setup-pnpm must be completed before this point
+
+    # setup-pnpm must be completed before this point.
+    #
+    # `playwright install-deps` shells out to `apt-get install`, and on a cold
+    # runner downloading those packages dominates the step. Point apt's archive
+    # directory at a cached path and tell it to keep what it downloads, so a
+    # warm run installs from disk instead of from the network.
+    - name: Compute apt cache key
+      id: apt-vars
+      if: runner.os == 'Linux'
+      shell: bash
+      env:
+        BROWSERS: ${{ inputs.browsers }}
+      run: |
+        set -euo pipefail
+        # shellcheck disable=SC1091
+        . /etc/os-release
+        # The dependency set is a function of the distro, the arch, the
+        # playwright version (it ships the package list) and the browsers.
+        prefix="playwright-apt-v1-${ID}-${VERSION_ID}-${RUNNER_ARCH}-pw$(pnpm exec playwright --version | tr -cd '0-9.')-$(echo "$BROWSERS" | tr ' ' '+')"
+        {
+          echo "dir=${RUNNER_TEMP}/playwright-apt"
+          echo "restore_key=${prefix}-"
+          # The ISO week rotates the key so the cached .debs never drift more
+          # than a week behind the archive index (apt re-downloads anything
+          # whose hash no longer matches, and the refreshed set is saved).
+          echo "key=${prefix}-$(date -u +%Y-%V)"
+        } >> "$GITHUB_OUTPUT"
+
+    - name: Restore apt packages from cache
+      id: apt-cache
+      if: runner.os == 'Linux'
+      uses: actions/cache/restore@v5
+      with:
+        path: ${{ steps.apt-vars.outputs.dir }}/*.deb
+        key: ${{ steps.apt-vars.outputs.key }}
+        restore-keys: ${{ steps.apt-vars.outputs.restore_key }}
+
     - name: Install playwright system dependencies
+      id: apt-deps
       shell: bash
       if: runner.os == 'Linux'
-      run: pnpm exec playwright install-deps
+      env:
+        APT_CACHE_DIR: ${{ steps.apt-vars.outputs.dir }}
+        BROWSERS: ${{ inputs.browsers }}
+      run: |
+        set -euo pipefail
+        mkdir -p "$APT_CACHE_DIR/partial"
+        # apt drops privileges to `_apt` while downloading; without this it
+        # warns that the partial directory is inaccessible and falls back to
+        # downloading unsandboxed as root.
+        sudo chown _apt:root "$APT_CACHE_DIR/partial" || true
+        printf 'Dir::Cache::archives "%s";\nAPT::Keep-Downloaded-Packages "true";\n' \
+          "$APT_CACHE_DIR" | sudo tee /etc/apt/apt.conf.d/99-playwright-deps-cache > /dev/null
+        # shellcheck disable=SC2086
+        pnpm exec playwright install-deps $BROWSERS
+        # actions/cache reads as the runner user; apt writes the .debs as root.
+        sudo chmod -f a+r "$APT_CACHE_DIR"/*.deb || true
+        shopt -s nullglob
+        debs=("$APT_CACHE_DIR"/*.deb)
+        echo "deb_count=${#debs[@]}" >> "$GITHUB_OUTPUT"
+        echo "Cached ${#debs[@]} package(s) in $APT_CACHE_DIR"
+
+    - name: Save apt packages to cache
+      if: runner.os == 'Linux' && steps.apt-cache.outputs.cache-hit != 'true' && steps.apt-deps.outputs.deb_count != '0'
+      uses: actions/cache/save@v5
+      with:
+        path: ${{ steps.apt-vars.outputs.dir }}/*.deb
+        key: ${{ steps.apt-vars.outputs.key }}
+
     - name: Restore playwright from cache
       uses: actions/cache/restore@v5
       id: playwright-cache

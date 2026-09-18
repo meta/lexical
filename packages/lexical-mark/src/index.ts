@@ -163,7 +163,7 @@ export function $getMarkIDs(node: TextNode, offset: number): null | string[] {
 /**
  * Configures {@link MarkNode}
  */
-export const MarkExtension = /* @__PURE__ */ defineExtension({
+export const MarkExtension = defineExtension({
   name: '@lexical/mark',
   nodes: () => [MarkNode],
 });

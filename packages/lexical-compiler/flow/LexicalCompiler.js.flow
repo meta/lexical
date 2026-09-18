@@ -1,0 +1,32 @@
+/**
+ * Copyright (c) Meta Platforms, Inc. and affiliates.
+ *
+ * This source code is licensed under the MIT license found in the
+ * LICENSE file in the root directory of this source tree.
+ *
+ * @flow strict
+ */
+
+/**
+ * LexicalCompiler
+ *
+ * Every pass, re-exported. Import a single pass from its own entry point
+ * (`@lexical/compiler/PureAnnotations`) to leave the rest unloaded.
+ */
+
+export type {
+  PureAnnotationsOptions,
+  PureAnnotationsPlugin,
+  PureAnnotationsResult,
+  PureAnnotationsSourceMap,
+  TransformPureAnnotationsOptions,
+} from './LexicalCompilerPureAnnotations';
+
+export {
+  INLINE_FACTORY_FORMS,
+  PURE_FACTORY_FUNCTIONS,
+  PURE_NAMESPACES,
+  pureAnnotations,
+  pureCallNames,
+  transformPureAnnotations,
+} from './LexicalCompilerPureAnnotations';

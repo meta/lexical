@@ -24,7 +24,7 @@ import {
 import * as React from 'react';
 import {type JSX, useEffect, useLayoutEffect, useRef} from 'react';
 
-import {createWebsocketProvider} from '../collaboration';
+import {createWebsocketProvider, skipCollaborationInit} from '../collaboration';
 import {$isStickyNode} from './StickyNode';
 
 interface Positioning {
@@ -238,7 +238,7 @@ export default function StickyComponent({
             <CollaborationPlugin
               id={caption.getKey()}
               providerFactory={createWebsocketProvider}
-              shouldBootstrap={true}
+              shouldBootstrap={!skipCollaborationInit}
               selectionHighlight={true}
             />
           ) : null}

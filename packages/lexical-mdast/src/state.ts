@@ -22,47 +22,38 @@ import {createState} from 'lexical';
  */
 
 /** The bullet character (`-`, `*`, `+`) an unordered/check `ListNode` used. */
-export const listMarkerState = /* @__PURE__ */ createState('mdastListMarker', {
+export const listMarkerState = createState('mdastListMarker', {
   parse: (v): '' | '*' | '+' | '-' =>
     v === '-' || v === '*' || v === '+' ? v : '',
   resetOnCopyNode: true,
 });
 
 /** The delimiter (`.` or `)`) an ordered `ListNode` used. */
-export const orderedMarkerState = /* @__PURE__ */ createState(
-  'mdastOrderedMarker',
-  {
-    parse: (v): '' | ')' | '.' => (v === '.' || v === ')' ? v : ''),
-    resetOnCopyNode: true,
-  },
-);
+export const orderedMarkerState = createState('mdastOrderedMarker', {
+  parse: (v): '' | ')' | '.' => (v === '.' || v === ')' ? v : ''),
+  resetOnCopyNode: true,
+});
 
 /** The marker (`_`) an italic run used when it was not the default `*`. */
-export const emphasisMarkerState = /* @__PURE__ */ createState(
-  'mdastEmphasisMarker',
-  {
-    parse: (v): string => (v === '_' ? '_' : ''),
-    resetOnCopyNode: true,
-  },
-);
+export const emphasisMarkerState = createState('mdastEmphasisMarker', {
+  parse: (v): string => (v === '_' ? '_' : ''),
+  resetOnCopyNode: true,
+});
 
 /** The marker (`_`) a bold run used when it was not the default `*`. */
-export const strongMarkerState = /* @__PURE__ */ createState(
-  'mdastStrongMarker',
-  {
-    parse: (v): string => (v === '_' ? '_' : ''),
-    resetOnCopyNode: true,
-  },
-);
+export const strongMarkerState = createState('mdastStrongMarker', {
+  parse: (v): string => (v === '_' ? '_' : ''),
+  resetOnCopyNode: true,
+});
 
 /** Whether a (level 1/2) `HeadingNode` was written in setext style. */
-export const setextState = /* @__PURE__ */ createState('mdastSetext', {
+export const setextState = createState('mdastSetext', {
   parse: (v): boolean => v === true,
   resetOnCopyNode: true,
 });
 
 /** The fence a `CodeNode` used (e.g. ```` ``` ````, ````` ```` `````, `~~~`). */
-export const codeFenceState = /* @__PURE__ */ createState('mdastCodeFence', {
+export const codeFenceState = createState('mdastCodeFence', {
   parse: (v): string =>
     typeof v === 'string' && /^(`{3,}|~{3,})$/.test(v) ? v : '',
   resetOnCopyNode: true,
@@ -73,7 +64,7 @@ export const codeFenceState = /* @__PURE__ */ createState('mdastCodeFence', {
  * ```` ```js title=x ````). `CodeNode` itself only models the language;
  * this keeps the rest of the info string so it survives the round-trip.
  */
-export const codeMetaState = /* @__PURE__ */ createState('mdastCodeMeta', {
+export const codeMetaState = createState('mdastCodeMeta', {
   parse: (v): string => (typeof v === 'string' ? v : ''),
   resetOnCopyNode: true,
 });
@@ -83,14 +74,11 @@ export const codeMetaState = /* @__PURE__ */ createState('mdastCodeMeta', {
  * The empty sentinel means the break is *soft* (a source newline or an
  * editor-created line break) and serializes as a plain newline.
  */
-export const hardLineBreakState = /* @__PURE__ */ createState(
-  'mdastHardLineBreak',
-  {
-    parse: (v): string =>
-      typeof v === 'string' && /^(\\| {2,})$/.test(v) ? v : '',
-    resetOnCopyNode: true,
-  },
-);
+export const hardLineBreakState = createState('mdastHardLineBreak', {
+  parse: (v): string =>
+    typeof v === 'string' && /^(\\| {2,})$/.test(v) ? v : '',
+  resetOnCopyNode: true,
+});
 
 /**
  * Marks a `LineBreakNode` that stands for a *paragraph boundary* inside a
@@ -98,16 +86,13 @@ export const hardLineBreakState = /* @__PURE__ */ createState(
  * the import handlers when they join sibling mdast paragraphs; the exporter
  * splits on it to reconstruct the paragraphs.
  */
-export const paragraphBreakState = /* @__PURE__ */ createState(
-  'mdastParagraphBreak',
-  {
-    parse: (v): boolean => v === true,
-    resetOnCopyNode: true,
-  },
-);
+export const paragraphBreakState = createState('mdastParagraphBreak', {
+  parse: (v): boolean => v === true,
+  resetOnCopyNode: true,
+});
 
 /** The marker (`-`, `*`, `_`) a thematic break / `HorizontalRuleNode` used. */
-export const hrMarkerState = /* @__PURE__ */ createState('mdastHrMarker', {
+export const hrMarkerState = createState('mdastHrMarker', {
   parse: (v): string => (v === '-' || v === '*' || v === '_' ? v : ''),
   resetOnCopyNode: true,
 });
@@ -117,7 +102,7 @@ export const hrMarkerState = /* @__PURE__ */ createState('mdastHrMarker', {
  * `'autolink'` (`<url>`), or `'literal'` (a bare GFM autolink literal,
  * `https://…` in prose).
  */
-export const linkStyleState = /* @__PURE__ */ createState('mdastLinkStyle', {
+export const linkStyleState = createState('mdastLinkStyle', {
   parse: (v): '' | 'autolink' | 'inline' | 'literal' =>
     v === 'inline' || v === 'autolink' || v === 'literal' ? v : '',
   resetOnCopyNode: true,

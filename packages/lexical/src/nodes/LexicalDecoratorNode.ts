@@ -69,6 +69,15 @@ export class DecoratorNode<T>
     return null;
   }
 
+  /**
+   * Whether this decorator is isolated from caret interaction: an isolated
+   * decorator can not be traversed, extended over, selected as a node, or
+   * deleted by an adjacent caret operation. A caret that reaches one stops
+   * there, so an inline isolated decorator is only reachable by pointer.
+   *
+   * Defaults to false, which lets the caret step over the decorator (and
+   * select it, when {@link DecoratorNode.isKeyboardSelectable} is also true).
+   */
   isIsolated(): boolean {
     return false;
   }
