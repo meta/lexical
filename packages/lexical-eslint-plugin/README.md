@@ -51,49 +51,15 @@ export default [
 
 ### Preventing nested editor updates
 
-`@lexical/no-nested-editor-updates` reports `editor.update()` calls that are
-already inside an update context for the same editor. This includes callbacks
-passed directly to `editor.update`, `editor.registerCommand`, and
-`editor.registerNodeTransform` when the outer and inner receiver can be tied to
-the same expression and identifier binding.
+`@lexical/no-nested-editor-updates` reports same-editor `update()` calls
+directly inside `update`, `registerCommand`, or `registerNodeTransform`
+callbacks. The receivers must match by expression and identifier binding;
+updates to a different editor, such as `childEditor.update(...)`, are valid.
+The default presets enable the rule as a warning; set it to `error` or `off`
+in your flat configuration's `rules` object to change that severity.
 
-The rule also reports a same-editor update directly inside `editor.read()`,
-including the `editor.read(mode, callback)` overload. A read callback is
-read-only, so this diagnostic does not suggest removing the wrapper. It explains
-that the update is deferred until the read returns and should be moved after the
-read callback.
-
-The rule also reports an `editor.update()` directly inside a $function. In
-that case the diagnostic explains both valid fixes: remove the update wrapper
-if the function uses the active editor context, or remove the `$` prefix if the
-function intentionally owns the update.
-
-The default presets enable the rule as a warning. You can promote it to an error
-or turn it off in the `rules` object in your flat configuration:
-
-```js
-const rules = {
-  '@lexical/no-nested-editor-updates': 'error'
-};
-```
-
-For example, this command listener schedules a nested update:
-
-```js
-editor.registerCommand(
-  REMOVE_NODE_COMMAND,
-  () => {
-    editor.update(() => {
-      $getSelection().removeText();
-    });
-    return true;
-  },
-  COMMAND_PRIORITY_EDITOR,
-);
-```
-
-The listener already has an implicit update context, so the callback should run
-directly:
+Command listeners already provide an update context. Remove a nested
+`editor.update()` wrapper and perform the mutation directly:
 
 ```js
 editor.registerCommand(
@@ -106,8 +72,9 @@ editor.registerCommand(
 );
 ```
 
-A nested update in a read callback must retain its wrapper, but it should run
-after the read:
+Inside `editor.read(callback)` or `editor.read(mode, callback)`, the context
+is read-only. Move the intact update after the read instead of removing its
+wrapper:
 
 ```js
 const shouldRemove = editor.read('latest', () => {
@@ -121,46 +88,26 @@ if (shouldRemove) {
 }
 ```
 
-An update to a different editor is valid and is not reported:
+An update directly inside a $function receives separate guidance: remove the
+wrapper if the function uses the active editor context, or remove the `$`
+prefix if the function intentionally owns the update.
 
-```js
-editor.registerCommand(
-  SYNC_CHILD_COMMAND,
-  () => {
-    childEditor.update(() => {
-      $getRoot().clear();
-    });
-    return true;
-  },
-  COMMAND_PRIORITY_EDITOR,
-);
-```
+For a statically analyzable options object, preserve `tag` with `$addUpdateTag`
+(once per value for an array), `discrete` with `$flushSyncAfterUpdate`, and
+`onUpdate` with `$onUpdate` before removing the wrapper. Preserve conditional
+option values: call `$flushSyncAfterUpdate()` only when `discrete` is true.
+`skipTransforms` has no in-place equivalent, so objects containing it, opaque
+identifiers, spreads, computed properties, and unknown properties are left
+alone. Updates inside `read()` retain all options when moved after the read.
 
-When a nested update has a statically analyzable `options` object, the diagnostic
-also explains how to preserve options that can be applied to the current update
-context: use `$addUpdateTag` for `tag`, `$flushSyncAfterUpdate` for `discrete`,
-and `$onUpdate` for `onUpdate`, then remove the wrapper. Call `$addUpdateTag`
-once for each value when `tag` is an array.
+By default, editor expressions must end in `editor`, ignoring case. This
+recognizes `editor`, `childEditor`, `props.editor`, `$getEditor()`, and
+`this.editor`. The last expression matches across arrow callbacks, where
+`this` is lexical, but not ordinary function callbacks. Inside $functions,
+only `editor` and `$getEditor()` are assumed to be the active editor.
 
-`skipTransforms` has no in-place equivalent. The rule therefore leaves alone
-options objects containing `skipTransforms` as well as identifiers, spreads,
-computed properties, and unknown properties that might hide it. Options on an
-update inside `read()` are preserved unchanged when that update is moved after
-the read callback.
-
-To avoid matching unrelated APIs that also have an `update` method, editor
-expressions must end in `editor`, ignoring case. This recognizes names such as
-`editor`, `childEditor`, `props.editor`, `$getEditor()`, and `this.editor`, but
-callback checks report only when the inner expression can be tied to the outer
-expression. `this.editor` is treated as the same receiver across an arrow
-callback, where `this` is lexical; it is not assumed to be the same across an
-ordinary function callback.
-
-Inside a $function, the default active-editor names are `editor` and
-`$getEditor()`; differently named receivers are left alone because they may
-refer to another editor. Additional names or patterns can be configured with
-`isEditor`. The `isDollarFunction` option extends the default `/^\$[a-z_]/`
-function-name matcher:
+Use `isEditor` to add names or patterns, and `isDollarFunction` to extend
+the default `/^\$[a-z_]/` function-name matcher:
 
 ```js
 const rules = {
@@ -174,15 +121,12 @@ const rules = {
 };
 ```
 
-Configured zero-argument accessors are compared consistently, so repeated
-`getMyEditor()` calls in the same direct callback are recognized as the same
-editor expression.
+Repeated configured zero-argument accessors such as `getMyEditor()` match as
+the same editor expression. The analysis does not follow callbacks passed by
+reference, aliases between differently named editor variables, or another
+nested callback such as `setTimeout(() => editor.update(...))`. There is no
+autofix.
 
-The analysis is deliberately local. It does not follow callbacks passed by
-reference, aliases between differently named editor variables, or updates
-inside another nested callback such as `setTimeout(() => editor.update(...))`.
-These limits avoid suggestions that could change behavior when the editor or
-execution context cannot be proven statically.
 
 ### Advanced configuration
 

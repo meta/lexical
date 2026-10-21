@@ -8,14 +8,12 @@
 // @ts-check
 
 import {buildMatcher} from '../util/buildMatcher.js';
-import {getIdentifierVariable} from '../util/getIdentifierVariable.js';
 import {
   getFunctionNameIdentifier,
   getLexicalFunctionName,
 } from '../util/getLexicalFunctionName.js';
 import {
   DEFAULT_DOLLAR_FUNCTION_MATCHER,
-  getSourceCode,
   matcherSchema,
   parseMatcherOption,
 } from '../util/ruleOptions.js';
@@ -29,9 +27,40 @@ import {
  * @typedef {import('eslint').Rule.Node} Node
  * @typedef {import('eslint').Rule.RuleModule} RuleModule
  * @typedef {import('eslint').Rule.ReportFixer} ReportFixer
+ * @typedef {import('eslint').SourceCode} SourceCode
  * @typedef {import('eslint').Scope.Variable} Variable
  * @typedef {import('eslint').Scope.Scope} Scope
  */
+
+/**
+ * Find the variable associated with the given Identifier
+ *
+ * @param {SourceCode} sourceCode
+ * @param {Identifier} identifier
+ */
+function getIdentifierVariable(sourceCode, identifier) {
+  const scopeManager = sourceCode.scopeManager;
+  for (
+    let node = /** @type {Node | null} */ (identifier);
+    node;
+    node = /** @type {Node | null}*/ (node.parent)
+  ) {
+    const variable = scopeManager
+      .getDeclaredVariables(node)
+      .find(v => v.identifiers.includes(identifier));
+    if (variable) {
+      return variable;
+    }
+    const scope = scopeManager.acquire(node);
+    if (scope) {
+      return (
+        scope.set.get(identifier.name) ||
+        (scope.upper ? scope.upper.set.get(identifier.name) : undefined)
+      );
+    }
+  }
+  return undefined;
+}
 
 /**
  * @typedef {import('../util/buildMatcher.js').ToMatcher} ToMatcher
@@ -157,7 +186,7 @@ function renameExportText({caller, suggestName}) {
 /** @type {RuleModule} */
 export const rulesOfLexical = {
   create(context) {
-    const sourceCode = getSourceCode(context);
+    const sourceCode = context.sourceCode;
     const matchers = compileMatchers(context);
 
     /**

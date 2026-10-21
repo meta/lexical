@@ -8,14 +8,12 @@
 // @ts-check
 
 import {buildMatcher} from '../util/buildMatcher.js';
-import {getIdentifierVariable} from '../util/getIdentifierVariable.js';
 import {
   getFunctionNameIdentifier,
   getLexicalFunctionName,
 } from '../util/getLexicalFunctionName.js';
 import {
   DEFAULT_DOLLAR_FUNCTION_MATCHER,
-  getSourceCode,
   matcherSchema,
   parseMatcherOption,
 } from '../util/ruleOptions.js';
@@ -206,6 +204,17 @@ function unwrapChainExpression(node) {
 }
 
 /**
+ * @param {SourceCode} sourceCode
+ * @param {Identifier} identifier
+ */
+function getReferenceVariable(sourceCode, identifier) {
+  const reference = sourceCode
+    .getScope(identifier)
+    .references.find(ref => ref.identifier === identifier);
+  return reference && reference.resolved;
+}
+
+/**
  * Compare identifier bindings rather than names so a shadowed `editor`
  * variable is not treated as the receiver of the outer update.
  *
@@ -217,8 +226,8 @@ function isSameIdentifier(sourceCode, left, right) {
   if (left.name !== right.name) {
     return false;
   }
-  const leftVariable = getIdentifierVariable(sourceCode, left);
-  const rightVariable = getIdentifierVariable(sourceCode, right);
+  const leftVariable = getReferenceVariable(sourceCode, left);
+  const rightVariable = getReferenceVariable(sourceCode, right);
   return leftVariable || rightVariable
     ? leftVariable != null && leftVariable === rightVariable
     : true;
@@ -398,7 +407,7 @@ function getEditorCallbackContext(node, matchers) {
 export const noNestedEditorUpdates = {
   create(context) {
     const matchers = compileMatchers(context);
-    const sourceCode = getSourceCode(context);
+    const sourceCode = context.sourceCode;
 
     return {
       CallExpression: node => {
@@ -415,6 +424,8 @@ export const noNestedEditorUpdates = {
           enclosingFunction,
           matchers,
         );
+        let contextName;
+        let messageId;
         if (
           editorCallbackContext &&
           isSameEditorExpression(
@@ -425,61 +436,44 @@ export const noNestedEditorUpdates = {
             enclosingFunction.type === 'ArrowFunctionExpression',
           )
         ) {
-          if (editorCallbackContext.method === 'read') {
-            context.report({
-              data: {
-                callee: sourceCode.getText(callExpression.callee),
-                context: editorCallbackContext.name,
-              },
-              messageId: 'readOnlyUpdate',
-              node: callExpression.callee,
-            });
+          contextName = editorCallbackContext.name;
+          messageId =
+            editorCallbackContext.method === 'read'
+              ? 'readOnlyUpdate'
+              : 'noNestedEditorUpdates';
+        } else {
+          const dollarFunctionContext = getDollarFunctionContext(
+            enclosingFunction,
+            matchers,
+          );
+          if (
+            !dollarFunctionContext ||
+            !isCurrentEditorInDollarFunction(editorMethod.receiver, matchers)
+          ) {
             return;
           }
-          const optionMigrations = getUpdateOptionMigrations(callExpression);
-          if (!optionMigrations) {
-            return;
-          }
-          context.report({
-            data: {
-              callee: sourceCode.getText(callExpression.callee),
-              context: editorCallbackContext.name,
-              migrations: formatUpdateOptionMigrations(optionMigrations),
-            },
-            messageId:
-              optionMigrations.length === 0
-                ? 'noNestedEditorUpdates'
-                : 'noNestedEditorUpdatesWithOptions',
-            node: callExpression.callee,
-          });
+          contextName = dollarFunctionContext.name;
+          messageId = 'dollarFunctionUpdate';
+        }
+        const optionMigrations =
+          messageId === 'readOnlyUpdate'
+            ? []
+            : getUpdateOptionMigrations(callExpression);
+        if (!optionMigrations) {
           return;
         }
-
-        const dollarFunctionContext = getDollarFunctionContext(
-          enclosingFunction,
-          matchers,
-        );
-        if (
-          dollarFunctionContext &&
-          isCurrentEditorInDollarFunction(editorMethod.receiver, matchers)
-        ) {
-          const optionMigrations = getUpdateOptionMigrations(callExpression);
-          if (!optionMigrations) {
-            return;
-          }
-          context.report({
-            data: {
-              callee: sourceCode.getText(callExpression.callee),
-              context: dollarFunctionContext.name,
-              migrations: formatUpdateOptionMigrations(optionMigrations),
-            },
-            messageId:
-              optionMigrations.length === 0
-                ? 'dollarFunctionUpdate'
-                : 'dollarFunctionUpdateWithOptions',
-            node: callExpression.callee,
-          });
-        }
+        context.report({
+          data: {
+            callee: sourceCode.getText(callExpression.callee),
+            context: contextName,
+            migrations: formatUpdateOptionMigrations(optionMigrations),
+          },
+          messageId:
+            optionMigrations.length === 0
+              ? messageId
+              : `${messageId}WithOptions`,
+          node: callExpression.callee,
+        });
       },
     };
   },

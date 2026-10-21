@@ -26,22 +26,8 @@ function parseMatcherOption(context, optionName) {
   return options && optionName in options ? options[optionName] : undefined;
 }
 
-/** @param {RuleContext} context */
-function getSourceCode(context) {
-  if (context.sourceCode) {
-    return context.sourceCode;
-  }
-  // @ts-expect-error -- getSourceCode() removed from types in ESLint 10, kept for ESLint 8 compat
-  return context.getSourceCode();
-}
-
 const matcherSchema = {
   oneOf: [{type: 'string'}, {contains: {type: 'string'}, type: 'array'}],
 };
 
-export {
-  DEFAULT_DOLLAR_FUNCTION_MATCHER,
-  getSourceCode,
-  matcherSchema,
-  parseMatcherOption,
-};
+export {DEFAULT_DOLLAR_FUNCTION_MATCHER, matcherSchema, parseMatcherOption};
