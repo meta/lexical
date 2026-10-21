@@ -2115,7 +2115,11 @@ function buildKeyDownShortcuts(): KeyDownShortcut[] {
       dispatchCommand(editor, command, event);
     },
   });
-  /** preventDefault() and dispatch the command with a fixed payload */
+  /**
+   * preventDefault() and dispatch the command with a fixed payload, unless an
+   * input embedded in a node's DOM has the focus (#3761): the browser's action
+   * (eg. deleting a word in the input) is the right one there.
+   */
   const prevent = <T>(
     key: string,
     modifiers: KeyboardEventModifierMask,
@@ -2125,6 +2129,9 @@ function buildKeyDownShortcuts(): KeyDownShortcut[] {
     key,
     modifiers,
     onMatch: (event, editor) => {
+      if ($isEventFromEmbeddedInput(event)) {
+        return;
+      }
       event.preventDefault();
       dispatchCommand(editor, command, payload);
     },
@@ -2206,6 +2213,9 @@ function buildKeyDownShortcuts(): KeyDownShortcut[] {
             key: 'o',
             modifiers: CTRL_KEY,
             onMatch: (event: KeyboardEvent, editor: LexicalEditor) => {
+              if ($isEventFromEmbeddedInput(event)) {
+                return;
+              }
               event.preventDefault();
               dispatchCommand(editor, INSERT_LINE_BREAK_COMMAND, true);
             },
@@ -2240,6 +2250,9 @@ function buildKeyDownShortcuts(): KeyDownShortcut[] {
       key: 'a',
       modifiers: CONTROL_OR_META,
       onMatch: (event, editor) => {
+        if ($isEventFromEmbeddedInput(event)) {
+          return;
+        }
         event.preventDefault();
         if (dispatchCommand(editor, SELECT_ALL_COMMAND, event)) {
           markHandledSelectionCommandInsertText(editor._inputState);
