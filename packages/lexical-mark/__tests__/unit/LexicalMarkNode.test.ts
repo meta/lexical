@@ -6,6 +6,7 @@
  *
  */
 import {$generateNodesFromDOM} from '@lexical/html';
+import {$createLinkNode, $isLinkNode} from '@lexical/link';
 import {
   $createMarkNode,
   $isMarkNode,
@@ -22,6 +23,9 @@ import {
   $isParagraphNode,
   $isTextNode,
   $setSelection,
+  type ElementNode,
+  type LexicalNode,
+  type TextNode,
 } from 'lexical';
 import {
   $assertNodeType,
@@ -250,6 +254,157 @@ describe('LexicalMarkNode tests', () => {
           expect(markNode.getType()).toEqual('mark');
           expect(markNode.getChildren()).toHaveLength(1);
           expect(markNode.getTextContent()).toEqual('more text');
+        });
+      });
+    });
+    // https://github.com/facebook/lexical/issues/5606
+    describe('$wrapSelectionInMarkNode with a partly selected link', () => {
+      // Renders the paragraph as eg. `bef,mark[ore ],link[mark[li],nk], after`
+      function $describe(node: LexicalNode): string {
+        if ($isTextNode(node)) {
+          return node.getTextContent();
+        }
+        const children = (node as ElementNode)
+          .getChildren()
+          .map($describe)
+          .join(',');
+        if ($isMarkNode(node)) {
+          return `mark[${children}]`;
+        }
+        if ($isLinkNode(node)) {
+          return `link[${children}]`;
+        }
+        return children;
+      }
+
+      // Builds `before link after`, where `link` is a link, and wraps the
+      // range [start, end) of the paragraph's text content in a mark.
+      function $wrapRange(start: number, end: number, isBackward = false) {
+        const paragraph = $createParagraphNode();
+        $getRoot().clear().append(paragraph);
+        paragraph.append(
+          $createTextNode('before '),
+          $createLinkNode('https://lexical.dev').append(
+            $createTextNode('link'),
+          ),
+          $createTextNode(' after'),
+        );
+        const texts = paragraph.getAllTextNodes();
+        // A start point at a node boundary goes at the start of the next
+        // text node, an end point at the end of the previous one.
+        const $point = (offset: number, isEnd: boolean): [TextNode, number] => {
+          for (const text of texts) {
+            const size = text.getTextContentSize();
+            if (
+              offset < size ||
+              (isEnd && offset === size) ||
+              text === texts[texts.length - 1]
+            ) {
+              return [text, offset];
+            }
+            offset -= size;
+          }
+          throw new Error('unreachable');
+        };
+        const [startNode, startOffset] = $point(start, false);
+        const [endNode, endOffset] = $point(end, true);
+        const selection = $createRangeSelection();
+        const anchor: [TextNode, number] = isBackward
+          ? [endNode, endOffset]
+          : [startNode, startOffset];
+        const focus: [TextNode, number] = isBackward
+          ? [startNode, startOffset]
+          : [endNode, endOffset];
+        selection.anchor.set(anchor[0].getKey(), anchor[1], 'text');
+        selection.focus.set(focus[0].getKey(), focus[1], 'text');
+        $wrapSelectionInMarkNode(selection, isBackward, 'id');
+        expect(paragraph.getTextContent()).toBe('before link after');
+        return $describe(paragraph);
+      }
+
+      test('marks only the selected start of the link', () => {
+        testEnv.editor.update(() => {
+          expect($wrapRange(3, 9)).toBe(
+            'bef,mark[ore ],link[mark[li],nk], after',
+          );
+        });
+      });
+
+      test('marks only the selected end of the link', () => {
+        testEnv.editor.update(() => {
+          expect($wrapRange(9, 14)).toBe(
+            'before ,link[li,mark[nk]],mark[ af],ter',
+          );
+        });
+      });
+
+      test('marks only the selected middle of the link', () => {
+        testEnv.editor.update(() => {
+          expect($wrapRange(8, 10)).toBe('before ,link[l,mark[in],k], after');
+        });
+      });
+
+      test('marks a partly selected link with a backward selection', () => {
+        testEnv.editor.update(() => {
+          expect($wrapRange(3, 9, true)).toBe(
+            'bef,mark[ore ],link[mark[li],nk], after',
+          );
+        });
+      });
+
+      test('marks the selected children of a link with several text nodes', () => {
+        testEnv.editor.update(() => {
+          const bold = $createTextNode('nk').toggleFormat('bold');
+          const paragraph = $createParagraphNode();
+          $getRoot().clear().append(paragraph);
+          const before = $createTextNode('before ');
+          paragraph.append(
+            before,
+            $createLinkNode('https://lexical.dev').append(
+              $createTextNode('li'),
+              bold,
+            ),
+          );
+          const selection = $createRangeSelection();
+          selection.anchor.set(before.getKey(), 3, 'text');
+          selection.focus.set(bold.getKey(), 1, 'text');
+          $wrapSelectionInMarkNode(selection, false, 'id');
+          expect($describe(paragraph)).toBe(
+            'bef,mark[ore ],link[mark[li,n],k]',
+          );
+        });
+      });
+
+      test('marks the selected parts of two links', () => {
+        testEnv.editor.update(() => {
+          const first = $createTextNode('one');
+          const second = $createTextNode('two');
+          const paragraph = $createParagraphNode();
+          $getRoot().clear().append(paragraph);
+          paragraph.append(
+            $createLinkNode('https://a.dev').append(first),
+            $createTextNode(' and '),
+            $createLinkNode('https://b.dev').append(second),
+          );
+          const selection = $createRangeSelection();
+          selection.anchor.set(first.getKey(), 1, 'text');
+          selection.focus.set(second.getKey(), 2, 'text');
+          $wrapSelectionInMarkNode(selection, false, 'id');
+          expect($describe(paragraph)).toBe(
+            'link[o,mark[ne]],mark[ and ],link[mark[tw],o]',
+          );
+        });
+      });
+
+      test('still wraps a fully selected link whole', () => {
+        testEnv.editor.update(() => {
+          expect($wrapRange(3, 14)).toBe('bef,mark[ore ,link[link], af],ter');
+        });
+      });
+
+      test('still wraps a link whose text is exactly selected', () => {
+        testEnv.editor.update(() => {
+          expect($wrapRange(7, 11)).toBe('before ,link[mark[link]], after');
         });
       });
     });
