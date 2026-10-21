@@ -11,8 +11,6 @@ import {
   $caretRangeFromSelection,
   $cloneWithPropertiesEphemeral,
   $createTextNode,
-  $getNodeByKey,
-  $getPreviousSelection,
   $getSelection,
   $getTextPointCaretSliceForNode,
   $isElementNode,
@@ -108,10 +106,13 @@ export function $isAtNodeEnd(point: Point): boolean {
 }
 
 /**
- * Trims text from a node in order to shorten it, eg. to enforce a text's max length. If it deletes text
- * that is an ancestor of the anchor then it will leave 2 indents, otherwise, if no text content exists, it deletes
- * the TextNode. It will move the focus to either the end of any left over text or beginning of a new TextNode.
- * @param editor - The lexical editor.
+ * Trims `delCount` characters of text content ending at the anchor, eg. to enforce a max length. Text just
+ * before the anchor is removed first, then text from preceding nodes. Nodes left with no text are removed, and
+ * an empty block counts as 2 characters (its line breaks). A grapheme (eg. an emoji) is never cut in half: it
+ * is removed whole, so slightly more than `delCount` characters may be removed. This always trims;
+ * rejecting a keystroke made at the limit is up to the caller (MaxLengthPlugin restores the previous
+ * editor state in that case).
+ * @param editor - Unused, kept for backwards compatibility.
  * @param anchor - The anchor of the current selection, where the selection should be pointing.
  * @param delCount - The amount of characters to delete. Useful as a dynamic variable eg. textContentSize - maxLength;
  */
@@ -181,31 +182,9 @@ export function $trimTextContentFromAnchor(
       currentNode = nextNode;
     } else {
       const key = currentNode.getKey();
-      // See if we can just revert it to what was in the last editor state
-      const prevTextContent: string | null = editor.read('latest', () => {
-        const prevNode = $getNodeByKey(key);
-        if ($isTextNode(prevNode) && prevNode.isSimpleText()) {
-          return prevNode.getTextContent();
-        }
-        return null;
-      });
-      const offset = currentNodeSize - remaining;
+      const offset = getGraphemeStart(text, currentNodeSize - remaining);
       const slicedText = text.slice(0, offset);
-      if (prevTextContent !== null && prevTextContent !== text) {
-        const prevSelection = $getPreviousSelection();
-        let target = currentNode;
-        if (!currentNode.isSimpleText()) {
-          const textNode = $createTextNode(prevTextContent);
-          currentNode.replace(textNode);
-          target = textNode;
-        } else {
-          currentNode.setTextContent(prevTextContent);
-        }
-        if ($isRangeSelection(prevSelection) && prevSelection.isCollapsed()) {
-          const prevOffset = prevSelection.anchor.offset;
-          target.select(prevOffset, prevOffset);
-        }
-      } else if (currentNode.isSimpleText()) {
+      if (currentNode.isSimpleText()) {
         // Split text
         const isSelected = anchor.key === key;
         let anchorOffset = anchor.offset;
@@ -214,7 +193,10 @@ export function $trimTextContentFromAnchor(
         if (anchorOffset < remaining) {
           anchorOffset = currentNodeSize;
         }
-        const splitStart = isSelected ? anchorOffset - remaining : 0;
+        // Never cut a grapheme (eg. an emoji) in half; drop it whole instead.
+        const splitStart = isSelected
+          ? getGraphemeStart(text, anchorOffset - remaining)
+          : 0;
         const splitEnd = isSelected ? anchorOffset : offset;
         if (isSelected && splitStart === 0) {
           const [excessNode] = currentNode.splitText(splitStart, splitEnd);
@@ -405,4 +387,19 @@ export function $ensureForwardRangeSelection(selection: RangeSelection): void {
     anchor.set(focus.key, focus.offset, focus.type);
     focus.set(key, offset, type);
   }
+}
+
+function getGraphemeStart(text: string, offset: number): number {
+  if (typeof Intl.Segmenter === 'function') {
+    let start = 0;
+    for (const {index} of new Intl.Segmenter().segment(text)) {
+      if (index > offset) {
+        break;
+      }
+      start = index;
+    }
+    return start;
+  }
+  const code = text.charCodeAt(offset);
+  return offset > 0 && code >= 0xdc00 && code <= 0xdfff ? offset - 1 : offset;
 }
