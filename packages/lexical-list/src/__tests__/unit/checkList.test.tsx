@@ -283,6 +283,113 @@ describe('CheckListExtension mobile tap toggle', () => {
 
     expect(readChecked(editor, 0)).toBe(true);
   });
+
+  // https://github.com/facebook/lexical/issues/4861
+  describe('a press on the content released over the check mark', () => {
+    const CHECK_MARK_X = 10;
+    const CONTENT_X = 200;
+
+    /** A mouse gesture: press, release, and the click that follows. */
+    function mouseGesture(
+      li: HTMLElement,
+      pressX: number,
+      releaseX: number,
+      button = 0,
+    ) {
+      const init = {bubbles: true, button, cancelable: true, clientY: 5};
+      li.dispatchEvent(
+        new PointerEvent('pointerdown', {
+          ...init,
+          clientX: pressX,
+          pointerType: 'mouse',
+        }),
+      );
+      li.dispatchEvent(new MouseEvent('mousedown', {...init, clientX: pressX}));
+      li.dispatchEvent(
+        new PointerEvent('pointerup', {
+          ...init,
+          clientX: releaseX,
+          pointerType: 'mouse',
+        }),
+      );
+      li.dispatchEvent(new MouseEvent('mouseup', {...init, clientX: releaseX}));
+      if (button === 0) {
+        li.dispatchEvent(new MouseEvent('click', {...init, clientX: releaseX}));
+      }
+    }
+
+    it('does not toggle the item (a text selection dragged onto it)', () => {
+      using editor = buildEditor();
+      mouseGesture(getCheckListItem(0), CONTENT_X, CHECK_MARK_X);
+      expect(readChecked(editor, 0)).toBe(false);
+    });
+
+    it('does not toggle the item on touch either', () => {
+      using editor = buildEditor();
+      const li = getCheckListItem(0);
+      const init = {bubbles: true, cancelable: true, clientY: 5};
+      li.dispatchEvent(
+        new PointerEvent('pointerdown', {
+          ...init,
+          clientX: CONTENT_X,
+          pointerType: 'touch',
+        }),
+      );
+      li.dispatchEvent(
+        new PointerEvent('pointerup', {
+          ...init,
+          clientX: CHECK_MARK_X,
+          pointerType: 'touch',
+        }),
+      );
+      li.dispatchEvent(
+        new MouseEvent('click', {...init, clientX: CHECK_MARK_X}),
+      );
+      expect(readChecked(editor, 0)).toBe(false);
+    });
+
+    it('still toggles for a press and release on the check mark (control)', () => {
+      using editor = buildEditor();
+      mouseGesture(getCheckListItem(0), CHECK_MARK_X, CHECK_MARK_X);
+      expect(readChecked(editor, 0)).toBe(true);
+    });
+
+    it('still toggles for a click with no press, eg. from a screen reader (control)', () => {
+      using editor = buildEditor();
+      getCheckListItem(0).dispatchEvent(
+        new MouseEvent('click', {
+          bubbles: true,
+          cancelable: true,
+          clientX: CHECK_MARK_X,
+          clientY: 5,
+        }),
+      );
+      expect(readChecked(editor, 0)).toBe(true);
+    });
+
+    it('still toggles on the next click after a right click on the content', () => {
+      using editor = buildEditor();
+      const li = getCheckListItem(0);
+      mouseGesture(li, CONTENT_X, CONTENT_X, 2);
+      li.dispatchEvent(
+        new MouseEvent('click', {
+          bubbles: true,
+          cancelable: true,
+          clientX: CHECK_MARK_X,
+          clientY: 5,
+        }),
+      );
+      expect(readChecked(editor, 0)).toBe(true);
+    });
+
+    it('does not carry over to a later check mark press', () => {
+      using editor = buildEditor();
+      const li = getCheckListItem(0);
+      mouseGesture(li, CONTENT_X, CHECK_MARK_X);
+      mouseGesture(li, CHECK_MARK_X, CHECK_MARK_X);
+      expect(readChecked(editor, 0)).toBe(true);
+    });
+  });
 });
 
 describe('CheckListExtension Space after a click on a check mark', () => {
