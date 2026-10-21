@@ -13,6 +13,7 @@ import {
   $getDocument,
   $getNodeFromDOMNode,
   $getSelection,
+  $isElementNode,
   $isNodeSelection,
   $isRangeSelection,
   $setSelection,
@@ -28,6 +29,7 @@ import {
   type EditorConfig,
   isDOMNode,
   type LexicalCommand,
+  type LexicalEditor,
   type LexicalNode,
   mergeRegister,
   type NodeKey,
@@ -135,6 +137,55 @@ function $toggleNodeSelection(
 }
 
 /**
+ * A click in the empty space above or below a horizontal rule (its margins)
+ * lands on the parent element rather than the `<hr>`, and where the browser
+ * then puts the caret differs: before the rule, after it, or at the start of
+ * the next block. Hit test the click against the rules' own geometry instead,
+ * so the gap on either side selects the rule, as the arrow keys do. Between
+ * two rules whose margins overlap, the nearer rule wins.
+ */
+function $getHorizontalRuleAtClick(
+  editor: LexicalEditor,
+  event: MouseEvent,
+): null | HorizontalRuleNode {
+  const parent = isDOMNode(event.target)
+    ? $getNodeFromDOMNode(event.target)
+    : null;
+  if (!$isElementNode(parent)) {
+    return null;
+  }
+  const {clientX, clientY} = event;
+  let nearest: null | HorizontalRuleNode = null;
+  let nearestDistance = Infinity;
+  for (const child of parent.getChildren()) {
+    if (!$isHorizontalRuleNode(child)) {
+      continue;
+    }
+    const dom = editor.getElementByKey(child.getKey());
+    const view = dom && dom.ownerDocument.defaultView;
+    if (!dom || !view) {
+      continue;
+    }
+    const rect = dom.getBoundingClientRect();
+    const style = view.getComputedStyle(dom);
+    if (
+      clientX < rect.left - parseFloat(style.marginLeft) ||
+      clientX > rect.right + parseFloat(style.marginRight) ||
+      clientY < rect.top - parseFloat(style.marginTop) ||
+      clientY > rect.bottom + parseFloat(style.marginBottom)
+    ) {
+      continue;
+    }
+    const distance = Math.max(rect.top - clientY, clientY - rect.bottom, 0);
+    if (distance < nearestDistance) {
+      nearest = child;
+      nearestDistance = distance;
+    }
+  }
+  return nearest;
+}
+
+/**
  * An extension for HorizontalRuleNode that provides an implementation that
  * works without any React dependency.
  */
@@ -185,6 +236,16 @@ export const HorizontalRuleExtension = defineExtension({
               $toggleNodeSelection(node, event.shiftKey);
               return true;
             }
+          }
+          // A shift-click in the gap extends the selection as usual.
+          const ruleAtClick = event.shiftKey
+            ? null
+            : $getHorizontalRuleAtClick(editor, event);
+          if (ruleAtClick !== null) {
+            const nodeSelection = $createNodeSelection();
+            nodeSelection.add(ruleAtClick.getKey());
+            $setSelection(nodeSelection);
+            return true;
           }
           return false;
         },
