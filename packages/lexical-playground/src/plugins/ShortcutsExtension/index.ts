@@ -223,6 +223,10 @@ export const ShortcutsExtension = defineExtension({
         if ($isRangeSelection(selection)) {
           const node = getSelectedNode(selection);
           isLink = $isLinkNode(node) || $isLinkNode(node.getParent());
+          if (!isLink && selection.isCollapsed()) {
+            // A bare caret outside a link has no text to link (#5305).
+            return;
+          }
         }
         isLinkEditMode.value = !isLink;
         e.dispatchCommand(
