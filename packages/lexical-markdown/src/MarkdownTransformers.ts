@@ -233,7 +233,11 @@ const UNORDERED_LIST_REGEX = /^(\s*)[-*+]\s/;
 const CHECK_LIST_REGEX = /^(\s*)(?:[-*+]\s)?\s?(\[(\s|x)?\])\s/i;
 const HEADING_REGEX = /^(#{1,6})\s/;
 const QUOTE_REGEX = /^>\s/;
-const CODE_START_REGEX = /^([ \t]*`{3,})([\w-]+)?[ \t]?/;
+// The info string of a backtick fence cannot contain a backtick, so a line
+// with one after the fence is not a fence, except the single-line form
+// ```code``` whose code has none.
+// https://spec.commonmark.org/0.31.2/#fenced-code-blocks
+const CODE_START_REGEX = /^([ \t]*`{3,})(?=[^`]*$|[^`]+`{3,}$)([\w-]+)?[ \t]?/;
 const CODE_END_REGEX = /^[ \t]*`{3,}$/;
 const CODE_SINGLE_LINE_REGEX =
   /^[ \t]*```[^`]+(?:(?:`{1,2}|`{4,})[^`]+)*```(?:[^`]|$)/;
@@ -921,6 +925,12 @@ export const CODE: MultilineElementTransformer = {
         true,
       );
       return [true, startLineIndex];
+    }
+
+    // A closing run shorter than the opening one, as in ````code```, leaves a
+    // backtick in the info string, so the line is not a fence.
+    if (afterFence.includes('`')) {
+      return null;
     }
 
     const multilineEndRegex = new RegExp(`^[ \\t]*\`{${fenceLength},}$`);
