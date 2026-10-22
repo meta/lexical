@@ -24,6 +24,7 @@ import {
 import {$importTextTransformers} from './importTextTransformers';
 import {
   $createMarkdownLineBreakNode,
+  $setLineEndHardLineBreak,
   type ElementTransformer,
   type MultilineElementTransformer,
   type TextFormatTransformer,
@@ -245,11 +246,21 @@ function $importBlocks(
     }
   }
 
+  // Taken after the element transformers ran, so it is the block the line's
+  // content went into: a list item, a heading, or a quote it was joined to.
+  const lineParent = textNode.getParent();
+
   $importTextTransformers(
     textNode,
     textFormatTransformersIndex,
     textMatchTransformers,
   );
+
+  // Whether the line ends in a hard break is a question about its Markdown,
+  // which the imported text no longer answers once escapes and code are read.
+  if (lineParent !== null) {
+    $setLineEndHardLineBreak(lineParent, lineText);
+  }
 
   // If no transformer found and we left with original paragraph node
   // can check if its content can be appended to the previous node
