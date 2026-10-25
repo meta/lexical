@@ -8,6 +8,7 @@
 
 import {
   $applyNodeReplacement,
+  $copyNode,
   $getDocument,
   defineExtension,
   type EditorConfig,
@@ -46,15 +47,23 @@ export class OverflowNode extends ElementNode {
     return false;
   }
 
+  // Now that the node is inline, a line break or paragraph inserted inside it
+  // splits it with this method, so it must make the other half (as LinkNode
+  // does) and not a new parent block.
   insertNewAfter(
-    selection: RangeSelection,
+    _: RangeSelection,
     restoreSelection = true,
   ): null | LexicalNode {
-    const parent = this.getParentOrThrow();
-    return parent.insertNewAfter(selection, restoreSelection);
+    const overflow = $copyNode(this);
+    this.insertAfter(overflow, restoreSelection);
+    return overflow;
   }
 
   excludeFromCopy(): boolean {
+    return true;
+  }
+
+  isInline(): true {
     return true;
   }
 }

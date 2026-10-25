@@ -2129,4 +2129,53 @@ describe('LexicalReconciler', () => {
       }
     });
   });
+
+  describe('managed line break after a trailing inline element (#9454)', () => {
+    test('a block ending in a LinkNode whose last child is a LineBreakNode gets the managed <br>, and loses it once text follows', () => {
+      const editor = buildEditorFromExtensions(
+        RichTextExtension,
+        LinkExtension,
+      );
+      const root = document.createElement('div');
+      editor.setRootElement(root);
+      const managed = () =>
+        root.querySelectorAll('br[data-lexical-managed-linebreak]');
+      try {
+        let linkKey = '';
+        editor.update(
+          () => {
+            const link = $createLinkNode('https://example.com').append(
+              $createTextNode('link'),
+              $createLineBreakNode(),
+            );
+            linkKey = link.getKey();
+            $getRoot()
+              .clear()
+              .append(
+                $createParagraphNode().append($createTextNode('a '), link),
+              );
+          },
+          {discrete: true},
+        );
+        const p = root.querySelector('p');
+        invariant(p !== null, 'expected a paragraph');
+        expect(managed()).toHaveLength(1);
+        expect(p.lastChild).toBe(managed()[0]);
+        expect(p.lastChild!.previousSibling!.nodeName).toBe('A');
+
+        editor.update(
+          () => {
+            const link = $getNodeByKey(linkKey);
+            invariant($isElementNode(link), 'expected the link');
+            link.append($createTextNode('after'));
+          },
+          {discrete: true},
+        );
+        expect(managed()).toHaveLength(0);
+        expect(p.lastChild!.nodeName).toBe('A');
+      } finally {
+        editor.dispose();
+      }
+    });
+  });
 });

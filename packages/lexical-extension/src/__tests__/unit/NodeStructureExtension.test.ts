@@ -580,8 +580,8 @@ describe('NodeStructureExtension', () => {
         $getRoot().getFirstChildOrThrow(),
         $isElementNode,
       ).getLastChild();
-      // Its behaviour is unchanged: still not inline for the caret.
-      expect(overflow!.isInline()).toBe(false);
+      // OverflowNode is inline since #9454.
+      expect(overflow!.isInline()).toBe(true);
     });
   });
 

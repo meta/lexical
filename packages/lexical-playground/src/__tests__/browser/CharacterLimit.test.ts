@@ -130,6 +130,26 @@ describe.each(['UTF-8', 'UTF-16'] as const)('character limit %s', charset => {
         `,
       );
     });
+    test('Shift+Enter inside overflow keeps the caret after the line break (#9454)', async () => {
+      const {root} = await setup(charset, isRichText);
+
+      await typeText('123456');
+      await press('Shift+Enter');
+      await typeText('7');
+      await assertHTML(
+        root,
+        html`
+          <p class="PlaygroundEditorTheme__paragraph" dir="auto">
+            <span data-lexical-text="true">12345</span>
+            <span class="PlaygroundEditorTheme__characterLimit">
+              <span data-lexical-text="true">6</span>
+              <br />
+              <span data-lexical-text="true">7</span>
+            </span>
+          </p>
+        `,
+      );
+    });
     test('can delete text in front and overflow is recomputed', async () => {
       const {editor, root} = await setup(charset, isRichText);
 

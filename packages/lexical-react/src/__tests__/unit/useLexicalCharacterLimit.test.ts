@@ -15,10 +15,12 @@ import {
   OverflowExtension,
 } from '@lexical/overflow';
 import {
+  $createLineBreakNode,
   $createParagraphNode,
   $createTextNode,
   $getRoot,
   $getSelection,
+  $isLineBreakNode,
   $isParagraphNode,
   $isRangeSelection,
   $isTextNode,
@@ -311,6 +313,103 @@ describe('useCharacterLimit', () => {
         expect($isOverflowNode(children[1])).toBe(true);
         expect(children[1].getTextContent()).toBe('345');
       });
+    });
+  });
+
+  describe('inline OverflowNode (#9454)', () => {
+    test('OverflowNode is inline', () => {
+      editor = makeEditor();
+      editor.update(
+        () => {
+          expect($createOverflowNode().isInline()).toBe(true);
+        },
+        {discrete: true},
+      );
+    });
+
+    test('a line break typed at the end of the overflow joins it and the caret stays after it', async () => {
+      editor = makeEditor();
+      await editor.update(() => {
+        const six = $createTextNode('6');
+        $getRoot()
+          .clear()
+          .append(
+            $createParagraphNode().append(
+              $createTextNode('12345'),
+              $createOverflowNode().append(six),
+            ),
+          );
+        six.selectEnd();
+      });
+      await editor.update(() => {
+        const selection = $getSelection();
+        assert($isRangeSelection(selection));
+        selection.insertLineBreak();
+      });
+      await editor.update(() => {
+        $wrapOverflowedNodes(5);
+      });
+
+      editor.read(() => {
+        const paragraph = $assertNodeType(
+          $getRoot().getFirstChildOrThrow(),
+          $isParagraphNode,
+        );
+        const [text, overflow] = paragraph.getChildren();
+        expect(paragraph.getChildrenSize()).toBe(2);
+        expect(text.getTextContent()).toBe('12345');
+        assert($isOverflowNode(overflow));
+        expect(overflow.getChildrenSize()).toBe(2);
+        expect($isLineBreakNode(overflow.getLastChild())).toBe(true);
+        // A point after a <br> that ends an inline element can't hold the
+        // browser caret, so it sits right after the OverflowNode instead.
+        const selection = $getSelection();
+        assert($isRangeSelection(selection));
+        expect(selection.isCollapsed()).toBe(true);
+        expect(selection.anchor.key).toBe(paragraph.getKey());
+        expect(selection.anchor.type).toBe('element');
+        expect(selection.anchor.offset).toBe(2);
+      });
+    });
+
+    test('a block ending with an inline element that ends with a line break gets a managed line break', async () => {
+      editor = makeEditor();
+      await editor.update(() => {
+        $getRoot()
+          .clear()
+          .append(
+            $createParagraphNode().append(
+              $createTextNode('12345'),
+              $createOverflowNode().append($createTextNode('6')),
+            ),
+          );
+      });
+      const rootElement = editor.getRootElement();
+      assert(rootElement !== null);
+      expect(
+        rootElement.querySelector('br[data-lexical-managed-linebreak]'),
+      ).toBe(null);
+      await editor.update(() => {
+        const overflow = $assertNodeType(
+          $getRoot().getFirstChildOrThrow<ParagraphNode>().getLastChild(),
+          $isOverflowNode,
+        );
+        overflow.append($createLineBreakNode());
+      });
+      const p = rootElement.querySelector('p');
+      assert(p !== null);
+      expect(
+        p.lastElementChild?.matches('br[data-lexical-managed-linebreak]'),
+      ).toBe(true);
+      await editor.update(() => {
+        $getRoot()
+          .getFirstChildOrThrow<ParagraphNode>()
+          .getLastChildOrThrow<OverflowNode>()
+          .append($createTextNode('7'));
+      });
+      expect(
+        rootElement.querySelector('br[data-lexical-managed-linebreak]'),
+      ).toBe(null);
     });
   });
 });
