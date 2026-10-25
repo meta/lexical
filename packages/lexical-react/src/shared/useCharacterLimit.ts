@@ -20,6 +20,7 @@ import {
   $getSlotHost,
   $isElementNode,
   $isLeafNode,
+  $isLineBreakNode,
   $isRangeSelection,
   $isTextNode,
   $setSelection,
@@ -291,7 +292,44 @@ export function $wrapOverflowedNodes(offset: number): void {
         if ($isOverflowNode(nextNode)) {
           $mergePrevious(nextNode);
         }
+        $hoistSelectionAfterTrailingLineBreak(
+          $isOverflowNode(nextNode) ? nextNode : overflowNode,
+        );
       }
+    }
+  }
+}
+
+/**
+ * Browsers can't place the caret after a `<br>` that ends an inline element,
+ * so a point at the end of an OverflowNode whose last child is a
+ * LineBreakNode gets normalized to somewhere before the overflow. Move it to
+ * the equivalent position right after the OverflowNode in its parent.
+ */
+function $hoistSelectionAfterTrailingLineBreak(
+  overflowNode: OverflowNode,
+): void {
+  const selection = $getSelection();
+  const parent = overflowNode.getParent();
+  if (
+    !$isRangeSelection(selection) ||
+    parent === null ||
+    !$isLineBreakNode(overflowNode.getLastChild())
+  ) {
+    return;
+  }
+  const size = overflowNode.getChildrenSize();
+  for (const point of [selection.anchor, selection.focus]) {
+    if (
+      point.type === 'element' &&
+      point.key === overflowNode.getKey() &&
+      point.offset >= size
+    ) {
+      point.set(
+        parent.getKey(),
+        overflowNode.getIndexWithinParent() + 1,
+        'element',
+      );
     }
   }
 }
