@@ -24,7 +24,6 @@ import {
   SelectBlockExtension,
   SelectionAlwaysOnDisplayExtension,
   TabIndentationExtension,
-  TouchIndentationExtension,
   WatchEditableExtension,
 } from '@lexical/extension';
 import {HashtagExtension} from '@lexical/hashtag';
@@ -39,6 +38,7 @@ import {
   $createListNode,
   CheckListExtension,
   ListExtension,
+  TouchIndentationExtension,
 } from '@lexical/list';
 import {PlainTextExtension} from '@lexical/plain-text';
 import {LexicalCollaboration} from '@lexical/react/LexicalCollaborationContext';
