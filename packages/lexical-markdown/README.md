@@ -97,6 +97,14 @@ backslash escapes and decimal or hexadecimal references in one pass. Literal
 brackets and guarded `<`/`&` use numeric references so escaping does not change
 adjacent emphasis flanking.
 
+Import follows CommonMark's Unicode punctuation and whitespace when deciding
+whether `*`, `_`, `~~` and `==` open or close formatting. When formatted text starts
+or ends with punctuation right beside a letter, export writes that letter as a
+numeric reference (`fo&#111;**“bar”**`) so that the markers still open and
+close, for micromark-based readers such as `@lexical/mdast` too, also with `shouldPreserveNewLines`, where a raw backslash right before
+such a marker or reference goes out as `&#92;` outside a bare URL. No reference is written inside
+a bare URL, `www.` host, email or mention.
+
 There're three types of transformers:
 
 - **Element transformer** handles top level elements (lists, headings, quotes, tables or code blocks)

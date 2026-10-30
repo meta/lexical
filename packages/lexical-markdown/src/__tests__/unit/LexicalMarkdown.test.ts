@@ -6,6 +6,7 @@
  *
  */
 import {$createCodeNode, CodeNode} from '@lexical/code-core';
+import {buildEditorFromExtensions} from '@lexical/extension';
 import {createHeadlessEditor} from '@lexical/headless';
 import {$generateHtmlFromNodes, $generateNodesFromDOM} from '@lexical/html';
 import invariant from '@lexical/internal/invariant';
@@ -26,6 +27,7 @@ import {
   CODE,
   type ElementTransformer,
   HEADING,
+  ITALIC_STAR,
   LINK,
   type MultilineElementTransformer,
   registerMarkdownShortcuts,
@@ -33,6 +35,10 @@ import {
   type Transformer,
   TRANSFORMERS,
 } from '@lexical/markdown';
+import {
+  $convertFromMarkdownString as $convertFromMdastMarkdownString,
+  MdastGfmExtension,
+} from '@lexical/mdast';
 import {
   $createHeadingNode,
   $createQuoteNode,
@@ -63,6 +69,7 @@ import {
   $setState,
   COMPOSITION_END_TAG,
   type CreateEditorArgs,
+  defineExtension,
   type ElementNode,
   KEY_ENTER_COMMAND,
   type LexicalEditor,
@@ -565,6 +572,25 @@ describe('Markdown', () => {
       // https://github.com/meta/lexical/issues/8687
       html: '<p><code spellcheck="false" style="white-space: pre-wrap;"><span>$a</span></code><span style="white-space: pre-wrap;"> </span><code spellcheck="false" style="white-space: pre-wrap;"><span>$b</span></code></p>',
       md: '`$a` `$b`',
+    },
+    {
+      // Emphasis before a code span is applied first, and a link that takes
+      // part of the span still loses to it.
+      html: '<p><span style="white-space: pre-wrap;">[x </span><i><em style="white-space: pre-wrap;">a</em></i><span style="white-space: pre-wrap;"> </span><code spellcheck="false" style="white-space: pre-wrap;"><span>y](z)</span></code></p>',
+      md: '[x *a* `y](z)`',
+      skipExport: true,
+    },
+    {
+      html: '<p><i><em style="white-space: pre-wrap;">a [b</em></i><span style="white-space: pre-wrap;"> </span><code spellcheck="false" style="white-space: pre-wrap;"><span>c](d)</span></code></p>',
+      md: '*a [b* `c](d)`',
+      skipExport: true,
+    },
+    {
+      // A delimiter left over beside emphasis that ends before a code span
+      // stays literal.
+      html: '<p><i><em style="white-space: pre-wrap;">a</em></i><span style="white-space: pre-wrap;">*</span><code spellcheck="false" style="white-space: pre-wrap;"><span>x</span></code><span style="white-space: pre-wrap;">*</span></p>',
+      md: '*a**`x`*',
+      skipExport: true,
     },
     {
       // Inline code containing a backtick must use a longer fence (CommonMark
@@ -1643,6 +1669,17 @@ describe('Markdown', () => {
           ['e', 0],
         ],
         'a*b**c*****d**e',
+      );
+    });
+
+    it('round-trips italic then bold italic between punctuation', () => {
+      expectRoundTrip(
+        [
+          [')', ITALIC],
+          ['(', BOLD],
+          [')', BOLD | ITALIC],
+        ],
+        '*)***(*)***',
       );
     });
 
@@ -4615,6 +4652,945 @@ describe('link import', () => {
       expect(shortcutGroups(md)).toBeUndefined();
     });
   }
+});
+
+describe('emphasis next to Unicode punctuation and symbols', () => {
+  // CommonMark counts every character in the Unicode P (punctuation) and S
+  // (symbol) general categories as punctuation when it decides whether a
+  // delimiter run is left- or right-flanking, not only the ASCII ones.
+  // https://spec.commonmark.org/0.31.2/#unicode-punctuation-character
+  type Run = [text: string, format: string];
+
+  const EN_DASH = '\u2013'; // Pd
+  const LEFT_DOUBLE_QUOTE = '\u201C'; // Pi
+  const RIGHT_DOUBLE_QUOTE = '\u201D'; // Pf
+  const LOW_DOUBLE_QUOTE = '\u201E'; // Ps
+  const EURO_SIGN = '\u20AC'; // Sc
+  const LATIN_E_ACUTE = '\u00E9'; // Ll, a letter
+  const CYRILLIC_BE = '\u0431'; // Ll, a letter
+  const HERE_LINK = '[here](https://example.com)';
+
+  function importRuns(md: string): Run[] {
+    const editor = createTestEditor();
+    editor.update(() => $convertFromMarkdownString(md, TRANSFORMERS), {
+      discrete: true,
+    });
+    return editor.read('latest', () =>
+      $getRoot()
+        .getAllTextNodes()
+        .map((node): Run => {
+          const formats = (['bold', 'italic'] as const).filter(format =>
+            node.hasFormat(format),
+          );
+          return [node.getTextContent(), formats.join(' ') || 'plain'];
+        }),
+    );
+  }
+
+  // Each expected result matches what micromark, a CommonMark parser, produces
+  // for the same input.
+  const CASES: [md: string, runs: Run[]][] = [
+    [
+      `See ${EN_DASH}**${HERE_LINK}** now.`,
+      [
+        [`See ${EN_DASH}`, 'plain'],
+        ['here', 'bold'],
+        [' now.', 'plain'],
+      ],
+    ],
+    [
+      `See ${LEFT_DOUBLE_QUOTE}**${HERE_LINK}**${RIGHT_DOUBLE_QUOTE} now.`,
+      [
+        [`See ${LEFT_DOUBLE_QUOTE}`, 'plain'],
+        ['here', 'bold'],
+        [`${RIGHT_DOUBLE_QUOTE} now.`, 'plain'],
+      ],
+    ],
+    [
+      `See ${LOW_DOUBLE_QUOTE}**${HERE_LINK}**${LEFT_DOUBLE_QUOTE} now.`,
+      [
+        [`See ${LOW_DOUBLE_QUOTE}`, 'plain'],
+        ['here', 'bold'],
+        [`${LEFT_DOUBLE_QUOTE} now.`, 'plain'],
+      ],
+    ],
+    [
+      `See ${EURO_SIGN}**${HERE_LINK}** now.`,
+      [
+        [`See ${EURO_SIGN}`, 'plain'],
+        ['here', 'bold'],
+        [' now.', 'plain'],
+      ],
+    ],
+    [
+      // Only the closing run touches a Unicode punctuation character.
+      `See **${HERE_LINK}**${EN_DASH}now.`,
+      [
+        ['See ', 'plain'],
+        ['here', 'bold'],
+        [`${EN_DASH}now.`, 'plain'],
+      ],
+    ],
+    [
+      `See ${EN_DASH}*${HERE_LINK}* now.`,
+      [
+        [`See ${EN_DASH}`, 'plain'],
+        ['here', 'italic'],
+        [' now.', 'plain'],
+      ],
+    ],
+    [
+      `See ${EN_DASH}_${HERE_LINK}_ now.`,
+      [
+        [`See ${EN_DASH}`, 'plain'],
+        ['here', 'italic'],
+        [' now.', 'plain'],
+      ],
+    ],
+    [
+      `See ${EN_DASH}__${HERE_LINK}__ now.`,
+      [
+        [`See ${EN_DASH}`, 'plain'],
+        ['here', 'bold'],
+        [' now.', 'plain'],
+      ],
+    ],
+    // Unchanged: ASCII punctuation and whitespace still work.
+    [
+      `See -**${HERE_LINK}** now.`,
+      [
+        ['See -', 'plain'],
+        ['here', 'bold'],
+        [' now.', 'plain'],
+      ],
+    ],
+    [
+      `See **${HERE_LINK}** now.`,
+      [
+        ['See ', 'plain'],
+        ['here', 'bold'],
+        [' now.', 'plain'],
+      ],
+    ],
+    // Unchanged: a delimiter run inside a word.
+    [
+      'a**b**',
+      [
+        ['a', 'plain'],
+        ['b', 'bold'],
+      ],
+    ],
+    [
+      '**a**b',
+      [
+        ['a', 'bold'],
+        ['b', 'plain'],
+      ],
+    ],
+    ['snake_case_word', [['snake_case_word', 'plain']]],
+    // Unchanged: a letter is not punctuation, whatever the script.
+    [
+      `${LATIN_E_ACUTE}**${HERE_LINK}**`,
+      [
+        [`${LATIN_E_ACUTE}**`, 'plain'],
+        ['here', 'plain'],
+        ['**', 'plain'],
+      ],
+    ],
+    [
+      `${CYRILLIC_BE}**${HERE_LINK}**`,
+      [
+        [`${CYRILLIC_BE}**`, 'plain'],
+        ['here', 'plain'],
+        ['**', 'plain'],
+      ],
+    ],
+  ];
+
+  for (const [md, runs] of CASES) {
+    it(`imports ${JSON.stringify(md)}`, () => {
+      expect(importRuns(md)).toEqual(runs);
+    });
+  }
+
+  // Importing the bold link as text used to leave the asterisks in the text,
+  // so the export escaped them. The exporter writes the bold inside the link.
+  const EXPORT_CASES: [md: string, exported: string][] = [
+    [
+      `See ${EN_DASH}**${HERE_LINK}** now.`,
+      `See ${EN_DASH}[**here**](https://example.com) now.`,
+    ],
+    [
+      `See ${LEFT_DOUBLE_QUOTE}**${HERE_LINK}**${RIGHT_DOUBLE_QUOTE} now.`,
+      `See ${LEFT_DOUBLE_QUOTE}[**here**](https://example.com)${RIGHT_DOUBLE_QUOTE} now.`,
+    ],
+  ];
+
+  for (const [md, exported] of EXPORT_CASES) {
+    it(`exports ${JSON.stringify(md)} without escaped asterisks`, () => {
+      const editor = createTestEditor();
+      editor.update(() => $convertFromMarkdownString(md, TRANSFORMERS), {
+        discrete: true,
+      });
+      expect(
+        editor.read('latest', () => $convertToMarkdownString(TRANSFORMERS)),
+      ).toBe(exported);
+    });
+  }
+
+  // Characters outside the Basic Multilingual Plane are read whole: an emoji
+  // is a symbol (So), so it is punctuation too. markdown-it agrees; micromark
+  // reads UTF-16 code units here.
+  const GRINNING_FACE = '\u{1F600}';
+  it.each([
+    [`a**${GRINNING_FACE}**`, [[`a**${GRINNING_FACE}**`, 'plain']]],
+    [`**${GRINNING_FACE}**a`, [[`**${GRINNING_FACE}**a`, 'plain']]],
+    [
+      `a **${GRINNING_FACE}**`,
+      [
+        ['a ', 'plain'],
+        [GRINNING_FACE, 'bold'],
+      ],
+    ],
+    // U+FEFF is a format character (Cf), not CommonMark whitespace.
+    // markdown-it agrees; micromark uses JavaScript's `\s`.
+    [
+      `x\uFEFF**${LEFT_DOUBLE_QUOTE}a${RIGHT_DOUBLE_QUOTE}**`,
+      [[`x\uFEFF**${LEFT_DOUBLE_QUOTE}a${RIGHT_DOUBLE_QUOTE}**`, 'plain']],
+    ],
+  ] as [string, Run[]][])('imports %j', (md, runs) => {
+    expect(importRuns(md)).toEqual(runs);
+  });
+
+  // A tag between a word character and punctuation cannot open or close, so
+  // the word character goes out as a numeric reference, whose `&` or `;` is
+  // punctuation.
+  it.each([
+    [
+      [
+        ['foo', []],
+        [`${LEFT_DOUBLE_QUOTE}bar${RIGHT_DOUBLE_QUOTE}`, ['bold']],
+        ['baz', []],
+      ],
+      `fo&#111;**${LEFT_DOUBLE_QUOTE}bar${RIGHT_DOUBLE_QUOTE}**&#98;az`,
+    ],
+    [
+      [
+        ['a', []],
+        [GRINNING_FACE, ['italic']],
+        ['b', []],
+      ],
+      `&#97;*${GRINNING_FACE}*&#98;`,
+    ],
+    [
+      [
+        ['a', []],
+        ['x', ['bold', 'code']],
+        ['b', []],
+      ],
+      '&#97;**`x`**&#98;',
+    ],
+    [
+      [
+        ['x.', ['bold']],
+        ['b', []],
+        ['(y)', ['bold']],
+      ],
+      '**x.**&#98;**(y)**',
+    ],
+    // Italic closes and reopens around the bold's end.
+    [
+      [
+        ['b', ['bold', 'italic']],
+        [`${LEFT_DOUBLE_QUOTE}y${RIGHT_DOUBLE_QUOTE}`, ['italic']],
+      ],
+      '***&#98;****“y”*',
+    ],
+    // Markers of different characters are separate delimiter runs.
+    [
+      [
+        ['a', ['bold']],
+        ['!', ['strikethrough']],
+      ],
+      '**a**~~!~~',
+    ],
+    // A one-character reference reads as punctuation on its other side too,
+    // so the run there is decided again.
+    [
+      [
+        ['x', []],
+        ['a', ['bold']],
+        [`${LEFT_DOUBLE_QUOTE}b${RIGHT_DOUBLE_QUOTE}`, ['italic']],
+      ],
+      '&#120;**&#97;***“b”*',
+    ],
+    [
+      [
+        [`${LEFT_DOUBLE_QUOTE}a${RIGHT_DOUBLE_QUOTE}`, ['bold', 'italic']],
+        ['b', ['italic']],
+        ['c', []],
+      ],
+      '***“a”****&#98;*&#99;',
+    ],
+    [
+      [
+        ['x', []],
+        ['a', ['bold']],
+        [`${LEFT_DOUBLE_QUOTE}b${RIGHT_DOUBLE_QUOTE}`, ['bold', 'italic']],
+      ],
+      '&#120;**&#97;*“b”***',
+    ],
+    // An `@` that is not part of a link where the text ends does not stop
+    // the reference.
+    [
+      [
+        ['联系我@微博你好', []],
+        [`${LEFT_DOUBLE_QUOTE}重要${RIGHT_DOUBLE_QUOTE}`, ['bold']],
+      ],
+      `联系我@微博你&#22909;**${LEFT_DOUBLE_QUOTE}重要${RIGHT_DOUBLE_QUOTE}**`,
+    ],
+    [
+      [
+        ['(a@b.co)and', []],
+        [`${LEFT_DOUBLE_QUOTE}x${RIGHT_DOUBLE_QUOTE}`, ['bold']],
+      ],
+      `(a@b.co)an&#100;**${LEFT_DOUBLE_QUOTE}x${RIGHT_DOUBLE_QUOTE}**`,
+    ],
+    // A word character beside a word character needs no reference.
+    [
+      [
+        ['a', []],
+        ['b', ['bold']],
+        ['c', []],
+      ],
+      'a**b**c',
+    ],
+    // A tag character that text does not escape is kept out of the marker.
+    [
+      [
+        ['a=', []],
+        [`${LEFT_DOUBLE_QUOTE}b${RIGHT_DOUBLE_QUOTE}`, ['highlight']],
+        ['=c', []],
+      ],
+      'a&#61;==“b”==&#61;c',
+    ],
+    // Emphasis that ends before a code span is read before the span.
+    [
+      [
+        ['a.', ['bold']],
+        ['x', []],
+        ['c', ['bold', 'code']],
+      ],
+      '**a.**&#120;**`c`**',
+    ],
+    [
+      [
+        [LEFT_DOUBLE_QUOTE, ['bold']],
+        ['.b ', ['italic']],
+        ['c', ['italic', 'code']],
+      ],
+      '**“***.b `c`*',
+    ],
+  ] as [[string, TextFormatType[]][], string][])(
+    'exports and reimports %j as %j',
+    (runs, exported) => {
+      const editor = createTestEditor();
+      editor.update(
+        () =>
+          $getRoot().append(
+            $createParagraphNode().append(
+              ...runs.map(([text, formats]) => {
+                const node = $createTextNode(text);
+                formats.forEach(format => node.toggleFormat(format));
+                return node;
+              }),
+            ),
+          ),
+        {discrete: true},
+      );
+      const markdown = editor.read('latest', () =>
+        $convertToMarkdownString(TRANSFORMERS),
+      );
+      expect(markdown).toBe(exported);
+      editor.update(() => $convertFromMarkdownString(markdown, TRANSFORMERS), {
+        discrete: true,
+      });
+      expect(
+        editor.read('latest', () =>
+          $getRoot()
+            .getAllTextNodes()
+            .map(node => [
+              node.getTextContent(),
+              (
+                [
+                  'bold',
+                  'italic',
+                  'strikethrough',
+                  'highlight',
+                  'code',
+                ] as const
+              ).filter(format => node.hasFormat(format)),
+            ]),
+        ),
+      ).toEqual(runs);
+    },
+  );
+
+  it('guards a word character after a raw backslash when preserving newlines', () => {
+    const editor = createTestEditor();
+    editor.update(
+      () =>
+        $getRoot().append(
+          $createParagraphNode().append(
+            $createTextNode('x\\b'),
+            $createTextNode(
+              `${LEFT_DOUBLE_QUOTE}y${RIGHT_DOUBLE_QUOTE}`,
+            ).toggleFormat('bold'),
+          ),
+        ),
+      {discrete: true},
+    );
+    const markdown = editor.read('latest', () =>
+      $convertToMarkdownString(TRANSFORMERS, undefined, true),
+    );
+    expect(markdown).toBe(
+      `x&#92;&#98;**${LEFT_DOUBLE_QUOTE}y${RIGHT_DOUBLE_QUOTE}**`,
+    );
+    editor.update(
+      () => $convertFromMarkdownString(markdown, TRANSFORMERS, undefined, true),
+      {discrete: true},
+    );
+    expect(
+      editor.read('latest', () =>
+        $getRoot()
+          .getAllTextNodes()
+          .map(node => [node.getTextContent(), node.hasFormat('bold')]),
+      ),
+    ).toEqual([
+      ['x\\b', false],
+      [`${LEFT_DOUBLE_QUOTE}y${RIGHT_DOUBLE_QUOTE}`, true],
+    ]);
+  });
+
+  it.each([
+    ['bold', 'a&#92;**b**'],
+    ['italic', 'a&#92;*b*'],
+  ] as [TextFormatType, string][])(
+    'keeps a raw backslash from escaping a %s marker when preserving newlines',
+    (format, exported) => {
+      const editor = createTestEditor();
+      editor.update(
+        () =>
+          $getRoot().append(
+            $createParagraphNode().append(
+              $createTextNode('a\\'),
+              $createTextNode('b').toggleFormat(format),
+            ),
+          ),
+        {discrete: true},
+      );
+      const markdown = editor.read('latest', () =>
+        $convertToMarkdownString(TRANSFORMERS, undefined, true),
+      );
+      expect(markdown).toBe(exported);
+      editor.update(
+        () =>
+          $convertFromMarkdownString(markdown, TRANSFORMERS, undefined, true),
+        {discrete: true},
+      );
+      expect(
+        editor.read('latest', () =>
+          $getRoot()
+            .getAllTextNodes()
+            .map(node => [node.getTextContent(), node.hasFormat(format)]),
+        ),
+      ).toEqual([
+        ['a\\', false],
+        ['b', true],
+      ]);
+    },
+  );
+
+  it('writes no reference that would break a run beside raw output', () => {
+    // Writing `a` as a reference for the italic would leave the bold's `**`
+    // between the raw `x` and the reference's `&`, unable to open.
+    const MENTION: TextMatchTransformer = {
+      dependencies: [],
+      export: node =>
+        $isTextNode(node) && node.getTextContent() === '@x' ? '@x' : null,
+      regExp: /@x$/,
+      replace: () => {},
+      type: 'text-match',
+    };
+    const editor = createTestEditor();
+    editor.update(
+      () =>
+        $getRoot().append(
+          $createParagraphNode().append(
+            $createTextNode('@x'),
+            $createTextNode('a').toggleFormat('bold'),
+            $createTextNode(`${LEFT_DOUBLE_QUOTE}y${RIGHT_DOUBLE_QUOTE}`)
+              .toggleFormat('bold')
+              .toggleFormat('italic'),
+          ),
+        ),
+      {discrete: true},
+    );
+    const markdown = editor.read('latest', () =>
+      $convertToMarkdownString([MENTION, ...TRANSFORMERS]),
+    );
+    expect(markdown).not.toContain('&#97;');
+    editor.update(() => $convertFromMarkdownString(markdown, TRANSFORMERS), {
+      discrete: true,
+    });
+    expect(
+      editor.read('latest', () =>
+        $getRoot()
+          .getAllTextNodes()
+          .some(
+            node =>
+              node.getTextContent().startsWith('a') && node.hasFormat('bold'),
+          ),
+      ),
+    ).toBe(true);
+  });
+
+  it.each([
+    ['www.example.com', 'www.example.com'],
+    ['me@example.com', 'me@example.com'],
+    ['https://example.com/a', 'https://example.com/a'],
+    ['https://example.com/a_b', 'https://example.com/a\\_b'],
+    ['@john_doe', '@john\\_doe'],
+    ['xmpp:a@b.co/res', 'xmpp:a@b.co/res'],
+    ['https://example.com/a|b', 'https://example.com/a|b'],
+    ['x_www.example.co', 'x\\_www.example.co'],
+    ['https://example.com/\u00e9a', 'https://example.com/\u00e9a'],
+    ['https://\u4f8b\u3048.jp/a', 'https://\u4f8b\u3048.jp/a'],
+    ['www.\u4f8b\u3048.jp', 'www.\u4f8b\u3048.jp'],
+    ['https://example.com/a\u{1f600}b', 'https://example.com/a\u{1f600}b'],
+  ])(
+    'writes no reference inside %j, which readers may autolink',
+    (link, markdown) => {
+      const editor = createTestEditor();
+      editor.update(
+        () =>
+          $getRoot().append(
+            $createParagraphNode().append(
+              $createTextNode(`see ${link}`),
+              $createTextNode(
+                `${LEFT_DOUBLE_QUOTE}x${RIGHT_DOUBLE_QUOTE}`,
+              ).toggleFormat('bold'),
+            ),
+          ),
+        {discrete: true},
+      );
+      const prefix = `see ${markdown}**`;
+      expect(
+        editor
+          .read('latest', () => $convertToMarkdownString(TRANSFORMERS))
+          .slice(0, prefix.length),
+      ).toBe(prefix);
+    },
+  );
+
+  it.each([
+    'www.example.com',
+    'me@example.com',
+    'https://example.com',
+    'mailto:me@example.com',
+  ])(
+    'writes no reference at the start of %j, which readers may autolink',
+    link => {
+      const editor = createTestEditor();
+      editor.update(
+        () =>
+          $getRoot().append(
+            $createParagraphNode().append(
+              $createTextNode(
+                `${LEFT_DOUBLE_QUOTE}x${RIGHT_DOUBLE_QUOTE}`,
+              ).toggleFormat('bold'),
+              $createTextNode(link),
+            ),
+          ),
+        {discrete: true},
+      );
+      expect(
+        editor.read('latest', () => $convertToMarkdownString(TRANSFORMERS)),
+      ).toBe(`**${LEFT_DOUBLE_QUOTE}x${RIGHT_DOUBLE_QUOTE}**${link}`);
+    },
+  );
+
+  it('writes no backslash reference inside a URL', () => {
+    const editor = createTestEditor();
+    editor.update(
+      () =>
+        $getRoot().append(
+          $createParagraphNode().append(
+            $createTextNode('see http://x.com/a\\'),
+            $createTextNode('b').toggleFormat('bold'),
+          ),
+        ),
+      {discrete: true},
+    );
+    expect(
+      editor.read('latest', () =>
+        $convertToMarkdownString(TRANSFORMERS, undefined, true),
+      ),
+    ).toBe('see http://x.com/a\\**b**');
+  });
+
+  it('writes no reference for a tag character inside a URL', () => {
+    const editor = createTestEditor();
+    editor.update(
+      () =>
+        $getRoot().append(
+          $createParagraphNode().append(
+            $createTextNode('see https://x.com/?a='),
+            $createTextNode('b').toggleFormat('highlight'),
+          ),
+        ),
+      {discrete: true},
+    );
+    expect(
+      editor.read('latest', () => $convertToMarkdownString(TRANSFORMERS)),
+    ).toBe('see https://x.com/?a===b==');
+  });
+
+  it('writes a reference after CJK punctuation that ends bold before a CJK character', () => {
+    const editor = createTestEditor();
+    editor.update(
+      () =>
+        $getRoot().append(
+          $createParagraphNode().append(
+            $createTextNode('\u4f60\u597d\u3002').toggleFormat('bold'),
+            $createTextNode('\u4e16\u754c'),
+          ),
+        ),
+      {discrete: true},
+    );
+    const markdown = editor.read('latest', () =>
+      $convertToMarkdownString(TRANSFORMERS),
+    );
+    expect(markdown).toBe('**\u4f60\u597d\u3002**&#19990;\u754c');
+    editor.update(() => $convertFromMarkdownString(markdown, TRANSFORMERS), {
+      discrete: true,
+    });
+    expect(
+      editor.read('latest', () =>
+        $getRoot()
+          .getAllTextNodes()
+          .map(node => [node.getTextContent(), node.hasFormat('bold')]),
+      ),
+    ).toEqual([
+      ['\u4f60\u597d\u3002', true],
+      ['\u4e16\u754c', false],
+    ]);
+  });
+
+  // micromark, which @lexical/mdast imports with, reads a character outside
+  // the Basic Multilingual Plane as a letter, so export writes references
+  // that make the markers open and close for it too.
+  it.each<[runs: [string, number][], markdown: string]>([
+    [
+      [
+        ['\u{1f600}', 0],
+        ['\u201cb\u201d', TEXT_TYPE_TO_FORMAT.bold],
+      ],
+      '&#128512;**\u201cb\u201d**',
+    ],
+    [
+      [
+        ['a', TEXT_TYPE_TO_FORMAT.bold],
+        ['\u{1f600}', TEXT_TYPE_TO_FORMAT.italic],
+      ],
+      '**&#97;***&#128512;*',
+    ],
+  ])('exports %j so that both importers read it back', (runs, markdown) => {
+    const $runs = () =>
+      $getRoot()
+        .getAllTextNodes()
+        .map(node => [node.getTextContent(), node.getFormat()]);
+    const editor = createTestEditor();
+    editor.update(
+      () =>
+        $getRoot().append(
+          $createParagraphNode().append(
+            ...runs.map(([text, format]) =>
+              $createTextNode(text).setFormat(format),
+            ),
+          ),
+        ),
+      {discrete: true},
+    );
+    expect(
+      editor.read('latest', () => $convertToMarkdownString(TRANSFORMERS)),
+    ).toBe(markdown);
+    editor.update(() => $convertFromMarkdownString(markdown, TRANSFORMERS), {
+      discrete: true,
+    });
+    expect(editor.read('latest', $runs)).toEqual(runs);
+    const mdastEditor = buildEditorFromExtensions(
+      defineExtension({
+        dependencies: [MdastGfmExtension],
+        name: '[root]',
+      }),
+    );
+    onTestFinished(() => mdastEditor.dispose());
+    mdastEditor.update(() => $convertFromMdastMarkdownString(markdown), {
+      discrete: true,
+    });
+    expect(mdastEditor.read('latest', $runs)).toEqual(runs);
+  });
+
+  it('writes references around an underscore italic between letters', () => {
+    const transformers = TRANSFORMERS.filter(
+      transformer => transformer !== ITALIC_STAR,
+    );
+    const editor = createTestEditor();
+    editor.update(
+      () =>
+        $getRoot().append(
+          $createParagraphNode().append(
+            $createTextNode('a'),
+            $createTextNode('b').toggleFormat('italic'),
+            $createTextNode('c'),
+          ),
+        ),
+      {discrete: true},
+    );
+    const markdown = editor.read('latest', () =>
+      $convertToMarkdownString(transformers),
+    );
+    expect(markdown).toBe('&#97;_b_&#99;');
+    editor.update(() => $convertFromMarkdownString(markdown, transformers), {
+      discrete: true,
+    });
+    expect(
+      editor.read('latest', () =>
+        $getRoot()
+          .getAllTextNodes()
+          .map(node => [node.getTextContent(), node.hasFormat('italic')]),
+      ),
+    ).toEqual([
+      ['a', false],
+      ['b', true],
+      ['c', false],
+    ]);
+  });
+
+  it("guards a letter right after an inline link's destination", () => {
+    const editor = createTestEditor();
+    editor.update(
+      () =>
+        $getRoot().append(
+          $createParagraphNode().append(
+            $createLinkNode('https://e.com').append($createTextNode('API')),
+            $createTextNode('s'),
+            $createTextNode('(beta)').toggleFormat('bold'),
+            $createTextNode(' end'),
+          ),
+        ),
+      {discrete: true},
+    );
+    expect(
+      editor.read('latest', () => $convertToMarkdownString(TRANSFORMERS)),
+    ).toBe('[API](https://e.com)&#115;**(beta)** end');
+  });
+
+  it.each([
+    [
+      '*)**a*',
+      [
+        ['*)*', false],
+        ['a', true],
+      ],
+    ],
+    [
+      '“_)__a(“[)_',
+      [
+        ['“_)_', false],
+        ['a(“[)', true],
+      ],
+    ],
+    [
+      '*a**`x`*',
+      [
+        ['a', true],
+        ['*', false],
+        ['x', false],
+        ['*', false],
+      ],
+    ],
+  ] as [string, [string, boolean][]][])(
+    'reads a delimiter run cut by an earlier match as it was in %j',
+    (markdown, runs) => {
+      const editor = createTestEditor();
+      editor.update(() => $convertFromMarkdownString(markdown, TRANSFORMERS), {
+        discrete: true,
+      });
+      expect(
+        editor.read('latest', () =>
+          $getRoot()
+            .getAllTextNodes()
+            .map(node => [node.getTextContent(), node.hasFormat('italic')]),
+        ),
+      ).toEqual(runs);
+    },
+  );
+
+  it('applies a link before a later link that holds a code span', () => {
+    const editor = createTestEditor();
+    editor.update(
+      () =>
+        $convertFromMarkdownString(
+          '[a](https://u) and [`b`](https://v)',
+          TRANSFORMERS,
+        ),
+      {discrete: true},
+    );
+    expect(
+      editor.read('latest', () =>
+        $getRoot()
+          .getAllTextNodes()
+          .map(node => [
+            node.getTextContent(),
+            node.hasFormat('code'),
+            $isLinkNode(node.getParent()),
+          ]),
+      ),
+    ).toEqual([
+      ['a', false, true],
+      [' and ', false, false],
+      ['b', true, true],
+    ]);
+  });
+
+  it.each([
+    [
+      '`c` *[a](b)*',
+      [
+        ['c', false],
+        [' ', false],
+        ['a', true],
+      ],
+    ],
+    [
+      '`c` x *[a](b) `d`*',
+      [
+        ['c', false],
+        [' x ', false],
+        ['a', true],
+        [' ', true],
+        ['d', true],
+      ],
+    ],
+  ] as [string, [string, boolean][]][])(
+    'keeps emphasis around a link after a code span in %j',
+    (markdown, runs) => {
+      const editor = createTestEditor();
+      editor.update(() => $convertFromMarkdownString(markdown, TRANSFORMERS), {
+        discrete: true,
+      });
+      expect(
+        editor.read('latest', () =>
+          $getRoot()
+            .getAllTextNodes()
+            .map(node => [node.getTextContent(), node.hasFormat('italic')]),
+        ),
+      ).toEqual(runs);
+    },
+  );
+
+  it('keeps a link from taking part of a later code span', () => {
+    const editor = createTestEditor();
+    editor.update(
+      () => $convertFromMarkdownString('**`a` [b** `c](d)`', TRANSFORMERS),
+      {discrete: true},
+    );
+    expect(
+      editor.read('latest', () =>
+        $getRoot()
+          .getAllTextNodes()
+          .map(node => [
+            node.getTextContent(),
+            node.hasFormat('bold'),
+            node.hasFormat('code'),
+          ]),
+      ),
+    ).toEqual([
+      ['a', true, true],
+      [' [b', true, false],
+      [' ', false, false],
+      ['c](d)', false, true],
+    ]);
+  });
+
+  it('writes no reference inside a URL that runs on through formats', () => {
+    const editor = createTestEditor();
+    editor.update(
+      () =>
+        $getRoot().append(
+          $createParagraphNode().append(
+            $createTextNode('https://x.com/').toggleFormat('bold'),
+            $createTextNode('ab'),
+            $createTextNode(
+              `${LEFT_DOUBLE_QUOTE}c${RIGHT_DOUBLE_QUOTE}`,
+            ).toggleFormat('italic'),
+          ),
+        ),
+      {discrete: true},
+    );
+    expect(
+      editor.read('latest', () => $convertToMarkdownString(TRANSFORMERS)),
+    ).toBe(`**https://x.com/**ab*${LEFT_DOUBLE_QUOTE}c${RIGHT_DOUBLE_QUOTE}*`);
+  });
+
+  it('guards word characters in a selection export', () => {
+    const editor = createTestEditor();
+    editor.update(
+      () => {
+        const bold = $createTextNode(
+          `${LEFT_DOUBLE_QUOTE}bar${RIGHT_DOUBLE_QUOTE}`,
+        ).toggleFormat('bold');
+        const after = $createTextNode('baz');
+        $getRoot().append(
+          $createParagraphNode().append($createTextNode('foo'), bold, after),
+        );
+        bold.select(0, 0).focus.set(after.getKey(), 2, 'text');
+      },
+      {discrete: true},
+    );
+    expect(
+      editor.read('latest', () =>
+        $convertSelectionToMarkdownString(TRANSFORMERS, $getSelection()),
+      ),
+    ).toBe(`**${LEFT_DOUBLE_QUOTE}bar${RIGHT_DOUBLE_QUOTE}**&#98;a`);
+  });
+
+  it('guards word characters across an inline element without a transformer', () => {
+    const transformers = TRANSFORMERS.filter(
+      transformer => transformer !== LINK,
+    );
+    const editor = createTestEditor();
+    editor.update(
+      () =>
+        $getRoot().append(
+          $createParagraphNode().append(
+            $createTextNode('foo'),
+            $createLinkNode('https://example.com').append(
+              $createTextNode(
+                `${LEFT_DOUBLE_QUOTE}bar${RIGHT_DOUBLE_QUOTE}`,
+              ).toggleFormat('bold'),
+            ),
+            $createTextNode('baz'),
+          ),
+        ),
+      {discrete: true},
+    );
+    expect(
+      editor.read('latest', () => $convertToMarkdownString(transformers)),
+    ).toBe(`fo&#111;**${LEFT_DOUBLE_QUOTE}bar${RIGHT_DOUBLE_QUOTE}**&#98;az`);
+  });
 });
 
 describe('decimal character references that name no character', () => {

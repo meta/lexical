@@ -18,7 +18,7 @@ import {
   findOutermostTextMatchTransformer,
   importFoundTextMatchTransformer,
 } from './importTextMatchTransformer';
-import {unescapeText} from './utils';
+import {characterAt, characterBefore, isEscaped, unescapeText} from './utils';
 
 /**
  * Returns true if the node can contain transformable markdown.
@@ -33,6 +33,37 @@ export function canContainTransformableMarkdown(
 }
 
 /**
+ * What a delimiter run cut at `index` of `text` sees beyond its far end once
+ * the text is split there: before the run that starts at `index` when `step`
+ * is -1, after the run that ends there when it is 1. `outside` is what lies
+ * beyond the text.
+ */
+function characterBeyondRun(
+  text: string,
+  index: number,
+  step: 1 | -1,
+  outside: string | undefined,
+): string | undefined {
+  const isInside = (edge: number) =>
+    step === 1 ? edge < text.length : edge > 0;
+  const delimiter = text[step === 1 ? index - 1 : index];
+  let edge = index;
+  // An escaped delimiter before the run is not part of it.
+  while (
+    isInside(edge) &&
+    text[step === 1 ? edge : edge - 1] === delimiter &&
+    (step === 1 || !isEscaped(text, edge - 1))
+  ) {
+    edge += step;
+  }
+  return !isInside(edge)
+    ? outside
+    : step === 1
+      ? characterAt(text, edge)
+      : characterBefore(text, edge);
+}
+
+/**
  * Handles applying both text format and text match transformers.
  * It finds the outermost text format or text match and applies it,
  * then recursively calls itself to apply the next outermost transformer,
@@ -42,10 +73,17 @@ export function importTextTransformers(
   textNode: TextNode,
   textFormatTransformersIndex: TextFormatTransformersIndex,
   textMatchTransformers: TextMatchTransformer[],
+  // The characters around this text in the text it was split from, so that
+  // a delimiter run at its edge reads as it did there.
+  before?: string,
+  after?: string,
 ) {
+  const text = textNode.getTextContent();
   let foundTextFormat = findOutermostTextFormatTransformer(
     textNode,
     textFormatTransformersIndex,
+    before,
+    after,
   );
 
   let foundTextMatch = findOutermostTextMatchTransformer(
@@ -54,20 +92,31 @@ export function importTextTransformers(
   );
 
   if (foundTextFormat && foundTextMatch) {
-    if (foundTextFormat.isCodeSpan) {
-      // Code spans bind tighter than text-match transformers (e.g. equations
-      // or links). A code span must never be partially consumed by a text
-      // match, so prefer the code format unless the text match fully wraps it
-      // (in which case the code span is part of the match's raw content).
-      // https://github.com/meta/lexical/issues/8687
-      if (
-        foundTextMatch.startIndex <= foundTextFormat.startIndex &&
-        foundTextMatch.endIndex >= foundTextFormat.endIndex
-      ) {
-        // foundTextMatch wraps the code span - apply foundTextMatch
+    // Code spans bind tighter than text-match transformers (e.g. equations
+    // or links). A code span must never be partially consumed by a text
+    // match, so the match goes only when it fully wraps the span (in which
+    // case the span is part of the match's raw content).
+    // https://github.com/meta/lexical/issues/8687
+    const {startIndex, endIndex} = foundTextMatch;
+    const wraps = (span: {startIndex: number; endIndex: number}) =>
+      startIndex <= span.startIndex && endIndex >= span.endIndex;
+    if (
+      foundTextFormat.codeSpans.some(
+        span =>
+          startIndex < span.endIndex &&
+          endIndex > span.startIndex &&
+          !wraps(span),
+      )
+    ) {
+      // Apply the code span, or the emphasis before it, and not the text
+      // match, which would take part of the span.
+      foundTextMatch = null;
+    } else if (foundTextFormat.isCodeSpan) {
+      // The text match goes first when it wraps the code span or ends before
+      // it; one after it waits for the span.
+      if (wraps(foundTextFormat) || endIndex <= foundTextFormat.startIndex) {
         foundTextFormat = null;
       } else {
-        // Apply the code span
         foundTextMatch = null;
       }
     } else if (
@@ -85,6 +134,34 @@ export function importTextTransformers(
     }
   }
 
+  // Imports the text left on either side of a match from `startIndex` to
+  // `endIndex`, each with what lies beyond the run cut at its edge.
+  const importAround = (
+    nodeBefore: LexicalNode | undefined,
+    nodeAfter: LexicalNode | undefined,
+    startIndex: number,
+    endIndex: number,
+  ) => {
+    if (canContainTransformableMarkdown(nodeAfter)) {
+      importTextTransformers(
+        nodeAfter,
+        textFormatTransformersIndex,
+        textMatchTransformers,
+        characterBeyondRun(text, endIndex, -1, before),
+        after,
+      );
+    }
+    if (canContainTransformableMarkdown(nodeBefore)) {
+      importTextTransformers(
+        nodeBefore,
+        textFormatTransformersIndex,
+        textMatchTransformers,
+        before,
+        characterBeyondRun(text, startIndex, 1, after),
+      );
+    }
+  };
+
   if (foundTextFormat) {
     const result = importTextFormatTransformer(
       textNode,
@@ -93,26 +170,23 @@ export function importTextTransformers(
       foundTextFormat.transformer,
       foundTextFormat.match,
     );
-
-    if (canContainTransformableMarkdown(result.nodeAfter)) {
-      importTextTransformers(
-        result.nodeAfter,
-        textFormatTransformersIndex,
-        textMatchTransformers,
-      );
-    }
-    if (canContainTransformableMarkdown(result.nodeBefore)) {
-      importTextTransformers(
-        result.nodeBefore,
-        textFormatTransformersIndex,
-        textMatchTransformers,
-      );
-    }
+    const {startIndex, endIndex} = foundTextFormat;
+    const tagLength = foundTextFormat.match[1].length;
+    importAround(result.nodeBefore, result.nodeAfter, startIndex, endIndex);
     if (canContainTransformableMarkdown(result.transformedNode)) {
+      // A code span's fence is not its tag's length, and its content is not
+      // read for emphasis against what lies outside it.
+      const {isCodeSpan} = foundTextFormat;
       importTextTransformers(
         result.transformedNode,
         textFormatTransformersIndex,
         textMatchTransformers,
+        isCodeSpan
+          ? undefined
+          : characterBeyondRun(text, startIndex + tagLength, -1, before),
+        isCodeSpan
+          ? undefined
+          : characterBeyondRun(text, endIndex - tagLength, 1, after),
       );
     }
   } else if (foundTextMatch) {
@@ -126,21 +200,12 @@ export function importTextTransformers(
     if (!result) {
       return;
     }
-
-    if (canContainTransformableMarkdown(result.nodeAfter)) {
-      importTextTransformers(
-        result.nodeAfter,
-        textFormatTransformersIndex,
-        textMatchTransformers,
-      );
-    }
-    if (canContainTransformableMarkdown(result.nodeBefore)) {
-      importTextTransformers(
-        result.nodeBefore,
-        textFormatTransformersIndex,
-        textMatchTransformers,
-      );
-    }
+    importAround(
+      result.nodeBefore,
+      result.nodeAfter,
+      foundTextMatch.startIndex,
+      foundTextMatch.endIndex,
+    );
     if (canContainTransformableMarkdown(result.transformedNode)) {
       importTextTransformers(
         result.transformedNode,
@@ -165,8 +230,6 @@ export function importTextTransformers(
   // unescaped here: retained non-code results above have already had their
   // escapes read, and code spans must keep their backslashes.
   if (!foundTextFormat && !foundTextMatch) {
-    const textContent = textNode.getTextContent();
-    const unescapedText = unescapeText(textContent);
-    textNode.setTextContent(unescapedText);
+    textNode.setTextContent(unescapeText(text));
   }
 }

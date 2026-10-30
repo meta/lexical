@@ -10,7 +10,12 @@ import type {TextFormatTransformersIndex} from './MarkdownImport';
 import type {TextFormatTransformer} from './MarkdownTransformers';
 import type {TextNode} from 'lexical';
 
-import {PUNCTUATION, WHITESPACE} from './utils';
+import {
+  characterAt,
+  characterBefore,
+  getEmphasisSides,
+  isEscaped,
+} from './utils';
 
 interface Delimiter {
   index: number;
@@ -24,6 +29,8 @@ interface Delimiter {
 export function findOutermostTextFormatTransformer(
   textNode: TextNode,
   textFormatTransformersIndex: TextFormatTransformersIndex,
+  before?: string,
+  after?: string,
 ): {
   startIndex: number;
   endIndex: number;
@@ -33,6 +40,9 @@ export function findOutermostTextFormatTransformer(
   // content is never reprocessed and they bind tighter than text-match
   // transformers, so this is tagged here rather than re-derived by callers.
   isCodeSpan: boolean;
+  // The code spans, which a text-match transformer must not take part of
+  // even when an emphasis match around or before them is applied first.
+  codeSpans: {startIndex: number; endIndex: number}[];
 } | null {
   const textContent = textNode.getTextContent();
 
@@ -41,32 +51,15 @@ export function findOutermostTextFormatTransformer(
   // (e.g., links, raw HTML) may need similar treatment in the future.
   const codeTransformer = textFormatTransformersIndex.transformersByTag['`'];
 
-  const excludeRanges: {start: number; end: number}[] = [];
-  let codeMatch = null;
-  if (codeTransformer) {
-    const codeSpans = scanCodeSpans(textContent);
-
-    for (const span of codeSpans) {
-      if (!codeMatch) {
-        codeMatch = {
-          content: span.content,
-          endIndex: span.endIndex,
-          startIndex: span.startIndex,
-          tag: '`',
-        };
-      }
-
-      excludeRanges.push({
-        end: span.endIndex,
-        start: span.startIndex,
-      });
-    }
-  }
+  const codeSpans = codeTransformer ? scanCodeSpans(textContent) : [];
+  const codeMatch = codeSpans.length > 0 ? {...codeSpans[0], tag: '`'} : null;
 
   const delimiters = scanDelimiters(
     textContent,
     textFormatTransformersIndex,
-    excludeRanges,
+    codeSpans,
+    before,
+    after,
   );
   const emphasisMatch =
     delimiters.length > 0
@@ -77,10 +70,10 @@ export function findOutermostTextFormatTransformer(
   let resultTransformer = null;
 
   if (codeMatch && emphasisMatch) {
-    if (
-      emphasisMatch.startIndex <= codeMatch.startIndex &&
-      emphasisMatch.endIndex >= codeMatch.endIndex
-    ) {
+    // Delimiters inside the code span were excluded, so an emphasis match
+    // that starts first either holds the whole span or ends before it, and
+    // either way it is applied first.
+    if (emphasisMatch.startIndex <= codeMatch.startIndex) {
       resultMatch = emphasisMatch;
       resultTransformer =
         textFormatTransformersIndex.transformersByTag[emphasisMatch.tag];
@@ -110,6 +103,7 @@ export function findOutermostTextFormatTransformer(
   regexMatch.input = textContent;
 
   return {
+    codeSpans,
     endIndex: resultMatch.endIndex,
     // resultTransformer is the registered code transformer (by identity)
     // exactly when the chosen match is the code span.
@@ -129,14 +123,6 @@ export function scanCodeSpans(text: string): {
   endIndex: number;
   content: string;
 }[] {
-  const isEscaped = (index: number): boolean => {
-    let count = 0;
-    for (let i = index - 1; i >= 0 && text[i] === '\\'; i--) {
-      count++;
-    }
-    return count % 2 === 1;
-  };
-
   // Collect maximal backtick runs.
   const runs: {index: number; length: number}[] = [];
   let i = 0;
@@ -159,7 +145,7 @@ export function scanCodeSpans(text: string): {
     const opener = runs[openIdx];
 
     // An escaped backtick run is a literal backtick and cannot open a span.
-    if (isEscaped(opener.index)) {
+    if (isEscaped(text, opener.index)) {
       openIdx++;
       continue;
     }
@@ -203,7 +189,11 @@ export function scanCodeSpans(text: string): {
 function scanDelimiters(
   text: string,
   transformersIndex: TextFormatTransformersIndex,
-  excludeRanges: {start: number; end: number}[] = [],
+  codeSpans: {startIndex: number; endIndex: number}[],
+  // What a run at the start (or end) of the text sees beyond it; the edge of
+  // the line when undefined.
+  before: string | undefined,
+  after: string | undefined,
 ): Delimiter[] {
   const delimiters: Delimiter[] = [];
   const delimiterChars = new Set(
@@ -212,25 +202,20 @@ function scanDelimiters(
       .map(tag => tag[0]),
   );
 
-  const isEscaped = (index: number): boolean => {
-    let count = 0;
-    for (let i = index - 1; i >= 0 && text[i] === '\\'; i--) {
-      count++;
+  // The spans are in order and the scan only moves forward.
+  let span = 0;
+  const isInCodeSpan = (index: number): boolean => {
+    while (span < codeSpans.length && codeSpans[span].endIndex <= index) {
+      span++;
     }
-    return count % 2 === 1;
-  };
-
-  const isInExcludedRange = (index: number): boolean => {
-    return excludeRanges.some(
-      range => index >= range.start && index < range.end,
-    );
+    return span < codeSpans.length && index >= codeSpans[span].startIndex;
   };
 
   let i = 0;
   while (i < text.length) {
     const char = text[i];
 
-    if (!delimiterChars.has(char) || isEscaped(i) || isInExcludedRange(i)) {
+    if (!delimiterChars.has(char) || isEscaped(text, i) || isInCodeSpan(i)) {
       i++;
       continue;
     }
@@ -240,8 +225,11 @@ function scanDelimiters(
       len++;
     }
 
-    const canOpen = canEmphasis(char, text, i, len, true);
-    const canClose = canEmphasis(char, text, i, len, false);
+    const {canOpen, canClose} = getEmphasisSides(
+      char,
+      i === 0 ? before : characterBefore(text, i),
+      i + len === text.length ? after : characterAt(text, i + len),
+    );
 
     if (canOpen || canClose) {
       delimiters.push({
@@ -377,55 +365,6 @@ function processEmphasis(
   }
 
   return result;
-}
-
-function canEmphasis(
-  char: string,
-  text: string,
-  index: number,
-  length: number,
-  isOpen: boolean,
-): boolean {
-  if (!isFlanking(text, index, length, isOpen)) {
-    return false;
-  }
-  if (char === '*') {
-    return true;
-  }
-  if (char === '_') {
-    if (!isFlanking(text, index, length, !isOpen)) {
-      return true;
-    }
-    const adjacentChar = isOpen ? text[index - 1] : text[index + length];
-    return adjacentChar !== undefined && PUNCTUATION.test(adjacentChar);
-  }
-  return true;
-}
-
-function isFlanking(
-  text: string,
-  index: number,
-  length: number,
-  isLeft: boolean,
-): boolean {
-  const charBefore = text[index - 1];
-  const charAfter = text[index + length];
-
-  const [primary, secondary] = isLeft
-    ? [charAfter, charBefore]
-    : [charBefore, charAfter];
-
-  if (primary === undefined || WHITESPACE.test(primary)) {
-    return false;
-  }
-  if (!PUNCTUATION.test(primary)) {
-    return true;
-  }
-  return (
-    secondary === undefined ||
-    WHITESPACE.test(secondary) ||
-    PUNCTUATION.test(secondary)
-  );
 }
 
 export function importTextFormatTransformer(

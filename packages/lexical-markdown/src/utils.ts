@@ -56,9 +56,179 @@ export function transformersByType(transformers: Transformer[]): Readonly<{
   };
 }
 
-export const PUNCTUATION_OR_SPACE = /[!-/:-@[-`{-~\s]/;
-export const WHITESPACE = /\s/;
-export const PUNCTUATION = /[!"#$%&'()*+,\-./:;<=>?@[\]^_`{|}~]/;
+// CommonMark counts every character in the Unicode P (punctuation) and S
+// (symbol) general categories as punctuation, which includes all of the ASCII
+// punctuation characters. Its Unicode whitespace is Zs plus tab, line feed,
+// form feed and carriage return; JavaScript's `\s` adds others, such as
+// U+FEFF. Delimiter flanking depends on both.
+// https://spec.commonmark.org/0.31.2/#unicode-punctuation-character
+// https://spec.commonmark.org/0.31.2/#unicode-whitespace-character
+const PUNCTUATION = /[\p{P}\p{S}]/u;
+const WHITESPACE = /[\p{Zs}\t\n\f\r]/u;
+
+const WHITESPACE_CLASS = 0;
+const PUNCTUATION_CLASS = 1;
+const OTHER_CLASS = 2;
+
+function classifyByCategory(character: string): number {
+  return WHITESPACE.test(character)
+    ? WHITESPACE_CLASS
+    : PUNCTUATION.test(character)
+      ? PUNCTUATION_CLASS
+      : OTHER_CLASS;
+}
+
+// ASCII classes, filled from the categories on first use so that the common
+// case needs no regular expression.
+let asciiClasses: Uint8Array | undefined;
+
+/** How flanking sees `character`; the edge of the line is whitespace. */
+function classify(character: string | undefined): number {
+  if (character === undefined) {
+    return WHITESPACE_CLASS;
+  }
+  const code = character.charCodeAt(0);
+  if (code >= 0x80) {
+    return classifyByCategory(character);
+  }
+  if (asciiClasses === undefined) {
+    asciiClasses = new Uint8Array(0x80);
+    for (let c = 0; c < 0x80; c++) {
+      asciiClasses[c] = classifyByCategory(String.fromCharCode(c));
+    }
+  }
+  return asciiClasses[code];
+}
+
+/**
+ * Whether a delimiter run with `primary` on the side it faces (after it for
+ * left-flanking, before it for right-flanking) and `secondary` on the other
+ * side is flanking. `undefined` is the edge of the line.
+ * https://spec.commonmark.org/0.31.2/#left-flanking-delimiter-run
+ */
+export function isFlankedBy(
+  primary: string | undefined,
+  secondary: string | undefined,
+): boolean {
+  return isFlankedByClass(classify(primary), classify(secondary));
+}
+
+function isFlankedByClass(primary: number, secondary: number): boolean {
+  return (
+    primary === OTHER_CLASS ||
+    (primary === PUNCTUATION_CLASS && secondary !== OTHER_CLASS)
+  );
+}
+
+/**
+ * Whether a delimiter run of `marker` between `before` and `after` can open
+ * and close emphasis; `_` opens or closes inside a word only beside
+ * punctuation.
+ * https://spec.commonmark.org/0.31.2/#can-open-emphasis
+ */
+export function getEmphasisSides(
+  marker: string,
+  before: string | undefined,
+  after: string | undefined,
+): {canOpen: boolean; canClose: boolean} {
+  const beforeClass = classify(before);
+  const afterClass = classify(after);
+  const isLeft = isFlankedByClass(afterClass, beforeClass);
+  const isRight = isFlankedByClass(beforeClass, afterClass);
+  return marker === '_'
+    ? {
+        canClose: isRight && (!isLeft || afterClass === PUNCTUATION_CLASS),
+        canOpen: isLeft && (!isRight || beforeClass === PUNCTUATION_CLASS),
+      }
+    : {canClose: isRight, canOpen: isLeft};
+}
+
+export function isPunctuationOrSpace(character: string): boolean {
+  return classify(character) !== OTHER_CLASS;
+}
+
+// Readers built on micromark, such as `@lexical/mdast`, read a character
+// outside the Basic Multilingual Plane one UTF-16 unit at a time, so as a
+// letter, and count JavaScript's whitespace, U+FEFF among it, as whitespace.
+// Export has to open and close for those readers as well.
+const MICROMARK_ONLY_WHITESPACE = /[\v\u2028\u2029\ufeff]/;
+function asMicromarkReads(character: string | undefined): string | undefined {
+  return character === undefined
+    ? character
+    : character.length > 1
+      ? 'a'
+      : MICROMARK_ONLY_WHITESPACE.test(character)
+        ? ' '
+        : character;
+}
+
+/** {@link isFlankedBy}, both for CommonMark and for micromark. */
+export function isPortablyFlankedBy(
+  primary: string | undefined,
+  secondary: string | undefined,
+): boolean {
+  return (
+    isFlankedBy(primary, secondary) &&
+    isFlankedBy(asMicromarkReads(primary), asMicromarkReads(secondary))
+  );
+}
+
+/** {@link getEmphasisSides}, both for CommonMark and for micromark. */
+export function getPortableEmphasisSides(
+  marker: string,
+  before: string | undefined,
+  after: string | undefined,
+): {canOpen: boolean; canClose: boolean} {
+  const sides = getEmphasisSides(marker, before, after);
+  const micromark = getEmphasisSides(
+    marker,
+    asMicromarkReads(before),
+    asMicromarkReads(after),
+  );
+  return {
+    canClose: sides.canClose && micromark.canClose,
+    canOpen: sides.canOpen && micromark.canOpen,
+  };
+}
+
+/** Whether CommonMark or micromark reads `character` as a letter. */
+export function isLetterForSomeReader(character: string): boolean {
+  return (
+    !isPunctuationOrSpace(character) ||
+    !isPunctuationOrSpace(asMicromarkReads(character)!)
+  );
+}
+
+function isHighSurrogate(code: number): boolean {
+  return code >= 0xd800 && code <= 0xdbff;
+}
+
+function isLowSurrogate(code: number): boolean {
+  return code >= 0xdc00 && code <= 0xdfff;
+}
+
+/** The character (code point) that starts at `index`, if any. */
+export function characterAt(text: string, index: number): string | undefined {
+  return isHighSurrogate(text.charCodeAt(index)) &&
+    isLowSurrogate(text.charCodeAt(index + 1))
+    ? text.slice(index, index + 2)
+    : text[index];
+}
+
+/** The character (code point) that ends just before `index`, if any. */
+export function characterBefore(
+  text: string,
+  index: number,
+): string | undefined {
+  return isLowSurrogate(text.charCodeAt(index - 1)) &&
+    isHighSurrogate(text.charCodeAt(index - 2))
+    ? text.slice(index - 2, index)
+    : text[index - 1];
+}
+
+export function toCharacterReference(character: string): string {
+  return `&#${character.codePointAt(0)};`;
+}
 
 const MARKDOWN_EMPTY_LINE_REG_EXP = /^\s{0,3}$/;
 
