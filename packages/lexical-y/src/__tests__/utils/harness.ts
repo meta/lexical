@@ -230,8 +230,10 @@ export class Peer {
     /** Runs on the editor before the binding starts. */
     readonly prepare?: (editor: LexicalEditor) => void,
     readonly withBlockIds: boolean = WITH_BLOCK_IDS,
+    /** Yjs garbage collection (products use Yjs's default, on). */
+    readonly gc: boolean = WITH_GC,
   ) {
-    this.doc = createYDoc(null, {gc: false});
+    this.doc = createYDoc(null, {gc});
     this.doc.clientID = clientID;
     const bound = createBoundEditor(this.doc, {
       namespace: 'test',
@@ -356,6 +358,7 @@ export async function setup(
     nodes?: Klass<LexicalNode>[];
     prepare?: (editor: LexicalEditor) => void;
     withBlockIds?: boolean;
+    gc?: boolean;
   } = {},
 ): Promise<Setup> {
   const net: Network = {
@@ -367,7 +370,14 @@ export async function setup(
   const ids = options.ids ?? [1, 2];
   const peers = ids.map(
     id =>
-      new Peer(id, net, options.nodes, options.prepare, options.withBlockIds),
+      new Peer(
+        id,
+        net,
+        options.nodes,
+        options.prepare,
+        options.withBlockIds,
+        options.gc,
+      ),
   );
   const [a] = peers;
   a.update(() => {
@@ -549,6 +559,11 @@ export function mainNormalizes(peer: Peer): string | null {
  * YCollabExtension and BlockIdExtension, as an app that uses both does.
  */
 export const WITH_BLOCK_IDS = process.env.LEXICAL_Y_BLOCK_ID === '1';
+/**
+ * Peers' Yjs garbage collection: off unless a test asks for it, or
+ * `LEXICAL_Y_GC=1` runs every harness test with it on (as products run).
+ */
+export const WITH_GC = process.env.LEXICAL_Y_GC === '1';
 
 /**
  * An editor bound to `doc`: `createEditor` and a `YBinding` (started by

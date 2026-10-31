@@ -114,7 +114,7 @@ const WORDS: [number, number][] = [
   [14, 16],
 ];
 
-describe('@lexical/y a delete collapsing a run keeps the end a concurrent restore relies on', () => {
+describe('@lexical/y a delete next to a run keeps the end a concurrent restore relies on', () => {
   for (const ids of [
     [1, 2],
     [2, 1],

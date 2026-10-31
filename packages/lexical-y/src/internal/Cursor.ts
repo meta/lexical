@@ -47,9 +47,10 @@ import {deleteItem, isGone} from './Seen';
  * Y.Node#applyDelta), but the items differ: a delete keeps every format item
  * in the run of deleted content and format items it leaves, which Yjs removes
  * as redundant and concurrent writers rely on (see delete), and a format
- * change keeps the items that bound the content around its range, opens its value next to its content and closes it where
- * the change that gave the range its old value ends (see format), all per
- * family of keys (see formatFamily); an undo keeps some of the closers a
+ * change keeps the items that bound the content around its range, opens its
+ * value next to its content and closes it where the change that gave the
+ * range its old value ends (see format), all per family of keys (see
+ * formatFamily); an undo keeps some of the closers a
  * format change wrote (see YBinding#isKeptByUndo).
  */
 
@@ -242,6 +243,13 @@ export function runOpener(doc: Doc, item: Item): Item {
         break;
       }
       if (!it.deleted && isFormat(it) && keyOf(it) === key) {
+        break;
+      }
+      // A restore follows text its own client inserted inside the run,
+      // after the null (see insertNegatedFormats): content of another
+      // client between them means `current` opens a run of its own (its
+      // client's earlier end and later opener, #9599).
+      if (!isFormat(it) && it.id.client !== current.id.client) {
         break;
       }
     }
@@ -862,6 +870,31 @@ export class Cursor {
   }
 
   /**
+   * Whether format item `item` is one this client wrote, before this
+   * transaction, right next to text of its own in the same insert: the null
+   * right before the text (`before`: the text's origin is the null) or the
+   * restore right after it (the restore's origin is the text's last unit).
+   */
+  private isOwnInsertFormat(item: Item, before: boolean): boolean {
+    const doc = this.tr.doc;
+    const client = doc.clientID;
+    if (item.id.client !== client || this.tr.insertSet.hasId(item.id)) {
+      return false;
+    }
+    const clock = before ? item.id.clock + item.length : item.id.clock - 1;
+    if (clock < 0 || clock >= doc.store.getClock(client)) {
+      return false;
+    }
+    const text = doc.store.getItem(createID(client, clock));
+    if (!(text instanceof Item) || text.content instanceof ContentFormat) {
+      return false;
+    }
+    const origin = before ? text.origin : item.origin;
+    const want = before ? item.id.clock + item.length - 1 : clock;
+    return origin !== null && origin.client === client && origin.clock === want;
+  }
+
+  /**
    * Whether `last` may end the format change `first` was written by: one
    * client wrote both, `first` before this transaction and before `last`,
    * and no content between them (a format change writes format items only).
@@ -1049,6 +1082,23 @@ export class Cursor {
             }
             if (
               !inRange &&
+              n > 0 &&
+              !opened.has(key) &&
+              prev !== null &&
+              equalFormatValue(prev, attr) &&
+              this.isOwnInsertFormat(r, true)
+            ) {
+              // The null this client's own earlier insert wrote before its
+              // text, which the range covers with the value before it:
+              // removed, as Yjs' formatText does, so the run goes on over
+              // the range and no one relies on it (#9671).
+              deleteItem(r, this.tr);
+              negated.set(key, value);
+              this.forward();
+              continue;
+            }
+            if (
+              !inRange &&
               !opened.has(key) &&
               prev !== null &&
               !equalFormatValue(prev, value)
@@ -1064,6 +1114,15 @@ export class Cursor {
             if (equalFormatValue(attr, value)) {
               if (n === 0) {
                 if (attr !== null) {
+                  if (this.isOwnInsertFormat(r, false)) {
+                    // The restore this client's own earlier insert wrote
+                    // after its text, with the range's value: removed, as
+                    // Yjs' formatText does, the runs joined (#9671).
+                    negated.delete(key);
+                    deleteItem(r, this.tr);
+                    this.forward();
+                    continue;
+                  }
                   // Rule 3. The opener of the content after the range: kept,
                   // and the range closed before it.
                   break loop;
@@ -1145,6 +1204,7 @@ export class Cursor {
     // at all where that is the range's value, or with that item itself
     // where its value is the value from before (the restore reuses it).
     const ahead = new Map<string, Item>();
+    const copiedEnds: Item[] = [];
     for (
       let it = this.right;
       it !== null && !isLiveContent(it);
@@ -1176,10 +1236,29 @@ export class Cursor {
             formatClosers.add(this.right);
           }
           this.forward();
+          // Rule 5 for this copy of another client's opener: it restates
+          // that opener's run, whose change's undo deletes the opener and
+          // the run's end (see changeEnd) but not the copy, which would run
+          // on over the text after it (#9622). End it right after that end
+          // too, with a null of this write's own.
+          if (value !== null && next.id.client !== this.tr.doc.clientID) {
+            const end = changeEnd(this.tr.doc, next);
+            if (end !== null && !end.deleted && valueOf(end) === null) {
+              copiedEnds.push(end);
+            }
+          }
         }
       }
     }
     this.passed = null;
     this.insertNegatedFormats(negated, true);
+    for (const end of copiedEnds) {
+      formatClosers.add(
+        this.insertAfter(
+          end,
+          new ContentFormat(keyOf(end), null as unknown as object),
+        ),
+      );
+    }
   }
 }

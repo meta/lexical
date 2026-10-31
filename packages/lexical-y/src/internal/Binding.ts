@@ -306,6 +306,17 @@ const MAX_PENDING_COMMITS = 16;
  */
 const MAX_REGISTRATION_RUNS = 100;
 
+/**
+ * The bindings that keep an item from garbage collection (D88), per item, and
+ * whether it was kept already when the first of them did (by an UndoManager's
+ * step): the item is released when the last of them releases it, and only
+ * if nothing else kept it before.
+ */
+const keepOwners = new WeakMap<
+  Item,
+  {external: boolean; owners: Set<object>}
+>();
+
 /** What an update listener gets for a commit (see YBinding#onUpdate). */
 type UpdatePayload = {
   dirtyElements: Map<NodeKey, boolean>;
@@ -1110,6 +1121,164 @@ export class YBinding {
         trackedOrigins: new Set([this]),
       });
       this._undoManager = um;
+      // Undo reads the format items of the changes on its stacks, and the
+      // end each of them gave a run it deleted (see isKeptByUndo,
+      // closeRestoredRuns, changeEnd), after a collaborator deleted them:
+      // keep those from garbage collection (Item.keep, as UndoManager keeps
+      // the items a change deletes) so a collected item's key and value
+      // stay readable (#9623). The flag is local; while an item is kept,
+      // this document still holds its content (D88).
+      // What this binding keeps is released when both stacks are empty
+      // (after a clear, an undo that leaves nothing to redo, or a write the
+      // stacks did not capture) and when the binding is disposed. Another
+      // binding on the same document, or an UndoManager, may keep the same
+      // item: it stays kept until every binding that kept it released it.
+      // Releasing collects nothing: an item deleted while kept keeps its
+      // content until the document reloads, as Yjs leaves the items an
+      // UndoManager step kept (any UndoManager on the document may still
+      // restore it).
+      const kept = new Set<Item>();
+      // This listening lifetime: a binding started again after a dispose
+      // owns its keeps anew, apart from a release the old one queued.
+      const owner = {};
+      const keep = (item: Item | null) => {
+        for (let it = item; it !== null; it = (it.parent as YNode)._item) {
+          let entry = keepOwners.get(it);
+          if (entry === undefined) {
+            // `external`: kept already (by an UndoManager's step), which
+            // this leaves to whoever kept it.
+            entry = {external: it.keep, owners: new Set()};
+            keepOwners.set(it, entry);
+          } else if (entry.owners.has(owner)) {
+            // Its parents are this lifetime's already.
+            break;
+          }
+          entry.owners.add(owner);
+          it.keep = true;
+          kept.add(it);
+        }
+      };
+      // Released only between transactions: inside one (another
+      // UndoManager's stack event, a listener) the transaction's own
+      // collection, which runs after its listeners, would still collect an
+      // item it deleted that another UndoManager has just kept.
+      // A queued release keeps the stronger request (dispose releases
+      // whatever the stacks hold), and a document destroyed meanwhile
+      // releases at once (its listeners, the queued one too, are gone).
+      let queued: 'empty' | 'always' | null = null;
+      let disposed = false;
+      const inTransaction = () =>
+        this._doc._transaction !== null ||
+        this._doc._transactionCleanups.length > 0;
+      const releaseNow = () => {
+        for (const it of kept) {
+          const entry = keepOwners.get(it);
+          if (entry !== undefined) {
+            entry.owners.delete(owner);
+            if (entry.owners.size > 0) {
+              continue;
+            }
+            keepOwners.delete(it);
+            if (entry.external) {
+              continue;
+            }
+          }
+          it.keep = false;
+        }
+        kept.clear();
+        if (disposed) {
+          this._doc.off('destroy', onDestroy);
+        }
+      };
+      const release = (onlyWhenEmpty: boolean) => {
+        if (kept.size === 0) {
+          if (disposed) {
+            this._doc.off('destroy', onDestroy);
+          }
+          return;
+        }
+        if (
+          onlyWhenEmpty &&
+          (um.undoStack.length > 0 || um.redoStack.length > 0)
+        ) {
+          return;
+        }
+        if (inTransaction() && !this._doc.isDestroyed) {
+          if (queued === null) {
+            this._doc.once('afterAllTransactions', () => {
+              const always = queued === 'always';
+              queued = null;
+              release(!always);
+            });
+          }
+          if (queued !== 'always') {
+            queued = onlyWhenEmpty ? 'empty' : 'always';
+          }
+          return;
+        }
+        releaseNow();
+      };
+      const onDestroy = () => {
+        disposed = true;
+        queued = null;
+        releaseNow();
+      };
+      this._doc.on('destroy', onDestroy);
+      const releaseWhenEmpty = () => release(true);
+      um.on('stack-cleared', () => {
+        releaseWhenEmpty();
+        // A clear of one stack makes the UndoManager release what that
+        // stack's steps kept, parents included: keep what this binding
+        // still relies on.
+        for (const it of kept) {
+          if (!it.keep) {
+            it.keep = true;
+          }
+        }
+      });
+      this.disposers.push(() => {
+        disposed = true;
+        release(false);
+      });
+      const keepFormats = (tr: Transaction) => {
+        // A listener call already under way when the binding was disposed
+        // keeps nothing.
+        if (!tr.local || disposed) {
+          return;
+        }
+        if (tr.origin === um) {
+          // An undo or redo that leaves both stacks empty (one that changes
+          // nothing pops its step without an event).
+          releaseWhenEmpty();
+        }
+        if (tr.origin !== this && tr.origin !== um) {
+          return;
+        }
+        const ends: Item[] = [];
+        iterateStructsByIdSet(tr, tr.deleteSet, s => {
+          if (
+            s instanceof Item &&
+            s.content instanceof ContentFormat &&
+            s.content.value !== null
+          ) {
+            const end = changeEnd(this._doc, s);
+            if (end !== null) {
+              ends.push(end);
+            }
+          }
+        });
+        ends.forEach(keep);
+        iterateStructsByIdSet(tr, tr.insertSet, s => {
+          if (s instanceof Item && s.content instanceof ContentFormat) {
+            keep(s);
+          }
+        });
+        // A write the stacks did not capture (a capture filter, an origin no
+        // longer tracked) leaves nothing an undo could read.
+        releaseWhenEmpty();
+      };
+      this._doc.on('afterTransaction', keepFormats);
+      this.disposers.push(() => this._doc.off('afterTransaction', keepFormats));
       // Each step keeps the selection from before it, which undoing it
       // restores (as @lexical/history does): a local edit's from before the
       // edit, and the step an undo or redo pushes to the other stack the

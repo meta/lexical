@@ -281,16 +281,17 @@ const REMOVALS: Removal[] = [
 ];
 
 /**
- * The cells main fails, pinned as test.fails until the fixes land: with
- * garbage collection on, the restored value runs on past its end (#9623);
+ * The cells that still fail, pinned as test.fails until their fix lands:
  * where the removal took part of the word, the author's undo leaves the rest
  * of the word with the value the removal restated after that part (D64,
- * #9560), and the removal's undo gives the whole word back.
+ * #9560), and the removal's undo gives the whole word back. With garbage
+ * collection on, the restored value ran on past its end (#9623) until the
+ * binding kept its own format items from collection while they are undoable.
  */
 function testOnMain(name: string, fn: () => void) {
   const fails =
     name.includes('its author undoes it first') &&
-    (name.includes('gc on') || name.includes('part of the word'));
+    name.includes('part of the word');
   (fails ? test.fails : test)(name, fn);
 }
 

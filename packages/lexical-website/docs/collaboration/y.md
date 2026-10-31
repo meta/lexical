@@ -1103,7 +1103,18 @@ not merge as a user might expect:
   Plain typing and deleting add none, and neither does typing
   inside a formatted run. So a document grows with the formatted text
   deleted from it, not only with its content: most in a place where
-  formatted text is typed and deleted over and over.
+  formatted text is typed and deleted over and over, where edits also get
+  slower (a comment added and its word deleted 3,000 times at one place:
+  41 ms per edit, against 27 ms when a delete still removed those items).
+- **Deleted format items a client can undo.** While a client can undo a
+  format change, it keeps that change's format items, even after a
+  collaborator deletes them, so its undo still reads them; it lets them go
+  when its undo history is cleared or the binding stops. Until the
+  document reloads, that client's document, and any state it encodes,
+  holds those deleted items: about 25 bytes each (100 rounds of one client
+  bolding a word and another clearing it: 2,603 bytes for the first
+  client's state against 229 for the second). A server or relay that loads
+  such a state with garbage collection on drops them.
 - **Named slots.** A slot holds one node: two collaborators setting the same
   slot at once keep one writer's node, and text typed in a slot that a
   collaborator replaces or removes at the same time is lost (as with delete
@@ -1347,8 +1358,9 @@ reproduces it:
   leave the format on text typed next to the range (see Undo above):
   [#9560](https://github.com/meta/lexical/issues/9560).
 - A comment can spread onto later words when a client types uncommented
-  text inside it offline while a collaborator's deletes there drop the item
-  that ended it: [#9564](https://github.com/meta/lexical/issues/9564).
+  text inside it offline while a collaborator's write removes the item that
+  ended it (a delete no longer does: it keeps every format item it leaves):
+  [#9564](https://github.com/meta/lexical/issues/9564).
 - Turning a paragraph inside a container that is itself inside a
   container (both not shadow roots) into a list removes the outer
   container and makes no list, in every `@lexical/y` editor (it runs
