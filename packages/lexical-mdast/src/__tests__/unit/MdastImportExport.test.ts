@@ -614,6 +614,157 @@ describe('@lexical/mdast import/export', () => {
     }
   });
 
+  it('reuses literal validation during lookahead and repeated exports', () => {
+    let parses = 0;
+    using editor = buildEditorFromExtensions(
+      MdastCommonMarkExtension,
+      MdastAutolinkLiteralExtension,
+      configExtension(MdastExtension, {
+        mdastExtensions: [
+          {
+            transforms: [
+              () => {
+                parses++;
+              },
+            ],
+          },
+        ],
+      }),
+    );
+    const markdown = 'https://lexical.dev www.example.com';
+    editor.update(() => $convertFromMarkdownString(markdown), {
+      discrete: true,
+    });
+    parses = 0;
+    expect(editor.read(() => $convertToMarkdownString())).toBe(markdown);
+    expect(parses).toBeLessThanOrEqual(2);
+    const firstExportParses = parses;
+    expect(editor.read(() => $convertToMarkdownString())).toBe(markdown);
+    expect(parses).toBe(firstExportParses);
+    editor.update(
+      () => $getRoot().getAllTextNodes()[0].setTextContent('caption'),
+      {discrete: true},
+    );
+    const edited = '[caption](https://lexical.dev) www.example.com';
+    expect(editor.read(() => $convertToMarkdownString())).toBe(edited);
+    expect(parses).toBeLessThanOrEqual(firstExportParses + 1);
+    const editedExportParses = parses;
+    expect(editor.read(() => $convertToMarkdownString())).toBe(edited);
+    expect(parses).toBe(editedExportParses);
+  });
+
+  it('reuses literal validation across subtree and selection exports', () => {
+    let parses = 0;
+    using editor = buildEditorFromExtensions(
+      MdastCommonMarkExtension,
+      MdastAutolinkLiteralExtension,
+      configExtension(MdastExtension, {
+        mdastExtensions: [
+          {
+            transforms: [
+              () => {
+                parses++;
+              },
+            ],
+          },
+        ],
+      }),
+    );
+    const markdown = 'https://one.example\n\nhttps://two.example';
+    editor.update(() => $convertFromMarkdownString(markdown), {
+      discrete: true,
+    });
+    parses = 0;
+    editor.read(() => {
+      const first = $assertNodeType(
+        $getRoot().getFirstChildOrThrow(),
+        $isElementNode,
+      );
+      const last = $assertNodeType(
+        $getRoot().getLastChildOrThrow(),
+        $isElementNode,
+      );
+      expect($convertToMarkdownString(first)).toBe('https://one.example');
+      expect($convertToMarkdownString(last)).toBe('https://two.example');
+      const warmedParses = parses;
+      expect($convertToMarkdownString(first)).toBe('https://one.example');
+      expect($convertToMarkdownString(last)).toBe('https://two.example');
+      expect($convertToMarkdownString()).toBe(markdown);
+      expect(parses).toBe(warmedParses);
+    });
+    editor.update(() => $getRoot().getAllTextNodes()[0].select(0), {
+      discrete: true,
+    });
+    const warmedParses = parses;
+    expect(editor.read(() => $convertSelectionToMarkdownString())).toBe(
+      'https://one.example',
+    );
+    expect(editor.read(() => $convertToMarkdownString())).toBe(markdown);
+    expect(parses).toBe(warmedParses);
+  });
+
+  it('keeps edits to imported autolink literals', () => {
+    using editor = buildEditorFromExtensions(
+      MdastCommonMarkExtension,
+      MdastAutolinkLiteralExtension,
+      MdastExtension,
+    );
+    editor.update(
+      () =>
+        $convertFromMarkdownString(
+          'https://one.example https://two.example https://three.example',
+        ),
+      {discrete: true},
+    );
+    expect(editor.read(() => $convertToMarkdownString())).toBe(
+      'https://one.example https://two.example https://three.example',
+    );
+    const $links = () =>
+      $assertNodeType($getRoot().getFirstChildOrThrow(), $isElementNode)
+        .getChildren()
+        .filter($isLinkNode);
+    editor.update(
+      () => {
+        const [destination, label, formatted] = $links();
+        destination.setURL('https://changed.example');
+        $assertNodeType(
+          label.getFirstChildOrThrow(),
+          $isTextNode,
+        ).setTextContent('caption');
+        $assertNodeType(
+          formatted.getFirstChildOrThrow(),
+          $isTextNode,
+        ).setFormat('bold');
+      },
+      {discrete: true},
+    );
+    const markdown = editor.read(() => $convertToMarkdownString());
+    expect(markdown).toBe(
+      '[https://one.example](https://changed.example) ' +
+        '[caption](https://two.example) ' +
+        '[**https://three.example**](https://three.example)',
+    );
+    editor.update(() => $convertFromMarkdownString(markdown), {
+      discrete: true,
+    });
+    editor.read(() => {
+      expect(
+        $links().map(link => [link.getURL(), link.getTextContent()]),
+      ).toEqual([
+        ['https://changed.example', 'https://one.example'],
+        ['https://two.example', 'caption'],
+        ['https://three.example', 'https://three.example'],
+      ]);
+      expect(
+        $assertNodeType(
+          $links()[2].getFirstChildOrThrow(),
+          $isTextNode,
+        ).hasFormat('bold'),
+      ).toBe(true);
+      expect($convertToMarkdownString()).toBe(markdown);
+    });
+  });
+
   describe('mdast tree interop', () => {
     it('$convertToMdast exposes the mdast tree before serialization', () => {
       using editor = createEditor();
