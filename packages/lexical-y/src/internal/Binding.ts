@@ -1040,7 +1040,7 @@ export class YBinding {
     // Yjs cleans up formats after a remote transaction by rescanning every
     // type that has formats (whole containers here, so O(document) per remote
     // bold). The binding keeps format items a write leaves redundant that
-    // a concurrent write may rely on (see Cursor#collapseGap), so its
+    // a concurrent write may rely on (see Cursor#delete), so its
     // containers opt out: they are marked as having no formats before Yjs
     // decides whether to clean up. A document createYDoc made never cleans
     // up; this keeps one that does (read only, see unsupportedConfig) from

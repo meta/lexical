@@ -96,7 +96,7 @@ export const WRAPPER_PREFIX = 'w:';
 /**
  * The family of a format key: the keys whose items together give content
  * one attribute, which the write cursor bounds and keeps at boundaries as
- * one (see Cursor#collapseGap and Cursor#format). A set-valued state's
+ * one (see Cursor#format). A set-valued state's
  * member entries (`s:<key>\u001f<member>`, see setMemberEntry) are the
  * family of the set's key (`s:<key>`), with an array an earlier build
  * stored whole under that key (see joinSetMembers): together they give

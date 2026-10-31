@@ -105,7 +105,7 @@ describe('a set stored one format key per member', () => {
     });
   }
 
-  test('words of new members typed and deleted again at one place leave a bounded number of format items', () => {
+  test('words of new members typed and deleted again at one place leave two format items each', () => {
     const a = doc(1);
     a.get('t').insert(0, 'start middle end');
     const counts: number[] = [];
@@ -119,11 +119,9 @@ describe('a set stored one format key per member', () => {
       }
     }
     expect(members(a).join('')).toBe('start middle end');
-    expect(counts[2]).toBe(counts[0]);
-    // The last word's two items, the opener and closer of the word deleted
-    // before it (that opener gives the place of the last word's closer its
-    // value), and the run's last two items.
-    expect(counts[2]).toBeLessThanOrEqual(6);
+    // Each word's opener and closer stay (a delete keeps the format items
+    // around and inside what it deletes, D86): 40, 80 and 120.
+    expect(counts).toEqual([40, 80, 120]);
   });
 
   // S6-9: where a run keeps a unit of a family of several keys, the value

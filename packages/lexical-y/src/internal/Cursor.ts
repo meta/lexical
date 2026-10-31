@@ -44,11 +44,10 @@ import {deleteItem, isGone} from './Seen';
  * licensed), which are not exported. Only the parts this binding needs are
  * implemented: no renderer (attribution) support. A sequence of edits shows
  * the same content and formats as through Yjs (Cursor.test checks it against
- * Y.Node#applyDelta), but the items differ: a delete keeps, in the run of
- * deleted content and format items it leaves, a bounded number of the format
- * items Yjs removes as redundant, which concurrent writers rely on (see
- * collapseGap), and a format change keeps the items that bound the content
- * around its range, opens its value next to its content and closes it where
+ * Y.Node#applyDelta), but the items differ: a delete keeps every format item
+ * in the run of deleted content and format items it leaves, which Yjs removes
+ * as redundant and concurrent writers rely on (see delete), and a format
+ * change keeps the items that bound the content around its range, opens its value next to its content and closes it where
  * the change that gave the range its old value ends (see format), all per
  * family of keys (see formatFamily); an undo keeps some of the closers a
  * format change wrote (see YBinding#isKeptByUndo).
@@ -305,19 +304,6 @@ export class Cursor {
    */
   hidden: Hidden | null = null;
   /**
-   * Where the run of items without live content that the cursor is in
-   * starts (see collapseGap): after this item, or at the parent's start for
-   * null. The live content before it, or the item the cursor was made after
-   * when it has passed no live content since (and that item is not live).
-   */
-  private gapStart: Item | null;
-  /**
-   * The value each key had at gapStart, for the keys whose format items the
-   * cursor passed since; any other key still has the value it has at the
-   * cursor.
-   */
-  private readonly gapFormats: Formats = new Map();
-  /**
    * The live format item that gave each key its value at the cursor, for
    * the keys whose format items the cursor passed.
    */
@@ -337,7 +323,6 @@ export class Cursor {
     this.left = left;
     this.right = left === null ? parent._start : left.right;
     this.formats = formats;
-    this.gapStart = left;
     // Index search markers would not follow these item-level edits.
     if (parent._searchMarker !== null) {
       parent._searchMarker.length = 0;
@@ -357,10 +342,8 @@ export class Cursor {
       this.right = item.right;
       return;
     }
-    if (isLiveContent(item)) {
-      this.gapStart = item;
-      this.gapFormats.clear();
-    } else if (
+    if (
+      !isLiveContent(item) &&
       this.passed !== null &&
       isFormat(item) &&
       !this.tr.insertSet.hasId(item.id)
@@ -374,9 +357,6 @@ export class Cursor {
     }
     if (!isGone(item) && isFormat(item)) {
       const {key, value} = item.content as ContentFormat;
-      if (!this.gapFormats.has(key)) {
-        this.gapFormats.set(key, this.formats.get(key) ?? null);
-      }
       this.sources.set(key, item);
       if (value === null) {
         this.formats.delete(key);
@@ -863,12 +843,11 @@ export class Cursor {
   }
 
   /**
-   * Delete `n` content units, and collapse the format items of the run of
-   * items without live content that the delete leaves (see collapseGap).
+   * Delete `n` content units. The format items around and inside them stay:
+   * a concurrent writer that has not seen the delete relies on them, and an
+   * undo of the delete brings the content back between them (D24).
    */
   delete(n: number): void {
-    let first: Item | null = null;
-    let last: Item | null = null;
     while (n > 0 && this.right !== null) {
       const item = this.right;
       if (this.counts(item)) {
@@ -877,273 +856,8 @@ export class Cursor {
         }
         n -= item.length;
         deleteItem(item, this.tr);
-        first = first ?? item;
-        last = item;
       }
       this.forward();
-    }
-    if (first !== null && last !== null) {
-      this.collapseGap(first, last);
-    }
-  }
-
-  /**
-   * Collapse the format items of the run of items without live content (deleted
-   * content and format items) that a delete of the content from `first` to
-   * `last` leaves the cursor in. Per family (see formatFamily), keep the units
-   * (see unitFrom) this delete leaves: those inside the content it deletes, the
-   * last before it and the first after it; and of the others, which earlier
-   * deletes left, the first that changes the family's value the content before
-   * the run has, and the last two. Where a unit is kept, also keep, of each key
-   * of its family, the last item before the end of that place (a deleted item
-   * or content ends it) where without it the key would have another value
-   * there: a format change keeps the item before its opener at a place (see
-   * format), and with several keys a whole value's item there gives every key
-   * its value. Delete the items of the rest, except, of each key, the last item
-   * where without it the key would have another value after the run, and,
-   * where the key's last item is kept, the last item before it of that key with
-   * the same value (no other value between them) that another client wrote.
-   * Invariant:
-   * such a run holds, besides the units of the last delete in it, at most five
-   * units per family, the items that give a family its value at the end of the
-   * places of those, and items that change a key's value between the content
-   * before the run and the content after it, whatever was written and deleted
-   * there before. Why: a delete that leaves the format items of the content it
-   * deletes live grows the items a document stores with its editing history
-   * (each word of another format, comment or NodeState value typed at one place
-   * and deleted again left two more: 2,000 words left 4,000; with a set stored
-   * one key per member, each new comment a key of its own). And why those: a
-   * concurrent writer that has not seen the delete relies on them. The units of
-   * the content a delete removes give text a peer types inside it, which writes
-   * no item where its value matches, its value (a line deleted while a peer
-   * typed plain text after an italic word in it made that text italic, when the
-   * word's closer went); the first unit ends the value of the content before
-   * the run (a peer's text typed after that content without it, or a peer's
-   * format change that ends its range there); the units around the deleted
-   * content give text a peer typed at either of its edges, with its value or
-   * without it, that value or the one after it; the last unit gives the content
-   * after the run its value (two peers deleting the characters before a space
-   * at once each left the space's own item, which the other relied on); and the
-   * one before it gives that content the value it falls back to where a
-   * concurrent format change of it removes its item (a comment resolved on a
-   * character took the comment of the text deleted before it). The other
-   * client's item with the key's last value stays as each client's undo deletes
-   * its own items only: a run's end and the null another client wrote right
-   * after it (see format, rule 5) each end the run where the other's writer
-   * removes theirs (a paste over plain text typed after a word two comments
-   * cover kept only the typist's null of one comment, and the typist's
-   * concurrent undo left that comment on to the end of the document). The
-   * items a kept
-   * unit's place holds for the other keys of its family give content restored
-   * there, as an undo of its delete restores it, the value it had: a word two
-   * clients gave a comment each, deleted, kept one comment's opener once a
-   * peer's later delete next to it collapsed the run, so the undo brought it
-   * back with one comment (each client's own writes are undone last first, so
-   * its own later delete is undone before its earlier one). Yjs' deleteText
-   * keeps the last item only, and not even that one where it repeats the value
-   * before the run (its cleanupFormattingGap), which lost the value in each of
-   * those cases. What the bound gives up: text a peer types inside content an
-   * earlier delete in the run removed, once a later delete collapsed it, takes
-   * the value that content had at its start where its value changed more than
-   * once along it, and text typed at the edges of such content can take the
-   * value of content deleted later; content an undo restores there, of a delete
-   * a peer's later delete collapsed the run of, can take those values too.
-   */
-  private collapseGap(first: Item, last: Item): void {
-    const start =
-      this.gapStart === null ? this.parent._start : this.gapStart.right;
-    const byFamily = new Map<string, Item[][]>();
-    // The format items left of the cursor (their values are in formats).
-    const passed = new Set<Item>();
-    // Per family, the units this delete leaves: those inside the deleted
-    // content, the last before it and the first after it.
-    const around = new Set<Item[]>();
-    const lastBefore = new Map<string, Item[]>();
-    const firstAfter = new Set<string>();
-    let leftOfCursor = true;
-    let phase = 0;
-    let prev: Item | null = null;
-    let prevUnit: Item[] | null = null;
-    // The place of each unit: a deleted item or content ends a place.
-    const placeOf = new Map<Item[], number>();
-    let place = 0;
-    for (let it = start; it !== null && !isLiveContent(it); it = it.right) {
-      if (it === this.right) {
-        leftOfCursor = false;
-      }
-      if (this.isHeldFormat(it)) {
-        continue;
-      }
-      if (it === first) {
-        phase = 1;
-        for (const kept of lastBefore.values()) {
-          around.add(kept);
-        }
-      }
-      let unit: Item[] | null = null;
-      if (isGone(it) || !isFormat(it)) {
-        place++;
-      } else {
-        const family = formatFamily(keyOf(it));
-        if (
-          prev !== null &&
-          prevUnit !== null &&
-          continuesUnit(prevUnit, prev, it)
-        ) {
-          unit = prevUnit;
-          unit.push(it);
-        } else {
-          unit = [it];
-          placeOf.set(unit, place);
-          const units = byFamily.get(family);
-          if (units === undefined) {
-            byFamily.set(family, [unit]);
-          } else {
-            units.push(unit);
-          }
-        }
-        if (leftOfCursor) {
-          passed.add(it);
-        }
-        if (phase === 0) {
-          lastBefore.set(family, unit);
-        } else if (phase === 1) {
-          around.add(unit);
-        } else if (!firstAfter.has(family)) {
-          firstAfter.add(family);
-          around.add(unit);
-        }
-      }
-      prev = it;
-      prevUnit = unit;
-      if (it === last) {
-        phase = 2;
-      }
-    }
-    const atStart = (key: string): unknown =>
-      this.gapFormats.has(key)
-        ? (this.gapFormats.get(key) ?? null)
-        : (this.formats.get(key) ?? null);
-    for (const units of byFamily.values()) {
-      if (units.length < 3) {
-        continue;
-      }
-      const keep = new Set<Item>();
-      const keepUnit = (unit: Item[] | undefined) => {
-        for (const it of unit ?? []) {
-          keep.add(it);
-        }
-      };
-      keepUnit(
-        units.find(unit =>
-          unit.some(it => !equalFormatValue(valueOf(it), atStart(keyOf(it)))),
-        ),
-      );
-      for (const unit of units) {
-        if (around.has(unit)) {
-          keepUnit(unit);
-        }
-      }
-      keepUnit(units[units.length - 2]);
-      keepUnit(units[units.length - 1]);
-      // Where a unit is kept, the value its family's keys have at the end of
-      // that place stays (a format change keeps the item before its opener
-      // there, and with several keys a whole value's item there gives every
-      // key its value): those keys' last items before that end are kept too.
-      {
-        const lastAt = new Map<string, Item>();
-        const keptValue = new Map<string, unknown>();
-        for (let i = 0; i < units.length; ) {
-          let kept = false;
-          let j = i;
-          for (
-            ;
-            j < units.length && placeOf.get(units[j]) === placeOf.get(units[i]);
-            j++
-          ) {
-            for (const it of units[j]) {
-              lastAt.set(keyOf(it), it);
-              if (keep.has(it)) {
-                kept = true;
-                keptValue.set(keyOf(it), valueOf(it));
-              }
-            }
-          }
-          if (kept) {
-            for (const [key, it] of lastAt) {
-              const value = keptValue.has(key)
-                ? keptValue.get(key)
-                : atStart(key);
-              if (!equalFormatValue(value, valueOf(it))) {
-                keep.add(it);
-                keptValue.set(key, valueOf(it));
-              }
-            }
-          }
-          i = j;
-        }
-      }
-      // The value of each key after the run stays; where the key's last item
-      // stays, so does the last item before it with the same value that
-      // another client wrote.
-      const lastOf = new Map<string, Item>();
-      const lastKept = new Map<string, Item>();
-      const otherClient = new Map<string, Item>();
-      for (const unit of units) {
-        for (const it of unit) {
-          const key = keyOf(it);
-          const before = lastOf.get(key);
-          if (before !== undefined) {
-            if (!equalFormatValue(valueOf(before), valueOf(it))) {
-              otherClient.delete(key);
-            } else if (before.id.client !== it.id.client) {
-              otherClient.set(key, before);
-            }
-          }
-          lastOf.set(key, it);
-          if (keep.has(it)) {
-            lastKept.set(key, it);
-          }
-        }
-      }
-      for (const [key, it] of lastOf) {
-        const kept = lastKept.get(key);
-        if (
-          !equalFormatValue(
-            kept === undefined ? atStart(key) : valueOf(kept),
-            valueOf(it),
-          )
-        ) {
-          keep.add(it);
-        }
-        const other = otherClient.get(key);
-        if (keep.has(it) && other !== undefined) {
-          keep.add(other);
-        }
-      }
-      const values = new Map<string, unknown>();
-      const changed = new Set<string>();
-      for (const unit of units) {
-        for (const it of unit) {
-          if (!keep.has(it)) {
-            deleteItem(it, this.tr);
-            if (passed.has(it)) {
-              changed.add(keyOf(it));
-            }
-          } else if (passed.has(it)) {
-            values.set(keyOf(it), valueOf(it));
-          }
-        }
-      }
-      // The value at the cursor: the last item left of it that stays.
-      for (const key of changed) {
-        const value = values.has(key) ? values.get(key) : atStart(key);
-        if (value === null) {
-          this.formats.delete(key);
-        } else {
-          this.formats.set(key, value);
-        }
-      }
     }
   }
 
@@ -1240,8 +954,8 @@ export class Cursor {
    *    is that change's own end of the run (see changeEnd), it writes a null
    *    of its own right after that end. Why: that end can go while the
    *    restore stays, as the undo of that change deletes it and a concurrent
-   *    delete may drop it (it keeps a bounded number of the items it leaves,
-   *    see collapseGap), and the restored value ran on to the end of the
+   *    delete could drop it (before deletes kept every item they leave, see
+   *    delete), and the restored value ran on to the end of the
    *    document (a format undone while a collaborator typed plain text inside
    *    it, pasted a list there or removed it from part of the range; a
    *    comment undone while a collaborator typed right after it where another

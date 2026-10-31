@@ -325,16 +325,14 @@ test('restored text takes no comment of the word before it (1861)', async () => 
 });
 
 // A comment over words that deletes and undos around them never touch
-// stays where a document read without any collapse has it: main's
-// collapse dropped c2 from "wk75" (4694).
-test.fails(
-  'a comment stays on text that deletes around it never touched (4694)',
-  async () => {
-    const t = await replay(session(4694));
-    expect(idsOn(t.a, 1, 'wk75')).toEqual(Array(4).fill('[c2,c20]'));
-    t.peers.forEach(p => p.stop());
-  },
-);
+// stays where a document read without any collapse has it: the collapse
+// dropped c2 from "wk75" (4694); a delete now keeps every format item it
+// leaves (D86).
+test('a comment stays on text that deletes around it never touched (4694)', async () => {
+  const t = await replay(session(4694));
+  expect(idsOn(t.a, 1, 'wk75')).toEqual(Array(4).fill('[c2,c20]'));
+  t.peers.forEach(p => p.stop());
+});
 
 // Main's collapse dropped c9 from "wxq4xq56abcd" (3645), where a document
 // read without any collapse keeps it. The drop shows only after the

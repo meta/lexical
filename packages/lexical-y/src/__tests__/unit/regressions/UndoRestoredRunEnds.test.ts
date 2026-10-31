@@ -427,40 +427,39 @@ describe('an undo that brings back a value while its end goes at the same time (
     [1, 2],
     [2, 1],
   ]) {
-    // Fails on main (#9620): pinned until the fix lands.
-    test.fails(
-      `a comment its author undid does not cover the rest of the document (ids ${ids})`,
-      async () => {
-        const t = await setup(
-          () =>
-            $getRoot().append(
-              $createParagraphNode().append($createTextNode('abcd Kilo bb cc')),
-              $createParagraphNode().append($createTextNode('tail line')),
-            ),
-          {ids, prepare},
-        );
-        t.a.update(() => void $addMarkID('c1', $selectIn([0], 5, 9)));
-        t.b.update(() => void $addMarkID('c2', $selectIn([0], 0, 3)));
-        t.b.update(() => {
-          const [, tail] = (
-            $block([0]).getAllTextNodes() as TextNode[]
-          )[0].splitText(2);
-          tail.insertBefore($createTextNode('XY'));
-        });
-        await t.sync();
-        expect(show(t.a)).toBe(
-          '"ab"[c2]"XY""c"[c2]"d ""Kilo"[c1]" bb cc" / "tail line"',
-        );
-        t.offline();
-        t.a.update(() => void $selectIn([0], 2, 5).removeText());
-        t.a.update(() => void $selectIn([0], 2, 7).removeText());
-        t.a.undo();
-        t.b.undo();
-        t.b.undo();
-        await t.sync();
-        await expectConverged(t.peers);
-        expect(show(t.a)).toBe('"abd ""Kilo"[c1]" bb cc" / "tail line"');
-      },
-    );
+    // Failed while a delete collapsed the run it left (#9620: the collapse
+    // dropped the comment's end); a delete now keeps every format item it
+    // leaves (D86).
+    test(`a comment its author undid does not cover the rest of the document (ids ${ids})`, async () => {
+      const t = await setup(
+        () =>
+          $getRoot().append(
+            $createParagraphNode().append($createTextNode('abcd Kilo bb cc')),
+            $createParagraphNode().append($createTextNode('tail line')),
+          ),
+        {ids, prepare},
+      );
+      t.a.update(() => void $addMarkID('c1', $selectIn([0], 5, 9)));
+      t.b.update(() => void $addMarkID('c2', $selectIn([0], 0, 3)));
+      t.b.update(() => {
+        const [, tail] = (
+          $block([0]).getAllTextNodes() as TextNode[]
+        )[0].splitText(2);
+        tail.insertBefore($createTextNode('XY'));
+      });
+      await t.sync();
+      expect(show(t.a)).toBe(
+        '"ab"[c2]"XY""c"[c2]"d ""Kilo"[c1]" bb cc" / "tail line"',
+      );
+      t.offline();
+      t.a.update(() => void $selectIn([0], 2, 5).removeText());
+      t.a.update(() => void $selectIn([0], 2, 7).removeText());
+      t.a.undo();
+      t.b.undo();
+      t.b.undo();
+      await t.sync();
+      await expectConverged(t.peers);
+      expect(show(t.a)).toBe('"abd ""Kilo"[c1]" bb cc" / "tail line"');
+    });
   }
 });

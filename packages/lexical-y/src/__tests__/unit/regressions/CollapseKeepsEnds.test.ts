@@ -30,8 +30,9 @@ import {
 import {prepareMarkState as prepare} from '../../utils/sizeOps';
 
 // The tests of #9617 (parked): a collapse that keeps each key's run end.
-// The #9609 cases fail on main (test.fails): the collapse deletes the
-// comment's end. The others pass on main and hold for any design.
+// The #9609 cases failed while a delete collapsed the run (the collapse
+// deleted the comment's end); a delete now keeps every format item it leaves
+// (D86). The others held before and hold for any design.
 //
 // #9609: a client types text without a run's value inside the run (an
 // uncommented "X" inside a commented word), so its write restores the value
@@ -118,110 +119,101 @@ describe('@lexical/y a delete collapsing a run keeps the end a concurrent restor
     [1, 2],
     [2, 1],
   ]) {
-    test.fails(
-      `#9609: a comment's restore ends where the comment ended (ids ${ids})`,
-      async () => {
+    test(`#9609: a comment's restore ends where the comment ended (ids ${ids})`, async () => {
+      const t = await setup(
+        () => $getRoot().append($p(LINE), $p('tail line')),
+        {
+          ids,
+          prepare,
+        },
+      );
+      t.a.update(() => {
+        WORDS.forEach(([from, to], i) => {
+          $addMarkID(`c${i}`, $selectIn([0], from, to));
+        });
+        $setSelection(null);
+      });
+      await t.sync();
+      expect(words(t.a)).toBe('xx aa[c0] Kilo[c1] bb[c2] cc[c3] dd');
+      t.offline();
+      // A types uncommented "X" inside its own commented "Kilo"
+      t.a.update(() => $insertPlainAt(8, 'X'));
+      expect(words(t.a)).toBe('xx aa[c0] Ki[c1] X lo[c1] bb[c2] cc[c3] dd');
+      // B deletes "aa Kilo bb", then the space after it
+      t.b.update($deleteIn(3, 13));
+      t.b.update($deleteIn(3, 4));
+      expect(words(t.b)).toBe('xx cc[c3] dd');
+      await t.sync();
+      await expectConverged(t.peers);
+      expect(words(t.a)).toBe('xx X cc[c3] dd');
+      expect(words(t.a, 1)).toBe('tail line');
+    });
+
+    test(`#9609: the comment's end stays through a later collapse of the same run (ids ${ids})`, async () => {
+      // As above, and B then deletes "cc " too: the first collapse removed
+      // the comment's opener and kept its end, which the second collapse
+      // must keep although, for B, nothing opens the comment before it.
+      const t = await setup(
+        () => $getRoot().append($p(LINE), $p('tail line')),
+        {
+          ids,
+          prepare,
+        },
+      );
+      t.a.update(() => {
+        WORDS.forEach(([from, to], i) => {
+          $addMarkID(`c${i}`, $selectIn([0], from, to));
+        });
+        $setSelection(null);
+      });
+      await t.sync();
+      t.offline();
+      t.a.update(() => $insertPlainAt(8, 'X'));
+      t.b.update($deleteIn(3, 13));
+      t.b.update($deleteIn(3, 4));
+      t.b.update($deleteIn(3, 6));
+      expect(words(t.b)).toBe('xx dd');
+      await t.sync();
+      await expectConverged(t.peers);
+      expect(words(t.a)).toBe('xx Xdd');
+      expect(words(t.a, 1)).toBe('tail line');
+    });
+
+    for (const count of [1, 16, 64, 128]) {
+      test(`#9609: the restores of ${count} comment ids on one word end where the comments ended (ids ${ids})`, async () => {
+        // One write gives "Kilo" every id (one item per id at each end, more
+        // than an end scan of 64 structs reaches at 128).
+        const marks = Array.from(
+          {length: count},
+          (_, i) => `m${i.toString().padStart(3, '0')}`,
+        );
         const t = await setup(
           () => $getRoot().append($p(LINE), $p('tail line')),
-          {
-            ids,
-            prepare,
-          },
+          {ids, prepare},
         );
         t.a.update(() => {
           WORDS.forEach(([from, to], i) => {
-            $addMarkID(`c${i}`, $selectIn([0], from, to));
+            if (i === 1) {
+              const selection = $selectIn([0], from, to);
+              for (const id of marks) {
+                $addMarkID(id, selection);
+              }
+            } else {
+              $addMarkID(`c${i}`, $selectIn([0], from, to));
+            }
           });
           $setSelection(null);
         });
         await t.sync();
-        expect(words(t.a)).toBe('xx aa[c0] Kilo[c1] bb[c2] cc[c3] dd');
         t.offline();
-        // A types uncommented "X" inside its own commented "Kilo"
         t.a.update(() => $insertPlainAt(8, 'X'));
-        expect(words(t.a)).toBe('xx aa[c0] Ki[c1] X lo[c1] bb[c2] cc[c3] dd');
-        // B deletes "aa Kilo bb", then the space after it
         t.b.update($deleteIn(3, 13));
         t.b.update($deleteIn(3, 4));
-        expect(words(t.b)).toBe('xx cc[c3] dd');
         await t.sync();
         await expectConverged(t.peers);
         expect(words(t.a)).toBe('xx X cc[c3] dd');
         expect(words(t.a, 1)).toBe('tail line');
-      },
-    );
-
-    test.fails(
-      `#9609: the comment's end stays through a later collapse of the same run (ids ${ids})`,
-      async () => {
-        // As above, and B then deletes "cc " too: the first collapse removed
-        // the comment's opener and kept its end, which the second collapse
-        // must keep although, for B, nothing opens the comment before it.
-        const t = await setup(
-          () => $getRoot().append($p(LINE), $p('tail line')),
-          {
-            ids,
-            prepare,
-          },
-        );
-        t.a.update(() => {
-          WORDS.forEach(([from, to], i) => {
-            $addMarkID(`c${i}`, $selectIn([0], from, to));
-          });
-          $setSelection(null);
-        });
-        await t.sync();
-        t.offline();
-        t.a.update(() => $insertPlainAt(8, 'X'));
-        t.b.update($deleteIn(3, 13));
-        t.b.update($deleteIn(3, 4));
-        t.b.update($deleteIn(3, 6));
-        expect(words(t.b)).toBe('xx dd');
-        await t.sync();
-        await expectConverged(t.peers);
-        expect(words(t.a)).toBe('xx Xdd');
-        expect(words(t.a, 1)).toBe('tail line');
-      },
-    );
-
-    for (const count of [1, 16, 64, 128]) {
-      test.fails(
-        `#9609: the restores of ${count} comment ids on one word end where the comments ended (ids ${ids})`,
-        async () => {
-          // One write gives "Kilo" every id (one item per id at each end, more
-          // than an end scan of 64 structs reaches at 128).
-          const marks = Array.from(
-            {length: count},
-            (_, i) => `m${i.toString().padStart(3, '0')}`,
-          );
-          const t = await setup(
-            () => $getRoot().append($p(LINE), $p('tail line')),
-            {ids, prepare},
-          );
-          t.a.update(() => {
-            WORDS.forEach(([from, to], i) => {
-              if (i === 1) {
-                const selection = $selectIn([0], from, to);
-                for (const id of marks) {
-                  $addMarkID(id, selection);
-                }
-              } else {
-                $addMarkID(`c${i}`, $selectIn([0], from, to));
-              }
-            });
-            $setSelection(null);
-          });
-          await t.sync();
-          t.offline();
-          t.a.update(() => $insertPlainAt(8, 'X'));
-          t.b.update($deleteIn(3, 13));
-          t.b.update($deleteIn(3, 4));
-          await t.sync();
-          await expectConverged(t.peers);
-          expect(words(t.a)).toBe('xx X cc[c3] dd');
-          expect(words(t.a, 1)).toBe('tail line');
-        },
-      );
+      });
     }
 
     test(`a kept end leaves the value after the run as it was (ids ${ids})`, async () => {

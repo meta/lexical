@@ -132,13 +132,10 @@ describe('@lexical/y write cursor', () => {
   );
 });
 
-// A format change followed by a delete on one cursor. The value each key had
-// at the start of the run of items without live content the cursor is in
-// (which a delete's collapse of that run keeps, see Cursor#collapseGap) must
-// stay the value of the content before the run, also where the format
-// change passes, after its range's last content, items of a key it does not
-// change: a delete on the same cursor then keeps the run's first item that
-// changes that value, which text a peer types after it relies on.
+// A format change followed by a delete on one cursor, after its range's last
+// content, past items of a key it does not change: the delete keeps every
+// format item there (D86), so text a peer types after the first of them keeps
+// its value.
 describe('a format change then a delete on one cursor', () => {
   type Raw = {
     forward(): void;
@@ -149,7 +146,7 @@ describe('a format change then a delete on one cursor', () => {
     ['old', 'new'],
     [true, null],
   ] as const) {
-    test(`a run of five items of K=${JSON.stringify(next)} after the range, K=${JSON.stringify(old)} before it: the first stays`, () => {
+    test(`a run of five items of K=${JSON.stringify(next)} after the range, K=${JSON.stringify(old)} before it: they stay`, () => {
       const doc = new Y.Doc();
       doc.clientID = 7;
       doc.cleanupFormatting = false;
@@ -182,13 +179,7 @@ describe('a format change then a delete on one cursor', () => {
         expect(cursor.formats.get('K') ?? null).toBe(next);
         cursor.delete(1);
       });
-      expect(ks.map(it => !it.deleted)).toEqual([
-        true,
-        false,
-        false,
-        true,
-        true,
-      ]);
+      expect(ks.map(it => !it.deleted)).toEqual([true, true, true, true, true]);
       // A peer that types after the first item, offline, keeps its value.
       peer.transact(tr => {
         let anchor = peer.get('t')._start;

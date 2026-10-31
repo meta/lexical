@@ -2456,7 +2456,7 @@ export class Writer {
    * write computes the format items it writes from the formats it starts
    * from; from the start of a unit after a deleted block node (inside a
    * format run around that node), a delete, which then removed the format
-   * items it found redundant (see Cursor#collapseGap), removed the opener
+   * items it found redundant (before deletes kept them, see Cursor#delete), removed the opener
    * of a run that goes on after the deleted content, and every reader
    * showed that text without the format while the author kept it (also on
    * a follow-up's delete).

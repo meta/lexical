@@ -41,12 +41,14 @@ import {
 } from '../../utils/harness';
 import {markState, prepareMarkState} from '../../utils/sizeOps';
 
-/** The cells main fails (#9623, #9620), pinned until the fix lands. */
+/**
+ * The cells that fail (#9623), pinned until the fix lands. The concurrent
+ * cells failed while a delete collapsed the run it left (it dropped the end
+ * the restore relied on); a delete now keeps every format item it leaves
+ * (D86).
+ */
 function failsOnMain(name: string): boolean {
-  return (
-    (name.includes('gc=true') && !name.includes('author keeps')) ||
-    name.startsWith('concurrent')
-  );
+  return name.includes('gc=true') && !name.includes('author keeps');
 }
 function testOnMain(name: string, fn: () => Promise<void>) {
   (failsOnMain(name) ? test.fails : test)(name, fn);

@@ -702,10 +702,11 @@ describe('R24B-F1: a comment resolved ‖ plain text typed before a character it
 });
 
 // F24A-1: every word of another format, comment or NodeState value typed at
-// one place and deleted again left two format items live, so a document's
-// items grew with its editing history. The run of deleted content and
-// format items a delete leaves holds a bounded number per key (see
-// Cursor#collapseGap).
+// one place and deleted again leaves its two format items (its opener and
+// its closer) live: a delete keeps the format items around and inside the
+// content it deletes, which a concurrent writer and an undo of the delete
+// rely on (D86). So the items grow by exactly two per such word, and by none
+// per keystroke of plain text.
 describe('F24A-1: words typed and deleted again at one place', () => {
   const live = (peer: Peer) => {
     let n = 0;
@@ -757,9 +758,8 @@ describe('F24A-1: words typed and deleted again at one place', () => {
         }
       }
       expect(await merged(t)).toBe('"start middle end"');
-      // As many after 60 words as after 20, and at most five per key.
-      expect(counts[2]).toBe(counts[0]);
-      expect(counts[2]).toBeLessThanOrEqual(pattern === 'formats' ? 20 : 5);
+      // Two per word: 40 after 20 words, 80 after 40, 120 after 60.
+      expect(counts).toEqual([40, 80, 120]);
     });
   }
 });
