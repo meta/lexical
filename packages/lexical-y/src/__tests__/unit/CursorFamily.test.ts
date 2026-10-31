@@ -17,7 +17,7 @@ import {Cursor} from '../../internal/Cursor';
 // stored one key per member, `m|<member>` = true) names them one family
 // (see formatFamily). The write cursor's rules for format items then hold
 // for the attribute as they hold for a key stored whole (see
-// Cursor#collapseGap, Cursor#format and Cursor#minimizeFormatChanges).
+// Cursor#format and Cursor#minimizeFormatChanges).
 
 vi.mock('../../internal/Schema', async importOriginal => {
   const actual = await importOriginal<typeof import('../../internal/Schema')>();

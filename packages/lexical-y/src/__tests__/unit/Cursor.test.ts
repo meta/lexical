@@ -18,7 +18,7 @@ import {Cursor} from '../../internal/Cursor';
 // equivalent to Y.Node#applyDelta: the same operations through both, from
 // the same client, give the same content. It keeps format items Yjs removes
 // as redundant where they bound content outside the edit (see
-// Cursor#collapseGap and Cursor#format), so it holds at least as many. Run
+// Cursor#delete and Cursor#format), so it holds at least as many. Run
 // on every @y/y version bump.
 
 type Op =

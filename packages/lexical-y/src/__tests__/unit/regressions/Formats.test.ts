@@ -242,7 +242,7 @@ async function merged(t: Awaited<ReturnType<typeof setup>>) {
 // of the space's bold (redundant with the run before it), the other that
 // run's opener, deleted with its character. The space, which nobody
 // touched, lost bold (with mark ids stored per member, a comment): a delete
-// keeps the items a concurrent writer relies on (see Cursor#collapseGap).
+// keeps the items a concurrent writer relies on (see Cursor#delete).
 describe('U23A-2: two concurrent deletes next to a character nobody touched', () => {
   for (const ids of [
     [1, 2],
@@ -487,7 +487,7 @@ describe('R23-B: plain text pasted over formatted runs ‖ Enter inside them', (
 // word's closer, so bold spread over the text after it and the following
 // lines; text a peer typed at the end of the deleted word lost the word's
 // format. A delete keeps the format items a concurrent writer relies on
-// (see Cursor#collapseGap), and a format change bounds its range with items
+// (see Cursor#delete), and a format change bounds its range with items
 // of its own (see Cursor#format).
 describe('a delete racing a format change or typing at the deleted run', () => {
   const $node = (i: number) =>
@@ -768,9 +768,8 @@ describe('F24A-1: words typed and deleted again at one place', () => {
 // delete collapsed the format items it left, keeping a few per key, and
 // removed the closer of an italic word that the typist, typing plain text
 // after it, relied on: the typist's word, written without items of its own,
-// became italic on every client. A delete keeps every item it leaves inside
-// the content it deletes and at its edges; a later delete in the same run
-// collapses them (see Cursor#collapseGap).
+// became italic on every client. A delete keeps every item it leaves (see
+// Cursor#delete).
 describe("S6-8: a line's text deleted ‖ a peer types a word inside it", () => {
   const $line = () => $getRoot().getChildAtIndex(1) as ElementNode;
   const $word = () => {

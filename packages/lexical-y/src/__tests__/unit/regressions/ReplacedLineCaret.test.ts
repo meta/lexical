@@ -270,7 +270,7 @@ for (const ids of [
 }
 
 // A styled line replaced: the delete of its text leaves the format items that
-// bounded its runs live (see Cursor#collapseGap), and those show nothing. The
+// bounded its runs live (see Cursor#delete), and those show nothing. The
 // caret took them for what the line still showed and went to the start of
 // the new line.
 for (const ids of [

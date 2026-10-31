@@ -39,9 +39,9 @@ import {prepareMarkState as prepare} from '../utils/sizeOps';
 // comment's opener and end there, which for it bracket deleted content only,
 // so deleting them changes nothing it shows. That second step is simulated
 // with raw Yjs deletes (dropCommentItems): it stands for any concurrent
-// deletion of that end, such as the bounded collapse a delete next to a run
-// of deleted content runs (Cursor#collapseGap, which keeps a bounded number
-// of the format items there), and isolates the condition this guards: the
+// deletion of that end (a delete next to a run of deleted content used to
+// collapse its format items, keeping a bounded number; it keeps them all
+// now, D86), and isolates the condition this guards: the
 // restore's run losing the end it relied on. Merged, the restore must still
 // end where the comment ended, not run on over the rest of the document.
 //

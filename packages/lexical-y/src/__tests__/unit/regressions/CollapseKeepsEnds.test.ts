@@ -39,8 +39,8 @@ import {prepareMarkState as prepare} from '../../utils/sizeOps';
 // after that text and relies on the run's end (the null the comment wrote
 // after the word) to end it again. A collaborator that has not seen that
 // text deletes the word with its neighbours, then deletes the space after
-// them, and that second delete collapses the run of deleted content and
-// format items it leaves (Cursor#collapseGap): the commented word's opener
+// them, and that second delete collapsed the run of deleted content and
+// format items it left (before D86 removed that collapse): the commented word's opener
 // and end are neither around the deleted space, nor the first change of the
 // comments' value, nor the run's last items, and for the collaborator they
 // bracket deleted content only. The collapse used to delete both, and once
