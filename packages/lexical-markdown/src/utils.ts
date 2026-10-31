@@ -72,6 +72,8 @@ export function isEmptyParagraph(node: LexicalNode): boolean {
     firstChild == null ||
     (node.getChildrenSize() === 1 &&
       $isTextNode(firstChild) &&
+      // Inline code is content even when it holds only whitespace.
+      !firstChild.hasFormat('code') &&
       MARKDOWN_EMPTY_LINE_REG_EXP.test(firstChild.getTextContent()))
   );
 }
