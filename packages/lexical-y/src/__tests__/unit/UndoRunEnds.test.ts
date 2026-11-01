@@ -659,8 +659,7 @@ describe('undo run ends, more orders of events', () => {
       await t.sync();
       // H's restore after " x" stays (with #9561), and so does the
       // null H's write put right after B's closer, which that restore relies
-      // on: a later delete leaves it (and, before D86, a collapse of B's run
-      // ends by that delete did too).
+      // on: a collapse of B's run ends by a later delete leaves it.
       const root = h.doc.get('lexical-y') as unknown as {
         _start: Y.Item | null;
       };
@@ -689,9 +688,8 @@ describe('undo run ends, more orders of events', () => {
     "a comment's ends that a collaborator's deletes drop do not come back with an undo of text typed inside it (ids %i %i)",
     async (...ids) => {
       // A comments three words and, offline, types "X" inside the middle one
-      // and undoes it; B deletes the four words one by one, which collapsed
-      // the comment's opener and end away before D86 (a delete now keeps
-      // them). The run ends A's undo keeps rely
+      // and undoes it; B deletes the four words one by one, which collapses
+      // the comment's opener and end away. The run ends A's undo keeps rely
       // on that end (the null A's write put after it, rule 5 of
       // Cursor#format, needs #9562): without it the comment covered the rest
       // of the document.

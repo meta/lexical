@@ -12,8 +12,10 @@
 // sync after every edit), session 2810: with garbage collection on, a
 // comment came back over four paragraphs after the two clients' undos once
 // a delete kept every format item it leaves (D86), until the binding kept
-// its own format items from collection while they are undoable (D88). The
-// session's own ops, replayed: no comment may end up on two paragraphs.
+// its own format items from collection while they are undoable (D88). Both
+// were reverted (#9694); without either the session
+// passes as well. The session's own ops, replayed: no comment may end up on
+// two paragraphs.
 
 import {buildEditorFromExtensions} from '@lexical/extension';
 import {
