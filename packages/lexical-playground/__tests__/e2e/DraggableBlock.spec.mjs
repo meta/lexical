@@ -13,6 +13,7 @@ import {
   dragDraggableMenuTo,
   dragMouse,
   focusEditor,
+  html,
   initialize,
   insertYouTubeEmbed,
   mouseMoveToSelector,
@@ -170,6 +171,148 @@ test.describe('DraggableBlock', () => {
         <span data-lexical-text="true">Paragraph 1</span>
       </p>
     `,
+      );
+    });
+
+    test('List item one can be dragged below list item two', async ({page}) => {
+      await focusEditor(page);
+      await page.keyboard.type('- One');
+      await page.keyboard.press('Enter');
+      await page.keyboard.type('Two');
+      await page.keyboard.press('Enter');
+      await page.keyboard.type('Three');
+
+      await mouseMoveToSelector(page, 'li:has-text("One")');
+      await dragDraggableMenuTo(page, 'li:has-text("Two")', 'middle', 'end');
+
+      await assertHTML(
+        page,
+        html`
+          <ul class="PlaygroundEditorTheme__ul" dir="auto">
+            <li class="PlaygroundEditorTheme__listItem" value="1">
+              <span data-lexical-text="true">Two</span>
+            </li>
+            <li class="PlaygroundEditorTheme__listItem" style="" value="2">
+              <span data-lexical-text="true">One</span>
+            </li>
+            <li class="PlaygroundEditorTheme__listItem" value="3">
+              <span data-lexical-text="true">Three</span>
+            </li>
+          </ul>
+        `,
+      );
+    });
+
+    test('A nested list item can be dragged below its sibling', async ({
+      page,
+    }) => {
+      await focusEditor(page);
+      await page.keyboard.type('- One');
+      await page.keyboard.press('Enter');
+      await page.keyboard.press('Tab');
+      await page.keyboard.type('Nested one');
+      await page.keyboard.press('Enter');
+      await page.keyboard.type('Nested two');
+
+      await mouseMoveToSelector(page, 'ul ul > li:has-text("Nested one")');
+      await dragDraggableMenuTo(
+        page,
+        'ul ul > li:has-text("Nested two")',
+        'middle',
+        'end',
+      );
+
+      await assertHTML(
+        page,
+        html`
+          <ul class="PlaygroundEditorTheme__ul" dir="auto">
+            <li class="PlaygroundEditorTheme__listItem" value="1">
+              <span data-lexical-text="true">One</span>
+            </li>
+            <li
+              class="PlaygroundEditorTheme__listItem PlaygroundEditorTheme__nestedListItem"
+              value="2">
+              <ul class="PlaygroundEditorTheme__ul">
+                <li class="PlaygroundEditorTheme__listItem" value="1">
+                  <span data-lexical-text="true">Nested two</span>
+                </li>
+                <li class="PlaygroundEditorTheme__listItem" style="" value="2">
+                  <span data-lexical-text="true">Nested one</span>
+                </li>
+              </ul>
+            </li>
+          </ul>
+        `,
+      );
+    });
+
+    test('A list item dragged below a paragraph gets its own list', async ({
+      page,
+    }) => {
+      await focusEditor(page);
+      await page.keyboard.type('- One');
+      await page.keyboard.press('Enter');
+      await page.keyboard.type('Two');
+      await page.keyboard.press('Enter');
+      await page.keyboard.press('Enter');
+      await page.keyboard.type('Paragraph');
+
+      await mouseMoveToSelector(page, 'li:has-text("Two")');
+      await dragDraggableMenuTo(
+        page,
+        'p:has-text("Paragraph")',
+        'middle',
+        'end',
+      );
+
+      await assertHTML(
+        page,
+        html`
+          <ul class="PlaygroundEditorTheme__ul" dir="auto">
+            <li class="PlaygroundEditorTheme__listItem" value="1">
+              <span data-lexical-text="true">One</span>
+            </li>
+          </ul>
+          <p class="PlaygroundEditorTheme__paragraph" dir="auto">
+            <span data-lexical-text="true">Paragraph</span>
+          </p>
+          <ul class="PlaygroundEditorTheme__ul" dir="auto">
+            <li class="PlaygroundEditorTheme__listItem" style="" value="1">
+              <span data-lexical-text="true">Two</span>
+            </li>
+          </ul>
+        `,
+      );
+    });
+
+    test('A paragraph dragged onto a list item lands below the list', async ({
+      page,
+    }) => {
+      await focusEditor(page);
+      await page.keyboard.type('Paragraph');
+      await page.keyboard.press('Enter');
+      await page.keyboard.type('- One');
+      await page.keyboard.press('Enter');
+      await page.keyboard.type('Two');
+
+      await mouseMoveToSelector(page, 'p:has-text("Paragraph")');
+      await dragDraggableMenuTo(page, 'li:has-text("One")', 'middle', 'end');
+
+      await assertHTML(
+        page,
+        html`
+          <ul class="PlaygroundEditorTheme__ul" dir="auto">
+            <li class="PlaygroundEditorTheme__listItem" value="1">
+              <span data-lexical-text="true">One</span>
+            </li>
+            <li class="PlaygroundEditorTheme__listItem" value="2">
+              <span data-lexical-text="true">Two</span>
+            </li>
+          </ul>
+          <p class="PlaygroundEditorTheme__paragraph" dir="auto" style="">
+            <span data-lexical-text="true">Paragraph</span>
+          </p>
+        `,
       );
     });
   });
