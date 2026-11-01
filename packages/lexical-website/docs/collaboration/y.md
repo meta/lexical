@@ -1179,7 +1179,14 @@ not merge as a user might expect:
   holds those deleted items: about 25 bytes each (100 rounds of one client
   bolding a word and another clearing it: 2,603 bytes for the first
   client's state against 229 for the second). A server or relay that loads
-  such a state with garbage collection on drops them.
+  such a state with garbage collection on drops them. The containers of
+  such items (a table cell, its row and table) that the client still needs
+  after its undo history is cleared stay kept until the binding stops: a
+  table a collaborator deletes meanwhile stays in that client's state until
+  it stops or reloads (about 100 to 180 bytes for a small table). When the
+  binding stops it lets them go, also where another undo manager on the
+  document still relies on them, which then finds them unkept, as after a
+  clear of a Yjs `UndoManager`.
 - **Named slots.** A slot holds one node: two collaborators setting the same
   slot at once keep one writer's node, and text typed in a slot that a
   collaborator replaces or removes at the same time is lost (as with delete
