@@ -478,6 +478,12 @@ export async function expectConverged(peers: Peer[], expected?: string) {
   for (const peer of peers) {
     expect(peer.errors).toEqual([]);
     expect(peer.warnings.filter(w => w.includes('self-check'))).toEqual([]);
+    // A write the binding could not store is recovered from (rewritten from
+    // the editor) and reported: never expected in a test that converges, as
+    // a recovery could hide the failure it recovered from.
+    expect(
+      peer.warnings.filter(w => w.includes('could not be written')),
+    ).toEqual([]);
     expect(misLinkedItems(peer.doc)).toEqual([]);
     expect(peer.describe()).toBe(first.describe());
     expect(shape(peer)).toEqual(shape(first));
