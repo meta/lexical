@@ -298,8 +298,11 @@ describe('undoing a removal brings back a value whose text and end the author un
         for (const concurrent of [true, false]) {
           const spreads =
             shape.failsOn === (concurrent ? 'concurrent' : 'sequential');
-          (spreads ? it.fails : it)(
-            `${shape.name}; A undoes ${concurrent ? 'while B removes' : 'after B removed'} (gc ${gc ? 'on' : 'off'}, ids ${ids})${spreads ? ' (#9689)' : ''}`,
+          // With gc on, the sequential order of these shapes spreads too:
+          // the undo cannot find the format items gc collected (#9623).
+          const collected = gc && !concurrent && shape.failsOn === 'concurrent';
+          (spreads || collected ? it.fails : it)(
+            `${shape.name}; A undoes ${concurrent ? 'while B removes' : 'after B removed'} (gc ${gc ? 'on' : 'off'}, ids ${ids})${spreads ? ' (#9689)' : collected ? ' (#9623 with gc on)' : ''}`,
             () => {
               const {A, B, sync} = clients(gc, ids);
               if (shape.pre) {

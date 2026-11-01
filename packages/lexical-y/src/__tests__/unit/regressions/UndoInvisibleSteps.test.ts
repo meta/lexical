@@ -103,59 +103,58 @@ for (const ids of [
   );
 }
 
-// Where a collapse keeps the null a client's comment removal wrote on text
-// a collaborator then deletes (keeping run ends did, #9617), undoing the
-// removal restores only that invisible item: the press goes on to the
-// underline before it. Main deletes that null, and Yjs skips the step.
-test.fails(
-  'undoing a comment removal on deleted text takes the format change before it too',
-  async () => {
-    const words = [
-      ['w0abc', 'w1abc', 'w2abcd', 'w3abcd', 'w4a', 'w5ab'],
-      ['w6ab', 'w7ab', 'w8abcd', 'w9abc', 'w10ab', 'w11a'],
-    ];
-    const formats = [
-      [0, 0, 0, 0, 0, 0],
-      [8, 8, 0, 2, 0, 0],
-    ];
-    const t = await setup(
-      () => {
-        words.forEach((ws, l) => {
-          const p = $createParagraphNode();
-          ws.forEach((w, i) =>
-            p.append(
-              $createTextNode(w + (i < ws.length - 1 ? ' ' : '')).setFormat(
-                formats[l][i],
-              ),
+// Where a delete keeps the null a client's comment removal wrote on text a
+// collaborator then deletes (keeping run ends did, #9617, and so did D86,
+// reverted with #9679: see #9694), undoing the removal restores only that
+// invisible item. With the collapse, which deletes that null, Yjs skips the
+// step and the press goes on to the underline before it, so this cell passes
+// (unlike the others here).
+test('undoing a comment removal on deleted text takes the format change before it too', async () => {
+  const words = [
+    ['w0abc', 'w1abc', 'w2abcd', 'w3abcd', 'w4a', 'w5ab'],
+    ['w6ab', 'w7ab', 'w8abcd', 'w9abc', 'w10ab', 'w11a'],
+  ];
+  const formats = [
+    [0, 0, 0, 0, 0, 0],
+    [8, 8, 0, 2, 0, 0],
+  ];
+  const t = await setup(
+    () => {
+      words.forEach((ws, l) => {
+        const p = $createParagraphNode();
+        ws.forEach((w, i) =>
+          p.append(
+            $createTextNode(w + (i < ws.length - 1 ? ' ' : '')).setFormat(
+              formats[l][i],
             ),
-          );
-          $getRoot().append(p);
-        });
-      },
-      {ids: [1, 2, 3], prepare},
-    );
-    for (const p of t.peers) {
-      p.binding.undoManager?.clear();
-    }
-    const [a, b, c] = t.peers;
-    a.update(() => void $addMarkID('c8', $selectIn([0], 9, 18)));
-    c.update(() => void $selectIn([1], 15, 18).formatText('underline'));
-    b.update(() => void $selectIn([0], 5, 7).removeText());
-    c.update(() => void $removeMarkID('c8', $selectIn([0], 8, 18)));
-    c.update(() => void $selectIn([0], 15, 18).removeText());
-    c.update(() => void $selectIn([0], 11).insertText('k11'));
-    a.update(() => void $addMarkID('c13', $selectIn([0], 0, 7)));
-    b.update(() => void $addMarkID('c14', $selectIn([0], 8, 14)));
-    b.update(() => void $selectIn([0], 0, 14).removeText());
-    b.update(() => void $selectIn([0], 0, 1).removeText());
-    c.undo();
-    c.undo();
-    await t.sync();
-    await expectConverged(t.peers);
-    // The second press removes the underline from the second line.
-    expect(view(a).split(' / ')[1]).toBe(
-      'w6ab w7ab {8}[]w8abcd {0}[]w9abc {2}[]w10ab w11a{0}[]',
-    );
-    t.peers.forEach(p => p.stop());
-  },
-);
+          ),
+        );
+        $getRoot().append(p);
+      });
+    },
+    {ids: [1, 2, 3], prepare},
+  );
+  for (const p of t.peers) {
+    p.binding.undoManager?.clear();
+  }
+  const [a, b, c] = t.peers;
+  a.update(() => void $addMarkID('c8', $selectIn([0], 9, 18)));
+  c.update(() => void $selectIn([1], 15, 18).formatText('underline'));
+  b.update(() => void $selectIn([0], 5, 7).removeText());
+  c.update(() => void $removeMarkID('c8', $selectIn([0], 8, 18)));
+  c.update(() => void $selectIn([0], 15, 18).removeText());
+  c.update(() => void $selectIn([0], 11).insertText('k11'));
+  a.update(() => void $addMarkID('c13', $selectIn([0], 0, 7)));
+  b.update(() => void $addMarkID('c14', $selectIn([0], 8, 14)));
+  b.update(() => void $selectIn([0], 0, 14).removeText());
+  b.update(() => void $selectIn([0], 0, 1).removeText());
+  c.undo();
+  c.undo();
+  await t.sync();
+  await expectConverged(t.peers);
+  // The second press removes the underline from the second line.
+  expect(view(a).split(' / ')[1]).toBe(
+    'w6ab w7ab {8}[]w8abcd {0}[]w9abc {2}[]w10ab w11a{0}[]',
+  );
+  t.peers.forEach(p => p.stop());
+});

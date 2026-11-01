@@ -9,10 +9,11 @@
 // @vitest-environment node
 
 // Three-client sessions (reduced from a view property's fresh seeds) in which a
-// format reaches the sentinel line nobody formatted, made wrong by the rules
-// that fixed #9671: a trade recorded as D95 (#9690). Each session pins the gc
-// setting it passed with before those rules (107991 and 111874 off, 110073
-// on).
+// format reached the sentinel line nobody formatted while the rules #9679
+// added for #9671 were in (#9690; D95, moot since #9679's revert), and one
+// client's own undo that lost a format with them. They pass without those
+// rules: guards against bringing them back as they were. Each session pins
+// the gc setting it passes with (107991 and 111874 off, 110073 on).
 
 import {$getNodeMarkIDs} from '@lexical/mark';
 import {
@@ -82,7 +83,7 @@ async function session(
   );
 }
 
-test.fails('#9690: session 107991: the sentinel line stays plain', async () => {
+test('session 107991: the sentinel line stays plain', async () => {
   const sentinel = await session(
     [
       [
@@ -123,7 +124,7 @@ test.fails('#9690: session 107991: the sentinel line stays plain', async () => {
   expect(sentinel).toEqual([[0, '']]);
 });
 
-test.fails('#9690: session 111874: the sentinel line stays plain', async () => {
+test('session 111874: the sentinel line stays plain', async () => {
   const sentinel = await session(
     [
       ['w0ab', 'w1abc', 'w2abcd', 'w3a', 'w4a', 'w5ab', 'w6abc'],
@@ -149,7 +150,7 @@ test.fails('#9690: session 111874: the sentinel line stays plain', async () => {
   expect(sentinel).toEqual([[0, '']]);
 });
 
-test.fails('#9690: session 110073: the sentinel line stays plain', async () => {
+test('session 110073: the sentinel line stays plain', async () => {
   const sentinel = await session(
     [
       ['w0abc', 'w1abc', 'w2abc', 'w3ab'],
@@ -188,42 +189,39 @@ test.fails('#9690: session 110073: the sentinel line stays plain', async () => {
 // typed after "bb", and three undos take the bold off "cc", which none of the
 // undone steps touched (the restore-side rule of #9671; #9690).
 for (const ids of [[1], [1, 2], [2, 1]]) {
-  test.fails(
-    `#9690: one client undoing its own steps keeps "cc" bold (ids ${ids})`,
-    async () => {
-      const t = await setup(
-        () =>
-          $getRoot().append(
-            $createParagraphNode().append($createTextNode('aa bb cc dd ee ff')),
-          ),
-        {ids, prepare},
-      );
-      const $bold = (from: number, to: number) => {
-        for (const n of $selectIn([0], from, to).extract()) {
-          if ($isTextNode(n) && !n.hasFormat('bold')) {
-            n.toggleFormat('bold');
-          }
+  test(`one client undoing its own steps keeps "cc" bold (ids ${ids})`, async () => {
+    const t = await setup(
+      () =>
+        $getRoot().append(
+          $createParagraphNode().append($createTextNode('aa bb cc dd ee ff')),
+        ),
+      {ids, prepare},
+    );
+    const $bold = (from: number, to: number) => {
+      for (const n of $selectIn([0], from, to).extract()) {
+        if ($isTextNode(n) && !n.hasFormat('bold')) {
+          n.toggleFormat('bold');
         }
-      };
-      const $typePlain = (at: number, text: string) => {
-        const s = $selectIn([0], at);
-        s.format = 0;
-        s.insertText(text);
-      };
-      t.a.update(() => $bold(0, 8));
-      await t.sync();
-      for (const p of t.peers) {
-        p.binding.undoManager?.clear();
       }
-      t.a.update(() => $typePlain(2, 'YZ'));
-      t.a.update(() => $bold(0, 4));
-      t.a.update(() => $typePlain(7, 'YZ'));
-      for (let k = 0; k < 3; k++) {
-        t.a.undo();
-      }
-      await t.sync();
-      await expectConverged(t.peers);
-      expect(t.a.describe()).toBe('paragraph("aa bb cc"{1} " dd ee ff")');
-    },
-  );
+    };
+    const $typePlain = (at: number, text: string) => {
+      const s = $selectIn([0], at);
+      s.format = 0;
+      s.insertText(text);
+    };
+    t.a.update(() => $bold(0, 8));
+    await t.sync();
+    for (const p of t.peers) {
+      p.binding.undoManager?.clear();
+    }
+    t.a.update(() => $typePlain(2, 'YZ'));
+    t.a.update(() => $bold(0, 4));
+    t.a.update(() => $typePlain(7, 'YZ'));
+    for (let k = 0; k < 3; k++) {
+      t.a.undo();
+    }
+    await t.sync();
+    await expectConverged(t.peers);
+    expect(t.a.describe()).toBe('paragraph("aa bb cc"{1} " dd ee ff")');
+  });
 }

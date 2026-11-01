@@ -8,10 +8,10 @@
 
 // @vitest-environment node
 
-// Rare sequences in which a format ends up on text nobody formatted, made
-// wrong by the rules that fixed #9671 and #9599: a trade recorded as D95
-// (#9690). Each passed before those rules. `test.fails` until stored
-// provenance can tell a range's end from a removal's start.
+// Rare sequences in which a format ended up on text nobody formatted, or was
+// lost, while the rules #9679 added for #9671 and #9599 were in (#9690; D95,
+// moot since #9679's revert). They pass without those rules: guards against
+// bringing them back as they were.
 // B makes its steps (each its own undo step), A types a plain character, B
 // undoes everything. Expected: every original letter keeps exactly its
 // original formats and B's "Z" is gone (A's character is left out of the
@@ -179,7 +179,7 @@ const CASES: {
     // italic over "efghi", Z typed inside it, italic over "Z" and the rest;
     // A types 1
     ids: [2, 1],
-    name: '#9690: restore of own earlier insert removed (#9671 rule, restore side)',
+    name: 'restore of own earlier insert removed (#9671 rule, restore side)',
     ops: [
       {i: 4, j: 9, k: 'fmt', key: 'i', v: true},
       {i: 7, k: 'Z'},
@@ -200,7 +200,7 @@ const CASES: {
     // Z typed after the plain "ghi", then strikethrough removed over the text
     // after it; A types 1
     ids: [2, 1],
-    name: "#9690: restore scan stops at another client's text (#9599 rule)",
+    name: "restore scan stops at another client's text (#9599 rule)",
     ops: [
       {i: 9, k: 'Z'},
       {k: 'sync'},
@@ -221,7 +221,7 @@ const CASES: {
 
 for (const c of CASES) {
   for (const gc of [false, true]) {
-    test.fails(`${c.name} (gc ${gc ? 'on' : 'off'}, ids ${c.ids})`, () => {
+    test(`${c.name} (gc ${gc ? 'on' : 'off'}, ids ${c.ids})`, () => {
       const orig = c.words
         .flatMap(([w, fs]) =>
           [...w].map(
