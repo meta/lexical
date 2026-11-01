@@ -1,4 +1,5 @@
 ---
+'@lexical/rich-text': patch
 '@lexical/selection': patch
 ---
 

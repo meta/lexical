@@ -97,6 +97,7 @@ describe('arrow keys on a node-selected decorator in plain text', () => {
   test('Shift+ArrowDown turns the node selection into a range to extend', () => {
     const editor = setup();
     const event = new KeyboardEvent('keydown', {
+      cancelable: true,
       key: 'ArrowDown',
       shiftKey: true,
     });
