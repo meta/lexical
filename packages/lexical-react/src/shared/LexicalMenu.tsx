@@ -308,6 +308,26 @@ function MenuItem({
   );
 }
 
+function menuOptionElement(
+  anchor: HTMLElement | null,
+  id: string,
+): Element | null {
+  if (anchor == null) {
+    return null;
+  }
+  return anchor.querySelector('#' + id);
+}
+
+function suggestionStatus(count: number, loading: boolean): string {
+  if (count === 1) {
+    return '1 suggestion available';
+  }
+  if (count > 1) {
+    return `${count} suggestions available`;
+  }
+  return loading ? 'Loading' : 'No results';
+}
+
 /**
  * Write only on change. A redundant setAttribute still emits a mutation, and
  * on the focused element that is churn an assistive technology may react to.
@@ -338,6 +358,7 @@ export function LexicalMenu<TOption extends MenuOption>({
   commandPriority = COMMAND_PRIORITY_LOW,
   preselectFirstItem = true,
   ariaLabel,
+  loading = false,
 }: {
   ariaLabel?: string;
   close: () => void;
@@ -345,6 +366,13 @@ export function LexicalMenu<TOption extends MenuOption>({
   anchorElementRef: RefObject<HTMLElement | null>;
   resolution: MenuResolution;
   options: TOption[];
+  /**
+   * True while the choices for this query are still being fetched. An empty
+   * menu then says "Loading". When this is false, an empty menu has finished
+   * and says "No results".
+   * @default false
+   */
+  loading?: boolean;
   shouldSplitNodeWithQuery?: boolean;
   menuRenderFn?: MenuRenderFn<TOption>;
   onSelectOption: (
@@ -395,14 +423,20 @@ export function LexicalMenu<TOption extends MenuOption>({
     (index: number) => {
       const rootElem = editor.getRootElement();
       if (rootElem !== null) {
-        rootElem.setAttribute(
-          'aria-activedescendant',
-          'typeahead-item-' + index,
-        );
+        const id = 'typeahead-item-' + index;
+        // The default menu renders this id on every option. A custom menu
+        // usually does not, and a reference to an id that is not there is
+        // the same break as owning a list that was never drawn.
+        if (
+          menuRenderFnProp == null ||
+          menuOptionElement(anchorElementRef.current, id) != null
+        ) {
+          rootElem.setAttribute('aria-activedescendant', id);
+        }
         setHighlightedIndex(index);
       }
     },
-    [editor],
+    [anchorElementRef, editor, menuRenderFnProp],
   );
 
   const defaultMenuRenderFn = useCallback(() => {
@@ -455,28 +489,26 @@ export function LexicalMenu<TOption extends MenuOption>({
   // watches it change length as they type even when the highlighted entry
   // stays put. None of that reaches a screen reader on its own.
   //
-  // Keyed on the count alone, so arrowing through the options does not talk
+  // Keyed on the spoken line, so arrowing through the options does not talk
   // over the option itself, and debounced so a burst of keystrokes produces
   // one message once typing settles rather than a queue of stale counts.
   const announce = useLexicalAriaLiveRegion();
   const optionCount = options.length;
+  // An empty list is ambiguous: the lookup may still be running. "No results"
+  // is reserved for a lookup that has finished. While one is running, and
+  // nothing is on screen yet, say so.
+  const statusMessage = suggestionStatus(optionCount, loading);
   useEffect(() => {
     const timeout = setTimeout(() => {
       try {
-        announce(
-          optionCount === 0
-            ? 'No results'
-            : optionCount === 1
-              ? '1 suggestion available'
-              : `${optionCount} suggestions available`,
-        );
+        announce(statusMessage);
       } catch (_e) {
         // The editor has no AriaLiveRegionExtension. The menu still works, it
         // just cannot speak the count.
       }
     }, 500);
     return () => clearTimeout(timeout);
-  }, [optionCount, announce]);
+  }, [statusMessage, announce]);
 
   // The editor is NOT a combobox. It is a rich text field that briefly grows
   // a suggestion list, and asserting role="combobox" on it has two costs: the
@@ -504,25 +536,38 @@ export function LexicalMenu<TOption extends MenuOption>({
     // options outside the editor's own DOM, and aria-activedescendant expects
     // to point at something the editor contains. aria-owns declares the
     // relationship the DOM no longer shows.
-    setAttrIfChanged(
-      rootElem,
-      'aria-owns',
-      hasOptions ? 'typeahead-listbox' : null,
-    );
+    //
+    // The default menu draws <ul id="typeahead-listbox">. A custom menu never
+    // does, so owning that id points at nothing. The custom menu is drawn
+    // into #typeahead-menu, and that element is the listbox.
+    let ownedId: string | null = null;
+    if (hasOptions) {
+      ownedId =
+        menuRenderFnProp == null ? 'typeahead-listbox' : 'typeahead-menu';
+    }
+    setAttrIfChanged(rootElem, 'aria-owns', ownedId);
     // Restated from the current highlight rather than written only when the
     // highlight moves. A menu that loads its options over the network opens
     // with none, and when they arrive the highlight has not "changed" - it
     // was clamped to -1 while the list was empty and lands back on 0 - so a
     // write driven by change alone never happens and the option is never
-    // announced.
+    // announced. A custom menu's options usually have no typeahead-item-N
+    // id. Leave the reference unset rather than naming an id that is not
+    // in the menu.
+    const activeId =
+      hasOptions && selectedIndex !== null && selectedIndex >= 0
+        ? 'typeahead-item-' + selectedIndex
+        : null;
+    const customOptionIsMissing =
+      menuRenderFnProp != null &&
+      (activeId == null ||
+        menuOptionElement(anchorElementRef.current, activeId) == null);
     setAttrIfChanged(
       rootElem,
       'aria-activedescendant',
-      hasOptions && selectedIndex !== null && selectedIndex >= 0
-        ? 'typeahead-item-' + selectedIndex
-        : null,
+      activeId == null || customOptionIsMissing ? null : activeId,
     );
-  }, [editor, hasOptions, selectedIndex]);
+  }, [anchorElementRef, editor, hasOptions, menuRenderFnProp, selectedIndex]);
 
   useEffect(() => {
     const rootElem = editor.getRootElement();
@@ -734,14 +779,21 @@ export function LexicalMenu<TOption extends MenuOption>({
 function setContainerDivAttributes(
   containerDiv: HTMLElement,
   className?: string,
-  ariaLabel?: string,
+  // Set only when this element is the listbox (a custom menu). Left unset for
+  // the default menu, whose listbox is the <ul> inside the portal: this
+  // element then only positions that list.
+  listboxLabel?: string,
 ) {
   if (className != null) {
     containerDiv.className = className;
   }
-  // Positioning wrapper only. The listbox role belongs on the element that
-  // directly parents the options - see defaultMenuRenderFn.
-  containerDiv.setAttribute('role', 'presentation');
+  if (listboxLabel !== undefined) {
+    containerDiv.setAttribute('role', 'listbox');
+    containerDiv.setAttribute('aria-label', listboxLabel);
+  } else {
+    containerDiv.setAttribute('role', 'presentation');
+    containerDiv.removeAttribute('aria-label');
+  }
   containerDiv.style.display = 'block';
   containerDiv.style.position = 'absolute';
 }
@@ -846,8 +898,18 @@ export function useMenuAnchorRef(
   parent?: HTMLElement,
   shouldIncludePageYOffset__EXPERIMENTAL: boolean = true,
   ariaLabel?: string,
+  // True when the caller passes menuRenderFn. That menu is placed into this
+  // element, so this element has to be the listbox. The default menu leaves
+  // it false.
+  containerIsListbox: boolean = false,
 ): RefObject<HTMLElement | null> {
   const [editor] = useLexicalComposerContext();
+  // The name is written here only when this element is the listbox. Folding
+  // it into one value means a label change on the default menu does not
+  // rebuild the anchor: that menu names the inner list instead.
+  const containerLabel = containerIsListbox
+    ? (ariaLabel ?? 'Typeahead menu')
+    : undefined;
   const resolvedParent: HTMLElement | ShadowRoot | undefined =
     parent ?? resolveMenuParent(editor);
   const initialAnchorElement = CAN_USE_DOM
@@ -908,7 +970,7 @@ export function useMenuAnchorRef(
       }
 
       if (!containerDiv.isConnected) {
-        setContainerDivAttributes(containerDiv, className, ariaLabel);
+        setContainerDivAttributes(containerDiv, className, containerLabel);
         resolvedParent.append(containerDiv);
       }
       containerDiv.setAttribute('id', 'typeahead-menu');
@@ -926,7 +988,7 @@ export function useMenuAnchorRef(
     shouldIncludePageYOffset__EXPERIMENTAL,
     className,
     resolvedParent,
-    ariaLabel,
+    containerLabel,
   ]);
 
   useEffect(() => {
@@ -970,7 +1032,7 @@ export function useMenuAnchorRef(
     initialAnchorElement != null &&
     initialAnchorElement === anchorElementRef.current
   ) {
-    setContainerDivAttributes(initialAnchorElement, className, ariaLabel);
+    setContainerDivAttributes(initialAnchorElement, className, containerLabel);
     if (resolvedParent != null) {
       resolvedParent.append(initialAnchorElement);
     }

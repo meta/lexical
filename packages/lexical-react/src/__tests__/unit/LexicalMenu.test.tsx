@@ -34,6 +34,7 @@ import {
   type MenuRenderFn,
   type MenuResolution,
   useDynamicPositioning,
+  useMenuAnchorRef,
 } from '../../shared/LexicalMenu';
 
 // Mock the composer context to provide a test editor
@@ -750,6 +751,80 @@ describe('LexicalMenu accessibility', () => {
       expect(root().getAttribute('aria-owns')).toBeNull();
       expect(root().getAttribute('aria-activedescendant')).toBeNull();
     });
+
+    it('does not own a list a custom menu never draws', async () => {
+      const customRenderFn: MenuRenderFn<TestOption> = (
+        anchorElementRef,
+        itemProps,
+      ) => {
+        return anchorElementRef.current
+          ? ReactDOM.createPortal(
+              <div className="custom-menu">
+                {itemProps.options.map((option, i) => (
+                  <div
+                    key={option.key}
+                    role="option"
+                    aria-selected={itemProps.selectedIndex === i}>
+                    {option.title}
+                  </div>
+                ))}
+              </div>,
+              anchorElementRef.current,
+            )
+          : null;
+      };
+
+      await render({
+        menuRenderFn: customRenderFn,
+        options: [new TestOption('A'), new TestOption('B')],
+      });
+
+      // The default listbox id is not in this menu. Owning it leaves the
+      // editor pointing at nothing. The menu's own box is on the page.
+      expect(document.getElementById('typeahead-listbox')).toBeNull();
+      expect(root().getAttribute('aria-owns')).toBe(anchorElement.id);
+      expect(document.getElementById(root().getAttribute('aria-owns')!)).toBe(
+        anchorElement,
+      );
+      // The choices have no typeahead-item-N id, so there is nothing to point
+      // at. A dangling id is the same break as the missing list.
+      expect(root().getAttribute('aria-activedescendant')).toBeNull();
+    });
+
+    it('points at a custom choice that carries the item id', async () => {
+      const customRenderFn: MenuRenderFn<TestOption> = (
+        anchorElementRef,
+        itemProps,
+      ) => {
+        return anchorElementRef.current
+          ? ReactDOM.createPortal(
+              <div>
+                {itemProps.options.map((option, i) => (
+                  <div
+                    id={'typeahead-item-' + i}
+                    key={option.key}
+                    role="option"
+                    aria-selected={itemProps.selectedIndex === i}>
+                    {option.title}
+                  </div>
+                ))}
+              </div>,
+              anchorElementRef.current,
+            )
+          : null;
+      };
+
+      await render({
+        menuRenderFn: customRenderFn,
+        options: [new TestOption('A')],
+      });
+
+      expect(root().getAttribute('aria-owns')).toBe('typeahead-menu');
+      expect(root().getAttribute('aria-activedescendant')).toBe(
+        'typeahead-item-0',
+      );
+      expect(document.getElementById('typeahead-item-0')).not.toBeNull();
+    });
   });
 
   describe('saying how many matches there are', () => {
@@ -790,6 +865,40 @@ describe('LexicalMenu accessibility', () => {
 
       // Nothing else can carry this: with no matches there is no list left
       // to describe, so correct markup is silence.
+      expect(announce).toHaveBeenCalledWith('No results');
+    });
+
+    it('says Loading while the lookup is still running', async () => {
+      await render({loading: true, options: []});
+      await settle();
+
+      expect(announce).toHaveBeenCalledWith('Loading');
+      expect(announce).not.toHaveBeenCalledWith('No results');
+    });
+
+    it('says how many once that lookup arrives', async () => {
+      await render({loading: true, options: []});
+      await settle();
+      announce.mockClear();
+
+      await render({
+        loading: false,
+        options: [new TestOption('A'), new TestOption('B')],
+      });
+      await settle();
+
+      expect(announce).toHaveBeenCalledWith('2 suggestions available');
+      expect(announce).not.toHaveBeenCalledWith('No results');
+    });
+
+    it('says No results when the lookup finishes with nothing', async () => {
+      await render({loading: true, options: []});
+      await settle();
+      announce.mockClear();
+
+      await render({loading: false, options: []});
+      await settle();
+
       expect(announce).toHaveBeenCalledWith('No results');
     });
 
@@ -852,5 +961,72 @@ describe('LexicalMenu accessibility', () => {
       expect(items()).toHaveLength(2);
       expect(listbox()).not.toBeNull();
     });
+  });
+});
+
+describe('menu anchor role', () => {
+  let container: HTMLDivElement;
+  let reactRoot: Root;
+
+  beforeEach(() => {
+    container = document.createElement('div');
+    document.body.appendChild(container);
+    reactRoot = createRoot(container);
+  });
+
+  afterEach(async () => {
+    await act(async () => {
+      reactRoot.unmount();
+    });
+    container.remove();
+    document.querySelectorAll('.probe-menu-anchor').forEach(node => {
+      node.remove();
+    });
+  });
+
+  function AnchorProbe({listbox, label}: {listbox: boolean; label?: string}) {
+    useMenuAnchorRef(
+      null,
+      vi.fn(),
+      'probe-menu-anchor',
+      document.body,
+      true,
+      label,
+      listbox,
+    );
+    return null;
+  }
+
+  const probe = () =>
+    document.querySelector('.probe-menu-anchor') as HTMLElement | null;
+
+  it('stays a positioning box for the built-in menu, with no name of its own', async () => {
+    await act(async () => {
+      reactRoot.render(<AnchorProbe label="Emojis" listbox={false} />);
+    });
+
+    // The name belongs on the inner list. A label passed through must not
+    // land on this box, and the box must not claim to be a list.
+    expect(probe()).not.toBeNull();
+    expect(probe()!.getAttribute('role')).toBe('presentation');
+    expect(probe()!.hasAttribute('aria-label')).toBe(false);
+  });
+
+  it('is the named list when the caller draws the menu', async () => {
+    await act(async () => {
+      reactRoot.render(<AnchorProbe label="Slash commands" listbox={true} />);
+    });
+
+    expect(probe()!.getAttribute('role')).toBe('listbox');
+    expect(probe()!.getAttribute('aria-label')).toBe('Slash commands');
+  });
+
+  it('names that list "Typeahead menu" when the caller does not', async () => {
+    await act(async () => {
+      reactRoot.render(<AnchorProbe listbox={true} />);
+    });
+
+    expect(probe()!.getAttribute('role')).toBe('listbox');
+    expect(probe()!.getAttribute('aria-label')).toBe('Typeahead menu');
   });
 });

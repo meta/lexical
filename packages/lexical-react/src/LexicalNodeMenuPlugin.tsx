@@ -87,6 +87,7 @@ export function LexicalNodeMenuPlugin<TOption extends MenuOption>({
     parent,
     true, // shouldIncludePageYOffset__EXPERIMENTAL
     menuAriaLabel,
+    menuRenderFn != null,
   );
 
   const closeNodeMenu = useCallback(() => {
