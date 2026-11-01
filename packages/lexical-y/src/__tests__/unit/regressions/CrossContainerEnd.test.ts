@@ -15,8 +15,9 @@
 // in the paragraph before the table, and B recolors part of the cell. B's
 // write linked its end after A's item in the root while naming the cell as
 // its parent: B's own document held an item in the wrong list (every other
-// client placed it in the cell), and later changes next to it made B's
-// editor stop reading part of the document, for good. A run cannot end in
+// client takes the parent from the item's origin and puts it in the root,
+// where it changes nothing), and later changes next to it made B's editor
+// stop reading part of the document, for good. A run cannot end in
 // another container: changeEnd only looks in the run's own, and no item is
 // written next to an item of another container.
 

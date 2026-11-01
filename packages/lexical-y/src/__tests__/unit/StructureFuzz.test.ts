@@ -152,6 +152,9 @@ function gen(seed: number): Op[] {
 for (let seed = FIRST; seed < FIRST + SEEDS; seed++) {
   test(`seed ${seed}: no item has a neighbour in another container (gc ${GC ? 'on' : 'off'})`, () => {
     const errors: unknown[] = [];
+    // A write the binding refuses is recovered from and only warned about:
+    // record the warnings so a failing seed is named.
+    const warnings: string[] = [];
     const docs = [0, 1].map(i => {
       const doc = createYDoc(null, {gc: GC});
       doc.clientID = 1001 + i;
@@ -171,6 +174,7 @@ for (let seed = FIRST; seed < FIRST + SEEDS; seed++) {
           ],
           name: `structure/${i}`,
           onError: e => errors.push(e),
+          onWarn: e => warnings.push(String(e && (e as Error).message)),
         }),
       ),
     );
@@ -191,6 +195,7 @@ for (let seed = FIRST; seed < FIRST + SEEDS; seed++) {
         for (const doc of docs) {
           expect(misLinkedItems(doc), `after step ${i}`).toEqual([]);
         }
+        expect(warnings, `after step ${i}`).toEqual([]);
       }
       expect(errors).toEqual([]);
     } finally {

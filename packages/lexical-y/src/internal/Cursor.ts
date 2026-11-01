@@ -148,8 +148,9 @@ export const markFormatCloser = (item: Item): void => {
  * Refuse to link a new item next to `left` and `right` unless both are in
  * `parent`, the type it is written to. An item whose neighbour sits in
  * another type is malformed: its own document links it into that type's list
- * while every other client integrates it into `parent`, and later reads of
- * that document go wrong. A write that hits this throws, and is recovered
+ * while naming `parent` (every other client takes its parent from its origin,
+ * so only this document holds it wrong), and later reads of that document go
+ * wrong. A write that hits this throws, and is recovered
  * from (RECOVERED_WRITE_WARNING) instead of storing the item.
  */
 function checkLinkable(
