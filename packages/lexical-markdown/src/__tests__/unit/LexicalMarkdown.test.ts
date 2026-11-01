@@ -45,6 +45,7 @@ import {
   $addUpdateTag,
   $copyNode,
   $createLineBreakNode,
+  $createNodeSelection,
   $createParagraphNode,
   $createTextNode,
   $getCaretRange,
@@ -59,6 +60,7 @@ import {
   $isRangeSelection,
   $isTextNode,
   $setCompositionKey,
+  $setSelection,
   $setSelectionFromCaretRange,
   $setState,
   COMPOSITION_END_TAG,
@@ -3359,6 +3361,32 @@ describe('$convertSelectionToMarkdownString', () => {
     expect(
       editor.read('latest', () => $convertToMarkdownString(TRANSFORMERS)),
     ).toBe(result);
+  });
+
+  it('code block node selection includes the whole block', () => {
+    const editor = createTestEditor();
+    editor.update(
+      () => {
+        const code = $createCodeNode('js').append(
+          $createTextNode('const value = "*";'),
+          $createLineBreakNode(),
+          $createTextNode('\treturn value;'),
+        );
+        $getRoot().append(
+          $createParagraphNode().append($createTextNode('before')),
+          code,
+          $createParagraphNode().append($createTextNode('after')),
+        );
+        const selection = $createNodeSelection();
+        selection.add(code.getKey());
+        $setSelection(selection);
+      },
+      {discrete: true},
+    );
+    const result = editor.read('latest', () =>
+      $convertSelectionToMarkdownString(TRANSFORMERS, $getSelection()),
+    );
+    expect(result).toBe('```js\nconst value = "*";\n\treturn value;\n```');
   });
 
   it('quote partial selection only includes selected text', () => {
