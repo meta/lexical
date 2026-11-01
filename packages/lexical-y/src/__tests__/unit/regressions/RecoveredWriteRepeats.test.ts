@@ -77,3 +77,49 @@ for (const ids of [
     }
   });
 }
+
+// The failed write and its rewrite are two transactions: a rewrite slower
+// than the undo manager's capture timeout (a very long line) makes one edit
+// two undo steps. An open question (D97): accept it as a limit, or join the
+// two at the transaction level. A capture timeout of 0 stands for a rewrite
+// slower than any timeout.
+for (const ids of [
+  [1, 2],
+  [2, 1],
+]) {
+  test.fails(
+    `D97: the rewrite after a failed write is in the same undo step (ids ${ids})`,
+    async () => {
+      const t = await setup(
+        () => $getRoot().append($p('one alpha beta'), $p('two gamma delta')),
+        {ids},
+      );
+      const um = t.a.binding.undoManager!;
+      um.captureTimeout = 0;
+      const steps = um.undoStack.length;
+      const proto = Cursor.prototype as unknown as {
+        newItem: (...args: unknown[]) => unknown;
+      };
+      const newItem = proto.newItem;
+      let calls = 0;
+      proto.newItem = function (this: unknown, ...args: unknown[]) {
+        if (++calls === 2) {
+          throw new Error('injected failure');
+        }
+        return newItem.apply(this, args);
+      };
+      try {
+        t.a.update(() => {
+          $selectIn([0], 3).insertText(' INSERT');
+          $selectIn([1], 3).insertText(' CHANGE');
+        });
+      } finally {
+        proto.newItem = newItem;
+      }
+      expect(
+        t.a.warnings.filter(w => w.includes('could not be written')),
+      ).toHaveLength(1);
+      expect(um.undoStack.length).toBe(steps + 1);
+    },
+  );
+}

@@ -1324,7 +1324,11 @@ not merge as a user might expect:
   `Kilo` bolded by one client, another unbolds `il` or types plain text
   inside `Kilo` as the first or a third bolds ` bb` (or `lo bb`), and with
   some client id orders ` bb` stays plain. No text is lost, and when that
-  client undoes its edit, ` bb` is bold again.
+  client undoes its edit, ` bb` is bold again. A local change the binding
+  could not write and recovered from (reported as
+  `@lexical/y/recovered-write`) can land as two undo steps: what the failed
+  write stored, and its rewrite, when the rewrite takes longer than the
+  undo manager's `captureTimeout` (a very long line).
 - **Large lists.** A structural edit in a list costs time proportional to
   the list on every client.
 - **Older app versions.** Clients of different `schemaVersion`s never

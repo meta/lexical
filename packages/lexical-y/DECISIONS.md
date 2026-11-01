@@ -132,6 +132,7 @@ issues and docs that carry it.
 
 | ID  | Question | Where it stands | Status | Date | Links |
 | --- | -------- | --------------- | ------ | ---- | ----- |
+| D97 | **A recovered write can be two undo steps.** When a local change cannot be written part way and the binding rewrites the document from the editor (`RECOVERED_WRITE_WARNING`), what the failed write stored and the rewrite are two transactions; a rewrite that takes longer than the undo manager's `captureTimeout` (a line of about a million characters at 20 ms) lands as its own undo step. | Joining them by suspending the capture timeout merged the rewrite into an app's own step where the app wrote between the two, and did nothing for an app's `UndoManager` tracking the same origin ([#9697] review). Accept as a limit (documented in [Limits][limits]), or associate the two at the transaction level. | `OPEN` | 11-01 | [#9697], [limits] |
 | D59 | **Block containers in the node structure.** A container that is not a shadow root counts as one block, so `$insertList` replaces it; a box inside a box loses the outer box. | The rule should live in `NodeStructureExtension`. Draft in progress. | `OPEN` | 10-30 | [#9570] |
 | D60 | **Code highlighting as display-only.** Today highlighting is stored token nodes, so code written without the highlighter opens plain until edited (D21). | Right long term, but intrusive; documented for now. | `OPEN` | 10-30 | [#9536], [#9558] |
 | D61 | **Two concurrent joins into one line** both write its type; Yjs keeps one by client id. | Inherent to the marker layout; a real trade-off. | `OPEN` | 10-30 | [#9511] |
@@ -236,3 +237,4 @@ issues and docs that carry it.
 [yjs#382]: https://github.com/yjs/yjs/issues/382
 [#9679]: https://github.com/meta/lexical/pull/9679
 [#9694]: https://github.com/meta/lexical/issues/9694
+[#9697]: https://github.com/meta/lexical/pull/9697
