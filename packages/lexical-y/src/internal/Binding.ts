@@ -321,11 +321,14 @@ const keepOwners = new WeakMap<
 >();
 
 /**
- * Per binding lifetime (the owner in keepOwners), the items it kept again
- * after its UndoManager let them go (a clear of a stack releases what its
- * steps kept, parents included). Those keeps are the bindings' own: the
- * last binding lifetime that holds such an item releases it when it stops.
+ * The items bindings kept again after their UndoManager let them go (a clear
+ * of a stack releases what its steps kept, parents included), with the
+ * binding lifetimes (the owners in keepOwners) that hold each such keep: the
+ * lifetimes that kept it again, or relied on it when another had, or held
+ * it when the last of those stopped. The keep is released when the last of
+ * them stops. And per lifetime, the items it holds so.
  */
+const rekeepHolders = new WeakMap<Item, Set<object>>();
 const rekeptByOwner = new WeakMap<object, Set<Item>>();
 
 /** What an update listener gets for a commit (see YBinding#onUpdate). */
@@ -1154,18 +1157,35 @@ export class YBinding {
       const owner = {};
       const rekept = new Set<Item>();
       rekeptByOwner.set(owner, rekept);
-      // When this lifetime ends: what it kept again after its UndoManager
-      // let it go is released, or handed to the lifetimes of other
-      // bindings that still keep it (the last of them releases it).
+      const hold = (it: Item, by: object) => {
+        let holders = rekeepHolders.get(it);
+        if (holders === undefined) {
+          holders = new Set();
+          rekeepHolders.set(it, holders);
+        }
+        holders.add(by);
+        const theirs = rekeptByOwner.get(by);
+        if (theirs !== undefined) {
+          theirs.add(it);
+        }
+      };
+      // When this lifetime ends: each keep it holds goes to the other
+      // lifetimes that hold it, or that keep the item for a step of theirs,
+      // or is released by the last of them.
       const releaseRekept = () => {
         for (const it of rekept) {
+          const holders = rekeepHolders.get(it);
+          if (holders !== undefined) {
+            holders.delete(owner);
+            if (holders.size > 0) {
+              continue;
+            }
+            rekeepHolders.delete(it);
+          }
           const entry = keepOwners.get(it);
           if (entry !== undefined && entry.owners.size > 0) {
             for (const other of entry.owners) {
-              const theirs = rekeptByOwner.get(other);
-              if (theirs !== undefined) {
-                theirs.add(it);
-              }
+              hold(it, other);
             }
             continue;
           }
@@ -1224,10 +1244,9 @@ export class YBinding {
         }
       };
       const release = (onlyWhenEmpty: boolean) => {
-        if (kept.size === 0) {
+        if (kept.size === 0 && (!disposed || rekept.size === 0)) {
           if (disposed) {
             this._doc.off('destroy', onDestroy);
-            releaseRekept();
           }
           return;
         }
@@ -1269,7 +1288,10 @@ export class YBinding {
         for (const it of kept) {
           if (!it.keep) {
             it.keep = true;
-            rekept.add(it);
+            hold(it, owner);
+          } else if (rekeepHolders.has(it)) {
+            // Kept again by another binding: held by this one too.
+            hold(it, owner);
           }
         }
       });
