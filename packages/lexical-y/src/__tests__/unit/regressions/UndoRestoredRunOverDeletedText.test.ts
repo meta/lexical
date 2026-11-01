@@ -339,3 +339,65 @@ describe('undoing a removal brings back a value whose text and end the author un
     }
   }
 });
+
+describe('both clients comment the same text; A types at its start; B undoes its comment and removes it; A undoes; B undoes', () => {
+  for (const gc of [false, true]) {
+    for (const ids of [
+      [1, 2],
+      [2, 1],
+    ] as [number, number][]) {
+      // Fully sequential (synced after every step). The comment B removed
+      // comes back over the paragraphs after it (#9689).
+      it.fails(
+        `no comment is left (gc ${gc ? 'on' : 'off'}, ids ${ids})`,
+        () => {
+          const {A, B, sync} = clients(gc, ids);
+          // "two" in "zero two two": the second text node after each comment
+          const second =
+            (f: (s: RangeSelection) => void, a: number, b: number) =>
+            (editor: LexicalEditor) =>
+              editor.update(
+                () => {
+                  const block = $getRoot().getChildAtIndex(2) as ReturnType<
+                    typeof $createParagraphNode
+                  >;
+                  const t = block.getChildAtIndex(1);
+                  if (!$isTextNode(t)) {
+                    throw new Error('no text');
+                  }
+                  const s = $createRangeSelection();
+                  s.anchor.set(t.getKey(), a, 'text');
+                  s.focus.set(t.getKey(), b, 'text');
+                  $setSelection(s);
+                  f(s);
+                  $setSelection(null);
+                },
+                {discrete: true},
+              );
+          onRange(A.editor, 4, 7, s => $addMarkID('c1', s));
+          A.step();
+          sync();
+          second(s => $addMarkID('c2', s), 0, 3)(B.editor);
+          B.step();
+          sync();
+          second(s => type(s, 'yy'), 0, 0)(A.editor);
+          A.step();
+          sync();
+          B.editor.dispatchCommand(UNDO_COMMAND, undefined);
+          sync();
+          B.editor.update(() => $removeMarkID('c2'), {discrete: true});
+          B.step();
+          sync();
+          A.editor.dispatchCommand(UNDO_COMMAND, undefined);
+          A.editor.dispatchCommand(UNDO_COMMAND, undefined);
+          sync();
+          B.editor.dispatchCommand(UNDO_COMMAND, undefined);
+          sync();
+          const a = A.editor.getEditorState().read($show);
+          expect(B.editor.getEditorState().read($show)).toEqual(a);
+          expect(a).toEqual(PARAS);
+        },
+      );
+    }
+  }
+});
