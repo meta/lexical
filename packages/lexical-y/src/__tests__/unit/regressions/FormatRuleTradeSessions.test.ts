@@ -10,8 +10,9 @@
 
 // Three-client sessions (reduced from a view property's fresh seeds) in which a
 // format reaches the sentinel line nobody formatted, made wrong by the rules
-// that fixed #9671: a trade recorded as D95 (#9690). They passed before those
-// rules, gc off and on.
+// that fixed #9671: a trade recorded as D95 (#9690). Each session pins the gc
+// setting it passed with before those rules (107991 and 111874 off, 110073
+// on).
 
 import {$getNodeMarkIDs} from '@lexical/mark';
 import {
@@ -100,7 +101,7 @@ test.fails('#9690: session 107991: the sentinel line stays plain', async () => {
       [0, 0, 0, 8, 2, 1, 0, 0],
       [0, 0, 0, 0, 0, 8, 8, 0],
     ],
-    {ids: [2, 1, 3]},
+    {gc: false, ids: [2, 1, 3]},
     async t => {
       t.peers[1].update(() => void $selectIn([1], 15, 16).removeText());
       t.peers[1].update(() => void $selectIn([1], 15, 16).removeText());
@@ -132,7 +133,7 @@ test.fails('#9690: session 111874: the sentinel line stays plain', async () => {
       [0, 0, 0, 0, 8, 0, 0],
       [1, 2, 0, 0],
     ],
-    {ids: [3, 1, 2]},
+    {gc: false, ids: [3, 1, 2]},
     async t => {
       t.offline();
       t.peers[1].update(() => $plain(1, 2, 'xq17'));

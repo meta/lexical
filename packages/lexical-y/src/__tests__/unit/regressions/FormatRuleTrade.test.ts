@@ -14,7 +14,8 @@
 // provenance can tell a range's end from a removal's start.
 // B makes its steps (each its own undo step), A types a plain character, B
 // undoes everything. Expected: every original letter keeps exactly its
-// original formats, A's character is plain, B's "Z" is gone.
+// original formats and B's "Z" is gone (A's character is left out of the
+// comparison).
 
 import {
   buildEditorFromExtensions,
@@ -175,7 +176,8 @@ const CASES: {
   ops: Op[];
 }[] = [
   {
-    // italic over "ef", Z typed inside, italic over "Z" and the rest; A types 1
+    // italic over "efghi", Z typed inside it, italic over "Z" and the rest;
+    // A types 1
     ids: [2, 1],
     name: '#9690: restore of own earlier insert removed (#9671 rule, restore side)',
     ops: [
@@ -195,7 +197,8 @@ const CASES: {
     ],
   },
   {
-    // Z typed into the struck text, then strikethrough removed over it; A types 1
+    // Z typed after the plain "ghi", then strikethrough removed over the text
+    // after it; A types 1
     ids: [2, 1],
     name: "#9690: restore scan stops at another client's text (#9599 rule)",
     ops: [
