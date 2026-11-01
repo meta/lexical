@@ -48,6 +48,7 @@ import {expect, test} from 'vitest';
 
 import {createYDoc, YCollabExtension} from '../..';
 import {seedYState} from '../../headless';
+import {misLinkedItems} from '../utils/structure';
 
 const SEEDS = Number(process.env.US_SEEDS ?? 60);
 const START = Number(process.env.US_START ?? 1);
@@ -260,6 +261,10 @@ for (let seed = START; seed < START + SEEDS; seed++) {
         for (const peer of peers) {
           expect(
             spread(peer.editor),
+            `after op ${i}: ${JSON.stringify(ops.slice(0, i + 1))}`,
+          ).toEqual([]);
+          expect(
+            misLinkedItems(peer.doc),
             `after op ${i}: ${JSON.stringify(ops.slice(0, i + 1))}`,
           ).toEqual([]);
         }

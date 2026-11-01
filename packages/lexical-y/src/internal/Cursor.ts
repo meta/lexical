@@ -145,10 +145,35 @@ export const markFormatCloser = (item: Item): void => {
 };
 
 /**
+ * Refuse to link a new item next to `left` and `right` unless both are in
+ * `parent`, the type it is written to. An item whose neighbour sits in
+ * another type is malformed: its own document links it into that type's list
+ * while every other client integrates it into `parent`, and later reads of
+ * that document go wrong. A write that hits this throws, and is recovered
+ * from (RECOVERED_WRITE_WARNING) instead of storing the item.
+ */
+function checkLinkable(
+  left: Item | null,
+  right: Item | null,
+  parent: Item['parent'],
+): void {
+  if (
+    (left !== null && left.parent !== parent) ||
+    (right !== null && right.parent !== parent)
+  ) {
+    throw new Error(
+      'refused to write an item next to an item of another shared type',
+    );
+  }
+}
+
+/**
  * The item that ends the run `item`, a format item, opened in the write that
- * made it: the first item of its key, with another value, that its client
- * made after it (one write's items are one after the other in its client's
- * clock order; looked for among the next 64). Null when none is found.
+ * made it: the first item of its key, with another value, in the same shared
+ * type, that its client made after it (one write's items are one after the
+ * other in its client's clock order; looked for among the next 64). A run
+ * cannot end in another type: a write's items in other containers are
+ * passed over. Null when none is found.
  */
 export function changeEnd(doc: Doc, item: Item): Item | null {
   const {key, value} = item.content as ContentFormat;
@@ -161,6 +186,7 @@ export function changeEnd(doc: Doc, item: Item): Item | null {
       return null;
     }
     if (
+      next.parent === item.parent &&
       next.content instanceof ContentFormat &&
       next.content.key === key &&
       !equalFormatValue(next.content.value, value)
@@ -174,7 +200,8 @@ export function changeEnd(doc: Doc, item: Item): Item | null {
 
 /**
  * The item its client made last before `item` (looked for among the 64
- * structs before it, in clock order) of the key `key`, or null.
+ * structs before it, in clock order) of the key `key` in the same shared
+ * type, or null.
  */
 function lastOwnItemBefore(doc: Doc, item: Item, key: string): Item | null {
   const {client} = item.id;
@@ -184,7 +211,11 @@ function lastOwnItemBefore(doc: Doc, item: Item, key: string): Item | null {
     if (!(prev instanceof Item)) {
       return null;
     }
-    if (prev.content instanceof ContentFormat && prev.content.key === key) {
+    if (
+      prev.parent === item.parent &&
+      prev.content instanceof ContentFormat &&
+      prev.content.key === key
+    ) {
       return prev;
     }
     clock = prev.id.clock - 1;
@@ -446,6 +477,7 @@ export class Cursor {
     const client = doc.clientID;
     const left = this.left;
     const right = this.right;
+    checkLinkable(left, right, this.parent);
     const item = new Item(
       createID(client, doc.store.getClock(client)),
       left,
@@ -782,6 +814,7 @@ export class Cursor {
   private insertAfter(left: Item, content: ContentFormat): Item {
     const doc = this.tr.doc;
     const right = left.right;
+    checkLinkable(left, right, this.parent);
     const item = new Item(
       createID(doc.clientID, doc.store.getClock(doc.clientID)),
       left,

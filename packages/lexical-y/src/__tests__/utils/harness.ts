@@ -51,6 +51,7 @@ import {
 import {expect} from 'vitest';
 
 import {createYDoc, YBinding, YCollabExtension, type YDoc} from '../..';
+import {misLinkedItems} from './structure';
 
 // An undeclared block container with a schema field ('node').
 const boxSchema = nodeSchema<BoxNode>()({
@@ -477,6 +478,7 @@ export async function expectConverged(peers: Peer[], expected?: string) {
   for (const peer of peers) {
     expect(peer.errors).toEqual([]);
     expect(peer.warnings.filter(w => w.includes('self-check'))).toEqual([]);
+    expect(misLinkedItems(peer.doc)).toEqual([]);
     expect(peer.describe()).toBe(first.describe());
     expect(shape(peer)).toEqual(shape(first));
   }

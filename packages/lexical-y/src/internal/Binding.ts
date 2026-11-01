@@ -5708,6 +5708,11 @@ export class YBinding {
     if (ends.length > 0) {
       doc.transact(tr => {
         for (const [left, right, key] of ends) {
+          // In the type of the item it goes before, never next to an item
+          // of another type (see checkLinkable in Cursor).
+          if (left !== null && right !== null && left.parent !== right.parent) {
+            continue;
+          }
           const item = new Item(
             createID(client, store.getClock(client)),
             left,
