@@ -2956,7 +2956,10 @@ export class Writer {
 
   /** Rewrite one line (its content and marker) on its own. */
   $writeLineAlone(u: Unit, d: Desired): void {
-    if (this.$writeTextEdit(u, d)) {
+    // A rewrite after a failed write diffs the line against the document:
+    // the edits Lexical recorded may be stored already (the failed write
+    // stored part of its change), and writing them again would repeat them.
+    if (!this.rewriteAll && this.$writeTextEdit(u, d)) {
       return;
     }
     const old = u.cs.units;
