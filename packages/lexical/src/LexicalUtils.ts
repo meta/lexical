@@ -2268,18 +2268,21 @@ export function $updateDOMBlockCursorElement(
       // DOM is the wrapper but the managed children (and `insertBeforeElement`)
       // live in `slot.element`; inserting into the keyed wrapper would throw
       // because the reference node is not its child.
-      const elementDOM = $getDOMSlot(
+      const slot = $getDOMSlot(
         elementNode,
         editor.getElementByKey(elementNode.__key) as HTMLElement,
         editor,
-      ).element;
+      );
+      const elementDOM = slot.element;
       if (blockCursorElement === null) {
         editor._blockCursorElement = blockCursorElement =
           $createBlockCursorElement(editor._config);
       }
       rootElement.style.caretColor = 'transparent';
       if (insertBeforeElement === null) {
-        elementDOM.appendChild(blockCursorElement);
+        // Stay inside the slot's managed range: a slot with a `before`
+        // boundary keeps its trailing decoration after the children.
+        elementDOM.insertBefore(blockCursorElement, slot.before);
       } else {
         elementDOM.insertBefore(blockCursorElement, insertBeforeElement);
       }
