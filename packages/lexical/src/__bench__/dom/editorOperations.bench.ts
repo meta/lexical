@@ -7,7 +7,7 @@
  */
 
 import invariant from '@lexical/internal/invariant';
-import {bench, describe} from 'vitest';
+import {test} from 'vitest';
 
 import {
   $createParagraphNode,
@@ -19,6 +19,7 @@ import {
   $isRangeSelection,
   $isTextNode,
   $selectAll,
+  type EditorState,
   type LexicalEditor,
 } from '../../';
 import {createTestEditor} from '../../__tests__/utils';
@@ -32,11 +33,18 @@ const SIZES = [100, 1000] as const;
 for (const size of SIZES) {
   // Splits last child at midpoint. Resets text when exhausted (~every
   // 5 iters) to avoid O(n) backward walk that would dominate timing.
-  describe(`size=${size} :: split paragraph (Enter)`, () => {
+  test(`size=${size} :: split paragraph (Enter)`, async ({bench}) => {
     let editor: LexicalEditor;
 
-    bench(
+    await bench(
       'insertParagraph',
+      {
+        beforeAll: () => {
+          editor = createTestEditor();
+          attachToDOM(editor);
+          buildLargeDoc(editor, size);
+        },
+      },
       () => {
         editor.update(
           () => {
@@ -59,23 +67,23 @@ for (const size of SIZES) {
           {discrete: true},
         );
       },
+    ).run();
+  });
+
+  // Non-destructive: bold toggles on the same paragraph each iteration.
+  // Selection + format in one discrete update so reconcile is measured.
+  test(`size=${size} :: format text (bold on selection)`, async ({bench}) => {
+    let editor: LexicalEditor;
+
+    await bench(
+      'formatText bold',
       {
-        setup: () => {
+        beforeAll: () => {
           editor = createTestEditor();
           attachToDOM(editor);
           buildLargeDoc(editor, size);
         },
       },
-    );
-  });
-
-  // Non-destructive: bold toggles on the same paragraph each iteration.
-  // Selection + format in one discrete update so reconcile is measured.
-  describe(`size=${size} :: format text (bold on selection)`, () => {
-    let editor: LexicalEditor;
-
-    bench(
-      'formatText bold',
       () => {
         editor.update(
           () => {
@@ -94,14 +102,7 @@ for (const size of SIZES) {
           {discrete: true},
         );
       },
-      {
-        setup: () => {
-          editor = createTestEditor();
-          attachToDOM(editor);
-          buildLargeDoc(editor, size);
-        },
-      },
-    );
+    ).run();
   });
 
   // Destructive: selects the last 10 paragraphs and deletes via
@@ -109,11 +110,18 @@ for (const size of SIZES) {
   // Anchors at the end of the paragraph before the range so that
   // after deletion the anchor paragraph keeps its text, avoiding
   // the empty-paragraph artifact that a start-of-range anchor causes.
-  describe(`size=${size} :: delete range (10 paragraphs)`, () => {
+  test(`size=${size} :: delete range (10 paragraphs)`, async ({bench}) => {
     let editor: LexicalEditor;
 
-    bench(
+    await bench(
       'removeText across 10 paragraphs',
+      {
+        beforeAll: () => {
+          editor = createTestEditor();
+          attachToDOM(editor);
+          buildLargeDoc(editor, size * 16);
+        },
+      },
       () => {
         editor.update(
           () => {
@@ -131,7 +139,10 @@ for (const size of SIZES) {
             let firstToDelete = lastNode;
             for (let i = 0; i < 9; i++) {
               const prev = firstToDelete.getPreviousSibling();
-              invariant(prev !== null, 'Expected previous sibling');
+              invariant(
+                $isParagraphNode(prev),
+                'Expected previous ParagraphNode',
+              );
               firstToDelete = prev;
             }
             const anchorNode = firstToDelete.getPreviousSibling();
@@ -159,27 +170,56 @@ for (const size of SIZES) {
           {discrete: true},
         );
       },
-      {
-        iterations: size,
-        setup: () => {
-          editor = createTestEditor();
-          attachToDOM(editor);
-          buildLargeDoc(editor, size * 16);
-        },
-        time: 0,
-        warmupIterations: 5,
-        warmupTime: 0,
-      },
-    );
+    ).run({iterations: size, time: 0, warmupIterations: 5, warmupTime: 0});
   });
 
-  // Accumulative: inserts 10 paragraphs at the end per iteration.
-  describe(`size=${size} :: paste 10 paragraphs`, () => {
+  // Insert 10 paragraphs into the same initial document each iteration.
+  // Tinybench runs task hooks outside the timed body, so restoring the state
+  // keeps the paste workload at the requested size throughout the run.
+  test(`size=${size} :: paste 10 paragraphs`, async ({bench}) => {
     let editor: LexicalEditor;
+    let initialState: EditorState;
     let cycle = 0;
+    let pasted = 0;
+    let checked = 0;
 
-    bench(
+    await bench(
       '$insertNodes at end',
+      {
+        afterAll: () => {
+          invariant(
+            pasted === checked && cycle === 1,
+            'Paste benchmark hooks did not run on every iteration',
+          );
+        },
+        afterEach: () => {
+          checked++;
+          editor.read(() => {
+            const actual = $getRoot().getChildrenSize();
+            invariant(
+              // The first pasted paragraph merges into the original last
+              // paragraph because the caret is at the end of its text.
+              actual === size + 9,
+              'Paste should leave %s paragraphs, got %s',
+              String(size + 9),
+              String(actual),
+            );
+          });
+        },
+        beforeAll: () => {
+          editor = createTestEditor();
+          attachToDOM(editor);
+          buildLargeDoc(editor, size);
+          initialState = editor.getEditorState();
+          cycle = 0;
+          pasted = 0;
+          checked = 0;
+        },
+        beforeEach: () => {
+          editor.setEditorState(initialState);
+          cycle = 0;
+        },
+      },
       () => {
         editor.update(
           () => {
@@ -204,27 +244,27 @@ for (const size of SIZES) {
             }
             $insertNodes(nodes);
             cycle++;
+            pasted++;
           },
           {discrete: true},
         );
       },
-      {
-        setup: () => {
-          editor = createTestEditor();
-          attachToDOM(editor);
-          buildLargeDoc(editor, size);
-          cycle = 0;
-        },
-      },
-    );
+    ).run({throws: true});
   });
 
   // Non-destructive: select all + italic toggle.
-  describe(`size=${size} :: select all + format`, () => {
+  test(`size=${size} :: select all + format`, async ({bench}) => {
     let editor: LexicalEditor;
 
-    bench(
+    await bench(
       '$selectAll + formatText italic',
+      {
+        beforeAll: () => {
+          editor = createTestEditor();
+          attachToDOM(editor);
+          buildLargeDoc(editor, size);
+        },
+      },
       () => {
         editor.update(
           () => {
@@ -236,13 +276,6 @@ for (const size of SIZES) {
           {discrete: true},
         );
       },
-      {
-        setup: () => {
-          editor = createTestEditor();
-          attachToDOM(editor);
-          buildLargeDoc(editor, size);
-        },
-      },
-    );
+    ).run();
   });
 }

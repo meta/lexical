@@ -7,6 +7,7 @@
  */
 
 import * as ComposerContext from '@lexical/react/LexicalComposerContext';
+import {type LexicalComposerContextWithEditor} from '@lexical/react/LexicalComposerContext';
 import {
   KEY_ARROW_DOWN_COMMAND,
   KEY_ENTER_COMMAND,
@@ -538,7 +539,7 @@ describe('useDynamicPositioning Comment 8 regression', () => {
     vi.spyOn(ComposerContext, 'useLexicalComposerContext').mockReturnValue([
       shadowEditor,
       {},
-    ] as ReturnType<typeof ComposerContext.useLexicalComposerContext>);
+    ] as LexicalComposerContextWithEditor);
 
     const shadowAddSpy = vi.spyOn(shadow, 'addEventListener');
 

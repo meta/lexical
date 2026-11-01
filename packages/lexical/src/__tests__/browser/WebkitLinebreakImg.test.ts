@@ -28,17 +28,20 @@
 import {buildEditorFromExtensions, defineExtension} from '@lexical/extension';
 import {RichTextExtension} from '@lexical/rich-text';
 import {
+  $create,
   $createLineBreakNode,
   $createParagraphNode,
   $createTextNode,
   $getRoot,
+  $isParagraphNode,
   DecoratorNode,
   IS_APPLE_WEBKIT,
   IS_IOS,
   IS_SAFARI,
-  type ParagraphNode,
 } from 'lexical';
-import {describe, expect, onTestFinished, test} from 'vitest';
+import {assert, describe, expect, onTestFinished, test} from 'vitest';
+
+import {$assertNodeType} from '../utils/assertNodeType';
 
 // Matches the `webkitHack` gate in ElementDOMSlot.setManagedLineBreak.
 const EXPECTS_IMG_HACK = IS_SAFARI || IS_IOS || IS_APPLE_WEBKIT;
@@ -185,8 +188,7 @@ describe('WebKit managed-linebreak img hack (inline decorator last child)', () =
 
     editor.update(
       () => {
-        $getRoot()
-          .getFirstChildOrThrow<ParagraphNode>()
+        $assertNodeType($getRoot().getFirstChildOrThrow(), $isParagraphNode)
           .getLastChildOrThrow()
           .insertAfter($createTextNode('after'));
       },
@@ -216,8 +218,7 @@ describe('WebKit managed-linebreak img hack (inline decorator last child)', () =
 
     editor.update(
       () => {
-        $getRoot()
-          .getFirstChildOrThrow<ParagraphNode>()
+        $assertNodeType($getRoot().getFirstChildOrThrow(), $isParagraphNode)
           .getLastChildOrThrow()
           .replace($createLineBreakNode());
       },
@@ -225,5 +226,67 @@ describe('WebKit managed-linebreak img hack (inline decorator last child)', () =
     );
 
     expect(linebreakScaffold(contentEditable)).toEqual(['br']);
+  });
+});
+
+/** The paragraph's DOM children, with the reconciler's scaffolding named. */
+function paragraphShape(contentEditable: HTMLElement): string[] {
+  const paragraph = contentEditable.querySelector('p');
+  assert(paragraph !== null);
+  return Array.from(paragraph.childNodes, node => {
+    assert(node instanceof Element);
+    if (node.hasAttribute('data-lexical-decorator-boundary')) {
+      return 'anchor';
+    }
+    if (node.hasAttribute('data-lexical-managed-linebreak')) {
+      return `managed-${node.nodeName.toLowerCase()}`;
+    }
+    return node.hasAttribute('data-lexical-decorator') ? 'decorator' : 'text';
+  });
+}
+
+describe('scaffolding removed from outside the reconciler is restored', () => {
+  const EXPECTED_SHAPE = [
+    'decorator',
+    'text',
+    'decorator',
+    ...DECORATOR_LINEBREAK.map(tag => `managed-${tag}`),
+  ];
+
+  function mountDecoratorLine() {
+    const mounted = mountEditor();
+    mounted.editor.update(
+      () => {
+        $getRoot()
+          .clear()
+          .append(
+            $createParagraphNode().append(
+              $create(TestInlineDecoratorNode),
+              $createTextNode('text'),
+              $create(TestInlineDecoratorNode),
+            ),
+          );
+      },
+      {discrete: true},
+    );
+    expect(paragraphShape(mounted.contentEditable)).toEqual(EXPECTED_SHAPE);
+    return mounted;
+  }
+
+  test.each([
+    ...(EXPECTS_IMG_HACK
+      ? [['the managed line break img', 'img[data-lexical-managed-linebreak]']]
+      : []),
+    ['the managed line break br', 'br[data-lexical-managed-linebreak]'],
+  ])('%s', async (_name, selector) => {
+    const {contentEditable} = mountDecoratorLine();
+    const removed = contentEditable.querySelector(`p > ${selector}`);
+    assert(removed !== null, `expected ${selector} in the scaffold`);
+    removed.remove();
+    // The MutationObserver delivers its records, and the editor restores the
+    // scaffolding, after this task.
+    await expect
+      .poll(() => paragraphShape(contentEditable))
+      .toEqual(EXPECTED_SHAPE);
   });
 });

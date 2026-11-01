@@ -63,13 +63,15 @@ import {
   $setState,
   COMPOSITION_END_TAG,
   type CreateEditorArgs,
+  type ElementNode,
   KEY_ENTER_COMMAND,
   type LexicalEditor,
   type LexicalNode,
   TEXT_TYPE_TO_FORMAT,
-  type TextNode,
+  type TextFormatType,
+  TextNode,
 } from 'lexical';
-import {assert, describe, expect, it} from 'vitest';
+import {assert, describe, expect, it, onTestFinished, vi} from 'vitest';
 
 import {
   hardLineBreakState,
@@ -560,7 +562,7 @@ describe('Markdown', () => {
     {
       // Code spans bind tighter than text-match transformers, so the $...$
       // (HIGHLIGHT_TEXT_MATCH_IMPORT) must not consume across the code spans.
-      // https://github.com/facebook/lexical/issues/8687
+      // https://github.com/meta/lexical/issues/8687
       html: '<p><code spellcheck="false" style="white-space: pre-wrap;"><span>$a</span></code><span style="white-space: pre-wrap;"> </span><code spellcheck="false" style="white-space: pre-wrap;"><span>$b</span></code></p>',
       md: '`$a` `$b`',
     },
@@ -829,6 +831,7 @@ describe('Markdown', () => {
     {
       html: '<p><span style="white-space: pre-wrap;">[foo </span><a href="/uri"><span style="white-space: pre-wrap;">bar</span></a><span style="white-space: pre-wrap;">](/uri)</span></p>',
       md: '[foo [bar](/uri)](/uri)',
+      mdAfterExport: '[foo [bar](/uri)&#93;(/uri)',
     },
     {
       // https://spec.commonmark.org/0.31.2/#link-destination allows a balanced
@@ -886,6 +889,24 @@ describe('Markdown', () => {
       md: 'This is a backslash: \\\\',
     },
     {
+      // Backslash escapes don't apply inside a code span, even at the start of a node (#9395)
+      html: '<p><code spellcheck="false" style="white-space: pre-wrap;"><span>C:\\$MFT</span></code></p>',
+      md: '`C:\\$MFT`',
+    },
+    {
+      html: '<p><code spellcheck="false" style="white-space: pre-wrap;"><span>C:\\$MFT</span></code><span style="white-space: pre-wrap;"> and more</span></p>',
+      md: '`C:\\$MFT` and more',
+    },
+    {
+      // Escapes at the start of a node are only unescaped once (#9395)
+      html: '<p><b><strong style="white-space: pre-wrap;">a\\*b</strong></b></p>',
+      md: '**a\\\\\\*b**',
+    },
+    {
+      html: '<p><span style="white-space: pre-wrap;">a\\* </span><b><strong style="white-space: pre-wrap;">b</strong></b></p>',
+      md: 'a\\\\\\* **b**',
+    },
+    {
       html: '<p><span style="white-space: pre-wrap;">This is an asterisk: *</span></p>',
       md: 'This is an asterisk: \\*',
     },
@@ -939,14 +960,22 @@ describe('Markdown', () => {
     {
       html: '<p><span style="white-space: pre-wrap;">[hello]](https://lexical.dev)</span><a href="https://lexical.dev"><span style="white-space: pre-wrap;">world</span></a></p>',
       md: '[hello]](https://lexical.dev)[world](https://lexical.dev)',
+      mdAfterExport:
+        '[hello]&#93;(https://lexical.dev)[world](https://lexical.dev)',
     },
     {
       html: '<p><span style="white-space: pre-wrap;">[h</span><a href="https://lexical.dev"><span style="white-space: pre-wrap;">ello</span></a><a href="https://lexical.dev"><span style="white-space: pre-wrap;">world</span></a></p>',
       md: '[h[ello](https://lexical.dev)[world](https://lexical.dev)',
     },
     {
+      html: '<p><i><em style="white-space: pre-wrap;">[h</em></i><a href="https://lexical.dev"><i><em style="white-space: pre-wrap;">ello</em></i></a></p>',
+      md: '*[h[ello](https://lexical.dev)*',
+      mdAfterExport: '*[h*[*ello*](https://lexical.dev)',
+    },
+    {
       html: '<p><span style="white-space: pre-wrap;">[](https://lexical.dev)</span></p>',
       md: '[](https://lexical.dev)',
+      mdAfterExport: '[&#93;(https://lexical.dev)',
     },
     {
       html: '<p><a href="https://lexical.dev"><b><strong style="white-space: pre-wrap;">link</strong></b></a><b><strong style="white-space: pre-wrap;">text</strong></b></p>',
@@ -1007,7 +1036,7 @@ describe('Markdown', () => {
     {
       html: '<p><span style="white-space: pre-wrap;">!"#$%&amp;\'()*+,-./:;&lt;=&gt;?@[\\]^_`{|}~</span></p>',
       md: '\\!\\"\\#\\$\\%\\&\\\'\\(\\)\\*\\+\\,\\-\\.\\/\\:\\;\\<\\=\\>\\?\\@\\[\\\\\\]\\^\\_\\`\\{\\|\\}\\~',
-      mdAfterExport: '!"#$%&\'()\\*+,-./:;<=>?@[\\\\]^\\_\\`{|}\\~',
+      mdAfterExport: '!"#$%&\'()\\*+,-./:;&#60;=>?@[\\\\]^\\_\\`{|}\\~',
     },
     {
       html: '<p><span style="white-space: pre-wrap;">\\→\\A\\a\\ \\3\\φ\\«</span></p>',
@@ -1652,6 +1681,182 @@ describe('Markdown', () => {
         ['ld', ITALIC],
         ['!', 0],
       ]);
+    });
+  });
+
+  describe('formatted whitespace-only text (#9403)', () => {
+    type Char = [char: string, format: number, url: string | null];
+
+    function importMarkdown(markdown: string): LexicalEditor {
+      const editor = createTestEditor();
+      editor.update(
+        () => {
+          $convertFromMarkdownString(markdown, TRANSFORMERS);
+        },
+        {discrete: true},
+      );
+      return editor;
+    }
+
+    /**
+     * The format and link URL of every non-whitespace character. Whitespace
+     * is left out because an exported tag cannot wrap it (CommonMark flanking
+     * rules), so a formatted space legitimately comes back unformatted.
+     */
+    function $chars(): Char[] {
+      const chars: Char[] = [];
+      for (const node of $getRoot().getAllTextNodes()) {
+        const parent = node.getParent();
+        const url = $isLinkNode(parent) ? parent.getURL() : null;
+        for (const char of node.getTextContent()) {
+          if (char.trim() !== '') {
+            chars.push([char, node.getFormat(), url]);
+          }
+        }
+      }
+      return chars;
+    }
+
+    const $text = () => $getRoot().getTextContent();
+    const $exportMarkdown = () => $convertToMarkdownString(TRANSFORMERS);
+
+    it.each([
+      '**_a_ [b](u)**',
+      '**_a_ [b](u) c**',
+      '*a **b** [c](u)*',
+      '**a [b](u)**',
+    ])('round-trips "%s" with a stable export', original => {
+      const first = importMarkdown(original);
+      const chars = first.read($chars);
+      // Guard against a vacuous comparison: every delimiter was consumed and
+      // the link was parsed.
+      expect(chars.some(([char]) => char === '*' || char === '_')).toBe(false);
+      expect(chars.some(([, , url]) => url !== null)).toBe(true);
+
+      const exported = first.read($exportMarkdown);
+      const second = importMarkdown(exported);
+      expect(second.read($chars)).toEqual(chars);
+      expect(second.read($text)).toBe(first.read($text));
+      expect(second.read($exportMarkdown)).toBe(exported);
+    });
+
+    // A whitespace-only text node needs a format the nodes around it lack to
+    // stay separate, which markdown import alone cannot produce.
+    const BOLD = TEXT_TYPE_TO_FORMAT.bold;
+    const ITALIC = TEXT_TYPE_TO_FORMAT.italic;
+    const STRIKE = TEXT_TYPE_TO_FORMAT.strikethrough;
+    const $formatted = (text: string, format: number) =>
+      $createTextNode(text).setFormat(format);
+
+    // The code span's padding is not what the inline code cases test, so
+    // their expected export leaves it open.
+    it.each<
+      [name: string, $nodes: () => LexicalNode[], expected: string | RegExp]
+    >([
+      [
+        'closes before unformatted text',
+        () => [
+          $formatted('a', BOLD | ITALIC),
+          $formatted(' ', BOLD),
+          $formatted('b', 0),
+        ],
+        '***a*** b',
+      ],
+      [
+        'closes at the end of a link',
+        () => [
+          $createLinkNode('u').append(
+            $formatted('a', BOLD | ITALIC),
+            $formatted(' ', BOLD),
+          ),
+          $formatted('c', 0),
+        ],
+        '[***a*** ](u)c',
+      ],
+      [
+        'closes before consecutive formatted spaces',
+        () => [
+          $formatted('a', BOLD),
+          $formatted(' ', BOLD | ITALIC),
+          $formatted(' ', BOLD | STRIKE),
+          $formatted('c', 0),
+        ],
+        '**a**  c',
+      ],
+      [
+        'closes before the trailing space of the text it formats',
+        () => [
+          $formatted('a ', BOLD),
+          $formatted(' ', BOLD | ITALIC),
+          $formatted('c', 0),
+        ],
+        '**a**  c',
+      ],
+      [
+        'does not reopen a tag it kept open',
+        () => [
+          $formatted('a', BOLD),
+          $formatted(' ', BOLD | ITALIC),
+          $formatted('c', BOLD),
+        ],
+        '**a c**',
+      ],
+      [
+        'keeps a tag open across consecutive formatted spaces',
+        () => [
+          $formatted('a', BOLD),
+          $formatted(' ', BOLD | ITALIC),
+          $formatted(' ', BOLD | STRIKE),
+          $formatted('c', BOLD),
+        ],
+        '**a  c**',
+      ],
+      [
+        'closes before a formatted line break',
+        () => [
+          $formatted('a', BOLD),
+          $formatted('\n', BOLD | ITALIC),
+          $formatted('c', BOLD),
+        ],
+        '**a**\n**c**',
+      ],
+      [
+        'leaves the formats of inline code that holds only a space off',
+        () => [
+          $formatted('a', 0),
+          $formatted(' ', BOLD | TEXT_TYPE_TO_FORMAT.code),
+          $formatted('b', 0),
+        ],
+        /^a` +`b$/,
+      ],
+      [
+        'keeps a tag open across inline code that holds only a space',
+        () => [
+          $formatted('a', BOLD),
+          $formatted(' ', BOLD | TEXT_TYPE_TO_FORMAT.code),
+          $formatted('b', BOLD),
+        ],
+        /^\*\*a` +`b\*\*$/,
+      ],
+    ])('%s', (_name, $nodes, expected) => {
+      const editor = createTestEditor();
+      editor.update(
+        () => {
+          $getRoot()
+            .clear()
+            .append($createParagraphNode().append(...$nodes()));
+        },
+        {discrete: true},
+      );
+      const exported = editor.read($exportMarkdown);
+      if (typeof expected === 'string') {
+        expect(exported).toBe(expected);
+      } else {
+        expect(exported).toMatch(expected);
+      }
+      expect(importMarkdown(exported).read($chars)).toEqual(
+        editor.read($chars),
+      );
     });
   });
 
@@ -2840,6 +3045,18 @@ describe('inline code with backticks (CommonMark code spans)', () => {
     expect(exportCodeSpan('`x')).toBe('`` `x ``');
   });
 
+  it('does not pad a code span made only of spaces', () => {
+    // CommonMark strips one space from each end only when the content is not
+    // all spaces, so padding such a span would add two spaces on import.
+    expect(exportCodeSpan(' ')).toBe('` `');
+    expect(exportCodeSpan('   ')).toBe('`   `');
+    expect(roundtrip('a ` ` b')).toBe('a ` ` b');
+    expect(roundtrip('a `   ` b')).toBe('a `   ` b');
+    expect(exportCodeSpan(' x ')).toBe('`  x  `');
+    expect(exportCodeSpan('\tx\t')).toBe('` \tx\t `');
+    expect(exportCodeSpan(' \t ')).toBe('`  \t  `');
+  });
+
   it('normalizes a redundant inline fence to the minimal valid fence', () => {
     // Both a single- and triple-backtick inline fence with backtick-free
     // content normalize to a single backtick on export.
@@ -3822,6 +4039,90 @@ describe('$generateNodesFromMarkdownString', () => {
   });
 });
 
+describe('Markdown export of long runs of formatted spaces', () => {
+  // Each space differs in format from its neighbours, so none of them merge.
+  // Visiting each sibling a bounded number of times keeps export linear; a
+  // look-ahead from every space to the end of the run, or working out the
+  // selection's range again for every node, is quadratic.
+  const SPACES = 200;
+  const HALF = SPACES / 2;
+  const $convertSelection = () =>
+    $convertSelectionToMarkdownString(TRANSFORMERS, $getSelection());
+
+  it.each<
+    [
+      name: string,
+      $select: (paragraph: ElementNode) => void,
+      $export: () => string,
+      expected: string,
+    ]
+  >([
+    [
+      'the document',
+      () => {},
+      () => $convertToMarkdownString(TRANSFORMERS),
+      `**a${' '.repeat(SPACES)}c**`,
+    ],
+    [
+      'a selection between text points',
+      paragraph => {
+        const first = paragraph.getFirstChild();
+        const middle = paragraph.getChildAtIndex(HALF);
+        assert($isTextNode(first) && $isTextNode(middle));
+        $setSelectionFromCaretRange(
+          $getCaretRange(
+            $getTextPointCaret(first, 'next', 0),
+            $getTextPointCaret(middle, 'next', 1),
+          ),
+        );
+      },
+      $convertSelection,
+      `**a**${' '.repeat(HALF)}`,
+    ],
+    [
+      'a selection between element points',
+      paragraph => paragraph.select(HALF + 1, paragraph.getChildrenSize()),
+      $convertSelection,
+      `${' '.repeat(SPACES - HALF)}**c**`,
+    ],
+  ])(
+    'visits each sibling a bounded number of times exporting %s',
+    (_name, $select, $export, expected) => {
+      const editor = createTestEditor();
+      editor.update(
+        () => {
+          const {bold, italic, strikethrough} = TEXT_TYPE_TO_FORMAT;
+          const paragraph = $createParagraphNode().append(
+            $createTextNode('a').setFormat(bold),
+          );
+          for (let i = 0; i < SPACES; i++) {
+            paragraph.append(
+              $createTextNode(' ').setFormat(
+                bold | (i % 2 ? italic : strikethrough),
+              ),
+            );
+          }
+          paragraph.append($createTextNode('c').setFormat(bold));
+          $getRoot().append(paragraph);
+          $select(paragraph);
+        },
+        {discrete: true},
+      );
+      const siblingReads = [
+        vi.spyOn(TextNode.prototype, 'getNextSibling'),
+        vi.spyOn(TextNode.prototype, 'getPreviousSibling'),
+      ];
+      onTestFinished(() => siblingReads.forEach(spy => spy.mockRestore()));
+      expect(editor.read($export)).toBe(expected);
+      const visits = siblingReads.reduce(
+        (sum, spy) => sum + spy.mock.calls.length,
+        0,
+      );
+      expect(visits).toBeLessThan(10 * SPACES);
+    },
+  );
+});
+
 describe('$convertSelectionToMarkdownString whitespace slices', () => {
   it('does not emit a dangling closing tag when the selection slices a format down to whitespace', () => {
     const editor = createTestEditor({nodes: [LinkNode]});
@@ -3847,6 +4148,132 @@ describe('$convertSelectionToMarkdownString whitespace slices', () => {
       $convertSelectionToMarkdownString(TRANSFORMERS, $getSelection()),
     );
     expect(result).toBe('  **b**');
+  });
+
+  it('closes a tag before a formatted space at the end of a selected link', () => {
+    const editor = createTestEditor({nodes: [LinkNode]});
+    editor.update(
+      () => {
+        const bold = TEXT_TYPE_TO_FORMAT.bold;
+        const paragraph = $createParagraphNode().append(
+          $createLinkNode('u').append(
+            $createTextNode('a').setFormat(bold | TEXT_TYPE_TO_FORMAT.italic),
+            $createTextNode(' ').setFormat(bold),
+          ),
+          $createTextNode('c'),
+        );
+        $getRoot().append(paragraph);
+        paragraph.select(0, paragraph.getChildrenSize());
+      },
+      {discrete: true},
+    );
+    const result = editor.read('latest', () =>
+      $convertSelectionToMarkdownString(TRANSFORMERS, $getSelection()),
+    );
+    expect(result).toBe('[***a*** ](u)c');
+  });
+
+  it.each<
+    [
+      name: string,
+      formats: [text: string, format: number][],
+      selection: [
+        startNode: number,
+        startOffset: number,
+        endNode: number,
+        endOffset: number,
+      ],
+      expected: string,
+    ]
+  >([
+    [
+      'closes the tags of the previous node before a slice cut down to whitespace',
+      [
+        ['a', TEXT_TYPE_TO_FORMAT.bold | TEXT_TYPE_TO_FORMAT.italic],
+        [' b', TEXT_TYPE_TO_FORMAT.bold],
+      ],
+      [0, 0, 1, 1],
+      '***a*** ',
+    ],
+    [
+      'keeps a tag open across consecutive formatted spaces',
+      [
+        ['a', TEXT_TYPE_TO_FORMAT.bold],
+        [' ', TEXT_TYPE_TO_FORMAT.bold | TEXT_TYPE_TO_FORMAT.italic],
+        [' ', TEXT_TYPE_TO_FORMAT.bold | TEXT_TYPE_TO_FORMAT.strikethrough],
+        ['cd', TEXT_TYPE_TO_FORMAT.bold],
+      ],
+      [0, 0, 3, 1],
+      '**a  c**',
+    ],
+    [
+      'closes before a slice cut down to a formatted space',
+      [
+        ['a ', TEXT_TYPE_TO_FORMAT.bold],
+        [' b', TEXT_TYPE_TO_FORMAT.bold | TEXT_TYPE_TO_FORMAT.italic],
+      ],
+      [0, 0, 1, 1],
+      '**a**  ',
+    ],
+    [
+      'closes when the format continues only after the selection',
+      [
+        ['a', TEXT_TYPE_TO_FORMAT.bold | TEXT_TYPE_TO_FORMAT.italic],
+        [' x', TEXT_TYPE_TO_FORMAT.bold],
+        ['c', TEXT_TYPE_TO_FORMAT.bold | TEXT_TYPE_TO_FORMAT.italic],
+      ],
+      [0, 0, 1, 1],
+      '***a*** ',
+    ],
+    [
+      'closes every tag at the end of a sliced node',
+      [
+        ['a', TEXT_TYPE_TO_FORMAT.bold],
+        ['bc', TEXT_TYPE_TO_FORMAT.bold | TEXT_TYPE_TO_FORMAT.italic],
+        ['d', TEXT_TYPE_TO_FORMAT.bold],
+      ],
+      [0, 0, 1, 1],
+      '**a*b***',
+    ],
+    [
+      'leaves out inline code the selection only touches',
+      [
+        ['a', TEXT_TYPE_TO_FORMAT.bold],
+        ['xy', TEXT_TYPE_TO_FORMAT.bold | TEXT_TYPE_TO_FORMAT.code],
+      ],
+      [0, 0, 1, 0],
+      '**a**',
+    ],
+    [
+      'leaves out inline code the selection starts at the end of',
+      [
+        ['xy', TEXT_TYPE_TO_FORMAT.bold | TEXT_TYPE_TO_FORMAT.code],
+        ['a', TEXT_TYPE_TO_FORMAT.bold],
+      ],
+      [0, 2, 1, 1],
+      '**a**',
+    ],
+  ])('%s', (_name, formats, [startNode, start, endNode, end], expected) => {
+    const editor = createTestEditor({nodes: [LinkNode]});
+    editor.update(
+      () => {
+        const nodes = formats.map(([text, format]) =>
+          $createTextNode(text).setFormat(format),
+        );
+        $getRoot().append($createParagraphNode().append(...nodes));
+        $setSelectionFromCaretRange(
+          $getCaretRange(
+            $getTextPointCaret(nodes[startNode], 'next', start),
+            $getTextPointCaret(nodes[endNode], 'next', end),
+          ),
+        );
+      },
+      {discrete: true},
+    );
+    const result = editor.read('latest', () =>
+      $convertSelectionToMarkdownString(TRANSFORMERS, $getSelection()),
+    );
+    expect(result).toBe(expected);
   });
 });
 
@@ -3983,6 +4410,54 @@ describe('link destination whitespace does not backtrack', () => {
   }
 });
 
+// Exports a paragraph holding a link labelled `x` and then `after`, with
+// `afterFormat` when given, expects `md`, and expects reading that back to give
+// the same link and text.
+function expectLinkRoundTrip(
+  url: string,
+  title: string | null,
+  md: string,
+  after = '',
+  afterFormat?: TextFormatType,
+): void {
+  const editor = createTestEditor({nodes: [LinkNode]});
+  editor.update(
+    () => {
+      const paragraph = $createParagraphNode().append(
+        $createLinkNode(url, {title}).append($createTextNode('x')),
+      );
+      if (after) {
+        const afterNode = $createTextNode(after);
+        paragraph.append(
+          afterFormat ? afterNode.toggleFormat(afterFormat) : afterNode,
+        );
+      }
+      $getRoot().clear().append(paragraph);
+    },
+    {discrete: true},
+  );
+
+  const exported = editor.read('latest', () =>
+    $convertToMarkdownString(TRANSFORMERS),
+  );
+  expect(exported).toBe(md);
+
+  const reimported = createTestEditor({nodes: [LinkNode]});
+  reimported.update(() => $convertFromMarkdownString(exported, TRANSFORMERS), {
+    discrete: true,
+  });
+  reimported.read('latest', () => {
+    expect(
+      $getRoot()
+        .getAllTextNodes()
+        .map(node => node.getParent())
+        .filter($isLinkNode)
+        .map(node => [node.getURL(), node.getTitle()]),
+    ).toEqual([[url, title]]);
+    expect($getRoot().getTextContent()).toBe(`x${after}`);
+  });
+}
+
 describe('link destination round trip', () => {
   // Export has to write a destination that import can read back: escapes in
   // the raw form, and the pointy form for a URL the raw form cannot hold.
@@ -4007,10 +4482,15 @@ describe('link destination round trip', () => {
     ['https://example.com/a b<c', '[x](<https://example.com/a b\\<c>)'],
     ['https://example.com/a b\\', '[x](<https://example.com/a b\\\\>)'],
     ['https://example.com/a\tb', '[x](<https://example.com/a\tb>)'],
+    // Nor a control character, which the pointy form can hold.
+    ['/a\u0001b', '[x](</a\u0001b>)'],
+    ['/a\u007fb', '[x](</a\u007fb>)'],
+    ['/a\u0000b', '[x](</a\u0000b>)'],
     // No destination may hold a line ending, and writing one raw would end the
     // paragraph in the middle of the link.
     ['https://example.com/a\nb', '[x](<https://example.com/a&#10;b>)'],
     ['https://example.com/a\r\nb', '[x](<https://example.com/a&#13;&#10;b>)'],
+    ['https://example.com/a\rb', '[x](<https://example.com/a&#13;b>)'],
     ['https://example.com/a b\nc', '[x](<https://example.com/a b&#10;c>)'],
     // Only a `<` in first place would turn the raw form into the pointy one,
     // so an angle bracket anywhere else goes out unescaped.
@@ -4035,93 +4515,133 @@ describe('link destination round trip', () => {
   ];
 
   for (const [url, md] of CASES) {
-    it(`preserves "${url}"`, () => {
-      const editor = createTestEditor({nodes: [LinkNode]});
-      editor.update(
-        () => {
-          $getRoot()
-            .clear()
-            .append(
-              $createParagraphNode().append(
-                $createLinkNode(url).append($createTextNode('x')),
-              ),
-            );
-        },
-        {discrete: true},
-      );
-
-      const exported = editor.read('latest', () =>
-        $convertToMarkdownString(TRANSFORMERS),
-      );
-      expect(exported).toBe(md);
-
-      const reimported = createTestEditor({nodes: [LinkNode]});
-      reimported.update(
-        () => $convertFromMarkdownString(exported, TRANSFORMERS),
-        {discrete: true},
-      );
-
-      expect(
-        reimported.read('latest', () =>
-          $getRoot()
-            .getAllTextNodes()
-            .map(node => node.getParent())
-            .filter($isLinkNode)
-            .map(node => node.getURL()),
-        ),
-      ).toEqual([url]);
+    it(`preserves ${JSON.stringify(url)}`, () => {
+      expectLinkRoundTrip(url, null, md);
     });
   }
 });
 
 describe('link title round trip', () => {
   // A title is read back through `unescapeText` too, so a character reference
-  // in one survives only if it goes out as a reference of its own.
+  // in one survives only if it goes out as a reference of its own, and a `"`
+  // or backslash only with a backslash in front. A line ending cannot be
+  // written raw, since it would split the paragraph and lose the link, so it
+  // goes out as a character reference.
   // https://spec.commonmark.org/0.31.2/#link-title
   const CASES: [title: string, md: string][] = [
+    ['a\nb', '[x](/uri "a&#10;b")'],
+    ['a\rb', '[x](/uri "a&#13;b")'],
+    ['a\r\nb', '[x](/uri "a&#13;&#10;b")'],
+    ['a\n\nb', '[x](/uri "a&#10;&#10;b")'],
+    ['a&#10;\nb', '[x](/uri "a&#38;#10;&#10;b")'],
     ['a&#10;b', '[x](/uri "a&#38;#10;b")'],
     ['a&amp;b', '[x](/uri "a&#38;amp;b")'],
     ['a&b', '[x](/uri "a&b")'],
     ['a"b', '[x](/uri "a\\"b")'],
+    ['a\\b', '[x](/uri "a\\\\b")'],
+    ['a\\"b', '[x](/uri "a\\\\\\"b")'],
     ['plain', '[x](/uri "plain")'],
   ];
 
   for (const [title, md] of CASES) {
-    it(`preserves "${title}"`, () => {
-      const editor = createTestEditor({nodes: [LinkNode]});
-      editor.update(
-        () => {
-          $getRoot()
-            .clear()
-            .append(
-              $createParagraphNode().append(
-                $createLinkNode('/uri', {title}).append($createTextNode('x')),
-              ),
-            );
-        },
-        {discrete: true},
-      );
-
-      const exported = editor.read('latest', () =>
-        $convertToMarkdownString(TRANSFORMERS),
-      );
-      expect(exported).toBe(md);
-
-      const reimported = createTestEditor({nodes: [LinkNode]});
-      reimported.update(
-        () => $convertFromMarkdownString(exported, TRANSFORMERS),
-        {discrete: true},
-      );
-
-      expect(
-        reimported.read('latest', () =>
-          $getRoot()
-            .getAllTextNodes()
-            .map(node => node.getParent())
-            .filter($isLinkNode)
-            .map(node => node.getTitle()),
-        ),
-      ).toEqual([title]);
+    it(`preserves ${JSON.stringify(title)}`, () => {
+      expectLinkRoundTrip('/uri', title, md);
     });
   }
+});
+
+describe('text after a link', () => {
+  // The link markup must not open a construct that the text after it closes:
+  // a backslash before the title's closing quote must not escape it, and a
+  // backtick must not open a code span, which is read before links are.
+  const AFTER = ' ") `b';
+  const CASES: [url: string, title: string | null, md: string][] = [
+    ['/uri', 'a\\', '[x](/uri "a\\\\") ") \\`b'],
+    ['/uri', 'a`', '[x](/uri "a\\`") ") \\`b'],
+    ['/a`b', null, '[x](/a\\`b) ") \\`b'],
+    ['/a `b', null, '[x](</a \\`b>) ") \\`b'],
+  ];
+
+  for (const [url, title, md] of CASES) {
+    it(`keeps ${JSON.stringify([url, title])} apart from it`, () => {
+      expectLinkRoundTrip(url, title, md, AFTER);
+    });
+  }
+
+  it('keeps a backtick in the link apart from inline code after it', () => {
+    // The code span's own backticks cannot be escaped, so only the escape in
+    // the link keeps the two apart.
+    expectLinkRoundTrip('/a`b', null, '[x](/a\\`b)`c`', 'c', 'code');
+  });
+});
+
+describe('link import', () => {
+  // Hand-written spellings export never produces: single-quoted and
+  // parenthesized titles, and an escaped U+2028 in a title or a pointy
+  // destination. A backslash escapes the character after it, itself included.
+  const CASES: [md: string, url: string, title: string][] = [
+    ["[x](/uri 'a\\\\')", '/uri', 'a\\'],
+    ["[x](/uri 'it\\'s')", '/uri', "it's"],
+    ['[x](/uri (a\\)))', '/uri', 'a)'],
+    ['[x](/uri (a\\\u2028b))', '/uri', 'a\\\u2028b'],
+    ['[x](/uri "a\\\u2028b")', '/uri', 'a\\\u2028b'],
+    ['[x](</a\\\u2028b> "t")', '/a\\\u2028b', 't'],
+  ];
+
+  // Typing reads a link through `LINK.regExp`, which has to agree with the
+  // `importRegExp` used here.
+  function shortcutGroups(md: string) {
+    return LINK.regExp.exec(md)?.slice(1);
+  }
+
+  for (const [md, url, title] of CASES) {
+    it(`reads ${JSON.stringify(md)}`, () => {
+      expect(importLinks(md)).toEqual([{title, url}]);
+      expect(shortcutGroups(md)).toEqual(LINK.importRegExp?.exec(md)?.slice(1));
+    });
+  }
+
+  // A CR is a line ending in CommonMark, escaped or not, and a pointy
+  // destination cannot hold one.
+  for (const md of ['[x](</a\rb>)', '[x](</a\\\rb>)']) {
+    it(`reads no link from ${JSON.stringify(md)}`, () => {
+      expect(importLinks(md)).toEqual([]);
+      expect(shortcutGroups(md)).toBeUndefined();
+    });
+  }
+});
+
+describe('decimal character references that name no character', () => {
+  // `String.fromCodePoint` throws on a number past U+10FFFF, so one of these
+  // in the text or a link used to abort the whole import. CommonMark reads at
+  // most seven digits, and replaces U+0000 and an invalid code point with
+  // U+FFFD.
+  // https://spec.commonmark.org/0.31.2/#decimal-numeric-character
+  const TEXT_CASES: [md: string, text: string][] = [
+    ['a&#1114112;b', 'a\uFFFDb'],
+    ['a&#9999999;b', 'a\uFFFDb'],
+    ['a&#0;b', 'a\uFFFDb'],
+    ['a&#55296;b', 'a\uFFFDb'],
+    ['a&#12345678;b', 'a&#12345678;b'],
+    ['a&#1114111;b', 'a\u{10FFFF}b'],
+    ['a&#35;b', 'a#b'],
+  ];
+
+  for (const [md, text] of TEXT_CASES) {
+    it(`reads ${JSON.stringify(md)}`, () => {
+      const editor = createTestEditor();
+      editor.update(() => $convertFromMarkdownString(md, TRANSFORMERS), {
+        discrete: true,
+      });
+      expect(editor.read('latest', () => $getRoot().getTextContent())).toBe(
+        text,
+      );
+    });
+  }
+
+  it('reads one in a link destination and title', () => {
+    expect(
+      importLinks('[x](https://example.com/&#9999999; "t&#1114112;")'),
+    ).toEqual([{title: 't\uFFFD', url: 'https://example.com/\uFFFD'}]);
+  });
 });

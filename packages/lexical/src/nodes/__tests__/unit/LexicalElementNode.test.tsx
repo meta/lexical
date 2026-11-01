@@ -116,11 +116,15 @@ describe('LexicalElementNode tests', () => {
         // logic is in place in the corresponding importJSON  method
         // to accommodate these changes.
 
+        // Present-with-undefined, not absent: a getter with nothing to say
+        // puts undefined in the value position, which JSON.stringify omits.
         expect(node.exportJSON()).toStrictEqual({
           children: [],
           direction: null,
           format: '',
           indent: 0,
+          textFormat: undefined,
+          textStyle: undefined,
           type: 'test_block',
           version: 1,
         });
@@ -138,7 +142,9 @@ describe('LexicalElementNode tests', () => {
           );
       });
       editor.read(() => {
-        expect(editor.toJSON().editorState.root.children[0]).toEqual({
+        // `children` is optional on the compact shape SerializedEditor promises;
+        // this export is the legacy form, so it is there.
+        expect(editor.toJSON().editorState.root.children![0]).toEqual({
           children: [
             {
               detail: 0,

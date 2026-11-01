@@ -35,7 +35,7 @@ function escapeRegExp(string) {
  * @param {(ToMatcher | ToMatcher[])[]} args
  * @returns {IdentifierMatcher}
  */
-module.exports.buildMatcher = function buildMatcher(...toMatchers) {
+export function buildMatcher(...toMatchers) {
   /** @type {Matcher[]} */
   const matchFuns = [];
   /** @type {string[]} */
@@ -74,4 +74,4 @@ module.exports.buildMatcher = function buildMatcher(...toMatchers) {
     }
     return false;
   };
-};
+}

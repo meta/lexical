@@ -9,6 +9,7 @@
 import {
   $generateJSONFromSelectedNodes,
   $generateNodesFromSerializedNodes,
+  type BaseSerializedNode,
 } from '@lexical/clipboard';
 import {
   $defaultShouldInsertAfter,
@@ -80,7 +81,7 @@ describe('CardNode named slots', () => {
   it('round-trips the title slot and body children through clipboard copy -> paste', () => {
     using editor = buildEditorFromExtensions(CardTestExtension);
 
-    let exported: ReturnType<typeof $generateJSONFromSelectedNodes>;
+    let exported: {namespace: string; nodes: BaseSerializedNode[]};
     editor.update(
       () => {
         const card = $createCardWithText();
@@ -615,6 +616,63 @@ describe('CardNode named slots', () => {
       // selection stays whatever the caller set (here, null since the
       // Card was just inserted without a starting selection).
       expect($isNodeSelection(selection)).toBe(false);
+    });
+
+    container.remove();
+  });
+
+  // Regression test for #9115: when selecting text inside an editable slot and
+  // releasing the mouse over the host chrome, the click synthesized by the
+  // browser must NOT promote the host to a NodeSelection. Promotion requires
+  // that the interaction began with a mousedown on the host chrome.
+  it('releasing mouse over card chrome after mousedown in slot does not promote to NodeSelection (#9115)', () => {
+    using editor = buildEditorFromExtensions(CardTestExtension);
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    editor.setRootElement(container);
+
+    editor.update(
+      () => {
+        $getRoot().clear().append($createCardNode());
+      },
+      {discrete: true},
+    );
+
+    const cardElement = container.querySelector('.lexical-card-node');
+    assert(cardElement instanceof HTMLElement);
+    const slotParagraph = container.querySelector(
+      '[data-lexical-slot="title"] p',
+    );
+    assert(slotParagraph instanceof HTMLElement);
+
+    // 1. Mousedown starts inside the slot (e.g. text selection drag)
+    slotParagraph.dispatchEvent(
+      new MouseEvent('mousedown', {bubbles: true, cancelable: true}),
+    );
+
+    // 2. Mouse released over card chrome -> click dispatched targeting cardElement
+    const clickEvent = new MouseEvent('click', {
+      bubbles: true,
+      cancelable: true,
+    });
+    Object.defineProperty(clickEvent, 'target', {value: cardElement});
+    editor.dispatchCommand(CLICK_COMMAND, clickEvent);
+
+    // 3. Must NOT become a NodeSelection
+    editor.read(() => {
+      const selection = $getSelection();
+      expect($isNodeSelection(selection)).toBe(false);
+    });
+
+    // 4. Positive case: explicit click on chrome (mousedown + click on chrome) DOES promote
+    cardElement.dispatchEvent(
+      new MouseEvent('mousedown', {bubbles: true, cancelable: true}),
+    );
+    editor.dispatchCommand(CLICK_COMMAND, clickEvent);
+
+    editor.read(() => {
+      const selection = $getSelection();
+      expect($isNodeSelection(selection)).toBe(true);
     });
 
     container.remove();

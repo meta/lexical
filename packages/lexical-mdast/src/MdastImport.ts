@@ -58,7 +58,7 @@ function $createTextNodes(value: string, format: number): LexicalNode[] {
   const out: LexicalNode[] = [];
   tokenizeRawText(value, {
     linebreak: () => out.push($createLineBreakNode()),
-    tab: () => out.push($createTabNode()),
+    tab: () => out.push($createTabNode().setFormat(format)),
     text: segment => {
       const textNode = $createTextNode(segment);
       if (format) {
@@ -115,12 +115,10 @@ export function createNodeImporter(
   definitions: ReadonlyMap<string, ResolvedDefinition> = NO_DEFINITIONS,
 ) {
   const {importHandlers} = compiled;
-  // The context only depends on the accumulated format bitmask, which takes a
-  // handful of distinct values per document — cache instead of allocating one
-  // (plus three closures) per visited node.
-  const contextByFormat = new Map<number, MdastImportContext>();
+  // Share the format-dependent helpers; next() is bound to each invocation.
+  const contextByFormat = new Map<number, Omit<MdastImportContext, 'next'>>();
 
-  function getContext(format: number): MdastImportContext {
+  function getContext(format: number): Omit<MdastImportContext, 'next'> {
     let context = contextByFormat.get(format);
     if (context === undefined) {
       context = {
@@ -138,10 +136,18 @@ export function createNodeImporter(
     return context;
   }
 
-  function $importNode(node: MdastNode, format: number): LexicalNode[] {
-    const handler = importHandlers.get(node.type);
+  function $importNode(
+    node: MdastNode,
+    format: number,
+    handlers = importHandlers.get(node.type),
+    index = 0,
+  ): LexicalNode[] {
+    const handler = handlers && handlers[index];
     if (handler) {
-      const result = handler(node, getContext(format));
+      const result = handler(node, {
+        ...getContext(format),
+        next: () => $importNode(node, format, handlers, index + 1),
+      });
       if (result == null) {
         return [];
       }

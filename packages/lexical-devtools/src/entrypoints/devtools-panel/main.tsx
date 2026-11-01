@@ -11,18 +11,27 @@ import {initPegasusTransport} from '@webext-pegasus/transport/devtools';
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 
-import {extensionStoreReady} from '../../store.ts';
+import {extensionStoreReady, useExtensionStore} from '../../store.ts';
 import App from './App.tsx';
 
 const tabID = browser.devtools.inspectedWindow.tabId;
 initPegasusTransport();
 
-extensionStoreReady().then(() =>
+extensionStoreReady().then(() => {
+  // Tell the injected script that the user is looking at this tab, so that it
+  // relays editor text unmasked.
+  useExtensionStore.getState().setIsPanelOpen(tabID, true);
+
+  const markClosed = () =>
+    useExtensionStore.getState().setIsPanelOpen(tabID, false);
+  window.addEventListener('pagehide', markClosed);
+  window.addEventListener('beforeunload', markClosed);
+
   ReactDOM.createRoot(document.getElementById('root')!).render(
     <React.StrictMode>
       <ChakraProvider value={defaultSystem}>
         <App tabID={tabID} />
       </ChakraProvider>
     </React.StrictMode>,
-  ),
-);
+  );
+});

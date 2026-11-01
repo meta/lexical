@@ -6,6 +6,8 @@
  *
  */
 
+// @vitest-environment node
+
 import {$descendantsMatching} from '@lexical/utils';
 import {
   $createParagraphNode,

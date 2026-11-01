@@ -19,6 +19,7 @@ import {
   $isParagraphNode,
   $isRangeSelection,
   $isTextNode,
+  $onUpdate,
   COMMAND_PRIORITY_LOW,
   FORMAT_TEXT_COMMAND,
   getDOMSelection,
@@ -212,7 +213,9 @@ function TextFormatFloatingToolbar({
       editor.registerCommand(
         SELECTION_CHANGE_COMMAND,
         () => {
-          $updateTextFormatFloatingToolbar();
+          $onUpdate(() =>
+            editor.read('latest', $updateTextFormatFloatingToolbar),
+          );
           return false;
         },
         COMMAND_PRIORITY_LOW,

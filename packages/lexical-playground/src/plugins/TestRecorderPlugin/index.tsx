@@ -15,6 +15,7 @@ import {
   getDOMSelection,
   getDOMSelectionPoints,
   IS_APPLE,
+  isHTMLElement,
   type LexicalEditor,
   registerEventListeners,
 } from 'lexical';
@@ -114,25 +115,64 @@ export function isSelectAll(event: KeyboardEvent): boolean {
   );
 }
 
-function fixOffset(node: Node, offset: number) {
-  // If the selection offset is at the br of a webkit img+br linebreak
-  // then move the offset to the img so the tests are consistent across
-  // browsers
-  if (node && node.nodeType === Node.ELEMENT_NODE && offset > 0) {
-    const child = (node as Element).children[offset - 1];
+/**
+ * How many of the zero-size anchors that the reconciler parks outside a
+ * leading or trailing block decorator (#8922) are among the first `index`
+ * children of `parent`. They take a DOM child slot but no Lexical one, so
+ * paths and offsets leave them out, as assertSelection in the e2e utils does.
+ * Keep these helpers in step with its copies in
+ * `__tests__/utils/index.mjs`, which run inside the page.
+ */
+function boundaryAnchorsBefore(parent: Node, index: number): number {
+  const children = parent.childNodes;
+  let count = 0;
+  for (let i = 0; i < index && i < children.length; i++) {
+    const child = children[i];
     if (
-      child &&
-      child.nodeType === Node.ELEMENT_NODE &&
-      child.nodeName === 'IMG' &&
-      child.getAttribute('data-lexical-managed-linebreak') === 'true'
+      isHTMLElement(child) &&
+      child.getAttribute('data-lexical-decorator-boundary') === 'true'
     ) {
-      return offset - 1;
+      count++;
     }
   }
-  return offset;
+  return count;
 }
 
-function getPathFromNodeToEditor(node: Node, rootElement: HTMLElement | null) {
+/**
+ * The selection offset in `node` as the e2e tests assert it.
+ *
+ * @internal Exposed for unit tests.
+ */
+export function fixOffset(node: Node, offset: number): number {
+  if (!isHTMLElement(node)) {
+    return offset;
+  }
+  // If the selection offset is at the br of a webkit img+br linebreak then
+  // move the offset to the img so the tests are consistent across browsers.
+  // Look the child up by the DOM offset: a leading anchor can precede it in
+  // the same element.
+  const child = offset > 0 ? node.childNodes[offset - 1] : null;
+  const lexicalOffset = offset - boundaryAnchorsBefore(node, offset);
+  if (
+    isHTMLElement(child) &&
+    child.nodeName === 'IMG' &&
+    child.getAttribute('data-lexical-managed-linebreak') === 'true'
+  ) {
+    return lexicalOffset - 1;
+  }
+  return lexicalOffset;
+}
+
+/**
+ * The path of child indexes from `rootElement` to `node`, as the e2e tests
+ * assert it.
+ *
+ * @internal Exposed for unit tests.
+ */
+export function getPathFromNodeToEditor(
+  node: Node,
+  rootElement: HTMLElement | null,
+): number[] {
   const path = [];
   if (node === rootElement) {
     return [];
@@ -142,7 +182,8 @@ function getPathFromNodeToEditor(node: Node, rootElement: HTMLElement | null) {
     if (parent === null || node === rootElement) {
       break;
     }
-    path.push(Array.from(parent.childNodes).indexOf(node as ChildNode));
+    const index = Array.from(parent.childNodes).indexOf(node as ChildNode);
+    path.push(index - boundaryAnchorsBefore(parent, index));
     node = parent;
   }
   return path.reverse();

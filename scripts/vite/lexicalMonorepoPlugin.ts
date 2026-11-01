@@ -10,7 +10,7 @@ import {defineConfig, mergeConfig, type Plugin} from 'vite';
 // Imported from source (rather than by package name) so that a monorepo
 // vite config loads before the packages have been built.
 import {pureAnnotations} from '../../packages/lexical-compiler/src/passes/pureAnnotations.mjs';
-import viteModuleResolution from './viteModuleResolution';
+import viteModuleResolution from './viteModuleResolution.ts';
 
 export default function lexicalMonorepoPlugin(): Plugin[] {
   return [

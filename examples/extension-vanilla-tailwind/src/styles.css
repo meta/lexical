@@ -7,4 +7,5 @@
  */
 
 @import 'tailwindcss';
-@source '../node_modules/lexical-tailwind';
+/* Generate the classes used by the @lexical/tailwind theme */
+@source '../node_modules/@lexical/tailwind/dist';

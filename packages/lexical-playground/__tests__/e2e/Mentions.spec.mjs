@@ -960,34 +960,35 @@ test.describe('Mentions', () => {
     });
   });
 
-  test(`Sets correct attributes on typeahead menu container`, async ({
-    page,
-    isCollab,
-  }) => {
-    test.skip(isCollab);
-    await focusEditor(page);
-    await page.keyboard.type('@a');
+  test.describe(() => {
+    test.skip(({isCollab}) => isCollab);
+    test(`Sets correct attributes on typeahead menu container`, async ({
+      page,
+    }) => {
+      await focusEditor(page);
+      await page.keyboard.type('@a');
 
-    // The outer element only positions the menu. The listbox is the <ul> that
-    // holds the options, because a listbox has to own its options directly for
-    // a screen reader to read them as choices and count their position.
-    const menuElement = page.locator('#typeahead-menu');
-    expect(await menuElement.getAttribute('role')).toBe('presentation');
+      // The outer element only positions the menu. The listbox is the <ul> that
+      // holds the options, because a listbox has to own its options directly for
+      // a screen reader to read them as choices and count their position.
+      const menuElement = page.locator('#typeahead-menu');
+      expect(await menuElement.getAttribute('role')).toBe('presentation');
 
-    const listbox = page.locator('#typeahead-listbox');
-    expect(await listbox.getAttribute('role')).toBe('listbox');
-    expect(await listbox.getAttribute('aria-label')).toBe('Mentions');
+      const listbox = page.locator('#typeahead-listbox');
+      expect(await listbox.getAttribute('role')).toBe('listbox');
+      expect(await listbox.getAttribute('aria-label')).toBe('Mentions');
 
-    // The options have to be the listbox's own children. The browser works
-    // out "1 of 5" from that relationship and passes it on; nothing in the
-    // markup states the position.
-    const options = listbox.locator('[role="option"]');
-    const count = await options.count();
-    expect(count).toBeGreaterThan(0);
-    for (let i = 0; i < count; i++) {
-      expect(await options.nth(i).evaluate(el => el.parentElement.id)).toBe(
-        'typeahead-listbox',
-      );
-    }
+      // The options have to be the listbox's own children. The browser works
+      // out "1 of 5" from that relationship and passes it on; nothing in the
+      // markup states the position.
+      const options = listbox.locator('[role="option"]');
+      const count = await options.count();
+      expect(count).toBeGreaterThan(0);
+      for (let i = 0; i < count; i++) {
+        expect(await options.nth(i).evaluate(el => el.parentElement.id)).toBe(
+          'typeahead-listbox',
+        );
+      }
+    });
   });
 });

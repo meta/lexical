@@ -14,8 +14,8 @@ import {
 } from '@lexical/html';
 import {
   type MdastExportHandler,
+  MdastExtension,
   MdastHtmlExtension,
-  MdastImportExtension,
 } from '@lexical/mdast';
 import {$findMatchingParent} from '@lexical/utils';
 import {
@@ -144,8 +144,8 @@ export const MdastKbdExtension = defineExtension({
     configExtension(DOMImportExtension, {
       rules: [KbdImportRule],
     }),
-    configExtension(MdastImportExtension, {
-      exportRules: [{$export: $exportKbd, type: 'kbd'}],
+    configExtension(MdastExtension, {
+      exportRules: [{$export: $exportKbd, type: KbdNode}],
     }),
   ],
   name: '@lexical/dev-mdast-editor-example/MdastKbd',

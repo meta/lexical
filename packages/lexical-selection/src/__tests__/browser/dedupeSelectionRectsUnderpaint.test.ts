@@ -70,12 +70,13 @@ describe('dedupeSelectionRects under-paints real content for overlapping inline 
     // A wide run of text, then an inline box pulled back over it with a negative
     // margin so it overlaps the run, and raised 0.5px (vertical-align) so its top
     // sits a hair above the text run's. The selection's client rects follow the
-    // glyphs, so the text run is a genuinely wide rect; the raise defeats
-    // createRectsFromDOMRange's asymmetric overlap guard (`prevRect.top <= cur.top`),
-    // so the wide text rect AND the contained box rect both survive; keep-smaller
-    // then drops the wide one. (The box stands in for any overlapping inline content,
-    // e.g. a baseline-shifted inline decorator.) Assertions are structural — no
-    // pixel thresholds — so they hold whatever the monospace glyph width is.
+    // glyphs, so the text run is a genuinely wide rect; the raise means the box
+    // is not strictly contained in the text rect, so createRectsFromDOMRange's
+    // containment filter keeps both. The wide text rect AND the box rect survive;
+    // keep-smaller then drops the wide one. (The box stands in for any overlapping
+    // inline content, e.g. a baseline-shifted inline decorator.) Assertions are
+    // structural — no pixel thresholds — so they hold whatever the monospace glyph
+    // width is.
     root.innerHTML =
       `<p style="margin:0">aaaaaaaaaaaaaaaa` +
       `<span style="display:inline-block;width:12px;height:18px;margin-left:-100px;vertical-align:0.5px;background:rgba(255,0,0,.4)">N</span>` +

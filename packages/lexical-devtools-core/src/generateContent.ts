@@ -40,16 +40,24 @@ export type CustomPrintNodeFn = (
   obfuscateText?: boolean,
 ) => string | undefined;
 
+// The Object.freeze calls are annotated by hand and the RegExp is built by a
+// function declared side-effect free (so the build annotates the call): a
+// module-scope call is a side effect to bundlers, which would pin these
+// tables into every bundle that imports this module.
 const NON_SINGLE_WIDTH_CHARS_REPLACEMENT: Readonly<Record<string, string>> =
-  Object.freeze({
+  /* @__PURE__ */ Object.freeze({
     '\t': '\\t',
     '\n': '\\n',
   });
-const NON_SINGLE_WIDTH_CHARS_REGEX = new RegExp(
-  Object.keys(NON_SINGLE_WIDTH_CHARS_REPLACEMENT).join('|'),
-  'g',
-);
-const SYMBOLS: Record<string, string> = Object.freeze({
+/** @__NO_SIDE_EFFECTS__ */
+function createNonSingleWidthCharsRegExp(): RegExp {
+  return new RegExp(
+    Object.keys(NON_SINGLE_WIDTH_CHARS_REPLACEMENT).join('|'),
+    'g',
+  );
+}
+const NON_SINGLE_WIDTH_CHARS_REGEX = createNonSingleWidthCharsRegExp();
+const SYMBOLS: Record<string, string> = /* @__PURE__ */ Object.freeze({
   ancestorHasNextSibling: '|',
   ancestorIsLastChild: ' ',
   hasNextSibling: '├',

@@ -28,4 +28,15 @@ export default async function main(
   );
 
   scanAndListenForEditors(tabID, extensionStore, commandLog);
+
+  // Serialized state is masked while no panel is open for this tab, so re-scan
+  // whenever that changes to swap the relayed states between masked and clear.
+  let wasPanelOpen = extensionStore.getState().isPanelOpen[tabID] === true;
+  extensionStore.subscribe(state => {
+    const isPanelOpen = state.isPanelOpen[tabID] === true;
+    if (isPanelOpen !== wasPanelOpen) {
+      wasPanelOpen = isPanelOpen;
+      scanAndListenForEditors(tabID, extensionStore, commandLog);
+    }
+  });
 }

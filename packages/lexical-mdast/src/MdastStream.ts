@@ -55,7 +55,7 @@ function contentStartOffset(node: MdastNode, line: string): number {
  * is no second, divergent set of regular expressions to keep in sync.
  *
  * It is constructed from the {@link CompiledMdast} registry assembled by
- * {@link MdastImportExtension}, so it stays in lock-step with whatever feature
+ * {@link MdastExtension}, so it stays in lock-step with whatever feature
  * extensions are enabled — including the inline construct types and trigger
  * characters contributed via `inlineShortcutTypes` / `inlineShortcutTriggers`.
  */

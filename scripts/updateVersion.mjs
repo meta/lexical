@@ -31,7 +31,8 @@ const publicNpmNames = new Set(
 );
 
 /**
- * @typedef {{source?: string; import: Record<string, string>; require: Record<string, string>}} ImportRequireExports
+ * @typedef {import('./shared/PackageMetadata.mjs').ExportConditions} ExportConditions
+ * @typedef {import('./shared/PackageMetadata.mjs').NpmModuleExports} NpmModuleExports
  */
 
 /**
@@ -58,7 +59,8 @@ function updatePackage(pkg) {
  *
  */
 async function updateVersion() {
-  await regenerateInternalVersionModule();
+  await regenerateVersionModules();
+  await regenerateSupportedYjsVersion();
   packagesManager.getPackages().forEach(updatePackage);
   glob
     .sync([
@@ -73,23 +75,74 @@ async function updateVersion() {
 const INTERNAL_PACKAGE_NAME = '@lexical/internal';
 
 /**
- * Rewrite the generated literal in @lexical/internal's version module to the
- * current monorepo version. In a Rollup build `process.env.LEXICAL_VERSION`
- * is statically replaced with a build-specific string; this literal is the
- * fallback used when the source is consumed without that build step.
+ * The modules that carry the monorepo version as a generated literal. In a
+ * Rollup build `process.env.LEXICAL_VERSION` is statically replaced with a
+ * build-specific string; the literal is the fallback used when the source is
+ * consumed without that build step.
  */
-async function regenerateInternalVersionModule() {
-  const versionPath = path.resolve('packages/lexical-internal/src/version.ts');
-  if (!fs.existsSync(versionPath)) {
+const VERSION_MODULES = [
+  'packages/lexical-internal/src/version.ts',
+  'packages/lexical-eslint-plugin/src/version.js',
+];
+
+/**
+ * Rewrite the generated literal in each version module to the current
+ * monorepo version.
+ */
+async function regenerateVersionModules() {
+  for (const relPath of VERSION_MODULES) {
+    const versionPath = path.resolve(relPath);
+    if (!fs.existsSync(versionPath)) {
+      continue;
+    }
+    const next = fs
+      .readFileSync(versionPath, 'utf8')
+      .replace(/'[^']*\+source'/, `'${version}+source'`);
+    const prettierConfig = (await prettier.resolveConfig(versionPath)) || {};
+    fs.writeFileSync(
+      versionPath,
+      await prettier.format(next, {...prettierConfig, filepath: versionPath}),
+    );
+  }
+}
+
+/**
+ * The module that carries the one `@y/y` version `@lexical/y` supports, as a
+ * literal generated from that package's exact `@y/y` peer dependency (its
+ * runtime check reports it; YjsContract.test fails when the two differ).
+ */
+const SUPPORTED_YJS_MODULE = 'packages/lexical-y/src/internal/SupportedYjs.ts';
+
+/**
+ * Rewrite the generated `SUPPORTED_YJS_VERSION` literal to `@lexical/y`'s
+ * `@y/y` peer dependency.
+ */
+async function regenerateSupportedYjsVersion() {
+  const modulePath = path.resolve(SUPPORTED_YJS_MODULE);
+  const packageJsonPath = path.resolve('packages/lexical-y/package.json');
+  if (!fs.existsSync(modulePath) || !fs.existsSync(packageJsonPath)) {
     return;
   }
+  const {peerDependencies = {}} = fs.readJsonSync(packageJsonPath);
+  const supported = peerDependencies['@y/y'];
+  if (
+    typeof supported !== 'string' ||
+    !/^\d+\.\d+\.\d+(-[\w.]+)?$/.test(supported)
+  ) {
+    throw new Error(
+      `packages/lexical-y/package.json: peerDependencies['@y/y'] must be one exact version (got ${String(supported)})`,
+    );
+  }
   const next = fs
-    .readFileSync(versionPath, 'utf8')
-    .replace(/'[^']*\+source'/, `'${version}+source'`);
-  const prettierConfig = (await prettier.resolveConfig(versionPath)) || {};
+    .readFileSync(modulePath, 'utf8')
+    .replace(
+      /(export const SUPPORTED_YJS_VERSION: string = )'[^']*'/,
+      `$1'${supported}'`,
+    );
+  const prettierConfig = (await prettier.resolveConfig(modulePath)) || {};
   fs.writeFileSync(
-    versionPath,
-    await prettier.format(next, {...prettierConfig, filepath: versionPath}),
+    modulePath,
+    await prettier.format(next, {...prettierConfig, filepath: modulePath}),
   );
 }
 
@@ -142,8 +195,7 @@ function replaceExtension(fileName, ext) {
 
 /**
  * webpack can use these conditions to choose a dev or prod
- * build without a fork module, which is especially helpful
- * in the ESM build.
+ * build without a fork module.
  *
  * @param {string} fileName may have .js or .mjs extension
  * @returns {Record<'development'|'production', string>}
@@ -166,6 +218,13 @@ const DIST_DIR = 'dist';
 /**
  * Build an export map for a particular entry point in the package.json
  *
+ * Only ESM is published (the CommonJS build is www-only, see
+ * scripts/build.mjs), so the conditions are not split into `import` and
+ * `require`: both resolve to the same `.js` ES modules. A CommonJS consumer on
+ * any supported Node.js (>= 20.19) loads them through require(esm), which
+ * is why the fork module and everything it imports has no top-level await,
+ * and bundlers do not care about the extension.
+ *
  * @param {string} basename the name of the entry point module without an extension (e.g. 'index')
  * @param {string} [typesBasename]
  * @param {string} [sourceRelPath] path relative to the package root for the
@@ -173,7 +232,7 @@ const DIST_DIR = 'dist';
  *   `source` condition is added so bundlers configured with
  *   `resolve.conditions: ['source', ...]` can consume the package
  *   without a build step (useful for `pnpm link` / `file:` consumers).
- * @returns {ImportRequireExports} The export map for this file
+ * @returns {NpmModuleExports} The export map for this file
  */
 function exportEntry(
   basename,
@@ -189,48 +248,37 @@ function exportEntry(
   // including the minimum) to the "too old" stub. Must precede `types`.
   const tooOld = tooOldStubPath(DIST_DIR);
   return {
-    /* eslint-disable sort-keys-fix/sort-keys-fix */
     ...(sourceRelPath ? {source: `./${sourceRelPath}`} : null),
-    import: {
-      [TYPESCRIPT_TOO_OLD_CONDITION]: tooOld,
-      types,
-      ...withEnvironments(`${prefix}.mjs`),
-      node: `${prefix}.node.mjs`,
-      default: `${prefix}.mjs`,
-    },
-    require: {
-      [TYPESCRIPT_TOO_OLD_CONDITION]: tooOld,
-      types,
-      ...withEnvironments(`${prefix}.js`),
-      default: `${prefix}.js`,
-    },
-    /* eslint-enable sort-keys-fix/sort-keys-fix */
+    [TYPESCRIPT_TOO_OLD_CONDITION]: tooOld,
+    types,
+    ...withEnvironments(`${prefix}.js`),
+    default: `${prefix}.js`,
   };
 }
 
 /**
  * Add a browser condition for a particular entry point in the package.json
  *
- * @param {ImportRequireExports} exports
- * @returns {Record<'browser'|'import'|'require', Record<string,string>>} The export map for this file
+ * @param {NpmModuleExports} exports
+ * @returns {NpmModuleExports} The export map for this file
  */
 function withBrowser(exports) {
-  const browser = Object.fromEntries(
-    Object.entries(exports.import).flatMap(([k, v]) => {
-      if (k === 'node') {
-        return [];
-      } else if (k === 'types' || k.startsWith('types@')) {
-        // `types` and the versioned `types@<min>` condition point at .d.ts
-        // files, never a browser bundle; pass them through unchanged.
-        return [[k, v]];
-      }
-      return [[k, v.replace(/((?:\.dev|\.prod)?\.m?js)$/, '.browser$1')]];
-    }),
+  const {source, browser: _ignored, ...conditions} = exports;
+  const browser = /** @type {ExportConditions} */ (
+    Object.fromEntries(
+      Object.entries(conditions).map(([k, v]) => {
+        if (k === 'types' || k.startsWith('types@')) {
+          // `types` and the versioned `types@<min>` condition point at .d.ts
+          // files, never a browser bundle; pass them through unchanged.
+          return [k, v];
+        }
+        return [k, v.replace(/((?:\.dev|\.prod)?\.js)$/, '.browser$1')];
+      }),
+    )
   );
   // Keep `source` first so a consumer that opts in with
   // `resolve.conditions: ['source', ...]` always wins over `browser`.
-  const {source, ...rest} = exports;
-  return {...(source ? {source} : null), browser, ...rest};
+  return {...(source ? {source} : null), browser, ...conditions};
 }
 
 /**
@@ -319,11 +367,17 @@ function updatePublicPackage(pkg) {
   if (packageJson.sideEffects === undefined) {
     packageJson.sideEffects = false;
   }
+  // Only ESM is published, so a package is an ES module package and its
+  // `.js` build is ESM.
+  packageJson.type = 'module';
   // If there's a main we expect a single entry point
   if (packageJson.main) {
-    const mainBase = stripDistPrefix(packageJson.main);
+    // `main` is the one resolver-agnostic entry, so it names the ESM fork
+    // module: a package.json written when the build had another extension
+    // (`.mjs`) is normalized here.
+    const mainBase = replaceExtension(stripDistPrefix(packageJson.main), '.js');
     packageJson.main = `./${DIST_DIR}/${mainBase}`;
-    packageJson.module = `./${DIST_DIR}/${replaceExtension(mainBase, '.mjs')}`;
+    packageJson.module = packageJson.main;
     const sourceRelPath = findMainSourceRelPath(
       pkg,
       replaceExtension(mainBase, ''),
@@ -398,6 +452,13 @@ function updatePublicPackage(pkg) {
   // Whitelist what ships to npm. The package root is the publish root, so
   // we no longer need a separate `npm/` copy step.
   packageJson.files = [...PUBLIC_FILES_FIELD];
+  if (pkg.getNpmName() === 'lexical') {
+    // Every app that uses Lexical installs `lexical`, so the full release
+    // history ships with it (node_modules/lexical/CHANGELOG.md) for people
+    // and tools upgrading from any version. prepare-release copies the
+    // root CHANGELOG.md into the package; the copy is not committed.
+    packageJson.files.push('CHANGELOG.md');
+  }
   ensureLicense(pkg);
 }
 

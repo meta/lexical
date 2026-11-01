@@ -5,7 +5,12 @@
  * LICENSE file in the root directory of this source tree.
  *
  */
-import {$applyNodeReplacement, type EditorConfig, ParagraphNode} from 'lexical';
+import {
+  $applyNodeReplacement,
+  defineExtension,
+  type EditorConfig,
+  ParagraphNode,
+} from 'lexical';
 
 export class CustomParagraphNode extends ParagraphNode {
   $config() {
@@ -24,3 +29,20 @@ export class CustomParagraphNode extends ParagraphNode {
 export function $createCustomParagraphNode() {
   return $applyNodeReplacement(new CustomParagraphNode());
 }
+
+/**
+ * Registers CustomParagraphNode and replaces every ParagraphNode with it.
+ * `withKlass` lets transforms and listeners registered for ParagraphNode
+ * apply to CustomParagraphNode too.
+ */
+export const CustomParagraphExtension = defineExtension({
+  name: '@lexical/examples/node-replacement/CustomParagraph',
+  nodes: () => [
+    CustomParagraphNode,
+    {
+      replace: ParagraphNode,
+      with: () => $createCustomParagraphNode(),
+      withKlass: CustomParagraphNode,
+    },
+  ],
+});

@@ -18,6 +18,16 @@ import type {
  * Rich Text
  */
 
+export type ImportMimeTypeFunction = (
+  data: string,
+  selection: BaseSelection,
+  $next: (
+    nextData?: string | void,
+    nextSelection?: BaseSelection | void,
+  ) => boolean,
+  dataTransfer: DataTransfer,
+) => boolean;
+
 declare export function $insertDataTransferForRichText(
   dataTransfer: DataTransfer,
   selection: BaseSelection,
@@ -67,10 +77,19 @@ declare export function $writeDragSourceToDataTransfer(
   selection: RangeSelection,
 ): void;
 
-interface BaseSerializedNode {
+// Structurally `SerializedPartialNode` minus its indexer, mirroring the
+// TypeScript declaration in src/clipboard.ts. Aliasing it to the indexed type
+// broke every consumer whose serialized type is a declared interface, since
+// TypeScript gives an interface no implicit index signature. Exported, because
+// it is what `$generateJSONFromSelectedNodes` returns and what
+// `$generateNodesFromSerializedNodes` takes, so a caller holding either has a
+// name for it.
+export interface BaseSerializedNode {
   children?: BaseSerializedNode[];
+  $slots?: {[string]: BaseSerializedNode};
   type: string;
-  version: number;
+  // Deprecated: ignored when parsing, and omitted by a compact export.
+  version?: number;
 }
 
 declare export function $generateJSONFromSelectedNodes<

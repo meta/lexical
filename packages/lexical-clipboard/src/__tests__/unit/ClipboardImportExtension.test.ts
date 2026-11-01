@@ -15,6 +15,7 @@ import {
   buildEditorFromExtensions,
   configExtension,
   defineExtension,
+  type LexicalEditorWithDispose,
 } from '@lexical/extension';
 import {
   $generateNodesFromDOMViaExtension,
@@ -31,6 +32,7 @@ import {
   $getSelection,
   $isParagraphNode,
   $isRangeSelection,
+  type BaseSelection,
 } from 'lexical';
 import {assert, describe, expect, test} from 'vitest';
 
@@ -50,10 +52,7 @@ function dataTransferWithPlainText(text: string): DataTransfer {
   return dt as unknown as DataTransfer;
 }
 
-function $pasteHtml(
-  editor: ReturnType<typeof buildEditorFromExtensions>,
-  html: string,
-) {
+function $pasteHtml(editor: LexicalEditorWithDispose, html: string) {
   editor.update(
     () => {
       const selection = $getSelection();
@@ -142,6 +141,88 @@ describe('ClipboardImportExtension', () => {
     });
     expect(deferred).toBe(true);
   });
+
+  test.each([
+    {data: 'replacement', name: 'replacement data', replaceSelection: false},
+    {data: '', name: 'empty replacement data', replaceSelection: false},
+    {data: 'original', name: 'replacement selection', replaceSelection: true},
+    {data: 'replacement', name: 'both replacements', replaceSelection: true},
+  ])(
+    'forwards $name through the remaining handlers via next()',
+    ({data: replacementData, replaceSelection}) => {
+      const dt = dataTransferWithPlainText('original');
+      const seen: [string, BaseSelection, DataTransfer][] = [];
+      let replacementSelection: BaseSelection;
+      using editor = buildEditorFromExtensions(
+        defineExtension({
+          $initialEditorState() {
+            const first = $createTextNode('first');
+            $getRoot().append(
+              $createParagraphNode().append(first),
+              $createParagraphNode().append($createTextNode('second')),
+            );
+            first.select();
+          },
+          dependencies: [
+            configExtension(ClipboardImportExtension, {
+              $importMimeType: {
+                'text/plain': [
+                  (data, selection, $next, dataTransfer) => {
+                    seen.push([data, selection, dataTransfer]);
+                    return $next(data, selection);
+                  },
+                  (data, selection, $next, dataTransfer) => {
+                    seen.push([data, selection, dataTransfer]);
+                    return $next();
+                  },
+                  (_data, _selection, $next) =>
+                    replaceSelection
+                      ? $next(replacementData, replacementSelection)
+                      : $next(replacementData),
+                ],
+              },
+            }),
+          ],
+          name: 'host',
+        }),
+      );
+      editor.update(
+        () => {
+          const originalSelection = $getSelection();
+          assert($isRangeSelection(originalSelection));
+          const second = $getRoot().getLastChildOrThrow();
+          const selection = $createRangeSelection();
+          selection.anchor.set(second.getKey(), 0, 'element');
+          selection.focus.set(second.getKey(), 1, 'element');
+          replacementSelection = selection;
+
+          $insertDataTransferForRichText(dt, originalSelection, editor);
+
+          expect(seen).toHaveLength(2);
+          for (const [data, forwardedSelection, dataTransfer] of seen) {
+            expect(data).toBe(replacementData);
+            expect(forwardedSelection).toBe(
+              replaceSelection ? replacementSelection : originalSelection,
+            );
+            expect(dataTransfer).toBe(dt);
+            expect(dataTransfer.getData('text/plain')).toBe('original');
+          }
+        },
+        {discrete: true},
+      );
+      expect(
+        editor.read(() =>
+          $getRoot()
+            .getChildren()
+            .map(node => node.getTextContent()),
+        ),
+      ).toEqual(
+        replaceSelection
+          ? ['first', replacementData]
+          : [`first${replacementData}`, 'second'],
+      );
+    },
+  );
 
   test('app-defined MIME type is reached when added to both stack and priority', () => {
     let saw = '';
@@ -299,7 +380,7 @@ describe('$insertDataTransferForRichText selection argument (#6278)', () => {
   }
 
   function $insertOverFirstParagraph(
-    editor: ReturnType<typeof buildEditorFromExtensions>,
+    editor: LexicalEditorWithDispose,
     dataTransfer: DataTransfer,
   ) {
     editor.update(
@@ -314,9 +395,7 @@ describe('$insertDataTransferForRichText selection argument (#6278)', () => {
     );
   }
 
-  function paragraphTexts(
-    editor: ReturnType<typeof buildEditorFromExtensions>,
-  ): string[] {
+  function paragraphTexts(editor: LexicalEditorWithDispose): string[] {
     return editor.read(() =>
       $getRoot()
         .getChildren()

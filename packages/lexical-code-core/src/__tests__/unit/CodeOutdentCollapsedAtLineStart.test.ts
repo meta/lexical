@@ -6,6 +6,8 @@
  *
  */
 
+// @vitest-environment node
+
 import {
   $createCodeHighlightNode,
   $createCodeNode,

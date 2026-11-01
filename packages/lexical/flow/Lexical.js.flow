@@ -266,7 +266,7 @@ declare export class LexicalEditor {
   _createEditorArgs?: CreateEditorArgs;
   _config: EditorConfig;
   _dirtyType: 0 | 1 | 2;
-  _cloneNotNeeded: Set<NodeKey>;
+  _cloneNotNeeded: Map<NodeKey, LexicalNode>;
   _dirtyLeaves: Set<NodeKey>;
   _dirtyElements: Map<NodeKey, IntentionallyMarkedAsDirtyElement>;
   _normalizedNodes: Set<NodeKey>;
@@ -275,6 +275,8 @@ declare export class LexicalEditor {
   _key: string;
   _editable: boolean;
   _headless: boolean;
+  _recordNodeMoves: boolean;
+  _recordTextEdits: boolean;
   isComposing(): boolean;
   registerUpdateListener(listener: UpdateListener): () => void;
   registerRootListener(listener: RootListener): () => void;
@@ -308,7 +310,13 @@ declare export class LexicalEditor {
   getEditorState(): EditorState;
   setEditorState(editorState: EditorState, options?: EditorSetOptions): void;
   parseEditorState(
-    maybeStringifiedEditorState: string | SerializedEditorState,
+    // Both forms parse, as they do in TypeScript: a compact document omits
+    // what parsing restores, so it is readable by exactly this method.
+    maybeStringifiedEditorState:
+      | string
+      | SerializedEditorState
+      | CompactSerializedEditorState
+      | ParsableSerializedEditorState,
     updateFn?: () => void,
   ): EditorState;
   read<V>(callbackFn: () => V): V;
@@ -446,13 +454,35 @@ declare export function createEditor(editorConfig?: {
 
 export interface EditorState {
   _nodeMap: NodeMap;
+  _movedNodes: null | WeakMap<NodeMap, Set<NodeKey>>;
+  _splitNodes: null | WeakMap<NodeMap, Map<NodeKey, [NodeKey, number]>>;
+  _textEdits: null | WeakMap<
+    NodeMap,
+    Array<
+      | ['splice', NodeKey, number, number, string, string]
+      | ['split', NodeKey, ReadonlyArray<NodeKey>, ReadonlyArray<number>, string]
+      | ['merge', NodeKey, NodeKey, boolean, string, string]
+      | ['set', NodeKey, string, string]
+      | ['move', NodeKey, NodeKey, number, string, string]
+      | ['retype', NodeKey, NodeKey, string]
+      | ['attach', NodeKey, NodeKey, NodeKey | null, NodeKey | null, string | null]
+      | ['detach', NodeKey, NodeKey]
+      | ['delete', NodeKey],
+    >,
+  >;
   _selection: null | BaseSelection;
   _flushSync: boolean;
   _readOnly: boolean;
   constructor(nodeMap: NodeMap, selection?: BaseSelection | null): void;
   isEmpty(): boolean;
   read<V>(callbackFn: () => V, options?: EditorStateReadOptions): V;
-  toJSON(): SerializedEditorState;
+  // Overloaded on `compact`, as TypeScript does, so the return type says which
+  // shape came back. `EditorState` is not extended anywhere, so the
+  // override-check limitation that keeps `exportJSON` to one signature does not
+  // reach here: a Flow caller passing `true` gets the partial form, in which
+  // every property a compact export may omit is optional.
+  toJSON(compact?: false): SerializedEditorState;
+  toJSON(compact: boolean): CompactSerializedEditorState;
   clone(selection?: BaseSelection | null): EditorState;
 }
 type EditorStateReadOptions = {
@@ -498,7 +528,19 @@ declare export class LexicalNode {
   static importJSON(serializedNode: $FlowFixMe): LexicalNode;
   constructor(key?: NodeKey): void;
   exportDOM(editor: LexicalEditor): DOMExportOutput;
-  exportJSON(): SerializedLexicalNode;
+  // TypeScript declares two overloads here — the compact form omits
+  // properties, so it returns SerializedPartial<T> rather than T. Flow cannot:
+  // its method-override check compares a subclass's overload set against the
+  // base's as an intersection and pairs no branch, so every node from TextNode
+  // down fails to extend.
+  //
+  // So this describes the legacy form only, and `compact` is typed `false`
+  // rather than `boolean` to say so. Typing it `boolean` let a Flow caller
+  // write `exportJSON(true).text.length` and be handed a type promising a
+  // property the compact form omits; refusing the argument reports that where
+  // it is written instead. A Flow codebase that needs the compact form casts
+  // the result to `SerializedPartial<...>`, which is what it actually gets.
+  exportJSON(compact?: false): SerializedLexicalNode;
   updateFromJSON(serializedNode: $FlowFixMe): this;
   getType(): string;
   isAttached(): boolean;
@@ -507,57 +549,70 @@ declare export class LexicalNode {
   getIndexWithinParent(): number;
   getParent(): ElementNode | null;
   /**
-   * @deprecated The type parameter is an unchecked and unsafe cast and
-   * will be removed in a future release. Call this method without a type
-   * argument and narrow the result with a type guard instead.
+   * @deprecated The type parameter is an unchecked and unsafe cast. The
+   * TypeScript overload was removed in v0.53.0; this Flow overload is kept
+   * until the Flow call sites that pass a type argument are migrated. Call
+   * this method without a type argument and narrow the result with a type
+   * guard instead.
    */
   getParent<T extends ElementNode>(): T | null;
   getParentOrThrow(): ElementNode;
   /**
-   * @deprecated The type parameter is an unchecked and unsafe cast and
-   * will be removed in a future release. Call this method without a type
-   * argument and narrow the result with a type guard instead.
+   * @deprecated The type parameter is an unchecked and unsafe cast. The
+   * TypeScript overload was removed in v0.53.0; this Flow overload is kept
+   * until the Flow call sites that pass a type argument are migrated. Call
+   * this method without a type argument and narrow the result with a type
+   * guard instead.
    */
   getParentOrThrow<T extends ElementNode>(): T;
   getTopLevelElement(): DecoratorNode<unknown> | ElementNode | null;
   getTopLevelElementOrThrow(): DecoratorNode<unknown> | ElementNode;
   getParents(): ElementNode[];
   /**
-   * @deprecated The type parameter is an unchecked and unsafe cast and
-   * will be removed in a future release. Call this method without a type
-   * argument and narrow the result with a type guard instead.
+   * @deprecated The type parameter is an unchecked and unsafe cast. The
+   * TypeScript overload was removed in v0.53.0; this Flow overload is kept
+   * until the Flow call sites that pass a type argument are migrated. Call
+   * this method without a type argument and narrow the result with a type
+   * guard instead.
    */
   getParents<T extends ElementNode>(): T[];
   getParentKeys(): NodeKey[];
   getPreviousSibling(): LexicalNode | null;
   /**
-   * @deprecated The type parameter is an unchecked and unsafe cast and
-   * will be removed in a future release. Call this method without a type
-   * argument and narrow the result with a type guard instead.
+   * @deprecated The type parameter is an unchecked and unsafe cast. The
+   * TypeScript overload was removed in v0.53.0; this Flow overload is kept
+   * until the Flow call sites that pass a type argument are migrated. Call
+   * this method without a type argument and narrow the result with a type
+   * guard instead.
    */
   getPreviousSibling<T extends LexicalNode>(): T | null;
   getPreviousSiblings(): LexicalNode[];
   /**
-   * @deprecated The type parameter is an unchecked and unsafe cast and
-   * will be removed in a future release. Call this method without a type
-   * argument and narrow the result with a type guard instead.
+   * @deprecated The type parameter is an unchecked and unsafe cast. The
+   * TypeScript overload was removed in v0.53.0; this Flow overload is kept
+   * until the Flow call sites that pass a type argument are migrated. Call
+   * this method without a type argument and narrow the result with a type
+   * guard instead.
    */
   getPreviousSiblings<T extends LexicalNode>(): T[];
   getNextSibling(): LexicalNode | null;
   /**
-   * @deprecated The type parameter is an unchecked and unsafe cast and
-   * will be removed in a future release. Call this method without a type
-   * argument and narrow the result with a type guard instead.
+   * @deprecated The type parameter is an unchecked and unsafe cast. The
+   * TypeScript overload was removed in v0.53.0; this Flow overload is kept
+   * until the Flow call sites that pass a type argument are migrated. Call
+   * this method without a type argument and narrow the result with a type
+   * guard instead.
    */
   getNextSibling<T extends LexicalNode>(): T | null;
   getNextSiblings(): LexicalNode[];
   /**
-   * @deprecated The type parameter is an unchecked and unsafe cast and
-   * will be removed in a future release. Call this method without a type
-   * argument and narrow the result with a type guard instead.
+   * @deprecated The type parameter is an unchecked and unsafe cast. The
+   * TypeScript overload was removed in v0.53.0; this Flow overload is kept
+   * until the Flow call sites that pass a type argument are migrated. Call
+   * this method without a type argument and narrow the result with a type
+   * guard instead.
    */
   getNextSiblings<T extends LexicalNode>(): T[];
-  getCommonAncestor<T extends ElementNode>(node: LexicalNode): T | null;
   is(object: ?LexicalNode): boolean;
   isBefore(targetNode: LexicalNode): boolean;
   isParentOf(targetNode: LexicalNode): boolean;
@@ -834,7 +889,10 @@ declare export class TextNode extends LexicalNode {
   mergeWithSibling(target: TextNode): TextNode;
   isTextEntity(): boolean;
   static importJSON(serializedTextNode: SerializedTextNode): TextNode;
-  exportJSON(): SerializedTextNode;
+  // See LexicalNode.exportJSON: one signature, the legacy form, and `false`
+  // rather than `boolean` so a compact call is refused instead of answered
+  // with a shape the value does not have.
+  exportJSON(compact?: false): SerializedTextNode;
 }
 export interface InlineFormattableNode {
   readonly __isInlineFormattable: true;
@@ -867,7 +925,10 @@ declare export function $isTabNode(
 declare export class TabNode extends TextNode {
   constructor(key?: NodeKey): void;
   static importJSON(serializedTabNode: SerializedTabNode): TabNode;
-  exportJSON(): SerializedTabNode;
+  // See LexicalNode.exportJSON: one signature, the legacy form, and `false`
+  // rather than `boolean` so a compact call is refused instead of answered
+  // with a shape the value does not have.
+  exportJSON(compact?: false): SerializedTabNode;
 }
 
 /**
@@ -880,10 +941,21 @@ declare export class LineBreakNode extends LexicalNode {
   createDOM(): HTMLElement;
   updateDOM(): false;
   isInline(): true;
+  // Both forms, because a Flow object property is invariant: `SerializedPartial`
+  // makes each property optional, and an optional property is not a supertype
+  // of a required one there, so naming only the relaxed form made the *full*
+  // serialized type unassignable — `LineBreakNode.importJSON(node.exportJSON())`
+  // stopped type-checking. TypeScript needs no union: a required property
+  // satisfies an optional one structurally.
   static importJSON(
-    serializedLineBreakNode: SerializedLineBreakNode,
+    serializedLineBreakNode:
+      | SerializedLineBreakNode
+      | SerializedPartial<SerializedLineBreakNode>,
   ): LineBreakNode;
-  exportJSON(): SerializedLexicalNode;
+  // See LexicalNode.exportJSON: one signature, the legacy form, and `false`
+  // rather than `boolean` so a compact call is refused instead of answered
+  // with a shape the value does not have.
+  exportJSON(compact?: false): SerializedLexicalNode;
 }
 declare export function $createLineBreakNode(): LineBreakNode;
 declare export function $isLineBreakNode(
@@ -937,15 +1009,19 @@ declare export class ElementNode extends LexicalNode {
   getIndent(): number;
   getChildren(): LexicalNode[];
   /**
-   * @deprecated The type parameter is an unchecked and unsafe cast and
-   * will be removed in a future release. Call this method without a type
-   * argument and narrow the result with a type guard instead.
+   * @deprecated The type parameter is an unchecked and unsafe cast. The
+   * TypeScript overload was removed in v0.53.0; this Flow overload is kept
+   * until the Flow call sites that pass a type argument are migrated. Call
+   * this method without a type argument and narrow the result with a type
+   * guard instead.
    */
   getChildren<T extends LexicalNode>(): T[];
   /**
-   * @deprecated The type parameter is an unchecked and unsafe cast and
-   * will be removed in a future release. Call this method without a type
-   * argument and narrow the result with a type guard instead.
+   * @deprecated The type parameter is an unchecked and unsafe cast. The
+   * TypeScript overload was removed in v0.53.0; this Flow overload is kept
+   * until the Flow call sites that pass a type argument are migrated. Call
+   * this method without a type argument and narrow the result with a type
+   * guard instead.
    */
   getChildren<T extends LexicalNode[]>(): T;
   getChildrenKeys(): NodeKey[];
@@ -955,58 +1031,74 @@ declare export class ElementNode extends LexicalNode {
   getAllTextNodes(): TextNode[];
   getFirstDescendant(): null | LexicalNode;
   /**
-   * @deprecated The type parameter is an unchecked and unsafe cast and
-   * will be removed in a future release. Call this method without a type
-   * argument and narrow the result with a type guard instead.
+   * @deprecated The type parameter is an unchecked and unsafe cast. The
+   * TypeScript overload was removed in v0.53.0; this Flow overload is kept
+   * until the Flow call sites that pass a type argument are migrated. Call
+   * this method without a type argument and narrow the result with a type
+   * guard instead.
    */
   getFirstDescendant<T extends LexicalNode>(): null | T;
   getLastDescendant(): null | LexicalNode;
   /**
-   * @deprecated The type parameter is an unchecked and unsafe cast and
-   * will be removed in a future release. Call this method without a type
-   * argument and narrow the result with a type guard instead.
+   * @deprecated The type parameter is an unchecked and unsafe cast. The
+   * TypeScript overload was removed in v0.53.0; this Flow overload is kept
+   * until the Flow call sites that pass a type argument are migrated. Call
+   * this method without a type argument and narrow the result with a type
+   * guard instead.
    */
   getLastDescendant<T extends LexicalNode>(): null | T;
   getDescendantByIndex(index: number): null | LexicalNode;
   /**
-   * @deprecated The type parameter is an unchecked and unsafe cast and
-   * will be removed in a future release. Call this method without a type
-   * argument and narrow the result with a type guard instead.
+   * @deprecated The type parameter is an unchecked and unsafe cast. The
+   * TypeScript overload was removed in v0.53.0; this Flow overload is kept
+   * until the Flow call sites that pass a type argument are migrated. Call
+   * this method without a type argument and narrow the result with a type
+   * guard instead.
    */
   getDescendantByIndex<T extends LexicalNode>(index: number): null | T;
   getFirstChild(): null | LexicalNode;
   /**
-   * @deprecated The type parameter is an unchecked and unsafe cast and
-   * will be removed in a future release. Call this method without a type
-   * argument and narrow the result with a type guard instead.
+   * @deprecated The type parameter is an unchecked and unsafe cast. The
+   * TypeScript overload was removed in v0.53.0; this Flow overload is kept
+   * until the Flow call sites that pass a type argument are migrated. Call
+   * this method without a type argument and narrow the result with a type
+   * guard instead.
    */
   getFirstChild<T extends LexicalNode>(): null | T;
   getFirstChildOrThrow(): LexicalNode;
   /**
-   * @deprecated The type parameter is an unchecked and unsafe cast and
-   * will be removed in a future release. Call this method without a type
-   * argument and narrow the result with a type guard instead.
+   * @deprecated The type parameter is an unchecked and unsafe cast. The
+   * TypeScript overload was removed in v0.53.0; this Flow overload is kept
+   * until the Flow call sites that pass a type argument are migrated. Call
+   * this method without a type argument and narrow the result with a type
+   * guard instead.
    */
   getFirstChildOrThrow<T extends LexicalNode>(): T;
   getLastChild(): null | LexicalNode;
   /**
-   * @deprecated The type parameter is an unchecked and unsafe cast and
-   * will be removed in a future release. Call this method without a type
-   * argument and narrow the result with a type guard instead.
+   * @deprecated The type parameter is an unchecked and unsafe cast. The
+   * TypeScript overload was removed in v0.53.0; this Flow overload is kept
+   * until the Flow call sites that pass a type argument are migrated. Call
+   * this method without a type argument and narrow the result with a type
+   * guard instead.
    */
   getLastChild<T extends LexicalNode>(): null | T;
   getLastChildOrThrow(): LexicalNode;
   /**
-   * @deprecated The type parameter is an unchecked and unsafe cast and
-   * will be removed in a future release. Call this method without a type
-   * argument and narrow the result with a type guard instead.
+   * @deprecated The type parameter is an unchecked and unsafe cast. The
+   * TypeScript overload was removed in v0.53.0; this Flow overload is kept
+   * until the Flow call sites that pass a type argument are migrated. Call
+   * this method without a type argument and narrow the result with a type
+   * guard instead.
    */
   getLastChildOrThrow<T extends LexicalNode>(): T;
   getChildAtIndex(index: number): null | LexicalNode;
   /**
-   * @deprecated The type parameter is an unchecked and unsafe cast and
-   * will be removed in a future release. Call this method without a type
-   * argument and narrow the result with a type guard instead.
+   * @deprecated The type parameter is an unchecked and unsafe cast. The
+   * TypeScript overload was removed in v0.53.0; this Flow overload is kept
+   * until the Flow call sites that pass a type argument are migrated. Call
+   * this method without a type argument and narrow the result with a type
+   * guard instead.
    */
   getChildAtIndex<T extends LexicalNode>(index: number): null | T;
   getTextContent(): string;
@@ -1045,7 +1137,10 @@ declare export class ElementNode extends LexicalNode {
     deleteCount: number,
     nodesToInsert: LexicalNode[],
   ): this;
-  exportJSON(): SerializedElementNode;
+  // See LexicalNode.exportJSON: one signature, the legacy form, and `false`
+  // rather than `boolean` so a compact call is refused instead of answered
+  // with a shape the value does not have.
+  exportJSON(compact?: false): SerializedElementNode;
   getDOMSlot(element: HTMLElement): ElementDOMSlot<HTMLElement>;
 }
 declare export function $isElementNode(
@@ -1133,10 +1228,21 @@ declare export class ParagraphNode extends ElementNode {
     restoreSelection?: boolean,
   ): ParagraphNode;
   collapseAtStart(): boolean;
+  // Both forms, because a Flow object property is invariant: `SerializedPartial`
+  // makes each property optional, and an optional property is not a supertype
+  // of a required one there, so naming only the relaxed form made the *full*
+  // serialized type unassignable — `ParagraphNode.importJSON(node.exportJSON())`
+  // stopped type-checking. TypeScript needs no union: a required property
+  // satisfies an optional one structurally.
   static importJSON(
-    serializedParagraphNode: SerializedParagraphNode,
+    serializedParagraphNode:
+      | SerializedParagraphNode
+      | SerializedPartial<SerializedParagraphNode>,
   ): ParagraphNode;
-  exportJSON(): SerializedElementNode;
+  // See LexicalNode.exportJSON: one signature, the legacy form, and `false`
+  // rather than `boolean` so a compact call is refused instead of answered
+  // with a shape the value does not have.
+  exportJSON(compact?: false): SerializedElementNode;
 }
 declare export function $createParagraphNode(): ParagraphNode;
 declare export function $isParagraphNode(
@@ -1162,16 +1268,20 @@ declare export function $getNodeByKey(
   _editorState?: EditorState,
 ): LexicalNode | null;
 /**
- * @deprecated The type parameter is an unchecked and unsafe cast and
- * will be removed in a future release. Call this function without a type
- * argument and narrow the result with a type guard instead.
+ * @deprecated The type parameter is an unchecked and unsafe cast. The
+ * TypeScript overload was removed in v0.53.0; this Flow overload is kept
+ * until the Flow call sites that pass a type argument are migrated. Call
+ * this function without a type argument and narrow the result with a type
+ * guard instead.
  */
 declare export function $getNodeByKey<N extends LexicalNode>(key: NodeKey): N | null;
 declare export function $getNodeByKeyOrThrow(key: NodeKey): LexicalNode;
 /**
- * @deprecated The type parameter is an unchecked and unsafe cast and
- * will be removed in a future release. Call this function without a type
- * argument and narrow the result with a type guard instead.
+ * @deprecated The type parameter is an unchecked and unsafe cast. The
+ * TypeScript overload was removed in v0.53.0; this Flow overload is kept
+ * until the Flow call sites that pass a type argument are migrated. Call
+ * this function without a type argument and narrow the result with a type
+ * guard instead.
  */
 declare export function $getNodeByKeyOrThrow<N extends LexicalNode>(key: NodeKey): N;
 declare export function $getRoot(): RootNode;
@@ -1246,6 +1356,10 @@ declare export function $cloneWithPropertiesEphemeral<T extends LexicalNode>(nod
 declare export function $copyNode<T extends LexicalNode>(node: T, skipReset?: boolean): T;
 declare export function $getDocument(): Document;
 declare export function $getEditor(): LexicalEditor;
+/** @internal */
+declare export function INTERNAL_getActiveEditorState(): EditorState | null;
+/** @internal */
+declare export function INTERNAL_$withExportMemo<T>(f: () => T): T;
 declare export function $getEditorDOMRenderConfig(
   editor?: LexicalEditor,
 ): EditorDOMRenderConfig;
@@ -1311,6 +1425,12 @@ declare export function $getDOMTextNode(
   dom: HTMLElement,
   editor?: LexicalEditor,
 ): Text | null;
+/** @internal */
+declare export function $getElementAndOffsetForPoint(
+  editor: LexicalEditor,
+  node: LexicalNode,
+  offset: number,
+): [HTMLElement, number];
 declare export function $isElementDOMSlot(
   slot: DOMSlot<HTMLElement>,
 ): slot is ElementDOMSlot<HTMLElement>;
@@ -1359,6 +1479,7 @@ declare export function getActiveElementDeep(
   root: Document | ShadowRoot,
 ): Element | null;
 declare export function getComposedEventTarget(event: Event): EventTarget | null;
+declare export function $isEventFromEmbeddedInput(event: Event | null): boolean;
 
 /**
  * LexicalNormalization
@@ -1383,14 +1504,41 @@ declare export function createRefCountedRegistry<Key, Options = void>(
  * Serialization/Deserialization
  * */
 
-type InternalSerializedNode = {
-  children?: InternalSerializedNode[],
+// `SerializedPartialNode`, matching the TypeScript signature. This used to name
+// a private `InternalSerializedNode` of its own — `{children?, type, version?}`,
+// exact under `exact_by_default`, and so satisfied by neither `$slots` nor the
+// node state that `$parseSerializedNodeImpl` actually reads, nor by any of the
+// inexact serialized node types declared in this file.
+// Three forms, one per producer, because Flow subsumes none of them into
+// another: an object property is invariant, so a type missing an optional
+// property another declares is not a subtype of it even in a read-only
+// position, and `$ReadOnly` does not lift that for a type carrying an indexer.
+// TypeScript needs no such list — width subtyping over optional properties
+// makes `SerializedPartialNode` alone accept all three.
+//
+//  - `SerializedPartialNode` — a document written as a literal, and the shape
+//    `@lexical/clipboard` builds.
+//  - `SerializedLexicalNode` — a declared serialized type, the full form a
+//    node's own `exportJSON()` returns.
+//  - `SerializedPartial<SerializedLexicalNode>` — what `$exportNodeJSON`
+//    returns, so that the public export and import helpers compose.
+// The least a value has to be for $parseSerializedNode to read it. `version`
+// is optional because the parser drops it, which is what lets an interface
+// with an optional `version` — @lexical/clipboard's BaseSerializedNode — be
+// passed without a cast.
+export type ParsableSerializedNode = {
+  $slots?: {[string]: ParsableSerializedNode},
+  children?: Array<ParsableSerializedNode>,
   type: string,
-  version: number,
+  version?: number,
 };
 
 declare export function $parseSerializedNode(
-  serializedNode: InternalSerializedNode,
+  serializedNode:
+    | SerializedPartialNode
+    | SerializedLexicalNode
+    | SerializedPartial<SerializedLexicalNode>
+    | ParsableSerializedNode,
 ): LexicalNode;
 
 declare export function $applyNodeReplacement<N extends LexicalNode>(
@@ -1399,7 +1547,86 @@ declare export function $applyNodeReplacement<N extends LexicalNode>(
 
 export type SerializedLexicalNode = {
   type: string,
+  // Deprecated: nothing reads it. exportJSON() writes it as 1 for backwards
+  // compatible output and so promises it here; exportJSON(true) omits it,
+  // which SerializedPartial relaxes, and parsing drops it outright.
   version: number,
+  ...
+};
+
+// Omit the children, type, and version properties from a serialized node type:
+// what a hand-written `updateFromJSON` override reads, each property keeping
+// its declared type.
+export type LexicalUpdateJSON<T extends SerializedLexicalNode> = Omit<
+  T,
+  'children' | 'type' | 'version',
+>;
+// The shape a schema-driven parser accepts for a node whose serialized type is
+// S. This is the untrusted-JSON boundary and the parser is total — it
+// validates every property and defaults anything out of domain — so the
+// values are not constrained to what parsing produces. A schema accepts more
+// than it writes wherever it has an alias table or reads a number spelled as
+// a string.
+export type LexicalParseJSON<S extends SerializedLexicalNode> = {
+  [K in keyof Omit<SerializedPartial<S>, 'children' | 'type' | 'version'>]?: unknown,
+};
+// Mirrors the TypeScript definition, recursion included: `Partial<T>` alone
+// relaxes the outer object only, so an element's `children` became optional
+// while still promising that everything inside it was fully serialized — which
+// is untrue of every compact element but the leaves, and let a caller write
+// `children[0].version.toFixed()` against a child whose `version` a compact
+// export omitted. Slot values are parsed by the same rules and relax the same
+// way. The conditional keeps a node that has no children from gaining an
+// optional one it never carries.
+export type SerializedPartial<T extends SerializedLexicalNode> = {
+  // `children` is removed before the spread rather than overridden after it:
+  // spreading an *optional* property over an existing one merges the two in
+  // Flow instead of replacing it, so `Partial<T>`'s fully-serialized children
+  // survived alongside the relaxed ones. TypeScript's definition `Omit`s the
+  // same keys for the same reason.
+  ...Omit<Partial<T>, 'children' | 'version' | '$slots'>,
+  type: string,
+  version?: number,
+  // The child type is not inferred, because nothing can narrow it: a node
+  // cannot declare what kind of children it accepts, so any node may appear
+  // under any element and `SerializedLexicalNode` is the only honest element
+  // type. The conditional only asks *whether* `T` has children, so that a node
+  // without them does not gain an optional one it never carries.
+  //
+  // Matched as `Array`, which is what every serialized element declares. Flow
+  // compares an array member invariantly here, so `ReadonlyArray<infer _C>`
+  // matches none of them — it silently answers "no children" and leaves the
+  // relaxation off entirely.
+  ...(T extends {children: Array<infer _C>, ...}
+    ? {children?: Array<SerializedPartialNode>}
+    : {}),
+  $slots?: {[string]: SerializedPartialNode | SerializedLexicalNode},
+  ...
+};
+
+// A node of a compact document read without knowing its type, which is every
+// child: a node cannot declare what kind of children it accepts, so there is no
+// type to name their properties from. The outer node of a SerializedPartial is
+// refinable and its children never are, so the framework properties are named
+// and a node's own arrive as `unknown`, which a reader refines by `type` as it
+// would any untrusted JSON. `children` and `$slots` recurse, because a compact
+// export applies to a subtree exactly as it does to its root.
+//
+// Indexed, matching the TypeScript definition: without it a compact document
+// cannot be *written* — a hand-authored initial state, a fixture, a migration
+// script all name node-specific properties on a child, and TypeScript's
+// excess-property check refuses every one of them.
+//
+// The node-state key is spelled as the literal `$` rather than as
+// `[typeof NODE_STATE_KEY]`, which `NodeStateJSON` below uses: Flow has no
+// optional indexer (`[K]?:` is `unsupported-syntax`), and this key is optional.
+export type SerializedPartialNode = {
+  type: string,
+  version?: number,
+  $?: {[string]: unknown},
+  $slots?: {[string]: SerializedPartialNode | SerializedLexicalNode},
+  children?: Array<SerializedPartialNode>,
+  [string]: unknown,
   ...
 };
 
@@ -1448,12 +1675,29 @@ export type SerializedGridCellNode = {
   ...
 };
 
+// The compact form of a document: every node written without the properties
+// parsing restores on its own.
+export interface CompactSerializedEditorState {
+  root: SerializedPartial<SerializedRootNode>;
+}
+// A document as a structural subtree, for a caller holding serialized nodes
+// rather than a `SerializedEditorState` — `@lexical/clipboard`'s
+// `BaseSerializedNode[]`; see `$parseSerializedNode`.
+export interface ParsableSerializedEditorState {
+  root: ParsableSerializedNode;
+}
 export interface SerializedEditorState {
   root: SerializedRootNode;
 }
 
 export type SerializedEditor = {
-  editorState: SerializedEditorState,
+  // Either form: `editor.toJSON()` writes whichever one encloses it, so a
+  // nested editor inside a compact document is compact and inside a legacy one
+  // is not. Stated as a union rather than as the compact shape alone — the
+  // legacy shape satisfies it structurally in TypeScript, but a Flow object
+  // property is invariant, so naming only the compact type made
+  // `{editorState: editorState.toJSON()}` a Flow error.
+  editorState: SerializedEditorState | CompactSerializedEditorState,
 };
 
 /**
@@ -1570,6 +1814,15 @@ declare export function $caretFromPoint<D extends CaretDirection>(
 declare export function $caretRangeFromSelection(
   selection: RangeSelection,
 ): CaretRange<CaretDirection>;
+declare export function $splitTextPointCaretSlice(
+  slice: TextPointCaretSlice<>,
+  selection?: RangeSelection | null,
+): TextNode | null;
+/** @internal */
+declare export function $getTextPointCaretSliceForNode(
+  slices: ReadonlyArray<TextPointCaretSlice<> | null>,
+  node: LexicalNode,
+): TextPointCaretSlice<> | void;
 declare export function $getAdjacentSiblingOrParentSiblingCaret<
   D extends CaretDirection,
 >(
@@ -1691,6 +1944,15 @@ declare export function $insertNodeToNearestRootAtCaret<T extends LexicalNode>(
 ): NodeCaret<CaretDirection>;
 
 /**
+ * LexicalWarning
+ */
+declare export class LexicalWarning extends Error {
+  readonly code: string;
+  readonly data?: unknown;
+  constructor(code: string, message: string, data?: unknown): void;
+}
+
+/**
  * LexicalUpdateTags
  */
 declare export var COLLABORATION_TAG: 'collaboration';
@@ -1700,6 +1962,7 @@ declare export var HISTORY_MERGE_TAG: 'history-merge';
 declare export var HISTORY_PUSH_TAG: 'history-push';
 declare export var PASTE_TAG: 'paste';
 declare export var SKIP_COLLAB_TAG: 'skip-collab';
+declare export var DEFER_COMPOSITION_MERGE_TAG: 'defer-composition-merge';
 declare export var SKIP_DOM_SELECTION_TAG: 'skip-dom-selection';
 declare export var SKIP_SCROLL_INTO_VIEW_TAG: 'skip-scroll-into-view';
 export type UpdateTag =
@@ -1710,6 +1973,7 @@ export type UpdateTag =
   | typeof HISTORY_PUSH_TAG
   | typeof PASTE_TAG
   | typeof SKIP_COLLAB_TAG
+  | typeof DEFER_COMPOSITION_MERGE_TAG
   | typeof SKIP_DOM_SELECTION_TAG
   | typeof SKIP_SCROLL_INTO_VIEW_TAG
   | string;
@@ -1772,6 +2036,8 @@ declare export class StateConfig<K extends string, V> {
   readonly isEqual: (a: V, b: V) => boolean;
   readonly defaultValue: V;
   readonly resetOnCopyNode: boolean;
+  readonly derived: boolean;
+  readonly schema?: AnySerializationSchema;
   constructor(key: K, stateValueConfig: StateValueConfig<V>): this;
 }
 
@@ -1780,7 +2046,261 @@ export type StateValueConfig<V> = {
   unparse?: (parsed: V) => unknown;
   isEqual?: (a: V, b: V) => boolean;
   resetOnCopyNode?: boolean;
+  derived?: boolean;
 }
+
+export type Parse<T> = (value: unknown) => T;
+// A callable carrying its own metadata, so introspecting tooling
+// (getComposedSchemaFields, @lexical/fast-check) can read `meta` and
+// `defaultValue` off a schema rather than only calling it.
+export type SerializationSchema<T> = Parse<T> & {
+  readonly defaultValue: T,
+  readonly derived?: true,
+  readonly meta: SerializationSchemaMeta,
+  readonly getter?: SchemaGetterAccessor,
+  readonly setter?: SchemaSetterAccessor,
+  readonly isEqual?: (a: T, b: T) => boolean,
+  readonly accepts?: (value: unknown) => boolean,
+};
+// `SerializedPartial`, matching TypeScript: this is the walk a compact export
+// runs through, so the properties it omits are exactly the ones a caller must
+// not be promised. Declared as the full type, Flow accepted
+// `$withCompactExport(true, () => $exportNodeJSON(node)).version.toFixed()`,
+// which throws — a compact export writes no `version`.
+declare export function $exportNodeJSON(
+  node: LexicalNode,
+): SerializedPartial<SerializedLexicalNode>;
+// TypeScript additionally rejects an async callback at the call site, through
+// a trailing parameter that is an empty tuple for every other return type;
+// Flow has no equivalent, so here that is caught by the runtime check, which
+// runs in every build.
+declare export function $withCompactExport<T>(
+  compact: boolean,
+  f: () => T,
+): T;
+// Whether the export walk in progress writes the compact form, for a schema
+// getter to read — the walk calls get<Prop>() with no arguments, so there is
+// nothing to pass one. Established by $withCompactExport (and so by
+// editorState.toJSON(compact) and the clipboard selection export), not by an
+// individual node's exportJSON(compact).
+declare export function $isCompactExport(): boolean;
+// `any`, not `unknown`: Flow compares a `SerializationSchema<T>` invariantly
+// in `T` — `isEqual` takes one — so a bound of `SerializationSchema<unknown>`
+// admitted no concrete schema at all, and neither `unionValue([numberValue(),
+// stringValue()])` nor a node's field record could be written. The same
+// spelling `AnyStateConfig` uses, for the same reason.
+// $FlowFixMe[unclear-type]
+export type AnySerializationSchema = SerializationSchema<any>;
+// A schema that names no accessor — what every combinator takes, and what a
+// schema's `meta` holds in `inner`, `item` and `members`. TypeScript carries
+// that as a phantom type parameter; Flow declares the surface without it, so
+// here it is the same type, used where TypeScript uses it.
+export type InnerSerializationSchema = AnySerializationSchema;
+export type SerializationSchemaFields = {
+  readonly [key: string]: AnySerializationSchema,
+};
+// Exported for parity with TypeScript's `objectValue` constraint; Flow's
+// `objectValue` takes `SerializationSchemaShape<T>`, and the phantom that tells
+// a named field from one that names nothing is TypeScript's, so this is the
+// same record.
+export type InnerSerializationSchemaFields = SerializationSchemaFields;
+// The record of per-property schemas for an object type: every key of `T`,
+// each with a schema for that key's type. Spelled out rather than aliased to
+// SerializationSchemaFields so that it checks what its TypeScript counterpart
+// checks — a shape missing a property, or describing one with the wrong
+// schema, is an error where it is declared.
+export type SerializationSchemaShape<T> = {
+  readonly [K in keyof T]: SerializationSchema<T[K]>,
+};
+export type SerializationSchemaMeta = {
+  readonly kind: string,
+  readonly values?: ReadonlyArray<unknown>,
+  readonly aliases?: {readonly [alias: string]: unknown},
+  readonly inner?: InnerSerializationSchema,
+  readonly item?: InnerSerializationSchema,
+  readonly fields?: SerializationSchemaFields,
+  readonly members?: ReadonlyArray<InnerSerializationSchema>,
+  readonly min?: number,
+  readonly max?: number,
+  readonly integer?: boolean,
+  readonly clamp?: boolean,
+  readonly omitDefault?: boolean,
+  readonly defaultAsNull?: boolean,
+};
+export type NumberValueOptions = {
+  readonly min?: number,
+  readonly max?: number,
+  readonly integer?: boolean,
+  readonly clamp?: boolean,
+};
+declare export function stringValue(defaultValue?: string): SerializationSchema<string>;
+declare export function numberValue(
+  defaultValue?: number,
+  options?: NumberValueOptions,
+): SerializationSchema<number>;
+declare export function booleanValue(defaultValue?: boolean): SerializationSchema<boolean>;
+// Two signatures, as in TypeScript: a declared `undefined` default is legal
+// only where `undefined` is one of the values. An optional parameter admitted
+// `enumValue(['a', 'b'], undefined)` as a schema over `'a' | 'b'` whose
+// parse of an absent value returns `undefined`.
+declare export function enumValue<T>(
+  values: ReadonlyArray<T>,
+): SerializationSchema<T>;
+// The default is typed as an element of the values *as inferred from them
+// alone* — Flow, unlike TypeScript, would otherwise infer `T` from both
+// arguments and let the default widen the domain it is meant to belong to.
+declare export function enumValue<V extends ReadonlyArray<unknown>>(
+  values: V,
+  defaultValue: V[number],
+): SerializationSchema<V[number]>;
+declare export function nullable<T>(
+  inner: SerializationSchema<T>,
+  options?: {readonly defaultAsNull?: boolean},
+): SerializationSchema<T | null>;
+declare export function optional<T>(
+  inner: SerializationSchema<T>,
+  options?: {readonly omitDefault?: boolean},
+): SerializationSchema<T | void>;
+// Inferred through the callable half alone: Flow's `infer` does not see
+// through the `Parse<T> & {...}` intersection, and against the whole type this
+// was `empty` for every schema — a value assignable to anything.
+export type SerializationSchemaValue<S> = S extends Parse<infer T> ? T : empty;
+// The value type is `unknown`, not `SerializationSchemaValue<M[number]>`:
+// Flow's conditional types do not distribute over a union, so for members of
+// different types that evaluated to `empty` — a result assignable to anything
+// — and a default could not be passed at all. TypeScript computes the union.
+declare export function unionValue(
+  members: ReadonlyArray<InnerSerializationSchema>,
+): SerializationSchema<unknown>;
+declare export function unionValue(
+  members: ReadonlyArray<InnerSerializationSchema>,
+  defaultValue: unknown,
+): SerializationSchema<unknown>;
+declare export function transformValue<In, Out>(
+  inner: SerializationSchema<In>,
+  transform: (value: In) => Out,
+  options?: {readonly isEqual?: (a: Out, b: Out) => boolean},
+): SerializationSchema<Out>;
+declare export function aliasedValue<T>(
+  inner: SerializationSchema<T>,
+  aliases: {readonly [alias: string]: T},
+): SerializationSchema<T>;
+declare export function rawValue<T>(): SerializationSchema<T | void>;
+declare export function arrayValue<T>(item: SerializationSchema<T>): SerializationSchema<T[]>;
+declare export function arraySetValue<T extends string>(
+  item: SerializationSchema<T>,
+): SerializationSchema<ReadonlyArray<T>>;
+declare export function objectValue<T>(fields: SerializationSchemaShape<T>): SerializationSchema<T>;
+
+// Every member of `N` a schema may name: its own `__`-prefixed fields and its
+// methods, which covers accessors and `when` predicates alike.
+export type MemberOf<N> = keyof N;
+// The members a schema's declarations name. TypeScript carries these in a
+// phantom type parameter so that `nodeSchema` can check them against the node;
+// Flow declares the surface without that check, and the DEV-time runtime
+// invariants catch the same mistakes here.
+export type NamesOf<S> = string;
+// The serialized values a schema accepts, which is wider than what it parses
+// to wherever it reads more than it writes (a stringified number, a legacy
+// alias, an absent property). TypeScript computes this per combinator; Flow
+// declares the surface without that computation.
+export type SchemaInput<S> = unknown;
+// The phantom N records which node the names were checked against; Flow has
+// no equivalent of the TypeScript declaration's variance trick, so this stays
+// the unparameterized shape and the binding is enforced by TypeScript alone.
+// A node schema is not a parser: nothing calls one, and its properties are
+// applied to a node rather than combined into a value. What it carries is the
+// field record, which is all the composition and the walk read.
+export type NodeSchemaMeta = {
+  readonly kind: 'node',
+  readonly fields: SerializationSchemaFields,
+};
+export type NodeSerializationSchema = {
+  readonly meta: NodeSchemaMeta,
+};
+// A node's serialization schema, checked against the node it is for. Under
+// TypeScript a `field`, accessor `method` or `when` predicate the node does
+// not have is a compile error; under Flow it is caught at registration.
+// Called in two steps: the node is named explicitly, and the fields are
+// inferred on the second call. TypeScript cannot infer both on one call, and
+// the field types are what carry each property's accepted input.
+declare export function nodeSchema<N>(): (fields: {
+  readonly [key: string]: AnySerializationSchema,
+}) => NodeSerializationSchema;
+// A node field, read or written directly rather than through a method. The
+// lookup table for a property whose stored and serialized forms differ is
+// declared only on the direction that reads it — `getterTable` on the getter,
+// `setterTable` on the setter — so naming the wrong one is an error rather than a
+// silently ignored property, and `when` (the predicate that decides whether
+// the property is written at all) is the getter's for the same reason.
+// `method` names the accessor the field access stands in for, so a subclass
+// that overrides it still decides.
+export type SchemaFieldBase = {
+  readonly field: string,
+  readonly method?: string,
+};
+export type SchemaGetterField = {
+  ...SchemaFieldBase,
+  readonly getterTable?: {readonly [key: string]: unknown},
+  readonly setterTable?: empty,
+  readonly when?: string,
+};
+export type SchemaSetterField = {
+  ...SchemaFieldBase,
+  readonly getterTable?: empty,
+  readonly setterTable?: {readonly [key: string]: unknown},
+  readonly when?: empty,
+};
+export type SchemaField = SchemaGetterField | SchemaSetterField;
+export type SchemaGetterAccessor = string | SchemaGetterField | null;
+export type SchemaSetterAccessor = string | SchemaSetterField | null;
+// Both directions of a property that *is* a node field, as withField takes
+// them. `getterTable`, `setterTable` and `when` each belong to the one direction that
+// reads them, and are split onto it.
+export type FieldOptions = {
+  readonly field: string,
+  readonly getterTable?: {readonly [key: string]: unknown},
+  readonly setterTable?: {readonly [key: string]: unknown},
+  readonly getter?: string,
+  readonly setter?: string,
+  readonly when?: string,
+  readonly derived?: boolean,
+};
+// One direction of a schema field: a method name, a node field, or null for a
+// direction that is deliberately unsupported.
+export type SchemaAccessor = string | SchemaField | null;
+export type SchemaAccessors = {
+  readonly getter?: SchemaGetterAccessor,
+  readonly setter?: SchemaSetterAccessor,
+  readonly derived?: boolean,
+};
+declare export function isSchemaField<T extends SchemaFieldBase>(
+  accessor: string | T | null | void,
+): implies accessor is T;
+declare export function withField<T>(
+  schema: SerializationSchema<T>,
+  field: FieldOptions,
+): SerializationSchema<T>;
+declare export function withAccessors<T>(
+  schema: SerializationSchema<T>,
+  accessors: SchemaAccessors,
+): SerializationSchema<T>;
+// The serialized input a node's schemas accept, keyed by property. Flow does
+// not model the composition, so each property is `unknown` — what a state parsed
+// on the way in is not recorded, the same reason StateConfig.parse takes it.
+export type LexicalSchemaInput<out T> = {[string]: unknown};
+
+// The predicate a schema's author installed, or void where it carries only the
+// one its combinator derived. `@lexical/fast-check` and the JSON code
+// generator both read a schema's metadata as a stand-in for the schema, and a
+// declared predicate describes a domain no metadata records.
+declare export function declaredAccepts(
+  schema: AnySerializationSchema,
+): void | ((value: unknown) => boolean);
+
+declare export function getComposedSchemaFields(
+  klass: Class<LexicalNode>,
+): {[key: string]: AnySerializationSchema};
 
 export type UnionToIntersection<T> = (
   // $FlowFixMe[unclear-type]
@@ -1799,6 +2319,55 @@ export type CollectStateJSON<
 
 export const PROTOTYPE_CONFIG_METHOD = '$config';
 
+// Whether the compact form omits `value` for the property named `key`. A
+// generated compact exporter is handed its class's own test, and uses it for
+// the properties whose defaults the generator could not state as source.
+export type CompactDefaultTest = (key: string, value: unknown) => boolean;
+
+// The generated JSON implementations for one node class, passed to that
+// class's $config as `generated`.
+export type GeneratedJSON = {
+  exportJSON: (node: LexicalNode) => {[key: string]: unknown},
+  exportCompactJSON?: (
+    node: LexicalNode,
+    isCompactDefault: CompactDefaultTest,
+  ) => {[key: string]: unknown},
+  updateFromJSON?: (
+    node: LexicalNode,
+    json: {readonly [key: string]: unknown},
+  ) => LexicalNode,
+  afterCloneFrom?: (node: LexicalNode, prevNode: LexicalNode) => void,
+};
+
+// A class's composed serialization schema, property by property: what a
+// generated module is handed when its code is attached to a class.
+export type ComposedSchemaFields = ReadonlyMap<string, AnySerializationSchema>;
+
+// Builds the generated implementations for one class from that class's
+// composed schema, so the lookup tables generated code reads are the schema's
+// own objects; passed to the class's $config as `generated`.
+export type GeneratedJSONFactory = (
+  fields: ComposedSchemaFields,
+) => GeneratedJSON;
+
+declare export function getterTableOf(
+  fields: ComposedSchemaFields,
+  key: string,
+): {readonly [key: string]: unknown};
+declare export function setterTableOf(
+  fields: ComposedSchemaFields,
+  key: string,
+): {readonly [key: string]: unknown};
+declare export function aliasTableOf(
+  fields: ComposedSchemaFields,
+  key: string,
+  index: number,
+): {readonly [key: string]: unknown};
+declare export function setterDefaultOf(
+  fields: ComposedSchemaFields,
+  key: string,
+): unknown;
+
 export interface StaticNodeConfigValue<
   T extends LexicalNode,
   Type extends string,
@@ -1807,10 +2376,44 @@ export interface StaticNodeConfigValue<
   readonly $transform?: (node: T) => void;
   readonly $importJSON?: (serializedNode: SerializedLexicalNode) => T;
   readonly importDOM?: DOMConversionMap;
+  readonly json?: AnySerializationSchema;
+  readonly generated?: GeneratedJSONFactory;
   readonly stateConfigs?: ReadonlyArray<RequiredNodeStateConfig>;
   readonly slots?: ReadonlyArray<string>;
+  readonly inline?: boolean;
+  readonly children?: NodeChildrenConfig;
+  readonly mergeAdjacent?: MergeAdjacentConfig | false;
   readonly extends?: Class<LexicalNode>;
 }
+
+export type NodeChildrenConfig =
+  | 'inline'
+  | 'block'
+  | ReadonlyArray<'inline' | Class<LexicalNode>>;
+
+export type MergeAdjacentConfig = {
+  readonly by: ReadonlyArray<string | AnyStateConfig>,
+};
+
+export type DeclaredNodeStructure = {
+  readonly inline?: boolean,
+  readonly children?: NodeChildrenConfig,
+  readonly mergeAdjacent?: MergeAdjacentConfig,
+  readonly derived: ReadonlySet<string>,
+  readonly declaredBy: {
+    readonly inline?: Class<LexicalNode>,
+    readonly children?: Class<LexicalNode>,
+    readonly mergeAdjacent?: Class<LexicalNode>,
+  },
+};
+
+declare export function getDeclaredNodeStructure(
+  klass: Class<LexicalNode>,
+): DeclaredNodeStructure;
+
+declare export function $isBlockContainer(
+  node: ?LexicalNode,
+): implies node is ElementNode;
 
 /**
  * This is the type of LexicalNode.$config() that can be
@@ -1973,10 +2576,15 @@ declare export function declarePeerDependency<
   config?: Partial<LexicalExtensionConfig<Extension>>,
 ): NormalizedPeerDependency<Extension>;
 declare export function defineExtension<
-  Config extends ExtensionConfigBase,
-  Name extends string,
-  Output,
-  Init,
+  Config extends ExtensionConfigBase = ExtensionConfigBase,
+  Name extends string = string,
+  // `Config`, `Output` and `Init` are only reachable through the optional
+  // `config`, `build` and `init` members, so an extension that declares none
+  // of them leaves the parameters unconstrained. TypeScript silently infers
+  // there; Flow reports `underconstrained-implicit-instantiation` unless a
+  // default is supplied.
+  Output = void,
+  Init = void,
 >(
   extension: LexicalExtension<Config, Name, Output, Init>,
 ): LexicalExtension<Config, Name, Output, Init>;
@@ -2035,7 +2643,7 @@ export interface LexicalEditorWithDispose extends LexicalEditor, Disposable {
 }
 export interface LexicalExtension<
   Config extends ExtensionConfigBase,
-  Name extends string,
+  out Name extends string,
   Output,
   Init,
 > extends InitialEditorConfig,
@@ -2076,7 +2684,7 @@ export type LexicalExtensionArgument<
   | LexicalExtension<Config, Name, Output, Init>
   | NormalizedLexicalExtensionArgument<Config, Name, Output, Init>;
 export type LexicalExtensionConfig<out Extension extends AnyLexicalExtension> =
-  NonNullable<Extension[typeof configTypeSymbol]>;
+  NonNullable<Extension['__configType']>;
 export interface LexicalExtensionDependency<
   out Dependency extends AnyLexicalExtension,
 > {
@@ -2084,29 +2692,51 @@ export interface LexicalExtensionDependency<
   readonly output: LexicalExtensionOutput<Dependency>;
 }
 export type LexicalExtensionInit<Extension extends AnyLexicalExtension> =
-  NonNullable<Extension[typeof initTypeSymbol]>;
+  NonNullable<Extension['__initType']>;
+/**
+ * The phantom brand properties that carry an extension's Config, Output and
+ * Init types.
+ *
+ * The TypeScript source keys these off `unique symbol`s
+ * (`configTypeSymbol`, `outputTypeSymbol`, `initTypeSymbol`), which Flow has
+ * no equivalent for: a computed key whose type is `symbol` is parsed as an
+ * *indexer* over all symbol keys, not as a single named property. That makes
+ * every other property of an extension (`name`, `nodes`, `config`, ...) have
+ * to conform to the indexer's value type, so no object literal can satisfy
+ * `LexicalExtension` and `defineExtension` cannot be called at all. Declaring
+ * all three at once additionally trips Flow's "Multiple indexers are not
+ * supported".
+ *
+ * Named optional read-only properties reproduce the TypeScript semantics that
+ * matter here — the three types are carried, the properties are never
+ * supplied by callers, and the `LexicalExtension{Config,Output,Init}` helpers
+ * still extract them. The symbols above remain exported to match the
+ * generated `.d.ts` surface.
+ */
 export interface LexicalExtensionInternal<Config, Output, Init> extends LexicalExtensionInternalConfig<Config>, LexicalExtensionInternalOutput<Output> {
-  [typeof initTypeSymbol]: Init;
+  readonly __initType?: Init;
 }
 interface LexicalExtensionInternalConfig<Config> {
-  [typeof configTypeSymbol]: Config;
+  readonly __configType?: Config;
 }
 interface LexicalExtensionInternalOutput<Output> {
-  [typeof outputTypeSymbol]: Output;
+  readonly __outputType?: Output;
 }
 
 export type LexicalExtensionName<Extension extends AnyLexicalExtension> =
   Extension['name'];
 
 export type LexicalExtensionOutput<out Extension extends AnyLexicalExtension> =
-  NonNullable<Extension[typeof outputTypeSymbol]>;
+  NonNullable<Extension['__outputType']>;
 declare export const peerDependencySymbol: symbol;
 export type NormalizedLexicalExtensionArgument<
   Config extends ExtensionConfigBase,
   Name extends string,
   Output,
   Init,
-> = [LexicalExtension<Config, Name, Output, Init>, ...Partial<Config>[]];
+> =
+  | [LexicalExtension<Config, Name, Output, Init>]
+  | [LexicalExtension<Config, Name, Output, Init>, Partial<Config>];
 export type NormalizedPeerDependency<Extension extends AnyLexicalExtension> = [
   name: Extension['name'],
   config?: Partial<LexicalExtensionConfig<Extension>>,
@@ -2133,17 +2763,31 @@ declare export function removeClassNamesFromElement(
   ...classNames: (typeof undefined | boolean | null | string)[]
 ): void;
 declare export function mergeRegister(...func: (() => void)[]): () => void;
+// `AddEventListenerOptions` from TypeScript's `lib.dom.d.ts` and
+// `EventListenerOptionsOrUseCapture` from the flow-typed DOM libdef describe
+// the same value under different names, so naming either one ties this
+// declaration to a single DOM libdef. Spelling it structurally keeps it
+// resolvable under both.
+type RegisterEventListenerOptions =
+  | boolean
+  | {
+      capture?: boolean,
+      once?: boolean,
+      passive?: boolean,
+      signal?: AbortSignal,
+      ...
+    };
 declare export function registerEventListener(
   target: EventTarget,
   type: string,
   listener: EventListener,
-  options?: EventListenerOptionsOrUseCapture,
+  options?: RegisterEventListenerOptions,
 ): () => void;
 export type EventListenerMap<T> = {readonly [type: string]: EventListener};
 declare export function registerEventListeners<T extends EventTarget>(
   target: T,
   listeners: EventListenerMap<T>,
-  options?: EventListenerOptionsOrUseCapture,
+  options?: RegisterEventListenerOptions,
 ): () => void;
 declare export function normalizeClassNames(...classNames: (typeof undefined | boolean | null | string)[]): string[];
 declare export function getStyleObjectFromCSS(css: string): {
@@ -2173,3 +2817,53 @@ declare export function $isBlockFullySelected(
   blockNode: ElementNode,
   selectionOrRange: RangeSelection | CaretRange<CaretDirection>,
 ): boolean;
+
+// Keyboard shortcut declarations used by @lexical/extension's subpaths.
+export type KeyboardEventModifiers = Pick<
+  KeyboardEvent,
+  'key' | 'code' | 'metaKey' | 'ctrlKey' | 'shiftKey' | 'altKey',
+>;
+
+export type KeyboardEventModifierMask = {
+  altKey?: boolean | void | 'any',
+  ctrlKey?: boolean | void | 'any',
+  metaKey?: boolean | void | 'any',
+  shiftKey?: boolean | void | 'any',
+  ...
+};
+
+export interface KeyboardShortcutMatch {
+  key: string;
+  modifiers?: KeyboardEventModifierMask;
+  unshiftedKey?: string;
+}
+
+export interface KeyboardShortcut extends KeyboardShortcutMatch {
+  command: LexicalCommand<KeyboardEvent>;
+  description?: string;
+  $disabled?: (selection: null | BaseSelection, editor: LexicalEditor) => boolean;
+  $dispatch?: (
+    command: LexicalCommand<KeyboardEvent>,
+    event: KeyboardEvent,
+    $next: () => boolean,
+    editor: LexicalEditor,
+  ) => boolean;
+  bubbleFromNestedEditors?: boolean;
+}
+
+declare export var CONTROL_OR_META: KeyboardEventModifierMask;
+declare export var CONTROL_OR_ALT: KeyboardEventModifierMask;
+
+declare class CompiledKeyboardShortcuts<
+  S extends KeyboardShortcutMatch = KeyboardShortcut,
+> {
+  add(shortcut: S): this;
+  matches(event: KeyboardEventModifiers): S[];
+  match(event: KeyboardEventModifiers): S | void;
+}
+
+export type {CompiledKeyboardShortcuts};
+
+declare export function compileKeyboardShortcuts<S extends KeyboardShortcutMatch>(
+  shortcuts: Iterable<S>,
+): CompiledKeyboardShortcuts<S>;

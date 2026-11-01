@@ -8,34 +8,24 @@
     "overflow"
   ],
   "license": "MIT",
-  "version": "0.50.0",
+  "version": "0.53.0",
   "main": "./dist/LexicalOverflow.js",
   "types": "./dist/typescript-too-old.d.ts",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/facebook/lexical.git",
+    "url": "git+https://github.com/meta/lexical.git",
     "directory": "packages/lexical-overflow"
   },
-  "module": "./dist/LexicalOverflow.mjs",
+  "module": "./dist/LexicalOverflow.js",
   "sideEffects": false,
   "exports": {
     ".": {
       "source": "./src/index.ts",
-      "import": {
-        "types@<5.2": "./dist/typescript-too-old.d.ts",
-        "types": "./dist/index.d.ts",
-        "development": "./dist/LexicalOverflow.dev.mjs",
-        "production": "./dist/LexicalOverflow.prod.mjs",
-        "node": "./dist/LexicalOverflow.node.mjs",
-        "default": "./dist/LexicalOverflow.mjs"
-      },
-      "require": {
-        "types@<5.2": "./dist/typescript-too-old.d.ts",
-        "types": "./dist/index.d.ts",
-        "development": "./dist/LexicalOverflow.dev.js",
-        "production": "./dist/LexicalOverflow.prod.js",
-        "default": "./dist/LexicalOverflow.js"
-      }
+      "types@<5.2": "./dist/typescript-too-old.d.ts",
+      "types": "./dist/index.d.ts",
+      "development": "./dist/LexicalOverflow.dev.js",
+      "production": "./dist/LexicalOverflow.prod.js",
+      "default": "./dist/LexicalOverflow.js"
     }
   },
   "dependencies": {
@@ -68,5 +58,6 @@
     "typescript": {
       "optional": true
     }
-  }
+  },
+  "type": "module"
 }

@@ -1,0 +1,46 @@
+/**
+ * Copyright (c) Meta Platforms, Inc. and affiliates.
+ *
+ * This source code is licensed under the MIT license found in the
+ * LICENSE file in the root directory of this source tree.
+ *
+ * @flow strict
+ */
+
+import type {ReadonlySignal, Signal} from '@lexical/extension/signals';
+import type {EditorState, LexicalEditor, LexicalExtension} from 'lexical';
+
+export type HotContext = {
+  readonly data: {[string]: unknown},
+};
+
+interface HMRInit {
+  restoreCount: Signal<number>;
+}
+
+export type HMROutput = {
+  restoreCount: ReadonlySignal<number>,
+};
+
+export type HMRConfig = {
+  hot: HotContext | null,
+  id?: string,
+};
+
+export interface HMRHistoryStateEntry {
+  editor: LexicalEditor;
+  editorState: EditorState;
+}
+
+export interface HMRHistoryState {
+  current: null | HMRHistoryStateEntry;
+  redoStack: HMRHistoryStateEntry[];
+  undoStack: HMRHistoryStateEntry[];
+}
+
+declare export var HMRExtension: LexicalExtension<
+  HMRConfig,
+  '@lexical/extension/HMR',
+  HMROutput,
+  {restoreCount: Signal<number>},
+>;

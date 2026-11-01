@@ -12,7 +12,7 @@ import {
   MdastAutolinkLiteralExtension,
   MdastStrikethroughExtension,
   MdastTaskListExtension,
-} from './MdastImportExtension';
+} from './MdastExtension';
 import {MdastTableExtension} from './MdastTableExtension';
 
 /**

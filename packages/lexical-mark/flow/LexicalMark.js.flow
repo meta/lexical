@@ -8,13 +8,17 @@
  */
 
 import type {
+  BaseSelection,
+  DecoratorNode,
   NodeKey,
   RangeSelection,
   TextNode,
   SerializedElementNode,
+  LexicalEditor,
   LexicalExtension,
   ExtensionConfigBase,
 } from 'lexical';
+import type {ReadonlySignal, Signal} from '@lexical/extension';
 import {ElementNode, LexicalNode} from 'lexical';
 
 export type SerializedMarkNode = SerializedElementNode & {
@@ -56,3 +60,221 @@ declare export function $wrapSelectionInMarkNode(
 declare export function $unwrapMarkNode(node: MarkNode): void;
 
 declare export var MarkExtension: LexicalExtension<ExtensionConfigBase, "@lexical/mark", void, void>;
+
+/**
+ * @experimental
+ */
+declare export var MARK_STATE_KEY: 'markIds';
+/**
+ * @experimental
+ */
+declare export var MARK_STATE_IDS_ATTRIBUTE: 'data-lexical-mark-ids';
+
+/**
+ * @experimental
+ */
+export type MarkableNodeMatch =
+  | Class<LexicalNode>
+  | ((node: LexicalNode) => boolean);
+
+/**
+ * @experimental
+ */
+export type MarkStateConfig = {
+  disabled: boolean,
+  exportIDsToHTML: boolean,
+  markableNodes: ReadonlyArray<MarkableNodeMatch>,
+  isMarkIDShown?: (id: string) => boolean,
+};
+
+/**
+ * @experimental
+ */
+export type MarkStateOutput = {
+  disabled: Signal<boolean>,
+  exportIDsToHTML: Signal<boolean>,
+  isMarkIDShown: Signal<(id: string) => boolean>,
+  markIDNodeKeys: ReadonlySignal<ReadonlyMap<string, ReadonlyArray<NodeKey>>>,
+};
+
+/**
+ * @experimental
+ */
+declare export function $isInlineDecoratorNode(
+  node: ?LexicalNode,
+): node is DecoratorNode<unknown>;
+
+/**
+ * @experimental
+ */
+declare export var DEFAULT_MARKABLE_NODES: ReadonlyArray<MarkableNodeMatch>;
+
+/**
+ * @experimental
+ */
+export type MarkIDsChange = {
+  readonly added: ReadonlySet<string>,
+  readonly ids: ReadonlySet<string>,
+  readonly removed: ReadonlySet<string>,
+  readonly tags: ReadonlySet<string>,
+};
+
+/**
+ * @experimental
+ */
+export type MarkIDsListener = (change: MarkIDsChange) => void;
+
+/**
+ * @experimental
+ */
+export type MarkStateInit = {
+  markIDNodeKeys: Signal<ReadonlyMap<string, ReadonlyArray<NodeKey>>>,
+  ...
+};
+
+/**
+ * A mark flavor: MarkStateExtension, or an extension made with
+ * defineMarkExtension.
+ *
+ * @experimental
+ */
+export interface MarkFlavorExtension<
+  out Name extends string = string,
+  out Key extends string = string,
+> extends LexicalExtension<MarkStateConfig, Name, MarkStateOutput, MarkStateInit> {
+  readonly attribute: string;
+  readonly stateKey: Key;
+}
+
+/**
+ * @experimental
+ */
+export type AnyMarkFlavorExtension = MarkFlavorExtension<string, string>;
+
+/**
+ * @experimental
+ */
+export type MarkFlavorDefinition<Name extends string, Key extends string> = {
+  name: Name,
+  // TypeScript also rejects an empty key, whitespace and 'markIds' here
+  stateKey: Key,
+  attribute?: string,
+  className?: string,
+  overlapClassName?: string,
+  config?: Partial<MarkStateConfig>,
+};
+
+/**
+ * @experimental
+ */
+export type MarkBaseOutput = {
+  flavors: ReadonlyMap<string, AnyMarkFlavorExtension>,
+};
+
+/**
+ * @experimental
+ */
+export type MarkBaseInit = {...};
+
+/**
+ * @experimental
+ */
+declare export var MarkBaseExtension: LexicalExtension<
+  ExtensionConfigBase,
+  '@lexical/mark/MarkBase',
+  MarkBaseOutput,
+  MarkBaseInit,
+>;
+
+/**
+ * @experimental
+ */
+declare export function defineMarkExtension<
+  Name extends string,
+  Key extends string,
+>(
+  definition: MarkFlavorDefinition<Name, Key>,
+): MarkFlavorExtension<Name, Key>;
+
+/**
+ * @experimental
+ */
+declare export function registerMarkIDsListener(
+  editor: LexicalEditor,
+  flavor: AnyMarkFlavorExtension,
+  listener: MarkIDsListener,
+): () => void;
+
+/**
+ * @experimental
+ */
+declare export function $getMarkIDsByFlavor(
+  node: LexicalNode,
+): {[stateKey: string]: Array<string>};
+
+/**
+ * @experimental
+ */
+declare export function $getNodeMarkIDs(
+  flavor: AnyMarkFlavorExtension,
+  node: LexicalNode,
+): Array<string>;
+declare export function $getNodeMarkIDs(node: LexicalNode): Array<string>;
+
+/**
+ * @experimental
+ */
+declare export function $addMarkID(
+  flavor: AnyMarkFlavorExtension,
+  id: string,
+  selection: BaseSelection,
+): Array<LexicalNode>;
+declare export function $addMarkID(
+  id: string,
+  selection: BaseSelection,
+): Array<LexicalNode>;
+
+/**
+ * @experimental
+ */
+declare export function $removeMarkID(
+  flavor: AnyMarkFlavorExtension,
+  id: string,
+  selection?: null | BaseSelection,
+): void;
+declare export function $removeMarkID(
+  id: string,
+  selection?: null | BaseSelection,
+): void;
+
+/**
+ * @experimental
+ */
+declare export function $getMarkIDsAtSelection(
+  flavor: AnyMarkFlavorExtension,
+  selection?: null | BaseSelection,
+  mode?: 'any' | 'all',
+): Array<string>;
+declare export function $getMarkIDsAtSelection(
+  selection?: null | BaseSelection,
+  mode?: 'any' | 'all',
+): Array<string>;
+
+/**
+ * @experimental
+ */
+declare export function $migrateMarkNodesToMarkState(
+  flavor: AnyMarkFlavorExtension,
+  node?: LexicalNode,
+): number;
+declare export function $migrateMarkNodesToMarkState(
+  node?: LexicalNode,
+): number;
+
+/**
+ * @experimental
+ */
+declare export var MarkStateExtension: MarkFlavorExtension<
+  '@lexical/mark/MarkState',
+  'markIds',
+>;

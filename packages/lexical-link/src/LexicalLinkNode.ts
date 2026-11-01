@@ -14,6 +14,7 @@ import {
   $findMatchingParent,
   $getChildCaret,
   $getDocument,
+  $getEditor,
   $getSelection,
   $insertNodeToNearestRootAtCaret,
   $isElementNode,
@@ -27,22 +28,33 @@ import {
   $setSelection,
   addClassNamesToElement,
   type BaseSelection,
+  booleanValue,
   createCommand,
   type DOMConversionOutput,
   type EditorConfig,
   ElementNode,
+  getDeclaredNodeStructure,
+  INTERNAL_isNodeStructureEnforced,
   isHTMLAnchorElement,
+  type Klass,
   type LexicalCommand,
   type LexicalNode,
-  type LexicalUpdateJSON,
+  type LexicalParseJSON,
   type NodeKey,
+  nodeSchema,
+  nullable,
   type Point,
   type PointCaret,
   type PointType,
   type RangeSelection,
   type SerializedElementNode,
+  type SerializedPartial,
   type Spread,
+  stringValue,
+  withField,
 } from 'lexical';
+
+import {GENERATED_AUTOLINK, GENERATED_LINK} from './LexicalLinkGeneratedJSON';
 
 export type LinkAttributes = {
   rel?: null | string;
@@ -71,7 +83,38 @@ const SUPPORTED_URL_PROTOCOLS = new Set([
   'tel:',
 ]);
 
+const linkNodeSchema = nodeSchema<LinkNode>()({
+  // defaultAsNull preserves the legacy `value || null` semantics: an empty
+  // string (or junk that coerces to it) imports as null, not ''.
+  // Every property *is* its node field in both directions — each accessor is
+  // a bare read or write — so each is declared as the field it is. Only `url`
+  // names its accessors, because getURL/setURL are not the conventional
+  // getUrl/setUrl the others are resolved to.
+  rel: withField(nullable(stringValue(), {defaultAsNull: true}), {
+    field: '__rel',
+  }),
+  target: withField(nullable(stringValue(), {defaultAsNull: true}), {
+    field: '__target',
+  }),
+  title: withField(nullable(stringValue(), {defaultAsNull: true}), {
+    field: '__title',
+  }),
+  url: withField(stringValue(), {
+    field: '__url',
+    getter: 'getURL',
+    setter: 'setURL',
+  }),
+});
+
+// eslint-disable-next-line @typescript-eslint/no-unsafe-declaration-merging
+export interface LinkNode {
+  exportJSON(compact?: false): SerializedLinkNode;
+  exportJSON(compact: boolean): SerializedPartial<SerializedLinkNode>;
+  updateFromJSON(serializedNode: LexicalParseJSON<SerializedLinkNode>): this;
+}
+
 /** @noInheritDoc */
+// eslint-disable-next-line @typescript-eslint/no-unsafe-declaration-merging
 export class LinkNode extends ElementNode {
   /** @internal */
   __url: string;
@@ -84,13 +127,22 @@ export class LinkNode extends ElementNode {
 
   $config() {
     return this.config('link', {
+      children: 'inline',
       extends: ElementNode,
+      generated: GENERATED_LINK,
       importDOM: {
         a: () => ({
           conversion: $convertAnchorElement,
           priority: 1,
         }),
       },
+      inline: true,
+      json: linkNodeSchema,
+      // What shouldMergeAdjacentLink compares. The method stays the
+      // authority: $linkNodeTransform calls it, and a subclass that inherits
+      // this declaration is never merged by NodeStructureExtension (it merges
+      // only the class that declares mergeAdjacent itself).
+      mergeAdjacent: {by: ['url', 'target', 'rel', 'title']},
     });
   }
 
@@ -105,14 +157,6 @@ export class LinkNode extends ElementNode {
     this.__target = target;
     this.__rel = rel;
     this.__title = title;
-  }
-
-  afterCloneFrom(prevNode: this): void {
-    super.afterCloneFrom(prevNode);
-    this.__url = prevNode.__url;
-    this.__rel = prevNode.__rel;
-    this.__target = prevNode.__target;
-    this.__title = prevNode.__title;
   }
 
   createDOM(config: EditorConfig): LinkHTMLElementType {
@@ -152,15 +196,6 @@ export class LinkNode extends ElementNode {
   ): boolean {
     this.updateLinkDOM(prevNode, anchor, config);
     return false;
-  }
-
-  updateFromJSON(serializedNode: LexicalUpdateJSON<SerializedLinkNode>): this {
-    return super
-      .updateFromJSON(serializedNode)
-      .setURL(serializedNode.url)
-      .setRel(serializedNode.rel || null)
-      .setTarget(serializedNode.target || null)
-      .setTitle(serializedNode.title || null);
   }
 
   sanitizeUrl(url: string): string {
@@ -206,16 +241,6 @@ export class LinkNode extends ElementNode {
       }
     }
     return url;
-  }
-
-  exportJSON(): SerializedLinkNode | SerializedAutoLinkNode {
-    return {
-      ...super.exportJSON(),
-      rel: this.getRel(),
-      target: this.getTarget(),
-      title: this.getTitle(),
-      url: this.getURL(),
-    };
   }
 
   getURL(): string {
@@ -340,6 +365,23 @@ function $restoreCaretPair(point: PointType, pair: CaretPair): void {
 }
 
 /**
+ * Whether NodeStructureExtension merges `link` and its next sibling `next`
+ * itself, so that $linkNodeTransform leaves the pair to it: it enforces
+ * declared structure in this editor, and both are of one class that declares
+ * `mergeAdjacent` in its own `$config()` (LinkNode does; a subclass that only
+ * inherits the declaration is still merged here, by its
+ * shouldMergeAdjacentLink).
+ */
+function $structureMerges(link: LinkNode, next: LinkNode): boolean {
+  const klass = link.constructor as Klass<LinkNode>;
+  return (
+    next.constructor === klass &&
+    INTERNAL_isNodeStructureEnforced($getEditor()) &&
+    getDeclaredNodeStructure(klass).declaredBy.mergeAdjacent === klass
+  );
+}
+
+/**
  * Extracts block-level children from a LinkNode, splitting
  * ancestor nodes as needed to maintain a valid document structure.
  * @param link - The LinkNode to normalize
@@ -361,7 +403,12 @@ export function $linkNodeTransform(link: LinkNode): void {
   }
 
   let transformed = false;
-  for (const caret of $getChildCaret(link, 'next')) {
+  // Where NodeStructureExtension enforces declared structure, it lifts blocks
+  // out of links itself (LinkNode declares `children: 'inline'`), and merges
+  // equal adjacent LinkNodes (see $structureMerges), the same way whichever
+  // node is dirty, so this transform leaves them to it.
+  const liftsBlocks = !INTERNAL_isNodeStructureEnforced($getEditor());
+  for (const caret of liftsBlocks ? $getChildCaret(link, 'next') : []) {
     const node = caret.origin;
     if ($isElementNode(node) && !node.isInline()) {
       const blockChildren = node.getChildren();
@@ -397,7 +444,11 @@ export function $linkNodeTransform(link: LinkNode): void {
 
   if (link.isAttached()) {
     const prevSibling = link.getPreviousSibling();
-    if ($isLinkNode(prevSibling) && prevSibling.shouldMergeAdjacentLink(link)) {
+    if (
+      $isLinkNode(prevSibling) &&
+      !$structureMerges(prevSibling, link) &&
+      prevSibling.shouldMergeAdjacentLink(link)
+    ) {
       if (anchorPair) {
         anchorPair = $fixMergeBoundaryCaret(anchorPair, prevSibling, link);
       }
@@ -410,7 +461,11 @@ export function $linkNodeTransform(link: LinkNode): void {
       return;
     }
     const nextSibling = link.getNextSibling();
-    if ($isLinkNode(nextSibling) && link.shouldMergeAdjacentLink(nextSibling)) {
+    if (
+      $isLinkNode(nextSibling) &&
+      !$structureMerges(link, nextSibling) &&
+      link.shouldMergeAdjacentLink(nextSibling)
+    ) {
       if (anchorPair) {
         anchorPair = $fixMergeBoundaryCaret(anchorPair, link, nextSibling);
       }
@@ -482,8 +537,28 @@ export type SerializedAutoLinkNode = Spread<
   SerializedLinkNode
 >;
 
+const autoLinkNodeSchema = nodeSchema<AutoLinkNode>()({
+  // The property *is* the field in both directions — both accessors are bare —
+  // so it is declared as the field it is. The conventional
+  // getIsUnlinked/setIsUnlinked are still deferred to, so a subclass that
+  // overrides either still decides.
+  isUnlinked: withField(booleanValue(), {
+    field: '__isUnlinked',
+  }),
+});
+
+// eslint-disable-next-line @typescript-eslint/no-unsafe-declaration-merging
+export interface AutoLinkNode {
+  exportJSON(compact?: false): SerializedAutoLinkNode;
+  exportJSON(compact: boolean): SerializedPartial<SerializedAutoLinkNode>;
+  updateFromJSON(
+    serializedNode: LexicalParseJSON<SerializedAutoLinkNode>,
+  ): this;
+}
+
 // Custom node type to override `canInsertTextAfter` that will
 // allow typing within the link
+// eslint-disable-next-line @typescript-eslint/no-unsafe-declaration-merging
 export class AutoLinkNode extends LinkNode {
   /** @internal */
   /** Indicates whether the autolink was ever unlinked. **/
@@ -501,13 +576,14 @@ export class AutoLinkNode extends LinkNode {
         : false;
   }
 
-  afterCloneFrom(prevNode: this): void {
-    super.afterCloneFrom(prevNode);
-    this.__isUnlinked = prevNode.__isUnlinked;
-  }
-
   $config() {
-    return this.config('autolink', {extends: LinkNode});
+    return this.config('autolink', {
+      extends: LinkNode,
+      generated: GENERATED_AUTOLINK,
+      json: autoLinkNodeSchema,
+      // Adjacent autolinks never merge (see shouldMergeAdjacentLink).
+      mergeAdjacent: false,
+    });
   }
 
   shouldMergeAdjacentLink(_otherLink: LinkNode): boolean {
@@ -541,21 +617,6 @@ export class AutoLinkNode extends LinkNode {
       super.updateDOM(prevNode, anchor, config) ||
       prevNode.__isUnlinked !== this.__isUnlinked
     );
-  }
-
-  updateFromJSON(
-    serializedNode: LexicalUpdateJSON<SerializedAutoLinkNode>,
-  ): this {
-    return super
-      .updateFromJSON(serializedNode)
-      .setIsUnlinked(serializedNode.isUnlinked || false);
-  }
-
-  exportJSON(): SerializedAutoLinkNode {
-    return {
-      ...super.exportJSON(),
-      isUnlinked: this.__isUnlinked,
-    };
   }
 
   // insertNewAfter is deliberately not overridden: LinkNode's implementation
@@ -680,6 +741,14 @@ function $splitLinkAtSelection(
       ));
 
   const extractedChildren = allChildren.filter(isExtractedChild);
+
+  if (extractedChildren.length === 0 && allChildren.length > 0) {
+    // The selection only touches the link at a boundary (e.g. it ends at
+    // offset 0 of the link's first text node, or starts at the end of its
+    // last one), so extract() returned the LinkNode itself but none of its
+    // content. There is nothing to unlink.
+    return;
+  }
 
   if (extractedChildren.length === allChildren.length) {
     allChildren.forEach(child => parentLink.insertBefore(child));

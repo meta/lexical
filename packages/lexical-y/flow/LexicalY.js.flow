@@ -1,0 +1,282 @@
+/**
+ * Copyright (c) Meta Platforms, Inc. and affiliates.
+ *
+ * This source code is licensed under the MIT license found in the
+ * LICENSE file in the root directory of this source tree.
+ *
+ * @flow strict
+ */
+
+import type {LexicalEditor, LexicalExtension, PointType} from 'lexical';
+import {LexicalWarning} from 'lexical';
+import type {Doc, Node as YNode, UndoManager} from '@y/y';
+import type {ReadonlySignal} from '@lexical/extension';
+
+/**
+ * @lexical/y: EXPERIMENTAL Yjs 14 binding (block-marker layout).
+ */
+
+declare export var DEFAULT_ROOT_NAME: 'lexical-y';
+declare export var LAYOUT_VERSION: 2;
+
+export type YBindingStatus = 'pending' | 'active' | 'readonly';
+
+export type ClientIDRange = 'uint53' | 'uint32';
+
+declare export var UNSUPPORTED_LAYOUT_WARNING: '@lexical/y/unsupported-layout';
+declare export var UNKNOWN_NODE_TYPES_WARNING: '@lexical/y/unknown-node-types';
+declare export var STORAGE_MISMATCH_WARNING: '@lexical/y/storage-mismatch';
+declare export var SELF_CHECK_WARNING: '@lexical/y/self-check';
+declare export var RECOVERED_READ_WARNING: '@lexical/y/recovered-read';
+declare export var RECOVERED_WRITE_WARNING: '@lexical/y/recovered-write';
+declare export var NESTED_FALLBACK_WARNING: '@lexical/y/nested-fallback';
+declare export var UNSYNCED_VALUE_WARNING: '@lexical/y/unsynced-value';
+declare export var UNSUPPORTED_SLOTS_WARNING: '@lexical/y/unsupported-slots';
+declare export var UNSUPPORTED_CONFIG_WARNING: '@lexical/y/unsupported-config';
+declare export var UNSUPPORTED_EDIT_WARNING: '@lexical/y/unsupported-edit';
+declare export var UNSUPPORTED_SCHEMA_WARNING: '@lexical/y/unsupported-schema';
+export type YWarningCode =
+  | typeof UNSUPPORTED_LAYOUT_WARNING
+  | typeof UNKNOWN_NODE_TYPES_WARNING
+  | typeof STORAGE_MISMATCH_WARNING
+  | typeof SELF_CHECK_WARNING
+  | typeof RECOVERED_READ_WARNING
+  | typeof RECOVERED_WRITE_WARNING
+  | typeof NESTED_FALLBACK_WARNING
+  | typeof UNSYNCED_VALUE_WARNING
+  | typeof UNSUPPORTED_SLOTS_WARNING
+  | typeof UNSUPPORTED_CONFIG_WARNING
+  | typeof UNSUPPORTED_EDIT_WARNING
+  | typeof UNSUPPORTED_SCHEMA_WARNING;
+
+export type YUnsupportedLayoutData =
+  | {readonly reason: 'newer', readonly found: number, readonly supported: number}
+  | {readonly reason: 'malformed', readonly key: string, readonly found: unknown, readonly supported: number}
+  | {readonly reason: 'missing' | 'removed', readonly supported: number}
+  | {readonly reason: 'legacy-roots', readonly roots: ReadonlyArray<string>, readonly supported: number};
+export type YUnsupportedSchemaData =
+  | {readonly reason: 'newer', readonly found: number, readonly supported: number}
+  | {readonly reason: 'malformed', readonly key: string, readonly found: unknown, readonly supported: number};
+export type YStoredAs = {
+  readonly kind: 'line' | 'format' | 'group' | 'nested',
+  readonly by?: ReadonlyArray<string>,
+};
+export type YStorageMismatchData =
+  | {readonly reason: 'malformed', readonly type: string, readonly key: string, readonly found: unknown}
+  | {
+      readonly reason: 'declaration-changed',
+      readonly type: string,
+      readonly stored: YStoredAs,
+      readonly declared: YStoredAs,
+    };
+export type YUnknownNodeTypesData = {
+  readonly reason: 'unregistered' | 'malformed-slot',
+  readonly types: ReadonlyArray<string>,
+};
+export type YUnreadableContentData = {
+  readonly reason: 'unreadable',
+  readonly types: ReadonlyArray<string>,
+  readonly error: unknown,
+};
+export type YUnsupportedSlotsData = {
+  readonly reason: 'stored-host' | 'root',
+  readonly types: ReadonlyArray<string>,
+};
+export type YUnsupportedConfigData =
+  | {readonly reason: 'repair-transforms', readonly options: ReadonlyArray<string>}
+  | {readonly reason: 'cleanup-formatting'};
+export type YUnsupportedEditData = {readonly reason: 'read-only'};
+export type YSelfCheckData = {
+  readonly reason: 'local' | 'remote',
+  readonly problems: ReadonlyArray<string>,
+};
+export type YRecoveredReadData = {
+  readonly reason: 'remote-change' | 'reread',
+  readonly error: unknown,
+};
+export type YRecoveredWriteData = {readonly reason: 'local-change', readonly error: unknown};
+export type YNestedFallbackReason =
+  | 'merge-override'
+  | 'inline-slots'
+  | 'inline-incomplete-schema'
+  | 'type-name'
+  | 'merge-incomplete-schema'
+  | 'merge-slots'
+  | 'group-children'
+  | 'group-state-merge'
+  | 'group-incomplete-schema'
+  | 'undeclared-properties';
+export type YNestedFallbackData =
+  | {readonly reason: 'merge-override', readonly type: string, readonly method: string}
+  | {
+      readonly reason: 'undeclared-properties',
+      readonly type: string,
+      readonly properties: ReadonlyArray<string>,
+    }
+  | {
+      readonly reason:
+        | 'inline-slots'
+        | 'inline-incomplete-schema'
+        | 'type-name'
+        | 'merge-incomplete-schema'
+        | 'merge-slots'
+        | 'group-children'
+        | 'group-state-merge'
+        | 'group-incomplete-schema',
+      readonly type: string,
+    };
+export type YUnsyncedValueData = {readonly reason: 'not-json', readonly property: string};
+
+declare export class YWarningOf<out C extends YWarningCode, out D>
+  extends LexicalWarning
+{
+  readonly code: C;
+  readonly data: D;
+}
+export type YWarning =
+  | YWarningOf<typeof UNSUPPORTED_LAYOUT_WARNING, YUnsupportedLayoutData>
+  | YWarningOf<
+      typeof UNKNOWN_NODE_TYPES_WARNING,
+      YUnknownNodeTypesData | YUnreadableContentData,
+    >
+  | YWarningOf<typeof STORAGE_MISMATCH_WARNING, YStorageMismatchData>
+  | YWarningOf<typeof SELF_CHECK_WARNING, YSelfCheckData>
+  | YWarningOf<typeof RECOVERED_READ_WARNING, YRecoveredReadData>
+  | YWarningOf<typeof RECOVERED_WRITE_WARNING, YRecoveredWriteData>
+  | YWarningOf<typeof NESTED_FALLBACK_WARNING, YNestedFallbackData>
+  | YWarningOf<typeof UNSYNCED_VALUE_WARNING, YUnsyncedValueData>
+  | YWarningOf<typeof UNSUPPORTED_SLOTS_WARNING, YUnsupportedSlotsData>
+  | YWarningOf<typeof UNSUPPORTED_CONFIG_WARNING, YUnsupportedConfigData>
+  | YWarningOf<typeof UNSUPPORTED_EDIT_WARNING, YUnsupportedEditData>
+  | YWarningOf<typeof UNSUPPORTED_SCHEMA_WARNING, YUnsupportedSchemaData>;
+// The `data` of each code.
+type YWarningDataByCode = {
+  '@lexical/y/unsupported-layout': YUnsupportedLayoutData,
+  '@lexical/y/unknown-node-types': YUnknownNodeTypesData | YUnreadableContentData,
+  '@lexical/y/storage-mismatch': YStorageMismatchData,
+  '@lexical/y/self-check': YSelfCheckData,
+  '@lexical/y/recovered-read': YRecoveredReadData,
+  '@lexical/y/recovered-write': YRecoveredWriteData,
+  '@lexical/y/nested-fallback': YNestedFallbackData,
+  '@lexical/y/unsynced-value': YUnsyncedValueData,
+  '@lexical/y/unsupported-slots': YUnsupportedSlotsData,
+  '@lexical/y/unsupported-config': YUnsupportedConfigData,
+  '@lexical/y/unsupported-edit': YUnsupportedEditData,
+  '@lexical/y/unsupported-schema': YUnsupportedSchemaData,
+};
+// The `data` of a warning whose `code` is `C`.
+export type YWarningData<C extends YWarningCode> = YWarningDataByCode[C];
+declare export function isYWarning(error: unknown): error is YWarning;
+
+export type YBindingOptions = {
+  // Required: the version of the app's document schema, an integer from 1.
+  schemaVersion: number,
+  root?: YNode,
+  captureTimeout?: number | null,
+  onStatus?: (status: YBindingStatus) => void,
+  selfCheck?: boolean,
+  selfCheckSample?: number,
+  convert?: boolean,
+  clientIDRange?: ClientIDRange,
+};
+
+export type YCursor = {anchor: unknown, focus: unknown};
+
+// A Y.Doc made by createYDoc: Yjs's format cleanup is off from its creation.
+declare export opaque type YDoc: Doc;
+
+// The options of new Y.Doc(options), which createYDoc passes on. gcFilter
+// is called with the Yjs Item about to be garbage collected (false keeps it).
+export type YDocOptions = {
+  autoLoad?: boolean,
+  collectionid?: string | null,
+  gc?: boolean,
+  gcFilter?: (item: {
+    readonly deleted: boolean,
+    readonly id: {readonly client: number, readonly clock: number, ...},
+    ...
+  }) => boolean,
+  guid?: string,
+  isSuggestionDoc?: boolean,
+  meta?: unknown,
+  shouldLoad?: boolean,
+};
+
+// The one @y/y version this @lexical/y supports (its exact peer dependency).
+declare export var SUPPORTED_YJS_VERSION: string;
+
+declare export var UNSUPPORTED_YJS_ERROR: '@lexical/y/unsupported-yjs';
+
+export type YUnsupportedYjsReason = 'changed-internals' | 'other-copy';
+
+export type YUnsupportedYjsData = {
+  readonly supported: string,
+  readonly found: ReadonlyArray<string>,
+  readonly reason: YUnsupportedYjsReason,
+};
+
+// Thrown by createYDoc, the YBinding constructor (so YCollabExtension) and
+// the headless helpers when the app's @y/y is not the supported one, before
+// anything is written. Fix: install exactly @y/y@<data.supported>, once.
+declare export class YUnsupportedYjsError extends Error {
+  readonly code: typeof UNSUPPORTED_YJS_ERROR;
+  readonly data: YUnsupportedYjsData;
+  constructor(data: YUnsupportedYjsData): void;
+}
+
+// A Y.Doc for @lexical/y (a client's, a relay's or a server's), with Yjs's
+// format cleanup turned off before `state` is applied (when given).
+declare export function createYDoc(
+  state?: Uint8Array | null,
+  options?: YDocOptions,
+): YDoc;
+
+declare export class YBinding {
+  get editor(): LexicalEditor;
+  get doc(): YDoc;
+  get root(): YNode;
+  get status(): YBindingStatus;
+  get pins(): ReadonlyMap<
+    string,
+    {readonly kind: StorageKind, readonly by?: ReadonlyArray<string>},
+  >;
+  get undoManager(): UndoManager | null;
+  constructor(editor: LexicalEditor, doc: YDoc, options: YBindingOptions): void;
+  start(): () => void;
+  dispose(): void;
+  initialize(): void;
+  undo(): boolean;
+  redo(): boolean;
+  getCursor(): YCursor | null;
+  $resolveCursor(cursor: YCursor): {anchor: PointType, focus: PointType} | null;
+}
+
+export type StorageKind = 'line' | 'format' | 'group' | 'nested';
+
+declare export function describeStorage(
+  editor: LexicalEditor,
+  // An interface, so that a YBinding (a class instance) is accepted too.
+  binding?: interface {
+    readonly pins: ReadonlyMap<string, {readonly kind: StorageKind, ...}>,
+  },
+): {[type: string]: StorageKind | 'text'};
+
+export type YCollabConfig = {
+  doc: YDoc | null,
+  // Required (the extension throws without one): an integer from 1.
+  schemaVersion: number,
+  root: YNode | null,
+  synced: boolean,
+  captureTimeout: number | null,
+  clientIDRange: ClientIDRange,
+  selfCheck: boolean | null,
+  selfCheckSample: number | null,
+  convert: boolean,
+};
+
+declare export var YCollabExtension: LexicalExtension<
+  YCollabConfig,
+  '@lexical/y/Collab',
+  {binding: YBinding, status: ReadonlySignal<YBindingStatus>},
+  unknown,
+>;

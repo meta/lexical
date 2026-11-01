@@ -1,0 +1,25 @@
+/**
+ * Copyright (c) Meta Platforms, Inc. and affiliates.
+ *
+ * This source code is licensed under the MIT license found in the
+ * LICENSE file in the root directory of this source tree.
+ *
+ * @flow strict
+ */
+
+import type {LexicalExtension} from 'lexical';
+import type {NamedSignalsOutput} from '@lexical/extension/namedSignals';
+
+export type DefaultSelection = 'rootStart' | 'rootEnd';
+
+export type AutoFocusConfig = {
+  defaultSelection: DefaultSelection,
+  disabled: boolean,
+};
+
+declare export var AutoFocusExtension: LexicalExtension<
+  AutoFocusConfig,
+  '@lexical/extension/AutoFocus',
+  NamedSignalsOutput<AutoFocusConfig>,
+  void,
+>;

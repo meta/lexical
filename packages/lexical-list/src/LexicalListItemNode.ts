@@ -12,6 +12,7 @@ import {
   $copyNode,
   $createParagraphNode,
   $getDocument,
+  $getEditor,
   $getSelection,
   $getSiblingCaret,
   $insertNodeToNearestRootAtCaret,
@@ -24,6 +25,7 @@ import {
   $setFormatFromDOM,
   addClassNamesToElement,
   type BaseSelection,
+  booleanValue,
   buildImportMap,
   type DOMConversionOutput,
   type DOMExportOutput,
@@ -31,23 +33,68 @@ import {
   type EditorThemeClasses,
   ElementNode,
   getStyleObjectFromCSS,
+  INTERNAL_isNodeStructureEnforced,
   isHTMLElement,
   type LexicalEditor,
   type LexicalNode,
-  type LexicalUpdateJSON,
+  type LexicalParseJSON,
   type NodeKey,
+  nodeSchema,
   normalizeClassNames,
+  numberValue,
+  optional,
   type ParagraphNode,
   type RangeSelection,
   removeClassNamesFromElement,
   type SerializedElementNode,
+  type SerializedPartial,
   setDOMStyleFromCSS,
   type Spread,
+  withAccessors,
+  withField,
 } from 'lexical';
 
-import {$createListNode, $isListNode, type ListNode, type ListType} from './';
+import {$createListNode, $isListNode, type ListType} from './';
 import {$handleIndent, $handleOutdent, mergeLists} from './formatList';
+import {GENERATED_LISTITEM} from './LexicalListGeneratedJSON';
+import {ListNode} from './LexicalListNode';
 import {$getNewListStart, $isNestedListNode} from './utils';
+
+/**
+ * For the selection's element points in `parent`, which holds the consecutive
+ * `items`: returns what puts each of them back once the items are moved into
+ * `list`, inserted in their place (a point before or after them stays so in
+ * `parent`; one between two of them goes to the end of the first).
+ */
+function $pointsAround(
+  parent: ElementNode,
+  items: readonly LexicalNode[],
+): null | ((list: ListNode) => void) {
+  const selection = $getSelection();
+  if (!$isRangeSelection(selection)) {
+    return null;
+  }
+  const parentKey = parent.getKey();
+  const first = items[0].getIndexWithinParent();
+  const saved = [selection.anchor, selection.focus]
+    .filter(point => point.type === 'element' && point.key === parentKey)
+    .map(point => ({offset: point.offset, point}));
+  if (saved.length === 0) {
+    return null;
+  }
+  return list => {
+    for (const {point, offset} of saved) {
+      if (offset <= first) {
+        point.set(parentKey, offset, 'element');
+      } else if (offset < first + items.length) {
+        const item = items[offset - first - 1] as ElementNode;
+        point.set(item.getKey(), item.getChildrenSize(), 'element');
+      } else {
+        point.set(parentKey, offset - items.length + 1, 'element');
+      }
+    }
+  };
+}
 
 export type SerializedListItemNode = Spread<
   {
@@ -56,6 +103,42 @@ export type SerializedListItemNode = Spread<
   },
   SerializedElementNode
 >;
+
+/**
+ * The deepest list nesting `setIndent` will walk to. Each level it steps
+ * through nests or unwraps a whole list, so this bounds work an untrusted
+ * `indent` could otherwise make unbounded.
+ */
+const MAX_LIST_ITEM_INDENT = 128;
+
+const listItemNodeSchema = nodeSchema<ListItemNode>()({
+  // getChecked computes from the parent list's type, so the getter stays a
+  // method; setChecked is a bare field write.
+  checked: withAccessors(optional(booleanValue()), {
+    setter: {field: '__checked'},
+  }),
+  // Overrides the inherited ElementNode field to bound it. This indent is
+  // structural — applying it nests or unwraps one whole list per level — so an
+  // unbounded value out of untrusted JSON would build millions of nodes.
+  // `clamp`, because the plain bounds fall back to the *default* for a value
+  // outside them, which would read an over-deep item as indent 0 instead of as
+  // deeply nested.
+  // Derived: getIndent() computes it from the nesting (setIndent restructures).
+  indent: withAccessors(
+    numberValue(0, {
+      clamp: true,
+      integer: true,
+      max: MAX_LIST_ITEM_INDENT,
+      min: 0,
+    }),
+    {derived: true},
+  ),
+  // Derived: the list renumbers its items.
+  value: withField(numberValue(1), {
+    derived: true,
+    field: '__value',
+  }),
+});
 
 function applyMarkerStyles(
   dom: HTMLElement,
@@ -83,7 +166,17 @@ function applyMarkerStyles(
   }
 }
 
+// eslint-disable-next-line @typescript-eslint/no-unsafe-declaration-merging
+export interface ListItemNode {
+  exportJSON(compact?: false): SerializedListItemNode;
+  exportJSON(compact: boolean): SerializedPartial<SerializedListItemNode>;
+  updateFromJSON(
+    serializedNode: LexicalParseJSON<SerializedListItemNode>,
+  ): this;
+}
+
 /** @noInheritDoc */
+// eslint-disable-next-line @typescript-eslint/no-unsafe-declaration-merging
 export class ListItemNode extends ElementNode {
   /** @internal */
   __value: number;
@@ -120,9 +213,32 @@ export class ListItemNode extends ElementNode {
               children.push(origin);
             }
           }
+          // Where NodeStructureExtension enforces declared structure, it
+          // lifts the new list out of whatever may not hold it, the same way
+          // whichever node is dirty, and puts the selection back where it was
+          // in the content: an element point in the parent is moved with the
+          // items here (inserting the list shifts it, and moving the items
+          // out does not), so that it is still next to the same content.
+          const enforced = INTERNAL_isNodeStructureEnforced($getEditor());
+          const points = enforced ? $pointsAround(parent, children) : null;
           node.insertBefore(newParent);
           newParent.splice(0, 0, children);
-          if (!$isRootOrShadowRoot(parent)) {
+          if (points !== null) {
+            points(newParent);
+          }
+          if (enforced) {
+            // The ancestors' own transforms run on the result (a list that
+            // holds the parent renumbers its items, as the parent may now
+            // only wrap the new list), as after a repair of the normalization.
+            for (
+              let n: LexicalNode | null = parent;
+              n !== null && !$isRootOrShadowRoot(n);
+              n = n.getParent()
+            ) {
+              n.markDirty();
+            }
+          }
+          if (!$isRootOrShadowRoot(parent) && !enforced) {
             $insertNodeToNearestRootAtCaret(
               newParent,
               $rewindSiblingCaret($getSiblingCaret(newParent, 'next')),
@@ -134,13 +250,16 @@ export class ListItemNode extends ElementNode {
           }
         }
       },
+      children: ['inline', ListNode],
       extends: ElementNode,
+      generated: GENERATED_LISTITEM,
       importDOM: buildImportMap({
         li: () => ({
           conversion: $convertListItemElement,
           priority: 0,
         }),
       }),
+      json: listItemNodeSchema,
     });
   }
 
@@ -152,12 +271,6 @@ export class ListItemNode extends ElementNode {
     super(key);
     this.__value = value === undefined ? 1 : value;
     this.__checked = checked;
-  }
-
-  afterCloneFrom(prevNode: this): void {
-    super.afterCloneFrom(prevNode);
-    this.__value = prevNode.__value;
-    this.__checked = prevNode.__checked;
   }
 
   createDOM(config: EditorConfig): HTMLElement {
@@ -196,15 +309,6 @@ export class ListItemNode extends ElementNode {
     return false;
   }
 
-  updateFromJSON(
-    serializedNode: LexicalUpdateJSON<SerializedListItemNode>,
-  ): this {
-    return super
-      .updateFromJSON(serializedNode)
-      .setValue(serializedNode.value)
-      .setChecked(serializedNode.checked);
-  }
-
   exportDOM(editor: LexicalEditor): DOMExportOutput {
     const element = this.createDOM(editor._config);
 
@@ -238,14 +342,6 @@ export class ListItemNode extends ElementNode {
 
     return {
       element,
-    };
-  }
-
-  exportJSON(): SerializedListItemNode {
-    return {
-      ...super.exportJSON(),
-      checked: this.getChecked(),
-      value: this.getValue(),
     };
   }
 
@@ -500,9 +596,15 @@ export class ListItemNode extends ElementNode {
     invariant(typeof indent === 'number', 'Invalid indent value.');
     indent = Math.floor(indent);
     invariant(indent >= 0, 'Indent value must be non-negative.');
+    // Deliberately not clamped here: the bound belongs on the parse path (see
+    // listItemNodeSchema), because clamping the target of a walk that starts
+    // from the node's *current* indent would outdent an item that is already
+    // nested deeper than the bound — making `item.setIndent(item.getIndent())`
+    // destroy structure rather than do nothing.
+    const target = indent;
     let currentIndent = this.getIndent();
-    while (currentIndent !== indent) {
-      if (currentIndent < indent) {
+    while (currentIndent !== target) {
+      if (currentIndent < target) {
         $handleIndent(this);
         currentIndent++;
       } else {
@@ -526,6 +628,44 @@ export class ListItemNode extends ElementNode {
 
   canMergeWith(node: LexicalNode): boolean {
     return $isListItemNode(node) || $isParagraphNode(node);
+  }
+
+  /**
+   * @internal Not public API: asked by the node structure normalization
+   * (`NodeStructureExtension`), which `lexical` implements and so cannot
+   * import list code, about each child it allows here. A nested list may only
+   * be all a list item holds: that is the shape indent, outdent and the HTML
+   * import build, and the one the list code reads (indent, outdent and the
+   * numbering treat an item whose first child is a list as a wrapper with no
+   * marker or number of its own). Next to other content (left by a paste
+   * into a nested list item) it is lifted out, the item split around it,
+   * and the list wraps it in an item of its own, so the content before it,
+   * it, and the content after it read in the same order, as consecutive
+   * items. In an update's normalization, only an item the update creates or
+   * changes itself (its children, its fields) is lifted: an item that
+   * already held this list next to other content (a document stored that
+   * way, by code that applied updates without the normalization) keeps it
+   * through an edit elsewhere, even one inside it (typing in its text), so
+   * that such an edit restructures only what it changes. The normalization
+   * of what code changed without transforms (`explicit`) lifts every such
+   * item it visits.
+   */
+  INTERNAL_$liftsFromStructure(
+    child: LexicalNode,
+    explicit: boolean = false,
+  ): boolean {
+    if (!$isListNode(child) || this.getChildrenSize() <= 1) {
+      return false;
+    }
+    if (explicit) {
+      return true;
+    }
+    const editor = $getEditor();
+    const key = this.getKey();
+    return (
+      !editor.getEditorState()._nodeMap.has(key) ||
+      editor._cloneNotNeeded.has(key)
+    );
   }
 
   extractWithChild(child: LexicalNode, selection: BaseSelection): boolean {

@@ -1,0 +1,8 @@
+{
+  "name": "flat-config-fixture",
+  "private": true,
+  "type": "commonjs",
+  "devDependencies": {
+    "@lexical/eslint-plugin": "file:../../../.."
+  }
+}

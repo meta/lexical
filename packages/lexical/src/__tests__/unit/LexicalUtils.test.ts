@@ -50,13 +50,14 @@ import {
   emptyFunction,
   generateRandomKey,
   getCachedTypeToNodeMap,
+  getCaretRect,
   getStaticNodeConfig,
   isArray,
   iterStaticNodeConfigChain,
   scheduleMicroTask,
   scrollIntoViewIfNeeded,
 } from '../../LexicalUtils';
-import {$assertNodeType, initializeUnitTest} from '../utils';
+import {$assertNodeType, createTestEditor, initializeUnitTest} from '../utils';
 
 describe('LexicalUtils tests', () => {
   initializeUnitTest(testEnv => {
@@ -588,6 +589,513 @@ describe('LexicalUtils tests', () => {
         scrollBySpy.mockRestore();
         rootRectSpy.mockRestore();
       }
+    });
+
+    describe('scrollIntoViewIfNeeded in horizontal scroll containers', () => {
+      // The code element's scrollport starts at x 10 and is 300px wide, and
+      // it can scroll by up to 4700px. Carets are collapsed rects in viewport
+      // coordinates. A line's text starts at content x 52, after the gutter,
+      // so at scrollLeft s the start of a line is at 10 + 52 - s.
+      interface ScrollerMetrics {
+        clientLeft?: number;
+        clientWidth: number;
+        rect: DOMRect;
+        scrollLeft?: number;
+        scrollWidth: number;
+      }
+
+      function mockScroller(
+        element: HTMLElement,
+        {
+          clientLeft = 0,
+          clientWidth,
+          rect,
+          scrollLeft = 0,
+          scrollWidth,
+        }: ScrollerMetrics,
+      ): void {
+        vi.spyOn(element, 'getBoundingClientRect').mockReturnValue(rect);
+        for (const [name, value] of Object.entries({
+          clientLeft,
+          clientWidth,
+          scrollWidth,
+        })) {
+          Object.defineProperty(element, name, {configurable: true, value});
+        }
+        // jsdom keeps whatever is assigned, without clamping it
+        element.scrollLeft = scrollLeft;
+      }
+
+      interface SetUpOptions {
+        codeRect?: DOMRect;
+        codeStyle?: string;
+        rootRect?: DOMRect;
+        scrollLeft?: number;
+      }
+
+      // root > code > span > Text, in a root that Lexical does not own. The
+      // editor argument is only used to find the window.
+      function setUp({
+        codeRect = new DOMRect(10, 0, 300, 100),
+        codeStyle = '',
+        rootRect = new DOMRect(0, 0, 800, 600),
+        scrollLeft = 0,
+      }: SetUpOptions = {}) {
+        const root = document.createElement('div');
+        const code = document.createElement('code');
+        const span = document.createElement('span');
+        span.textContent = 'caret';
+        code.append(span);
+        root.append(code);
+        document.body.append(root);
+        onTestFinished(() => root.remove());
+        vi.spyOn(root, 'getBoundingClientRect').mockReturnValue(rootRect);
+        code.setAttribute('style', `overflow-x: auto; ${codeStyle}`);
+        mockScroller(code, {
+          clientWidth: 300,
+          rect: codeRect,
+          scrollLeft,
+          scrollWidth: 5000,
+        });
+        return {code, root, text: span.firstChild!};
+      }
+
+      function caretAt(x: number, top = 10): DOMRect {
+        return new DOMRect(x, top, 0, 20);
+      }
+
+      /** Reveals a caret at x and returns the code element's scrollLeft. */
+      function reveal(x: number, options?: SetUpOptions): number {
+        const {code, root, text} = setUp(options);
+        scrollIntoViewIfNeeded(testEnv.editor, caretAt(x), root, text);
+        return code.scrollLeft;
+      }
+
+      beforeEach(() => {
+        vi.spyOn(window, 'scrollBy').mockImplementation(() => {});
+      });
+
+      afterEach(() => {
+        vi.restoreAllMocks();
+      });
+
+      test('scrolls to reveal a caret past the right edge', () => {
+        // The caret is painted 1px wide, so its right edge 1011 lines up with
+        // the scrollport's right edge at 310.
+        expect(reveal(1010)).toBe(701);
+        // Clamped to scrollWidth - clientWidth
+        expect(reveal(10000)).toBe(4700);
+
+        // A 15px left border moves the scrollport's right edge to 325
+        const {code, root, text} = setUp();
+        Object.defineProperty(code, 'clientLeft', {
+          configurable: true,
+          value: 15,
+        });
+        scrollIntoViewIfNeeded(testEnv.editor, caretAt(1010), root, text);
+        expect(code.scrollLeft).toBe(686);
+      });
+
+      test('scrolls all the way back when the caret fits at scrollLeft 0', () => {
+        const padding = 'scroll-padding-left: 52px';
+        // A line start at scrollLeft 400, with and without scroll-padding.
+        // Without it the minimal reveal would stop at 52.
+        expect(reveal(-338, {codeStyle: padding, scrollLeft: 400})).toBe(0);
+        expect(reveal(-338, {scrollLeft: 400})).toBe(0);
+        // A gutter wider than its scroll-padding (text at content x 58)
+        expect(reveal(-332, {codeStyle: padding, scrollLeft: 400})).toBe(0);
+        // After 8 spaces of indentation (content x 115), where smart Home and
+        // Enter leave the caret. The minimal reveals would stop at 63 and 115.
+        expect(reveal(-3875, {codeStyle: padding, scrollLeft: 4000})).toBe(0);
+        expect(reveal(-3875, {scrollLeft: 4000})).toBe(0);
+      });
+
+      test('keeps the caret out of the scroll-padding when it does not fit at scrollLeft 0', () => {
+        // Mid line, content x 500
+        expect(
+          reveal(-490, {
+            codeStyle: 'scroll-padding-left: 52px',
+            scrollLeft: 1000,
+          }),
+        ).toBe(448);
+        // A deep indent, content x 400: the caret lands at viewLeft 62
+        expect(
+          reveal(-3590, {
+            codeStyle: 'scroll-padding-left: 52px',
+            scrollLeft: 4000,
+          }),
+        ).toBe(348);
+        // A percentage resolves against clientWidth: 10% of 300 is 30px
+        expect(
+          reveal(-490, {
+            codeStyle: 'scroll-padding-left: 10%',
+            scrollLeft: 1000,
+          }),
+        ).toBe(470);
+      });
+
+      test('scrolls right to left containers with negative scrollLeft', () => {
+        // The inline start is on the right, so viewRight is 310 - 52 = 258
+        const codeStyle = 'direction: rtl; scroll-padding-right: 52px';
+        expect(reveal(658, {codeStyle, scrollLeft: -400})).toBe(0);
+        // At scrollLeft 0 this caret is at 195, inside the view. The minimal
+        // reveal would stop at -62.
+        expect(reveal(4195, {codeStyle, scrollLeft: -4000})).toBe(0);
+        // Away from the start there is no snap back
+        expect(reveal(-1000, {codeStyle})).toBe(-1010);
+        expect(reveal(-10000, {codeStyle})).toBe(-4700);
+      });
+
+      test('rounds the scroll position toward the caret', () => {
+        // Browsers round scrollLeft. Here the caret is 0.14px left of the
+        // view, and -1000.14 rounded to the nearest px would leave it there.
+        expect(
+          reveal(9.86, {codeStyle: 'direction: rtl', scrollLeft: -1000}),
+        ).toBe(-1001);
+        // The same moving back in a left to right line
+        expect(reveal(9.86, {scrollLeft: 1000})).toBe(999);
+        // The caret's right edge 310.4 is 0.4px past the view
+        expect(reveal(309.4, {scrollLeft: 1000})).toBe(1001);
+      });
+
+      test('reveals the inline start of a rect wider than the view', () => {
+        // An element point is measured on the whole node after it, here
+        // 1000px wide. The caret is at its inline start.
+        const ltr = setUp();
+        scrollIntoViewIfNeeded(
+          testEnv.editor,
+          new DOMRect(400, 10, 1000, 20),
+          ltr.root,
+          ltr.text,
+        );
+        expect(ltr.code.scrollLeft).toBe(91);
+
+        const rtl = setUp({codeStyle: 'direction: rtl'});
+        scrollIntoViewIfNeeded(
+          testEnv.editor,
+          new DOMRect(-1000, 10, 1000, 20),
+          rtl.root,
+          rtl.text,
+        );
+        expect(rtl.code.scrollLeft).toBe(-11);
+      });
+
+      test('leaves a visible caret alone and skips styles when nothing overflows', () => {
+        expect(reveal(100)).toBe(0);
+
+        const {code, root, text} = setUp({scrollLeft: 0});
+        Object.defineProperty(code, 'scrollWidth', {
+          configurable: true,
+          value: 300,
+        });
+        const getComputedStyleSpy = vi.spyOn(window, 'getComputedStyle');
+        scrollIntoViewIfNeeded(testEnv.editor, caretAt(1010), root, text);
+        expect(code.scrollLeft).toBe(0);
+        expect(getComputedStyleSpy).not.toHaveBeenCalledWith(code);
+      });
+
+      test.each(['visible', 'hidden', 'clip'])(
+        'ignores an element with overflow-x: %s',
+        overflowX => {
+          const {code, root, text} = setUp();
+          code.style.overflowX = overflowX;
+          scrollIntoViewIfNeeded(testEnv.editor, caretAt(1010), root, text);
+          expect(code.scrollLeft).toBe(0);
+        },
+      );
+
+      test('reveals a caret above or below a scroller sideways too', () => {
+        // Like a code block with a max-height, scrolled so the caret's line
+        // is out of view. Scrolling sideways doesn't move the caret up or
+        // down, so its right edge 1011 still lines up with 310.
+        expect(reveal(1010, {codeRect: new DOMRect(10, 200, 300, 100)})).toBe(
+          701,
+        );
+        expect(reveal(1010, {codeRect: new DOMRect(10, -200, 300, 100)})).toBe(
+          701,
+        );
+      });
+
+      test('reveals a caret below and right of a root that scrolls both ways', () => {
+        // A 300 by 100 root with overflow: auto, and a caret at (800, 500).
+        // Only the root scrolls here. jsdom doesn't expand the overflow
+        // shorthand, so the root gets both longhands.
+        const {code, root, text} = setUp();
+        code.style.overflowX = 'visible';
+        root.style.overflowX = 'auto';
+        root.style.overflowY = 'auto';
+        mockScroller(root, {
+          clientWidth: 300,
+          rect: new DOMRect(0, 0, 300, 100),
+          scrollWidth: 2000,
+        });
+        scrollIntoViewIfNeeded(
+          testEnv.editor,
+          new DOMRect(800, 500, 0, 19),
+          root,
+          text,
+        );
+        // The caret's bottom 519 is 419px below the root's bottom at 100
+        expect(root.scrollTop).toBe(419);
+        // and its right edge 801 is 501px past the root's right edge at 300
+        expect(root.scrollLeft).toBe(501);
+      });
+
+      test('scrolls nested scroll containers from the caret outward', () => {
+        const {code, root, text} = setUp();
+        const wrapper = document.createElement('div');
+        wrapper.style.overflowX = 'auto';
+        root.append(wrapper);
+        wrapper.append(code);
+        mockScroller(wrapper, {
+          clientWidth: 200,
+          rect: new DOMRect(0, 0, 200, 200),
+          scrollWidth: 400,
+        });
+        scrollIntoViewIfNeeded(testEnv.editor, caretAt(1010), root, text);
+        expect(code.scrollLeft).toBe(701);
+        // The caret is now at 309, and its right edge 310 is 110px past the
+        // wrapper's right edge at 200.
+        expect(wrapper.scrollLeft).toBe(110);
+      });
+
+      test('reveals the caret in a zoomed or scaled scroll container', () => {
+        // Rects are in viewport px, while clientWidth, scroll-padding and
+        // scrollLeft are in the element's own px. The rect's width is the
+        // scale times offsetWidth.
+        function setOffsetWidth(element: HTMLElement, value: number): void {
+          Object.defineProperty(element, 'offsetWidth', {
+            configurable: true,
+            value,
+          });
+        }
+        function setUpScaled(scale: number, options?: SetUpOptions) {
+          const elements = setUp({
+            codeRect: new DOMRect(10, 0, 300 * scale, 100 * scale),
+            ...options,
+          });
+          setOffsetWidth(elements.code, 300);
+          return elements;
+        }
+        function revealScaled(
+          x: number,
+          scale: number,
+          options?: SetUpOptions,
+        ): number {
+          const {code, root, text} = setUpScaled(scale, options);
+          scrollIntoViewIfNeeded(testEnv.editor, caretAt(x), root, text);
+          return code.scrollLeft;
+        }
+
+        // At scale 2 the scrollport's right edge is at 610. The caret's right
+        // edge 1011 is 401px past it, which is 200.5px of the element's own,
+        // rounded up to 201.
+        expect(revealScaled(1010, 2)).toBe(201);
+        // At scale 0.5 the right edge is at 160, and 851px is 1702px
+        expect(revealScaled(1010, 0.5)).toBe(1702);
+        // 52px of scroll-padding is 104px on screen. Mid line, content x 500:
+        const codeStyle = 'scroll-padding-left: 52px';
+        expect(revealScaled(-990, 2, {codeStyle, scrollLeft: 1000})).toBe(448);
+        // After 8 spaces, content x 115, the caret is at 240 at scrollLeft 0
+        expect(revealScaled(-560, 2, {codeStyle, scrollLeft: 400})).toBe(0);
+        // Right to left, viewRight is 10 + (300 - 52) * 2 = 506. The caret's
+        // right edge 6001 is 5495px past it, which is 2747.5px, so -1252.5
+        // rounds toward the caret to -1252.
+        expect(
+          revealScaled(6000, 2, {
+            codeStyle: 'direction: rtl; scroll-padding-right: 52px',
+            scrollLeft: -4000,
+          }),
+        ).toBe(-1252);
+
+        // A 15px left border is 30px on screen
+        const bordered = setUpScaled(2);
+        Object.defineProperty(bordered.code, 'clientLeft', {
+          configurable: true,
+          value: 15,
+        });
+        scrollIntoViewIfNeeded(
+          testEnv.editor,
+          caretAt(1010),
+          bordered.root,
+          bordered.text,
+        );
+        expect(bordered.code.scrollLeft).toBe(186);
+
+        // An outer scroller gets what the inner one scrolled on screen. The
+        // caret's right edge ends up at 609, 209px past the wrapper's right
+        // edge at 400, which is 104.5px of the wrapper's own.
+        const {code, root, text} = setUpScaled(2);
+        const wrapper = document.createElement('div');
+        wrapper.style.overflowX = 'auto';
+        root.append(wrapper);
+        wrapper.append(code);
+        mockScroller(wrapper, {
+          clientWidth: 200,
+          rect: new DOMRect(0, 0, 400, 400),
+          scrollWidth: 400,
+        });
+        setOffsetWidth(wrapper, 200);
+        scrollIntoViewIfNeeded(testEnv.editor, caretAt(1010), root, text);
+        expect(code.scrollLeft).toBe(201);
+        expect(wrapper.scrollLeft).toBe(105);
+
+        // offsetWidth is rounded, so a difference of 1px or less is not a
+        // scale
+        const rounded = setUp({codeRect: new DOMRect(10, 0, 300.6, 100)});
+        setOffsetWidth(rounded.code, 301);
+        scrollIntoViewIfNeeded(
+          testEnv.editor,
+          caretAt(1010),
+          rounded.root,
+          rounded.text,
+        );
+        expect(rounded.code.scrollLeft).toBe(701);
+      });
+
+      test('does not scroll the ancestors of the root sideways', () => {
+        const {code, root, text} = setUp();
+        const outer = document.createElement('div');
+        outer.style.overflowX = 'auto';
+        document.body.append(outer);
+        outer.append(root);
+        onTestFinished(() => outer.remove());
+        mockScroller(outer, {
+          clientWidth: 200,
+          rect: new DOMRect(0, 0, 200, 700),
+          scrollWidth: 2000,
+        });
+        scrollIntoViewIfNeeded(testEnv.editor, caretAt(1010), root, text);
+        expect(code.scrollLeft).toBe(701);
+        expect(outer.scrollLeft).toBe(0);
+      });
+
+      test('scrolls the editor root itself sideways', () => {
+        // Only the root scrolls here, as in a plain text editor that doesn't
+        // wrap its lines.
+        const {code, root, text} = setUp();
+        code.style.overflowX = 'visible';
+        root.style.overflowX = 'auto';
+        mockScroller(root, {
+          clientWidth: 800,
+          rect: new DOMRect(0, 0, 800, 600),
+          scrollWidth: 2000,
+        });
+        scrollIntoViewIfNeeded(testEnv.editor, caretAt(1010), root, text);
+        expect(code.scrollLeft).toBe(0);
+        // The caret's right edge 1011 is 211px past the root's right edge
+        expect(root.scrollLeft).toBe(211);
+      });
+
+      test('ignores a rect above the editor and an empty rect', () => {
+        const above = setUp({rootRect: new DOMRect(0, 200, 300, 400)});
+        scrollIntoViewIfNeeded(
+          testEnv.editor,
+          caretAt(1010, -40),
+          above.root,
+          above.text,
+        );
+        expect(above.code.scrollLeft).toBe(0);
+
+        const empty = setUp({scrollLeft: 400});
+        scrollIntoViewIfNeeded(
+          testEnv.editor,
+          new DOMRect(),
+          empty.root,
+          empty.text,
+        );
+        expect(empty.code.scrollLeft).toBe(400);
+      });
+
+      test('still scrolls the window vertically, and only vertically', () => {
+        const {code, root, text} = setUp({
+          codeRect: new DOMRect(10, 880, 300, 100),
+          rootRect: new DOMRect(0, 0, 800, 2000),
+        });
+        scrollIntoViewIfNeeded(testEnv.editor, caretAt(1010, 900), root, text);
+        expect(code.scrollLeft).toBe(701);
+        expect(window.scrollBy).toHaveBeenCalledTimes(1);
+        expect(window.scrollBy).toHaveBeenCalledWith(
+          0,
+          920 - window.innerHeight,
+        );
+      });
+
+      test('only scrolls vertically without a selection node', () => {
+        const {code, root} = setUp();
+        scrollIntoViewIfNeeded(testEnv.editor, caretAt(1010), root);
+        expect(code.scrollLeft).toBe(0);
+      });
+    });
+
+    describe('getCaretRect, which measures the caret for scrollIntoViewIfNeeded', () => {
+      const CARET = new DOMRect(40, 10, 0, 15);
+      const CHARACTER = new DOMRect(32, 10, 8, 15);
+
+      function textNode(text: string): Text {
+        const span = document.createElement('span');
+        const node = document.createTextNode(text);
+        span.append(node);
+        document.body.append(span);
+        onTestFinished(() => span.remove());
+        return node;
+      }
+
+      function caretIn(node: Node, offset: number): Range {
+        const range = document.createRange();
+        range.setStart(node, offset);
+        return range;
+      }
+
+      // Collapsed ranges get `caret`, like WebKit, which gives a caret at
+      // the logical end of right to left text no rect at all. Other ranges
+      // get CHARACTER. Returns the ranges that were measured.
+      function mockRangeRects(caret: DOMRect): Range[] {
+        const measured: Range[] = [];
+        const spy = vi
+          .spyOn(Range.prototype, 'getBoundingClientRect')
+          .mockImplementation(function (this: Range) {
+            measured.push(this.cloneRange());
+            return this.collapsed ? caret : CHARACTER;
+          });
+        onTestFinished(() => spy.mockRestore());
+        return measured;
+      }
+
+      test('returns the rect of a caret that has one', () => {
+        const measured = mockRangeRects(CARET);
+        const text = textNode('שלום');
+        expect(getCaretRect(caretIn(text, 4))).toBe(CARET);
+        expect(measured).toHaveLength(1);
+      });
+
+      test('measures the character before a caret that has no rect', () => {
+        const measured = mockRangeRects(new DOMRect());
+        const text = textNode('שלום');
+        expect(getCaretRect(caretIn(text, 4))).toBe(CHARACTER);
+        expect(measured).toHaveLength(2);
+        expect(measured[1].startContainer).toBe(text);
+        expect(measured[1].startOffset).toBe(3);
+        expect(measured[1].endOffset).toBe(4);
+      });
+
+      test('measures the first character for a caret at the start that has no rect', () => {
+        const measured = mockRangeRects(new DOMRect());
+        const text = textNode('שלום');
+        expect(getCaretRect(caretIn(text, 0))).toBe(CHARACTER);
+        expect(measured).toHaveLength(2);
+        expect(measured[1].startOffset).toBe(0);
+        expect(measured[1].endOffset).toBe(1);
+      });
+
+      test('keeps the empty rect when there is no character to measure', () => {
+        const empty = new DOMRect();
+        const measured = mockRangeRects(empty);
+        expect(getCaretRect(caretIn(textNode(''), 0))).toBe(empty);
+        const span = textNode('text').parentNode!;
+        expect(getCaretRect(caretIn(span, 0))).toBe(empty);
+        expect(measured).toHaveLength(2);
+      });
     });
   });
 });
@@ -1208,6 +1716,62 @@ describe('getParentElement', () => {
     });
   });
   describe('iterStaticNodeConfigChain', () => {
+    test('a subclass that declares no $config contributes nothing, and does not hide its parent', () => {
+      // `getStaticNodeConfig` resolves such a class to its *ancestor's* config,
+      // reached through the inherited method. Yielding that as the subclass's
+      // own would both attribute the ancestor's declarations to it and present
+      // them twice — and following the `extends` inside it would skip the
+      // ancestor, which is where they are actually declared.
+      class ChainBase extends ElementNode {
+        $config() {
+          return this.config('chain-base', {extends: ElementNode});
+        }
+      }
+      class ChainSub extends ChainBase {}
+      expect(
+        Array.from(iterStaticNodeConfigChain(ChainSub)).map(config => [
+          config.klass.name,
+          config.ownNodeConfig === undefined,
+        ]),
+      ).toEqual([
+        ['ChainSub', true],
+        ['ChainBase', false],
+        ['ElementNode', false],
+        ['LexicalNode', true],
+      ]);
+    });
+
+    test('an inline $transform is registered once for a subclass that declares no $config', () => {
+      // A `$transform` written inline is a fresh closure on every `$config()`
+      // call, so the Set that collects transforms cannot tell two copies of it
+      // apart: yielding the ancestor's config for the subclass as well ran the
+      // transform twice per node.
+      const calls: string[] = [];
+      class TransformBase extends ElementNode {
+        $config() {
+          return this.config('chain-transform-base', {
+            $transform: (node: TransformBase) => {
+              calls.push(node.getKey());
+            },
+            extends: ElementNode,
+          });
+        }
+      }
+      class TransformSub extends TransformBase {}
+      const editor = createTestEditor({
+        nodes: [TransformBase, TransformSub],
+      });
+      editor.update(
+        () => {
+          $getRoot()
+            .clear()
+            .append(new TransformSub().append($createTextNode('x')));
+        },
+        {discrete: true},
+      );
+      expect(calls).toHaveLength(1);
+    });
+
     test('handles a loose transform', () => {
       // These are from babel's loose class transform without the setPrototypeOf for the static chain
       // https://github.com/babel/babel/blob/main/packages/babel-helpers/src/helpers/inheritsLoose.ts

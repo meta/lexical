@@ -177,16 +177,13 @@ const isDropdownItemActive = async (page, dropdownItemIndex) => {
 };
 
 test.describe('Keyboard shortcuts', () => {
-  test.beforeEach(({isPlainText, isCollab, page}) => {
-    test.skip(isPlainText);
+  test.skip(({isPlainText}) => isPlainText, 'Requires rich text');
+  test.beforeEach(({isCollab, page}) => {
     return initialize({isCollab, page});
   });
 
   formatTestCases.forEach(({format, applyShortcut, canToggle}) => {
-    test(`Can use ${format} format with the shortcut`, async ({
-      page,
-      isPlainText,
-    }) => {
+    test(`Can use ${format} format with the shortcut`, async ({page}) => {
       await focusEditor(page);
 
       if (format === DEFAULT_FORMAT) {
@@ -208,10 +205,7 @@ test.describe('Keyboard shortcuts', () => {
   });
 
   alignmentTestCases.forEach(({alignment, applyShortcut}, index) => {
-    test(`Can use ${alignment} with the shortcut`, async ({
-      page,
-      isPlainText,
-    }) => {
+    test(`Can use ${alignment} with the shortcut`, async ({page}) => {
       await focusEditor(page);
       await applyShortcut(page);
 
@@ -226,10 +220,7 @@ test.describe('Keyboard shortcuts', () => {
 
   additionalStylesTestCases.forEach(
     ({applyShortcut, style}, dropdownItemIndex) => {
-      test(`Can use ${style} with the shortcut`, async ({
-        page,
-        isPlainText,
-      }) => {
+      test(`Can use ${style} with the shortcut`, async ({page}) => {
         await focusEditor(page);
         await applyShortcut(page);
 
@@ -245,7 +236,6 @@ test.describe('Keyboard shortcuts', () => {
 
   test('Can increase and decrease font size with the shortcuts', async ({
     page,
-    isPlainText,
   }) => {
     await focusEditor(page);
     await increaseFontSize(page);
@@ -261,10 +251,7 @@ test.describe('Keyboard shortcuts', () => {
     expect(await getFontSize()).toBe('16');
   });
 
-  test('Can clear formatting with the shortcut', async ({
-    page,
-    isPlainText,
-  }) => {
+  test('Can clear formatting with the shortcut', async ({page}) => {
     await focusEditor(page);
     // Apply some formatting first
     await page.keyboard.type('abc');
@@ -309,10 +296,7 @@ test.describe('Keyboard shortcuts', () => {
     );
   });
 
-  test('Can toggle Insert Code Block with the shortcut', async ({
-    page,
-    isPlainText,
-  }) => {
+  test('Can toggle Insert Code Block with the shortcut', async ({page}) => {
     await focusEditor(page);
 
     const isCodeBlockActive = async () => {
@@ -332,10 +316,7 @@ test.describe('Keyboard shortcuts', () => {
     expect(await isCodeBlockActive()).toBe(false);
   });
 
-  test('Can indent and outdent with the shortcuts', async ({
-    page,
-    isPlainText,
-  }) => {
+  test('Can indent and outdent with the shortcuts', async ({page}) => {
     await focusEditor(page);
     await page.keyboard.type('abc');
     await indent(page, 3);

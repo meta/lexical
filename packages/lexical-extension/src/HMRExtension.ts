@@ -17,13 +17,13 @@ import {
 } from 'lexical';
 
 import {EditorStateExtension} from './EditorStateExtension';
+import {getPeerDependencyFromEditor} from './getPeerDependencyFromEditor';
 import {
   deserializeEditorStateFamily,
   isSerializedEditorStateFamily,
   type SerializedEditorStateFamily,
   serializeEditorStateFamily,
-} from './editorStateFamily';
-import {getPeerDependencyFromEditor} from './getPeerDependencyFromEditor';
+} from './internal/editorStateFamily';
 import {LexicalBuilder} from './LexicalBuilder';
 import {RootElementExtension} from './RootElementExtension';
 import {effect, type ReadonlySignal, type Signal, signal} from './signals';

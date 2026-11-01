@@ -126,12 +126,27 @@ export interface KeyboardShortcut extends KeyboardShortcutMatch {
  * The modifier mask for the primary shortcut modifier:
  * ⌘ (metaKey) on Apple platforms and Ctrl elsewhere.
  */
+/**
+ * Tag a modifier mask with the key it stands in for on other platforms. A
+ * function declared side-effect free (so the build annotates the calls below)
+ * rather than an object literal with a computed key, which is a side effect
+ * to bundlers and would pin these masks — and the platform probes they read —
+ * into every bundle that imports the module.
+ *
+ * @__NO_SIDE_EFFECTS__
+ */
+function controlOrOther(
+  key: 'metaKey' | 'altKey',
+  mask: KeyboardEventModifierMask,
+): KeyboardEventModifierMask & KeyboardEventControlOrOther {
+  return {...mask, [CONTROL_OR_OTHER_KEY]: key};
+}
+
 export const CONTROL_OR_META: KeyboardEventModifierMask &
-  KeyboardEventControlOrOther = {
-  [CONTROL_OR_OTHER_KEY]: 'metaKey',
+  KeyboardEventControlOrOther = controlOrOther('metaKey', {
   ctrlKey: !IS_APPLE,
   metaKey: IS_APPLE,
-};
+});
 
 /**
  * The modifier mask for the secondary shortcut modifier:
@@ -139,11 +154,10 @@ export const CONTROL_OR_META: KeyboardEventModifierMask &
  * used for word-level editing and block-format shortcuts.
  */
 export const CONTROL_OR_ALT: KeyboardEventModifierMask &
-  KeyboardEventControlOrOther = {
-  [CONTROL_OR_OTHER_KEY]: 'altKey',
+  KeyboardEventControlOrOther = controlOrOther('altKey', {
   altKey: IS_APPLE,
   ctrlKey: !IS_APPLE,
-};
+});
 
 const MODIFIER_BITS = [
   ['altKey', 1],

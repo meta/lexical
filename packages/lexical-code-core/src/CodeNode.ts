@@ -28,14 +28,20 @@ import {
   isHTMLElement,
   type LexicalEditor,
   type LexicalNode,
-  type LexicalUpdateJSON,
+  type LexicalParseJSON,
   type NodeKey,
+  nodeSchema,
+  nullable,
+  optional,
   type ParagraphNode,
   type RangeSelection,
   type SerializedElementNode,
+  type SerializedPartial,
   setDOMStyleFromCSS,
   type Spread,
+  stringValue,
   type TabNode,
+  withAccessors,
 } from 'lexical';
 
 import {
@@ -44,6 +50,10 @@ import {
   type CodeHighlightNode,
 } from './CodeHighlightNode';
 import {$getFirstCodeNodeOfLine} from './FlatStructureUtils';
+import {
+  afterCloneCodeNode,
+  GENERATED_CODE,
+} from './LexicalCodeCoreGeneratedJSON';
 
 export type SerializedCodeNode = Spread<
   {
@@ -52,6 +62,19 @@ export type SerializedCodeNode = Spread<
   },
   SerializedElementNode
 >;
+
+// Single source of truth for parsing the node-specific properties of a
+// SerializedCodeNode (those it adds over a SerializedElementNode).
+const codeNodeSchema = nodeSchema<CodeNode>()({
+  // Read straight off the fields; applied through the setters, which
+  // normalize a falsy value to undefined.
+  language: withAccessors(optional(nullable(stringValue())), {
+    getter: {field: '__language'},
+  }),
+  theme: withAccessors(optional(stringValue()), {
+    getter: {field: '__theme'},
+  }),
+});
 
 export const DEFAULT_CODE_LANGUAGE = 'javascript';
 /** @internal Configurable through the extensions. */
@@ -77,7 +100,15 @@ const noExtensionDeprecation = warnOnlyOnce(
   'Using CodeNode without CodeExtension is deprecated',
 );
 
+// eslint-disable-next-line @typescript-eslint/no-unsafe-declaration-merging
+export interface CodeNode {
+  exportJSON(compact?: false): SerializedCodeNode;
+  exportJSON(compact: boolean): SerializedPartial<SerializedCodeNode>;
+  updateFromJSON(serializedNode: LexicalParseJSON<SerializedCodeNode>): this;
+}
+
 /** @noInheritDoc */
+// eslint-disable-next-line @typescript-eslint/no-unsafe-declaration-merging
 export class CodeNode extends ElementNode {
   /** @internal */
   __language: string | null | undefined;
@@ -88,7 +119,9 @@ export class CodeNode extends ElementNode {
 
   $config() {
     return this.config('code', {
+      children: 'inline',
       extends: ElementNode,
+      generated: GENERATED_CODE,
       importDOM: {
         // Typically <pre> is used for code blocks, and <code> for inline code styles
         // but if it's a multi line <code> we'll create a block. Pass through to
@@ -153,6 +186,7 @@ export class CodeNode extends ElementNode {
           return null;
         },
       },
+      json: codeNodeSchema,
     });
   }
 
@@ -166,10 +200,19 @@ export class CodeNode extends ElementNode {
     this.__theme = undefined;
   }
 
+  // Written rather than synthesized from the schema, because
+  // `__isSyntaxHighlightSupported` is not a serialized property and no schema
+  // describes it: the highlighter extensions set it as they run, and a clone
+  // that dropped it would render unhighlighted until the next pass.
+  //
+  // Declaring one of these takes the class out of the synthesized
+  // `afterCloneFrom` entirely, so the schema's own fields are this method's
+  // responsibility too — but not its boilerplate: `afterCloneCodeNode` is
+  // generated from the same declaration, so adding a property to the schema
+  // needs no line here.
   afterCloneFrom(prevNode: this): void {
     super.afterCloneFrom(prevNode);
-    this.__language = prevNode.__language;
-    this.__theme = prevNode.__theme;
+    afterCloneCodeNode(this, prevNode);
     this.__isSyntaxHighlightSupported = prevNode.__isSyntaxHighlightSupported;
   }
 
@@ -268,21 +311,6 @@ export class CodeNode extends ElementNode {
       setDOMStyleFromCSS(element.style, style);
     }
     return {element};
-  }
-
-  updateFromJSON(serializedNode: LexicalUpdateJSON<SerializedCodeNode>): this {
-    return super
-      .updateFromJSON(serializedNode)
-      .setLanguage(serializedNode.language)
-      .setTheme(serializedNode.theme);
-  }
-
-  exportJSON(): SerializedCodeNode {
-    return {
-      ...super.exportJSON(),
-      language: this.getLanguage(),
-      theme: this.getTheme(),
-    };
   }
 
   // Mutation

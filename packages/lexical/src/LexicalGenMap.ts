@@ -217,23 +217,28 @@ export class GenMap<K, V> implements Map<K, V> {
   *entries(): MapIterator<[K, V]> {
     const nursery = this._nursery;
     const old = this._old;
+    // Skip per-entry override checks for an unmodified snapshot.
+    if (!nursery) {
+      if (old) {
+        yield* old;
+      }
+      return;
+    }
     if (old) {
       for (const pair of old) {
         const k = pair[0];
-        const v = nursery ? nursery.get(k) : undefined;
+        const v = nursery.get(k);
         if (v === TOMBSTONE) {
           continue;
         } else if (v !== undefined) {
-          (pair as [K, V])[1] = v as V;
+          pair[1] = v;
         }
-        yield pair as [K, V];
+        yield pair;
       }
     }
-    if (nursery) {
-      for (const pair of nursery) {
-        if (pair[1] !== TOMBSTONE && !(old && old.has(pair[0]))) {
-          yield pair as [K, V];
-        }
+    for (const pair of nursery) {
+      if (pair[1] !== TOMBSTONE && !(old && old.has(pair[0]))) {
+        yield pair as [K, V];
       }
     }
   }

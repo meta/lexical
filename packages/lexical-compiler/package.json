@@ -9,79 +9,82 @@
     "rollup-plugin",
     "tree-shaking"
   ],
-  "version": "0.50.0",
+  "version": "0.53.0",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/facebook/lexical.git",
+    "url": "git+https://github.com/meta/lexical.git",
     "directory": "packages/lexical-compiler"
   },
   "bugs": {
-    "url": "https://github.com/facebook/lexical/issues"
+    "url": "https://github.com/meta/lexical/issues"
   },
   "homepage": "https://lexical.dev/docs/packages/lexical-compiler",
   "dependencies": {
-    "@babel/parser": "^8.0.0",
+    "@babel/parser": "^8.0.4",
+    "lexical": "workspace:*",
     "magic-string": "^0.30.21"
   },
   "devDependencies": {
-    "rollup": "^4.61.0"
+    "rollup": "^4.63.5"
   },
   "sideEffects": false,
   "exports": {
     "./PureAnnotations": {
       "source": "./src/PureAnnotations.ts",
-      "import": {
-        "types@<5.2": "./dist/typescript-too-old.d.ts",
-        "types": "./dist/PureAnnotations.d.ts",
-        "development": "./dist/LexicalCompilerPureAnnotations.dev.mjs",
-        "production": "./dist/LexicalCompilerPureAnnotations.prod.mjs",
-        "node": "./dist/LexicalCompilerPureAnnotations.node.mjs",
-        "default": "./dist/LexicalCompilerPureAnnotations.mjs"
-      },
-      "require": {
-        "types@<5.2": "./dist/typescript-too-old.d.ts",
-        "types": "./dist/PureAnnotations.d.ts",
-        "development": "./dist/LexicalCompilerPureAnnotations.dev.js",
-        "production": "./dist/LexicalCompilerPureAnnotations.prod.js",
-        "default": "./dist/LexicalCompilerPureAnnotations.js"
-      }
+      "types@<5.2": "./dist/typescript-too-old.d.ts",
+      "types": "./dist/PureAnnotations.d.ts",
+      "development": "./dist/LexicalCompilerPureAnnotations.dev.js",
+      "production": "./dist/LexicalCompilerPureAnnotations.prod.js",
+      "default": "./dist/LexicalCompilerPureAnnotations.js"
     },
     "./PureAnnotations.js": {
       "source": "./src/PureAnnotations.ts",
-      "import": {
-        "types@<5.2": "./dist/typescript-too-old.d.ts",
-        "types": "./dist/PureAnnotations.d.ts",
-        "development": "./dist/LexicalCompilerPureAnnotations.dev.mjs",
-        "production": "./dist/LexicalCompilerPureAnnotations.prod.mjs",
-        "node": "./dist/LexicalCompilerPureAnnotations.node.mjs",
-        "default": "./dist/LexicalCompilerPureAnnotations.mjs"
-      },
-      "require": {
-        "types@<5.2": "./dist/typescript-too-old.d.ts",
-        "types": "./dist/PureAnnotations.d.ts",
-        "development": "./dist/LexicalCompilerPureAnnotations.dev.js",
-        "production": "./dist/LexicalCompilerPureAnnotations.prod.js",
-        "default": "./dist/LexicalCompilerPureAnnotations.js"
-      }
+      "types@<5.2": "./dist/typescript-too-old.d.ts",
+      "types": "./dist/PureAnnotations.d.ts",
+      "development": "./dist/LexicalCompilerPureAnnotations.dev.js",
+      "production": "./dist/LexicalCompilerPureAnnotations.prod.js",
+      "default": "./dist/LexicalCompilerPureAnnotations.js"
+    },
+    "./SchemaJsonCodegen": {
+      "source": "./src/SchemaJsonCodegen.ts",
+      "types@<5.2": "./dist/typescript-too-old.d.ts",
+      "types": "./dist/SchemaJsonCodegen.d.ts",
+      "development": "./dist/LexicalCompilerSchemaJsonCodegen.dev.js",
+      "production": "./dist/LexicalCompilerSchemaJsonCodegen.prod.js",
+      "default": "./dist/LexicalCompilerSchemaJsonCodegen.js"
+    },
+    "./SchemaJsonCodegen.js": {
+      "source": "./src/SchemaJsonCodegen.ts",
+      "types@<5.2": "./dist/typescript-too-old.d.ts",
+      "types": "./dist/SchemaJsonCodegen.d.ts",
+      "development": "./dist/LexicalCompilerSchemaJsonCodegen.dev.js",
+      "production": "./dist/LexicalCompilerSchemaJsonCodegen.prod.js",
+      "default": "./dist/LexicalCompilerSchemaJsonCodegen.js"
+    },
+    "./SubpathImports": {
+      "source": "./src/SubpathImports.ts",
+      "types@<5.2": "./dist/typescript-too-old.d.ts",
+      "types": "./dist/SubpathImports.d.ts",
+      "development": "./dist/LexicalCompilerSubpathImports.dev.js",
+      "production": "./dist/LexicalCompilerSubpathImports.prod.js",
+      "default": "./dist/LexicalCompilerSubpathImports.js"
+    },
+    "./SubpathImports.js": {
+      "source": "./src/SubpathImports.ts",
+      "types@<5.2": "./dist/typescript-too-old.d.ts",
+      "types": "./dist/SubpathImports.d.ts",
+      "development": "./dist/LexicalCompilerSubpathImports.dev.js",
+      "production": "./dist/LexicalCompilerSubpathImports.prod.js",
+      "default": "./dist/LexicalCompilerSubpathImports.js"
     },
     ".": {
       "source": "./src/index.ts",
-      "import": {
-        "types@<5.2": "./dist/typescript-too-old.d.ts",
-        "types": "./dist/index.d.ts",
-        "development": "./dist/LexicalCompiler.dev.mjs",
-        "production": "./dist/LexicalCompiler.prod.mjs",
-        "node": "./dist/LexicalCompiler.node.mjs",
-        "default": "./dist/LexicalCompiler.mjs"
-      },
-      "require": {
-        "types@<5.2": "./dist/typescript-too-old.d.ts",
-        "types": "./dist/index.d.ts",
-        "development": "./dist/LexicalCompiler.dev.js",
-        "production": "./dist/LexicalCompiler.prod.js",
-        "default": "./dist/LexicalCompiler.js"
-      }
+      "types@<5.2": "./dist/typescript-too-old.d.ts",
+      "types": "./dist/index.d.ts",
+      "development": "./dist/LexicalCompiler.dev.js",
+      "production": "./dist/LexicalCompiler.prod.js",
+      "default": "./dist/LexicalCompiler.js"
     }
   },
   "types": "./dist/typescript-too-old.d.ts",
@@ -112,5 +115,6 @@
     "!src/**/*.bench.tsx",
     "README.md",
     "LICENSE"
-  ]
+  ],
+  "type": "module"
 }

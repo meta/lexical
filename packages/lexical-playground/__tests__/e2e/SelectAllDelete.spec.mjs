@@ -30,11 +30,12 @@ const EMPTY_EDITOR = html`
 // it starts out: one empty paragraph. When the surviving block was a heading,
 // quote or list it used to linger as an empty block of that type, so the next
 // thing typed came out as a heading or a bullet (#5835).
+test.skip(({isPlainText}) => isPlainText, 'Requires rich text');
+
 test.describe('Select all + delete clears the editor (#5835)', () => {
   test.beforeEach(({isCollab, page}) => initialize({isCollab, page}));
 
-  test('a heading, with Backspace', async ({page, isPlainText}) => {
-    test.skip(isPlainText);
+  test('a heading, with Backspace', async ({page}) => {
     await focusEditor(page);
     await page.keyboard.type('# Just a heading');
     await selectAll(page);
@@ -42,8 +43,7 @@ test.describe('Select all + delete clears the editor (#5835)', () => {
     await assertHTML(page, EMPTY_EDITOR);
   });
 
-  test('a heading, with forward Delete', async ({page, isPlainText}) => {
-    test.skip(isPlainText);
+  test('a heading, with forward Delete', async ({page}) => {
     await focusEditor(page);
     await page.keyboard.type('# Just a heading');
     await selectAll(page);
@@ -51,8 +51,7 @@ test.describe('Select all + delete clears the editor (#5835)', () => {
     await assertHTML(page, EMPTY_EDITOR);
   });
 
-  test('a quote, with forward Delete', async ({page, isPlainText}) => {
-    test.skip(isPlainText);
+  test('a quote, with forward Delete', async ({page}) => {
     await focusEditor(page);
     await page.keyboard.type('> Just a quote');
     await selectAll(page);
@@ -60,11 +59,7 @@ test.describe('Select all + delete clears the editor (#5835)', () => {
     await assertHTML(page, EMPTY_EDITOR);
   });
 
-  test('a list followed by a paragraph, with Backspace', async ({
-    page,
-    isPlainText,
-  }) => {
-    test.skip(isPlainText);
+  test('a list followed by a paragraph, with Backspace', async ({page}) => {
     await focusEditor(page);
     await toggleBulletList(page);
     await page.keyboard.type('one');
@@ -75,8 +70,7 @@ test.describe('Select all + delete clears the editor (#5835)', () => {
     await assertHTML(page, EMPTY_EDITOR);
   });
 
-  test('a heading, with delete-by-word', async ({page, isPlainText}) => {
-    test.skip(isPlainText);
+  test('a heading, with delete-by-word', async ({page}) => {
     await focusEditor(page);
     await page.keyboard.type('# Just a heading');
     await selectAll(page);
@@ -89,11 +83,7 @@ test.describe('Select all + delete clears the editor (#5835)', () => {
   // *collapsed* selection, so the heading has to survive -- exactly as it does
   // when the same word is removed with repeated Backspace. jsdom stubs
   // Selection.modify, so only a real browser exercises this path.
-  test('delete-by-word from a caret keeps the heading', async ({
-    page,
-    isPlainText,
-  }) => {
-    test.skip(isPlainText);
+  test('delete-by-word from a caret keeps the heading', async ({page}) => {
     await focusEditor(page);
     await page.keyboard.type('# Heading');
     await moveToEditorBeginning(page);

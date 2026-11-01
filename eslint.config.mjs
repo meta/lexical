@@ -299,6 +299,18 @@ export default [
     },
   },
 
+  // Override: the www stubs at each package root (`packages/*/Lexical*.js`,
+  // written by scripts/create-www-stubs.mjs) are CommonJS and stay that
+  // way: www does not read package.json, so the packages' `"type":
+  // "module"` does not apply to them, and neither should the ESM default
+  // for `.js` here.
+  {
+    files: ['packages/*/*.js'],
+    languageOptions: {
+      sourceType: 'commonjs',
+    },
+  },
+
   // Override: Package source files (module sourceType)
   {
     files: [
@@ -467,6 +479,37 @@ export default [
     ignores: ['packages/lexical-compiler/**'],
     rules: {
       '@lexical/internal/no-pure-annotation': ERROR,
+    },
+  },
+
+  // A window messaging channel is shared with whatever else is running in the
+  // page, so its name has to be specific to that page rather than a constant,
+  // and a message has to name the origin it is for. The name is not a secret;
+  // this is about collisions and crosstalk, not trust.
+  {
+    files: ['packages/lexical-devtools/**'],
+    rules: {
+      '@lexical/internal/no-unscoped-window-messaging': ERROR,
+    },
+  },
+
+  // Keep extension source imports independent of the published bundle layout.
+  // The package build rewrites barrels and relative siblings to subpaths.
+  {
+    files: ['packages/**/src/**', 'examples/**', 'dev-examples/**'],
+    rules: {
+      'no-restricted-imports': [
+        ERROR,
+        {
+          patterns: [
+            {
+              group: ['@lexical/extension/*'],
+              message:
+                'Import from @lexical/extension in consumers, or use a relative import within that package. The build rewrites source imports to public subpaths.',
+            },
+          ],
+        },
+      ],
     },
   },
 

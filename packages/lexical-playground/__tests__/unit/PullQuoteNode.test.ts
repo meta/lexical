@@ -9,6 +9,7 @@
 import {
   $generateJSONFromSelectedNodes,
   $generateNodesFromSerializedNodes,
+  type BaseSerializedNode,
 } from '@lexical/clipboard';
 import {buildEditorFromExtensions} from '@lexical/extension';
 import {
@@ -195,7 +196,7 @@ describe('PullQuoteNode atomic decorator host', () => {
   it('round-trips both slots through clipboard copy -> paste', () => {
     using editor = buildEditorFromExtensions(PullQuoteTestExtension);
 
-    let exported: ReturnType<typeof $generateJSONFromSelectedNodes>;
+    let exported: {namespace: string; nodes: BaseSerializedNode[]};
     editor.update(
       () => {
         const pullquote = $createPullQuoteNode();

@@ -45,6 +45,24 @@ describe('transformPureAnnotations', () => {
     ).toBe(mod(`export const E = ${PURE}defineExtension({name: 'e'});`));
   });
 
+  it('annotates a default import from a Lexical module named for the factory', () => {
+    const code = [
+      `import warnOnlyOnce from '@lexical/internal/warnOnlyOnce';`,
+      `const deprecated = warnOnlyOnce('deprecated');`,
+    ].join('\n');
+    expect(transform(code)).toBe(
+      code.replace('warnOnlyOnce(', `${PURE}warnOnlyOnce(`),
+    );
+  });
+
+  it('leaves a default import alone when the module is not named for a factory', () => {
+    const code = [
+      `import warn from '@lexical/internal/devInvariant';`,
+      `const deprecated = warn('deprecated');`,
+    ].join('\n');
+    expect(transform(code)).toBe(code);
+  });
+
   it('annotates a call whose initializer is on its own line', () => {
     expect(transform(mod(`export const C =`, `  createCommand('C');`))).toBe(
       mod(`export const C =`, `  ${PURE}createCommand('C');`),
@@ -282,6 +300,25 @@ describe('which calls count as a factory', () => {
     expect(
       transformPureAnnotations(code, {...options, relativeImports: false}),
     ).toBeNull();
+  });
+
+  it('follows a relative import through a re-export', () => {
+    const result = transformPureAnnotations(
+      [
+        `import {definePureThingAgain, defineImpureThing, pureThings} from './fixtures/reexports';`,
+        `export const pure = definePureThingAgain({name: 'pure'});`,
+        `export const impure = defineImpureThing({name: 'impure'});`,
+        `export const one = pureThings.of(1);`,
+      ].join('\n'),
+      {
+        filename: path.join(__dirname, 'virtual.ts'),
+        functions: ['definePureThingAgain', 'defineImpureThing'],
+      },
+    );
+    expect(result!.code).toContain(`= ${PURE}definePureThingAgain(`);
+    expect(result!.code).toContain(`= defineImpureThing(`);
+    expect(result!.code).toContain(`= ${PURE}pureThings.of(1)`);
+    expect(result!.count).toBe(2);
   });
 
   it('follows a relative import to an overloaded declaration', () => {

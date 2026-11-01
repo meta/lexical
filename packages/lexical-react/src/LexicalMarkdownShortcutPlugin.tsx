@@ -48,7 +48,20 @@ const HR: ElementTransformer = {
  * {@link MarkdownShortcutPlugin}: the core `@lexical/markdown` `TRANSFORMERS`
  * plus a transformer that turns `---`, `***`, or `___` into a horizontal rule.
  */
-export const DEFAULT_TRANSFORMERS = [HR, ...TRANSFORMERS];
+
+/**
+ * A function declared side-effect free (so the build annotates the call)
+ * rather than an array spread at module scope, which is a side effect to
+ * bundlers and would pin every transformer into every bundle that imports
+ * this module.
+ *
+ * @__NO_SIDE_EFFECTS__
+ */
+function defaultTransformers(): Transformer[] {
+  return [HR, ...TRANSFORMERS];
+}
+
+export const DEFAULT_TRANSFORMERS: Transformer[] = defaultTransformers();
 
 /**
  * Registers Markdown shortcuts so that typing Markdown syntax (for example

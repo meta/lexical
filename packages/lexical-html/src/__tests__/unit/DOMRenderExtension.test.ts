@@ -9,6 +9,7 @@
 import {buildEditorFromExtensions} from '@lexical/extension';
 import {
   $generateDOMFromRoot,
+  $generateHtmlFromNodes,
   $getRenderContextValue,
   domOverride,
   DOMRenderExtension,
@@ -141,6 +142,63 @@ describe('DOMRenderExtension', () => {
       }),
     );
   });
+  test.each([false, true])(
+    '$createDOM overrides apply to HTML export (with root: %s)',
+    withRoot => {
+      using editor = buildEditorFromExtensions(
+        defineExtension({
+          $initialEditorState: () => {
+            $getRoot().append(
+              $createParagraphNode().append(
+                $createTextNode('plain'),
+                $createLineBreakNode(),
+                $createTextNode('bold').setFormat('bold'),
+              ),
+            );
+          },
+          dependencies: [
+            configExtension(DOMRenderExtension, {
+              overrides: [
+                domOverride('*', {
+                  $createDOM(node, $next) {
+                    const dom = $next();
+                    dom.setAttribute('data-node-type', node.getType());
+                    return dom;
+                  },
+                }),
+              ],
+            }),
+          ],
+          name: 'export-create-dom',
+        }),
+      );
+      const root = document.createElement('div');
+      if (withRoot) {
+        editor.setRootElement(root);
+      }
+      editor.read(() => {
+        if (withRoot) {
+          expect(root.querySelectorAll('[data-node-type]')).toHaveLength(4);
+        }
+        expectHtmlToBeEqual(
+          $generateHtmlFromNodes(editor),
+          html`
+            <p data-node-type="paragraph">
+              <span style="white-space: pre-wrap;" data-node-type="text">
+                plain
+              </span>
+              <br data-node-type="linebreak" />
+              <b>
+                <strong style="white-space: pre-wrap;" data-node-type="text">
+                  bold
+                </strong>
+              </b>
+            </p>
+          `,
+        );
+      });
+    },
+  );
   test('can override DOM export', () => {
     using editor = buildEditorFromExtensions(
       defineExtension({

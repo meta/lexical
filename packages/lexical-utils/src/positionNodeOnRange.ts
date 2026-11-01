@@ -10,7 +10,6 @@ import invariant from '@lexical/internal/invariant';
 import {createRectsFromDOMRange} from '@lexical/selection';
 import {getRootOwnerDocument, isHTMLElement, type LexicalEditor} from 'lexical';
 
-import dedupeSelectionRects from './dedupeSelectionRects';
 import px from './px';
 
 const mutationObserverConfig = {
@@ -22,6 +21,28 @@ const mutationObserverConfig = {
 
 function prependDOMNode(parent: HTMLElement, node: HTMLElement) {
   parent.insertBefore(node, parent.firstChild);
+}
+
+function dedupeHighlightRects(rects: DOMRect[]): DOMRect[] {
+  const kept: DOMRect[] = [];
+  for (const rect of rects) {
+    if (rect.width < 0.5 || rect.height < 0.5) {
+      continue;
+    }
+    if (
+      kept.some(
+        prev =>
+          Math.abs(prev.left - rect.left) <= 1 &&
+          Math.abs(prev.top - rect.top) <= 1 &&
+          Math.abs(prev.right - rect.right) <= 1 &&
+          Math.abs(prev.bottom - rect.bottom) <= 1,
+      )
+    ) {
+      continue;
+    }
+    kept.push(rect);
+  }
+  return kept;
 }
 
 /**
@@ -55,8 +76,13 @@ export default function mlcPositionNodeOnRange(
     invariant(parentDOMNode !== null, 'Unexpected null parentDOMNode');
     const {left: parentLeft, top: parentTop} =
       parentDOMNode.getBoundingClientRect();
-    const rects = dedupeSelectionRects(createRectsFromDOMRange(editor, range));
-    if (!wrapperNode.isConnected) {
+    // This path already filters full-width block rects. Keep overlapping rects
+    // with distinct coverage; the generic keep-smaller dedupe can erase text.
+    const rects = dedupeHighlightRects(createRectsFromDOMRange(editor, range));
+    // Not `isConnected`: once the parent is detached from the document that is
+    // false forever, and re-inserting the wrapper is a mutation the observer
+    // reacts to, so every mutation would re-insert it without end.
+    if (wrapperNode.parentNode !== parentDOMNode) {
       prependDOMNode(parentDOMNode, wrapperNode);
     }
     let hasRepositioned = false;
@@ -101,6 +127,7 @@ export default function mlcPositionNodeOnRange(
       const node = lastNodes.pop();
       if (node != null) {
         node.remove();
+        hasRepositioned = true;
       }
     }
     if (hasRepositioned) {

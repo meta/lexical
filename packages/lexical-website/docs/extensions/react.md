@@ -67,7 +67,7 @@ After:
 
 This is a minimal migration, in most cases you can migrate plug-in usage to
 extension dependencies. For example, by using
-[RichTextExtension](/docs/api/modules/lexical_rich_text#richtextextension) instead of
+[RichTextExtension](/docs/api/modules/lexical_rich-text#richtextextension) instead of
 `RichTextPlugin`:
 
 ```tsx
@@ -86,6 +86,50 @@ const appExtension = defineExtension({
   {/* other legacy React plugins */}
 </LexicalExtensionComposer>
 ```
+
+## Managing the editor yourself with LexicalExtensionEditorComposer
+
+`LexicalExtensionComposer` builds its editor from `extension` and disposes it
+when the component unmounts. When you want to own that lifecycle instead,
+such as a nested editor that belongs to a node (like the caption in the
+playground's `StickyComponent`), an editor shared with non-React code, or one
+that should outlive the component, build the editor yourself and render it
+with
+[`LexicalExtensionEditorComposer`](/docs/api/modules/lexical_react_LexicalExtensionEditorComposer).
+
+The editor must include `ReactProviderExtension` and `ReactExtension`, which
+`LexicalExtensionComposer` otherwise adds for you:
+
+```tsx
+import {buildEditorFromExtensions, defineExtension} from '@lexical/extension';
+import {LexicalExtensionEditorComposer} from '@lexical/react/LexicalExtensionEditorComposer';
+import {ReactExtension} from '@lexical/react/ReactExtension';
+import {ReactProviderExtension} from '@lexical/react/ReactProviderExtension';
+import {RichTextExtension} from '@lexical/rich-text';
+
+// Built once, at module scope, so it is not re-created on every render
+const editor = buildEditorFromExtensions(
+  defineExtension({
+    dependencies: [ReactProviderExtension, ReactExtension, RichTextExtension],
+    name: '@my-app/editor',
+  }),
+);
+
+function App() {
+  return (
+    <LexicalExtensionEditorComposer initialEditor={editor}>
+      {/* The ContentEditable is rendered by ReactExtension, as with LexicalExtensionComposer */}
+      {/* other legacy React plugins */}
+    </LexicalExtensionEditorComposer>
+  );
+}
+```
+
+`LexicalExtensionEditorComposer` never disposes the editor, so call
+`editor.dispose()` yourself when you are done with it. Keep the
+`initialEditor` prop stable (module scope, `useMemo`, or state held by a
+node), and render a given editor in only one place at a time, since an editor
+has only one root element.
 
 ## React Plug-ins (Legacy)
 
@@ -200,7 +244,7 @@ export const CheckListExtension = defineExtension({
 
 ## Using React extensions and plug-ins without JSX
 
-[ReactPluginHostExtension](/docs/api/modules/lexical_react_reactpluginhostextension#reactpluginhostextension)
+[ReactPluginHostExtension](/docs/api/modules/lexical_react_ReactPluginHostExtension#reactpluginhostextension)
 is an extension that allows you to mount the a React root at a
 specific DOM element in your app so that applications that are
 not natively React can still take advantage of existing legacy
@@ -210,6 +254,6 @@ While this does mean your application will include the React runtime, you
 don't have to use JSX or have any other React infrastructure in your app.
 
 See
-[extension-vanilla-react-plugin-host](https://github.com/facebook/lexical/blob/main/examples/extension-vanilla-react-plugin-host/src/main.ts)
-[![Open in StackBlitz](https://developer.stackblitz.com/img/open_in_stackblitz.svg)](https://stackblitz.com/github/facebook/lexical/tree/main/examples/?file=src%2Fmain.ts)
+[extension-vanilla-react-plugin-host](https://github.com/meta/lexical/blob/main/examples/extension-vanilla-react-plugin-host/src/main.ts)
+[![Open in StackBlitz](https://developer.stackblitz.com/img/open_in_stackblitz.svg)](https://stackblitz.com/github/meta/lexical/tree/main/examples/?file=src%2Fmain.ts)
 for usage of this extension and its API

@@ -22,7 +22,7 @@ import type {
 } from 'lexical';
 
 // $FlowFixMe[unclear-type]: todo
-export type YjsEvent = Object;
+export type YjsEvent = any;
 
 export type UserState = {
   anchorPos: null | RelativePosition,
@@ -116,6 +116,7 @@ export type BaseBinding = {
 
 export type Binding = {
   ...BaseBinding,
+  _movedNodeKeys?: Set<NodeKey>,
   collabNodeMap: Map<
     NodeKey,
     | CollabElementNode

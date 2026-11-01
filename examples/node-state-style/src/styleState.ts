@@ -35,7 +35,9 @@ import {
   isHTMLElement,
   type LexicalNode,
   setDOMStyleObject,
+  stringValue,
   TextNode,
+  transformValue,
   type ValueOrUpdater,
 } from 'lexical';
 
@@ -70,10 +72,6 @@ export type StyleTuple = Exclude<
 >;
 
 export const NO_STYLE: StyleObject = Object.freeze({});
-
-function parse(v: unknown): StyleObject {
-  return typeof v === 'string' ? getStyleObjectFromRawCSS(v) : NO_STYLE;
-}
 
 function unparse(style: StyleObject): string {
   const styles: string[] = [];
@@ -116,7 +114,10 @@ function isEqual(a: StyleObject, b: StyleObject): boolean {
 
 export const styleState = createState('style', {
   isEqual,
-  parse,
+  // Serialized as a CSS string: `stringValue()` accepts any string (and
+  // parses anything else as ''), then `transformValue` turns it into a
+  // StyleObject. `unparse` is the reverse direction.
+  parse: transformValue(stringValue(), getStyleObjectFromRawCSS),
   unparse,
 });
 

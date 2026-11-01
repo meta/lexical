@@ -28,12 +28,9 @@ import {
   initialize,
   IS_COLLAB_V2,
   pasteFromClipboard,
-  pressToggleBold,
-  pressToggleUnderline,
   SAMPLE_IMAGE_URL,
   test,
   waitForSelector,
-  withExclusiveClipboardAccess,
 } from '../utils/index.mjs';
 
 async function checkHTMLExpectationsIncludingUndoRedo(
@@ -67,67 +64,12 @@ test.describe('Markdown', () => {
     },
     {
       expectation:
-        '<h2 class="PlaygroundEditorTheme__h2" dir="auto"><br data-lexical-managed-linebreak="true"></h2>',
-      importExpectation: '',
-      isBlockTest: true,
-      markdownImport: '',
-      markdownText: '## ',
-      undoHTML: '', // H2.
-    },
-    {
-      expectation:
-        '<h3 class="PlaygroundEditorTheme__h3" dir="auto"><br data-lexical-managed-linebreak="true"></h3>',
-      importExpectation: '',
-      isBlockTest: true,
-      markdownImport: '',
-      markdownText: '### ',
-      undoHTML: '', // H3.
-    },
-    {
-      expectation:
-        '<h4 class="PlaygroundEditorTheme__h4" dir="auto"><br data-lexical-managed-linebreak="true"></h4>',
-      importExpectation: '',
-      isBlockTest: true,
-      markdownImport: '',
-      markdownText: '#### ',
-      undoHTML: '', // H4.
-    },
-    {
-      expectation:
-        '<h5 class="PlaygroundEditorTheme__h5" dir="auto"><br data-lexical-managed-linebreak="true"></h5>',
-      importExpectation: '',
-      isBlockTest: true,
-      markdownImport: '',
-      markdownText: '##### ',
-      undoHTML: '', // H5.
-    },
-    {
-      expectation:
-        '<h6 class="PlaygroundEditorTheme__h6" dir="auto"><br data-lexical-managed-linebreak="true"></h6>',
-      importExpectation: '',
-      isBlockTest: true,
-      markdownImport: '',
-      markdownText: '###### ',
-      undoHTML: '', // H6.
-    },
-    {
-      expectation:
         '<code class="PlaygroundEditorTheme__code" dir="auto" spellcheck="false" data-gutter="1"><br data-lexical-managed-linebreak="true"></code>',
       importExpectation: '',
       isBlockTest: true,
       markdownImport: '',
       markdownText: '``` ',
       undoHTML: '', // Code block.
-    },
-    {
-      expectation:
-        '<blockquote class="PlaygroundEditorTheme__quote" dir="auto"><br data-lexical-managed-linebreak="true"></blockquote>',
-      importExpectation: '',
-      isBlockTest: true,
-      markdownImport: '',
-      markdownText: '> ',
-      undoHTML:
-        '<p class="PlaygroundEditorTheme__paragraph" dir="auto"><span data-lexical-text="true">&gt;</span></p>', // Block quote.
     },
     {
       expectation:
@@ -203,7 +145,6 @@ test.describe('Markdown', () => {
       markdownText: '~~**test**~~ ',
       undoHTML: 'none', // strikethru, bold
     },
-
     {
       expectation:
         '<p class="PlaygroundEditorTheme__paragraph" dir="auto"><strong class="PlaygroundEditorTheme__textBold PlaygroundEditorTheme__textItalic" data-lexical-text="true">test</strong><span data-lexical-text="true"></span></p>',
@@ -223,141 +164,143 @@ test.describe('Markdown', () => {
     const markdownText = triggersAndExpectations[i].markdownText;
 
     if (triggersAndExpectations[i].isBlockTest === false) {
-      test(`Should create stylized (e.g. BIUS) text from plain text using a markdown shortcut e.g. ${markdownText}`, async ({
-        page,
-        isPlainText,
-        isCollab,
-      }) => {
-        test.skip(isPlainText);
-        const text = 'x' + markdownText + 'y';
+      test.describe(() => {
+        test.skip(({isPlainText}) => isPlainText);
+        test(`Should create stylized (e.g. BIUS) text from plain text using a markdown shortcut e.g. ${markdownText}`, async ({
+          page,
+          isCollab,
+        }) => {
+          const text = 'x' + markdownText + 'y';
 
-        await focusEditor(page);
-        await page.keyboard.type(text);
-        await moveLeft(page, text.length);
-        await assertSelection(page, {
-          anchorOffset: 0,
-          anchorPath: [0, 0, 0],
-          focusOffset: 0,
-          focusPath: [0, 0, 0],
+          await focusEditor(page);
+          await page.keyboard.type(text);
+          await moveLeft(page, text.length);
+          await assertSelection(page, {
+            anchorOffset: 0,
+            anchorPath: [0, 0, 0],
+            focusOffset: 0,
+            focusPath: [0, 0, 0],
+          });
+
+          await moveRight(page, 1 + markdownText.length);
+
+          // Trigger markdown.
+          await page.keyboard.type(' ');
+
+          await checkHTMLExpectationsIncludingUndoRedo(
+            page,
+            triggersAndExpectations[i].expectation,
+            triggersAndExpectations[i].undoHTML,
+            isCollab,
+          );
         });
 
-        await moveRight(page, 1 + markdownText.length);
-
-        // Trigger markdown.
-        await page.keyboard.type(' ');
-
-        await checkHTMLExpectationsIncludingUndoRedo(
+        test(`Should create stylized (e.g. BIUS) text from already stylized text using a markdown shortcut e.g. ${markdownText}`, async ({
           page,
-          triggersAndExpectations[i].expectation,
-          triggersAndExpectations[i].undoHTML,
           isCollab,
-        );
-      });
+        }) => {
+          const text = 'x' + markdownText + 'y';
 
-      test(`Should create stylized (e.g. BIUS) text from already stylized text using a markdown shortcut e.g. ${markdownText}`, async ({
-        page,
-        isPlainText,
-        isCollab,
-      }) => {
-        test.skip(isPlainText);
+          await focusEditor(page);
+          await page.keyboard.type(text);
+          await moveLeft(page, text.length);
+          await assertSelection(page, {
+            anchorOffset: 0,
+            anchorPath: [0, 0, 0],
+            focusOffset: 0,
+            focusPath: [0, 0, 0],
+          });
 
-        const text = 'x' + markdownText + 'y';
+          // Select first 2 characters.
+          await selectCharacters(page, 'right', 2);
 
-        await focusEditor(page);
-        await page.keyboard.type(text);
-        await moveLeft(page, text.length);
-        await assertSelection(page, {
-          anchorOffset: 0,
-          anchorPath: [0, 0, 0],
-          focusOffset: 0,
-          focusPath: [0, 0, 0],
+          // Make underline.
+          await toggleUnderline(page);
+
+          // Back to beginning.
+          await moveLeft(page, 2);
+
+          // Move to end.
+          await moveRight(page, text.length);
+
+          // Select last two characters.
+          await selectCharacters(page, 'left', 2);
+
+          // Make underline.
+          await toggleUnderline(page);
+
+          // Back to beginning of text.
+          await moveLeft(page, text.length);
+
+          // Move after markdown text.
+          await moveRight(page, 1 + markdownText.length);
+
+          // Trigger markdown.
+          await page.keyboard.type(' ');
+
+          await assertHTML(
+            page,
+            triggersAndExpectations[i].stylizedExpectation,
+          );
+
+          await checkHTMLExpectationsIncludingUndoRedo(
+            page,
+            triggersAndExpectations[i].stylizedExpectation,
+            triggersAndExpectations[i].stylizedUndoHTML,
+            isCollab,
+          );
         });
-
-        // Select first 2 characters.
-        await selectCharacters(page, 'right', 2);
-
-        // Make underline.
-        await toggleUnderline(page);
-
-        // Back to beginning.
-        await moveLeft(page, 2);
-
-        // Move to end.
-        await moveRight(page, text.length);
-
-        // Select last two characters.
-        await selectCharacters(page, 'left', 2);
-
-        // Make underline.
-        await toggleUnderline(page);
-
-        // Back to beginning of text.
-        await moveLeft(page, text.length);
-
-        // Move after markdown text.
-        await moveRight(page, 1 + markdownText.length);
-
-        // Trigger markdown.
-        await page.keyboard.type(' ');
-
-        await assertHTML(page, triggersAndExpectations[i].stylizedExpectation);
-
-        await checkHTMLExpectationsIncludingUndoRedo(
-          page,
-          triggersAndExpectations[i].stylizedExpectation,
-          triggersAndExpectations[i].stylizedUndoHTML,
-          isCollab,
-        );
       });
     }
 
     if (triggersAndExpectations[i].isBlockTest === true) {
-      test(`Should test markdown with the (${markdownText}) trigger. Should include undo and redo.`, async ({
-        page,
-        isPlainText,
-        isCollab,
-      }) => {
-        test.skip(isPlainText);
-
-        await focusEditor(page);
-
-        await page.keyboard.type(markdownText);
-
-        const forwardHTML = triggersAndExpectations[i].expectation;
-
-        const undoHTML = `<p class="PlaygroundEditorTheme__paragraph" dir="auto"><span data-lexical-text="true">${markdownText}</span></p>`;
-
-        await checkHTMLExpectationsIncludingUndoRedo(
+      test.describe(() => {
+        test.skip(({isPlainText}) => isPlainText);
+        test(`Should test markdown with the (${markdownText}) trigger. Should include undo and redo.`, async ({
           page,
-          forwardHTML,
-          triggersAndExpectations[i].undoHTML || undoHTML,
           isCollab,
-        );
+        }) => {
+          await focusEditor(page);
+
+          await page.keyboard.type(markdownText);
+
+          const forwardHTML = triggersAndExpectations[i].expectation;
+
+          const undoHTML = `<p class="PlaygroundEditorTheme__paragraph" dir="auto"><span data-lexical-text="true">${markdownText}</span></p>`;
+
+          await checkHTMLExpectationsIncludingUndoRedo(
+            page,
+            forwardHTML,
+            triggersAndExpectations[i].undoHTML || undoHTML,
+            isCollab,
+          );
+        });
       });
     }
 
     if (triggersAndExpectations[i].markdownImport.length > 0) {
-      test(`Should test importing markdown (${markdownText}) trigger.`, async ({
-        page,
-        isPlainText,
-        isCollab,
-      }) => {
-        test.skip(isPlainText);
-        await focusEditor(page);
+      test.describe(() => {
+        test.skip(({isPlainText}) => isPlainText);
+        test(`Should test importing markdown (${markdownText}) trigger.`, async ({
+          page,
+        }) => {
+          await focusEditor(page);
 
-        await page.keyboard.type(
-          '```markdown ' + triggersAndExpectations[i].markdownImport,
-        );
-        await click(page, 'i.markdown');
+          await page.keyboard.type('```markdown ');
+          await page.keyboard.insertText(
+            triggersAndExpectations[i].markdownImport,
+          );
+          await click(page, 'i.markdown');
 
-        const htmlInner = triggersAndExpectations[i].importExpectation;
-        await assertHTML(page, htmlInner);
+          const htmlInner = triggersAndExpectations[i].importExpectation;
+          await assertHTML(page, htmlInner);
 
-        // Click on markdow toggle twice to run import -> export loop and then
-        // validate that it's the same rich text after full cycle
-        await click(page, 'i.markdown');
-        await click(page, 'i.markdown');
-        await assertHTML(page, htmlInner);
+          // Click on markdow toggle twice to run import -> export loop and then
+          // validate that it's the same rich text after full cycle
+          await click(page, 'i.markdown');
+          await click(page, 'i.markdown');
+          await assertHTML(page, htmlInner);
+        });
       });
     }
   }
@@ -374,7 +317,7 @@ async function assertMarkdownImportExport(
 
   // Create code block that will be imported as a markdown into editor
   await page.keyboard.type('```markdown ');
-  await page.keyboard.type(textToImport);
+  await page.keyboard.insertText(textToImport);
   await click(page, '.action-button .markdown');
   await assertHTML(page, expectedHTML, undefined, {ignoreClasses});
 
@@ -385,122 +328,12 @@ async function assertMarkdownImportExport(
 }
 
 test.describe('Markdown', () => {
-  test.beforeEach(({isCollab, isPlainText, page}) => {
-    test.skip(isPlainText);
+  test.skip(({isPlainText}) => isPlainText, 'Requires rich text');
+  test.beforeEach(({isCollab, page}) => {
     return initialize({isCollab, page});
   });
 
-  const BASE_BLOCK_SHORTCUTS = [
-    {
-      html: html`
-        <h1 dir="auto"><br data-lexical-managed-linebreak="true" /></h1>
-      `,
-      text: '# ',
-    },
-    {
-      html: html`
-        <h2 dir="auto"><br data-lexical-managed-linebreak="true" /></h2>
-      `,
-      text: '## ',
-    },
-    {
-      html: html`
-        <ol dir="auto">
-          <li value="1"><br data-lexical-managed-linebreak="true" /></li>
-        </ol>
-      `,
-      text: '1. ',
-    },
-    {
-      html: html`
-        <ol dir="auto" start="25">
-          <li value="25"><br data-lexical-managed-linebreak="true" /></li>
-        </ol>
-      `,
-      text: '25. ',
-    },
-    {
-      html: html`
-        <ol dir="auto">
-          <li value="1">
-            <ol>
-              <li value="1"><br data-lexical-managed-linebreak="true" /></li>
-            </ol>
-          </li>
-        </ol>
-      `,
-      text: '    1. ',
-    },
-    {
-      html: html`
-        <ul dir="auto">
-          <li value="1"><br data-lexical-managed-linebreak="true" /></li>
-        </ul>
-      `,
-      text: '- ',
-    },
-    {
-      html: html`
-        <ul dir="auto">
-          <li value="1">
-            <ul>
-              <li value="1"><br data-lexical-managed-linebreak="true" /></li>
-            </ul>
-          </li>
-        </ul>
-      `,
-      text: '    - ',
-    },
-    {
-      html: html`
-        <ul dir="auto">
-          <li value="1"><br data-lexical-managed-linebreak="true" /></li>
-        </ul>
-      `,
-      text: '* ',
-    },
-    {
-      html: html`
-        <ul dir="auto">
-          <li value="1">
-            <ul>
-              <li value="1"><br data-lexical-managed-linebreak="true" /></li>
-            </ul>
-          </li>
-        </ul>
-      `,
-      text: '    * ',
-    },
-    {
-      html: html`
-        <ul dir="auto">
-          <li value="1">
-            <ul>
-              <li value="1"><br data-lexical-managed-linebreak="true" /></li>
-            </ul>
-          </li>
-        </ul>
-      `,
-      text: '      * ',
-    },
-    {
-      html: html`
-        <ul dir="auto">
-          <li value="1">
-            <ul>
-              <li value="1">
-                <ul>
-                  <li value="1">
-                    <br data-lexical-managed-linebreak="true" />
-                  </li>
-                </ul>
-              </li>
-            </ul>
-          </li>
-        </ul>
-      `,
-      text: '        * ',
-    },
+  const HORIZONTAL_RULE_SHORTCUTS = [
     {
       html: html`
         <hr
@@ -527,74 +360,6 @@ test.describe('Markdown', () => {
     {
       html: html`
         <p class="PlaygroundEditorTheme__paragraph" dir="auto">
-          <span data-lexical-text="true">hello</span>
-          <em
-            class="PlaygroundEditorTheme__textItalic"
-            data-lexical-text="true">
-            world
-          </em>
-          <span data-lexical-text="true">!</span>
-        </p>
-      `,
-      text: 'hello *world*!',
-    },
-    {
-      html: html`
-        <p class="PlaygroundEditorTheme__paragraph" dir="auto">
-          <span data-lexical-text="true">hello</span>
-          <strong
-            class="PlaygroundEditorTheme__textBold"
-            data-lexical-text="true">
-            world
-          </strong>
-          <span data-lexical-text="true">!</span>
-        </p>
-      `,
-      text: 'hello **world**!',
-    },
-    {
-      html: html`
-        <p class="PlaygroundEditorTheme__paragraph" dir="auto">
-          <span data-lexical-text="true">hello</span>
-          <strong
-            class="PlaygroundEditorTheme__textBold PlaygroundEditorTheme__textItalic"
-            data-lexical-text="true">
-            world
-          </strong>
-          <span data-lexical-text="true">!</span>
-        </p>
-      `,
-      text: 'hello ***world***!',
-    },
-    {
-      html: html`
-        <p class="PlaygroundEditorTheme__paragraph" dir="auto">
-          <span data-lexical-text="true">hello</span>
-          <strong
-            class="PlaygroundEditorTheme__textBold PlaygroundEditorTheme__textItalic"
-            data-lexical-text="true">
-            world
-          </strong>
-          <span data-lexical-text="true">!</span>
-        </p>
-      `,
-      text: 'hello ___world___!',
-    },
-    {
-      html: html`
-        <p class="PlaygroundEditorTheme__paragraph" dir="auto">
-          <span data-lexical-text="true">hello</span>
-          <a class="PlaygroundEditorTheme__link" href="https://www.test.com">
-            <span data-lexical-text="true">world</span>
-          </a>
-          <span data-lexical-text="true">!</span>
-        </p>
-      `,
-      text: 'hello [world](https://www.test.com)!',
-    },
-    {
-      html: html`
-        <p class="PlaygroundEditorTheme__paragraph" dir="auto">
           <span data-lexical-text="true">10:20:30😄</span>
         </p>
       `,
@@ -602,62 +367,7 @@ test.describe('Markdown', () => {
     },
   ];
 
-  const NESTED_TEXT_FORMAT_SHORTCUTS = [
-    {
-      html: html`
-        <p class="PlaygroundEditorTheme__paragraph" dir="auto">
-          <strong
-            class="PlaygroundEditorTheme__textBold PlaygroundEditorTheme__textItalic PlaygroundEditorTheme__textStrikethrough"
-            data-lexical-text="true">
-            hello world
-          </strong>
-          <span data-lexical-text="true">!</span>
-        </p>
-      `,
-      text: '~~_**hello world**_~~!',
-    },
-    {
-      html: html`
-        <p class="PlaygroundEditorTheme__paragraph" dir="auto">
-          <em
-            class="PlaygroundEditorTheme__textItalic PlaygroundEditorTheme__textStrikethrough"
-            data-lexical-text="true">
-            hello world
-          </em>
-          <span data-lexical-text="true">!</span>
-        </p>
-      `,
-      text: '~~_hello world_~~!',
-    },
-    {
-      html: html`
-        <p class="PlaygroundEditorTheme__paragraph" dir="auto">
-          <strong
-            class="PlaygroundEditorTheme__textBold PlaygroundEditorTheme__textStrikethrough"
-            data-lexical-text="true">
-            hello world
-          </strong>
-          <span data-lexical-text="true">!</span>
-        </p>
-      `,
-      text: '~~**hello world**~~!',
-    },
-    {
-      html: html`
-        <p class="PlaygroundEditorTheme__paragraph" dir="auto">
-          <strong
-            class="PlaygroundEditorTheme__textBold PlaygroundEditorTheme__textItalic"
-            data-lexical-text="true">
-            hello world
-          </strong>
-          <span data-lexical-text="true">!</span>
-        </p>
-      `,
-      text: '_**hello world**_!',
-    },
-  ];
-
-  BASE_BLOCK_SHORTCUTS.forEach(testCase => {
+  HORIZONTAL_RULE_SHORTCUTS.forEach(testCase => {
     test(`can convert "${testCase.text}" shortcut`, async ({
       page,
       isCollab,
@@ -682,136 +392,12 @@ test.describe('Markdown', () => {
   });
 
   SIMPLE_TEXT_FORMAT_SHORTCUTS.forEach(testCase => {
-    test(`can convert "${testCase.text}" shortcut`, async ({
-      page,
-      isCollab,
-    }) => {
-      await focusEditor(page);
-      await page.keyboard.type(testCase.text);
-      await assertHTML(page, testCase.html, undefined, {ignoreClasses: false});
-      await assertMarkdownImportExport(page, testCase.text, testCase.html);
-    });
-  });
-
-  NESTED_TEXT_FORMAT_SHORTCUTS.forEach(testCase => {
     test(`can convert "${testCase.text}" shortcut`, async ({page}) => {
       await focusEditor(page);
       await page.keyboard.type(testCase.text);
       await assertHTML(page, testCase.html, undefined, {ignoreClasses: false});
       await assertMarkdownImportExport(page, testCase.text, testCase.html);
     });
-  });
-
-  test('can undo/redo nested transformations', async ({page, isCollab}) => {
-    await focusEditor(page);
-    await page.keyboard.type('~~_**hello world**_~~');
-
-    const BOLD_ITALIC_STRIKETHROUGH = html`
-      <p class="PlaygroundEditorTheme__paragraph" dir="auto">
-        <strong
-          class="PlaygroundEditorTheme__textBold PlaygroundEditorTheme__textItalic PlaygroundEditorTheme__textStrikethrough"
-          data-lexical-text="true">
-          hello world
-        </strong>
-      </p>
-    `;
-    const BOLD_ITALIC = html`
-      <p class="PlaygroundEditorTheme__paragraph" dir="auto">
-        <span data-lexical-text="true">~~</span>
-        <strong
-          class="PlaygroundEditorTheme__textBold PlaygroundEditorTheme__textItalic"
-          data-lexical-text="true">
-          hello world
-        </strong>
-        <span data-lexical-text="true">~~</span>
-      </p>
-    `;
-    const BOLD = html`
-      <p class="PlaygroundEditorTheme__paragraph" dir="auto">
-        <span data-lexical-text="true">~~_</span>
-        <strong
-          class="PlaygroundEditorTheme__textBold"
-          data-lexical-text="true">
-          hello world
-        </strong>
-        <span data-lexical-text="true">_</span>
-      </p>
-    `;
-    const PLAIN = html`
-      <p class="PlaygroundEditorTheme__paragraph" dir="auto">
-        <span data-lexical-text="true">~~_**hello world**</span>
-      </p>
-    `;
-
-    await assertHTML(page, BOLD_ITALIC_STRIKETHROUGH);
-
-    if (isCollab) {
-      return;
-    }
-
-    await undo(page); // Undo last transformation
-    await assertHTML(page, BOLD_ITALIC);
-    await undo(page); // Undo transformation & its text typing
-    await undo(page);
-    await assertHTML(page, BOLD);
-    await undo(page); // Undo transformation & its text typing
-    await undo(page);
-    await assertHTML(page, PLAIN);
-    await redo(page); // Redo transformation & its text typing
-    await redo(page);
-    await assertHTML(page, BOLD);
-    await redo(page); // Redo transformation & its text typing
-    await redo(page);
-    await assertHTML(page, BOLD_ITALIC);
-    await redo(page); // Redo transformation
-    await assertHTML(page, BOLD_ITALIC_STRIKETHROUGH);
-  });
-
-  test('can convert already styled text (overlapping ranges)', async ({
-    page,
-  }) => {
-    // type partially bold/underlined text, add opening markdown tag within bold/underline part
-    // and add closing within plain text
-    await focusEditor(page);
-    await pressToggleBold(page);
-    await pressToggleUnderline(page);
-    await page.keyboard.type('h*e~~llo');
-    await pressToggleBold(page);
-    await pressToggleUnderline(page);
-    await page.keyboard.type(' wo~~r*ld');
-    await assertHTML(
-      page,
-      html`
-        <p class="PlaygroundEditorTheme__paragraph" dir="auto">
-          <strong
-            class="PlaygroundEditorTheme__textBold PlaygroundEditorTheme__textUnderline"
-            data-lexical-text="true">
-            h
-          </strong>
-          <strong
-            class="PlaygroundEditorTheme__textBold PlaygroundEditorTheme__textItalic PlaygroundEditorTheme__textUnderline"
-            data-lexical-text="true">
-            e
-          </strong>
-          <strong
-            class="PlaygroundEditorTheme__textUnderlineStrikethrough PlaygroundEditorTheme__textBold PlaygroundEditorTheme__textItalic"
-            data-lexical-text="true">
-            llo
-          </strong>
-          <em
-            class="PlaygroundEditorTheme__textItalic PlaygroundEditorTheme__textStrikethrough"
-            data-lexical-text="true">
-            wo
-          </em>
-          <em
-            class="PlaygroundEditorTheme__textItalic"
-            data-lexical-text="true">
-            r
-          </em>
-          <span data-lexical-text="true">ld</span>
-        </p>
-      `,
-    );
   });
 
   test('can convert markdown text into rich text', async ({page, isCollab}) => {
@@ -822,6 +408,8 @@ test.describe('Markdown', () => {
     });
 
     const originalHTML = await getHTML(page);
+    // Both peers must receive the source before converting the whole document.
+    await assertHTML(page, originalHTML);
 
     // Import from current markdown codeblock content
     await click(page, '.action-button .markdown');
@@ -911,153 +499,106 @@ test.describe('Markdown', () => {
     );
   });
 
-  test('can import single decorator node (#2604)', async ({page}) => {
-    // TODO(collab-v2): nested editors are not supported yet
+  test.describe(() => {
     test.skip(IS_COLLAB_V2);
+    test('can import single decorator node (#2604)', async ({page}) => {
+      // TODO(collab-v2): nested editors are not supported yet
 
-    await focusEditor(page);
-    await page.keyboard.type(
-      '```markdown ![Yellow flower in tilt shift lens](' +
-        SAMPLE_IMAGE_URL +
-        ')',
-    );
-    await click(page, '.action-button .markdown');
-    await waitForSelector(page, '.editor-image img');
-    await assertHTML(
+      await focusEditor(page);
+      await page.keyboard.type('```markdown ');
+      await page.keyboard.insertText(
+        '![Yellow flower in tilt shift lens](' + SAMPLE_IMAGE_URL + ')',
+      );
+      await click(page, '.action-button .markdown');
+      await waitForSelector(page, '.editor-image img');
+      await assertHTML(
+        page,
+        html`
+          <p class="PlaygroundEditorTheme__paragraph" dir="auto">
+            <span
+              class="editor-image"
+              contenteditable="false"
+              data-lexical-decorator="true">
+              <div draggable="false">
+                <img
+                  alt="Yellow flower in tilt shift lens"
+                  draggable="false"
+                  src="${SAMPLE_IMAGE_URL}"
+                  style="height: inherit; max-width: 500px; width: inherit" />
+              </div>
+            </span>
+            <br data-lexical-managed-linebreak="true" />
+          </p>
+        `,
+      );
+    });
+
+    test('can import several text match transformers in a same line (#5385)', async ({
       page,
-      html`
-        <p class="PlaygroundEditorTheme__paragraph" dir="auto">
-          <span
-            class="editor-image"
-            contenteditable="false"
-            data-lexical-decorator="true">
-            <div draggable="false">
-              <img
-                alt="Yellow flower in tilt shift lens"
-                draggable="false"
-                src="${SAMPLE_IMAGE_URL}"
-                style="height: inherit; max-width: 500px; width: inherit" />
-            </div>
-          </span>
-          <br data-lexical-managed-linebreak="true" />
-        </p>
-      `,
-    );
-  });
+    }) => {
+      // TODO(collab-v2): nested editors are not supported yet
 
-  test('can import several text match transformers in a same line (#5385)', async ({
-    page,
-  }) => {
-    // TODO(collab-v2): nested editors are not supported yet
-    test.skip(IS_COLLAB_V2);
-
-    await focusEditor(page);
-    await page.keyboard.type(
-      '```markdown [link](https://lexical.dev)[link](https://lexical.dev)![Yellow flower in tilt shift lens](' +
-        SAMPLE_IMAGE_URL +
-        ')just text in between$1$',
-    );
-    await click(page, '.action-button .markdown');
-    await waitForSelector(page, '.editor-image img');
-    await waitForSelector(page, '.editor-equation');
-    await assertHTML(
-      page,
-      html`
-        <p class="PlaygroundEditorTheme__paragraph" dir="auto">
-          <a class="PlaygroundEditorTheme__link" href="https://lexical.dev">
-            <span data-lexical-text="true">linklink</span>
-          </a>
-          <span
-            class="editor-image"
-            contenteditable="false"
-            data-lexical-decorator="true">
-            <div draggable="false">
+      await focusEditor(page);
+      await page.keyboard.type('```markdown ');
+      await page.keyboard.insertText(
+        '[link](https://lexical.dev)[link](https://lexical.dev)![Yellow flower in tilt shift lens](' +
+          SAMPLE_IMAGE_URL +
+          ')just text in between$1$',
+      );
+      await click(page, '.action-button .markdown');
+      await waitForSelector(page, '.editor-image img');
+      await waitForSelector(page, '.editor-equation');
+      await assertHTML(
+        page,
+        html`
+          <p class="PlaygroundEditorTheme__paragraph" dir="auto">
+            <a class="PlaygroundEditorTheme__link" href="https://lexical.dev">
+              <span data-lexical-text="true">linklink</span>
+            </a>
+            <span
+              class="editor-image"
+              contenteditable="false"
+              data-lexical-decorator="true">
+              <div draggable="false">
+                <img
+                  alt="Yellow flower in tilt shift lens"
+                  draggable="false"
+                  src="${SAMPLE_IMAGE_URL}"
+                  style="height: inherit; max-width: 500px; width: inherit" />
+              </div>
+            </span>
+            <span data-lexical-text="true">just text in between</span>
+            <span
+              class="editor-equation"
+              contenteditable="false"
+              role="math"
+              aria-label="Equation: 1"
+              data-lexical-decorator="true">
               <img
-                alt="Yellow flower in tilt shift lens"
-                draggable="false"
-                src="${SAMPLE_IMAGE_URL}"
-                style="height: inherit; max-width: 500px; width: inherit" />
-            </div>
-          </span>
-          <span data-lexical-text="true">just text in between</span>
-          <span
-            class="editor-equation"
-            contenteditable="false"
-            role="math"
-            aria-label="Equation: 1"
-            data-lexical-decorator="true">
-            <img
-              alt=""
-              height="0"
-              src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7"
-              width="0" />
-            <span>
-              <span class="katex">
-                <span class="katex-html" aria-hidden="true">
-                  <span class="base">
-                    <span class="strut" style="height: 0.6444em;"></span>
-                    <span class="mord">1</span>
+                alt=""
+                height="0"
+                src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7"
+                width="0" />
+              <span>
+                <span class="katex">
+                  <span class="katex-html" aria-hidden="true">
+                    <span class="base">
+                      <span class="strut" style="height: 0.6444em;"></span>
+                      <span class="mord">1</span>
+                    </span>
                   </span>
                 </span>
               </span>
+              <img
+                alt=""
+                height="0"
+                src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7"
+                width="0" />
             </span>
-            <img
-              alt=""
-              height="0"
-              src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7"
-              width="0" />
-          </span>
-          <br data-lexical-managed-linebreak="true" />
-        </p>
-      `,
-    );
-  });
-
-  test('does not use code-formatted text in text format transformers (#7349)', async ({
-    page,
-  }) => {
-    await focusEditor(page);
-    await page.keyboard.type('`void*` or `int*`');
-    await assertHTML(
-      page,
-      html`
-        <p class="PlaygroundEditorTheme__paragraph" dir="auto">
-          <code spellcheck="false" data-lexical-text="true">
-            <span class="PlaygroundEditorTheme__textCode">void*</span>
-          </code>
-          <span data-lexical-text="true">or</span>
-          <code spellcheck="false" data-lexical-text="true">
-            <span class="PlaygroundEditorTheme__textCode">int*</span>
-          </code>
-        </p>
-      `,
-    );
-  });
-
-  test('can adjust selection after text match transformer', async ({page}) => {
-    await focusEditor(page);
-    await page.keyboard.type('Hello  world');
-    await moveLeft(page, 6);
-    await page.keyboard.type('[link](https://lexical.dev)');
-    await assertHTML(
-      page,
-      html`
-        <p class="PlaygroundEditorTheme__paragraph" dir="auto">
-          <span data-lexical-text="true">Hello</span>
-          <a class="PlaygroundEditorTheme__link" href="https://lexical.dev">
-            <span data-lexical-text="true">link</span>
-          </a>
-          <span data-lexical-text="true">world</span>
-        </p>
-      `,
-    );
-    // Selection starts after newly created link element
-
-    await assertSelection(page, {
-      anchorOffset: 0,
-      anchorPath: [0, 2, 0],
-      focusOffset: 0,
-      focusPath: [0, 2, 0],
+            <br data-lexical-managed-linebreak="true" />
+          </p>
+        `,
+      );
     });
   });
 
@@ -1105,7 +646,7 @@ test.describe('Markdown', () => {
     await page.keyboard.press('Enter');
     await page.keyboard.type('c');
     await selectAll(page);
-    await withExclusiveClipboardAccess(async () => {
+    {
       const clipboard = await copyToClipboard(page);
       // Delete selected text and then delete remaining bullet list.
       await page.keyboard.press('Backspace');
@@ -1113,7 +654,7 @@ test.describe('Markdown', () => {
       await pasteFromClipboard(page, clipboard);
       await click(page, '.action-button .markdown');
       await assertHTML(page, LIST_MARKER_MARKDOWN);
-    });
+    }
   });
 });
 

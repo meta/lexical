@@ -20,6 +20,7 @@ export {
   $insertDataTransferForRichText,
   $insertGeneratedNodes,
   $writeDragSourceToDataTransfer,
+  type BaseSerializedNode,
   copyToClipboard,
   type ExportMimeTypeConfig,
   type ExportMimeTypeFunction,

@@ -1,0 +1,302 @@
+/**
+ * Copyright (c) Meta Platforms, Inc. and affiliates.
+ *
+ * This source code is licensed under the MIT license found in the
+ * LICENSE file in the root directory of this source tree.
+ *
+ * @flow strict
+ */
+
+/**
+ * Type-only smoke test for the hand-maintained Flow declarations.
+ *
+ * `pnpm lint-flow` checks that the `.flow` files export the same names as the
+ * generated `.d.ts`, and `pnpm flow` checks that the declarations are
+ * internally consistent. Neither one ever *calls* the declared API, so a
+ * declaration can be exported, self-consistent, and still impossible to use
+ * from a Flow codebase — which is how the extension types came to ship with
+ * `defineExtension` uncallable.
+ *
+ * This file is that missing coverage: it consumes the public extension API
+ * the way a downstream Flow app does. It is never imported at runtime, and
+ * `flow/` is not in the package's published `files`.
+ *
+ * The `.js.flow` extension is load-bearing. Flow type-checks the contents of
+ * `.js.flow` files, but `tsc` (which runs over the packages tree with
+ * `allowJs`) does not recognise the extension, and both ESLint and Prettier
+ * already ignore every `.js.flow` path. A plain `.js` file here fails
+ * `pnpm tsc` on the Flow syntax (`error TS8006: 'import type' declarations
+ * can only be used in TypeScript files`), because tsconfig's `exclude` only
+ * covers `.js` files one directory below `packages`, which is one level
+ * above this directory.
+ */
+
+import type {
+  CompactSerializedEditorState,
+  EditorState,
+  LexicalEditor,
+  LexicalExtensionConfig,
+  LexicalExtensionOutput,
+  LexicalNode,
+  SerializedEditor,
+  SerializedEditorState,
+  SerializedElementNode,
+  SerializedLexicalNode,
+  SerializedPartial,
+  SerializedPartialNode,
+  TextNode,
+} from 'lexical';
+
+import {
+  $exportNodeJSON,
+  $getState,
+  $setState,
+  arraySetValue,
+  createState,
+  $parseSerializedNode,
+  $withCompactExport,
+  defineExtension,
+  ElementNode,
+  enumValue,
+  LineBreakNode,
+  nodeSchema,
+  numberValue,
+  ParagraphNode,
+  stringValue,
+  unionValue,
+  withField,
+} from 'lexical';
+
+type SmokeConfig = {greeting: string};
+
+// An extension that declares no config, build, or init.
+const minimalExtension = defineExtension({
+  name: '@lexical/flow-smoke-test/Minimal',
+});
+
+// An extension carrying config and an output built at editor build time.
+const configuredExtension = defineExtension({
+  build(editor: LexicalEditor, config: SmokeConfig): {upper: string} {
+    return {upper: config.greeting.toUpperCase()};
+  },
+  config: {greeting: 'hello'} as SmokeConfig,
+  name: '@lexical/flow-smoke-test/Configured',
+});
+
+// The Config/Output helpers must still extract from a defined extension.
+const extractedConfig: LexicalExtensionConfig<typeof configuredExtension> = {
+  greeting: 'hi',
+};
+const extractedOutput: LexicalExtensionOutput<typeof configuredExtension> = {
+  upper: 'HI',
+};
+
+export function flowSmokeTest(): string {
+  return [
+    minimalExtension.name,
+    configuredExtension.name,
+    extractedConfig.greeting,
+    extractedOutput.upper,
+  ].join(',');
+}
+
+/**
+ * The compact serialized form omits every property equal to its schema
+ * default, so a type that names those properties as present is wrong about the
+ * value. TypeScript overloads `exportJSON`/`toJSON` on `compact` to say which
+ * shape came back; these check that Flow does not hand a caller the legacy
+ * shape for a compact call.
+ */
+
+// `EditorState` is extended by nothing, so the overload carries over intact.
+export function flowCompactEditorState(
+  state: EditorState,
+): [SerializedEditorState, CompactSerializedEditorState] {
+  const legacy: SerializedEditorState = state.toJSON();
+  const compact: CompactSerializedEditorState = state.toJSON(true);
+  // `compact.root.indent` is optional here — writing `.toFixed()` on it is the
+  // error this overload exists to produce.
+  return [legacy, compact];
+}
+
+// A compact export omits a default-valued property at every depth, so the
+// relaxation has to reach the children too — `Partial<T>` alone made the array
+// optional while still promising everything inside it was fully serialized.
+export function flowCompactChildren(state: EditorState): number {
+  const {children} = state.toJSON(true).root;
+  if (children == null || children.length === 0) {
+    return 0;
+  }
+  const child = children[0];
+  // `version` is optional on a child, as it is on the root: writing
+  // `child.version.toFixed(0)` is the error this recursion exists to produce.
+  return child.version == null ? 0 : child.version;
+}
+
+// Nested elements, so the recursion is exercised past the first level. The
+// children are `SerializedLexicalNode` at every depth — a node cannot declare
+// what kind of children it takes — so what a compact child promises is only
+// what every node has.
+export function flowCompactNestedChildren(
+  partial: SerializedPartial<SerializedElementNode>,
+): number {
+  const {children} = partial;
+  if (children == null || children.length === 0) {
+    return 0;
+  }
+  // A compact child carries only what a compact export wrote, so `version` is
+  // optional here as it is on the root: `children[0].version.toFixed(0)` is the
+  // error this recursion exists to produce.
+  const child = children[0];
+  return child.version == null ? 0 : child.version;
+}
+
+// A compact element is assignable from the little a compact export writes,
+// nested children included.
+export const flowCompactElement: SerializedPartial<SerializedElementNode> = {
+  children: [{children: [{type: 'text'}], type: 'paragraph'}],
+  type: 'root',
+};
+
+// A child's own properties are `unknown` — there is no type to name them from
+// — so a reader refines by `type` as it would with any untrusted JSON. Flow's
+// object is inexact here for the reason TypeScript's carries an index
+// signature: a compact document has to remain something you can write down.
+export function flowCompactChildIsNotNamed(
+  child: SerializedPartialNode,
+): unknown {
+  return child.text;
+}
+
+// Both serialization forms cross the two public boundaries that carry them.
+// A Flow object property is invariant, so naming only the compact shape on
+// `SerializedEditor.editorState` made the legacy value unassignable, and
+// `parseEditorState` declared only the legacy one while the compact form is
+// exactly what it exists to read.
+export function flowBothEditorForms(editor: LexicalEditor): EditorState {
+  const state = editor.getEditorState();
+  const legacy: SerializedEditor = {editorState: state.toJSON()};
+  const compact: SerializedEditor = {editorState: state.toJSON(true)};
+  void legacy;
+  void compact;
+  editor.parseEditorState(state.toJSON());
+  return editor.parseEditorState(state.toJSON(true));
+}
+
+// Reading a compact document still has to narrow: accepting the form does not
+// promise the properties it omits.
+export function flowCompactStillNarrows(editor: LexicalEditor): number {
+  const {root} = editor.getEditorState().toJSON(true);
+  // $FlowExpectedError[incompatible-use] `indent` is optional in the compact form
+  return root.indent.toFixed(0).length;
+}
+
+// `exportJSON` cannot be overloaded (see the declaration), so the compact
+// argument is refused rather than answered with a shape the value does not
+// have. A caller that wants it says what it really gets.
+export function flowLegacyNodeExport(node: TextNode): [number, unknown] {
+  const legacy: SerializedLexicalNode = node.exportJSON();
+  const compact: SerializedPartial<SerializedLexicalNode> =
+    // $FlowExpectedError[incompatible-type] the declaration takes no `true`
+    node.exportJSON(true) as $FlowFixMe;
+  return [legacy.version, compact.type];
+}
+
+// A node's own full serialized type is what `exportJSON()` returns, and feeding
+// it straight back to `importJSON` is the most ordinary thing a caller does.
+// Flow compares an object property invariantly, so an `importJSON` declared
+// over `SerializedPartial<T>` alone — every property optional — refuses the
+// required-property `T`, and this round trip stopped type-checking.
+export function flowImportJSONTakesBothForms(
+  p: ParagraphNode,
+  l: LineBreakNode,
+): LexicalNode {
+  ParagraphNode.importJSON(p.exportJSON());
+  // And the relaxed form a compact document carries still goes through.
+  ParagraphNode.importJSON({type: 'paragraph'});
+  LineBreakNode.importJSON({type: 'linebreak'});
+  return LineBreakNode.importJSON(l.exportJSON());
+}
+
+// The public parse entry point takes a node of unknown type, node state and
+// slots included — a payload `@lexical/clipboard` builds and hands straight
+// back. Nothing called it before, so a parameter type that admitted none of
+// those went unnoticed.
+export function flowParseSerializedNode(): LexicalNode {
+  $parseSerializedNode({
+    $: {myState: 1},
+    children: [{text: 'hi', type: 'text'}],
+    type: 'paragraph',
+  });
+  return $parseSerializedNode({type: 'linebreak'});
+}
+
+// A compact export omits every property equal to its default, `version`
+// included, so the walk that produces one cannot be typed as the full node.
+// Declared as `SerializedLexicalNode`, Flow accepted `.version.toFixed()` on
+// the result of a compact export — which throws.
+export function flowExportNodeJSONIsPartial(node: TextNode): number {
+  const json = $withCompactExport(true, () => $exportNodeJSON(node));
+  // $FlowExpectedError[incompatible-use] `version` is optional in the compact form
+  return json.version.toFixed(0).length;
+}
+
+// The public export and import helpers compose, cast-free: what
+// `$exportNodeJSON` writes is what `$parseSerializedNode` reads. Neither
+// parameter branch accepted it before — the full form requires `version`, which
+// a compact export omits, and Flow compares an object property invariantly, so
+// a type missing an optional property that another declares is not a subtype of
+// it. TypeScript accepts the same composition on one branch.
+export function flowExportAndParseCompose(node: TextNode): LexicalNode {
+  const compact = $withCompactExport(true, () => $exportNodeJSON(node));
+  $parseSerializedNode(compact);
+  // And the legacy form, which is what the same walk writes without the flag.
+  return $parseSerializedNode($exportNodeJSON(node));
+}
+
+// Ordinary composition over schemas of different types. Flow compares a
+// `SerializationSchema<T>` invariantly in `T` — `isEqual` takes one — so a
+// bound of `SerializationSchema<unknown>` admitted no concrete schema at all:
+// neither a union of two primitives nor a node's field record could be
+// written. TypeScript accepts both.
+class FlowLabelNode extends ElementNode {
+  __label: string = '';
+}
+export function flowComposesSchemas(): unknown {
+  const dimension = unionValue([numberValue(), stringValue()]);
+  const fields = nodeSchema<FlowLabelNode>()({
+    label: withField(stringValue(), {field: '__label'}),
+  });
+  return [dimension, fields];
+}
+
+// A declared `undefined` default is legal only where `undefined` is one of the
+// values, as in TypeScript: with an optional parameter, `enumValue(['a', 'b'],
+// undefined)` was a schema over `'a' | 'b'` whose parse of an absent value
+// returns `undefined`, and a function annotated `string` returned it.
+export function flowEnumDefaultIsChecked(): string {
+  const withUndefined = enumValue(['a', undefined], undefined);
+  const plain = enumValue(['a', 'b']);
+  const declared = enumValue(['a', 'b'], 'b');
+  // $FlowExpectedError[incompatible-type] `undefined` is not one of the values
+  const wrong = enumValue(['a', 'b'], undefined);
+  return [withUndefined('a'), plain('a'), declared('a'), wrong('a')].join(',');
+}
+
+// A set-valued state: `arraySetValue` takes string items only, the value is a
+// read-only array, and `$setState` takes an array or an updater.
+export function flowArraySetValue(node: TextNode): ReadonlyArray<string> {
+  const tagsState = createState('tags', {parse: arraySetValue(stringValue())});
+  const kinds = createState('kinds', {
+    parse: arraySetValue(enumValue(['a', 'b'])),
+  });
+  $setState(node, tagsState, ['b', 'a']);
+  $setState(node, tagsState, prev => [...prev, 'c']);
+  $setState(node, kinds, ['a']);
+  // $FlowExpectedError[incompatible-type] the members are strings
+  arraySetValue(numberValue());
+  const tags: ReadonlyArray<string> = $getState(node, tagsState);
+  // $FlowExpectedError[incompatible-type] the value is read-only
+  const writable: Array<string> = $getState(node, tagsState);
+  return [...tags, ...writable, ...$getState(node, kinds)];
+}

@@ -33,7 +33,6 @@ export {
   CheckListExtension,
   type ListConfig,
   ListExtension,
-  ListImportExtension,
 } from './LexicalListExtension';
 export {ListImportRules, ListSchema} from './ListImportExtension';
 export {

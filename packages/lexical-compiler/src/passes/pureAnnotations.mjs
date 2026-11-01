@@ -28,6 +28,8 @@ import MagicString from 'magic-string';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 
+import {parserPluginsFor} from './parserPlugins.mjs';
+
 /**
  * The Lexical factories that are annotated with `__NO_SIDE_EFFECTS__` at
  * their definition. That annotation is only honored by esbuild for calls in
@@ -44,18 +46,43 @@ import * as path from 'node:path';
  * @type {ReadonlyArray<string>}
  */
 export const PURE_FACTORY_FUNCTIONS = [
+  // The combinators that build a node's serialization schema at module
+  // scope, nested inside each other and inside createState.
+  'aliasedValue',
+  'arraySetValue',
+  'arrayValue',
+  'booleanValue',
   'configExtension',
   'createCommand',
   'createContextState',
   'createImportState',
+  'createLinkMatcherWithRegExp',
+  'createRefCountedRegistry',
   'createRenderState',
   'createState',
   'declarePeerDependency',
   'defineExtension',
   'defineImportRule',
+  'defineMarkExtension',
   'defineOverlayRules',
   'domOverride',
+  'enumValue',
+  // @lexical/react publishes each module as its own entry, so this is public
+  // and callable by name from another package even though it is @internal.
+  'newContext',
+  'nodeSchema',
+  'nullable',
+  'numberValue',
+  'objectValue',
+  'optional',
+  'rawValue',
   'safeCast',
+  'stringValue',
+  'transformValue',
+  'unionValue',
+  'warnOnlyOnce',
+  'withAccessors',
+  'withField',
 ];
 
 /**
@@ -134,9 +161,17 @@ export const PURE_NAMESPACES = ['sel'];
  *
  * @type {ReadonlyMap<string, string>}
  */
-export const INLINE_FACTORY_FORMS = new Map(
-  Array.from(INLINE_FACTORIES, ([name, spec]) => [name, spec.form]),
-);
+export const INLINE_FACTORY_FORMS = inlineFactoryForms();
+
+/**
+ * @__NO_SIDE_EFFECTS__
+ * @returns {ReadonlyMap<string, string>}
+ */
+function inlineFactoryForms() {
+  return new Map(
+    Array.from(INLINE_FACTORIES, ([name, spec]) => [name, spec.form]),
+  );
+}
 
 /**
  * The annotation inserted before a module-scope factory call. No trailing
@@ -273,28 +308,6 @@ const SKIPPED_KEYS = new Set([
   'loc',
   'trailingComments',
 ]);
-
-/**
- * @param {undefined | string} filename
- * @param {undefined | ReadonlyArray<any>} extraPlugins
- * @returns {Array<any>} the Babel parser plugins to parse this file with
- */
-function parserPluginsFor(filename, extraPlugins) {
-  const name = typeof filename === 'string' ? filename : '';
-  const isTypeScript = /\.[cm]?tsx?$/i.test(name);
-  /** @type {Array<any>} */
-  const plugins = ['explicitResourceManagement'];
-  if (isTypeScript) {
-    plugins.push('typescript');
-  }
-  // `<T>(value: T) => value` in a .ts file is a generic arrow function, not
-  // an opening JSX element, so the jsx plugin must stay off there. Any other
-  // extension (including an unknown one) is parsed with jsx enabled.
-  if (!isTypeScript || /\.[cm]?tsx$/i.test(name)) {
-    plugins.push('jsx');
-  }
-  return extraPlugins ? plugins.concat(extraPlugins) : plugins;
-}
 
 /**
  * Find the block comment that ends immediately before `offset` (ignoring
@@ -923,8 +936,10 @@ function pureDeclaredNamesOfFile(filename, parserPlugins) {
 
 /**
  * What a module next to this one declares: the functions it says are
- * side-effect free, and the objects it marks as pure namespaces. Parsed
- * once per file for the life of the process — see the cache note above.
+ * side-effect free, and the objects it marks as pure namespaces, including
+ * those it re-exports by name from a relative module (a package's root entry
+ * re-exports them from where they are declared). Parsed once per file for
+ * the life of the process — see the cache note above.
  *
  * @param {string} filename
  * @param {undefined | ReadonlyArray<any>} parserPlugins
@@ -935,6 +950,11 @@ function declarationsOfFile(filename, parserPlugins) {
   if (cached !== undefined) {
     return cached;
   }
+  // A re-export cycle finds this file empty rather than recursing forever.
+  declarationCache.set(filename, {
+    functions: new Map(),
+    namespaces: new Set(),
+  });
   /** @type {null | any} */
   let program = null;
   try {
@@ -955,6 +975,41 @@ function declarationsOfFile(filename, parserPlugins) {
           functions: pureDeclaredNames(program, filename),
           namespaces: namespaceDeclaredNames(program),
         };
+  for (const statement of program === null ? [] : program.body) {
+    if (
+      statement.type !== 'ExportNamedDeclaration' ||
+      !statement.source ||
+      statement.exportKind === 'type' ||
+      !statement.source.value.startsWith('.')
+    ) {
+      continue;
+    }
+    const resolved = resolveRelativeSpecifier(filename, statement.source.value);
+    if (resolved === null) {
+      continue;
+    }
+    const {functions, namespaces} = declarationsOfFile(resolved, parserPlugins);
+    for (const spec of statement.specifiers) {
+      if (
+        spec.type !== 'ExportSpecifier' ||
+        spec.exportKind === 'type' ||
+        spec.local.type !== 'Identifier'
+      ) {
+        continue;
+      }
+      const exported =
+        spec.exported.type === 'Identifier'
+          ? spec.exported.name
+          : spec.exported.value;
+      const form = functions.get(spec.local.name);
+      if (form !== undefined) {
+        declarations.functions.set(exported, form);
+      }
+      if (namespaces.has(spec.local.name)) {
+        declarations.namespaces.add(exported);
+      }
+    }
+  }
   declarationCache.set(filename, declarations);
   return declarations;
 }
@@ -1030,6 +1085,16 @@ function collectFactoryNames(program, functions, opts) {
       continue;
     }
     for (const specifier of statement.specifiers) {
+      if (specifier.type === 'ImportDefaultSpecifier') {
+        // A Lexical module with a default export is named for it (the
+        // `warnOnlyOnce` module of the internal package exports `warnOnlyOnce`),
+        // which is the only name a default import can be matched against.
+        const name = source.slice(source.lastIndexOf('/') + 1);
+        if (trusted && functions.has(name)) {
+          add(specifier.local.name, name, null, true);
+        }
+        continue;
+      }
       if (
         specifier.type !== 'ImportSpecifier' ||
         specifier.imported.type !== 'Identifier'

@@ -105,7 +105,10 @@ class NodeContextMenuSeparator extends MenuOption {
   }
 }
 
-const ContextMenuSeparatorItem = forwardRef<
+// The forwardRef calls are annotated by hand: React's forwardRef is not a
+// Lexical factory, so the build does not annotate it, and an unannotated
+// module-scope call pins the module into every bundle that imports it.
+const ContextMenuSeparatorItem = /* @__PURE__ */ forwardRef<
   HTMLButtonElement,
   React.ButtonHTMLAttributes<HTMLButtonElement> & {
     disabled?: boolean;
@@ -114,7 +117,7 @@ const ContextMenuSeparatorItem = forwardRef<
   return <hr className={className} />;
 });
 
-const ContextMenuItem = forwardRef<
+const ContextMenuItem = /* @__PURE__ */ forwardRef<
   HTMLButtonElement,
   React.ButtonHTMLAttributes<HTMLButtonElement> & {
     label?: string;
@@ -170,7 +173,7 @@ interface Props {
  *
  * @returns A portal containing the floating context menu while it is open.
  */
-const NodeContextMenuPlugin = forwardRef<
+const NodeContextMenuPlugin = /* @__PURE__ */ forwardRef<
   HTMLButtonElement,
   Props & React.HTMLProps<HTMLButtonElement>
 >(({items, className, itemClassName, separatorClassName}, forwardedRef) => {

@@ -454,27 +454,42 @@ export class ElementDOMSlot<
 
   /** @internal */
   removeManagedLineBreak(): void {
-    const br = this.getManagedLineBreak();
-    if (br) {
-      const element: HTMLElement & LexicalPrivateDOM = this.element;
-      const sibling = br.nodeName === 'IMG' ? br.nextSibling : null;
-      if (sibling) {
-        element.removeChild(sibling);
+    const element: HTMLElement & LexicalPrivateDOM = this.element;
+    const lineBreak = this.getManagedLineBreak();
+    if (lineBreak) {
+      // Native editing can move or detach either node of WebKit's img+br
+      // pair: remove the cached node wherever it is now, then whatever is
+      // left of the line break in this element.
+      lineBreak.remove();
+      // The spaces around `>` are needed by the selector engine of jsdom 26
+      // and older (nwsapi), which rejects `:scope>[attr]`.
+      for (const node of element.querySelectorAll(
+        ':scope > [data-lexical-managed-linebreak]',
+      )) {
+        node.remove();
       }
-      element.removeChild(br);
       element.__lexicalLineBreak = undefined;
     }
   }
   /** @internal */
   insertManagedLineBreak(webkitHack: boolean): void {
+    const element: HTMLElement & LexicalPrivateDOM = this.element;
     const prevBreak = this.getManagedLineBreak();
     if (prevBreak) {
-      if (webkitHack === (prevBreak.nodeName === 'IMG')) {
+      // Keep the line break while it is whole and of this kind: its last node
+      // (with webkitHack, the node after the <img>) is this element's managed
+      // <br>. A change of kind, or an edit that removed or moved a node of it,
+      // rebuilds it.
+      const lastNode = webkitHack ? prevBreak.nextSibling : prevBreak;
+      if (
+        lastNode &&
+        lastNode ===
+          element.querySelector(':scope > br[data-lexical-managed-linebreak]')
+      ) {
         return;
       }
       this.removeManagedLineBreak();
     }
-    const element: HTMLElement & LexicalPrivateDOM = this.element;
     // Stay inside the trailing decorator boundary anchor, which marks the very
     // end of the managed range.
     const before = this.before || this.getDecoratorBoundaryAnchor('trailing');

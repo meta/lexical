@@ -1,0 +1,42 @@
+/**
+ * Copyright (c) Meta Platforms, Inc. and affiliates.
+ *
+ * This source code is licensed under the MIT license found in the
+ * LICENSE file in the root directory of this source tree.
+ *
+ * @flow strict
+ */
+
+import type {PureAnnotationsSourceMap} from '@lexical/compiler/PureAnnotations';
+
+export type SubpathImportsOptions = {
+  packages?: ReadonlyArray<string>,
+  parserPlugins?: ReadonlyArray<unknown>,
+  root?: string,
+  strict?: boolean,
+};
+
+export type SubpathImportsPlugin = {
+  name: string,
+  enforce: 'pre',
+  buildStart(this: {addWatchFile(file: string): void}): void,
+  handleHotUpdate<Module>(context: {
+    file: string,
+    modules: Array<Module>,
+    timestamp: number,
+    server: {
+      watcher: {add(files: Array<string>): unknown},
+      moduleGraph: {
+        getModuleById(id: string): Module | void,
+        invalidateModule(module: Module, seen?: Set<Module>, timestamp?: number, isHmr?: boolean): void,
+      },
+    },
+  }): Array<Module> | void,
+  shouldTransformCachedModule(): boolean,
+  transform(code: string, id: string): {
+    code: string,
+    map: PureAnnotationsSourceMap & {sourcesContent: Array<string>},
+  } | null,
+};
+
+declare export function subpathImports(options?: SubpathImportsOptions): SubpathImportsPlugin;

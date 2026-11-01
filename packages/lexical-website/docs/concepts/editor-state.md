@@ -40,10 +40,20 @@ On top of that it allows to decouple content structure from content formatting. 
 
 In contrast, Lexical decouples structure from formatting by offsetting this information to attributes. This allows us to have canonical document structure regardless of the order in which different styles were applied.
 
-<figure class="text--center">
-  <img src="/img/docs/state-formatting-lexical.png" alt="Flat Lexical state"/>
-  <figcaption>Flat Lexical state structure</figcaption>
-</figure>
+Here is the same content as a Lexical node tree, printed the way the
+[tree view](/docs/getting-started/devtools) shows it (the numbers are node keys):
+
+```text
+root
+  └ (2) paragraph
+    ├ (3) text "Why did the JavaScript developer go to the bar? "
+    ├ (4) text "Because he couldn't handle his " { format: bold }
+    ├ (5) text "Promise" { format: bold, italic }
+    └ (6) text "s" { format: bold }
+```
+
+The paragraph's children are a flat list of text nodes, and the formatting is a
+property of each one, so there is only one way to represent this content.
 
 ## Understanding the Editor State
 
@@ -58,68 +68,113 @@ Editor states have two phases:
 
 Editor states contain two core things:
 
-- The editor node tree (starting from the root node).
-- The editor selection (which can be null).
+- The editor node tree (starting from the root node). See
+  [Document Model](./document-model.md) for how the tree is shaped.
+- The editor [selection](./selection.md) (which can be null).
 
-Editor states are serializable to JSON, and the editor instance provides a useful method
-to deserialize stringified editor states.
+For example, "Hello world" with a link around "world" and the caret at the
+end looks like this:
 
-Here's an example of how you can initialize editor with some state and then persist it:
+```mermaid
+flowchart TB
+  accTitle: A simple editor state
+  accDescr: The root contains a paragraph with a "Hello " text node and a link. The link contains the "world" text node. The selection's anchor and focus both point to offset 5 in "world".
+  subgraph state["EditorState"]
+    direction TB
+    root["Root"] --> paragraph["Paragraph"]
+    paragraph --> hello["Text: 'Hello '"]
+    paragraph --> link["Link"]
+    link --> world["Text: 'world'"]
+    selection["Selection"] -.->|"caret at offset 5"| world
+  end
+```
+
+`editor.getEditorState()` returns the latest committed state. Its `toJSON()`
+method serializes the document tree only; the selection and the runtime node
+keys are not included. To restore saved content, pass the JSON to
+`editor.parseEditorState()` and the result to `editor.setEditorState()`. The
+editor must have the same node types registered. See
+[Serialization](../serialization/serialization.md) for JSON, HTML, and
+Markdown.
+
+Here's an example of how you can initialize an editor with saved content and
+then persist it. The saved JSON is passed as the editor's `$initialEditorState`:
 
 ```js
-// Get editor initial state (e.g. loaded from backend)
-const loadContent = async () => {
-  // 'empty' editor
-  const value = '{"root":{"children":[{"children":[],"direction":null,"format":"","indent":0,"type":"paragraph","version":1}],"direction":null,"format":"","indent":0,"type":"root","version":1}}';
+import {buildEditorFromExtensions} from '@lexical/extension';
+import {RichTextExtension} from '@lexical/rich-text';
+import {defineExtension} from 'lexical';
 
-  return value;
-}
-
+// Get the saved content (e.g. loaded from a backend)
 const initialEditorState = await loadContent();
-const editor = createEditor(...);
-registerRichText(editor, initialEditorState);
 
-...
+const editor = buildEditorFromExtensions(
+  defineExtension({
+    $initialEditorState: initialEditorState,
+    dependencies: [RichTextExtension],
+    name: '@my-app/editor',
+  }),
+);
+editor.setRootElement(document.getElementById('editor'));
 
-// Handler to store content (e.g. when user submits a form)
-const onSubmit = () => {
+// Store the content (e.g. when the user submits a form)
+async function onSubmit() {
   await saveContent(JSON.stringify(editor.getEditorState()));
 }
 ```
 
-For React it could be something like the following:
+With React, pass the extension to `LexicalExtensionComposer`. A component
+rendered inside it can reach the editor with `useLexicalComposerContext()`:
 
 ```jsx
-const initialEditorState = await loadContent();
-const editorStateRef = useRef(undefined);
+import {LexicalExtensionComposer} from '@lexical/react/LexicalExtensionComposer';
+import {useLexicalComposerContext} from '@lexical/react/LexicalComposerContext';
+import {RichTextExtension} from '@lexical/rich-text';
+import {defineExtension} from 'lexical';
+import {useMemo} from 'react';
 
-<LexicalComposer initialConfig={{
-  editorState: initialEditorState
-}}>
-  <LexicalRichTextPlugin />
-  <LexicalOnChangePlugin onChange={(editorState) => {
-    editorStateRef.current = editorState;
-  }} />
-  <Button label="Save" onPress={() => {
-    if (editorStateRef.current) {
-      saveContent(JSON.stringify(editorStateRef.current))
-    }
-  }} />
-</LexicalComposer>
+function SaveButton() {
+  const [editor] = useLexicalComposerContext();
+  return (
+    <button
+      onClick={() => saveContent(JSON.stringify(editor.getEditorState()))}>
+      Save
+    </button>
+  );
+}
+
+function Editor({initialEditorState}) {
+  // The editor is recreated whenever this extension changes,
+  // so keep it stable for the life of the editor.
+  const extension = useMemo(
+    () =>
+      defineExtension({
+        $initialEditorState: initialEditorState,
+        dependencies: [RichTextExtension],
+        name: '@my-app/editor',
+      }),
+    [initialEditorState],
+  );
+  return (
+    <LexicalExtensionComposer extension={extension}>
+      <SaveButton />
+    </LexicalExtensionComposer>
+  );
+}
 ```
 
-Lexical reads `initialConfig.editorState` only once (when the editor is created); passing
-a different value later won't be reflected. See "Updating state" below for the proper way
-to change editor state after initialization.
+`$initialEditorState` is applied once, when the editor is built; changing it
+later has no effect on that editor. See "Updating state" below for the proper
+way to change editor state after initialization.
 
-The `editorState` field accepts:
+`$initialEditorState` accepts:
 
-- a JSON string, parsed with `editor.parseEditorState()` (as in the example above);
+- a JSON string or a parsed `SerializedEditorState` object, passed to
+  `editor.parseEditorState()` (as in the example above);
 - an `EditorState` instance, applied directly with `editor.setEditorState()`;
-- a function `(editor) => void`, run inside `editor.update(...)` and invoked only if the
-  root is still empty (so a populated root is left untouched);
-- `null`, which skips default initialization entirely. Use this with the
-  [collaboration plugin](/docs/collaboration/react) so that the Yjs document, not
+- a function `(editor) => void`, run inside `editor.update(...)`;
+- `null`, which skips default initialization entirely. Use this with
+  [collaboration](/docs/collaboration/react) so that the Yjs document, not
   Lexical, owns the initial state.
 
 Omitting the field (or passing `undefined`) seeds the root with a default empty
@@ -129,58 +184,75 @@ while `undefined` produces a single empty line. If your `loadContent` may yield 
 so the editor still gets the default paragraph rather than the collab-style uninitialized
 state.
 
+The legacy `LexicalComposer` takes the same values as `initialConfig.editorState`,
+except that a function there only runs if the root is still empty.
+
 ## Updating state
 
-:::tip
-
-For a deep dive into how state updates work, check out [this blog post](https://dio.la/article/lexical-state-updates) by Lexical contributor [@DaniGuardiola](https://twitter.com/daniguardio_la).
-
-:::
-
-The most common way to update the editor is to use `editor.update()`. Calling this function
-requires a function to be passed in that will provide access to mutate the underlying
-editor state. When starting a fresh update, the current editor state is cloned and
-used as the starting point. From a technical perspective, this means that Lexical leverages a technique
-called double-buffering during updates. There's the "current" frozen editor state to represent what was
-most recently reconciled to the DOM, and another work-in-progress "pending" editor state that represents
-future changes for the next reconciliation.
-
-Reconciling an update is typically an async process that allows Lexical to batch multiple synchronous
-updates of the editor state together in a single update to the DOM – improving performance. When
-Lexical is ready to commit the update to the DOM, the underlying mutations and changes in the update
-batch will form a new immutable editor state. Calling `editor.getEditorState()` will then return the
-latest editor state based on the changes from the update.
-
-Here's an example of how you can update an editor instance:
+All reads and writes of the document happen inside a synchronous callback:
 
 ```js
-import {$getRoot, $getSelection} from 'lexical';
-import {$createParagraphNode} from 'lexical';
+import {$createParagraphNode, $createTextNode, $getRoot} from 'lexical';
 
-// Inside the `editor.update` you can use special $ prefixed helper functions.
-// These functions cannot be used outside the closure, and will error if you try.
-// (If you're familiar with React, you can imagine these to be a bit like using a hook
-// outside of a React function component).
 editor.update(() => {
-  // Get the RootNode from the EditorState
-  const root = $getRoot();
-
-  // Get the selection from the EditorState
-  const selection = $getSelection();
-
-  // Create a new ParagraphNode
-  const paragraphNode = $createParagraphNode();
-
-  // Create a new TextNode
-  const textNode = $createTextNode('Hello world');
-
-  // Append the text node to the paragraph
-  paragraphNode.append(textNode);
-
-  // Finally, append the paragraph to the root
-  root.append(paragraphNode);
+  const paragraph = $createParagraphNode();
+  paragraph.append($createTextNode('Hello world'));
+  $getRoot().append(paragraph);
 });
+
+const text = editor.read('force-commit', () => $getRoot().getTextContent());
 ```
+
+### The `$` function convention {#dollar-functions}
+
+Functions whose names start with `$`, such as `$getRoot()` and
+`$getSelection()`, only work inside one of these callbacks, because they act
+on the active editor state. Calling them anywhere else throws an error. The
+convention is similar to React Hooks:
+
+| | React Hooks | Lexical `$` functions |
+| -- | -- | -- |
+| Naming | `useFunction` | `$function` |
+| Can only be called | while rendering a component | inside an update or read |
+| Can call others of the same kind | ✅ | ✅ |
+| Must be synchronous | ✅ | ✅ |
+| Must be called unconditionally, in the same order | ✅ | ❌ No such rule |
+
+Command handlers and node transforms already run inside an update, so they
+can call `$` functions directly.
+
+This works because, while a callback runs, Lexical keeps the active editor and
+the active editor state in module-level variables, and `$` functions read
+them: `$getRoot()` returns the root of the active state, and `$getEditor()`
+returns the active editor. Because the callback is synchronous, nothing else
+can run in between and change them. The same mechanism enforces the
+difference between reads and updates. Inside a read, a method that would
+change a node throws `Cannot use method in read-only mode.`
+
+Give your own functions a `$` prefix when they call `$` functions, so it is
+clear where they can be used. The
+[`@lexical/rules-of-lexical`](/docs/packages/lexical-eslint-plugin) ESLint rule
+checks this convention.
+
+The same rule applies to node objects. Call node methods only inside a read or
+update. Every node has a key that identifies it across versions of the editor
+state, and node methods use that key to find the latest version of the node.
+This is why a node reference taken earlier in an update stays usable after the
+node changes. Keys exist only at runtime: they are not serialized, and you
+should treat them as opaque.
+
+Because the callbacks are synchronous, do any asynchronous work (fetching
+data, awaiting a promise) first, and then enter an update with the result.
+
+Avoid nesting one `editor.update()` inside another: the inner update does not
+run immediately but is queued to run after the outer one. Never start an
+update inside a read.
+
+Each update works on a pending copy of the editor state, and updates made in
+the same tick are committed and reconciled to the DOM together. See
+[Updates](./updates.mdx#update-lifecycle) for the full lifecycle.
+
+### Replacing the state
 
 Another way to set state is `setEditorState` method, which replaces current state with the one passed as an argument.
 
@@ -193,17 +265,40 @@ editor.setEditorState(editorState);
 
 :::warning
 
-`setEditorState` throws when called with an `EditorState` that satisfies
-`editorState.isEmpty()` — i.e. the root is the only node and there is no selection. The
-message is `"setEditorState: the editor state is empty. Ensure the editor state's root
-node never becomes empty."`. The `EditorState` produced by initializing with
-`editorState: null` and never appending content (typical for a collaboration document
-before peers connect) has exactly this shape, so persisting and reloading such a state
-will fail at the `setEditorState` call. Note that `parseEditorState` itself succeeds — the
-throw lands on the apply step. Either guard with `editorState.isEmpty()` before calling
-`setEditorState`, or seed the document with a `ParagraphNode` before serializing.
+`setEditorState` rejects an `EditorState` that satisfies `editorState.isEmpty()` — i.e.
+the root is the only node and there is no selection. In a development build it throws
+`"setEditorState: the editor state is empty. Ensure the editor state's root node never
+becomes empty."`; in production it warns with the same message and recovers by appending
+an empty `ParagraphNode`, so the editor stays usable. The `EditorState` produced by
+initializing with `editorState: null` and never appending content (typical for a
+collaboration document before peers connect) has exactly this shape, so persisting and
+reloading such a state hits this path. Note that `parseEditorState` itself succeeds — the
+check lands on the apply step. To avoid relying on the recovery, guard with
+`editorState.isEmpty()` before calling `setEditorState`, or seed the document with a
+`ParagraphNode` before serializing.
 
 :::
+
+## Reading state
+
+Which state you see depends on how you read it:
+
+- Inside `editor.update()` you see the **pending** state, where your changes
+  are visible but transforms and reconciliation may not have run yet.
+  `editor.read('pending', fn)` gives you the same view without allowing
+  changes.
+- `editor.read('force-commit', fn)` first commits any pending updates, so it
+  always sees a consistent, reconciled state. Do not call it inside an update.
+  `editor.read(fn)` with no mode does the same thing, and is kept for
+  convenience and backwards compatibility. Inside a mutation or update
+  listener it does not commit an update that another listener started (that
+  update commits after the listeners have run, so they observe commits in
+  order); use `editor.read('latest', fn)` there.
+- `editor.read('latest', fn)` reads the most recently reconciled state without
+  committing anything, so pending changes are not visible.
+- `editorState.read(fn, {editor})` reads one particular snapshot, such as the
+  `editorState` an update listener receives. Passing the `editor` keeps
+  `$getEditor()` and extension lookups working inside the callback.
 
 ## State update listener
 
@@ -215,10 +310,14 @@ editor.registerUpdateListener(({editorState}) => {
   // The latest EditorState can be found as `editorState`.
   // To read the contents of the EditorState, use the following API:
 
-  editorState.read(() => {
-    // Just like editor.update(), .read() expects a closure where you can use
-    // the $ prefixed helper functions.
-  });
+  editorState.read(
+    () => {
+      // Just like editor.update(), .read() expects a closure where you can use
+      // the $ prefixed helper functions.
+    },
+    // Passing the editor keeps $getEditor() and extension lookups working.
+    {editor},
+  );
 });
 ```
 

@@ -176,4 +176,6 @@ export function getDispatchIndices(
   return EMPTY_INDICES;
 }
 
-const EMPTY_INDICES: readonly number[] = Object.freeze([]);
+// Annotated by hand: a module-scope call is a side effect to bundlers, and the
+// build only injects annotations for Lexical's own factories.
+const EMPTY_INDICES: readonly number[] = /* @__PURE__ */ Object.freeze([]);

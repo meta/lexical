@@ -16,4 +16,4 @@ React, but is also usable without React, so you could have
 
 Another example would be to provide Markdown serialization or import
 for an extension that provides some custom node type, but only
-if the `MarkdownExtension` is present in that editor.
+if the `MdastExtension` is present in that editor.

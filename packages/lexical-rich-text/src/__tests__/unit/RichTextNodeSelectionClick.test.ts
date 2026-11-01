@@ -86,7 +86,7 @@ function decoratorKey(editor: LexicalEditor): string {
 }
 
 describe('CLICK_COMMAND on a NodeSelection', () => {
-  // Regression for facebook/lexical#8907: a click on an already-selected
+  // Regression for meta/lexical#8907: a click on an already-selected
   // decorator used to clear the NodeSelection, so click-to-select inline
   // decorators (whose click handler sets the NodeSelection) lost their
   // selection immediately. A click inside the selected node's DOM is an

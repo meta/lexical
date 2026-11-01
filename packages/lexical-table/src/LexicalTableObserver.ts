@@ -102,6 +102,8 @@ export class TableObservers {
   >;
   nextFocus: TableNextFocus | null;
   shouldCheckSelectionForTable: NodeKey | null;
+  /** The last touch-tapped cell, retained after pointerup for native word selection. */
+  touchTapCellKey: NodeKey | null;
 
   constructor() {
     this.observers = new Map<
@@ -110,6 +112,7 @@ export class TableObservers {
     >();
     this.nextFocus = null;
     this.shouldCheckSelectionForTable = null;
+    this.touchTapCellKey = null;
   }
 
   /**

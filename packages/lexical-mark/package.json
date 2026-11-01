@@ -8,38 +8,31 @@
     "mark"
   ],
   "license": "MIT",
-  "version": "0.50.0",
+  "version": "0.53.0",
   "main": "./dist/LexicalMark.js",
   "types": "./dist/typescript-too-old.d.ts",
   "dependencies": {
+    "@lexical/extension": "workspace:*",
+    "@lexical/html": "workspace:*",
+    "@lexical/internal": "workspace:*",
     "@lexical/utils": "workspace:*",
     "lexical": "workspace:*"
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/facebook/lexical.git",
+    "url": "git+https://github.com/meta/lexical.git",
     "directory": "packages/lexical-mark"
   },
-  "module": "./dist/LexicalMark.mjs",
+  "module": "./dist/LexicalMark.js",
   "sideEffects": false,
   "exports": {
     ".": {
       "source": "./src/index.ts",
-      "import": {
-        "types@<5.2": "./dist/typescript-too-old.d.ts",
-        "types": "./dist/index.d.ts",
-        "development": "./dist/LexicalMark.dev.mjs",
-        "production": "./dist/LexicalMark.prod.mjs",
-        "node": "./dist/LexicalMark.node.mjs",
-        "default": "./dist/LexicalMark.mjs"
-      },
-      "require": {
-        "types@<5.2": "./dist/typescript-too-old.d.ts",
-        "types": "./dist/index.d.ts",
-        "development": "./dist/LexicalMark.dev.js",
-        "production": "./dist/LexicalMark.prod.js",
-        "default": "./dist/LexicalMark.js"
-      }
+      "types@<5.2": "./dist/typescript-too-old.d.ts",
+      "types": "./dist/index.d.ts",
+      "development": "./dist/LexicalMark.dev.js",
+      "production": "./dist/LexicalMark.prod.js",
+      "default": "./dist/LexicalMark.js"
     }
   },
   "files": [
@@ -69,5 +62,6 @@
     "typescript": {
       "optional": true
     }
-  }
+  },
+  "type": "module"
 }

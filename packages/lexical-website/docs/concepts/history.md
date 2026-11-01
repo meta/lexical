@@ -1,6 +1,8 @@
-# useHistory
+# History
 
-Lexical's useHistory adds support for Undo and Redo. Part of undo and redo requires supporting coalescing of certain dynamic operations such as continuous typing. The below provides background information regarding the continuous typing undo coalescing feature.
+Lexical adds support for Undo and Redo through the `@lexical/history` package —
+`registerHistory`, the `HistoryExtension` extension, or the `HistoryPlugin`
+React component from `@lexical/react/LexicalHistoryPlugin`. Part of undo and redo requires supporting coalescing of certain dynamic operations such as continuous typing. The below provides background information regarding the continuous typing undo coalescing feature.
 
 **Undo Coalescing of Typed Text**
 
@@ -91,8 +93,7 @@ import {HistoryExtension} from '@lexical/history';
 const editorExtension = defineExtension({
   // ...
   dependencies: [
-    // 100 events is a reasonable starting point — it matches the
-    // ProseMirror history plugin's default depth and supports a deep
+    // 100 events is a reasonable starting point that supports a deep
     // enough undo stack for almost any interactive editing session.
     configExtension(HistoryExtension, {maxDepth: 100}),
   ],
@@ -116,8 +117,7 @@ typing burst, which:
 - gives the user undo gestures that match larger semantic chunks of
   their writing.
 
-For text-heavy editors a value in the `500`–`1000`ms range is common —
-ProseMirror's history plugin defaults to `newGroupDelay: 500`ms.
+For text-heavy editors a value in the `500`–`1000`ms range is common.
 
 ```ts
 configExtension(HistoryExtension, {delay: 500, maxDepth: 100}),

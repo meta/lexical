@@ -1,0 +1,44 @@
+/**
+ * Copyright (c) Meta Platforms, Inc. and affiliates.
+ *
+ * This source code is licensed under the MIT license found in the
+ * LICENSE file in the root directory of this source tree.
+ *
+ * @flow strict
+ */
+
+// Checked by `pnpm run flow` (not shipped): typed warnings narrow by code.
+
+import {
+  type YWarning,
+  type YWarningData,
+  DEFAULT_ROOT_NAME,
+  isYWarning,
+  LAYOUT_VERSION,
+  UNSUPPORTED_EDIT_WARNING,
+  UNSUPPORTED_LAYOUT_WARNING,
+  UNSUPPORTED_SCHEMA_WARNING,
+} from '@lexical/y';
+
+const root: 'lexical-y' = DEFAULT_ROOT_NAME;
+const layout: 2 = LAYOUT_VERSION;
+
+function reasonOf(error: unknown): string {
+  if (isYWarning(error)) {
+    const warning: YWarning = error;
+    if (warning.code === UNSUPPORTED_LAYOUT_WARNING) {
+      return warning.data.reason;
+    }
+    return warning.code;
+  }
+  return '';
+}
+
+// A code's data, by its code.
+function foundOf(
+  data: YWarningData<typeof UNSUPPORTED_SCHEMA_WARNING>,
+): number | null {
+  return data.reason === 'newer' ? data.found : null;
+}
+// $FlowExpectedError[incompatible-type] an edit warning's reason is 'read-only'
+const edit: YWarningData<typeof UNSUPPORTED_EDIT_WARNING> = {reason: 'newer'};

@@ -92,7 +92,7 @@ describe('LINK', () => {
   });
 
   test('LINK is not too greedy if there is a preceding match that was not processed', () => {
-    // https://github.com/facebook/lexical/issues/8129
+    // https://github.com/meta/lexical/issues/8129
     using editor = buildEditorFromExtensions([MarkdownShortcutTestExtension]);
     // Set up initial condition, since we are not typing a character at a time
     // it's not handled by markdown shortcuts in this update
@@ -136,9 +136,34 @@ describe('LINK', () => {
       expect(children).toHaveLength(1);
 
       const linkNode = children[0];
-      assert($isLinkNode(linkNode), 'First child must be a LinkNode');
+      assert($isLinkNode(linkNode), 'Expected a link');
       expect(linkNode.getTextContent()).toBe('test');
       expect(linkNode.getURL()).toBe('https://example.com/a b');
+    });
+  });
+
+  test('a title ending in an escaped backslash closes at the next quote', () => {
+    using editor = buildEditorFromExtensions([MarkdownShortcutTestExtension]);
+    typeMarkdown(editor, '[test](url "a\\\\")');
+
+    editor.read(() => {
+      const linkNode = $getRoot().getAllTextNodes()[0].getParent();
+      assert($isLinkNode(linkNode), 'Expected a link');
+      expect([linkNode.getURL(), linkNode.getTitle()]).toEqual(['url', 'a\\']);
+    });
+  });
+
+  test('a title whose closing quote is escaped makes no link', () => {
+    using editor = buildEditorFromExtensions([MarkdownShortcutTestExtension]);
+    typeMarkdown(editor, '[test](url "a\\")');
+
+    editor.read(() => {
+      expect($getRoot().getTextContent()).toBe('[test](url "a\\")');
+      expect(
+        $getRoot()
+          .getAllTextNodes()
+          .some(node => $isLinkNode(node.getParent())),
+      ).toBe(false);
     });
   });
 
@@ -172,7 +197,7 @@ describe('LINK', () => {
       expect(children.length).toBe(1);
 
       const linkNode = children[0];
-      assert($isLinkNode(linkNode), 'First child must be a LinkNode');
+      assert($isLinkNode(linkNode), 'Expected a link');
       expect(linkNode.getTextContent()).toBe('hell[world](www)o');
       expect(linkNode.getURL()).toBe('link');
     });
@@ -264,7 +289,7 @@ describe('CODE_SPAN_PRECEDENCE', () => {
 
 describe('WRAPPING_PRESERVES_FORMAT', () => {
   test('**...** around already-bold text preserves bold', () => {
-    // https://github.com/facebook/lexical/issues/8727
+    // https://github.com/meta/lexical/issues/8727
     using editor = buildEditorFromExtensions([MarkdownShortcutTestExtension]);
     editor.update(
       () => {
@@ -290,7 +315,7 @@ describe('WRAPPING_PRESERVES_FORMAT', () => {
   });
 
   test('**...** around mixed-format text formats every wrapped node bold', () => {
-    // https://github.com/facebook/lexical/issues/8727
+    // https://github.com/meta/lexical/issues/8727
     using editor = buildEditorFromExtensions([MarkdownShortcutTestExtension]);
     editor.update(
       () => {

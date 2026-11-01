@@ -801,6 +801,29 @@ const $equalYTypePNode = (
   );
 };
 
+/**
+ * Map a Y subtree to the Lexical content $equalYTypePNode found equal to it,
+ * descendants included: they are equal child by child, and a descendant left
+ * mapped to the node it matched before (possibly in another subtree, such as
+ * an equal table row) is read into the wrong parent by a later remote change.
+ * Slots are equal only when already mapped to each other (see $equalSlots).
+ */
+const $mapEqualSubtree = (
+  ytype: XmlElement | XmlText,
+  lcontent: LexicalNode | TextNode[],
+  binding: BindingV2,
+): void => {
+  binding.mapping.set(ytype, lcontent);
+  if (ytype instanceof XmlElement && !(lcontent instanceof Array)) {
+    const lChildren = normalizeNodeContent(lcontent);
+    ytype.toArray().forEach((ychild, i) => {
+      if (ychild instanceof XmlElement || ychild instanceof XmlText) {
+        $mapEqualSubtree(ychild, lChildren[i], binding);
+      }
+    });
+  }
+};
+
 const mappedIdentity = (
   mapped: LexicalNode | TextNode[] | undefined,
   lcontent: LexicalNode | TextNode[],
@@ -1074,8 +1097,7 @@ export const $updateYFragment = (
         );
       }
     } else if ($equalYTypePNode(leftY, leftL, binding)) {
-      // update mapping
-      binding.mapping.set(leftY, leftL);
+      $mapEqualSubtree(leftY, leftL, binding);
     } else {
       break;
     }
@@ -1101,8 +1123,7 @@ export const $updateYFragment = (
         );
       }
     } else if ($equalYTypePNode(rightY, rightL, binding)) {
-      // update mapping
-      binding.mapping.set(rightY, rightL);
+      $mapEqualSubtree(rightY, rightL, binding);
     } else {
       break;
     }
@@ -1116,6 +1137,8 @@ export const $updateYFragment = (
     if (leftY instanceof XmlText && leftL instanceof Array) {
       if (!equalYTextLText(leftY, leftL, binding)) {
         $updateYText(leftY, leftL, binding);
+      } else {
+        $mapEqualSubtree(leftY, leftL, binding);
       }
       left += 1;
     } else {

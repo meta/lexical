@@ -83,6 +83,22 @@ const EXTRA_BLOCK_COMMENT =
  */
 `.trim() + '\n';
 
+// Modern Flow variance syntax must survive the transform verbatim. The www
+// copies are checked by Flow, which rejects the legacy `+`/`-` sigils with
+// "The `-` variance sigil is deprecated. Use `writeonly` instead."
+const VARIANCE =
+  `
+export interface InlineFormattableNode {
+  readonly __isInlineFormattable: true;
+}
+declare export class DOMSlot<out T extends HTMLElement> {
+  readonly element: T;
+  readonly before: Node | null;
+}
+export type ContextRecord = {readonly [string | symbol]: unknown};
+declare export function $setState<in T>(value: T): void;
+`.trim() + '\n';
+
 describe('transformFlowFileContents', () => {
   [
     {
@@ -104,6 +120,11 @@ describe('transformFlowFileContents', () => {
       input: [HEADER_BEFORE].join('\n'),
       output: [HEADER_AFTER].join('\n'),
       title: 'header',
+    },
+    {
+      input: [HEADER_BEFORE, VARIANCE].join('\n'),
+      output: [HEADER_AFTER, VARIANCE].join('\n'),
+      title: 'variance keywords',
     },
   ].forEach(({input, output, title}) => {
     it(`transforms ${title}`, async () => {

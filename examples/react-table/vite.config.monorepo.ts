@@ -7,7 +7,7 @@
  */
 import {mergeConfig} from 'vite';
 
-import lexicalMonorepoPlugin from '../../scripts/vite/lexicalMonorepoPlugin';
+import lexicalMonorepoPlugin from '../../scripts/vite/lexicalMonorepoPlugin.ts';
 import config from './vite.config';
 
 export default mergeConfig(config, {

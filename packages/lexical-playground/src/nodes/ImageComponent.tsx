@@ -51,6 +51,10 @@ import {
 
 import {createWebsocketProvider, skipCollaborationInit} from '../collaboration';
 import {useSettings} from '../context/SettingsContext';
+import {
+  COLLAB_Y_NESTED_EDITOR_NOTICE,
+  useCollabYNestedEditor,
+} from '../hooks/useCollabYNestedEditor';
 import brokenImage from '../images/image-broken.svg';
 import TreeViewPlugin from '../plugins/TreeViewPlugin';
 import ImageResizer from '../ui/ImageResizer';
@@ -460,6 +464,7 @@ export default function ImageComponent({
   const {
     settings: {showNestedEditorTreeView},
   } = useSettings();
+  const isCaptionReadOnly = useCollabYNestedEditor(caption);
 
   const draggable = isInNodeSelection && !isResizing;
   const isFocused = (isSelected || isResizing) && isEditable;
@@ -488,7 +493,11 @@ export default function ImageComponent({
         </div>
 
         {showCaption && (
-          <div className="image-caption-container">
+          <div
+            className="image-caption-container"
+            title={
+              isCaptionReadOnly ? COLLAB_Y_NESTED_EDITOR_NOTICE : undefined
+            }>
             <LexicalExtensionEditorComposer initialEditor={caption}>
               <DisableCaptionOnBlur setShowCaption={setShowCaption} />
               {isCollabActive ? (
@@ -513,7 +522,9 @@ export default function ImageComponent({
             maxWidth={maxWidth}
             onResizeStart={onResizeStart}
             onResizeEnd={onResizeEnd}
-            captionsEnabled={!isLoadError && captionsEnabled}
+            captionsEnabled={
+              !isLoadError && captionsEnabled && !isCaptionReadOnly
+            }
           />
         )}
       </>

@@ -6,6 +6,8 @@
  *
  */
 
+// @vitest-environment node
+
 import {
   $getExtensionOutput,
   buildEditorFromExtensions,
@@ -18,6 +20,7 @@ import {
   $getSelection,
   $isParagraphNode,
   $isRangeSelection,
+  configExtension,
   defineExtension,
 } from 'lexical';
 import {$assertNodeType} from 'lexical/src/__tests__/utils';
@@ -27,19 +30,45 @@ import {
   $convertFromMarkdownString,
   $convertToMarkdownString,
   MdastCommonMarkExtension,
-  MdastExportExtension,
   MdastExtension,
   MdastHeadingExtension,
-  MdastImportExtension,
   MdastListExtension,
   MdastShortcutsExtension,
 } from '../../index';
 
 describe('@lexical/mdast extensions', () => {
+  it('configures import and export through MdastExtension', () => {
+    using editor = buildEditorFromExtensions(
+      defineExtension({
+        dependencies: [
+          configExtension(MdastExtension, {
+            exportRules: [
+              {
+                $export: () => ({type: 'text', value: 'configured'}),
+                type: 'text',
+              },
+            ],
+          }),
+        ],
+        name: '[root]',
+      }),
+    );
+    editor.update(
+      () =>
+        $getExtensionOutput(MdastExtension).$convertFromMarkdownString('input'),
+      {discrete: true},
+    );
+    expect(
+      editor.read(() =>
+        $getExtensionOutput(MdastExtension).$convertToMarkdownString(),
+      ),
+    ).toBe('configured');
+  });
+
   it('feature extensions ship the nodes their rules need', () => {
     using editor = buildEditorFromExtensions(
       defineExtension({
-        dependencies: [MdastCommonMarkExtension, MdastExportExtension],
+        dependencies: [MdastCommonMarkExtension, MdastExtension],
         name: '[root]',
       }),
     );
@@ -59,21 +88,19 @@ describe('@lexical/mdast extensions', () => {
   it('exposes the Markdown API through extension outputs', () => {
     using editor = buildEditorFromExtensions(
       defineExtension({
-        dependencies: [MdastCommonMarkExtension, MdastExportExtension],
+        dependencies: [MdastCommonMarkExtension, MdastExtension],
         name: '[root]',
       }),
     );
     editor.update(
       () => {
-        $getExtensionOutput(MdastImportExtension).$convertFromMarkdownString(
-          '## Hi',
-        );
+        $getExtensionOutput(MdastExtension).$convertFromMarkdownString('## Hi');
       },
       {discrete: true},
     );
     expect(
       editor.read(() =>
-        $getExtensionOutput(MdastExportExtension).$convertToMarkdownString(),
+        $getExtensionOutput(MdastExtension).$convertToMarkdownString(),
       ),
     ).toBe('## Hi');
   });

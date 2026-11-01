@@ -6,6 +6,8 @@
  *
  */
 
+// @vitest-environment node
+
 import {$isCodeNode} from '@lexical/code-core';
 import {
   buildEditorFromExtensions,

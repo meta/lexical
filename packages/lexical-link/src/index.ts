@@ -25,11 +25,7 @@ export {
   type LinkMatcher,
   registerAutoLink,
 } from './LexicalAutoLinkExtension';
-export {
-  LinkExtension,
-  LinkImportExtension,
-  registerLink,
-} from './LexicalLinkExtension';
+export {LinkExtension, registerLink} from './LexicalLinkExtension';
 export {
   $createAutoLinkNode,
   $createLinkNode,

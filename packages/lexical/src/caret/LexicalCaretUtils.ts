@@ -13,10 +13,13 @@ import {
   $createRangeSelection,
   $getSelection,
   $isRangeSelection,
+  $selectionTouchesElement,
+  $updateElementSelectionOnCreateDeleteNode,
   type PointType,
   type RangeSelection,
 } from '../LexicalSelection';
 import {$getSlotFrame, $getSlotNames} from '../LexicalSlot';
+import {$isBlockContainer} from '../LexicalStructure';
 import {
   $copyNode,
   $getNodeByKeyOrThrow,
@@ -34,6 +37,7 @@ import {$isRootNode} from '../nodes/LexicalRootNode';
 import {
   $createTextNode,
   $isTextNode,
+  $recordDeleted,
   type TextNode,
 } from '../nodes/LexicalTextNode';
 import {
@@ -43,6 +47,7 @@ import {
   $getCaretRange,
   $getChildCaret,
   $getCollapsedCaretRange,
+  $getCommonAncestor,
   $getSiblingCaret,
   $getTextNodeOffset,
   $getTextPointCaret,
@@ -58,7 +63,11 @@ import {
   type RootMode,
   type SiblingCaret,
   type TextPointCaret,
+  type TextPointCaretSlice,
 } from './LexicalCaret';
+import {$getAdjacentNodes} from './LexicalCaretTree';
+
+export {$getAdjacentNodes} from './LexicalCaretTree';
 
 /**
  * @param point
@@ -283,9 +292,8 @@ export function $removeTextFromCaretRange<D extends CaretDirection>(
       }
     }
   }
-  // Use $removeFromParent instead of node.remove() to skip redundant
-  // per-node selection restoration — selection is rebuilt from
-  // anchor/focus candidates below.
+  // Selection is rebuilt from anchor/focus candidates below, so detach
+  // without restoring it for every removed node.
   const removedParents = new Set<ElementNode>();
   for (const node of removedNodes) {
     const parent = node.getParent();
@@ -294,6 +302,7 @@ export function $removeTextFromCaretRange<D extends CaretDirection>(
     if (parent !== null && !seenStart.has(parent.getKey())) {
       removedParents.add(parent);
     }
+    $recordDeleted(node);
     $removeFromParent(node);
   }
   // Remove inline wrappers (canBeEmpty=false) that became empty
@@ -329,6 +338,7 @@ export function $removeTextFromCaretRange<D extends CaretDirection>(
       (mode === 'token' && slice.distance !== 0)
     ) {
       // anchorCandidates[1] should still be valid, it is caretBefore
+      $recordDeleted(origin);
       caretBefore.remove();
     } else if (slice.distance !== 0) {
       sliceState = 'removeEmptySlices';
@@ -357,20 +367,8 @@ export function $removeTextFromCaretRange<D extends CaretDirection>(
 
   // Find the deepest anchor and focus candidates that are
   // still attached
-  let anchorCandidate: PointCaret<'next'> | undefined;
-  let focusCandidate: PointCaret<'previous'> | undefined;
-  for (const candidate of anchorCandidates) {
-    if ($isCaretAttached(candidate)) {
-      anchorCandidate = $normalizeCaret(candidate);
-      break;
-    }
-  }
-  for (const candidate of focusCandidates) {
-    if ($isCaretAttached(candidate)) {
-      focusCandidate = $normalizeCaret(candidate);
-      break;
-    }
-  }
+  const anchorCandidate = $getAttachedCaret(anchorCandidates);
+  const focusCandidate = $getAttachedCaret(focusCandidates);
 
   // Merge blocks if necessary
   const mergeTargets = $getBlockMergeTargets(
@@ -412,7 +410,11 @@ export function $removeTextFromCaretRange<D extends CaretDirection>(
         if (
           grandparent &&
           $isRootNode(grandparent) &&
-          grandparent.getChildrenSize() <= 1
+          grandparent.getChildrenSize() <= 1 &&
+          // Only keep the root's last child when it is valid while empty. One
+          // that declares `canBeEmpty()` false is removed like any other
+          // emptied ancestor, and the empty root is repaired below.
+          parent.canBeEmpty()
         ) {
           break;
         }
@@ -435,23 +437,22 @@ export function $removeTextFromCaretRange<D extends CaretDirection>(
   // what needs the paragraph.
   if (
     $restoreEmptyContainerParagraph(rangeContainer, rangeContainerChild) ===
-    null
+      null &&
+    rangeContainer !== null &&
+    !rangeContainer.isAttached()
   ) {
     $restoreEmptyContainerParagraph($getRoot(), null);
   }
 
   // note this caret can be in either direction
-  const bestCandidate = [
+  const bestCandidate = $getAttachedCaret([
     anchorCandidate,
     focusCandidate,
     ...anchorCandidates,
     ...focusCandidates,
-  ].find($isCaretAttached);
+  ]);
   if (bestCandidate) {
-    const anchor = $getCaretInDirection(
-      $normalizeCaret(bestCandidate),
-      initialRange.direction,
-    );
+    const anchor = $getCaretInDirection(bestCandidate, initialRange.direction);
     return $getCollapsedCaretRange(anchor);
   }
   invariant(
@@ -459,6 +460,14 @@ export function $removeTextFromCaretRange<D extends CaretDirection>(
     '$removeTextFromCaretRange: selection was lost, could not find a new anchor given candidates with keys: %s',
     JSON.stringify(anchorCandidates.map(n => n.origin.__key)),
   );
+}
+
+/** Resolve the first surviving candidate after a range mutation. */
+function $getAttachedCaret<D extends CaretDirection>(
+  candidates: readonly (PointCaret<D> | null | undefined)[],
+): PointCaret<D> | undefined {
+  const candidate = candidates.find($isCaretAttached);
+  return candidate && $normalizeCaret(candidate);
 }
 
 function $getBlockFromCaret(
@@ -493,59 +502,45 @@ function $getBlockMergeTargets(
   focus: null | undefined | PointCaret<'previous'>,
   seenStart: Set<NodeKey>,
 ): null | [ElementNode, ElementNode] {
-  if (!anchor || !focus) {
+  const anchorParent = anchor && anchor.getParentAtCaret();
+  const focusParent = focus && focus.getParentAtCaret();
+  const common =
+    anchorParent &&
+    focusParent &&
+    $getCommonAncestor(anchorParent, focusParent);
+  if (!common || common.type !== 'branch') {
     return null;
-  }
-  const anchorParent = anchor.getParentAtCaret();
-  const focusParent = focus.getParentAtCaret();
-  if (!anchorParent || !focusParent) {
-    return null;
-  }
-  // TODO refactor when we have a better primitive for common ancestor
-  const anchorElements = anchorParent.getParents().reverse();
-  anchorElements.push(anchorParent);
-  const focusElements = focusParent.getParents().reverse();
-  focusElements.push(focusParent);
-  const maxLen = Math.min(anchorElements.length, focusElements.length);
-  let commonAncestorCount: number;
-  for (
-    commonAncestorCount = 0;
-    commonAncestorCount < maxLen &&
-    anchorElements[commonAncestorCount] === focusElements[commonAncestorCount];
-    commonAncestorCount++
-  ) {
-    // just traverse the ancestors
   }
   const $getBlock = (
-    arr: readonly ElementNode[],
-    predicate: (node: ElementNode) => boolean,
+    parent: ElementNode,
+    selectedOnly: boolean,
   ): ElementNode | undefined => {
     let block: ElementNode | undefined;
-    for (let i = commonAncestorCount; i < arr.length; i++) {
-      const ancestor = arr[i];
-      if ($isRootOrShadowRoot(ancestor)) {
+    // Ascend to the common ancestor, retaining the outermost eligible block
+    // and rejecting any branch that crosses a shadow root.
+    for (
+      let node: ElementNode | null = parent;
+      node && !node.is(common.commonAncestor);
+      node = node.getParent()
+    ) {
+      if ($isRootOrShadowRoot(node)) {
         return;
-      } else if (!block && predicate(ancestor)) {
-        block = ancestor;
+      }
+      if (
+        (!selectedOnly || seenStart.has(node.__key)) &&
+        INTERNAL_$isBlock(node)
+      ) {
+        block = node;
       }
     }
     return block;
   };
-  const anchorBlock = $getBlock(anchorElements, INTERNAL_$isBlock);
-  const focusBlock =
-    anchorBlock &&
-    $getBlock(
-      focusElements,
-      node => seenStart.has(node.getKey()) && INTERNAL_$isBlock(node),
-    );
-  // A merge removes focusBlock with remove(true), which discards any slots it
-  // owns (slots are not children, so they are not spliced onto anchorBlock).
-  // Refuse to merge away a slot-bearing host so its slots can only be removed
-  // as a unit by an explicit host deletion, never silently via backspace.
-  if (focusBlock && $getSlotNames(focusBlock).length > 0) {
-    return null;
-  }
-  return anchorBlock && focusBlock ? [anchorBlock, focusBlock] : null;
+  const anchorBlock = $getBlock(anchorParent, false);
+  const focusBlock = anchorBlock && $getBlock(focusParent, true);
+  // Removing a host must not silently discard its slots during a block merge.
+  return anchorBlock && focusBlock && $getSlotNames(focusBlock).length === 0
+    ? [anchorBlock, focusBlock]
+    : null;
 }
 
 /**
@@ -663,16 +658,18 @@ export function $getChildCaretAtIndex<D extends CaretDirection>(
   index: number,
   direction: D,
 ): NodeCaret<D> {
-  let caret: NodeCaret<'next'> = $getChildCaret(parent, 'next');
-  for (let i = 0; i < index; i++) {
-    const nextCaret: null | SiblingCaret<LexicalNode, 'next'> =
-      caret.getAdjacentCaret();
-    if (nextCaret === null) {
-      break;
-    }
-    caret = nextCaret;
-  }
-  return $getCaretInDirection(caret, direction);
+  // Preserve the forward walk's rounding and clamping, but use the node's
+  // nearest-boundary lookup and allocate only the final caret.
+  const size = parent.getChildrenSize();
+  const offset = index > 0 ? Math.min(Math.ceil(index), size) : 0;
+  const originIndex = offset - (direction === 'next' ? 1 : 0);
+  const origin =
+    originIndex < 0 || originIndex >= size
+      ? null
+      : parent.getChildAtIndex(originIndex);
+  return origin === null
+    ? $getChildCaret(parent, direction)
+    : $getSiblingCaret(origin, direction);
 }
 
 /**
@@ -705,34 +702,6 @@ export function $getAdjacentSiblingOrParentSiblingCaret<
   return nextCaret && [nextCaret, depthDiff];
 }
 
-/**
- * Get the adjacent nodes to initialCaret in the given direction.
- *
- * @example
- * ```ts
- * expect($getAdjacentNodes($getChildCaret(parent, 'next'))).toEqual(parent.getChildren());
- * expect($getAdjacentNodes($getChildCaret(parent, 'previous'))).toEqual(parent.getChildren().reverse());
- * expect($getAdjacentNodes($getSiblingCaret(node, 'next'))).toEqual(node.getNextSiblings());
- * expect($getAdjacentNodes($getSiblingCaret(node, 'previous'))).toEqual(node.getPreviousSiblings().reverse());
- * ```
- *
- * @param initialCaret The caret to start at (the origin will not be included)
- * @returns An array of siblings.
- */
-export function $getAdjacentNodes(
-  initialCaret: NodeCaret<CaretDirection>,
-): LexicalNode[] {
-  const siblings = [];
-  for (
-    let caret = initialCaret.getAdjacentCaret();
-    caret;
-    caret = caret.getAdjacentCaret()
-  ) {
-    siblings.push(caret.origin);
-  }
-  return siblings;
-}
-
 export function $splitTextPointCaret<D extends CaretDirection>(
   textPointCaret: TextPointCaret<TextNode, D>,
 ): NodeCaret<D> {
@@ -748,6 +717,89 @@ export function $splitTextPointCaret<D extends CaretDirection>(
     '$splitTextPointCaret: splitText must return at least one TextNode',
   );
   return $getCaretInDirection($getSiblingCaret(textNode, 'next'), direction);
+}
+
+/**
+ * Find a node's partial text interval among a caret range's endpoint slices.
+ * @internal
+ */
+export function $getTextPointCaretSliceForNode(
+  slices: readonly (TextPointCaretSlice | null)[],
+  node: LexicalNode,
+): TextPointCaretSlice | undefined {
+  for (const slice of slices) {
+    if (slice !== null && slice.caret.origin.is(node)) {
+      return slice;
+    }
+  }
+}
+
+/**
+ * Isolate a non-empty text slice, splitting its node at both boundaries in
+ * one operation. The returned node contains exactly the slice. An empty
+ * slice returns null without mutating the node or selection. The slice
+ * indices must be within the node's text.
+ *
+ * Pass the range selection that produced the slice to retain its endpoints on
+ * the selected fragment, including equivalent element points. Detached
+ * selections also have their parent offsets updated when the split adds
+ * siblings. Otherwise, selection updates are left to TextNode.splitText.
+ *
+ * Like TextNode.splitText, this does not treat token or segmented nodes as
+ * atomic; callers that format those nodes must preserve them explicitly.
+ */
+export function $splitTextPointCaretSlice(
+  slice: TextPointCaretSlice,
+  selection: RangeSelection | null = null,
+): TextNode | null {
+  const {origin} = slice.caret;
+  const [start, end] = slice.getSliceIndices();
+  if (start === end) {
+    return null;
+  }
+  if (start === 0 && end === origin.getTextContentSize()) {
+    return origin;
+  }
+  const parent = origin.getParent();
+  // Only element-point repair needs the sibling index. Text-only ranges
+  // avoid an extra linear scan before splitText's own insertion lookup.
+  const index =
+    selection && parent && $selectionTouchesElement(selection, parent)
+      ? origin.getIndexWithinParent()
+      : -1;
+  // Capture offsets before splitText repairs the active selection. In
+  // particular, an element point before a prefix must stay on that prefix.
+  const points = selection
+    ? [selection.anchor, selection.focus].map(
+        point =>
+          [
+            point,
+            point.key === origin.__key && point.type === 'text'
+              ? point.offset - start
+              : parent !== null &&
+                  point.key === parent.__key &&
+                  point.offset === index
+                ? 0
+                : null,
+          ] as const,
+      )
+    : [];
+  const splitNodes = origin.splitText(start, end);
+  const node = splitNodes[start === 0 ? 0 : 1];
+  if (parent && selection && selection !== $getSelection()) {
+    $updateElementSelectionOnCreateDeleteNode(
+      selection,
+      parent,
+      index,
+      splitNodes.length - 1,
+    );
+  }
+  for (const [point, offset] of points) {
+    if (offset !== null) {
+      point.set(node.__key, offset, 'text');
+    }
+  }
+  return node;
 }
 
 export interface SplitAtPointCaretNextOptions {
@@ -823,9 +875,11 @@ export function $splitAtPointCaretNext(
 }
 
 /**
- * If the insertion caret is the root/shadow root node (see {@link $isRootOrShadowRoot}),
- * the node will be inserted there, otherwise the parent nodes will be split according to the
- * given options.
+ * If the insertion caret is in a block container (the root, a shadow root, or
+ * a declared container, see {@link $isBlockContainer}), the node will be
+ * inserted there, otherwise the parent nodes will be split according to the
+ * given options, up to the nearest block container. With
+ * `rootMode: 'root'`, shadow roots and declared containers are split too.
  * @param node - The node to be inserted
  * @param caret - The location to insert or split from
  * @returns The node after its insertion
@@ -867,12 +921,29 @@ export function $insertNodeToNearestRootAtCaret<
   ) {
     node.remove(true);
   }
+  const stopsAtContainers =
+    options === undefined ||
+    options.rootMode === undefined ||
+    options.rootMode === 'shadowRoot';
   for (
     let nextCaret: null | PointCaret<'next'> = insertCaret;
     nextCaret;
     nextCaret = $splitAtPointCaretNext(nextCaret, options)
   ) {
     insertCaret = nextCaret;
+    // A declared block container (see $isBlockContainer) is not split: the
+    // node goes in among its blocks, as in a shadow root.
+    if (
+      stopsAtContainers &&
+      !$isTextPointCaret(insertCaret) &&
+      $isBlockContainer(
+        $isChildCaret(insertCaret)
+          ? insertCaret.origin
+          : insertCaret.origin.getParent(),
+      )
+    ) {
+      break;
+    }
   }
   invariant(
     !$isTextPointCaret(insertCaret),

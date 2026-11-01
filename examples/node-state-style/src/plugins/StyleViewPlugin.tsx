@@ -6,8 +6,6 @@
  *
  */
 
-import type {SelectionDetails} from '@zag-js/combobox';
-
 import './StyleViewPlugin.css';
 
 import {
@@ -24,11 +22,13 @@ import {
   useTreeView,
   type UseTreeViewReturn,
 } from '@ark-ui/react/tree-view';
-import {LexicalComposer} from '@lexical/react/LexicalComposer';
+import {EditorStateExtension} from '@lexical/extension';
+import {PlainTextExtension} from '@lexical/plain-text';
 import {useLexicalComposerContext} from '@lexical/react/LexicalComposerContext';
 import {ContentEditable} from '@lexical/react/LexicalContentEditable';
-import {LexicalErrorBoundary} from '@lexical/react/LexicalErrorBoundary';
-import {PlainTextPlugin} from '@lexical/react/LexicalPlainTextPlugin';
+import {LexicalExtensionComposer} from '@lexical/react/LexicalExtensionComposer';
+import {useExtensionDependency} from '@lexical/react/useExtensionComponent';
+import {useSignalValue} from '@lexical/react/useExtensionSignalValue';
 import {$getAdjacentCaret, mergeRegister} from '@lexical/utils';
 import {
   $addUpdateTag,
@@ -56,6 +56,7 @@ import {
   $setSelectionFromCaretRange,
   BLUR_COMMAND,
   COMMAND_PRIORITY_LOW,
+  defineExtension,
   type EditorState,
   type ElementNode,
   KEY_DOWN_COMMAND,
@@ -129,14 +130,8 @@ function useNodeTreeViewContext() {
 }
 
 export function StyleViewPlugin(): JSX.Element {
-  const [editor] = useLexicalComposerContext();
-  const [editorState, setEditorState] = useState(() => editor.getEditorState());
-  useEffect(
-    () =>
-      editor.registerUpdateListener(() => {
-        setEditorState(editor.getEditorState());
-      }),
-    [editor],
+  const editorState = useSignalValue(
+    useExtensionDependency(EditorStateExtension).output,
   );
   return (
     <EditorStateContext.Provider value={editorState}>
@@ -392,9 +387,7 @@ function StyleValuePlugin(props: StyleValueEditorProps) {
     }
     function handleFlush() {
       clearTimer();
-      const value = editor
-        .getEditorState()
-        .read(() => $getRoot().getTextContent());
+      const value = editor.read('latest', () => $getRoot().getTextContent());
       if (valueRef.current !== value) {
         onChange(prop, value);
       }
@@ -427,34 +420,35 @@ function StyleValuePlugin(props: StyleValueEditorProps) {
       ),
     );
   }, [editor, prop, onChange]);
-  return (
-    <PlainTextPlugin
-      contentEditable={
-        <ContentEditable
-          className="style-view-value"
-          contentEditable="plaintext-only"
-        />
-      }
-      ErrorBoundary={LexicalErrorBoundary}
-    />
-  );
+  return null;
 }
 
+const STYLE_VALUE_CONTENT_EDITABLE = (
+  <ContentEditable
+    className="style-view-value"
+    contentEditable="plaintext-only"
+  />
+);
+
 function StyleValueEditor(props: StyleValueEditorProps) {
+  // Each value gets its own small plain text editor. The extension only needs
+  // the initial value, so it is created once per mounted editor.
+  const [extension] = useState(() =>
+    defineExtension({
+      $initialEditorState: () => {
+        $patchParsedTextAtRoot(parseRawText(props.value));
+      },
+      dependencies: [PlainTextExtension],
+      name: '@lexical/examples/node-state-style/StyleValue',
+      namespace: 'style-view-value',
+    }),
+  );
   return (
-    <LexicalComposer
-      initialConfig={{
-        editable: true,
-        editorState: () => {
-          $patchParsedTextAtRoot(parseRawText(props.value));
-        },
-        namespace: 'style-view-value',
-        onError: err => {
-          throw err;
-        },
-      }}>
+    <LexicalExtensionComposer
+      extension={extension}
+      contentEditable={STYLE_VALUE_CONTENT_EDITABLE}>
       <StyleValuePlugin {...props} />
-    </LexicalComposer>
+    </LexicalExtensionComposer>
   );
 }
 
@@ -645,7 +639,7 @@ function useSuggestedStylesCombobox(props: CSSPropertyComboBoxProps) {
         .join('\n'),
     );
   };
-  const handleSelect = (details: SelectionDetails) => {
+  const handleSelect = (details: Combobox.SelectionDetails) => {
     props.onAddProperty(details.itemValue as keyof StyleObject);
     combobox.setInputValue('');
   };

@@ -18,6 +18,7 @@ React-based plugins use a Lexical editor instance from `<LexicalExtensionCompose
 import {LexicalComposer} from '@lexical/react/LexicalComposer';
 import {PlainTextPlugin} from '@lexical/react/LexicalPlainTextPlugin';
 import {ContentEditable} from '@lexical/react/LexicalContentEditable';
+import {LexicalErrorBoundary} from '@lexical/react/LexicalErrorBoundary';
 import {HistoryPlugin} from '@lexical/react/LexicalHistoryPlugin';
 import {OnChangePlugin} from '@lexical/react/LexicalOnChangePlugin';
 ```
@@ -31,8 +32,10 @@ const initialConfig = {
 
 <LexicalComposer initialConfig={initialConfig}>
   <PlainTextPlugin
-    contentEditable={<ContentEditable />}
-    placeholder={<div>Enter some text...</div>}
+    contentEditable={
+      <ContentEditable placeholder={<div>Enter some text...</div>} />
+    }
+    ErrorBoundary={LexicalErrorBoundary}
   />
   <HistoryPlugin />
   <OnChangePlugin onChange={onChange} />
@@ -72,6 +75,51 @@ React wrapper for `@lexical/plain-text` that adds major features for plain text 
 Use [PlainTextExtension](/docs/api/modules/lexical_plain-text#plaintextextension) when using extensions
 
 :::
+
+### Configuring an error boundary for React extensions
+
+The `ErrorBoundary` prop on `PlainTextPlugin` and `RichTextPlugin` is configured
+through `ReactExtension` when using `PlainTextExtension` or
+`RichTextExtension`. Add a configured `ReactExtension` to the root extension's
+dependencies:
+
+```tsx
+import {configExtension, defineExtension} from 'lexical';
+import {PlainTextExtension} from '@lexical/plain-text';
+import {ReactExtension} from '@lexical/react/ReactExtension';
+import {LexicalErrorBoundary} from '@lexical/react/LexicalErrorBoundary';
+import type {ReactElement} from 'react';
+
+type ErrorBoundaryProps = {
+  children: ReactElement;
+  onError: (error: Error) => void;
+};
+
+function CustomErrorBoundary({children, onError}: ErrorBoundaryProps) {
+  return (
+    <LexicalErrorBoundary
+      fallback={<div>Something went wrong.</div>}
+      onError={onError}>
+      {children}
+    </LexicalErrorBoundary>
+  );
+}
+
+const editorExtension = defineExtension({
+  name: 'MyEditor',
+  dependencies: [
+    PlainTextExtension,
+    configExtension(ReactExtension, {
+      ErrorBoundary: CustomErrorBoundary,
+    }),
+  ],
+});
+```
+
+If you do not provide `ErrorBoundary`, `ReactExtension` uses its default
+`LexicalErrorBoundary`. Replace `CustomErrorBoundary` with
+`LexicalErrorBoundary` when the default fallback and error reporting are
+sufficient.
 
 ### `LexicalRichTextPlugin`
 
@@ -211,6 +259,11 @@ Use [TableExtension](/docs/api/modules/lexical_table#tableextension) when using 
 
 :::
 
+Table commands (inserting or deleting rows and columns, merging and
+unmerging cells, pasting a table into a table) first pad the short rows of a
+ragged table, such as one left by concurrent collaborative edits, with empty
+cells; see [`$padTableRows`](/docs/api/modules/lexical_table#padtablerows).
+
 ### `LexicalHorizontalRulePlugin`
 
 Registers a command handler for `INSERT_HORIZONTAL_RULE_COMMAND`. When dispatched, it inserts a `HorizontalRuleNode` at the current selection.
@@ -269,6 +322,8 @@ Use [HashtagExtension](/docs/api/modules/lexical_hashtag#hashtagextension) when 
 
 Plugin will convert text into links based on passed matchers list. In example below whenever user types url-like string it will automatically convert it into a link node
 
+> Note: Requires `AutoLinkNode` from `@lexical/link` to be registered.
+
 ```jsx
 const URL_MATCHER =
   /((https?:\/\/(www\.)?)|(www\.))[-a-zA-Z0-9@:%._+~#=]{1,256}\.[a-zA-Z0-9()]{1,6}\b([-a-zA-Z0-9()@:%_+.~#?&//=]*)/;
@@ -308,7 +363,8 @@ Watches for pasted links that match any of the provided embed configurations (e.
 > Note: Requires `LinkNode` and `AutoLinkNode` from `@lexical/link` to be registered.
 
 ```jsx
-import {LexicalAutoEmbedPlugin, EmbedConfig, AutoEmbedOption} from '@lexical/react/LexicalAutoEmbedPlugin';
+import {LexicalAutoEmbedPlugin, AutoEmbedOption} from '@lexical/react/LexicalAutoEmbedPlugin';
+import type {EmbedConfig} from '@lexical/react/LexicalAutoEmbedPlugin';
 
 const YouTubeEmbedConfig = {
   type: 'youtube',
@@ -328,6 +384,18 @@ const YouTubeEmbedConfig = {
     new AutoEmbedOption('Embed', {onSelect: embedFn}),
     new AutoEmbedOption('Dismiss', {onSelect: dismissFn}),
   ]}
+/>
+```
+
+The optional `$disableMenuFor` predicate suppresses the menu for specific locations, e.g. inside nodes that only accept inline content. It receives the matched `AutoLinkNode`; when it returns true the menu is not shown and the pasted link is left as-is. The predicate can inspect the node's ancestors, e.g. with `$getNearestNodeOfType` from `@lexical/utils`.
+
+```jsx
+<LexicalAutoEmbedPlugin
+  embedConfigs={[YouTubeEmbedConfig]}
+  $disableMenuFor={(linkNode) =>
+    $getNearestNodeOfType(linkNode, InlineOnlyNode) !== null
+  }
+  // ...
 />
 ```
 
@@ -379,7 +447,7 @@ In order to use `TableOfContentsPlugin`, you need to pass a callback function in
 
 `headingKey`: Unique key that identifies the heading.
 `headingTextContent`: A string of the exact text of the heading.
-`headingTag`: A string that reads either 'h1', 'h2', or 'h3'.
+`headingTag`: The heading's tag — `'h1'` through `'h6'`. Every heading in the document is listed; the plugin does not filter by level.
 
 ```jsx
 <TableOfContentsPlugin>
@@ -406,6 +474,7 @@ const editorRef = useRef(null);
 Integrates Yjs-based real-time collaborative editing into Lexical. Creates a Yjs binding between the editor state and a shared Yjs document, renders remote user cursors, and provides collaborative undo/redo history.
 
 ```jsx
+import {LexicalCollaboration} from '@lexical/react/LexicalCollaborationContext';
 import {CollaborationPlugin} from '@lexical/react/LexicalCollaborationPlugin';
 import {WebsocketProvider} from 'y-websocket';
 import {Doc} from 'yjs';
@@ -416,13 +485,17 @@ function createProvider(id, yjsDocMap) {
   return new WebsocketProvider('ws://localhost:1234', id, doc);
 }
 
-<CollaborationPlugin
-  id="my-document"
-  providerFactory={createProvider}
-  shouldBootstrap={true}
-  username="Alice"
-  cursorColor="#FF0000"
-/>
+<LexicalCollaboration>
+  <LexicalComposer initialConfig={initialConfig}>
+    <CollaborationPlugin
+      id="my-document"
+      providerFactory={createProvider}
+      shouldBootstrap={true}
+      username="Alice"
+      cursorColor="#FF0000"
+    />
+  </LexicalComposer>
+</LexicalCollaboration>
 ```
 
 ### `LexicalDraggableBlockPlugin`

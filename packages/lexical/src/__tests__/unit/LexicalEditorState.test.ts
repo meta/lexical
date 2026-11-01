@@ -162,8 +162,15 @@ describe('LexicalEditorState tests', () => {
         $getRoot().append(paragraph);
       });
 
-      expect(JSON.stringify(editor.getEditorState().toJSON())).toEqual(
-        `{"root":{"children":[{"children":[{"detail":0,"format":0,"mode":"normal","style":"","text":"Hello world","type":"text","version":1}],"direction":null,"format":"","indent":0,"type":"paragraph","version":1,"textFormat":0,"textStyle":""}],"direction":null,"format":"","indent":0,"type":"root","version":1}}`,
+      // Compared as a structure rather than as bytes. Key order is not part of
+      // the serialization format — nothing reads a document positionally, and
+      // `JSON.parse` gives back the same object whichever order it was written
+      // in — so a test that pins the bytes fails for a reordering that changes
+      // nothing about the document.
+      expect(editor.getEditorState().toJSON()).toEqual(
+        JSON.parse(
+          `{"root":{"children":[{"children":[{"detail":0,"format":0,"mode":"normal","style":"","text":"Hello world","type":"text","version":1}],"direction":null,"format":"","indent":0,"textFormat":0,"textStyle":"","type":"paragraph","version":1}],"direction":null,"format":"","indent":0,"type":"root","version":1}}`,
+        ),
       );
     });
 

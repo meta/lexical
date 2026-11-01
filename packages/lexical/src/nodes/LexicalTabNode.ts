@@ -12,6 +12,14 @@ import type {LexicalNode, NodeKey} from '../LexicalNode';
 import invariant from '@lexical/internal/invariant';
 
 import {IS_UNMERGEABLE} from '../LexicalConstants';
+import {GENERATED_TAB} from '../LexicalGeneratedJSON';
+import {
+  enumValue,
+  nodeSchema,
+  numberValue,
+  stringValue,
+  withAccessors,
+} from '../LexicalSchema';
 import {$applyNodeReplacement, getCachedClassNameArray} from '../LexicalUtils';
 import {
   type SerializedTextNode,
@@ -22,10 +30,44 @@ import {
 
 export type SerializedTabNode = SerializedTextNode;
 
+// A tab's content, detail and mode are fixed rather than stored:
+// setTextContent normalizes any input to '\t', and setDetail/setMode reject
+// anything but IS_UNMERGEABLE/'normal'. They are therefore derived on import —
+// declaring that (rather than relying on defaults) both keeps a hand-authored
+// or foreign `{detail: 0}` / `{mode: 'token'}` from reaching a setter that
+// throws, and lets the compact form omit them.
+const tabNodeSchema = nodeSchema<TabNode>()({
+  // Read straight off the inherited fields — mode through the `getterTable`,
+  // since it is stored as a bitmask. All three are export-only: the values are
+  // fixed for a tab, so they are derived on import rather than applied.
+  detail: withAccessors(numberValue(IS_UNMERGEABLE), {
+    getter: {field: '__detail'},
+    setter: null,
+  }),
+  mode: withAccessors(enumValue(['normal']), {
+    getter: {
+      field: '__mode',
+      // Only the mode a tab can hold, rather than TextNode's whole table: that
+      // one also maps the token and segmented bits, which this schema does not
+      // serialize, and a `getterTable`'s values are held to the schema's domain.
+      getterTable: {0: 'normal'},
+    },
+    setter: null,
+  }),
+  text: withAccessors(stringValue('\t'), {
+    getter: {field: '__text', method: 'getTextContent'},
+    setter: null,
+  }),
+});
+
 /** @noInheritDoc */
 export class TabNode extends TextNode {
   $config() {
-    return this.config('tab', {extends: TextNode});
+    return this.config('tab', {
+      extends: TextNode,
+      generated: GENERATED_TAB,
+      json: tabNodeSchema,
+    });
   }
 
   // `key` carries an explicit `undefined` default (rather than the usual `?`)

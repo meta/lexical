@@ -48,15 +48,18 @@ The most common root causes of this issue are:
 - You have multiple builds of Lexical in your project. This could be because
   you have a dependency that has a direct dependency on some other version
   of Lexical (these packages should have Lexical as `peerDependencies`, but
-  not all do), or because your project mixes import and require statements
-  to import Lexical (including both the esm and cjs builds of the same
-  version of Lexical). Resolving this generally requires overriding what
+  not all do), or because your bundler resolves Lexical to different files
+  from different places (for example the `development` build in one and the
+  `production` build in another, or a `source` condition in one and `dist`
+  in another). Resolving this generally requires overriding what
   your package manager does in `package.json`, and/or what the bundler does in
   some configuration file for your framework or bundler. There are a lot of
   combinations of tools in the ecosystem (npm, pnpm, yarn, webpack, vite,
   next.js, etc.), so the syntax of that workaround is quite dependent on
   precisely which tools (and even versions of those tools) that your project
-  is using.
+  is using. See [One Lexical per app](../concepts/one-lexical-per-app.md) for
+  why one copy is required, how to confirm you have more than one, and why a
+  library should declare Lexical in `peerDependencies`.
 
 ## Hot Module Replacement (HMR)
 
@@ -86,7 +89,7 @@ const editor = buildEditorFromExtensions(
 );
 ```
 
-The `hot` config accepts any object with a `data: Record<string, unknown>` property — this is satisfied by Vite's `import.meta.hot` and similar bundler HMR APIs. Pass `null` in production or when HMR is not available; the extension becomes a no-op.
+The `hot` config accepts any object with a mutable `data: Record<string, unknown>` property — Vite's `import.meta.hot` satisfies this directly. Webpack and Parcel expose `module.hot` instead, whose `data` is populated by dispose handlers and is not directly mutable, so `module.hot` cannot be passed here; those bundlers need a small adapter built on `module.hot.addDisposeHandler`. Pass `null` in production or when HMR is not available; the extension becomes a no-op.
 
 When `HistoryExtension` is present as a peer, undo/redo stacks are preserved automatically. The extension does not declare `HistoryExtension` as a dependency — it detects it at runtime via peer dependency lookup.
 

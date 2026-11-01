@@ -8,6 +8,7 @@
 
 import type {KlassConstructor} from '../LexicalEditor';
 
+import {GENERATED_LINEBREAK} from '../LexicalGeneratedJSON';
 import {
   type DOMConversionOutput,
   LexicalNode,
@@ -29,6 +30,8 @@ export class LineBreakNode extends LexicalNode {
 
   $config() {
     return this.config('linebreak', {
+      extends: LexicalNode,
+      generated: GENERATED_LINEBREAK,
       importDOM: {
         br: (node: Node) => {
           if (isOnlyChildInBlockNode(node) || isLastChildInBlockNode(node)) {

@@ -20,7 +20,11 @@ import {
 } from 'lexical';
 import {assert, describe, expect, it} from 'vitest';
 
-import {$createEmojiNode, EmojiNode} from '../../src/nodes/EmojiNode';
+import {
+  $createEmojiNode,
+  EmojiNode,
+  type SerializedEmojiNode,
+} from '../../src/nodes/EmojiNode';
 
 const EmojiThemeTestExtension = defineExtension({
   $initialEditorState: null,
@@ -81,5 +85,42 @@ describe('EmojiNode', () => {
       'emoji-inner',
       'theme-underline',
     ]);
+  });
+
+  // The class could not change after construction before setClassName and
+  // the schema-driven updateFromJSON existed, so updateDOM only ever had the
+  // inner text element to update. Now that it can, the outer span has to
+  // follow it, or the emoji shown disagrees with the node.
+  it('updates the outer class when setClassName changes it', () => {
+    using editor = makeEditor();
+    editor.update(() => void $appendEmoji(), {discrete: true});
+    expect(emojiDOM(editor).className).toBe('emoji happysmile');
+
+    editor.update(() => void $getEmoji().setClassName('emoji sad'), {
+      discrete: true,
+    });
+
+    expect(editor.read(() => $getEmoji().getClassName())).toBe('emoji sad');
+    expect(emojiDOM(editor).className).toBe('emoji sad');
+  });
+
+  it('updates the outer class when updateFromJSON changes it', () => {
+    using editor = makeEditor();
+    editor.update(() => void $appendEmoji(), {discrete: true});
+
+    editor.update(
+      () => {
+        const emoji = $getEmoji();
+        const json: SerializedEmojiNode = {
+          ...emoji.exportJSON(),
+          className: 'emoji sad',
+        };
+        emoji.updateFromJSON(json);
+      },
+      {discrete: true},
+    );
+
+    expect(editor.read(() => $getEmoji().getClassName())).toBe('emoji sad');
+    expect(emojiDOM(editor).className).toBe('emoji sad');
   });
 });

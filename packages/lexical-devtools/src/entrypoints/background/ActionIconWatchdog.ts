@@ -10,6 +10,11 @@ import type {StoreApi} from 'zustand';
 
 import {IS_FIREFOX, IS_SAFARI} from 'lexical';
 
+import {
+  CONTENT_SCRIPT_PING,
+  type ContentScriptPingMessage,
+} from '../../contentScriptPing';
+
 export default class ActionIconWatchdog {
   private constructor(
     private readonly extensionStore: StoreApi<ExtensionState>,
@@ -22,15 +27,21 @@ export default class ActionIconWatchdog {
   async init() {
     const tabs = await browser.tabs.query({});
     await Promise.all(
-      tabs.map(this.checkAndHandleRestrictedPageIfSo.bind(this)),
+      tabs.map(tab =>
+        tab.id == null
+          ? undefined
+          : this.checkAndHandleRestrictedPageIfSo(tab.id),
+      ),
     );
 
-    browser.tabs.onCreated.addListener(tab => {
-      this.checkAndHandleRestrictedPageIfSo(tab);
-    });
-
-    // Listen to URL changes on the active tab and update the DevTools icon.
+    // Re-check the page once a navigation finishes and update the DevTools icon.
     browser.tabs.onUpdated.addListener(this.handleTabsUpdatedEvent.bind(this));
+
+    // Serialized editor state lives as long as this service worker, so drop a
+    // tab's contents once they can no longer describe anything on screen.
+    browser.tabs.onRemoved.addListener(tabId => {
+      this.extensionStore.getState().clearTab(tabId);
+    });
   }
 
   private async setIcon(
@@ -73,28 +84,42 @@ export default class ActionIconWatchdog {
 
   private handleTabsUpdatedEvent(
     tabId: number,
-    _changeInfo: unknown,
-    tab: Browser.tabs.Tab,
+    changeInfo: {status?: string},
   ): void {
-    this.checkAndHandleRestrictedPageIfSo(tab);
-  }
-
-  private isRestrictedBrowserPage(url: string | undefined) {
-    return (
-      !url ||
-      ['chrome:', 'about:', 'file:', 'edge:'].includes(new URL(url).protocol)
-    );
-  }
-
-  private async checkAndHandleRestrictedPageIfSo(tab: Browser.tabs.Tab) {
-    if (tab.id == null) {
-      return;
+    // A navigation tears down every editor the previous document had, so the
+    // state retained for it is stale the moment loading starts.
+    if (changeInfo.status === 'loading') {
+      this.extensionStore.getState().clearTab(tabId);
     }
 
-    if (tab.id == null || this.isRestrictedBrowserPage(tab.url)) {
-      return this.setIcon('restricted', tab.id);
+    // The content script runs at document_end, before the tab reports
+    // "complete", so by then it can answer if this page allows it at all.
+    if (changeInfo.status === 'complete') {
+      this.checkAndHandleRestrictedPageIfSo(tabId).catch(console.error);
+    }
+  }
+
+  /**
+   * Whether our content script is running in the tab. Browsers do not run it
+   * on restricted pages (chrome:, about:, edge:, file: without opt-in, the
+   * extension stores), so this tells those pages apart without reading
+   * `Tab.url`, which would need the `tabs` permission.
+   */
+  private async isContentScriptReachable(tabId: number): Promise<boolean> {
+    try {
+      const message: ContentScriptPingMessage = {type: CONTENT_SCRIPT_PING};
+      return (await browser.tabs.sendMessage(tabId, message)) === true;
+    } catch {
+      // "Receiving end does not exist": no content script in this tab.
+      return false;
+    }
+  }
+
+  private async checkAndHandleRestrictedPageIfSo(tabId: number) {
+    if (!(await this.isContentScriptReachable(tabId))) {
+      return this.setIcon('restricted', tabId);
     }
 
-    return this.setIcon('enabled', tab.id);
+    return this.setIcon('enabled', tabId);
   }
 }

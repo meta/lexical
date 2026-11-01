@@ -89,6 +89,62 @@ describe('positionNodeOnRange', () => {
     }
   });
 
+  it('keeps the wide selected area beside a vertically shifted inline box', () => {
+    const rootElement = createRootElement();
+    const editor = createTestEditor();
+    editor.setRootElement(rootElement);
+    const range = document.createRange();
+    const wide = new DOMRect(128, 90, 900, 18);
+    const narrow = new DOMRect(128, 89.5, 12, 18);
+    vi.spyOn(range, 'getClientRects').mockReturnValue([
+      wide,
+      narrow,
+    ] as unknown as DOMRectList);
+    const onReposition = vi.fn();
+    const cleanup = positionNodeOnRange(editor, range, onReposition);
+
+    try {
+      expect(onReposition).toHaveBeenCalled();
+      const nodes = onReposition.mock.lastCall![0] as HTMLElement[];
+      expect(nodes.map(node => node.style.width)).toEqual(['900px', '12px']);
+    } finally {
+      cleanup();
+      editor.setRootElement(null);
+    }
+  });
+
+  it.each([0, 1])(
+    'notifies when overlay rectangles shrink to %i',
+    async remaining => {
+      const rootElement = createRootElement();
+      const editor = createTestEditor();
+      editor.setRootElement(rootElement);
+      const range = document.createRange();
+      range.selectNodeContents(rootElement);
+      let rects = [new DOMRect(0, 0, 10, 10), new DOMRect(0, 20, 10, 10)];
+      vi.spyOn(range, 'getClientRects').mockImplementation(
+        () => rects as unknown as DOMRectList,
+      );
+      const onReposition = vi.fn();
+      const cleanup = positionNodeOnRange(editor, range, onReposition);
+
+      try {
+        expect(onReposition).toHaveBeenCalledTimes(1);
+        expect(onReposition.mock.lastCall![0]).toHaveLength(2);
+        rects = rects.slice(0, remaining);
+        rootElement.setAttribute('data-layout', 'hidden');
+
+        await vi.waitFor(() => {
+          expect(onReposition).toHaveBeenCalledTimes(2);
+        });
+        expect(onReposition.mock.lastCall![0]).toHaveLength(remaining);
+      } finally {
+        cleanup();
+        editor.setRootElement(null);
+      }
+    },
+  );
+
   it('removes the overlay of an invocation that lands after it was disposed of', () => {
     const firstRootElement = createRootElement();
     const secondRootElement = createRootElement();
@@ -173,5 +229,41 @@ describe('positionNodeOnRange', () => {
     }
 
     expect(countOverlays()).toBe(0);
+  });
+
+  it('does not re-insert its overlay after the root element was detached from the document', async () => {
+    const rootElement = createRootElement();
+    const container = rootElement.parentElement!;
+    const editor = createTestEditor();
+    editor.setRootElement(rootElement);
+    const range = document.createRange();
+    range.selectNodeContents(rootElement);
+    const cleanup = positionNodeOnRange(editor, range, () => {});
+
+    try {
+      // The host removes the editor's DOM before the editor is told, e.g. a
+      // framework tearing down a subtree before it unmounts the components in it.
+      container.remove();
+
+      // Re-inserting the overlay is itself a mutation the observer reacts to,
+      // so a re-insert on every mutation never yields. Stop it after a few
+      // rounds so the test fails instead of hanging.
+      const insertBefore = container.insertBefore.bind(container);
+      const insertBeforeSpy = vi
+        .spyOn(container, 'insertBefore')
+        .mockImplementation(<T extends Node>(node: T, child: Node | null) =>
+          insertBeforeSpy.mock.calls.length > 10
+            ? node
+            : insertBefore(node, child),
+        );
+
+      rootElement.setAttribute('data-layout', 'detached');
+      await new Promise(resolve => setTimeout(resolve, 0));
+
+      expect(insertBeforeSpy).not.toHaveBeenCalled();
+    } finally {
+      cleanup();
+      editor.setRootElement(null);
+    }
   });
 });

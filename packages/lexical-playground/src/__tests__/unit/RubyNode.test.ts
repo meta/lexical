@@ -12,7 +12,6 @@ import {
 } from '@lexical/extension';
 import {DOMImportExtension} from '@lexical/html';
 import {RichTextExtension} from '@lexical/rich-text';
-import {JSDOM} from 'jsdom';
 import {
   $createParagraphNode,
   $createTextNode,
@@ -148,6 +147,15 @@ describe('RubyNode', () => {
       );
 
       const json = editor.getEditorState().toJSON();
+      expect(json).toMatchObject({
+        root: {
+          children: [
+            {
+              children: [{annotation: 'かんじ', text: '漢字', type: 'ruby'}],
+            },
+          ],
+        },
+      });
 
       const editor2 = buildEditorFromExtensions({
         dependencies: [RubyExtension],
@@ -188,6 +196,9 @@ describe('RubyNode', () => {
 
         expect(element).not.toBeNull();
         const el = element as HTMLElement;
+        expect(el.outerHTML).toBe(
+          '<ruby>漢字<rp>(</rp><rt>かんじ</rt><rp>)</rp></ruby>',
+        );
         expect(el.tagName).toBe('RUBY');
         expect(el.childNodes.length).toBe(4);
         expect(el.childNodes[0].textContent).toBe('漢字');
@@ -1598,10 +1609,11 @@ describe('RubyImportRule — HTML <ruby> import', () => {
           editor,
           DOMImportExtension,
         );
-        const dom = new JSDOM(
+        const dom = new DOMParser().parseFromString(
           `<!doctype html><html><body>${html}</body></html>`,
+          'text/html',
         );
-        const nodes = dep.output.$generateNodesFromDOM(dom.window.document);
+        const nodes = dep.output.$generateNodesFromDOM(dom);
         $getRoot().clear().splice(0, 0, nodes);
       },
       {discrete: true},

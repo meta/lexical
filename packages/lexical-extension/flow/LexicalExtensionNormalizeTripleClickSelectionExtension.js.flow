@@ -1,0 +1,32 @@
+/**
+ * Copyright (c) Meta Platforms, Inc. and affiliates.
+ *
+ * This source code is licensed under the MIT license found in the
+ * LICENSE file in the root directory of this source tree.
+ *
+ * @flow strict
+ */
+
+import type {LexicalExtension} from 'lexical';
+import type {Signal} from '@lexical/extension/signals';
+
+export type NormalizeTripleClickSelectionConfig = {
+  disabled: boolean,
+  thresholdMsec: number,
+  dateNow: () => number,
+  $fixFocusOverselection: () => void,
+};
+
+export interface NormalizeTripleClickSelectionOutput {
+  disabled: Signal<boolean>;
+  thresholdMsec: Signal<number>;
+  dateNow: Signal<() => number>;
+  $fixFocusOverselection: Signal<() => void>;
+}
+
+declare export var NormalizeTripleClickSelectionExtension: LexicalExtension<
+  NormalizeTripleClickSelectionConfig,
+  '@lexical/NormalizeTripleClickSelection',
+  NormalizeTripleClickSelectionOutput,
+  unknown,
+>;

@@ -9,34 +9,24 @@
     "accessibility"
   ],
   "license": "MIT",
-  "version": "0.50.0",
+  "version": "0.53.0",
   "main": "./dist/LexicalDragon.js",
   "types": "./dist/typescript-too-old.d.ts",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/facebook/lexical.git",
+    "url": "git+https://github.com/meta/lexical.git",
     "directory": "packages/lexical-dragon"
   },
-  "module": "./dist/LexicalDragon.mjs",
+  "module": "./dist/LexicalDragon.js",
   "sideEffects": false,
   "exports": {
     ".": {
       "source": "./src/index.ts",
-      "import": {
-        "types@<5.2": "./dist/typescript-too-old.d.ts",
-        "types": "./dist/index.d.ts",
-        "development": "./dist/LexicalDragon.dev.mjs",
-        "production": "./dist/LexicalDragon.prod.mjs",
-        "node": "./dist/LexicalDragon.node.mjs",
-        "default": "./dist/LexicalDragon.mjs"
-      },
-      "require": {
-        "types@<5.2": "./dist/typescript-too-old.d.ts",
-        "types": "./dist/index.d.ts",
-        "development": "./dist/LexicalDragon.dev.js",
-        "production": "./dist/LexicalDragon.prod.js",
-        "default": "./dist/LexicalDragon.js"
-      }
+      "types@<5.2": "./dist/typescript-too-old.d.ts",
+      "types": "./dist/index.d.ts",
+      "development": "./dist/LexicalDragon.dev.js",
+      "production": "./dist/LexicalDragon.prod.js",
+      "default": "./dist/LexicalDragon.js"
     }
   },
   "dependencies": {
@@ -70,5 +60,6 @@
     "typescript": {
       "optional": true
     }
-  }
+  },
+  "type": "module"
 }

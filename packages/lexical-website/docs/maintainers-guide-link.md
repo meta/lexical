@@ -22,7 +22,7 @@ directory:
 ```bash
 # in the Lexical checkout
 pnpm install
-pnpm run build-release   # produces dist/<Name>.{dev,prod,node}.{js,mjs} + .d.ts + .js.flow
+pnpm run build-release   # produces dist/<Name>.{dev,prod}.js + .d.ts + .js.flow
 
 # in your downstream app
 pnpm add link:/path/to/lexical/packages/lexical
@@ -33,8 +33,10 @@ pnpm add link:/path/to/lexical/packages/lexical-react   # etc.
 `node_modules/`, so subsequent rebuilds of Lexical (e.g.
 `pnpm run build` in the Lexical checkout) become visible immediately.
 Standard `exports` resolution picks up the `development` /
-`production` / `node` conditions, so dev builds load the unminified
-variants and prod builds load the minified ones automatically.
+`production` conditions, so dev builds load the unminified variants and
+prod builds load the minified ones automatically. Only ESM is published;
+a CommonJS consumer loads the same files through `require(esm)`
+(Node.js 20.19+).
 
 If you prefer the dev-only loop (faster builds, no minification), use
 `pnpm run build` instead of `build-release`. The fork modules emitted
@@ -52,8 +54,8 @@ otherwise equivalent for one-shot installs.
 For the tightest dev loop — edit a Lexical source file and have your
 downstream bundler pick it up on the next request — opt into the
 `source` export condition. Each public package's `exports` map exposes
-its `./src/<entry>.tsx?` next to the compiled `import`/`require`
-conditions, so a bundler configured with
+its `./src/<entry>.tsx?` next to the compiled `development`/`production`/
+`default` conditions, so a bundler configured with
 `resolve.conditions: ['source', …]` will load TypeScript directly out
 of the linked package.
 

@@ -61,6 +61,17 @@ has moved to another editor on the page. This can also happen when trying to sel
 Selection can be found using the `$getSelection()` helper, exported from the `lexical` package. This function can be used within
 an update, a read, or a command listener.
 
+:::tip
+
+To walk the document from a selection point — or to write a traversal that
+handles empty nodes and collapsed selections correctly — see
+[Node Traversals with NodeCaret](./traversals.md).
+`$caretRangeFromSelection(selection)` converts a `RangeSelection` into the
+caret range that traversal API works with, and
+`$setSelectionFromCaretRange(range)` converts back.
+
+:::
+
 ```js
 import {$getSelection, SELECTION_CHANGE_COMMAND} from 'lexical';
 
@@ -72,7 +83,7 @@ editorState.read(() => {
   const selection = $getSelection();
 });
 
-// SELECTION_CHANGE_COMMAND fires when selection changes within a Lexical editor.
+// SELECTION_CHANGE_COMMAND runs before reconciliation in the pending update.
 editor.registerCommand(SELECTION_CHANGE_COMMAND, () => {
   const selection = $getSelection();
 });
@@ -148,19 +159,18 @@ editor.update(() => {
 ```
 
 `SKIP_DOM_SELECTION_TAG` does not apply to the initial editor state setup
-(`editorState` supplied to `createEditor` or the `$initialEditorState`
-property of the root extension). On first mount the editor still scrolls
+(the `$initialEditorState` property of the root extension, or
+`initialConfig.editorState` with the legacy `LexicalComposer`). On first mount the editor still scrolls
 to and focuses the initial selection. To prevent that, call
 `$setSelection(null)` inside your initial state setup function:
 
 ```js
-const editor = createEditor({
+const editor = buildEditorFromExtensions({
+  name: '[root]',
   // ...
-  editorState: (editor) => {
-    editor.update(() => {
-      // ... build your initial nodes ...
-      $setSelection(null);
-    });
+  $initialEditorState: () => {
+    // ... build your initial nodes ...
+    $setSelection(null);
   },
 });
 ```
@@ -195,3 +205,94 @@ those reads to the shadow host. See
 un-retargeted boundary points; they fall through to the standard reads in the
 plain light DOM, so there's nothing to do until you actually mount the editor
 in a shadow tree.
+
+### Selection change timing
+
+`SELECTION_CHANGE_COMMAND` runs **before reconciliation**, in a writable update,
+for native, programmatic, and non-range selection changes. `$getSelection()`
+returns the pending selection; `$getPreviousSelection()` returns the selection
+from the last committed state. A listener can normalize the selection or edit
+nodes before that same update commits. Listeners that change the selection may
+cause another notification before commit; they must converge.
+
+This covers programmatic changes such as `node.select()`, which notify without
+waiting for a DOM `selectionchange` event, and non-range selections such as
+`NodeSelection` and `TableSelection`, as well as native range selections.
+
+Selection listeners use the update's normal error handling. A throwing listener
+reports through `onError` and can abort the entire pending update, including the
+edit that triggered the notification and any other edits batched into that
+commit, just like an explicit command dispatch inside that update. Because a
+programmatic selection change also notifies, a listener error can abort content
+edits made in the same update. Listener edits do not have a separate rollback
+scope.
+
+The DOM is not guaranteed to match the pending state, even for a `NodeSelection`.
+New nodes may not have an element yet, and DOM ranges, layout, and focus may
+still reflect the previous state. Schedule DOM-dependent work after the update
+and read the reconciled state there:
+
+```ts
+editor.registerCommand(
+  SELECTION_CHANGE_COMMAND,
+  () => {
+    $onUpdate(() => {
+      editor.read('latest', () => {
+        // Read $getSelection(), look up elements, or position floating UI here.
+      });
+    });
+    return false;
+  },
+  COMMAND_PRIORITY_LOW,
+);
+```
+
+Import `$onUpdate` and `COMMAND_PRIORITY_LOW` from `lexical`. Read selection and
+nodes inside the callback rather than capturing mutable pending objects.
+`registerUpdateListener` is another option for UI that must respond to every
+commit, including content changes that do not change the selection. Updates
+using `SKIP_DOM_SELECTION_TAG` still deliberately leave the browser selection
+unsynchronized.
+
+#### Update tags and local edits
+
+The notification belongs to the pending update and inherits its tags. A listener
+can inspect them with `$hasUpdateTag`. In particular, Yjs does not sync content
+edits back to peers when the update is tagged `COLLABORATION_TAG` or
+`HISTORIC_TAG`; history also treats `HISTORIC_TAG` as replaying an existing entry.
+This applies to content edits made by selection listeners in those updates.
+
+Listeners that only apply to local editing should skip those tagged updates. If
+a remote change or undo must trigger an independent local content edit, schedule
+it after the tagged commit with `$onUpdate`, then start a fresh `editor.update`:
+
+```ts
+const $applyLocalEdit = () => {
+  // Read the current selection and nodes, then apply a convergent local edit.
+};
+
+editor.registerCommand(
+  SELECTION_CHANGE_COMMAND,
+  () => {
+    if ($hasUpdateTag(COLLABORATION_TAG) || $hasUpdateTag(HISTORIC_TAG)) {
+      $onUpdate(() => editor.update($applyLocalEdit));
+    } else {
+      $applyLocalEdit();
+    }
+    return false;
+  },
+  COMMAND_PRIORITY_LOW,
+);
+```
+
+Import the tags and `$hasUpdateTag` from `lexical`. Re-read the state in the fresh
+update; it has its own collaboration and undo behavior. Calling `editor.update`
+directly inside the command listener queues a nested update that still belongs
+to the same tagged commit.
+
+Automatic range and cleared-selection notifications require a connected editor
+root. Changes committed while those notifications are skipped advance the
+selection baseline and are not replayed when the root reconnects. Non-range
+selections continue to notify in unmounted and headless editors,
+with the same pre-reconciliation timing. Native dirty-selection notifications
+may fire even when the selection compares equal to the previous selection.

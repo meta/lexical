@@ -55,7 +55,7 @@ import {
 } from 'lexical';
 import {fromMarkdown} from 'mdast-util-from-markdown';
 
-import {MdastImportExtension} from './MdastImportExtension';
+import {MdastExtension} from './MdastExtension';
 
 // The mdast nodes raw HTML is normalized into — one for a block-level tag
 // sequence, one for an inline (phrasing) tag run. Declared through interface
@@ -312,8 +312,10 @@ function transformRawHtml(parent: Parent): void {
  * Markdown text inside the raw HTML                                          *
  * -------------------------------------------------------------------------- */
 
-// GitHub's `<details>` idiom embeds Markdown *text* directly between the raw
-// tags — most visibly the `<summary>` line — and expects it to render:
+// GitHub's `<details>` idiom puts Markdown *text* directly between the raw
+// tags — most visibly the `<summary>` line — and authors expect it to
+// render, although GFM leaves text in an HTML block raw until a blank line
+// ends the block:
 //
 //   <details><summary>
 //   This is the *summary* that shows when collapsed
@@ -541,7 +543,7 @@ const $importHtmlBlock: MdastImportHandler<HtmlBlock> = (node, ctx) => {
   // ...and so does the Markdown text embedded between the raw tags, parsed
   // with the registry's own grammar so it supports exactly the constructs
   // the document does.
-  const {registry} = $getExtensionOutput(MdastImportExtension);
+  const {registry} = $getExtensionOutput(MdastExtension);
   const segmentMdastExtensions = registry.mdastExtensions.filter(
     extension => extension !== rawHtmlFromMarkdown,
   );
@@ -708,23 +710,40 @@ export function rawHtmlBlock(...parts: RawHtmlBlockPart[]): HtmlBlock {
 // assembled (distinct from the serialized `data-mdast-child` placeholders,
 // which rawHtmlBlock assigns when the parts are put together).
 const EXPORT_MARK_ATTR = 'data-mdast-part';
-const EXPORT_MARK_SPLIT_RE = new RegExp(
-  `<template ${EXPORT_MARK_ATTR}="(\\d+)"></template>`,
-);
+/**
+ * A function declared side-effect free (so the build annotates the call
+ * below) rather than a module-scope `new RegExp`, which is a side effect to
+ * bundlers and would pin this module into every bundle that imports it.
+ *
+ * @__NO_SIDE_EFFECTS__
+ */
+function createExportMarkSplitRegExp(): RegExp {
+  return new RegExp(`<template ${EXPORT_MARK_ATTR}="(\\d+)"></template>`);
+}
+const EXPORT_MARK_SPLIT_RE = createExportMarkSplitRegExp();
 
 // CommonMark's html block condition 6 tag names. A tag with any other name
 // (a custom element) only opens an html block via condition 7, which
 // requires the tag to stand ALONE on its line — so the serialized shell
 // must line-break around such tags to be re-importable.
-const HTML_BLOCK_TAGS = new Set(
-  (
-    'address article aside base basefont blockquote body caption center col ' +
+/**
+ * The set of the space-separated words. A function declared side-effect free
+ * (so the build annotates the call) because the `split` at module scope is a
+ * side effect to bundlers, which would pin the table into every bundle.
+ *
+ * @__NO_SIDE_EFFECTS__
+ */
+function wordSet(words: string): ReadonlySet<string> {
+  return new Set(words.split(' '));
+}
+
+const HTML_BLOCK_TAGS = wordSet(
+  'address article aside base basefont blockquote body caption center col ' +
     'colgroup dd details dialog dir div dl dt fieldset figcaption figure ' +
     'footer form frame frameset h1 h2 h3 h4 h5 h6 head header hr html ' +
     'iframe legend li link main menu menuitem nav noframes ol optgroup ' +
     'option p param search section summary table tbody td tfoot th thead ' +
-    'title tr track ul'
-  ).split(' '),
+    'title tr track ul',
 );
 
 // Breaks the line after a segment's leading tag when that tag is a custom
@@ -768,8 +787,8 @@ function leadsWithCustomTag(segment: string): boolean {
  * Markdown, and serializes via {@link rawHtmlBlock}. Register it directly:
  *
  * ```ts
- * configExtension(MdastImportExtension, {
- *   exportRules: [{$export: $exportViaDOM, type: 'collapsible'}],
+ * configExtension(MdastExtension, {
+ *   exportRules: [{$export: $exportViaDOM, type: CollapsibleNode}],
  * })
  * ```
  *
@@ -975,7 +994,8 @@ const htmlBlockToMarkdown: ToMarkdownExtension = {
  *   Markdown work, and unclosed tags stay literal text,
  * - the import rules parse the HTML with `DOMParser` and hand it to
  *   `$generateNodesFromDOM`, substituting the pre-imported Markdown —
- *   including the Markdown text embedded between block tags, GitHub-style —
+ *   including the Markdown text embedded between block tags, which GFM
+ *   itself leaves raw —
  *   back in via placeholder elements that inherit the surrounding
  *   formatting context (`<strong>`, `style="color: …"`).
  *
@@ -1001,7 +1021,7 @@ export const MdastHtmlExtension = defineExtension({
     configExtension(DOMImportExtension, {
       rules: [HtmlChildPlaceholderRule, HtmlInlineRootRule],
     }),
-    configExtension(MdastImportExtension, {
+    configExtension(MdastExtension, {
       importRules: [
         {$import: $importHtmlBlock, type: 'htmlBlock'},
         {$import: $importHtmlInline, type: 'htmlInline'},

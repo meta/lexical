@@ -10,7 +10,7 @@ Install `lexical` and `@lexical/react`:
 npm install --save lexical @lexical/react
 ```
 
-Below is an example of a basic plain text editor using `lexical` and `@lexical/react` ([try it yourself](https://stackblitz.com/github/facebook/lexical/tree/main/examples/react-plain-text?file=src%2FApp.tsx&terminalHeight=0&ctl=1&showSidebar=0&devtoolsheight=0&view=preview)).
+Below is an example of a basic plain text editor using `lexical` and `@lexical/react` ([try it yourself](https://stackblitz.com/github/meta/lexical/tree/main/examples/react-plain-text?file=src%2FApp.tsx&terminalHeight=0&ctl=1&showSidebar=0&devtoolsheight=0&view=preview)).
 
 ```jsx
 import {$getRoot, $getSelection} from 'lexical';

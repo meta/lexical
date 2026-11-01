@@ -15,6 +15,7 @@ import type {
   RangeSelection,
   LexicalCommand,
   SerializedElementNode,
+  SerializedPartial,
   LexicalExtension,
   ExtensionConfigBase,
 } from 'lexical';
@@ -62,7 +63,17 @@ declare export class ListItemNode extends ElementNode {
   getChecked(): boolean | void;
   setChecked(boolean): this;
   toggleChecked(): void;
-  static importJSON(serializedNode: SerializedListItemNode): ListItemNode;
+  // Both forms, because a Flow object property is invariant: `SerializedPartial`
+  // makes each property optional, and an optional property is not a supertype
+  // of a required one there, so naming only the relaxed form made the *full*
+  // serialized type unassignable — `ListItemNode.importJSON(node.exportJSON())`
+  // stopped type-checking. TypeScript needs no union: a required property
+  // satisfies an optional one structurally.
+  static importJSON(
+    serializedNode:
+      | SerializedListItemNode
+      | SerializedPartial<SerializedListItemNode>,
+  ): ListItemNode;
 }
 declare export class ListNode extends ElementNode {
   __tag: ListNodeTagType;
@@ -72,7 +83,17 @@ declare export class ListNode extends ElementNode {
   getTag(): ListNodeTagType;
   getStart(): number;
   getListType(): ListType;
-  static importJSON(serializedNode: SerializedListNode): ListNode;
+  // Both forms, because a Flow object property is invariant: `SerializedPartial`
+  // makes each property optional, and an optional property is not a supertype
+  // of a required one there, so naming only the relaxed form made the *full*
+  // serialized type unassignable — `ListNode.importJSON(node.exportJSON())`
+  // stopped type-checking. TypeScript needs no union: a required property
+  // satisfies an optional one structurally.
+  static importJSON(
+    serializedNode:
+      | SerializedListNode
+      | SerializedPartial<SerializedListNode>,
+  ): ListNode;
 }
 declare export function outdentList(): void;
 declare export function $removeList(): void;

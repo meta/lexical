@@ -10,13 +10,14 @@
     "micromark"
   ],
   "license": "MIT",
-  "version": "0.50.0",
+  "version": "0.53.0",
   "main": "./dist/LexicalMdast.js",
   "types": "./dist/typescript-too-old.d.ts",
   "dependencies": {
     "@lexical/code-core": "workspace:*",
     "@lexical/extension": "workspace:*",
     "@lexical/html": "workspace:*",
+    "@lexical/internal": "workspace:*",
     "@lexical/link": "workspace:*",
     "@lexical/list": "workspace:*",
     "@lexical/rich-text": "workspace:*",
@@ -25,44 +26,34 @@
     "@lexical/utils": "workspace:*",
     "@types/mdast": "^4.0.4",
     "lexical": "workspace:*",
-    "mdast-util-from-markdown": "^2.0.3",
+    "mdast-util-from-markdown": "^2.1.0",
     "mdast-util-gfm-autolink-literal": "^2.0.1",
     "mdast-util-gfm-strikethrough": "^2.0.0",
     "mdast-util-gfm-table": "^2.0.0",
     "mdast-util-gfm-task-list-item": "^2.0.0",
-    "mdast-util-to-markdown": "^2.1.2",
+    "mdast-util-to-markdown": "^2.2.0",
     "mdast-util-to-string": "^4.0.0",
     "micromark-extension-gfm-autolink-literal": "^2.1.0",
     "micromark-extension-gfm-strikethrough": "^2.1.0",
-    "micromark-extension-gfm-table": "^2.1.1",
+    "micromark-extension-gfm-table": "^2.1.2",
     "micromark-extension-gfm-task-list-item": "^2.1.0",
     "micromark-util-types": "^2.0.2"
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/facebook/lexical.git",
+    "url": "git+https://github.com/meta/lexical.git",
     "directory": "packages/lexical-mdast"
   },
-  "module": "./dist/LexicalMdast.mjs",
+  "module": "./dist/LexicalMdast.js",
   "sideEffects": false,
   "exports": {
     ".": {
       "source": "./src/index.ts",
-      "import": {
-        "types@<5.2": "./dist/typescript-too-old.d.ts",
-        "types": "./dist/index.d.ts",
-        "development": "./dist/LexicalMdast.dev.mjs",
-        "production": "./dist/LexicalMdast.prod.mjs",
-        "node": "./dist/LexicalMdast.node.mjs",
-        "default": "./dist/LexicalMdast.mjs"
-      },
-      "require": {
-        "types@<5.2": "./dist/typescript-too-old.d.ts",
-        "types": "./dist/index.d.ts",
-        "development": "./dist/LexicalMdast.dev.js",
-        "production": "./dist/LexicalMdast.prod.js",
-        "default": "./dist/LexicalMdast.js"
-      }
+      "types@<5.2": "./dist/typescript-too-old.d.ts",
+      "types": "./dist/index.d.ts",
+      "development": "./dist/LexicalMdast.dev.js",
+      "production": "./dist/LexicalMdast.prod.js",
+      "default": "./dist/LexicalMdast.js"
     }
   },
   "files": [
@@ -92,5 +83,6 @@
     "typescript": {
       "optional": true
     }
-  }
+  },
+  "type": "module"
 }

@@ -9,6 +9,3 @@
 // https://help.apple.com/xcode/#/dev745c5c974
 
 VERSION=0.0.0
-
-// This file is generated during npm run safari:archive
-#include? "VersioningConfig.xcconfig"

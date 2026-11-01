@@ -1,0 +1,23 @@
+/**
+ * Copyright (c) Meta Platforms, Inc. and affiliates.
+ *
+ * This source code is licensed under the MIT license found in the
+ * LICENSE file in the root directory of this source tree.
+ *
+ * @flow strict
+ */
+
+import type {LexicalExtension} from 'lexical';
+import type {NamedSignalsOutput} from '@lexical/extension/namedSignals';
+
+export type SelectionAlwaysOnDisplayConfig = {
+  disabled: boolean,
+  onReposition: void | ((node: ReadonlyArray<HTMLElement>) => void),
+};
+
+declare export var SelectionAlwaysOnDisplayExtension: LexicalExtension<
+  SelectionAlwaysOnDisplayConfig,
+  '@lexical/utils/SelectionAlwaysOnDisplay',
+  NamedSignalsOutput<SelectionAlwaysOnDisplayConfig>,
+  unknown,
+>;

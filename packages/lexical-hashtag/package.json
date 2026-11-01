@@ -8,7 +8,7 @@
     "hashtag"
   ],
   "license": "MIT",
-  "version": "0.50.0",
+  "version": "0.53.0",
   "main": "./dist/LexicalHashtag.js",
   "types": "./dist/typescript-too-old.d.ts",
   "dependencies": {
@@ -18,29 +18,19 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/facebook/lexical.git",
+    "url": "git+https://github.com/meta/lexical.git",
     "directory": "packages/lexical-hashtag"
   },
-  "module": "./dist/LexicalHashtag.mjs",
+  "module": "./dist/LexicalHashtag.js",
   "sideEffects": false,
   "exports": {
     ".": {
       "source": "./src/index.ts",
-      "import": {
-        "types@<5.2": "./dist/typescript-too-old.d.ts",
-        "types": "./dist/index.d.ts",
-        "development": "./dist/LexicalHashtag.dev.mjs",
-        "production": "./dist/LexicalHashtag.prod.mjs",
-        "node": "./dist/LexicalHashtag.node.mjs",
-        "default": "./dist/LexicalHashtag.mjs"
-      },
-      "require": {
-        "types@<5.2": "./dist/typescript-too-old.d.ts",
-        "types": "./dist/index.d.ts",
-        "development": "./dist/LexicalHashtag.dev.js",
-        "production": "./dist/LexicalHashtag.prod.js",
-        "default": "./dist/LexicalHashtag.js"
-      }
+      "types@<5.2": "./dist/typescript-too-old.d.ts",
+      "types": "./dist/index.d.ts",
+      "development": "./dist/LexicalHashtag.dev.js",
+      "production": "./dist/LexicalHashtag.prod.js",
+      "default": "./dist/LexicalHashtag.js"
     }
   },
   "files": [
@@ -70,5 +60,6 @@
     "typescript": {
       "optional": true
     }
-  }
+  },
+  "type": "module"
 }

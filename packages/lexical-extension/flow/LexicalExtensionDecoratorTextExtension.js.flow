@@ -1,0 +1,65 @@
+/**
+ * Copyright (c) Meta Platforms, Inc. and affiliates.
+ *
+ * This source code is licensed under the MIT license found in the
+ * LICENSE file in the root directory of this source tree.
+ *
+ * @flow strict
+ */
+
+import type {
+  StateConfig,
+  LexicalExtension,
+  ExtensionConfigBase,
+  LexicalNode,
+  SerializedLexicalNode,
+  TextFormatType,
+} from 'lexical';
+import {DecoratorNode} from 'lexical';
+
+export type SerializedDecoratorTextNode = {
+  ...SerializedLexicalNode,
+  format: number,
+  ...
+};
+
+declare const formatState: StateConfig<'format', number>;
+
+declare export class DecoratorTextNode extends DecoratorNode<unknown> {
+  createDOM(): HTMLElement;
+  getFormat(): number;
+  getFormatFlags(type: TextFormatType, alignWithFormat: null | number): number;
+  hasFormat(type: TextFormatType): boolean;
+  setFormat(type: number): this;
+  toggleFormat(type: TextFormatType): this;
+  isInline(): true;
+}
+
+declare export function $isDecoratorTextNode(
+  node: ?LexicalNode,
+): node is DecoratorTextNode;
+
+declare export function applyFormatFromStyle(
+  lexicalNode: DecoratorTextNode,
+  style: CSSStyleDeclaration,
+  shouldApply?: TextFormatType,
+): DecoratorTextNode;
+
+declare export function applyFormatToDom(
+  lexicalNode: DecoratorTextNode,
+  domNode: Text | HTMLElement,
+  tagNameToFormat?: {[string]: TextFormatType},
+): Text | HTMLElement;
+
+declare export function $applyFormatToDom(
+  lexicalNode: DecoratorTextNode,
+  domNode: Text | HTMLElement,
+  tagNameToFormat?: {[string]: TextFormatType},
+): Text | HTMLElement;
+
+declare export var DecoratorTextExtension: LexicalExtension<
+  ExtensionConfigBase,
+  '@lexical/extension/DecoratorText',
+  void,
+  void,
+>;

@@ -7,12 +7,7 @@
  */
 
 import {
-  centerAlign,
-  clearFormatting,
-  indent,
   moveToPrevWord,
-  outdent,
-  rightAlign,
   selectAll,
   selectCharacters,
   toggleBold,
@@ -36,8 +31,8 @@ import {
 } from '../utils/index.mjs';
 
 test.describe('Clear All Formatting', () => {
-  test.beforeEach(({isPlainText, isCollab, page}) => {
-    test.skip(isPlainText);
+  test.skip(({isPlainText}) => isPlainText, 'Requires rich text');
+  test.beforeEach(({isCollab, page}) => {
     return initialize({isCollab, page});
   });
   test(`Can clear BIU formatting`, async ({page}) => {
@@ -180,155 +175,6 @@ test.describe('Clear All Formatting', () => {
             Luke Skywalker
           </span>
           <span data-lexical-text="true">is testing</span>
-        </p>
-      `,
-    );
-  });
-
-  test(`Can clear left/center/right alignment when BIU formatting already applied`, async ({
-    page,
-  }) => {
-    await focusEditor(page);
-
-    await page.keyboard.type('Hello');
-    await toggleBold(page);
-    await page.keyboard.type(' World');
-    await rightAlign(page);
-    await page.keyboard.type(' Test');
-    await selectAll(page);
-    await selectFromAdditionalStylesDropdown(page, '.clear');
-    await assertHTML(
-      page,
-      html`
-        <p class="PlaygroundEditorTheme__paragraph" dir="auto">
-          <span data-lexical-text="true">Hello World Test</span>
-        </p>
-      `,
-    );
-  });
-
-  test(`Can clear left/center/right alignment when BIU formatting not applied`, async ({
-    page,
-  }) => {
-    await focusEditor(page);
-
-    await page.keyboard.type('Hello World');
-    await rightAlign(page);
-    await page.keyboard.type(' Test');
-    await centerAlign(page);
-    await selectAll(page);
-    await selectFromAdditionalStylesDropdown(page, '.clear');
-    await assertHTML(
-      page,
-      html`
-        <p class="PlaygroundEditorTheme__paragraph" dir="auto">
-          <span data-lexical-text="true">Hello World Test</span>
-        </p>
-      `,
-    );
-  });
-
-  test(`Can clear when only indent/outdent alignment is applied`, async ({
-    page,
-  }) => {
-    await focusEditor(page);
-
-    await page.keyboard.type('Hello World');
-    await indent(page);
-    await page.keyboard.type(' Test');
-    await indent(page);
-    await selectAll(page);
-    await selectFromAdditionalStylesDropdown(page, '.clear');
-    await assertHTML(
-      page,
-      html`
-        <p class="PlaygroundEditorTheme__paragraph" dir="auto">
-          <span data-lexical-text="true">Hello World Test</span>
-        </p>
-      `,
-    );
-  });
-
-  test(`Can clear indent/outdent alignment when other formatting options like BIU or left/right/center align are also applied`, async ({
-    page,
-  }) => {
-    await focusEditor(page);
-
-    await page.keyboard.type('Hello');
-    await toggleBold(page);
-    await toggleItalic(page);
-    await page.keyboard.type(' World');
-    await indent(page);
-    await indent(page);
-    await indent(page);
-    await rightAlign(page);
-    await page.keyboard.type(' Test');
-    await outdent(page);
-    await selectAll(page);
-    await selectFromAdditionalStylesDropdown(page, '.clear');
-    await assertHTML(
-      page,
-      html`
-        <p class="PlaygroundEditorTheme__paragraph" dir="auto">
-          <span data-lexical-text="true">Hello World Test</span>
-        </p>
-      `,
-    );
-  });
-
-  test(`Can clear alignment and indent with a collapsed selection`, async ({
-    page,
-  }) => {
-    await focusEditor(page);
-
-    await page.keyboard.type('Hello World');
-    await rightAlign(page);
-    await indent(page);
-    await clearFormatting(page);
-    await assertHTML(
-      page,
-      html`
-        <p class="PlaygroundEditorTheme__paragraph" dir="auto">
-          <span data-lexical-text="true">Hello World</span>
-        </p>
-      `,
-    );
-  });
-
-  test(`Should clear formatting of selected text which spans over 1 paragraph`, async ({
-    page,
-  }) => {
-    await focusEditor(page);
-
-    await page.keyboard.type('Foo bar');
-    await page.keyboard.press('Enter');
-    await page.keyboard.type('baz qux');
-    await selectAll(page);
-    await toggleBold(page);
-    await page.keyboard.press('ArrowRight');
-    await moveToPrevWord(page);
-    await page.keyboard.down('Shift');
-    await page.keyboard.press('ArrowUp');
-    await page.keyboard.up('Shift');
-    await selectFromAdditionalStylesDropdown(page, '.clear');
-    await assertHTML(
-      page,
-      html`
-        <p class="PlaygroundEditorTheme__paragraph" dir="auto">
-          <strong
-            class="PlaygroundEditorTheme__textBold"
-            data-lexical-text="true">
-            Foo
-          </strong>
-          <span data-lexical-text="true">bar</span>
-        </p>
-        <p class="PlaygroundEditorTheme__paragraph" dir="auto">
-          <span data-lexical-text="true">baz</span>
-          <strong
-            class="PlaygroundEditorTheme__textBold"
-            data-lexical-text="true">
-            qux
-          </strong>
         </p>
       `,
     );

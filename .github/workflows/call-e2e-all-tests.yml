@@ -75,16 +75,25 @@ jobs:
   mac-rich:
     needs: [build-macos]
     strategy:
+      fail-fast: false
       matrix:
         node-version: [24.x]
         browser: ['webkit', 'chromium', 'firefox']
         editor-mode: ['rich-text']
+        shard-index: [1, 2]
+        exclude:
+          - browser: chromium
+            shard-index: 2
+          - browser: firefox
+            shard-index: 2
     uses: ./.github/workflows/call-e2e-test.yml
     with:
       os: 'macos-latest'
       node-version: ${{ matrix.node-version }}
       browser: ${{ matrix.browser }}
       editor-mode: ${{ matrix.editor-mode }}
+      shard-index: ${{ matrix.shard-index }}
+      shard-total: ${{ matrix.browser == 'webkit' && 2 || 1 }}
 
   mac-plain:
     needs: [build-macos]
@@ -131,15 +140,19 @@ jobs:
   collab-mac:
     needs: [build-macos]
     strategy:
+      fail-fast: false
       matrix:
         node-version: [24.x]
         browser: ['webkit']
+        shard-index: [1, 2]
     uses: ./.github/workflows/call-e2e-test.yml
     with:
       os: 'macos-latest'
       node-version: ${{ matrix.node-version }}
       browser: ${{ matrix.browser }}
       editor-mode: 'rich-text-with-collab'
+      shard-index: ${{ matrix.shard-index }}
+      shard-total: 2
 
   collab-linux:
     needs: [build-ubuntu]
@@ -166,6 +179,19 @@ jobs:
       node-version: ${{ matrix.node-version }}
       browser: ${{ matrix.browser }}
       editor-mode: 'rich-text-with-collab-v2'
+
+  collab-y-linux:
+    needs: [build-ubuntu]
+    strategy:
+      matrix:
+        node-version: [24.x]
+        browser: ['chromium', 'firefox']
+    uses: ./.github/workflows/call-e2e-test.yml
+    with:
+      os: 'ubuntu-latest'
+      node-version: ${{ matrix.node-version }}
+      browser: ${{ matrix.browser }}
+      editor-mode: 'rich-text-with-collab-y'
 
   collab-windows:
     needs: [build-windows]

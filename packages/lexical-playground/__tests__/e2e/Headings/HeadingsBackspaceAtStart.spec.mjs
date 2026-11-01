@@ -19,12 +19,12 @@ import {
   test,
 } from '../../utils/index.mjs';
 
+test.skip(({isPlainText}) => isPlainText, 'Requires rich text');
+
 test('Headings - stays as a heading when you backspace at the start of a heading with no previous sibling nodes present', async ({
   page,
-  isPlainText,
   isCollab,
 }) => {
-  test.skip(isPlainText);
   await initialize({isCollab, page});
   await focusEditor(page);
 
@@ -58,10 +58,8 @@ test('Headings - stays as a heading when you backspace at the start of a heading
 
 test('Headings - removes only the empty previous paragraph and preserves heading on backspace at start (#4359)', async ({
   page,
-  isPlainText,
   isCollab,
 }) => {
-  test.skip(isPlainText);
   await initialize({isCollab, page});
   await focusEditor(page);
 

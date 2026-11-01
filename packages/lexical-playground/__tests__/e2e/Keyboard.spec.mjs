@@ -18,6 +18,8 @@ import {
 
 const supportsTranspose = IS_MAC && E2E_BROWSER !== 'firefox';
 
+test.skip(!supportsTranspose, 'Requires native transpose support');
+
 test.describe('Keyboard shortcuts', () => {
   test.beforeEach(
     ({isCollab, page}) => supportsTranspose && initialize({isCollab, page}),
@@ -26,11 +28,7 @@ test.describe('Keyboard shortcuts', () => {
   test('handles "insertTranspose" event from Control+T on MAC', async ({
     page,
     context,
-    isPlainText,
-    browserName,
   }) => {
-    test.skip(!supportsTranspose);
-
     await focusEditor(page);
     await page.keyboard.type('abc');
     await page.keyboard.press('ArrowLeft');

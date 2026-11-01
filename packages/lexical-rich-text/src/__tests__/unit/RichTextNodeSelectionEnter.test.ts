@@ -6,6 +6,8 @@
  *
  */
 
+// @vitest-environment node
+
 import {buildEditorFromExtensions} from '@lexical/extension';
 import {RichTextExtension} from '@lexical/rich-text';
 import {

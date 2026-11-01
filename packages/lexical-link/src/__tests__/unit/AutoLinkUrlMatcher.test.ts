@@ -6,6 +6,8 @@
  *
  */
 
+// @vitest-environment node
+
 import {assert, describe, expect, test} from 'vitest';
 
 import {autoLinkUrlMatcher as urlMatcher} from '../../LexicalAutoLinkExtension';

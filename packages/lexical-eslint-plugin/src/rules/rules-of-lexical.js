@@ -7,9 +7,9 @@
  */
 // @ts-check
 
-const {getFunctionName} = require('../util/getFunctionName.js');
-const {getParentAssignmentName} = require('../util/getParentAssignmentName.js');
-const {buildMatcher} = require('../util/buildMatcher.js');
+import {buildMatcher} from '../util/buildMatcher.js';
+import {getFunctionName} from '../util/getFunctionName.js';
+import {getParentAssignmentName} from '../util/getParentAssignmentName.js';
 
 /**
  * @typedef {import('eslint').Rule.NodeParentExtension} NodeParentExtension
@@ -255,7 +255,7 @@ const matcherSchema = {
 };
 
 /** @type {RuleModule} */
-module.exports.rulesOfLexical = {
+export const rulesOfLexical = {
   create(context) {
     const sourceCode = getSourceCode(context);
     const matchers = compileMatchers(context);

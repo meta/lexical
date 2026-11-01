@@ -1,7 +1,7 @@
 {
-  "name": "@lexical/extension-vanilla-example",
+  "name": "@lexical/extension-vanilla-tailwind-example",
   "private": true,
-  "version": "0.50.0",
+  "version": "0.53.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -9,25 +9,20 @@
     "build": "vite build",
     "preview": "vite preview"
   },
-  "stackblitz": {
-    "startCommand": "npm i && npm run monorepo:dev"
-  },
   "dependencies": {
-    "@lexical/extension": "0.50.0",
-    "@lexical/history": "0.50.0",
-    "@lexical/list": "0.50.0",
-    "@lexical/rich-text": "0.50.0",
-    "@lexical/tailwind": "0.50.0",
-    "@lexical/utils": "0.50.0",
-    "lexical": "0.50.0"
+    "@lexical/extension": "0.53.0",
+    "@lexical/history": "0.53.0",
+    "@lexical/list": "0.53.0",
+    "@lexical/rich-text": "0.53.0",
+    "@lexical/tailwind": "0.53.0",
+    "lexical": "0.53.0"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.2.1",
     "cross-env": "^7.0.3",
     "tailwindcss": "^4.2.1",
     "typescript": "5.4.5",
-    "vite": "^7.3.2",
-    "vite-plugin-static-copy": "^3.2.0"
+    "vite": "^7.3.2"
   },
   "optionalDependencies": {
     "@rollup/rollup-darwin-arm64": "4.52.0",

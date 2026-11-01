@@ -40,7 +40,7 @@ const outputRoot = path.resolve(
 // loudly when they are missing.
 if (
   !existsSync(
-    path.join(monorepoRoot, 'packages', 'lexical', 'dist', 'Lexical.dev.mjs'),
+    path.join(monorepoRoot, 'packages', 'lexical', 'dist', 'Lexical.dev.js'),
   )
 ) {
   console.error(

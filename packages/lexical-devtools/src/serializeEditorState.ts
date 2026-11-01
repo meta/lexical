@@ -14,6 +14,24 @@ import type {EditorState} from 'lexical';
 const deserealizationMap = new Map<number, EditorState>();
 let nextId = 0;
 
+const OBFUSCATION_CHAR = '*';
+
+export interface SerializeEditorStateOptions {
+  /**
+   * Replace the text carried by each node with a same-length mask.
+   *
+   * Serialized editor state is relayed through the extension store and
+   * mirrored into every surface of the extension. Keeping text out of that
+   * relay unless somebody is actually looking at it keeps the relayed data
+   * to what the UI needs.
+   *
+   * Note that this affects the *serialized copy* only. `setEditorState` round
+   * trips through `deserealizationMap`, which holds the untouched original, so
+   * masking here never writes masked text back into an editor.
+   */
+  obfuscateText?: boolean;
+}
+
 const serializePoint = (point: object) => {
   const newPoint: {
     [key: string]: unknown;
@@ -26,6 +44,27 @@ const serializePoint = (point: object) => {
   }
 
   return newPoint;
+};
+
+/**
+ * Shallow-copy a node with its text masked.
+ *
+ * The node map holds live references to the editor's own nodes, so the copy is
+ * essential -- masking in place would corrupt the editor itself.
+ */
+const obfuscateNode = (node: unknown): unknown => {
+  if (typeof node !== 'object' || node === null || !('__text' in node)) {
+    return node;
+  }
+
+  const text = (node as {__text: unknown}).__text;
+  if (typeof text !== 'string' || text.length === 0) {
+    return node;
+  }
+
+  return Object.assign(Object.create(Object.getPrototypeOf(node)), node, {
+    __text: OBFUSCATION_CHAR.repeat(text.length),
+  });
 };
 
 export function deserializeEditorState(
@@ -52,8 +91,13 @@ export function deserializeEditorState(
 // therefore, we have a custom serializeEditorState helper
 export function serializeEditorState(
   editorState: EditorState,
+  {obfuscateText = false}: SerializeEditorStateOptions = {},
 ): SerializedRawEditorState {
-  const nodeMap = Object.fromEntries(editorState._nodeMap); // convert from Map structure to JSON-friendly object
+  const entries = Array.from(editorState._nodeMap, ([key, node]) => [
+    key,
+    obfuscateText ? obfuscateNode(node) : node,
+  ]);
+  const nodeMap = Object.fromEntries(entries); // convert from Map structure to JSON-friendly object
 
   const selection = editorState._selection
     ? Object.assign({}, editorState._selection)

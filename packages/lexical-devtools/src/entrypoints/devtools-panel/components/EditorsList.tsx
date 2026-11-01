@@ -98,7 +98,13 @@ export function EditorsList({tabID, setErrorMessage}: Props) {
                   .catch(e => setErrorMessage(e.stack))
               }
               generateContent={exportDOM =>
-                injectedPegasusService.generateTreeViewContent(key, exportDOM)
+                // The panel is open, so the user is deliberately inspecting
+                // this editor: ask for its text unmasked.
+                injectedPegasusService.generateTreeViewContent(
+                  key,
+                  exportDOM,
+                  false,
+                )
               }
             />
           </Accordion.ItemContent>

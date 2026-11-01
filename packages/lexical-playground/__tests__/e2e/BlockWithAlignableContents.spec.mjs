@@ -16,18 +16,21 @@ import {
   initialize,
   insertYouTubeEmbed,
   selectFromAlignDropdown,
+  stubYouTubePlayer,
   test,
   YOUTUBE_SAMPLE_URL,
 } from '../utils/index.mjs';
 
-test.describe('BlockWithAlignableContents', () => {
-  test.beforeEach(({isCollab, page}) => initialize({isCollab, page}));
+test.skip(({isPlainText}) => isPlainText, 'Requires rich text');
 
-  test('Can create full width blocks for YouTube videos', async ({
-    page,
-    isPlainText,
-  }) => {
-    test.skip(isPlainText);
+test.describe('BlockWithAlignableContents', () => {
+  test.beforeEach(async ({isCollab, page}) => {
+    // These checks exercise the embed wrapper, not the remote video player.
+    await stubYouTubePlayer(page);
+    await initialize({isCollab, page});
+  });
+
+  test('Can create full width blocks for YouTube videos', async ({page}) => {
     await focusEditor(page);
     await page.keyboard.type('Hello world');
     await assertHTML(
@@ -64,11 +67,7 @@ test.describe('BlockWithAlignableContents', () => {
     );
   });
 
-  test('Can align contents within full width blocks', async ({
-    page,
-    isPlainText,
-  }) => {
-    test.skip(isPlainText);
+  test('Can align contents within full width blocks', async ({page}) => {
     await focusEditor(page);
     await page.keyboard.type('Hello world');
     await insertYouTubeEmbed(page, YOUTUBE_SAMPLE_URL);
@@ -135,36 +134,36 @@ test.describe('BlockWithAlignableContents', () => {
   // #7618: an unfocused embed block must not opt out of user selection, or the
   // browser refuses to extend a triple click to the end of the paragraph that
   // precedes it and collapses the selection to the start of that paragraph.
-  test('Can triple click to select a paragraph followed by an embed block', async ({
-    page,
-    isPlainText,
-    isCollab,
-  }) => {
-    test.skip(isPlainText || isCollab);
-    await focusEditor(page);
-    const text = 'Hello world';
-    await page.keyboard.type(text);
-    await insertYouTubeEmbed(page, YOUTUBE_SAMPLE_URL);
-    await page
-      .locator('div[contenteditable="true"] > p')
-      .first()
-      .click({clickCount: 3, delay: 50});
-    await assertSelection(
+  test.describe(() => {
+    test.skip(({isCollab}) => isCollab);
+    test('Can triple click to select a paragraph followed by an embed block', async ({
       page,
-      createHumanReadableSelection('the whole first paragraph', {
-        anchorOffset: {desc: 'start of the text', value: 0},
-        anchorPath: [
-          {desc: 'first paragraph', value: 0},
-          {desc: 'first span', value: 0},
-          {desc: 'Text node', value: 0},
-        ],
-        focusOffset: {desc: 'end of the text', value: text.length},
-        focusPath: [
-          {desc: 'first paragraph', value: 0},
-          {desc: 'first span', value: 0},
-          {desc: 'Text node', value: 0},
-        ],
-      }),
-    );
+    }) => {
+      await focusEditor(page);
+      const text = 'Hello world';
+      await page.keyboard.type(text);
+      await insertYouTubeEmbed(page, YOUTUBE_SAMPLE_URL);
+      await page
+        .locator('div[contenteditable="true"] > p')
+        .first()
+        .click({clickCount: 3, delay: 50});
+      await assertSelection(
+        page,
+        createHumanReadableSelection('the whole first paragraph', {
+          anchorOffset: {desc: 'start of the text', value: 0},
+          anchorPath: [
+            {desc: 'first paragraph', value: 0},
+            {desc: 'first span', value: 0},
+            {desc: 'Text node', value: 0},
+          ],
+          focusOffset: {desc: 'end of the text', value: text.length},
+          focusPath: [
+            {desc: 'first paragraph', value: 0},
+            {desc: 'first span', value: 0},
+            {desc: 'Text node', value: 0},
+          ],
+        }),
+      );
+    });
   });
 });

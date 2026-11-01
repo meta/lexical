@@ -103,10 +103,13 @@ function pullquoteCount(frame) {
 }
 
 test.describe('Named slot collaborative convergence', () => {
-  test.beforeEach(async ({isCollab, isPlainText, page}) => {
+  test.skip(
+    ({isCollab, isPlainText}) => !isCollab || isPlainText,
+    'Requires rich text with collaboration',
+  );
+  test.beforeEach(async ({isCollab, page}) => {
     // Only meaningful with a second client; plain text has no slot hosts.
-    test.skip(!isCollab);
-    test.skip(isPlainText);
+
     await initialize({isCollab, page});
   });
 

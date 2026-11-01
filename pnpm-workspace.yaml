@@ -17,11 +17,12 @@ catalog:
   yjs: '^13.6.31'
 
 overrides:
+  '@rollup/plugin-terser>terser': '5.51.2'
   react: '19.2.5'
   react-dom: '19.2.5'
-  '@types/node': '25.9.1'
+  '@types/node': '26.4.1'
   postcss: '8.5.15'
-  prettier: '3.8.1'
+  prettier: '3.8.5'
   'yaml@^1': '^1.10.3'
   uuid: '>=14.0.0'
   webpack-dev-server: '>=5.2.4'

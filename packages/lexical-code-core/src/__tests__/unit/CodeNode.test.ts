@@ -26,7 +26,7 @@ describe('CodeNode', () => {
         const {editor} = testEnv;
 
         let dom!: HTMLElement;
-        let prevNode!: ReturnType<typeof $createCodeNode>;
+        let prevNode!: CodeNode;
 
         await editor.update(() => {
           const codeNode = $createCodeNode('javascript');

@@ -65,17 +65,3 @@ export const CodeExtension = defineExtension({
     );
   },
 });
-
-/**
- * Bundles {@link CodeImportRules} together with the runtime
- * {@link CodeExtension}.
- *
- * @experimental
- * @deprecated {@link CodeExtension} now registers
- * {@link CodeImportRules} (and `CoreImportExtension`) itself — depend on
- * it directly instead.
- */
-export const CodeImportExtension = defineExtension({
-  dependencies: [CodeExtension],
-  name: '@lexical/code/Import',
-});

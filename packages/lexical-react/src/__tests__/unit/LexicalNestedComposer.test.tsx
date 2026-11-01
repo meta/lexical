@@ -1063,7 +1063,10 @@ describe('LexicalNestedComposer', () => {
     }
     class ConfigTransformNode extends TextNode {
       $config() {
-        return this.config('$config-transform', {$transform});
+        return this.config('$config-transform', {
+          $transform,
+          extends: TextNode,
+        });
       }
     }
     function App() {

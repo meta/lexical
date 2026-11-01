@@ -107,8 +107,10 @@ These internal pointers maintain the tree structure and should never be manipula
 1. **Editor Methods**
    ```typescript
    // Get node by key
-   const node = editor.getElementByKey(key);
    const node = $getNodeByKey(key);
+
+   // Get the DOM element a node key is reconciled to
+   const element = editor.getElementByKey(key);
 
    // Get latest version of a node
    const latest = node.getLatest();

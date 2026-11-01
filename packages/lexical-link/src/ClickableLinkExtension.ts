@@ -6,7 +6,11 @@
  *
  */
 
-import {namedSignals, type NamedSignalsOutput} from '@lexical/extension';
+import {
+  namedSignals,
+  type NamedSignalsOutput,
+  signal,
+} from '@lexical/extension';
 import {
   $findMatchingParent,
   $getNearestNodeFromDOMNode,
@@ -44,13 +48,31 @@ export interface ClickableLinkConfig {
   newTab: boolean;
   /** Disable this extension when true (default false) */
   disabled: boolean;
+  /**
+   * Resolve the window used to open links (defaults to the global window).
+   * Return null to leave the click unhandled.
+   */
+  getWindow: (editor: LexicalEditor) => Window | null;
+}
+
+function defaultGetWindow(): Window {
+  return window;
 }
 
 export function registerClickableLink(
   editor: LexicalEditor,
-  stores: NamedSignalsOutput<ClickableLinkConfig>,
+  // Older registration callers only provide disabled and newTab signals.
+  stores: Pick<
+    NamedSignalsOutput<ClickableLinkConfig>,
+    'disabled' | 'newTab'
+  > & {
+    getWindow?: NamedSignalsOutput<ClickableLinkConfig>['getWindow'];
+  },
   eventOptions: Pick<AddEventListenerOptions, 'signal'> = {},
 ): () => void {
+  const getWindow =
+    stores.getWindow ??
+    signal<ClickableLinkConfig['getWindow']>(defaultGetWindow);
   const onClick = (event: MouseEvent) => {
     // `click` only fires for the primary button; every other button arrives
     // as `auxclick` (middle, right, and the back / forward buttons). Only the
@@ -66,7 +88,7 @@ export function registerClickableLink(
     }
     const nearestEditor = getNearestEditorFromDOMNode(target);
 
-    if (nearestEditor === null) {
+    if (nearestEditor !== editor) {
       return;
     }
 
@@ -105,17 +127,20 @@ export function registerClickableLink(
       return;
     }
 
-    // eslint-disable-next-line no-restricted-syntax
-    window.open(
-      url,
+    const newTab =
       stores.newTab.peek() ||
-        isMiddle ||
-        event.metaKey ||
-        event.ctrlKey ||
-        urlTarget === '_blank'
-        ? '_blank'
-        : '_self',
-    );
+      isMiddle ||
+      event.metaKey ||
+      event.ctrlKey ||
+      urlTarget === '_blank';
+    const targetWindow = getWindow.peek()(editor);
+    if (targetWindow === null) {
+      return;
+    }
+    // Unlike an `<a target="_blank">` the browser follows itself,
+    // `window.open` gives the new page a `window.opener` unless told not
+    // to, and with it that page can navigate this one away.
+    targetWindow.open(url, ...(newTab ? ['_blank', 'noopener'] : ['_self']));
     event.preventDefault();
   };
 
@@ -148,6 +173,7 @@ export const ClickableLinkExtension = defineExtension({
   },
   config: safeCast<ClickableLinkConfig>({
     disabled: false,
+    getWindow: defaultGetWindow,
     newTab: false,
   }),
   dependencies: [LinkExtension],

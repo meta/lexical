@@ -9,6 +9,7 @@
 import {
   buildEditorFromExtensions,
   getExtensionDependencyFromEditor,
+  type LexicalEditorWithDispose,
 } from '@lexical/extension';
 import {DRAG_DROP_PASTE, RichTextExtension} from '@lexical/rich-text';
 import {
@@ -36,7 +37,7 @@ function createDataTransferWithFiles(
 }
 
 function dispatchPasteAndCaptureFiles(
-  editor: ReturnType<typeof buildEditorFromExtensions>,
+  editor: LexicalEditorWithDispose,
   dataTransfer: DataTransfer,
 ): File[] | null {
   let dispatchedFiles: File[] | null = null;

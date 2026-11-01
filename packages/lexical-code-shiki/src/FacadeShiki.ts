@@ -34,11 +34,26 @@ import {
 import {bundledLanguagesInfo} from 'shiki/langs';
 import {bundledThemesInfo} from 'shiki/themes';
 
-const shiki = createHighlighterCoreSync({
-  engine: createJavaScriptRegexEngine(),
-  langs: [],
-  themes: [],
-});
+type ShikiCore = ReturnType<typeof createHighlighterCoreSync>;
+
+let shikiCore: undefined | ShikiCore;
+
+/**
+ * The shared highlighter, created on first use rather than when the module is
+ * evaluated: constructing it (and its regex engine) at module scope is real
+ * work that every bundle importing anything from this package would pay for,
+ * and it pins the module into bundles that never highlight code.
+ */
+function getShiki(): ShikiCore {
+  if (shikiCore === undefined) {
+    shikiCore = createHighlighterCoreSync({
+      engine: createJavaScriptRegexEngine(),
+      langs: [],
+      themes: [],
+    });
+  }
+  return shikiCore;
+}
 
 function getDiffedLanguage(language: string) {
   const DIFF_LANGUAGE_REGEX = /^diff-([\w-]+)/i;
@@ -56,7 +71,7 @@ export function isCodeLanguageLoaded(language: string) {
   }
 
   // note: getLoadedLanguages() also returns aliases
-  return shiki.getLoadedLanguages().includes(langId);
+  return getShiki().getLoadedLanguages().includes(langId);
 }
 
 /**
@@ -91,20 +106,22 @@ export function loadCodeLanguage(
     return undefined;
   }
 
-  return shiki.loadLanguage(languageInfo.import()).then(() => {
-    if (editor && codeNodeKey) {
-      editor.update(
-        () => {
-          const codeNode = $getNodeByKey(codeNodeKey);
-          if ($isCodeNode(codeNode) && codeNode.getLanguage() === language) {
-            codeNode.setIsSyntaxHighlightSupported(true);
-            codeNode.markDirty();
-          }
-        },
-        {tag: HISTORY_MERGE_TAG},
-      );
-    }
-  });
+  return getShiki()
+    .loadLanguage(languageInfo.import())
+    .then(() => {
+      if (editor && codeNodeKey) {
+        editor.update(
+          () => {
+            const codeNode = $getNodeByKey(codeNodeKey);
+            if ($isCodeNode(codeNode) && codeNode.getLanguage() === language) {
+              codeNode.setIsSyntaxHighlightSupported(true);
+              codeNode.markDirty();
+            }
+          },
+          {tag: HISTORY_MERGE_TAG},
+        );
+      }
+    });
 }
 
 export function isCodeThemeLoaded(theme: string) {
@@ -115,7 +132,7 @@ export function isCodeThemeLoaded(theme: string) {
     return true;
   }
 
-  return shiki.getLoadedThemes().includes(themeId);
+  return getShiki().getLoadedThemes().includes(themeId);
 }
 
 export function loadCodeTheme(
@@ -132,19 +149,21 @@ export function loadCodeTheme(
     return undefined;
   }
 
-  return shiki.loadTheme(themeInfo.import()).then(() => {
-    if (editor && codeNodeKey) {
-      editor.update(
-        () => {
-          const codeNode = $getNodeByKey(codeNodeKey);
-          if ($isCodeNode(codeNode)) {
-            codeNode.markDirty();
-          }
-        },
-        {tag: HISTORY_MERGE_TAG},
-      );
-    }
-  });
+  return getShiki()
+    .loadTheme(themeInfo.import())
+    .then(() => {
+      if (editor && codeNodeKey) {
+        editor.update(
+          () => {
+            const codeNode = $getNodeByKey(codeNodeKey);
+            if ($isCodeNode(codeNode)) {
+              codeNode.markDirty();
+            }
+          },
+          {tag: HISTORY_MERGE_TAG},
+        );
+      }
+    });
 }
 
 export function getCodeLanguageOptions(): [string, string][] {
@@ -173,7 +192,7 @@ export function $getHighlightNodes(
   const DIFF_LANGUAGE_REGEX = /^diff-([\w-]+)/i;
   const diffLanguageMatch = DIFF_LANGUAGE_REGEX.exec(language);
   const code: string = codeNode.getTextContent();
-  const tokensResult: TokensResult = shiki.codeToTokens(code, {
+  const tokensResult: TokensResult = getShiki().codeToTokens(code, {
     lang: diffLanguageMatch ? diffLanguageMatch[1] : language,
     theme: codeNode.getTheme() || 'poimandres',
   });

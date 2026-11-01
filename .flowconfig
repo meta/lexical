@@ -1,12 +1,13 @@
 [ignore]
-.*/scripts/.*
-.*/build/.*
-.*/__tests__/.*
-.*/dist/.*
-.*/npm/.*
-.*/.tempUserDataDir/.*
-.*/node_modules/.*
-.*/libdefs/.*
+**/scripts/**
+**/build/**
+**/__tests__/**
+**/__bench__/**
+**/dist/**
+**/npm/**
+**/.tempUserDataDir/**
+**/node_modules/**
+**/libdefs/**
 
 [include]
 ./packages/
@@ -30,16 +31,55 @@ module.name_mapper='^@lexical/code-prism$' -> '<PROJECT_ROOT>/packages/lexical-c
 module.name_mapper='^@lexical/code-shiki$' -> '<PROJECT_ROOT>/packages/lexical-code-shiki/flow/LexicalCodeShiki.js.flow'
 module.name_mapper='^@lexical/compiler$' -> '<PROJECT_ROOT>/packages/lexical-compiler/flow/LexicalCompiler.js.flow'
 module.name_mapper='^@lexical/compiler/PureAnnotations$' -> '<PROJECT_ROOT>/packages/lexical-compiler/flow/LexicalCompilerPureAnnotations.js.flow'
+module.name_mapper='^@lexical/compiler/SchemaJsonCodegen$' -> '<PROJECT_ROOT>/packages/lexical-compiler/flow/LexicalCompilerSchemaJsonCodegen.js.flow'
+module.name_mapper='^@lexical/compiler/SubpathImports$' -> '<PROJECT_ROOT>/packages/lexical-compiler/flow/LexicalCompilerSubpathImports.js.flow'
 module.name_mapper='^@lexical/devtools-core$' -> '<PROJECT_ROOT>/packages/lexical-devtools-core/flow/LexicalDevtoolsCore.js.flow'
 module.name_mapper='^@lexical/dragon$' -> '<PROJECT_ROOT>/packages/lexical-dragon/flow/LexicalDragon.js.flow'
 module.name_mapper='^@lexical/eslint-plugin$' -> '<PROJECT_ROOT>/packages/lexical-eslint-plugin/flow/LexicalEslintPlugin.js.flow'
 module.name_mapper='^@lexical/extension$' -> '<PROJECT_ROOT>/packages/lexical-extension/flow/LexicalExtension.js.flow'
+module.name_mapper='^@lexical/extension/AutoFocusExtension$' -> '<PROJECT_ROOT>/packages/lexical-extension/flow/LexicalExtensionAutoFocusExtension.js.flow'
+module.name_mapper='^@lexical/extension/BlockIdExtension$' -> '<PROJECT_ROOT>/packages/lexical-extension/flow/LexicalExtensionBlockIdExtension.js.flow'
+module.name_mapper='^@lexical/extension/ClearEditorExtension$' -> '<PROJECT_ROOT>/packages/lexical-extension/flow/LexicalExtensionClearEditorExtension.js.flow'
+module.name_mapper='^@lexical/extension/ClickAfterLastBlockExtension$' -> '<PROJECT_ROOT>/packages/lexical-extension/flow/LexicalExtensionClickAfterLastBlockExtension.js.flow'
+module.name_mapper='^@lexical/extension/config$' -> '<PROJECT_ROOT>/packages/lexical-extension/flow/LexicalExtensionConfig.js.flow'
+module.name_mapper='^@lexical/extension/DecoratorTextExtension$' -> '<PROJECT_ROOT>/packages/lexical-extension/flow/LexicalExtensionDecoratorTextExtension.js.flow'
+module.name_mapper='^@lexical/extension/EditorStateExtension$' -> '<PROJECT_ROOT>/packages/lexical-extension/flow/LexicalExtensionEditorStateExtension.js.flow'
+module.name_mapper='^@lexical/extension/getExtensionDependency$' -> '<PROJECT_ROOT>/packages/lexical-extension/flow/LexicalExtensionGetExtensionDependency.js.flow'
+module.name_mapper='^@lexical/extension/getExtensionDependencyFromEditor$' -> '<PROJECT_ROOT>/packages/lexical-extension/flow/LexicalExtensionGetExtensionDependencyFromEditor.js.flow'
+module.name_mapper='^@lexical/extension/getPeerDependencyFromEditor$' -> '<PROJECT_ROOT>/packages/lexical-extension/flow/LexicalExtensionGetPeerDependencyFromEditor.js.flow'
+module.name_mapper='^@lexical/extension/HMRExtension$' -> '<PROJECT_ROOT>/packages/lexical-extension/flow/LexicalExtensionHMRExtension.js.flow'
+module.name_mapper='^@lexical/extension/HorizontalRuleExtension$' -> '<PROJECT_ROOT>/packages/lexical-extension/flow/LexicalExtensionHorizontalRuleExtension.js.flow'
+module.name_mapper='^@lexical/extension/IMEExtension$' -> '<PROJECT_ROOT>/packages/lexical-extension/flow/LexicalExtensionIMEExtension.js.flow'
+module.name_mapper='^@lexical/extension/InitialStateExtension$' -> '<PROJECT_ROOT>/packages/lexical-extension/flow/LexicalExtensionInitialStateExtension.js.flow'
+module.name_mapper='^@lexical/extension/KeyboardShortcutsExtension$' -> '<PROJECT_ROOT>/packages/lexical-extension/flow/LexicalExtensionKeyboardShortcutsExtension.js.flow'
+module.name_mapper='^@lexical/extension/LexicalBuilder$' -> '<PROJECT_ROOT>/packages/lexical-extension/flow/LexicalExtensionLexicalBuilder.js.flow'
+module.name_mapper='^@lexical/extension/namedSignals$' -> '<PROJECT_ROOT>/packages/lexical-extension/flow/LexicalExtensionNamedSignals.js.flow'
+module.name_mapper='^@lexical/extension/NestedEditorExtension$' -> '<PROJECT_ROOT>/packages/lexical-extension/flow/LexicalExtensionNestedEditorExtension.js.flow'
+module.name_mapper='^@lexical/extension/NodeSelectionDataSelectedExtension$' -> '<PROJECT_ROOT>/packages/lexical-extension/flow/LexicalExtensionNodeSelectionDataSelectedExtension.js.flow'
+module.name_mapper='^@lexical/extension/NodeSelectionExtension$' -> '<PROJECT_ROOT>/packages/lexical-extension/flow/LexicalExtensionNodeSelectionExtension.js.flow'
+module.name_mapper='^@lexical/extension/NodeStructureExtension$' -> '<PROJECT_ROOT>/packages/lexical-extension/flow/LexicalExtensionNodeStructureExtension.js.flow'
+module.name_mapper='^@lexical/extension/NormalizeInlineElementsExtension$' -> '<PROJECT_ROOT>/packages/lexical-extension/flow/LexicalExtensionNormalizeInlineElementsExtension.js.flow'
+module.name_mapper='^@lexical/extension/NormalizeTripleClickSelectionExtension$' -> '<PROJECT_ROOT>/packages/lexical-extension/flow/LexicalExtensionNormalizeTripleClickSelectionExtension.js.flow'
+module.name_mapper='^@lexical/extension/PreventSelectAllExtension$' -> '<PROJECT_ROOT>/packages/lexical-extension/flow/LexicalExtensionPreventSelectAllExtension.js.flow'
+module.name_mapper='^@lexical/extension/RootElementExtension$' -> '<PROJECT_ROOT>/packages/lexical-extension/flow/LexicalExtensionRootElementExtension.js.flow'
+module.name_mapper='^@lexical/extension/SelectBlockExtension$' -> '<PROJECT_ROOT>/packages/lexical-extension/flow/LexicalExtensionSelectBlockExtension.js.flow'
+module.name_mapper='^@lexical/extension/SelectionAlwaysOnDisplayExtension$' -> '<PROJECT_ROOT>/packages/lexical-extension/flow/LexicalExtensionSelectionAlwaysOnDisplayExtension.js.flow'
+module.name_mapper='^@lexical/extension/signals$' -> '<PROJECT_ROOT>/packages/lexical-extension/flow/LexicalExtensionSignals.js.flow'
+module.name_mapper='^@lexical/extension/TabIndentationExtension$' -> '<PROJECT_ROOT>/packages/lexical-extension/flow/LexicalExtensionTabIndentationExtension.js.flow'
+module.name_mapper='^@lexical/extension/WatchEditableExtension$' -> '<PROJECT_ROOT>/packages/lexical-extension/flow/LexicalExtensionWatchEditableExtension.js.flow'
+module.name_mapper='^@lexical/extension/watchedSignal$' -> '<PROJECT_ROOT>/packages/lexical-extension/flow/LexicalExtensionWatchedSignal.js.flow'
+module.name_mapper='^@lexical/fast-check$' -> '<PROJECT_ROOT>/packages/lexical-fast-check/flow/LexicalFastCheck.js.flow'
 module.name_mapper='^@lexical/file$' -> '<PROJECT_ROOT>/packages/lexical-file/flow/LexicalFile.js.flow'
 module.name_mapper='^@lexical/hashtag$' -> '<PROJECT_ROOT>/packages/lexical-hashtag/flow/LexicalHashtag.js.flow'
 module.name_mapper='^@lexical/headless$' -> '<PROJECT_ROOT>/packages/lexical-headless/flow/LexicalHeadless.js.flow'
 module.name_mapper='^@lexical/headless/dom$' -> '<PROJECT_ROOT>/packages/lexical-headless/flow/LexicalHeadlessDom.js.flow'
+module.name_mapper='^@lexical/headless/HeadlessExtension$' -> '<PROJECT_ROOT>/packages/lexical-headless/flow/LexicalHeadlessHeadlessExtension.js.flow'
 module.name_mapper='^@lexical/history$' -> '<PROJECT_ROOT>/packages/lexical-history/flow/LexicalHistory.js.flow'
 module.name_mapper='^@lexical/html$' -> '<PROJECT_ROOT>/packages/lexical-html/flow/LexicalHtml.js.flow'
+module.name_mapper='^@lexical/html/BlockIdHTMLExtension$' -> '<PROJECT_ROOT>/packages/lexical-html/flow/LexicalHtmlBlockIdHTMLExtension.js.flow'
+module.name_mapper='^@lexical/internal/createDevError$' -> '<PROJECT_ROOT>/packages/lexical-internal/flow/LexicalInternalCreateDevError.js.flow'
+module.name_mapper='^@lexical/internal/createError$' -> '<PROJECT_ROOT>/packages/lexical-internal/flow/LexicalInternalCreateError.js.flow'
+module.name_mapper='^@lexical/internal/createProdError$' -> '<PROJECT_ROOT>/packages/lexical-internal/flow/LexicalInternalCreateProdError.js.flow'
 module.name_mapper='^@lexical/internal/devInvariant$' -> '<PROJECT_ROOT>/packages/lexical-internal/flow/LexicalInternalDevInvariant.js.flow'
 module.name_mapper='^@lexical/internal/formatDevErrorMessage$' -> '<PROJECT_ROOT>/packages/lexical-internal/flow/LexicalInternalFormatDevErrorMessage.js.flow'
 module.name_mapper='^@lexical/internal/formatDevWarningMessage$' -> '<PROJECT_ROOT>/packages/lexical-internal/flow/LexicalInternalFormatDevWarningMessage.js.flow'
@@ -122,6 +162,8 @@ module.name_mapper='^@lexical/table$' -> '<PROJECT_ROOT>/packages/lexical-table/
 module.name_mapper='^@lexical/tailwind$' -> '<PROJECT_ROOT>/packages/lexical-tailwind/flow/LexicalTailwind.js.flow'
 module.name_mapper='^@lexical/text$' -> '<PROJECT_ROOT>/packages/lexical-text/flow/LexicalText.js.flow'
 module.name_mapper='^@lexical/utils$' -> '<PROJECT_ROOT>/packages/lexical-utils/flow/LexicalUtils.js.flow'
+module.name_mapper='^@lexical/y$' -> '<PROJECT_ROOT>/packages/lexical-y/flow/LexicalY.js.flow'
+module.name_mapper='^@lexical/y/headless$' -> '<PROJECT_ROOT>/packages/lexical-y/flow/LexicalYHeadless.js.flow'
 module.name_mapper='^@lexical/yjs$' -> '<PROJECT_ROOT>/packages/lexical-yjs/flow/LexicalYjs.js.flow'
 ;; [generated-end update-flowconfig]
 
@@ -131,6 +173,7 @@ munge_underscores=false
 .*/flow-typed/.*
 
 [libs]
+./libdefs/y.js
 ./libdefs/yjs.js
 ./flow-typed
 
@@ -139,4 +182,4 @@ nonstrict-import
 unclear-type
 
 [version]
-^0.321.0
+^0.333.0

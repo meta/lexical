@@ -76,6 +76,7 @@ import {
   KEY_TAB_COMMAND,
   type LexicalEditor,
   type LexicalNode,
+  mergeRegister,
   type NodeKey,
   PASTE_COMMAND,
   type PointCaret,
@@ -103,6 +104,7 @@ import {
 } from './LexicalTableObserver';
 import {$isTableRowNode} from './LexicalTableRowNode';
 import {
+  $createTableSelectionFrom,
   $isTableSelection,
   type TableMapType,
   type TableMapValueType,
@@ -135,22 +137,43 @@ const isPointerDownOnEvent = (event: PointerEvent) => {
 const TAP_SLOP = 10;
 
 // Distance (px) from a scroll container edge at which drag auto-scroll kicks
-// in, and the maximum scroll delta applied per animation frame.
+// in, and the maximum scroll delta applied per frame at AUTO_SCROLL_FPS.
 const AUTO_SCROLL_EDGE_ZONE = 40;
 const AUTO_SCROLL_MAX_STEP = 18;
+// Each tick scales the per-frame deltas by the time since the previous one
+// (at most AUTO_SCROLL_MAX_ELAPSED_MS), so the scroll speed doesn't follow
+// the frame rate.
+const AUTO_SCROLL_FPS = 60;
+const AUTO_SCROLL_MAX_ELAPSED_MS = 100;
 
 // Given a pointer position and the start/end edges of a scroll container on one
-// axis, return the signed per-frame scroll delta: negative near the start edge,
-// positive near the end edge, 0 while outside both edge zones. The delta ramps
-// up the deeper the pointer is into the zone (and is capped once it reaches or
-// passes the edge).
-function autoScrollStep(pos: number, start: number, end: number): number {
+// axis, return the signed scroll delta for a tick covering `elapsed` ms (a
+// frame by default): negative near the start edge, positive near the end edge,
+// 0 while outside both edge zones. The per-frame delta ramps up the deeper the
+// pointer is into the zone (and is capped once it reaches or passes the edge).
+// The magnitude is scaled before the sign is applied, since Math.round rounds
+// halves up and would favour positive steps, and stays at least one pixel: the
+// loop stops on a tick that scrolls nothing.
+function autoScrollStep(
+  pos: number,
+  start: number,
+  end: number,
+  elapsed = 1000 / AUTO_SCROLL_FPS,
+): number {
   const speed = (depth: number) =>
     Math.max(
       1,
-      Math.ceil(
-        (Math.min(AUTO_SCROLL_EDGE_ZONE, depth) / AUTO_SCROLL_EDGE_ZONE) *
-          AUTO_SCROLL_MAX_STEP,
+      Math.round(
+        (Math.max(
+          1,
+          Math.ceil(
+            (Math.min(AUTO_SCROLL_EDGE_ZONE, depth) / AUTO_SCROLL_EDGE_ZONE) *
+              AUTO_SCROLL_MAX_STEP,
+          ),
+        ) *
+          elapsed *
+          AUTO_SCROLL_FPS) /
+          1000,
       ),
     );
   if (pos <= start + AUTO_SCROLL_EDGE_ZONE) {
@@ -242,6 +265,7 @@ export function registerTableWindowHandlers(
     }
 
     const pointerDownCallback = (event: PointerEvent) => {
+      tableObservers.touchTapCellKey = null;
       // Listener is on editorWindow; the composed target is needed so the
       // rootElement.contains check below sees the shadow-internal target.
       const target = getComposedEventTarget(event);
@@ -252,7 +276,15 @@ export function registerTableWindowHandlers(
       ) {
         return;
       }
-      const selectionInfo = getTableObserverFromCellNode(target);
+      // The nearest table can belong to another editor: a nested editor's
+      // table inside this root, or the parent's table around a nested root.
+      // Its node is not in this editor's node map, so leave it to the editor
+      // that owns it. The highlight below is still cleared.
+      const cellInfo = getTableObserverFromCellNode(target);
+      const selectionInfo =
+        cellInfo !== null && cellInfo.tableObserver.editor === editor
+          ? cellInfo
+          : null;
 
       editor.update(() => {
         // Clear highlights from all tables (even one we're actively clicking on)
@@ -279,10 +311,19 @@ export function registerTableWindowHandlers(
       });
     };
 
-    return registerEventListener(
-      editorWindow,
-      'pointerdown',
-      pointerDownCallback,
+    const clearTouchTap = () => {
+      tableObservers.touchTapCellKey = null;
+    };
+    return mergeRegister(
+      registerEventListener(editorWindow, 'pointerdown', pointerDownCallback),
+      // Clear before a key handler can extend the selection, including when
+      // that handler stops propagation. A later keyboard selection is not a tap.
+      registerEventListeners(
+        editorWindow,
+        {blur: clearTouchTap, keydown: clearTouchTap},
+        {capture: true},
+      ),
+      clearTouchTap,
     );
   });
 }
@@ -334,6 +375,9 @@ function $handleTableClick(
     let lastClientX = event.clientX;
     let lastClientY = event.clientY;
     let autoScrollRafId: number | null = null;
+    // The previous tick of the running auto-scroll. Starting a run sets it to
+    // Infinity, which no tick comes after.
+    let lastAutoScrollTime: number;
     // Removes every listener below. Assigned once they are defined; nothing
     // can call stopSelecting before then, since only those listeners do.
     let removeGestureListeners: (() => void) | null = null;
@@ -450,11 +494,13 @@ function $handleTableClick(
     };
 
     // Scroll `container` (or the window when null) on `axis` if the pointer is
-    // within the edge zone. Returns whether it actually scrolled.
+    // within the edge zone, by as much as `elapsed` ms of auto-scroll covers.
+    // Returns whether it actually scrolled.
     const scrollAxis = (
       container: HTMLElement | null,
       pos: number,
       axis: 'x' | 'y',
+      elapsed: number,
     ): boolean => {
       let start: number;
       let end: number;
@@ -466,7 +512,7 @@ function $handleTableClick(
         start = axis === 'x' ? rect.left : rect.top;
         end = axis === 'x' ? rect.right : rect.bottom;
       }
-      const step = autoScrollStep(pos, start, end);
+      const step = autoScrollStep(pos, start, end, elapsed);
       if (step === 0) {
         return false;
       }
@@ -531,18 +577,26 @@ function $handleTableClick(
       return autoScrollStep(lastClientY, vStart, vEnd) !== 0;
     };
 
-    const tickAutoScroll = () => {
+    const tickAutoScroll = (time: number) => {
       autoScrollRafId = null;
       if (!tableObserver.isSelecting) {
         return;
       }
+      // The first tick of a run covers a frame, as does one whose clock did
+      // not advance.
+      const elapsed =
+        time > lastAutoScrollTime
+          ? Math.min(time - lastAutoScrollTime, AUTO_SCROLL_MAX_ELAPSED_MS)
+          : 1000 / AUTO_SCROLL_FPS;
+      lastAutoScrollTime = time;
       const hContainer = findScrollContainer('x');
       const vContainer = findScrollContainer('y');
       // Only the table's own wrapper scrolls horizontally; pages don't
       // auto-scroll sideways. Vertically we fall back to the window.
       const scrolledX =
-        hContainer !== null && scrollAxis(hContainer, lastClientX, 'x');
-      const scrolledY = scrollAxis(vContainer, lastClientY, 'y');
+        hContainer !== null &&
+        scrollAxis(hContainer, lastClientX, 'x', elapsed);
+      const scrolledY = scrollAxis(vContainer, lastClientY, 'y', elapsed);
       if (scrolledX || scrolledY) {
         const [hitX, hitY] = clampHitPoint(hContainer, vContainer);
         const focusCell = resolveFocusCellFromPoint(hitX, hitY);
@@ -565,11 +619,15 @@ function $handleTableClick(
       ) {
         return;
       }
+      lastAutoScrollTime = Infinity;
       autoScrollRafId = editorWindow.requestAnimationFrame(tickAutoScroll);
     };
 
     const onPointerUp = (upEvent: PointerEvent) => {
       if (isGesturePointer(upEvent)) {
+        if (isBeyondTapSlop(upEvent.clientX, upEvent.clientY)) {
+          tableObservers.touchTapCellKey = null;
+        }
         stopSelecting();
       }
     };
@@ -583,6 +641,7 @@ function $handleTableClick(
     // gesture, so every subsequent tap selects cells (#8538).
     const onPointerGestureEnd = (endEvent: PointerEvent) => {
       if (isGesturePointer(endEvent)) {
+        tableObservers.touchTapCellKey = null;
         stopSelecting();
       }
     };
@@ -592,6 +651,7 @@ function $handleTableClick(
         return;
       }
       if (!isPointerDownOnEvent(moveEvent) && tableObserver.isSelecting) {
+        tableObservers.touchTapCellKey = null;
         stopSelecting();
         return;
       }
@@ -606,6 +666,7 @@ function $handleTableClick(
         isBeyondTapSlop(lastClientX, lastClientY)
       ) {
         tableObserver.isPointerDrag = true;
+        tableObservers.touchTapCellKey = null;
       }
       let focusCell: null | TableDOMCell = null;
       // In firefox the moveEvent.target may be captured so we must always
@@ -639,6 +700,14 @@ function $handleTableClick(
   };
 
   tableObserver.pointerType = event.pointerType;
+  if (
+    event.pointerType === 'touch' &&
+    !event.shiftKey &&
+    !tableObserver.isSelecting
+  ) {
+    const cellNode = $getNearestNodeFromDOMNode(selectedDOMCell.elem);
+    tableObservers.touchTapCellKey = cellNode ? cellNode.getKey() : null;
+  }
   const tableNode = $getTableNodeByKeyOrThrow(tableObserver.tableNodeKey);
   const prevSelection = $getPreviousSelection();
   // We can't trust Firefox to do the right thing with the selection and
@@ -1193,7 +1262,7 @@ export function $handleTableSelectionChangeCommand(
   const prevSelection = $getPreviousSelection();
 
   const nextFocus = tableObservers.getAndClearNextFocus();
-  if (nextFocus !== null) {
+  if (nextFocus !== null && $isTableNode($getNodeByKey(nextFocus.tableKey))) {
     const {tableKey, focusCell} = nextFocus;
     const observerAndTable = tableObservers.observers.get(tableKey);
     invariant(
@@ -1277,17 +1346,20 @@ export function $handleTableSelectionChangeCommand(
     $fixRangeSelectionForSelectedTable(selection, tableObservers);
   }
 
-  // Generic selection logic that runs across every table observer when the selection changes.
-  // Note: the selection might have changed in the code above, which re-dispatches the selection change command
-  // and gets handled here on the second pass. This should be refactored.
+  return false;
+}
+
+/** Synchronize selection UI after table DOM and mutation listeners are ready. */
+export function $syncTableSelectionObservers(
+  tableObservers: TableObservers,
+  editor: LexicalEditor,
+): void {
   for (const [
     tableNode,
     tableObserver,
   ] of tableObservers.$getTableNodesAndObservers()) {
     $syncTableSelectionState(editor, tableNode, tableObserver);
   }
-
-  return false;
 }
 
 /**
@@ -1309,6 +1381,36 @@ function $fixRangeSelectionForSelectedTable(
     ? $findTableNode(anchorCellNode)
     : null;
   const focusCellTable = focusCellNode ? $findTableNode(focusCellNode) : null;
+
+  // iOS can double-tap an empty cell by issuing only selectionchange after
+  // the first tap's pointerup. Its word selection reaches outside the cell;
+  // expanding that range below would let the next keystroke delete the table.
+  // Only repair a native range from the caret in the last touch-tapped empty
+  // cell. Model selections are dirty, and drags/keyboard input clear the tap.
+  if (
+    tableObservers.touchTapCellKey !== null &&
+    !selection.dirty &&
+    !selection.isCollapsed() &&
+    $isRangeSelection(prevSelection) &&
+    prevSelection.isCollapsed() &&
+    !(anchorCellNode && anchorCellNode.is(focusCellNode))
+  ) {
+    const paragraph = $getNodeByKey(prevSelection.anchor.key);
+    const cell = paragraph && paragraph.getParent();
+    if (
+      $isElementNode(paragraph) &&
+      paragraph.isEmpty() &&
+      $isTableCellNode(cell) &&
+      cell.getKey() === tableObservers.touchTapCellKey &&
+      cell
+        .getChildren()
+        .every(child => $isElementNode(child) && child.isEmpty()) &&
+      (anchor.is(prevSelection.anchor) || focus.is(prevSelection.anchor))
+    ) {
+      $setSelection(prevSelection.clone());
+      return;
+    }
+  }
   const isBackward = selection.isBackward();
 
   const isSameTable =
@@ -1366,22 +1468,23 @@ function $fixRangeSelectionForSelectedTable(
     // has range selection, then we convert it into table selection
     // For example, this fires when dragging up from first cell, outside of the table, or when clicking a cell
     // then shift-clicking another cell.
-    const observerInfo = tableObservers.observers.get(anchorCellTable.getKey());
-    invariant(
-      !!observerInfo,
-      'tableObserver not found for tableKey: %s',
-      anchorCellTable.getKey(),
-    );
-    const [tableObserver] = observerInfo;
     if (!anchorCellNode.is(focusCellNode)) {
-      tableObserver.$setAnchorCellForSelection(
-        $getObserverCellFromCellNodeOrThrow(tableObserver, anchorCellNode),
+      // Selection normalization is model work: the table or cells may not
+      // have DOM yet. Its observer will synchronize after reconciliation.
+      $setSelection(
+        $createTableSelectionFrom(
+          anchorCellTable,
+          anchorCellNode,
+          focusCellNode,
+        ),
       );
-      tableObserver.$setFocusCellForSelection(
-        $getObserverCellFromCellNodeOrThrow(tableObserver, focusCellNode),
-        true,
-      );
+      return;
     }
+    const observerInfo = tableObservers.observers.get(anchorCellTable.getKey());
+    if (observerInfo === undefined) {
+      return;
+    }
+    const [tableObserver] = observerInfo;
 
     // Handle case when the pointer type is touch and the current and
     // previous selection are collapsed, and the previous anchor and current
@@ -1398,31 +1501,31 @@ function $fixRangeSelectionForSelectedTable(
       $isRangeSelection(prevSelection) &&
       prevSelection.isCollapsed()
     ) {
-      const prevAnchorCellNode = $findCellNode(prevSelection.anchor.getNode());
+      const prevAnchorNode = $getNodeByKey(prevSelection.anchor.key);
+      const prevAnchorCellNode =
+        prevAnchorNode && $findCellNode(prevAnchorNode);
       // Being a drag is not enough: it has to have left the cell it started
       // on. A drag that stays inside one cell is selecting text there, and
       // the caret the browser moves as it goes would otherwise be paired with
       // whatever cell the previous gesture left in the range selection,
       // producing exactly the multi-cell selection tapping is meant to avoid.
       const {pointerStartCell} = tableObserver;
+      const pointerStartNode =
+        pointerStartCell && $getNearestNodeFromDOMNode(pointerStartCell.elem);
       const hasLeftStartCell =
-        pointerStartCell !== null &&
-        $getObserverCellFromCellNodeOrThrow(tableObserver, focusCellNode)
-          .elem !== pointerStartCell.elem;
+        pointerStartNode !== null && !pointerStartNode.is(focusCellNode);
       if (
         hasLeftStartCell &&
         prevAnchorCellNode &&
+        anchorCellTable.is($findTableNode(prevAnchorCellNode)) &&
         !prevAnchorCellNode.is(focusCellNode)
       ) {
-        tableObserver.$setAnchorCellForSelection(
-          $getObserverCellFromCellNodeOrThrow(
-            tableObserver,
+        $setSelection(
+          $createTableSelectionFrom(
+            anchorCellTable,
             prevAnchorCellNode,
+            focusCellNode,
           ),
-        );
-        tableObserver.$setFocusCellForSelection(
-          $getObserverCellFromCellNodeOrThrow(tableObserver, focusCellNode),
-          true,
         );
         tableObserver.pointerType = null;
       }
@@ -1439,6 +1542,9 @@ function $fixTableSelectionForSelectedTable(
 ) {
   const editorWindow = getEditorWindow(editor);
   const prevSelection = $getPreviousSelection();
+  // A changed model selection is authoritative; the DOM may still describe
+  // the previous selection. Only an unchanged TableSelection can represent a
+  // native drag that has escaped the table without changing the model yet.
   if (!selection.is(prevSelection)) {
     return;
   }
@@ -1477,34 +1583,57 @@ function $syncTableSelectionState(
   tableObserver: TableObserver,
 ) {
   const selection = $getSelection();
-  const prevSelection = $getPreviousSelection();
+  const isSelected = tableNode.isSelected();
   if (
-    selection &&
-    !selection.is(prevSelection) &&
-    ($isTableSelection(selection) || $isTableSelection(prevSelection)) &&
-    tableObserver.tableSelection &&
-    !tableObserver.tableSelection.is(prevSelection)
+    !(
+      $isTableSelection(selection) && selection.tableKey === tableNode.getKey()
+    ) &&
+    !tableObserver.isHighlightingCells &&
+    !tableObserver.hasHijackedSelectionStyles &&
+    !isSelected
   ) {
-    if (
-      $isTableSelection(selection) &&
-      selection.tableKey === tableObserver.tableNodeKey
-    ) {
-      tableObserver.$updateTableTableSelection(selection);
-    } else if (
-      !$isTableSelection(selection) &&
-      $isTableSelection(prevSelection) &&
-      prevSelection.tableKey === tableObserver.tableNodeKey
-    ) {
-      tableObserver.$updateTableTableSelection(null);
+    return;
+  }
+  // MutationObserver callbacks have not necessarily run yet. Refresh the grid
+  // now so newly inserted/replaced cells can be selected and highlighted.
+  const {tableElement} = tableObserver.$lookup();
+  tableObserver.table = getTable(tableNode, tableElement);
+  if (
+    $isTableSelection(selection) &&
+    selection.tableKey === tableNode.getKey()
+  ) {
+    const anchor = $getNodeByKey(selection.anchor.key);
+    const focus = $getNodeByKey(selection.focus.key);
+    if ($isTableCellNode(anchor) && $isTableCellNode(focus)) {
+      const anchorCell = $getObserverCellFromCellNodeOrThrow(
+        tableObserver,
+        anchor,
+      );
+      const focusCell = $getObserverCellFromCellNodeOrThrow(
+        tableObserver,
+        focus,
+      );
+      tableObserver.anchorCell = anchorCell;
+      tableObserver.anchorCellNodeKey = anchor.getKey();
+      tableObserver.anchorX = anchorCell.x;
+      tableObserver.anchorY = anchorCell.y;
+      tableObserver.focusCell = focusCell;
+      tableObserver.focusCellNodeKey = focus.getKey();
+      tableObserver.focusX = focusCell.x;
+      tableObserver.focusY = focusCell.y;
     }
+    tableObserver.$updateTableTableSelection(selection);
+  } else if (tableObserver.isHighlightingCells) {
+    // Only clear an active table selection's highlighting. Pointerdown also
+    // prepares tableSelection while the native caret is still a range; clearing
+    // that here would erase the starting cell of the drag.
+    // Preserve the new model selection when removing the old highlighting.
+    tableObserver.$clearHighlight(false);
   }
 
-  if (tableObserver.hasHijackedSelectionStyles && !tableNode.isSelected()) {
+  if (tableObserver.hasHijackedSelectionStyles && !isSelected) {
     $removeHighlightStyleToTable(editor, tableObserver);
-  } else if (
-    !tableObserver.hasHijackedSelectionStyles &&
-    tableNode.isSelected()
-  ) {
+  } else if (!tableObserver.hasHijackedSelectionStyles && isSelected) {
     $addHighlightStyleToTable(editor, tableObserver);
   }
 }

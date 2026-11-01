@@ -8,7 +8,7 @@
     "code"
   ],
   "license": "MIT",
-  "version": "0.50.0",
+  "version": "0.53.0",
   "main": "./dist/LexicalCodeCore.js",
   "types": "./dist/typescript-too-old.d.ts",
   "dependencies": {
@@ -20,29 +20,19 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/facebook/lexical.git",
+    "url": "git+https://github.com/meta/lexical.git",
     "directory": "packages/lexical-code-core"
   },
-  "module": "./dist/LexicalCodeCore.mjs",
+  "module": "./dist/LexicalCodeCore.js",
   "sideEffects": false,
   "exports": {
     ".": {
       "source": "./src/index.ts",
-      "import": {
-        "types@<5.2": "./dist/typescript-too-old.d.ts",
-        "types": "./dist/index.d.ts",
-        "development": "./dist/LexicalCodeCore.dev.mjs",
-        "production": "./dist/LexicalCodeCore.prod.mjs",
-        "node": "./dist/LexicalCodeCore.node.mjs",
-        "default": "./dist/LexicalCodeCore.mjs"
-      },
-      "require": {
-        "types@<5.2": "./dist/typescript-too-old.d.ts",
-        "types": "./dist/index.d.ts",
-        "development": "./dist/LexicalCodeCore.dev.js",
-        "production": "./dist/LexicalCodeCore.prod.js",
-        "default": "./dist/LexicalCodeCore.js"
-      }
+      "types@<5.2": "./dist/typescript-too-old.d.ts",
+      "types": "./dist/index.d.ts",
+      "development": "./dist/LexicalCodeCore.dev.js",
+      "production": "./dist/LexicalCodeCore.prod.js",
+      "default": "./dist/LexicalCodeCore.js"
     }
   },
   "files": [
@@ -72,5 +62,6 @@
     "typescript": {
       "optional": true
     }
-  }
+  },
+  "type": "module"
 }

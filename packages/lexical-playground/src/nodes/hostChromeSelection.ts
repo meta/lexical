@@ -18,6 +18,7 @@ import {
   type LexicalEditor,
   type LexicalNode,
   mergeRegister,
+  type NodeKey,
 } from 'lexical';
 
 /**
@@ -34,6 +35,8 @@ export function registerHostChromeSelection<T extends LexicalNode>(
   editor: LexicalEditor,
   $isHost: (node: LexicalNode | null | undefined) => node is T,
 ): () => void {
+  let mouseDownHostKey: NodeKey | null = null;
+
   // Resolve a click / mousedown target to the host node a chrome interaction
   // should select, or null when the target is inside one of the host's editable
   // slots (where the caret must enter the slot normally). The slots ride in
@@ -68,6 +71,7 @@ export function registerHostChromeSelection<T extends LexicalNode>(
   // dispatches to the slot's range path instead of the host-delete path.
   // Editable-slot mousedowns fall through so the caret still enters the slot.
   const onChromeMouseDown = (event: MouseEvent) => {
+    mouseDownHostKey = null;
     // Read-only mode: leave the reader's native selection alone.
     if (!editor.isEditable()) {
       return;
@@ -76,7 +80,9 @@ export function registerHostChromeSelection<T extends LexicalNode>(
     if (!isHTMLElement(target)) {
       return;
     }
-    if (editor.read(() => $resolveChromeTarget(target) !== null)) {
+    const node = editor.read('latest', () => $resolveChromeTarget(target));
+    if (node !== null) {
+      mouseDownHostKey = node.getKey();
       event.preventDefault();
       const root = editor.getRootElement();
       if (root !== null && root !== getActiveElement(root)) {
@@ -97,6 +103,8 @@ export function registerHostChromeSelection<T extends LexicalNode>(
     editor.registerCommand(
       CLICK_COMMAND,
       event => {
+        const activeMouseDownKey = mouseDownHostKey;
+        mouseDownHostKey = null;
         // Read-only mode never promotes — mirrors the mousedown gate.
         if (!editor.isEditable()) {
           return false;
@@ -106,7 +114,7 @@ export function registerHostChromeSelection<T extends LexicalNode>(
           return false;
         }
         const node = $resolveChromeTarget(target);
-        if (node === null) {
+        if (node === null || node.getKey() !== activeMouseDownKey) {
           return false;
         }
         event.preventDefault();
@@ -118,6 +126,7 @@ export function registerHostChromeSelection<T extends LexicalNode>(
       COMMAND_PRIORITY_BEFORE_EDITOR,
     ),
     editor.registerRootListener((rootElement, prevRootElement) => {
+      mouseDownHostKey = null;
       if (prevRootElement !== null) {
         prevRootElement.removeEventListener('mousedown', onChromeMouseDown);
       }

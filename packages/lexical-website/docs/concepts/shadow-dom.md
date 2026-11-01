@@ -64,10 +64,10 @@ live in a shadow tree keep working on any engine the rest of Lexical supports.
 | `Selection.getComposedRanges` | Reading the un‑retargeted boundary points | 137+ | 142+ | 17.0+ |
 | `Selection.direction` | Mapping the composed range back onto anchor/focus | 137+ | 126+ | 17.0+ |
 | `ShadowRoot.activeElement` | Resolving the focused element through the host | All modern | All modern | All modern |
-| `Document.caretPositionFromPoint({shadowRoots})` | Shadow-aware drop / drag hit-tests | 128+ | (not yet) | 18.1+ |
+| `Document.caretPositionFromPoint({shadowRoots})` | Shadow-aware drop / drag hit-tests | 128+ | 125+ | 18.1+ |
 
 Lexical also supports the legacy variadic form of `getComposedRanges` shipped by
-Safari 17 / 17.1, automatically choosing the dictionary or variadic call shape
+Safari 17–18.1, automatically choosing the dictionary or variadic call shape
 at runtime.
 
 ### Closed shadow roots
@@ -115,7 +115,7 @@ resolved against the iframe rather than the top‑level document:
 const iframeDoc = iframe.contentDocument;
 const contentEditable = iframeDoc.querySelector('#editor');
 
-// createEditor / setRootElement can run in the parent frame; the editor uses
+// The editor can be built in the parent frame; once its root element is set it uses
 // the iframe's own window and document for selection and focus.
 editor.setRootElement(contentEditable);
 ```
@@ -232,7 +232,7 @@ contract only after that guard. The initial `setFormValue` is what keeps a
 form submission before the user types from carrying an empty value, since
 the update listener has not fired yet at that point. A full reference
 implementation lives in
-[`dev-examples/shadow-dom-web-component`](https://github.com/facebook/lexical/tree/main/dev-examples/shadow-dom-web-component).
+[`examples/shadow-dom-web-component`](https://github.com/meta/lexical/tree/main/examples/shadow-dom-web-component).
 
 DOM moves (re-parenting the host into a different `<form>` or list) trigger
 `disconnectedCallback` followed by `connectedCallback`, which rebuilds the
@@ -292,15 +292,15 @@ A typical dropdown registers `document.addEventListener('click', ...)` and
 calls `setShowDropDown(false)` whenever `button.contains(event.target)` is
 false. From inside a shadow tree that check always fails (the target is the
 host), so the dropdown closes on the very click that opened it. Compare
-against `getComposedEventTarget(event)` instead — the same fix Lexical's
-`LexicalMenu` and the playground's `DropDown` use.
+against `getComposedEventTarget(event)` instead — the same fix the playground's
+`DropDown` and `@lexical/react`'s `DraggableBlockPlugin` use.
 
 ### Drop hit-tests
 
 `document.caretRangeFromPoint` and the no-argument
 `document.caretPositionFromPoint` return the host when the pointer is over
 shadow content, so an image drop lands on the host rather than the textnode
-under the cursor. `@lexical/clipboard/caretFromPoint` switches to
+under the cursor. `@lexical/clipboard`'s internal `caretFromPoint` helper switches to
 `caretPositionFromPoint(x, y, {shadowRoots})` when `rootElement` lives in a
 shadow tree, and verifies the returned offset node really did land inside
 one of the requested shadow roots — engines that silently ignore the option
@@ -372,14 +372,14 @@ detached popup whose `getRootNode()` returns itself.
 
 Runnable examples live in the repository:
 
-- [`dev-examples/shadow-dom`](https://github.com/facebook/lexical/tree/main/dev-examples/shadow-dom)
+- [`examples/shadow-dom`](https://github.com/meta/lexical/tree/main/examples/shadow-dom)
   — a React editor inside a shadow root with a light‑DOM toolbar.
-- [`dev-examples/shadow-dom-web-component`](https://github.com/facebook/lexical/tree/main/dev-examples/shadow-dom-web-component)
+- [`examples/shadow-dom-web-component`](https://github.com/meta/lexical/tree/main/examples/shadow-dom-web-component)
   — a framework‑free `<lexical-editor>` custom element, form‑associated via
   `ElementInternals`. The page also mounts one instance inside a wrapper
   `<div>` that opens its own shadow root, exercising the multi‑level
   walk through two nested shadow boundaries.
-- [`examples/vanilla-js-iframe`](https://github.com/facebook/lexical/tree/main/examples/vanilla-js-iframe)
+- [`examples/vanilla-js-iframe`](https://github.com/meta/lexical/tree/main/examples/vanilla-js-iframe)
   — an editor rendered into an `<iframe>`.
 - The playground's **Render in Shadow DOM** setting toggles the same editor
   between light and shadow mounts, useful for spot-checking your plugins

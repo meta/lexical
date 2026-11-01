@@ -68,159 +68,159 @@ test.describe('Autocomplete', () => {
     );
   });
 
-  test('Can autocomplete in the same format as the original text', async ({
-    page,
-    isPlainText,
-  }) => {
-    test.skip(isPlainText);
-    await focusEditor(page);
-    await toggleBold(page);
-    await toggleItalic(page);
-    await toggleUnderline(page);
-    await toggleStrikethrough(page);
-    await increaseFontSize(page);
-
-    await page.keyboard.type('Test');
-    await sleep(500);
-
-    // The ghost is appended inside the keyed DOM (here `<strong>` for bold-
-    // formatted text), so it picks up the parent tag's formatting tag-wise
-    // (bold via `<strong>`) and inherits the surrounding font-size via CSS.
-    // Right collab frame doesn't see the ghost (DOM-only decoration).
-    await assertHTML(
+  test.describe(() => {
+    test.skip(({isPlainText}) => isPlainText);
+    test('Can autocomplete in the same format as the original text', async ({
       page,
-      html`
-        <p class="PlaygroundEditorTheme__paragraph" dir="auto">
-          <strong
-            class="PlaygroundEditorTheme__textUnderlineStrikethrough PlaygroundEditorTheme__textBold PlaygroundEditorTheme__textItalic"
-            style="font-size: 18px;"
-            data-lexical-text="true">
-            Test
-            <span
-              class="PlaygroundEditorTheme__autocomplete"
-              contenteditable="false"
-              data-autocomplete-ghost="true">
-              imonials (TAB)
-            </span>
-          </strong>
-        </p>
-      `,
-      html`
-        <p class="PlaygroundEditorTheme__paragraph" dir="auto">
-          <strong
-            class="PlaygroundEditorTheme__textUnderlineStrikethrough PlaygroundEditorTheme__textBold PlaygroundEditorTheme__textItalic"
-            style="font-size: 18px;"
-            data-lexical-text="true">
-            Test
-          </strong>
-        </p>
-      `,
-    );
+    }) => {
+      await focusEditor(page);
+      await toggleBold(page);
+      await toggleItalic(page);
+      await toggleUnderline(page);
+      await toggleStrikethrough(page);
+      await increaseFontSize(page);
 
-    await page.keyboard.press('Tab');
+      await page.keyboard.type('Test');
+      await sleep(500);
 
-    await toggleBold(page);
-    await toggleItalic(page);
-    await toggleUnderline(page);
-    await toggleStrikethrough(page);
-    await decreaseFontSize(page);
+      // The ghost is appended inside the keyed DOM (here `<strong>` for bold-
+      // formatted text), so it picks up the parent tag's formatting tag-wise
+      // (bold via `<strong>`) and inherits the surrounding font-size via CSS.
+      // Right collab frame doesn't see the ghost (DOM-only decoration).
+      await assertHTML(
+        page,
+        html`
+          <p class="PlaygroundEditorTheme__paragraph" dir="auto">
+            <strong
+              class="PlaygroundEditorTheme__textUnderlineStrikethrough PlaygroundEditorTheme__textBold PlaygroundEditorTheme__textItalic"
+              style="font-size: 18px;"
+              data-lexical-text="true">
+              Test
+              <span
+                class="PlaygroundEditorTheme__autocomplete"
+                contenteditable="false"
+                data-autocomplete-ghost="true">
+                imonials (TAB)
+              </span>
+            </strong>
+          </p>
+        `,
+        html`
+          <p class="PlaygroundEditorTheme__paragraph" dir="auto">
+            <strong
+              class="PlaygroundEditorTheme__textUnderlineStrikethrough PlaygroundEditorTheme__textBold PlaygroundEditorTheme__textItalic"
+              style="font-size: 18px;"
+              data-lexical-text="true">
+              Test
+            </strong>
+          </p>
+        `,
+      );
 
-    await page.keyboard.type(' 2024');
+      await page.keyboard.press('Tab');
 
-    await assertHTML(
-      page,
-      html`
-        <p class="PlaygroundEditorTheme__paragraph" dir="auto">
-          <strong
-            class="PlaygroundEditorTheme__textUnderlineStrikethrough PlaygroundEditorTheme__textBold PlaygroundEditorTheme__textItalic"
-            style="font-size: 18px;"
-            data-lexical-text="true">
-            Testimonials
-          </strong>
-          <span style="font-size: 16px;" data-lexical-text="true">2024</span>
-        </p>
-      `,
-    );
+      await toggleBold(page);
+      await toggleItalic(page);
+      await toggleUnderline(page);
+      await toggleStrikethrough(page);
+      await decreaseFontSize(page);
+
+      await page.keyboard.type(' 2024');
+
+      await assertHTML(
+        page,
+        html`
+          <p class="PlaygroundEditorTheme__paragraph" dir="auto">
+            <strong
+              class="PlaygroundEditorTheme__textUnderlineStrikethrough PlaygroundEditorTheme__textBold PlaygroundEditorTheme__textItalic"
+              style="font-size: 18px;"
+              data-lexical-text="true">
+              Testimonials
+            </strong>
+            <span style="font-size: 16px;" data-lexical-text="true">2024</span>
+          </p>
+        `,
+      );
+    });
   });
-  test('Undo does not cause an exception', async ({
-    page,
-    isPlainText,
-    isCollab,
-  }) => {
-    test.skip(isPlainText);
-    // Autocomplete has known issues in collab https://github.com/facebook/lexical/issues/6844
-    test.skip(isCollab);
-    await focusEditor(page);
-    await toggleBold(page);
-    await toggleItalic(page);
-    await toggleUnderline(page);
-    await toggleStrikethrough(page);
-    await increaseFontSize(page);
+  test.describe(() => {
+    test.skip(({isCollab, isPlainText}) => isPlainText);
+    test.skip(({isCollab, isPlainText}) => isCollab);
+    test('Undo does not cause an exception', async ({page}) => {
+      // Autocomplete has known issues in collab https://github.com/meta/lexical/issues/6844
 
-    await page.keyboard.type('Test');
-    await sleep(500);
+      await focusEditor(page);
+      await toggleBold(page);
+      await toggleItalic(page);
+      await toggleUnderline(page);
+      await toggleStrikethrough(page);
+      await increaseFontSize(page);
 
-    await assertHTML(
-      page,
-      html`
-        <p class="PlaygroundEditorTheme__paragraph" dir="auto">
-          <strong
-            class="PlaygroundEditorTheme__textUnderlineStrikethrough PlaygroundEditorTheme__textBold PlaygroundEditorTheme__textItalic"
-            style="font-size: 18px;"
-            data-lexical-text="true">
-            Test
-            <span
-              class="PlaygroundEditorTheme__autocomplete"
-              contenteditable="false"
-              data-autocomplete-ghost="true">
-              imonials (TAB)
-            </span>
-          </strong>
-        </p>
-      `,
-    );
+      await page.keyboard.type('Test');
+      await sleep(500);
 
-    await page.keyboard.press('Tab');
+      await assertHTML(
+        page,
+        html`
+          <p class="PlaygroundEditorTheme__paragraph" dir="auto">
+            <strong
+              class="PlaygroundEditorTheme__textUnderlineStrikethrough PlaygroundEditorTheme__textBold PlaygroundEditorTheme__textItalic"
+              style="font-size: 18px;"
+              data-lexical-text="true">
+              Test
+              <span
+                class="PlaygroundEditorTheme__autocomplete"
+                contenteditable="false"
+                data-autocomplete-ghost="true">
+                imonials (TAB)
+              </span>
+            </strong>
+          </p>
+        `,
+      );
 
-    await assertHTML(
-      page,
-      html`
-        <p class="PlaygroundEditorTheme__paragraph" dir="auto">
-          <strong
-            class="PlaygroundEditorTheme__textUnderlineStrikethrough PlaygroundEditorTheme__textBold PlaygroundEditorTheme__textItalic"
-            style="font-size: 18px;"
-            data-lexical-text="true">
-            Testimonials
-          </strong>
-        </p>
-      `,
-    );
+      await page.keyboard.press('Tab');
 
-    await undo(page);
+      await assertHTML(
+        page,
+        html`
+          <p class="PlaygroundEditorTheme__paragraph" dir="auto">
+            <strong
+              class="PlaygroundEditorTheme__textUnderlineStrikethrough PlaygroundEditorTheme__textBold PlaygroundEditorTheme__textItalic"
+              style="font-size: 18px;"
+              data-lexical-text="true">
+              Testimonials
+            </strong>
+          </p>
+        `,
+      );
 
-    // After undo the ghost decoration is not part of the editor state and
-    // re-renders via the plugin's update listener after the next query
-    // resolves; wait for that round-trip before snapshotting.
-    await sleep(500);
+      await undo(page);
 
-    await assertHTML(
-      page,
-      html`
-        <p class="PlaygroundEditorTheme__paragraph" dir="auto">
-          <strong
-            class="PlaygroundEditorTheme__textUnderlineStrikethrough PlaygroundEditorTheme__textBold PlaygroundEditorTheme__textItalic"
-            style="font-size: 18px;"
-            data-lexical-text="true">
-            Test
-            <span
-              class="PlaygroundEditorTheme__autocomplete"
-              contenteditable="false"
-              data-autocomplete-ghost="true">
-              imonials (TAB)
-            </span>
-          </strong>
-        </p>
-      `,
-    );
+      // After undo the ghost decoration is not part of the editor state and
+      // re-renders via the plugin's update listener after the next query
+      // resolves; wait for that round-trip before snapshotting.
+      await sleep(500);
+
+      await assertHTML(
+        page,
+        html`
+          <p class="PlaygroundEditorTheme__paragraph" dir="auto">
+            <strong
+              class="PlaygroundEditorTheme__textUnderlineStrikethrough PlaygroundEditorTheme__textBold PlaygroundEditorTheme__textItalic"
+              style="font-size: 18px;"
+              data-lexical-text="true">
+              Test
+              <span
+                class="PlaygroundEditorTheme__autocomplete"
+                contenteditable="false"
+                data-autocomplete-ghost="true">
+                imonials (TAB)
+              </span>
+            </strong>
+          </p>
+        `,
+      );
+    });
   });
 });

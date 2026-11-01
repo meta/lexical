@@ -73,7 +73,7 @@ function setUpEditor(options: {css?: string; theme?: EditorThemeClasses} = {}) {
         configExtension(TableExtension, {hasStickyScrollbar: true}),
       ],
       name: 'sticky-scrollbar-test',
-      ...(theme ? {theme} : {}),
+      theme: {tableScrollableWrapper: '', ...theme},
     }),
   );
   onTestFinished(() => editor.dispose());
@@ -133,6 +133,27 @@ describe('sticky scrollbar (browser)', () => {
 
     scrollbar.scrollLeft = 40;
     await expect.poll(() => Math.round(scrollable.scrollLeft)).toBe(40);
+  });
+
+  test('keeps a wrapper scrolled on every frame, as drag auto-scroll does', async () => {
+    const {editor} = setUpEditor({
+      css: [OVERFLOW_CSS, THEMED_SCROLLBAR_CSS].join('\n'),
+      theme: {tableStickyScrollbar: 'test-sticky-scrollbar'},
+    });
+    editor.update($insertTable, {discrete: true});
+    const {scrollable, scrollbar} = getParts(editor);
+    await expect.poll(() => scrollbar.style.display).toBe('');
+
+    // The wrapper's scroll event copies its position onto the scrollbar, and
+    // the scrollbar's own scroll event for that copy arrives on the next
+    // frame, after the wrapper has moved again. Copying that position back
+    // would undo every other step.
+    for (let frame = 0; frame < 10; frame++) {
+      await new Promise(resolve => requestAnimationFrame(resolve));
+      scrollable.scrollLeft += 10;
+    }
+    await expect.poll(() => Math.round(scrollbar.scrollLeft)).toBe(100);
+    expect(Math.round(scrollable.scrollLeft)).toBe(100);
   });
 
   test('hides the scrollbar when frozen rows make the wrapper unscrollable', async () => {

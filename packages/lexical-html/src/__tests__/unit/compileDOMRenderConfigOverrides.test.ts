@@ -9,8 +9,8 @@ import {domOverride} from '@lexical/html';
 import {$isLineBreakNode, isHTMLElement, TextNode} from 'lexical';
 import {describe, expect, test} from 'vitest';
 
-import {precompileDOMRenderConfigOverrides} from '../../compileDOMRenderConfigOverrides';
-import {ALWAYS_TRUE} from '../../constants';
+import {precompileDOMRenderConfigOverrides} from '../../internal/compileDOMRenderConfigOverrides';
+import {ALWAYS_TRUE} from '../../internal/constants';
 
 describe('precompileDOMRenderConfigOverrides', () => {
   test('precompiles with only type overrides', () => {

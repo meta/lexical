@@ -39,9 +39,13 @@ export type LexicalComposerContextWithEditor = [
  */
 export const LexicalComposerContext: React.Context<
   LexicalComposerContextWithEditor | null | undefined
-> = createReactContext<LexicalComposerContextWithEditor | null | undefined>(
-  null,
-);
+> =
+  // Annotated by hand: React's createContext is not a Lexical factory, so the
+  // build does not annotate it, and an unannotated module-scope call pins the
+  // module into every bundle.
+  /* @__PURE__ */ createReactContext<
+    LexicalComposerContextWithEditor | null | undefined
+  >(null);
 
 /**
  * Creates a {@link LexicalComposerContextType} for a composer. Theme resolution

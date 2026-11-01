@@ -5,6 +5,11 @@
   "compilerOptions": {
     "target": "esnext",
     "allowImportingTsExtensions": true,
+    // The paths below type-check the whole monorepo through this project, so
+    // the strictness flags here have to match the root tsconfig.json rather
+    // than the stricter defaults that wxt writes into .wxt/tsconfig.json.
+    "noUncheckedIndexedAccess": false,
+    "noImplicitOverride": false,
     "jsx": "react-jsx",
     "allowJs": true,
     "paths": {
@@ -20,16 +25,127 @@
       "@lexical/compiler/PureAnnotations": [
         "../lexical-compiler/src/PureAnnotations.ts"
       ],
+      "@lexical/compiler/SchemaJsonCodegen": [
+        "../lexical-compiler/src/SchemaJsonCodegen.ts"
+      ],
+      "@lexical/compiler/SubpathImports": [
+        "../lexical-compiler/src/SubpathImports.ts"
+      ],
       "@lexical/devtools-core": ["../lexical-devtools-core/src/index.ts"],
       "@lexical/dragon": ["../lexical-dragon/src/index.ts"],
       "@lexical/eslint-plugin": ["../lexical-eslint-plugin/src/index.ts"],
       "@lexical/extension": ["../lexical-extension/src/index.ts"],
+      "@lexical/extension/AutoFocusExtension": [
+        "../lexical-extension/src/AutoFocusExtension.ts"
+      ],
+      "@lexical/extension/BlockIdExtension": [
+        "../lexical-extension/src/BlockIdExtension.ts"
+      ],
+      "@lexical/extension/ClearEditorExtension": [
+        "../lexical-extension/src/ClearEditorExtension.ts"
+      ],
+      "@lexical/extension/ClickAfterLastBlockExtension": [
+        "../lexical-extension/src/ClickAfterLastBlockExtension.ts"
+      ],
+      "@lexical/extension/config": ["../lexical-extension/src/config.ts"],
+      "@lexical/extension/DecoratorTextExtension": [
+        "../lexical-extension/src/DecoratorTextExtension.ts"
+      ],
+      "@lexical/extension/EditorStateExtension": [
+        "../lexical-extension/src/EditorStateExtension.ts"
+      ],
+      "@lexical/extension/getExtensionDependency": [
+        "../lexical-extension/src/getExtensionDependency.ts"
+      ],
+      "@lexical/extension/getExtensionDependencyFromEditor": [
+        "../lexical-extension/src/getExtensionDependencyFromEditor.ts"
+      ],
+      "@lexical/extension/getPeerDependencyFromEditor": [
+        "../lexical-extension/src/getPeerDependencyFromEditor.ts"
+      ],
+      "@lexical/extension/HMRExtension": [
+        "../lexical-extension/src/HMRExtension.ts"
+      ],
+      "@lexical/extension/HorizontalRuleExtension": [
+        "../lexical-extension/src/HorizontalRuleExtension.ts"
+      ],
+      "@lexical/extension/IMEExtension": [
+        "../lexical-extension/src/IMEExtension.ts"
+      ],
+      "@lexical/extension/InitialStateExtension": [
+        "../lexical-extension/src/InitialStateExtension.ts"
+      ],
+      "@lexical/extension/KeyboardShortcutsExtension": [
+        "../lexical-extension/src/KeyboardShortcutsExtension.ts"
+      ],
+      "@lexical/extension/LexicalBuilder": [
+        "../lexical-extension/src/LexicalBuilder.ts"
+      ],
+      "@lexical/extension/namedSignals": [
+        "../lexical-extension/src/namedSignals.ts"
+      ],
+      "@lexical/extension/NestedEditorExtension": [
+        "../lexical-extension/src/NestedEditorExtension.ts"
+      ],
+      "@lexical/extension/NodeSelectionDataSelectedExtension": [
+        "../lexical-extension/src/NodeSelectionDataSelectedExtension.ts"
+      ],
+      "@lexical/extension/NodeSelectionExtension": [
+        "../lexical-extension/src/NodeSelectionExtension.ts"
+      ],
+      "@lexical/extension/NodeStructureExtension": [
+        "../lexical-extension/src/NodeStructureExtension.ts"
+      ],
+      "@lexical/extension/NormalizeInlineElementsExtension": [
+        "../lexical-extension/src/NormalizeInlineElementsExtension.ts"
+      ],
+      "@lexical/extension/NormalizeTripleClickSelectionExtension": [
+        "../lexical-extension/src/NormalizeTripleClickSelectionExtension.ts"
+      ],
+      "@lexical/extension/PreventSelectAllExtension": [
+        "../lexical-extension/src/PreventSelectAllExtension.ts"
+      ],
+      "@lexical/extension/RootElementExtension": [
+        "../lexical-extension/src/RootElementExtension.ts"
+      ],
+      "@lexical/extension/SelectBlockExtension": [
+        "../lexical-extension/src/SelectBlockExtension.ts"
+      ],
+      "@lexical/extension/SelectionAlwaysOnDisplayExtension": [
+        "../lexical-extension/src/SelectionAlwaysOnDisplayExtension.ts"
+      ],
+      "@lexical/extension/signals": ["../lexical-extension/src/signals.ts"],
+      "@lexical/extension/TabIndentationExtension": [
+        "../lexical-extension/src/TabIndentationExtension.ts"
+      ],
+      "@lexical/extension/WatchEditableExtension": [
+        "../lexical-extension/src/WatchEditableExtension.ts"
+      ],
+      "@lexical/extension/watchedSignal": [
+        "../lexical-extension/src/watchedSignal.ts"
+      ],
+      "@lexical/fast-check": ["../lexical-fast-check/src/index.ts"],
       "@lexical/file": ["../lexical-file/src/index.ts"],
       "@lexical/hashtag": ["../lexical-hashtag/src/index.ts"],
       "@lexical/headless": ["../lexical-headless/src/index.ts"],
       "@lexical/headless/dom": ["../lexical-headless/src/dom.ts"],
+      "@lexical/headless/HeadlessExtension": [
+        "../lexical-headless/src/HeadlessExtension.ts"
+      ],
       "@lexical/history": ["../lexical-history/src/index.ts"],
       "@lexical/html": ["../lexical-html/src/index.ts"],
+      "@lexical/html/BlockIdHTMLExtension": [
+        "../lexical-html/src/BlockIdHTMLExtension.ts"
+      ],
+      "@lexical/internal/createDevError": [
+        "../lexical-internal/src/createDevError.ts"
+      ],
+      "@lexical/internal/createError": [
+        "../lexical-internal/src/createError.ts"
+      ],
+      "@lexical/internal/createProdError": [
+        "../lexical-internal/src/createProdError.ts"
+      ],
       "@lexical/internal/devInvariant": [
         "../lexical-internal/src/devInvariant.ts"
       ],
@@ -244,6 +360,8 @@
       "@lexical/tailwind": ["../lexical-tailwind/src/index.ts"],
       "@lexical/text": ["../lexical-text/src/index.ts"],
       "@lexical/utils": ["../lexical-utils/src/index.ts"],
+      "@lexical/y": ["../lexical-y/src/index.ts"],
+      "@lexical/y/headless": ["../lexical-y/src/headless.ts"],
       "@lexical/yjs": ["../lexical-yjs/src/index.ts"]
     }
   },

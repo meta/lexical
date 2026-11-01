@@ -16,11 +16,13 @@ import type {
   DOMConversionOutput,
   DOMExportOutput,
   LexicalNode,
+  SerializedPartial,
 } from '../LexicalNode';
 import type {BaseSelection, RangeSelection} from '../LexicalSelection';
 
 import {$isBlockFullySelected} from '../caret/LexicalCaretUtils';
 import {ELEMENT_TYPE_TO_FORMAT} from '../LexicalConstants';
+import {GENERATED_PARAGRAPH} from '../LexicalGeneratedJSON';
 import {$isRangeSelection} from '../LexicalSelection';
 import {
   $applyNodeReplacement,
@@ -53,7 +55,9 @@ export class ParagraphNode extends ElementNode {
 
   $config() {
     return this.config('paragraph', {
+      children: 'inline',
       extends: ElementNode,
+      generated: GENERATED_PARAGRAPH,
       importDOM: {
         p: () => ({
           conversion: $convertParagraphElement,
@@ -101,21 +105,27 @@ export class ParagraphNode extends ElementNode {
     };
   }
 
-  exportJSON(): SerializedParagraphNode {
-    const json = super.exportJSON();
-    // Provide backwards compatible values, see #7971
+  exportJSON(compact?: false): SerializedParagraphNode;
+  exportJSON(compact: boolean): SerializedPartial<SerializedParagraphNode>;
+  exportJSON(compact = false): SerializedPartial<SerializedParagraphNode> {
+    const json = super.exportJSON(compact);
+    // Provide backwards compatible values, see #7971.
     if (json.textFormat === undefined || json.textStyle === undefined) {
-      // Compute the same value that the reconciler would
       const firstTextNode = this.getChildren().find($isTextNode);
-      if (firstTextNode) {
-        json.textFormat = firstTextNode.getFormat();
-        json.textStyle = firstTextNode.getStyle();
-      } else {
-        json.textFormat = this.getTextFormat();
-        json.textStyle = this.getTextStyle();
+      const textFormat = firstTextNode
+        ? firstTextNode.getFormat()
+        : this.getTextFormat();
+      const textStyle = firstTextNode
+        ? firstTextNode.getStyle()
+        : this.getTextStyle();
+      if (!compact || textFormat !== 0) {
+        json.textFormat = textFormat;
+      }
+      if (!compact || textStyle !== '') {
+        json.textStyle = textStyle;
       }
     }
-    return json as SerializedParagraphNode;
+    return json;
   }
 
   extractWithChild(

@@ -1,0 +1,86 @@
+/**
+ * Copyright (c) Meta Platforms, Inc. and affiliates.
+ *
+ * This source code is licensed under the MIT license found in the
+ * LICENSE file in the root directory of this source tree.
+ *
+ * @flow strict
+ */
+
+/**
+ * The codegen declarations, used the way `scripts/shared/generateNodeJSON.mjs`
+ * uses them.
+ *
+ * Every other file in these `flow/` directories declares a surface; this one
+ * consumes one, because declaring it is not enough to keep it true. The parity
+ * lint compares export *names* between a `.js.flow` and its TypeScript module
+ * and cannot see a signature or a field, so a declaration can go on matching by
+ * name while saying the wrong thing — which is how `compileParse` came to
+ * return `statements` that a Flow caller could neither read nor pass on, and
+ * how a callback `tableBaseName` and the `bindingName` parameter went missing.
+ * Omitting those statements emits an unbound name, so the cost of the drift is
+ * a generated parser that does not run.
+ *
+ * Nothing imports this. Flow checks it because it is under `packages/`, and
+ * ESLint skips it with every other `.js.flow`. Keep it shaped like the real
+ * caller: a compile whose tables and locals are named by callbacks, and a
+ * verification handed everything the compile returned.
+ */
+
+import type {SerializationSchemaMeta} from 'lexical';
+
+import {
+  type CompiledExpression,
+  type CompileParseResult,
+  compileParse,
+  verifyCompiledParse,
+} from '@lexical/compiler/SchemaJsonCodegen';
+
+declare var meta: SerializationSchemaMeta;
+declare var schema: $FlowFixMe;
+
+// Tables and locals are both named by the caller: the generator shares one
+// emitted table between the schemas that use the same object, and numbers its
+// locals across a class rather than per property.
+let bound = 0;
+const compiled: CompileParseResult = compileParse(
+  meta,
+  undefined,
+  (table, index) => `TABLE_${index}`,
+  () => `p${bound++}`,
+);
+
+// The helpers the expression calls, which the caller emits the definitions of.
+const prelude: string = compiled.helpers.join('\n');
+
+// The statements are emitted before the expression, in the same scope.
+const emitted: string = [
+  ...compiled.statements,
+  `node.__field = ${compiled.expression};`,
+].join('\n');
+
+// The pair on its own, which is what a caller compiling a sub-expression
+// holds. Not `compiled` itself: Flow's objects are exact here, so the result
+// that carries tables as well is a different type rather than a subtype, and
+// asserting otherwise would be asserting a relation nothing needs.
+const inner: CompiledExpression = {
+  expression: compiled.expression,
+  statements: compiled.statements,
+};
+
+// And the verification is handed the same pair, or the expression alone where
+// a compile produced no statements.
+verifyCompiledParse({
+  expression: compiled.expression,
+  nullPrototypeTables: compiled.tables.map(({name}) => name),
+  schema,
+  statements: compiled.statements,
+  tables: compiled.tables,
+});
+verifyCompiledParse({
+  expression: compiled.expression,
+  schema,
+  tables: compiled.tables,
+});
+
+export const generated: string = prelude + emitted + inner.expression;

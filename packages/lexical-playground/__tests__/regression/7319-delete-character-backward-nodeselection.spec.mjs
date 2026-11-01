@@ -16,17 +16,17 @@ import {
   test,
 } from '../utils/index.mjs';
 
+test.skip(
+  ({isCollab, isPlainText}) => isCollab || isPlainText,
+  'Requires rich text without collaboration',
+);
+
 test.describe('Regression tests for #7319', () => {
   test.beforeEach(({isPlainText, isCollab, page}) =>
     initialize({isCollab, isPlainText, page}),
   );
 
-  test(`deleteCharacter after hr with RangeSelection`, async ({
-    page,
-    isCollab,
-    isPlainText,
-  }) => {
-    test.skip(isCollab || isPlainText);
+  test(`deleteCharacter after hr with RangeSelection`, async ({page}) => {
     await focusEditor(page);
     await page.keyboard.press('Enter');
     const hrCount = 3;
@@ -59,12 +59,7 @@ test.describe('Regression tests for #7319', () => {
     }
     await assertHR(0);
   });
-  test(`deleteCharacter after hr with NodeSelection`, async ({
-    page,
-    isCollab,
-    isPlainText,
-  }) => {
-    test.skip(isCollab || isPlainText);
+  test(`deleteCharacter after hr with NodeSelection`, async ({page}) => {
     await focusEditor(page);
     await page.keyboard.press('Enter');
     const hrCount = 3;

@@ -69,6 +69,15 @@ describe('LexicalHeadlessEditor', () => {
     expect(typeof navigator === 'undefined' || isEmptyNavigator()).toBe(true);
   });
 
+  it('throws from DOM-only methods', () => {
+    expect(() => editor.getRootElement()).toThrow(
+      'getRootElement is not supported in headless mode',
+    );
+    expect(() => editor.registerRootListener(() => {})).toThrow(
+      'registerRootListener is not supported in headless mode',
+    );
+  });
+
   it('can update editor', async () => {
     await update(() => {
       $getRoot().append(

@@ -139,17 +139,3 @@ export const RichTextExtension = defineExtension({
       );
     }),
 });
-
-/**
- * Bundles {@link RichTextImportRules} together with the runtime
- * {@link RichTextExtension}.
- *
- * @experimental
- * @deprecated {@link RichTextExtension} now registers
- * {@link RichTextImportRules} (and `CoreImportExtension`) itself —
- * depend on it directly instead.
- */
-export const RichTextImportExtension = defineExtension({
-  dependencies: [RichTextExtension],
-  name: '@lexical/rich-text/Import',
-});

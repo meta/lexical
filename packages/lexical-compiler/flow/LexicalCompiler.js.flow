@@ -12,21 +12,15 @@
  *
  * Every pass, re-exported. Import a single pass from its own entry point
  * (`@lexical/compiler/PureAnnotations`) to leave the rest unloaded.
+ *
+ * `export *`, as `src/index.ts` does, rather than one list per entry. Naming
+ * them here meant naming each one twice, and a name added to a pass was a name
+ * this file went on not having: `CompiledExpression`, `TableNaming`,
+ * `BindingNaming` and four helper-source constants were all missing from it,
+ * and the parity lint compares this file against the barrel rather than
+ * against each pass, so it saw a barrel that had simply stopped keeping up.
  */
 
-export type {
-  PureAnnotationsOptions,
-  PureAnnotationsPlugin,
-  PureAnnotationsResult,
-  PureAnnotationsSourceMap,
-  TransformPureAnnotationsOptions,
-} from './LexicalCompilerPureAnnotations';
-
-export {
-  INLINE_FACTORY_FORMS,
-  PURE_FACTORY_FUNCTIONS,
-  PURE_NAMESPACES,
-  pureAnnotations,
-  pureCallNames,
-  transformPureAnnotations,
-} from './LexicalCompilerPureAnnotations';
+export * from '@lexical/compiler/PureAnnotations';
+export * from '@lexical/compiler/SchemaJsonCodegen';
+export * from '@lexical/compiler/SubpathImports';

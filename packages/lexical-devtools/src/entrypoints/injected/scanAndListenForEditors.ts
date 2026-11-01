@@ -26,13 +26,25 @@ export default function scanAndListenForEditors(
   const {setStatesForTab, lexicalState} = extensionStore.getState();
   const states = lexicalState[tabID] ?? {};
 
+  // Editor text is only relayed unmasked while the user has the DevTools
+  // panel open for this tab. The rest of the time the structure of the tree is
+  // still reported -- so the popup can say how many editors are on the page --
+  // but the text itself is masked before it leaves this script.
+  const shouldObfuscate = () =>
+    extensionStore.getState().isPanelOpen[tabID] !== true;
+
   const editors = queryLexicalNodes().map(node => node.__lexicalEditor);
 
   setStatesForTab(
     tabID,
     Object.fromEntries(
       editors.map(e => {
-        return [e._key, serializeEditorState(e.getEditorState())];
+        return [
+          e._key,
+          serializeEditorState(e.getEditorState(), {
+            obfuscateText: shouldObfuscate(),
+          }),
+        ];
       }),
     ),
   );
@@ -46,7 +58,9 @@ export default function scanAndListenForEditors(
       const oldVal = extensionStore.getState().lexicalState[tabID];
       setStatesForTab(tabID, {
         ...oldVal,
-        [editor._key]: serializeEditorState(event.editorState),
+        [editor._key]: serializeEditorState(event.editorState, {
+          obfuscateText: shouldObfuscate(),
+        }),
       });
     });
     // TODO: validate that this will be garbage collected when the editor node is destroyed

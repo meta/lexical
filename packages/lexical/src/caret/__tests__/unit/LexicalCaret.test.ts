@@ -23,6 +23,7 @@ import {
 import {
   $caretRangeFromSelection,
   $comparePointCaretNext,
+  $createLineBreakNode,
   $createParagraphNode,
   $createRangeSelection,
   $createTextNode,
@@ -35,6 +36,7 @@ import {
   $getSelection,
   $getSiblingCaret,
   $getTextPointCaret,
+  $isLineBreakNode,
   $isParagraphNode,
   $isSiblingCaret,
   $isTextNode,
@@ -61,8 +63,10 @@ import {beforeEach, describe, expect, test} from 'vitest';
 import {
   $assertRangeSelection,
   $createTestDecoratorNode,
+  $createTestElementNode,
   initializeUnitTest,
   invariant,
+  TestElementNode,
 } from '../../../__tests__/utils';
 
 const DIRECTIONS = ['next', 'previous'] as const;
@@ -2186,6 +2190,217 @@ describe('LexicalSelectionHelpers', () => {
           },
           {discrete: true},
         );
+      });
+    });
+
+    // The cases above remove inline wrappers around a range. These cover the
+    // empty ancestor walk that runs after the last block of the document is
+    // emptied, where the ancestor is the root's only remaining child.
+    describe("the root's last child after select all delete", () => {
+      test('a list is replaced with an empty paragraph', () => {
+        testEnv.editor.update(
+          () => {
+            const root = $getRoot();
+            root.clear();
+            const list = $createListNode('bullet');
+            list.append($createListItemNode().append($createTextNode('item')));
+            root.append($createTestDecoratorNode().setIsInline(false), list);
+          },
+          {discrete: true},
+        );
+
+        testEnv.editor.update(
+          () => {
+            $selectAll().removeText();
+          },
+          {discrete: true},
+        );
+
+        testEnv.editor.read(() => {
+          const root = $getRoot();
+          expect(root.getChildrenSize()).toBe(1);
+          expect($isParagraphNode(root.getFirstChild())).toBe(true);
+          expect(root.getTextContent()).toBe('');
+        });
+      });
+
+      // The leftover list is not merely untidy: it has no block ancestor, so
+      // the next inline insert raises an uncaught invariant.
+      test('an inline insert after the list deletion does not throw', () => {
+        testEnv.editor.update(
+          () => {
+            const root = $getRoot();
+            root.clear();
+            const list = $createListNode('bullet');
+            list.append($createListItemNode().append($createTextNode('item')));
+            root.append($createTestDecoratorNode().setIsInline(false), list);
+          },
+          {discrete: true},
+        );
+
+        testEnv.editor.update(
+          () => {
+            $selectAll().removeText();
+          },
+          {discrete: true},
+        );
+
+        expect(() => {
+          testEnv.editor.update(
+            () => {
+              $assertRangeSelection($getSelection()).insertNodes([
+                $createLineBreakNode(),
+              ]);
+            },
+            {discrete: true},
+          );
+        }).not.toThrow();
+
+        testEnv.editor.read(() => {
+          const paragraph = $getRoot().getFirstChild();
+          invariant($isParagraphNode(paragraph), 'Expected a ParagraphNode');
+          expect($isLineBreakNode(paragraph.getFirstChild())).toBe(true);
+        });
+      });
+
+      test('a table is replaced with an empty paragraph', () => {
+        testEnv.editor.update(
+          () => {
+            const root = $getRoot();
+            root.clear();
+            const cell = $createTableCellNode();
+            cell.append($createParagraphNode().append($createTextNode('cell')));
+            const table = $createTableNode();
+            table.append($createTableRowNode().append(cell));
+            root.append($createTestDecoratorNode().setIsInline(false), table);
+          },
+          {discrete: true},
+        );
+
+        testEnv.editor.update(
+          () => {
+            $selectAll().removeText();
+          },
+          {discrete: true},
+        );
+
+        testEnv.editor.read(() => {
+          const root = $getRoot();
+          expect(root.getChildrenSize()).toBe(1);
+          expect($isParagraphNode(root.getFirstChild())).toBe(true);
+          expect(root.getTextContent()).toBe('');
+        });
+      });
+
+      // A leftover table does not throw on the next insert, because an element
+      // point on a shadow root takes an earlier branch of insertNodes. It
+      // silently takes the inline content as a child instead, which a table
+      // that holds only rows cannot render.
+      test('an inline insert after the table deletion does not land in a table', () => {
+        testEnv.editor.update(
+          () => {
+            const root = $getRoot();
+            root.clear();
+            const cell = $createTableCellNode();
+            cell.append($createParagraphNode().append($createTextNode('cell')));
+            const table = $createTableNode();
+            table.append($createTableRowNode().append(cell));
+            root.append($createTestDecoratorNode().setIsInline(false), table);
+          },
+          {discrete: true},
+        );
+
+        testEnv.editor.update(
+          () => {
+            $selectAll().removeText();
+          },
+          {discrete: true},
+        );
+
+        testEnv.editor.update(
+          () => {
+            $assertRangeSelection($getSelection()).insertNodes([
+              $createLineBreakNode(),
+            ]);
+          },
+          {discrete: true},
+        );
+
+        testEnv.editor.read(() => {
+          const root = $getRoot();
+          expect(root.getChildrenSize()).toBe(1);
+          const paragraph = root.getFirstChild();
+          invariant($isParagraphNode(paragraph), 'Expected a ParagraphNode');
+          expect($isLineBreakNode(paragraph.getFirstChild())).toBe(true);
+        });
+      });
+
+      // Control for the other side of the break condition. This container is
+      // reached by the same walk at the same depth as the list and the table,
+      // but it may be empty, so it is kept rather than replaced.
+      test('a container that may be empty is kept', () => {
+        testEnv.editor.update(
+          () => {
+            const root = $getRoot();
+            root.clear();
+            const container = $createTestElementNode();
+            container.append(
+              $createParagraphNode().append($createTextNode('inner')),
+            );
+            root.append(
+              $createTestDecoratorNode().setIsInline(false),
+              container,
+            );
+          },
+          {discrete: true},
+        );
+
+        testEnv.editor.update(
+          () => {
+            $selectAll().removeText();
+          },
+          {discrete: true},
+        );
+
+        testEnv.editor.read(() => {
+          const root = $getRoot();
+          expect(root.getChildrenSize()).toBe(1);
+          const container = root.getFirstChild();
+          expect(container).toBeInstanceOf(TestElementNode);
+          expect($isParagraphNode(container)).toBe(false);
+        });
+      });
+
+      // The ordinary document this path has always handled correctly. The walk
+      // is never entered here, since the emptied block's parent is the root.
+      test('a paragraph is kept', () => {
+        testEnv.editor.update(
+          () => {
+            const root = $getRoot();
+            root.clear();
+            const paragraph = $createParagraphNode();
+            paragraph.append($createTextNode('text'));
+            root.append(
+              $createTestDecoratorNode().setIsInline(false),
+              paragraph,
+            );
+          },
+          {discrete: true},
+        );
+
+        testEnv.editor.update(
+          () => {
+            $selectAll().removeText();
+          },
+          {discrete: true},
+        );
+
+        testEnv.editor.read(() => {
+          const root = $getRoot();
+          expect(root.getChildrenSize()).toBe(1);
+          expect($isParagraphNode(root.getFirstChild())).toBe(true);
+          expect(root.getTextContent()).toBe('');
+        });
       });
     });
   });

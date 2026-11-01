@@ -7,7 +7,7 @@
  */
 
 /**
- * Regression test for facebook/lexical#8391.
+ * Regression test for meta/lexical#8391.
  *
  * The reporter wants this HTML
  *
@@ -52,7 +52,6 @@ import {
   ImportWhitespaceConfig,
   sel,
 } from '@lexical/html';
-import {JSDOM} from 'jsdom';
 import {
   $createTextNode,
   $getEditor,
@@ -87,8 +86,11 @@ const TooltipRule = defineImportRule({
 function $generate(html: string): LexicalNode[] {
   const editor = $getEditor();
   const dep = getExtensionDependencyFromEditor(editor, DOMImportExtension);
-  const dom = new JSDOM(`<!doctype html><html><body>${html}</body></html>`);
-  return dep.output.$generateNodesFromDOM(dom.window.document);
+  const dom = new DOMParser().parseFromString(
+    `<!doctype html><html><body>${html}</body></html>`,
+    'text/html',
+  );
+  return dep.output.$generateNodesFromDOM(dom);
 }
 
 function importInto(editor: LexicalEditor, html: string): void {
@@ -183,10 +185,11 @@ describe('issue #8391 — whitespace around unknown inline elements', () => {
           editor,
           DOMImportExtension,
         );
-        const dom = new JSDOM(
+        const dom = new DOMParser().parseFromString(
           `<!doctype html><html><body>${HTML}</body></html>`,
+          'text/html',
         );
-        const nodes = dep.output.$generateNodesFromDOM(dom.window.document, {
+        const nodes = dep.output.$generateNodesFromDOM(dom, {
           context: [
             contextValue(ImportWhitespaceConfig, {
               isInline: node =>

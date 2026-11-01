@@ -493,43 +493,45 @@ describe('select-all + delete collapses to an empty paragraph (#5835)', () => {
     });
   });
 
-  test('a partial delete that only empties the first block is unaffected', () => {
-    using editor = createEditor();
-    editor.update(
-      () => {
-        const heading = $createHeadingNode('h1').append($createTextNode('abc'));
-        $getRoot()
-          .clear()
-          .append(
-            heading,
-            $createParagraphNode().append($createTextNode('def')),
+  test.for([true, false])(
+    'a partial delete that only empties the first block is unaffected (isBackward: %s)',
+    isBackward => {
+      using editor = createEditor();
+      editor.update(
+        () => {
+          const heading = $createHeadingNode('h1').append(
+            $createTextNode('abc'),
           );
-        // Select only the heading's own text, not the whole document. Forward
-        // delete: a backwards delete of an emptied first block is separately
-        // collapsed by the pre-existing $collapseAtStart path, which is not
-        // what this test is guarding.
-        const text = heading.getFirstChildOrThrow();
-        assert($isTextNode(text), 'Expected a TextNode');
-        text.select(0, 3);
-      },
-      {discrete: true},
-    );
+          $getRoot()
+            .clear()
+            .append(
+              heading,
+              $createParagraphNode().append($createTextNode('def')),
+            );
+          // Select only the heading's own text, not the whole document.
+          const text = heading.getFirstChildOrThrow();
+          assert($isTextNode(text), 'Expected a TextNode');
+          text.select(0, 3);
+        },
+        {discrete: true},
+      );
 
-    editor.update(
-      () => {
-        const selection = $getSelection();
-        assert($isRangeSelection(selection), 'Expected RangeSelection');
-        selection.deleteCharacter(false);
-      },
-      {discrete: true},
-    );
+      editor.update(
+        () => {
+          const selection = $getSelection();
+          assert($isRangeSelection(selection), 'Expected RangeSelection');
+          selection.deleteCharacter(isBackward);
+        },
+        {discrete: true},
+      );
 
-    // The heading keeps its type; it is not converted to a paragraph.
-    expect(readRootTypes(editor)).toEqual(['heading', 'paragraph']);
-    editor.read(() => {
-      expect($getRoot().getLastChildOrThrow().getTextContent()).toBe('def');
-    });
-  });
+      // The heading keeps its type; it is not converted to a paragraph.
+      expect(readRootTypes(editor)).toEqual(['heading', 'paragraph']);
+      editor.read(() => {
+        expect($getRoot().getLastChildOrThrow().getTextContent()).toBe('def');
+      });
+    },
+  );
 
   test('replacing all text in a lone non-paragraph block keeps its type', () => {
     // Guards the Prettier "format" regression: selecting all of a lone block's

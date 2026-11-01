@@ -22,7 +22,6 @@ import type {
   NodeKey,
   NodeMap,
 } from './LexicalNode';
-import type {ElementNode} from './nodes/LexicalElementNode';
 
 import invariant from '@lexical/internal/invariant';
 
@@ -33,6 +32,7 @@ import {
   $isRootNode,
   $isTextNode,
   DEFAULT_EDITOR_DOM_CONFIG,
+  ElementNode,
 } from '.';
 import {
   DOUBLE_LINE_BREAK,
@@ -64,6 +64,13 @@ const __DEV__ = process.env.NODE_ENV !== 'production';
 
 type IntentionallyMarkedAsDirtyElement = boolean;
 
+function $hasCustomTextContent(node: ElementNode): boolean {
+  return (
+    !$isRootNode(node) &&
+    node.getTextContent !== ElementNode.prototype.getTextContent
+  );
+}
+
 /**
  * @internal
  *
@@ -93,7 +100,10 @@ type IntentionallyMarkedAsDirtyElement = boolean;
  * The reconciler sets this on every reconciled leaf at the end of
  * `$reconcileNode` (and on every newly-created leaf in `$createNode`), so
  * the previous editor state's leaves always carry a valid cached size from
- * the cycle that just committed.
+ * the cycle that just committed. Decorator slot hosts are not stored here
+ * either: its text includes its slots' text, which an edit inside a slot
+ * changes without cloning the host, so `$prevSuffixTextSize` measures them
+ * instead.
  *
  * Suffix-incremental fast path reads this off the previous-state instance
  * to get the pre-reconcile size of dirty children in O(1), avoiding both
@@ -109,13 +119,13 @@ export const CACHED_TEXT_SIZE_KEY = Symbol.for('@lexical/CachedTextSize');
 // The whole walk runs inside `activePrevEditorState.read(...)` so that every
 // node method resolves against the PREVIOUS node map: a moved element recomputes
 // its size via `getTextContentSize()` (its shared keyed-DOM cache may already
-// hold the NEW size, cf. https://github.com/facebook/lexical/pull/8564), and the
+// hold the NEW size, cf. https://github.com/meta/lexical/pull/8564), and the
 // inter-sibling `isInline()` returns the node's previous-render value (a moved
 // or re-typed node could answer differently in the next state, and a node
 // removed this cycle would throw). The per-child size logic is inlined here
 // rather than shared so it cannot be called outside this read. Non-moved
-// elements and leaves still read their O(1) caches, so a large untouched suffix
-// child is not re-walked.
+// elements and leaves other than slot hosts still read their O(1) caches, so a
+// large untouched suffix child is not re-walked.
 function $prevSuffixTextSize(startKey: NodeKey, count: number): number {
   return activePrevEditorState.read(
     () => {
@@ -156,6 +166,11 @@ function $prevSuffixTextSize(startKey: NodeKey, count: number): number {
           if (i < count - 1 && !prevNode.isInline()) {
             size += DOUBLE_LINE_BREAK.length;
           }
+        } else if ($readSlots(prevNode).size > 0) {
+          // A slot host's text includes its slots' text, which an edit inside
+          // a slot changes without cloning the host, so the size cached on
+          // this instance can be stale.
+          size += prevNode.getTextContentSize();
         } else {
           // $reconcileNode / $createNode set the size on every leaf they touch,
           // so a missing entry means the invariant was broken upstream.
@@ -177,7 +192,9 @@ function $prevSuffixTextSize(startKey: NodeKey, count: number): number {
 }
 
 function $setCachedTextSize(node: LexicalNode): void {
-  if ($isElementNode(node)) {
+  // A slot host's size goes stale on its next slot edit, which doesn't clone
+  // it, so `$prevSuffixTextSize` measures it instead and nothing is cached.
+  if ($isElementNode(node) || $readSlots(node).size > 0) {
     return;
   }
   // Skip if a value is already cached on this instance. The setter is only
@@ -730,6 +747,7 @@ function $createNode(key: NodeKey, slot: DOMSlot | null): HTMLElement {
   }
 
   if ($isElementNode(node)) {
+    const outerBefore = subTreeTextContent;
     const indent = node.__indent;
     const childrenSize = node.__size;
     $setElementDirection(dom, node);
@@ -756,7 +774,6 @@ function $createNode(key: NodeKey, slot: DOMSlot | null): HTMLElement {
         dom.__lexicalSlotTextLength = slotTextContent.length;
       }
     } else {
-      const outerBefore = subTreeTextContent;
       const endIndex = childrenSize - 1;
       const children = $createChildrenArray(node, activeNextNodeMap);
       $createChildren(
@@ -780,6 +797,12 @@ function $createNode(key: NodeKey, slot: DOMSlot | null): HTMLElement {
       if (slots.size > 0) {
         dom.__lexicalSlotTextLength = slotTextContent.length;
       }
+    }
+
+    if ($hasCustomTextContent(node)) {
+      const text = node.getTextContent();
+      dom.__lexicalTextContent = text;
+      subTreeTextContent = outerBefore + text;
     }
 
     const format = node.__format;
@@ -920,14 +943,7 @@ function $isLastChildLineBreakOrDecorator(
   return null;
 }
 
-function $isBlockDecoratorChild(
-  key: null | NodeKey,
-  nodeMap: NodeMap,
-): boolean {
-  if (!key) {
-    return false;
-  }
-  const node = nodeMap.get(key);
+function $isBlockDecoratorChild(node: LexicalNode | null): boolean {
   return $isDecoratorNode(node) && !node.isInline();
 }
 
@@ -939,19 +955,20 @@ function $isBlockDecoratorChild(
  * out-of-flow anchor parked outside each such boundary child so the browser has
  * an editable inline box to resolve the boundary position against. Interior
  * decorators are unaffected, so only the first / last child is considered.
+ * Outside a reconcile (ElementNode.reconcileObservedMutation), pass the slot.
  */
-function $reconcileDecoratorBoundaryAnchors(
+export function $reconcileDecoratorBoundaryAnchors(
   nextElement: ElementNode,
   dom: HTMLElement & LexicalPrivateDOM,
+  slot: ElementDOMSlot = $getDOMSlot(nextElement, dom, activeEditor),
 ): void {
-  const slot = $getDOMSlot(nextElement, dom, activeEditor);
   slot.setDecoratorBoundaryAnchor(
     'leading',
-    $isBlockDecoratorChild(nextElement.__first, activeNextNodeMap),
+    $isBlockDecoratorChild(nextElement.getFirstChild()),
   );
   slot.setDecoratorBoundaryAnchor(
     'trailing',
-    $isBlockDecoratorChild(nextElement.__last, activeNextNodeMap),
+    $isBlockDecoratorChild(nextElement.getLastChild()),
   );
 }
 
@@ -995,6 +1012,7 @@ function $reconcileChildrenWithDirection(
   prevElement: ElementNode,
   nextElement: ElementNode,
   dom: HTMLElement,
+  derivesTextFields: boolean,
 ): void {
   subTreeTextFormat = null;
   subTreeTextStyle = null;
@@ -1011,8 +1029,10 @@ function $reconcileChildrenWithDirection(
     // empty-element anchors gated on `!isRootTextContentEmpty`. Skipping
     // reconcile here keeps the invariant aligned and sidesteps the
     // suffix-fast-path's stale-format edge case at the root level.
-    reconcileTextFormat(nextElement);
-    reconcileTextStyle(nextElement);
+    if (derivesTextFields) {
+      reconcileTextFormat(nextElement);
+      reconcileTextStyle(nextElement);
+    }
   }
 }
 
@@ -1403,6 +1423,8 @@ function $reconcileChildren(
     const dirtyChildren = activeDirtyChildrenByParent.get(prevElement.__key);
     if (
       !treatAllNodesAsDirty &&
+      // Custom element text need not be a concatenation of child text.
+      !$hasCustomTextContent(nextElement) &&
       typeof cachedParentText === 'string' &&
       dirtyChildren !== undefined
     ) {
@@ -1808,7 +1830,19 @@ function $reconcileNode(
         : '';
     if (isDirty) {
       const outerBefore = subTreeTextContent;
-      $reconcileChildrenWithDirection(prevNode, nextNode, dom);
+      // A full reconcile (`$fullReconcile`, a new DOM render config) treats
+      // every node as dirty to render it again, but an element that this
+      // update did not change, or change inside, keeps its textFormat and
+      // textStyle: deriving them from its first text there would change a
+      // node in an update that changes none (a history entry, a write to
+      // collaborators). An element the new state does not share with the
+      // previous one (a state set whole) is derived as before.
+      $reconcileChildrenWithDirection(
+        prevNode,
+        nextNode,
+        dom,
+        prevNode !== nextNode || activeDirtyElements.has(key),
+      );
       if (!nextNode.isInline()) {
         if (!$isRootNode(nextNode)) {
           $reconcileElementTerminatingLineBreak(prevNode, nextNode, dom);
@@ -1834,6 +1868,11 @@ function $reconcileNode(
         // clear the stale prefix length so the next suffix fast path strips
         // nothing from the now child-only cache.
         dom.__lexicalSlotTextLength = 0;
+      }
+      if ($hasCustomTextContent(nextNode)) {
+        const text = nextNode.getTextContent();
+        dom.__lexicalTextContent = text;
+        subTreeTextContent = outerBefore + text;
       }
     } else {
       // Currently unreachable under normal flow — `getWritable()` always
@@ -2024,7 +2063,13 @@ function $reconcileNodeChildren(
       }
       if (!nextChildrenSet.has(prevKey)) {
         // Remove prev and continue
-        siblingDOM = getNextSibling(getPrevElementByKeyOrThrow(prevKey));
+        const prevDOM = getPrevElementByKeyOrThrow(prevKey);
+        // An earlier parent may already have reused this DOM for a moved node.
+        // In that case siblingDOM still points into this slot; advancing from
+        // prevDOM would use a sibling in the destination parent instead.
+        if (prevDOM.parentNode === slot.element) {
+          siblingDOM = getNextSibling(prevDOM);
+        }
         $destroyNode(prevKey, slot.element);
         prevIndex++;
         prevChildrenSet.delete(prevKey);

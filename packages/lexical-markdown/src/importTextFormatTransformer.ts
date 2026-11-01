@@ -124,7 +124,7 @@ export function findOutermostTextFormatTransformer(
 // rules: https://spec.commonmark.org/#code-spans. A run opens a span and the
 // next run of equal length closes it. An escaped backtick (`\``) cannot open a
 // span, but backslashes are otherwise literal and don't prevent closing.
-function scanCodeSpans(text: string): {
+export function scanCodeSpans(text: string): {
   startIndex: number;
   endIndex: number;
   content: string;

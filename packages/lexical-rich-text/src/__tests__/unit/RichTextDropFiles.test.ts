@@ -6,7 +6,10 @@
  *
  */
 
-import {buildEditorFromExtensions} from '@lexical/extension';
+import {
+  buildEditorFromExtensions,
+  type LexicalEditorWithDispose,
+} from '@lexical/extension';
 import {DRAG_DROP_PASTE, RichTextExtension} from '@lexical/rich-text';
 import {
   $createParagraphNode,
@@ -14,6 +17,7 @@ import {
   $getRoot,
   COMMAND_PRIORITY_CRITICAL,
   DROP_COMMAND,
+  IS_IOS,
 } from 'lexical';
 import {describe, expect, onTestFinished, test} from 'vitest';
 
@@ -41,7 +45,7 @@ function createDropEventWithFiles(files: File[]): DragEvent {
 }
 
 function dispatchDropAndCaptureFiles(
-  editor: ReturnType<typeof buildEditorFromExtensions>,
+  editor: LexicalEditorWithDispose,
   event: DragEvent,
 ): File[] | null {
   let dispatchedFiles: File[] | null = null;
@@ -63,6 +67,19 @@ function dispatchDropAndCaptureFiles(
 
 describe('RichTextExtension DROP_COMMAND file handling', () => {
   const fakeImage = new File(['fake-bytes'], 'photo.png', {type: 'image/png'});
+
+  test('unhandled desktop text files are still consumed', () => {
+    expect(IS_IOS).toBe(false);
+    using editor = buildEditorFromExtensions({
+      dependencies: [RichTextExtension],
+      name: 'test-desktop-text-file-drop',
+    });
+    const event = createDropEventWithFiles([
+      new File(['text'], 'document.txt', {type: 'text/plain'}),
+    ]);
+    expect(editor.dispatchCommand(DROP_COMMAND, event)).toBe(true);
+    expect(event.defaultPrevented).toBe(true);
+  });
 
   test('dropped files are forwarded even when the drop point resolves to no caret', () => {
     // caretFromPoint() returns null whenever the browser cannot resolve a

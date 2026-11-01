@@ -29,6 +29,15 @@ The update listener callbacks receives a single argument containing the follow p
 - `editorState` the latest updated Editor State
 - `prevEditorState` the previous Editor State
 - `tags` a Set of all tags that were passed to the update
+- `dirtyElements` a Map of the NodeKeys of ElementNodes that were marked
+  dirty, to a boolean that is true when the node was intentionally mutated
+- `dirtyLeaves` a Set of the NodeKeys of all dirty nodes that are not
+  ElementNodes
+- `mutatedNodes` a Map of LexicalNode constructors to a
+  `Map<NodeKey, NodeMutation>`, or null when no DOM was mutated. Only
+  populated when at least one MutationListener is registered
+- `normalizedNodes` (advanced) the keys of TextNode descendants that were
+  merged with a sibling by normalization
 
 One thing to be aware of is "waterfall" updates. This is where you might schedule an update inside an update
 listener, as shown below:
@@ -49,6 +58,14 @@ editor.registerUpdateListener(({editorState}) => {
 
 The problem with this pattern is that it means we end up doing two DOM updates, when we likely could have
 done it in a single DOM update. This can have an impact on performance, which is important in a text editor.
+
+A listener that re-enqueues work without a stop condition is worse than slow.
+The editor keeps a cascade budget: once a run of updates re-enqueues more
+than 100 times without yielding to the event loop, it discards the entire
+pending update queue and warns. Bounded activity never reaches the limit —
+the budget is reset from a macrotask, which a genuine runaway starves — but a
+true loop silently loses whatever else was queued.
+
 To avoid this, we recommend looking into [Node Transforms](transforms.md), which allow you to listen to node changes and
 transform them as part of the same given update, meaning no waterfalls!
 
@@ -83,8 +100,8 @@ handle external UI state and UI features relating to specific types of node.
 
 If any existing nodes are in the DOM, and skipInitialization is not true, the listener
 will be called immediately with an updateTag of 'registerMutationListener' where all
-nodes have the 'created' NodeMutation. This can be controlled with the skipInitialization option
-(whose default was previously true for backwards compatibility with &lt;=0.16.1 but has been changed to false as of 0.21.0).
+nodes have the 'created' NodeMutation. This can be controlled with the skipInitialization option,
+which defaults to false.
 
 ```js
 const removeMutationListener = editor.registerMutationListener(

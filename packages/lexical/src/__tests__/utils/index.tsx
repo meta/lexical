@@ -52,7 +52,20 @@ import {
 import * as React from 'react';
 import {act, createRef, type JSX} from 'react';
 import {createRoot} from 'react-dom/client';
-import {afterEach, assert, beforeEach, expect} from 'vitest';
+import {afterEach, beforeEach, expect} from 'vitest';
+
+import {
+  $applyJSONSetters,
+  $generatedExportJSON,
+  $walkExportJSON,
+  $walkJSONSetters,
+  getGeneratedJSON,
+} from '../../LexicalUtils';
+
+// The generated implementations a class runs, bound to its own schema by its
+// record — what a package's generated-code test asks about, since the module
+// it imports exports the factory, not the functions.
+export {getGeneratedJSON};
 
 const prettierConfig = prettier.resolveConfig(__filename);
 
@@ -502,23 +515,7 @@ export function $assertRangeSelection(selection: unknown): RangeSelection {
   return selection;
 }
 
-/**
- * Assert that a node matches the given type guard, returning it narrowed to
- * the guard's type. Useful for safely narrowing the result of traversal
- * methods such as getFirstChild() or getChildAtIndex() without an unchecked
- * type cast.
- */
-export function $assertNodeType<T extends LexicalNode>(
-  node: LexicalNode | null | undefined,
-  $guard: (value: LexicalNode | null) => value is T,
-): T {
-  const resolved = node ?? null;
-  assert(
-    $guard(resolved),
-    `Expected node to match type guard ${$guard.name}, got ${node ? node.constructor.name : null}`,
-  );
-  return resolved;
-}
+export {$assertNodeType} from './assertNodeType';
 
 export function invariant(cond?: boolean, message?: string): asserts cond {
   if (cond) {
@@ -609,6 +606,52 @@ export const DECORATOR_BOUNDARY_ANCHOR_HTML =
   '<img alt="" style="position: absolute !important; width: 0px !important; ' +
   'height: 0px !important; border: 0px !important; margin: 0px !important; ' +
   'padding: 0px !important;" data-lexical-decorator-boundary="true" />';
+
+/**
+ * Assert that a node's generated exporters write exactly what the schema-driven
+ * walk writes for it — same values, same key order — in every form the class
+ * has generated code for. Not vacuous: the class has to have generated code
+ * for at least the legacy form, or there is nothing to compare.
+ *
+ * Exactly, in both forms: a property whose default the generator could not
+ * state as source compares through the class's own `isCompactDefault` rather
+ * than being written regardless, so the compact form has no key the walk would
+ * not have written.
+ */
+export function $expectSameJSON(node: LexicalNode): void {
+  expect($generatedExportJSON(node, false)).toBeDefined();
+  // Both forms: each is generated separately, so each has to agree with the
+  // walk separately. A form the class has no generated code for is the walk.
+  for (const compact of [false, true]) {
+    const fromGenerated = $generatedExportJSON(node, compact);
+    if (fromGenerated === undefined) {
+      continue;
+    }
+    const fromWalk = $walkExportJSON(node, compact);
+    expect({compact, json: fromGenerated}).toEqual({compact, json: fromWalk});
+    // Key order too: a document round-tripped through JSON.stringify should
+    // not reorder depending on which implementation exported it.
+    expect(Object.keys(fromGenerated)).toEqual(Object.keys(fromWalk));
+  }
+}
+
+/**
+ * Assert that parsing `json` into a fresh node of `klass` through its generated
+ * parser lands on the same node the schema-driven walk lands on, judged by what
+ * each then exports. Not vacuous: the class has to have a generated parser.
+ * Call inside an update.
+ */
+export function $expectSameParse<T extends LexicalNode>(
+  klass: Klass<T>,
+  json: {readonly [key: string]: unknown},
+): T {
+  const generated = getGeneratedJSON(klass);
+  expect(generated && generated.updateFromJSON).toBeDefined();
+  const viaGenerated = $applyJSONSetters($create(klass), json);
+  const viaWalk = $walkJSONSetters($create(klass), json);
+  expect(viaGenerated.exportJSON()).toEqual(viaWalk.exportJSON());
+  return viaGenerated;
+}
 
 export function expectHtmlToBeEqual(actual: string, expected: string): void {
   expect(prettifyHtml(actual)).toBe(prettifyHtml(expected));

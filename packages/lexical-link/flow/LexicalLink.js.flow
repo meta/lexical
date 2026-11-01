@@ -40,7 +40,10 @@ declare export class LinkNode extends ElementNode {
   __title: null | string;
   constructor(url?: string, attributes?: LinkAttributes, key?: NodeKey): void;
   createDOM(config: EditorConfig): HTMLElement;
-  exportJSON(): SerializedLinkNode;
+  // See LexicalNode.exportJSON: one signature, the legacy form, and `false`
+  // rather than `boolean` so a compact call is refused instead of answered
+  // with a shape the value does not have.
+  exportJSON(compact?: false): SerializedLinkNode;
   getURL(): string;
   setURL(url: string): void;
   getTarget(): null | string;
@@ -96,18 +99,23 @@ declare export function formatUrl(url: string): string;
 export type ClickableLinkConfig = {
   newTab: boolean;
   disabled: boolean;
+  getWindow: (editor: LexicalEditor) => Window | null;
 }
 
 declare export function registerClickableLink(
   editor: LexicalEditor,
-  stores: NamedSignalsOutput<ClickableLinkConfig>,
+  stores: Pick<NamedSignalsOutput<ClickableLinkConfig>, 'disabled' | 'newTab'> & {
+    getWindow?: NamedSignalsOutput<ClickableLinkConfig>['getWindow'];
+  },
   eventOptions?: {signal?: AbortSignal, ...},
 ): () => void;
 
 declare export var ClickableLinkExtension: LexicalExtension<ClickableLinkConfig, "@lexical/link/ClickableLink", NamedSignalsOutput<ClickableLinkConfig>, void>;
 declare export function registerClickableLink(
   editor: LexicalEditor,
-  stores: NamedSignalsOutput<ClickableLinkConfig>,
+  stores: Pick<NamedSignalsOutput<ClickableLinkConfig>, 'disabled' | 'newTab'> & {
+    getWindow?: NamedSignalsOutput<ClickableLinkConfig>['getWindow'];
+  },
   eventOptions?: {signal?: AbortSignal, ...},
 ): () => void;
 

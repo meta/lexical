@@ -26,9 +26,8 @@ import {
 import {
   type FootnoteDefinition,
   type FootnoteReference,
-  MdastExportExtension,
   type MdastExportHandler,
-  MdastImportExtension,
+  MdastExtension,
   type MdastImportHandler,
   type PhrasingContent,
   RenderContextMarkdownSelection,
@@ -763,12 +762,13 @@ const $exportFootnoteRef: MdastExportHandler<FootnoteRefNode> = node => {
     type: 'footnoteReference',
   };
   // The format bitmask re-wraps in phrasing containers, nesting in the same
-  // order as the core text serialization (emphasis innermost).
-  if (node.hasFormat('italic')) {
-    content = {children: [content], type: 'emphasis'};
-  }
+  // order as the core text serialization of a lone run (emphasis around
+  // strong); mergeAdjacentPhrasing regroups it with the text around it.
   if (node.hasFormat('bold')) {
     content = {children: [content], type: 'strong'};
+  }
+  if (node.hasFormat('italic')) {
+    content = {children: [content], type: 'emphasis'};
   }
   if (node.hasFormat('strikethrough')) {
     content = {children: [content], type: 'delete'};
@@ -791,33 +791,136 @@ const $exportFootnoteDefinition: MdastExportHandler<FootnoteDefinitionNode> = (
   type: 'footnoteDefinition',
 });
 
-// The registry's text-run accumulator merges adjacent same-format TEXT into
-// one delimiter pair, but a formatted ref exports through its own handler,
-// so `**x**` + `**[^a]**` would sit side by side and serialize as the
-// broken `**x****[^a]**` / `*em**[^a]*` shapes. Folding adjacent same-type
-// wrappers back together before serialization keeps the emitted Markdown
-// re-parseable (`**x[^a]**`).
-const MERGEABLE_PHRASING = new Set(['delete', 'emphasis', 'strong']);
+// The registry's text-run accumulator groups adjacent formatted TEXT into
+// shared delimiter pairs, but a formatted ref exports through its own
+// handler, so `**x**` + `**[^a]**` would sit side by side and serialize as
+// the broken `**x****[^a]**` / `*em**[^a]*` shapes. Regrouping each run of
+// phrasing before serialization, refs included, the way the accumulator
+// groups text keeps the emitted Markdown re-parseable (`**x[^a]**`).
+interface PhrasingLike {
+  type: string;
+  children?: PhrasingLike[];
+}
 
-function mergeAdjacentPhrasing(node: {children?: unknown[]}): void {
-  const children = (node.children ?? []) as {
-    type: string;
-    children?: unknown[];
-  }[];
-  for (let i = children.length - 1; i > 0; i--) {
-    const prev = children[i - 1];
-    const current = children[i];
-    if (
-      MERGEABLE_PHRASING.has(current.type) &&
-      prev.type === current.type &&
-      prev.children !== undefined &&
-      current.children !== undefined
-    ) {
-      prev.children.push(...current.children);
-      children.splice(i, 1);
+const WRAPPERS = ['delete', 'emphasis', 'strong'];
+
+interface FormattedLeaf {
+  formats: readonly string[];
+  node: PhrasingLike;
+}
+
+/**
+ * The leaves under `node`'s formatting wrappers (ones holding nothing but
+ * their children), each with the wrappers around it.
+ */
+function formattedLeaves(
+  node: PhrasingLike,
+  formats: readonly string[] = [],
+): FormattedLeaf[] {
+  return WRAPPERS.includes(node.type) &&
+    node.children !== undefined &&
+    Object.keys(node).every(key => key === 'type' || key === 'children')
+    ? node.children.flatMap(child =>
+        formattedLeaves(child, [...formats, node.type]),
+      )
+    : [{formats, node}];
+}
+
+/**
+ * Wraps the leaves (none struck) in emphasis and strong as
+ * phrasingFromTextRuns does text runs: whichever spans the longer run goes
+ * outside, emphasis on a tie.
+ */
+function groupEmphasis(leaves: readonly FormattedLeaf[]): PhrasingLike[] {
+  const out: PhrasingLike[] = [];
+  for (let i = 0; i < leaves.length; ) {
+    let wrapper: string | null = null;
+    let end = i + 1;
+    for (const type of ['emphasis', 'strong']) {
+      let typeEnd = i;
+      while (
+        typeEnd < leaves.length &&
+        leaves[typeEnd].formats.includes(type)
+      ) {
+        typeEnd++;
+      }
+      if (typeEnd > i && (wrapper === null || typeEnd > end)) {
+        wrapper = type;
+        end = typeEnd;
+      }
+    }
+    if (wrapper === null) {
+      out.push(leaves[i].node);
+      i++;
+    } else {
+      const type = wrapper;
+      out.push({
+        children: groupEmphasis(without(leaves.slice(i, end), type)),
+        type,
+      });
+      i = end;
     }
   }
-  children.forEach(mergeAdjacentPhrasing);
+  return out;
+}
+
+function without(
+  leaves: readonly FormattedLeaf[],
+  type: string,
+): FormattedLeaf[] {
+  return leaves.map(({formats, node}) => ({
+    formats: formats.filter(format => format !== type),
+    node,
+  }));
+}
+
+/**
+ * Wraps the leaves as phrasingFromTextRuns does text runs: each run of
+ * struck leaves in one strikethrough, outermost, then emphasis and strong.
+ */
+function groupLeaves(leaves: readonly FormattedLeaf[]): PhrasingLike[] {
+  const out: PhrasingLike[] = [];
+  for (let i = 0; i < leaves.length; ) {
+    const struck = leaves[i].formats.includes('delete');
+    let end = i + 1;
+    while (
+      end < leaves.length &&
+      leaves[end].formats.includes('delete') === struck
+    ) {
+      end++;
+    }
+    const segment = leaves.slice(i, end);
+    if (struck) {
+      out.push({
+        children: groupEmphasis(without(segment, 'delete')),
+        type: 'delete',
+      });
+    } else {
+      out.push(...groupEmphasis(segment));
+    }
+    i = end;
+  }
+  return out;
+}
+
+/**
+ * Regroups the phrasing of each node holding a formatted ref, all of it,
+ * as groupLeaves mirrors core's text grouping; other phrasing stays as the
+ * text export grouped it.
+ */
+function mergeAdjacentPhrasing(node: PhrasingLike): void {
+  if (node.children === undefined) {
+    return;
+  }
+  const leaves = node.children.flatMap(child => formattedLeaves(child));
+  if (
+    leaves.some(
+      leaf => leaf.formats.length > 0 && leaf.node.type === 'footnoteReference',
+    )
+  ) {
+    node.children = groupLeaves(leaves);
+  }
+  leaves.forEach(leaf => mergeAdjacentPhrasing(leaf.node));
 }
 
 /** Every footnoteReference identifier in an mdast (sub)tree. */
@@ -845,7 +948,7 @@ const footnotesRootHandler = {
     root: (node, parent, state, info) => {
       const footnotes = $getSlot($getRoot(), FOOTNOTES_SLOT);
       if ($isFootnotesNode(footnotes) && !footnotes.isEmpty()) {
-        const {$convertToMdast} = $getExtensionOutput(MdastExportExtension);
+        const {$convertToMdast} = $getExtensionOutput(MdastExtension);
         // On a whole-document export ALL definitions ride along, in section
         // order — an editor preserves content, unlike a renderer, so
         // unreferenced definitions survive the round trip too. A selection
@@ -1133,10 +1236,10 @@ export const MdastFootnoteExtension = defineExtension({
     configExtension(DOMRenderExtension, {
       overrides: [FootnotesRenderOverride],
     }),
-    configExtension(MdastImportExtension, {
+    configExtension(MdastExtension, {
       exportRules: [
-        {$export: $exportFootnoteRef, type: 'footnote-ref'},
-        {$export: $exportFootnoteDefinition, type: 'footnote-def'},
+        {$export: $exportFootnoteRef, type: FootnoteRefNode},
+        {$export: $exportFootnoteDefinition, type: FootnoteDefinitionNode},
       ],
       importRules: [
         {$import: $importFootnoteReference, type: 'footnoteReference'},

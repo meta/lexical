@@ -65,7 +65,9 @@ export const ToolbarExtension = defineExtension({
       });
     };
     return mergeRegister(
-      editor.registerUpdateListener(({editorState}) => editorState.read($sync)),
+      editor.registerUpdateListener(({editorState}) =>
+        editorState.read($sync, {editor}),
+      ),
       editor.registerCommand(
         SELECTION_CHANGE_COMMAND,
         () => {

@@ -10,13 +10,7 @@ import {computed, EditorStateExtension} from '@lexical/extension';
 import {HistoryExtension} from '@lexical/history';
 import {$isListNode} from '@lexical/list';
 import {$isHeadingNode} from '@lexical/rich-text';
-import {$findMatchingParent} from '@lexical/utils';
-import {
-  $getSelection,
-  $isRangeSelection,
-  $isRootOrShadowRoot,
-  defineExtension,
-} from 'lexical';
+import {$getSelection, $isRangeSelection, defineExtension} from 'lexical';
 
 import {MdastEditorExtension} from './MdastEditorExtension';
 
@@ -49,11 +43,9 @@ function $readSelectionState(): ToolbarSelectionState {
     return DEFAULT_SELECTION_STATE;
   }
   const anchorNode = selection.anchor.getNode();
-  const topLevelElement =
-    $findMatchingParent(anchorNode, e => {
-      const parent = e.getParent();
-      return parent !== null && $isRootOrShadowRoot(parent);
-    }) ?? anchorNode.getTopLevelElementOrThrow();
+  // Deleting all content can leave the selection on the root, which has no
+  // top-level element. Keep the paragraph default and the selection's formats.
+  const topLevelElement = anchorNode.getTopLevelElement();
   let blockType: BlockType = 'paragraph';
   if ($isHeadingNode(topLevelElement)) {
     const tag = topLevelElement.getTag();

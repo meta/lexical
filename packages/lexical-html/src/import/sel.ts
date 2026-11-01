@@ -238,10 +238,24 @@ const TEXT_SELECTOR_IMPL: SelectorImpl = {
   tags: new Set(),
 };
 
-// The `as` cast is needed because `CompiledSelector` is an opaque
-// branded interface — neither the object literal nor a typed const can
-// declare the internal `IMPL` symbol without exposing it.
-const TEXT_SELECTOR = {[IMPL]: TEXT_SELECTOR_IMPL} as CompiledSelector<Text>;
+/**
+ * Wrap a {@link SelectorImpl} as an opaque {@link CompiledSelector}. The `as`
+ * cast is needed because `CompiledSelector` is an opaque branded interface —
+ * neither the object literal nor a typed const can declare the internal
+ * `IMPL` symbol without exposing it. A function declared side-effect free (so
+ * the build annotates the calls) rather than an object literal at module
+ * scope: a computed `[IMPL]` key there is a side effect to bundlers, which
+ * would pin the selector into every bundle that imports this module.
+ *
+ * @__NO_SIDE_EFFECTS__
+ */
+function compiledSelector<T extends Node>(
+  impl: SelectorImpl,
+): CompiledSelector<T> {
+  return {[IMPL]: impl} as CompiledSelector<T>;
+}
+
+const TEXT_SELECTOR = compiledSelector<Text>(TEXT_SELECTOR_IMPL);
 
 const COMMENT_SELECTOR_IMPL: SelectorImpl = {
   kind: 'comment',
@@ -249,10 +263,63 @@ const COMMENT_SELECTOR_IMPL: SelectorImpl = {
   tags: new Set(),
 };
 
-const COMMENT_SELECTOR = {
-  [IMPL]: COMMENT_SELECTOR_IMPL,
-} as CompiledSelector<Comment>;
+const COMMENT_SELECTOR = compiledSelector<Comment>(COMMENT_SELECTOR_IMPL);
 
+/**
+ * Match any {@link HTMLElement}.
+ *
+ * @internal Use `sel.any()`.
+ */
+export function selAny(): ElementSelectorBuilder<HTMLElement> {
+  return buildSelector(new Set(), []);
+}
+
+/**
+ * Match DOM {@link Comment} nodes.
+ *
+ * @internal Use `sel.comment()`.
+ */
+export function selComment(): CompiledSelector<Comment> {
+  return COMMENT_SELECTOR;
+}
+
+/**
+ * Match by tag name(s). With one literal tag the element type is narrowed
+ * (e.g. `'a' → HTMLAnchorElement`); with multiple, it is the union of
+ * their `HTMLElementTagNameMap` entries.
+ *
+ * @internal Use `sel.tag()`.
+ */
+export function selTag<const Tags extends readonly string[]>(
+  ...tags: Tags
+): ElementSelectorBuilder<
+  Tags[number] extends keyof HTMLElementTagNameMap
+    ? HTMLElementTagNameMap[Tags[number]]
+    : HTMLElement
+> {
+  invariant(tags.length > 0, 'sel.tag() requires at least one tag name');
+  const upper = new Set<string>();
+  for (const t of tags) {
+    upper.add(t.toUpperCase());
+  }
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return buildSelector(upper, []) as any;
+}
+
+/**
+ * Match DOM {@link Text} nodes.
+ *
+ * @internal Use `sel.text()`.
+ */
+export function selText(): CompiledSelector<Text> {
+  return TEXT_SELECTOR;
+}
+
+// The methods are standalone functions that both this object and the public
+// `sel` reference by name. Reading them off this object (`selBase.any`) in
+// `./index.ts` would be a module-scope property read, which is a side effect
+// to bundlers and would pin every selector into every bundle that imports
+// @lexical/html.
 /**
  * Combinator API for building {@link CompiledSelector}s. The public
  * `sel` is augmented from this in `./index.ts` (where the CSS parser is
@@ -268,40 +335,17 @@ const COMMENT_SELECTOR = {
  */
 export const selBase = {
   /** Match any {@link HTMLElement}. */
-  any(): ElementSelectorBuilder<HTMLElement> {
-    return buildSelector(new Set(), []);
-  },
-
+  any: selAny,
   /** Match DOM {@link Comment} nodes. */
-  comment(): CompiledSelector<Comment> {
-    return COMMENT_SELECTOR;
-  },
-
+  comment: selComment,
   /**
    * Match by tag name(s). With one literal tag the element type is narrowed
    * (e.g. `'a' → HTMLAnchorElement`); with multiple, it is the union of
    * their `HTMLElementTagNameMap` entries.
    */
-  tag<const Tags extends readonly string[]>(
-    ...tags: Tags
-  ): ElementSelectorBuilder<
-    Tags[number] extends keyof HTMLElementTagNameMap
-      ? HTMLElementTagNameMap[Tags[number]]
-      : HTMLElement
-  > {
-    invariant(tags.length > 0, 'sel.tag() requires at least one tag name');
-    const upper = new Set<string>();
-    for (const t of tags) {
-      upper.add(t.toUpperCase());
-    }
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    return buildSelector(upper, []) as any;
-  },
-
+  tag: selTag,
   /** Match DOM {@link Text} nodes. */
-  text(): CompiledSelector<Text> {
-    return TEXT_SELECTOR;
-  },
+  text: selText,
 } as const;
 
 /**

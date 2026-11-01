@@ -80,11 +80,15 @@ describe('LexicalRootNode tests', () => {
         // serialized Lexical Core Node. Please ensure the correct adapter
         // logic is in place in the corresponding importJSON method
         // to accommodate these changes.
+        // Present-with-undefined, not absent: a getter with nothing to say
+        // puts undefined in the value position, which JSON.stringify omits.
         expect(node.exportJSON()).toStrictEqual({
           children: [],
           direction: null,
           format: '',
           indent: 0,
+          textFormat: undefined,
+          textStyle: undefined,
           type: 'root',
           version: 1,
         });

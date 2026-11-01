@@ -7,4 +7,4 @@ HTML.
 
 **Run it locally:** `pnpm i && pnpm run dev`
 
-[![Open in StackBlitz](https://developer.stackblitz.com/img/open_in_stackblitz.svg)](https://stackblitz.com/github/facebook/lexical/tree/main/examples/node-state-style?file=src/main.tsx)
+[![Open in StackBlitz](https://developer.stackblitz.com/img/open_in_stackblitz.svg)](https://stackblitz.com/github/meta/lexical/tree/main/examples/node-state-style?file=src/main.tsx)

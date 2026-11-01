@@ -1,0 +1,69 @@
+{
+  "name": "@lexical/fast-check",
+  "description": "fast-check arbitraries derived from the JSON schemas Lexical nodes declare on $config, for property-based tests.",
+  "keywords": [
+    "lexical",
+    "editor",
+    "rich-text",
+    "fast-check",
+    "property-based testing",
+    "serialization"
+  ],
+  "license": "MIT",
+  "version": "0.53.0",
+  "main": "./dist/LexicalFastCheck.js",
+  "types": "./dist/typescript-too-old.d.ts",
+  "dependencies": {
+    "lexical": "workspace:*"
+  },
+  "peerDependencies": {
+    "fast-check": ">=4.0.0",
+    "typescript": ">=5.2"
+  },
+  "peerDependenciesMeta": {
+    "typescript": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "fast-check": "^4.10.2"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/meta/lexical.git",
+    "directory": "packages/lexical-fast-check"
+  },
+  "module": "./dist/LexicalFastCheck.js",
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "source": "./src/index.ts",
+      "types@<5.2": "./dist/typescript-too-old.d.ts",
+      "types": "./dist/index.d.ts",
+      "development": "./dist/LexicalFastCheck.dev.js",
+      "production": "./dist/LexicalFastCheck.prod.js",
+      "default": "./dist/LexicalFastCheck.js"
+    }
+  },
+  "files": [
+    "dist",
+    "src",
+    "!src/__tests__",
+    "!src/__bench__",
+    "!src/__mocks__",
+    "!src/**/*.test.ts",
+    "!src/**/*.test.tsx",
+    "!src/**/*.bench.ts",
+    "!src/**/*.bench.tsx",
+    "README.md",
+    "LICENSE"
+  ],
+  "typesVersions": {
+    "*": {
+      "*": [
+        "./dist/typescript-too-old.d.ts"
+      ]
+    }
+  },
+  "type": "module"
+}

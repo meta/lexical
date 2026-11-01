@@ -36,9 +36,14 @@ import npmToWwwName from '../www/npmToWwwName.mjs';
  */
 
 /**
- * @typedef {Record<'types' | 'development' | 'production' | 'node' | 'default', string>} ImportCondition
- * @typedef {Record<'types' | 'development' | 'production' | 'default', string>} RequireCondition
- * @typedef {readonly [string, { browser?: RequireCondition; import: ImportCondition; require: RequireCondition }]} NpmModuleExportEntry
+ * The conditions of one entry in a published package's exports map. Only ESM
+ * is published, so there is no `import`/`require` split: every condition
+ * resolves to a `.js` ES module (every public package is a `"type": "module"`
+ * package) or, for `types`, a `.d.ts`.
+ *
+ * @typedef {Record<'types' | 'development' | 'production' | 'default', string> & Record<`types@${string}`, string>} ExportConditions
+ * @typedef {ExportConditions & { source?: string; browser?: ExportConditions }} NpmModuleExports
+ * @typedef {readonly [string, NpmModuleExports]} NpmModuleExportEntry
  */
 
 /**

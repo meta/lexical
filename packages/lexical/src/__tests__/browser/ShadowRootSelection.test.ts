@@ -1024,9 +1024,14 @@ describe('DOM shadow root selection (browser)', () => {
         outerHost.remove();
       });
 
-      // SELECTION_CHANGE_COMMAND fires only on the editor that
-      // onDocumentSelectionChange picked as nextActiveEditor — the cleanest
-      // observable signal of attribution.
+      // Flush the outer editor's mutation observer after appending innerHost,
+      // before changing the native selection. Otherwise its setup update can
+      // import WebKit's host-retargeted selection and notify independently of
+      // onDocumentSelectionChange, which is what this test is attributing.
+      await Promise.resolve();
+      await Promise.resolve();
+
+      // Observe only notifications caused by the native selection change.
       let outerHits = 0;
       let innerHits = 0;
       const cleanupOuter = outerEditor.registerCommand(
@@ -1066,6 +1071,7 @@ describe('DOM shadow root selection (browser)', () => {
 
       expect(innerHits).toBeGreaterThan(0);
       expect(outerHits).toBe(0);
+      expect(outerEditor.read('latest', $getSelection)).toBe(null);
     });
   });
 

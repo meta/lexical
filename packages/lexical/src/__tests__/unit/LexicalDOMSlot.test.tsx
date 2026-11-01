@@ -19,12 +19,22 @@ import {
   type LexicalEditor,
   type TextNode,
 } from 'lexical';
-import {afterEach, beforeEach, describe, expect, test} from 'vitest';
+import {
+  afterEach,
+  assert,
+  beforeEach,
+  describe,
+  expect,
+  onTestFinished,
+  test,
+} from 'vitest';
 
 import {ElementDOMSlot} from '../../LexicalDOMSlot';
 import {
   $assertNodeType,
   $createTestDecoratorNode,
+  expectHtmlToBeEqual,
+  html,
   TestDecoratorNode,
 } from '../utils';
 
@@ -315,7 +325,7 @@ describe('ElementDOMSlot integration: leading decoration (slot.after)', () => {
     editor = buildEditorFromExtensions(
       defineExtension({
         name: '[leading-decor]',
-        nodes: [LeadingDecorElementNode],
+        nodes: [LeadingDecorElementNode, TestDecoratorNode],
       }),
     );
     editor.setRootElement(container);
@@ -510,6 +520,39 @@ describe('ElementDOMSlot integration: leading decoration (slot.after)', () => {
       ]);
     });
   });
+
+  test('a decorator anchor removed before its decorator goes back after the decoration', async () => {
+    editor.update(
+      () => {
+        $getRoot()
+          .clear()
+          .append(
+            $createLeadingDecorNode().append(
+              $createTestDecoratorNode().setIsInline(false),
+              $createTextNode('x'),
+            ),
+          );
+      },
+      {discrete: true},
+    );
+    const block = container.querySelector('[data-block]');
+    assert(block !== null, 'Expected the block to be rendered');
+    const shape = () =>
+      Array.from(block.children, child =>
+        child.hasAttribute('data-lexical-decorator-boundary')
+          ? 'anchor'
+          : child.hasAttribute('data-marker')
+            ? 'marker'
+            : child.nodeName.toLowerCase(),
+      );
+    expect(shape()).toEqual(['marker', 'anchor', 'div', 'span']);
+    const [, anchor, decorator] = Array.from(block.children);
+    // One record each, so the decorator the anchor's record names as its
+    // next sibling is gone when that record is read.
+    anchor.remove();
+    decorator.remove();
+    await expect.poll(shape).toEqual(['marker', 'anchor', 'div', 'span']);
+  });
 });
 
 describe('ElementDOMSlot integration: trailing decoration (slot.before)', () => {
@@ -659,7 +702,148 @@ describe('ElementDOMSlot integration: trailing decoration (slot.before)', () => 
   });
 });
 
-// Regression coverage for facebook/lexical#8561. A node whose `getDOMSlot`
+describe('ElementDOMSlot integration: a removed trailing decoration', () => {
+  // A slot that keeps a reference to its `before` boundary, rather than
+  // finding it in the DOM, still names it after an edit has removed it.
+  const markers = new WeakMap<HTMLElement, HTMLElement>();
+  class StoredTrailingDecorElementNode extends ElementNode {
+    $config() {
+      return this.config('stored-trailing-decor', {extends: ElementNode});
+    }
+    createDOM() {
+      const el = document.createElement('div');
+      el.setAttribute('data-block', 'true');
+      const marker = document.createElement('span');
+      marker.setAttribute('data-marker', 'true');
+      marker.contentEditable = 'false';
+      el.appendChild(marker);
+      markers.set(el, marker);
+      return el;
+    }
+    updateDOM() {
+      return false;
+    }
+    getDOMSlot(dom: HTMLElement): ElementDOMSlot {
+      return super.getDOMSlot(dom).withBefore(markers.get(dom));
+    }
+  }
+
+  test('a managed line break removed with the decoration is rebuilt', async () => {
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const editor = buildEditorFromExtensions(
+      defineExtension({
+        name: '[stored-trailing-decor]',
+        nodes: [StoredTrailingDecorElementNode],
+      }),
+    );
+    editor.setRootElement(container);
+    onTestFinished(() => {
+      editor.dispose();
+      container.remove();
+    });
+    editor.update(
+      () => {
+        $getRoot().clear().append(new StoredTrailingDecorElementNode());
+      },
+      {discrete: true},
+    );
+    const block = container.querySelector('[data-block]');
+    assert(block !== null, 'Expected the block to be rendered');
+    expectHtmlToBeEqual(
+      block.outerHTML,
+      html`
+        <div dir="auto" data-block="true">
+          <br data-lexical-managed-linebreak="true" />
+          <span contenteditable="false" data-marker="true"></span>
+        </div>
+      `,
+    );
+    // A native edit removes both at once.
+    block.replaceChildren();
+    await new Promise(resolve => setTimeout(resolve, 0));
+    // Whether the marker is put back is not checked here.
+    const withoutMarker = () => {
+      const clone = block.cloneNode(true) as HTMLElement;
+      clone.querySelectorAll('[data-marker]').forEach(m => m.remove());
+      return clone.outerHTML;
+    };
+    const expected = html`
+      <div dir="auto" data-block="true">
+        <br data-lexical-managed-linebreak="true" />
+      </div>
+    `;
+    expectHtmlToBeEqual(withoutMarker(), expected);
+    editor.update(
+      () => {
+        $getRoot().getFirstChildOrThrow().markDirty();
+      },
+      {discrete: true},
+    );
+    expectHtmlToBeEqual(withoutMarker(), expected);
+  });
+
+  test.each(['leading', 'trailing'])(
+    'a %s decorator anchor removed with the decoration is rebuilt',
+    async edge => {
+      const container = document.createElement('div');
+      document.body.appendChild(container);
+      const editor = buildEditorFromExtensions(
+        defineExtension({
+          name: '[stored-trailing-decor-anchors]',
+          nodes: [StoredTrailingDecorElementNode, TestDecoratorNode],
+        }),
+      );
+      editor.setRootElement(container);
+      onTestFinished(() => {
+        editor.dispose();
+        container.remove();
+      });
+      editor.update(
+        () => {
+          $getRoot()
+            .clear()
+            .append(
+              new StoredTrailingDecorElementNode().append(
+                $createTestDecoratorNode().setIsInline(false),
+              ),
+            );
+        },
+        {discrete: true},
+      );
+      const block = container.querySelector('[data-block]');
+      assert(block !== null, 'Expected the block to be rendered');
+      const shape = () =>
+        Array.from(block.children, child =>
+          child.hasAttribute('data-lexical-decorator-boundary')
+            ? 'anchor'
+            : child.hasAttribute('data-marker')
+              ? 'marker'
+              : 'decorator',
+        );
+      expect(shape()).toEqual(['anchor', 'decorator', 'anchor', 'marker']);
+      // A native edit removes both at once.
+      const anchors = block.querySelectorAll(
+        ':scope > [data-lexical-decorator-boundary]',
+      );
+      const marker = block.querySelector('[data-marker]');
+      assert(marker !== null, 'Expected the marker');
+      block.removeChild(anchors[edge === 'leading' ? 0 : 1]);
+      block.removeChild(marker);
+      await new Promise(resolve => setTimeout(resolve, 0));
+      // Put back in place, rather than by rendering the editor again. Whether
+      // the marker is put back is not checked here.
+      expect(container.querySelector('[data-block]')).toBe(block);
+      expect(shape().filter(part => part !== 'marker')).toEqual([
+        'anchor',
+        'decorator',
+        'anchor',
+      ]);
+    },
+  );
+});
+
+// Regression coverage for meta/lexical#8561. A node whose `getDOMSlot`
 // wraps its content (keyed DOM !== slot.element) crashed when the selection
 // layer parked the block cursor: the cursor was inserted into the keyed
 // wrapper, but the reference child it must sit before lives in `slot.element`,

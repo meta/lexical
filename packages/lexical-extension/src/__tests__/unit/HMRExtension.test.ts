@@ -47,7 +47,7 @@ import {
 import {$assertNodeType} from 'lexical/src/__tests__/utils';
 import {describe, expect, onTestFinished, test, vi} from 'vitest';
 
-import {serializeEditorStateFamily} from '../../editorStateFamily';
+import {serializeEditorStateFamily} from '../../internal/editorStateFamily';
 
 const markerState = createState('hmr-test-marker', {
   parse: (value: unknown) => (typeof value === 'string' ? value : ''),

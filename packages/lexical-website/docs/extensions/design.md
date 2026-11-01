@@ -1,6 +1,6 @@
 # Design Doc
 
-See also the initial PR [#7706](https://github.com/facebook/lexical/pull/7706)
+See also the initial PR [#7706](https://github.com/meta/lexical/pull/7706)
 
 ## Guiding principles
 
@@ -88,8 +88,8 @@ The features that this blocks are:
 - Compile-time support for required configuration without defaults.
   An extension can implement this at runtime in `init` or `register`.
 - Compile-time support for required peer dependencies. A use case for this
-  would be the requirement of a `RectProviderExtension` provided by either
-  `LexicalExtensionComposer` or `ReactPluginHost`. An extension can implement this
+  would be the requirement of a `ReactProviderExtension` provided by either
+  `LexicalExtensionComposer` or `ReactPluginHostExtension`. An extension can implement this
   at runtime in `init` or `register`.
 
 Generally speaking, all of these are already surfaced as runtime errors
@@ -101,11 +101,6 @@ down the root cause.
 ### Direct support for devtools
 
 This is a TODO, the infrastructure was designed with this in mind.
-
-### Helpers for working with nested editors
-
-It's not quite clear what all of the use cases for nested Extension editors are,
-this is a TODO.
 
 ### Documented patterns for RSC/SSR/Headless
 

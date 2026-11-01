@@ -44,6 +44,10 @@ export class DecoratorNode<T>
     this.__slots = null;
   }
 
+  // Written rather than synthesized from the schema, for ElementNode's
+  // reason: `__slotHost` is structure rather than a serialized property, and
+  // it belongs to the node's place in the tree, so a clone under a new key
+  // must not adopt it.
   afterCloneFrom(prevNode: this): void {
     super.afterCloneFrom(prevNode);
     if (this.__key === prevNode.__key) {

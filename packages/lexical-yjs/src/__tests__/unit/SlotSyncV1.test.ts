@@ -10,6 +10,7 @@ import {
   type LexicalEditorWithDispose,
 } from '@lexical/extension';
 import {
+  type Binding,
   createBinding,
   createUndoManager,
   type Provider,
@@ -119,10 +120,7 @@ describe('named-slots collab-v1: lexical <-> yjs', () => {
     return {binding, editor};
   }
 
-  function serialize(
-    editor: LexicalEditor,
-    binding: ReturnType<typeof createBinding>,
-  ) {
+  function serialize(editor: LexicalEditor, binding: Binding) {
     editor.read(() => {
       binding.doc.transact(() => {
         binding.root.syncChildrenFromLexical(
@@ -140,10 +138,7 @@ describe('named-slots collab-v1: lexical <-> yjs', () => {
   // children from the embedded delta, then materialize lexical nodes (and
   // slots) via syncChildrenFromYjs. Mirrors the V1 observer's root YTextEvent
   // handling (applyChildrenYjsDelta + syncChildrenFromYjs).
-  function restore(
-    editor: LexicalEditor,
-    binding: ReturnType<typeof createBinding>,
-  ) {
+  function restore(editor: LexicalEditor, binding: Binding) {
     editor.update(
       () => {
         $getRoot().clear();
@@ -272,10 +267,7 @@ describe('named-slots collab-v1: lexical <-> yjs', () => {
   // captures the YEvent[] produced by `mutate`, then `syncYjsChangesToLexical`
   // runs them through $syncEvent (the same path useYjsCollaboration registers).
   // The cursor-sync fn is a no-op because this test has no provider/awareness.
-  function applyRemoteChange(
-    binding: ReturnType<typeof createBinding>,
-    mutate: () => void,
-  ) {
+  function applyRemoteChange(binding: Binding, mutate: () => void) {
     const sharedRoot = binding.root.getSharedType();
     const handler = (events: YEvent<YText>[]) => {
       syncYjsChangesToLexical(
@@ -469,7 +461,7 @@ describe('named-slots collab-v1: lexical <-> yjs', () => {
   // syncLexicalUpdateToYjs diff the dirty tree into yjs. The provider is unused
   // (no awareness in this test).
   function applyLocalUpdate(
-    binding: ReturnType<typeof createBinding>,
+    binding: Binding,
     editor: LexicalEditor,
     mutate: () => void,
   ) {
@@ -1033,10 +1025,7 @@ describe('named-slots collab-v1: decorator host <-> yjs', () => {
     return {binding, editor};
   }
 
-  function serialize(
-    editor: LexicalEditor,
-    binding: ReturnType<typeof createBinding>,
-  ) {
+  function serialize(editor: LexicalEditor, binding: Binding) {
     editor.read(() => {
       binding.doc.transact(() => {
         binding.root.syncChildrenFromLexical(
@@ -1050,10 +1039,7 @@ describe('named-slots collab-v1: decorator host <-> yjs', () => {
     });
   }
 
-  function restore(
-    editor: LexicalEditor,
-    binding: ReturnType<typeof createBinding>,
-  ) {
+  function restore(editor: LexicalEditor, binding: Binding) {
     editor.update(
       () => {
         $getRoot().clear();
@@ -1067,10 +1053,7 @@ describe('named-slots collab-v1: decorator host <-> yjs', () => {
     );
   }
 
-  function applyRemoteChange(
-    binding: ReturnType<typeof createBinding>,
-    mutate: () => void,
-  ) {
+  function applyRemoteChange(binding: Binding, mutate: () => void) {
     const sharedRoot = binding.root.getSharedType();
     const handler = (events: YEvent<YText>[]) => {
       syncYjsChangesToLexical(
@@ -1095,7 +1078,7 @@ describe('named-slots collab-v1: decorator host <-> yjs', () => {
   }
 
   function applyLocalUpdate(
-    binding: ReturnType<typeof createBinding>,
+    binding: Binding,
     editor: LexicalEditor,
     mutate: () => void,
   ) {
@@ -1473,10 +1456,7 @@ describe('named-slots collab-v1: two-client relay', () => {
     return {binding, doc, editor};
   }
 
-  function serialize(
-    editor: LexicalEditor,
-    binding: ReturnType<typeof createBinding>,
-  ) {
+  function serialize(editor: LexicalEditor, binding: Binding) {
     editor.read(() => {
       binding.doc.transact(() => {
         binding.root.syncChildrenFromLexical(
@@ -1490,10 +1470,7 @@ describe('named-slots collab-v1: two-client relay', () => {
     });
   }
 
-  function restore(
-    editor: LexicalEditor,
-    binding: ReturnType<typeof createBinding>,
-  ) {
+  function restore(editor: LexicalEditor, binding: Binding) {
     editor.update(
       () => {
         $getRoot().clear();
@@ -1510,7 +1487,7 @@ describe('named-slots collab-v1: two-client relay', () => {
   // Mirrors useYjsCollaboration's observer registration: transactions this
   // binding originated are skipped, and an UndoManager origin marks the sync
   // as an undo/redo replay.
-  function connectObserver(binding: ReturnType<typeof createBinding>) {
+  function connectObserver(binding: Binding) {
     const sharedRoot = binding.root.getSharedType();
     const handler = (
       events: YEvent<YText>[],
@@ -1532,7 +1509,7 @@ describe('named-slots collab-v1: two-client relay', () => {
   }
 
   function applyLocalUpdate(
-    binding: ReturnType<typeof createBinding>,
+    binding: Binding,
     editor: LexicalEditor,
     mutate: () => void,
   ) {

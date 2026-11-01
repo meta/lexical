@@ -5,12 +5,15 @@
  * LICENSE file in the root directory of this source tree.
  *
  */
+
+// @vitest-environment node
 import {
   buildEditorFromExtensions,
   type LexicalEditorWithDispose,
 } from '@lexical/extension';
 import {
   $getAnchorAndFocusForUserState,
+  type BindingV2,
   createBindingV2__EXPERIMENTAL,
   type Provider,
   type ProviderAwareness,
@@ -101,10 +104,7 @@ describe('collab-v2 element selection points', () => {
     return {binding, doc, editor};
   }
 
-  function serialize(
-    editor: LexicalEditor,
-    binding: ReturnType<typeof createBindingV2__EXPERIMENTAL>,
-  ) {
+  function serialize(editor: LexicalEditor, binding: BindingV2) {
     editor.read(() => {
       binding.doc.transact(() => {
         $updateYFragment(

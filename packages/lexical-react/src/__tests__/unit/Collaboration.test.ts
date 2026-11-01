@@ -15,11 +15,12 @@ import {
   $isTextNode,
   $setState,
   createState,
+  ParagraphNode,
   UNDO_COMMAND,
 } from 'lexical';
 import {$assertNodeType} from 'lexical/src/__tests__/utils';
 import {act} from 'react';
-import {afterEach, assert, beforeEach, describe, expect, it} from 'vitest';
+import {afterEach, assert, beforeEach, describe, expect, it, vi} from 'vitest';
 import * as Y from 'yjs';
 
 import {
@@ -682,6 +683,67 @@ describe('Collaboration', () => {
         )!;
         expect(resolvedAfter).not.toBeNull();
         expect(resolvedAfter.index).toBe(resolvedBefore.index);
+
+        client1.stop();
+        client2.stop();
+      });
+
+      it('Should sync an update started by a mutation listener when another listener calls editor.read() (#7709)', async () => {
+        const connector = createTestConnection(useCollabV2);
+        const client1 = connector.createClient('1');
+        const client2 = connector.createClient('2');
+        client1.start(container!);
+        client2.start(container!);
+
+        await expectCorrectInitialContent(client1, client2);
+
+        await waitForReact(() => {
+          client1.update(() => {
+            $getRoot()
+              .clear()
+              .append(
+                $createParagraphNode().append($createTextNode('hello')),
+                $createParagraphNode().append($createTextNode('world')),
+                $createParagraphNode().append($createTextNode('foo')),
+              );
+          });
+        });
+
+        const editor = client1.getEditor();
+        editor.registerMutationListener(ParagraphNode, mutations => {
+          if ([...mutations.values()].includes('destroyed')) {
+            editor.update(() => {
+              $getRoot().append(
+                $createParagraphNode().append($createTextNode('bar')),
+              );
+            });
+          }
+        });
+        editor.registerMutationListener(ParagraphNode, () => {
+          // A force-commit read while the listeners of the commit that
+          // started the update above are still being notified.
+          editor.read(() => $getRoot());
+        });
+
+        // Silence the DEV warning for the read, see LexicalEditor.test.tsx.
+        const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        try {
+          await waitForReact(() => {
+            client1.update(() => {
+              $getRoot().splice(1, 1, []);
+            });
+          });
+        } finally {
+          warnSpy.mockRestore();
+        }
+
+        expect(client1.getHTML()).toEqual(
+          '<p dir="auto"><span data-lexical-text="true">hello</span></p>' +
+            '<p dir="auto"><span data-lexical-text="true">foo</span></p>' +
+            '<p dir="auto"><span data-lexical-text="true">bar</span></p>',
+        );
+        expect(client2.getHTML()).toEqual(client1.getHTML());
+        expect(client2.getDocJSON()).toEqual(client1.getDocJSON());
 
         client1.stop();
         client2.stop();

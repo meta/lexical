@@ -32,6 +32,7 @@ jobs:
         with:
           name: Browser Test Results ${{ inputs.os }}-${{ inputs.browser }}-${{ inputs.node-version }}-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
+            .vitest/attachments/
             .vitest-attachments/
             packages/**/__tests__/browser/**/__screenshots__/
           if-no-files-found: ignore

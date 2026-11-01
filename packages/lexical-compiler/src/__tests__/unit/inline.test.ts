@@ -18,6 +18,7 @@ import {
 import * as fs from 'node:fs';
 import {describe, expect, it} from 'vitest';
 
+import {packagesManager} from '../../../../../scripts/shared/packagesManager.mjs';
 import {
   INLINE_FACTORY_FORMS,
   PURE_FACTORY_FUNCTIONS,
@@ -35,6 +36,80 @@ const SCOPE: Record<string, unknown> = {
 
 function inline(code: string, filename = 'test.ts') {
   return transformPureAnnotations(code, {filename, inline: true});
+}
+
+/** The value names a package's entry points export, by package directory. */
+const packageExportCache = new Map<string, Set<string>>();
+
+/** Add every value name `file` exports to `names`. */
+function collectExportedNames(file: string, names: Set<string>): void {
+  const ast = parse(fs.readFileSync(file, 'utf8'), {
+    plugins: ['typescript', 'jsx'],
+    sourceType: 'module',
+  });
+  for (const statement of ast.program.body) {
+    if (
+      statement.type !== 'ExportNamedDeclaration' ||
+      statement.exportKind === 'type'
+    ) {
+      continue;
+    }
+    const {declaration} = statement;
+    // `export function foo()` / `export const foo = …`, which is how a module
+    // that is its own entry point exports one. A barrel uses the specifier
+    // form below, and a package can have both.
+    if (declaration) {
+      if (declaration.type === 'FunctionDeclaration' && declaration.id) {
+        names.add(declaration.id.name);
+      } else if (declaration.type === 'VariableDeclaration') {
+        for (const declarator of declaration.declarations) {
+          if (declarator.id.type === 'Identifier') {
+            names.add(declarator.id.name);
+          }
+        }
+      }
+      continue;
+    }
+    for (const specifier of statement.specifiers) {
+      if (
+        specifier.type === 'ExportSpecifier' &&
+        specifier.exportKind !== 'type'
+      ) {
+        // The local name, which is what the declaration this is matched
+        // against was found under.
+        names.add(specifier.local.name);
+      }
+    }
+  }
+}
+
+/**
+ * The names another package can import from `pkg`, which is what decides
+ * whether {@link PURE_FACTORY_FUNCTIONS} has anything to say about one.
+ *
+ * Read from the `source` export condition of every entry in the package's
+ * `exports` map rather than from `src/index.ts`, because a barrel is not what
+ * makes a name public — the export map is. Most packages have one entry that
+ * is a barrel and the two agree; `@lexical/react` publishes each module as its
+ * own entry and has no barrel at all, and its names are public just the same.
+ */
+function packageExports(pkg: string): Set<string> {
+  const cached = packageExportCache.get(pkg);
+  if (cached !== undefined) {
+    return cached;
+  }
+  const names = new Set<string>();
+  packageExportCache.set(pkg, names);
+  const metadata = packagesManager.getPackageByDirectoryName(
+    pkg.slice(pkg.lastIndexOf('/') + 1),
+  );
+  for (const [, exports] of metadata.getNormalizedNpmModuleExportEntries()) {
+    const source = (exports as {source?: unknown}).source;
+    if (typeof source === 'string' && /\.[cm]?[jt]sx?$/.test(source)) {
+      collectExportedNames(metadata.resolve(source), names);
+    }
+  }
+  return names;
 }
 
 /**
@@ -583,12 +658,20 @@ describe('the inlined factories are still trivial', () => {
     ).toEqual(declarePeer('peer', SCOPE.CONFIG));
   });
 
-  it('every factory in the list declares itself side-effect free', () => {
+  it('agrees with the declarations about which factories are pure', () => {
     // The list is what makes a call site trusted when the factory is
     // imported by package name; the annotation on the declaration is what
     // makes it trusted anywhere else, including from inside its own
-    // package. A name in one and not the other is a hole.
-    const declared = new Set<string>();
+    // package. A name in one and not the other is a hole, so both
+    // directions are checked: a listed name with no annotation is trusted
+    // from outside its package and nowhere else, and an annotated name a
+    // package *exports* but does not list is the reverse — every module
+    // that imports it by package name silently loses the annotation, which
+    // is how `nodeSchema` shipped unannotated at first. A function that its
+    // package does not export cannot be imported by package name, so the
+    // list has nothing to say about it.
+    /** Annotated function name → the package directory that declares it. */
+    const declared = new Map<string, string>();
     for (const file of glob.sync('packages/*/src/**/*.{ts,tsx}', {
       ignore: ['**/__tests__/**'],
       windowsPathsNoEscape: true,
@@ -600,7 +683,9 @@ describe('the inlined factories are still trivial', () => {
       const ast = parse(code, {plugins: ['typescript'], sourceType: 'module'});
       for (const statement of ast.program.body) {
         const declaration =
-          statement.type === 'ExportNamedDeclaration' && statement.declaration
+          (statement.type === 'ExportNamedDeclaration' ||
+            statement.type === 'ExportDefaultDeclaration') &&
+          statement.declaration
             ? statement.declaration
             : statement;
         const marked = (statement.leadingComments || []).some(comment =>
@@ -612,13 +697,23 @@ describe('the inlined factories are still trivial', () => {
             declaration.type === 'TSDeclareFunction') &&
           declaration.id
         ) {
-          declared.add(declaration.id.name);
+          declared.set(declaration.id.name, file.split('/src/')[0]);
         }
       }
     }
+    expect(declared.size).toBeGreaterThan(0);
     expect(PURE_FACTORY_FUNCTIONS.filter(name => !declared.has(name))).toEqual(
       [],
     );
+    const listed = new Set(PURE_FACTORY_FUNCTIONS);
+    expect(
+      [...declared]
+        .filter(
+          ([name, pkg]) => !listed.has(name) && packageExports(pkg).has(name),
+        )
+        .map(([name]) => name)
+        .sort(),
+    ).toEqual([]);
   });
 
   it('is marked as inlinable wherever it is defined', () => {

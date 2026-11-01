@@ -317,6 +317,8 @@ export function $insertTableRowAtNode(
   insertAfter = true,
 ): TableRowNode | null {
   const [, , grid] = $getNodeTriplet(cellNode);
+  // Commands below assume a rectangular grid; repair a ragged one first.
+  $padTableRows(grid);
   const [gridMap, cellMap] = $computeTableMap(grid, cellNode, cellNode);
   const columnCount = gridMap[0].length;
   const {startRow: cellStartRow} = cellMap;
@@ -501,6 +503,8 @@ export function $insertTableColumnAtNode(
   shouldSetSelection = true,
 ): TableCellNode | null {
   const [, , grid] = $getNodeTriplet(cellNode);
+  // Commands below assume a rectangular grid; repair a ragged one first.
+  $padTableRows(grid);
   const [gridMap, cellMap] = $computeTableMap(grid, cellNode, cellNode);
   const rowCount = gridMap.length;
   const {startColumn} = cellMap;
@@ -637,6 +641,8 @@ export function $deleteTableRowAtSelection(): void {
     : [selection.anchor.getNode(), selection.focus.getNode()];
   const [anchorCell, , grid] = $getNodeTriplet(anchor);
   const [focusCell] = $getNodeTriplet(focus);
+  // Commands below assume a rectangular grid; repair a ragged one first.
+  $padTableRows(grid);
   const [gridMap, anchorCellMap, focusCellMap] = $computeTableMap(
     grid,
     anchorCell,
@@ -745,6 +751,8 @@ export function $deleteTableColumnAtSelection(): void {
   const focus = selection.focus.getNode();
   const [anchorCell, , grid] = $getNodeTriplet(anchor);
   const [focusCell] = $getNodeTriplet(focus);
+  // Commands below assume a rectangular grid; repair a ragged one first.
+  $padTableRows(grid);
   const [gridMap, anchorCellMap, focusCellMap] = $computeTableMap(
     grid,
     anchorCell,
@@ -844,6 +852,8 @@ export function $mergeCells(cellNodes: TableCellNode[]): TableCellNode | null {
 
   // Find the table node
   const tableNode = $getTableNodeFromLexicalNodeOrThrow(cellNodes[0]);
+  // Commands below assume a rectangular grid; repair a ragged one first.
+  $padTableRows(tableNode);
   const [gridMap] = $computeTableMapSkipCellCheck(tableNode, null, null);
 
   // Find the boundaries of the selection including merged cells
@@ -920,6 +930,11 @@ export function $mergeCells(cellNodes: TableCellNode[]): TableCellNode | null {
         seenCells.add(key);
         const isEmpty = $cellContainsEmptyParagraph(currentCell);
         if (!isEmpty) {
+          // The loop skips the target, so drop its own empty paragraph before
+          // real content lands underneath it.
+          if ($cellContainsEmptyParagraph(targetCell)) {
+            targetCell.clear();
+          }
           targetCell.append(...currentCell.getChildren());
         }
         currentCell.remove();
@@ -975,6 +990,8 @@ export function $unmergeCellNode(cellNode: TableCellNode): void {
   if (colSpan === 1 && rowSpan === 1) {
     return;
   }
+  // Commands below assume a rectangular grid; repair a ragged one first.
+  $padTableRows(grid);
   const [map, cellMap] = $computeTableMap(grid, cell, cell);
   const {startColumn, startRow} = cellMap;
   // Create a heuristic for what the style of the unmerged cells should be
@@ -1147,6 +1164,72 @@ export function $computeTableMapSkipCellCheck(
     }
   }
   return [tableMap, cellAValue, cellBValue];
+}
+
+/**
+ * Appends empty cells to every row of `tableNode` that covers fewer grid
+ * columns (spans included) than the widest row, so that the table is
+ * rectangular again. This is the same repair the table node transform
+ * registered by TablePlugin / TableExtension does. Returns true if any cell was
+ * added.
+ *
+ * The table commands ($insertTableRowAtNode, $insertTableColumnAtNode,
+ * $deleteTableRowAtSelection, $deleteTableColumnAtSelection, $mergeCells,
+ * $unmergeCellNode and pasting a table into a table) call this before reading
+ * the table map, because they assume a rectangular grid. A table can be ragged
+ * when the transform did not run on the update that made it so, e.g. when
+ * concurrent collaborative edits (one peer inserts a row while another inserts
+ * a column) are merged, since remote updates are applied with transforms
+ * skipped.
+ *
+ * `$shouldPad` limits the padding to the rows it accepts (all by default):
+ * the table transform pads only the rows an update changed when nothing
+ * else about the table changed.
+ *
+ * @experimental
+ */
+export function $padTableRows(
+  tableNode: TableNode,
+  $shouldPad: (row: TableRowNode) => boolean = () => true,
+): boolean {
+  const [gridMap] = $computeTableMapSkipCellCheck(tableNode, null, null);
+  const maxRowLength = gridMap.reduce(
+    (curLength, row) => Math.max(curLength, row.length),
+    0,
+  );
+  const rowNodes = tableNode.getChildren();
+  let changed = false;
+  for (let i = 0; i < gridMap.length; ++i) {
+    const rowNode = rowNodes[i];
+    if (!$isTableRowNode(rowNode) || !$shouldPad(rowNode)) {
+      continue;
+    }
+    // Count the grid positions this row covers, including those covered by a
+    // rowSpan from an earlier row. Holes are not counted, and an appended cell
+    // fills the first hole, so the row ends up maxRowLength wide.
+    const rowLength = gridMap[i].reduce(
+      (acc, cell) => (cell ? 1 + acc : acc),
+      0,
+    );
+    if (rowLength >= maxRowLength) {
+      continue;
+    }
+    // Padding cells are appended to the end of the row, so they are never in
+    // a header column — but they are in a header row whenever the row they
+    // extend is one. Inherit only that bit from the row's last cell, the same
+    // reference $insertTableColumnAtNode uses when it appends a column.
+    const lastCell = rowNode.getLastChild();
+    const headerState = $isTableCellNode(lastCell)
+      ? lastCell.getHeaderStyles() & TableCellHeaderStates.ROW
+      : TableCellHeaderStates.NO_STATUS;
+    for (let j = rowLength; j < maxRowLength; ++j) {
+      rowNode.append(
+        $createTableCellNode(headerState).append($createParagraphNode()),
+      );
+    }
+    changed = true;
+  }
+  return changed;
 }
 
 export function $getNodeTriplet(
@@ -1491,6 +1574,8 @@ export function $insertTableIntoGrid(
     return false;
   }
 
+  // Commands below assume a rectangular grid; repair a ragged one first.
+  $padTableRows(gridNode);
   const [initialGridMap, anchorCellMap, focusCellMap] = $computeTableMap(
     gridNode,
     anchorCellNode,

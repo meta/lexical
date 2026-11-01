@@ -87,6 +87,18 @@ And bundles of commonly used transformers:
 
 Transformers are explicitly passed to markdown API allowing application-specific subset of markdown or custom transformers.
 
+Default export protects numeric-reference, HTML and link syntax in text,
+including constructs split across text nodes. `AT&T` and `a < b` stay readable;
+named references keep their legacy import and export behavior. An ambiguous `<`
+or `&` at the end of a text node is escaped conservatively. Code and strings
+returned by custom transformers retain their existing serialization rules, as
+does the legacy source escaping of `shouldPreserveNewLines`. Import reads
+backslash escapes and decimal or hexadecimal references in one pass. A literal
+bracket is escaped only where it would otherwise start a link, an image, a link
+reference definition or a check list item, so text such as `[1]` and `array[0]`
+exports as typed. Escaped brackets and guarded `<`/`&` use numeric references so
+escaping does not change adjacent emphasis flanking.
+
 There're three types of transformers:
 
 - **Element transformer** handles top level elements (lists, headings, quotes, tables or code blocks)

@@ -12,6 +12,7 @@ import {
   $createTableNode,
   $createTableNodeWithDimensions,
   $createTableRowNode,
+  $isTableCellNode,
   $isTableRowNode,
   $isTableSelection,
   type TableCellNode,
@@ -26,12 +27,19 @@ import {
   $getSelection,
   $isRangeSelection,
   defineExtension,
-  type ElementNode,
   type LexicalEditorWithDispose,
   SELECTION_CHANGE_COMMAND,
 } from 'lexical';
 import {initializeUnitTest} from 'lexical/src/__tests__/utils';
-import {afterEach, beforeEach, describe, expect, test, vi} from 'vitest';
+import {
+  afterEach,
+  assert,
+  beforeEach,
+  describe,
+  expect,
+  test,
+  vi,
+} from 'vitest';
 
 /**
  * Test suite for mobile/touch table selection behavior.
@@ -307,7 +315,7 @@ describe('LexicalTableMobileSelection', () => {
 });
 
 /**
- * Regression tests for https://github.com/facebook/lexical/issues/8538 -
+ * Regression tests for https://github.com/meta/lexical/issues/8538 -
  * placing the text cursor by tapping table cells on a touch device is
  * unreliable: instead of a caret, taps produce multi-cell table selections.
  *
@@ -610,9 +618,9 @@ describe('LexicalTableMobileSelection touch gestures (#8538)', () => {
   function moveCaretTo(index: number): void {
     editor.update(
       () => {
-        const cellNode = $getNodeByKey<ElementNode>(keys[index]);
-        expect(cellNode).not.toBe(null);
-        cellNode!.selectStart();
+        const cellNode = $getNodeByKey(keys[index]);
+        assert($isTableCellNode(cellNode));
+        cellNode.selectStart();
         editor.dispatchCommand(SELECTION_CHANGE_COMMAND, undefined);
       },
       {discrete: true},

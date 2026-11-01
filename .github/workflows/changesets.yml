@@ -1,0 +1,61 @@
+name: Changesets
+
+# Checks that a pull request which changes published package code adds a
+# changeset naming that package. Runs separately from the main test workflow
+# so that adding or removing the `skip-changeset` label only re-runs this
+# quick check. The format of changeset files is checked by `ci-check`.
+# See .changeset/README.md.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, labeled, unlabeled]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+env:
+  # `warn` reports missing changesets in the job summary and as annotations
+  # (with a prefilled "add changeset" link) without failing; `error` fails the
+  # check. Stays `warn` until the `skip-changeset` label exists; see
+  # "Changesets" in the maintainers guide.
+  CHANGESET_COVERAGE: warn
+
+jobs:
+  changesets:
+    # Release pull requests (from the `<version>__release` branch that the
+    # "Create New Release Branch" workflow pushes to this repository)
+    # consume the changesets. A fork's branch name does not exempt it.
+    if: ${{ !(endsWith(github.head_ref, '__release') && github.event.pull_request.head.repo.full_name == github.repository) }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24.x
+      # Run the checker from the base revision, so a pull request cannot
+      # change the rules it is checked by. A base without the checker (the
+      # pull request that adds it) falls back to the head's copy. The
+      # checker uses only Node built-ins, so no install is needed.
+      - name: Check changeset coverage
+        run: |
+          git worktree add --detach "$RUNNER_TEMP/base" "$BASE_SHA"
+          checker="$RUNNER_TEMP/base/scripts/changesets/check.mjs"
+          if [ ! -f "$checker" ]; then
+            checker=scripts/changesets/check.mjs
+          fi
+          node "$checker" --root "$GITHUB_WORKSPACE" --base "$BASE_SHA" --head HEAD
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          SKIP_CHANGESET: ${{ contains(github.event.pull_request.labels.*.name, 'skip-changeset') }}
+          # Used to build a prefilled "add changeset" link. Passed through the
+          # environment, never interpolated into the script.
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          PR_TITLE: ${{ github.event.pull_request.title }}

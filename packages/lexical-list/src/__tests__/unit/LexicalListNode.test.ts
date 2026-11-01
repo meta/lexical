@@ -14,9 +14,16 @@ import {
   $isListNode,
   ListItemNode,
   ListNode,
+  type SerializedListNode,
 } from '@lexical/list';
 import {waitForReact} from '@lexical/react/src/__tests__/utils';
-import {$createTextNode, $getRoot, ParagraphNode, TextNode} from 'lexical';
+import {
+  $createTextNode,
+  $getRoot,
+  type LexicalParseJSON,
+  ParagraphNode,
+  TextNode,
+} from 'lexical';
 import {
   $assertNodeType,
   expectHtmlToBeEqual,
@@ -66,6 +73,24 @@ describe('LexicalListNode tests', () => {
       });
       await editor.update(() => {
         expect(() => $createListNode()).not.toThrow();
+      });
+    });
+
+    test('ListNode.updateFromJSON normalizes the legacy tag-form listType', async () => {
+      const {editor} = testEnv;
+
+      await editor.update(() => {
+        // Older serialized documents may carry the 'ul'/'ol' tag forms in
+        // listType (outside the declared ListType), which the constructor has
+        // always normalized.
+        const legacy = (listType: string) =>
+          ({listType}) as LexicalParseJSON<SerializedListNode>;
+        const bullet = $createListNode().updateFromJSON(legacy('ul'));
+        expect(bullet.getListType()).toBe('bullet');
+        expect(bullet.getTag()).toBe('ul');
+        const number = $createListNode('bullet').updateFromJSON(legacy('ol'));
+        expect(number.getListType()).toBe('number');
+        expect(number.getTag()).toBe('ol');
       });
     });
 

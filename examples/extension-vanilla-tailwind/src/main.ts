@@ -24,7 +24,6 @@ import {
 } from '@lexical/list';
 import {RichTextExtension} from '@lexical/rich-text';
 import {TailwindExtension} from '@lexical/tailwind';
-import {mergeRegister} from '@lexical/utils';
 import {$createTextNode, $getRoot, defineExtension} from 'lexical';
 
 function $prepopulatedRichText() {
@@ -40,9 +39,7 @@ function $prepopulatedRichText() {
 }
 
 const editorRef = document.getElementById('lexical-editor');
-const stateRef = document.getElementById(
-  'lexical-state',
-) as HTMLTextAreaElement;
+const stateRef = document.getElementById('lexical-state') as HTMLPreElement;
 
 const LazyExtension = defineExtension({
   name: '@lexical/extension-vanilla-tailwind-example/Lazy',
@@ -61,38 +58,43 @@ const LazyExtension = defineExtension({
   },
 });
 
-buildEditorFromExtensions({
-  $initialEditorState: $prepopulatedRichText,
-  afterRegistration(editor, _config, state) {
-    editor.setRootElement(editorRef);
+// Keeps the "Editor state" panel below the editor in sync
+const StateViewExtension = defineExtension({
+  dependencies: [EditorStateExtension],
+  name: '@lexical/extension-vanilla-tailwind-example/StateView',
+  register(_editor, _config, state) {
     const editorState = state.getDependency(EditorStateExtension).output;
-    return mergeRegister(
-      () => editor.setRootElement(null),
-      // Using signals from @preact/signals-core allows us to do what is done
-      // from the legacy React plugins without having to wrap a component
-      // around a hook, plus it's all framework independent.
-      effect(() => {
-        stateRef!.textContent = JSON.stringify(
-          editorState.value.toJSON(),
-          undefined,
-          2,
-        );
-      }),
-    );
+    // Using signals from @preact/signals-core allows us to do what is done
+    // from the legacy React plugins without having to wrap a component
+    // around a hook, plus it's all framework independent.
+    return effect(() => {
+      stateRef.textContent = JSON.stringify(
+        editorState.value.toJSON(true),
+        undefined,
+        2,
+      );
+    });
   },
-  dependencies: [
-    // These don't have to be in any paritcular order, they will be
-    // topologically sorted by their dependencies
-    TailwindExtension,
-    HistoryExtension,
-    RichTextExtension,
-    AutoFocusExtension,
-    CheckListExtension,
-    TabIndentationExtension,
-    EditorStateExtension,
-    HorizontalRuleExtension,
-    LazyExtension,
-  ],
-  name: '[root]',
-  namespace: '@lexical/extension-vanilla-tailwind-example',
 });
+
+const editor = buildEditorFromExtensions(
+  defineExtension({
+    $initialEditorState: $prepopulatedRichText,
+    dependencies: [
+      // These don't have to be in any particular order, they will be
+      // topologically sorted by their dependencies
+      TailwindExtension,
+      HistoryExtension,
+      RichTextExtension,
+      AutoFocusExtension,
+      CheckListExtension,
+      TabIndentationExtension,
+      HorizontalRuleExtension,
+      StateViewExtension,
+      LazyExtension,
+    ],
+    name: '@lexical/extension-vanilla-tailwind-example',
+    namespace: '@lexical/extension-vanilla-tailwind-example',
+  }),
+);
+editor.setRootElement(editorRef);

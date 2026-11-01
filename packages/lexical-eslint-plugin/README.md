@@ -2,7 +2,7 @@
 
 This ESLint plugin enforces the [Lexical $function convention](https://lexical.dev/docs/intro#reading-and-updating-editor-state).
 
-**ESLint Compatibility:** This plugin supports ESLint 7, 8, 9, and 10+. Both legacy (`.eslintrc`) and flat config (`eslint.config.js`) formats are supported.
+**ESLint Compatibility:** This plugin supports ESLint 9 and later with the flat config format (`eslint.config.js`). Support for ESLint 7-8 and the legacy `.eslintrc` format was removed in v0.51.0.
 
 ## Installation
 
@@ -12,37 +12,24 @@ Assuming you already have ESLint installed, run:
 npm install @lexical/eslint-plugin --save-dev
 ```
 
-### ESLint 9+ (Flat Config)
+### Configuration
 
-If you're using ESLint 9 or later with the new flat config format (required in ESLint 10+), add this to your `eslint.config.js`:
+Add the recommended config to your `eslint.config.js`:
 
 ```js
 import lexical from '@lexical/eslint-plugin';
 
 export default [
   // ... other configs
-  lexical.configs['flat/recommended']
+  lexical.configs.recommended
 ];
 ```
 
-### ESLint 7-8 (Legacy Config)
-
-For ESLint 7 or 8 with the legacy `.eslintrc` format, extend the recommended config:
-
-```js
-{
-  "extends": [
-    // ...
-    "plugin:@lexical/legacy-recommended"
-  ]
-}
-```
-
-> **Note:** The `recommended` and `all` configs are currently aliases to `legacy-recommended` and `legacy-all`. `all` and `recommended` will be migrated to flat config in a future version.
+`lexical.configs['flat/recommended']` and `lexical.configs['flat/all']` are
+aliases of `recommended` and `all` from when those names were the legacy
+configs.
 
 ### Custom Configuration
-
-#### ESLint 9+ (Flat Config)
 
 ```js
 import lexical from '@lexical/eslint-plugin';
@@ -59,21 +46,6 @@ export default [
 ];
 ```
 
-#### ESLint 7-8 (Legacy Config)
-
-```js
-{
-  "plugins": [
-    // ...
-    "@lexical"
-  ],
-  "rules": {
-    // ...
-    "@lexical/rules-of-lexical": "error"
-  }
-}
-```
-
 ### Advanced configuration
 
 Most of the heuristics in `@lexical/rules-of-lexical` can be extended with
@@ -88,8 +60,6 @@ into your project is not useful.
 If the string begins with a `"^"` or `"("` then it is treated as a RegExp,
 otherwise it will be an exact match. A string may also be used instead
 of an array of strings.
-
-#### ESLint 9+ (Flat Config)
 
 ```js
 import lexical from '@lexical/eslint-plugin';
@@ -118,35 +88,6 @@ export default [
     }
   }
 ];
-```
-
-#### ESLint 7-8 (Legacy Config)
-
-```js
-{
-  "plugins": [
-    // ...
-    "@lexical"
-  ],
-  "rules": {
-    // ...
-    "@lexical/rules-of-lexical": [
-      "error",
-      {
-        "isDollarFunction": ["^\\$[a-z_]"],
-        "isIgnoredFunction": [],
-        "isLexicalProvider": [
-          "parseEditorState",
-          "read",
-          "registerCommand",
-          "registerNodeTransform",
-          "update"
-        ],
-        "isSafeDollarFunction": ["^\\$is"]
-      }
-    ]
-  }
-}
 ```
 
 #### `isDollarFunction`
@@ -185,13 +126,12 @@ state.
 To verify that the plugin works with different ESLint versions, run the integration tests:
 
 ```bash
-node packages/lexical-eslint-plugin/__tests__/integration-test.js
+pnpm run test-eslint-integration
 ```
 
 This will test:
-- ✓ ESLint 8 with legacy `.eslintrc.json` configuration
-- ✓ ESLint 10 with flat `eslint.config.js` configuration
-- ✓ Legacy config name aliases (`recommended` vs `legacy-recommended`)
+- ✓ ESLint 9 with a flat `eslint.config.js` configuration
+- ✓ ESLint 10 with the same configuration
 
 The tests use `pnpm dlx` to run different ESLint versions without modifying `package.json` or `pnpm-lock.yaml`.
 

@@ -6,6 +6,9 @@
  *
  */
 
+// @vitest-environment node
+
+import {$createLinkNode, LinkNode} from '@lexical/link';
 import {$sliceSelectedTextNodeContent} from '@lexical/selection';
 import {
   $createParagraphNode,
@@ -52,6 +55,53 @@ describe('$sliceSelectedTextNodeContent', () => {
     }
     return selection;
   }
+  test.each(
+    [0, 2].flatMap(offset =>
+      [false, true].flatMap(backward =>
+        [false, true].flatMap(outer =>
+          (['clone', 'self'] as const).map(mutates => ({
+            backward,
+            mutates,
+            offset,
+            outer,
+          })),
+        ),
+      ),
+    ),
+  )(
+    'empty equivalent endpoints (offset=$offset, backward=$backward, outer=$outer, mutates=$mutates)',
+    ({offset, backward, outer, mutates}) => {
+      const editor = createTestEditor({nodes: [LinkNode]});
+      editor.update(
+        () => {
+          const text = $createTextNode('jh');
+          const link = $createLinkNode('https://example.com').append(text);
+          const paragraph = $createParagraphNode().append(link);
+          $getRoot().append(paragraph);
+          const selection = $createRangeSelection();
+          const [textPoint, elementPoint] = backward
+            ? [selection.focus, selection.anchor]
+            : [selection.anchor, selection.focus];
+          textPoint.set(text.getKey(), offset, 'text');
+          elementPoint.set(
+            (outer ? paragraph : link).getKey(),
+            offset === 0 ? 0 : 1,
+            'element',
+          );
+          const slice = $sliceSelectedTextNodeContent(selection, text, mutates);
+          expect(slice.__text).toBe('');
+          if (mutates === 'clone') {
+            expect(slice).not.toBe(text);
+            expect(text.__text).toBe('jh');
+            expect($getNodeByKey(text.getKey())).toBe(text);
+          } else {
+            expect(slice).toBe(text);
+          }
+        },
+        {discrete: true},
+      );
+    },
+  );
   describe('clone', () => {
     test('does not clone with full selection (both nodes)', () => {
       const editor = createInitializedEditor();

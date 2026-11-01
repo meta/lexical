@@ -14,16 +14,21 @@ import {
   $isTableCellNode,
   $isTableNode,
   $isTableRowNode,
+  $isTableSelection,
   TableExtension,
 } from '@lexical/table';
 import {
   $createParagraphNode,
+  $createRangeSelection,
   $createTextNode,
   $getRoot,
+  $getSelection,
   $isParagraphNode,
+  $isRangeSelection,
   $setSelection,
   COMMAND_PRIORITY_CRITICAL,
   COMMAND_PRIORITY_EDITOR,
+  COMMAND_PRIORITY_HIGH,
   COPY_COMMAND,
   defineExtension,
   DELETE_LINE_COMMAND,
@@ -32,9 +37,100 @@ import {
   SELECTION_CHANGE_COMMAND,
 } from 'lexical';
 import {$assertNodeType} from 'lexical/src/__tests__/utils';
-import {afterEach, beforeEach, describe, expect, test} from 'vitest';
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  onTestFinished,
+  test,
+} from 'vitest';
+
+const TableTestThemeExtension = defineExtension({
+  dependencies: [TableExtension],
+  name: 'TableTestThemeExtension',
+  theme: {tableScrollableWrapper: ''},
+});
 
 describe('LexicalTableSelectionHelpers', () => {
+  test('table normalization keeps its priority order across root attachment', () => {
+    using editor = buildEditorFromExtensions(TableTestThemeExtension);
+    const root = document.createElement('div');
+    document.body.append(root);
+    onTestFinished(() => root.remove());
+    let normalized = false;
+    editor.registerCommand(
+      SELECTION_CHANGE_COMMAND,
+      () => {
+        normalized = $isTableSelection($getSelection());
+        return true;
+      },
+      COMMAND_PRIORITY_HIGH,
+    );
+    for (let i = 0; i < 2; i++) {
+      editor.setRootElement(root);
+      editor.update(
+        () => {
+          const table = $createTableNodeWithDimensions(1, 2);
+          $getRoot().clear().append(table);
+          const [map] = $computeTableMapSkipCellCheck(table, null, null);
+          const selection = $createRangeSelection();
+          selection.anchor.set(map[0][0].cell.getKey(), 0, 'element');
+          selection.focus.set(map[0][1].cell.getKey(), 0, 'element');
+          $setSelection(selection);
+          editor.dispatchCommand(SELECTION_CHANGE_COMMAND);
+          expect(normalized).toBe(true);
+        },
+        {discrete: true},
+      );
+      editor.setRootElement(null);
+      normalized = false;
+    }
+  });
+
+  test('table selection handling follows the root lifecycle', () => {
+    using editor = buildEditorFromExtensions(TableTestThemeExtension);
+    const firstRoot = document.createElement('div');
+    const secondRoot = document.createElement('div');
+    document.body.append(firstRoot, secondRoot);
+    onTestFinished(() => {
+      firstRoot.remove();
+      secondRoot.remove();
+    });
+
+    // Explicit dispatch also exercises the rootless path, where core does not
+    // automatically notify range selection changes.
+    const selectAcrossCells = (mounted: boolean) => {
+      editor.update(
+        () => {
+          const table = $createTableNodeWithDimensions(1, 2);
+          $getRoot().clear().append(table);
+          const [map] = $computeTableMapSkipCellCheck(table, null, null);
+          const selection = $createRangeSelection();
+          selection.anchor.set(map[0][0].cell.getKey(), 0, 'element');
+          selection.focus.set(map[0][1].cell.getKey(), 0, 'element');
+          $setSelection(selection);
+          editor.dispatchCommand(SELECTION_CHANGE_COMMAND);
+          expect($isTableSelection($getSelection())).toBe(mounted);
+          expect($isRangeSelection($getSelection())).toBe(!mounted);
+        },
+        {discrete: true},
+      );
+    };
+
+    selectAcrossCells(false);
+    editor.setRootElement(firstRoot);
+    selectAcrossCells(true);
+    editor.setRootElement(null);
+    selectAcrossCells(false);
+    editor.setRootElement(firstRoot);
+    selectAcrossCells(true);
+    editor.setRootElement(secondRoot);
+    selectAcrossCells(true);
+    editor.setRootElement(null);
+    selectAcrossCells(false);
+  });
+
   describe('regression #8670', () => {
     let editor: LexicalEditorWithDispose;
     let container: HTMLDivElement;
@@ -50,13 +146,7 @@ describe('LexicalTableSelectionHelpers', () => {
     beforeEach(() => {
       container = document.createElement('div');
       document.body.appendChild(container);
-      editor = buildEditorFromExtensions(
-        defineExtension({
-          dependencies: [TableExtension],
-          name: 'regression-8670-test',
-          theme: {tableScrollableWrapper: ''},
-        }),
-      );
+      editor = buildEditorFromExtensions(TableTestThemeExtension);
       editor.setRootElement(container);
     });
 
@@ -134,13 +224,7 @@ describe('LexicalTableSelectionHelpers', () => {
       container = document.createElement('div');
       container.tabIndex = -1;
       document.body.appendChild(container);
-      editor = buildEditorFromExtensions(
-        defineExtension({
-          dependencies: [TableExtension],
-          name: 'regression-8832-test',
-          theme: {tableScrollableWrapper: ''},
-        }),
-      );
+      editor = buildEditorFromExtensions(TableTestThemeExtension);
       editor.setRootElement(container);
     });
 
@@ -312,13 +396,7 @@ describe('LexicalTableSelectionHelpers', () => {
     beforeEach(() => {
       container = document.createElement('div');
       document.body.appendChild(container);
-      editor = buildEditorFromExtensions(
-        defineExtension({
-          dependencies: [TableExtension],
-          name: 'delete-line-test',
-          theme: {tableScrollableWrapper: ''},
-        }),
-      );
+      editor = buildEditorFromExtensions(TableTestThemeExtension);
       editor.setRootElement(container);
     });
 

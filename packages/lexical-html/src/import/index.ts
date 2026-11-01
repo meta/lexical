@@ -6,7 +6,7 @@
  *
  */
 import {parseSelector} from './parseCss';
-import {selBase} from './sel';
+import {selAny, selComment, selTag, selText} from './sel';
 
 /**
  * Combinator-and-parser-based builder for {@link CompiledSelector}s. The
@@ -17,15 +17,23 @@ import {selBase} from './sel';
  * @lexical-pure-namespace
  */
 export const sel = {
-  any: selBase.any,
-  comment: selBase.comment,
+  /** Match any {@link HTMLElement}. */
+  any: selAny,
+  /** Match DOM {@link Comment} nodes. */
+  comment: selComment,
   /**
    * Parse a reduced CSS-selector subset and return a builder you can chain
    * combinator methods off of.
    */
   css: parseSelector,
-  tag: selBase.tag,
-  text: selBase.text,
+  /**
+   * Match by tag name(s). With one literal tag the element type is narrowed
+   * (e.g. `'a' → HTMLAnchorElement`); with multiple, it is the union of
+   * their `HTMLElementTagNameMap` entries.
+   */
+  tag: selTag,
+  /** Match DOM {@link Text} nodes. */
+  text: selText,
 } as const;
 
 export {CoreImportExtension} from './CoreImportExtension';
@@ -41,10 +49,7 @@ export {
   type DOMImportConfig,
   DOMImportExtension,
 } from './DOMImportExtension';
-export {
-  HorizontalRuleImportExtension,
-  HorizontalRuleImportRules,
-} from './HorizontalRuleImportExtension';
+export {HorizontalRuleImportRules} from './HorizontalRuleImportExtension';
 export {
   $getImportContextValue,
   $withImportContext,

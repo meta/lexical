@@ -61,7 +61,10 @@ function createLiveRegion(owner: HTMLElement): HTMLElement {
   return region;
 }
 
-const FOCUSABLE_SELECTOR = [
+// The join is annotated by hand: a method call at module scope is a side
+// effect to bundlers, and the build only injects annotations for Lexical's
+// own factories.
+const FOCUSABLE_SELECTOR = /* @__PURE__ */ [
   'a[href]',
   'button:not([disabled])',
   'input:not([disabled]):not([type="hidden"])',

@@ -1,0 +1,119 @@
+/**
+ * Copyright (c) Meta Platforms, Inc. and affiliates.
+ *
+ * This source code is licensed under the MIT license found in the
+ * LICENSE file in the root directory of this source tree.
+ *
+ * @flow strict
+ */
+
+import type {
+  AnyLexicalExtensionArgument,
+  CreateEditorArgs,
+  LexicalWarning,
+} from 'lexical';
+import type {Doc} from '@y/y';
+import type {
+  ClientIDRange,
+  YDoc,
+  YDocOptions,
+  YWarning,
+  YWarningCode,
+} from '@lexical/y';
+
+/**
+ * @lexical/y/headless: EXPERIMENTAL server-side edits, seeds and reads of
+ * @lexical/y documents.
+ */
+
+declare export var EDITOR_WARNING: '@lexical/y/editor-warning';
+declare export var FOLLOW_UPS_EXHAUSTED_WARNING: '@lexical/y/follow-ups-exhausted';
+declare export var WRITER_NEW_CLIENT_ID_WARNING: '@lexical/y/writer-new-client-id';
+export type YHeadlessWarningCode =
+  | YWarningCode
+  | typeof EDITOR_WARNING
+  | typeof FOLLOW_UPS_EXHAUSTED_WARNING
+  | typeof WRITER_NEW_CLIENT_ID_WARNING;
+
+/**
+ * Who editYState writes an edit as. Only createYWriter makes one: create it
+ * once per agent or integration per process.
+ */
+declare export opaque type YWriter: {readonly author: string};
+
+declare export function createYWriter(author: string): YWriter;
+
+export type HeadlessYConfig = {
+  // Required: the version of the app's document schema, as on the clients.
+  schemaVersion: number,
+  extensions?: ReadonlyArray<AnyLexicalExtensionArgument>,
+  nodes?: CreateEditorArgs['nodes'],
+  root?: string,
+  clientIDRange?: ClientIDRange,
+  onWarn?: (warning: LexicalWarning) => void,
+  selfCheck?: boolean,
+};
+
+export type YHeadlessErrorCode =
+  | 'not-initialized'
+  | 'read-only'
+  | 'foreign-roots'
+  | 'imported-items'
+  | 'ignored-tag';
+
+declare export class YHeadlessError extends Error {
+  readonly code: YHeadlessErrorCode;
+  // For 'read-only': the binding's warnings that say why. Empty otherwise.
+  readonly warnings: ReadonlyArray<YWarning>;
+  constructor(
+    code: YHeadlessErrorCode,
+    message: string,
+    warnings?: ReadonlyArray<YWarning>,
+  ): void;
+}
+
+// The same as @lexical/y's: thrown when the app's @y/y is not the one
+// @lexical/y supports, before anything is written.
+export {YUnsupportedYjsError} from '@lexical/y';
+
+// The same as @lexical/y's createYDoc: a Y.Doc for a relay or a server that
+// loads a stored state, with Yjs's format cleanup turned off as on the
+// clients, and `state` applied when given.
+declare export function createYDoc(
+  state?: Uint8Array | null,
+  options?: YDocOptions,
+): YDoc;
+
+export type EditYStateResult = {
+  update: Uint8Array | null,
+  state: Uint8Array,
+  warnings: Array<LexicalWarning>,
+  clientID: number,
+};
+
+export type EditYStateOptions = {
+  // Required: a writer from createYWriter, or null for a new anonymous
+  // client id for this edit alone.
+  writer: YWriter | null,
+  allowedRoots?: Iterable<string>,
+  transact?: (doc: Doc) => void,
+  tag?: string | Array<string>,
+};
+
+declare export function seedYState(
+  config: HeadlessYConfig,
+  $build: () => void,
+): Uint8Array;
+
+declare export function editYState(
+  state: Uint8Array,
+  config: HeadlessYConfig,
+  $edit: () => void,
+  options: EditYStateOptions,
+): EditYStateResult;
+
+declare export function readYState<T>(
+  state: Uint8Array,
+  config: HeadlessYConfig,
+  $read: () => T,
+): T;

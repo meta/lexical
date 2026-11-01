@@ -17,35 +17,43 @@ import {
   $caretFromPoint,
   $caretRangeFromSelection,
   $comparePointCaretNext,
+  $exportNodeJSON,
   $getCaretRange,
   $getCaretRangeInDirection,
   $getChildCaret,
   $getChildCaretAtIndex,
   $getCollapsedCaretRange,
+  $getDOMSlot,
   $getEditor,
   $getNearestNodeFromDOMNode,
   $getRoot,
   $getSelection,
   $getSelectionSlotFrame,
+  $getSiblingCaret,
   $getSlot,
   $getSlotNames,
   $getTextPointCaret,
+  $isChildCaret,
   $isElementNode,
   $isNodeSelection,
   $isRangeSelection,
   $isTextNode,
   $isTextPointCaret,
+  $normalizeCaret,
   $parseSerializedNode,
+  $rewindSiblingCaret,
   $setSelectionFromCaretRange,
   $splitAtPointCaretNext,
   type BaseSelection,
   COMMAND_PRIORITY_CRITICAL,
   COPY_COMMAND,
   defineExtension,
+  type ElementNode,
   findAllLexicalElementsDeep,
   getDOMSelection,
   getDOMSelectionPoints,
   getEditorPropertyFromDOMNode,
+  INTERNAL_$withExportMemo,
   isHTMLElement,
   isLexicalEditor,
   isSelectionWithinEditor,
@@ -55,7 +63,6 @@ import {
   type RangeSelection,
   safeCast,
   SELECTION_INSERT_CLIPBOARD_NODES_COMMAND,
-  type SerializedElementNode,
   shallowMergeConfig,
 } from 'lexical';
 
@@ -257,14 +264,56 @@ function $resolveDropPointCaret(
   if ($isTextNode(node)) {
     return $getTextPointCaret(node, 'next', hit.offset);
   }
-  if ($isElementNode(node)) {
-    return $getChildCaretAtIndex(node, hit.offset, 'next');
-  }
   const parent = node.getParent();
-  if (parent === null) {
-    return null;
+  if ($isElementNode(node)) {
+    // The DOM offset also counts the DOM the editor renders between the
+    // children (such as a zero-size anchor before a leading decorator), and
+    // a point outside the element's slot is beside the element.
+    const dom = editor.getElementByKey(node.getKey());
+    if (dom === null) {
+      return null;
+    }
+    const slot = $getDOMSlot(node, dom, editor);
+    return hit.node === slot.element || parent
+      ? $getChildCaretAtIndex(
+          ...slot.resolveChildIndex(node, dom, hit.node, hit.offset),
+          'next',
+        )
+      : null;
   }
-  return $getChildCaretAtIndex(parent, node.getIndexWithinParent() + 1, 'next');
+  return (
+    parent &&
+    $getChildCaretAtIndex(parent, node.getIndexWithinParent() + 1, 'next')
+  );
+}
+
+// A text edge and the element point beside it are the same drop position.
+// Inline wrappers do not introduce another position at their outer edges,
+// but block boundaries, line breaks, and decorators do.
+function $normalizeDropBoundary(point: PointCaret<'next'>): PointCaret<'next'> {
+  let caret = point;
+  if ($isTextPointCaret(caret)) {
+    if (caret.offset === 0) {
+      caret = $rewindSiblingCaret(caret.getSiblingCaret());
+    } else if (caret.offset === caret.origin.getTextContentSize()) {
+      caret = caret.getSiblingCaret();
+    } else {
+      return caret;
+    }
+  }
+  for (;;) {
+    const parent: ElementNode | null = caret.getParentAtCaret();
+    if (parent === null || !parent.isInline() || parent.isShadowRoot()) {
+      return caret;
+    }
+    if ($isChildCaret(caret)) {
+      caret = $rewindSiblingCaret($getSiblingCaret(parent, 'next'));
+    } else if (caret.getNodeAtCaret() === null) {
+      caret = $getSiblingCaret(parent, 'next');
+    } else {
+      return caret;
+    }
+  }
 }
 
 function $isDropCaretInsideSelection(
@@ -275,9 +324,10 @@ function $isDropCaretInsideSelection(
     $caretRangeFromSelection(selection),
     'next',
   );
+  const drop = $normalizeDropBoundary(dropCaret);
   return (
-    $comparePointCaretNext(start, dropCaret) < 0 &&
-    $comparePointCaretNext(dropCaret, end) < 0
+    $comparePointCaretNext($normalizeDropBoundary(start), drop) <= 0 &&
+    $comparePointCaretNext(drop, $normalizeDropBoundary(end)) <= 0
   );
 }
 
@@ -309,13 +359,6 @@ function $doDrop(
     return false;
   }
 
-  // Split at the drop caret so we have a stable NodeCaret boundary that
-  // survives text-content mutations in its siblings.
-  const stableDropCaret = $splitAtPointCaretNext(dropCaret);
-  if (stableDropCaret === null) {
-    return false;
-  }
-
   const isSameEditorDrag = marker.editorKey === editor.getKey();
   const currentSelection = $getSelection();
 
@@ -335,19 +378,35 @@ function $doDrop(
       event.preventDefault();
       return true;
     }
+  }
+
+  // Prefer a text boundary to its containing element: deletion can merge
+  // blocks and remove the element while its unselected children survive.
+  // Only split text; splitting an element here would add a paragraph break.
+  const normalizedDropCaret = $normalizeCaret(dropCaret);
+  const stableDropCaret = $isTextPointCaret(normalizedDropCaret)
+    ? $splitAtPointCaretNext(normalizedDropCaret)
+    : normalizedDropCaret;
+  if (stableDropCaret === null) {
+    return false;
+  }
+  const oppositeDropCaret = stableDropCaret.getFlipped();
+
+  if (isSameEditorDrag && $isRangeSelection(currentSelection)) {
     currentSelection.removeText();
   }
 
-  // If the drop caret's origin was swept away by the source removal, abort —
-  // this can happen on a same-editor drag whose range covered the entire
-  // text node we tried to split at.
-  if (!stableDropCaret.origin.isAttached()) {
-    event.preventDefault();
-    return true;
-  }
-
+  // Either side can move with the surviving content. Keep both rather than
+  // falling back to the source selection when one origin is removed.
+  const insertCaret = stableDropCaret.origin.isAttached()
+    ? stableDropCaret
+    : oppositeDropCaret;
+  invariant(
+    insertCaret.origin.isAttached(),
+    '$doDrop: drop position was removed by source deletion',
+  );
   const dropSelection = $setSelectionFromCaretRange(
-    $getCollapsedCaretRange(stableDropCaret),
+    $getCollapsedCaretRange(insertCaret),
   );
   $insertDataTransfer(dataTransfer, dropSelection, editor);
 
@@ -471,6 +530,16 @@ function $updateSelectionOnInsert(selection: BaseSelection): void {
   }
 }
 
+/**
+ * A node of a clipboard payload, read without knowing its type.
+ *
+ * Structurally `SerializedPartialNode` minus its index signature, and declared
+ * separately rather than aliased to it for that reason: this is the bound of
+ * the exported `$generateJSONFromSelectedNodes<SerializedNode>` and the
+ * parameter of `$generateNodesFromSerializedNodes`, and TypeScript grants an
+ * `interface` no implicit index signature — so aliasing made every consumer
+ * whose serialized type is a declared interface stop compiling against both.
+ */
 export interface BaseSerializedNode {
   children?: BaseSerializedNode[];
   /**
@@ -480,34 +549,11 @@ export interface BaseSerializedNode {
    */
   $slots?: Record<string, BaseSerializedNode>;
   type: string;
-  version: number;
-}
-
-function exportNodeToJSON<T extends LexicalNode>(node: T): BaseSerializedNode {
-  const serializedNode = node.exportJSON();
-  const nodeClass = node.constructor;
-
-  if (serializedNode.type !== nodeClass.getType()) {
-    invariant(
-      false,
-      'LexicalNode: Node %s does not implement .exportJSON().',
-      nodeClass.name,
-    );
-  }
-
-  if ($isElementNode(node)) {
-    const serializedChildren = (serializedNode as SerializedElementNode)
-      .children;
-    if (!Array.isArray(serializedChildren)) {
-      invariant(
-        false,
-        'LexicalNode: Node %s is an element but .exportJSON() does not have a children array.',
-        nodeClass.name,
-      );
-    }
-  }
-
-  return serializedNode;
+  /**
+   * @deprecated Ignored when parsing, and omitted by a compact export; see
+   * {@link SerializedLexicalNode.version}.
+   */
+  version?: number;
 }
 
 function $appendNodesToJSON(
@@ -530,9 +576,14 @@ function $appendNodesToJSON(
   if (selection !== null && $isTextNode(target)) {
     target = $sliceSelectedTextNodeContent(selection, target, 'clone');
   }
+  // Route through the shared export so a selection honors the same form as
+  // editorState.toJSON().
+  const serializedNode: BaseSerializedNode = $exportNodeJSON(target);
+  // $exportNodeJSON above already throws for an element whose JSON has no
+  // children array, so this only has to narrow the type rather than re-check
+  // the condition and state the same failure a second way.
   const children = $isElementNode(target) ? target.getChildren() : [];
-
-  const serializedNode = exportNodeToJSON(target);
+  const childTarget = serializedNode.children || [];
   if ($isTextNode(target) && target.getTextContentSize() === 0) {
     // If an uncollapsed selection ends or starts at the end of a line of specialized,
     // TextNodes, such as code tokens, we will get a 'blank' TextNode here, i.e., one
@@ -558,7 +609,7 @@ function $appendNodesToJSON(
       editor,
       childSelection,
       childNode,
-      serializedNode.children,
+      childTarget,
     );
 
     if (
@@ -592,34 +643,32 @@ function $appendNodesToJSON(
         );
         const slotArray: BaseSerializedNode[] = [];
         $appendNodesToJSON(editor, null, slotNode, slotArray);
-        // A whole-slot export must serialize to exactly the slot node. A slot
-        // value that overrides excludeFromCopy would otherwise make
+        // A whole-slot export must serialize to exactly the slot value node.
+        // A slot value that overrides excludeFromCopy would instead make
         // $appendNodesToJSON splice up its children (or emit nothing), leaving
         // a dangling/undefined slot entry that breaks on paste.
         invariant(
-          slotArray.length === 1 && slotArray[0].type === slotNode.getType(),
-          'LexicalNode: slot "%s" on %s did not serialize to exactly the slot value node (got %s of type %s); a slot value must not be excluded from copy.',
+          slotArray.length === 1 &&
+            !($isElementNode(slotNode) && slotNode.excludeFromCopy('clone')),
+          'LexicalNode: slot "%s" on %s did not serialize to exactly the slot value node (got %s nodes); a slot value must not be excluded from copy.',
           name,
           target.constructor.name,
           String(slotArray.length),
-          String(slotArray.length > 0 ? slotArray[0].type : 'none'),
         );
         serializedSlots[name] = slotArray[0];
       }
-      (
-        serializedNode as BaseSerializedNode & {
-          $slots?: Record<string, BaseSerializedNode>;
-        }
-      ).$slots = serializedSlots;
+      serializedNode.$slots = serializedSlots;
     }
   }
 
   if (shouldInclude && !shouldExclude) {
     targetArray.push(serializedNode);
-  } else if (Array.isArray(serializedNode.children)) {
-    for (let i = 0; i < serializedNode.children.length; i++) {
-      const serializedChildNode = serializedNode.children[i];
-      targetArray.push(serializedChildNode);
+  } else {
+    // Splice up whatever the recursion collected in this node's place — the
+    // selected descendants, never an override's authoritative subtree, which
+    // no selection ever filtered.
+    for (let i = 0; i < childTarget.length; i++) {
+      targetArray.push(childTarget[i]);
     }
   }
 
@@ -655,10 +704,12 @@ export function $generateJSONFromSelectedNodes<
   const topLevelChildren = (
     $isElementNode(slotFrame) ? slotFrame : root
   ).getChildren();
-  for (let i = 0; i < topLevelChildren.length; i++) {
-    const topLevelNode = topLevelChildren[i];
-    $appendNodesToJSON(editor, selection, topLevelNode, nodes);
-  }
+  INTERNAL_$withExportMemo(() => {
+    for (let i = 0; i < topLevelChildren.length; i++) {
+      const topLevelNode = topLevelChildren[i];
+      $appendNodesToJSON(editor, selection, topLevelNode, nodes);
+    }
+  });
   return {
     namespace: editor._config.namespace,
     nodes,

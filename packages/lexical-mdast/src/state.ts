@@ -10,8 +10,8 @@ import {createState} from 'lexical';
 
 /**
  * Per-node state used to round-trip the *exact* Markdown syntax a construct was
- * parsed from, so re-serializing produces minimally different output. This is
- * the same technique `@lexical/markdown` uses; the state lives on the Lexical
+ * parsed from, so re-serializing stays close to the source. This is the same
+ * technique `@lexical/markdown` uses; the state lives on the Lexical
  * nodes (and therefore survives serialization), and the exporter reads it to
  * reproduce the original marker/fence/break.
  *

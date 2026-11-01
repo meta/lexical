@@ -31,6 +31,7 @@ import {
   $isLineBreakNode,
   $isNodeSelection,
   $isRangeSelection,
+  $onUpdate,
   type BaseSelection,
   CLICK_COMMAND,
   COMMAND_PRIORITY_CRITICAL,
@@ -252,7 +253,7 @@ function FloatingLinkEditor({
       editor.registerCommand(
         SELECTION_CHANGE_COMMAND,
         () => {
-          $updateLinkEditor();
+          $onUpdate(() => editor.read('latest', $updateLinkEditor));
           return true;
         },
         COMMAND_PRIORITY_LOW,
