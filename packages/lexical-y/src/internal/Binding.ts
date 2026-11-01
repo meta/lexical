@@ -536,6 +536,26 @@ function recordSchema(
  * Whether live format item `item` changes its key's value: the nearest live
  * item of its key before it gives another value (none gives null).
  */
+/**
+ * Whether content is shown after `item` before the next live format item of
+ * `key`: a run that goes on past `item` would cover it.
+ */
+function showsPast(item: Item, key: string): boolean {
+  for (let it = item.right; it !== null; it = it.right) {
+    if (it.deleted) {
+      continue;
+    }
+    if (it.content instanceof ContentFormat) {
+      if (it.content.key === key) {
+        return false;
+      }
+    } else if (it.countable) {
+      return true;
+    }
+  }
+  return false;
+}
+
 function opensRun(item: Item): boolean {
   const {key, value} = item.content as ContentFormat;
   for (let it = item.left; it !== null; it = it.left) {
@@ -5644,7 +5664,12 @@ export class YBinding {
    * value ends is left as it is: where that value's change is undone, the run
    * going on over its text is what it had before (a copy of that value kept
    * it there after its own undo). A copy inside a run of its own value (see
-   * opensRun) opens no run: the run it is in ends where it ends.
+   * opensRun) opens no run: the run it is in ends where it ends. The end is
+   * written also where nothing between the copy and it is shown, when
+   * content follows it: the collaborator's undo that removed the closer also
+   * removed the text the run was on (a comment typed and added in one step,
+   * resolved by a collaborator while its author undid the step, and the
+   * resolve undone, put the comment on everything after it).
    */
   private closeRestoredRuns(step: UndoManager['undoStack'][number]): void {
     const doc = this._doc;
@@ -5680,7 +5705,7 @@ export class YBinding {
         let shown = false;
         for (let it = copy.right; it !== null; it = it.right) {
           if (it === gone && it.deleted) {
-            if (shown) {
+            if (shown || showsPast(it, key)) {
               ends.push([it, it.right, key]);
             }
             break;
