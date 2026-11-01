@@ -2282,7 +2282,11 @@ export function $updateDOMBlockCursorElement(
       if (insertBeforeElement === null) {
         // Stay inside the slot's managed range: a slot with a `before`
         // boundary keeps its trailing decoration after the children.
-        elementDOM.insertBefore(blockCursorElement, slot.before);
+        const before =
+          slot.before !== null && slot.before.parentNode === elementDOM
+            ? slot.before
+            : null;
+        elementDOM.insertBefore(blockCursorElement, before);
       } else {
         elementDOM.insertBefore(blockCursorElement, insertBeforeElement);
       }
