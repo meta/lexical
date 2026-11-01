@@ -13,7 +13,8 @@
 // starting at 1 and at 7: right after each update (before anything is
 // awaited) the author shows the list numbering a fresh reader shows. Three
 // or more follow-ups before reach the fourth re-read in a row, which runs no
-// refresh (#9632): `test.fails` until it is decided.
+// refresh (#9632, an accepted limit: DECISIONS.md D90, y.md's Limits):
+// `test.fails`, so that a change of the limit shows here.
 import {
   $createListItemNode,
   $createListNode,
@@ -45,7 +46,8 @@ for (const start of [1, 7])
   for (const before of [0, 3, 6, 12])
     for (const batch of [false, true])
       for (const blockIds of [false, true])
-        // #9632: the fourth re-read in a row runs no refresh.
+        // #9632 (D90, accepted limit): the fourth re-read in a row runs no
+        // refresh.
         (before >= 3 ? test.fails : test)(
           `sync derived start=${start} before=${before} batch=${batch} idsExtension=${blockIds}`,
           async () => {

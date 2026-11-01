@@ -895,8 +895,8 @@ merge the `update` it returns into the live document (see
 ## Servers
 
 A Yjs 14 (`@y/y`) server or relay can host the documents when it meets
-the requirements below (format cleanup off, updates delivered in order, and
-for yrs, its version and client ids). Clients of
+the requirements below (format cleanup off, updates delivered in causal
+order, and for yrs, its version and client ids). Clients of
 `@lexical/yjs` write to other roots (`root`, `root-v2`), never to
 `DEFAULT_ROOT_NAME` (`'lexical-y'`), so they cannot change a `@lexical/y`
 document's content and the server needs no check to keep them out.
@@ -959,6 +959,20 @@ the document's client id when it is created:
 ```ts
 doc.clientID = crypto.getRandomValues(new Uint32Array(1))[0] || 1;
 ```
+
+Deliver updates in causal order: each update after every update it depends
+on, from any client (as json-joy also requires). A single relay that every
+client sends to and receives from, and that forwards every update to each
+client in the one order it received them, whichever client sent it, does
+this. A mesh (such as y-webrtc), or
+several relays that forward updates on their own, needs causal buffering:
+hold an update until every update it depends on has been applied, deletions
+included (a state vector alone cannot tell: an update that only deletes
+leaves it unchanged). Out of causal order, a
+client can see a collaborator's format run on to the end of a line until the
+missing update arrives, and an edit it makes in that moment makes the
+spread permanent, on every client
+([#9645](https://github.com/meta/lexical/issues/9645)).
 
 Deliver each client's updates in order. With Yjs 14.0.0-rc.29, a client
 that receives an update past a gap in another client's clocks (a relay that
@@ -1169,6 +1183,15 @@ not merge as a user might expect:
 - **List type change ‖ new item.** Changing a list's type while a
   collaborator adds an item to it (Enter in the list) splits the list: the
   new item keeps the old type, in a list of its own between the two halves.
+- **List numbering after refused follow-ups.** After four follow-ups in a
+  row that the binding does not write and reads again (such as
+  `BlockIdExtension`'s naming updates), the author's editor can show a list
+  number from before them (1 where its document reads 2) until that list
+  is refreshed: adding an item to it does, an edit elsewhere or retyping an
+  item's text does not. The binding stops
+  refreshing derived numbers on the fourth such re-read in a row, so that an
+  app listener that answers every refresh cannot loop forever. Other
+  clients, the stored document and a reload show the right number.
 - **Blocks that arrive without an id.** With `BlockIdExtension`, a block
   stored without an id (written by a client without the extension), or with
   an id an earlier block also stores or shows (a copy of the JSON of a block
@@ -1235,7 +1258,12 @@ not merge as a user might expect:
   format, and stays on its content:
   [#9627](https://github.com/meta/lexical/issues/9627). Where a collaborator overwrote a step of yours
   entirely, the undo manager skips that step as changing nothing, and the
-  same undo also reverts your step before it. When you undo a format change
+  same undo also reverts your step before it. An undo press can show
+  nothing: when its step only restores or removes format items no reader
+  shows (a format on text a collaborator then deleted), the press takes that
+  step alone, and several such steps in a row take several presses before
+  one shows a change, as with Yjs's `UndoManager` in any editor that uses it
+  as it is. When you undo a format change
   while a collaborator removes that format and undoes the removal, the text
   keeps the format: the collaborator's undo brings it back. A format a collaborator applies
   starting right where a run of that format ends, or from inside the run
@@ -1308,8 +1336,13 @@ not merge as a user might expect:
   after a Backspace it takes the type of the line before (a paragraph after
   a heading becomes a heading), after undoing a split it keeps its own.
   Bold ‖ bold on adjacent ranges of one line
-  can leave part unformatted, and so can bold ‖ bold on overlapping ranges
-  ([#9626](https://github.com/meta/lexical/issues/9626)). A link behaves
+  can leave part unformatted, and so can the same format (bold, the same
+  comment id, a link) applied by two collaborators to overlapping ranges at
+  once
+  ([#9626](https://github.com/meta/lexical/issues/9626)): a Yjs text gives
+  each place one value per key
+  ([yjs/yjs#382](https://github.com/yjs/yjs/issues/382)), so one writer's
+  end of its range can end the other's run there too. A link behaves
   like a comment there: a range that crosses a link's edge can lose part
   of its bold for either client id order, and a bold reaching into a
   link's first word can lose it there when a collaborator one update
@@ -1324,7 +1357,13 @@ not merge as a user might expect:
   takes that format (also when the range comes from an older read, as an
   agent's does), and text typed at the start or the end of the range can
   take it, by the order Yjs gives the two inserts (at the start the same on
-  Yjs 13, and it keeps the format when that range is then deleted). A
+  Yjs 13, and it keeps the format when that range is then deleted). In the
+  same way, a comment on a word a collaborator rewrites at the same moment
+  can land on the new word: with `setTextContent` for one client id order,
+  and with a rewrite of the whole line (its text nodes replaced by a new
+  one, as an agent writes it) for one or both orders; the words of the range
+  the rewrite kept keep the comment
+  ([#9610](https://github.com/meta/lexical/issues/9610)). A
   node whose `isInline()` changes is written again in its new form, so
   text typed inside it at the same time lands next to it, in an inline
   element of its old form. Where text was deleted, the format items it
@@ -1366,6 +1405,12 @@ reproduces it:
   container and makes no list, in every `@lexical/y` editor (it runs
   `NodeStructureExtension`):
   [#9570](https://github.com/meta/lexical/issues/9570).
+- Undoing plain text typed into a format run gives the run's format (or
+  comment, or style) to plain text a collaborator typed right next to it:
+  [#9681](https://github.com/meta/lexical/issues/9681).
+- With Yjs garbage collection on, undoing a format removal while a
+  collaborator applies the same format again can take it off the next
+  character: [#9683](https://github.com/meta/lexical/issues/9683).
 
 For `MarkStateExtension` comments, see the
 [comments limitations](./comments.md#limitations).
