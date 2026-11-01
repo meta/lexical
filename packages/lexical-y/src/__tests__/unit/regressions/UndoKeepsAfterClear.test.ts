@@ -107,13 +107,27 @@ for (const variant of ['bold', 'color'] as const) {
         await t.sync();
         t.b.binding.undoManager!.clear();
         t.b.stop();
-        const afterDispose = liveKept(t.b.doc);
-        // consequence: A deletes the table; B's document does not collect it
+        expect(liveKept(t.b.doc)).toEqual([]);
+        // A then deletes the table: with gc on, B's document collects it.
         t.a.update(() => {
           $getRoot().getChildAtIndex(1)!.remove();
         });
         await t.sync();
-        expect(afterDispose).toEqual([]);
+        if (gc) {
+          const leftover: string[] = [];
+          for (const structs of t.b.doc.store.clients.values()) {
+            for (const s of structs) {
+              if (
+                s instanceof Y.Item &&
+                s.deleted &&
+                s.content instanceof Y.ContentType
+              ) {
+                leftover.push(`${s.id.client}:${s.id.clock}`);
+              }
+            }
+          }
+          expect(leftover).toEqual([]);
+        }
       } finally {
         t.peers.forEach(p => p.stop());
       }

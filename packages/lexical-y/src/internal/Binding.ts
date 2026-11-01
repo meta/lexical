@@ -1235,6 +1235,17 @@ export class YBinding {
               continue;
             }
           }
+          // A keep this lifetime set again after a clear goes with it; one
+          // another lifetime holds stays.
+          const holders = rekeepHolders.get(it);
+          if (holders !== undefined) {
+            holders.delete(owner);
+            rekept.delete(it);
+            if (holders.size > 0) {
+              continue;
+            }
+            rekeepHolders.delete(it);
+          }
           it.keep = false;
         }
         kept.clear();

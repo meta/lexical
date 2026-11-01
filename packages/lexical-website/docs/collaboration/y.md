@@ -1183,10 +1183,10 @@ not merge as a user might expect:
   such items (a table cell, its row and table) that the client still needs
   after its undo history is cleared stay kept until the binding stops: a
   table a collaborator deletes meanwhile stays in that client's state until
-  it stops or reloads (about 100 to 180 bytes for a small table). When the
-  binding stops it lets them go, also where another undo manager on the
-  document still relies on them, which then finds them unkept, as after a
-  clear of a Yjs `UndoManager`.
+  it reloads (about 100 to 180 bytes for a small table); one deleted after
+  the binding stops is collected. When the binding stops it lets them go,
+  also where another undo manager on the document still relies on them,
+  which then finds them unkept, as after a clear of a Yjs `UndoManager`.
 - **Named slots.** A slot holds one node: two collaborators setting the same
   slot at once keep one writer's node, and text typed in a slot that a
   collaborator replaces or removes at the same time is lost (as with delete
