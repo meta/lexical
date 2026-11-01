@@ -5716,6 +5716,10 @@ export class YBinding {
     }, this.scanOrigin);
     if (ends.length > 0) {
       doc.transact(tr => {
+        // The nulls this loop writes: two keys can need an end in the same
+        // gap, and the second must not take the first's null for a change
+        // of the gap.
+        const written = new Set<Item>();
         for (const [leftEnd, rightStart, key] of ends) {
           // The items as the store holds them now, split at those ids.
           const right =
@@ -5735,22 +5739,43 @@ export class YBinding {
             const found = store.getItem(leftEnd);
             left = found instanceof Item ? found : null;
           }
-          // Still next to each other, in one type (never next to an item of
-          // another type: see checkLinkable in Cursor).
           if (
             (rightStart !== null && !(right instanceof Item)) ||
             (leftEnd !== null && left === null) ||
             (left === null && right === null) ||
-            (left !== null && left.right !== right) ||
-            (left === null && right !== null && right.left !== null) ||
             (left !== null && right !== null && left.parent !== right.parent)
           ) {
             continue;
           }
+          // Still next to each other but for the nulls written here, in one
+          // type (never next to an item of another type: see checkLinkable
+          // in Cursor). The null goes right before `right`, after those.
+          let before: Item | null;
+          if (right !== null) {
+            let l = right.left;
+            while (l !== null && written.has(l)) {
+              l = l.left;
+            }
+            if (l !== left) {
+              continue;
+            }
+            before = right.left;
+          } else {
+            let last = left as Item;
+            let r = last.right;
+            while (r !== null && written.has(r)) {
+              last = r;
+              r = r.right;
+            }
+            if (r !== null) {
+              continue;
+            }
+            before = last;
+          }
           const item = new Item(
             createID(client, store.getClock(client)),
-            left,
-            left && left.lastId,
+            before,
+            before && before.lastId,
             right,
             right && right.id,
             (left ?? right)!.parent,
@@ -5758,6 +5783,7 @@ export class YBinding {
             new ContentFormat(key, null as unknown as object),
           );
           item.integrate(tr, 0);
+          written.add(item);
           markFormatCloser(item);
         }
       }, this.runEndOrigin);
