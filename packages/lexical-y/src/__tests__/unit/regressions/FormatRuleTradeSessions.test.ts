@@ -11,7 +11,7 @@
 // Three-client sessions (reduced from a view property's fresh seeds) in which a
 // format reaches the sentinel line nobody formatted, made wrong by the rules
 // that fixed #9671: a trade recorded as D95 (#9690). They passed before those
-// rules (with gc off; with gc on the reduced scripts fail before them too).
+// rules, gc off and on.
 
 import {$getNodeMarkIDs} from '@lexical/mark';
 import {
@@ -81,7 +81,7 @@ async function session(
   );
 }
 
-test.fails('session 107991: the sentinel line stays plain', async () => {
+test.fails('#9690: session 107991: the sentinel line stays plain', async () => {
   const sentinel = await session(
     [
       [
@@ -122,7 +122,7 @@ test.fails('session 107991: the sentinel line stays plain', async () => {
   expect(sentinel).toEqual([[0, '']]);
 });
 
-test.fails('session 111874: the sentinel line stays plain', async () => {
+test.fails('#9690: session 111874: the sentinel line stays plain', async () => {
   const sentinel = await session(
     [
       ['w0ab', 'w1abc', 'w2abcd', 'w3a', 'w4a', 'w5ab', 'w6abc'],
@@ -148,7 +148,7 @@ test.fails('session 111874: the sentinel line stays plain', async () => {
   expect(sentinel).toEqual([[0, '']]);
 });
 
-test.fails('session 110073: the sentinel line stays plain', async () => {
+test.fails('#9690: session 110073: the sentinel line stays plain', async () => {
   const sentinel = await session(
     [
       ['w0abc', 'w1abc', 'w2abc', 'w3ab'],
@@ -188,7 +188,7 @@ test.fails('session 110073: the sentinel line stays plain', async () => {
 // undone steps touched (the restore-side rule of #9671; #9690).
 for (const ids of [[1], [1, 2], [2, 1]]) {
   test.fails(
-    `one client undoing its own steps keeps "cc" bold (ids ${ids})`,
+    `#9690: one client undoing its own steps keeps "cc" bold (ids ${ids})`,
     async () => {
       const t = await setup(
         () =>

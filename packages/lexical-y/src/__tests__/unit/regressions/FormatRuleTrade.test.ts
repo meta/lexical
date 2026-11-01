@@ -177,7 +177,7 @@ const CASES: {
   {
     // italic over "ef", Z typed inside, italic over "Z" and the rest; A types 1
     ids: [2, 1],
-    name: 'restore of own earlier insert removed (#9671 rule, restore side)',
+    name: '#9690: restore of own earlier insert removed (#9671 rule, restore side)',
     ops: [
       {i: 4, j: 9, k: 'fmt', key: 'i', v: true},
       {i: 7, k: 'Z'},
@@ -197,7 +197,7 @@ const CASES: {
   {
     // Z typed into the struck text, then strikethrough removed over it; A types 1
     ids: [2, 1],
-    name: "restore scan stops at another client's text (#9599 rule)",
+    name: "#9690: restore scan stops at another client's text (#9599 rule)",
     ops: [
       {i: 9, k: 'Z'},
       {k: 'sync'},

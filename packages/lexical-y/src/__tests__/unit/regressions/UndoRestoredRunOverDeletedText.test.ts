@@ -299,7 +299,7 @@ describe('undoing a removal brings back a value whose text and end the author un
           const spreads =
             shape.failsOn === (concurrent ? 'concurrent' : 'sequential');
           (spreads ? it.fails : it)(
-            `${shape.name}; A undoes ${concurrent ? 'while B removes' : 'after B removed'} (gc ${gc ? 'on' : 'off'}, ids ${ids})`,
+            `${shape.name}; A undoes ${concurrent ? 'while B removes' : 'after B removed'} (gc ${gc ? 'on' : 'off'}, ids ${ids})${spreads ? ' (#9689)' : ''}`,
             () => {
               const {A, B, sync} = clients(gc, ids);
               if (shape.pre) {
@@ -340,7 +340,7 @@ describe('undoing a removal brings back a value whose text and end the author un
   }
 });
 
-describe('both clients comment the same text; A types at its start; B undoes its comment and removes it; A undoes; B undoes', () => {
+describe('both clients comment the same text; A types at its start; B undoes its comment and removes it; A undoes; B undoes (#9689)', () => {
   for (const gc of [false, true]) {
     for (const ids of [
       [1, 2],
