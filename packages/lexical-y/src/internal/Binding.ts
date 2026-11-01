@@ -24,6 +24,9 @@ import {
   encodeStateAsUpdate,
   encodeStateVector,
   findIndexSS,
+  getItemCleanStart,
+  type ID,
+  type IdSet,
   Item,
   iterateStructsByIdSet,
   Node as YNode,
@@ -831,8 +834,8 @@ export class YBinding {
   private restoring: Set<string> | null = null;
   /** Stored nodes the running undo/redo deletes (it inserted them). */
   private removing: Set<Item> | null = null;
-  /** The items the running undo/redo deletes (see isKeptByUndo). */
-  private undoing: Set<Item> | null = null;
+  /** The ids of the items the running undo/redo deletes (see isKeptByUndo). */
+  private undoing: IdSet | null = null;
   private wasEditable = true;
   private undoCache = new WeakMap<YNode, Set<number>>();
   private readonly afterTransaction: (tr: Transaction) => void;
@@ -5445,7 +5448,7 @@ export class YBinding {
         if (!(it.content instanceof ContentFormat) || it.content.key !== key) {
           continue;
         }
-        if (this.undoing.has(it)) {
+        if (this.undoing.hasId(it.id)) {
           if (it.deleted) {
             return true;
           }
@@ -5650,8 +5653,14 @@ export class YBinding {
     const doc = this._doc;
     const store = doc.store;
     const client = doc.clientID;
-    // Where to write each null: after `left`, before `right`.
-    const ends: [left: Item | null, right: Item | null, key: string][] = [];
+    // Where to write each null: after the item that ends at `leftEnd`,
+    // before the item that starts at `right` (null: at that end of the
+    // list). Ids, not items: the scan's
+    // transaction splits items and its cleanup merges them back, so an item
+    // object it saw can be a piece no longer in the store by the time the
+    // null is written (an item linked to such a piece breaks the list's
+    // links).
+    const ends: [leftEnd: ID | null, right: ID | null, key: string][] = [];
     doc.transact(tr => {
       const copies: [original: Item, copy: Item][] = [];
       iterateStructsByIdSet(tr, step.deletes, s => {
@@ -5681,7 +5690,7 @@ export class YBinding {
         for (let it = copy.right; it !== null; it = it.right) {
           if (it === gone && it.deleted) {
             if (shown) {
-              ends.push([it, it.right, key]);
+              ends.push([it.lastId, it.right && it.right.id, key]);
             }
             break;
           }
@@ -5695,7 +5704,7 @@ export class YBinding {
                 it.id.client !== client &&
                 it.content.value === null
               ) {
-                ends.push([it.left, it, key]);
+                ends.push([it.left && it.left.lastId, it.id, key]);
               }
               break;
             }
@@ -5707,10 +5716,35 @@ export class YBinding {
     }, this.scanOrigin);
     if (ends.length > 0) {
       doc.transact(tr => {
-        for (const [left, right, key] of ends) {
-          // In the type of the item it goes before, never next to an item
-          // of another type (see checkLinkable in Cursor).
-          if (left !== null && right !== null && left.parent !== right.parent) {
+        for (const [leftEnd, rightStart, key] of ends) {
+          // The items as the store holds them now, split at those ids.
+          const right =
+            rightStart === null ? null : getItemCleanStart(tr, rightStart);
+          let left: Item | null = null;
+          if (leftEnd !== null) {
+            const at = store.getItem(leftEnd);
+            if (
+              at instanceof Item &&
+              at.id.clock + at.length - 1 > leftEnd.clock
+            ) {
+              getItemCleanStart(
+                tr,
+                createID(leftEnd.client, leftEnd.clock + 1),
+              );
+            }
+            const found = store.getItem(leftEnd);
+            left = found instanceof Item ? found : null;
+          }
+          // Still next to each other, in one type (never next to an item of
+          // another type: see checkLinkable in Cursor).
+          if (
+            (rightStart !== null && !(right instanceof Item)) ||
+            (leftEnd !== null && left === null) ||
+            (left === null && right === null) ||
+            (left !== null && left.right !== right) ||
+            (left === null && right !== null && right.left !== null) ||
+            (left !== null && right !== null && left.parent !== right.parent)
+          ) {
             continue;
           }
           const item = new Item(
@@ -5744,7 +5778,6 @@ export class YBinding {
     }
     const names = new Set<string>();
     const removing = new Set<Item>();
-    const undoing = new Set<Item>();
     const isStored = (s: unknown): s is Item => {
       if (!(s instanceof Item) || !(s.content instanceof ContentType)) {
         return false;
@@ -5759,9 +5792,6 @@ export class YBinding {
         }
       });
       iterateStructsByIdSet(tr, top.inserts, s => {
-        if (s instanceof Item) {
-          undoing.add(s);
-        }
         if (isStored(s)) {
           removing.add(s);
         }
@@ -5769,7 +5799,9 @@ export class YBinding {
     }, this.scanOrigin);
     this.restoring = names;
     this.removing = removing;
-    this.undoing = undoing;
+    // By id: this scan's transaction splits items and merges them back, so
+    // the item objects it saw need not be those the undo meets.
+    this.undoing = top.inserts;
   }
 
   // -------------------------------------------------------------------------

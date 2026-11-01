@@ -9,11 +9,13 @@
 import * as Y from '@y/y';
 
 /**
- * The items of `doc` whose left or right neighbour belongs to another shared
- * type (`client:clock` of each). A well-formed document has none: such an item
- * is linked into one type's list while it names another as its parent, which
- * only the document that wrote it holds (every other client integrates it
- * from its origin), and that document's reads then go wrong.
+ * The items of `doc` whose list links are broken (`client:clock` of each): a
+ * left or right neighbour that belongs to another shared type (or another key
+ * of a map), or that does not link back to the item. A well-formed document
+ * has none. An item linked into one type's list while it names another as its
+ * parent, or one a forward walk of its list skips, is held only by the
+ * document that wrote it (every other client integrates it from its origin),
+ * and that document's reads then go wrong.
  */
 export function misLinkedItems(doc: Y.Doc): string[] {
   const out: string[] = [];
@@ -22,9 +24,16 @@ export function misLinkedItems(doc: Y.Doc): string[] {
       if (!(s instanceof Y.Item)) {
         continue;
       }
+      const {left, right} = s;
       if (
-        (s.left !== null && s.left.parent !== s.parent) ||
-        (s.right !== null && s.right.parent !== s.parent)
+        (left !== null &&
+          (left.parent !== s.parent ||
+            left.parentSub !== s.parentSub ||
+            left.right !== s)) ||
+        (right !== null &&
+          (right.parent !== s.parent ||
+            right.parentSub !== s.parentSub ||
+            right.left !== s))
       ) {
         out.push(`${s.id.client}:${s.id.clock}`);
       }
