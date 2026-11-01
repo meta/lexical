@@ -113,7 +113,13 @@ describe('arrow keys on a node-selected decorator in plain text', () => {
       const selection = $getSelection();
       expect($isRangeSelection(selection)).toBe(true);
       if ($isRangeSelection(selection)) {
-        expect(selection.isCollapsed()).toBe(false);
+        // the range around the rule: it starts before it, and its focus is
+        // after it, the way the key extends it
+        const rootKey = $getRoot().getKey();
+        expect(selection.anchor.key).toBe(rootKey);
+        expect(selection.anchor.offset).toBe(1);
+        expect(selection.focus.key).toBe(rootKey);
+        expect(selection.focus.offset).toBe(2);
       }
     });
   });

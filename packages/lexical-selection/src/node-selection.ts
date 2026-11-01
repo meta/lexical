@@ -47,9 +47,15 @@ export function $exitNodeSelectionToward(
 
 /**
  * Convert a contiguous NodeSelection to a RangeSelection that covers the same
- * siblings. Discontiguous NodeSelections cannot be represented as a range
- * without selecting the nodes between them, so they retain the existing
- * collapse behavior in the arrow handlers.
+ * siblings, with its focus at the end that `direction` points to. Returns
+ * `true` when it did, and commits the current update synchronously so that the
+ * browser's default action for the key extends the converted selection (Firefox
+ * does not pick up a selection that lands after the keydown listeners return).
+ *
+ * Discontiguous NodeSelections cannot be represented as a range without
+ * selecting the nodes between them: it returns `false` and leaves the
+ * selection unchanged, for the caller to collapse it instead (see
+ * {@link $exitNodeSelectionToward}).
  */
 export function $convertContiguousNodeSelection(
   selection: NodeSelection,
