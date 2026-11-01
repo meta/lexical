@@ -20,7 +20,18 @@ import {
   safeCast,
 } from 'lexical';
 
-import {$isQuoteNode, QuoteNode} from './index';
+import {HeadingAnnounceExtension} from './HeadingAnnounceExtension';
+import {$isHeadingNode, $isQuoteNode, QuoteNode} from './index';
+
+/**
+ * One message for a swap. The block the caret landed in comes first, then
+ * the block that was removed. The second clause continues the first.
+ */
+function joinSwap(left: string, right: string): string {
+  const continued =
+    right.length === 0 ? right : right.charAt(0).toLowerCase() + right.slice(1);
+  return `${left}, ${continued}`;
+}
 
 export interface QuoteAnnounceExtensionConfig {
   /** Announced when a block becomes a quote. */
@@ -60,6 +71,16 @@ export interface QuoteAnnounceExtensionConfig {
  * Only one thing is announced per commit, so removing the lower of two quotes
  * reports the removal and where the caret ended up together. Announcing only
  * the removal leaves the user inside the quote above with no way to know it.
+ *
+ * A quote made or removed somewhere other than the caret stays quiet. The
+ * caret has not moved onto that quote, so the screen reader has nothing new
+ * to say about where the user is. That covers another person's edit, and a
+ * paste or import that happens to contain a quote the caret did not land in.
+ *
+ * When a heading and a quote trade places, both facts go in the one message,
+ * destination first: "Block quote, heading level 2 removed", or "Heading
+ * level 2, block quote removed". The live region keeps only the last message
+ * in a commit, so this announcer writes that whole line itself.
  */
 export const QuoteAnnounceExtension = defineExtension({
   build: (_editor, config) => namedSignals(config),
@@ -71,12 +92,26 @@ export const QuoteAnnounceExtension = defineExtension({
     entered: 'Block quote',
     exited: 'Exiting block quote',
   }),
-  dependencies: [AriaLiveRegionExtension],
+  dependencies: [AriaLiveRegionExtension, HeadingAnnounceExtension],
   name: '@lexical/rich-text/QuoteAnnounce',
   register(editor, _config, state) {
     const {created, destroyed, destroyedInside, disabled, entered, exited} =
       state.getOutput();
     const {announce} = state.getDependency(AriaLiveRegionExtension).output;
+    const {
+      created: headingCreated,
+      destroyed: headingDestroyed,
+      disabled: headingDisabled,
+    } = state.getDependency(HeadingAnnounceExtension).output;
+
+    const $headingLevel = (
+      editorState: EditorState,
+      blockKey: NodeKey,
+    ): string | null =>
+      editorState.read(() => {
+        const block = $getNodeByKey(blockKey);
+        return $isHeadingNode(block) ? block.getTag().slice(1) : null;
+      });
 
     const $caretAt = (
       editorState: EditorState,
@@ -103,12 +138,9 @@ export const QuoteAnnounceExtension = defineExtension({
      * that is not a plain paragraph — the shape of converting one block type
      * to another, as `$setBlocksType` does.
      *
-     * A converted-to block speaks for itself: the heading announcer reports
-     * "Heading level 2" from a mutation listener, which runs while the commit
-     * is still being applied. This announcer runs afterwards, from an update
-     * listener, and the live region keeps only the last message — so saying
-     * the quote went away here would erase what the new block said. Staying
-     * quiet lets the more useful message stand.
+     * A heading that replaces the quote is named first, then the removal,
+     * because the live region keeps only the last write in a commit.
+     * Any other block type is left to speak for itself.
      *
      * Converting to a plain paragraph is excluded because nothing announces a
      * paragraph, so "Block quote removed" is the only report the user gets.
@@ -128,8 +160,11 @@ export const QuoteAnnounceExtension = defineExtension({
       });
 
     // Recorded by the mutation listener, read by the update listener that runs
-    // after it.
+    // after it. The sets say which quotes changed, so the update can tell
+    // whether the caret was in one of them.
     let quotesChanged: 'created' | 'destroyed' | null = null;
+    let createdKeys = new Set<NodeKey>();
+    let destroyedKeys = new Set<NodeKey>();
 
     // Gate on `disabled` from an effect so a disabled announcer registers no
     // listener at all. Peek the message signals at announce time so editing
@@ -144,12 +179,15 @@ export const QuoteAnnounceExtension = defineExtension({
                 // Converting one block type to another destroys and creates in
                 // the same update. Prefer the creation, so a paragraph becoming
                 // a quote is not reported as a quote being removed.
-                for (const [, mutation] of nodes) {
+                for (const [key, mutation] of nodes) {
                   if (mutation === 'created') {
+                    createdKeys.add(key);
                     quotesChanged = 'created';
-                    return;
                   } else if (mutation === 'destroyed') {
-                    quotesChanged = 'destroyed';
+                    destroyedKeys.add(key);
+                    if (quotesChanged !== 'created') {
+                      quotesChanged = 'destroyed';
+                    }
                   }
                 }
               },
@@ -158,21 +196,57 @@ export const QuoteAnnounceExtension = defineExtension({
             editor.registerUpdateListener(
               ({dirtyElements, dirtyLeaves, editorState, prevEditorState}) => {
                 const changed = quotesChanged;
+                const createdNow = createdKeys;
+                const destroyedNow = destroyedKeys;
                 quotesChanged = null;
+                createdKeys = new Set();
+                destroyedKeys = new Set();
                 // Nothing was made or unmade, so nothing can have appeared or
                 // disappeared beside the caret.
                 if (dirtyElements.size === 0 && dirtyLeaves.size === 0) {
-                  return;
-                }
-                if (changed === 'created') {
-                  announce(created.peek());
                   return;
                 }
 
                 const before = $caretAt(prevEditorState);
                 const after = $caretAt(editorState);
 
+                if (changed === 'created') {
+                  // Speak only when the caret is inside the quote this commit
+                  // made. A quote added somewhere else is not where the user is.
+                  if (
+                    after !== null &&
+                    after.quote !== null &&
+                    createdNow.has(after.quote)
+                  ) {
+                    const level =
+                      before !== null &&
+                      isMissingFrom(editorState, before.block)
+                        ? $headingLevel(prevEditorState, before.block)
+                        : null;
+                    // Where the caret landed, then the heading it replaced.
+                    if (level !== null && !headingDisabled.peek()) {
+                      announce(
+                        joinSwap(
+                          created.peek(),
+                          headingDestroyed.peek().replace('%s', level),
+                        ),
+                      );
+                    } else {
+                      announce(created.peek());
+                    }
+                  }
+                  return;
+                }
+
                 if (changed === 'destroyed') {
+                  // Speak only when the caret was in the quote that went away.
+                  if (
+                    before === null ||
+                    before.quote === null ||
+                    !destroyedNow.has(before.quote)
+                  ) {
+                    return;
+                  }
                   if (
                     after !== null &&
                     after.quote === null &&
@@ -182,6 +256,16 @@ export const QuoteAnnounceExtension = defineExtension({
                       after.block,
                     )
                   ) {
+                    const level = $headingLevel(editorState, after.block);
+                    // Where the caret landed, then the quote it replaced.
+                    if (level !== null && !headingDisabled.peek()) {
+                      announce(
+                        joinSwap(
+                          headingCreated.peek().replace('%s', level),
+                          destroyed.peek(),
+                        ),
+                      );
+                    }
                     return;
                   }
                   // Removing the lower of two quotes leaves the caret inside

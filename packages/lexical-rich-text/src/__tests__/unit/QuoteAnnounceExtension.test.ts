@@ -106,6 +106,54 @@ describe('QuoteAnnounceExtension', () => {
     expect(readLiveRegion()).toBe('Block quote removed');
   });
 
+  test('stays silent when a quote is created away from the caret', () => {
+    using editor = buildEditor();
+    editor.update(
+      () => {
+        const paragraph = $createParagraphNode();
+        paragraph.append($createTextNode('here'));
+        $getRoot().append(paragraph);
+        paragraph.selectEnd();
+      },
+      {discrete: true},
+    );
+    clearLiveRegion();
+
+    // A quote added at the end of the document while the caret stays put.
+    // Another person's edit, or a paste that did not land in the quote.
+    editor.update(
+      () => {
+        const quote = $createQuoteNode();
+        quote.append($createTextNode('elsewhere'));
+        $getRoot().append(quote);
+      },
+      {discrete: true},
+    );
+
+    expect(readLiveRegion()).toBe('');
+  });
+
+  test('stays silent when a quote is removed away from the caret', () => {
+    using editor = buildEditor();
+    addQuote(editor, 'elsewhere');
+    editor.update(
+      () => {
+        const paragraph = $createParagraphNode();
+        paragraph.append($createTextNode('here'));
+        $getRoot().append(paragraph);
+        paragraph.selectEnd();
+      },
+      {discrete: true},
+    );
+    clearLiveRegion();
+
+    editor.update(() => void $getRoot().getFirstChild()?.remove(), {
+      discrete: true,
+    });
+
+    expect(readLiveRegion()).toBe('');
+  });
+
   test('stays silent while typing inside a quote', () => {
     using editor = buildEditor();
     addQuote(editor);
@@ -212,20 +260,75 @@ describe('QuoteAnnounceExtension', () => {
     expect(readLiveRegion()).toBe('Block quote removed, in block quote');
   });
 
-  test('lets the new block speak when a quote becomes another block type', () => {
+  test('lets the new block speak when a quote becomes another block type', async () => {
     using editor = buildEditor();
     addQuote(editor);
     clearLiveRegion();
+
+    const region = document.body.querySelector('[aria-live]')!;
+    const seen: string[] = [];
+    const observer = new MutationObserver(() => {
+      seen.push((region.textContent ?? '').replace(/\u200B/g, ''));
+    });
+    observer.observe(region, {
+      characterData: true,
+      childList: true,
+      subtree: true,
+    });
 
     editor.update(
       () => $setBlocksType($getSelection(), () => $createHeadingNode('h2')),
       {discrete: true},
     );
+    await Promise.resolve();
+    observer.disconnect();
 
-    // The heading announcer speaks from a mutation listener, while this one
-    // speaks from an update listener that runs after it. Reporting the quote
-    // here would overwrite the heading in the live region.
-    expect(readLiveRegion()).toBe('Heading level 2');
+    // Where the caret landed first, then the quote that was removed.
+    // The heading is not written on its own.
+    expect({final: readLiveRegion(), seen}).toEqual({
+      final: 'Heading level 2, block quote removed',
+      seen: ['Heading level 2, block quote removed'],
+    });
+  });
+
+  test('lets the quote speak when a heading becomes a quote', async () => {
+    using editor = buildEditor();
+    editor.update(
+      () => {
+        const heading = $createHeadingNode('h2');
+        const text = $createTextNode('title');
+        heading.append(text);
+        $getRoot().append(heading);
+        text.selectEnd();
+      },
+      {discrete: true},
+    );
+    clearLiveRegion();
+
+    const region = document.body.querySelector('[aria-live]')!;
+    const seen: string[] = [];
+    const observer = new MutationObserver(() => {
+      seen.push((region.textContent ?? '').replace(/\u200B/g, ''));
+    });
+    observer.observe(region, {
+      characterData: true,
+      childList: true,
+      subtree: true,
+    });
+
+    editor.update(
+      () => $setBlocksType($getSelection(), () => $createQuoteNode()),
+      {discrete: true},
+    );
+    await Promise.resolve();
+    observer.disconnect();
+
+    // Where the caret landed first, then the heading that was removed.
+    // The heading removal is not written on its own.
+    expect({final: readLiveRegion(), seen}).toEqual({
+      final: 'Block quote, heading level 2 removed',
+      seen: ['Block quote, heading level 2 removed'],
+    });
   });
 
   test('still reports removal when a quote becomes a plain paragraph', () => {
