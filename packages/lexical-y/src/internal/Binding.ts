@@ -320,6 +320,14 @@ const keepOwners = new WeakMap<
   {external: boolean; owners: Set<object>}
 >();
 
+/**
+ * Per binding lifetime (the owner in keepOwners), the items it kept again
+ * after its UndoManager let them go (a clear of a stack releases what its
+ * steps kept, parents included). Those keeps are the bindings' own: the
+ * last binding lifetime that holds such an item releases it when it stops.
+ */
+const rekeptByOwner = new WeakMap<object, Set<Item>>();
+
 /** What an update listener gets for a commit (see YBinding#onUpdate). */
 type UpdatePayload = {
   dirtyElements: Map<NodeKey, boolean>;
@@ -1144,6 +1152,27 @@ export class YBinding {
       // This listening lifetime: a binding started again after a dispose
       // owns its keeps anew, apart from a release the old one queued.
       const owner = {};
+      const rekept = new Set<Item>();
+      rekeptByOwner.set(owner, rekept);
+      // When this lifetime ends: what it kept again after its UndoManager
+      // let it go is released, or handed to the lifetimes of other
+      // bindings that still keep it (the last of them releases it).
+      const releaseRekept = () => {
+        for (const it of rekept) {
+          const entry = keepOwners.get(it);
+          if (entry !== undefined && entry.owners.size > 0) {
+            for (const other of entry.owners) {
+              const theirs = rekeptByOwner.get(other);
+              if (theirs !== undefined) {
+                theirs.add(it);
+              }
+            }
+            continue;
+          }
+          it.keep = false;
+        }
+        rekept.clear();
+      };
       const keep = (item: Item | null) => {
         for (let it = item; it !== null; it = (it.parent as YNode)._item) {
           let entry = keepOwners.get(it);
@@ -1191,12 +1220,14 @@ export class YBinding {
         kept.clear();
         if (disposed) {
           this._doc.off('destroy', onDestroy);
+          releaseRekept();
         }
       };
       const release = (onlyWhenEmpty: boolean) => {
         if (kept.size === 0) {
           if (disposed) {
             this._doc.off('destroy', onDestroy);
+            releaseRekept();
           }
           return;
         }
@@ -1232,10 +1263,13 @@ export class YBinding {
         releaseWhenEmpty();
         // A clear of one stack makes the UndoManager release what that
         // stack's steps kept, parents included: keep what this binding
-        // still relies on.
+        // still relies on (another UndoManager on the document may rely on
+        // it too: Yjs's keep is one flag). Released when this binding stops
+        // (see releaseRekept), not before.
         for (const it of kept) {
           if (!it.keep) {
             it.keep = true;
+            rekept.add(it);
           }
         }
       });
