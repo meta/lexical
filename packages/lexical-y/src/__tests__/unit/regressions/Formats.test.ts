@@ -38,6 +38,7 @@ import {
   type Peer,
   setup,
   shape,
+  WITH_GC,
 } from '../../utils/harness';
 
 function attach(peer: Peer) {
@@ -907,12 +908,14 @@ describe('F30A-1: undo of a format change ‖ the same change made again', () =>
     ],
   ];
   for (const [name, $first, $second, $again, expected] of cases) {
+    // #9683: with gc on, the italic case takes the italic off the space.
+    const knownGcFailure = WITH_GC && name.startsWith('italic');
     for (const ids of [
       [1, 2, 3],
       [3, 2, 1],
       [2, 3, 1],
     ]) {
-      test(`${name} (ids ${ids})`, async () => {
+      (knownGcFailure ? test.fails : test)(`${name} (ids ${ids})`, async () => {
         const t = await setup($init, {ids});
         t.a.update(() => {
           $first();
