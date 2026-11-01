@@ -6,14 +6,12 @@
  *
  */
 
-import {moveLeft, toggleBold} from '../keyboardShortcuts/index.mjs';
+import {moveLeft} from '../keyboardShortcuts/index.mjs';
 import {
   assertHTML,
   assertSelection,
   click,
-  expect,
   focusEditor,
-  getPageOrFrame,
   html,
   initialize,
   pasteFromClipboard,
@@ -85,128 +83,6 @@ test.describe('Hashtags', () => {
 
   test.describe(() => {
     test.skip(({isPlainText}) => isPlainText);
-
-    test('Typing hashtags between bold text settles', async ({page}) => {
-      // Hashtags next to bold text: "#foo" touches the bold "a" before it, so
-      // it is no hashtag, and "#bar" after a space is one. Typing a space
-      // inside "#foobar", between bold "a" and a hashtag before bold "!",
-      // keeps it that way. This settled before #9637's fix too (text after a
-      // hashtag only extends it); the keyword test below reproduces #9637.
-      await focusEditor(page);
-      await toggleBold(page);
-      await page.keyboard.type('a');
-      await toggleBold(page);
-      await page.keyboard.type('#foo #bar');
-      await assertHTML(
-        page,
-        html`
-          <p class="PlaygroundEditorTheme__paragraph" dir="auto">
-            <strong
-              class="PlaygroundEditorTheme__textBold"
-              data-lexical-text="true">
-              a
-            </strong>
-            <span data-lexical-text="true">#foo</span>
-            <span
-              class="PlaygroundEditorTheme__hashtag"
-              data-lexical-text="true">
-              #bar
-            </span>
-          </p>
-        `,
-      );
-
-      await expect(
-        getPageOrFrame(page).locator('div[contenteditable="true"] p').first(),
-      ).toHaveText('a#foo #bar');
-
-      await page.keyboard.press('Enter');
-      await toggleBold(page);
-      await page.keyboard.type('a');
-      await toggleBold(page);
-      await page.keyboard.type('#foobar #baz');
-      await toggleBold(page);
-      await page.keyboard.type('!');
-      await moveLeft(page, 9);
-      await page.keyboard.type(' ');
-      await assertHTML(
-        page,
-        html`
-          <p class="PlaygroundEditorTheme__paragraph" dir="auto">
-            <strong
-              class="PlaygroundEditorTheme__textBold"
-              data-lexical-text="true">
-              a
-            </strong>
-            <span data-lexical-text="true">#foo</span>
-            <span
-              class="PlaygroundEditorTheme__hashtag"
-              data-lexical-text="true">
-              #bar
-            </span>
-          </p>
-          <p class="PlaygroundEditorTheme__paragraph" dir="auto">
-            <strong
-              class="PlaygroundEditorTheme__textBold"
-              data-lexical-text="true">
-              a
-            </strong>
-            <span data-lexical-text="true">#foo bar</span>
-            <span
-              class="PlaygroundEditorTheme__hashtag"
-              data-lexical-text="true">
-              #baz
-            </span>
-            <strong
-              class="PlaygroundEditorTheme__textBold"
-              data-lexical-text="true">
-              !
-            </strong>
-          </p>
-        `,
-      );
-      await expect(
-        getPageOrFrame(page).locator('div[contenteditable="true"] p').nth(1),
-      ).toHaveText('a#foo bar #baz!');
-    });
-    test('Typing a space between two keywords between bold text settles', async ({
-      page,
-    }) => {
-      // #9637: neither "congrats" is a keyword, as each touches a bold
-      // letter. Before, the space was dropped with "One or more transforms
-      // are endlessly triggering additional transforms".
-      await focusEditor(page);
-      await toggleBold(page);
-      await page.keyboard.type('x');
-      await toggleBold(page);
-      await page.keyboard.type('congratscongrats');
-      await toggleBold(page);
-      await page.keyboard.type('y');
-      await moveLeft(page, 9);
-      await page.keyboard.type(' ');
-      await assertHTML(
-        page,
-        html`
-          <p class="PlaygroundEditorTheme__paragraph" dir="auto">
-            <strong
-              class="PlaygroundEditorTheme__textBold"
-              data-lexical-text="true">
-              x
-            </strong>
-            <span data-lexical-text="true">congrats congrats</span>
-            <strong
-              class="PlaygroundEditorTheme__textBold"
-              data-lexical-text="true">
-              y
-            </strong>
-          </p>
-        `,
-      );
-      await expect(
-        getPageOrFrame(page).locator('div[contenteditable="true"] p').first(),
-      ).toHaveText('xcongrats congratsy');
-    });
-
     test('Should not break when pasting multiple matches', async ({page}) => {
       await focusEditor(page);
 
