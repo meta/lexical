@@ -876,20 +876,71 @@ person's:
   tells apart users' own edits, which a listener may act on, from
   everything else. (Lexical's update that runs a newly registered transform
   over the document keeps Lexical's tags; it writes nothing.)
-- **Apply an edit to the state it was computed from, then merge.** An edit
-  planned from an older read (a model's answer arrives seconds later) can
-  land in the wrong place if it is applied to the current state. Load that
-  read's update into a document (`createYDoc(readState)`), bind a headless
-  editor to it with `YBinding`, apply the edit there, and apply the update
-  it produced
-  (`Y.encodeStateAsUpdate(copy, readStateVector)`) to the live document:
-  Yjs merges it with what changed since. The copy's writes go into the live
-  document, so give its `YBinding` the same `clientIDRange` as the other
-  clients (see [Servers](#servers)).
+- **Check what an edit names, then apply it to the current state.** An
+  edit planned from an older read (a model's answer arrives seconds later)
+  can be wrong once the document has changed, and merging it from that read
+  (editing a copy of the read and merging the copy's update into the
+  document) converges to text nobody meant: where a collaborator changed
+  the same words, both changes end up glued together (`slowswift`); two
+  agents making the same edit write it twice (`4.2.2%`); the new text of a
+  block a collaborator moved lands where the block was, while the moved
+  block keeps its old text; deleting a block a collaborator is typing in
+  glues their sentence to the next line. So before you apply an edit, check
+  what it names, on the current state:
+  - a replacement of words checks only those words, in the block where the
+    edit read them (found by its id on the current state): they are still
+    there, exactly once;
+  - a rewrite or a delete of a block checks the whole block: it still
+    exists where it was, unchanged since the read in everything it holds
+    (its type, text, formats, style, NodeState and children; compare the
+    two blocks serialized whole, not their text). That covers what the
+    checking code's schema declares: check with a schema that still
+    declares every field stored versions may hold, or a change to a field
+    it dropped goes unnoticed;
+  - a format or a comment the edit applies to words it names checks those
+    words like a replacement, and is applied to them as found on the
+    current state, never by offsets from the read;
+  - an insert checks that the block it is anchored to still exists.
 
-On a server, `editYState` from `@lexical/y/headless` does the second step:
-run it on the state the edit was computed from, with the agent's writer, and
-merge the `update` it returns into the live document (see
+  Check every edit of a batch before applying any. When every check passes,
+  apply the edits to the current state in order, finding each block there by
+  id, not in the read, and checking each edit again on the state the ones
+  before it leave: when an earlier edit changes a later one's target (its
+  words changed or now appear twice, its block deleted or rewritten, a block
+  named twice), refuse the whole batch, a conservative rule (an agent sends
+  dependent changes as one edit). When one fails, apply none of them, and
+  return to the agent every failure: which edit, the reason (the words
+  changed or appear more than once, the block changed, the block is gone,
+  each also after an earlier edit of the batch), the block's content in the
+  current state (not in the discarded edit), and a new read to plan from,
+  so that it plans again. Store the
+  result only if nothing was stored since the state you checked (a
+  compare-and-set); when something was, drop the state and the update
+  computed on the older state and run the whole check and edit again on the
+  newer one (a few times at most, then refuse back to the agent with a read
+  of the state that won): never store or send an update computed on a state
+  whose check no longer holds. A check covers only
+  what the edit names: a count or a reference elsewhere that a collaborator
+  changed meanwhile (a list item deleted while the agent changes "3 open" to
+  "4 open") is the agent's to catch, from what changed since its read.
+- **Merge from the read only where there is nothing to check.** An append
+  (to the end of a document, or a new document), a suggestion a person
+  accepts, and an edit addressed by position that cannot be found again on
+  the current state (not a format or comment on named words: those are
+  checked) can be made on the read and merged: load that read's
+  update into a document (`createYDoc(readState)`), bind a headless editor
+  to it with `YBinding`, apply the edit there, and apply the update it
+  produced (`Y.encodeStateAsUpdate(copy, readStateVector)`) to the live
+  document: Yjs merges it with what changed since. The copy's writes go
+  into the live document, so give its `YBinding` the same `clientIDRange`
+  as the other clients (see [Servers](#servers)).
+
+On a server, `readYState` and `editYState` from `@lexical/y/headless` do
+both: check the edit with `readYState` on the latest stored state, then run
+`editYState` on that same state with the agent's writer, store the state it
+returns with a compare-and-set (starting over on a lost race), and send the
+`update`; for an edit merged from its read, run `editYState` on the read and
+merge its `update` into the latest state (see
 [Edits by agents and tools](./y-server.md#edits-by-agents-and-tools)).
 
 ## Servers
@@ -961,7 +1012,7 @@ doc.clientID = crypto.getRandomValues(new Uint32Array(1))[0] || 1;
 ```
 
 Deliver updates in causal order: each update after every update it depends
-on, from any client (as json-joy also requires). A single relay that every
+on, from any client. A single relay that every
 client sends to and receives from, and that forwards every update to each
 client in the one order it received them, whichever client sent it, does
 this. A mesh (such as y-webrtc), or
@@ -974,7 +1025,7 @@ missing update arrives, and an edit it makes in that moment makes the
 spread permanent, on every client
 ([#9645](https://github.com/meta/lexical/issues/9645)).
 
-Deliver each client's updates in order. With Yjs 14.0.0-rc.29, a client
+Causal order includes each client's own order. With Yjs 14.0.0-rc.29, a client
 that receives an update past a gap in another client's clocks (a relay that
 reorders and batches updates) can show a character that a document loaded
 from that client's own `encodeStateAsUpdate` keeps pending, until the
@@ -1361,8 +1412,9 @@ not merge as a user might expect:
   same way, a comment on a word a collaborator rewrites at the same moment
   can land on the new word: with `setTextContent` for one client id order,
   and with a rewrite of the whole line (its text nodes replaced by a new
-  one, as an agent writes it) for one or both orders; the words of the range
-  the rewrite kept keep the comment
+  one, as an agent writes it) for one order when the comment ends at that
+  word and for both when it continues past it; the words of the range the
+  rewrite kept keep the comment
   ([#9610](https://github.com/meta/lexical/issues/9610)). A
   node whose `isInline()` changes is written again in its new form, so
   text typed inside it at the same time lands next to it, in an inline

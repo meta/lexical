@@ -9,9 +9,11 @@
 // @vitest-environment node
 
 // The agent edit sketches of the server page
-// (packages/lexical-website/docs/collaboration/y-server.md), as written there,
-// run over every kind of text node and block they can meet. Keep the two in
-// sync (the first test checks it).
+// (packages/lexical-website/docs/collaboration/y-server.md), as written there
+// (`../utils/agentEditSketch.ts`; the first test checks that the two are the
+// same), run over every kind of text node and block they can meet, over
+// targets a collaborator changed since the agent's read, and over a store
+// that loses the race to a newer state.
 
 import {$createCodeHighlightNode, CodeHighlightNode} from '@lexical/code-core';
 import {$getBlockById, $getBlockId, BlockIdExtension} from '@lexical/extension';
@@ -30,19 +32,17 @@ import {
   $createTextNode,
   $getRoot,
   $getSlot,
-  $getSlotHost,
-  $getSlotNames,
-  $getSlotNameWithinHost,
-  $isElementNode,
-  $isRootNode,
   $isTextNode,
   $setSlot,
   defineExtension,
   ElementNode,
   type LexicalNode,
   type LexicalWarning,
+  nodeSchema,
   ParagraphNode,
+  stringValue,
   TextNode,
+  withField,
 } from 'lexical';
 import fs from 'node:fs';
 import {describe, expect, test} from 'vitest';
@@ -51,79 +51,20 @@ import {NESTED_FALLBACK_WARNING} from '../..';
 import {
   createYWriter,
   editYState,
+  type HeadlessYConfig,
   readYState,
   seedYState,
 } from '../../headless';
+import {
+  $blockAt,
+  $findWords,
+  $plainTextOf,
+  $setTextInPlace,
+  $subtree,
+  applyChecked,
+  type DocStore,
+} from '../utils/agentEditSketch';
 import {SlotBodyNode} from '../utils/slots';
-
-// Changes a text node's text to `next` with one splice: the start and end
-// the two texts share stay (and what collaborators type in them), and
-// everything from the first difference to the last is replaced. For an
-// answer that changes several separate places, splice each change on its
-// own (from a diff of the two texts), so the text between them stays too.
-function $setTextInPlace(text: TextNode, next: string): void {
-  const prev = text.getTextContent();
-  let start = 0;
-  while (start < prev.length && prev[start] === next[start]) {
-    start++;
-  }
-  let end = 0;
-  while (
-    end < prev.length - start &&
-    end < next.length - start &&
-    prev[prev.length - 1 - end] === next[next.length - 1 - end]
-  ) {
-    end++;
-  }
-  text.spliceText(
-    start,
-    prev.length - start - end,
-    next.slice(start, next.length - end),
-  );
-}
-
-// The text node of a block that this sketch edits in place, or null: the
-// block's only child, plain text, and no named slots. A tab does not take
-// text, a hashtag or a code token would keep its type around the new text,
-// and the text of a named slot is part of the block's text but not of that
-// child.
-function $plainTextOf(block: LexicalNode | null): TextNode | null {
-  if (
-    !$isElementNode(block) ||
-    $getSlotNames(block).length > 0 ||
-    block.getChildrenSize() !== 1
-  ) {
-    return null;
-  }
-  const text = block.getFirstChild();
-  return $isTextNode(text) && text.isSimpleText() ? text : null;
-}
-
-// Where the block with this id is and what it holds, or null when no block
-// has the id: the path from it up to the root (through the hosts of named
-// slots), each node on it by its id or, for one without (a table cell, by
-// default), by its type, and each by its place: the slot it fills, or its
-// index in its parent; and its text. A collaborator's move of the block or
-// of a container it is in changes the path; a replace changes the text
-// (unless the new block has the same text).
-function $placeOf(id: string): string | null {
-  const block = $getBlockById(id);
-  if (block === null) {
-    return null;
-  }
-  const path: unknown[] = [];
-  for (
-    let node: LexicalNode | null = block;
-    node !== null && !$isRootNode(node);
-    node = node.getParent() ?? $getSlotHost(node)
-  ) {
-    path.push([
-      $getBlockId(node) ?? node.getType(),
-      $getSlotNameWithinHost(node) ?? node.getIndexWithinParent(),
-    ]);
-  }
-  return JSON.stringify([path, block.getTextContent()]);
-}
 
 /** An app's own text node, such as a mention. */
 class MentionNode extends TextNode {
@@ -240,48 +181,233 @@ const SHAPES: [string, () => LexicalNode, boolean][] = [
   ],
 ];
 
-/** A block's whole subtree as JSON: its children and named slots too. */
-function $subtree(node: LexicalNode): unknown {
-  const slots: Record<string, unknown> = {};
-  for (const name of $getSlotNames(node)) {
-    const slot = $getSlot(node, name);
-    slots[name] = slot === null ? null : $subtree(slot);
-  }
-  return {
-    ...node.exportJSON(),
-    children: $isElementNode(node) ? node.getChildren().map($subtree) : [],
-    slots,
+type MemoryStore = DocStore & {
+  races: number;
+  sent: Uint8Array[];
+  state: Uint8Array;
+  stores: number;
+  version: number;
+};
+
+/**
+ * A document's storage in memory. `race`, called before each compare-and-set
+ * with the stored state, returns a newer state stored meanwhile by someone
+ * else (the compare-and-set then fails), or null.
+ */
+function memoryStore(
+  state: Uint8Array,
+  race: (stored: Uint8Array) => Uint8Array | null = () => null,
+): MemoryStore {
+  const store: MemoryStore = {
+    async load() {
+      return {state: store.state, version: store.version};
+    },
+    races: 0,
+    send(update) {
+      store.sent.push(update);
+    },
+    sent: [],
+    state,
+    async storeIf(version, next) {
+      const newer = race(store.state);
+      if (newer !== null) {
+        store.races++;
+        store.state = newer;
+        store.version++;
+      }
+      if (version !== store.version) {
+        return false;
+      }
+      store.state = next;
+      store.version++;
+      store.stores++;
+      return true;
+    },
+    stores: 0,
+    version: 0,
   };
+  return store;
 }
 
+/** The replacements of words of the server page, as written there. */
+function replaceWordsBatch(
+  store: DocStore,
+  config: HeadlessYConfig,
+  edits: {from: string; id: string; to: string}[],
+) {
+  // What each edit's block holds in the latest stored state: a refusal
+  // reports it, also for an edit that fails only after an earlier one.
+  const stored = new Map<string, string | undefined>();
+  const $failure = (index: number, reason: string) => ({
+    id: edits[index].id,
+    index,
+    reason,
+    text: stored.get(edits[index].id),
+  });
+  return applyChecked(
+    store,
+    config,
+    () => {
+      for (const edit of edits) {
+        stored.set(edit.id, $getBlockById(edit.id)?.getTextContent());
+      }
+      return edits.flatMap((edit, index) => {
+        const found = $findWords(edit.id, edit.from);
+        return typeof found === 'string' ? [$failure(index, found)] : [];
+      });
+    },
+    () =>
+      edits.flatMap((edit, index) => {
+        const found = $findWords(edit.id, edit.from);
+        if (typeof found === 'string') {
+          return [$failure(index, `${found} after an earlier edit`)];
+        }
+        found.text.spliceText(found.offset, edit.from.length, edit.to);
+        return [];
+      }),
+  );
+}
+const replaceWords = (
+  store: DocStore,
+  config: HeadlessYConfig,
+  id: string,
+  from: string,
+  to: string,
+) => replaceWordsBatch(store, config, [{from, id, to}]);
+
+/** Steps 1 and 3 of Edits by block id, as written there. */
+function readBlocks(seen: Uint8Array, config: HeadlessYConfig) {
+  return readYState(seen, config, () =>
+    $getRoot()
+      .getChildren()
+      .map(node => {
+        const id = $getBlockId(node)!;
+        return {at: $blockAt(id), id, text: node.getTextContent()};
+      }),
+  );
+}
+function answerById(
+  store: DocStore,
+  config: HeadlessYConfig,
+  blocks: ReturnType<typeof readBlocks>,
+  ops: {id: string; text: string}[],
+) {
+  // What each op's block holds in the latest stored state, for a refusal.
+  const stored = new Map<string, string | undefined>();
+  const $reason = (op: {id: string}) => {
+    const at = $blockAt(op.id);
+    return ops.filter(other => other.id === op.id).length > 1
+      ? 'the block is named twice'
+      : at === null
+        ? 'the block is gone'
+        : at !== blocks.find(block => block.id === op.id)?.at
+          ? 'the block changed'
+          : $plainTextOf($getBlockById(op.id)) === null
+            ? 'not plain text'
+            : null;
+  };
+  const $failure = (index: number, reason: string) => ({
+    id: ops[index].id,
+    index,
+    reason,
+    text: stored.get(ops[index].id),
+  });
+  return applyChecked(
+    store,
+    config,
+    () => {
+      for (const op of ops) {
+        stored.set(op.id, $getBlockById(op.id)?.getTextContent());
+      }
+      return ops.flatMap((op, index) => {
+        const reason = $reason(op);
+        return reason === null ? [] : [$failure(index, reason)];
+      });
+    },
+    () =>
+      ops.flatMap((op, index) => {
+        const reason = $reason(op);
+        if (reason !== null) {
+          return [$failure(index, `${reason} after an earlier op`)];
+        }
+        $setTextInPlace($plainTextOf($getBlockById(op.id))!, op.text);
+        return [];
+      }),
+  );
+}
+
+const texts = (state: Uint8Array, config: HeadlessYConfig) =>
+  readYState(state, config, () =>
+    $getRoot()
+      .getChildren()
+      .map(node => node.getTextContent()),
+  );
+
+const collaborator = createYWriter('server-docs-collaborator');
+
+/** Paragraphs of plain text, with ids. */
+function seedLines(config: HeadlessYConfig, lines: string[]) {
+  const seen = seedYState(config, () =>
+    $getRoot().append(
+      ...lines.map(line =>
+        $createParagraphNode().append($createTextNode(line)),
+      ),
+    ),
+  );
+  const ids = readYState(seen, config, () =>
+    $getRoot()
+      .getChildren()
+      .map(node => $getBlockId(node)!),
+  );
+  return {ids, seen};
+}
+
+const $firstText = (id: string) =>
+  ($getBlockById(id) as ElementNode).getFirstChild() as TextNode;
+
 describe('server page: agent edits', () => {
-  test('the sketch is the same in the docs and the tests', () => {
-    const between = (path: string) => {
-      const source = fs.readFileSync(new URL(path, import.meta.url), 'utf8');
-      const start = source.indexOf("// Changes a text node's text to `next`");
-      const last = source.indexOf('function $placeOf', start);
-      return source.slice(start, source.indexOf('\n}\n', last) + 2);
-    };
-    const docs = between(
+  test('the sketches are the same in the docs and the tests', () => {
+    const read = (path: string) =>
+      fs.readFileSync(new URL(path, import.meta.url), 'utf8');
+    const page = read(
       '../../../../lexical-website/docs/collaboration/y-server.md',
     );
-    expect(docs).toContain('function $setTextInPlace');
-    expect(docs).toContain('function $plainTextOf');
-    expect(docs).toContain('function $placeOf');
-    expect(between('./ServerDocsAgentEdits.test.ts')).toBe(docs);
-    // The first sketch on the page guards its splice the same way.
+    const sketch = read('../utils/agentEditSketch.ts').replace(
+      /^export /gm,
+      '',
+    );
+    const region = (source: string, start: string, last: string) => {
+      const from = source.indexOf(start);
+      const end = source.indexOf('\n}\n', source.indexOf(last, from)) + 3;
+      return from === -1 ? '' : source.slice(from, end);
+    };
+    for (const [start, last] of [
+      ['// Your storage of one document', 'function $findWords'],
+      ["// Changes a text node's text", 'function $blockAt'],
+    ]) {
+      expect(region(page, start, last)).not.toBe('');
+      expect(region(page, start, last)).toBe(region(sketch, start, last));
+    }
+    // The two uses on the page are the ones in this file.
+    const self = read('./ServerDocsAgentEdits.test.ts');
+    for (const line of [
+      'found.text.spliceText(found.offset, edit.from.length, edit.to);',
+      'return [$failure(index, `${found} after an earlier edit`)];',
+      "? 'the block is named twice'",
+      '$setTextInPlace($plainTextOf($getBlockById(op.id))!, op.text);',
+      'return [$failure(index, `${reason} after an earlier op`)];',
+      'return {at: $blockAt(id), id, text: node.getTextContent()};',
+    ]) {
+      expect(page).toContain(line);
+      expect(self).toContain(line);
+    }
+    // The Block IDs page checks the whole block too.
     expect(
-      fs.readFileSync(
-        new URL(
-          '../../../../lexical-website/docs/collaboration/y-server.md',
-          import.meta.url,
-        ),
-        'utf8',
-      ),
-    ).toContain('if ($isTextNode(text) && text.isSimpleText()) {');
+      read('../../../../lexical-website/docs/extensions/block-ids.md'),
+    ).toContain('if ($blockAt(id) !== read.get(id)) {');
   });
 
-  test('edits blocks by id: plain text in place, every other shape refused, nothing thrown', () => {
+  test('edits blocks by id: plain text in place, every other shape refused, nothing thrown', async () => {
     const warnings: LexicalWarning[] = [];
     const config = {
       extensions: [AppNodes, BlockIdExtension],
@@ -291,218 +417,282 @@ describe('server page: agent edits', () => {
     const seen = seedYState(config, () =>
       $getRoot().append(...SHAPES.map(([, $make]) => $make())),
     );
-    const before = readYState(seen, config, () =>
-      $getRoot()
-        .getChildren()
-        .map(node => ({
-          id: $getBlockId(node),
-          json: JSON.stringify($subtree(node)),
-          text: node.getTextContent(),
-        })),
-    );
-    expect(before.map(block => block.id)).not.toContain(null);
-    // The agent answers every block with new text.
-    const ops = before.map(block => ({id: block.id!, text: 'New text'}));
-    const unsupported: typeof ops = [];
-    const {state} = editYState(
-      seen,
+    const blocks = readBlocks(seen, config);
+    expect(blocks.map(block => block.id)).not.toContain(null);
+    const wholeOf = (state: Uint8Array) =>
+      readYState(state, config, () =>
+        $getRoot()
+          .getChildren()
+          .map(node => JSON.stringify($subtree(node))),
+      );
+    const before = wholeOf(seen);
+    // One op per shape: plain text is edited, every other shape refused.
+    for (const [i, [name, , edited]] of SHAPES.entries()) {
+      const store = memoryStore(seen);
+      const refused = await answerById(store, config, blocks, [
+        {id: blocks[i].id, text: 'New text'},
+      ]);
+      if (edited) {
+        expect(refused, name).toBeNull();
+        expect(texts(store.state, config)[i], name).toBe('New text');
+      } else {
+        expect(refused?.failures, name).toEqual([
+          {
+            id: blocks[i].id,
+            index: 0,
+            reason: 'not plain text',
+            text: blocks[i].text,
+          },
+        ]);
+        expect(store.stores, name).toBe(0);
+      }
+    }
+    // Every block in one answer: one shape it cannot edit refuses the whole
+    // answer, with every failure, and nothing is applied.
+    const store = memoryStore(seen);
+    const refused = await answerById(
+      store,
       config,
-      () => {
-        for (const op of ops) {
-          const block = $getBlockById(op.id);
-          const text = $plainTextOf(block);
-          if (text !== null) {
-            $setTextInPlace(text, op.text);
-          } else if (block !== null) {
-            unsupported.push(op);
-          }
-        }
-      },
-      {writer: createYWriter('server-docs-agent')},
+      blocks,
+      blocks.map(block => ({id: block.id, text: 'New text'})),
     );
+    expect(refused?.failures.map(failure => failure.id)).toEqual(
+      blocks.filter((_, i) => !SHAPES[i][2]).map(block => block.id),
+    );
+    expect(store.stores).toBe(0);
+    expect(store.sent).toEqual([]);
+    expect(wholeOf(store.state)).toEqual(before);
     // The titled paragraph holds text and declares a slot, so it is stored as
     // a node of its own, with a warning that says so.
     expect(
       warnings.filter(warning => warning.code !== NESTED_FALLBACK_WARNING),
     ).toEqual([]);
-    const after = readYState(state, config, () =>
-      $getRoot()
-        .getChildren()
-        .map(node => ({
-          json: JSON.stringify($subtree(node)),
-          text: node.getTextContent(),
-        })),
-    );
-    SHAPES.forEach(([name, , edited], i) => {
-      if (edited) {
-        expect(after[i].text, name).toBe('New text');
-      } else {
-        expect(after[i].json, name).toBe(before[i].json);
-        expect(
-          unsupported.map(op => op.id),
-          name,
-        ).toContain(before[i].id);
-      }
-    });
-    expect(unsupported).toHaveLength(SHAPES.filter(([, , e]) => !e).length);
   });
 
-  test('a splice at the first text node skips a tab or a token there', () => {
+  test('a replacement of words edits one plain text node in the block read, and refuses a tab, a token or changed words', async () => {
     const warnings: LexicalWarning[] = [];
-    for (const [name, , edited] of SHAPES.slice(0, 8)) {
-      const config = {
-        extensions: [AppNodes],
-        onWarn: (warning: LexicalWarning) => warnings.push(warning),
-        schemaVersion: 1,
-      };
-      const shape = SHAPES.find(([shapeName]) => shapeName === name)!;
-      const seen = seedYState(config, () => $getRoot().append(shape[1]()));
-      const old = readYState(seen, config, () => $getRoot().getTextContent());
-      const {state} = editYState(
-        seen,
-        config,
-        () => {
-          const text = $getRoot().getFirstDescendant();
-          if ($isTextNode(text) && text.isSimpleText()) {
-            text.spliceText(0, 5, 'Hi');
-          }
-        },
-        {writer: createYWriter('server-docs-agent')},
-      );
-      const now = readYState(state, config, () => $getRoot().getTextContent());
-      expect(now, name).toBe(edited ? 'Hi' + old.slice(5) : old);
+    const config = {
+      extensions: [AppNodes, BlockIdExtension],
+      onWarn: (warning: LexicalWarning) => warnings.push(warning),
+      schemaVersion: 1,
+    };
+    // Words the shapes start with.
+    const from = 'Old t';
+    for (const [name, $make, edited] of SHAPES.slice(0, 8)) {
+      for (const changed of [false, true]) {
+        const seen = seedYState(config, () => $getRoot().append($make()));
+        const id = readYState(
+          seen,
+          config,
+          () => $getBlockId($getRoot().getFirstChildOrThrow())!,
+        );
+        // The latest state: the agent's read, or that read with its first
+        // text node changed by a collaborator.
+        const latest = changed
+          ? editYState(
+              seen,
+              config,
+              () => {
+                const text = $getRoot().getFirstDescendant();
+                if ($isTextNode(text) && text.isSimpleText()) {
+                  text.setTextContent('Bye');
+                }
+              },
+              {writer: collaborator},
+            ).state
+          : seen;
+        const old = texts(latest, config)[0];
+        const store = memoryStore(latest);
+        const refused = await replaceWords(store, config, id, from, 'Hi');
+        const applies = edited && !changed;
+        expect(refused === null, name).toBe(applies);
+        expect(texts(store.state, config)[0], name).toBe(
+          applies ? 'Hi' + old.slice(from.length) : old,
+        );
+        if (changed && edited) {
+          expect(refused?.failures, name).toEqual([
+            {id, index: 0, reason: 'the words changed', text: 'Bye'},
+          ]);
+        }
+      }
     }
     expect(
       warnings.filter(warning => warning.code !== NESTED_FALLBACK_WARNING),
     ).toEqual([]);
   });
 
-  test('step 3 sends back a target that is gone, moved, replaced, typed in or new since the read, and applies the rest', () => {
+  test('a replacement of words refuses words that appear twice in the block or across nodes, and finds the block read by id', async () => {
+    const config = {extensions: [BlockIdExtension], schemaVersion: 1};
+    const {ids, seen} = seedLines(config, [
+      'The red fox and the red hen.',
+      'A red fox.',
+      'The quick fox.',
+    ]);
+    // Twice in the block: refused, whatever other blocks hold.
+    let store = memoryStore(seen);
+    expect(
+      (await replaceWords(store, config, ids[0], 'red', 'blue'))?.failures,
+    ).toEqual([
+      {
+        id: ids[0],
+        index: 0,
+        reason: 'the words appear more than once',
+        text: 'The red fox and the red hen.',
+      },
+    ]);
+    expect(store.stores).toBe(0);
+    // Once in the block read, though another block holds them too: only
+    // that block changes.
+    store = memoryStore(seen);
+    expect(await replaceWords(store, config, ids[1], 'red', 'blue')).toBeNull();
+    expect(texts(store.state, config)).toEqual([
+      'The red fox and the red hen.',
+      'A blue fox.',
+      'The quick fox.',
+    ]);
+    // A collaborator moved the block: found by id where it is now.
+    const moved = editYState(
+      seen,
+      config,
+      () => void $getBlockById(ids[1])!.insertBefore($getBlockById(ids[2])!),
+      {writer: collaborator},
+    ).state;
+    store = memoryStore(moved);
+    expect(
+      await replaceWords(store, config, ids[2], 'quick', 'slow'),
+    ).toBeNull();
+    expect(texts(store.state, config)).toEqual([
+      'The red fox and the red hen.',
+      'The slow fox.',
+      'A red fox.',
+    ]);
+    // A collaborator made part of the words bold: they span two text nodes.
+    const bold = editYState(
+      seen,
+      config,
+      () => void $firstText(ids[2]).splitText(6)[1].toggleFormat('bold'),
+      {writer: collaborator},
+    ).state;
+    store = memoryStore(bold);
+    expect(
+      (await replaceWords(store, config, ids[2], 'quick', 'slow'))?.failures,
+    ).toEqual([
+      {
+        id: ids[2],
+        index: 0,
+        reason: 'not in one text node',
+        text: 'The quick fox.',
+      },
+    ]);
+    // The block is gone.
+    const gone = editYState(
+      seen,
+      config,
+      () => void $getBlockById(ids[2])!.remove(),
+      {writer: collaborator},
+    ).state;
+    store = memoryStore(gone);
+    expect(
+      (await replaceWords(store, config, ids[2], 'quick', 'slow'))?.failures,
+    ).toEqual([
+      {id: ids[2], index: 0, reason: 'the block is gone', text: undefined},
+    ]);
+  });
+
+  test('step 3 refuses the whole answer when a target is gone, moved, replaced, typed in, formatted or styled since the read', async () => {
     const config = {extensions: [BlockIdExtension], schemaVersion: 1};
     // "Keep me." is not next to anything the collaborator changes (a block
-    // next to an inserted, deleted or moved block goes back too).
-    const lines = [
+    // after an inserted, deleted or moved block in its container goes back
+    // too).
+    const {ids, seen} = seedLines(config, [
       'First line.',
       'Move me.',
       'Last line.',
       'Spacer.',
       'Keep me.',
-    ];
-    const seen = seedYState(config, () =>
-      $getRoot().append(
-        ...lines.map(line =>
-          $createParagraphNode().append($createTextNode(line)),
-        ),
-      ),
-    );
-    const ids = readYState(seen, config, () =>
-      $getRoot()
-        .getChildren()
-        .map(node => $getBlockId(node)!),
-    );
+    ]);
+    const blocks = readBlocks(seen, config);
     const $block = (i: number) => $getBlockById(ids[i])!;
-    const collaborator = createYWriter('server-docs-collaborator');
-    const agent = createYWriter('server-docs-agent');
-    // Each case: what the collaborator does, what the target then holds, and
-    // whether "Keep me." still gets the agent's edit (a delete before it in
-    // the same container changes its place, so it goes back too).
-    const cases: [string, () => void, string, boolean][] = [
-      ['untouched', () => {}, 'Move me now.', true],
+    // Each case: what the collaborator does, and the failures it causes.
+    const cases: [string, () => void, [number, string][]][] = [
+      ['untouched', () => {}, []],
       // A move keeps the id: the target is now after "Last line.".
-      ['moved', () => void $block(2).insertAfter($block(1)), 'Move me.', true],
+      [
+        'moved',
+        () => void $block(2).insertAfter($block(1)),
+        [[1, 'the block changed']],
+      ],
       [
         'replaced',
         () =>
           void $block(1).replace(
             $createParagraphNode().append($createTextNode('A slow dog.')),
           ),
-        'A slow dog.',
-        true,
+        [[1, 'the block changed']],
       ],
       [
         'typed in',
-        () =>
-          void (
-            ($block(1) as ElementNode).getFirstChild() as TextNode
-          ).spliceText(0, 0, 'Please '),
-        'Please Move me.',
-        true,
+        () => void $firstText(ids[1]).spliceText(0, 0, 'Please '),
+        [[1, 'the block changed']],
       ],
-      ['deleted', () => void $block(1).remove(), '', false],
+      // The same text, another format: a rewrite would drop it.
+      [
+        'formatted',
+        () => void $firstText(ids[1]).toggleFormat('bold'),
+        [[1, 'the block changed']],
+      ],
+      [
+        'styled',
+        () => void $firstText(ids[1]).setStyle('color: red'),
+        [[1, 'the block changed']],
+      ],
+      // A delete before "Keep me." changes its place: it goes back too.
+      [
+        'deleted',
+        () => void $block(1).remove(),
+        [
+          [1, 'the block is gone'],
+          [4, 'the block changed'],
+        ],
+      ],
     ];
-    for (const [name, $collaborate, expected, keepApplies] of cases) {
+    for (const [name, $collaborate, failures] of cases) {
       const latest = editYState(seen, config, $collaborate, {
         writer: collaborator,
       }).state;
-      const ops = [
+      const store = memoryStore(latest);
+      const refused = await answerById(store, config, blocks, [
         {id: ids[1], text: 'Move me now.'},
         {id: ids[4], text: 'Keep me now.'},
-      ];
-      // Step 3 as in the docs.
-      const wasAt = readYState(seen, config, () =>
-        ops.map(op => $placeOf(op.id)),
-      );
-      const isAt = readYState(latest, config, () =>
-        ops.map(op => $placeOf(op.id)),
-      );
-      const live = new Set(
-        ops
-          .filter((op, i) => wasAt[i] !== null && wasAt[i] === isAt[i])
-          .map(op => op.id),
-      );
-      const gone = ops.filter(op => !live.has(op.id));
-      const unsupported: typeof ops = [];
-      // Step 4 as in the docs.
-      const {update} = editYState(
-        seen,
-        config,
-        () => {
-          for (const op of ops) {
-            const block = live.has(op.id) ? $getBlockById(op.id) : null;
-            const text = $plainTextOf(block);
-            if (text !== null) {
-              $setTextInPlace(text, op.text);
-            } else if (block !== null) {
-              unsupported.push(op);
-            }
-          }
-        },
-        {writer: agent},
-      );
-      const merged =
-        update === null
-          ? latest
-          : mergeUpdates([latest, update] as Uint8Array<ArrayBuffer>[]);
-      const texts = readYState(merged, config, () =>
-        $getRoot()
-          .getChildren()
-          .map(node => node.getTextContent()),
-      );
+      ]);
       expect(
-        gone.map(op => op.id),
+        refused?.failures.map(failure => [
+          ids.indexOf(failure.id),
+          failure.reason,
+        ]) ?? [],
         name,
-      ).toEqual(
-        name === 'untouched' ? [] : keepApplies ? [ids[1]] : [ids[1], ids[4]],
-      );
-      expect(unsupported, name).toEqual([]);
-      // The target holds what the collaborator left (or the agent's text when
-      // it was untouched), and no text is glued to another line.
-      const target = readYState(
-        merged,
-        config,
-        () => $getBlockById(ids[1])?.getTextContent() ?? '',
-      );
-      expect(target, name).toBe(expected);
-      const keep = keepApplies ? 'Keep me now.' : 'Keep me.';
-      expect(texts, name).toContain(keep);
-      expect(
-        texts.filter(text => text !== expected),
-        name,
-      ).toEqual(
-        lines
-          .filter(line => line !== 'Move me.' && line !== 'Keep me.')
-          .concat(keep),
-      );
+      ).toEqual(failures);
+      if (failures.length === 0) {
+        expect(texts(store.state, config), name).toEqual([
+          'First line.',
+          'Move me now.',
+          'Last line.',
+          'Spacer.',
+          'Keep me now.',
+        ]);
+      } else {
+        // Nothing applied, and each failure carries the block's current
+        // text.
+        expect(store.stores, name).toBe(0);
+        expect(texts(store.state, config), name).toEqual(texts(latest, config));
+        for (const failure of refused!.failures) {
+          expect(failure.text, name).toBe(
+            readYState(latest, config, () =>
+              $getBlockById(failure.id)?.getTextContent(),
+            ),
+          );
+        }
+      }
     }
     // A target that exists only on the latest state (added after the read)
     // goes back too.
@@ -517,8 +707,342 @@ describe('server page: agent edits', () => {
       config,
       () => $getBlockId($getRoot().getLastChild()!)!,
     );
-    expect(readYState(seen, config, () => $placeOf(newId))).toBeNull();
-    expect(readYState(added, config, () => $placeOf(newId))).not.toBeNull();
+    const refused = await answerById(memoryStore(added), config, blocks, [
+      {id: newId, text: 'New'},
+    ]);
+    expect(refused?.failures.map(failure => failure.reason)).toEqual([
+      'the block changed',
+    ]);
+  });
+
+  test('a batch whose earlier edit changes a later target is refused whole: changed words, words now twice, a block named twice', async () => {
+    const config = {extensions: [BlockIdExtension], schemaVersion: 1};
+    // Each check passes on the stored state, but the first edit changes what
+    // the second names: nothing may be stored.
+    for (const [name, lines, edits, reason] of [
+      [
+        'the words the second names changed',
+        ['red fox', 'spacer'],
+        [
+          {from: 'red', to: 'blue'},
+          {from: 'red fox', to: 'dog'},
+        ],
+        'the words changed after an earlier edit',
+      ],
+      [
+        'the words the second names now appear twice',
+        ['red fox and hen', 'spacer'],
+        [
+          {from: 'hen', to: 'red'},
+          {from: 'red', to: 'blue'},
+        ],
+        'the words appear more than once after an earlier edit',
+      ],
+    ] as const) {
+      const {ids, seen} = seedLines(config, [...lines]);
+      const store = memoryStore(seen);
+      const refused = await replaceWordsBatch(
+        store,
+        config,
+        edits.map(edit => ({...edit, id: ids[0]})),
+      );
+      // The second edit, with the block as stored, not as the first edit
+      // left it in the discarded temporary state.
+      expect(refused?.failures, name).toEqual([
+        {id: ids[0], index: 1, reason, text: lines[0]},
+      ]);
+      expect([store.stores, store.sent.length], name).toEqual([0, 0]);
+      expect(texts(store.state, config), name).toEqual(lines);
+      expect(texts(refused!.latest, config), name).toEqual(lines);
+    }
+    // Every edit an earlier one invalidates is reported, not only the first.
+    {
+      const {ids, seen} = seedLines(config, ['red fox and hen', 'spacer']);
+      const store = memoryStore(seen);
+      const refused = await replaceWordsBatch(store, config, [
+        {from: 'red fox and hen', id: ids[0], to: 'blue'},
+        {from: 'red', id: ids[0], to: 'dog'},
+        {from: 'hen', id: ids[0], to: 'cat'},
+      ]);
+      expect(refused?.failures).toEqual(
+        [1, 2].map(index => ({
+          id: ids[0],
+          index,
+          reason: 'the words changed after an earlier edit',
+          text: 'red fox and hen',
+        })),
+      );
+      expect([store.stores, store.sent.length]).toEqual([0, 0]);
+      expect(refused!.latest).toEqual(seen);
+    }
+    // Independent edits of one batch all apply.
+    const {ids, seen} = seedLines(config, ['red fox and hen', 'spacer']);
+    const store = memoryStore(seen);
+    expect(
+      await replaceWordsBatch(store, config, [
+        {from: 'hen', id: ids[0], to: 'cat'},
+        {from: 'red', id: ids[0], to: 'blue'},
+        {from: 'spacer', id: ids[1], to: 'gap'},
+      ]),
+    ).toBeNull();
+    expect(texts(store.state, config)).toEqual(['blue fox and cat', 'gap']);
+    // An answer by id that names a block twice is refused.
+    const blocks = readBlocks(seen, config);
+    const byId = memoryStore(seen);
+    expect(
+      (
+        await answerById(byId, config, blocks, [
+          {id: ids[0], text: 'One'},
+          {id: ids[0], text: 'Two'},
+        ])
+      )?.failures.map(failure => failure.reason),
+    ).toEqual(['the block is named twice', 'the block is named twice']);
+    expect(byId.stores).toBe(0);
+  });
+
+  test('a stored field the server schema no longer declares is not compared: a rewrite passes over a change to it (the documented scope)', async () => {
+    // An older schema stores `note`; the newer one dropped it. A collaborator
+    // on the older schema changes the note after the agent's read.
+    const noteSchema = nodeSchema<NotedParagraphNode>()({
+      note: withField(stringValue(), {field: '__note'}),
+    });
+    class NotedParagraphNode extends ParagraphNode {
+      __note: string = '';
+      $config() {
+        return this.config('server-docs-noted', {
+          extends: ParagraphNode,
+          json: noteSchema,
+        });
+      }
+    }
+    class UnnotedParagraphNode extends ParagraphNode {
+      $config() {
+        return this.config('server-docs-noted', {extends: ParagraphNode});
+      }
+    }
+    const configOf = (node: typeof ParagraphNode, schemaVersion: number) => ({
+      extensions: [
+        BlockIdExtension,
+        defineExtension({name: 'server-docs-noted', nodes: () => [node]}),
+      ],
+      onWarn: () => {},
+      schemaVersion,
+    });
+    const older = configOf(NotedParagraphNode, 1);
+    const seen = seedYState(older, () => {
+      const block = $create(NotedParagraphNode).append(
+        $createTextNode('red fox'),
+      );
+      block.__note = 'original note';
+      $getRoot().append(block);
+    });
+    const id = readYState(
+      seen,
+      older,
+      () => $getBlockId($getRoot().getFirstChildOrThrow())!,
+    );
+    const latest = editYState(
+      seen,
+      older,
+      () =>
+        void (($getBlockById(id) as NotedParagraphNode).getWritable().__note =
+          'changed note'),
+      {writer: collaborator},
+    ).state;
+    const noteOf = (state: Uint8Array) =>
+      readYState(
+        state,
+        configOf(NotedParagraphNode, 2),
+        () => ($getBlockById(id) as NotedParagraphNode).__note,
+      );
+    // A server on a schema that declares the field refuses the rewrite.
+    const declares = configOf(NotedParagraphNode, 2);
+    let store = memoryStore(latest);
+    expect(
+      (
+        await answerById(store, declares, readBlocks(seen, declares), [
+          {id, text: 'swift dog'},
+        ])
+      )?.failures.map(failure => failure.reason),
+    ).toEqual(['the block changed']);
+    expect(store.stores).toBe(0);
+    // A server on the newer schema does not see the note: the rewrite goes
+    // through (in place, so the collaborator's note is kept).
+    const dropped = configOf(UnnotedParagraphNode, 2);
+    store = memoryStore(latest);
+    expect(
+      await answerById(store, dropped, readBlocks(seen, dropped), [
+        {id, text: 'swift dog'},
+      ]),
+    ).toBeNull();
+    // Read with the older nodes, at the newer schema version.
+    expect(texts(store.state, declares)).toEqual(['swift dog']);
+    expect(noteOf(store.state)).toBe('changed note');
+  });
+
+  test('a format on words the agent names is checked like a replacement and applied where they are on the latest state', async () => {
+    const config = {extensions: [BlockIdExtension], schemaVersion: 1};
+    const {ids, seen} = seedLines(config, ['t61z t62z t63z', 'spacer']);
+    // Strikethrough on the words, found on the latest state.
+    const strike = (store: DocStore, word: string) =>
+      applyChecked(
+        store,
+        config,
+        () => {
+          const found = $findWords(ids[0], word);
+          return typeof found === 'string' ? [found] : [];
+        },
+        () => {
+          const found = $findWords(ids[0], word);
+          if (typeof found === 'string') {
+            return [`${found} after an earlier edit`];
+          }
+          const parts = found.text.splitText(
+            found.offset,
+            found.offset + word.length,
+          );
+          parts[found.offset === 0 ? 0 : 1].toggleFormat('strikethrough');
+          return [];
+        },
+      );
+    const struck = (state: Uint8Array) =>
+      readYState(state, config, () =>
+        ($getBlockById(ids[0]) as ElementNode)
+          .getAllTextNodes()
+          .filter(text => text.hasFormat('strikethrough'))
+          .map(text => text.getTextContent()),
+      );
+    // A collaborator typed words before it since the read: the format lands
+    // on the word where it is now, and on nothing else.
+    const typed = editYState(
+      seen,
+      config,
+      () => void $firstText(ids[0]).spliceText(5, 0, 'x1z x2z '),
+      {writer: collaborator},
+    ).state;
+    let store = memoryStore(typed);
+    expect(await strike(store, 't62z')).toBeNull();
+    expect(struck(store.state)).toEqual(['t62z']);
+    expect(texts(store.state, config)).toEqual([
+      't61z x1z x2z t62z t63z',
+      'spacer',
+    ]);
+    // A collaborator changed the word: refused, nothing stored.
+    const changed = editYState(
+      seen,
+      config,
+      () => void $firstText(ids[0]).spliceText(5, 4, 't99z'),
+      {writer: collaborator},
+    ).state;
+    store = memoryStore(changed);
+    expect((await strike(store, 't62z'))?.failures).toEqual([
+      'the words changed',
+    ]);
+    expect([store.stores, struck(store.state)]).toEqual([0, []]);
+  });
+
+  test('a lost race starts over on the newer state: applied when the check still holds there, refused when not, never the older edit', async () => {
+    const config = {extensions: [BlockIdExtension], schemaVersion: 1};
+    const {ids, seen} = seedLines(config, ['The quick fox.', 'Spacer.']);
+    // The states stored by someone else, each once, just before the store.
+    const raced: Uint8Array[] = [];
+    const once = (edit: () => void) => (state: Uint8Array) => {
+      if (raced.length > 0 && raced[raced.length - 1] === state) {
+        return null;
+      }
+      const newer = editYState(state, config, edit, {
+        writer: collaborator,
+      }).state;
+      raced.push(newer);
+      return newer;
+    };
+    // Someone types in another block before the store: the check holds on
+    // the newer state, and the edit made there keeps their text.
+    let store = memoryStore(
+      seen,
+      once(() => void $firstText(ids[1]).spliceText(0, 0, 'A ')),
+    );
+    expect(
+      await replaceWords(store, config, ids[0], 'quick', 'slow'),
+    ).toBeNull();
+    expect([store.races, store.stores, store.sent.length]).toEqual([1, 1, 1]);
+    expect(texts(store.state, config)).toEqual(['The slow fox.', 'A Spacer.']);
+    // The update sent was made on the newer state: it is the agent's edit
+    // alone.
+    expect(
+      texts(
+        mergeUpdates([raced[0], store.sent[0]] as Uint8Array<ArrayBuffer>[]),
+        config,
+      ),
+    ).toEqual(['The slow fox.', 'A Spacer.']);
+    // Someone changes the words before the store: refused on the newer
+    // state, which stays as they left it.
+    store = memoryStore(
+      seen,
+      once(() => void $firstText(ids[0]).spliceText(4, 5, 'swift')),
+    );
+    expect(
+      (await replaceWords(store, config, ids[0], 'quick', 'slow'))?.failures,
+    ).toEqual([
+      {
+        id: ids[0],
+        index: 0,
+        reason: 'the words changed',
+        text: 'The swift fox.',
+      },
+    ]);
+    expect([store.races, store.stores, store.sent.length]).toEqual([1, 0, 0]);
+    expect(texts(store.state, config)).toEqual(['The swift fox.', 'Spacer.']);
+    // The same for an answer by id: a format made before the store refuses
+    // the rewrite.
+    const blocks = readBlocks(seen, config);
+    store = memoryStore(
+      seen,
+      once(() => void $firstText(ids[0]).toggleFormat('bold')),
+    );
+    expect(
+      (
+        await answerById(store, config, blocks, [
+          {id: ids[0], text: 'The slow fox.'},
+        ])
+      )?.failures.map(failure => failure.reason),
+    ).toEqual(['the block changed']);
+    expect([store.races, store.stores, store.sent.length]).toEqual([1, 0, 0]);
+    // The document keeps changing: after 3 lost races, refused with no
+    // failures, nothing stored or sent.
+    store = memoryStore(
+      seen,
+      state =>
+        editYState(
+          state,
+          config,
+          () => void $firstText(ids[1]).spliceText(0, 0, 'x'),
+          {writer: collaborator},
+        ).state,
+    );
+    const refused = await replaceWords(store, config, ids[0], 'quick', 'slow');
+    expect(refused?.failures).toEqual([]);
+    expect([store.races, store.stores, store.sent.length]).toEqual([3, 0, 0]);
+    // The read it returns is the state that won the last race, not the one
+    // that lost it.
+    expect(texts(refused!.latest, config)).toEqual([
+      'The quick fox.',
+      'xxxSpacer.',
+    ]);
+    // At least one attempt.
+    await expect(
+      applyChecked(
+        store,
+        config,
+        () => [],
+        () => [],
+        0,
+      ),
+    ).rejects.toThrow(RangeError);
+    expect(texts(store.state, config)).toEqual([
+      'The quick fox.',
+      'xxxSpacer.',
+    ]);
   });
 
   test('replacing a line keeps what a collaborator typed at the same time, at the start of the new text (typed at the end, possibly at the end)', () => {
@@ -555,10 +1079,7 @@ describe('server page: agent edits', () => {
         const type = editYState(
           seen,
           config,
-          () =>
-            void (
-              ($getBlockById(id) as ElementNode).getFirstChild() as TextNode
-            ).spliceText(offset, 0, typed),
+          () => void $firstText(id).spliceText(offset, 0, typed),
           {writer: createYWriter(`server-docs-collaborator-${round}`)},
         ).update!;
         const text = readYState(
@@ -614,7 +1135,6 @@ describe('server page: agent edits', () => {
       config,
       () => $getBlockId($cells()[0].getFirstChildOrThrow())!,
     );
-    const collaborator = createYWriter('server-docs-collaborator');
     const cases: [string, () => void, boolean][] = [
       ['untouched', () => {}, true],
       [
@@ -639,8 +1159,8 @@ describe('server page: agent edits', () => {
       const latest = editYState(seen, config, $collaborate, {
         writer: collaborator,
       }).state;
-      const wasAt = readYState(seen, config, () => $placeOf(id));
-      const isAt = readYState(latest, config, () => $placeOf(id));
+      const wasAt = readYState(seen, config, () => $blockAt(id));
+      const isAt = readYState(latest, config, () => $blockAt(id));
       expect(wasAt !== null && wasAt === isAt, name).toBe(applies);
     }
   });
@@ -679,7 +1199,6 @@ describe('server page: agent edits', () => {
       config,
       () => $getBlockId($slot('left').getFirstChildOrThrow())!,
     );
-    const collaborator = createYWriter('server-docs-collaborator');
     const cases: [string, () => void, boolean][] = [
       ['untouched', () => {}, true],
       [
@@ -697,8 +1216,8 @@ describe('server page: agent edits', () => {
       const latest = editYState(seen, config, $collaborate, {
         writer: collaborator,
       }).state;
-      const wasAt = readYState(seen, config, () => $placeOf(id));
-      const isAt = readYState(latest, config, () => $placeOf(id));
+      const wasAt = readYState(seen, config, () => $blockAt(id));
+      const isAt = readYState(latest, config, () => $blockAt(id));
       expect(wasAt !== null && wasAt === isAt, name).toBe(applies);
     }
   });
