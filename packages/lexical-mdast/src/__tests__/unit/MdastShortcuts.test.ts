@@ -11,9 +11,11 @@
 import {$isCodeNode} from '@lexical/code-core';
 import {
   $isHorizontalRuleNode,
+  type AnyLexicalExtensionArgument,
   buildEditorFromExtensions,
   type LexicalEditorWithDispose,
 } from '@lexical/extension';
+import {HistoryExtension} from '@lexical/history';
 import {$isLinkNode} from '@lexical/link';
 import {$isListItemNode, $isListNode} from '@lexical/list';
 import {$isHeadingNode, $isQuoteNode} from '@lexical/rich-text';
@@ -35,10 +37,12 @@ import {
   $isParagraphNode,
   $isRangeSelection,
   $isTextNode,
+  configExtension,
   defineExtension,
   KEY_ENTER_COMMAND,
   type LexicalEditor,
   type LexicalNode,
+  UNDO_COMMAND,
 } from 'lexical';
 import {$assertNodeType} from 'lexical/src/__tests__/utils';
 import {describe, expect, it} from 'vitest';
@@ -51,13 +55,16 @@ import {
 } from '../../index';
 import {codeFenceState, codeMetaState} from '../../state';
 
-function createEditor(): LexicalEditorWithDispose {
+function createEditor(
+  ...extensions: AnyLexicalExtensionArgument[]
+): LexicalEditorWithDispose {
   const editor = buildEditorFromExtensions(
     defineExtension({
       dependencies: [
         MdastCommonMarkExtension,
         MdastGfmExtension,
         MdastShortcutsExtension,
+        ...extensions,
       ],
       name: '[root]',
     }),
@@ -472,6 +479,100 @@ describe('@lexical/mdast streaming shortcuts', () => {
         const cell = $assertNodeType(row.getFirstChild(), $isTableCellNode);
         expect(cell.getChildren().some($isHorizontalRuleNode)).toBe(false);
         expect(cell.getTextContent()).toContain('---');
+      });
+    });
+
+    /** Presses space (`' '`) or Enter (`null`). */
+    function press(editor: LexicalEditor, key: ' ' | null): void {
+      if (key === null) {
+        editor.dispatchCommand(KEY_ENTER_COMMAND, null);
+      } else {
+        type(editor, [key]);
+      }
+    }
+
+    function $expectNoRule(): void {
+      expect($getRoot().getChildren().some($isHorizontalRuleNode)).toBe(false);
+    }
+
+    it.each([
+      ['space', ' '],
+      ['Enter', null],
+    ] as const)('a rule longer than 24 characters converts on %s', (_, key) => {
+      using editor = createEditor();
+      type(editor, [...'-'.repeat(30)]);
+      press(editor, key);
+      type(editor, ['after']);
+      expectRuleThenLine(editor, '---');
+    });
+
+    it.each([
+      ['space', ' ', '--- '],
+      ['Enter', null, '---'],
+    ] as const)('undo after %s gives back the typed marker', (_, key, text) => {
+      using editor = createEditor(
+        // History is off by default where there is no window.
+        configExtension(HistoryExtension, {disabled: false}),
+      );
+      type(editor, ['-', '-', '-']);
+      press(editor, key);
+      $expectFirstChild(editor, $isHorizontalRuleNode);
+      editor.dispatchCommand(UNDO_COMMAND, undefined);
+      editor.read(() => {
+        const [paragraph, ...rest] = $getRoot().getChildren();
+        expect(
+          $assertNodeType(paragraph, $isParagraphNode).getTextContent(),
+        ).toBe(text);
+        expect(rest).toEqual([]);
+      });
+    });
+
+    it.each([
+      ['space', ' '],
+      ['Enter', null],
+    ] as const)('--- + %s in a code block stays code', (_, key) => {
+      using editor = createEditor();
+      type(editor, ['```']);
+      editor.dispatchCommand(KEY_ENTER_COMMAND, null);
+      type(editor, ['-', '-', '-']);
+      press(editor, key);
+      editor.read(() => {
+        const code = $assertNodeType($getRoot().getFirstChild(), $isCodeNode);
+        expect(code.getTextContent()).toMatch(/^---/);
+        $expectNoRule();
+      });
+    });
+
+    it.each([
+      ['space', ' '],
+      ['Enter', null],
+    ] as const)('--- + %s in inline code stays text', (_, key) => {
+      using editor = createEditor();
+      editor.update(
+        () => {
+          const text = $createTextNode('---').toggleFormat('code');
+          $getRoot().clear().append($createParagraphNode().append(text));
+          text.selectEnd();
+        },
+        {discrete: true},
+      );
+      press(editor, key);
+      editor.read(() => {
+        expect($getRoot().getTextContent()).toMatch(/^---/);
+        $expectNoRule();
+      });
+    });
+
+    it('--- + Shift+Enter stays text', () => {
+      using editor = createEditor();
+      type(editor, ['-', '-', '-']);
+      editor.dispatchCommand(KEY_ENTER_COMMAND, {
+        preventDefault() {},
+        shiftKey: true,
+      } as KeyboardEvent);
+      editor.read(() => {
+        expect($getRoot().getTextContent()).toMatch(/^---/);
+        $expectNoRule();
       });
     });
   });

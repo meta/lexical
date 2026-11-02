@@ -24,7 +24,6 @@ import {
   $isQuoteNode,
   type QuoteNode,
 } from '@lexical/rich-text';
-import {$isTableCellNode} from '@lexical/table';
 import {
   $addUpdateTag,
   $createParagraphNode,
@@ -52,9 +51,18 @@ import {codeFenceState, codeMetaState, hrMarkerState} from './state';
 /**
  * Block markers are at most a few characters (`'###### '`, `'   999. '`,
  * `'- [x] '`); when the caret is past this column a space cannot complete a
- * block marker, so the micromark scan is skipped entirely.
+ * block marker, so the micromark scan is skipped entirely. A thematic break
+ * is the one exception, see {@link THEMATIC_BREAK_LINE}.
  */
 const MAX_BLOCK_MARKER_LENGTH = 24;
+
+/**
+ * A line that is only a thematic break: three or more of the same `-`, `*`
+ * or `_`, with spaces or tabs between them allowed (CommonMark 4.1). A rule
+ * has no length limit, so a space typed after a long one is still scanned
+ * past {@link MAX_BLOCK_MARKER_LENGTH}, as Enter already does.
+ */
+const THEMATIC_BREAK_LINE = /^ {0,3}([-*_])(?:[ \t]*\1){2,}[ \t]*$/;
 
 /** Removes the first `n` characters from the leading text nodes of `element`. */
 function $stripLeading(element: ElementNode, n: number): void {
@@ -102,8 +110,11 @@ function $placeBlock(container: ElementNode, block: LexicalNode): void {
  * for. The marker must be the whole line. `--- text` is a paragraph in
  * Markdown, so a space typed between `---` and text converts nothing.
  *
- * A table cell has no Markdown for a rule (the GFM table export writes one
- * after the table), so `---` typed in a cell stays text.
+ * A rule converts only where Markdown can write one: at the top level or
+ * inside a quote. A table cell, for example, has no Markdown for a rule (the
+ * GFM table export writes one after the table), so `---` typed in a cell
+ * stays text. Checking the ancestors this way, rather than for a table cell,
+ * keeps `@lexical/table` out of editors that don't use tables.
  */
 function $applyThematicBreak(
   container: ElementNode,
@@ -113,7 +124,10 @@ function $applyThematicBreak(
   if (
     line.length !== markerLength ||
     !container.getChildren().every($isTextNode) ||
-    $findMatchingParent(container, $isTableCellNode)
+    $findMatchingParent(
+      container.getParentOrThrow(),
+      node => !$isQuoteNode(node),
+    )
   ) {
     return false;
   }
@@ -481,15 +495,15 @@ export function registerMarkdownShortcuts(
               $tryCheckbox(node, parent, anchorOffset)
             ) {
               transformed = true;
-            } else if (
-              anchorOffset <= MAX_BLOCK_MARKER_LENGTH &&
-              $isShortcutContainer(parent, node)
-            ) {
+            } else if ($isShortcutContainer(parent, node)) {
               // The marker must end exactly at the caret, so scanning the
               // prefix is sufficient (and cheaper than the whole line).
-              const match = scanner.scanBlock(
-                node.getTextContent().slice(0, anchorOffset),
-              );
+              const prefix = node.getTextContent().slice(0, anchorOffset);
+              const match =
+                anchorOffset <= MAX_BLOCK_MARKER_LENGTH ||
+                THEMATIC_BREAK_LINE.test(prefix)
+                  ? scanner.scanBlock(prefix)
+                  : null;
               if (
                 match &&
                 match.kind !== 'code' &&
