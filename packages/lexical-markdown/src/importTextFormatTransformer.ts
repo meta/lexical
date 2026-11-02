@@ -145,26 +145,38 @@ export function advanceFormatScan(
  * `rest` comes before the run, so the rest reads the same either way but for
  * the pair the run opens, which nothing in `rest` can hold, and whatever
  * pairs across its end, which `advanceFormatScan` turns down there. The pair
- * ends before the next format that the scan found, which is imported first
- * as it would be with the match before it, and it is found in ever longer
- * prefixes of `rest`, so that finding it costs about as much as the text it
- * holds. Returns false when the rest has to be scanned again.
+ * ends before a code span that the scan found next, which is imported first
+ * as it is with the match before it, and it is found in ever longer prefixes
+ * of `rest`, so that finding it costs about as much as the text it holds.
+ * Returns false when the rest has to be scanned again.
  */
 export function findPairAtEdge(
   scan: FormatScan,
   rest: string,
   textFormatTransformersIndex: TextFormatTransformersIndex,
 ): boolean {
-  const {offset} = scan;
-  const span = scan.codeSpans[scan.nextCodeSpan];
+  const {codeSpans, offset} = scan;
+  let span = scan.nextCodeSpan;
   const next = scan.emphasis[scan.nextEmphasis];
-  const end = Math.min(
-    rest.length,
-    span ? span.startIndex - offset : Infinity,
-    next ? next.startIndex - offset : Infinity,
-  );
+  const end =
+    span < codeSpans.length &&
+    (!next || codeSpans[span].startIndex < next.startIndex)
+      ? codeSpans[span].startIndex - offset
+      : rest.length;
   for (let length = 64; ; length *= 2) {
-    // Cut no run of a delimiter or backtick; no code span starts before `end`.
+    // Cut neither a code span nor a run of a delimiter or backtick.
+    while (
+      span < codeSpans.length &&
+      codeSpans[span].endIndex <= offset + length
+    ) {
+      span++;
+    }
+    if (
+      span < codeSpans.length &&
+      codeSpans[span].startIndex < offset + length
+    ) {
+      length = codeSpans[span].endIndex - offset;
+    }
     if (
       length < end &&
       (rest[length - 1] === '`' || scan.delimiters.has(rest[length - 1]))

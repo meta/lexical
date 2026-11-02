@@ -5507,6 +5507,7 @@ describe('emphasis next to Unicode punctuation and symbols', () => {
     ['after', 'user:bob**(admin)**', ['(admin)', 1]],
     ['before', '**(admin)**user:bob', ['(admin)', 1]],
     ['in italic after', 'user:bob*\u201ca\u201d*', ['\u201ca\u201d', 2]],
+    ['nested after', 'user:bob**(text *more*)**', ['more', 3]],
     [
       'far after',
       'user:bob**(' + 'x '.repeat(40) + 'y)**',
