@@ -8,7 +8,7 @@
     "hashtag"
   ],
   "license": "MIT",
-  "version": "0.53.0",
+  "version": "0.53.1-nightly.20261102.0",
   "main": "./dist/LexicalHashtag.js",
   "types": "./dist/typescript-too-old.d.ts",
   "dependencies": {
