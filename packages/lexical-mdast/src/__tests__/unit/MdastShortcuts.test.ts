@@ -32,9 +32,11 @@ import {
   type LexicalNode,
 } from 'lexical';
 import {$assertNodeType} from 'lexical/src/__tests__/utils';
-import {describe, expect, it} from 'vitest';
+import {assert, describe, expect, it} from 'vitest';
 
 import {
+  $convertFromMarkdownString,
+  $convertToMarkdownString,
   MdastCommonMarkExtension,
   MdastGfmExtension,
   MdastShortcutsExtension,
@@ -167,6 +169,52 @@ describe('@lexical/mdast streaming shortcuts', () => {
         const list = $assertNodeType($getRoot().getFirstChild(), $isListNode);
         expect(list.getListType()).toBe('bullet');
       });
+    });
+  });
+
+  describe('a task marker typed in a list that has task items', () => {
+    /** Imports `markdown`, puts the caret at the start or end of the first item. */
+    function importList(markdown: string, at: 'start' | 'end') {
+      const editor = createEditor();
+      editor.update(
+        () => {
+          $convertFromMarkdownString(markdown);
+          const list = $assertNodeType($getRoot().getFirstChild(), $isListNode);
+          const item = $assertNodeType(list.getFirstChild(), $isListItemNode);
+          if (at === 'start') {
+            item.selectStart();
+          } else {
+            item.selectEnd();
+          }
+        },
+        {discrete: true},
+      );
+      return editor;
+    }
+
+    it('[x] on a new line keeps the ticks of the other task items', () => {
+      using editor = importList('- plain\n- [x] done', 'end');
+      // A new line after `plain`, as Enter makes it.
+      editor.update(
+        () => {
+          const selection = $getSelection();
+          assert($isRangeSelection(selection));
+          selection.insertParagraph();
+        },
+        {discrete: true},
+      );
+      type(editor, ['[', 'x', ']', ' ', 'new']);
+      expect(editor.read(() => $convertToMarkdownString())).toBe(
+        '- [ ] plain\n- [x] new\n- [x] done',
+      );
+    });
+
+    it('[ ] at the start of a plain item keeps the ticks of the other task items', () => {
+      using editor = importList('- plain\n- [x] done', 'start');
+      type(editor, ['[', ' ', ']', ' ']);
+      expect(editor.read(() => $convertToMarkdownString())).toBe(
+        '- [ ] plain\n- [x] done',
+      );
     });
   });
 

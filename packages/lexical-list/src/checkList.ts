@@ -502,7 +502,14 @@ function returnFocusToRoot(editor: LexicalEditor): void {
  * item of a bullet or number list.
  */
 function $toggleTaskListItem(listItem: ListItemNode): void {
-  $setTaskListItemChecked(listItem, !$getTaskListItemChecked(listItem));
+  const parent = listItem.getParent();
+  if ($isListNode(parent) && parent.getListType() === 'check') {
+    // As before, so a ListItemNode subclass that overrides toggleChecked()
+    // still sees the toggle.
+    listItem.toggleChecked();
+  } else {
+    $setTaskListItemChecked(listItem, !$getTaskListItemChecked(listItem));
+  }
 }
 
 /**

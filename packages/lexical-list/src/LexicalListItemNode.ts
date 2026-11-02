@@ -208,16 +208,8 @@ export class ListItemNode extends ElementNode {
           if (parent.getListType() !== 'check' && node.getChecked() != null) {
             node.setChecked(undefined);
           }
-          // A task item that ends up in a check list (a paste, say) becomes
-          // one of its items, which keep their checked state themselves.
           if (parent.getListType() === 'check') {
-            const task = $getState(node, taskListItemState);
-            if (task !== '') {
-              if (node.getLatest().__checked == null) {
-                node.setChecked(task === 'checked');
-              }
-              $setState(node, taskListItemState, '');
-            }
+            $adoptTaskListItem(node);
           }
         } else if (parent) {
           const newParent = node.createParentElementNode();
@@ -899,6 +891,24 @@ export function $getTaskListItemChecked(
   }
   const task = $getState(listItem, taskListItemState);
   return task === '' ? undefined : task === 'checked';
+}
+
+/**
+ * Makes a task item of a bullet or number list that is now in a check list
+ * (a paste, or a list made a check list with `setListType`) one of its items.
+ * Those keep their checked state themselves, so the item keeps its tick there.
+ * Called for each item by the list's transform, which runs whenever the list
+ * changes, and by the item's own transform.
+ * @param listItem - An item of a check list.
+ */
+export function $adoptTaskListItem(listItem: ListItemNode): void {
+  const task = $getState(listItem, taskListItemState);
+  if (task !== '') {
+    if (listItem.getLatest().__checked == null) {
+      listItem.setChecked(task === 'checked');
+    }
+    $setState(listItem, taskListItemState, '');
+  }
 }
 
 /**

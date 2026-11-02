@@ -18,7 +18,7 @@ import {
   INSERT_CHECK_LIST_COMMAND,
   INSERT_ORDERED_LIST_COMMAND,
   INSERT_UNORDERED_LIST_COMMAND,
-  type ListItemNode,
+  ListItemNode,
   type ListType,
 } from '@lexical/list';
 import {RichTextExtension} from '@lexical/rich-text';
@@ -263,5 +263,32 @@ describe('task items in bullet and number lists', () => {
       expect(readListType(editor)).toBe('check');
       expect(readChecked(editor)).toEqual([false, false, true]);
     });
+
+    it('setListType keeps the ticks in a check list, and leaves none behind', () => {
+      using editor = buildEditor('bullet');
+      // setListType marks only the list, not its items.
+      const $setListType = (listType: ListType) => () => {
+        const list = $getRoot().getFirstChildOrThrow();
+        invariant($isListNode(list), 'Expected a ListNode at root');
+        list.setListType(listType);
+      };
+      editor.update($setListType('check'), {discrete: true});
+      expect(readChecked(editor)).toEqual([false, false, true]);
+      editor.update($setListType('bullet'), {discrete: true});
+      expect(readChecked(editor)).toEqual([undefined, undefined, undefined]);
+    });
+  });
+
+  it('a click on a check list item still goes through toggleChecked()', () => {
+    // A ListItemNode subclass may override toggleChecked().
+    const toggleChecked = vi.spyOn(ListItemNode.prototype, 'toggleChecked');
+    try {
+      using editor = buildEditor('check');
+      click(itemDOM(1));
+      expect(toggleChecked).toHaveBeenCalledTimes(1);
+      expect(readChecked(editor)).toEqual([false, true, true]);
+    } finally {
+      toggleChecked.mockRestore();
+    }
   });
 });
