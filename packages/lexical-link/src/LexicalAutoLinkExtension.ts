@@ -7,13 +7,14 @@
  */
 
 import {
-  $createTextNode,
+  $getEditor,
+  $getNodeByKey,
   $getSelection,
   $isElementNode,
   $isLineBreakNode,
-  $isNodeSelection,
   $isRangeSelection,
   $isTextNode,
+  $setCompositionKey,
   COMMAND_PRIORITY_LOW,
   defineExtension,
   type ElementNode,
@@ -279,6 +280,76 @@ function extractMatchingNodes(
   ];
 }
 
+type PointMark =
+  | null
+  | {key: string; offset: number; type: 'text'}
+  | {before: string; type: 'before'}
+  | {type: 'end'};
+
+/**
+ * Put `linkNode` where the first of `nodes` is and move `nodes` themselves
+ * into it (not copies), so the text keeps its keys, its NodeState (comment
+ * ids, for example), a composition and any selection point in it, and an
+ * element point in the parent keeps its place in the text: before the same
+ * node, or at the end.
+ */
+function $wrapInLink(nodes: TextNode[], linkNode: AutoLinkNode): void {
+  const first = nodes[0];
+  const parent = first.getParentOrThrow();
+  const parentKey = parent.getKey();
+  const moved = new Set(nodes.map(node => node.getKey()));
+  const before = $getSelection();
+  const marks: PointMark[] = $isRangeSelection(before)
+    ? [before.anchor, before.focus].map((point): PointMark => {
+        if (point.type === 'text' && moved.has(point.key)) {
+          return {key: point.key, offset: point.offset, type: 'text'};
+        }
+        if (point.type === 'element' && point.key === parentKey) {
+          const child = parent.getChildAtIndex(point.offset);
+          return child === null
+            ? {type: 'end'}
+            : {before: child.getKey(), type: 'before'};
+        }
+        return null;
+      })
+    : [];
+  // @internal access, like `__text`: the node being composed, which
+  // `replace` moves to the link
+  const compositionKey = $getEditor()._compositionKey;
+  first.replace(linkNode);
+  linkNode.append(...nodes);
+  if (compositionKey !== null && moved.has(compositionKey)) {
+    $setCompositionKey(compositionKey);
+  }
+  const selection = $getSelection();
+  if (!$isRangeSelection(selection)) {
+    return;
+  }
+  [selection.anchor, selection.focus].forEach((point, i) => {
+    const mark = marks[i];
+    if (mark === undefined || mark === null) {
+      return;
+    }
+    if (mark.type === 'text') {
+      point.set(mark.key, mark.offset, 'text');
+    } else if (mark.type === 'end') {
+      point.set(parentKey, parent.getChildrenSize(), 'element');
+    } else {
+      // Before the first node: before the link; before a later node: before
+      // it in the link
+      const node =
+        mark.before === first.getKey() ? linkNode : $getNodeByKey(mark.before);
+      if (node !== null) {
+        point.set(
+          node.getParentOrThrow().getKey(),
+          node.getIndexWithinParent(),
+          'element',
+        );
+      }
+    }
+  });
+}
+
 function $createAutoLinkNode_(
   nodes: TextNode[],
   startIndex: number,
@@ -297,12 +368,7 @@ function $createAutoLinkNode_(
         endIndex,
       );
     }
-    const textNode = $createTextNode(match.text);
-    textNode.setFormat(linkTextNode.getFormat());
-    textNode.setDetail(linkTextNode.getDetail());
-    textNode.setStyle(linkTextNode.getStyle());
-    linkNode.append(textNode);
-    linkTextNode.replace(linkNode);
+    $wrapInLink([linkTextNode], linkNode);
     return remainingTextNode;
   } else if (nodes.length > 1) {
     const firstTextNode = nodes[0];
@@ -334,25 +400,7 @@ function $createAutoLinkNode_(
       }
       offset += currentNodeLength;
     }
-    const selection = $getSelection();
-    const selectedTextNode = selection
-      ? selection.getNodes().find($isTextNode)
-      : undefined;
-    const textNode = $createTextNode(firstLinkTextNode.getTextContent());
-    textNode.setFormat(firstLinkTextNode.getFormat());
-    textNode.setDetail(firstLinkTextNode.getDetail());
-    textNode.setStyle(firstLinkTextNode.getStyle());
-    linkNode.append(textNode, ...linkNodes);
-    // it does not preserve caret position if caret was at the first text node
-    // so we need to restore caret position
-    if (selectedTextNode && selectedTextNode === firstLinkTextNode) {
-      if ($isRangeSelection(selection)) {
-        textNode.select(selection.anchor.offset, selection.focus.offset);
-      } else if ($isNodeSelection(selection)) {
-        textNode.select(0, textNode.getTextContent().length);
-      }
-    }
-    firstLinkTextNode.replace(linkNode);
+    $wrapInLink([firstLinkTextNode, ...linkNodes], linkNode);
     return remainingTextNode;
   }
   return undefined;
