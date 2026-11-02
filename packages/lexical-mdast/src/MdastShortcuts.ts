@@ -97,8 +97,10 @@ function $placeBlock(container: ElementNode, block: ElementNode): void {
  * Creates the quote for the `> ` shortcut with the registry's import
  * handlers, so a typed quote is the same kind as a loaded one. With
  * {@link MdastShadowRootQuoteExtension} that is a shadow root quote, which
- * holds paragraphs. Falls back to a plain QuoteNode when the import makes
- * something else.
+ * holds paragraphs. A rule may give the empty quote an empty paragraph for
+ * the caret (the mdast-editor example's alert rule does), so a shadow root
+ * quote that holds only empty paragraphs is kept too. Falls back to a plain
+ * QuoteNode when the import makes something else.
  */
 function $createShortcutQuote(
   scanner: MarkdownStreamScanner,
@@ -106,7 +108,14 @@ function $createShortcutQuote(
 ): QuoteNode {
   const imported = scanner.importBlock(match.node);
   const quote = imported.length === 1 ? imported[0] : null;
-  return $isQuoteNode(quote) && quote.isEmpty() ? quote : $createQuoteNode();
+  return $isQuoteNode(quote) &&
+    (quote.isEmpty() ||
+      (quote.isShadowRoot() &&
+        quote
+          .getChildren()
+          .every(child => $isParagraphNode(child) && child.isEmpty())))
+    ? quote
+    : $createQuoteNode();
 }
 
 /**
@@ -155,8 +164,15 @@ function $applyBlock(
   } else if (match.kind === 'blockquote') {
     const quote = $createShortcutQuote(scanner, match);
     if (quote.isShadowRoot()) {
-      const line = $append($createParagraphNode(), remaining);
-      $append(quote, [line]);
+      // The typed text goes into the paragraph the import seeded, if any, so
+      // the quote holds one line, as the import of `> a` gives.
+      const [seeded, ...extra] = quote.getChildren();
+      extra.forEach(node => node.remove());
+      const line = $isParagraphNode(seeded) ? seeded : $createParagraphNode();
+      $append(line, remaining);
+      if (line !== seeded) {
+        $append(quote, [line]);
+      }
       selectInto = line;
     } else {
       $append(quote, remaining);

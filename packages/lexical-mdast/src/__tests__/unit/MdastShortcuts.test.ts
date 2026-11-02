@@ -8,6 +8,8 @@
 
 // @vitest-environment node
 
+import type {Blockquote} from 'mdast';
+
 import {$isCodeNode} from '@lexical/code-core';
 import {
   buildEditorFromExtensions,
@@ -16,6 +18,7 @@ import {
 import {$isLinkNode} from '@lexical/link';
 import {$isListItemNode, $isListNode} from '@lexical/list';
 import {
+  $createQuoteNode,
   $isHeadingNode,
   $isQuoteNode,
   RichTextExtension,
@@ -31,6 +34,7 @@ import {
   $isRangeSelection,
   $isTextNode,
   type AnyLexicalExtensionArgument,
+  configExtension,
   defineExtension,
   KEY_ENTER_COMMAND,
   type LexicalEditor,
@@ -43,7 +47,9 @@ import {
   $convertFromMarkdownString,
   $convertToMarkdownString,
   MdastCommonMarkExtension,
+  MdastExtension,
   MdastGfmExtension,
+  type MdastImportHandler,
   MdastShadowRootQuoteExtension,
   MdastShortcutsExtension,
 } from '../../index';
@@ -399,6 +405,40 @@ describe('@lexical/mdast streaming shortcuts', () => {
           );
         }
         expect(rootJSON(typed)).toEqual(rootJSON(loaded));
+      });
+    });
+
+    it('a quote whose import rule gives it an empty paragraph', () => {
+      // Like the mdast-editor example's alert rule: the empty quote `> `
+      // imports gets an empty paragraph for the caret.
+      const $importQuote: MdastImportHandler<Blockquote> = (node, ctx) => {
+        const blocks = node.children.flatMap(child => ctx.importNode(child));
+        return [
+          $createQuoteNode({shadowRoot: true}).append(
+            ...(blocks.length > 0 ? blocks : [$createParagraphNode()]),
+          ),
+        ];
+      };
+      const QuoteRuleExtension = configExtension(MdastExtension, {
+        importRules: [{$import: $importQuote, type: 'blockquote'}],
+      });
+      using editor = createEditor(QuoteRuleExtension);
+      type(editor, ['>', ' ', 'a']);
+      using imported = importMarkdown('> a', QuoteRuleExtension);
+      expect(rootJSON(editor)).toEqual(rootJSON(imported));
+      editor.read(() => {
+        const quote = $assertNodeType($getRoot().getFirstChild(), $isQuoteNode);
+        expect(quote.isShadowRoot()).toBe(true);
+        const [line, ...rest] = quote.getChildren();
+        expect($assertNodeType(line, $isParagraphNode).getTextContent()).toBe(
+          'a',
+        );
+        expect(rest).toEqual([]);
+        const selection = $getSelection();
+        expect(
+          $isRangeSelection(selection) &&
+            selection.anchor.getNode().getParent()?.is(line),
+        ).toBe(true);
       });
     });
   });
