@@ -1311,6 +1311,58 @@ function hasUnequalRecordEntry<T extends LexicalNode>(
 /**
  * @internal
  *
+ * Give `to`, a node that takes the place of `from` with the same content as a
+ * node of another type, the NodeState of `from`: known values as they are,
+ * values not read yet as their JSON, parsed with the configs of the type of
+ * `to` where it has its own for a key. Default values are left out, and keys
+ * that `to` already holds (set when it was made) keep their value.
+ */
+export function $carryNodeState(from: LexicalNode, to: LexicalNode): void {
+  const fromState = from.getLatest().__state;
+  if (fromState === undefined || fromState.size === 0) {
+    return;
+  }
+  const toState = to.getLatest().__state;
+  const done = new Set<string>();
+  if (toState !== undefined) {
+    for (const [stateConfig] of toState.knownState) {
+      done.add(stateConfig.key);
+    }
+    if (toState.unknownState !== undefined) {
+      for (const key of Object.keys(toState.unknownState)) {
+        done.add(key);
+      }
+    }
+  }
+  const state = $getWritableNodeState(to);
+  for (const [stateConfig, value] of fromState.knownState) {
+    if (done.has(stateConfig.key)) {
+      continue;
+    }
+    done.add(stateConfig.key);
+    if (stateConfig.isEqual(value, stateConfig.defaultValue)) {
+      continue;
+    }
+    const own = state.sharedNodeState.sharedConfigMap.get(stateConfig.key);
+    if (own === undefined || own === stateConfig) {
+      state.updateFromKnown(stateConfig, value);
+    } else {
+      state.updateFromUnknown(stateConfig.key, stateConfig.unparse(value));
+    }
+  }
+  const {unknownState} = fromState;
+  if (unknownState !== undefined) {
+    for (const [key, value] of Object.entries(unknownState)) {
+      if (!done.has(key)) {
+        state.updateFromUnknown(key, value);
+      }
+    }
+  }
+}
+
+/**
+ * @internal
+ *
  * Clones the NodeState for a given node. Handles aliasing if the state references the from node.
  */
 export function $cloneNodeState<T extends LexicalNode>(
