@@ -1226,7 +1226,8 @@ not merge as a user might expect:
   or a server or relay that loads the state with garbage collection on,
   compacts it. Any editor that uses a Yjs `UndoManager` behaves the same
   ([#9721](https://github.com/meta/lexical/issues/9721); reported to Yjs as
-  [yjs/yjs#833](https://github.com/yjs/yjs/issues/833)).
+  [yjs/yjs#833](https://github.com/yjs/yjs/issues/833), fix proposed in
+  [yjs/yjs#834](https://github.com/yjs/yjs/pull/834)).
 - **Named slots.** A slot holds one node: two collaborators setting the same
   slot at once keep one writer's node, and text typed in a slot that a
   collaborator replaces or removes at the same time is lost (as with delete
