@@ -94,7 +94,10 @@ export interface YCollabConfig {
  */
 export const YCollabExtension = defineExtension({
   build(editor, config) {
-    invariant(config.doc !== null, '@lexical/y: YCollabExtension needs a doc');
+    invariant(
+      config.doc !== null,
+      '@lexical/y: YCollabExtension needs a doc: pass doc: createYDoc() in its config, the document your provider syncs',
+    );
     // A config key cannot be required by its type (configExtension takes a
     // partial config), so the app's decision is checked here.
     invariant(

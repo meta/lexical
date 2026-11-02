@@ -364,8 +364,10 @@ export {
 } from './LexicalSlot';
 export type {DeclaredNodeStructure} from './LexicalStructure';
 export {
+  $isBlockContainer,
   getDeclaredNodeStructure,
   INTERNAL_$normalizeNodeStructure,
+  INTERNAL_isInlineContent,
   INTERNAL_isNodeStructureEnforced,
   INTERNAL_registerNodeStructure,
 } from './LexicalStructure';
@@ -374,6 +376,7 @@ export {
   $flushSyncAfterUpdate,
   $fullReconcile,
   $parseSerializedNode,
+  INTERNAL_getActiveEditorState,
   isCurrentlyReadOnlyMode,
 } from './LexicalUpdates';
 export {
@@ -446,6 +449,7 @@ export {
   getStaticNodeConfig,
   getTextDirection,
   INTERNAL_$isBlock,
+  INTERNAL_$withExportMemo,
   isBlockDomNode,
   isDocumentFragment,
   isDOMCapturingSelection,

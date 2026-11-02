@@ -12,8 +12,6 @@ import type {NodeKey} from 'lexical';
 
 import {type Item} from '@y/y';
 
-import {isGone} from './Unread';
-
 /*
  * Remote changes held back while the local editor composes.
  *
@@ -188,34 +186,4 @@ export class Hidden {
     }
     return pos;
   }
-}
-
-/** The length of an item the editor shows (live content only). */
-export function shownLength(item: Item, hidden: Hidden | null): number {
-  if (isGone(item) || !item.countable) {
-    return 0;
-  }
-  return hidden === null ? item.length : hidden.shownLength(item);
-}
-
-/** Whether the editor shows `item`: live, and not held back. */
-export function isShown(item: Item, hidden: Hidden | null): boolean {
-  return !isGone(item) && (hidden === null || !hidden.hides(item));
-}
-
-/** The part of string item `item`'s text `str` the editor shows. */
-export function shownText(str: string, item: Item, hidden: Hidden): string {
-  const runs = hidden.runs(item);
-  if (runs.length === 1) {
-    return runs[0][1] ? '' : str;
-  }
-  let out = '';
-  let pos = 0;
-  for (const [len, isHidden] of runs) {
-    if (!isHidden) {
-      out += str.slice(pos, pos + len);
-    }
-    pos += len;
-  }
-  return out;
 }

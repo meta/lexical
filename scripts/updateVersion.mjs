@@ -60,6 +60,7 @@ function updatePackage(pkg) {
  */
 async function updateVersion() {
   await regenerateVersionModules();
+  await regenerateSupportedYjsVersion();
   packagesManager.getPackages().forEach(updatePackage);
   glob
     .sync([
@@ -103,6 +104,46 @@ async function regenerateVersionModules() {
       await prettier.format(next, {...prettierConfig, filepath: versionPath}),
     );
   }
+}
+
+/**
+ * The module that carries the one `@y/y` version `@lexical/y` supports, as a
+ * literal generated from that package's exact `@y/y` peer dependency (its
+ * runtime check reports it; YjsContract.test fails when the two differ).
+ */
+const SUPPORTED_YJS_MODULE = 'packages/lexical-y/src/internal/SupportedYjs.ts';
+
+/**
+ * Rewrite the generated `SUPPORTED_YJS_VERSION` literal to `@lexical/y`'s
+ * `@y/y` peer dependency.
+ */
+async function regenerateSupportedYjsVersion() {
+  const modulePath = path.resolve(SUPPORTED_YJS_MODULE);
+  const packageJsonPath = path.resolve('packages/lexical-y/package.json');
+  if (!fs.existsSync(modulePath) || !fs.existsSync(packageJsonPath)) {
+    return;
+  }
+  const {peerDependencies = {}} = fs.readJsonSync(packageJsonPath);
+  const supported = peerDependencies['@y/y'];
+  if (
+    typeof supported !== 'string' ||
+    !/^\d+\.\d+\.\d+(-[\w.]+)?$/.test(supported)
+  ) {
+    throw new Error(
+      `packages/lexical-y/package.json: peerDependencies['@y/y'] must be one exact version (got ${String(supported)})`,
+    );
+  }
+  const next = fs
+    .readFileSync(modulePath, 'utf8')
+    .replace(
+      /(export const SUPPORTED_YJS_VERSION: string = )'[^']*'/,
+      `$1'${supported}'`,
+    );
+  const prettierConfig = (await prettier.resolveConfig(modulePath)) || {};
+  fs.writeFileSync(
+    modulePath,
+    await prettier.format(next, {...prettierConfig, filepath: modulePath}),
+  );
 }
 
 /**

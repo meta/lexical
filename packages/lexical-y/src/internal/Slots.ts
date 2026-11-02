@@ -30,7 +30,7 @@ import {
 } from 'lexical';
 
 import {type Attrs, BLOCK_PREFIX, isUnsafeKey} from './Schema';
-import {deleteAttr, setAttr} from './Unread';
+import {deleteAttr, setAttr} from './Seen';
 
 /*
  * Named slots ($setSlot). A node stored as its own Y.Node (a `b:<type>` or

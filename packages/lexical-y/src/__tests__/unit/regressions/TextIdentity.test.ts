@@ -1551,13 +1551,15 @@ describe('S6-5: Enter inside a code token the highlighter makes again', () => {
 
 // S7-39: a line's children made again as one plain node with one word
 // changed (an agent's rewrite of the block), where a node that held the
-// changed word was deleted whole (a removed node's text is aligned whole or
-// not at all). The check that keeps only what both diffs keep read the text
+// changed word was deleted whole (a removed node's text was aligned whole or
+// not at all). The check that kept only what both diffs keep read the text
 // that left without that node, so the characters on its two sides (or the
 // last characters before it and the end of the line) were next to each
 // other, and it took the end of the word before as possibly a part of the
 // new word: the rewrite wrote it again, and a peer's concurrent edit of the
-// changed word landed inside the word before ("t16t83zz t80z  t19z").
+// changed word landed inside the word before ("t16t83zz t80z  t19z"). The
+// text of the node made now keeps the common start and end of the line's
+// text, the node that held the word included (S9-7).
 describe('S7-39: a line made again as one node, where a node that held the changed word went whole', () => {
   // The line's text nodes (italic or not), the word changed and its new
   // text, and what the rewrite deletes and inserts.
@@ -1570,8 +1572,8 @@ describe('S7-39: a line made again as one node, where a node that held the chang
       ],
       't63z',
       't80z',
-      't63z ',
-      't80z ',
+      't63z',
+      't80z',
     ],
     [
       [
@@ -1581,8 +1583,8 @@ describe('S7-39: a line made again as one node, where a node that held the chang
       ],
       'cd',
       'gh',
-      'cd ',
-      'gh ',
+      'cd',
+      'gh',
     ],
     [
       [
@@ -1591,8 +1593,8 @@ describe('S7-39: a line made again as one node, where a node that held the chang
       ],
       't60z',
       't70z',
-      ' t60z t61z',
-      ' t70z t61z',
+      't60z',
+      't70z',
     ],
   ];
   for (const [nodes, word, next, del, ins] of cases) {
@@ -1637,9 +1639,8 @@ describe('S7-39: a line made again as one node, where a node that held the chang
           }
           $setSelection(null);
         });
-        // The rewrite writes again only the node that held the word (a
-        // removed node's text is matched whole or not at all), and keeps
-        // every character of the nodes around it.
+        // The rewrite writes only the word, and keeps every other character
+        // of the line.
         expect(writes).toEqual({del, ins});
         await t.sync();
         // The text of the nodes before the one that held the word stays

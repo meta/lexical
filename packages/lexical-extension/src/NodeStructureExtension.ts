@@ -57,6 +57,11 @@ export function registerNodeStructure(editor: LexicalEditor): () => void {
  *   the first listed class;
  * - `mergeAdjacent`: equal adjacent siblings are merged.
  *
+ * A class that declares `children: 'block'` is also a block container for
+ * the structural commands (see `$isBlockContainer` in `lexical`): they
+ * convert, wrap, split and insert blocks inside it, as in a shadow root,
+ * and never replace or split it.
+ *
  * It runs in the same update as the change, after the other transforms of
  * each pass, from the root down along the nodes the update changed, so the
  * result depends on the document only. Repairs only move content; the one

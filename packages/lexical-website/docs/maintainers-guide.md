@@ -599,7 +599,12 @@ rewritten to the same commit's pkg.pr.new URLs, so `@lexical/react` from a
 preview depends on `lexical` from that preview, not on an npm release.
 
 The bot's comment lists npm commands, and npm dedupes those dependencies by
-name and version, so `@9372` or `@main` URLs are fine. pnpm and yarn key URL
+name and version, so `@9372` or `@main` URLs install one copy of each
+package. `npm ls` still marks `lexical` (and any other package installed
+that way that Lexical packages depend on) `invalid` then, and exits with 1:
+the packages depend on each other through the 7-character commit URL
+(`…/lexical@4282a68`), not the one you installed. Install with the
+7-character commit URLs to keep that check clean. pnpm and yarn key URL
 dependencies by URL instead: install with the long commit URLs that the
 packages use for each other, or you get more than one copy of `lexical`. pnpm
 11+ also refuses URL dependencies of URL dependencies unless

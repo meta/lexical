@@ -1356,6 +1356,10 @@ declare export function $cloneWithPropertiesEphemeral<T extends LexicalNode>(nod
 declare export function $copyNode<T extends LexicalNode>(node: T, skipReset?: boolean): T;
 declare export function $getDocument(): Document;
 declare export function $getEditor(): LexicalEditor;
+/** @internal */
+declare export function INTERNAL_getActiveEditorState(): EditorState | null;
+/** @internal */
+declare export function INTERNAL_$withExportMemo<T>(f: () => T): T;
 declare export function $getEditorDOMRenderConfig(
   editor?: LexicalEditor,
 ): EditorDOMRenderConfig;
@@ -2406,6 +2410,10 @@ export type DeclaredNodeStructure = {
 declare export function getDeclaredNodeStructure(
   klass: Class<LexicalNode>,
 ): DeclaredNodeStructure;
+
+declare export function $isBlockContainer(
+  node: ?LexicalNode,
+): implies node is ElementNode;
 
 /**
  * This is the type of LexicalNode.$config() that can be

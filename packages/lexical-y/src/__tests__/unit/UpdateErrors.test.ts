@@ -316,12 +316,12 @@ describe('the binding writes every committed change', () => {
     );
   });
 
-  // A known limit, not caused by an update that throws: Lexical stops
+  // Open, #9514 (not caused by an update that throws): Lexical stops
   // notifying a commit's update listeners when one of them throws, so a
   // binding registered after the listener that threw never writes that
   // commit.
   test.fails(
-    "a commit whose update listeners stopped before the binding's is not written (known limit)",
+    "a commit whose update listeners stopped before the binding's is not written (#9514)",
     async () => {
       let armed = false;
       const t = await setup($doc, {

@@ -51,7 +51,9 @@ describe('@lexical/y update roots at scale', () => {
     }
     // 8x the content: allow 30x before calling it superlinear.
     expect(times[1]).toBeLessThan(Math.max(30 * times[0], 1000));
-  });
+    // About 3 s alone (building the documents), over vitest's default 5 s
+    // limit when the whole suite runs.
+  }, 30_000);
 
   test('a delete-only update to an older root is detected', () => {
     const old = new Y13.Doc();

@@ -177,7 +177,12 @@ export type TextFormatTransformer = Readonly<{
 export type TextMatchTransformer = Readonly<{
   dependencies: Klass<LexicalNode>[];
   /**
-   * Determines how a node should be exported to markdown
+   * Determines how a node should be exported to markdown. Return null when
+   * this transformer does not export `node`.
+   *
+   * Markdown export may also call this with placeholder callbacks only to learn
+   * whether the transformer writes `node` in its own syntax (to decide which
+   * neighbouring brackets to escape), so it should have no side effects.
    */
   export?: (
     node: LexicalNode,
@@ -1196,7 +1201,7 @@ function escapeLinkPart(value: string, syntax: RegExp): string {
 // Mask escaped/code brackets without changing source offsets, then find an inner
 // opener after a literal prefix. Return -1 for balanced labels or null when
 // unmatched closers leave no recoverable opener.
-function getLinkLabelOpener(text: string): number | null {
+export function getLinkLabelOpener(text: string): number | null {
   const codeSpans = scanCodeSpans(text);
   let codeIndex = 0;
   const brackets = text.replace(/\\.|[[\]]/g, (part, index: number) => {
