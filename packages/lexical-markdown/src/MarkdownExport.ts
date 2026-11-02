@@ -37,11 +37,30 @@ import {
 import {isEmptyParagraph, transformersByType} from './utils';
 
 /**
+ * Options for a Markdown export.
+ */
+export interface MarkdownExportOptions {
+  /**
+   * Whether to escape a `<` or an `&` that could read as raw HTML or as a
+   * character reference when the exported Markdown is parsed again, so that
+   * text the editor holds stays text. On by default.
+   *
+   * Set it to `false` when the export feeds a renderer that is meant to read
+   * the inline HTML and the character references an author writes, which is
+   * how the editor behaved before v0.53.0. The brackets that would start a
+   * link, an image, a link reference definition or a check list item are
+   * escaped either way, since nothing else keeps that text readable.
+   */
+  escapeAmbiguousHtml?: boolean;
+}
+
+/**
  * Renders string from markdown. The selection is moved to the start after the operation.
  */
 export function createMarkdownExport(
   transformers: Transformer[],
   shouldPreserveNewLines: boolean = false,
+  options?: MarkdownExportOptions,
 ): (node?: ElementNode) => string {
   const byType = transformersByType(transformers);
   const elementTransformers = [...byType.multilineElement, ...byType.element];
@@ -61,7 +80,7 @@ export function createMarkdownExport(
     });
 
   return node =>
-    withBracketContext(byType.textMatch, () => {
+    withBracketContext(byType.textMatch, options, () => {
       const output = [];
       const children = (node || $getRoot()).getChildren();
 
@@ -102,6 +121,7 @@ export function createMarkdownExport(
 export function createSelectionMarkdownExport(
   transformers: Transformer[],
   shouldPreserveNewLines: boolean = false,
+  options?: MarkdownExportOptions,
 ): (selection: BaseSelection) => string {
   const byType = transformersByType(transformers);
   const elementTransformers = [...byType.multilineElement, ...byType.element];
@@ -116,7 +136,7 @@ export function createSelectionMarkdownExport(
     });
 
   return exportedSelection =>
-    withBracketContext(byType.textMatch, () => {
+    withBracketContext(byType.textMatch, options, () => {
       // Every node asks whether it is selected, which reads the selection's
       // nodes. A read-only selection doesn't cache them, so this works on a
       // copy that does, instead of recomputing them for every node.
@@ -525,12 +545,18 @@ function $exportTextFormat(
     if (shouldPreserveNewLines) {
       output = output.replace(/([*_`~])/g, '\\$1');
     } else {
+      // An export that keeps ambiguous text as typed escapes only the
+      // characters that carry a format, and leaves `<` and `&` alone.
+      const ambiguous =
+        bracketContext === null || bracketContext.escapeAmbiguousHtml;
       output = $escapeLiteralBrackets(
         node,
-        output.replace(/([*_`~\\]|<(?=\S|$)|&(?=#|$))/g, character =>
-          /[*_`~\\]/.test(character)
-            ? `\\${character}`
-            : `&#${character.charCodeAt(0)};`,
+        output.replace(
+          ambiguous ? /([*_`~\\]|<(?=\S|$)|&(?=#|$))/g : /([*_`~\\])/g,
+          character =>
+            /[*_`~\\]/.test(character)
+              ? `\\${character}`
+              : `&#${character.charCodeAt(0)};`,
         ),
         selection,
       );
@@ -957,16 +983,20 @@ interface BracketContext {
   textMatchTransformers: TextMatchTransformer[];
   exportKinds: Map<NodeKey, ExportKind>;
   lineStates: Map<NodeKey, LineState>;
+  escapeAmbiguousHtml: boolean;
 }
 
 let bracketContext: BracketContext | null = null;
 
 function withBracketContext<T>(
   textMatchTransformers: TextMatchTransformer[],
+  options: MarkdownExportOptions | undefined,
   callback: () => T,
 ): T {
   const previous = bracketContext;
   bracketContext = {
+    escapeAmbiguousHtml:
+      options === undefined || options.escapeAmbiguousHtml !== false,
     exportKinds: new Map(),
     lineStates: new Map(),
     textMatchTransformers,

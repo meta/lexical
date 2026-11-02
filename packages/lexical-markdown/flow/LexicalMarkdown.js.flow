@@ -105,16 +105,22 @@ declare export function $convertFromMarkdownString(
   shouldMergeAdjacentLines?: boolean,
 ): void;
 
+export type MarkdownExportOptions = {
+  escapeAmbiguousHtml?: boolean,
+};
+
 declare export function $convertSelectionToMarkdownString(
   transformers?: Transformer[],
   selection: BaseSelection | null,
   shouldPreserveNewLines?: boolean,
+  options?: MarkdownExportOptions,
 ): string;
 
 declare export function $convertToMarkdownString(
   transformers?: Transformer[],
   node?: ElementNode,
   shouldPreserveNewLines?: boolean,
+  options?: MarkdownExportOptions,
 ): string;
 
 declare export var INLINE_CODE: TextFormatTransformer;

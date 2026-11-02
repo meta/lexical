@@ -99,6 +99,13 @@ reference definition or a check list item, so text such as `[1]` and `array[0]`
 exports as typed. Escaped brackets and guarded `<`/`&` use numeric references so
 escaping does not change adjacent emphasis flanking.
 
+`$convertToMarkdownString` and `$convertSelectionToMarkdownString` take a
+`MarkdownExportOptions` object as their last argument. Passing
+`{escapeAmbiguousHtml: false}` writes `<` and `&` as the author typed them, for
+an app whose renderer is meant to read the inline HTML and the character
+references written in the editor; brackets and format characters are escaped
+either way.
+
 There're three types of transformers:
 
 - **Element transformer** handles top level elements (lists, headings, quotes, tables or code blocks)

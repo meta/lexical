@@ -19,6 +19,7 @@ import {
 import {
   createMarkdownExport,
   createSelectionMarkdownExport,
+  type MarkdownExportOptions,
 } from './MarkdownExport';
 import {$importMarkdownNodes} from './MarkdownImport';
 import {registerMarkdownShortcuts} from './MarkdownShortcuts';
@@ -116,10 +117,12 @@ function $convertToMarkdownString(
   transformers: Transformer[] = TRANSFORMERS,
   node?: ElementNode,
   shouldPreserveNewLines: boolean = false,
+  options?: MarkdownExportOptions,
 ): string {
   const exportMarkdown = createMarkdownExport(
     transformers,
     shouldPreserveNewLines,
+    options,
   );
   return exportMarkdown(node);
 }
@@ -131,6 +134,7 @@ function $convertSelectionToMarkdownString(
   transformers: Transformer[] = TRANSFORMERS,
   selection: BaseSelection | null,
   shouldPreserveNewLines: boolean = false,
+  options?: MarkdownExportOptions,
 ): string {
   if (!selection || ($isRangeSelection(selection) && selection.isCollapsed())) {
     return '';
@@ -138,9 +142,12 @@ function $convertSelectionToMarkdownString(
   const exportMarkdown = createSelectionMarkdownExport(
     transformers,
     shouldPreserveNewLines,
+    options,
   );
   return exportMarkdown(selection);
 }
+
+export type {MarkdownExportOptions};
 
 export {
   $convertFromMarkdownString,

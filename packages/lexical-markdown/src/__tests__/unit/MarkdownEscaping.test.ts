@@ -1682,3 +1682,106 @@ describe('one-pass numeric reference decoding', () => {
     expect(unescapeText(source)).toBe(expected);
   });
 });
+
+describe('escapeAmbiguousHtml: false', () => {
+  const KEEP_AS_TYPED = [
+    '<u>under</u>',
+    '<details><summary>Scorecard</summary>',
+    '<!-- marker -->',
+    '&#0036;5',
+    '&#65;',
+    'AT&T',
+    'a < b',
+  ];
+
+  function $setParagraph(text: string): void {
+    $getRoot()
+      .clear()
+      .append($createParagraphNode().append($createTextNode(text)));
+  }
+
+  it.each(KEEP_AS_TYPED)('writes %j as typed', text => {
+    using editor = buildEditorFromExtensions([MarkdownTestExtension]);
+    editor.update(() => $setParagraph(text), {discrete: true});
+    expect(
+      editor.read(() =>
+        $convertToMarkdownString(TRANSFORMERS, undefined, false, {
+          escapeAmbiguousHtml: false,
+        }),
+      ),
+    ).toBe(text);
+  });
+
+  it.each(KEEP_AS_TYPED)('writes %j as typed across text nodes', text => {
+    using editor = buildEditorFromExtensions([MarkdownTestExtension]);
+    for (let split = 0; split <= text.length; split++) {
+      editor.update(
+        () => {
+          $getRoot()
+            .clear()
+            .append(
+              $createParagraphNode().append(
+                $createTextNode(text.slice(0, split)).setStyle('color: red'),
+                $createTextNode(text.slice(split)).setStyle('color: blue'),
+              ),
+            );
+        },
+        {discrete: true},
+      );
+      expect(
+        editor.read(() =>
+          $convertToMarkdownString(TRANSFORMERS, undefined, false, {
+            escapeAmbiguousHtml: false,
+          }),
+        ),
+      ).toBe(text);
+    }
+  });
+
+  it.each([
+    ['[label](uri)', '[label&#93;(uri)'],
+    ['[ref]: uri', '[ref&#93;: uri'],
+    ['a *star* here', 'a \\*star\\* here'],
+    ['back\\slash', 'back\\\\slash'],
+  ])('still escapes %j, which no renderer can read back', (text, expected) => {
+    using editor = buildEditorFromExtensions([MarkdownTestExtension]);
+    editor.update(() => $setParagraph(text), {discrete: true});
+    expect(
+      editor.read(() =>
+        $convertToMarkdownString(TRANSFORMERS, undefined, false, {
+          escapeAmbiguousHtml: false,
+        }),
+      ),
+    ).toBe(expected);
+  });
+
+  it('writes a selection as typed too', () => {
+    using editor = buildEditorFromExtensions([MarkdownTestExtension]);
+    editor.update(
+      () => {
+        const text = $createTextNode('before <b>&copy; x</b> after');
+        $getRoot().clear().append($createParagraphNode().append(text));
+        text.select(7, text.getTextContentSize() - 6);
+      },
+      {discrete: true},
+    );
+    expect(
+      editor.read(() =>
+        $convertSelectionToMarkdownString(
+          TRANSFORMERS,
+          $getSelection(),
+          false,
+          {escapeAmbiguousHtml: false},
+        ),
+      ),
+    ).toBe('<b>&copy; x</b>');
+  });
+
+  it('escapes by default', () => {
+    using editor = buildEditorFromExtensions([MarkdownTestExtension]);
+    editor.update(() => $setParagraph('<u>under</u>'), {discrete: true});
+    expect(editor.read(() => $convertToMarkdownString())).toBe(
+      '&#60;u>under&#60;/u>',
+    );
+  });
+});
