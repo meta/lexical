@@ -274,8 +274,11 @@ function $isInsertedText(
     prefix++;
   }
   let suffix = 0;
+  // Repeated characters can make the insertion boundary ambiguous. Find the
+  // suffix independently of the prefix so that either possible alignment
+  // preserves the state of characters that may have existed before the edit.
   while (
-    suffix < max - prefix &&
+    suffix < max &&
     prevText[prevText.length - 1 - suffix] === text[text.length - 1 - suffix]
   ) {
     suffix++;
