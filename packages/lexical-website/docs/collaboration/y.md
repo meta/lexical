@@ -1209,6 +1209,23 @@ not merge as a user might expect:
   destroys a Yjs `UndoManager` without clearing it first behaves the same;
   the binding does not clear at stop because a clear also releases what
   another undo manager on the document still keeps for its own undo.
+- **An undo or redo that restores content inside a container keeps that container from collection until reload.**
+  When content inside a container (such as a table cell) is deleted—either
+  directly by an edit, or when undoing an insertion—the `UndoManager` records
+  that deletion on a stack item, keeping the deleted content and walking up
+  the parents (the cell, row and table). When an undo restores that deleted
+  content, or a redo re-creates the inserted text, `popStackItem` removes
+  that deletion step from the stack. Clearing every `UndoManager` and
+  stopping the binding does not release the parent containers: `clear()`
+  only walks steps still on a stack, so the keeps set by the popped deletion
+  step are never released (and in the redo case, setting only the re-created
+  copy's keep back to false still leaves the parents kept). If a collaborator
+  later deletes that container, this client's document and any state it
+  encodes keep the container structs until it is reloaded: about 139 to 151
+  bytes for a one-cell table with nine characters, growing with the table's
+  content. A reload, or a peer or relay that loads the state with garbage
+  collection on, compacts it. Any editor using Yjs `UndoManager` behaves the
+  same.
 - **Named slots.** A slot holds one node: two collaborators setting the same
   slot at once keep one writer's node, and text typed in a slot that a
   collaborator replaces or removes at the same time is lost (as with delete
