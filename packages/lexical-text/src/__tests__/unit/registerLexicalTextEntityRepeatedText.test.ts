@@ -19,6 +19,7 @@ import {
   $createTextNode,
   $getRoot,
   $getState,
+  $setSelection,
   $setState,
   createEditor,
   createState,
@@ -53,8 +54,8 @@ const getMatch = (text: string) => {
     : null;
 };
 
-test.each([1, 2])(
-  '#9725: inserting a repeated character at offset %i preserves the existing matched character state',
+test.each([1, 2, 3])(
+  '#9725: inserting a repeated character at offset %i resolves its state from the caret',
   offset => {
     const editor = createEditor({
       nodes: [HashtagNode, LetterNode],
@@ -102,7 +103,101 @@ test.each([1, 2])(
       const letter = nodes.at(-1)!;
       expect(letter.getType()).toBe('letter');
       expect(letter.getTextContent()).toBe('A');
+      expect($getState(letter, note)).toBe(offset === 3 ? '' : 'c1');
+    });
+  },
+);
+
+test.each(['absent', 'another node', 'expanded'] as const)(
+  'ambiguous repeated text keeps its state when the caret is %s',
+  caret => {
+    const editor = createEditor({
+      nodes: [LetterNode],
+      onError: error => {
+        throw error;
+      },
+    });
+    registerLexicalTextEntity(editor, getMatch, LetterNode, node =>
+      $create(LetterNode).setTextContent(node.getTextContent()),
+    );
+    editor.update(
+      () => {
+        $getRoot().append(
+          $createParagraphNode().append(
+            $setState($createTextNode('$AA'), note, 'c1'),
+          ),
+          $createParagraphNode().append($createTextNode('elsewhere')),
+        );
+      },
+      {discrete: true},
+    );
+    editor.update(
+      () => {
+        const [node, other] = $getRoot().getAllTextNodes();
+        node.setTextContent('$AAA');
+        if (caret === 'another node') {
+          other.selectEnd();
+        } else if (caret === 'expanded') {
+          node.select(0, 1);
+        } else {
+          $setSelection(null);
+        }
+      },
+      {discrete: true},
+    );
+    editor.read(() => {
+      const letter = $getRoot().getAllTextNodes()[1];
+      expect(letter.getType()).toBe('letter');
+      expect(letter.getTextContent()).toBe('A');
       expect($getState(letter, note)).toBe('c1');
+    });
+  },
+);
+
+test.each([' #tag', ' #first #tag'])(
+  'new hashtags with a repeated tail do not inherit NodeState: %s',
+  inserted => {
+    const editor = createEditor({
+      nodes: [HashtagNode],
+      onError: error => {
+        throw error;
+      },
+    });
+    registerLexicalTextEntity(
+      editor,
+      HashtagExtension.config!.getHashtagMatch,
+      HashtagNode,
+      node => $createHashtagNode(node.getTextContent()),
+    );
+    editor.update(
+      () => {
+        $getRoot().append(
+          $createParagraphNode().append(
+            $setState($createTextNode('tag'), note, 'c1'),
+          ),
+        );
+      },
+      {discrete: true},
+    );
+    editor.update(
+      () => {
+        $getRoot().getAllTextNodes()[0].selectEnd().insertText(inserted);
+      },
+      {discrete: true},
+    );
+    editor.read(() => {
+      const nodes = $getRoot().getAllTextNodes();
+      expect(nodes.map(node => node.getTextContent()).join('')).toBe(
+        'tag' + inserted,
+      );
+      expect($getState(nodes[0], note)).toBe('c1');
+      const hashtags = nodes.filter(node => node.getType() === 'hashtag');
+      expect(hashtags.map(node => node.getTextContent())).toEqual(
+        inserted.trim().split(' '),
+      );
+      for (const hashtag of hashtags) {
+        expect($getState(hashtag, note)).toBe('');
+      }
     });
   },
 );
