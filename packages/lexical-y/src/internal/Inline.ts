@@ -1228,7 +1228,14 @@ const SURROGATE = /[\ud800-\udfff]/;
 
 /** Whether `s` holds a surrogate code unit that is not half of a pair. */
 export function hasLoneSurrogate(s: string): boolean {
-  return SURROGATE.test(s) && toWellFormed(s) !== s;
+  if (!SURROGATE.test(s)) {
+    return false;
+  }
+  // String#isWellFormed where the runtime has it: it builds no new string.
+  const str = s as string & {isWellFormed?: () => boolean};
+  return typeof str.isWellFormed === 'function'
+    ? !str.isWellFormed()
+    : toWellFormed(s) !== s;
 }
 
 /**

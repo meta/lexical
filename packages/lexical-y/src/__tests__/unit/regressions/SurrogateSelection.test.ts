@@ -167,6 +167,10 @@ const settings = [false, true].flatMap(gc =>
 async function check(peers: Peer[], expected: string) {
   for (const peer of peers) {
     expect(peer.warnings).toEqual([]);
+    // A fresh read of each client's own document, the author's included
+    // (expectConverged freshly reads the first client's).
+    const fresh = await freshReader(peer);
+    expect(fresh.describe()).toBe(peer.describe());
   }
   await expectConverged(peers, expected);
 }
