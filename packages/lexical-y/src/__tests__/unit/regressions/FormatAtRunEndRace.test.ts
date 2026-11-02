@@ -66,6 +66,10 @@ for (const how of ['remove', 'type'] as const) {
             });
             await t.sync();
             await expectConverged(t.peers);
+            // No text is lost.
+            expect(a.read(() => $getRoot().getTextContent())).toBe(
+              how === 'remove' ? 'abcdefgh' : 'abcXdefgh',
+            );
             const fg = a.read(() =>
               $getRoot()
                 .getAllTextNodes()

@@ -1215,11 +1215,11 @@ not merge as a user might expect:
   content in a table cell can keep the cell, its row and its table after its
   undo history is cleared and the binding stops: Yjs keeps what an undo step
   deleted, parents included, and a clear releases only the steps still on
-  the stacks, not the one the undo or redo took off them. It does when that
-  step was the first thing to keep the table; a cell the binding already
-  kept for a format of its own is let go when it stops, and a deletion
-  elsewhere in the table that is still on a stack is released by the clear,
-  row and table included. A table
+  the stacks, not the one the undo or redo took off them. It does unless
+  something releases the table afterwards: a clear releases every step
+  still on a stack that deleted in the table, before or after the undo, row
+  and table included, and the binding lets go a cell it kept for a format of
+  its own before that step. A table
   a collaborator deletes afterwards then stays in that client's document,
   and in any state it encodes, until it reloads: 139 to 151 bytes for a
   one-cell table with nine characters, more with more content. A reload,

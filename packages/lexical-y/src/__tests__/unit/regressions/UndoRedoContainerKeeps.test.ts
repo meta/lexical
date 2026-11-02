@@ -15,11 +15,11 @@
 // stops at an ancestor already kept). The undo or redo that restores the
 // content takes that step off the stacks, and Yjs's clear() releases only
 // the steps still on them, so a clear before the binding stops does not
-// release the cell. It does when the step's deletion was the first thing to
-// keep the table: a cell the binding already kept for one of its own format
-// items (D88) is let go when the binding stops, and a deletion elsewhere in
-// the table still on a stack is released by the clear, row and table
-// included (a deleted table is collected with its cells). If a
+// release the cell. It does unless something releases the table afterwards:
+// a clear releases every step still on a stack that deleted in the table,
+// before or after the undo, row and table included (a deleted table is
+// collected with its cells), and the binding lets go a cell it kept for one
+// of its own format items (D88) before that step. If a
 // collaborator then deletes the table, the deleted table, row and cell stay
 // in this client's document until it reloads (compacted when its state is
 // loaded into a fresh document with gc on). Destroying an UndoManager
@@ -125,6 +125,14 @@ const CASES: [string, Step[], string[], number][] = [
     'is collected when A deleted twice and undid the second',
     ['delete', 'delete again', 'undo'],
     ['cll text', 'cl text', 'cll text'],
+    0,
+  ],
+  // A deletion made after the undo is on the stack too, and the clear
+  // releases it the same way.
+  [
+    'is collected when A deleted, undid and deleted again',
+    ['delete', 'undo', 'delete again'],
+    ['cll text', 'cell text', 'cll text'],
     0,
   ],
 ];
