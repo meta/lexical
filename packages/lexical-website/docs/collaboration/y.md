@@ -1185,7 +1185,8 @@ not merge as a user might expect:
   table a collaborator deletes meanwhile stays in that client's state until
   it reloads (about 100 to 180 bytes for a small table); one deleted after
   the binding stops is collected, when the undo history was cleared before
-  it stopped (see the next item). When the binding stops it lets them go,
+  it stopped (see the next item), unless an undo or redo restored content
+  in it and that kept it (see the item after). When the binding stops it lets them go,
   also where another undo manager on the document still relies on them,
   which then finds them unkept, as after a clear of a Yjs `UndoManager`.
 - **An undo manager destroyed without a clear.** When the binding stops
@@ -1203,29 +1204,30 @@ not merge as a user might expect:
   document again does not free it. Call `binding.undoManager?.clear()`
   while the binding is started, before stopping, to prevent it where no
   other undo manager on the document still needs what it kept (a clear
-  releases that too); a table already deleted while the history held such
+  releases that too), except where an undo or redo restored content in the
+  cell and that kept it (see the next item); a table already deleted while the history held such
   a step stays after the clear too; a reload, or a server or relay that
   loads the state with garbage collection on, compacts it. Any editor that
   destroys a Yjs `UndoManager` without clearing it first behaves the same;
   the binding does not clear at stop because a clear also releases what
   another undo manager on the document still keeps for its own undo.
-- **An undo or redo that restores content inside a container keeps that container from collection until reload.**
-  When content inside a container (such as a table cell) is deleted—either
-  directly by an edit, or when undoing an insertion—the `UndoManager` records
-  that deletion on a stack item, keeping the deleted content and walking up
-  the parents (the cell, row and table). When an undo restores that deleted
-  content, or a redo re-creates the inserted text, `popStackItem` removes
-  that deletion step from the stack. Clearing every `UndoManager` and
-  stopping the binding does not release the parent containers: `clear()`
-  only walks steps still on a stack, so the keeps set by the popped deletion
-  step are never released (and in the redo case, setting only the re-created
-  copy's keep back to false still leaves the parents kept). If a collaborator
-  later deletes that container, this client's document and any state it
-  encodes keep the container structs until it is reloaded: about 139 to 151
-  bytes for a one-cell table with nine characters, growing with the table's
-  content. A reload, or a peer or relay that loads the state with garbage
-  collection on, compacts it. Any editor using Yjs `UndoManager` behaves the
-  same.
+- **An undo or redo inside a container.** An undo or redo that restores
+  content in a table cell can keep the cell, its row and its table after its
+  undo history is cleared and the binding stops: Yjs keeps what an undo step
+  deleted, parents included, and a clear releases only the steps still on
+  the stacks, not the one the undo or redo took off them. It does unless
+  something releases the table afterwards: a clear releases every step
+  still on a stack that deleted in the table, before or after the undo, row
+  and table included, and the binding lets go a cell it kept for a format of
+  its own before that step. A table
+  a collaborator deletes afterwards then stays in that client's document,
+  and in any state it encodes, until it reloads: 139 to 151 bytes for a
+  one-cell table with nine characters, more with more content. A reload,
+  or a server or relay that loads the state with garbage collection on,
+  compacts it. Any editor that uses a Yjs `UndoManager` behaves the same
+  ([#9721](https://github.com/meta/lexical/issues/9721); reported to Yjs as
+  [yjs/yjs#833](https://github.com/yjs/yjs/issues/833), fix proposed in
+  [yjs/yjs#834](https://github.com/yjs/yjs/pull/834)).
 - **Named slots.** A slot holds one node: two collaborators setting the same
   slot at once keep one writer's node, and text typed in a slot that a
   collaborator replaces or removes at the same time is lost (as with delete
@@ -1339,6 +1341,11 @@ not merge as a user might expect:
   collaborator moved out of the removed range at the same time shows twice
   (the original next to the moved copy), and when two
   collaborators remove the same text and both undo, it shows twice.
+  A client's own undo can remove a format from a word that none of its
+  undone steps touched: type plain text into a bold run, bold a range that
+  ends at that text, type plain text later on, and undo the three steps
+  ([#9690](https://github.com/meta/lexical/issues/9690); kept, because
+  the format rules behind it fix many more cases than they break).
   Undoing the replacement of a block with a new one (`replace` without
   `includeChildren`, written as a removal and a new block) after a
   collaborator edited the new block brings the old block's text back and
@@ -1374,8 +1381,9 @@ not merge as a user might expect:
   format from part of the run or types inside it without the format: with
   `Kilo` bolded by one client, another unbolds `il` or types plain text
   inside `Kilo` as the first or a third bolds ` bb` (or `lo bb`), and with
-  some client id orders ` bb` stays plain. No text is lost, and when that
-  client undoes its edit, ` bb` is bold again. A local change the binding
+  some client id orders ` bb` stays plain
+  ([#9589](https://github.com/meta/lexical/issues/9589)). No text is lost,
+  and when that client undoes its edit, ` bb` is bold again. A local change the binding
   could not write and recovered from (reported as
   `@lexical/y/recovered-write`) can land as two undo steps: what the failed
   write stored, and its rewrite, when the rewrite takes longer than the
