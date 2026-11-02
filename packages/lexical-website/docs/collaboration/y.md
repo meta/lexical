@@ -1184,9 +1184,28 @@ not merge as a user might expect:
   after its undo history is cleared stay kept until the binding stops: a
   table a collaborator deletes meanwhile stays in that client's state until
   it reloads (about 100 to 180 bytes for a small table); one deleted after
-  the binding stops is collected. When the binding stops it lets them go,
+  the binding stops is collected, when the undo history was cleared before
+  it stopped (see the next item). When the binding stops it lets them go,
   also where another undo manager on the document still relies on them,
   which then finds them unkept, as after a clear of a Yjs `UndoManager`.
+- **An undo manager destroyed without a clear.** When the binding stops
+  (`binding.dispose()`, or the cleanup its start returns: an editor
+  unmounted or mounted again), it destroys its Yjs `UndoManager` without
+  clearing it, as Yjs does when a document is destroyed, and Yjs keeps what
+  that manager's steps protected: a character deleted in a table cell keeps
+  the cell, its row and its table. A table a collaborator deletes afterwards
+  then stays in that client's document, and in any state it encodes, until
+  it reloads: 108 to 175 bytes per table, measured with one character
+  deleted and one word bolded in one cell of a 1x1 to a 4x4 table, and more
+  where more was deleted or more cells were edited. Binding the same document again does not free it.
+  Call `binding.undoManager?.clear()` while the binding is started, before
+  stopping, to prevent it where no other undo manager on the document still
+  needs what it kept (a clear releases that too); a table already deleted
+  while the history held such a step stays after the clear too; a reload, or a server or relay that loads the state with
+  garbage collection on, compacts it. Any editor that destroys a Yjs
+  `UndoManager` without clearing it first behaves the same; the binding does
+  not clear at stop because a clear also releases what another undo manager
+  on the document still keeps for its own undo.
 - **Named slots.** A slot holds one node: two collaborators setting the same
   slot at once keep one writer's node, and text typed in a slot that a
   collaborator replaces or removes at the same time is lost (as with delete
