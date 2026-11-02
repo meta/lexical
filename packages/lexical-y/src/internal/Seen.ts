@@ -70,6 +70,18 @@ export function isGone(item: Item): boolean {
 const notedIn = new WeakMap<Transaction, IdSet>();
 
 /**
+ * Whether transaction `tr` deleted `item`, or noted it as deleted (an item
+ * an unread change deleted, see deleteItem).
+ */
+export function deletedBy(item: Item, tr: Transaction): boolean {
+  if (tr.deleteSet.hasId(item.id)) {
+    return true;
+  }
+  const noted = notedIn.get(tr);
+  return noted !== undefined && noted.hasId(item.id);
+}
+
+/**
  * Delete `item` (not gone, see isGone): an item an unread change deleted is
  * only noted as deleted by this write.
  */
