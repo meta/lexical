@@ -738,6 +738,14 @@ const LINK_END = /[\s\p{Cc}<]/u;
 function isLinkCharacter(character: string): boolean {
   return !LINK_END.test(character);
 }
+/** Where the run of URL characters that ends `text` starts. */
+function linkRunStart(text: string): number {
+  let start = text.length;
+  while (start > 0 && isLinkCharacter(text[start - 1])) {
+    start--;
+  }
+  return start;
+}
 // What starts a URL: `http://`, `https://` (and cmark-gfm's `ftp://`) with
 // a host after it, which may start with an emoji but not with other ASCII
 // punctuation than `-` and `_`, and `www.`, which micromark links with
@@ -868,8 +876,18 @@ function spoilLinks(
   values: string[],
   isReference: Uint8Array,
 ): void {
-  // Every URL and email starts with one of these.
-  if (!values.some((value, i) => kinds[i] === TEXT && LINKISH.test(value))) {
+  // Every URL and email starts with one of these. With no reference written,
+  // only a URL that runs on to the end of its text, into the markers or raw
+  // output after it, is spoiled.
+  const hasReferences = isReference.includes(1);
+  if (
+    !values.some(
+      (value, i) =>
+        kinds[i] === TEXT &&
+        LINKISH.test(value) &&
+        (hasReferences || LINKISH.test(value.slice(linkRunStart(value)))),
+    )
+  ) {
     return;
   }
   let text = '';
