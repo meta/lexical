@@ -12,6 +12,17 @@ import type {LexicalEditor} from 'lexical';
 
 import invariant from '@lexical/internal/invariant';
 import {getStaticNodeConfig, iterStaticNodeConfigChain} from 'lexical';
+import {cjkFriendlyExtension} from 'micromark-extension-cjk-friendly';
+import {gfmStrikethroughCjkFriendly} from 'micromark-extension-cjk-friendly-gfm-strikethrough';
+import {gfmStrikethrough} from 'micromark-extension-gfm-strikethrough';
+
+/**
+ * The GFM strikethrough syntax that `MdastStrikethroughExtension`
+ * contributes, which a CJK-friendly import swaps for its own.
+ *
+ * @internal
+ */
+export const gfmStrikethroughSyntax = /* @__PURE__ */ gfmStrikethrough();
 
 function getExportRuleType(klass: MdastExportRule['type']): string {
   if (typeof klass === 'string') {
@@ -85,11 +96,24 @@ export function compileMdast(
 
   return {
     exportHandlers,
+    exportPunctuation: config.exportPunctuation,
     importHandlers,
     inlineShortcutTriggers: new Set(config.inlineShortcutTriggers),
     inlineShortcutTypes: new Set(config.inlineShortcutTypes),
     mdastExtensions: [...config.mdastExtensions],
-    micromarkExtensions: [...config.micromarkExtensions],
+    // micromark tries the constructs of later extensions first, so the
+    // CJK-friendly emphasis goes last; its strikethrough replaces GFM's.
+    micromarkExtensions:
+      config.importPunctuation === 'strict-commonmark'
+        ? [...config.micromarkExtensions]
+        : [
+            ...config.micromarkExtensions.map(extension =>
+              extension === gfmStrikethroughSyntax
+                ? gfmStrikethroughCjkFriendly()
+                : extension,
+            ),
+            cjkFriendlyExtension(),
+          ],
     toMarkdownExtensions: [...config.toMarkdownExtensions],
   };
 }

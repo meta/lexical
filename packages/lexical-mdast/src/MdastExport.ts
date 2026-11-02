@@ -48,8 +48,10 @@ import {
   IS_ITALIC,
   IS_STRIKETHROUGH,
 } from 'lexical';
+import {fromMarkdown} from 'mdast-util-from-markdown';
 import {defaultHandlers, toMarkdown} from 'mdast-util-to-markdown';
 import {toString as mdastToString} from 'mdast-util-to-string';
+import {classifyCharacter, isCjk} from 'micromark-extension-cjk-friendly-util';
 
 import {
   $exportLineBreak,
@@ -579,6 +581,60 @@ function createNodeExporter(
 }
 
 /**
+ * The CJK-friendly form of a strict export. A strict export writes a
+ * character reference beside a `*` or `~` run where the run would not open or
+ * close for strict readers, as in `**你好。**&#x4E16;界`: for a letter
+ * outside a run whose inside is punctuation, or a reference to whitespace. A
+ * CJK-friendly reader reads such a run beside a CJK character as it does
+ * beside the `&` or `;` of the reference, so those references are written as
+ * the characters they stand for. A run of `_` does not open or close between
+ * two letters for any reader, so a reference beside one stays.
+ */
+function toCjkFriendly(markdown: string, compiled: CompiledMdast): string {
+  if (!/[*~]&#|;[*~]/.test(markdown)) {
+    return markdown;
+  }
+  // Only references that micromark reads as such: not escaped ones, nor
+  // those in code.
+  const values: [start: number, end: number][] = [];
+  fromMarkdown(markdown, {
+    extensions: compiled.micromarkExtensions,
+    mdastExtensions: [
+      ...compiled.mdastExtensions,
+      {
+        enter: {
+          characterReferenceValue(token) {
+            values.push([token.start.offset, token.end.offset]);
+          },
+        },
+      },
+    ],
+  });
+  let result = '';
+  let last = 0;
+  for (const [start, end] of values) {
+    // `&#` and `x` for hexadecimal come before the value, `;` after it.
+    const begin = markdown.lastIndexOf('&', start);
+    const code = parseInt(
+      markdown.slice(start, end),
+      start - begin === 3 ? 16 : 10,
+    );
+    const before = markdown[begin - 1];
+    const after = markdown[end + 1];
+    if (
+      (before === '*' || before === '~' || after === '*' || after === '~') &&
+      before !== '_' &&
+      after !== '_' &&
+      isCjk(classifyCharacter(code))
+    ) {
+      result += markdown.slice(last, begin) + String.fromCodePoint(code);
+      last = end + 1;
+    }
+  }
+  return result + markdown.slice(last);
+}
+
+/**
  * Picks the document-level emphasis and strong delimiters, scanning the tree
  * rooted at `node`: `_` when any italic / bold text node recorded `_` on
  * import, otherwise to-markdown's default. Mixing delimiters within one
@@ -682,7 +738,10 @@ export function createMdastExport(compiled: CompiledMdast): {
     });
     // toMarkdown always appends a trailing newline; drop it so callers get the
     // same shape as `@lexical/markdown`'s `$convertToMarkdownString`.
-    return out.replace(/\n$/, '');
+    const markdown = out.replace(/\n$/, '');
+    return compiled.exportPunctuation === 'cjk-friendly'
+      ? toCjkFriendly(markdown, compiled)
+      : markdown;
   };
 
   const $exportToMdast = (node?: ElementNode): Root =>

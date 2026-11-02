@@ -37,6 +37,7 @@ import {
 import {
   characterAt,
   characterBefore,
+  flankingBefore,
   getPortableEmphasisSides,
   isEmptyParagraph,
   isEscaped,
@@ -1073,7 +1074,7 @@ function decideReferences(
   }
   const firstChar = (index: number) => characterAt(values[index], 0)!;
   const lastChar = (index: number) =>
-    characterBefore(values[index], values[index].length)!;
+    flankingBefore(values[index], values[index].length)!;
   // A one-character piece written as a reference reads as punctuation at
   // both ends: `&#97;`.
   const isOneCharacter = (index: number) =>
@@ -1136,6 +1137,7 @@ function decideReferences(
         isPortablyFlankedBy(
           leftward ? '&' : ';',
           leftward ? endChar(next) : startChar(next),
+          leftward,
         )
       ) {
         break;

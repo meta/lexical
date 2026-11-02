@@ -12,7 +12,7 @@ import type {TextNode} from 'lexical';
 
 import {
   characterAt,
-  characterBefore,
+  flankingBefore,
   getDelimiterRunEdge,
   getEmphasisSides,
   isEscaped,
@@ -425,7 +425,7 @@ function scanDelimiters(
 
     const {canOpen, canClose} = getEmphasisSides(
       char,
-      i === 0 ? before : characterBefore(text, i),
+      i === 0 ? before : flankingBefore(text, i),
       i + len === text.length ? after : characterAt(text, i + len),
     );
 

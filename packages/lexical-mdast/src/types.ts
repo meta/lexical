@@ -17,6 +17,23 @@ import type {Extension as FromMarkdownExtension} from 'mdast-util-from-markdown'
 import type {Options as ToMarkdownExtension} from 'mdast-util-to-markdown';
 import type {Extension as MicromarkExtension} from 'micromark-util-types';
 
+/**
+ * How emphasis markers read the punctuation beside them.
+ *
+ * - `'strict-commonmark'` follows CommonMark 0.31.2 and GFM: a marker between
+ *   a letter and punctuation, such as the closing `**` of `**你好。**世界`,
+ *   does not open or close, so CJK text needs a space or a character
+ *   reference there.
+ * - `'cjk-friendly'` follows the CommonMark CJK-friendly amendment
+ *   (https://github.com/tats-u/markdown-cjk-friendly), through
+ *   `micromark-extension-cjk-friendly`: it reads markers as CommonMark does
+ *   everywhere except beside Chinese, Japanese and Korean characters and
+ *   punctuation, where they open and close as a writer of those languages
+ *   expects.
+ * @experimental
+ */
+export type MdastPunctuationMode = 'cjk-friendly' | 'strict-commonmark';
+
 export type {
   FromMarkdownExtension,
   MdastNode,
@@ -225,6 +242,8 @@ export interface CompiledMdast {
   micromarkExtensions: MicromarkExtension[];
   mdastExtensions: FromMarkdownExtension[];
   toMarkdownExtensions: ToMarkdownExtension[];
+  /** Which readers export writes emphasis for; see {@link MdastConfig}. */
+  exportPunctuation: MdastPunctuationMode;
   /** mdast inline `type`s eligible for streaming shortcut materialization. */
   inlineShortcutTypes: Set<string>;
   /** Characters that can close an inline construct and trigger a re-scan. */

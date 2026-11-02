@@ -26,7 +26,7 @@ import {
 } from './importTextMatchTransformer';
 import {
   characterAt,
-  characterBefore,
+  flankingBefore,
   getDelimiterRunEdge,
   getEmphasisSides,
   unescapeText,
@@ -97,7 +97,7 @@ function characterBeyondRun(
       ? characterAt(text, edge)
       : outside
     : edge > 0
-      ? characterBefore(text, edge)
+      ? flankingBefore(text, edge)
       : outside;
 }
 
@@ -349,7 +349,7 @@ function importOutermost(
       isTextMatch &&
       restBefore === undefined &&
       delimiters.has(rest[0]) &&
-      readsOtherwiseBesideEdge(rest, characterBefore(text, endIndex), after)
+      readsOtherwiseBesideEdge(rest, flankingBefore(text, endIndex), after)
     ) {
       isReusable = findPairAtEdge(formats, rest, textFormatTransformersIndex);
     }

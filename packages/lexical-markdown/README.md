@@ -111,6 +111,27 @@ the markers or code span after it, export writes a character of its prefix as
 a reference too (`www&#46;x.co*a*b`), so that no reader links it and the
 formatting comes through.
 
+Import and export take an options object in place of `shouldPreserveNewLines`,
+whose `punctuation` option (`'cjk-friendly'` or `'strict-commonmark'`) chooses
+how markers beside punctuation are read and written. CommonMark doesn't let
+`**` open or close between a letter and punctuation, so `**你好。**世界` reads
+with literal asterisks. Import defaults to `'cjk-friendly'`, which follows the
+[CommonMark CJK-friendly amendment](https://github.com/tats-u/markdown-cjk-friendly):
+it reads Markdown as CommonMark does except beside Chinese, Japanese and Korean
+characters and punctuation, where markers open and close as their writer
+meant. Export defaults to `'strict-commonmark'`, whose references every
+CommonMark, GFM and CJK-friendly reader reads the same way
+(`**你好。**&#19990;界`); `'cjk-friendly'` writes such CJK text as typed
+(`**你好。**世界`) for readers that follow the amendment.
+
+```ts
+$convertFromMarkdownString(markdown, TRANSFORMERS, undefined, {
+  punctuation: 'strict-commonmark',
+  shouldPreserveNewLines: false,
+});
+$convertToMarkdownString(TRANSFORMERS, undefined, {punctuation: 'cjk-friendly'});
+```
+
 There're three types of transformers:
 
 - **Element transformer** handles top level elements (lists, headings, quotes, tables or code blocks)

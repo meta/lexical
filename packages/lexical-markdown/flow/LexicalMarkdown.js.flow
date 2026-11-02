@@ -97,24 +97,44 @@ declare export function registerMarkdownShortcuts(
   transformers?: Transformer[],
 ): () => void;
 
+export type PunctuationMode = 'cjk-friendly' | 'strict-commonmark';
+
+export type MarkdownImportOptions = {
+  shouldPreserveNewLines?: boolean,
+  shouldMergeAdjacentLines?: boolean,
+  punctuation?: PunctuationMode,
+};
+
+export type MarkdownExportOptions = {
+  shouldPreserveNewLines?: boolean,
+  punctuation?: PunctuationMode,
+};
+
 declare export function $convertFromMarkdownString(
   markdown: string,
   transformers?: Transformer[],
   node?: ElementNode,
-  shouldPreserveNewLines?: boolean,
+  shouldPreserveNewLines?: boolean | MarkdownImportOptions,
   shouldMergeAdjacentLines?: boolean,
 ): void;
+
+declare export function $generateNodesFromMarkdownString(
+  markdown: string,
+  transformers?: Transformer[],
+  shouldPreserveNewLines?: boolean | MarkdownImportOptions,
+  shouldMergeAdjacentLines?: boolean,
+): Array<LexicalNode>;
 
 declare export function $convertSelectionToMarkdownString(
   transformers?: Transformer[],
   selection: BaseSelection | null,
-  shouldPreserveNewLines?: boolean,
+  shouldPreserveNewLines?: boolean | MarkdownExportOptions,
 ): string;
 
 declare export function $convertToMarkdownString(
   transformers?: Transformer[],
   node?: ElementNode,
-  shouldPreserveNewLines?: boolean,
+  shouldPreserveNewLines?: boolean | MarkdownExportOptions,
 ): string;
 
 declare export var INLINE_CODE: TextFormatTransformer;

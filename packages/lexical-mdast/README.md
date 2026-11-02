@@ -182,6 +182,32 @@ configExtension(MdastExtension, {
 });
 ```
 
+### Punctuation modes
+
+CommonMark doesn't let `**` open or close between a letter and punctuation,
+so `**你好。**世界` reads with literal asterisks. `importPunctuation` and
+`exportPunctuation` choose how markers beside punctuation are read and
+written:
+
+- `'cjk-friendly'` follows the
+  [CommonMark CJK-friendly amendment](https://github.com/tats-u/markdown-cjk-friendly)
+  through `micromark-extension-cjk-friendly`. It reads Markdown as CommonMark
+  does except beside Chinese, Japanese and Korean characters and
+  punctuation, where markers open and close as their writer meant.
+- `'strict-commonmark'` follows CommonMark and GFM.
+
+Import defaults to `'cjk-friendly'`, which accepts what CJK writers type and
+what Lexical has exported. Export defaults to `'strict-commonmark'`: it
+writes a character reference where a marker would not open or close
+otherwise (`**你好。**&#x4E16;界`), which every CommonMark, GFM and
+CJK-friendly reader reads the same way. Export `'cjk-friendly'` writes
+such CJK text as typed (`**你好。**世界`) for readers that follow the
+amendment:
+
+```ts
+configExtension(MdastExtension, {exportPunctuation: 'cjk-friendly'});
+```
+
 ### Raw HTML (`MdastHtmlExtension`)
 
 Markdown passes raw HTML through — GitHub-style `<details>` blocks, inline
