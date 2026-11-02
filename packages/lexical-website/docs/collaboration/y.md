@@ -1185,8 +1185,8 @@ not merge as a user might expect:
   table a collaborator deletes meanwhile stays in that client's state until
   it reloads (about 100 to 180 bytes for a small table); one deleted after
   the binding stops is collected, when the undo history was cleared before
-  it stopped (see the next item) and no undo or redo restored content in
-  it (see the item after). When the binding stops it lets them go,
+  it stopped (see the next item), unless an undo or redo restored content
+  in it and that kept it (see the item after). When the binding stops it lets them go,
   also where another undo manager on the document still relies on them,
   which then finds them unkept, as after a clear of a Yjs `UndoManager`.
 - **An undo manager destroyed without a clear.** When the binding stops
@@ -1204,8 +1204,8 @@ not merge as a user might expect:
   document again does not free it. Call `binding.undoManager?.clear()`
   while the binding is started, before stopping, to prevent it where no
   other undo manager on the document still needs what it kept (a clear
-  releases that too), except for content an undo or redo restored in the
-  cell (see the next item); a table already deleted while the history held such
+  releases that too), except where an undo or redo restored content in the
+  cell and that kept it (see the next item); a table already deleted while the history held such
   a step stays after the clear too; a reload, or a server or relay that
   loads the state with garbage collection on, compacts it. Any editor that
   destroys a Yjs `UndoManager` without clearing it first behaves the same;
@@ -1216,9 +1216,10 @@ not merge as a user might expect:
   undo history is cleared and the binding stops: Yjs keeps what an undo step
   deleted, parents included, and a clear releases only the steps still on
   the stacks, not the one the undo or redo took off them. It does when that
-  step was the first thing to keep the cell; a cell the binding already
-  kept for a format of its own is let go when it stops, and a deletion in
-  the same cell that is still on a stack is released by the clear. A table
+  step was the first thing to keep the table; a cell the binding already
+  kept for a format of its own is let go when it stops, and a deletion
+  elsewhere in the table that is still on a stack is released by the clear,
+  row and table included. A table
   a collaborator deletes afterwards then stays in that client's document,
   and in any state it encodes, until it reloads: 139 to 151 bytes for a
   one-cell table with nine characters, more with more content. A reload,
@@ -1339,6 +1340,10 @@ not merge as a user might expect:
   collaborator moved out of the removed range at the same time shows twice
   (the original next to the moved copy), and when two
   collaborators remove the same text and both undo, it shows twice.
+  A client's own undo can remove a format from a word that none of its
+  undone steps touched: type plain text into a bold run, bold a range that
+  ends at that text, type plain text later on, and undo the three steps
+  ([#9690](https://github.com/meta/lexical/issues/9690); kept, D95).
   Undoing the replacement of a block with a new one (`replace` without
   `includeChildren`, written as a removal and a new block) after a
   collaborator edited the new block brings the old block's text back and

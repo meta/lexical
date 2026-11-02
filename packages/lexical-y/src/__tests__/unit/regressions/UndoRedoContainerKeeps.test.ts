@@ -16,9 +16,10 @@
 // content takes that step off the stacks, and Yjs's clear() releases only
 // the steps still on them, so a clear before the binding stops does not
 // release the cell. It does when the step's deletion was the first thing to
-// keep the cell: a cell the binding already kept for one of its own format
-// items (D88) is let go when the binding stops, and a deletion in the same
-// cell still on a stack is released by the clear, parents included. If a
+// keep the table: a cell the binding already kept for one of its own format
+// items (D88) is let go when the binding stops, and a deletion elsewhere in
+// the table still on a stack is released by the clear, row and table
+// included (a deleted table is collected with its cells). If a
 // collaborator then deletes the table, the deleted table, row and cell stay
 // in this client's document until it reloads (compacted when its state is
 // loaded into a fresh document with gc on). Destroying an UndoManager
@@ -212,6 +213,72 @@ for (const [name, steps, texts, kept] of CASES) {
     }
   });
 }
+
+// A deletion in another cell of the table that is still on the undo stack is
+// released by the clear, with the row and the table: B's delete collects the
+// table with its cells.
+test('a table a collaborator deletes is collected when A deleted in two cells and undid the second (gc on)', async () => {
+  const t = await setup(
+    () => {
+      $getRoot().append(
+        $createParagraphNode().append($createTextNode('before')),
+        $createTableNode().append(
+          $createTableRowNode().append(
+            $createTableCellNode(0).append(
+              $createParagraphNode().append($createTextNode('one')),
+            ),
+            $createTableCellNode(0).append(
+              $createParagraphNode().append($createTextNode('two')),
+            ),
+          ),
+        ),
+        $createParagraphNode().append($createTextNode('after')),
+      );
+    },
+    {gc: true, ids: [1, 2]},
+  );
+  try {
+    const [A, B] = t.peers;
+    const $deleteSecondChar = (cell: number) => {
+      const row = (
+        $getRoot().getChildAtIndex(1) as ElementNode
+      ).getFirstChild() as ElementNode;
+      const text = (
+        row.getChildAtIndex(cell) as ElementNode
+      ).getFirstDescendant() as TextNode;
+      const s = $createRangeSelection();
+      s.anchor.set(text.getKey(), 1, 'text');
+      s.focus.set(text.getKey(), 2, 'text');
+      $setSelection(s);
+      s.removeText();
+      $setSelection(null);
+    };
+    A.update(() => $deleteSecondChar(1));
+    A.update(() => $deleteSecondChar(0));
+    await t.sync();
+    A.undo();
+    await t.sync();
+    expect(A.read(() => $getRoot().getChildAtIndex(1)!.getTextContent())).toBe(
+      'one\n\nto',
+    );
+    A.binding.undoManager!.clear();
+    A.stop();
+
+    const beforeDelete = liveContainers(A.doc);
+    B.update(
+      () => void ($getRoot().getChildAtIndex(1) as ElementNode).remove(),
+    );
+    await t.sync();
+    const afterDelete = liveContainers(A.doc);
+    // B's delete reached A: the table, its row and its two cells.
+    expect([...beforeDelete].filter(id => !afterDelete.has(id))).toHaveLength(
+      4,
+    );
+    expect(deletedContainers(A.doc)).toEqual([]);
+  } finally {
+    t.peers.forEach(p => p.stop());
+  }
+});
 
 const plainTable = () => {
   const doc = new Y.Doc({gc: true});
