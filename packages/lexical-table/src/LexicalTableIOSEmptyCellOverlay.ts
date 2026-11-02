@@ -11,6 +11,7 @@ import {
   $getNodeByKey,
   getComposedEventTarget,
   getDOMSelection,
+  getDOMSelectionPoints,
   isHTMLElement,
   type LexicalEditor,
   mergeRegister,
@@ -141,7 +142,9 @@ export function registerIOSEmptyCellOverlays(
         cellDOM !== null &&
         domSelection !== null &&
         domSelection.isCollapsed &&
-        cellDOM.contains(domSelection.anchorNode)
+        cellDOM.contains(
+          getDOMSelectionPoints(domSelection, rootElement).anchorNode,
+        )
       ) {
         coverCell(cellDOM);
       }

@@ -11,11 +11,22 @@ import {$createTableNodeWithDimensions, TableExtension} from '@lexical/table';
 import {
   $createParagraphNode,
   $createTextNode,
+  $getNearestNodeFromDOMNode,
   $getRoot,
+  $isElementNode,
+  $isTextNode,
   defineExtension,
   type LexicalEditorWithDispose,
 } from 'lexical';
-import {afterEach, beforeEach, describe, expect, test, vi} from 'vitest';
+import {
+  afterEach,
+  assert,
+  beforeEach,
+  describe,
+  expect,
+  test,
+  vi,
+} from 'vitest';
 
 // `vi.mock` is hoisted above all imports, so @lexical/table sees iOS.
 vi.mock('lexical/src/environment', async importOriginal => ({
@@ -101,6 +112,48 @@ describe('iOS table drag caret hiding', () => {
     expect(container.style.caretColor).toBe('transparent');
     touch(cell(), 'touchend');
     expect(container.style.caretColor).toBe('red');
+  });
+
+  /** Puts the caret right before the table, where core shows a block cursor. */
+  function showBlockCursor(): void {
+    container.focus();
+    editor.update(() => $getRoot().select(1, 1), {discrete: true});
+    expect(container.querySelector('[data-lexical-cursor]')).not.toBe(null);
+    expect(container.style.caretColor).toBe('transparent');
+  }
+
+  function $selectFirstCell(): void {
+    const node = $getNearestNodeFromDOMNode(cell());
+    assert($isElementNode(node), 'expected the cell paragraph');
+    node.selectStart();
+  }
+
+  test('does not restore a block cursor value that went away mid-gesture', () => {
+    showBlockCursor();
+    touch(cell(), 'touchstart');
+    // The drag moves the selection into a cell: core removes the block cursor
+    // and clears caret-color while the finger is still down.
+    editor.update($selectFirstCell, {discrete: true});
+    expect(container.querySelector('[data-lexical-cursor]')).toBe(null);
+    touch(cell(), 'touchend');
+    expect(container.style.caretColor).toBe('');
+    editor.update(
+      () => {
+        const text = $getRoot().getFirstDescendant();
+        assert($isTextNode(text), 'expected the paragraph text');
+        text.select(0, 6);
+      },
+      {discrete: true},
+    );
+    expect(container.style.caretColor).toBe('');
+  });
+
+  test('leaves the block cursor its transparent caret when it is still shown', () => {
+    showBlockCursor();
+    touch(cell(), 'touchstart');
+    touch(cell(), 'touchend');
+    expect(container.querySelector('[data-lexical-cursor]')).not.toBe(null);
+    expect(container.style.caretColor).toBe('transparent');
   });
 
   test('leaves the caret alone for touches outside the table and when read-only', () => {
