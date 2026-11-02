@@ -1344,7 +1344,8 @@ not merge as a user might expect:
   A client's own undo can remove a format from a word that none of its
   undone steps touched: type plain text into a bold run, bold a range that
   ends at that text, type plain text later on, and undo the three steps
-  ([#9690](https://github.com/meta/lexical/issues/9690); kept, D95).
+  ([#9690](https://github.com/meta/lexical/issues/9690); kept, because
+  the format rules behind it fix many more cases than they break).
   Undoing the replacement of a block with a new one (`replace` without
   `includeChildren`, written as a removal and a new block) after a
   collaborator edited the new block brings the old block's text back and
