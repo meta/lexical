@@ -918,6 +918,27 @@ describe('MarkStateExtension', () => {
           'paragraph(mark[c1]("see") " " "#tag" " more")',
         ],
         [
+          'pasted repeated tail',
+          3,
+          ' #see',
+          'paragraph("see"[c1] " " "#see" " more")',
+          'paragraph(mark[c1]("see") " " "#see" " more")',
+        ],
+        [
+          'code repeated tail',
+          3,
+          ' #see',
+          'paragraph("see"[c1] " " "#see" " more")',
+          'paragraph(mark[c1]("see") " " "#see" " more")',
+        ],
+        [
+          'pasted repeated tail with multiple hashtags',
+          3,
+          ' #first #see',
+          'paragraph("see"[c1] " " "#first" " " "#see" " more")',
+          'paragraph(mark[c1]("see") " " "#first" " " "#see" " more")',
+        ],
+        [
           'code before',
           0,
           '#tag ',
