@@ -42,6 +42,7 @@ import {
   countLive,
   type DesiredContext,
   diffAtoms,
+  hasLoneSurrogate,
   PENDING_LINE_BREAK,
   readAtoms,
   type Run,
@@ -817,7 +818,7 @@ export class Writer {
     this.setOriginOrder(oldOrigins);
     const ctx = this.$ctx(true);
     $pushInline(atoms, node.getChildren(), ctx);
-    if (ctx.flattened === true) {
+    if (ctx.flattened === true || ctx.unpaired === true) {
       this.refused.add(cs);
     }
     this.$writeSeq(
@@ -2576,7 +2577,7 @@ export class Writer {
           }
         }
       });
-      if (ctx.flattened === true) {
+      if (ctx.flattened === true || ctx.unpaired === true) {
         this.refused.add(cs);
       }
       const items = this.$writeSeq(
@@ -2978,7 +2979,7 @@ export class Writer {
     this.setOriginOrder(oldOrigins);
     const ctx = this.$ctx(true);
     $pushInline(atoms, $lineChildren(d), ctx);
-    if (ctx.flattened === true) {
+    if (ctx.flattened === true || ctx.unpaired === true) {
       this.refused.add(u.cs);
     }
     const at = atoms.length;
@@ -3031,7 +3032,9 @@ export class Writer {
    * not change. Its edits, as Lexical recorded them (see exactEdits), or a
    * diff of its old and new text where the record does not explain them,
    * are written at its offset, so the cost is in the line's items and the
-   * changed text, not in the line's length.
+   * changed text, not in the line's length. Not for text holding a
+   * surrogate half without its pair, which the line's write stores as U+FFFD
+   * and reads again (see DesiredContext.unpaired).
    */
   private $writeTextEdit(u: Unit, d: Desired): boolean {
     if (
@@ -3095,7 +3098,10 @@ export class Writer {
     if (
       changes.length === 0 ||
       (changes.length > 1 && this.state.editor._recordTextEdits) ||
-      changes.some(([changed]) => $runsWithNeighbour(changed))
+      changes.some(
+        ([changed]) =>
+          $runsWithNeighbour(changed) || hasLoneSurrogate(changed.__text),
+      )
     ) {
       return false;
     }
@@ -3606,12 +3612,22 @@ export class Writer {
             ? undefined
             : nodeAtoms.get(s.key);
         for (let t = s.start; t < s.end; t++, at++) {
-          const i =
+          let i =
             r !== undefined && t < r[1] - r[0]
               ? r[0] + t
               : atom !== undefined && this.sameAtom(old, atom, atoms, at)
                 ? atom
                 : -1;
+          // A character stored otherwise than it was (a surrogate half
+          // without its pair, written as U+FFFD: DesiredContext.unpaired)
+          // is new text.
+          if (
+            i >= 0 &&
+            !node &&
+            atoms.text.charCodeAt(at) !== old.text.charCodeAt(i)
+          ) {
+            i = -1;
+          }
           if (at >= j + n || (i >= 0 && kept[i] !== -1)) {
             return false;
           }

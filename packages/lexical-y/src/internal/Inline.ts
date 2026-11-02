@@ -142,6 +142,16 @@ export type DesiredContext = {
    * author then reads the content again, to show what every reader shows.
    */
   flattened?: boolean;
+  /**
+   * Set when a text node holds a surrogate half without its pair in it
+   * (D57: code split an emoji, or an app's selection inside one made
+   * Lexical split it into two nodes or keep one half). Such a half is
+   * stored as U+FFFD, as Yjs sends and stores it (its UTF-8 encoding of a
+   * lone half), so that the author's document holds what every other client
+   * and a reload read; the author then reads the content again, as for
+   * `flattened`.
+   */
+  unpaired?: boolean;
 };
 
 /**
@@ -173,7 +183,11 @@ export function $pushInline(
     if (node === PENDING_LINE_BREAK) {
       out.pushText('\n', {...wrapperAttrs});
     } else if ($isTextNode(node)) {
-      const text = node.getTextContent();
+      const shown = node.getTextContent();
+      const text = toWellFormed(shown);
+      if (text !== shown) {
+        ctx.unpaired = true;
+      }
       const segment = isMergeableText(node)
         ? null
         : (ctx.segments.get(node.getKey()) ??
@@ -1209,3 +1223,34 @@ function withKeptWords(
 
 const isHighSurrogate = (c: number): boolean => c >= 0xd800 && c <= 0xdbff;
 const isLowSurrogate = (c: number): boolean => c >= 0xdc00 && c <= 0xdfff;
+
+const SURROGATE = /[\ud800-\udfff]/;
+
+/** Whether `s` holds a surrogate code unit that is not half of a pair. */
+export function hasLoneSurrogate(s: string): boolean {
+  return SURROGATE.test(s) && toWellFormed(s) !== s;
+}
+
+/**
+ * `s` with every surrogate code unit that is not half of a pair in it
+ * replaced with U+FFFD: what Yjs's UTF-8 encoding of `s` reads back as
+ * (`String#toWellFormed`, which not every supported browser has).
+ */
+export function toWellFormed(s: string): string {
+  if (!SURROGATE.test(s)) {
+    return s;
+  }
+  let out = '';
+  for (let i = 0; i < s.length; i++) {
+    const c = s.charCodeAt(i);
+    if (isHighSurrogate(c) && isLowSurrogate(s.charCodeAt(i + 1))) {
+      out += s[i] + s[i + 1];
+      i++;
+    } else if (isHighSurrogate(c) || isLowSurrogate(c)) {
+      out += '\ufffd';
+    } else {
+      out += s[i];
+    }
+  }
+  return out;
+}
