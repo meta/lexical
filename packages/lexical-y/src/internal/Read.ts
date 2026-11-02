@@ -1329,7 +1329,7 @@ export class Reader {
     }
   }
 
-  private $readLineInPlace(u: Unit): boolean {
+  $readLineInPlace(u: Unit): boolean {
     const line = u.key === null ? null : $getNodeByKey(u.key);
     if (!$isElementNode(line) || u.end === null || u.end.deleted) {
       return false;

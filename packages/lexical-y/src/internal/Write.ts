@@ -376,6 +376,11 @@ export class Writer {
    */
   readonly refused = new Set<CS>();
   /**
+   * Lines where a write stored text holding a lone surrogate half as U+FFFD:
+   * read again in place without re-reading the whole container.
+   */
+  readonly refusedLines = new Set<Unit>();
+  /**
    * Groups whose items this write rewrote, for the refresh after it (see
    * YBinding#flushRefresh).
    */
@@ -2979,8 +2984,14 @@ export class Writer {
     this.setOriginOrder(oldOrigins);
     const ctx = this.$ctx(true);
     $pushInline(atoms, $lineChildren(d), ctx);
-    if (ctx.flattened === true || ctx.unpaired === true) {
+    if (ctx.flattened === true) {
       this.refused.add(u.cs);
+    } else if (ctx.unpaired === true) {
+      if (u.end !== null && !u.end.deleted) {
+        this.refusedLines.add(u);
+      } else {
+        this.refused.add(u.cs);
+      }
     }
     const at = atoms.length;
     let end: Item;
