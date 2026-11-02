@@ -1192,20 +1192,23 @@ not merge as a user might expect:
   (`binding.dispose()`, or the cleanup its start returns: an editor
   unmounted or mounted again), it destroys its Yjs `UndoManager` without
   clearing it, as Yjs does when a document is destroyed, and Yjs keeps what
-  that manager's steps protected: a character deleted in a table cell keeps
-  the cell, its row and its table. A table a collaborator deletes afterwards
+  that manager's steps protected: a character deleted in a table cell can
+  keep the cell, its row and its table (it does when nothing kept the cell
+  before the delete; a cell the binding already kept for a format of its
+  own is let go when it stops). A table a collaborator deletes afterwards
   then stays in that client's document, and in any state it encodes, until
   it reloads: 108 to 175 bytes per table, measured with one character
   deleted and one word bolded in one cell of a 1x1 to a 4x4 table, and more
-  where more was deleted or more cells were edited. Binding the same document again does not free it.
-  Call `binding.undoManager?.clear()` while the binding is started, before
-  stopping, to prevent it where no other undo manager on the document still
-  needs what it kept (a clear releases that too); a table already deleted
-  while the history held such a step stays after the clear too; a reload, or a server or relay that loads the state with
-  garbage collection on, compacts it. Any editor that destroys a Yjs
-  `UndoManager` without clearing it first behaves the same; the binding does
-  not clear at stop because a clear also releases what another undo manager
-  on the document still keeps for its own undo.
+  where more was deleted or more cells were edited. Binding the same
+  document again does not free it. Call `binding.undoManager?.clear()`
+  while the binding is started, before stopping, to prevent it where no
+  other undo manager on the document still needs what it kept (a clear
+  releases that too); a table already deleted while the history held such
+  a step stays after the clear too; a reload, or a server or relay that
+  loads the state with garbage collection on, compacts it. Any editor that
+  destroys a Yjs `UndoManager` without clearing it first behaves the same;
+  the binding does not clear at stop because a clear also releases what
+  another undo manager on the document still keeps for its own undo.
 - **Named slots.** A slot holds one node: two collaborators setting the same
   slot at once keep one writer's node, and text typed in a slot that a
   collaborator replaces or removes at the same time is lost (as with delete
@@ -1295,7 +1298,9 @@ not merge as a user might expect:
   with U+FFFD in place of each half that has no pair in its text node, as
   Yjs encodes text as UTF-8. The author's editor reads the line again after
   such a write, so it shows U+FFFD there too, like every other client, and
-  undoing the write brings the character back. Yjs 13 does the same.
+  undoing the write brings the character back. Yjs 13 (`@lexical/yjs`) also
+  delivers U+FFFD to other clients, but there the author keeps the lone half
+  until it reloads.
 - **Initial content with random values.** Clients that initialize a new
   document at once write it once only when their content is identical. An
   extension that gives new blocks random ids makes it differ, so the content
