@@ -29,7 +29,7 @@ import {
   TYPE_KEY,
   WRAPPER_PREFIX,
 } from './Schema';
-import {deleteItem, isGone} from './Seen';
+import {deletedBy, deleteItem, isGone} from './Seen';
 
 /*
  * Anchored editing of a Y.Node's children.
@@ -784,7 +784,7 @@ export class Cursor {
         isFormat(it) &&
         keyOf(it) === key &&
         !this.tr.insertSet.hasId(it.id) &&
-        (!it.deleted || this.tr.deleteSet.hasId(it.id))
+        (!isGone(it) || deletedBy(it, this.tr))
       ) {
         source = it;
         break;
@@ -799,7 +799,7 @@ export class Cursor {
     }
     for (let it = this.right; it !== null; it = it.right) {
       if (
-        it.deleted ||
+        isGone(it) ||
         !isFormat(it) ||
         keyOf(it) !== key ||
         equalFormatValue(valueOf(it), value)
@@ -1277,7 +1277,7 @@ export class Cursor {
           // too, with a null of this write's own.
           if (value !== null && next.id.client !== this.tr.doc.clientID) {
             const end = changeEnd(this.tr.doc, next);
-            if (end !== null && !end.deleted && valueOf(end) === null) {
+            if (end !== null && !isGone(end) && valueOf(end) === null) {
               copiedEnds.push(end);
             }
           }
