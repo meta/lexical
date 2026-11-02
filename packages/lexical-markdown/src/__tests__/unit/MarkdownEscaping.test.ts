@@ -1546,12 +1546,12 @@ describe('brackets that cannot become Markdown syntax', () => {
   });
 
   it.each([
-    ['- [x] done', '- [x&#93; done'],
-    ['+ [ ] todo', '+ [ &#93; todo'],
+    ['- [x] done', '\\- [x&#93; done'],
+    ['+ [ ] todo', '\\+ [ &#93; todo'],
     ['* [] todo', '\\* [] todo'],
-    ['1. [x] done', '1. [x&#93; done'],
-    ['> [a]: b', '> [a&#93;: b'],
-    ['- [a]: b', '- [a&#93;: b'],
+    ['1. [x] done', '1\\. [x&#93; done'],
+    ['> [a]: b', '\\> [a&#93;: b'],
+    ['- [a]: b', '\\- [a&#93;: b'],
     ['2) [a]: b', '2) [a&#93;: b'],
   ])('escapes %j where a container marker precedes it', (text, expected) => {
     using editor = buildEditorFromExtensions([MarkdownTestExtension]);
