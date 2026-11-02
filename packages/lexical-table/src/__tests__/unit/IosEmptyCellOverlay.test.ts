@@ -123,6 +123,14 @@ describe('iOS empty table cell overlay', () => {
     return event;
   }
 
+  function touch(target: EventTarget, type: string): void {
+    const event = new Event(type, {bubbles: true, cancelable: true});
+    Object.defineProperty(event, 'touches', {value: {length: 0}});
+    // Lexical's own iOS touchend listener reads changedTouches.
+    Object.defineProperty(event, 'changedTouches', {value: []});
+    target.dispatchEvent(event);
+  }
+
   function paragraphOf(index: number): HTMLElement {
     return cellDOM(index).querySelector('p')!;
   }
@@ -237,6 +245,20 @@ describe('iOS empty table cell overlay', () => {
           $cell(0).isParentOf(selection.anchor.getNode()),
       ).toBe(true);
     });
+  });
+
+  test('a touch on the overlay that outlasts it still restores the caret', () => {
+    tapCell(0);
+    const overlay = overlayOf(0)!;
+    vi.advanceTimersByTime(420);
+    touch(overlay, 'touchstart');
+    expect(container.style.caretColor).toBe('transparent');
+    // The window ends and the overlay goes while the finger is still down.
+    vi.advanceTimersByTime(150);
+    expect(overlay.isConnected).toBe(false);
+    // The lift is dispatched to the detached overlay only.
+    touch(overlay, 'touchend');
+    expect(container.style.caretColor).toBe('');
   });
 
   test('stays after managed children, out of exported HTML, and goes once the cell has text', () => {

@@ -35,14 +35,18 @@ export function registerIOSTableDragCaretHiding(
     if (view === null) {
       return;
     }
+    // Passive, so a touch scroll starting in the editor does not wait on it.
+    const options = {capture: true, passive: true};
     // The inline caret-color found at touchstart, or null when not hiding.
     let restoreCaretColor: null | string = null;
+    let removeTargetListeners = () => {};
 
     // Core's block cursor also writes the root's caret-color: it sets
     // `transparent` while shown and removes the property when it goes away,
     // which can happen mid-gesture. Restoring the touchstart value blindly
     // would then leave the caret hidden everywhere.
     const restore = () => {
+      removeTargetListeners();
       const saved = restoreCaretColor;
       restoreCaretColor = null;
       if (
@@ -54,28 +58,32 @@ export function registerIOSTableDragCaretHiding(
       ) {
         return;
       }
-      if (saved === 'transparent') {
-        // That was the block cursor's value, and it is gone.
-        rootElement.style.removeProperty('caret-color');
-      } else {
-        rootElement.style.caretColor = saved;
-      }
+      rootElement.style.caretColor = saved;
     };
 
     const onTouchStart = (event: TouchEvent) => {
       const target = getComposedEventTarget(event);
-      const cell = isHTMLElement(target) ? target.closest('td,th') : null;
       if (
         restoreCaretColor !== null ||
         !editor.isEditable() ||
-        cell === null ||
-        // Else an editor inside a page <td> hides its caret on every touch.
-        !rootElement.contains(cell)
+        !isHTMLElement(target)
       ) {
+        return;
+      }
+      const cell = target.closest('td,th');
+      // Else an editor inside a page <td> hides its caret on every touch.
+      if (cell === null || !rootElement.contains(cell)) {
         return;
       }
       restoreCaretColor = rootElement.style.caretColor;
       rootElement.style.caretColor = 'transparent';
+      // A touch keeps its target even when it is removed mid-touch (the
+      // empty cell overlay's timer), and its lift then never reaches the window.
+      removeTargetListeners = registerEventListeners(
+        target,
+        {touchcancel: onTouchEnd, touchend: onTouchEnd},
+        options,
+      );
     };
 
     const onTouchEnd = (event: TouchEvent) => {
@@ -85,8 +93,6 @@ export function registerIOSTableDragCaretHiding(
       }
     };
 
-    // Passive, so a touch scroll starting in the editor does not wait on it.
-    const options = {capture: true, passive: true};
     return mergeRegister(
       registerEventListener(rootElement, 'touchstart', onTouchStart, options),
       // On the window, since the finger can be lifted outside the editor.
