@@ -735,6 +735,11 @@ export class YBinding {
    */
   private readonly refused = new Set<CS>();
   /**
+   * Lines a write stores with lone surrogate halves replaced by U+FFFD:
+   * read again in place without re-reading the whole container.
+   */
+  private readonly refusedLines = new Set<Unit>();
+  /**
    * Containers a local update changed while read only during a composition:
    * read again once it ends (see onUpdate).
    */
@@ -1579,6 +1584,7 @@ export class YBinding {
     this.pending.clear();
     this.localRefresh.clear();
     this.refused.clear();
+    this.refusedLines.clear();
     this.refusedComposing.clear();
     this.keepsUnstored = false;
     this.warnedEdit = false;
@@ -2211,6 +2217,7 @@ export class YBinding {
       !check ||
       rebuilt.size === 0 ||
       this.refused.size > 0 ||
+      this.refusedLines.size > 0 ||
       Math.random() >= (this.options.selfCheckSample ?? 1)
     ) {
       return;
@@ -2971,7 +2978,9 @@ export class YBinding {
         }
         // A re-read of a naming update's change is tagged as that update
         // (see rereadRefused).
-        naming = this.refused.size > 0 && this.refusedNaming;
+        naming =
+          (this.refused.size > 0 || this.refusedLines.size > 0) &&
+          this.refusedNaming;
       },
       recover: (error, shown) => {
         // The local updates still pending are written by the recovery
@@ -3015,7 +3024,11 @@ export class YBinding {
     // transaction touched, on an editor it takes to show the document.
     // One logical read with the change itself (see Reader#$reading).
     const refused = [...this.refused];
+    const refusedLines = [...this.refusedLines].filter(
+      u => !this.refused.has(u.cs) && u.end !== null && !u.end.deleted,
+    );
     this.refused.clear();
+    this.refusedLines.clear();
     this.refusedNaming = false;
     for (const id of this.toSettle) {
       state.ids.touchedIds.add(id);
@@ -3030,6 +3043,19 @@ export class YBinding {
           el.isAttached()
         ) {
           reader.$readFull(cs, el);
+        }
+      }
+      for (const u of refusedLines) {
+        if (!reader.$readLineInPlace(u)) {
+          const el =
+            u.cs.y === this._root ? $getRoot() : $getNodeByKey(u.cs.key);
+          if (
+            state.containers.get(u.cs.y) === u.cs &&
+            $isElementNode(el) &&
+            el.isAttached()
+          ) {
+            reader.$readFull(u.cs, el);
+          }
         }
       }
       // What this change does to the line being composed is held back where
@@ -4782,7 +4808,10 @@ export class YBinding {
     for (const cs of writer.refused) {
       this.refused.add(cs);
     }
-    if (writer.refused.size > 0) {
+    for (const u of writer.refusedLines) {
+      this.refusedLines.add(u);
+    }
+    if (writer.refused.size > 0 || writer.refusedLines.size > 0) {
       this.pending.add('reread');
       if (naming) {
         this.refusedNaming = true;
@@ -5130,6 +5159,7 @@ export class YBinding {
       this.localRefresh.clear();
       this.remoteRefresh.clear();
       this.refused.clear();
+      this.refusedLines.clear();
       this.refusedComposing.clear();
       this.restoreTo = null;
       this.replies.length = 0;
@@ -5272,13 +5302,17 @@ export class YBinding {
     const list = [...this.refused].filter(
       cs => this.state.containers.get(cs.y) === cs,
     );
+    const lines = [...this.refusedLines].filter(
+      u => !this.refused.has(u.cs) && u.end !== null && !u.end.deleted,
+    );
     const naming = this.refusedNaming;
     const settle = [...this.toSettle];
     this.refused.clear();
+    this.refusedLines.clear();
     this.toSettle.clear();
     this.refusedNaming = false;
     this.pending.delete('reread');
-    if (list.length === 0 && settle.length === 0) {
+    if (list.length === 0 && lines.length === 0 && settle.length === 0) {
       return null;
     }
     const last = ++this.rereads > MAX_REREADS;
@@ -5291,6 +5325,7 @@ export class YBinding {
     if (naming || last) {
       $addUpdateTag(BLOCK_ID_REPAIR_TAG);
     }
+    const lineSel = this.$lineRelativeSelection();
     const cursor = this.$cursorBeforeRead();
     const caret = $showsCaret();
     const reader = new Reader(this.state);
@@ -5301,9 +5336,20 @@ export class YBinding {
           reader.$readFull(cs, el);
         }
       }
+      for (const u of lines) {
+        if (!reader.$readLineInPlace(u)) {
+          const el =
+            u.cs.y === this._root ? $getRoot() : $getNodeByKey(u.cs.key);
+          if ($isElementNode(el) && el.isAttached()) {
+            reader.$readFull(u.cs, el);
+          }
+        }
+      }
     });
     reader.$settle(settle);
-    this.$selectionAfterRead(cursor, caret);
+    if (!this.$restoreLineRelativeSelection(lineSel, caret)) {
+      this.$selectionAfterRead(cursor, caret);
+    }
     this.$quietSelection();
     if (last) {
       // A transform that changes the same content each time it runs (a
@@ -6036,6 +6082,60 @@ export class YBinding {
    * new paragraph), and Backspace deletes structure (a nested list of other
    * users' text).
    */
+  private $lineRelativeSelection(): LineRelativeSelection | null {
+    const selection = $getSelection();
+    if (!$isRangeSelection(selection)) {
+      return null;
+    }
+    const anchorLine = $lineOf(selection.anchor.getNode());
+    const focusLine = $lineOf(selection.focus.getNode());
+    if (anchorLine === null || focusLine === null) {
+      return null;
+    }
+    const anchor = $pointPathInLine(anchorLine, selection.anchor);
+    const focus = $pointPathInLine(focusLine, selection.focus);
+    if (anchor === null || focus === null) {
+      return null;
+    }
+    return {anchor, focus};
+  }
+
+  private $restoreLineRelativeSelection(
+    sel: LineRelativeSelection | null,
+    caret: boolean,
+  ): boolean {
+    if (sel === null) {
+      return false;
+    }
+    const anchor = $resolveLinePoint(sel.anchor);
+    const focus = $resolveLinePoint(sel.focus);
+    if (anchor === null || focus === null) {
+      return false;
+    }
+    const widens =
+      caret &&
+      (anchor.key !== focus.key ||
+        anchor.offset !== focus.offset ||
+        anchor.type !== focus.type);
+    if (widens) {
+      return false;
+    }
+    const current = $getSelection();
+    if (current !== null && !$isRangeSelection(current)) {
+      return false;
+    }
+    let selection: RangeSelection | null = current;
+    if (selection === null) {
+      selection = $createRangeSelection();
+      $setSelection(selection);
+    }
+    selection.anchor.set(anchor.key, anchor.offset, anchor.type);
+    selection.focus.set(focus.key, focus.offset, focus.type);
+    $clampSelection();
+    this.$caretOnText();
+    return true;
+  }
+
   private $caretOnText(): void {
     const selection = $getSelection();
     if (
@@ -6856,6 +6956,98 @@ function $clampSelection(): void {
     if (point.offset > size) {
       point.set(point.key, size, point.type);
     }
+  }
+}
+
+type LineRelativePoint = {
+  lineKey: NodeKey;
+  path: number[];
+  offset: number;
+  type: 'text' | 'element';
+};
+
+type LineRelativeSelection = {
+  anchor: LineRelativePoint;
+  focus: LineRelativePoint;
+};
+
+function $lineOf(node: LexicalNode): ElementNode | null {
+  if ($isTextNode(node)) {
+    return $ownerOf(node);
+  }
+  if ($isElementNode(node)) {
+    if ($isWrapper(node)) {
+      return $ownerOf(node);
+    }
+    return node;
+  }
+  return null;
+}
+
+function $pointPathInLine(
+  line: ElementNode,
+  point: PointType,
+): LineRelativePoint | null {
+  const node = point.getNode();
+  const path: number[] = [];
+  let curr: LexicalNode | null = node;
+  while (curr !== null && curr !== line) {
+    const parent = curr.getParent();
+    if (parent === null) {
+      return null;
+    }
+    path.unshift(curr.getIndexWithinParent());
+    curr = parent;
+  }
+  if (curr !== line) {
+    return null;
+  }
+  return {
+    lineKey: line.getKey(),
+    offset: point.offset,
+    path,
+    type: point.type,
+  };
+}
+
+function $resolveLinePoint(
+  point: LineRelativePoint,
+): {key: NodeKey; offset: number; type: 'text' | 'element'} | null {
+  const line = $getNodeByKey(point.lineKey);
+  if (!$isElementNode(line) || !line.isAttached()) {
+    return null;
+  }
+  let curr: LexicalNode = line;
+  for (const idx of point.path) {
+    if (!$isElementNode(curr)) {
+      return null;
+    }
+    const child = curr.getChildAtIndex(idx);
+    if (child === null) {
+      return null;
+    }
+    curr = child;
+  }
+  if (point.type === 'text') {
+    if (!$isTextNode(curr)) {
+      return null;
+    }
+    const maxOffset = curr.getTextContentSize();
+    return {
+      key: curr.getKey(),
+      offset: Math.min(point.offset, maxOffset),
+      type: 'text',
+    };
+  } else {
+    if (!$isElementNode(curr)) {
+      return null;
+    }
+    const maxOffset = curr.getChildrenSize();
+    return {
+      key: curr.getKey(),
+      offset: Math.min(point.offset, maxOffset),
+      type: 'element',
+    };
   }
 }
 
