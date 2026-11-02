@@ -64,11 +64,13 @@ export function registerIOSTableDragCaretHiding(
 
     const onTouchStart = (event: TouchEvent) => {
       const target = getComposedEventTarget(event);
+      const cell = isHTMLElement(target) ? target.closest('td,th') : null;
       if (
         restoreCaretColor !== null ||
         !editor.isEditable() ||
-        !isHTMLElement(target) ||
-        target.closest('td,th') === null
+        cell === null ||
+        // Else an editor inside a page <td> hides its caret on every touch.
+        !rootElement.contains(cell)
       ) {
         return;
       }

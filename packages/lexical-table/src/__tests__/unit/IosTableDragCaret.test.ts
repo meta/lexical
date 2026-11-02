@@ -156,6 +156,18 @@ describe('iOS table drag caret hiding', () => {
     expect(container.style.caretColor).toBe('transparent');
   });
 
+  test('leaves the caret alone for an editor that sits in a page table cell', () => {
+    const pageTable = document.createElement('table');
+    const pageCell = pageTable.insertRow().insertCell();
+    document.body.appendChild(pageTable);
+    pageCell.appendChild(container);
+    touch(container.querySelector('p')!, 'touchstart');
+    expect(container.style.caretColor).toBe('');
+    touch(window, 'touchend');
+    document.body.appendChild(container);
+    pageTable.remove();
+  });
+
   test('leaves the caret alone for touches outside the table and when read-only', () => {
     touch(container.querySelector('p')!, 'touchstart');
     expect(container.style.caretColor).toBe('');
