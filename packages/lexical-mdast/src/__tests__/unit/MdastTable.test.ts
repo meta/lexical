@@ -52,13 +52,16 @@ import {
   $createParagraphNode,
   $createTextNode,
   $getRoot,
+  $insertNodes,
   $isElementNode,
   $isLineBreakNode,
   $isParagraphNode,
   $isTextNode,
+  $parseSerializedNode,
   $setSelection,
   configExtension,
   defineExtension,
+  type SerializedEditorState,
   TextNode,
 } from 'lexical';
 import {$assertNodeType} from 'lexical/src/__tests__/utils';
@@ -495,6 +498,60 @@ describe('MdastTableExtension', () => {
           ['left', 'center', 'right', ''],
           ['left', '', 'right', ''],
           ['left', 'center', 'right', ''],
+        ]);
+      });
+    });
+
+    /**
+     * A saved editor state with the aligned table, where the body cell in
+     * the centered column has no format.
+     */
+    function saveUnalignedCell(): SerializedEditorState {
+      using editor = createAlignedEditor();
+      editor.update(
+        () => {
+          $assertNodeType(
+            $cells()[1][1].getFirstChild(),
+            $isParagraphNode,
+          ).setFormat('');
+        },
+        {discrete: true},
+      );
+      return editor.getEditorState().toJSON();
+    }
+
+    it('leaves the cells of a loaded table as they are', () => {
+      const json = saveUnalignedCell();
+      using editor = createEditor();
+      editor.setEditorState(editor.parseEditorState(json));
+      expect(editor.getEditorState().toJSON()).toEqual(json);
+    });
+
+    it('leaves the cells of a table in the initial editor state as they are', () => {
+      const json = saveUnalignedCell();
+      using editor = createEditor(
+        defineExtension({
+          $initialEditorState: JSON.stringify(json),
+          name: 'initial state',
+        }),
+      );
+      expect(editor.getEditorState().toJSON()).toEqual(json);
+    });
+
+    it('leaves the cells of a pasted table as they are', () => {
+      const [tableJSON] = saveUnalignedCell().root.children;
+      using editor = createEditor();
+      editor.update(
+        () => {
+          $getRoot().selectStart();
+          $insertNodes([$parseSerializedNode(tableJSON)]);
+        },
+        {discrete: true},
+      );
+      editor.read(() => {
+        expect($formats()).toEqual([
+          ['left', 'center', 'right', ''],
+          ['left', '', 'right', ''],
         ]);
       });
     });

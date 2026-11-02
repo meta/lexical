@@ -731,21 +731,26 @@ export const MdastTableExtension = defineExtension({
   name: '@lexical/mdast/Table',
   nodes: [TableNode, TableRowNode, TableCellNode],
   register: editor => {
-    // A cell that isn't in the last committed editor state is new.
-    const isNew = (cell: TableCellNode) =>
-      !editor.getEditorState()._nodeMap.has(cell.getKey());
+    // A node that isn't in the last committed editor state is new.
+    const isNew = (node: LexicalNode) =>
+      !editor.getEditorState()._nodeMap.has(node.getKey());
     return mergeRegister(
       // Splitting a merged cell adds cells to rows without marking the table,
       // so a new cell marks it.
       editor.registerNodeTransform(TableCellNode, cell => {
         const tableNode = isNew(cell) ? $findTableNode(cell) : null;
-        if (tableNode) {
+        if (tableNode && !isNew(tableNode)) {
           tableNode.markDirty();
         }
       }),
-      editor.registerNodeTransform(TableNode, tableNode =>
-        $alignNewCells(tableNode, isNew),
-      ),
+      // A table that is new as a whole (imported, loaded or pasted) keeps the
+      // formats it came with. Loading a saved editor state marks every node
+      // dirty and gives it a new key, so all its cells count as new.
+      editor.registerNodeTransform(TableNode, tableNode => {
+        if (!isNew(tableNode)) {
+          $alignNewCells(tableNode, isNew);
+        }
+      }),
     );
   },
 });
