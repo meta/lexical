@@ -19,6 +19,7 @@ import {
   type RangeSelection,
 } from '../LexicalSelection';
 import {$getSlotFrame, $getSlotNames} from '../LexicalSlot';
+import {$isBlockContainer} from '../LexicalStructure';
 import {
   $copyNode,
   $getNodeByKeyOrThrow,
@@ -874,9 +875,11 @@ export function $splitAtPointCaretNext(
 }
 
 /**
- * If the insertion caret is the root/shadow root node (see {@link $isRootOrShadowRoot}),
- * the node will be inserted there, otherwise the parent nodes will be split according to the
- * given options.
+ * If the insertion caret is in a block container (the root, a shadow root, or
+ * a declared container, see {@link $isBlockContainer}), the node will be
+ * inserted there, otherwise the parent nodes will be split according to the
+ * given options, up to the nearest block container. With
+ * `rootMode: 'root'`, shadow roots and declared containers are split too.
  * @param node - The node to be inserted
  * @param caret - The location to insert or split from
  * @returns The node after its insertion
@@ -918,12 +921,29 @@ export function $insertNodeToNearestRootAtCaret<
   ) {
     node.remove(true);
   }
+  const stopsAtContainers =
+    options === undefined ||
+    options.rootMode === undefined ||
+    options.rootMode === 'shadowRoot';
   for (
     let nextCaret: null | PointCaret<'next'> = insertCaret;
     nextCaret;
     nextCaret = $splitAtPointCaretNext(nextCaret, options)
   ) {
     insertCaret = nextCaret;
+    // A declared block container (see $isBlockContainer) is not split: the
+    // node goes in among its blocks, as in a shadow root.
+    if (
+      stopsAtContainers &&
+      !$isTextPointCaret(insertCaret) &&
+      $isBlockContainer(
+        $isChildCaret(insertCaret)
+          ? insertCaret.origin
+          : insertCaret.origin.getParent(),
+      )
+    ) {
+      break;
+    }
   }
   invariant(
     !$isTextPointCaret(insertCaret),

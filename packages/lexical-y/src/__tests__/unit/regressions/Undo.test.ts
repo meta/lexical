@@ -12,7 +12,7 @@
 // selection from before the step, but a step that started from a node
 // selection (a selected image or chip) or a table selection comes back as a
 // caret. HistoryExtension does the same (its snapshot holds the selection of
-// the last content change). Open, in Known open issues.
+// the last content change). Open (#9572).
 
 import {
   buildEditorFromExtensions,

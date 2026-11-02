@@ -16,7 +16,7 @@ import {
   SKIP_COLLAB_TAG,
 } from 'lexical';
 
-import {createYDoc, DEFAULT_ROOT_NAME} from '.';
+import {createYDoc, DEFAULT_ROOT_NAME, YUnsupportedYjsError} from '.';
 import {
   closeHeadlessYEditor,
   EDITOR_WARNING,
@@ -50,6 +50,7 @@ export {
   FOLLOW_UPS_EXHAUSTED_WARNING,
   WRITER_NEW_CLIENT_ID_WARNING,
   YHeadlessError,
+  YUnsupportedYjsError,
 };
 
 /** @experimental The result of {@link editYState}. */

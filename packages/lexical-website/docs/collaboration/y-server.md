@@ -31,9 +31,11 @@ import {
   $getRoot,
 } from 'lexical';
 
-// The clients' extensions (or `nodes`): the server must register every node
-// type the clients use. `schemaVersion` is the version of the app's schema
-// this server's code has, as on the clients (required).
+// The clients' extensions: the server must register every node type the
+// clients use (through `extensions` or `nodes`) and the extensions that
+// change what is written, such as `BlockIdExtension`, so that it writes
+// what a client would. `schemaVersion` is the version of the app's
+// schema this server's code has, as on the clients (required).
 const config = {extensions: [AppNodesExtension], schemaVersion: 3};
 
 // Who the server's edits are by: one writer per agent or integration,
@@ -152,9 +154,12 @@ Each call releases its editor and document before it returns, so a
 synchronous loop over many documents holds one at a time.
 
 They throw a `YHeadlessError` with a `code`: `'not-initialized'` (no layout
-record yet: seed the document first), `'read-only'` (a newer layout, a
-node type the config does not register, content its classes throw on, or a
-named slot the document cannot store, which the binding refuses to write; the error's `warnings` are the
+record yet: seed the document first), `'read-only'` (a newer version of
+the app's schema wrote to the document, a newer layout, content without a
+layout record, a node type the config does not register, a node type stored
+in a way its class cannot be (`STORAGE_MISMATCH_WARNING`), content its
+classes throw on, or a named slot the document cannot store, which the
+binding refuses to write; the error's `warnings` are the
 binding's typed warnings that say which, so an app can narrow on each
 one's `code` and `data.reason` instead of reading the message),
 `'foreign-roots'` (the update writes to a root that is not allowed),
@@ -313,59 +318,456 @@ the edit arrives. Follow
 
 - **Edit text in place.** Change the characters of a text node
   (`spliceText`) rather than replacing its block: a replaced block is a
-  delete and an insert, and what a collaborator types into it meanwhile is
-  lost.
-- **Edit the state the plan was computed from, then merge.** Keep the state
-  the agent read, run `editYState` on that state, and merge the returned
-  `update` into the latest stored state (and send it to the clients). Yjs
-  merges it with everything that changed since. Do not store the returned
-  `state`: it lacks those changes.
+  delete and an insert. In a line such as a paragraph, what a collaborator
+  types at the same time survives, with its own formatting, at the start of
+  the new text (typed at the end of the line, it can also stay at the end);
+  formatting of the replaced characters does not carry over. Replacing a
+  block stored as a node of its own, such as a table, deletes what was typed
+  in it.
+- **Check, then edit the latest state, or nothing.** Check what the edit
+  names on the latest stored state: a replacement's words in the block where
+  the agent read them, found there by id (the words still there, exactly
+  once), and the same for words it formats or comments on (applied where
+  they are found on that state, not by the read's offsets); a rewritten or
+  deleted block as a whole (still where it was, and
+  unchanged since the read: its type, text, formats, style, NodeState and
+  children, as the checking schema exports them, so use a schema that still
+  declares every field stored versions may hold); an insert's anchor block
+  (still there). Check every edit of a
+  batch before applying any, then apply them in order with `editYState` on
+  that same latest state, checking each one again on the state the ones
+  before it leave: an edit that an earlier one changes (its words changed or
+  now appear twice, its block deleted or rewritten, or a block named twice)
+  refuses the whole batch, a conservative rule (send dependent changes as one
+  edit). When every check passes, store the result with a compare-and-set on
+  the version you checked, and send the `update` to the clients. When a
+  check fails, store and send nothing from the batch, and return every
+  failure (which edit, the reason, and its block's content in the latest
+  stored state, not in the discarded edit) and a new read to the agent, so
+  that it plans again. "Every failure" means: when an initial check fails,
+  every edit that fails it (the in-order pass does not run); when they all
+  pass, every edit that fails in the in-order pass, where a failing edit is
+  recorded and skipped, the later checks see the earlier edits that
+  succeeded (also those after a failure), never the failed one applied, and
+  its reason says it failed after an earlier edit. Any failure discards the
+  whole temporary edit.
+- **On a lost race, start over on the newer state.** When the
+  compare-and-set fails, a newer state was stored after the one you checked:
+  drop the state and the update computed on the older one, and run the whole
+  check and the edit again on the newer state (a few times at most, then
+  refuse back to the agent with a read of the state that won the last race,
+  not the one that lost). Never store or send an update computed on an older
+  state: its check no longer holds.
+- **Merge from the read only where there is nothing to check.** Only an edit
+  with nothing to check (an append, a suggestion a person accepts, an edit
+  by position) runs on the state the agent read, with its `update` merged
+  into the latest stored state; do not store the `state` that edit returns,
+  which lacks what changed since the read.
+- **Resolve block handles against the stored state.** An agent that
+  addresses blocks by [handle](/docs/extensions/block-ids#showing-blocks-to-a-model)
+  resolves each one in a `readYState` of the latest stored state, with the
+  handles it was shown (`$resolveBlockHandle(handle, {read})`), so that a
+  block deleted since the read fails, then applies the edit to that latest
+  state by id (see
+  [Handles and collaboration](/docs/extensions/block-ids#handles-and-collaboration)).
+  Resolved in the read, a handle always finds its block, even one deleted
+  since.
 - **Give the agent its writer.** The edit continues the agent's client id
-  when the agent has not written the document since `seen` was read. When
+  when the agent has not written the document since the state it edits. When
   two runs of the agent overlap on one document, the later edit is written
-  under a new client id (with a `'stale-state'` warning when `seen` holds
-  the agent's id): safe, and one more client id.
+  under a new client id (with a `'stale-state'` warning when the state it
+  edits holds the agent's id): safe, and one more client id.
+
+`applyChecked` below does the check, the edit (each part checked again as it
+is applied), the compare-and-set and the retries; `$findWords` checks a
+replacement of words. With
+[`BlockIdExtension`](/docs/extensions/block-ids) in the config, as on the
+clients:
 
 ```ts
-import {createYWriter, editYState} from '@lexical/y/headless';
-import {$getRoot, $isTextNode} from 'lexical';
+import {$getBlockById} from '@lexical/extension';
+import {
+  createYWriter,
+  editYState,
+  type HeadlessYConfig,
+  readYState,
+} from '@lexical/y/headless';
+import {$isElementNode, type TextNode} from 'lexical';
 
 // Once per process.
 const agent = createYWriter('Writing assistant');
 
-// `seen`: the state the agent read when it planned the edit.
-const {update} = editYState(
-  seen,
+// Your storage of one document: its latest state and a version, a store
+// that succeeds only while the version is unchanged (a compare-and-set), and
+// the connected clients.
+interface DocStore {
+  load(): Promise<{state: Uint8Array; version: number}>;
+  storeIf(version: number, state: Uint8Array): Promise<boolean>;
+  send(update: Uint8Array): void;
+}
+
+// Runs an agent's edit on the latest stored state. `$check` lists what is
+// wrong with the edit there, every part of it checked. `$edit` makes it,
+// checking each part again on the state the parts before it leave, and
+// lists what failed there (an earlier part changed a later one's target).
+// With any failure, from either, nothing is stored or sent: the failures go
+// back with the latest state, for the agent's new read. When the store loses
+// a race to a newer state, the state and the update computed on the older
+// one are dropped, and the check and the edit run again on the newer state,
+// `attempts` times at most; then the state that won the last race is loaded
+// and returned with no failures (the document kept changing). An update
+// computed on an older state is never stored or sent.
+async function applyChecked<F>(
+  store: DocStore,
+  config: HeadlessYConfig,
+  $check: () => F[],
+  $edit: () => F[],
+  attempts = 3,
+): Promise<{failures: F[]; latest: Uint8Array} | null> {
+  if (!(attempts >= 1)) {
+    throw new RangeError('applyChecked: attempts must be at least 1');
+  }
+  for (let attempt = 0; attempt < attempts; attempt++) {
+    const {state: latest, version} = await store.load();
+    const failures = readYState(latest, config, $check);
+    if (failures.length > 0) {
+      return {failures, latest};
+    }
+    let failed: F[] = [];
+    const {state, update} = editYState(
+      latest,
+      config,
+      () => {
+        failed = $edit();
+      },
+      {writer: agent},
+    );
+    if (failed.length > 0) {
+      return {failures: failed, latest};
+    }
+    if (update === null) {
+      return null;
+    }
+    if (await store.storeIf(version, state)) {
+      store.send(update);
+      return null;
+    }
+  }
+  return {failures: [], latest: (await store.load()).state};
+}
+
+// The words `from` in the block with this id: the plain text node that
+// holds them and their offset there, or why the edit cannot apply. They must
+// occur exactly once in the block's text, and inside one text node (a tab
+// does not take text, and a hashtag or a code token would keep its type
+// around the new text).
+function $findWords(
+  id: string,
+  from: string,
+): {offset: number; text: TextNode} | string {
+  const block = $getBlockById(id);
+  if (block === null) {
+    return 'the block is gone';
+  }
+  const all = block.getTextContent();
+  const at = all.indexOf(from);
+  if (from === '' || at === -1) {
+    return 'the words changed';
+  }
+  if (all.indexOf(from, at + 1) !== -1) {
+    return 'the words appear more than once';
+  }
+  for (const text of $isElementNode(block) ? block.getAllTextNodes() : []) {
+    const offset = text.getTextContent().indexOf(from);
+    if (offset !== -1) {
+      return text.isSimpleText() ? {offset, text} : 'not plain text';
+    }
+  }
+  return 'not in one text node';
+}
+
+// The agent read the blocks of `edits` ([{id, from, to}, ...]) and planned to
+// replace each `from` in its block with `to`. An edit that an earlier one
+// changes (its words changed or now appear twice, its block gone) refuses
+// the whole batch too.
+
+// What each edit's block holds in the latest stored state: a refusal
+// reports it, also for an edit that fails only after an earlier one.
+const stored = new Map<string, string | undefined>();
+const $failure = (index: number, reason: string) => ({
+  id: edits[index].id,
+  index,
+  reason,
+  text: stored.get(edits[index].id),
+});
+const refused = await applyChecked(
+  store,
   config,
   () => {
-    const text = $getRoot().getFirstDescendant();
-    if ($isTextNode(text)) {
-      text.spliceText(0, 5, 'Hi');
+    for (const edit of edits) {
+      stored.set(edit.id, $getBlockById(edit.id)?.getTextContent());
     }
+    return edits.flatMap((edit, index) => {
+      const found = $findWords(edit.id, edit.from);
+      return typeof found === 'string' ? [$failure(index, found)] : [];
+    });
   },
-  {writer: agent},
+  () =>
+    edits.flatMap((edit, index) => {
+      const found = $findWords(edit.id, edit.from);
+      if (typeof found === 'string') {
+        return [$failure(index, `${found} after an earlier edit`)];
+      }
+      found.text.spliceText(found.offset, edit.from.length, edit.to);
+      return [];
+    }),
 );
-if (update !== null) {
-  // Merge `update` into the latest stored state and send it to the clients.
+if (refused !== null) {
+  // Nothing was stored: return `refused.failures` (each with its edit's
+  // index and the block's text as stored) and a new read of
+  // `refused.latest` to the agent.
 }
 ```
+
+### Edits by block id
+
+With [`BlockIdExtension`](/docs/extensions/block-ids) in the config (as on
+the clients: a config without it writes new blocks without ids), an agent
+can read blocks with their ids and answer with edits addressed by id. Two
+things differ from a single editor:
+
+- **Check every target on the latest state, then edit that state, or
+  nothing.** Compare each target on the latest stored state with what the
+  agent read, as a whole: where it is (the path from the root to it, each
+  node on it by its id or, without one, by its type and place in its
+  parent) and all it holds (its type, text, formats, style, NodeState,
+  children and named slots). Check every op of the answer before applying
+  any, and each again, in order, as it is applied: when one is gone,
+  changed, named twice, or of a shape the edit cannot make, store none, and
+  send every failure back to the agent with the block's current content and
+  a new read, to plan again from the latest state. Run on
+  `seen`, the state the agent read, every block it read still exists, so
+  `$getBlockById` finds a block a collaborator has deleted since, or the
+  original of a block a collaborator has moved or replaced since: a move or
+  a `replace` keeps the block's id (see
+  [How ids follow edits](/docs/extensions/block-ids#how-ids-follow-edits)),
+  but `@lexical/y` stores either one as a delete and an insert. The agent's
+  text would then survive the merge without its block, as
+  [a line without a marker](./y.md#limits): a paragraph of its own, or text
+  glued to a neighboring line, depending on what is around it. The check is
+  conservative: a block a collaborator typed in or formatted, or one after
+  an inserted or deleted block in any of its containers, goes back too. It
+  compares what the server's schema declares: a stored field that schema no
+  longer declares (an older client still writing a field a newer schema
+  dropped, during a rollout) is not compared, so a collaborator's change to
+  it does not refuse a rewrite or a delete. Run the agent's server on a
+  schema that still declares every field the stored versions may hold. Store
+  the result with `applyChecked` (above): a compare-and-set on the version
+  the check read, and on a lost race the check and the edit again on the
+  newer state, so that no change lands between the check and the edit.
+- **Edit the text in place.** Replacing the block (`block.replace(node)`, as
+  in the [single-editor example](/docs/extensions/block-ids#addressing-blocks))
+  writes it anew. In a line such as a paragraph, what a collaborator types
+  at the same time survives, with its own formatting, at the start of the
+  new text (typed at the end of the line, it can also stay at the end);
+  formatting of the replaced characters does not carry over. Replacing a
+  block stored as a node of its own, such as a table, deletes what was typed
+  in it. Splice only the characters that changed.
+
+```ts
+import {$getBlockById, $getBlockId} from '@lexical/extension';
+import {readYState} from '@lexical/y/headless';
+import {
+  $getRoot,
+  $getSlot,
+  $getSlotHost,
+  $getSlotNames,
+  $getSlotNameWithinHost,
+  $isElementNode,
+  $isRootNode,
+  $isTextNode,
+  type LexicalNode,
+  type TextNode,
+} from 'lexical';
+
+// Changes a text node's text to `next` with one splice: the start and end
+// the two texts share stay (and what collaborators type in them), and
+// everything from the first difference to the last is replaced. For an
+// answer that changes several separate places, splice each change on its
+// own (from a diff of the two texts), so the text between them stays too.
+function $setTextInPlace(text: TextNode, next: string): void {
+  const prev = text.getTextContent();
+  let start = 0;
+  while (start < prev.length && prev[start] === next[start]) {
+    start++;
+  }
+  let end = 0;
+  while (
+    end < prev.length - start &&
+    end < next.length - start &&
+    prev[prev.length - 1 - end] === next[next.length - 1 - end]
+  ) {
+    end++;
+  }
+  text.spliceText(
+    start,
+    prev.length - start - end,
+    next.slice(start, next.length - end),
+  );
+}
+
+// The text node of a block that this sketch edits in place, or null: the
+// block's only child, plain text, and no named slots. A tab does not take
+// text, a hashtag or a code token would keep its type around the new text,
+// and the text of a named slot is part of the block's text but not of that
+// child.
+function $plainTextOf(block: LexicalNode | null): TextNode | null {
+  if (
+    !$isElementNode(block) ||
+    $getSlotNames(block).length > 0 ||
+    block.getChildrenSize() !== 1
+  ) {
+    return null;
+  }
+  const text = block.getFirstChild();
+  return $isTextNode(text) && text.isSimpleText() ? text : null;
+}
+
+// A node as a whole: what it exports (its type, text, formats, style and
+// NodeState), its children and its named slots, each as a whole.
+function $subtree(node: LexicalNode): unknown {
+  const slots: Record<string, unknown> = {};
+  for (const name of $getSlotNames(node)) {
+    const slot = $getSlot(node, name);
+    slots[name] = slot === null ? null : $subtree(slot);
+  }
+  return {
+    ...node.exportJSON(),
+    children: $isElementNode(node) ? node.getChildren().map($subtree) : [],
+    slots,
+  };
+}
+
+// Where the block with this id is and all it holds, or null when no block
+// has the id: the path from it up to the root (through the hosts of named
+// slots), each node on it by its id or, for one without (a table cell, by
+// default), by its type, and each by its place: the slot it fills, or its
+// index in its parent; and the block as a whole. A collaborator's move of
+// the block or of a container it is in changes the path; any change inside
+// it (text, a format, a style, a NodeState, a child) changes the rest, as far
+// as the server's node classes export it: a stored field that this schema
+// no longer declares is not compared.
+function $blockAt(id: string): string | null {
+  const block = $getBlockById(id);
+  if (block === null) {
+    return null;
+  }
+  const path: unknown[] = [];
+  for (
+    let node: LexicalNode | null = block;
+    node !== null && !$isRootNode(node);
+    node = node.getParent() ?? $getSlotHost(node)
+  ) {
+    path.push([
+      $getBlockId(node) ?? node.getType(),
+      $getSlotNameWithinHost(node) ?? node.getIndexWithinParent(),
+    ]);
+  }
+  return JSON.stringify([path, $subtree(block)]);
+}
+
+// 1. What the agent reads, from `seen`, and each block as a whole.
+const blocks = readYState(seen, config, () =>
+  $getRoot()
+    .getChildren()
+    .map(node => {
+      const id = $getBlockId(node)!;
+      return {at: $blockAt(id), id, text: node.getTextContent()};
+    }),
+);
+
+// 2. What it answers, seconds later: [{id: 'b7', text: 'New text'}, ...].
+
+// 3. Every op checked on the latest state, then applied there by id in
+// order, each checked again first; all of them or none. An answer that names
+// a block twice is refused.
+
+// What each op's block holds in the latest stored state, for a refusal.
+const stored = new Map<string, string | undefined>();
+const $reason = (op: {id: string}) => {
+  const at = $blockAt(op.id);
+  return ops.filter(other => other.id === op.id).length > 1
+    ? 'the block is named twice'
+    : at === null
+      ? 'the block is gone'
+      : at !== blocks.find(block => block.id === op.id)?.at
+        ? 'the block changed'
+        : $plainTextOf($getBlockById(op.id)) === null
+          ? 'not plain text'
+          : null;
+};
+const $failure = (index: number, reason: string) => ({
+  id: ops[index].id,
+  index,
+  reason,
+  text: stored.get(ops[index].id),
+});
+const refused = await applyChecked(
+  store,
+  config,
+  () => {
+    for (const op of ops) {
+      stored.set(op.id, $getBlockById(op.id)?.getTextContent());
+    }
+    return ops.flatMap((op, index) => {
+      const reason = $reason(op);
+      return reason === null ? [] : [$failure(index, reason)];
+    });
+  },
+  () =>
+    ops.flatMap((op, index) => {
+      const reason = $reason(op);
+      if (reason !== null) {
+        return [$failure(index, `${reason} after an earlier op`)];
+      }
+      $setTextInPlace($plainTextOf($getBlockById(op.id))!, op.text);
+      return [];
+    }),
+);
+if (refused !== null) {
+  // Nothing was stored: send `refused.failures` (each with its op's index and
+  // the block's text as stored) and a new read of `refused.latest` to the
+  // agent.
+}
+```
+
+A block with several text nodes (formats, links) needs the same idea across
+its nodes: splice where the text differs, and leave the nodes before and
+after the change alone.
 
 ### One edit at a time per document
 
 Run a document's server edits one after another, each on the latest stored
-state. Two edits run at once from the same state each return a state
-without the other's update, and storing both loses one. If edits must run in
-parallel, merge each `update` into the latest stored state instead of
-storing the returned `state`. Clients' concurrent edits merge with the
-server's like any peer's. Run one after another, a writer's edits also keep
-one client id per document.
+state (an agent's planned edit too, after its check; only an edit merged
+from the agent's read runs on that read, see
+[Edits by agents and tools](#edits-by-agents-and-tools)). Two edits run at
+once from the same state each return a state without the other's update,
+and storing both loses one. If edits must run in parallel, merge each
+`update` into the latest stored state instead of storing the returned
+`state` (an edit with nothing to check), or store with a compare-and-set and
+start a checked edit over on a lost race, as `applyChecked` does. Clients'
+concurrent edits merge with the server's like any peer's. Run one after
+another, a writer's edits also keep one client id per document.
 
 The same goes for everything that writes the stored state, clients' updates
 included: a write that replaces it with a state computed from an older read
 drops what was stored in between. Write each document's state from one
 process at a time, or store with a compare-and-set on a version and, when it
 fails, merge the update into the newer state and store again (merge the
-returned `update`; do not run `$edit` again).
+returned `update`; do not run `$edit` again). A checked edit is the
+exception: its check held on the older state only, so on a lost race it runs
+the check and `$edit` again on the newer state instead of merging (see
+[Edits by agents and tools](#edits-by-agents-and-tools)).
 
 ### Converting a `@lexical/yjs` document
 

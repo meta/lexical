@@ -858,8 +858,13 @@ describe('@lexical/y/headless', () => {
     ]) {
       const error = caught(fn);
       expect(error.code).toBe('read-only');
-      // A short message; the reason is data: the binding's typed warnings.
-      expect(error.message).toBe('the document is read only here');
+      // The message names the reasons (the warnings' messages, which say
+      // what to do); programs read them as data: the binding's typed warnings.
+      expect(error.message).toBe(
+        `@lexical/y: the document is read only here: ${error.warnings
+          .map(warning => warning.message)
+          .join('; ')}`,
+      );
       expect(
         error.warnings.map(warning => [warning.code, warning.data]),
       ).toEqual([
@@ -1129,7 +1134,7 @@ describe('@lexical/y/headless', () => {
       supported: LAYOUT_VERSION,
     });
     expect(readOnly[0].message).toBe(
-      `layout ${LAYOUT_VERSION + 1} is newer than ${LAYOUT_VERSION}`,
+      `layout ${LAYOUT_VERSION + 1} is newer than ${LAYOUT_VERSION}. A newer version of the binding wrote this document, so this editor is read only: upgrade the binding on every client of the document`,
     );
     // The error carries the same warning, as data.
     expect(refused.warnings).toEqual([readOnly[0]]);

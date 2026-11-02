@@ -668,7 +668,7 @@ describe('per-document pin', () => {
     expect(a.binding.root.getAttr('k:pin_block')).toBe('line');
     expect(b.binding.status).toBe('readonly');
     expect(b.warnings.join('\n')).toContain(
-      'pin_block is stored as line, its class as nested',
+      "pin_block is stored as line, its class as nested. A document keeps the kind its first write of a type recorded, so this editor is read only: restore the class's previous node structure declaration, or reseed the content into a new room with seedYState to adopt the new one",
     );
   });
 

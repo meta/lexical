@@ -72,12 +72,13 @@ import {
   defineExtension,
   DELETE_CHARACTER_COMMAND,
   DROP_COMMAND,
-  type ElementNode,
+  ElementNode,
   HISTORIC_TAG,
   INSERT_PARAGRAPH_COMMAND,
   type LexicalEditor,
   type LexicalNode,
   LineBreakNode,
+  ParagraphNode,
   PASTE_COMMAND,
   type RangeSelection,
   REDO_COMMAND,
@@ -128,6 +129,56 @@ class FigureNode extends DecoratorNode<null> {
   }
   decorate(): null {
     return null;
+  }
+}
+
+/** A paragraph with a named slot (a title shown with it) */
+class TitledParagraphNode extends ParagraphNode {
+  $config() {
+    return this.config('test-titled-paragraph', {
+      extends: ParagraphNode,
+      slots: ['title'],
+    });
+  }
+}
+
+/** An inline decorator without text (an inline image, say) */
+class EmptyInlineDecoratorNode extends DecoratorNode<null> {
+  $config() {
+    return this.config('test-empty-inline-decorator', {
+      extends: DecoratorNode,
+    });
+  }
+  isInline(): true {
+    return true;
+  }
+  createDOM(): HTMLElement {
+    return document.createElement('span');
+  }
+  updateDOM(): false {
+    return false;
+  }
+  decorate(): null {
+    return null;
+  }
+}
+
+/** An inline element that shows its text in brackets */
+class BracketedInlineNode extends ElementNode {
+  $config() {
+    return this.config('test-bracketed-inline', {extends: ElementNode});
+  }
+  isInline(): true {
+    return true;
+  }
+  createDOM(): HTMLElement {
+    return document.createElement('span');
+  }
+  updateDOM(): false {
+    return false;
+  }
+  getTextContent(): string {
+    return '[' + super.getTextContent() + ']';
   }
 }
 
@@ -270,7 +321,14 @@ function createTestEditor(
         }),
       ],
       name: '[root]',
-      nodes: () => [ChipNode, FigureNode, TestDecoratorTextNode],
+      nodes: () => [
+        ChipNode,
+        FigureNode,
+        BracketedInlineNode,
+        EmptyInlineDecoratorNode,
+        TestDecoratorTextNode,
+        TitledParagraphNode,
+      ],
       theme: {mark: 'mark', markOverlap: 'mark-overlap'},
     }),
   );
@@ -2241,6 +2299,402 @@ describe('MarkStateExtension', () => {
     });
   });
 
+  describe('composition over a selection', () => {
+    function startComposition(editor: LexicalEditor) {
+      update(editor, () => {
+        editor.dispatchCommand(COMPOSITION_START_COMMAND, {
+          data: '',
+          timeStamp: Number.MAX_SAFE_INTEGER,
+        } as CompositionEvent);
+      });
+      expect(editor.isComposing()).toBe(true);
+    }
+
+    /** The input method writes `composed` at the caret, over the placeholder. */
+    function compose(editor: LexicalEditor, composed: string) {
+      update(editor, () => {
+        const selection = $getSelection();
+        if (!$isRangeSelection(selection)) {
+          throw new Error('no selection');
+        }
+        const target = selection.anchor.getNode() as TextNode;
+        const content = target.getTextContent();
+        let at = selection.anchor.offset;
+        if (content[at] !== '\u200b' && content[at - 1] === '\u200b') {
+          at--;
+        }
+        target.spliceText(at, content[at] === '\u200b' ? 1 : 0, composed, true);
+      });
+    }
+
+    function setupMarked(
+      text: string,
+      marks: [number, number, string][],
+      [start, end]: [number, number],
+    ): LexicalEditor {
+      const editor = createTestEditor();
+      update(editor, () => $init(text));
+      for (const [markStart, markEnd, id] of marks) {
+        mark(editor, markStart, markEnd, id);
+      }
+      update(editor, () => $select(start, end));
+      return editor;
+    }
+
+    test.each([
+      // label, text, marked, replaced, composed, result
+      [
+        'the end of a run, by longer text',
+        'abcd',
+        [0, 4],
+        [2, 4],
+        'cde',
+        'paragraph("abcde"[c1])',
+      ],
+      [
+        'the end of a run followed by plain text, by longer text',
+        'abcd xy',
+        [0, 4],
+        [2, 4],
+        'cde',
+        'paragraph("abcde"[c1] " xy")',
+      ],
+      [
+        'a word inside a run',
+        'x teh y',
+        [0, 7],
+        [2, 5],
+        'the',
+        'paragraph("x the y"[c1])',
+      ],
+      [
+        'text only partly in the run',
+        'abcd xy',
+        [0, 4],
+        [2, 6],
+        'zz',
+        'paragraph("ab"[c1] "zzy")',
+      ],
+    ] as [
+      string,
+      string,
+      [number, number],
+      [number, number],
+      string,
+      string,
+    ][])(
+      'replacing %s gives the text the ids all of the replaced text had',
+      (_label, text, [markStart, markEnd], replaced, composed, result) => {
+        const editor = setupMarked(
+          text,
+          [[markStart, markEnd, 'c1']],
+          replaced,
+        );
+        startComposition(editor);
+        compose(editor, composed);
+        update(editor, () => $setCompositionKey(null));
+        expect(tree(editor)).toBe(result);
+      },
+    );
+
+    describe('in a block with a named slot', () => {
+      /** "abcd xy" with c1 on "abcd", in the block (`where`) the test names. */
+      function setupSlotted(where: 'children' | 'slot'): LexicalEditor {
+        const editor = createTestEditor();
+        update(editor, () => {
+          const title = $createParagraphNode().append(
+            $createTextNode(where === 'slot' ? 'abcd xy' : 'Title'),
+          );
+          const block = $create(TitledParagraphNode).append(
+            $createTextNode(where === 'slot' ? 'Body' : 'abcd xy'),
+          );
+          $setSlot(block, 'title', title);
+          $getRoot().clear().append(block);
+        });
+        // The text node holding "abcd xy" (a host's getAllTextNodes lists
+        // its slots' text first, so it is picked directly)
+        const $target = () => {
+          const block = $paragraph();
+          const parent =
+            where === 'slot'
+              ? ($getSlot(block, 'title') as ElementNode)
+              : block;
+          return parent.getFirstChildOrThrow() as TextNode;
+        };
+        update(editor, () => {
+          $addMarkID('c1', $target().select(0, 4));
+        });
+        update(editor, () => {
+          $target().select(2, 4);
+        });
+        return editor;
+      }
+
+      test.each(['children', 'slot'] as const)(
+        'replacing the end of a run in its %s gives the text the ids all of the replaced text had',
+        where => {
+          const editor = setupSlotted(where);
+          startComposition(editor);
+          compose(editor, 'cde');
+          update(editor, () => $setCompositionKey(null));
+          const marked = editor.read(() => {
+            const block = $paragraph();
+            const target =
+              where === 'slot'
+                ? ($getSlot(block, 'title') as ElementNode)
+                : block;
+            return target
+              .getChildren()
+              .filter(node => $getNodeMarkIDs(node).includes('c1'))
+              .map(node => node.getTextContent())
+              .join('');
+          });
+          expect(marked).toBe('abcde');
+        },
+      );
+    });
+
+    test('replacing the end of a run inside an inline element that adds text of its own gives the text the ids all of the replaced text had', () => {
+      const editor = createTestEditor();
+      update(editor, () => {
+        $getRoot()
+          .clear()
+          .append(
+            $createParagraphNode().append(
+              $create(BracketedInlineNode).append($createTextNode('abcd xy')),
+            ),
+          );
+      });
+      const $text = () => $getRoot().getAllTextNodes()[0];
+      update(editor, () => {
+        $addMarkID('c1', $text().select(0, 4));
+      });
+      update(editor, () => {
+        $text().select(2, 4);
+      });
+      startComposition(editor);
+      compose(editor, 'cde');
+      update(editor, () => $setCompositionKey(null));
+      const marked = editor.read(() =>
+        $getRoot()
+          .getAllTextNodes()
+          .filter(node => $getNodeMarkIDs(node).includes('c1'))
+          .map(node => node.getTextContent())
+          .join(''),
+      );
+      expect(marked).toBe('abcde');
+    });
+
+    /** Composes `composed` over the placeholder at the caret, if there is one. */
+    function composeOverPlaceholder(editor: LexicalEditor, composed: string) {
+      update(editor, () => {
+        const selection = $getSelection();
+        if (!$isRangeSelection(selection)) {
+          throw new Error('no selection');
+        }
+        const target = selection.anchor.getNode() as TextNode;
+        const content = target.getTextContent();
+        const at = selection.anchor.offset;
+        if (content[at - 1] === '\u200b' || content[at - 1] === '\u00a0') {
+          target.spliceText(at - 1, 1, composed, true);
+        } else {
+          target.spliceText(
+            at,
+            content[at] === '\u200b' ? 1 : 0,
+            composed,
+            true,
+          );
+        }
+      });
+    }
+
+    test.each([
+      ['nothing (a start that removes the selection)', ''],
+      ['a zero-width space', '\u200b'],
+      ['a no-break space', '\u00a0'],
+    ])(
+      'a selection replaced by %s at the composition start gives the composed text the ids all of it had',
+      (_label, placeholder) => {
+        const editor = setupMarked('abcd', [[0, 4, 'c1']], [2, 4]);
+        editor.registerCommand(
+          CONTROLLED_TEXT_INSERTION_COMMAND,
+          payload => {
+            const selection = $getSelection();
+            if (
+              payload !== '\u200b' ||
+              placeholder === '\u200b' ||
+              !$isRangeSelection(selection)
+            ) {
+              return false;
+            }
+            if (placeholder === '') {
+              selection.removeText();
+            } else {
+              selection.insertText(placeholder);
+            }
+            return true;
+          },
+          COMMAND_PRIORITY_HIGH,
+        );
+        startComposition(editor);
+        composeOverPlaceholder(editor, 'cde');
+        update(editor, () => $setCompositionKey(null));
+        // A no-break space the composition kept is not the point here: the
+        // composed text and the text before it have the run's id
+        expect(tree(editor).replace(/\u00a0/g, '')).toBe(
+          'paragraph("abcde"[c1])',
+        );
+      },
+    );
+
+    /** Collapses the selection to its focus when a composition starts. */
+    function collapseOnCompositionStart(editor: LexicalEditor) {
+      editor.registerCommand(
+        COMPOSITION_START_COMMAND,
+        () => {
+          const selection = $getSelection();
+          if ($isRangeSelection(selection)) {
+            const {key, offset, type} = selection.focus;
+            selection.anchor.set(key, offset, type);
+          }
+          return false;
+        },
+        COMMAND_PRIORITY_HIGH,
+      );
+    }
+
+    test('a selection of an inline decorator without text that a handler kept was not replaced', () => {
+      const editor = createTestEditor();
+      update(editor, () => {
+        $getRoot()
+          .clear()
+          .append(
+            $createParagraphNode().append(
+              $createTextNode('ab'),
+              $create(EmptyInlineDecoratorNode),
+              $createTextNode('cd'),
+            ),
+          );
+      });
+      const $selectDecorator = () => {
+        const key = $paragraph().getKey();
+        const selection = $createRangeSelection();
+        selection.anchor.set(key, 1, 'element');
+        selection.focus.set(key, 2, 'element');
+        $setSelection(selection);
+        return selection;
+      };
+      update(editor, () => {
+        $addMarkID('c1', $selectDecorator());
+      });
+      update(editor, () => {
+        $selectDecorator();
+      });
+      collapseOnCompositionStart(editor);
+      startComposition(editor);
+      compose(editor, 'X');
+      update(editor, () => $setCompositionKey(null));
+      const composedIds = editor.read(() => {
+        const node = $getRoot()
+          .getAllTextNodes()
+          .find(text => text.getTextContent().includes('X'));
+        return node ? $getNodeMarkIDs(node) : null;
+      });
+      expect(composedIds).toEqual([]);
+    });
+
+    test('a selection that is a no-break space, kept by a start that wrote nothing, was not replaced', () => {
+      const editor = setupMarked(
+        'a\u00a0b',
+        [
+          [0, 3, 'c1'],
+          [1, 2, 'c2'],
+        ],
+        [1, 2],
+      );
+      collapseOnCompositionStart(editor);
+      // The start writes nothing (as a browser that composes in place)
+      editor.registerCommand(
+        CONTROLLED_TEXT_INSERTION_COMMAND,
+        payload => payload === '\u200b',
+        COMMAND_PRIORITY_HIGH,
+      );
+      startComposition(editor);
+      compose(editor, 'X');
+      update(editor, () => $setCompositionKey(null));
+      const composedIds = editor.read(() => {
+        const node = $getRoot()
+          .getAllTextNodes()
+          .find(text => text.getTextContent().includes('X'));
+        return node ? $getNodeMarkIDs(node) : null;
+      });
+      expect(composedIds).toEqual(['c1']);
+    });
+
+    test('a selection that a handler collapsed before the composition started was not replaced', () => {
+      const editor = setupMarked('abcd', [[0, 4, 'c1']], [2, 4]);
+      editor.registerCommand(
+        COMPOSITION_START_COMMAND,
+        () => {
+          const selection = $getSelection();
+          if ($isRangeSelection(selection)) {
+            const {key, offset, type} = selection.focus;
+            selection.anchor.set(key, offset, type);
+          }
+          return false;
+        },
+        COMMAND_PRIORITY_HIGH,
+      );
+      startComposition(editor);
+      compose(editor, 'X');
+      update(editor, () => $setCompositionKey(null));
+      expect(tree(editor)).toBe('paragraph("abcd"[c1] "X")');
+    });
+
+    test('a selection that a handler of the composition placeholder kept was not replaced', () => {
+      const editor = setupMarked(
+        'x teh y',
+        [
+          [0, 7, 'c1'],
+          [2, 4, 'c2'],
+        ],
+        [2, 5],
+      );
+      // Quotes the selection instead of replacing it with the placeholder
+      editor.registerCommand(
+        CONTROLLED_TEXT_INSERTION_COMMAND,
+        payload => {
+          const selection = $getSelection();
+          if (
+            payload !== '\u200b' ||
+            !$isRangeSelection(selection) ||
+            selection.isCollapsed()
+          ) {
+            return false;
+          }
+          const [start, end] = selection.isBackward()
+            ? [selection.focus, selection.anchor]
+            : [selection.anchor, selection.focus];
+          const startNode = start.getNode() as TextNode;
+          const endNode = end.getNode() as TextNode;
+          const startAt = start.offset;
+          const endAt = end.offset;
+          endNode.spliceText(endAt, 0, '"');
+          startNode.spliceText(startAt, 0, '"');
+          const offset = endAt + (startNode.is(endNode) ? 2 : 1);
+          endNode.select(offset, offset);
+          return true;
+        },
+        COMMAND_PRIORITY_HIGH,
+      );
+      startComposition(editor);
+      update(editor, () => $setCompositionKey(null));
+      expect(tree(editor)).toBe(
+        'paragraph("x \\""[c1] "te"[c1,c2] "h\\" y"[c1])',
+      );
+    });
+  });
+
   describe('output', () => {
     test('after loading JSON, and $removeMarkID(id) through it', () => {
       const source = createTestEditor();
@@ -2593,6 +3047,64 @@ describe('MarkStateExtension', () => {
       isMarkIDShown.value = id => !resolved.has(id);
       expect(renderedSpans(editor)).toEqual(decorated);
       expect(updates).toBe(3);
+    });
+
+    test("assigning a new filter changes no node, also where an element's stored text format is not its first text's", async () => {
+      const editor = buildEditorFromExtensions(
+        defineExtension({
+          dependencies: [
+            RichTextExtension,
+            configExtension(HistoryExtension, {delay: 0}),
+            MarkStateExtension,
+          ],
+          name: '[root]',
+        }),
+      );
+      // The first paragraph's textFormat (0) is not its bold text's format,
+      // as a client that never rendered it (headless, an agent) writes it
+      editor.update(
+        () => {
+          const bold = $createTextNode('bold');
+          bold.toggleFormat('bold');
+          $getRoot()
+            .clear()
+            .append(
+              $createParagraphNode().append(bold),
+              $createParagraphNode().append($createTextNode('t4z t5z')),
+            );
+        },
+        {discrete: true},
+      );
+      const root = document.createElement('div');
+      root.contentEditable = 'true';
+      document.body.appendChild(root);
+      editor.setRootElement(root);
+      onTestFinished(() => {
+        editor.setRootElement(null);
+        root.remove();
+      });
+      const $textFormat = () => {
+        const paragraph = $getRoot().getFirstChild();
+        return $isElementNode(paragraph) ? paragraph.getTextFormat() : -1;
+      };
+      expect(editor.read($textFormat)).toBe(0);
+      // A comment in the other paragraph, so that a filter re-renders
+      update(editor, () => {
+        $addMarkID('c1', $select(0, 3, $paragraph(1)));
+      });
+      // The last edit, which an undo takes back
+      update(editor, () => {
+        $paragraph(1).selectEnd().insertText(' t6z');
+      });
+      const editorState = editor.getEditorState();
+      isMarkIDShownSignal(editor).value = id => id !== 'c1';
+      await Promise.resolve();
+      expect(editor.read($textFormat)).toBe(0);
+      expect(editor.getEditorState().toJSON()).toEqual(editorState.toJSON());
+      editor.dispatchCommand(UNDO_COMMAND, undefined);
+      expect(editor.read(() => $getRoot().getTextContent())).toBe(
+        'bold\n\nt4z t5z',
+      );
     });
 
     test('a new filter re-renders nothing in a document without marks', () => {

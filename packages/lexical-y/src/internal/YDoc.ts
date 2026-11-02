@@ -11,7 +11,7 @@
 // Invariant: a document the binding writes never runs Yjs's format cleanup,
 // from its creation on. Why: after a remote change, the cleanup deletes the
 // format items it finds redundant, among them the ones left where text was
-// deleted. The binding keeps those (see Cursor#collapseGap): text a
+// deleted. The binding keeps those (see Cursor#delete): text a
 // collaborator types into the deleted text at the same time keeps the
 // formats it was typed with only while they are there. The cleanup is also
 // a write of this client's that reaches every peer. A document that ran it
@@ -20,6 +20,8 @@
 // (see UNSUPPORTED_CONFIG_WARNING, `'cleanup-formatting'`).
 
 import {applyUpdate, Doc} from '@y/y';
+
+import {assertSupportedYjs} from './YjsContract';
 
 /**
  * The key of {@link YDoc}'s phantom brand. Declared rather than defined: it
@@ -53,11 +55,14 @@ export type YDocOptions = ConstructorParameters<typeof Doc>[0];
  * there. `state`, a stored state, is applied when given; `options` are those
  * of `new Y.Doc(options)` (the default document is garbage collected, as
  * clients store one). Merging updates with `mergeUpdates` needs no document.
+ * Throws a `YUnsupportedYjsError`, before the document is made, when the
+ * `@y/y` the app loaded is not the one `@lexical/y` supports.
  */
 export function createYDoc(
   state?: Uint8Array | null,
   options?: YDocOptions,
 ): YDoc {
+  assertSupportedYjs();
   const doc = new Doc(options);
   doc.cleanupFormatting = false;
   if (state != null) {

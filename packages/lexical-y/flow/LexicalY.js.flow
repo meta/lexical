@@ -17,7 +17,7 @@ import type {ReadonlySignal} from '@lexical/extension';
  */
 
 declare export var DEFAULT_ROOT_NAME: 'lexical-y';
-declare export var LAYOUT_VERSION: 1;
+declare export var LAYOUT_VERSION: 2;
 
 export type YBindingStatus = 'pending' | 'active' | 'readonly';
 
@@ -149,6 +149,23 @@ export type YWarning =
   | YWarningOf<typeof UNSUPPORTED_CONFIG_WARNING, YUnsupportedConfigData>
   | YWarningOf<typeof UNSUPPORTED_EDIT_WARNING, YUnsupportedEditData>
   | YWarningOf<typeof UNSUPPORTED_SCHEMA_WARNING, YUnsupportedSchemaData>;
+// The `data` of each code.
+type YWarningDataByCode = {
+  '@lexical/y/unsupported-layout': YUnsupportedLayoutData,
+  '@lexical/y/unknown-node-types': YUnknownNodeTypesData | YUnreadableContentData,
+  '@lexical/y/storage-mismatch': YStorageMismatchData,
+  '@lexical/y/self-check': YSelfCheckData,
+  '@lexical/y/recovered-read': YRecoveredReadData,
+  '@lexical/y/recovered-write': YRecoveredWriteData,
+  '@lexical/y/nested-fallback': YNestedFallbackData,
+  '@lexical/y/unsynced-value': YUnsyncedValueData,
+  '@lexical/y/unsupported-slots': YUnsupportedSlotsData,
+  '@lexical/y/unsupported-config': YUnsupportedConfigData,
+  '@lexical/y/unsupported-edit': YUnsupportedEditData,
+  '@lexical/y/unsupported-schema': YUnsupportedSchemaData,
+};
+// The `data` of a warning whose `code` is `C`.
+export type YWarningData<C extends YWarningCode> = YWarningDataByCode[C];
 declare export function isYWarning(error: unknown): error is YWarning;
 
 export type YBindingOptions = {
@@ -184,6 +201,28 @@ export type YDocOptions = {
   meta?: unknown,
   shouldLoad?: boolean,
 };
+
+// The one @y/y version this @lexical/y supports (its exact peer dependency).
+declare export var SUPPORTED_YJS_VERSION: string;
+
+declare export var UNSUPPORTED_YJS_ERROR: '@lexical/y/unsupported-yjs';
+
+export type YUnsupportedYjsReason = 'changed-internals' | 'other-copy';
+
+export type YUnsupportedYjsData = {
+  readonly supported: string,
+  readonly found: ReadonlyArray<string>,
+  readonly reason: YUnsupportedYjsReason,
+};
+
+// Thrown by createYDoc, the YBinding constructor (so YCollabExtension) and
+// the headless helpers when the app's @y/y is not the supported one, before
+// anything is written. Fix: install exactly @y/y@<data.supported>, once.
+declare export class YUnsupportedYjsError extends Error {
+  readonly code: typeof UNSUPPORTED_YJS_ERROR;
+  readonly data: YUnsupportedYjsData;
+  constructor(data: YUnsupportedYjsData): void;
+}
 
 // A Y.Doc for @lexical/y (a client's, a relay's or a server's), with Yjs's
 // format cleanup turned off before `state` is applied (when given).

@@ -261,15 +261,19 @@ describe.each(ORDERS)('$ids $delivery', order => {
   });
 });
 
-describe('@lexical/y blocks held by a list item', () => {
-  // $insertList on a paragraph in a container that is not a shadow root
-  // wraps the paragraph: the list item holds it (stored inside the line).
-  const $heldList = (child: ElementNode) => {
+describe('@lexical/y a block in a box that $insertList replaces', () => {
+  // $insertList on a block in a box that is not a shadow root replaces the
+  // box with a list: a paragraph becomes the list item's text, and a heading
+  // is lifted out of the list, which is left empty and removed.
+  // No list item here holds a block: NodeStructureExtension, which every
+  // @lexical/y editor runs, keeps blocks out of list items (only a writer
+  // without it stores one).
+  const $listFromBox = (child: ElementNode) => {
     $getRoot().append($createBoxNode('o').append(child), $p('end'));
     child.selectStart();
     $insertList('bullet');
   };
-  const $held = () => {
+  const $target = () => {
     const box = $block([0]);
     return box.getFirstDescendant()!.getParent() as ElementNode;
   };
@@ -277,53 +281,51 @@ describe('@lexical/y blocks held by a list item', () => {
     [1, 2],
     [2, 1],
   ]) {
-    test(`retype the held paragraph ‖ type in it keeps the text (${ids})`, async () => {
+    test(`retype the list item made from the paragraph ‖ type in it keeps the text (${ids})`, async () => {
       const t = await setup(
-        () => $heldList($createParagraphNode().append($createTextNode('abc'))),
+        () =>
+          $listFromBox($createParagraphNode().append($createTextNode('abc'))),
         {ids},
       );
       t.offline();
-      t.a.update(() => $held().replace($createHeadingNode('h1'), true));
-      t.b.update(() => $held().selectStart().insertText('X'));
+      t.a.update(() => $target().replace($createHeadingNode('h1'), true));
+      t.b.update(() => $target().selectStart().insertText('X'));
       await t.sync();
       await expectConverged(t.peers);
       expect(t.a.describe()).toContain('Xabc');
       expect(t.a.describe()).toContain('heading[h1]');
     });
 
-    // The held paragraph has a sibling of its old type that keeps its own
-    // shared node: the replacement still keeps the replaced node's content.
-    test(`retype a held paragraph next to a sibling ‖ type in it keeps the text (${ids})`, async () => {
+    // The empty paragraph after the paragraph becomes a line break of the
+    // list item: the replacement keeps the replaced item's content.
+    test(`retype the list item made from a paragraph and an empty paragraph ‖ type in it keeps the text (${ids})`, async () => {
       const t = await setup(
         () => {
-          const held = $createParagraphNode().append($createTextNode('abc'));
-          $heldList(held);
-          held.insertAfter($createParagraphNode());
+          const first = $createParagraphNode().append($createTextNode('abc'));
+          $listFromBox(first);
+          first.insertAfter($createParagraphNode());
         },
         {ids},
       );
       t.offline();
-      t.a.update(() => $held().replace($createQuoteNode(), true));
-      t.b.update(() => $held().selectStart().insertText('X'));
+      t.a.update(() => $target().replace($createQuoteNode(), true));
+      t.b.update(() => $target().selectStart().insertText('X'));
       await t.sync();
       await expectConverged(t.peers);
-      // A list item holds inline content and lists: the held quote is
-      // lifted out of the list by the normalization, and the empty paragraph
-      // becomes a line of the item (b joined it into the item's line before
-      // it saw the quote), kept as a line break.
+      // The quote takes the list item's place and its line break.
       expect(t.a.describe()).toContain('quote("Xabc" br)');
     });
 
-    test(`Enter at the start of a held heading on both peers duplicates nothing (${ids})`, async () => {
+    test(`Enter at the start of the heading on both peers duplicates nothing (${ids})`, async () => {
       const t = await setup(
         () =>
-          $heldList($createHeadingNode('h2').append($createTextNode('abc'))),
+          $listFromBox($createHeadingNode('h2').append($createTextNode('abc'))),
         {ids},
       );
       t.offline();
       for (const peer of [t.a, t.b]) {
         peer.update(() => {
-          $held().selectStart();
+          $target().selectStart();
           const s = $getSelection();
           if ($isRangeSelection(s)) {
             s.insertParagraph();
