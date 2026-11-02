@@ -29,18 +29,34 @@ import {describe, expect, test} from 'vitest';
 import {createYDoc, YBinding, YCollabExtension} from '../..';
 
 // The follow-up check (YBinding#$checkFollowUp) reads only the part of a
-// container the follow-up changed: in a long document, a follow-up after
-// each keystroke (BlockIdExtension's naming path) costs that part, not the
-// document.
+// container the follow-up changed, after walking the container up to it:
+// followUpRanges finds the follow-up's unit with units.indexOf, and
+// formatsAt walks the container's items from its start. So its cost grows
+// with the follow-up's position, not with the rest of the document. A
+// follow-up after each keystroke (BlockIdExtension's naming path) at the
+// same block of a document ten times longer costs about the same, while a
+// check that read the whole container would cost about ten times as much.
+// The two documents are measured in turns, after a warm-up, and compared by
+// their medians, so a burst of load or a cold first check lands on both.
+// Comparing the same block of both cancels a cost that grows with the
+// follow-up's position, so the last block of the larger document is
+// measured in the same turns too, against a generous absolute ceiling: a
+// check that walks every unit before the follow-up's costs tens of
+// milliseconds there.
+
+/** Median ceiling for the check at the larger document's last block. */
+const END_CEILING_MS = 20;
 
 const BLOCKS = 10000;
+const SMALL = 1000;
+const WARM = 10;
 const KEYS = 60;
 
 type Check = (this: YBinding, ...args: unknown[]) => void;
 const proto = YBinding.prototype as unknown as {$checkFollowUp: Check};
 const original = proto.$checkFollowUp;
 
-function build(): {editor: LexicalEditor; binding: YBinding} {
+function build(blocks: number): LexicalEditor {
   const doc = createYDoc();
   const editor = buildEditorFromExtensions(
     defineExtension({
@@ -62,7 +78,7 @@ function build(): {editor: LexicalEditor; binding: YBinding} {
   editor.update(
     () => {
       const root = $getRoot().clear();
-      for (let i = 0; i < BLOCKS; i++) {
+      for (let i = 0; i < blocks; i++) {
         root.append(
           $createParagraphNode().append($createTextNode(`line ${i} of text`)),
         );
@@ -71,15 +87,20 @@ function build(): {editor: LexicalEditor; binding: YBinding} {
     {discrete: true},
   );
   binding.initialize();
-  return {binding, editor};
+  return editor;
 }
 
 /**
  * A keystroke (a character typed at the end of block `at`), then a
  * follow-up that renames that block, as BlockIdExtension's naming update
- * does: tagged as it, in an update of its own. Returns the follow-up's time.
+ * does: tagged as it, in an update of its own.
  */
-function keystroke(editor: LexicalEditor, at: number, k: number): number {
+function keystroke(
+  editor: LexicalEditor,
+  at: number,
+  k: number,
+  name = `renamed-${k}`,
+): void {
   editor.update(
     () => {
       const line = $getRoot().getChildAtIndex(at) as ElementNode;
@@ -87,66 +108,75 @@ function keystroke(editor: LexicalEditor, at: number, k: number): number {
     },
     {discrete: true},
   );
-  const t0 = performance.now();
   editor.update(
     () => {
-      $setState($getRoot().getChildAtIndex(at)!, blockIdState, `renamed-${k}`);
+      $setState($getRoot().getChildAtIndex(at)!, blockIdState, name);
     },
     {discrete: true, tag: 'block-id-repair'},
   );
-  return performance.now() - t0;
 }
 
-function run(where: 'end' | 'middle', withCheck: boolean) {
-  const {editor} = build();
-  let checks = 0;
-  let checkMs = 0;
-  proto.$checkFollowUp = function (this: YBinding, ...args: unknown[]) {
-    checks++;
-    if (!withCheck) {
-      return;
-    }
-    const t0 = performance.now();
-    original.apply(this, args);
-    checkMs += performance.now() - t0;
-  };
-  const times: number[] = [];
-  try {
-    for (let k = 0; k < KEYS; k++) {
-      const at = where === 'end' ? BLOCKS - 1 : BLOCKS / 2;
-      times.push(keystroke(editor, at, k));
-    }
-  } finally {
-    proto.$checkFollowUp = original;
-  }
-  times.sort((a, b) => a - b);
-  // Every rename was written (none read again).
-  const stored = editor.read(() => {
-    const at = where === 'end' ? BLOCKS - 1 : BLOCKS / 2;
-    return $getState($getRoot().getChildAtIndex(at)!, blockIdState);
-  });
-  (editor as LexicalEditor & {dispose: () => void}).dispose();
-  return {
-    checkMs: checkMs / KEYS,
-    checks,
-    median: times[times.length >> 1],
-    stored,
-  };
-}
+const median = (xs: number[]) => [...xs].sort((x, y) => x - y)[xs.length >> 1];
 
 describe('the follow-up check in a long document', () => {
-  for (const where of ['end', 'middle'] as const) {
-    test(`${BLOCKS} blocks, ${KEYS} keystrokes at the ${where}, each followed by a naming update: the check costs the part it changed`, () => {
-      const off = run(where, false);
-      const on = run(where, true);
+  // The last block of the smaller document, and its middle.
+  for (const [where, at] of [
+    ['end', SMALL - 1],
+    ['middle', SMALL / 2],
+  ] as const) {
+    test(`${KEYS} keystrokes at block ${at} of a ${BLOCKS}- and a ${SMALL}-block document (the smaller one's ${where}), each followed by a naming update: the check costs the same in both`, () => {
+      const big = build(BLOCKS);
+      const small = build(SMALL);
+      // The time of each check, into the list of the document typed in.
+      let into: number[] | null = null;
+      let checks = 0;
+      proto.$checkFollowUp = function (this: YBinding, ...args: unknown[]) {
+        checks++;
+        const t0 = performance.now();
+        original.apply(this, args);
+        if (into !== null) {
+          into.push(performance.now() - t0);
+        }
+      };
+      const bigMs: number[] = [];
+      const smallMs: number[] = [];
+      const endMs: number[] = [];
+      try {
+        for (let k = 0; k < WARM + KEYS; k++) {
+          into = k < WARM ? null : bigMs;
+          keystroke(big, at, k);
+          into = k < WARM ? null : smallMs;
+          keystroke(small, at, k);
+          into = k < WARM ? null : endMs;
+          keystroke(big, BLOCKS - 1, k, `end-${k}`);
+        }
+      } finally {
+        proto.$checkFollowUp = original;
+      }
+      // Every rename was written (none read again).
+      const stored = (editor: LexicalEditor, index = at) =>
+        editor.read(() =>
+          $getState($getRoot().getChildAtIndex(index)!, blockIdState),
+        );
+      const last = `renamed-${WARM + KEYS - 1}`;
+      expect(stored(big)).toBe(last);
+      expect(stored(small)).toBe(last);
+      expect(stored(big, BLOCKS - 1)).toBe(`end-${WARM + KEYS - 1}`);
+      (big as LexicalEditor & {dispose: () => void}).dispose();
+      (small as LexicalEditor & {dispose: () => void}).dispose();
+      expect(checks).toBe(3 * (WARM + KEYS));
+      const b = median(bigMs);
+      const m = median(smallMs);
+      const e = median(endMs);
       // eslint-disable-next-line no-console
       console.log(
-        `FOLLOWUP_COST ${where}: ${on.checks} follow-ups checked; median follow-up ${off.median.toFixed(2)} ms without the check, ${on.median.toFixed(2)} ms with it; the check ${on.checkMs.toFixed(3)} ms per follow-up`,
+        `FOLLOWUP_COST ${where}: median check ${b.toFixed(3)} ms in ${BLOCKS} blocks, ${m.toFixed(3)} ms in ${SMALL} blocks (${(b / m).toFixed(2)}x); ${e.toFixed(3)} ms at block ${BLOCKS - 1}`,
       );
-      expect(on.checks).toBe(KEYS);
-      expect(on.stored).toBe(`renamed-${KEYS - 1}`);
-      // The check reads a few blocks, not the 10,000.
-      expect(on.checkMs).toBeLessThan(5);
+      // About the same in both; a check reading the whole container would
+      // cost about ten times as much in the larger document.
+      expect(b).toBeLessThan(3 * m + 0.1);
+      // At the end of the larger document, well under the ceiling.
+      expect(e).toBeLessThan(END_CEILING_MS);
     }, 120000);
   }
 });

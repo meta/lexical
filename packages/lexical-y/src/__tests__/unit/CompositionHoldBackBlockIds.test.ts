@@ -46,15 +46,10 @@ describe('@lexical/y composition hold-back with block ids', () => {
           [2, 1],
         ]) {
           const shape = SHAPES[shapeName];
-          const limited =
-            remote.limit !== undefined && remote.limit(shape, end);
-          (limited ? test.skip : test)(
-            `${shapeName} line, remote ${remoteName}, ${end} (ids ${ids})`,
-            async () => {
-              expect(WITH_BLOCK_IDS).toBe(true);
-              await runCase(shape, remote, end, ids);
-            },
-          );
+          test(`${shapeName} line, remote ${remoteName}, ${end} (ids ${ids})`, async () => {
+            expect(WITH_BLOCK_IDS).toBe(true);
+            await runCase(shape, remote, end, ids);
+          });
         }
       }
     }

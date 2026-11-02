@@ -461,13 +461,13 @@ test('a change another binding writes while the remote change is applied is not 
   b.binding.dispose();
 });
 
-// Known limit: a binding's read of a change shows what the changes applied
+// Open (#9579): a binding's read of a change shows what the changes applied
 // since did to the lines it reads, but the binding goes on seeing those
 // changes as unread until it reads them in turn. A selection taken of its
 // editor in between (another binding's listener asking for it) is taken
-// on a document without them.
+// on a document without them, one character off here.
 test.fails(
-  "a selection taken between reads of two changes is the editor's (known limit)",
+  "a selection taken between reads of two changes is the editor's (#9579)",
   async () => {
     const doc = createYDoc(null, {gc: false});
     doc.clientID = 1;

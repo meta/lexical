@@ -565,7 +565,7 @@ describe('ElementDOMSlot integration: trailing decoration (slot.before)', () => 
     editor = buildEditorFromExtensions(
       defineExtension({
         name: '[trailing-decor]',
-        nodes: [TrailingDecorElementNode],
+        nodes: [TrailingDecorElementNode, TestDecoratorNode],
       }),
     );
     editor.setRootElement(container);
@@ -699,6 +699,27 @@ describe('ElementDOMSlot integration: trailing decoration (slot.before)', () => 
     const marker = blockDom.querySelector('[data-marker]');
     expect(marker).not.toBe(null);
     expect(blockDom.querySelector('[data-lexical-text="true"]')).toBe(null);
+  });
+
+  test('a block cursor after the last block decorator stays before the decoration', () => {
+    container.tabIndex = 0;
+    container.focus();
+    editor.update(
+      () => {
+        const block = $createTrailingDecorNode().append(
+          $createTestDecoratorNode().setIsInline(false),
+        );
+        $getRoot().clear().append(block);
+        block.select(1, 1);
+      },
+      {discrete: true},
+    );
+    const blockDom = container.querySelector('[data-block]')!;
+    const marker = blockDom.querySelector('[data-marker]')!;
+    const cursor = blockDom.querySelector('[data-lexical-cursor]');
+    assert(cursor !== null, 'expected a block cursor');
+    expect(cursor.nextSibling).toBe(marker);
+    expect(blockDom.lastChild).toBe(marker);
   });
 });
 
@@ -841,6 +862,48 @@ describe('ElementDOMSlot integration: a removed trailing decoration', () => {
       ]);
     },
   );
+
+  test('a block cursor after the last block decorator does not throw if the decoration was removed', () => {
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    container.tabIndex = 0;
+    container.focus();
+    const editor = buildEditorFromExtensions(
+      defineExtension({
+        name: '[stored-trailing-decor-block-cursor]',
+        nodes: [StoredTrailingDecorElementNode, TestDecoratorNode],
+      }),
+    );
+    editor.setRootElement(container);
+    onTestFinished(() => {
+      editor.dispose();
+      container.remove();
+    });
+    let blockNode!: StoredTrailingDecorElementNode;
+    editor.update(
+      () => {
+        blockNode = new StoredTrailingDecorElementNode().append(
+          $createTestDecoratorNode().setIsInline(false),
+        );
+        $getRoot().clear().append(blockNode);
+      },
+      {discrete: true},
+    );
+    const blockDom = container.querySelector('[data-block]')!;
+    const marker = blockDom.querySelector('[data-marker]')!;
+    marker.remove();
+    expect(() => {
+      editor.update(
+        () => {
+          blockNode.select(1, 1);
+        },
+        {discrete: true},
+      );
+    }).not.toThrow();
+    const cursor = blockDom.querySelector('[data-lexical-cursor]');
+    assert(cursor !== null, 'expected a block cursor');
+    expect(blockDom.lastChild).toBe(cursor);
+  });
 });
 
 // Regression coverage for meta/lexical#8561. A node whose `getDOMSlot`

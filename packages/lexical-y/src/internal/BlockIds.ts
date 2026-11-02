@@ -37,16 +37,9 @@ import {
   TYPE_KEY,
   WRAPPER_FIELDS_KEY,
 } from './Schema';
+import {isShownEnd, shownAttrs} from './Seen';
 import {$inNamedSlot} from './Slots';
-import {
-  type CS,
-  isShownEnd,
-  shownAttrs,
-  type State,
-  typeOf,
-  type Unit,
-  type UnitKind,
-} from './State';
+import {type CS, type State, typeOf, type Unit, type UnitKind} from './State';
 
 // Block ids (BlockIdExtension's), as the binding reads them: the grammar of
 // derived ids, the index of which blocks store which id, and the settlement
@@ -481,23 +474,39 @@ export class BlockIdSettler {
   /**
    * A unit a read placed (see Reader#$commitUnits): whether its block (a
    * line, a stored node, the groups an item is in) keeps the id it derives
-   * is known once it is in place.
+   * is known once it is in place. Each kind keeps its own rule: a line's
+   * derived id goes where it is not an identified block, a stored node
+   * derives one where it stores none, and a group, or a wrapper item, keeps
+   * none it does not store where it is not an identified block.
    */
   $placeUnit(u: Unit): void {
     const isIdentified = this.state.blockIds;
-    // A derived id (a line without a marker, or whose marker stores none)
-    // is for identified blocks only (known once the line is in place).
+    if (isIdentified === null || u.key === null) {
+      return;
+    }
+    this.$placeLineId(u, u.key, isIdentified);
+    this.$placeStoredId(u, u.key, isIdentified);
+    this.$placeGroupIds(u, u.key, isIdentified);
+  }
+
+  /**
+   * A derived id (a line without a marker, or whose marker stores none) is
+   * for identified blocks only (known once the line is in place).
+   */
+  private $placeLineId(
+    u: Unit,
+    key: NodeKey,
+    isIdentified: (node: LexicalNode) => boolean,
+  ): void {
     if (
-      isIdentified !== null &&
-      u.key !== null &&
-      (u.kind === 'implicit' ||
-        (u.kind === 'line' &&
-          u.end !== null &&
-          shownAttrs(u.end, this.state.hidden)[
-            STATE_PREFIX + blockIdState.key
-          ] === undefined))
+      u.kind === 'implicit' ||
+      (u.kind === 'line' &&
+        u.end !== null &&
+        shownAttrs(u.end, this.state.hidden)[
+          STATE_PREFIX + blockIdState.key
+        ] === undefined)
     ) {
-      const line = $getNodeByKey(u.key);
+      const line = $getNodeByKey(key);
       if (
         line !== null &&
         $getState(line, blockIdState) !== undefined &&
@@ -506,59 +515,74 @@ export class BlockIdSettler {
         $setBlockId(line, undefined);
       }
     }
-    // A stored node that stores no id has one derived from its item, if
-    // it is an identified block (known once it is in place).
-    if (
-      isIdentified !== null &&
-      u.kind === 'node' &&
-      u.key !== null &&
-      u.end !== null
-    ) {
-      const node = $getNodeByKey(u.key);
-      const y = typeOf(u.end);
-      this.state.ids.noteStoredId(
-        u.key,
-        y.getAttr(STATE_PREFIX + blockIdState.key),
-      );
-      if (
-        node !== null &&
-        y.getAttr(STATE_PREFIX + blockIdState.key) === undefined
-      ) {
-        const want = isIdentified(node)
-          ? storedDerivedId(node, u.end)
-          : undefined;
-        if ($getState(node, blockIdState) !== want) {
-          $setBlockId(node, want);
-        }
-        this.noteDerived(want ?? null);
-      }
+  }
+
+  /**
+   * A stored node that stores no id has one derived from its item, if it is
+   * an identified block (known once it is in place).
+   */
+  private $placeStoredId(
+    u: Unit,
+    key: NodeKey,
+    isIdentified: (node: LexicalNode) => boolean,
+  ): void {
+    if (u.kind !== 'node' || u.end === null) {
+      return;
     }
-    // So is a group's (known once it is in place): a group that is not an
-    // identified block (a nested list) keeps no block id, which an item's
-    // marker can carry from another level or another group after
-    // concurrent edits (see $withoutOuterId). And a wrapper item's (the item
-    // holding a nested group): the id it derives (see withDerivedWrapperId)
-    // is for an identified block only, as a line's is; one its nested items
-    // store is its author's and stays.
-    if (isIdentified !== null && u.sig !== '' && u.key !== null) {
-      const line = $getNodeByKey(u.key);
-      let g = line === null ? null : line.getParent();
-      while ($isElementNode(g) && getGroupSpec(klassOf(g)) !== null) {
-        if ($getState(g, blockIdState) !== undefined && !isIdentified(g)) {
-          $setBlockId(g, undefined);
-        }
-        const w: ElementNode | null = g.getParent();
-        g = w === null ? null : w.getParent();
-        if (
-          w !== null &&
-          $isElementNode(g) &&
-          getGroupSpec(klassOf(g)) !== null &&
-          $getState(w, blockIdState) !== undefined &&
-          !isIdentified(w) &&
-          typeof $storedIdNow(this.state, w) !== 'string'
-        ) {
-          $setBlockId(w, undefined);
-        }
+    const node = $getNodeByKey(key);
+    const y = typeOf(u.end);
+    this.state.ids.noteStoredId(
+      key,
+      y.getAttr(STATE_PREFIX + blockIdState.key),
+    );
+    if (
+      node !== null &&
+      y.getAttr(STATE_PREFIX + blockIdState.key) === undefined
+    ) {
+      const want = isIdentified(node)
+        ? storedDerivedId(node, u.end)
+        : undefined;
+      if ($getState(node, blockIdState) !== want) {
+        $setBlockId(node, want);
+      }
+      this.noteDerived(want ?? null);
+    }
+  }
+
+  /**
+   * So is a group's (known once it is in place): a group that is not an
+   * identified block (a nested list) keeps no block id, which an item's
+   * marker can carry from another level or another group after concurrent
+   * edits (see $withoutOuterId). And a wrapper item's (the item holding a
+   * nested group): the id it derives (see withDerivedWrapperId) is for an
+   * identified block only, as a line's is; one its nested items store is
+   * its author's and stays.
+   */
+  private $placeGroupIds(
+    u: Unit,
+    key: NodeKey,
+    isIdentified: (node: LexicalNode) => boolean,
+  ): void {
+    if (u.sig === '') {
+      return;
+    }
+    const line = $getNodeByKey(key);
+    let g = line === null ? null : line.getParent();
+    while ($isElementNode(g) && getGroupSpec(klassOf(g)) !== null) {
+      if ($getState(g, blockIdState) !== undefined && !isIdentified(g)) {
+        $setBlockId(g, undefined);
+      }
+      const w: ElementNode | null = g.getParent();
+      g = w === null ? null : w.getParent();
+      if (
+        w !== null &&
+        $isElementNode(g) &&
+        getGroupSpec(klassOf(g)) !== null &&
+        $getState(w, blockIdState) !== undefined &&
+        !isIdentified(w) &&
+        typeof $storedIdNow(this.state, w) !== 'string'
+      ) {
+        $setBlockId(w, undefined);
       }
     }
   }

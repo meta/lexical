@@ -72,6 +72,10 @@ declare export class YHeadlessError extends Error {
   ): void;
 }
 
+// The same as @lexical/y's: thrown when the app's @y/y is not the one
+// @lexical/y supports, before anything is written.
+export {YUnsupportedYjsError} from '@lexical/y';
+
 // The same as @lexical/y's createYDoc: a Y.Doc for a relay or a server that
 // loads a stored state, with Yjs's format cleanup turned off as on the
 // clients, and `state` applied when given.

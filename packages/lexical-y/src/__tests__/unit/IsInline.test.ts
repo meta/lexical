@@ -301,7 +301,7 @@ describe('@lexical/y when an instance is not what its class declares', () => {
       );
       expect(stored(t.a)).toContain('b:test_toggle_tag');
       // No character carries the inline form any more (the delete of its
-      // text leaves its format items, see Cursor#collapseGap).
+      // text leaves its format items, see Cursor#delete).
       expect(stored(t.a, false)).not.toContain('w:test_toggle_tag');
       const $lifted = () =>
         $assertNodeType(
@@ -362,7 +362,7 @@ describe('@lexical/y when an instance is not what its class declares', () => {
       // of the node or the other depending on the client ids, as any
       // concurrent insert at a deleted position does, and keeps the format it
       // was typed with, the inline form (a delete keeps the format items
-      // around the deleted text, see Cursor#collapseGap).
+      // around the deleted text, see Cursor#delete).
       await expectConverged(
         t.peers,
         ids[0] === 1

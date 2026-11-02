@@ -80,7 +80,7 @@ function client(doc: YDoc, attached: boolean) {
 // taken by the follow-up check for a change of the derived field: refused,
 // and its container (the whole root) read again. Not a divergence (the
 // re-read gives the same document); a needless whole-container re-read.
-// Open, in Known open issues.
+// Open (#9568, and listed under Known open issues in #9400).
 describe('R16A-2: a naming follow-up on a paragraph whose derived textFormat differs from the stored one', () => {
   test.fails(
     'R16A-2 a DOM-attached reader renames the paragraph: the follow-up is neither refused nor read again',

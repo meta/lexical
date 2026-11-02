@@ -191,7 +191,7 @@ describe('N5: a recovery nested in an update settles on the rebuild it runs', ()
       expect(t.a.describe()).toBe(shown);
       expect(t.a.errors).toEqual([]);
       expect(t.a.warnings).toEqual([
-        'the document cannot be read: reader failure',
+        'the document cannot be read: reader failure. This editor is read only until it is built again: data.error holds what the read threw; fix that, then reload the editor',
       ]);
     },
   );
@@ -290,7 +290,7 @@ describe('N6: a read admitted before the binding failed closed reads nothing aft
     }
     expect(applied).toBe(true);
     expect(reader.warnings).toContain(
-      'the document cannot be read: reader failure',
+      'the document cannot be read: reader failure. This editor is read only until it is built again: data.error holds what the read threw; fix that, then reload the editor',
     );
     expect(reader.binding.status).toBe('readonly');
     expect(reader.describe()).toBe(shown);

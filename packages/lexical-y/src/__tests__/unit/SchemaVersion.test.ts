@@ -35,6 +35,7 @@ import {afterEach, describe, expect, test, vi} from 'vitest';
 
 import {
   createYDoc,
+  RECOVERED_READ_WARNING,
   UNSUPPORTED_EDIT_WARNING,
   UNSUPPORTED_SCHEMA_WARNING,
   YBinding,
@@ -49,6 +50,7 @@ import {
   seedYState,
   YHeadlessError,
 } from '../../headless';
+import {Reader} from '../../internal/Read';
 import {$p, NODES} from '../utils/harness';
 
 const SCHEMA = 'lexical-y-schema:';
@@ -167,7 +169,9 @@ describe('schema version gate', () => {
       supported: 1,
     });
     // A short developer note, no product text.
-    expect(older.warnings[0].message).toBe('schema 2 is newer than 1');
+    expect(older.warnings[0].message).toBe(
+      `schema 2 is newer than 1. A newer version of your app (a higher schemaVersion) wrote this document, so this editor is read only: load the newer app version to edit it`,
+    );
 
     // A local edit is refused (#9510): nothing is written, and the editor
     // shows the document again.
@@ -444,6 +448,45 @@ describe('schema version gate: timing', () => {
     expect(Y.encodeStateVector(older.doc)).toEqual(before);
   });
 
+  test('local updates still pending past the commit limit: the read does not run, and the recovery gates', async () => {
+    const caught = catchMicrotasks();
+    const older = seeded(1, 'ab');
+    const newer = client(2);
+    sync(older, newer);
+    newer.binding.initialize();
+    type(newer, 'd');
+    await new Promise(resolve => setTimeout(resolve, 0));
+    // More pending commits than the read waits for: it gives up before it
+    // runs (its `before` never gates), and only the recovery can.
+    let left = 40;
+    older.editor.registerUpdateListener(({tags}) => {
+      if (left > 0 && !tags.has('collaboration')) {
+        const n = left--;
+        older.editor.update(() => void $getRoot().append($p(`q${n}`)));
+        throw new Error(`app failure ${n}`);
+      }
+    });
+    older.editor.update(() => void $getRoot().append($p('first')));
+    Y.applyUpdate(
+      older.doc,
+      Y.encodeStateAsUpdate(newer.doc, Y.encodeStateVector(older.doc)),
+    );
+    await Promise.resolve();
+    expect(caught.length).toBeGreaterThan(0);
+    expect(older.binding.status).toBe('readonly');
+    // The recovery read gated, not a fail-closed path (which warns about
+    // what it cannot read instead of a recovered read).
+    expect(codes(older)).toEqual([
+      RECOVERED_READ_WARNING,
+      UNSUPPORTED_SCHEMA_WARNING,
+    ]);
+    const before = Y.encodeStateVector(older.doc);
+    older.editor.update(() => void $getRoot().append($p('late')), {
+      discrete: true,
+    });
+    expect(Y.encodeStateVector(older.doc)).toEqual(before);
+  });
+
   test('a record that arrives alone while an update runs: the update is written, then read only', () => {
     const older = seeded(1, 'ab');
     const update = recordOnly(older.doc, SCHEMA + '2');
@@ -566,6 +609,85 @@ describe('schema version gate: timing', () => {
     });
     expect(records(v2.doc)).toEqual([SCHEMA + '1', SCHEMA + '2']);
   });
+
+  test('a record that arrives while an update runs that then throws: later updates are refused', () => {
+    const older = seeded(1, 'ab');
+    const update = recordOnly(older.doc, SCHEMA + '2');
+    expect(() =>
+      older.editor.update(
+        () => {
+          const t = $getRoot().getFirstDescendant() as TextNode;
+          t.setTextContent('X' + t.getTextContent());
+          Y.applyUpdate(older.doc, update);
+          throw new Error('app failure');
+        },
+        {discrete: true},
+      ),
+    ).toThrow('app failure');
+    // The update the gate waited for never committed: the next one is not
+    // written, and the binding is read only.
+    const before = Y.encodeStateVector(older.doc);
+    type(older, 'c');
+    expect(Y.encodeStateVector(older.doc)).toEqual(before);
+    expect(older.binding.status).toBe('readonly');
+    expect(codes(older)).toContain(UNSUPPORTED_SCHEMA_WARNING);
+    expect(text(older)).toBe('ab');
+  });
+
+  test('a binding the schema gate holds stays read only when the layout record changes', () => {
+    const older = seeded(1, 'ab');
+    Y.applyUpdate(older.doc, recordOnly(older.doc, SCHEMA + '2'));
+    expect(older.binding.status).toBe('readonly');
+    const editable: boolean[] = [];
+    older.editor.registerEditableListener(value => {
+      editable.push(value);
+    });
+    // A newer client records layout 2 (its first set-valued member does).
+    Y.applyUpdate(older.doc, recordOnly(older.doc, 'lexical-y:2'));
+    expect(older.binding.status).toBe('readonly');
+    expect(editable).toEqual([]);
+    expect(older.editor.isEditable()).toBe(false);
+    // Warned once, when the gate closed.
+    expect(codes(older)).toEqual([UNSUPPORTED_SCHEMA_WARNING]);
+    const before = Y.encodeStateVector(older.doc);
+    type(older, 'c');
+    expect(Y.encodeStateVector(older.doc)).toEqual(before);
+  });
+
+  test('a newer record in a change whose read throws: the recovery gates', () => {
+    const older = seeded(1, 'ab');
+    const newer = client(2);
+    sync(older, newer);
+    newer.binding.initialize();
+    type(newer, 'd');
+    const proto = Reader.prototype as unknown as {
+      $apply: (...args: unknown[]) => void;
+    };
+    const apply = proto.$apply;
+    proto.$apply = function () {
+      throw new Error('simulated reader failure');
+    };
+    try {
+      Y.applyUpdate(
+        older.doc,
+        Y.encodeStateAsUpdate(newer.doc, Y.encodeStateVector(older.doc)),
+      );
+    } finally {
+      proto.$apply = apply;
+    }
+    // Gated before the read; the recovery gates again (a no-op here).
+    expect(codes(older)).toEqual([
+      UNSUPPORTED_SCHEMA_WARNING,
+      RECOVERED_READ_WARNING,
+    ]);
+    expect(older.binding.status).toBe('readonly');
+    // Rebuilt from the document, with the newer client's edit.
+    expect(text(older)).toBe('abd');
+    const before = Y.encodeStateVector(older.doc);
+    type(older, 'e');
+    expect(Y.encodeStateVector(older.doc)).toEqual(before);
+    expect(text(older)).toBe('abd');
+  });
 });
 
 describe('schema version: headless', () => {
@@ -650,6 +772,19 @@ describe('schema version: headless', () => {
 describe('schema version: required', () => {
   const FIX =
     "start at 1 and increase it whenever a node's stored fields or node types change";
+
+  test('YCollabExtension throws without a doc, with the fix', () => {
+    expect(() =>
+      buildEditorFromExtensions(
+        defineExtension({
+          dependencies: [configExtension(YCollabExtension, {schemaVersion: 1})],
+          name: 'test-doc-required',
+        }),
+      ),
+    ).toThrow(
+      'YCollabExtension needs a doc: pass doc: createYDoc() in its config, the document your provider syncs',
+    );
+  });
 
   test('YCollabExtension throws without schemaVersion, with the fix', () => {
     for (const schemaVersion of [undefined, 0, 1.5, -1, NaN]) {

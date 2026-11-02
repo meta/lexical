@@ -48,8 +48,8 @@ function $joinBlocks(from: number, to: number) {
 // every client although neither edit retyped it. Open: the type is one
 // value on that shared marker, so the two writes cannot both be kept;
 // agreeing on the earlier line's type would need each join to record which
-// line it came from and a follow-up to elect one (y.md, Limits, Other
-// races).
+// line it came from and a follow-up to elect one (#9511; y.md, Limits,
+// Other races).
 describe('S7-22: two joins at once into the same line', () => {
   const FIRST: [string, string, () => ElementNode][] = [
     [

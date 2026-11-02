@@ -74,6 +74,7 @@ import {errorOnReadOnly, getActiveEditor} from '../LexicalUpdates';
 import {
   $getDOMSlot,
   $getNodeByKey,
+  $getTextInsideCache,
   $isRootOrShadowRoot,
   getNodeKeyFromDOMNode,
   isDOMUnmanaged,
@@ -167,8 +168,8 @@ const elementNodeSchema = nodeSchema<ElementNode>()({
   indent: withField(numberValue(0, {integer: true, min: 0}), {
     field: '__indent',
   }),
-  // Persisted only for an element with no TextNode child (see #7968), which
-  // `shouldSerializeTextStyles` decides. Declaring that as the field it is
+  // Persisted only for an element with no text to derive them from (see
+  // #7968), which `shouldSerializeTextStyles` decides. Declaring that as the field it is
   // plus the predicate that gates it — rather than reading through
   // `getSerializedTextFormat`/`getSerializedTextStyle` — keeps both on the
   // direct-field path, and lets generated code call the shared predicate once
@@ -896,8 +897,12 @@ export class ElementNode
   }
   // JSON serialization
   /**
-   * Whether `textFormat`/`textStyle` are persisted at all: only when there are
-   * no TextNode children from which they would be set on reconcile (#7968).
+   * Whether `textFormat`/`textStyle` are persisted at all: only when there is
+   * no text from which they would be set on reconcile (#7968). That is a
+   * TextNode child, and for an inline element (a link, a mark) a TextNode
+   * anywhere inside it (a mark in a link), whose first text a reconcile takes
+   * them from as well. A block keeps the direct-children check, so its JSON
+   * is unchanged.
    *
    * @internal
    */
@@ -905,20 +910,7 @@ export class ElementNode
     if ($isRootOrShadowRoot(this)) {
       return false;
     }
-    // Walked rather than materialized with getChildren(), and it exits at the
-    // first TextNode. Both callers below test their own value first, so an
-    // element with a default textFormat/textStyle — every element that has
-    // many non-text children in practice — never reaches this at all.
-    for (
-      let child = this.getFirstChild();
-      child !== null;
-      child = child.getNextSibling()
-    ) {
-      if ($isTextNode(child)) {
-        return false;
-      }
-    }
-    return true;
+    return !$hasTextChild(this, this.isInline());
   }
 
   /** @internal Serialized `textFormat`, or undefined to omit it. */
@@ -1086,6 +1078,59 @@ export function $isElementNode(
   node: LexicalNode | null | undefined,
 ): node is ElementNode {
   return node instanceof ElementNode;
+}
+
+/**
+ * Whether `element` has a TextNode child or, when `deep`, a TextNode at any
+ * depth inside it. Walked rather than materialized with getChildren(), and it
+ * exits at the first TextNode. Both callers of shouldSerializeTextStyles test
+ * their own value first, so an element with a default textFormat/textStyle
+ * (every element that has many non-text children in practice) never reaches
+ * this at all.
+ */
+function $hasTextChild(element: ElementNode, deep: boolean): boolean {
+  if (deep) {
+    return $hasTextInside(element, $getTextInsideCache());
+  }
+  for (
+    let child = element.getFirstChild();
+    child !== null;
+    child = child.getNextSibling()
+  ) {
+    if ($isTextNode(child)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * $hasTextChild's deep walk; with a cache (see $getTextInsideCache), every
+ * element it visits is cached.
+ */
+function $hasTextInside(
+  element: ElementNode,
+  cache: Map<NodeKey, boolean> | null,
+): boolean {
+  const key = element.getKey();
+  const cached = cache !== null ? cache.get(key) : undefined;
+  if (cached !== undefined) {
+    return cached;
+  }
+  let found = false;
+  for (
+    let child = element.getFirstChild();
+    child !== null && !found;
+    child = child.getNextSibling()
+  ) {
+    found =
+      $isTextNode(child) ||
+      ($isElementNode(child) && $hasTextInside(child, cache));
+  }
+  if (cache !== null) {
+    cache.set(key, found);
+  }
+  return found;
 }
 
 function isPointRemoved(

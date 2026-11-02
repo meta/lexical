@@ -11,14 +11,17 @@
 
 import {
   type YWarning,
+  type YWarningData,
   DEFAULT_ROOT_NAME,
   isYWarning,
   LAYOUT_VERSION,
+  UNSUPPORTED_EDIT_WARNING,
   UNSUPPORTED_LAYOUT_WARNING,
+  UNSUPPORTED_SCHEMA_WARNING,
 } from '@lexical/y';
 
 const root: 'lexical-y' = DEFAULT_ROOT_NAME;
-const layout: 1 = LAYOUT_VERSION;
+const layout: 2 = LAYOUT_VERSION;
 
 function reasonOf(error: unknown): string {
   if (isYWarning(error)) {
@@ -30,3 +33,12 @@ function reasonOf(error: unknown): string {
   }
   return '';
 }
+
+// A code's data, by its code.
+function foundOf(
+  data: YWarningData<typeof UNSUPPORTED_SCHEMA_WARNING>,
+): number | null {
+  return data.reason === 'newer' ? data.found : null;
+}
+// $FlowExpectedError[incompatible-type] an edit warning's reason is 'read-only'
+const edit: YWarningData<typeof UNSUPPORTED_EDIT_WARNING> = {reason: 'newer'};
