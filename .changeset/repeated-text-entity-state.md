@@ -2,6 +2,6 @@
 '@lexical/text': patch
 ---
 
-[fix] Preserve NodeState when repeated characters make a text entity's insertion boundary ambiguous
+[fix] Use the caret to resolve repeated-character entity insertions without copying NodeState onto newly inserted entities
 
-Verify: Insert a repeated character before existing text matched by a lookbehind-based entity matcher and check that the existing character keeps its NodeState.
+Verify: Insert a repeated character before existing text matched by a lookbehind-based entity matcher and check that the existing character keeps its NodeState. Type the character at the end instead, or paste a hashtag whose tail repeats the marked text at a comment's edge, and check that the new entity does not inherit that state.
