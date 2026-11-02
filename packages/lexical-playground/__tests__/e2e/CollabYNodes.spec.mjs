@@ -218,6 +218,30 @@ test.describe('Collab Y: IME', () => {
     expect(blocks).toEqual(['paragraph:s1z', 'paragraph:kb1z  s2z s3z 日本']);
   });
 
+  test('compose while a peer splits the line after the composition', async ({
+    browser,
+  }) => {
+    const {clients, session} = await openClients(browser);
+    const [a, b] = clients;
+    await seed(clients, ['s1z s2z s3z s4z']);
+    await a.caret('s2z');
+    await b.caret('s3z');
+    await session.delay();
+    await Promise.all([
+      a.ime(NIHON, '日本', 80),
+      (async () => {
+        await b.page.waitForTimeout(120);
+        await b.press('Enter');
+      })(),
+    ]);
+    const {blocks} = await finish(clients, {
+      present: ['s1z', 's2z', 's3z', 's4z', '日本'],
+    });
+    // The node being composed keeps its DOM text node: the browser goes on
+    // composing in it, and commits only what it composed.
+    expect(blocks).toEqual(['paragraph:s1z s2z日本 s3z', 'paragraph: s4z']);
+  });
+
   test('compose in a line while a peer joins it into the previous line', async ({
     browser,
   }) => {

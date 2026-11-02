@@ -21,11 +21,13 @@ import {
   DOMImportExtension,
   domOverride,
   DOMRenderExtension,
+  type RenderStateConfig,
   sel,
 } from '@lexical/html';
 import invariant from '@lexical/internal/invariant';
 import {
   $createTextNode,
+  $fullReconcile,
   $getEditor,
   $getNodeByKey,
   $getRoot,
@@ -46,6 +48,7 @@ import {
   COLLABORATION_TAG,
   COMMAND_PRIORITY_CRITICAL,
   COMPOSITION_START_COMMAND,
+  COMPOSITION_START_TAG,
   configExtension,
   CONTROLLED_TEXT_INSERTION_COMMAND,
   createState,
@@ -53,6 +56,7 @@ import {
   defineExtension,
   type EditorState,
   type ElementNode,
+  type ExtensionConfigBase,
   HISTORIC_TAG,
   isHTMLElement,
   type Klass,
@@ -68,6 +72,8 @@ import {
   RootNode,
   safeCast,
   type SerializationSchema,
+  SKIP_DOM_SELECTION_TAG,
+  type StateConfig,
   TextNode,
 } from 'lexical';
 
@@ -143,6 +149,27 @@ export interface MarkStateConfig {
    * Every editor that edits the same document should use the same set.
    */
   markableNodes: readonly MarkableNodeMatch[];
+  /**
+   * Which mark ids are rendered in the editor DOM. A leaf gets the `mark`
+   * theme class and the `data-lexical-mark-ids` attribute for the ids this
+   * returns `true` for (and `markOverlap` when there is more than one), and
+   * no decoration when it returns `false` for all of them. The default shows
+   * every id.
+   *
+   * Use it to hide resolved comment threads while their ids stay in the
+   * document. It only changes rendering: the ids stay in the document, and
+   * the `$` functions, the `markIDNodeKeys` output and HTML export still see
+   * every id. It is called during reconciliation, so it should be a cheap,
+   * pure read of the app's own state.
+   *
+   * To change it at runtime, for example when a thread is resolved or
+   * reopened, update the app's state and assign a new function to the
+   * `isMarkIDShown` output signal: the marked leaves are re-rendered (after
+   * the pending update commits, when assigned during one). Changing the
+   * state that the current function reads without assigning a new function
+   * does not re-render them.
+   */
+  isMarkIDShown?: (id: string) => boolean;
 }
 
 /**
@@ -154,6 +181,12 @@ export interface MarkStateOutput {
   disabled: Signal<boolean>;
   exportIDsToHTML: Signal<boolean>;
   /**
+   * The `isMarkIDShown` config, which defaults to showing every id. Assign a
+   * new function to re-render the marked leaves with it, for example when a
+   * thread is resolved or reopened.
+   */
+  isMarkIDShown: Signal<(id: string) => boolean>;
+  /**
    * Every mark id in the document, mapped to the keys of the leaves that carry
    * it (in no particular order). A new Map is published after each update that
    * changes it. Empty while the extension is disabled.
@@ -161,18 +194,82 @@ export interface MarkStateOutput {
   markIDNodeKeys: ReadonlySignal<ReadonlyMap<string, readonly NodeKey[]>>;
 }
 
-interface MarkStateInit {
+/**
+ * What {@link registerMarkIDsListener} reports after a commit that changed
+ * which ids of a mark flavor are in the document.
+ *
+ * @experimental
+ */
+export interface MarkIDsChange {
+  /** The ids that no leaf carried before and at least one carries now */
+  added: ReadonlySet<string>;
+  /** Every id of the flavor in the document now */
+  ids: ReadonlySet<string>;
+  /** The ids that some leaf carried before and none carries now */
+  removed: ReadonlySet<string>;
+  /**
+   * The tags of the update that made the change, for example
+   * `COLLABORATION_TAG` for a collaborator's edit or `HISTORIC_TAG` for an
+   * undo or redo. Empty for the first call of a listener.
+   */
+  tags: ReadonlySet<string>;
+}
+
+/**
+ * A listener registered with {@link registerMarkIDsListener}.
+ *
+ * @experimental
+ */
+export type MarkIDsListener = (change: MarkIDsChange) => void;
+
+/**
+ * The init result of a mark flavor extension: state that outlives a
+ * `disabled` toggle.
+ *
+ * @experimental
+ */
+export interface MarkStateInit {
   markIDNodeKeys: Signal<ReadonlyMap<string, readonly NodeKey[]>>;
+  /** @internal The listeners, each with the ids last reported to it */
+  listeners: Set<{listener: MarkIDsListener; reported: ReadonlySet<string>}>;
 }
 
 const MARK_STATE_EXTENSION_NAME = '@lexical/mark/MarkState';
 
-type MarkStateExtensionType = LexicalExtension<
+/** Any mark flavor extension, as the internals look it up by name. */
+type AnyMarkFlavorExtensionType = LexicalExtension<
   MarkStateConfig,
-  typeof MARK_STATE_EXTENSION_NAME,
+  string,
   MarkStateOutput,
   MarkStateInit
 >;
+
+/**
+ * The parts of a mark flavor that the internals need, created once per
+ * {@link defineMarkExtension} call. Every function that reads or writes ids
+ * takes one, so that two flavors never see each other's ids.
+ */
+interface MarkFlavor {
+  /** The flavor extension's name */
+  readonly name: string;
+  readonly stateKey: string;
+  readonly attribute: string;
+  /** The set-valued NodeState that stores the ids */
+  readonly state: StateConfig<string, readonly string[]>;
+  /** The theme classes of a marked leaf, and of a leaf with several ids */
+  readonly classNames: (editor: LexicalEditor) => {
+    mark: undefined | string;
+    overlap: undefined | string;
+  };
+  readonly renderDisabled: RenderStateConfig<boolean>;
+  /** The compiled `markableNodes` config, per editor */
+  readonly isMarkableByEditor: WeakMap<
+    LexicalEditor,
+    (node: LexicalNode) => boolean
+  >;
+  /** The pending edits of the inserted-text rule, per editor */
+  readonly editsByEditor: WeakMap<LexicalEditor, PendingEdits>;
+}
 
 /**
  * Whether `id` can be used as a mark id: a non-empty string without
@@ -203,12 +300,16 @@ function markIDValue(): SerializationSchema<string> {
 }
 
 /**
- * The mark ids of a leaf: a frozen array, sorted and without duplicates, which
- * is also its JSON.
+ * The NodeState of the ids of a flavor: a frozen array, sorted and without
+ * duplicates, which is also its JSON.
+ *
+ * @__NO_SIDE_EFFECTS__
  */
-const markIDsState = createState(MARK_STATE_KEY, {
-  parse: arraySetValue(markIDValue()),
-});
+function createMarkIDsState(
+  stateKey: string,
+): StateConfig<string, readonly string[]> {
+  return createState(stateKey, {parse: arraySetValue(markIDValue())});
+}
 
 /**
  * Inline DecoratorNodes, one of the default `markableNodes` of
@@ -257,21 +358,21 @@ function compileMarkableNodes(
 }
 
 let defaultIsMarkable: undefined | ((node: LexicalNode) => boolean);
-let isMarkableByEditor:
-  | undefined
-  | WeakMap<LexicalEditor, (node: LexicalNode) => boolean>;
 
 /**
- * Whether `node` carries mark ids in the active editor, according to the
- * `markableNodes` config of its MarkStateExtension (or the default, when the
- * extension is not installed). Inline ElementNodes such as links are not
- * marked themselves, their leaves are.
+ * Whether `node` carries ids of `flavor` in the active editor, according to
+ * the `markableNodes` config of that flavor's extension (or the default,
+ * when the extension is not installed). Inline ElementNodes such as links
+ * are not marked themselves, their leaves are.
  */
-function $isMarkableNode(node: null | undefined | LexicalNode): boolean {
+function $isMarkableNode(
+  flavor: MarkFlavor,
+  node: null | undefined | LexicalNode,
+): boolean {
   if (!node) {
     return false;
   }
-  const isMarkable = isMarkableByEditor && isMarkableByEditor.get($getEditor());
+  const isMarkable = flavor.isMarkableByEditor.get($getEditor());
   if (isMarkable) {
     return isMarkable(node);
   }
@@ -282,52 +383,74 @@ function $isMarkableNode(node: null | undefined | LexicalNode): boolean {
 }
 
 /**
- * Get the mark ids stored on a node by {@link MarkStateExtension}, sorted.
- * Nodes that cannot carry ids return an empty array.
+ * The flavor-first form: like the form below (which keeps its place as the
+ * last overload, the one `Parameters` and `ReturnType` read), for the ids of
+ * `flavor` instead of {@link MarkStateExtension}'s.
+ *
+ * @param flavor A mark flavor made with {@link defineMarkExtension}
+ * @param node The node
+ */
+export function $getNodeMarkIDs(
+  flavor: AnyMarkFlavorExtension,
+  node: LexicalNode,
+): string[];
+/**
+ * Get the mark ids stored on a node, sorted: the ids of
+ * {@link MarkStateExtension}, or of the flavor passed first. Nodes that
+ * cannot carry ids return an empty array.
  *
  * @param node The node
  * @returns A new array of the ids, sorted, which the caller may change
  *
  * @experimental
  */
-export function $getNodeMarkIDs(node: LexicalNode): string[] {
-  return $readNodeMarkIDs(node).slice();
+export function $getNodeMarkIDs(node: LexicalNode): string[];
+export function $getNodeMarkIDs(
+  ...args: [LexicalNode] | [AnyMarkFlavorExtension, LexicalNode]
+): string[] {
+  const [flavor, node] = splitFlavorArgs<[LexicalNode]>(args);
+  return $readNodeMarkIDs(flavor, node).slice();
 }
 
 /**
  * The stored value itself, frozen: for reads that do not hand it out.
  */
-function $readNodeMarkIDs(node: LexicalNode): readonly string[] {
-  return $getState(node, markIDsState);
+function $readNodeMarkIDs(
+  flavor: MarkFlavor,
+  node: LexicalNode,
+): readonly string[] {
+  return $getState(node, flavor.state);
 }
 
 /** The ids of `node` when it is markable, otherwise none. */
 function $getMarkableIDs(
+  flavor: MarkFlavor,
   node: null | undefined | LexicalNode,
 ): readonly string[] {
-  return node && $isMarkableNode(node) ? $readNodeMarkIDs(node) : NO_IDS;
-}
-
-/**
- * {@link $isMarkableNode} as the type guard `domOverride` takes. A guard
- * cannot be the predicate itself: narrowing a `LexicalNode` with
- * `node is LexicalNode` leaves `never` where it returns `false`.
- */
-function $isMarkableNodeMatch(node: LexicalNode): node is LexicalNode {
-  return $isMarkableNode(node);
+  return node && $isMarkableNode(flavor, node)
+    ? $readNodeMarkIDs(flavor, node)
+    : NO_IDS;
 }
 
 const NO_IDS: readonly string[] = [];
 
-function $addNodeMarkIDs(node: LexicalNode, ids: readonly string[]): void {
+function $addNodeMarkIDs(
+  flavor: MarkFlavor,
+  node: LexicalNode,
+  ids: readonly string[],
+): void {
   // $setState sorts and dedupes the result
-  $setState(node, markIDsState, prev =>
+  $setState(node, flavor.state, prev =>
     ids.every(id => prev.includes(id)) ? prev : [...prev, ...ids],
   );
 }
 
-function $removeNodeMarkIDs(node: LexicalNode, ids: readonly string[]): void {
-  $setState(node, markIDsState, prev =>
+function $removeNodeMarkIDs(
+  flavor: MarkFlavor,
+  node: LexicalNode,
+  ids: readonly string[],
+): void {
+  $setState(node, flavor.state, prev =>
     ids.some(id => prev.includes(id))
       ? prev.filter(id => !ids.includes(id))
       : prev,
@@ -355,7 +478,10 @@ function $forEachSlot(
   }
 }
 
-function $markableNodesInSelection(selection: BaseSelection): LexicalNode[] {
+function $markableNodesInSelection(
+  flavor: MarkFlavor,
+  selection: BaseSelection,
+): LexicalNode[] {
   if ($isRangeSelection(selection) && selection.isCollapsed()) {
     return [];
   }
@@ -365,21 +491,40 @@ function $markableNodesInSelection(selection: BaseSelection): LexicalNode[] {
   const nodes: LexicalNode[] = [];
   const seen = new Set<LexicalNode>();
   for (const node of selection.extract()) {
-    if ($isMarkableNode(node) && !seen.has(node)) {
+    if ($isMarkableNode(flavor, node) && !seen.has(node)) {
       seen.add(node);
       nodes.push(node);
     }
-    $forEachSlot(node, slot => $collectMarkableNodes(slot, nodes, seen));
+    $forEachSlot(node, slot =>
+      $collectMarkableNodes(flavor, slot, nodes, seen),
+    );
   }
   return nodes;
 }
 
+/**
+ * The flavor-first form: like the form below (which keeps its place as the
+ * last overload, the one `Parameters` and `ReturnType` read), for the ids of
+ * `flavor` instead of {@link MarkStateExtension}'s.
+ *
+ * @param flavor A mark flavor made with {@link defineMarkExtension}
+ * @param id The mark id
+ * @param selection The selection to mark
+ */
+export function $addMarkID(
+  flavor: AnyMarkFlavorExtension,
+  id: string,
+  selection: BaseSelection,
+): LexicalNode[];
 /**
  * Add the mark `id` to every markable node in `selection` (TextNode,
  * LineBreakNode and inline DecoratorNode by default, see `markableNodes`),
  * including the content of the slots of the nodes in it, splitting the
  * TextNodes at its boundaries. Ids already on those nodes are kept, so marks
  * can overlap freely. A collapsed selection marks nothing.
+ *
+ * The id is added to {@link MarkStateExtension}'s ids, or to the ids of the
+ * flavor passed first: `$addMarkID(CommentMarks, 'c1', selection)`.
  *
  * @param id The mark id, for example a comment thread id. It must be a
  *   non-empty string without whitespace, otherwise this throws.
@@ -388,14 +533,18 @@ function $markableNodesInSelection(selection: BaseSelection): LexicalNode[] {
  *
  * @experimental
  */
+export function $addMarkID(id: string, selection: BaseSelection): LexicalNode[];
 export function $addMarkID(
-  id: string,
-  selection: BaseSelection,
+  ...args:
+    | [string, BaseSelection]
+    | [AnyMarkFlavorExtension, string, BaseSelection]
 ): LexicalNode[] {
+  const [flavor, id, selection] =
+    splitFlavorArgs<[string, BaseSelection]>(args);
   assertValidMarkID(id);
-  const nodes = $markableNodesInSelection(selection);
+  const nodes = $markableNodesInSelection(flavor, selection);
   for (const node of nodes) {
-    $addNodeMarkIDs(node, [id]);
+    $addNodeMarkIDs(flavor, node, [id]);
   }
   return nodes;
 }
@@ -406,11 +555,12 @@ export function $addMarkID(
  * DecoratorNodes).
  */
 function $collectMarkableNodes(
+  flavor: MarkFlavor,
   node: LexicalNode,
   out: LexicalNode[],
   seen: Set<LexicalNode>,
 ): void {
-  if ($isMarkableNode(node) && !seen.has(node)) {
+  if ($isMarkableNode(flavor, node) && !seen.has(node)) {
     seen.add(node);
     out.push(node);
   }
@@ -420,15 +570,18 @@ function $collectMarkableNodes(
       child !== null;
       child = child.getNextSibling()
     ) {
-      $collectMarkableNodes(child, out, seen);
+      $collectMarkableNodes(flavor, child, out, seen);
     }
   }
-  $forEachSlot(node, slot => $collectMarkableNodes(slot, out, seen));
+  $forEachSlot(node, slot => $collectMarkableNodes(flavor, slot, out, seen));
 }
 
-function $markableNodesIn(node: LexicalNode): LexicalNode[] {
+function $markableNodesIn(
+  flavor: MarkFlavor,
+  node: LexicalNode,
+): LexicalNode[] {
   const out: LexicalNode[] = [];
-  $collectMarkableNodes(node, out, new Set());
+  $collectMarkableNodes(flavor, node, out, new Set());
   return out;
 }
 
@@ -439,11 +592,14 @@ function $markableNodesIn(node: LexicalNode): LexicalNode[] {
  * or was split off one, since). `null` when the extension is not installed
  * or is disabled.
  */
-function $getMarkIDCandidates(id: string): null | LexicalNode[] {
+function $getMarkIDCandidates(
+  flavor: MarkFlavor,
+  id: string,
+): null | LexicalNode[] {
   const editor = $getEditor();
-  const dep = getPeerDependencyFromEditor<MarkStateExtensionType>(
+  const dep = getPeerDependencyFromEditor<AnyMarkFlavorExtensionType>(
     editor,
-    MARK_STATE_EXTENSION_NAME,
+    flavor.name,
   );
   if (!dep || dep.output.disabled.peek()) {
     return null;
@@ -457,7 +613,7 @@ function $getMarkIDCandidates(id: string): null | LexicalNode[] {
   const nodes: LexicalNode[] = [];
   for (const key of keys) {
     const node = $getNodeByKey(key);
-    if (node !== null && $isMarkableNode(node) && node.isAttached()) {
+    if (node !== null && $isMarkableNode(flavor, node) && node.isAttached()) {
       nodes.push(node);
     }
   }
@@ -465,11 +621,28 @@ function $getMarkIDCandidates(id: string): null | LexicalNode[] {
 }
 
 /**
+ * The flavor-first form: like the form below (which keeps its place as the
+ * last overload, the one `Parameters` and `ReturnType` read), for the ids of
+ * `flavor` instead of {@link MarkStateExtension}'s.
+ *
+ * @param flavor A mark flavor made with {@link defineMarkExtension}
+ * @param id The mark id
+ * @param selection Limit the removal to this selection
+ */
+export function $removeMarkID(
+  flavor: AnyMarkFlavorExtension,
+  id: string,
+  selection?: null | BaseSelection,
+): void;
+/**
  * Remove the mark `id`. With a `selection` it is removed from the nodes in
  * that selection only (splitting the TextNodes at its boundaries), otherwise
  * from the whole document (found through the `markIDNodeKeys` output, or by
  * walking the document when the extension is not active). Text that no
  * longer differs from its neighbors is merged back by normalization.
+ *
+ * The id is removed from {@link MarkStateExtension}'s ids, or from the ids
+ * of the flavor passed first: `$removeMarkID(CommentMarks, 'c1')`.
  *
  * @param id The mark id
  * @param selection Limit the removal to this selection
@@ -479,44 +652,71 @@ function $getMarkIDCandidates(id: string): null | LexicalNode[] {
 export function $removeMarkID(
   id: string,
   selection?: null | BaseSelection,
+): void;
+export function $removeMarkID(
+  ...args:
+    | [string, (null | BaseSelection)?]
+    | [AnyMarkFlavorExtension, string, (null | BaseSelection)?]
 ): void {
+  const [flavor, id, selection] =
+    splitFlavorArgs<[string, (null | BaseSelection)?]>(args);
   const nodes = selection
-    ? $markableNodesInSelection(selection)
-    : $getMarkIDCandidates(id) || $markableNodesIn($getRoot());
+    ? $markableNodesInSelection(flavor, selection)
+    : $getMarkIDCandidates(flavor, id) || $markableNodesIn(flavor, $getRoot());
   for (const node of nodes) {
-    $removeNodeMarkIDs(node, [id]);
+    $removeNodeMarkIDs(flavor, node, [id]);
   }
   // The inserted-text rule of this update must not give the id back
-  const edit = editsByEditor && editsByEditor.get($getEditor());
+  const edit = flavor.editsByEditor.get($getEditor());
   if (edit) {
     edit.removed.add(id);
     forgetSoon(edit);
   }
 }
 
-function $getPointMarkIDs(point: PointType): readonly string[] {
+function $getPointMarkIDs(
+  flavor: MarkFlavor,
+  point: PointType,
+): readonly string[] {
   const node = point.getNode();
   if (point.type === 'text') {
-    const ids = $readNodeMarkIDs(node);
+    const ids = $readNodeMarkIDs(flavor, node);
     if (
       ids.length === 0 &&
       $isTextNode(node) &&
       point.offset === node.getTextContentSize()
     ) {
       // Like $getMarkIDs: a caret right before a marked run is in it
-      return $getMarkableIDs($getAdjacentLeaf(node, 'next'));
+      return $getMarkableIDs(flavor, $getAdjacentLeaf(node, 'next'));
     }
     return ids;
   }
   if ($isElementNode(node)) {
-    const before = $getMarkableIDs(node.getChildAtIndex(point.offset - 1));
+    const before = $getMarkableIDs(
+      flavor,
+      node.getChildAtIndex(point.offset - 1),
+    );
     return before.length > 0
       ? before
-      : $getMarkableIDs(node.getChildAtIndex(point.offset));
+      : $getMarkableIDs(flavor, node.getChildAtIndex(point.offset));
   }
   return NO_IDS;
 }
 
+/**
+ * The flavor-first form: like the form below (which keeps its place as the
+ * last overload, the one `Parameters` and `ReturnType` read), for the ids of
+ * `flavor` instead of {@link MarkStateExtension}'s.
+ *
+ * @param flavor A mark flavor made with {@link defineMarkExtension}
+ * @param selection The selection, defaults to the current selection
+ * @param mode `'any'` or `'all'`, for a selection that is not collapsed
+ */
+export function $getMarkIDsAtSelection(
+  flavor: AnyMarkFlavorExtension,
+  selection?: null | BaseSelection,
+  mode?: 'any' | 'all',
+): string[];
 /**
  * Get the mark ids at a selection, sorted. For a collapsed RangeSelection
  * these are the ids of the leaf holding the caret (or of the next leaf, when
@@ -525,6 +725,9 @@ function $getPointMarkIDs(point: PointType): readonly string[] {
  * any selected leaf, and `'all'` the ids shared by every selected leaf. The
  * TextNodes that a RangeSelection only touches at an edge are ignored.
  *
+ * These are {@link MarkStateExtension}'s ids, or the ids of the flavor passed
+ * first: `$getMarkIDsAtSelection(CommentMarks)`.
+ *
  * @param selection The selection, defaults to the current selection
  * @param mode `'any'` or `'all'`, for a selection that is not collapsed
  * @returns The ids, sorted
@@ -532,16 +735,27 @@ function $getPointMarkIDs(point: PointType): readonly string[] {
  * @experimental
  */
 export function $getMarkIDsAtSelection(
-  selection: null | BaseSelection = $getSelection(),
-  mode: 'any' | 'all' = 'any',
+  selection?: null | BaseSelection,
+  mode?: 'any' | 'all',
+): string[];
+export function $getMarkIDsAtSelection(
+  ...args:
+    | [(null | BaseSelection)?, ('any' | 'all')?]
+    | [AnyMarkFlavorExtension, (null | BaseSelection)?, ('any' | 'all')?]
 ): string[] {
+  const [flavor, selectionArg, mode = 'any'] =
+    splitFlavorArgs<[(null | BaseSelection)?, ('any' | 'all')?]>(args);
+  // An explicit undefined defaults too, as with a default parameter
+  const selection = selectionArg === undefined ? $getSelection() : selectionArg;
   if (!selection) {
     return [];
   }
   if ($isRangeSelection(selection) && selection.isCollapsed()) {
-    return $getPointMarkIDs(selection.anchor).slice();
+    return $getPointMarkIDs(flavor, selection.anchor).slice();
   }
-  let leaves = selection.getNodes().filter($isMarkableNode);
+  let leaves = selection
+    .getNodes()
+    .filter(node => $isMarkableNode(flavor, node));
   if ($isRangeSelection(selection)) {
     const [start, end] = selection.isBackward()
       ? [selection.focus, selection.anchor]
@@ -563,13 +777,25 @@ export function $getMarkIDsAtSelection(
   if (leaves.length === 0) {
     return [];
   }
-  const idSets = leaves.map($readNodeMarkIDs);
+  const idSets = leaves.map(node => $readNodeMarkIDs(flavor, node));
   // Both build a new array, so the stored values are never sorted in place
   return mode === 'any'
     ? Array.from(new Set(idSets.flat())).sort()
     : idSets[0].filter(id => idSets.every(ids => ids.includes(id)));
 }
 
+/**
+ * The flavor-first form: like the form below (which keeps its place as the
+ * last overload, the one `Parameters` and `ReturnType` read), for the ids of
+ * `flavor` instead of {@link MarkStateExtension}'s.
+ *
+ * @param flavor A mark flavor made with {@link defineMarkExtension}
+ * @param node The subtree to convert, defaults to the root
+ */
+export function $migrateMarkNodesToMarkState(
+  flavor: AnyMarkFlavorExtension,
+  node?: LexicalNode,
+): number;
 /**
  * Convert a document that uses MarkNode into one that uses
  * {@link MarkStateExtension}: the ids of every MarkNode (including the ids of
@@ -582,14 +808,20 @@ export function $getMarkIDsAtSelection(
  * Like {@link $addMarkID}, it throws on an id that is empty or contains
  * whitespace.
  *
+ * The ids go to {@link MarkStateExtension}, or to the flavor passed first:
+ * `$migrateMarkNodesToMarkState(CommentMarks)`.
+ *
  * @param node The subtree to convert, defaults to the root
  * @returns The number of MarkNodes that were unwrapped
  *
  * @experimental
  */
+export function $migrateMarkNodesToMarkState(node?: LexicalNode): number;
 export function $migrateMarkNodesToMarkState(
-  node: LexicalNode = $getRoot(),
+  ...args: [LexicalNode?] | [AnyMarkFlavorExtension, LexicalNode?]
 ): number {
+  const [flavor, nodeArg] = splitFlavorArgs<[LexicalNode?]>(args);
+  const node = nodeArg === undefined ? $getRoot() : nodeArg;
   let count = 0;
   const $visit = (current: LexicalNode, inherited: readonly string[]) => {
     if ($isMarkNode(current)) {
@@ -606,8 +838,8 @@ export function $migrateMarkNodesToMarkState(
       current.remove();
       count++;
     } else {
-      if ($isMarkableNode(current) && inherited.length > 0) {
-        $addNodeMarkIDs(current, inherited);
+      if ($isMarkableNode(flavor, current) && inherited.length > 0) {
+        $addNodeMarkIDs(flavor, current, inherited);
       }
       if ($isElementNode(current)) {
         for (const child of current.getChildren()) {
@@ -621,55 +853,139 @@ export function $migrateMarkNodesToMarkState(
   return count;
 }
 
-const MarkStateRenderDisabled = createRenderState(
-  'markStateDisabled',
-  () => false,
-);
+/** The default `isMarkIDShown`: every id is rendered. */
+function isEveryMarkIDShown(_id: string): boolean {
+  return true;
+}
+
+/** The ids in `ids` that `isMarkIDShown` renders. */
+function filterShownMarkIDs(
+  ids: readonly string[],
+  isMarkIDShown: (id: string) => boolean,
+): readonly string[] {
+  return isMarkIDShown === isEveryMarkIDShown
+    ? ids
+    : ids.filter(id => isMarkIDShown(id));
+}
 
 function $decorateMarkIDs(
+  flavor: MarkFlavor,
   node: LexicalNode,
   dom: HTMLElement,
   editor: LexicalEditor,
 ): void {
-  const ids = $readNodeMarkIDs(node);
-  // @internal access with precedent (CodeNode, HorizontalRuleExtension): the
-  // render overrides receive the editor, not its theme
-  const {mark, markOverlap} = editor._config.theme;
+  let ids = $readNodeMarkIDs(flavor, node);
   if (ids.length > 0) {
-    dom.setAttribute(MARK_STATE_IDS_ATTRIBUTE, ids.join(' '));
-    addClassNamesToElement(dom, mark);
-  } else {
-    dom.removeAttribute(MARK_STATE_IDS_ATTRIBUTE);
-    removeClassNamesFromElement(dom, mark);
+    const dep = getPeerDependencyFromEditor<AnyMarkFlavorExtensionType>(
+      editor,
+      flavor.name,
+    );
+    if (dep) {
+      ids = filterShownMarkIDs(ids, dep.output.isMarkIDShown.peek());
+    }
   }
-  if (ids.length > 1) {
-    addClassNamesToElement(dom, markOverlap);
+  const {mark, overlap} = flavor.classNames(editor);
+  if (ids.length > 0) {
+    dom.setAttribute(flavor.attribute, ids.join(' '));
   } else {
-    removeClassNamesFromElement(dom, markOverlap);
+    dom.removeAttribute(flavor.attribute);
+  }
+  const add = [
+    ...classTokens(ids.length > 0 ? mark : undefined),
+    ...classTokens(ids.length > 1 ? overlap : undefined),
+  ];
+  const remove = [
+    ...classTokens(ids.length > 0 ? undefined : mark),
+    ...classTokens(ids.length > 1 ? undefined : overlap),
+  ].filter(token => !add.includes(token) && dom.classList.contains(token));
+  addClassNamesToElement(dom, ...add);
+  if (remove.length > 0) {
+    // A class that another flavor shows on this leaf stays
+    const kept = $classTokensOfOtherFlavors(flavor, node, editor);
+    removeClassNamesFromElement(
+      dom,
+      ...remove.filter(token => !kept.has(token)),
+    );
   }
 }
 
-const MarkStateImportRule = defineImportRule({
-  $import: (_ctx, el, $next) => {
-    const nodes = $next();
-    const ids = (el.getAttribute(MARK_STATE_IDS_ATTRIBUTE) || '')
-      .split(/\s+/)
-      .filter(isValidMarkID);
-    if (ids.length > 0) {
-      const leaves: LexicalNode[] = [];
-      const seen = new Set<LexicalNode>();
-      for (const node of nodes) {
-        $collectMarkableNodes(node, leaves, seen);
-      }
-      for (const leaf of leaves) {
-        $addNodeMarkIDs(leaf, ids);
+function classTokens(classNames: undefined | string): string[] {
+  return classNames ? classNames.split(/\s+/).filter(Boolean) : [];
+}
+
+/**
+ * The classes that the other enabled flavors of the editor render on
+ * `node`, so that two flavors that share a class (or a flavor that uses a
+ * theme class of MarkStateExtension) do not remove it from each other.
+ */
+function $classTokensOfOtherFlavors(
+  flavor: MarkFlavor,
+  node: LexicalNode,
+  editor: LexicalEditor,
+): Set<string> {
+  const kept = new Set<string>();
+  const base = getPeerDependencyFromEditor<typeof MarkBaseExtension>(
+    editor,
+    MARK_BASE_EXTENSION_NAME,
+  );
+  if (!base) {
+    return kept;
+  }
+  for (const extension of base.output.flavors.values()) {
+    const other = extension.__markFlavor;
+    const dep =
+      other !== flavor
+        ? getPeerDependencyFromEditor<AnyMarkFlavorExtensionType>(
+            editor,
+            other.name,
+          )
+        : undefined;
+    if (dep && !dep.output.disabled.peek() && $isMarkableNode(other, node)) {
+      const shown = filterShownMarkIDs(
+        $readNodeMarkIDs(other, node),
+        dep.output.isMarkIDShown.peek(),
+      );
+      const {mark, overlap} = other.classNames(editor);
+      for (const token of [
+        ...classTokens(shown.length > 0 ? mark : undefined),
+        ...classTokens(shown.length > 1 ? overlap : undefined),
+      ]) {
+        kept.add(token);
       }
     }
-    return nodes;
-  },
-  match: sel.any().attr(MARK_STATE_IDS_ATTRIBUTE, true),
-  name: '@lexical/mark/MarkState/ids',
-});
+  }
+  return kept;
+}
+
+/**
+ * The HTML import rule of a flavor: the ids in its attribute are added to
+ * the markable leaves the element imports to.
+ *
+ * @__NO_SIDE_EFFECTS__
+ */
+function createMarkIDsImportRule(flavor: MarkFlavor) {
+  return defineImportRule({
+    $import: (_ctx, el, $next) => {
+      const nodes = $next();
+      const ids = (el.getAttribute(flavor.attribute) || '')
+        .split(/\s+/)
+        .filter(isValidMarkID);
+      if (ids.length > 0) {
+        const leaves: LexicalNode[] = [];
+        const seen = new Set<LexicalNode>();
+        for (const node of nodes) {
+          $collectMarkableNodes(flavor, node, leaves, seen);
+        }
+        for (const leaf of leaves) {
+          $addNodeMarkIDs(flavor, leaf, ids);
+        }
+      }
+      return nodes;
+    },
+    match: sel.any().attr(flavor.attribute, true),
+    name: `${flavor.name}/ids`,
+  });
+}
 
 /**
  * `setEditorState` replaces the whole document: its dirty sets do not list
@@ -690,8 +1006,6 @@ interface PendingEdits {
   replaced: null | readonly [PointLike, PointLike];
   removed: Set<string>;
 }
-
-let editsByEditor: undefined | WeakMap<LexicalEditor, PendingEdits>;
 
 function forgetEdits(edit: PendingEdits): void {
   edit.replaced = null;
@@ -721,11 +1035,17 @@ function forgetSoon(edit: PendingEdits): void {
  * the editor state), recognized from the root transform of that update or
  * from its tag. Only the nodes that are not the same object in both states
  * are read.
+ *
+ * After publishing a change, it reports the ids that appeared or disappeared
+ * to the listeners of {@link registerMarkIDsListener}.
  */
 function registerMarkState(
+  flavor: MarkFlavor,
   editor: LexicalEditor,
-  output: Signal<ReadonlyMap<string, readonly NodeKey[]>>,
+  init: MarkStateInit,
+  splits: SplitOrigins,
 ): () => void {
+  const output = init.markIDNodeKeys;
   const idsByKey = new Map<NodeKey, readonly string[]>();
   const keysById = new Map<string, Set<NodeKey>>();
   let changed = false;
@@ -736,17 +1056,17 @@ function registerMarkState(
   // with `compositionBase` would then take that update's text for composed
   // text
   let compositionTainted = false;
+  // The selection the composition started with, once its first update is
+  // seen to have replaced it (see $getCompositionReplacedRange)
+  let compositionReplaced: null | readonly [PointLike, PointLike] = null;
   const edit: PendingEdits = {
     removed: new Set(),
     replaced: null,
   };
-  if (editsByEditor === undefined) {
-    editsByEditor = new WeakMap();
-  }
-  editsByEditor.set(editor, edit);
+  flavor.editsByEditor.set(editor, edit);
   const setKey = (key: NodeKey, ids: readonly string[]) => {
     const prev = idsByKey.get(key) || NO_IDS;
-    if (markIDsState.isEqual(prev, ids)) {
+    if (flavor.state.isEqual(prev, ids)) {
       return;
     }
     changed = true;
@@ -775,13 +1095,13 @@ function registerMarkState(
   };
   const $visit = (key: NodeKey) => {
     const node = $getNodeByKey(key);
-    setKey(key, $getMarkableIDs(node));
+    setKey(key, $getMarkableIDs(flavor, node));
   };
   const $rescan = () => {
     const seen = new Set<NodeKey>();
-    for (const leaf of $markableNodesIn($getRoot())) {
+    for (const leaf of $markableNodesIn(flavor, $getRoot())) {
       seen.add(leaf.getKey());
-      setKey(leaf.getKey(), $readNodeMarkIDs(leaf));
+      setKey(leaf.getKey(), $readNodeMarkIDs(flavor, leaf));
     }
     for (const key of Array.from(idsByKey.keys())) {
       if (!seen.has(key)) {
@@ -805,8 +1125,8 @@ function registerMarkState(
           if (prevNodes.get(key) !== node) {
             setKey(
               key,
-              $isMarkableNode(node) && node.isAttached()
-                ? $readNodeMarkIDs(node)
+              $isMarkableNode(flavor, node) && node.isAttached()
+                ? $readNodeMarkIDs(flavor, node)
                 : NO_IDS,
             );
           }
@@ -820,7 +1140,7 @@ function registerMarkState(
       }
     }
   };
-  const publish = () => {
+  const publish = (tags: ReadonlySet<string>) => {
     if (changed) {
       changed = false;
       const next = new Map<string, readonly NodeKey[]>();
@@ -828,23 +1148,41 @@ function registerMarkState(
         next.set(id, Array.from(keys));
       }
       output.value = next;
+      reportMarkIDs(init, tags);
     }
   };
+  // Set when this registration is disposed (the flavor was disabled, or the
+  // editor disposed): an update listener or transform that the editor had
+  // already collected for the current commit must then do nothing
+  let disposed = false;
   const $recordReplaced = () => {
     edit.replaced = $getReplacedRange($getSelection());
     forgetSoon(edit);
     return false;
   };
   editor.getEditorState().read($rescan, {editor});
-  publish();
+  publish(new Set());
+  // Also when nothing changed: the ids may have gone while it was disabled
+  reportMarkIDs(init, new Set());
   return mergeRegister(
     editor.registerUpdateListener(
       ({editorState, prevEditorState, dirtyElements, dirtyLeaves, tags}) => {
+        if (disposed) {
+          return;
+        }
         forgetEdits(edit);
+        splits.clear();
         if (compositionBase !== null) {
           if (!editor.isComposing()) {
             compositionBase = null;
             compositionTainted = false;
+            compositionReplaced = null;
+          } else if (tags.has(COMPOSITION_START_TAG)) {
+            compositionReplaced = $getCompositionReplacedRange(
+              editor,
+              compositionBase,
+              editorState,
+            );
           } else if (!compositionTainted && tags.has(COLLABORATION_TAG)) {
             compositionTainted = editorState.read(
               () => {
@@ -869,7 +1207,7 @@ function registerMarkState(
         ) {
           replacedState = false;
           rescanChanged(prevEditorState, editorState);
-          publish();
+          publish(tags);
           return;
         }
         if (dirtyLeaves.size === 0 && dirtyElements.size === 0) {
@@ -891,8 +1229,8 @@ function registerMarkState(
               const node = $getNodeByKey(key);
               if (node === null) {
                 removed.push(key);
-              } else if ($isMarkableNode(node)) {
-                setKey(key, $readNodeMarkIDs(node));
+              } else if ($isMarkableNode(flavor, node)) {
+                setKey(key, $readNodeMarkIDs(flavor, node));
               }
             }
           },
@@ -905,7 +1243,7 @@ function registerMarkState(
               for (const key of removed) {
                 const node = $getNodeByKey(key);
                 if (node !== null) {
-                  for (const leaf of $markableNodesIn(node)) {
+                  for (const leaf of $markableNodesIn(flavor, node)) {
                     gone.push(leaf.getKey());
                   }
                 }
@@ -924,10 +1262,13 @@ function registerMarkState(
             {editor},
           );
         }
-        publish();
+        publish(tags);
       },
     ),
     editor.registerNodeTransform(RootNode, () => {
+      if (disposed) {
+        return;
+      }
       // @internal access: nothing else tells a transform that this update is
       // a setEditorState, whose dirty sets the update listener cannot use and
       // which is not an edit
@@ -944,24 +1285,34 @@ function registerMarkState(
       }
       if (compositionBase !== null) {
         // The end of a composition: the composed text is compared with the
-        // document from before it, and replaces the selection it had
+        // document from before it, and replaces the selection it had. The
+        // composed text is written into the TextNode the caret was in, which
+        // may be one that existed, so a selection that the composition's
+        // first update was seen to replace is known to be replaced
         if (!compositionTainted) {
           $applyInsertedTextMarkIDs(
+            flavor,
             editor,
             compositionBase,
-            compositionBase.read(() => $getReplacedRange($getSelection()), {
-              editor,
-            }),
+            compositionReplaced !== null
+              ? compositionReplaced
+              : compositionBase.read(() => $getReplacedRange($getSelection()), {
+                  editor,
+                }),
             edit.removed,
+            splits,
+            compositionReplaced !== null,
           );
         }
         return;
       }
       $applyInsertedTextMarkIDs(
+        flavor,
         editor,
         editor.getEditorState(),
         edit.replaced,
         edit.removed,
+        splits,
       );
     }),
     editor.registerCommand(
@@ -971,6 +1322,7 @@ function registerMarkState(
         // compared with the document from before the composition once it ends
         compositionBase = editor.getEditorState();
         compositionTainted = false;
+        compositionReplaced = null;
         return false;
       },
       COMMAND_PRIORITY_CRITICAL,
@@ -989,11 +1341,15 @@ function registerMarkState(
       COMMAND_PRIORITY_CRITICAL,
     ),
     () => {
+      disposed = true;
       compositionBase = null;
+      compositionReplaced = null;
       forgetEdits(edit);
-      if (editsByEditor && editsByEditor.get(editor) === edit) {
-        editsByEditor.delete(editor);
+      if (flavor.editsByEditor.get(editor) === edit) {
+        flavor.editsByEditor.delete(editor);
       }
+      // Not reported to the listeners: the ids are still in the document.
+      // When the flavor is enabled again, the listeners get the net change.
       output.value = new Map();
     },
   );
@@ -1140,9 +1496,188 @@ function $getReplacedRange(
   return [toPointLike(start), toPointLike(end)];
 }
 
+/**
+ * The text a composition puts in place of the selection it replaces until
+ * the input method writes: nothing, or the core's placeholder (a zero width
+ * or a non-breaking space, depending on the browser).
+ */
+const COMPOSITION_PLACEHOLDERS = ['', '\u200b', '\u00a0'];
+
+/** How {@link $childrenText} writes a child that is not text: one unit. */
+const NON_TEXT_UNIT = '\ufffc';
+
+/**
+ * The text of `block`'s children as {@link $offsetInBlock} counts it: an
+ * inline element's text is its children's, and a child that is not text (a
+ * decorator, a line break) is one unit, whatever its `getTextContent` (often
+ * empty for a decorator, which would let a selection of it span nothing).
+ * `getTextContent` would also put the text of the block's named slots in
+ * front, and an inline element can add text of its own to its
+ * `getTextContent`, neither of which a point in the children counts.
+ */
+function $childrenText(block: ElementNode): string {
+  let text = '';
+  for (const child of block.getChildren()) {
+    if ($isElementNode(child)) {
+      text += child.isInline() ? $childrenText(child) : child.getTextContent();
+    } else {
+      text += $isTextNode(child) ? child.getTextContent() : NON_TEXT_UNIT;
+    }
+  }
+  return text;
+}
+
+/** The size of a leaf in {@link $childrenText}. */
+function $unitSize(node: LexicalNode): number {
+  return $isTextNode(node) ? node.getTextContentSize() : 1;
+}
+
+/**
+ * The offset of `point` in the text of `block`'s children (see
+ * {@link $childrenText}), or -1 when `block` holds a nested block before it
+ * or does not hold the point.
+ */
+function $offsetInBlock(block: ElementNode, point: PointLike): number {
+  let offset = 0;
+  const $walk = (element: ElementNode): boolean => {
+    if (point.type === 'element' && point.key === element.getKey()) {
+      const children = element.getChildren();
+      for (let i = 0; i < point.offset && i < children.length; i++) {
+        if (!$add(children[i])) {
+          return false;
+        }
+      }
+      return true;
+    }
+    for (
+      let child = element.getFirstChild();
+      child !== null;
+      child = child.getNextSibling()
+    ) {
+      if ($isTextNode(child) && child.getKey() === point.key) {
+        offset += point.offset;
+        return true;
+      }
+      if ($isElementNode(child)) {
+        if (!child.isInline()) {
+          offset = -1;
+          return true;
+        }
+        if ($walk(child)) {
+          return true;
+        }
+      } else {
+        offset += $unitSize(child);
+      }
+    }
+    return false;
+  };
+  const $add = (node: LexicalNode): boolean => {
+    if ($isElementNode(node)) {
+      if (!node.isInline()) {
+        return false;
+      }
+      for (const child of node.getChildren()) {
+        if (!$add(child)) {
+          return false;
+        }
+      }
+      return true;
+    }
+    offset += $unitSize(node);
+    return true;
+  };
+  return $walk(block) ? offset : -1;
+}
+
+/**
+ * The selection a composition started with (in `base`, the state from
+ * before the composition), when the update that started it (`started`)
+ * replaced it: its block's text is the text from before it without the
+ * selection, with nothing or the core's placeholder in its place, and the
+ * caret after that or the placeholder selected. Otherwise `null`, as for a
+ * selection that was not
+ * replaced (an application handler moved the caret, or handled the
+ * composition's insertion another way) or that spans blocks.
+ */
+function $getCompositionReplacedRange(
+  editor: LexicalEditor,
+  base: EditorState,
+  started: EditorState,
+): null | readonly [PointLike, PointLike] {
+  const before = base.read(
+    () => {
+      const range = $getReplacedRange($getSelection());
+      if (range === null) {
+        return null;
+      }
+      const startNode = $getNodeByKey(range[0].key);
+      const endNode = $getNodeByKey(range[1].key);
+      const block = startNode !== null ? $getBlock(startNode) : null;
+      if (block === null || endNode === null || !block.is($getBlock(endNode))) {
+        return null;
+      }
+      const start = $offsetInBlock(block, range[0]);
+      const end = $offsetInBlock(block, range[1]);
+      return start < 0 || end < start
+        ? null
+        : {
+            block: block.getKey(),
+            end,
+            range,
+            start,
+            text: $childrenText(block),
+          };
+    },
+    {editor},
+  );
+  if (before === null) {
+    return null;
+  }
+  return started.read(
+    () => {
+      const selection = $getSelection();
+      const block = $getNodeByKey(before.block);
+      if (
+        !$isRangeSelection(selection) ||
+        !$isElementNode(block) ||
+        !block.isAttached()
+      ) {
+        return null;
+      }
+      const anchor = $offsetInBlock(block, toPointLike(selection.anchor));
+      const focus = $offsetInBlock(block, toPointLike(selection.focus));
+      const text = $childrenText(block);
+      const head = before.text.slice(0, before.start);
+      const tail = before.text.slice(before.end);
+      const selected = before.text.slice(before.start, before.end);
+      for (const placeholder of COMPOSITION_PLACEHOLDERS) {
+        // A selection that is the placeholder itself, kept by a start that
+        // wrote nothing, would look replaced: leave it to the comparison
+        if (placeholder !== '' && placeholder === selected) {
+          continue;
+        }
+        const end = before.start + placeholder.length;
+        if (
+          text === head + placeholder + tail &&
+          Math.max(anchor, focus) === end &&
+          (Math.min(anchor, focus) === end ||
+            Math.min(anchor, focus) === before.start)
+        ) {
+          return before.range;
+        }
+      }
+      return null;
+    },
+    {editor},
+  );
+}
+
 function $collectSegments(
+  flavor: MarkFlavor,
   windows: readonly BlockWindow[],
   points: readonly PointLike[],
+  $isUnchangedBlock: (node: ElementNode) => boolean,
 ): Segments {
   const out: Segments = {
     codes: new Map(),
@@ -1152,6 +1687,10 @@ function $collectSegments(
     text: '',
   };
   const texts: string[] = [];
+  // The first segment of the current window, and whether the units that
+  // follow need a boundary from a nested block before them
+  let windowStart = 0;
+  let afterNested = false;
   const add = (
     node: LexicalNode,
     kind: Kind,
@@ -1159,6 +1698,12 @@ function $collectSegments(
     text: string,
     ids: readonly string[],
   ) => {
+    if (afterNested) {
+      afterNested = false;
+      if (kind !== BREAK) {
+        separate(node);
+      }
+    }
     out.segs.push({code, ids, kind, node, text});
     if (kind !== CHAR) {
       out.codes.set(out.length, code);
@@ -1166,6 +1711,13 @@ function $collectSegments(
     }
     texts.push(text);
     out.length += text.length;
+  };
+  // A boundary between blocks, where units of the window precede it
+  const separate = (node: LexicalNode) => {
+    const last = out.segs.length > windowStart ? out.segs.at(-1) : undefined;
+    if (last !== undefined && last.kind !== BREAK) {
+      add(node, BREAK, '\u0000', '', NO_IDS);
+    }
   };
   const locateElementPoints = (key: NodeKey, index: number) => {
     points.forEach((point, i) => {
@@ -1211,7 +1763,7 @@ function $collectSegments(
   };
   const $visitNode = (node: LexicalNode) => {
     const key = node.getKey();
-    if ($isTextNode(node) && $isMarkableNode(node)) {
+    if ($isTextNode(node) && $isMarkableNode(flavor, node)) {
       const text = node.getTextContent();
       points.forEach((point, i) => {
         if (
@@ -1222,19 +1774,31 @@ function $collectSegments(
           out.points[i] = out.length + point.offset;
         }
       });
-      add(node, CHAR, '', text, $readNodeMarkIDs(node));
-    } else if ($isMarkableNode(node)) {
-      add(node, LEAF, '\u0002' + key, '', $readNodeMarkIDs(node));
+      add(node, CHAR, '', text, $readNodeMarkIDs(flavor, node));
+    } else if ($isMarkableNode(flavor, node)) {
+      add(node, LEAF, '\u0002' + key, '', $readNodeMarkIDs(flavor, node));
     } else if ($isElementNode(node) && node.isInline()) {
       $visitChildren(node, null, null);
+    } else if ($isElementNode(node) && !$isUnchangedBlock(node)) {
+      // A nested block that the update changed (the items of a list, a list
+      // in a list item): its text is compared like the text of the blocks
+      // around it, so that text that an edit moves out of it or into it, or
+      // re-creates there, is found. Boundaries separate it from the units
+      // around it, as they separate the windows, and not from the start or
+      // end of the window. An unchanged one is a unit of its own.
+      separate(node);
+      $visitChildren(node, null, null);
+      afterNested = true;
     } else {
       add(node, OPAQUE, '\u0001' + key, '', NO_IDS);
     }
   };
   windows.forEach(({block, from, to}, i) => {
+    afterNested = false;
     if (i > 0) {
       add(block, BREAK, '\u0000', '', NO_IDS);
     }
+    windowStart = out.segs.length;
     $visitChildren(block, from, to);
   });
   out.text = texts.join('');
@@ -1473,14 +2037,14 @@ function matchUnits(
  * from. A TextNode that the core or a transform creates from scratch to hold
  * existing text (a hashtag, a segmented node turned into text) has none.
  */
-function $hasMarkIDsState(node: LexicalNode): boolean {
+function $hasMarkIDsState(flavor: MarkFlavor, node: LexicalNode): boolean {
   // @internal access: NodeState does not expose whether a value was set
   const state = node.getLatest().__state;
   return (
     state !== undefined &&
-    (state.knownState.has(markIDsState) ||
+    (state.knownState.has(flavor.state) ||
       (state.unknownState !== undefined &&
-        MARK_STATE_KEY in state.unknownState))
+        flavor.stateKey in state.unknownState))
   );
 }
 
@@ -1508,19 +2072,22 @@ function $splitsIntoOwnClass(node: TextNode): boolean {
  * its text loses an id it had.
  */
 function $setUnitIDs(
+  flavor: MarkFlavor,
   flat: Flattened,
   ids: readonly (readonly string[])[],
   start: number,
   end: number,
+  splits: SplitOrigins,
 ): void {
+  const {state} = flavor;
   const node = flat.nodes[start];
   if (!$isTextNode(node)) {
-    $setState(node, markIDsState, ids[start]);
+    $setState(node, state, ids[start]);
     return;
   }
   const offsets: number[] = [];
   for (let i = start + 1; i < end; i++) {
-    if (!markIDsState.isEqual(ids[i], ids[i - 1])) {
+    if (!state.isEqual(ids[i], ids[i - 1])) {
       offsets.push(flat.offsets[i]);
     }
   }
@@ -1529,22 +2096,73 @@ function $setUnitIDs(
     for (let i = start; i < end; i++) {
       all = union(all, ids[i]);
     }
-    if (!markIDsState.isEqual($readNodeMarkIDs(node), all)) {
-      $setState(node, markIDsState, all);
+    if (!state.isEqual($readNodeMarkIDs(flavor, node), all)) {
+      $setState(node, state, all);
     }
     return;
   }
   const parts = offsets.length > 0 ? node.splitText(...offsets) : [node];
+  // The other flavors must not take the pieces for inserted content: they
+  // carry copies of the other flavors' ids of the node they were cut from
+  for (let p = 1; p < parts.length; p++) {
+    splits.set(parts[p].getKey(), {flavor, origin: node.getKey()});
+  }
   let i = start;
   for (const part of parts) {
-    if (!markIDsState.isEqual($readNodeMarkIDs(part), ids[i])) {
-      $setState(part, markIDsState, ids[i]);
+    if (!state.isEqual($readNodeMarkIDs(flavor, part), ids[i])) {
+      $setState(part, state, ids[i]);
     }
     // The next part starts where the ids change
     do {
       i++;
-    } while (i < end && markIDsState.isEqual(ids[i], ids[i - 1]));
+    } while (i < end && state.isEqual(ids[i], ids[i - 1]));
   }
+}
+
+/**
+ * The offsets `[start, end)` of `text` that are not in `prevText`, the text
+ * that the same TextNode had: what an edit inserted between the text it kept
+ * at each end. With `caret` (an offset in `text`, -1 when the caret is
+ * elsewhere), the insertion ends at the caret when the text after the caret
+ * is the end of `prevText`. Neither end splits a surrogate pair.
+ */
+function getInsertedRange(
+  prevText: string,
+  text: string,
+  caret: number,
+): readonly [number, number] {
+  let end = -1;
+  let maxStart = Math.min(prevText.length, text.length);
+  if (caret >= 0 && prevText.endsWith(text.slice(caret))) {
+    end = caret;
+    maxStart = Math.min(caret, prevText.length - (text.length - caret));
+  }
+  let start = 0;
+  while (
+    start < maxStart &&
+    prevText.charCodeAt(start) === text.charCodeAt(start)
+  ) {
+    start++;
+  }
+  if (start > 0 && isHighSurrogate(text.charCodeAt(start - 1))) {
+    start--;
+  }
+  if (end < 0) {
+    let suffix = 0;
+    const maxSuffix = Math.min(prevText.length, text.length) - start;
+    while (
+      suffix < maxSuffix &&
+      prevText.charCodeAt(prevText.length - 1 - suffix) ===
+        text.charCodeAt(text.length - 1 - suffix)
+    ) {
+      suffix++;
+    }
+    end = text.length - suffix;
+    if (end < text.length && isLowSurrogate(text.charCodeAt(end))) {
+      end++;
+    }
+  }
+  return [start, end];
 }
 
 /**
@@ -1561,14 +2179,23 @@ function $setUnitIDs(
  *   transform split it off into a copy of that node (`$isSplitOffEntity`).
  * - Text that was not deleted keeps its ids, also when the core or a
  *   transform moved it into a new TextNode that has none (a hashtag, a
- *   segmented node turned into text, the text around a replaced selection).
+ *   segmented node turned into text, the text around a replaced selection),
+ *   and when the update moved a leaf that existed (a block type or list
+ *   change moving its text into another block): a leaf that kept its text
+ *   keeps its ids, and a TextNode that also changed keeps them on the text
+ *   it kept at each end (see {@link getInsertedRange}).
  * - None of this gives back an id in `removed` (removed with
  *   {@link $removeMarkID} in this update).
  *
  * The change is found by comparing the units around the caret with the same
  * units in `prevState`. Only the children of the blocks that the update
  * changed are compared: a child that is the same object in both states is
- * unchanged, and one on each side bounds the comparison. Within them, the
+ * unchanged, and one on each side bounds the comparison. A nested block
+ * among them (the items of a list) is compared by its text, like the blocks
+ * around it. Text in a leaf that existed and that the comparison cannot
+ * line up with its previous place, because the update moved it from a
+ * block outside the compared ones, keeps its ids (see `$isKeptUnit`). Within
+ * them, the
  * text both states share at the start and at the end is a few units (see
  * {@link flattenSide}), so the cost is a scan of the changed TextNodes and
  * units for the changed text only. The change ends at the caret (what
@@ -1578,7 +2205,12 @@ function $setUnitIDs(
  * was last dispatched, or the one a composition started with. It is only
  * used when the text in its place is in new TextNodes, as the core inserts
  * it, so a handler that wrapped the selection instead is not taken for one
- * that replaced it. Without it (text replaced by code that dispatches no
+ * that replaced it, or when `replacedForSure` says that it was replaced
+ * (the selection a composition started with, which the update that started
+ * the composition was seen to replace, see
+ * {@link $getCompositionReplacedRange}: the composed text is then written
+ * into the TextNode the caret is in, often one that existed).
+ * Without it (text replaced by code that dispatches no
  * command), the longest common subsequence of the two sides of the change
  * tells the units that were kept from those that were inserted or deleted.
  *
@@ -1588,10 +2220,13 @@ function $setUnitIDs(
  * TextNode has been normalized.
  */
 function $applyInsertedTextMarkIDs(
+  flavor: MarkFlavor,
   editor: LexicalEditor,
   prevState: EditorState,
   replaced: null | readonly [PointLike, PointLike],
   removed: ReadonlySet<string>,
+  splits: SplitOrigins,
+  replacedForSure = false,
 ): void {
   const selection = $getSelection();
   if (!$isRangeSelection(selection) || !selection.isCollapsed()) {
@@ -1675,7 +2310,21 @@ function $applyInsertedTextMarkIDs(
   const to = $expand(right, 'next');
   // The blocks around the caret that may have changed: from the nearest one
   // at or before it that existed before the update, up to the next one that
-  // did
+  // did and did not lose its first children to the blocks before it (as a
+  // list does when its first item is turned into a paragraph: the list
+  // holds the previous place of their text)
+  const $isNextBoundary = (node: LexicalNode): boolean => {
+    const key = node.getKey();
+    if (!prevNodes.has(key)) {
+      return false;
+    }
+    const firstChild = $isElementNode(node) ? node.getFirstChild() : null;
+    return (
+      prevNodes.get(key) === node ||
+      firstChild === null ||
+      prevNodes.get(firstChild.getKey()) === firstChild
+    );
+  };
   const parent = block.getParent();
   let first: null | LexicalNode = block;
   let next: null | LexicalNode = null;
@@ -1684,7 +2333,7 @@ function $applyInsertedTextMarkIDs(
       first = first.getPreviousSibling();
     }
     next = block.getNextSibling();
-    while (next !== null && !prevNodes.has(next.getKey())) {
+    while (next !== null && !$isNextBoundary(next)) {
       next = next.getNextSibling();
     }
   } else if (!prevNodes.has(block.getKey())) {
@@ -1717,7 +2366,27 @@ function $applyInsertedTextMarkIDs(
       break;
     }
   }
-  const afterSegments = $collectSegments(windows, [caret]);
+  // A nested block that is the same object in both states, with nothing in
+  // it changed by this update: compared as one unit, without reading it
+  // @internal access: the elements this update changed or changed inside
+  const dirtyElements = editor._dirtyElements;
+  // @internal access: the node map of the pending state
+  const nextNodes = editor._pendingEditorState!._nodeMap;
+  const $isUnchangedBlock = (node: ElementNode) => {
+    const key = node.getKey();
+    const prevNode = prevNodes.get(key);
+    return (
+      prevNode !== undefined &&
+      prevNode === nextNodes.get(key) &&
+      !dirtyElements.has(key)
+    );
+  };
+  const afterSegments = $collectSegments(
+    flavor,
+    windows,
+    [caret],
+    $isUnchangedBlock,
+  );
   const firstKey = first !== null ? first.getKey() : null;
   const nextKey = next !== null ? next.getKey() : null;
   const parentKey = parent !== null ? parent.getKey() : null;
@@ -1780,7 +2449,12 @@ function $applyInsertedTextMarkIDs(
       if (toKey !== null ? !reachedTo : nextKey !== null && current === null) {
         return null;
       }
-      return $collectSegments(prevWindows, replaced || []);
+      return $collectSegments(
+        flavor,
+        prevWindows,
+        replaced || [],
+        $isUnchangedBlock,
+      );
     },
     {editor},
   );
@@ -1846,19 +2520,22 @@ function $applyInsertedTextMarkIDs(
   }
   // A node that did not exist before the update brought its ids with it,
   // and so did a node that absorbed one when normalization merged them
-  // (which it only does for nodes with the same ids)
-  const $isNewText = (node: LexicalNode) =>
-    !prevNodes.has(node.getKey()) ||
-    (absorbedNew && normalized.has(node.getKey()));
+  // (which it only does for nodes with the same ids). A piece that another
+  // flavor's rule cut off a node in this update is as new as that node.
+  const $isNewText = (node: LexicalNode) => {
+    const key = getSplitOrigin(splits, flavor, node.getKey());
+    return !prevNodes.has(key) || (absorbedNew && normalized.has(key));
+  };
   // The replaced selection, when the text in its place is new text: the
   // core puts the text that replaces a selection in a new TextNode, so a
   // handler that wrapped the selection instead is not mistaken for one
+  // (unless it is known to be replaced, see `replacedForSure`)
   let replacedSelection = false;
   if (replaced !== null) {
     const [start, end] = before.points;
     if (start >= 0 && end > start && end === e && start <= s) {
       replacedSelection = true;
-      for (let i = start; i < c && replacedSelection; i++) {
+      for (let i = start; i < c && replacedSelection && !replacedForSure; i++) {
         replacedSelection = after.kinds[i] > LEAF || $isNewText(after.nodes[i]);
       }
       if (replacedSelection) {
@@ -1905,7 +2582,7 @@ function $applyInsertedTextMarkIDs(
         // The same value: `splitText` cloned the node's state into the
         // piece in this update. Inserted nodes bring ids of their own, even
         // equal ones (pasted, dropped, inserted or marked by code).
-        $readNodeMarkIDs(origin) === $readNodeMarkIDs(node) &&
+        $readNodeMarkIDs(flavor, origin) === $readNodeMarkIDs(flavor, node) &&
         // An unattached node, garbage collected with the update
         $createTextNode('').constructor === node.constructor;
       splitOff.set(key, result);
@@ -1925,7 +2602,7 @@ function $applyInsertedTextMarkIDs(
       const key = node.getKey();
       if (
         key !== before.nodes[j].getKey() &&
-        ((!prevNodes.has(key) && !$hasMarkIDsState(node)) ||
+        ((!prevNodes.has(key) && !$hasMarkIDsState(flavor, node)) ||
           (absorbedNew && normalized.has(key)))
       ) {
         ids[i] = without(before.ids[j], removed);
@@ -1959,11 +2636,64 @@ function $applyInsertedTextMarkIDs(
   }
   const unitIDs = (i: number): readonly string[] =>
     i >= 0 && i < n && after.kinds[i] <= LEAF ? ids[i] : NO_IDS;
+  // The leaves whose text in `prevState` is part of `before`
+  const compared = new Set<NodeKey>();
+  for (const node of before.nodes) {
+    compared.add(node.getKey());
+  }
+  // For a TextNode that existed, with other text, outside the compared
+  // blocks: the offsets [start, end) of its text that are not in the text it
+  // had, anchored at the caret when it holds the caret
+  const insertedRanges = new Map<NodeKey, readonly [number, number]>();
+  const $getInsertedRange = (node: TextNode, prevText: string) => {
+    const key = node.getKey();
+    let range = insertedRanges.get(key);
+    if (range === undefined) {
+      range = getInsertedRange(
+        prevText,
+        node.getTextContent(),
+        caret.type === 'text' && caret.key === key ? caret.offset : -1,
+      );
+      insertedRanges.set(key, range);
+    }
+    return range;
+  };
+  // Whether unit `i`, in a gap, is text that was there before the update
+  // rather than inserted by it. A leaf that existed (with the same text, for
+  // a TextNode) holds no inserted text wherever the update moved it, and the
+  // comparison takes it for inserted text when it moved in from a block that
+  // is not compared (out of a list item, into a list it merges with) or lines
+  // up with equal text elsewhere. A TextNode that also changed and comes from
+  // outside the compared blocks keeps the text at its ends that it had.
+  const $isKeptUnit = (i: number): boolean => {
+    const node = after.nodes[i];
+    const prevNode = prevNodes.get(node.getKey());
+    if (prevNode === undefined) {
+      return false;
+    }
+    if (!$isTextNode(node) || !$isTextNode(prevNode)) {
+      return true;
+    }
+    // @internal access: the text of the node in `prevState` (its methods
+    // read the pending version)
+    const prevText = prevNode.__text;
+    if (prevText === node.getTextContent()) {
+      return true;
+    }
+    if (compared.has(node.getKey())) {
+      return false;
+    }
+    const [start, end] = $getInsertedRange(node, prevText);
+    return after.offsets[i] < start || after.offsets[i] >= end;
+  };
   for (const [g0, g1, r0, r1] of gaps) {
     if (g1 === g0) {
       continue;
     }
-    let shared = intersect(unitIDs(g0 - 1), unitIDs(g1));
+    const kept: boolean[] = [];
+    for (let i = g0; i < g1; i++) {
+      kept.push(after.kinds[i] <= LEAF && $isKeptUnit(i));
+    }
     // The ids every replaced unit had (line breaks between blocks aside)
     let replacedIDs: null | readonly string[] = null;
     for (let j = r0; j < r1; j++) {
@@ -1973,22 +2703,36 @@ function $applyInsertedTextMarkIDs(
           replacedIDs === null ? unit : intersect(replacedIDs, unit);
       }
     }
-    if (replacedIDs !== null) {
-      shared = union(shared, without(replacedIDs, removed));
-    }
-    for (let i = g0; i < g1; i++) {
-      if (after.kinds[i] <= LEAF) {
-        // Text inserted into a node that existed, or split off one, has no
-        // ids of its own
-        const node = after.nodes[i];
-        const own =
-          $isNewText(node) &&
-          after.ids[i].length > 0 &&
-          !$isSplitOffEntity(node)
-            ? after.ids[i]
-            : NO_IDS;
-        ids[i] = union(own, shared);
+    // Each run of inserted units between kept ones (the whole gap, when it
+    // holds none) is an insertion
+    for (let start = g0; start < g1; ) {
+      if (kept[start - g0]) {
+        start++;
+        continue;
       }
+      let end = start + 1;
+      while (end < g1 && !kept[end - g0]) {
+        end++;
+      }
+      let shared = intersect(unitIDs(start - 1), unitIDs(end));
+      if (replacedIDs !== null) {
+        shared = union(shared, without(replacedIDs, removed));
+      }
+      for (let i = start; i < end; i++) {
+        if (after.kinds[i] <= LEAF) {
+          // Text inserted into a node that existed, or split off one, has no
+          // ids of its own
+          const node = after.nodes[i];
+          const own =
+            $isNewText(node) &&
+            after.ids[i].length > 0 &&
+            !$isSplitOffEntity(node)
+              ? after.ids[i]
+              : NO_IDS;
+          ids[i] = union(own, shared);
+        }
+      }
+      start = end;
     }
   }
   for (let i = 0; i < n; ) {
@@ -1999,9 +2743,9 @@ function $applyInsertedTextMarkIDs(
     for (let u = i; u < end; u++) {
       if (
         after.kinds[u] <= LEAF &&
-        !markIDsState.isEqual(ids[u], after.ids[u])
+        !flavor.state.isEqual(ids[u], after.ids[u])
       ) {
-        $setUnitIDs(after, ids, i, end);
+        $setUnitIDs(flavor, after, ids, i, end, splits);
         break;
       }
     }
@@ -2010,22 +2754,535 @@ function $applyInsertedTextMarkIDs(
 }
 
 /**
- * Make the `markIds` StateConfig known to every node type of the editor, as
- * using it on a node of that type would, so that ids read from JSON or
- * applied with `updateFromUnknown` are parsed right away, and code that
- * reads the StateConfig of a node can recognize it as set-valued before this
- * editor has marked anything.
+ * Make the StateConfig of a flavor (`markIds` for MarkStateExtension) known
+ * to every node type of the editor, as using it on a node of that type
+ * would, so that ids read from JSON or applied with `updateFromUnknown` are
+ * parsed right away, and code that reads the StateConfig of a node can
+ * recognize it as set-valued before this editor has marked anything.
  */
-function registerMarkIDsState(editor: LexicalEditor): void {
+function registerMarkIDsState(flavor: MarkFlavor, editor: LexicalEditor): void {
   // @internal access with precedent (NormalizeInlineElementsExtension): there
   // is no public API to declare a state for node classes the extension does
   // not own
   for (const {sharedNodeState} of editor._nodes.values()) {
     const {sharedConfigMap} = sharedNodeState;
-    if (!sharedConfigMap.has(MARK_STATE_KEY)) {
-      sharedConfigMap.set(MARK_STATE_KEY, markIDsState);
+    if (!sharedConfigMap.has(flavor.stateKey)) {
+      sharedConfigMap.set(flavor.stateKey, flavor.state);
     }
   }
+}
+
+/**
+ * Where the pieces that a flavor's inserted-text rule cut off a TextNode in
+ * the current update came from: piece key to the flavor and the key of the
+ * node it was cut from. Shared by the flavors of an editor through
+ * {@link MarkBaseExtension}, and forgotten at each commit.
+ */
+type SplitOrigins = Map<NodeKey, {flavor: MarkFlavor; origin: NodeKey}>;
+
+/**
+ * The key of the node that `key` stands for in `flavor`'s comparison: a
+ * piece that another flavor cut off a node in this update stands for that
+ * node, since it holds that node's text and copies of its ids.
+ */
+function getSplitOrigin(
+  splits: SplitOrigins,
+  flavor: MarkFlavor,
+  key: NodeKey,
+): NodeKey {
+  for (
+    let entry = splits.get(key);
+    entry !== undefined && entry.flavor !== flavor;
+    entry = splits.get(key)
+  ) {
+    key = entry.origin;
+  }
+  return key;
+}
+
+const MARK_BASE_EXTENSION_NAME = '@lexical/mark/MarkBase';
+
+/**
+ * The init result of {@link MarkBaseExtension}.
+ *
+ * @experimental
+ */
+export interface MarkBaseInit {
+  /** @internal The flavors of the editor, by stateKey */
+  flavors: Map<string, AnyMarkFlavorExtension>;
+  /** @internal */
+  splits: SplitOrigins;
+}
+
+/**
+ * Output of {@link MarkBaseExtension}.
+ *
+ * @experimental
+ */
+export interface MarkBaseOutput {
+  /** The mark flavors of the editor, by their `stateKey` */
+  flavors: ReadonlyMap<string, AnyMarkFlavorExtension>;
+}
+
+/**
+ * The shared base of the mark flavors ({@link MarkStateExtension} and every
+ * extension made with {@link defineMarkExtension}), which all depend on it,
+ * so an editor rarely lists it itself. It keeps the registry of the
+ * editor's flavors (the `flavors` output), rejects two flavors that share a
+ * `stateKey` or an attribute when the editor is built, and lets the
+ * inserted-text rules of the flavors tell each other's work from inserted
+ * content. See also {@link $getMarkIDsByFlavor}.
+ *
+ * (`MarkExtension` is the extension that registers {@link MarkNode}.)
+ *
+ * @experimental
+ */
+export const MarkBaseExtension: LexicalExtension<
+  ExtensionConfigBase,
+  typeof MARK_BASE_EXTENSION_NAME,
+  MarkBaseOutput,
+  MarkBaseInit
+> = defineExtension<
+  ExtensionConfigBase,
+  typeof MARK_BASE_EXTENSION_NAME,
+  MarkBaseOutput,
+  MarkBaseInit
+>({
+  build: (_editor, _config, state): MarkBaseOutput => ({
+    flavors: state.getInitResult().flavors,
+  }),
+  init: (): MarkBaseInit => ({flavors: new Map(), splits: new Map()}),
+  name: MARK_BASE_EXTENSION_NAME,
+  register: (editor, _config, state) => {
+    const {splits} = state.getInitResult();
+    return mergeRegister(
+      editor.registerUpdateListener(() => splits.clear()),
+      () => splits.clear(),
+    );
+  },
+});
+
+/**
+ * A mark flavor: an extension that stores one kind of annotation ids
+ * (comments, suggestions, highlights) in its own set-valued NodeState key,
+ * renders them with its own attribute and classes, and reports them to its
+ * own listeners. Made with {@link defineMarkExtension};
+ * {@link MarkStateExtension} is the default flavor. The `$` functions of
+ * `@lexical/mark` take one as their first argument.
+ *
+ * @experimental
+ */
+export type MarkFlavorExtension<
+  Name extends string = string,
+  Key extends string = string,
+> = LexicalExtension<MarkStateConfig, Name, MarkStateOutput, MarkStateInit> & {
+  /** The attribute that marked leaves are rendered with */
+  readonly attribute: string;
+  /** The NodeState key that the ids are stored under */
+  readonly stateKey: Key;
+  /** @internal */
+  readonly __markFlavor: MarkFlavor;
+};
+
+/**
+ * Any {@link MarkFlavorExtension}.
+ *
+ * @experimental
+ */
+export type AnyMarkFlavorExtension = MarkFlavorExtension<string, string>;
+
+/**
+ * The type rules of a `stateKey` for {@link defineMarkExtension}: the key
+ * itself when it is valid, otherwise a message that says how to fix it,
+ * which is what the type error shows.
+ *
+ * @experimental
+ */
+export type MarkStateKeyCheck<Key extends string> = string extends Key
+  ? 'stateKey must be a string literal, such as "commentIds"'
+  : Key extends ''
+    ? 'stateKey must not be empty: use a name such as "commentIds"'
+    : Key extends `${string}${' ' | '\t' | '\n' | '\r'}${string}`
+      ? 'stateKey must not contain whitespace: use a name such as "commentIds"'
+      : Key extends typeof MARK_STATE_KEY
+        ? '"markIds" is the key of MarkStateExtension, the default flavor. Choose another stateKey, such as "commentIds"'
+        : Key extends '__proto__'
+          ? 'stateKey must not be "__proto__", which objects cannot hold as a key: use a name such as "commentIds"'
+          : Key;
+
+/**
+ * The argument of {@link defineMarkExtension}.
+ *
+ * @experimental
+ */
+export interface MarkFlavorDefinition<Name extends string, Key extends string> {
+  /** The extension's name, unique in the editor, such as `'@app/CommentMarks'` */
+  name: Name;
+  /**
+   * The NodeState key the ids are stored under, such as `'commentIds'`: a
+   * leaf with comment `c1` has `"$": {"commentIds": ["c1"]}` in its JSON.
+   * Every flavor in an editor needs its own key, and `'markIds'` belongs to
+   * {@link MarkStateExtension}.
+   */
+  stateKey: MarkStateKeyCheck<Key>;
+  /**
+   * The attribute that marked leaves are rendered with (and that HTML export
+   * writes with `exportIDsToHTML`, and HTML import reads). Defaults to
+   * `data-lexical-` followed by the key in kebab case:
+   * `data-lexical-comment-ids` for `commentIds`. It is lowercased, as HTML
+   * stores attribute names.
+   */
+  attribute?: string;
+  /** The classes of a leaf with at least one shown id (space separated) */
+  className?: string;
+  /** The classes of a leaf with more than one shown id (space separated) */
+  overlapClassName?: string;
+  /** Defaults for the flavor's config, which `configExtension` overrides */
+  config?: Partial<MarkStateConfig>;
+}
+
+/** `commentIds` to `data-lexical-comment-ids` */
+function defaultMarkAttribute(stateKey: string): string {
+  return (
+    'data-lexical-' +
+    stateKey.replace(/[A-Z]/g, letter => '-' + letter.toLowerCase())
+  );
+}
+
+function isMarkFlavorExtension(
+  value: unknown,
+): value is AnyMarkFlavorExtension {
+  return typeof value === 'object' && value !== null && '__markFlavor' in value;
+}
+
+/**
+ * The flavor that a `$` function was called with (its first argument, when
+ * that is a flavor extension, otherwise {@link MarkStateExtension}), and the
+ * other arguments.
+ */
+function splitFlavorArgs<Rest extends unknown[]>(
+  args: Rest | [AnyMarkFlavorExtension, ...Rest],
+): [MarkFlavor, ...Rest] {
+  if (isMarkFlavorExtension(args[0])) {
+    const [first, ...rest] = args as [AnyMarkFlavorExtension, ...Rest];
+    return [first.__markFlavor, ...rest];
+  }
+  return [MarkStateExtension.__markFlavor, ...(args as Rest)];
+}
+
+/**
+ * Report to each listener the ids that appeared or disappeared since the
+ * last report to it. Each listener has its own baseline, so one registered
+ * while the flavor was disabled gets every id when it is enabled again.
+ */
+function reportMarkIDs(init: MarkStateInit, tags: ReadonlySet<string>): void {
+  if (init.listeners.size === 0) {
+    return;
+  }
+  const ids: ReadonlySet<string> = new Set(init.markIDNodeKeys.peek().keys());
+  for (const entry of Array.from(init.listeners)) {
+    const prev = entry.reported;
+    const added = new Set<string>();
+    const removed = new Set<string>();
+    for (const id of ids) {
+      if (!prev.has(id)) {
+        added.add(id);
+      }
+    }
+    for (const id of prev) {
+      if (!ids.has(id)) {
+        removed.add(id);
+      }
+    }
+    // Unregistered by an earlier listener of this report
+    if ((added.size > 0 || removed.size > 0) && init.listeners.has(entry)) {
+      entry.reported = ids;
+      entry.listener({added, ids, removed, tags});
+    }
+  }
+}
+
+/**
+ * Build a mark flavor extension. {@link defineMarkExtension} checks its
+ * arguments; {@link MarkStateExtension} is built here directly, with the
+ * classes of the editor theme.
+ *
+ * @__NO_SIDE_EFFECTS__
+ */
+function createMarkFlavorExtension<Name extends string, Key extends string>(
+  name: Name,
+  stateKey: Key,
+  attribute: string,
+  classNames: MarkFlavor['classNames'],
+  renderStateName: string,
+  configDefaults: Partial<MarkStateConfig>,
+): MarkFlavorExtension<Name, Key> {
+  const flavor: MarkFlavor = {
+    attribute,
+    classNames,
+    editsByEditor: new WeakMap(),
+    isMarkableByEditor: new WeakMap(),
+    name,
+    renderDisabled: createRenderState(renderStateName, () => false),
+    state: createMarkIDsState(stateKey),
+    stateKey,
+  };
+  // A guard rather than the predicate itself: narrowing a `LexicalNode`
+  // with `node is LexicalNode` leaves `never` where it returns `false`
+  const $isMarkableNodeMatch = (node: LexicalNode): node is LexicalNode =>
+    $isMarkableNode(flavor, node);
+  const extension: MarkFlavorExtension<Name, Key> = Object.assign(
+    defineExtension<MarkStateConfig, Name, MarkStateOutput, MarkStateInit>({
+      build: (editor, config, state): MarkStateOutput => {
+        const {flavors} = state.getDependency(MarkBaseExtension).init;
+        for (const other of flavors.values()) {
+          invariant(
+            other.stateKey !== stateKey,
+            'MarkBaseExtension: %s and %s both use stateKey %s. Give each flavor its own stateKey.',
+            other.name,
+            name,
+            JSON.stringify(stateKey),
+          );
+          invariant(
+            other.attribute !== attribute,
+            'MarkBaseExtension: %s and %s both render the attribute %s. Give each flavor its own attribute.',
+            other.name,
+            name,
+            attribute,
+          );
+        }
+        flavors.set(stateKey, extension);
+        flavor.isMarkableByEditor.set(
+          editor,
+          compileMarkableNodes(config.markableNodes),
+        );
+        registerMarkIDsState(flavor, editor);
+        const {
+          isMarkIDShown,
+          markableNodes: _markableNodes,
+          ...signalConfig
+        } = config;
+        return {
+          ...namedSignals(signalConfig),
+          isMarkIDShown: signal(isMarkIDShown || isEveryMarkIDShown),
+          markIDNodeKeys: state.getInitResult().markIDNodeKeys,
+        };
+      },
+      config: safeCast<MarkStateConfig>({
+        disabled: false,
+        exportIDsToHTML: false,
+        isMarkIDShown: isEveryMarkIDShown,
+        markableNodes: DEFAULT_MARKABLE_NODES,
+        ...configDefaults,
+      }),
+      dependencies: [
+        configExtension(DOMRenderExtension, {
+          overrides: [
+            // A guard rather than [TextNode, LineBreakNode, DecoratorNode]:
+            // the class form requires every class to be registered, and
+            // DecoratorNode is abstract.
+            domOverride(
+              [$isMarkableNodeMatch],
+              {
+                $decorateDOM: (node, _prevNode, dom, editor) =>
+                  $decorateMarkIDs(flavor, node, dom, editor),
+              },
+              {disabledForEditor: ctx => ctx.get(flavor.renderDisabled)},
+            ),
+            domOverride([$isMarkableNodeMatch], {
+              $exportDOM: (node, $next, editor) => {
+                const output = $next();
+                const dep =
+                  getPeerDependencyFromEditor<AnyMarkFlavorExtensionType>(
+                    editor,
+                    name,
+                  );
+                if (!dep || !dep.output.exportIDsToHTML.peek()) {
+                  return output;
+                }
+                const ids = $readNodeMarkIDs(flavor, node);
+                if (ids.length > 0 && isHTMLElement(output.element)) {
+                  output.element.setAttribute(attribute, ids.join(' '));
+                }
+                return output;
+              },
+            }),
+          ],
+        }),
+        configExtension(DOMImportExtension, {
+          rules: [createMarkIDsImportRule(flavor)],
+        }),
+        MarkBaseExtension,
+      ],
+      init: (): MarkStateInit => ({
+        listeners: new Set(),
+        markIDNodeKeys: signal(new Map()),
+      }),
+      name,
+      register: (editor, _config, state) => {
+        const {disabled, isMarkIDShown} = state.getOutput();
+        const init = state.getInitResult();
+        const {splits} = state.getDependency(MarkBaseExtension).init;
+        return mergeRegister(
+          effect(() => {
+            const isDisabled = disabled.value;
+            $setRenderContextValue(flavor.renderDisabled, isDisabled, editor);
+            if (!isDisabled) {
+              return registerMarkState(flavor, editor, init, splits);
+            }
+          }),
+          registerMarkIDShownRerender(
+            editor,
+            isMarkIDShown,
+            disabled,
+            init.markIDNodeKeys,
+          ),
+        );
+      },
+    }),
+    {__markFlavor: flavor, attribute, stateKey},
+  );
+  return extension;
+}
+
+/**
+ * Define a mark flavor: an extension for one kind of annotation, such as
+ * comments, suggestions or highlights, that works like
+ * {@link MarkStateExtension} on its own NodeState key. Two flavors on the
+ * same text never see each other's ids: each has its own key, its own
+ * rendering (`className`, `overlapClassName`, `attribute`), its own config
+ * (`isMarkIDShown`, `disabled`, `markableNodes`, `exportIDsToHTML`) and
+ * output, and its own {@link registerMarkIDsListener} listeners. Pass the
+ * flavor first to the `$` functions: `$addMarkID(CommentMarks, 'c1',
+ * selection)`.
+ *
+ * The ids say which text an annotation covers, nothing more: keep the
+ * annotation's data (author, body, resolved) in your own store, keyed by id.
+ *
+ * ```ts
+ * export const CommentMarks = defineMarkExtension({
+ *   className: 'comment',
+ *   name: '@app/CommentMarks',
+ *   overlapClassName: 'comment-overlap',
+ *   stateKey: 'commentIds',
+ * });
+ * ```
+ *
+ * The `stateKey` must be a non-empty string literal without whitespace,
+ * other than `'markIds'` (MarkStateExtension's); a type error says which
+ * rule it breaks. Two flavors with the same key or attribute in one editor
+ * throw when the editor is built.
+ *
+ * @experimental
+ * @__NO_SIDE_EFFECTS__
+ */
+export function defineMarkExtension<
+  const Name extends string,
+  const Key extends string,
+>(definition: MarkFlavorDefinition<Name, Key>): MarkFlavorExtension<Name, Key> {
+  const {name, className, overlapClassName, config = {}} = definition;
+  const stateKey = definition.stateKey as string as Key;
+  invariant(
+    isValidMarkID(stateKey) &&
+      stateKey !== MARK_STATE_KEY &&
+      stateKey !== '__proto__',
+    'defineMarkExtension: invalid stateKey %s for %s. Use a non-empty name without whitespace, other than "markIds" (the key of MarkStateExtension) and "__proto__", such as "commentIds".',
+    JSON.stringify(stateKey),
+    name,
+  );
+  const classes = {mark: className, overlap: overlapClassName};
+  return createMarkFlavorExtension(
+    name,
+    stateKey,
+    // Lowercase, as HTML stores attribute names, so that a clash is caught
+    (definition.attribute || defaultMarkAttribute(stateKey)).toLowerCase(),
+    () => classes,
+    `markStateDisabled:${stateKey}`,
+    config,
+  );
+}
+
+/**
+ * Call `listener` after each commit that changes which ids of `flavor` are
+ * in the document, with the ids that appeared (`added`: no leaf carried them
+ * before), the ids that disappeared (`removed`: no leaf carries them now),
+ * every id now (`ids`) and the update's `tags`. If the document already has
+ * ids, it is also called right away, with all of them in `added`.
+ *
+ * Use it to keep your own store in step with the text: when all of a
+ * comment's text is deleted its id is `removed`, so mark the thread orphaned
+ * rather than deleting it; an undo or a paste that brings the text back
+ * reports it `added` again. Check `tags` for `COLLABORATION_TAG` to leave a
+ * collaborator's edit to the peer that made it, and for `HISTORIC_TAG` to
+ * tell undo and redo.
+ *
+ * Nothing is reported while the flavor is `disabled` (the ids stay in the
+ * document); when it is enabled again, the listener gets the net change.
+ *
+ * @param editor An editor built with `flavor`
+ * @param flavor {@link MarkStateExtension} or a flavor made with
+ *   {@link defineMarkExtension}
+ * @param listener Called with a {@link MarkIDsChange}
+ * @returns A function that unregisters the listener
+ *
+ * @experimental
+ */
+export function registerMarkIDsListener(
+  editor: LexicalEditor,
+  flavor: AnyMarkFlavorExtension,
+  listener: MarkIDsListener,
+): () => void {
+  const dep = getPeerDependencyFromEditor<AnyMarkFlavorExtensionType>(
+    editor,
+    flavor.name,
+  );
+  invariant(
+    dep !== undefined,
+    'registerMarkIDsListener: the editor was not built with %s. Add it to the dependencies of the extension the editor is built from.',
+    flavor.name,
+  );
+  const {init, output} = dep;
+  // While disabled the ids are not tracked: the first report comes when the
+  // flavor is enabled again
+  const ids: ReadonlySet<string> = output.disabled.peek()
+    ? new Set()
+    : new Set(output.markIDNodeKeys.peek().keys());
+  // Called before it is registered, so that a listener that throws here is
+  // not left registered
+  if (ids.size > 0) {
+    listener({added: ids, ids, removed: new Set(), tags: new Set()});
+  }
+  const entry = {listener, reported: ids};
+  init.listeners.add(entry);
+  return () => {
+    init.listeners.delete(entry);
+  };
+}
+
+/**
+ * Get the ids of every mark flavor of the active editor on a node, by
+ * `stateKey`, sorted: `{commentIds: ['c1'], suggestionIds: []}`. A flavor
+ * whose `markableNodes` do not include the node has an empty array.
+ *
+ * @param node The node
+ * @returns New arrays, which the caller may change
+ *
+ * @experimental
+ */
+export function $getMarkIDsByFlavor(
+  node: LexicalNode,
+): Record<string, string[]> {
+  const out: Record<string, string[]> = {};
+  const dep = getPeerDependencyFromEditor<typeof MarkBaseExtension>(
+    $getEditor(),
+    MARK_BASE_EXTENSION_NAME,
+  );
+  if (dep) {
+    for (const [stateKey, extension] of dep.output.flavors) {
+      out[stateKey] = $getMarkableIDs(extension.__markFlavor, node).slice();
+    }
+  }
+  return out;
 }
 
 /**
@@ -2045,7 +3302,9 @@ function registerMarkIDsState(editor: LexicalEditor): void {
  * - Marked leaves are rendered with the `mark` (and, for more than one id,
  *   `markOverlap`) theme classes and a `data-lexical-mark-ids` attribute.
  *   With `exportIDsToHTML`, HTML export writes that attribute too; the
- *   `@lexical/html` import pipeline reads it back.
+ *   `@lexical/html` import pipeline reads it back. `isMarkIDShown` limits
+ *   which ids are rendered (to hide resolved threads, for example), and can
+ *   be changed at runtime through the output signal of the same name.
  * - Text inserted at the edge of a marked run does not join it, like
  *   MarkNode; text inserted inside a run does. Text that replaces a
  *   selection also gets the ids all of the replaced text had, and pasted
@@ -2059,83 +3318,103 @@ function registerMarkIDsState(editor: LexicalEditor): void {
  *
  * Use {@link $addMarkID}, {@link $removeMarkID},
  * {@link $getMarkIDsAtSelection} and {@link $getNodeMarkIDs} to work with
- * the ids, the `markIDNodeKeys` output to find the nodes of an id, and
+ * the ids, the `markIDNodeKeys` output to find the nodes of an id,
+ * {@link registerMarkIDsListener} to learn when ids appear or disappear, and
  * {@link $migrateMarkNodesToMarkState} to convert MarkNode documents.
+ *
+ * It is the default mark flavor: {@link defineMarkExtension} makes more,
+ * one per kind of annotation, each on its own NodeState key.
  *
  * @experimental
  */
-export const MarkStateExtension: MarkStateExtensionType = defineExtension<
-  MarkStateConfig,
+export const MarkStateExtension: MarkFlavorExtension<
   typeof MARK_STATE_EXTENSION_NAME,
-  MarkStateOutput,
-  MarkStateInit
->({
-  build: (editor, config, state): MarkStateOutput => {
-    if (isMarkableByEditor === undefined) {
-      isMarkableByEditor = new WeakMap();
-    }
-    isMarkableByEditor.set(editor, compileMarkableNodes(config.markableNodes));
-    registerMarkIDsState(editor);
-    const {markableNodes: _markableNodes, ...signalConfig} = config;
-    return {
-      ...namedSignals(signalConfig),
-      markIDNodeKeys: state.getInitResult().markIDNodeKeys,
-    };
-  },
-  config: safeCast<MarkStateConfig>({
-    disabled: false,
-    exportIDsToHTML: false,
-    markableNodes: DEFAULT_MARKABLE_NODES,
+  typeof MARK_STATE_KEY
+> = createMarkFlavorExtension(
+  MARK_STATE_EXTENSION_NAME,
+  MARK_STATE_KEY,
+  MARK_STATE_IDS_ATTRIBUTE,
+  // @internal access with precedent (CodeNode, HorizontalRuleExtension): the
+  // render overrides receive the editor, not its theme
+  editor => ({
+    mark: editor._config.theme.mark,
+    overlap: editor._config.theme.markOverlap,
   }),
-  dependencies: [
-    configExtension(DOMRenderExtension, {
-      overrides: [
-        // A guard rather than [TextNode, LineBreakNode, DecoratorNode]: the
-        // class form requires every class to be registered, and DecoratorNode
-        // is abstract.
-        domOverride(
-          [$isMarkableNodeMatch],
-          {
-            $decorateDOM: (node, _prevNode, dom, editor) =>
-              $decorateMarkIDs(node, dom, editor),
-          },
-          {disabledForEditor: ctx => ctx.get(MarkStateRenderDisabled)},
-        ),
-        domOverride([$isMarkableNodeMatch], {
-          $exportDOM: (node, $next, editor) => {
-            const output = $next();
-            const dep = getPeerDependencyFromEditor<MarkStateExtensionType>(
-              editor,
-              MARK_STATE_EXTENSION_NAME,
-            );
-            if (!dep || !dep.output.exportIDsToHTML.peek()) {
-              return output;
-            }
-            const ids = $readNodeMarkIDs(node);
-            if (ids.length > 0 && isHTMLElement(output.element)) {
-              output.element.setAttribute(
-                MARK_STATE_IDS_ATTRIBUTE,
-                ids.join(' '),
-              );
-            }
-            return output;
-          },
-        }),
-      ],
-    }),
-    configExtension(DOMImportExtension, {rules: [MarkStateImportRule]}),
-  ],
-  init: (): MarkStateInit => ({markIDNodeKeys: signal(new Map())}),
-  name: MARK_STATE_EXTENSION_NAME,
-  register: (editor, _config, state) => {
-    const {disabled} = state.getOutput();
-    const {markIDNodeKeys} = state.getInitResult();
-    return effect(() => {
-      const isDisabled = disabled.value;
-      $setRenderContextValue(MarkStateRenderDisabled, isDisabled, editor);
-      if (!isDisabled) {
-        return registerMarkState(editor, markIDNodeKeys);
-      }
+  'markStateDisabled',
+  {},
+);
+
+/**
+ * Re-render the marked leaves when a new `isMarkIDShown` is assigned. The
+ * old and the new function cannot be compared: an app that resolves a thread
+ * typically updates the state both of them read, then assigns a new
+ * function. So every marked leaf is re-rendered, unless the document has no
+ * marks. The ids are rendered by `$decorateDOM`, which a full reconcile runs
+ * for every node without changing any (as `DOMRenderExtension` does when
+ * `disabled` changes), so nothing is synced to collaborators or pushed to
+ * the history.
+ *
+ * The full reconcile is an update of its own: when the function is assigned
+ * while an update is pending (inside `editor.update`, or before a batched
+ * update commits), or in a listener that may queue edits, it waits for them
+ * to commit, since a full reconcile in an edit would make it look like a
+ * `setEditorState` to {@link registerMarkState}. It does not move the DOM
+ * selection, which may be in another editable (a comment reply box) when a
+ * thread is resolved.
+ */
+function registerMarkIDShownRerender(
+  editor: LexicalEditor,
+  isMarkIDShown: ReadonlySignal<(id: string) => boolean>,
+  disabled: ReadonlySignal<boolean>,
+  markIDNodeKeys: ReadonlySignal<ReadonlyMap<string, readonly NodeKey[]>>,
+): () => void {
+  let prev = isMarkIDShown.peek();
+  let scheduled = false;
+  let disposed = false;
+  const rerender = () => {
+    scheduled = false;
+    if (
+      disposed ||
+      disabled.peek() ||
+      editor.getRootElement() === null ||
+      markIDNodeKeys.peek().size === 0
+    ) {
+      return;
+    }
+    // @internal access: whether an update is in progress or waiting to
+    // commit, which the full reconcile would otherwise join
+    if (editor._pendingEditorState !== null) {
+      // Joins the pending update, and runs once it commits; the re-render
+      // is then queued as an update of its own
+      scheduled = true;
+      editor.update(() => {}, {onUpdate: rerender});
+      return;
+    }
+    // @internal access: in an update or command listener, or an `onUpdate`
+    // callback, an update is queued and joins the updates queued before it
+    // (an edit a listener makes): wait until they have run
+    if (editor._updating) {
+      scheduled = true;
+      Promise.resolve().then(rerender);
+      return;
+    }
+    editor.update($fullReconcile, {
+      discrete: true,
+      tag: SKIP_DOM_SELECTION_TAG,
     });
-  },
-});
+  };
+  const unregister = effect(() => {
+    const next = isMarkIDShown.value;
+    if (next !== prev) {
+      prev = next;
+      // A scheduled re-render reads the latest function when it runs
+      if (!scheduled) {
+        rerender();
+      }
+    }
+  });
+  return () => {
+    disposed = true;
+    unregister();
+  };
+}

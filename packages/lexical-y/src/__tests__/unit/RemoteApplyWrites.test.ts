@@ -28,7 +28,7 @@ import {
 } from 'lexical';
 import {describe, expect, test} from 'vitest';
 
-import {YCollabExtension} from '../..';
+import {createYDoc, YCollabExtension} from '../..';
 import {mulberry32} from '../utils/fuzz';
 import {$p, NODES} from '../utils/harness';
 
@@ -53,7 +53,7 @@ const tick = async () => {
 };
 
 function peer(id: number, state: Uint8Array, blockIds: boolean) {
-  const doc = new Y.Doc();
+  const doc = createYDoc();
   doc.clientID = id;
   Y.applyUpdate(doc, state);
   let n = 0;
@@ -71,6 +71,7 @@ function peer(id: number, state: Uint8Array, blockIds: boolean) {
         configExtension(YCollabExtension, {
           clientIDRange: 'uint32',
           doc,
+          schemaVersion: 1,
           selfCheck: true,
           synced: true,
         }),

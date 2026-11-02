@@ -13,6 +13,7 @@ import {$getRoot, createEditor} from 'lexical';
 import {describe, expect, test} from 'vitest';
 import * as Y13 from 'yjs';
 
+import {createYDoc} from '../..';
 import {inspectUpdateRoots} from '../../internal/UpdateRoots';
 import {$p, NODES} from '../utils/harness';
 import {writeEditorToYDoc} from '../utils/headless';
@@ -32,7 +33,7 @@ function bigDoc(n: number): Y.Doc {
     },
     {discrete: true},
   );
-  const doc = new Y.Doc({gc: false});
+  const doc = createYDoc(null, {gc: false});
   writeEditorToYDoc(editor, doc);
   return doc;
 }
@@ -50,7 +51,9 @@ describe('@lexical/y update roots at scale', () => {
     }
     // 8x the content: allow 30x before calling it superlinear.
     expect(times[1]).toBeLessThan(Math.max(30 * times[0], 1000));
-  });
+    // About 3 s alone (building the documents), over vitest's default 5 s
+    // limit when the whole suite runs.
+  }, 30_000);
 
   test('a delete-only update to an older root is detected', () => {
     const old = new Y13.Doc();

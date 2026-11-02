@@ -33,7 +33,7 @@ import {
 } from 'lexical';
 import {describe, expect, test} from 'vitest';
 
-import {YBinding} from '../..';
+import {createYDoc, YBinding} from '../..';
 import {editYState, readYState, seedYState} from '../../headless';
 import {Writer} from '../../internal/Write';
 import {
@@ -435,7 +435,7 @@ describe.each([[[1, 2]], [[2, 1]]])(
 );
 
 test('the headless API seeds, reads and edits a set used without registration', () => {
-  const config = {nodes: NODES, selfCheck: true};
+  const config = {nodes: NODES, schemaVersion: 1, selfCheck: true};
   const $hText = () => {
     const text = $getRoot().getFirstDescendant();
     if (!$isTextNode(text)) {
@@ -661,7 +661,7 @@ describe('the layout record', () => {
   });
 
   test('the headless API records layout 2 with the first member entry only', () => {
-    const config = {nodes: NODES, selfCheck: true};
+    const config = {nodes: NODES, schemaVersion: 1, selfCheck: true};
     const $hText = () => {
       const text = $getRoot().getFirstDescendant();
       if (!$isTextNode(text)) {
@@ -742,10 +742,12 @@ describe('the layout record', () => {
     }
   });
 
-  test('an initial write that throws part way still sends layout 2 with the member entries it wrote', () => {
-    // A root inside another shared type is written in place (not as a seed
-    // built in a scratch document first).
-    const doc = new Y.Doc();
+  test('an initial write that throws part way sends nothing', () => {
+    // A root inside another shared type is written as a seed built in a copy
+    // of the document first (see YBinding#seedUpdate): a write that throws
+    // there never reaches the document, so no member entry is sent without
+    // layout 2.
+    const doc = createYDoc();
     const root = new Y.Node('editor-root');
     doc.get('app').setAttr('editor', root);
     const editor = createEditor({
@@ -762,9 +764,8 @@ describe('the layout record', () => {
       },
       {discrete: true},
     );
-    const binding = new YBinding(editor, doc, {root});
+    const binding = new YBinding(editor, doc, {root, schemaVersion: 1});
     binding.start();
-    const before = Y.encodeStateAsUpdate(doc);
     const updates: Uint8Array[] = [];
     doc.on('update', (update: Uint8Array) => {
       updates.push(update);
@@ -790,16 +791,8 @@ describe('the layout record', () => {
       proto.$writeContainer = write;
       binding.dispose();
     }
-    expect(updates.length).toBeGreaterThan(0);
-    const first = docOf(before, updates[0]);
-    const stored = first.get('app').getAttr('editor') as Y.Node;
-    expect(
-      Object.keys(stored.getAttrs())
-        .filter(key => key.startsWith('lexical-y:'))
-        .sort(),
-    ).toEqual(['lexical-y:1', 'lexical-y:2']);
-    expect(JSON.stringify(stored.toDelta().toJSON())).toContain(
-      JSON.stringify('s:tags\u001fa').slice(1, -1),
-    );
+    expect(updates).toEqual([]);
+    expect(root.length).toBe(0);
+    expect(Object.keys(root.getAttrs())).toEqual([]);
   });
 });

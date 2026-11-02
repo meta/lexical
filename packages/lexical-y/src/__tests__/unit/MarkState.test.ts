@@ -382,8 +382,12 @@ describe('mark ids on the wire', () => {
 describe('a JSON copy of a commented text node', () => {
   // A server agent that does not know the comments state (nodes only) loads a
   // node's JSON back into it, as a generic JSON round trip does.
-  const FULL = {extensions: [MarkStateExtension], selfCheck: true};
-  const BARE = {nodes: [], selfCheck: true};
+  const FULL = {
+    extensions: [MarkStateExtension],
+    schemaVersion: 1,
+    selfCheck: true,
+  };
+  const BARE = {nodes: [], schemaVersion: 1, selfCheck: true};
   const $text = (): TextNode => {
     const node = $getRoot().getFirstDescendant();
     if (!$isTextNode(node)) {

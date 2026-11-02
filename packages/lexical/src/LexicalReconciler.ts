@@ -1012,6 +1012,7 @@ function $reconcileChildrenWithDirection(
   prevElement: ElementNode,
   nextElement: ElementNode,
   dom: HTMLElement,
+  derivesTextFields: boolean,
 ): void {
   subTreeTextFormat = null;
   subTreeTextStyle = null;
@@ -1028,8 +1029,10 @@ function $reconcileChildrenWithDirection(
     // empty-element anchors gated on `!isRootTextContentEmpty`. Skipping
     // reconcile here keeps the invariant aligned and sidesteps the
     // suffix-fast-path's stale-format edge case at the root level.
-    reconcileTextFormat(nextElement);
-    reconcileTextStyle(nextElement);
+    if (derivesTextFields) {
+      reconcileTextFormat(nextElement);
+      reconcileTextStyle(nextElement);
+    }
   }
 }
 
@@ -1827,7 +1830,19 @@ function $reconcileNode(
         : '';
     if (isDirty) {
       const outerBefore = subTreeTextContent;
-      $reconcileChildrenWithDirection(prevNode, nextNode, dom);
+      // A full reconcile (`$fullReconcile`, a new DOM render config) treats
+      // every node as dirty to render it again, but an element that this
+      // update did not change, or change inside, keeps its textFormat and
+      // textStyle: deriving them from its first text there would change a
+      // node in an update that changes none (a history entry, a write to
+      // collaborators). An element the new state does not share with the
+      // previous one (a state set whole) is derived as before.
+      $reconcileChildrenWithDirection(
+        prevNode,
+        nextNode,
+        dom,
+        prevNode !== nextNode || activeDirtyElements.has(key),
+      );
       if (!nextNode.isInline()) {
         if (!$isRootNode(nextNode)) {
           $reconcileElementTerminatingLineBreak(prevNode, nextNode, dom);

@@ -23,6 +23,7 @@ import {
   $createTextNode,
   $getNodeByKey,
   $getSelection,
+  $getWritableNodeState,
   $isLineBreakNode,
   $isRangeSelection,
   $isTabNode,
@@ -32,6 +33,7 @@ import {
   type LexicalEditor,
   type LexicalNode,
   mergeRegister,
+  NODE_STATE_KEY,
   type NodeKey,
   safeCast,
   TextNode,
@@ -79,6 +81,34 @@ export const ShikiTokenizer: Tokenizer = {
   defaultTheme: DEFAULT_CODE_THEME,
 };
 
+/**
+ * Give `to` the NodeState of `from`, flat states included, keeping the state
+ * that `to` has for the keys `from` does not set (such as state that a node
+ * replacement initializes).
+ */
+function $copyNodeState(from: LexicalNode, to: LexicalNode): void {
+  // @internal access, like `__text`: the NodeState of the node
+  const json: Record<string, unknown> = from.__state
+    ? from.__state.toJSON()
+    : {};
+  const entries = Object.entries(json);
+  if (entries.length === 0) {
+    return;
+  }
+  const state = $getWritableNodeState(to);
+  for (const [key, value] of entries) {
+    if (key === NODE_STATE_KEY) {
+      for (const [nestedKey, nestedValue] of Object.entries(
+        value as Record<string, unknown>,
+      )) {
+        state.updateFromUnknown(nestedKey, nestedValue);
+      }
+    } else {
+      state.updateFromUnknown(key, value);
+    }
+  }
+}
+
 function $textNodeTransform(
   editor: LexicalEditor,
   tokenizer: Tokenizer,
@@ -92,8 +122,11 @@ function $textNodeTransform(
     $codeNodeTransform(editor, tokenizer, transformState, parentNode);
   } else if ($isCodeHighlightNode(node)) {
     // When code block converted into paragraph or other element
-    // code highlight nodes converted back to normal text
-    node.replace($createTextNode(node.__text));
+    // code highlight nodes converted back to normal text, which keeps
+    // their NodeState (such as comment ids)
+    const text = $createTextNode(node.__text);
+    $copyNodeState(node, text);
+    node.replace(text);
   }
 }
 

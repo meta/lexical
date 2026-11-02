@@ -12,6 +12,11 @@
 // typed text includes emoji). Every third seed replaces TextNode with a
 // subclass through a node replacement.
 //
+// It runs twice: with every id in MarkStateExtension, and with the ids split
+// between MarkStateExtension and a second mark flavor (CommentMarks), whose
+// ids together must follow the same model: the rule is per id, so two
+// flavors must not change each other's ids.
+//
 // MARK_STATE_PROPERTY_SEEDS and MARK_STATE_PROPERTY_STEPS run it longer
 // (the defaults keep it to a couple of seconds), and MARK_STATE_PROPERTY_OPS
 // limits it to a comma separated list of operations.
@@ -31,7 +36,8 @@ import {
   $getMarkIDsAtSelection,
   $getNodeMarkIDs,
   $removeMarkID,
-  MARK_STATE_IDS_ATTRIBUTE,
+  type AnyMarkFlavorExtension,
+  defineMarkExtension,
   MarkStateExtension,
 } from '@lexical/mark';
 import {$createHeadingNode, RichTextExtension} from '@lexical/rich-text';
@@ -57,6 +63,7 @@ import {
   FORMAT_TEXT_COMMAND,
   INSERT_PARAGRAPH_COMMAND,
   type LexicalEditor,
+  type LexicalNode,
   PASTE_COMMAND,
   REDO_COMMAND,
   TextNode,
@@ -73,6 +80,41 @@ interface Char {
 type Model = Char[][];
 
 const IDS = ['c1', 'c2', 'c3', 'c4', 'c5'];
+
+const CommentMarks = defineMarkExtension({
+  className: 'comment',
+  name: '@test/CommentMarks',
+  overlapClassName: 'comment-overlap',
+  stateKey: 'commentIds',
+});
+
+/** In the two-flavor run, these ids go to CommentMarks */
+const COMMENT_IDS: readonly string[] = ['c2', 'c4'];
+
+let twoFlavors = false;
+
+function flavorOf(id: string): AnyMarkFlavorExtension {
+  return twoFlavors && COMMENT_IDS.includes(id)
+    ? CommentMarks
+    : MarkStateExtension;
+}
+
+/** The flavors of the current run, with their theme classes */
+function flavors(): [AnyMarkFlavorExtension, string, string][] {
+  return twoFlavors
+    ? [
+        [MarkStateExtension, 'mark', 'mark-overlap'],
+        [CommentMarks, 'comment', 'comment-overlap'],
+      ]
+    : [[MarkStateExtension, 'mark', 'mark-overlap']];
+}
+
+/** The ids of every flavor on a node, sorted */
+function $nodeIDs(node: LexicalNode): string[] {
+  return union(
+    ...flavors().map(([flavor]) => $getNodeMarkIDs(flavor, node)),
+  ).slice();
+}
 
 const OPS = [
   'type',
@@ -156,7 +198,7 @@ function $documentModel(): Model {
       $assertNodeType(block, $isElementNode)
         .getAllTextNodes()
         .flatMap(node => {
-          const ids = $getNodeMarkIDs(node);
+          const ids = $nodeIDs(node);
           return Array.from(node.getTextContent(), c => ({c, ids}));
         }),
     );
@@ -259,6 +301,7 @@ function createEditor(withReplacement: boolean) {
         RichTextExtension,
         configExtension(HistoryExtension, {delay: 0}),
         MarkStateExtension,
+        ...(twoFlavors ? [CommentMarks] : []),
       ],
       name: '[root]',
       nodes: () =>
@@ -297,46 +340,55 @@ function check(
       `document\n  got:  ${describeModel(doc)}\n  want: ${describeModel(model)}`,
     );
   }
-  const output = getExtensionDependencyFromEditor(
-    editor,
-    MarkStateExtension,
-  ).output.markIDNodeKeys.peek();
   const normalize = (map: ReadonlyMap<string, readonly string[]>) =>
     JSON.stringify(
       Array.from(map, ([id, keys]) => [id, keys.slice().sort()]).sort((a, b) =>
         a[0] < b[0] ? -1 : 1,
       ),
     );
-  editor.read(() => {
-    // markIDNodeKeys against a full recomputation
-    const expected = new Map<string, string[]>();
-    for (const node of $getRoot().getAllTextNodes()) {
-      for (const id of $getNodeMarkIDs(node)) {
-        expected.set(id, [...(expected.get(id) || []), node.getKey()]);
+  for (const [flavor, mark, overlap] of flavors()) {
+    const output = getExtensionDependencyFromEditor(
+      editor,
+      flavor,
+    ).output.markIDNodeKeys.peek();
+    editor.read(() => {
+      // markIDNodeKeys against a full recomputation
+      const expected = new Map<string, string[]>();
+      for (const node of $getRoot().getAllTextNodes()) {
+        for (const id of $getNodeMarkIDs(flavor, node)) {
+          expected.set(id, [...(expected.get(id) || []), node.getKey()]);
+        }
       }
-    }
-    if (normalize(output) !== normalize(expected)) {
-      fail(
-        `markIDNodeKeys\n  got:  ${normalize(output)}\n  want: ${normalize(expected)}`,
-      );
-    }
-    // The DOM, and no equal siblings left unmerged
+      if (normalize(output) !== normalize(expected)) {
+        fail(
+          `${flavor.name} markIDNodeKeys\n  got:  ${normalize(output)}\n  want: ${normalize(expected)}`,
+        );
+      }
+      // The DOM of each flavor
+      for (const node of $getRoot().getAllTextNodes()) {
+        const ids = $getNodeMarkIDs(flavor, node);
+        const dom = editor.getElementByKey(node.getKey());
+        if (
+          dom === null ||
+          dom.getAttribute(flavor.attribute) !==
+            (ids.length > 0 ? ids.join(' ') : null) ||
+          dom.classList.contains(mark) !== ids.length > 0 ||
+          dom.classList.contains(overlap) !== ids.length > 1
+        ) {
+          fail(
+            `${flavor.name} DOM of ${JSON.stringify(node.getTextContent())}`,
+          );
+        }
+      }
+    });
+  }
+  editor.read(() => {
+    // No equal siblings left unmerged
     for (const block of $getRoot().getChildren()) {
       const children = $assertNodeType(block, $isElementNode).getChildren();
       children.forEach((node, i) => {
         if (!$isTextNode(node)) {
           return;
-        }
-        const ids = $getNodeMarkIDs(node);
-        const dom = editor.getElementByKey(node.getKey());
-        if (
-          dom === null ||
-          dom.getAttribute(MARK_STATE_IDS_ATTRIBUTE) !==
-            (ids.length > 0 ? ids.join(' ') : null) ||
-          dom.classList.contains('mark') !== ids.length > 0 ||
-          dom.classList.contains('mark-overlap') !== ids.length > 1
-        ) {
-          fail(`DOM of ${JSON.stringify(node.getTextContent())}`);
         }
         const next = children[i + 1];
         if (
@@ -345,7 +397,11 @@ function check(
           next.isSimpleText() &&
           node.getFormat() === next.getFormat() &&
           node.getStyle() === next.getStyle() &&
-          ids.join() === $getNodeMarkIDs(next).join()
+          flavors().every(
+            ([flavor]) =>
+              $getNodeMarkIDs(flavor, node).join() ===
+              $getNodeMarkIDs(flavor, next).join(),
+          )
         ) {
           fail(`unmerged ${node.getTextContent()}|${next.getTextContent()}`);
         }
@@ -380,7 +436,11 @@ function check(
           start.offset > 0 &&
           start.offset < node.getTextContentSize()
         ) {
-          const got = $getMarkIDsAtSelection(selection).join();
+          const got = union(
+            ...flavors().map(([flavor]) =>
+              $getMarkIDsAtSelection(flavor, selection),
+            ),
+          ).join();
           if (got !== model[b1][o1].ids.join()) {
             fail(`ids at the caret ${b1}:${o1}: ${got}`);
           }
@@ -395,8 +455,18 @@ function check(
         .map(ch => ch.ids)
         .reduce((a, b) => intersect(a, b))
         .join();
-      const gotAny = $getMarkIDsAtSelection(selection, 'any').join();
-      const gotAll = $getMarkIDsAtSelection(selection, 'all').join();
+      // The flavors have disjoint ids, so the ids of all of them shared by
+      // every character are the union of each flavor's shared ids
+      const gotAny = union(
+        ...flavors().map(([flavor]) =>
+          $getMarkIDsAtSelection(flavor, selection, 'any'),
+        ),
+      ).join();
+      const gotAll = union(
+        ...flavors().map(([flavor]) =>
+          $getMarkIDsAtSelection(flavor, selection, 'all'),
+        ),
+      ).join();
       if (gotAny !== any || gotAll !== all) {
         fail(
           `ids of ${b1}:${o1}-${b2}:${o2}: any ${gotAny} (want ${any}), all ${gotAll} (want ${all})`,
@@ -438,7 +508,11 @@ function run(seed: number, steps: number, ops: readonly Op[]) {
         ? o1 + 1 + Math.floor(random() * (length(b1) - o1))
         : Math.floor(random() * (length(b2) + 1));
     update(() => {
-      $addMarkID(id, $select([b1, o1, true], [b2, o2, false], random() < 0.5));
+      $addMarkID(
+        flavorOf(id),
+        id,
+        $select([b1, o1, true], [b2, o2, false], random() < 0.5),
+      );
     });
   }
   editor.dispatchCommand(CLEAR_HISTORY_COMMAND, undefined);
@@ -631,11 +705,11 @@ function run(seed: number, steps: number, ops: readonly Op[]) {
         commit(
           () => {
             if (removeFirst) {
-              $removeMarkID(id);
+              $removeMarkID(flavorOf(id), id);
             }
             editor.dispatchCommand(CONTROLLED_TEXT_INSERTION_COMMAND, c);
             if (!removeFirst) {
-              $removeMarkID(id);
+              $removeMarkID(flavorOf(id), id);
             }
           },
           () => {
@@ -842,9 +916,9 @@ function run(seed: number, steps: number, ops: readonly Op[]) {
               backward,
             );
             if (op === 'mark') {
-              $addMarkID(id, selection);
+              $addMarkID(flavorOf(id), id, selection);
             } else {
-              $removeMarkID(id, everywhere ? null : selection);
+              $removeMarkID(flavorOf(id), id, everywhere ? null : selection);
             }
           },
           () => {
@@ -949,7 +1023,10 @@ function run(seed: number, steps: number, ops: readonly Op[]) {
   editor.dispose();
 }
 
-describe('MarkStateExtension property test', () => {
+describe.each([
+  ['MarkStateExtension property test', false],
+  ['MarkStateExtension property test with two mark flavors', true],
+])('%s', (_title, withTwoFlavors) => {
   const seeds = Number(process.env.MARK_STATE_PROPERTY_SEEDS || 40);
   const steps = Number(process.env.MARK_STATE_PROPERTY_STEPS || 30);
   const ops = (process.env.MARK_STATE_PROPERTY_OPS || '')
@@ -957,13 +1034,18 @@ describe('MarkStateExtension property test', () => {
     .filter((op): op is Op => (OPS as readonly string[]).includes(op));
 
   test(`${seeds} random edit sequences of ${steps} steps keep the ids of every character`, () => {
+    twoFlavors = withTwoFlavors;
     const failures: string[] = [];
-    for (let seed = 1; seed <= seeds; seed++) {
-      try {
-        run(seed, steps, ops.length > 0 ? ops : OPS);
-      } catch (error) {
-        failures.push(`seed ${seed}: ${(error as Error).message}`);
+    try {
+      for (let seed = 1; seed <= seeds; seed++) {
+        try {
+          run(seed, steps, ops.length > 0 ? ops : OPS);
+        } catch (error) {
+          failures.push(`seed ${seed}: ${(error as Error).message}`);
+        }
       }
+    } finally {
+      twoFlavors = false;
     }
     expect(failures.slice(0, 3).join('\n\n')).toBe('');
     expect(failures.length).toBe(0);

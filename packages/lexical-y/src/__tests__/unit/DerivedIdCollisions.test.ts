@@ -49,7 +49,7 @@ import {
 import {$assertNodeType} from 'lexical/src/__tests__/utils';
 import {expect, test} from 'vitest';
 
-import {YCollabExtension} from '../..';
+import {createYDoc, YCollabExtension} from '../..';
 import {$createBoxNode, NODES, WidgetNode} from '../utils/harness';
 
 const NET = Symbol('net');
@@ -63,7 +63,7 @@ const idle = async () => {
 function peer(
   id: number,
   blockIds: boolean,
-  doc = new Y.Doc({gc: false}),
+  doc = createYDoc(null, {gc: false}),
   identified: (node: LexicalNode) => boolean = $defaultIsIdentifiedBlock,
   // Off where the test is that a client shows what a fresh reader shows
   // without it (the self-check reads a container again when it differs).
@@ -89,7 +89,7 @@ function peer(
               }),
             ]
           : []),
-        configExtension(YCollabExtension, {doc, selfCheck}),
+        configExtension(YCollabExtension, {doc, schemaVersion: 1, selfCheck}),
       ],
       name: `peer${id}`,
       nodes: NODES,
@@ -111,7 +111,7 @@ async function reader(
   identified?: (node: LexicalNode) => boolean,
   selfCheck = true,
 ): Promise<P> {
-  const doc = new Y.Doc({gc: from.gc});
+  const doc = createYDoc(null, {gc: from.gc});
   Y.applyUpdate(doc, Y.encodeStateAsUpdate(from), NET);
   const p = peer(id, true, doc, identified, selfCheck);
   p.binding.initialize();
@@ -255,7 +255,7 @@ test('a writer without BlockIdExtension pastes the JSON of a paragraph a reader 
 for (const gc of [false, true]) {
   test(`a copy of the derived id a later holder of a repeated id shows (gc ${gc}): unique ids, nothing written on a remote change or on load`, async () => {
     // A writer without BlockIdExtension stores one id on two paragraphs.
-    const a = peer(21, false, new Y.Doc({gc}));
+    const a = peer(21, false, createYDoc(null, {gc}));
     a.editor.update(
       () => {
         for (const text of ['first', 'second']) {
@@ -294,7 +294,7 @@ for (const gc of [false, true]) {
   });
 
   test(`a copy of the fallback id a paragraph shows after a copy of its derived id (gc ${gc}): unique ids, nothing written`, async () => {
-    const a = peer(31, false, new Y.Doc({gc}));
+    const a = peer(31, false, createYDoc(null, {gc}));
     a.editor.update(
       () => {
         $getRoot().append(
@@ -514,7 +514,7 @@ for (const gc of [false, true]) {
         // Before: the block kept the `_d` id it fell back to while the copy
         // was there; a fresh reader showed its derived id, and the block's
         // next edit stored the `_d` id for everyone.
-        const w = peer(1, false, new Y.Doc({gc}));
+        const w = peer(1, false, createYDoc(null, {gc}));
         w.editor.update(
           () => {
             $getRoot()
@@ -530,7 +530,7 @@ for (const gc of [false, true]) {
         w.binding.initialize();
         await idle();
         // A writes without ids; B reads with them.
-        const a = peer(2, false, new Y.Doc({gc}), undefined, false);
+        const a = peer(2, false, createYDoc(null, {gc}), undefined, false);
         deliver(w, a);
         a.binding.initialize();
         const b = await reader(3, w.doc, undefined, false);
@@ -655,7 +655,7 @@ for (const gc of [false, true]) {
       // reader.
       const $identified = (n: LexicalNode) =>
         $defaultIsIdentifiedBlock(n) || $isListNode(n);
-      const w = peer(71, false, new Y.Doc({gc}));
+      const w = peer(71, false, createYDoc(null, {gc}));
       w.editor.update(
         () => {
           $getRoot()
@@ -671,7 +671,7 @@ for (const gc of [false, true]) {
       w.binding.initialize();
       await idle();
       const r = await reader(72, w.doc, $identified, false);
-      const i = peer(73, indenter, new Y.Doc({gc}), $identified, false);
+      const i = peer(73, indenter, createYDoc(null, {gc}), $identified, false);
       deliver(w, i);
       i.binding.initialize();
       await idle();
@@ -720,7 +720,7 @@ for (const gc of [false, true]) {
       $defaultIsIdentifiedBlock(n) || $isListNode(n);
     const $item = (t: string) =>
       $createListItemNode().append($createTextNode(t));
-    const w = peer(81, false, new Y.Doc({gc}));
+    const w = peer(81, false, createYDoc(null, {gc}));
     w.editor.update(
       () => {
         $getRoot()
@@ -754,7 +754,7 @@ for (const gc of [false, true]) {
     );
     await idle();
     // The author has that write, not the writer's normalization of it.
-    const doc = new Y.Doc({gc});
+    const doc = createYDoc(null, {gc});
     Y.applyUpdate(doc, seeded, NET);
     Y.applyUpdate(doc, updates[0], NET);
     const author = peer(82, true, doc, $identified, false);
@@ -785,7 +785,7 @@ for (const gc of [false, true]) {
     // so no stored list id) but took the list's stored id from the item's
     // marker when settling, so a reader whose list had shown that id kept
     // it, and a fresh reader showed the derived one.
-    const w = peer(91, false, new Y.Doc({gc}), undefined, false);
+    const w = peer(91, false, createYDoc(null, {gc}), undefined, false);
     w.editor.update(
       () => {
         const list = $createListNode('bullet').append(
@@ -841,7 +841,7 @@ for (const gc of [false, true]) {
 for (const gc of [false, true]) {
   for (const markerRemoved of [false, true]) {
     test(`a block decorator written into a line without the normalization${markerRemoved ? ', which loses its marker concurrently' : ''} (gc ${gc}): unique ids, nothing written on a remote change or on load`, async () => {
-      const w = peer(1, true, new Y.Doc({gc}));
+      const w = peer(1, true, createYDoc(null, {gc}));
       w.editor.update(
         () => {
           $getRoot()
@@ -921,7 +921,7 @@ for (const authorIds of [false, true]) {
     w.binding.initialize();
     await idle();
     const a = await reader(2, w.doc, undefined, false);
-    const docB = new Y.Doc({gc: false});
+    const docB = createYDoc(null, {gc: false});
     Y.applyUpdate(docB, Y.encodeStateAsUpdate(w.doc), NET);
     const b = peer(3, authorIds, docB, undefined, false);
     b.binding.initialize();

@@ -40,8 +40,13 @@ import {$p, NODES} from '../utils/harness';
 // The tests turn the binding's self-check on (it is off by default); the
 // scale test measures without it, as a server runs. Warnings are checked in
 // the results.
-const config = {nodes: NODES, onWarn: () => {}, selfCheck: true};
-const serverConfig = {nodes: NODES, onWarn: () => {}};
+const config = {
+  nodes: NODES,
+  onWarn: () => {},
+  schemaVersion: 1,
+  selfCheck: true,
+};
+const serverConfig = {nodes: NODES, onWarn: () => {}, schemaVersion: 1};
 
 function seed(...lines: string[]): Uint8Array {
   return seedYState(config, () => {

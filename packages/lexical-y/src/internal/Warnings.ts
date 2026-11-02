@@ -17,8 +17,9 @@ import {LexicalWarning} from 'lexical';
  */
 export const UNSUPPORTED_LAYOUT_WARNING = '@lexical/y/unsupported-layout';
 /**
- * @experimental The document has node types the editor cannot build: read
- * only. `data`: YUnknownNodeTypesData.
+ * @experimental The document has node types the editor cannot build, or
+ * stored content its classes throw on: read only. `data`:
+ * YUnknownNodeTypesData, or YUnreadableContentData.
  */
 export const UNKNOWN_NODE_TYPES_WARNING = '@lexical/y/unknown-node-types';
 /**
@@ -58,10 +59,25 @@ export const UNSYNCED_VALUE_WARNING = '@lexical/y/unsynced-value';
  */
 export const UNSUPPORTED_SLOTS_WARNING = '@lexical/y/unsupported-slots';
 /**
- * @experimental The editor is configured in a way the binding cannot write
- * with: nothing is written, read only. `data`: YUnsupportedConfigData.
+ * @experimental The editor or the document is configured in a way the
+ * binding cannot write with: nothing is written, read only. `data`:
+ * YUnsupportedConfigData.
  */
 export const UNSUPPORTED_CONFIG_WARNING = '@lexical/y/unsupported-config';
+/**
+ * @experimental A local update changed the editor while the binding is read
+ * only: nothing is written, and what it changed is read again (once the
+ * document cannot be read, the editor shows what it showed before the update
+ * again), so the editor keeps showing the document. Reported once each time
+ * the binding goes read only. `data`: YUnsupportedEditData.
+ */
+export const UNSUPPORTED_EDIT_WARNING = '@lexical/y/unsupported-edit';
+/**
+ * @experimental A client of a newer version of the app (a higher
+ * `schemaVersion`) wrote to the document: read only. `data`:
+ * YUnsupportedSchemaData.
+ */
+export const UNSUPPORTED_SCHEMA_WARNING = '@lexical/y/unsupported-schema';
 
 /**
  * @experimental The codes of the `LexicalWarning`s the binding passes to the
@@ -78,7 +94,9 @@ export type YWarningCode =
   | typeof NESTED_FALLBACK_WARNING
   | typeof UNSYNCED_VALUE_WARNING
   | typeof UNSUPPORTED_SLOTS_WARNING
-  | typeof UNSUPPORTED_CONFIG_WARNING;
+  | typeof UNSUPPORTED_CONFIG_WARNING
+  | typeof UNSUPPORTED_EDIT_WARNING
+  | typeof UNSUPPORTED_SCHEMA_WARNING;
 
 /**
  * @experimental `data` of an `UNSUPPORTED_LAYOUT_WARNING` (the binding is read
@@ -108,6 +126,29 @@ export type YUnsupportedLayoutData =
   | {
       readonly reason: 'legacy-roots';
       readonly roots: readonly string[];
+      readonly supported: number;
+    };
+
+/**
+ * @experimental `data` of an `UNSUPPORTED_SCHEMA_WARNING` (the binding is read
+ * only). `supported`: the binding's `schemaVersion`.
+ */
+export type YUnsupportedSchemaData =
+  /**
+   * A client whose `schemaVersion` is `found`, higher than `supported`, wrote
+   * to the document: the app is out of date (render your own banner, such as
+   * one that asks to reload).
+   */
+  | {
+      readonly reason: 'newer';
+      readonly found: number;
+      readonly supported: number;
+    }
+  /** The record at `key` is not a schema record; `found` is its value. */
+  | {
+      readonly reason: 'malformed';
+      readonly key: string;
+      readonly found: unknown;
       readonly supported: number;
     };
 
@@ -150,6 +191,21 @@ export interface YUnknownNodeTypesData {
 }
 
 /**
+ * @experimental `data` of an `UNKNOWN_NODE_TYPES_WARNING` whose `reason` is
+ * `'unreadable'` (the binding is read only): stored content the editor's
+ * classes throw on when they read it (its importJSON or updateFromJSON, a
+ * NodeState parse), of `types`, with the first `error` thrown. The editor
+ * shows the rest of the document. `types` is empty, and the editor keeps
+ * what it showed before and reads nothing more, where a read failed without
+ * a class to name (it threw again on a fresh read of the document).
+ */
+export interface YUnreadableContentData {
+  readonly reason: 'unreadable';
+  readonly types: readonly string[];
+  readonly error: unknown;
+}
+
+/**
  * @experimental `data` of an `UNSUPPORTED_SLOTS_WARNING` (the change is not
  * written and the binding is read only): `types` hold named slots on a node
  * stored as a line, a format or a group (`'stored-host'`), or on the root
@@ -162,12 +218,27 @@ export interface YUnsupportedSlotsData {
 
 /**
  * @experimental `data` of an `UNSUPPORTED_CONFIG_WARNING` (nothing is written
- * and the binding is read only): `options` (`'<extension>.<option>'`) are set
- * to a value the binding cannot write with.
+ * and the binding is read only), one warning per reason.
  */
-export interface YUnsupportedConfigData {
-  readonly reason: 'repair-transforms';
-  readonly options: readonly string[];
+export type YUnsupportedConfigData =
+  /**
+   * `options` (`'<extension>.<option>'`) are set to a value the binding
+   * cannot write with.
+   */
+  | {readonly reason: 'repair-transforms'; readonly options: readonly string[]}
+  /**
+   * The document runs Yjs's format cleanup (`doc.cleanupFormatting` is not
+   * false): it was not made by `createYDoc`.
+   */
+  | {readonly reason: 'cleanup-formatting'};
+
+/**
+ * @experimental `data` of an `UNSUPPORTED_EDIT_WARNING`: a local update
+ * (code that edits the editor, which is not editable) changed content while
+ * the binding is read only (`'read-only'`).
+ */
+export interface YUnsupportedEditData {
+  readonly reason: 'read-only';
 }
 
 /**
@@ -258,7 +329,7 @@ export interface YUnsyncedValueData {
 /** The `data` of each code. */
 interface YWarningDataByCode {
   [UNSUPPORTED_LAYOUT_WARNING]: YUnsupportedLayoutData;
-  [UNKNOWN_NODE_TYPES_WARNING]: YUnknownNodeTypesData;
+  [UNKNOWN_NODE_TYPES_WARNING]: YUnknownNodeTypesData | YUnreadableContentData;
   [STORAGE_MISMATCH_WARNING]: YStorageMismatchData;
   [SELF_CHECK_WARNING]: YSelfCheckData;
   [RECOVERED_READ_WARNING]: YRecoveredReadData;
@@ -267,6 +338,8 @@ interface YWarningDataByCode {
   [UNSYNCED_VALUE_WARNING]: YUnsyncedValueData;
   [UNSUPPORTED_SLOTS_WARNING]: YUnsupportedSlotsData;
   [UNSUPPORTED_CONFIG_WARNING]: YUnsupportedConfigData;
+  [UNSUPPORTED_EDIT_WARNING]: YUnsupportedEditData;
+  [UNSUPPORTED_SCHEMA_WARNING]: YUnsupportedSchemaData;
 }
 
 /** @experimental The `data` of the warnings with code `C`. */
@@ -295,6 +368,8 @@ const CODES: ReadonlySet<string> = new Set<YWarningCode>([
   UNSYNCED_VALUE_WARNING,
   UNSUPPORTED_SLOTS_WARNING,
   UNSUPPORTED_CONFIG_WARNING,
+  UNSUPPORTED_EDIT_WARNING,
+  UNSUPPORTED_SCHEMA_WARNING,
 ]);
 
 /**

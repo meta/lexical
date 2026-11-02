@@ -41,7 +41,7 @@ import {
 import {$assertNodeType} from 'lexical/src/__tests__/utils';
 import {expect, test} from 'vitest';
 
-import {YCollabExtension} from '../..';
+import {createYDoc, YCollabExtension} from '../..';
 import {NODES} from '../utils/harness';
 
 const idle = async () => {
@@ -51,7 +51,7 @@ const idle = async () => {
 };
 
 function peer(id: number, update: Uint8Array | null, blockIds: boolean) {
-  const doc = new Y.Doc();
+  const doc = createYDoc();
   doc.clientID = id;
   if (update !== null) {
     Y.applyUpdate(doc, update);
@@ -69,7 +69,11 @@ function peer(id: number, update: Uint8Array | null, blockIds: boolean) {
               }),
             ]
           : []),
-        configExtension(YCollabExtension, {doc, selfCheck: true}),
+        configExtension(YCollabExtension, {
+          doc,
+          schemaVersion: 1,
+          selfCheck: true,
+        }),
       ],
       name: `peer${id}`,
       nodes: NODES,

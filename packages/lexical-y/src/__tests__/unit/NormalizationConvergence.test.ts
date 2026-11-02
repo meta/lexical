@@ -49,7 +49,7 @@ import {
 import {$assertNodeType} from 'lexical/src/__tests__/utils';
 import {afterAll, describe, expect, test} from 'vitest';
 
-import {YBinding} from '../..';
+import {createYDoc, YBinding, type YDoc} from '../..';
 import {
   $block,
   $createBoxNode,
@@ -623,20 +623,20 @@ function storedNames(peer: Peer): string[] {
 // author ends up where a fresh reader of what it wrote is, with no self-check
 // to bring it there.
 test('a setEditorState replacement is normalized by its author, who matches a fresh reader', async () => {
-  const client = (doc: Y.Doc) => {
+  const client = (doc: YDoc) => {
     const editor = createEditor({
       nodes: NODES,
       onError: e => {
         throw e;
       },
     });
-    const binding = new YBinding(editor, doc);
+    const binding = new YBinding(editor, doc, {schemaVersion: 1});
     binding.start();
     return {binding, editor};
   };
   const tree = (editor: LexicalEditor) =>
     editor.read(() => $getRoot().getChildren().map(describeNode).join(' / '));
-  const doc = new Y.Doc({gc: false});
+  const doc = createYDoc(null, {gc: false});
   const a = client(doc);
   a.editor.update(() => $getRoot().append($p('base')), {discrete: true});
   a.binding.initialize();
@@ -663,7 +663,7 @@ test('a setEditorState replacement is normalized by its author, who matches a fr
   );
   a.editor.setEditorState(source.getEditorState());
   await flush();
-  const copy = new Y.Doc({gc: false});
+  const copy = createYDoc(null, {gc: false});
   Y.applyUpdate(copy, Y.encodeStateAsUpdate(doc));
   const fresh = client(copy);
   fresh.binding.initialize();

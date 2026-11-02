@@ -10,6 +10,8 @@ import invariant from '@lexical/internal/invariant';
 import {
   $createTextNode,
   $isTextNode,
+  INTERNAL_$recordTextMove,
+  INTERNAL_$recordTextRetype,
   type Klass,
   type LexicalEditor,
   type LexicalNode,
@@ -53,6 +55,8 @@ export function registerLexicalTextEntity<T extends TextNode>(
       .setStyle(node.getStyle())
       .setDetail(node.getDetail());
     node.replace(textNode);
+    // The same characters in a plain text node (for collaboration).
+    INTERNAL_$recordTextRetype(node, textNode);
   };
 
   const getMode = (node: TextNode): number => {
@@ -86,14 +90,19 @@ export function registerLexicalTextEntity<T extends TextNode>(
             const concatText = text.slice(0, diff);
             const newTextContent = previousText + concatText;
             prevSibling.select();
-            prevSibling.setTextContent(newTextContent);
+            // The entity takes the first `diff` characters of this node: a
+            // move of those characters (for collaboration).
+            const entityNode = prevSibling;
+            INTERNAL_$recordTextMove(node, entityNode, diff, () => {
+              entityNode.setTextContent(newTextContent);
 
-            if (diff === text.length) {
-              node.remove();
-            } else {
-              const remainingText = text.slice(diff);
-              node.setTextContent(remainingText);
-            }
+              if (diff === text.length) {
+                node.remove();
+              } else {
+                const remainingText = text.slice(diff);
+                node.setTextContent(remainingText);
+              }
+            });
 
             return;
           }
@@ -173,6 +182,9 @@ export function registerLexicalTextEntity<T extends TextNode>(
         .setStyle(nodeToReplace.getStyle())
         .setDetail(nodeToReplace.getDetail());
       nodeToReplace.replace(replacementNode);
+      // The same characters in the entity node (for collaboration), where
+      // createNode gave it the same text.
+      INTERNAL_$recordTextRetype(nodeToReplace, replacementNode);
 
       if (currentNode == null) {
         return;

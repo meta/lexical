@@ -70,7 +70,7 @@ import {
 import {$assertNodeType} from 'lexical/src/__tests__/utils';
 import {describe, expect, test} from 'vitest';
 
-import {YCollabExtension} from '../..';
+import {createYDoc, YCollabExtension} from '../..';
 import {ColContainerNode, ColContentNode, ColTitleNode} from '../utils/harness';
 
 const HEAD = 'Redanax redanex redanix redanox ';
@@ -97,7 +97,7 @@ type Concurrent = 'none' | 'the same change' | 'a deleted word' | 'typing';
 type Seg = {text: string; as: 'plain' | 'other link' | Kind};
 
 function peer(id: number) {
-  const doc = new Y.Doc({gc: false});
+  const doc = createYDoc(null, {gc: false});
   doc.clientID = id;
   const errors: unknown[] = [];
   const warnings: string[] = [];
@@ -105,7 +105,11 @@ function peer(id: number) {
     defineExtension({
       $initialEditorState: null,
       dependencies: [
-        configExtension(YCollabExtension, {doc, selfCheck: true}),
+        configExtension(YCollabExtension, {
+          doc,
+          schemaVersion: 1,
+          selfCheck: true,
+        }),
         MarkStateExtension,
       ],
       name: 'format-only/' + id,

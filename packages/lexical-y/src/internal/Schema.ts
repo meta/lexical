@@ -22,6 +22,7 @@ import {
   type Klass,
   type LexicalEditor,
   type LexicalNode,
+  ParagraphNode,
   TEXT_TYPE_TO_FORMAT,
   type TextNode,
 } from 'lexical';
@@ -95,7 +96,7 @@ export const WRAPPER_PREFIX = 'w:';
 /**
  * The family of a format key: the keys whose items together give content
  * one attribute, which the write cursor bounds and keeps at boundaries as
- * one (see Cursor#collapseGap and Cursor#format). A set-valued state's
+ * one (see Cursor#format). A set-valued state's
  * member entries (`s:<key>\u001f<member>`, see setMemberEntry) are the
  * family of the set's key (`s:<key>`), with an array an earlier build
  * stored whole under that key (see joinSetMembers): together they give
@@ -111,7 +112,8 @@ export function formatFamily(key: string): string {
   return key;
 }
 
-const hasOwn = (obj: object, key: string) =>
+/** Whether `obj` has an own property `key`. */
+export const hasOwn = (obj: object, key: string): boolean =>
   Object.prototype.hasOwnProperty.call(obj, key);
 
 /** `T` without `K`, per member of a union. */
@@ -616,7 +618,7 @@ export function getLineSpec(klass: Klass<LexicalNode>): LineSpec | null {
   }
   let spec = lineSpecs.get(klass);
   if (spec === undefined) {
-    spec = {fields: new Set(Object.keys(getComposedSchemaFields(klass)))};
+    spec = {fields: schemaFieldsOf(klass)};
     lineSpecs.set(klass, spec);
   }
   return spec;
@@ -1629,21 +1631,338 @@ export function textJSONFromAttrs(text: string, encoded: Attrs): Attrs {
   return json;
 }
 
-/** Text keys this binding owns (and so may change or remove). */
-export function isOwnedTextKey(
+// ---------------------------------------------------------------------------
+// Ownership
+//
+// Invariant, in two clauses:
+// - A write changes the value a stored name gives content only where its
+//   client owns the name (ownsNodeAttr, ownsMarkerAttr, ownsFormat, and
+//   ownsMember for the members of a value that holds a node's fields);
+//   every other name keeps the value it gives content.
+// - Format items that keep every name's value on the content around a write
+//   (the negations and restores around inserted content, run ends, gap
+//   cleanup, the copies an undo brings back) are written for any name: they
+//   change no value, and filtering them by owner would let a value run on
+//   past its content.
+// Why: a document outlives app versions, and clients of several versions
+// edit it at once (during a rollout): a name a client does not know, such
+// as a field a newer version of a class declares, is another client's data,
+// which this one can neither show nor write back.
+
+/**
+ * The fields a client owns at one stored location: those its classes for
+ * the location's types declare (see ownedFields).
+ */
+export interface OwnedFields {
+  has(field: string): boolean;
+}
+
+/** No fields: a type the editor does not register. */
+const NO_FIELDS: OwnedFields = {has: () => false};
+
+/** Every field: a class that writes its JSON by hand (see writesOwnJSON). */
+const EVERY_FIELD: OwnedFields = {has: () => true};
+
+/** The member of a value that holds a node's fields that holds its NodeState. */
+const STATE_MEMBER = '$';
+
+const schemaFieldSets = new WeakMap<Klass<LexicalNode>, ReadonlySet<string>>();
+
+/** The fields `klass` declares in its `$config` schema, flat NodeState too. */
+function schemaFieldsOf(klass: Klass<LexicalNode>): ReadonlySet<string> {
+  let fields = schemaFieldSets.get(klass);
+  if (fields === undefined) {
+    fields = new Set(Object.keys(getComposedSchemaFields(klass)));
+    schemaFieldSets.set(klass, fields);
+  }
+  return fields;
+}
+
+/**
+ * Whether nodes of `klass` write their JSON by hand: the exportJSON they use
+ * is not one of `lexical`'s (LexicalNode's, which ElementNode does not
+ * override, writes the schema; ParagraphNode's only adds schema fields), so
+ * it may write fields the schema does not declare.
+ */
+function writesOwnJSON(klass: Klass<LexicalNode>): boolean {
+  const exportJSON = (klass.prototype as LexicalNode).exportJSON;
+  return (
+    exportJSON !== ElementNode.prototype.exportJSON &&
+    exportJSON !== ParagraphNode.prototype.exportJSON
+  );
+}
+
+/**
+ * The fields a client owns at a stored location whose type is `stored` and
+ * is `written` once its write is done. Where the write changes the type, or
+ * leaves none (a line that is not an item of a group holds no group's
+ * fields), every field: no node there takes the fields stored for another
+ * type. Otherwise those its class of the type declares in its `$config`
+ * schema, and none where it does not register the type. Where the location
+ * holds the class's own exportJSON (`json`: a node stored as its own Y.Node,
+ * a text run), its flat NodeState too (see jsonFieldsOf), and a class that
+ * writes its JSON by hand (see writesOwnJSON) owns every field: which ones
+ * it writes cannot be known.
+ */
+export function ownedFields(
+  editor: LexicalEditor,
+  stored: unknown,
+  written: unknown,
+  json: boolean,
+): OwnedFields {
+  if (stored !== written || written === undefined) {
+    return EVERY_FIELD;
+  }
+  const info =
+    typeof written === 'string' ? editor._nodes.get(written) : undefined;
+  return info === undefined ? NO_FIELDS : ownedFieldsOf(info.klass, json);
+}
+
+/** {@link ownedFields} where the type is `klass`'s and stays so. */
+export function ownedFieldsOf(
+  klass: Klass<LexicalNode>,
+  json: boolean,
+): OwnedFields {
+  if (!json) {
+    return schemaFieldsOf(klass);
+  }
+  return writesOwnJSON(klass) ? EVERY_FIELD : jsonFieldsOf(klass);
+}
+
+const jsonFieldSets = new WeakMap<Klass<LexicalNode>, ReadonlySet<string>>();
+
+/**
+ * The fields a node of `klass` stores where it holds its exportJSON (see
+ * $nodeAttrs, $textAttrs): its schema's (see schemaFieldsOf) and every flat
+ * NodeState it declares, whether or not that state has a schema.
+ */
+function jsonFieldsOf(klass: Klass<LexicalNode>): ReadonlySet<string> {
+  let fields = jsonFieldSets.get(klass);
+  if (fields === undefined) {
+    fields = new Set([
+      ...schemaFieldsOf(klass),
+      ...createSharedNodeState(klass).flatKeys,
+    ]);
+    jsonFieldSets.set(klass, fields);
+  }
+  return fields;
+}
+
+/**
+ * The fields a client owns where the type is one of `types` (an absent one
+ * is a paragraph's): those its classes of them declare in their `$config`
+ * schema (see ownedFieldsOf), none of a type it does not register.
+ */
+export function fieldsOfTypes(
+  editor: LexicalEditor,
+  types: readonly unknown[],
+): OwnedFields {
+  const sets: OwnedFields[] = [];
+  for (const type of types) {
+    const info = editor._nodes.get(
+      typeof type === 'string' ? type : 'paragraph',
+    );
+    if (info !== undefined) {
+      sets.push(ownedFieldsOf(info.klass, false));
+    }
+  }
+  return {has: field => sets.some(set => set.has(field))};
+}
+
+const itemFieldSets = new WeakMap<GroupSpec, OwnedFields>();
+
+/**
+ * The fields a client owns in the stored fields of an item of a group of
+ * `spec` that holds a nested group (an outer level's wrapper item, see
+ * WRAPPER_FIELDS_KEY): those one of the group's item classes declares.
+ */
+export function groupItemFields(spec: GroupSpec): OwnedFields {
+  let fields = itemFieldSets.get(spec);
+  if (fields === undefined) {
+    const sets = spec.items.map(schemaFieldsOf);
+    fields = {has: field => sets.some(set => set.has(field))};
+    itemFieldSets.set(spec, fields);
+  }
+  return fields;
+}
+
+/**
+ * The fields a client owns in the value of format wrapper `type` (see
+ * ownsMember), or null where it does not store `type` as a format wrapper.
+ */
+export function wrapperFieldsOf(
+  editor: LexicalEditor,
+  type: string,
+): OwnedFields | null {
+  const info = editor._nodes.get(type);
+  return info === undefined || getWrapperSpec(info.klass) === null
+    ? null
+    : schemaFieldsOf(info.klass);
+}
+
+/**
+ * Whether a client owns attribute `key` of a node stored as its own Y.Node:
+ * a field it owns there (`fields`), or NodeState, which the node holds
+ * whole (NodeState keeps the keys its client does not know, see
+ * $stateAttrs), so a key the node no longer holds was removed.
+ */
+export function ownsNodeAttr(key: string, fields: OwnedFields): boolean {
+  return (
+    key.startsWith(STATE_PREFIX) ||
+    (key.startsWith(FIELD_PREFIX) && fields.has(key.slice(FIELD_PREFIX.length)))
+  );
+}
+
+/**
+ * Whether a client owns attribute `key` of a line marker: the binding's own
+ * keys (type, group, level, outer levels), a field of the line it owns
+ * (`fields`) or of the line's group (`groupFields`), and NodeState (see
+ * ownsNodeAttr), the group's too.
+ */
+export function ownsMarkerAttr(
   key: string,
-  isKnownWrapper: (type: string) => boolean,
+  fields: OwnedFields,
+  groupFields: OwnedFields,
 ): boolean {
-  if (key.startsWith(WRAPPER_PREFIX)) {
-    return isKnownWrapper(key.slice(WRAPPER_PREFIX.length));
+  if (key.startsWith(GROUP_FIELD_PREFIX)) {
+    const field = key.slice(GROUP_FIELD_PREFIX.length);
+    return field === STATE_MEMBER || groupFields.has(field);
   }
   return (
     key === TYPE_KEY ||
-    key === SEGMENT_KEY ||
-    key.startsWith(TEXT_FORMAT_PREFIX) ||
-    key.startsWith(FIELD_PREFIX) ||
-    key.startsWith(STATE_PREFIX)
+    key === GROUP_KEY ||
+    key === LEVEL_KEY ||
+    key === OUTER_KEY ||
+    ownsNodeAttr(key, fields)
   );
+}
+
+/**
+ * Whether a client owns text format `key`: the binding's own keys (the text
+ * node type, a segment key), a text format its Lexical knows, a field of the
+ * text's class it owns (`fields`), NodeState (see ownsNodeAttr), and a
+ * format wrapper of a type it stores as one (`wrapperFields`, see ownsMember
+ * for the members of its value).
+ */
+export function ownsFormat(
+  key: string,
+  fields: OwnedFields,
+  wrapperFields: (type: string) => OwnedFields | null,
+): boolean {
+  if (key.startsWith(WRAPPER_PREFIX)) {
+    return wrapperFields(key.slice(WRAPPER_PREFIX.length)) !== null;
+  }
+  if (key.startsWith(TEXT_FORMAT_PREFIX)) {
+    return hasOwn(TEXT_TYPE_TO_FORMAT, key.slice(TEXT_FORMAT_PREFIX.length));
+  }
+  return key === TYPE_KEY || key === SEGMENT_KEY || ownsNodeAttr(key, fields);
+}
+
+/**
+ * Whether a client owns member `member` of a value that holds a node's
+ * fields (a format wrapper's value, an outer level's fields or its wrapper
+ * item's in OUTER_KEY): the binding's own members (a wrapper's instance, a
+ * level's wrapper item), NodeState, and a field it owns (`fields`).
+ */
+export function ownsMember(member: string, fields: OwnedFields): boolean {
+  return (
+    member === INSTANCE_KEY ||
+    member === WRAPPER_FIELDS_KEY ||
+    member === STATE_MEMBER ||
+    member.startsWith(STATE_PREFIX) ||
+    fields.has(member)
+  );
+}
+
+const isPlainObject = (v: unknown): v is Attrs =>
+  v !== null && typeof v === 'object' && !Array.isArray(v);
+
+/**
+ * `value`, a value that holds a node's fields as its client writes it, with
+ * the members of `stored` (the value stored there) that the client does not
+ * own (`owns`) kept as stored: `value` itself when there are none.
+ */
+export function withUnownedMembers(
+  value: Attrs,
+  stored: unknown,
+  owns: (member: string) => boolean,
+): Attrs {
+  if (!isPlainObject(stored)) {
+    return value;
+  }
+  let out: Attrs | null = null;
+  for (const member of Object.keys(stored)) {
+    if (!(member in value) && !isUnsafeKey(member) && !owns(member)) {
+      if (out === null) {
+        out = {...value};
+      }
+      out[member] = stored[member];
+    }
+  }
+  return out === null ? value : out;
+}
+
+/**
+ * `value` without the members its reader does not own (`owns`): what the
+ * reader's classes read of it. `value` itself when it has none.
+ */
+export function withoutUnownedMembers(
+  value: Attrs,
+  owns: (member: string) => boolean,
+): Attrs {
+  let out: Attrs | null = null;
+  for (const member of Object.keys(value)) {
+    if (!owns(member)) {
+      if (out === null) {
+        out = {...value};
+      }
+      delete out[member];
+    }
+  }
+  return out === null ? value : out;
+}
+
+/**
+ * Apply `apply` (withUnownedMembers or withoutUnownedMembers) to each level
+ * of an OUTER_KEY value, `stored[i]` being what level `i` is stored as: a
+ * level's fields are its group's (`groupFields`), and its wrapper item's
+ * those of the group's items (`itemFields`). `outer` itself where that
+ * changes nothing.
+ */
+export function eachOuterLevel(
+  outer: Attrs[],
+  stored: unknown,
+  groupFields: OwnedFields,
+  itemFields: OwnedFields,
+  apply: (
+    value: Attrs,
+    at: unknown,
+    owns: (member: string) => boolean,
+  ) => Attrs,
+): Attrs[] {
+  let out: Attrs[] | null = null;
+  outer.forEach((level, i) => {
+    const at = Array.isArray(stored) ? stored[i] : undefined;
+    let next = apply(level, at, m => ownsMember(m, groupFields));
+    const item = level[WRAPPER_FIELDS_KEY];
+    if (isPlainObject(item)) {
+      const kept = apply(
+        item,
+        isPlainObject(at) ? at[WRAPPER_FIELDS_KEY] : undefined,
+        m => ownsMember(m, itemFields),
+      );
+      if (kept !== item) {
+        next = {...next, [WRAPPER_FIELDS_KEY]: kept};
+      }
+    }
+    if (next !== level) {
+      if (out === null) {
+        out = outer.slice();
+      }
+      out[i] = next;
+    }
+  });
+  return out === null ? outer : out;
 }
 
 // ---------------------------------------------------------------------------
@@ -1655,6 +1974,21 @@ export function isOwnedTextKey(
  * one.
  */
 const INSTANCE_KEY = '#';
+
+/**
+ * Wrapper values (see $wrapperAttrs) of wrappers that hold text: their text
+ * fields are not written (Lexical does not serialize them), so a value
+ * without them does not remove text fields stored there (see
+ * Writer#formatAsStored).
+ */
+const textHoldingValues = new WeakSet<object>();
+
+/** Whether `value` is a wrapper value of a wrapper that holds text. */
+export function isTextHoldingWrapperValue(value: unknown): boolean {
+  return (
+    value !== null && typeof value === 'object' && textHoldingValues.has(value)
+  );
+}
 
 /**
  * The format of one wrapper: one key, `w:<type>`, whose value is a flat
@@ -1676,7 +2010,20 @@ export function $wrapperAttrs(
     putValue(own, f, json[f], `${node.getType()}.${f}`);
   }
   $stateAttrs(node.getLatest(), own);
-  $putTextFields(node.getLatest(), own);
+  // Only when Lexical serializes them (`shouldSerializeTextStyles`: the
+  // wrapper holds no text anywhere inside it, and a mark in a link holds
+  // text), so that the author and a fresh reader have the same JSON. With
+  // text, they follow that text (a format of it sets them), and a write of
+  // them alone would write the whole value again over the wrapper's text,
+  // which a collaborator's concurrent removal of the wrapper does not delete
+  // (the removed link came back).
+  const latest = node.getLatest();
+  if (
+    (latest.getTextFormat() !== 0 || latest.getTextStyle() !== '') &&
+    latest.shouldSerializeTextStyles()
+  ) {
+    $putTextFields(latest, own);
+  }
   for (const k in own) {
     const v = own[k];
     // Yjs compares format values one level deep: a value that is not a
@@ -1693,6 +2040,9 @@ export function $wrapperAttrs(
   if (instance !== null) {
     own[INSTANCE_KEY] = instance;
   }
+  if (!latest.shouldSerializeTextStyles()) {
+    textHoldingValues.add(own);
+  }
   // The innermost wrapper of a type wins.
   out[WRAPPER_PREFIX + node.getType()] = own;
 }
@@ -1704,10 +2054,14 @@ export type WrapperValue = {
   readonly instance: string | null;
 };
 
-/** Wrapper values in a format map, sorted by type. */
+/**
+ * Wrapper values in a format map, sorted by type: of the types `fieldsOf`
+ * gives the fields of (those its reader stores as format wrappers, see
+ * wrapperFieldsOf), each with the members its reader owns (see ownsMember).
+ */
 export function wrappersFromAttrs(
   attrs: Attrs,
-  isKnownWrapper: (type: string) => boolean,
+  fieldsOf: (type: string) => OwnedFields | null,
 ): WrapperValue[] {
   const result: WrapperValue[] = [];
   for (const key in attrs) {
@@ -1716,7 +2070,8 @@ export function wrappersFromAttrs(
     }
     const type = key.slice(WRAPPER_PREFIX.length);
     const value = attrs[key];
-    if (!isKnownWrapper(type) || value === null || typeof value !== 'object') {
+    const fields = fieldsOf(type);
+    if (fields === null || value === null || typeof value !== 'object') {
       continue;
     }
     const json: Attrs = {type, version: 1};
@@ -1727,6 +2082,9 @@ export function wrappersFromAttrs(
       let v = (value as Attrs)[f];
       if (f === INSTANCE_KEY) {
         instance = typeof v === 'string' ? v : null;
+        continue;
+      }
+      if (!ownsMember(f, fields)) {
         continue;
       }
       if (typeof v === 'string' && v.startsWith('\u0000')) {
@@ -1815,7 +2173,8 @@ export function $lineAttrs(
 /**
  * An element's textFormat/textStyle, which Lexical serializes only while
  * the element has no text: every peer must hold the same values, so groups
- * and wrapper items always carry them (as lines do).
+ * and lines always carry them, and wrapper items while the wrapper holds no
+ * text (see $wrapperAttrs).
  */
 function $putTextFields(node: ElementNode, out: Attrs): void {
   const tf = node.getTextFormat();

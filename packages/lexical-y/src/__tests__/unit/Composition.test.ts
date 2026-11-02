@@ -29,7 +29,7 @@ import {
 } from 'lexical';
 import {describe, expect, test} from 'vitest';
 
-import {YBinding} from '../..';
+import {createYDoc, YBinding} from '../..';
 import {
   $block,
   $p,
@@ -195,18 +195,22 @@ describe('@lexical/y IME composition with concurrent remote edits', () => {
       );
     });
 
-    test(`a structural edit of the composing line is read at once (ids ${ids})`, async () => {
+    test(`a split of the composing line waits for the composition to end (ids ${ids})`, async () => {
       const t = await setup(() => $getRoot().append($p('one two')), {ids});
       compositionStart(t.a, [0], 7);
       compositionStep(t.a, [0], 7, '', 'n');
       await t.sync();
+      const key = t.a.read(() => $text([0]).getKey());
       t.b.update(() => $selectIn([0], 3).insertParagraph());
       await t.sync();
-      expect(t.a.read(() => $getRoot().getChildrenSize())).toBe(2);
+      // The composing line keeps its nodes while composing.
+      expect(t.a.read(() => $getRoot().getChildrenSize())).toBe(1);
+      expect(t.a.read(() => $text([0]).getKey())).toBe(key);
+      expect(lineText(t.a, [0])).toBe('one twon');
       t.a.update(() => {
-        const node = $text([1]);
-        node.setTextContent(' twoに');
-        node.select(6, 6);
+        const node = $text([0]);
+        node.setTextContent('one twoに');
+        node.select(8, 8);
         $setCompositionKey(null);
       });
       await t.sync();
@@ -304,10 +308,10 @@ describe('@lexical/y IME composition with concurrent remote edits', () => {
   ]) {
     test(`a peer joins the lines after typing into the composing line (ids ${ids})`, async () => {
       // The peer's insert into the composing line is held back (not shown
-      // until the composition ends); the join then reads the line again, so
-      // it shows everything: what the editor shows and what it holds back
-      // must stay complementary (the self-check compares them on the next
-      // local write).
+      // until the composition ends); the join, which cannot be held (Yjs
+      // does not keep the deleted line marker), is read at once without it:
+      // what the editor shows and what it holds back stay complementary (the
+      // self-check compares them on the next local write).
       const t = await setup(() => $getRoot().append($p('j1z'), $p('j2z')), {
         ids,
       });
@@ -325,7 +329,7 @@ describe('@lexical/y IME composition with concurrent remote edits', () => {
         second.remove();
       });
       await t.sync();
-      expect(lineText(t.a, [0])).toBe('j1zにj2zZ');
+      expect(lineText(t.a, [0])).toBe('j1zにj2z');
       t.a.update(() => {
         const node = $getNodeByKey(key) as TextNode;
         node.setTextContent(node.getTextContent().replace('に', '日本'));
@@ -398,7 +402,7 @@ describe('@lexical/y a composition that starts before the last one showed what i
 describe('@lexical/y a held-back insert survives a read that keeps the composed line', () => {
   type Client = {doc: Y.Doc; editor: LexicalEditor; binding: YBinding};
   const client = (id: number, state?: Uint8Array): Client => {
-    const doc = new Y.Doc({gc: false});
+    const doc = createYDoc(null, {gc: false});
     doc.clientID = id;
     if (state !== undefined) {
       Y.applyUpdate(doc, state, 'load');
@@ -410,7 +414,7 @@ describe('@lexical/y a held-back insert survives a read that keeps the composed 
         throw e;
       },
     });
-    const binding = new YBinding(editor, doc);
+    const binding = new YBinding(editor, doc, {schemaVersion: 1});
     binding.start();
     return {binding, doc, editor};
   };

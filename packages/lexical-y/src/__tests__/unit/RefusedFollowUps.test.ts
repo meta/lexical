@@ -34,7 +34,7 @@ import {
 } from 'lexical';
 import {expect, test} from 'vitest';
 
-import {YCollabExtension} from '../..';
+import {createYDoc, YCollabExtension} from '../..';
 import {NODES} from '../utils/harness';
 import {writeEditorToYDoc} from '../utils/headless';
 
@@ -110,7 +110,7 @@ function storedDoc(pieces: Piece[]): Uint8Array {
     },
     {discrete: true},
   );
-  const doc = new Y.Doc();
+  const doc = createYDoc();
   doc.clientID = 1;
   writeEditorToYDoc(editor, doc);
   // Before the paragraph.
@@ -131,14 +131,18 @@ function storedDoc(pieces: Piece[]): Uint8Array {
  * pass) or before it.
  */
 function reader(id: number, update: Uint8Array, blockIdsLate: boolean) {
-  const doc = new Y.Doc();
+  const doc = createYDoc();
   doc.clientID = id;
   Y.applyUpdate(doc, update);
   let next = 0;
   const blockIds = configExtension(BlockIdExtension, {
     generateId: () => `r${id}_${next++}`,
   });
-  const collab = configExtension(YCollabExtension, {doc, selfCheck: true});
+  const collab = configExtension(YCollabExtension, {
+    doc,
+    schemaVersion: 1,
+    selfCheck: true,
+  });
   const warnings: string[] = [];
   const editor = buildEditorFromExtensions(
     defineExtension({

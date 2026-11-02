@@ -34,7 +34,7 @@ import {
 } from 'lexical';
 import {expect, test} from 'vitest';
 
-import {YBinding} from '../..';
+import {createYDoc, YBinding} from '../..';
 import {$p, expectConverged, NODES, setup} from '../utils/harness';
 
 const idle = async () => {
@@ -44,7 +44,7 @@ const idle = async () => {
 };
 
 function client(id: number, state?: Uint8Array) {
-  const doc = new Y.Doc({gc: false});
+  const doc = createYDoc(null, {gc: false});
   doc.clientID = id;
   if (state !== undefined) {
     Y.applyUpdate(doc, state, 'load');
@@ -55,7 +55,7 @@ function client(id: number, state?: Uint8Array) {
       throw e;
     },
   });
-  const binding = new YBinding(editor, doc);
+  const binding = new YBinding(editor, doc, {schemaVersion: 1});
   return {binding, doc, editor, stop: binding.start()};
 }
 

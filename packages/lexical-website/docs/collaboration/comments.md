@@ -13,7 +13,9 @@ text with an id. `@lexical/mark` offers two ways to store those marks:
   (experimental), which stores the ids as a set-valued
   [NodeState](/docs/concepts/node-state) (`markIds`) on the TextNodes,
   LineBreakNodes and inline DecoratorNodes it covers, with no wrapper
-  element.
+  element. [`defineMarkExtension`](/docs/api/modules/lexical_mark#definemarkextension)
+  makes more extensions like it, one per kind of annotation (see
+  [Mark flavors](#mark-flavors)).
 
 The ids live on the leaves, so they travel with the text. Typing inside a
 marked run adds to the TextNode that carries the ids. Marking part of a run
@@ -51,7 +53,7 @@ code that looks for `MarkNode`.
 | `$wrapSelectionInMarkNode(selection, isBackward, id)` | `$addMarkID(id, selection)`                                |
 | `markNode.deleteID(id)`, `$unwrapMarkNode(markNode)`  | `$removeMarkID(id, selection?)`                            |
 | `$getMarkIDs(node, offset)`, `markNode.getIDs()`      | `$getMarkIDsAtSelection(selection)`, `$getNodeMarkIDs(leaf)` |
-| a mutation listener on `MarkNode`                     | the `markIDNodeKeys` output                                |
+| a mutation listener on `MarkNode`                     | the `markIDNodeKeys` output, `registerMarkIDsListener`     |
 
 `$migrateMarkNodesToMarkState()` converts an existing `MarkNode` document.
 Run it once per document with a single writer (for example in a headless
@@ -112,6 +114,8 @@ editor.read(() => $getMarkIDsAtSelection());
   `[...DEFAULT_MARKABLE_NODES, MyNode]`. All peers should use the same set.
 - Marking a range also marks the content of the
   [slots](/docs/concepts/named-slots) of the nodes in it.
+- `isMarkIDShown` sets which ids are rendered; see
+  [Resolving comments](#resolving-comments).
 - HTML export leaves the ids out by default, so that they do not leak into
   other applications through the clipboard. Set `exportIDsToHTML: true` to
   write `data-lexical-mark-ids`; HTML imported through the
@@ -122,11 +126,46 @@ editor.read(() => $getMarkIDsAtSelection());
 Resolve a comment in your own data rather than in the document: keep its id
 on the text, mark its thread resolved in the store that holds your threads,
 and ignore resolved ids wherever you show comments (the highlight, the
-thread that opens at the caret, a list of comments). To leave resolved ids
-out of what the editor renders (the `mark` and `markOverlap` theme classes
-and `data-lexical-mark-ids`), see the `MarkStateExtension` option for it.
-Resolving then writes nothing to the document, and reopening a thread is
-free: its id never left the text.
+thread that opens at the caret, a list of comments). Resolving then writes
+nothing to the document, and reopening a thread is free: its id never left
+the text. It also avoids a race: with `@lexical/yjs`, a collaborator's
+concurrent change to the same text can bring a removed id back (see
+[Collaboration](#collaboration)).
+
+Then tell the extension which ids to render with `isMarkIDShown`. A leaf is
+decorated (the `mark` and `markOverlap` theme classes and the
+`data-lexical-mark-ids` attribute) only with the ids it returns `true` for,
+so resolved threads are no longer highlighted. The default shows every id.
+When a thread is resolved or reopened, assign a new function to the
+`isMarkIDShown` output signal, and the marked leaves are re-rendered:
+
+```ts
+import {getExtensionDependencyFromEditor} from '@lexical/extension';
+import {MarkStateExtension} from '@lexical/mark';
+import {configExtension, type LexicalEditor} from 'lexical';
+
+const resolved = new Set<string>();
+const isMarkIDShown = (id: string) => !resolved.has(id);
+
+// In the editor's dependencies
+configExtension(MarkStateExtension, {isMarkIDShown});
+
+// When a thread is resolved (or reopened, with resolved.delete)
+function resolveThread(editor: LexicalEditor, threadId: string) {
+  resolved.add(threadId);
+  getExtensionDependencyFromEditor(
+    editor,
+    MarkStateExtension,
+  ).output.isMarkIDShown.value = id => !resolved.has(id);
+}
+```
+
+Assign a new function each time: changing the state that the current one
+reads does not re-render anything. The filter only changes rendering. The
+ids stay in the document, and `$getMarkIDsAtSelection`, `$getNodeMarkIDs`,
+the `markIDNodeKeys` output and HTML export still see every id, so filter
+resolved threads out of what you list or open from them. The function is
+called while the editor renders, so keep it a cheap read of your own state.
 
 You can instead remove the id with `$removeMarkID(threadId)` when the thread
 is resolved. Reopening the thread then means adding its id again over its
@@ -136,6 +175,168 @@ small live format item in the document (about 30 bytes with a short id) that
 collaboration cannot safely clean up, so the document grows with every
 comment resolved this way (see "Removed set members" in its
 [Limits](./y.md#limits)).
+
+## Mark flavors
+
+`MarkStateExtension` stores every id under one key, so a comment, a
+suggestion and a highlight look the same and land in the same output. When
+an app has several kinds of annotations, make one extension per kind with
+`defineMarkExtension`. Each of these _mark flavors_ works like
+`MarkStateExtension` (which is itself the default flavor, on `markIds`) on
+its own set-valued NodeState key, with its own rendering, config, output
+and listeners. Two flavors on the same text never see each other's ids.
+
+```ts
+import {buildEditorFromExtensions} from '@lexical/extension';
+import {
+  $addMarkID,
+  $getMarkIDsAtSelection,
+  $removeMarkID,
+  defineMarkExtension,
+} from '@lexical/mark';
+import {$getSelection, configExtension, defineExtension} from 'lexical';
+
+export const CommentMarks = defineMarkExtension({
+  className: 'comment',
+  name: '@app/CommentMarks',
+  overlapClassName: 'comment-overlap',
+  stateKey: 'commentIds',
+});
+
+export const SuggestionMarks = defineMarkExtension({
+  className: 'suggestion',
+  name: '@app/SuggestionMarks',
+  stateKey: 'suggestionIds',
+});
+
+// Resolved threads, kept in your own store (see Resolving comments)
+const resolved = new Set<string>();
+
+const editor = buildEditorFromExtensions(
+  defineExtension({
+    dependencies: [
+      configExtension(CommentMarks, {
+        isMarkIDShown: id => !resolved.has(id),
+      }),
+      SuggestionMarks,
+    ],
+    name: 'my-editor',
+  }),
+);
+
+editor.update(() => {
+  const selection = $getSelection();
+  if (selection) {
+    $addMarkID(CommentMarks, 'c1', selection);
+    $addMarkID(SuggestionMarks, 's7', selection);
+  }
+});
+editor.update(() => $removeMarkID(SuggestionMarks, 's7'));
+editor.read(() => $getMarkIDsAtSelection(CommentMarks)); // ['c1']
+```
+
+- Pass the flavor first to `$addMarkID`, `$removeMarkID`,
+  `$getMarkIDsAtSelection`, `$getNodeMarkIDs` and
+  `$migrateMarkNodesToMarkState`. Without a flavor they act on
+  `MarkStateExtension`, as before.
+- A leaf with comment `c1` and suggestion `s7` has
+  `"$": {"commentIds": ["c1"], "suggestionIds": ["s7"]}` in JSON and is
+  rendered as
+  `<span class="comment suggestion" data-lexical-comment-ids="c1" data-lexical-suggestion-ids="s7">`.
+  The attribute defaults to `data-lexical-` and the key in kebab case; set
+  `attribute` to choose another. A flavor without `className` adds no
+  classes (only `MarkStateExtension` uses the `mark` and `markOverlap`
+  theme classes).
+- Each flavor has its own config (`isMarkIDShown`, `disabled`,
+  `markableNodes`, `exportIDsToHTML`; `config` in the definition sets the
+  defaults) and its own output signals, read with
+  `getExtensionDependencyFromEditor(editor, CommentMarks).output`.
+- The `stateKey` is checked by the types: a key that is empty, contains
+  whitespace or is `'markIds'` is a type error whose message says how to
+  fix it, and `CommentMarks.stateKey` has the type `'commentIds'`. Two
+  flavors with the same key or attribute in one editor throw when the
+  editor is built.
+- Every flavor depends on `MarkBaseExtension`, the shared base. Its
+  `flavors` output lists the flavors of the editor by key, and
+  `$getMarkIDsByFlavor(node)` returns the ids of every flavor on a node.
+
+### Keeping your store in sync
+
+The ids say which text an annotation covers, nothing more. Keep the
+annotation's data (author, body, replies, resolved) in your own store, keyed
+by id: copying it onto the text would repeat it on every text run the
+annotation covers, and concurrent edits to it would conflict run by run.
+Where that store lives is up to the app: a `Y.Map` next to a Yjs document
+suits simple apps, and your own database suits products that need
+permissions, notifications, queries across documents, moderation or
+retention.
+
+`registerMarkIDsListener` keeps the store in step with the text. It is
+called after each commit that changes which ids of a flavor are in the
+document, with the ids that appeared (`added`), the ids that no leaf
+carries any more (`removed`), every id (`ids`) and the update's `tags`, and
+once right away when the document already has ids. When all of a comment's
+text is deleted, mark the thread orphaned rather than deleting it: an undo,
+a redo or a paste of the commented text brings the id back, and the
+listener reports it as added. For example, with a `Y.Map` of threads:
+
+```ts
+import {registerMarkIDsListener} from '@lexical/mark';
+import {COLLABORATION_TAG} from 'lexical';
+import * as Y from 'yjs';
+
+const threads = ydoc.getMap<Y.Map<unknown>>('threads');
+
+const unregister = registerMarkIDsListener(
+  editor,
+  CommentMarks,
+  ({added, removed, tags}) => {
+    if (tags.has(COLLABORATION_TAG)) {
+      // The collaborator that made the edit updates the store
+      return;
+    }
+    ydoc.transact(() => {
+      for (const id of removed) {
+        threads.get(id)?.set('orphaned', true);
+      }
+      for (const id of added) {
+        threads.get(id)?.delete('orphaned');
+      }
+    });
+  },
+);
+```
+
+With [`@lexical/y`](./y.md) the document is a Yjs 14 (`@y/y`) document,
+which has no `Y.Map`: a shared type's attributes play its part. The same
+listener, with each thread a `Y.Node` stored under its id:
+
+```ts
+import * as Y from '@y/y';
+
+const threads = ydoc.get('threads');
+
+// In the listener, instead of the transaction above:
+ydoc.transact(() => {
+  for (const id of removed) {
+    const thread = threads.getAttr(id);
+    if (thread instanceof Y.Node) {
+      thread.setAttr('orphaned', true);
+    }
+  }
+  for (const id of added) {
+    const thread = threads.getAttr(id);
+    if (thread instanceof Y.Node) {
+      thread.deleteAttr('orphaned');
+    }
+  }
+});
+```
+
+Nothing is reported while a flavor is `disabled` (its ids stay in the
+document); when it is enabled again, the listener gets the net change. An
+id pasted from another document is reported as added like any other: the
+store decides whether it knows the thread.
 
 ### Inserted text
 
@@ -153,8 +354,8 @@ or code that inserts text and leaves the caret after it) gets:
   new text shares with the replaced text: selecting `teh` and typing `t`, or
   an autocorrection to `the`, gives the new text those ids, and pasting `bX`
   over `bc` in `abcde`, where only `cde` is marked, leaves `bX` unmarked.
-- its own ids: pasted or dropped content, and nodes that code inserts, keep
-  the ids they came with, wherever they land, and also join the run they
+- its own ids: pasted or dropped content, and new nodes that code inserts,
+  keep the ids they came with, wherever they land, and also join the run they
   land inside, the way typed text does. Text inserted into existing text
   has no ids of its own, also when a transform then splits it off into a
   new TextNode: the piece starts out with the very ids of the node it was
@@ -165,9 +366,13 @@ or code that inserts text and leaves the caret after it) gets:
   commented text keeps its comment there.
 
 Text that the edit does not delete keeps exactly its ids, also when the
+edit moves it into another block (turning a list item into a paragraph, or
+a paragraph into a list item that joins the list above it), and when the
 editor or a transform moves it into a new TextNode: a hashtag or a mention
 created from commented text, a segmented node that typing turns into plain
-text. An id removed with `$removeMarkID` in the same update is not given
+text. A node that code moves, rather than
+creates, is not inserted text: it does not join a run it lands inside. An
+id removed with `$removeMarkID` in the same update is not given
 back, neither to that text nor to inserted text (see the limitations for
 how far that reaches).
 
@@ -196,12 +401,15 @@ TextNode it lands in has.
 - The selection that an insertion replaces is known when the insertion is
   dispatched as `CONTROLLED_TEXT_INSERTION_COMMAND` or `PASTE_COMMAND`
   (which typing, autocorrection and pasting use), inside an update or not,
-  or starts an input method composition. Code that replaces a selection
-  with `selection.insertText()` directly is treated as the smallest edit:
-  the letters the new text shares with the old one keep their ids, and only
-  the other letters are inserted. So such a replacement across the edge of
-  a mark, starting or ending with the letter it replaces, can join the
-  mark.
+  or starts an input method composition in an update of its own, as the
+  browser's `compositionstart` does. A composition that code starts and
+  writes in one update is compared as text instead, so letters it adds at
+  the end of a mark can be left without the mark's ids. Code that replaces a
+  selection with `selection.insertText()` directly is treated as the
+  smallest edit: the letters the new text shares with the old one keep their
+  ids, and only the other letters are inserted. So such a replacement across
+  the edge of a mark, starting or ending with the letter it replaces, can
+  join the mark.
 - Updates that the editor batches into one commit (several updates in the
   same task) are compared with the document from before the commit, as one
   edit. The last insertion or paste command dispatched before the commit
@@ -225,11 +433,16 @@ TextNode it lands in has.
 - If a collaborator edits the paragraph while an input method composition
   is in progress there, the composed text keeps the ids of the TextNode it
   was composed in, so it can join a mark at its edge.
+- Open issue: `$addMarkID` over part of a code highlighting token marks
+  nothing, or only part of the range
+  ([#9491](https://github.com/meta/lexical/issues/9491)).
 
 ## Collaboration
 
-`@lexical/yjs` syncs the ids as any other NodeState. Both bindings store the
-ids of a leaf as one value, so:
+`@lexical/yjs` syncs the ids as any other NodeState. Each mark flavor is its
+own key, so the ids of a comment and of a suggestion on the same text never
+overwrite each other. Both bindings store the ids of one flavor on a leaf as
+one value, so:
 
 - **Concurrent changes to the ids of the same text keep one collaborator's
   set** (the last writer wins for that text). Peers still converge on the
@@ -239,8 +452,8 @@ ids of a leaf as one value, so:
   either without `c2` (the addition is lost) or with both `c1` and `c2` (the
   removal is lost, so the resolved `c1` reappears).
   Keep the state of each thread (open or resolved) in your own store, and
-  ignore the ids of resolved threads when you render or list comments (see
-  [Resolving comments](#resolving-comments)).
+  ignore the ids of resolved threads when you render (with `isMarkIDShown`)
+  or list comments (see [Resolving comments](#resolving-comments)).
 - A collaborator's concurrent structural change to the same text, such as
   wrapping it in a link or merging its paragraph into the previous one, can
   drop the marks on it or extend them over neighboring text. Typing exactly
@@ -252,7 +465,8 @@ separately on text, line breaks and nodes stored as their own Yjs node, so
 there concurrent additions and removals of different ids all apply: two
 collaborators commenting on the same words both keep their comment, and a
 comment resolved while another is added stays resolved. Ids on a line such as a paragraph or
-heading, a list item, a list or a link are still one value there. Each id
+heading, a list item, a list or a link are still one value there. Each
+mark flavor's key is stored the same way, as a family of its own. Each id
 removed there leaves one small format item behind (see
 [Resolving comments](#resolving-comments)).
 

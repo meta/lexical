@@ -13,8 +13,6 @@
 // relative random numbers, so any subset of ops still replays (the
 // minimizer relies on it).
 
-import type {YBinding} from '../..';
-
 import {$isLinkNode, $toggleLink} from '@lexical/link';
 import {
   $createListItemNode,
@@ -78,6 +76,7 @@ import {
 } from 'lexical';
 import * as Y13 from 'yjs';
 
+import {createYDoc, type YBinding, type YDoc} from '../..';
 import {
   $createBoxNode,
   BoxNode,
@@ -321,9 +320,9 @@ export class FPeer {
       this.warnings.push(String(e && (e as Error).message));
     };
     let bound: ReturnType<typeof createBoundEditor> | null = null;
-    let yDoc: Y.Doc | null = null;
+    let yDoc: YDoc | null = null;
     if (layout === 'y') {
-      yDoc = new Y.Doc({gc});
+      yDoc = createYDoc(null, {gc});
       yDoc.clientID = clientID;
       // Warnings go to the editor's onWarn (above); a self-check finding
       // fails the seed.

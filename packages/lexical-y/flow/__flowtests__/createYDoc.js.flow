@@ -1,0 +1,68 @@
+/**
+ * Copyright (c) Meta Platforms, Inc. and affiliates.
+ *
+ * This source code is licensed under the MIT license found in the
+ * LICENSE file in the root directory of this source tree.
+ *
+ * @flow strict
+ */
+
+// Checked by `pnpm run flow` (not shipped): the binding takes only a
+// document createYDoc made.
+
+import type {LexicalEditor} from 'lexical';
+import type {YCollabConfig, YDoc} from '@lexical/y';
+
+import {Doc} from '@y/y';
+import {createYDoc, YBinding} from '@lexical/y';
+import {createYDoc as createRelayDoc} from '@lexical/y/headless';
+
+declare const editor: LexicalEditor;
+declare const state: Uint8Array;
+
+function configOf(doc: YDoc): YCollabConfig {
+  return {
+    captureTimeout: 500,
+    clientIDRange: 'uint53',
+    convert: false,
+    doc,
+    root: null,
+    schemaVersion: 1,
+    selfCheck: null,
+    selfCheckSample: null,
+    synced: false,
+  };
+}
+
+const doc: YDoc = createYDoc();
+const stored: YDoc = createYDoc(state, {gc: false});
+const relay: YDoc = createRelayDoc(state);
+// Y.Doc's options pass through.
+const kept: YDoc = createYDoc(null, {
+  gc: true,
+  gcFilter: item => item.id.clock >= 0,
+  guid: 'room',
+});
+const relayKept: YDoc = createRelayDoc(state, {
+  gcFilter: item => item.deleted === true,
+});
+// $FlowExpectedError[incompatible-type] not an option of Y.Doc
+createYDoc(null, {cleanupFormatting: true});
+// $FlowExpectedError[incompatible-type] gc is a boolean
+createRelayDoc(state, {gc: 'no'});
+// A YDoc is a Y.Doc.
+const plain: Doc = doc;
+const binding = new YBinding(editor, stored, {schemaVersion: 1});
+// $FlowExpectedError[incompatible-type] options, with a schemaVersion, are required
+new YBinding(editor, stored);
+// $FlowExpectedError[incompatible-type] schemaVersion is required
+new YBinding(editor, stored, {selfCheck: true});
+const shared: YDoc = binding.doc;
+const config: YCollabConfig = configOf(relay);
+
+// $FlowExpectedError[incompatible-type] a plain Y.Doc may clean up formats
+new YBinding(editor, new Doc(), {schemaVersion: 1});
+// $FlowExpectedError[incompatible-type] a plain Y.Doc may clean up formats
+const forged: YDoc = new Doc();
+// $FlowExpectedError[incompatible-type] a plain Y.Doc may clean up formats
+configOf(new Doc());

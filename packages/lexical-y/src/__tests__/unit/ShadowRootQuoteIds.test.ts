@@ -49,7 +49,7 @@ import {
 import {$assertNodeType} from 'lexical/src/__tests__/utils';
 import {describe, expect, test} from 'vitest';
 
-import {YCollabExtension} from '../..';
+import {createYDoc, YCollabExtension} from '../..';
 import {
   $block,
   $p,
@@ -285,7 +285,7 @@ describe("the typist's caret", () => {
 });
 
 function mixedPeer(id: number, blockIds: boolean, update: Uint8Array | null) {
-  const doc = new Y.Doc();
+  const doc = createYDoc();
   doc.clientID = id;
   if (update !== null) {
     Y.applyUpdate(doc, update);
@@ -296,7 +296,11 @@ function mixedPeer(id: number, blockIds: boolean, update: Uint8Array | null) {
       $initialEditorState: null,
       dependencies: [
         ...(blockIds ? [BlockIdExtension] : []),
-        configExtension(YCollabExtension, {doc, selfCheck: true}),
+        configExtension(YCollabExtension, {
+          doc,
+          schemaVersion: 1,
+          selfCheck: true,
+        }),
       ],
       name: `cell-quote/${id}`,
       nodes: NODES,

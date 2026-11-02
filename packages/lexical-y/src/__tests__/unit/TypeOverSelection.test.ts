@@ -37,18 +37,22 @@ import {
 } from 'lexical';
 import {describe, expect, test} from 'vitest';
 
-import {YCollabExtension} from '../..';
+import {createYDoc, YCollabExtension} from '../..';
 
 const flush = () => new Promise(resolve => setTimeout(resolve, 0));
 
 function peer(id: number) {
-  const doc = new Y.Doc({gc: false});
+  const doc = createYDoc(null, {gc: false});
   doc.clientID = id;
   const editor = buildEditorFromExtensions(
     defineExtension({
       $initialEditorState: null,
       dependencies: [
-        configExtension(YCollabExtension, {doc, selfCheck: true}),
+        configExtension(YCollabExtension, {
+          doc,
+          schemaVersion: 1,
+          selfCheck: true,
+        }),
         MarkStateExtension,
       ],
       name: 'type-over/' + id,

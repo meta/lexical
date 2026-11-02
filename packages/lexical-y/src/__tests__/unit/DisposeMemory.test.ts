@@ -17,7 +17,7 @@ import {setFlagsFromString} from 'node:v8';
 import {runInNewContext} from 'node:vm';
 import {expect, test} from 'vitest';
 
-import {YBinding} from '../..';
+import {createYDoc, YBinding} from '../..';
 import {$p, NODES} from '../utils/harness';
 import {writeEditorToYDoc} from '../utils/headless';
 
@@ -43,13 +43,13 @@ test('40 editors bound, edited and disposed in a synchronous loop hold no docume
     },
     {discrete: true},
   );
-  const seedDoc = new Y.Doc();
+  const seedDoc = createYDoc();
   writeEditorToYDoc(source, seedDoc);
   const stored = Y.encodeStateAsUpdate(seedDoc);
   const start = heap();
   // No await: nothing scheduled in a microtask runs in the loop.
   for (let i = 0; i < 40; i++) {
-    const doc = new Y.Doc();
+    const doc = createYDoc();
     Y.applyUpdate(doc, stored);
     const editor = createEditor({
       nodes: NODES,
@@ -57,7 +57,7 @@ test('40 editors bound, edited and disposed in a synchronous loop hold no docume
         throw e;
       },
     });
-    const binding = new YBinding(editor, doc);
+    const binding = new YBinding(editor, doc, {schemaVersion: 1});
     const stop = binding.start();
     editor.update(() => $getRoot().append($p('x')), {discrete: true});
     stop();
@@ -66,4 +66,6 @@ test('40 editors bound, edited and disposed in a synchronous loop hold no docume
   // Each editor held about 1.8 MB (the editor, the document and the
   // binding) until the loop yielded.
   expect(heap() - start).toBeLessThan(8e6);
-});
+  // About 3 s alone (forty 1,000-line documents), over vitest's default 5 s
+  // limit when the whole suite runs.
+}, 30_000);

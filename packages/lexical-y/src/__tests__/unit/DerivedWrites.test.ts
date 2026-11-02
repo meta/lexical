@@ -9,10 +9,11 @@
 // @vitest-environment node
 
 // The binding's one write under a client id derived from what it writes: the
-// initial content of a pristine root. Every client that initializes such a
-// root with the same content writes the same items under that id (one copy):
-// the same bytes on every client and in any relay, whatever the order. A
-// root that held anything before is initialized under the client's own id.
+// initial content of a root. Every client that initializes such a root with
+// the same content writes the same items under that id (one copy): the same
+// bytes on every client and in any relay, whatever the order. A root that
+// held anything before gets an id derived from the document it was written
+// on too, so it never shares one with a pristine root's write.
 //
 // And content written without Lexical's normalization by a client the
 // binding does not control (here inline text straight in a block holder) is
@@ -31,7 +32,7 @@ import {
 } from 'lexical';
 import {expect, test} from 'vitest';
 
-import {YBinding} from '../..';
+import {createYDoc, YBinding} from '../..';
 import {$p, NODES} from '../utils/harness';
 
 class BlockBox extends ElementNode {
@@ -65,7 +66,7 @@ type Client = {
 // A client whose paragraphs turn text written as `TOKEN…` into token-mode
 // text (a deterministic transform, which a reader's normalization would run).
 function client(id: number, state?: Uint8Array): Client {
-  const doc = new Y.Doc({gc: false});
+  const doc = createYDoc(null, {gc: false});
   doc.clientID = id;
   if (state !== undefined) {
     Y.applyUpdate(doc, state, 'load');
@@ -89,7 +90,10 @@ function client(id: number, state?: Uint8Array): Client {
       }
     }
   });
-  const binding = new YBinding(editor, doc, {selfCheck: true});
+  const binding = new YBinding(editor, doc, {
+    schemaVersion: 1,
+    selfCheck: true,
+  });
   const stopBinding = binding.start();
   if (state === undefined) {
     editor.update(() => $getRoot().append($p('base')), {discrete: true});
@@ -152,7 +156,7 @@ function initialized(
   $init: () => void,
   history?: (doc: Y.Doc) => void,
 ): Client {
-  const doc = new Y.Doc({gc});
+  const doc = createYDoc(null, {gc});
   doc.clientID = id;
   if (history !== undefined) {
     history(doc);
@@ -166,7 +170,7 @@ function initialized(
     onWarn: e => warnings.push(String(e)),
   });
   editor.update($init, {discrete: true});
-  const binding = new YBinding(editor, doc);
+  const binding = new YBinding(editor, doc, {schemaVersion: 1});
   const stop = binding.start();
   binding.initialize();
   return {
@@ -239,7 +243,7 @@ for (const gc of [false, true]) {
   });
 
   for (const held of ['an item', 'an attribute'] as const) {
-    test(`a root that held ${held}, deleted since, is initialized under the client's own id (gc ${gc})`, async () => {
+    test(`a root that held ${held}, deleted since, is initialized under an id of its own, never a pristine root's (gc ${gc})`, async () => {
       const a = initialized(72001, gc, $same, doc => {
         const root = doc.get('lexical-y');
         if (held === 'an item') {
@@ -252,9 +256,14 @@ for (const gc of [false, true]) {
       });
       const b = initialized(72002, gc, $same);
       try {
-        // A wrote under its own id only; B, whose root is pristine, under
-        // the derived one.
-        expect([...a.doc.store.clients.keys()]).toEqual([72001]);
+        // A wrote under an id derived from what it wrote on the document it
+        // had; B, whose root is pristine, under the pristine one. Neither
+        // wrote under its own id (A's holds only what it deleted before).
+        const derived = (c: Client) =>
+          [...c.doc.store.clients.keys()].filter(id => id !== c.doc.clientID);
+        expect(derived(a)).toHaveLength(1);
+        expect(derived(b)).toHaveLength(1);
+        expect(derived(a)[0]).not.toBe(derived(b)[0]);
         expect(b.doc.store.clients.has(72002)).toBe(false);
         Y.applyUpdate(a.doc, Y.encodeStateAsUpdate(b.doc), 'net');
         Y.applyUpdate(b.doc, Y.encodeStateAsUpdate(a.doc), 'net');

@@ -20,6 +20,8 @@ import {
   buildEditorFromExtensions,
   getExtensionDependencyFromEditor,
 } from '@lexical/extension';
+import {HashtagNode, registerLexicalHashtag} from '@lexical/hashtag';
+import {$createLinkNode, type LinkNode} from '@lexical/link';
 import {registerLexicalTextEntity} from '@lexical/text';
 import * as Y from '@y/y';
 import {
@@ -35,12 +37,14 @@ import {
   configExtension,
   defineExtension,
   type ElementNode,
+  INTERNAL_$recordTextMove,
+  INTERNAL_$recordTextRetype,
   type LexicalEditor,
   TextNode,
 } from 'lexical';
 import {describe, expect, test} from 'vitest';
 
-import {YCollabExtension} from '../../..';
+import {createYDoc, YCollabExtension} from '../../..';
 import {
   expectConverged,
   flush,
@@ -850,6 +854,564 @@ describe('R21A-2: a text set, edited and set again in one update', () => {
   }
 });
 
+// Text entity transforms (registerLexicalTextEntity) record what they do with
+// the characters they touch: an entity grown over the start of the next node
+// takes those characters (a move), and an entity made plain text again, or
+// plain text made an entity, holds the same characters in a node of another
+// type (a retype). Before, the record had only the text sets and the nodes
+// removed and made, so the binding aligned the text, and a remake next to a
+// node app code removed, or a paste, could take other characters.
+describe('Text entity edits: grows and remakes keep their characters', () => {
+  class TagNode extends TextNode {
+    $config() {
+      return this.config('regression-entity-tag', {extends: TextNode});
+    }
+    isTextEntity(): true {
+      return true;
+    }
+  }
+  class KeywordNode extends TextNode {
+    $config() {
+      return this.config('regression-entity-keyword', {extends: TextNode});
+    }
+    canInsertTextBefore(): boolean {
+      return false;
+    }
+    canInsertTextAfter(): boolean {
+      return false;
+    }
+    isTextEntity(): true {
+      return true;
+    }
+  }
+  const nodes = [...NODES, TagNode, KeywordNode, HashtagNode];
+  const word = (re: RegExp) => (text: string) => {
+    const m = re.exec(text);
+    if (m === null) {
+      return null;
+    }
+    const start = m.index + m[1].length;
+    return {end: start + m[2].length, start};
+  };
+  // The R19-A lane's entities: the word "la" a keyword, the word "ab" a tag.
+  const registerEntities = (editor: LexicalEditor) => {
+    const stops = [
+      ...registerLexicalTextEntity(
+        editor,
+        word(/(^|\s)(la)(?=\s|$)/),
+        KeywordNode,
+        n => $create(KeywordNode).setTextContent(n.getTextContent()),
+      ),
+      ...registerLexicalTextEntity(
+        editor,
+        word(/(^|\s)(ab)(?=\s|$)/),
+        TagNode,
+        n => $create(TagNode).setTextContent(n.getTextContent()),
+      ),
+    ];
+    return () => stops.forEach(stop => stop());
+  };
+  /** Select line offsets `from` to `to`. */
+  const $select = (from: number, to: number) => {
+    const sel = $createRangeSelection();
+    let pos = 0;
+    let anchored = false;
+    for (const node of $line().getAllTextNodes()) {
+      const n = node.getTextContentSize();
+      if (!anchored && from >= pos && (from < pos + n || from === to)) {
+        sel.anchor.set(node.getKey(), from - pos, 'text');
+        anchored = true;
+      }
+      if (to > pos && to <= pos + n) {
+        sel.focus.set(node.getKey(), to - pos, 'text');
+      }
+      pos += n;
+    }
+    $setSelection(sel);
+    return sel;
+  };
+  /**
+   * The line's text once the peer deleted old character `at`, where `chars`
+   * are the author's line, each with its old offset (-1: new).
+   */
+  const without = (chars: [string, number][], at: number) =>
+    chars
+      .filter(([, i]) => i !== at)
+      .map(([c]) => c)
+      .join('');
+  const charsOf = (text: string): [string, number][] =>
+    text.split('').map((c, i) => [c, i]);
+  const made = (text: string): [string, number][] =>
+    text.split('').map(c => [c, -1]);
+
+  // R19A-5383 (lane seed 5383): stale tags "la " and " ab " after a
+  // plain "la". Without a caret, app code removes the plain "la" (its record
+  // says only that the node left, not that it was deleted), and in the same
+  // update the transforms make the tags plain text and then a keyword "la" and
+  // a tag "ab", each by copying the text into a new node. The keyword took the
+  // removed node's characters, so a peer's concurrent delete in the old tag's
+  // "la" was lost.
+  describe('R19A-5383: app code removes a node next to entities the transforms remake', () => {
+    for (const [name, at] of [
+      ['the "l" of the remade tag', 2],
+      ['the "a" of the remade tag', 3],
+      ['control: the "a" of the other tag', 6],
+    ] as const) {
+      for (const ids of IDS) {
+        test(`R19A-5383 the peer deletes ${name} (ids ${ids})`, async () => {
+          const t = await setup(
+            () => {
+              $getRoot().append(
+                $createParagraphNode().append($createTextNode('Title')),
+                $createParagraphNode().append(
+                  $createTextNode('la'),
+                  $create(TagNode).setTextContent('la '),
+                  $create(TagNode).setTextContent(' ab '),
+                ),
+              );
+            },
+            {ids, nodes},
+          );
+          const chars = charsOf(lineText(t.a)).slice(2);
+          // Registered now, the transforms run over the tags in the next
+          // update.
+          const stop = registerEntities(t.a.editor);
+          t.offline();
+          t.a.update(() => {
+            $setSelection(null);
+            $line().getFirstChildOrThrow().remove();
+          });
+          expect(t.a.describe()).toBe(
+            'paragraph("Title") / paragraph("la" "  " "ab" " ")',
+          );
+          t.b.update(() => {
+            $select(at, at + 1).removeText();
+            $setSelection(null);
+          });
+          await t.sync();
+          await t.sync();
+          const fresh = await freshReader(t.a, nodes);
+          const expected = without(chars, at);
+          expect([...t.peers, fresh].map(lineText)).toEqual(
+            [...t.peers, fresh].map(() => expected),
+          );
+          await expectConverged(t.peers);
+          stop();
+          fresh.stop();
+        });
+      }
+    }
+  });
+
+  // R19A-4590 (lane seed 4590): stale tags "la" | "la" | bold "laa a". In one
+  // update the author pastes "la " over the first tag's "a", and app code
+  // grows the second tag over the bold text (sets its text, removes the bold
+  // node); the transforms make both tags plain text. The pasted "la " took
+  // the second tag's characters, so a peer's concurrent delete there landed
+  // on the pasted text. The bold text that app code
+  // moved into the tag is placed by the line's diff (the grow is app code's
+  // own), which keeps it here.
+  describe('R19A-4590: a paste and an app-code grow next to entities the transforms remake', () => {
+    for (const [name, at] of [
+      ['control: the "l" of the first tag', 0],
+      ['the "l" of the second tag', 2],
+      ['the "a" of the second tag', 3],
+      ['the "l" app code moved', 4],
+      ['the "a" app code moved', 5],
+    ] as const) {
+      for (const ids of IDS) {
+        test(`R19A-4590 the peer deletes ${name} (ids ${ids})`, async () => {
+          const t = await setup(
+            () => {
+              $getRoot().append(
+                $createParagraphNode().append($createTextNode('Title')),
+                $createParagraphNode().append(
+                  $create(TagNode).setTextContent('la'),
+                  $create(TagNode).setTextContent('la'),
+                  $createTextNode('laa a').toggleFormat('bold'),
+                ),
+              );
+            },
+            {ids, nodes},
+          );
+          const chars = charsOf(lineText(t.a));
+          chars.splice(1, 1, ...made('la '));
+          const stop = registerEntities(t.a.editor);
+          t.offline();
+          t.a.update(() => {
+            $select(1, 2).insertNodes([$createTextNode('la ')]);
+            const tag = $line()
+              .getChildren()
+              .filter((n): n is TagNode => n instanceof TagNode)
+              .pop()!;
+            const next = tag.getNextSibling() as TextNode;
+            tag.setTextContent(tag.getTextContent() + next.getTextContent());
+            next.remove();
+            $setSelection(null);
+          });
+          expect(lineText(t.a)).toBe('lla lalaa a');
+          t.b.update(() => {
+            $select(at, at + 1).removeText();
+            $setSelection(null);
+          });
+          await t.sync();
+          await t.sync();
+          const fresh = await freshReader(t.a, nodes);
+          const expected = without(chars, at);
+          expect([...t.peers, fresh].map(lineText)).toEqual(
+            [...t.peers, fresh].map(() => expected),
+          );
+          await expectConverged(t.peers);
+          stop();
+          fresh.stop();
+        });
+      }
+    }
+  });
+
+  // A move out of a node whose text was set whole and then edited earlier in
+  // the same update ("aa" set to "Xaa", its first "a" deleted, "X" moved into
+  // "#foo"), then one of the two nodes set again. The text that left that
+  // node is aligned with the text that arrived there; moving part of what it
+  // holds would split them, and the deleted "a" came back for another
+  // character, so a peer's concurrent delete of it removed that one. Such a
+  // move is replayed as the two text sets it stands for.
+  describe('a move out of a node set and edited earlier in the update', () => {
+    for (const [name, text, at, setTo, expected] of [
+      ['then the node it moved to set', 'aa', 1, '#fooXa', '#fooXaa'],
+      ['then the node it left set', 'abc', 2, 'abc', '#fooXabc'],
+    ] as const) {
+      for (const ids of IDS) {
+        test(`${name} (ids ${ids}): the peer deletes a character the author deleted`, async () => {
+          const t = await setup(
+            () => {
+              $getRoot().append(
+                $createParagraphNode().append($createTextNode('Title')),
+                $createParagraphNode().append(
+                  $createTextNode('#foo').toggleFormat('bold'),
+                  $createTextNode(text),
+                ),
+              );
+            },
+            {ids},
+          );
+          t.offline();
+          t.a.update(() => {
+            const [to, from] = $line().getAllTextNodes();
+            from.setTextContent('X' + text);
+            from.spliceText(at, 1, '', false);
+            const fromText = from.getTextContent();
+            INTERNAL_$recordTextMove(from, to, 1, () => {
+              to.setTextContent(to.getTextContent() + 'X');
+              from.setTextContent(fromText.slice(1));
+            });
+            (setTo.startsWith('#') ? to : from).setTextContent(setTo);
+            $setSelection(null);
+          });
+          expect(lineText(t.a)).toBe(expected);
+          t.b.update(() => {
+            ($line().getChildAtIndex(1) as TextNode).spliceText(
+              at - 1,
+              1,
+              '',
+              false,
+            );
+            $setSelection(null);
+          });
+          await t.sync();
+          await expectEverywhere(t.peers, expected);
+        });
+      }
+    }
+  });
+
+  // Both nodes set earlier in the update ("#foo" to "#fooQ"; "aa" to "Xaa"
+  // and its first "a" deleted), all of what is left moved, and then the node
+  // it moved to merged into the one before, made segmented and split, or
+  // remade as plain text: no node is set again, so the move keeps its
+  // characters, and a peer's concurrent delete of the second "a" applies.
+  for (const then of ['merge', 'segmented split', 'remake'] as const) {
+    for (const ids of IDS) {
+      test(`a move of all of a node set and edited earlier in the update, then a ${then} (ids ${ids})`, async () => {
+        const t = await setup(
+          () => {
+            $getRoot().append(
+              $createParagraphNode().append($createTextNode('Title')),
+              $createParagraphNode().append(
+                $createTextNode('head ').toggleFormat('underline'),
+                $createTextNode('#foo').toggleFormat('bold'),
+                $createTextNode('aa'),
+              ),
+            );
+          },
+          {ids},
+        );
+        t.offline();
+        t.a.update(() => {
+          const [head, to, from] = $line().getAllTextNodes();
+          to.setTextContent('#fooQ');
+          from.setTextContent('Xaa');
+          from.spliceText(1, 1, '', false);
+          INTERNAL_$recordTextMove(from, to, 2, () => {
+            to.setTextContent('#fooQXa');
+            from.remove();
+          });
+          if (then === 'merge') {
+            // (mergeWithSibling compares nodes as they are now.)
+            head.getLatest().mergeWithSibling(to.getLatest());
+          } else if (then === 'segmented split') {
+            to.setMode('segmented').splitText(6);
+          } else {
+            const plain = $createTextNode(to.getTextContent());
+            to.replace(plain);
+            INTERNAL_$recordTextRetype(to, plain);
+          }
+          $setSelection(null);
+        });
+        expect(lineText(t.a)).toBe('head #fooQXa');
+        t.b.update(() => {
+          ($line().getChildAtIndex(2) as TextNode).spliceText(1, 1, '', false);
+          $setSelection(null);
+        });
+        await t.sync();
+        await expectEverywhere(t.peers, 'head #fooQX');
+      });
+    }
+  }
+
+  // The same inside a link: all of what is left moved into "#fooQ", which
+  // is split after "#fooQX" and that part removed; the link is then remade
+  // as plain text holding the "a" left. A peer's concurrent delete of that
+  // "a" applies.
+  for (const ids of IDS) {
+    test(`a move inside a link, part of where it moved removed, then the link remade (ids ${ids})`, async () => {
+      const t = await setup(
+        () => {
+          $getRoot().append(
+            $createParagraphNode().append($createTextNode('Title')),
+            $createParagraphNode().append(
+              $createTextNode('head ').toggleFormat('underline'),
+              $createLinkNode('/').append(
+                $create(HashtagNode).setTextContent('#foo'),
+                $createTextNode('aa'),
+              ),
+            ),
+          );
+        },
+        {ids, nodes},
+      );
+      t.offline();
+      t.a.update(() => {
+        const link = $line().getChildAtIndex(1) as LinkNode;
+        const [to, from] = link.getAllTextNodes();
+        to.setTextContent('#fooQ');
+        from.setTextContent('Xaa');
+        from.spliceText(1, 1, '', false);
+        INTERNAL_$recordTextMove(from, to, 2, () => {
+          to.setTextContent('#fooQXa');
+          from.remove();
+        });
+        to.getLatest().splitText(6);
+        to.getLatest().remove();
+        link.replace($createTextNode(link.getTextContent()));
+        $setSelection(null);
+      });
+      expect(lineText(t.a)).toBe('head a');
+      t.b.update(() => {
+        const link = $line().getChildAtIndex(1) as LinkNode;
+        (link.getChildAtIndex(1) as TextNode).spliceText(1, 1, '', false);
+        $setSelection(null);
+      });
+      await t.sync();
+      await expectEverywhere(t.peers, 'head ');
+    });
+  }
+
+  // "abc" set to "Xabc" and its "b" deleted; "X" moved into "#foo", which is
+  // then set to "#fooabc", and the rest put before it. The set reaches the
+  // history the move split, so the move is text sets: the new "b" is not the
+  // deleted one, and a peer's concurrent delete of that one changes nothing.
+  for (const ids of IDS) {
+    test(`a move, then the node it moved to set and the rest put before it (ids ${ids})`, async () => {
+      const t = await setup(
+        () => {
+          $getRoot().append(
+            $createParagraphNode().append($createTextNode('Title')),
+            $createParagraphNode().append(
+              $createTextNode('head ').toggleFormat('underline'),
+              $create(HashtagNode).setTextContent('#foo').toggleFormat('bold'),
+              $createTextNode('abc'),
+            ),
+          );
+        },
+        {ids, nodes},
+      );
+      t.offline();
+      t.a.update(() => {
+        const [, to, from] = $line().getAllTextNodes();
+        from.setTextContent('Xabc');
+        from.spliceText(2, 1, '', false);
+        INTERNAL_$recordTextMove(from, to, 1, () => {
+          to.setTextContent('#fooX');
+          from.setTextContent('ac');
+        });
+        to.setTextContent('#fooabc');
+        to.getLatest().insertBefore(from.getLatest());
+        $setSelection(null);
+      });
+      expect(lineText(t.a)).toBe('head ac#fooabc');
+      t.b.update(() => {
+        ($line().getChildAtIndex(2) as TextNode).spliceText(1, 1, '', false);
+        $setSelection(null);
+      });
+      await t.sync();
+      await expectEverywhere(t.peers, 'head ac#fooabc');
+    });
+  }
+
+  // "head " set to "head Q", "aa" to "Xaa" and its first "a" deleted; "X"
+  // moved into "#foo", all of "#fooX" moved into "head Q", which is then set
+  // again: the second move's text sets reach what the first one split, so
+  // both are text sets, and a peer's concurrent delete of the second "a"
+  // applies.
+  for (const ids of IDS) {
+    test(`a move, a move of all of its destination, then that node set again (ids ${ids})`, async () => {
+      const t = await setup(
+        () => {
+          $getRoot().append(
+            $createParagraphNode().append($createTextNode('Title')),
+            $createParagraphNode().append(
+              $createTextNode('head ').toggleFormat('underline'),
+              $createTextNode('#foo').toggleFormat('bold'),
+              $createTextNode('aa'),
+            ),
+          );
+        },
+        {ids},
+      );
+      t.offline();
+      t.a.update(() => {
+        const [head, tag, plain] = $line().getAllTextNodes();
+        head.setTextContent('head Q');
+        plain.setTextContent('Xaa');
+        plain.spliceText(1, 1, '', false);
+        INTERNAL_$recordTextMove(plain, tag, 1, () => {
+          tag.setTextContent('#fooX');
+          plain.setTextContent('a');
+        });
+        INTERNAL_$recordTextMove(tag, head, 5, () => {
+          head.setTextContent('head Q#fooX');
+          tag.remove();
+        });
+        head.setTextContent('head Q#fooXa');
+        $setSelection(null);
+      });
+      expect(lineText(t.a)).toBe('head Q#fooXaa');
+      t.b.update(() => {
+        ($line().getChildAtIndex(2) as TextNode).spliceText(1, 1, '', false);
+        $setSelection(null);
+      });
+      await t.sync();
+      await expectEverywhere(t.peers, 'head Q#fooXa');
+    });
+  }
+
+  // The same through the hashtag plugin: " abc" set to "X abc" and its "b"
+  // deleted; the hashtag grows over "X", and an app transform puts a new "b"
+  // back (" ac" set to " abc"). A peer's concurrent delete of the old "b"
+  // must not remove the new one.
+  for (const ids of IDS) {
+    test(`a hashtag grown over text set and edited earlier in the update, then that text set again (ids ${ids})`, async () => {
+      const t = await setup(
+        () => {
+          $getRoot().append(
+            $createParagraphNode().append($createTextNode('Title')),
+            $createParagraphNode().append(
+              $create(HashtagNode).setTextContent('#foo'),
+              $createTextNode(' abc'),
+            ),
+          );
+        },
+        {ids, nodes},
+      );
+      const stopHashtag = registerLexicalHashtag(t.a.editor);
+      const stopRestore = t.a.editor.registerNodeTransform(TextNode, node => {
+        if (node.isSimpleText() && node.getTextContent() === ' ac') {
+          node.setTextContent(' abc');
+        }
+      });
+      t.offline();
+      t.a.update(() => {
+        const plain = $line().getChildAtIndex(1) as TextNode;
+        plain.setTextContent('X abc');
+        plain.spliceText(3, 1, '', false);
+        $setSelection(null);
+      });
+      // (The author's own edit only, not the reads of the peer's.)
+      stopRestore();
+      expect(t.a.describe()).toBe(
+        'paragraph("Title") / paragraph("#fooX" " abc")',
+      );
+      t.b.update(() => {
+        ($line().getChildAtIndex(1) as TextNode).spliceText(2, 1, '', false);
+        $setSelection(null);
+      });
+      await t.sync();
+      await t.sync();
+      const fresh = await freshReader(t.a, nodes);
+      expect([...t.peers, fresh].map(lineText)).toEqual([
+        '#fooX abc',
+        '#fooX abc',
+        '#fooX abc',
+      ]);
+      await expectConverged(t.peers);
+      stopHashtag();
+      fresh.stop();
+    });
+  }
+
+  // A hashtag grown over the next word (deleting the space after it): the
+  // author's write deletes only the space, and a peer's concurrent delete in
+  // the moved "bar" applies there.
+  describe('a hashtag grown over the next word', () => {
+    for (const ids of IDS) {
+      test(`the peer deletes the moved "r" (ids ${ids})`, async () => {
+        const t = await setup(
+          () => {
+            $getRoot().append(
+              $createParagraphNode().append($createTextNode('Title')),
+              $createParagraphNode().append(
+                $createTextNode('say '),
+                $create(HashtagNode).setTextContent('#foo'),
+                $createTextNode(' bar baz'),
+              ),
+            );
+          },
+          {ids, nodes},
+        );
+        const stops = t.peers.map(p => registerLexicalHashtag(p.editor));
+        const w = track(t.a.doc);
+        t.offline();
+        t.a.update(() => {
+          $select(8, 9).removeText();
+        });
+        expect(t.a.describe()).toBe(
+          'paragraph("Title") / paragraph("say " "#foobar" " baz")',
+        );
+        expect(w).toEqual({del: ' ', ins: ''});
+        t.b.update(() => {
+          $select(11, 12).removeText();
+          $setSelection(null);
+        });
+        await t.sync();
+        await t.sync();
+        await expectEverywhere(t.peers, 'say #fooba baz');
+        stops.forEach(stop => stop());
+      });
+    }
+  });
+});
+
 // S6-5: Enter inside a highlighted code token that the highlighter makes
 // again in tokens of other types (a comment line, a string, an identifier):
 // the split's tail is removed and its text made again after the new line
@@ -859,14 +1421,14 @@ describe('R21A-2: a text set, edited and set again in one update', () => {
 // delete in it came back.
 describe('S6-5: Enter inside a code token the highlighter makes again', () => {
   function codePeer(id: number) {
-    const doc = new Y.Doc();
+    const doc = createYDoc();
     doc.clientID = id;
     const editor = buildEditorFromExtensions(
       defineExtension({
         $initialEditorState: null,
         dependencies: [
           CodePrismExtension,
-          configExtension(YCollabExtension, {doc}),
+          configExtension(YCollabExtension, {doc, schemaVersion: 1}),
         ],
         name: `s6-5/${id}`,
         onError: (e: Error) => {
@@ -984,5 +1546,118 @@ describe('S6-5: Enter inside a code token the highlighter makes again', () => {
       a.editor.dispose();
       b.editor.dispose();
     });
+  }
+});
+
+// S7-39: a line's children made again as one plain node with one word
+// changed (an agent's rewrite of the block), where a node that held the
+// changed word was deleted whole (a removed node's text was aligned whole or
+// not at all). The check that kept only what both diffs keep read the text
+// that left without that node, so the characters on its two sides (or the
+// last characters before it and the end of the line) were next to each
+// other, and it took the end of the word before as possibly a part of the
+// new word: the rewrite wrote it again, and a peer's concurrent edit of the
+// changed word landed inside the word before ("t16t83zz t80z  t19z"). The
+// text of the node made now keeps the common start and end of the line's
+// text, the node that held the word included (S9-7).
+describe('S7-39: a line made again as one node, where a node that held the changed word went whole', () => {
+  // The line's text nodes (italic or not), the word changed and its new
+  // text, and what the rewrite deletes and inserts.
+  const cases: [[string, boolean][], string, string, string, string][] = [
+    [
+      [
+        ['t16z ', false],
+        ['t63z ', true],
+        [' t19z', false],
+      ],
+      't63z',
+      't80z',
+      't63z',
+      't80z',
+    ],
+    [
+      [
+        ['ab ', false],
+        ['cd ', true],
+        [' ef', false],
+      ],
+      'cd',
+      'gh',
+      'cd',
+      'gh',
+    ],
+    [
+      [
+        ['t58z t59z', true],
+        [' t60z t61z', false],
+      ],
+      't60z',
+      't70z',
+      't60z',
+      't70z',
+    ],
+  ];
+  for (const [nodes, word, next, del, ins] of cases) {
+    const shown = nodes
+      .map(([text, italic]) => (italic ? `_"${text}"_` : `"${text}"`))
+      .join(' | ');
+    for (const ids of IDS) {
+      test(`${shown} made again with "${next}" ‖ a peer replaces "${word}" (ids ${ids})`, async () => {
+        const t = await setup(
+          () => {
+            $getRoot().append(
+              $createParagraphNode().append($createTextNode('Title')),
+              $createParagraphNode().append(
+                ...nodes.map(([text, italic]) =>
+                  italic
+                    ? $createTextNode(text).toggleFormat('italic')
+                    : $createTextNode(text),
+                ),
+              ),
+            );
+          },
+          {ids},
+        );
+        const writes = track(t.a.doc);
+        t.offline();
+        t.a.update(() => {
+          const line = $line();
+          const text = line.getTextContent().replace(word, next);
+          for (const child of line.getChildren()) {
+            child.remove();
+          }
+          line.append($createTextNode(text));
+          $setSelection(null);
+        });
+        t.b.update(() => {
+          for (const node of $line().getChildren()) {
+            const at = node.getTextContent().indexOf(word);
+            if ($isTextNode(node) && at >= 0) {
+              node.spliceText(at, word.length, 'XY', false);
+              break;
+            }
+          }
+          $setSelection(null);
+        });
+        // The rewrite writes only the word, and keeps every other character
+        // of the line.
+        expect(writes).toEqual({del, ins});
+        await t.sync();
+        // The text of the nodes before the one that held the word stays
+        // whole, on every client.
+        const start = nodes
+          .slice(
+            0,
+            nodes.findIndex(([text]) => text.includes(word)),
+          )
+          .map(([text]) => text)
+          .join('');
+        const fresh = await freshReader(t.a);
+        for (const p of [...t.peers, fresh]) {
+          expect(lineText(p).startsWith(start)).toBe(true);
+        }
+        await expectConverged(t.peers);
+      });
+    }
   }
 });

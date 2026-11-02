@@ -1189,9 +1189,16 @@ export function $computeTableMapSkipCellCheck(
  * a column) are merged, since remote updates are applied with transforms
  * skipped.
  *
+ * `$shouldPad` limits the padding to the rows it accepts (all by default):
+ * the table transform pads only the rows an update changed when nothing
+ * else about the table changed.
+ *
  * @experimental
  */
-export function $padTableRows(tableNode: TableNode): boolean {
+export function $padTableRows(
+  tableNode: TableNode,
+  $shouldPad: (row: TableRowNode) => boolean = () => true,
+): boolean {
   const [gridMap] = $computeTableMapSkipCellCheck(tableNode, null, null);
   const maxRowLength = gridMap.reduce(
     (curLength, row) => Math.max(curLength, row.length),
@@ -1201,7 +1208,7 @@ export function $padTableRows(tableNode: TableNode): boolean {
   let changed = false;
   for (let i = 0; i < gridMap.length; ++i) {
     const rowNode = rowNodes[i];
-    if (!$isTableRowNode(rowNode)) {
+    if (!$isTableRowNode(rowNode) || !$shouldPad(rowNode)) {
       continue;
     }
     // Count the grid positions this row covers, including those covered by a

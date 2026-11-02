@@ -53,7 +53,7 @@ import {
 } from 'lexical';
 import {expect, test} from 'vitest';
 
-import {YCollabExtension} from '../..';
+import {createYDoc, YCollabExtension} from '../..';
 import {$createBoxNode, NODES} from '../utils/harness';
 
 const NET = Symbol('net');
@@ -76,7 +76,7 @@ function peer(
   gc: boolean,
   ids: boolean,
   marks: boolean,
-  doc = new Y.Doc({gc}),
+  doc = createYDoc(null, {gc}),
 ) {
   doc.clientID = id;
   let next = 0;
@@ -89,7 +89,11 @@ function peer(
           name: 'replay/table',
           register: e => registerTablePlugin(e),
         }),
-        configExtension(YCollabExtension, {doc, selfCheck: false}),
+        configExtension(YCollabExtension, {
+          doc,
+          schemaVersion: 1,
+          selfCheck: false,
+        }),
         ...(ids
           ? [
               configExtension(BlockIdExtension, {
@@ -365,7 +369,7 @@ async function replay(seed: number, ids: boolean, raw: boolean) {
         const all = idsOf(p);
         expect(new Set(all).size, 'repeated ids').toBe(all.length);
       }
-      const doc = new Y.Doc({gc});
+      const doc = createYDoc(null, {gc});
       Y.applyUpdate(doc, Y.encodeStateAsUpdate(p.doc), NET);
       const fresh = peer(999, gc, ids, marks, doc);
       try {

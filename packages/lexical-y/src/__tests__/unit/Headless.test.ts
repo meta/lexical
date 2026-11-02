@@ -73,7 +73,7 @@ import {
 
 // The tests turn the binding's self-check on (it is off by default): a
 // mismatch is a warning, so the tests that expect none catch it.
-const config = {nodes: NODES, selfCheck: true};
+const config = {nodes: NODES, schemaVersion: 1, selfCheck: true};
 
 /** Run microtasks collected by a spy; the messages of those that throw. */
 function rethrown(tasks: (() => void)[]): string[] {
@@ -115,7 +115,11 @@ const BidExtension = defineExtension({
       }
     }),
 });
-const bidConfig = {extensions: [BidExtension], selfCheck: true};
+const bidConfig = {
+  extensions: [BidExtension],
+  schemaVersion: 1,
+  selfCheck: true,
+};
 const $bids = () =>
   $getRoot()
     .getChildren()
@@ -273,11 +277,13 @@ describe('@lexical/y/headless', () => {
     const state = seedYState(config, $build);
     expect(readYState(state, config, $describe)).toBe(normalized);
     // A client seeding the same content in a new document.
-    const doc = new Y.Doc();
+    const doc = createYDoc();
     const editor = buildEditorFromExtensions(
       defineExtension({
         $initialEditorState: null,
-        dependencies: [configExtension(YCollabExtension, {doc})],
+        dependencies: [
+          configExtension(YCollabExtension, {doc, schemaVersion: 1}),
+        ],
         name: 'client',
         nodes: NODES,
       }),
@@ -506,7 +512,10 @@ describe('@lexical/y/headless', () => {
       defineExtension({
         dependencies: [
           AppNodes,
-          configExtension(YCollabExtension, {doc: new Y.Doc()}),
+          configExtension(YCollabExtension, {
+            doc: createYDoc(),
+            schemaVersion: 1,
+          }),
           BlockIdExtension,
         ],
         name: 'test-client',
@@ -514,6 +523,7 @@ describe('@lexical/y/headless', () => {
     );
     const handle = createHeadlessYEditor({
       extensions: [AppNodes, BlockIdExtension],
+      schemaVersion: 1,
     });
     try {
       expect(repairTransforms(client)).toBe(false);
@@ -523,6 +533,7 @@ describe('@lexical/y/headless', () => {
       const idConfig = {
         extensions: [AppNodes, BlockIdExtension],
         onWarn: (warning: LexicalWarning) => warnings.push(warning),
+        schemaVersion: 1,
       };
       const state = seedYState(idConfig, () =>
         $getRoot().append($createParagraphNode().append($createTextNode('a'))),
@@ -552,7 +563,7 @@ describe('@lexical/y/headless', () => {
       gc();
       return process.memoryUsage().heapUsed;
     };
-    const big = seedYState({nodes: NODES}, () => {
+    const big = seedYState({nodes: NODES, schemaVersion: 1}, () => {
       for (let i = 0; i < 1000; i++) {
         $getRoot().append($p(`paragraph ${i} with some text in it`));
       }
@@ -563,13 +574,20 @@ describe('@lexical/y/headless', () => {
     const start = heap();
     // No await: nothing Lexical scheduled in a microtask has run.
     for (let i = 0; i < 20; i++) {
-      readYState(big, {nodes: NODES}, () => $getRoot().getTextContentSize());
-      editYState(big, {nodes: NODES}, () => $getRoot().append($p('x')), {
-        writer: null,
-      });
+      readYState(big, {nodes: NODES, schemaVersion: 1}, () =>
+        $getRoot().getTextContentSize(),
+      );
+      editYState(
+        big,
+        {nodes: NODES, schemaVersion: 1},
+        () => $getRoot().append($p('x')),
+        {
+          writer: null,
+        },
+      );
       written = editYState(
         written,
-        {nodes: NODES},
+        {nodes: NODES, schemaVersion: 1},
         () => $getRoot().append($p('y')),
         {writer},
       ).state;
@@ -578,7 +596,9 @@ describe('@lexical/y/headless', () => {
     // binding) until the loop yielded: over 100 MB here.
     expect(heap() - start).toBeLessThan(10e6);
     expect(
-      readYState(written, {nodes: NODES}, () => $getRoot().getChildrenSize()),
+      readYState(written, {nodes: NODES, schemaVersion: 1}, () =>
+        $getRoot().getChildrenSize(),
+      ),
     ).toBe(1020);
     // 60 calls on a 1,000-line document: about 2 s alone, over vitest's
     // default 5 s limit when the whole suite runs.
@@ -671,7 +691,7 @@ describe('@lexical/y/headless', () => {
         };
       },
     });
-    const tracked = {extensions: [Tracked], selfCheck: true};
+    const tracked = {extensions: [Tracked], schemaVersion: 1, selfCheck: true};
     const destroyed: Y.Doc[] = [];
     const destroy = Y.Doc.prototype.destroy;
     vi.spyOn(Y.Doc.prototype, 'destroy').mockImplementation(function (
@@ -838,8 +858,13 @@ describe('@lexical/y/headless', () => {
     ]) {
       const error = caught(fn);
       expect(error.code).toBe('read-only');
-      // A short message; the reason is data: the binding's typed warnings.
-      expect(error.message).toBe('the document is read only here');
+      // The message names the reasons (the warnings' messages, which say
+      // what to do); programs read them as data: the binding's typed warnings.
+      expect(error.message).toBe(
+        `@lexical/y: the document is read only here: ${error.warnings
+          .map(warning => warning.message)
+          .join('; ')}`,
+      );
       expect(
         error.warnings.map(warning => [warning.code, warning.data]),
       ).toEqual([
@@ -1109,7 +1134,7 @@ describe('@lexical/y/headless', () => {
       supported: LAYOUT_VERSION,
     });
     expect(readOnly[0].message).toBe(
-      `layout ${LAYOUT_VERSION + 1} is newer than ${LAYOUT_VERSION}`,
+      `layout ${LAYOUT_VERSION + 1} is newer than ${LAYOUT_VERSION}. A newer version of the binding wrote this document, so this editor is read only: upgrade the binding on every client of the document`,
     );
     // The error carries the same warning, as data.
     expect(refused.warnings).toEqual([readOnly[0]]);
@@ -1174,7 +1199,7 @@ describe('@lexical/y/headless', () => {
           });
         }),
     });
-    const endless = {extensions: [Endless], selfCheck: true};
+    const endless = {extensions: [Endless], schemaVersion: 1, selfCheck: true};
     // Seeding: the binding does not write yet, so each update a listener
     // schedules stays pending until the helper commits it, up to the cap.
     const seeded: LexicalWarning[] = [];
@@ -1241,7 +1266,7 @@ describe('@lexical/y/headless', () => {
     legacy.get('root-v2').insert(0, [new Y.Node('paragraph')]);
     const stored = Y.encodeStateAsUpdate(legacy);
     // A client does not initialize it (it would hide the old content).
-    const blocked = new Y.Doc();
+    const blocked = createYDoc();
     Y.applyUpdate(blocked, stored);
     const codes: string[] = [];
     const editor = buildEditorFromExtensions(
@@ -1252,7 +1277,10 @@ describe('@lexical/y/headless', () => {
           codes.push(warning instanceof LexicalWarning ? warning.code : ''),
       }),
     );
-    const binding = new YBinding(editor, blocked, {selfCheck: true});
+    const binding = new YBinding(editor, blocked, {
+      schemaVersion: 1,
+      selfCheck: true,
+    });
     binding.start();
     binding.initialize();
     expect(binding.status).toBe('readonly');
@@ -1291,7 +1319,10 @@ describe('@lexical/y/headless', () => {
 
   test('extensions define the editor', () => {
     const state = seedYState(
-      {extensions: [{dependencies: [], name: 'app', nodes: NODES}]},
+      {
+        extensions: [{dependencies: [], name: 'app', nodes: NODES}],
+        schemaVersion: 1,
+      },
       () => {
         $getRoot().append(
           $createHeadingNode('h1').append($createTextNode('Title')),

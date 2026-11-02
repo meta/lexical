@@ -26,7 +26,6 @@ import {
   ListNode,
 } from '@lexical/list';
 import {registerRichText} from '@lexical/rich-text';
-import * as Y from '@y/y';
 import {
   $createNodeSelection,
   $createParagraphNode,
@@ -41,7 +40,7 @@ import {
 } from 'lexical';
 import {expect, test} from 'vitest';
 
-import {YBinding} from '../..';
+import {createYDoc, YBinding} from '../..';
 
 const idle = async () => {
   await new Promise(resolve => setImmediate(resolve));
@@ -135,13 +134,16 @@ for (const used of [false, true]) {
     })`, async () => {
       const a = make();
       const control = make();
-      const doc = new Y.Doc({gc: false});
+      const doc = createYDoc(null, {gc: false});
       if (used) {
         const root = doc.get('lexical-y');
         root.setAttr('probe', true);
         root.deleteAttr('probe');
       }
-      const binding = new YBinding(a.editor, doc, {selfCheck: true});
+      const binding = new YBinding(a.editor, doc, {
+        schemaVersion: 1,
+        selfCheck: true,
+      });
       const finish = binding.start();
       try {
         await idle();

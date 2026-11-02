@@ -76,6 +76,7 @@ import {
   $getEditorDOMRenderConfig,
   $getNodeByKey,
   $hasAncestor,
+  $isKeyInSelectionNodes,
   $isRootOrShadowRoot,
   $maybeMoveChildrenSelectionToParent,
   $setCompositionKey,
@@ -86,6 +87,7 @@ import {
   getStaticNodeConfig,
   getSuperclassOf,
   internalMarkNodeAsDirty,
+  internalStopExportMemo,
 } from './LexicalUtils';
 
 const __DEV__ = process.env.NODE_ENV !== 'production';
@@ -271,7 +273,10 @@ export interface StaticNodeConfigValue<
    *   Out of an inline element (a link), the block's content is first wrapped
    *   in a copy of the element.
    * - `'block'`: blocks only, like a table cell. Each run of inline children
-   *   is wrapped in a paragraph.
+   *   is wrapped in a paragraph. With the extension, the node is also a block
+   *   container for structural commands (see `$isBlockContainer`): they
+   *   convert, wrap, split and insert blocks inside it and never replace or
+   *   split the node itself.
    * - a list of `'inline'` and classes: only those (a class allows its
    *   subclasses). When the list names no `'inline'` (a list holds list
    *   items), a child the first listed class can hold is wrapped in one (a
@@ -1313,11 +1318,9 @@ export class LexicalNode {
       return false;
     }
 
-    const isSelected = targetSelection
-      .getNodes()
-      .some(n => n.__key === this.__key);
+    const isSelected = $isKeyInSelectionNodes(targetSelection, this.__key);
 
-    if ($isTextNode(this)) {
+    if (!isSelected || $isTextNode(this)) {
       return isSelected;
     }
     // For inline images inside of element nodes.
@@ -1644,6 +1647,9 @@ export class LexicalNode {
       return this;
     }
     errorOnReadOnly();
+    // Before the clone, whose hooks may read: a node that changes ends an
+    // export walk's memo (see INTERNAL_$withExportMemo).
+    internalStopExportMemo();
     const editorState = getActiveEditorState();
     const editor = getActiveEditor();
     const key = this.__key;

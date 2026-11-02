@@ -35,10 +35,10 @@ import {
 } from 'lexical';
 import {describe, expect, test} from 'vitest';
 
-import {YCollabExtension} from '../..';
+import {createYDoc, YCollabExtension} from '../..';
 
 function peer(id: number) {
-  const doc = new Y.Doc({gc: false});
+  const doc = createYDoc(null, {gc: false});
   doc.clientID = id;
   const errors: unknown[] = [];
   const warnings: string[] = [];
@@ -46,7 +46,11 @@ function peer(id: number) {
     defineExtension({
       $initialEditorState: null,
       dependencies: [
-        configExtension(YCollabExtension, {doc, selfCheck: true}),
+        configExtension(YCollabExtension, {
+          doc,
+          schemaVersion: 1,
+          selfCheck: true,
+        }),
         MarkStateExtension,
       ],
       name: 'r13a/' + id,

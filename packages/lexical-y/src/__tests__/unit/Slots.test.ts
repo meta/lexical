@@ -58,6 +58,7 @@ import {$assertNodeType} from 'lexical/src/__tests__/utils';
 import {describe, expect, test} from 'vitest';
 
 import {
+  createYDoc,
   describeStorage,
   UNKNOWN_NODE_TYPES_WARNING,
   UNSUPPORTED_SLOTS_WARNING,
@@ -557,14 +558,14 @@ describe('named slots', () => {
 
   test('a slot value of a type a peer does not register opens it read only', async () => {
     const t = await setup($initial, opts);
-    const doc = new Y.Doc();
+    const doc = createYDoc();
     Y.applyUpdate(doc, Y.encodeStateAsUpdate(t.a.doc));
     const codes: string[] = [];
     const editor = createEditorWith(
       SLOT_NODES.filter(k => k !== SlotBodyNode),
       codes,
     );
-    const binding = new YBinding(editor, doc);
+    const binding = new YBinding(editor, doc, {schemaVersion: 1});
     binding.start();
     binding.initialize();
     expect(binding.status).toBe('readonly');
@@ -592,7 +593,7 @@ function createEditorWith(
 
 describe('named slots where the document cannot store them', () => {
   function bound(state: Uint8Array | null) {
-    const doc = new Y.Doc();
+    const doc = createYDoc();
     if (state !== null) {
       Y.applyUpdate(doc, state);
     }
@@ -618,6 +619,7 @@ describe('named slots where the document cannot store them', () => {
       onStatus: s => {
         status = s;
       },
+      schemaVersion: 1,
     });
     binding.start();
     return {binding, codes, doc, editor, status: () => status, warnings};
@@ -732,14 +734,18 @@ describe('named slots with BlockIdExtension and MarkStateExtension', () => {
     warnings: string[];
   };
   function peer(name: string, clientID: number): E {
-    const doc = new Y.Doc({gc: false});
+    const doc = createYDoc(null, {gc: false});
     doc.clientID = clientID;
     const warnings: string[] = [];
     let n = 0;
     const editor = buildEditorFromExtensions(
       defineExtension({
         dependencies: [
-          configExtension(YCollabExtension, {doc, selfCheck: true}),
+          configExtension(YCollabExtension, {
+            doc,
+            schemaVersion: 1,
+            selfCheck: true,
+          }),
           configExtension(BlockIdExtension, {
             generateId: () => `${name}${++n}`,
           }),

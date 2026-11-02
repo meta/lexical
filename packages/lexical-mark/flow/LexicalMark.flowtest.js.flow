@@ -14,20 +14,30 @@
  * is a `.js.flow` file). It is never imported at runtime.
  */
 
-import type {BaseSelection, LexicalNode, NodeKey} from 'lexical';
-import type {MarkStateConfig} from '@lexical/mark';
+import type {BaseSelection, LexicalEditor, LexicalNode, NodeKey} from 'lexical';
+import type {
+  AnyMarkFlavorExtension,
+  MarkFlavorExtension,
+  MarkIDsChange,
+  MarkStateConfig,
+  MarkStateOutput,
+} from '@lexical/mark';
 
 import {
   $addMarkID,
   $getMarkIDsAtSelection,
+  $getMarkIDsByFlavor,
   $getNodeMarkIDs,
   $isInlineDecoratorNode,
   $migrateMarkNodesToMarkState,
   $removeMarkID,
   DEFAULT_MARKABLE_NODES,
+  defineMarkExtension,
   MARK_STATE_IDS_ATTRIBUTE,
   MARK_STATE_KEY,
+  MarkBaseExtension,
   MarkStateExtension,
+  registerMarkIDsListener,
 } from '@lexical/mark';
 import {configExtension, TextNode} from 'lexical';
 
@@ -64,9 +74,74 @@ export function flowMarkStateConfig(): string {
   };
   const configured = configExtension(MarkStateExtension, {
     exportIDsToHTML: true,
+    isMarkIDShown: (id: string) => id !== 'resolved',
     markableNodes: config.markableNodes,
   });
+  // isMarkIDShown is optional, so configs written without it still check
+  const filtered: MarkStateConfig = {
+    ...config,
+    isMarkIDShown: (id: string): boolean => id.length > 0,
+  };
+  // $FlowExpectedError[incompatible-type] the filter takes a string id
+  const wrongFilter: MarkStateConfig = {...config, isMarkIDShown: (id: number) => true};
   // $FlowExpectedError[incompatible-type] the output keys are NodeKeys
   const wrong: Map<string, Array<number>> = new Map<string, Array<NodeKey>>();
-  return [configured[0].name, String(wrong.size)].join(',');
+  return [
+    configured[0].name,
+    String(wrong.size),
+    String(filtered.markableNodes.length + wrongFilter.markableNodes.length),
+  ].join(',');
+}
+
+export function flowMarkStateOutput(
+  output: MarkStateOutput,
+  resolved: Set<string>,
+): boolean {
+  output.isMarkIDShown.value = (id: string) => !resolved.has(id);
+  const isShown: (id: string) => boolean = output.isMarkIDShown.value;
+  return isShown('c1');
+}
+
+const CommentMarks: MarkFlavorExtension<'@app/CommentMarks', 'commentIds'> =
+  defineMarkExtension({
+    className: 'comment',
+    name: '@app/CommentMarks',
+    stateKey: 'commentIds',
+  });
+
+export function flowMarkFlavors(
+  editor: LexicalEditor,
+  selection: BaseSelection,
+  node: LexicalNode,
+): Array<string> {
+  const key: 'commentIds' = CommentMarks.stateKey;
+  const flavors: Array<AnyMarkFlavorExtension> = [
+    MarkStateExtension,
+    CommentMarks,
+  ];
+  $addMarkID(CommentMarks, 'c1', selection);
+  $removeMarkID(CommentMarks, 'c1', selection);
+  $removeMarkID(CommentMarks, 'c1');
+  const at: Array<string> = $getMarkIDsAtSelection(CommentMarks, selection, 'all');
+  const own: Array<string> = $getNodeMarkIDs(CommentMarks, node);
+  const count: number = $migrateMarkNodesToMarkState(CommentMarks, node);
+  const byFlavor: {[stateKey: string]: Array<string>} = $getMarkIDsByFlavor(node);
+  const unregister: () => void = registerMarkIDsListener(
+    editor,
+    CommentMarks,
+    (change: MarkIDsChange) => {
+      change.added.has('c1');
+    },
+  );
+  unregister();
+  // $FlowExpectedError[incompatible-type] the flavor comes before the id
+  $addMarkID('c1', CommentMarks, selection);
+  return [
+    key,
+    MarkBaseExtension.name,
+    String(flavors.length + count),
+    ...at,
+    ...own,
+    ...(byFlavor.commentIds || []),
+  ];
 }

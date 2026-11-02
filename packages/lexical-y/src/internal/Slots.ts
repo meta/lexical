@@ -10,6 +10,7 @@ import type {Reader} from './Read';
 import type {Roles} from './State';
 import type {Writer} from './Write';
 
+import invariant from '@lexical/internal/invariant';
 import {Node as YNode} from '@y/y';
 import {
   $getNodeByKey,
@@ -29,6 +30,7 @@ import {
 } from 'lexical';
 
 import {type Attrs, BLOCK_PREFIX, isUnsafeKey} from './Schema';
+import {deleteAttr, setAttr} from './Seen';
 
 /*
  * Named slots ($setSlot). A node stored as its own Y.Node (a `b:<type>` or
@@ -98,7 +100,7 @@ export function $writeSlots(
     }
     // Inserted before it is filled, as every stored node.
     const slotY = new YNode(BLOCK_PREFIX + value.getType());
-    y.setAttr(attr, slotY);
+    setAttr(y, attr, slotY, writer.tr);
     writer.$fillNode(slotY, value);
   }
   for (const attr in current) {
@@ -107,7 +109,7 @@ export function $writeSlots(
         warn('the slots of', node);
         continue;
       }
-      y.deleteAttr(attr);
+      deleteAttr(y, attr, writer.tr);
     }
   }
 }
@@ -172,6 +174,11 @@ export function $readSlots(
     }
     const current = $getSlot(host, name);
     if (current === null || !current.is(value)) {
+      // A node an unwritten update moved can hold its host by now.
+      invariant(
+        !$holds(value, host),
+        '@lexical/y: a read would place a node inside itself',
+      );
       $setSlot(host, name, value);
     }
   }
@@ -180,6 +187,24 @@ export function $readSlots(
       $removeSlot(host, name);
     }
   }
+}
+
+/**
+ * Whether `node` is `target` or holds it, through children or named slots
+ * (the way Lexical walks up the tree): placed in `target`, it would end up
+ * inside itself, and that walk would never end.
+ */
+export function $holds(node: LexicalNode, target: LexicalNode): boolean {
+  for (
+    let n: LexicalNode | null = target;
+    n !== null;
+    n = n.getParent() ?? $getSlotHost(n)
+  ) {
+    if (n.is(node)) {
+      return true;
+    }
+  }
+  return false;
 }
 
 /**

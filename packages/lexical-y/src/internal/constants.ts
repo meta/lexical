@@ -40,5 +40,16 @@ export const BASE_LAYOUT_VERSION = 1;
  * (`s:<key>\u001f<member>` = true).
  */
 export const SET_MEMBERS_LAYOUT_VERSION = 2;
+/**
+ * Prefix of the root attributes that record the versions of the app's own
+ * schema (`schemaVersion`: its node types and their stored fields) that
+ * wrote to a document (internal): `lexical-y-schema:<version>` = true, one
+ * per version. Like the layout record, it only grows: a client records its
+ * version in the same transaction as its first write to the document (a new
+ * document's before its content), undo never deletes it, and a reader takes
+ * the highest, so two clients that write at once agree on it. A client whose
+ * `schemaVersion` is lower opens the document read only.
+ */
+export const SCHEMA_PREFIX = 'lexical-y-schema:';
 /** The roots of the Yjs 13 bindings' layouts. */
 export const LEGACY_ROOTS: readonly string[] = ['root', 'root-v2'];

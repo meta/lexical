@@ -558,6 +558,105 @@ export function $setTextContentSpliced<T extends TextNode>(
   }
 }
 
+/**
+ * @internal Not public API.
+ *
+ * Run `fn`, which moves the first `count` characters of text node `from` to
+ * the end of `to`, its previous sibling, with `to.setTextContent` and then
+ * `from.setTextContent` (or `from.remove()` when it moves all of them), as
+ * `registerLexicalTextEntity` grows an entity over the text after it.
+ *
+ * `fn` runs as it is either way. While the editor records text edits (see
+ * EditorState#_textEdits), the two text sets it records are replaced by one
+ * `move` entry when they are exactly that move (`from`'s removal stays after
+ * it), so that the Yjs binding keeps the identity of the moved characters;
+ * otherwise (a subclass's setTextContent that changes other text, say) they
+ * stay as recorded.
+ */
+export function INTERNAL_$recordTextMove(
+  from: TextNode,
+  to: TextNode,
+  count: number,
+  fn: () => void,
+): void {
+  const editor = getActiveEditor();
+  if (!editor._recordTextEdits) {
+    fn();
+    return;
+  }
+  const fromKey = from.__key;
+  const toKey = to.__key;
+  const adjacent = to.getLatest().__next === fromKey;
+  const log = $textEditLog(editor);
+  const start = log.length;
+  fn();
+  if (!adjacent || log.length !== start + 2) {
+    return;
+  }
+  const set = log[start];
+  const next = log[start + 1];
+  if (set[0] !== 'set' || set[1] !== toKey) {
+    return;
+  }
+  const toBefore = set[2];
+  const head = set[3].slice(toBefore.length);
+  if (head.length !== count || count === 0 || toBefore + head !== set[3]) {
+    return;
+  }
+  if (next[0] === 'set') {
+    if (next[1] === fromKey && next[2] === head + next[3]) {
+      log.splice(start, 2, ['move', fromKey, toKey, count, next[2], toBefore]);
+    }
+  } else if (
+    next[0] === 'detach' &&
+    next[1] === fromKey &&
+    from.getLatest().__text === head
+  ) {
+    log.splice(start, 1, ['move', fromKey, toKey, count, head, toBefore]);
+  }
+}
+
+/**
+ * @internal Not public API.
+ *
+ * Record, while the editor records text edits (see EditorState#_textEdits),
+ * that text node `next`, which `prev.replace(next)` just put in the place of
+ * text node `prev`, holds prev's characters: the same text remade as a node
+ * of another type, as `registerLexicalTextEntity` makes an entity plain text
+ * again or plain text an entity. Recorded as a `retype` entry right after
+ * that replace (prev's `detach` and next's `attach`) when both hold the same
+ * text, so that the Yjs binding keeps the identity of the characters;
+ * nothing is recorded otherwise, and nothing else changes.
+ */
+export function INTERNAL_$recordTextRetype(
+  prev: TextNode,
+  next: TextNode,
+): void {
+  const editor = getActiveEditor();
+  if (!editor._recordTextEdits) {
+    return;
+  }
+  const p = prev.getLatest();
+  const n = next.getLatest();
+  const log = $textEditLog(editor);
+  const detach = log[log.length - 2];
+  const attach = log[log.length - 1];
+  if (
+    p.__key !== n.__key &&
+    p.__text === n.__text &&
+    detach !== undefined &&
+    detach[0] === 'detach' &&
+    detach[1] === p.__key &&
+    attach[0] === 'attach' &&
+    attach[1] === n.__key &&
+    attach[2] === detach[2] &&
+    p.__parent === null &&
+    n.__parent === attach[2]
+  ) {
+    log.push(['retype', p.__key, n.__key, n.__text]);
+  }
+}
+
 /** @noInheritDoc */
 // eslint-disable-next-line @typescript-eslint/no-unsafe-declaration-merging
 export class TextNode extends LexicalNode implements InlineFormattableNode {

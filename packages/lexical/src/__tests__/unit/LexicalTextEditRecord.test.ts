@@ -16,6 +16,8 @@ import {
   $getRoot,
   $setSelection,
   createEditor,
+  INTERNAL_$recordTextMove,
+  INTERNAL_$recordTextRetype,
   type LexicalEditor,
   type NodeKey,
   type TextNode,
@@ -34,12 +36,11 @@ function setUp(
   record: boolean,
   texts: [string, number][] = [['abcdef', 0]],
   moves = false,
+  onError: (e: Error) => void = e => {
+    throw e;
+  },
 ) {
-  const editor = createEditor({
-    onError: e => {
-      throw e;
-    },
-  });
+  const editor = createEditor({onError});
   editor._recordTextEdits = record;
   editor._recordNodeMoves = moves;
   const keys: NodeKey[] = [];
@@ -308,5 +309,216 @@ describe('the record of text edits', () => {
       expect(r.log).toBe(null);
       expect(r.splits).toBe(null);
     }
+  });
+
+  describe('moves and retypes, where the code that makes them says so', () => {
+    // As registerLexicalTextEntity grows an entity over the start of the
+    // next node, and makes an entity plain text again.
+    const $grow = (from: NodeKey, to: NodeKey, count: number) => {
+      const head = $text(from).getTextContent().slice(0, count);
+      const rest = $text(from).getTextContent().slice(count);
+      INTERNAL_$recordTextMove($text(from), $text(to), count, () => {
+        $text(to).setTextContent($text(to).getTextContent() + head);
+        if (rest === '') {
+          $text(from).remove();
+        } else {
+          $text(from).setTextContent(rest);
+        }
+      });
+    };
+
+    test('a move of the start of a node to the end of the one before it', () => {
+      const {editor, keys} = setUp(true, [
+        ['#fo', 1],
+        ['obar baz', 0],
+      ]);
+      expect(recorded(editor, () => $grow(keys[1], keys[0], 4))).toEqual([
+        ['move', keys[1], keys[0], 4, 'obar baz', '#fo'],
+      ]);
+      expect(editor.read(() => $getRoot().getTextContent())).toBe(
+        '#foobar baz',
+      );
+    });
+
+    test('a move of all of a node: the move, then its removal', () => {
+      const {editor, keys} = setUp(true, [
+        ['#fo', 1],
+        ['obar', 0],
+      ]);
+      const p = editor.read(() => $text(keys[0]).getParentOrThrow().getKey());
+      expect(recorded(editor, () => $grow(keys[1], keys[0], 4), true)).toEqual([
+        ['move', keys[1], keys[0], 4, 'obar', '#fo'],
+        ['detach', keys[1], p],
+      ]);
+    });
+
+    test('text sets that are not that move stay as recorded', () => {
+      const {editor, keys} = setUp(true, [
+        ['#fo', 1],
+        ['obar baz', 0],
+      ]);
+      // The first node takes other text than the start of the second.
+      expect(
+        recorded(editor, () => {
+          INTERNAL_$recordTextMove($text(keys[1]), $text(keys[0]), 4, () => {
+            $text(keys[0]).setTextContent('#foOBAR');
+            $text(keys[1]).setTextContent(' baz');
+          });
+        }),
+      ).toEqual([
+        ['set', keys[0], '#fo', '#foOBAR'],
+        ['set', keys[1], 'obar baz', ' baz'],
+      ]);
+      // Not the previous sibling.
+      const far = setUp(true, [
+        ['#fo', 1],
+        ['-', 2],
+        ['obar baz', 0],
+      ]);
+      expect(
+        recorded(far.editor, () => $grow(far.keys[2], far.keys[0], 4)),
+      ).toEqual([
+        ['set', far.keys[0], '#fo', '#foobar'],
+        ['set', far.keys[2], 'obar baz', ' baz'],
+      ]);
+    });
+
+    test('calls that record other entries stay as recorded: a split, a move inside', () => {
+      const {editor, keys} = setUp(true, [
+        ['#fo', 1],
+        ['obar baz', 0],
+      ]);
+      // A split's records (its text set is suspended) are no two sets (the
+      // merge is the normalization's, at the end of the update).
+      expect(
+        recorded(editor, () => {
+          INTERNAL_$recordTextMove($text(keys[1]), $text(keys[0]), 4, () => {
+            $text(keys[0]).setTextContent('#foobar');
+            $text(keys[1]).splitText(4);
+          });
+        })!.map(e => e[0]),
+      ).toEqual(['set', 'split', 'merge']);
+      // A move inside one: recorded once, by the inner one.
+      const nested = setUp(true, [
+        ['#fo', 1],
+        ['obar baz', 0],
+      ]);
+      expect(
+        recorded(nested.editor, () => {
+          INTERNAL_$recordTextMove(
+            $text(nested.keys[1]),
+            $text(nested.keys[0]),
+            4,
+            () => $grow(nested.keys[1], nested.keys[0], 4),
+          );
+        }),
+      ).toEqual([
+        ['move', nested.keys[1], nested.keys[0], 4, 'obar baz', '#fo'],
+      ]);
+    });
+
+    test('an error in the calls reaches onError as it is, and the update is discarded', () => {
+      const errors: Error[] = [];
+      const {editor, keys} = setUp(
+        true,
+        [
+          ['#fo', 1],
+          ['obar baz', 0],
+        ],
+        false,
+        e => {
+          errors.push(e);
+        },
+      );
+      const json = editor.getEditorState().toJSON();
+      const error = new Error('refused');
+      editor.update(
+        () => {
+          INTERNAL_$recordTextMove($text(keys[1]), $text(keys[0]), 4, () => {
+            $text(keys[0]).setTextContent('#foobar');
+            throw error;
+          });
+        },
+        {discrete: true},
+      );
+      expect(errors).toEqual([error]);
+      expect(editor.getEditorState().toJSON()).toEqual(json);
+      expect(recorded(editor, () => $grow(keys[1], keys[0], 4))).toEqual([
+        ['move', keys[1], keys[0], 4, 'obar baz', '#fo'],
+      ]);
+    });
+
+    test('a retype: a node replaced by one of another kind with its text', () => {
+      const {editor, keys} = setUp(true, [
+        ['ab', 1],
+        ['cd', 0],
+      ]);
+      const p = editor.read(() => $text(keys[0]).getParentOrThrow().getKey());
+      let made = '';
+      expect(
+        recorded(
+          editor,
+          () => {
+            const node = $createTextNode('ab').setFormat(2);
+            made = node.getKey();
+            $text(keys[0]).replace(node);
+            INTERNAL_$recordTextRetype($text(keys[0]), node);
+          },
+          true,
+        ),
+      ).toEqual([
+        ['detach', keys[0], p],
+        ['attach', made, p, null, keys[1], 'ab'],
+        ['retype', keys[0], made, 'ab'],
+      ]);
+    });
+
+    test('no retype for other text, or other than right after the replace', () => {
+      const {editor, keys} = setUp(true, [
+        ['ab', 1],
+        ['cd', 0],
+      ]);
+      const log = recorded(
+        editor,
+        () => {
+          const other = $createTextNode('xy').setFormat(2);
+          $text(keys[0]).replace(other);
+          INTERNAL_$recordTextRetype($text(keys[0]), other);
+          const same = $createTextNode('cd').setFormat(2);
+          $text(keys[1]).replace(same);
+          same.spliceText(0, 0, 'Q');
+          INTERNAL_$recordTextRetype($text(keys[1]), same);
+        },
+        true,
+      )!;
+      expect(log.filter(e => e[0] === 'retype')).toEqual([]);
+    });
+
+    test('nothing recorded, and the same calls made, without recording', () => {
+      const run = (record: boolean) => {
+        const {editor, keys} = setUp(record, [
+          ['#fo', 1],
+          ['obar', 0],
+          ['cd', 2],
+        ]);
+        editor.update(
+          () => {
+            $grow(keys[1], keys[0], 4);
+            const node = $createTextNode('cd').setFormat(3);
+            $text(keys[2]).replace(node);
+            INTERNAL_$recordTextRetype($text(keys[2]), node);
+          },
+          {discrete: true},
+        );
+        return editor;
+      };
+      const off = run(false);
+      const on = run(true);
+      expect(off.getEditorState()._textEdits).toBe(null);
+      expect(off.getEditorState().toJSON()).toEqual(
+        on.getEditorState().toJSON(),
+      );
+      expect(off.read(() => $getRoot().getTextContent())).toBe('#foobarcd');
+    });
   });
 });

@@ -136,9 +136,34 @@ describe('LINK', () => {
       expect(children).toHaveLength(1);
 
       const linkNode = children[0];
-      assert($isLinkNode(linkNode), 'First child must be a LinkNode');
+      assert($isLinkNode(linkNode), 'Expected a link');
       expect(linkNode.getTextContent()).toBe('test');
       expect(linkNode.getURL()).toBe('https://example.com/a b');
+    });
+  });
+
+  test('a title ending in an escaped backslash closes at the next quote', () => {
+    using editor = buildEditorFromExtensions([MarkdownShortcutTestExtension]);
+    typeMarkdown(editor, '[test](url "a\\\\")');
+
+    editor.read(() => {
+      const linkNode = $getRoot().getAllTextNodes()[0].getParent();
+      assert($isLinkNode(linkNode), 'Expected a link');
+      expect([linkNode.getURL(), linkNode.getTitle()]).toEqual(['url', 'a\\']);
+    });
+  });
+
+  test('a title whose closing quote is escaped makes no link', () => {
+    using editor = buildEditorFromExtensions([MarkdownShortcutTestExtension]);
+    typeMarkdown(editor, '[test](url "a\\")');
+
+    editor.read(() => {
+      expect($getRoot().getTextContent()).toBe('[test](url "a\\")');
+      expect(
+        $getRoot()
+          .getAllTextNodes()
+          .some(node => $isLinkNode(node.getParent())),
+      ).toBe(false);
     });
   });
 
@@ -172,7 +197,7 @@ describe('LINK', () => {
       expect(children.length).toBe(1);
 
       const linkNode = children[0];
-      assert($isLinkNode(linkNode), 'First child must be a LinkNode');
+      assert($isLinkNode(linkNode), 'Expected a link');
       expect(linkNode.getTextContent()).toBe('hell[world](www)o');
       expect(linkNode.getURL()).toBe('link');
     });

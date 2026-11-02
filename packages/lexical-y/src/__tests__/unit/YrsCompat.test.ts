@@ -14,7 +14,7 @@ import {describe, expect, test} from 'vitest';
 import * as yrs028 from 'ywasm';
 import * as yrs023 from 'ywasm-0.23';
 
-import {type ClientIDRange, YBinding} from '../..';
+import {type ClientIDRange, createYDoc, YBinding, type YDoc} from '../..';
 import {
   createYWriter,
   editYState,
@@ -34,9 +34,9 @@ type Yrs = {
   encodeStateAsUpdate: (doc: never, vector?: Uint8Array) => Uint8Array;
 };
 
-function session(yrs: Yrs, options: {range?: ClientIDRange; doc?: Y.Doc}) {
+function session(yrs: Yrs, options: {range?: ClientIDRange; doc?: YDoc}) {
   const relay = new yrs.YDoc({}) as never;
-  const doc = options.doc || new Y.Doc();
+  const doc = options.doc || createYDoc();
   doc.on('update', (u: Uint8Array) => yrs.applyUpdate(relay, u, null));
   const editor = createEditor({
     nodes: NODES,
@@ -47,6 +47,7 @@ function session(yrs: Yrs, options: {range?: ClientIDRange; doc?: Y.Doc}) {
   editor.update(() => $getRoot().append($p('hello')), {discrete: true});
   const binding = new YBinding(editor, doc, {
     clientIDRange: options.range,
+    schemaVersion: 1,
     selfCheck: true,
   });
   binding.start();
@@ -93,7 +94,7 @@ describe('@lexical/y with yrs relays', () => {
   });
 
   test('uint32 range survives Yjs drawing a new client id', () => {
-    const doc = new Y.Doc();
+    const doc = createYDoc();
     const editor = createEditor({
       nodes: NODES,
       onError: e => {
@@ -102,6 +103,7 @@ describe('@lexical/y with yrs relays', () => {
     });
     new YBinding(editor, doc, {
       clientIDRange: 'uint32',
+      schemaVersion: 1,
       selfCheck: true,
     }).start();
     expect(doc.clientID).toBeLessThanOrEqual(0xffffffff);
@@ -128,7 +130,7 @@ describe('@lexical/y/headless with yrs relays', () => {
     direct: boolean,
     serverRange: ClientIDRange = range,
   ) {
-    const config = {clientIDRange: serverRange, nodes: NODES};
+    const config = {clientIDRange: serverRange, nodes: NODES, schemaVersion: 1};
     const relay = new yrs.YDoc({}) as never;
     // The server seeds the document into the relay.
     yrs.applyUpdate(
@@ -137,7 +139,7 @@ describe('@lexical/y/headless with yrs relays', () => {
       null,
     );
     // A browser loads it from the relay, binds and types.
-    const doc = new Y.Doc();
+    const doc = createYDoc();
     Y.applyUpdate(doc, yrs.encodeStateAsUpdate(relay), 'relay');
     doc.on('update', (u: Uint8Array, origin: unknown) => {
       if (origin !== 'relay') {
@@ -152,6 +154,7 @@ describe('@lexical/y/headless with yrs relays', () => {
     });
     const binding = new YBinding(editor, doc, {
       clientIDRange: range,
+      schemaVersion: 1,
       selfCheck: true,
     });
     binding.start();
@@ -202,7 +205,11 @@ describe('@lexical/y/headless with yrs relays', () => {
     ['0.28', yrs028],
   ] as const) {
     test(`a writer continues its 32-bit client id on a ywasm ${version} relay's state`, () => {
-      const config = {clientIDRange: 'uint32' as const, nodes: NODES};
+      const config = {
+        clientIDRange: 'uint32' as const,
+        nodes: NODES,
+        schemaVersion: 1,
+      };
       const relay = new yrs.YDoc({}) as never;
       yrs.applyUpdate(
         relay,

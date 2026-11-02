@@ -23,7 +23,6 @@ import {
   buildEditorFromExtensions,
   getExtensionDependencyFromEditor,
 } from '@lexical/extension';
-import * as Y from '@y/y';
 import {
   $createParagraphNode,
   $createTextNode,
@@ -41,7 +40,7 @@ import {
 } from 'lexical';
 import {describe, expect, test} from 'vitest';
 
-import {YCollabExtension} from '../..';
+import {createYDoc, YCollabExtension} from '../..';
 import {$replacedNodes} from '../../internal/Binding';
 
 type Found = [Map<NodeKey, boolean>, Set<NodeKey>] | null;
@@ -213,7 +212,10 @@ test('a keystroke in a large document with a root element does not walk the node
     defineExtension({
       $initialEditorState: null,
       dependencies: [
-        configExtension(YCollabExtension, {doc: new Y.Doc()}),
+        configExtension(YCollabExtension, {
+          doc: createYDoc(),
+          schemaVersion: 1,
+        }),
         configExtension(BlockIdExtension, {generateId: () => `b${++k}`}),
       ],
       name: 'replaced-nodes/keystroke',

@@ -45,7 +45,7 @@ import {
   SLOT_NODES,
 } from '../utils/slots';
 
-const config = {nodes: SLOT_NODES, selfCheck: true};
+const config = {nodes: SLOT_NODES, schemaVersion: 1, selfCheck: true};
 
 function $build() {
   $getRoot().append(
@@ -155,9 +155,9 @@ describe('named slots, headless', () => {
         nodes: SLOT_NODES,
       }),
     ];
-    const state = seedYState({extensions}, $build);
+    const state = seedYState({extensions, schemaVersion: 1}, $build);
     const ids = () =>
-      readYState(state, {extensions}, () => {
+      readYState(state, {extensions, schemaVersion: 1}, () => {
         const out: string[] = [];
         const $visit = (n: LexicalNode) => {
           const json = n.exportJSON() as {$?: {blockId?: string}};
@@ -203,7 +203,9 @@ describe('named slots, headless', () => {
     expect(error).toBeInstanceOf(YHeadlessError);
     expect((error as YHeadlessError).code).toBe('read-only');
     expect((error as YHeadlessError).message).toBe(
-      'the change was not written',
+      `@lexical/y: the change was not written: ${warnings
+        .map(w => w.message)
+        .join('; ')}`,
     );
     expect(warnings.map(w => w.code)).toEqual([UNSUPPORTED_SLOTS_WARNING]);
     expect((error as YHeadlessError).warnings).toEqual(warnings);

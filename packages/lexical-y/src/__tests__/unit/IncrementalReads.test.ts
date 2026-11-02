@@ -41,7 +41,7 @@ import {
 import {$assertNodeType} from 'lexical/src/__tests__/utils';
 import {expect, test} from 'vitest';
 
-import {YCollabExtension} from '../..';
+import {createYDoc, YCollabExtension, type YDoc} from '../..';
 import {
   $p,
   expectConverged,
@@ -52,12 +52,16 @@ import {
   setup,
 } from '../utils/harness';
 
-function reader(doc: Y.Doc) {
+function reader(doc: YDoc) {
   const editor = buildEditorFromExtensions(
     defineExtension({
       $initialEditorState: null,
       dependencies: [
-        configExtension(YCollabExtension, {doc, selfCheck: false}),
+        configExtension(YCollabExtension, {
+          doc,
+          schemaVersion: 1,
+          selfCheck: false,
+        }),
       ],
       name: 'numbering',
       nodes: NODES,
@@ -100,7 +104,7 @@ test('text typed before the nested list a first item holds renumbers the list, a
     last.setAttr('g', 'list');
     last.setAttr('g:listType', 'number');
   });
-  const copy = new Y.Doc({gc: false});
+  const copy = createYDoc(null, {gc: false});
   Y.applyUpdate(copy, Y.encodeStateAsUpdate(doc));
   const live = reader(copy);
   await flush();
@@ -109,7 +113,7 @@ test('text typed before the nested list a first item holds renumbers the list, a
   root.insert(0, 'prefix');
   Y.applyUpdate(copy, Y.encodeStateAsUpdate(doc, sv), 'net');
   await flush();
-  const freshDoc = new Y.Doc({gc: false});
+  const freshDoc = createYDoc(null, {gc: false});
   Y.applyUpdate(freshDoc, Y.encodeStateAsUpdate(copy));
   const fresh = reader(freshDoc);
   await flush();

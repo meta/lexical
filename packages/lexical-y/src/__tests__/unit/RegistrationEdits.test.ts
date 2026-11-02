@@ -23,7 +23,6 @@ import {
   $createTableNodeWithDimensions,
   registerTablePlugin,
 } from '@lexical/table';
-import * as Y from '@y/y';
 import {
   $createParagraphNode,
   $createTextNode,
@@ -39,7 +38,7 @@ import {
 import {$assertNodeType} from 'lexical/src/__tests__/utils';
 import {expect, test, vi} from 'vitest';
 
-import {YCollabExtension} from '../..';
+import {createYDoc, YCollabExtension} from '../..';
 import {$p, expectConverged, flush, freshReader, setup} from '../utils/harness';
 
 for (const order of ['edit then register', 'register then edit']) {
@@ -276,13 +275,17 @@ const EditableOnlyTransform = defineExtension({
 });
 
 test('an extension that registers a transform while editable: setEditable(true) does not throw', async () => {
-  const doc = new Y.Doc();
+  const doc = createYDoc();
   const editor = buildEditorFromExtensions(
     defineExtension({
       $initialEditorState: null,
       dependencies: [
         EditableOnlyTransform,
-        configExtension(YCollabExtension, {doc, selfCheck: false}),
+        configExtension(YCollabExtension, {
+          doc,
+          schemaVersion: 1,
+          selfCheck: false,
+        }),
       ],
       name: '@lexical/y/test/EditableRegistration',
       onError: e => {

@@ -36,7 +36,7 @@ import {
 } from 'lexical';
 import {expect, test} from 'vitest';
 
-import {YBinding} from '../..';
+import {createYDoc, YBinding} from '../..';
 import {$createEquation, flush, NODES} from '../utils/harness';
 
 const $cell = (...children: LexicalNode[]) =>
@@ -145,14 +145,17 @@ const newEditor = (warnings: string[] = []) =>
 for (const [name, $make] of SHAPES) {
   for (const route of ROUTES) {
     test(`${name}, ${route}: the editor shows what a fresh reader shows`, async () => {
-      const doc = new Y.Doc();
+      const doc = createYDoc();
       if (route.includes('used root')) {
         doc.get('lexical-y').setAttr('used', true);
         doc.get('lexical-y').deleteAttr('used');
       }
       const warnings: string[] = [];
       const editor = newEditor(warnings);
-      const binding = new YBinding(editor, doc, {selfCheck: true});
+      const binding = new YBinding(editor, doc, {
+        schemaVersion: 1,
+        selfCheck: true,
+      });
       binding.start();
       await flush();
       const source = newEditor();
@@ -190,10 +193,10 @@ for (const [name, $make] of SHAPES) {
         binding.initialize();
         await flush();
       }
-      const d2 = new Y.Doc();
+      const d2 = createYDoc();
       Y.applyUpdate(d2, Y.encodeStateAsUpdate(doc));
       const e2 = newEditor();
-      const b2 = new YBinding(e2, d2, {selfCheck: false});
+      const b2 = new YBinding(e2, d2, {schemaVersion: 1, selfCheck: false});
       b2.start();
       await flush();
       expect(show(editor)).toBe(show(e2));

@@ -41,7 +41,7 @@ import {
 } from 'lexical';
 import {describe, expect, test} from 'vitest';
 
-import {YBinding} from '../..';
+import {createYDoc, YBinding} from '../..';
 
 /** The app's own id state: BlockIdExtension's key, its own config. */
 const appBlockId = createState('blockId', {
@@ -60,7 +60,7 @@ type Client = {
 const NET = 'net';
 
 function client(id: number, state: Uint8Array | null = null): Client {
-  const doc = new Y.Doc();
+  const doc = createYDoc();
   doc.clientID = id;
   if (state !== null) {
     Y.applyUpdate(doc, state, NET);
@@ -83,7 +83,10 @@ function client(id: number, state: Uint8Array | null = null): Client {
       warnings.push(String(e && (e as Error).message));
     },
   });
-  const binding = new YBinding(editor, doc, {selfCheck: true});
+  const binding = new YBinding(editor, doc, {
+    schemaVersion: 1,
+    selfCheck: true,
+  });
   binding.start();
   return {binding, doc, editor, errors, warnings, writes};
 }

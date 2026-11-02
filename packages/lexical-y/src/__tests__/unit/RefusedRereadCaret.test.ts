@@ -32,7 +32,7 @@ import {
 } from 'lexical';
 import {expect, test} from 'vitest';
 
-import {YCollabExtension} from '../..';
+import {createYDoc, YCollabExtension} from '../..';
 import {NODES} from '../utils/harness';
 
 const idle = async () => {
@@ -44,13 +44,17 @@ for (const gc of [false, true])
     for (const control of [false, true])
       test(`public refused refresh gc=${gc} ids=${ids} selection mapping control=${control}`, async () => {
         const peers = [1, 2].map(id => {
-          const doc = new Y.Doc({gc});
+          const doc = createYDoc(null, {gc});
           doc.clientID = id;
           const editor = buildEditorFromExtensions(
             defineExtension({
               $initialEditorState: null,
               dependencies: [
-                configExtension(YCollabExtension, {doc, selfCheck: false}),
+                configExtension(YCollabExtension, {
+                  doc,
+                  schemaVersion: 1,
+                  selfCheck: false,
+                }),
                 ...(ids ? [BlockIdExtension] : []),
               ],
               name: 'R6/caret/' + id,

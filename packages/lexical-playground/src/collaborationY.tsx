@@ -36,17 +36,20 @@ import {ReactExtension} from '@lexical/react/ReactExtension';
 import {ReactProviderExtension} from '@lexical/react/ReactProviderExtension';
 import {useSignalValue} from '@lexical/react/useExtensionSignalValue';
 import {
+  createYDoc,
   isYWarning,
   STORAGE_MISMATCH_WARNING,
   UNKNOWN_NODE_TYPES_WARNING,
+  UNSUPPORTED_CONFIG_WARNING,
   UNSUPPORTED_LAYOUT_WARNING,
+  UNSUPPORTED_SCHEMA_WARNING,
   UNSUPPORTED_SLOTS_WARNING,
   YCollabExtension,
+  type YDoc,
   type YWarning,
 } from '@lexical/y';
 import {CONNECTED_COMMAND, TOGGLE_CONNECT_COMMAND} from '@lexical/yjs';
 import {WebsocketProvider} from '@y/websocket';
-import {Doc} from '@y/y';
 import {
   type AnyLexicalExtensionArgument,
   COMMAND_PRIORITY_LOW,
@@ -62,25 +65,51 @@ const WEBSOCKET_ENDPOINT =
   params.get('collabEndpoint') || 'ws://localhost:1235';
 const WEBSOCKET_SLUG = 'playground-y';
 const WEBSOCKET_ID = params.get('collabId') || '0';
+/**
+ * The version of the playground's document schema (its node types and their
+ * stored fields): bump it whenever a node's stored fields or node types
+ * change, so that a tab still running the older playground opens documents
+ * the newer one edited read only instead of editing what it cannot read in
+ * full. `?collabYSchemaVersion=<n>` overrides it, to try the gate with two
+ * tabs.
+ */
+const SCHEMA_VERSION = Number(params.get('collabYSchemaVersion')) || 1;
 
 export interface CollabYSession {
-  doc: Doc;
+  doc: YDoc;
   editor: LexicalEditorWithDispose;
   provider: WebsocketProvider;
   /**
-   * The binding's last warning that can make it read only (a layout, a node
-   * type or a slot it cannot store), for the read-only notice's text.
+   * The binding's warning that explains why it is read only (a newer
+   * version of the app, a layout, a node type or a slot it cannot store, a
+   * configuration it cannot write with), for the read-only notice's text.
    */
   readOnlyWarning: Signal<YWarning | null>;
 }
 
 /** The binding's warnings that come with (or explain) its read-only state. */
 const READ_ONLY_WARNING_CODES: ReadonlySet<string> = new Set([
+  UNSUPPORTED_SCHEMA_WARNING,
   UNSUPPORTED_LAYOUT_WARNING,
   UNKNOWN_NODE_TYPES_WARNING,
   STORAGE_MISMATCH_WARNING,
   UNSUPPORTED_SLOTS_WARNING,
+  UNSUPPORTED_CONFIG_WARNING,
 ]);
+
+/**
+ * Whether `warning` says the document needs a newer playground: what it
+ * lacks (node types, how they are stored) then follows from that, so later
+ * warnings do not replace it in the notice.
+ */
+function needsNewerApp(warning: YWarning | null): boolean {
+  return (
+    warning !== null &&
+    (warning.code === UNSUPPORTED_SCHEMA_WARNING ||
+      warning.code === UNSUPPORTED_LAYOUT_WARNING) &&
+    warning.data.reason === 'newer'
+  );
+}
 
 let session: CollabYSession | null = null;
 
@@ -98,7 +127,7 @@ export function getCollabYSession(
   buildApp: () => AnyLexicalExtensionArgument,
 ): CollabYSession {
   if (session === null) {
-    const doc = new Doc();
+    const doc = createYDoc();
     const readOnlyWarning = signal<YWarning | null>(null);
     const provider = new WebsocketProvider(
       WEBSOCKET_ENDPOINT,
@@ -127,6 +156,7 @@ export function getCollabYSession(
           // job tests, has NODE_ENV production and DEV false.
           configExtension(YCollabExtension, {
             doc,
+            schemaVersion: SCHEMA_VERSION,
             selfCheck: import.meta.env?.MODE !== 'production',
           }),
         ],
@@ -135,7 +165,11 @@ export function getCollabYSession(
         // self-check mismatch) are logged rather than thrown, as Lexical's
         // default onWarn does in development.
         onWarn: error => {
-          if (isYWarning(error) && READ_ONLY_WARNING_CODES.has(error.code)) {
+          if (
+            isYWarning(error) &&
+            READ_ONLY_WARNING_CODES.has(error.code) &&
+            (needsNewerApp(error) || !needsNewerApp(readOnlyWarning.peek()))
+          ) {
             readOnlyWarning.value = error;
           }
           console.warn(
@@ -245,21 +279,22 @@ export function CollabYPlugin({
   if (statusValue !== 'readonly') {
     return null;
   }
-  // The app's own text, chosen from the warning's typed `reason`; the code
-  // and reason are also on the element, for the e2e specs.
-  const newer =
-    warning !== null &&
-    warning.code === UNSUPPORTED_LAYOUT_WARNING &&
-    warning.data.reason === 'newer';
+  // The app's own text, chosen from the warning's typed `code` and
+  // `reason`; the code and reason are also on the element, for the e2e
+  // specs.
+  const text =
+    warning === null || !needsNewerApp(warning)
+      ? "This document can't be opened for editing here. It is read only."
+      : warning.code === UNSUPPORTED_SCHEMA_WARNING
+        ? 'This document was edited with a newer version of the playground. Reload the page to get the latest version; until then it is read only here.'
+        : 'This document was written by a newer version of the playground. It is read only here.';
   return (
     <div
       className="collab-y-notice"
       role="status"
       data-code={warning === null ? undefined : warning.code}
       data-reason={warning === null ? undefined : warning.data.reason}>
-      {newer
-        ? 'This document was written by a newer version of the playground. It is read only here.'
-        : "This document can't be opened for editing here. It is read only."}
+      {text}
     </div>
   );
 }

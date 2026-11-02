@@ -32,7 +32,7 @@ import {
 } from 'lexical';
 import {describe, expect, test, vi} from 'vitest';
 
-import {YCollabExtension} from '../../..';
+import {createYDoc, YCollabExtension, type YDoc} from '../../..';
 import {
   $block,
   $createEquation,
@@ -43,13 +43,13 @@ import {
 
 const flush = () => new Promise(resolve => setTimeout(resolve, 0));
 
-function client(doc: Y.Doc, attached: boolean) {
+function client(doc: YDoc, attached: boolean) {
   const warnings: string[] = [];
   const editor = buildEditorFromExtensions(
     defineExtension({
       $initialEditorState: null,
       dependencies: [
-        configExtension(YCollabExtension, {doc}),
+        configExtension(YCollabExtension, {doc, schemaVersion: 1}),
         BlockIdExtension,
       ],
       name: 'regressions-follow-ups',
@@ -80,12 +80,12 @@ function client(doc: Y.Doc, attached: boolean) {
 // taken by the follow-up check for a change of the derived field: refused,
 // and its container (the whole root) read again. Not a divergence (the
 // re-read gives the same document); a needless whole-container re-read.
-// Open, in Known open issues.
+// Open (#9568, and listed under Known open issues in #9400).
 describe('R16A-2: a naming follow-up on a paragraph whose derived textFormat differs from the stored one', () => {
   test.fails(
     'R16A-2 a DOM-attached reader renames the paragraph: the follow-up is neither refused nor read again',
     async () => {
-      const docA = new Y.Doc();
+      const docA = createYDoc();
       const writer = client(docA, false);
       writer.editor.update(
         () => {
@@ -103,7 +103,7 @@ describe('R16A-2: a naming follow-up on a paragraph whose derived textFormat dif
       );
       writer.binding.initialize();
       await flush();
-      const docB = new Y.Doc();
+      const docB = createYDoc();
       Y.applyUpdate(docB, Y.encodeStateAsUpdate(docA));
       const reader = client(docB, true);
       reader.binding.initialize();

@@ -13,7 +13,8 @@ import {
   type BlockIdExtension,
   buildEditorFromExtensions,
 } from '@lexical/extension';
-import {applyUpdate, Doc} from '@y/y';
+import invariant from '@lexical/internal/invariant';
+import {applyUpdate, type Doc} from '@y/y';
 import {
   type AnyLexicalExtensionArgument,
   type CreateEditorArgs,
@@ -26,6 +27,7 @@ import {
 
 import {
   type ClientIDRange,
+  createYDoc,
   DEFAULT_ROOT_NAME,
   isYWarning,
   YBinding,
@@ -74,6 +76,15 @@ export type YHeadlessWarningCode =
  * document the way a client would.
  */
 export interface HeadlessYConfig {
+  /**
+   * The version of the app's document schema, as on the clients
+   * (`YCollabExtension`'s `schemaVersion`): the version of the code that
+   * runs here. Required. A document a newer version wrote to is read only
+   * here: `editYState` and `readYState` refuse it (`'read-only'`, with an
+   * `UNSUPPORTED_SCHEMA_WARNING`), and a seed or an edit records this
+   * version.
+   */
+  schemaVersion: number;
   /** Extensions that define the editor: nodes, transforms, NodeState. */
   extensions?: readonly AnyLexicalExtensionArgument[];
   /** Node classes, for an editor that is not defined by extensions. */
@@ -107,8 +118,9 @@ export type YHeadlessErrorCode =
   /** The state has no layout record yet: seed it first. */
   | 'not-initialized'
   /**
-   * The binding is read only: the document uses a newer layout, content
-   * without a layout record, or node types the editor does not register; or
+   * The binding is read only: the document uses a newer layout, a newer
+   * version of the app's schema wrote to it, it holds content without a
+   * layout record, or node types the editor does not register; or
    * it refused the edit, which holds a named slot the document cannot store.
    * The error's `warnings` are the binding's warnings that say which.
    */
@@ -149,14 +161,24 @@ export class YHeadlessError extends Error {
 }
 
 /**
- * A `'read-only'` {@link YHeadlessError}: a short message, and the binding's
- * warnings (the reasons) as data.
+ * A `'read-only'` {@link YHeadlessError}: a short message followed by the
+ * binding's warnings' messages (the reasons, which say what to do), and the
+ * warnings themselves as data.
  */
 export function readOnlyError(
   message: string,
   warnings: readonly LexicalWarning[],
 ): YHeadlessError {
-  return new YHeadlessError('read-only', message, warnings.filter(isYWarning));
+  const reasons = warnings.filter(isYWarning);
+  // The message names the reasons too, so that an uncaught error says why
+  // and what to do; programs read `warnings` (code and data) instead.
+  return new YHeadlessError(
+    'read-only',
+    reasons.length > 0
+      ? `@lexical/y: ${message}: ${reasons.map(w => w.message).join('; ')}`
+      : `@lexical/y: ${message}`,
+    reasons,
+  );
 }
 
 /**
@@ -351,19 +373,35 @@ export function openHeadlessYEditor(
   record = false,
   writer: YWriter | null = null,
 ): OpenedHeadlessYEditor {
-  const warnings: LexicalWarning[] = [];
-  const {editor, report, sink} = buildHeadlessEditor(options, warnings);
+  // Checked before anything is built (the binding checks it too, with the
+  // name of the option it knows).
+  invariant(
+    options != null &&
+      Number.isSafeInteger(options.schemaVersion) &&
+      options.schemaVersion >= 1,
+    "@lexical/y/headless: the config needs schemaVersion (got %s): start at 1 and increase it whenever a node's stored fields or node types change, as the clients' YCollabExtension does",
+    String(options == null ? undefined : options.schemaVersion),
+  );
   // No garbage collection, only so that the root check of an edit's update
   // (editYState) can resolve deleted items: this document is temporary, and
   // the states the helpers return are garbage collected. The binding keeps
   // the client id in range (`clientIDRange`) from `start()`; nothing is
-  // written before that.
-  const doc = new Doc({gc: false});
-  // No format cleanup, as on the clients (the binding opts its containers
-  // out of it): loading the state would otherwise delete format items the
-  // clients keep, and those deletions would be in the returned state but
-  // not in the update.
-  doc.cleanupFormatting = false;
+  // written before that. No format cleanup either, as on every document the
+  // binding writes (see createYDoc): loading the state would otherwise
+  // delete format items the clients keep, and those deletions would be in
+  // the returned state but not in the update. Made before the editor, so
+  // that createYDoc's check of the app's @y/y refuses before any extension
+  // is built or registered.
+  const doc = createYDoc(null, {gc: false});
+  const warnings: LexicalWarning[] = [];
+  let built: ReturnType<typeof buildHeadlessEditor>;
+  try {
+    built = buildHeadlessEditor(options, warnings);
+  } catch (error) {
+    doc.destroy();
+    throw error;
+  }
+  const {editor, report, sink} = built;
   const writes: Uint8Array<ArrayBuffer>[] = [];
   const collect = (update: Uint8Array) => {
     writes.push(new Uint8Array(update));
@@ -484,6 +522,7 @@ export function openHeadlessYEditor(
       captureTimeout: null,
       clientIDRange: options.clientIDRange,
       root: doc.get(options.root || DEFAULT_ROOT_NAME),
+      schemaVersion: options.schemaVersion,
       selfCheck: options.selfCheck,
     });
     binding = bound;
@@ -527,7 +566,7 @@ export function openHeadlessYEditor(
  * `readYState`; the tests use it to inspect a handle.
  */
 export function createHeadlessYEditor(
-  options: CreateHeadlessYEditorOptions = {},
+  options: CreateHeadlessYEditorOptions,
 ): HeadlessYEditor {
   return openHeadlessYEditor(options).handle;
 }

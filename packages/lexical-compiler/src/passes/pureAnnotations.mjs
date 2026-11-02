@@ -63,6 +63,7 @@ export const PURE_FACTORY_FUNCTIONS = [
   'declarePeerDependency',
   'defineExtension',
   'defineImportRule',
+  'defineMarkExtension',
   'defineOverlayRules',
   'domOverride',
   'enumValue',

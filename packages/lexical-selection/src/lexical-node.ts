@@ -48,8 +48,12 @@ export function $sliceSelectedTextNodeContent<T extends TextNode>(
   mutates: 'clone' | 'self' = 'self',
 ): T {
   const points = selection.getStartEndPoints();
+  // Only the node of a text point can be cut short; checking that first
+  // keeps a caller that slices every selected node from working out the
+  // selection for each of them.
   if (
     points !== null &&
+    (points[0].key === textNode.__key || points[1].key === textNode.__key) &&
     textNode.isSelected(selection) &&
     !$isTokenOrSegmented(textNode)
   ) {

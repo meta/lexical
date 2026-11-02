@@ -40,9 +40,9 @@ import {
   getGroupSpec,
   getWrapperSpec,
   INLINE_PREFIX,
-  isOwnedTextKey,
   isSetStateConfig,
   MARKER,
+  ownsFormat,
   RUN_END,
   SEGMENT_KEY,
   SET_MEMBER_SEPARATOR,
@@ -52,7 +52,8 @@ import {
   TYPE_KEY,
   WRAPPER_PREFIX,
 } from './Schema';
-import {type CS, EMPTY_FORMATS, prevLiveEnd, State} from './State';
+import {prevLiveEnd} from './Seen';
+import {type CS, EMPTY_FORMATS, State} from './State';
 
 // The opt-in self-check (YBindingOptions.selfCheck): the lines a local
 // write touched, read back from Yjs and compared with the editor
@@ -123,7 +124,6 @@ function hasLiveContent(y: YNode): boolean {
  */
 export function $checkWrite(writer: Writer): string[] {
   const problems: string[] = [];
-  const isKnownWrapper = (type: string) => writer.state.editor._nodes.has(type);
   // A line written twice in one write (its container rewritten after it)
   // is checked as last written.
   const last = new Map<string, number>();
@@ -170,7 +170,7 @@ export function $checkWrite(writer: Writer): string[] {
       get: key => writer.state.segments.get(key),
     };
     $pushInline(want, nodes, ctx);
-    const left = prevLiveEnd(end);
+    const left = prevLiveEnd(end, writer.state.hidden);
     const have = new Atoms();
     readAtoms(
       left === null ? unit.cs.y._start : left.right,
@@ -209,6 +209,7 @@ export function $checkWrite(writer: Writer): string[] {
         continue;
       }
       lastKey = key;
+      const fields = writer.textFields(a[TYPE_KEY], b[TYPE_KEY]);
       for (const k of new Set([...Object.keys(a), ...Object.keys(b)])) {
         // A segment key under text the editor holds in a node Lexical
         // merges (an opener an undo restored, left open over later lines):
@@ -230,13 +231,18 @@ export function $checkWrite(writer: Writer): string[] {
           // reader shows none, whatever is stored.
           continue;
         }
+        // What the write stores of it, where the editor owns it (see
+        // ownsFormat, Writer#formatAsStored).
         if (
           (!wrappersOnly ||
             k.startsWith(WRAPPER_PREFIX) ||
             (isBreak && k.startsWith(STATE_PREFIX))) &&
-          isOwnedTextKey(k, isKnownWrapper) &&
+          ownsFormat(k, fields, writer.wrapperFields) &&
           !equalFormatValue(
-            withoutTextFields(a[k] ?? null, derivedText),
+            withoutTextFields(
+              writer.formatAsStored(k, a[k] ?? null, b[k]),
+              derivedText,
+            ),
             withoutTextFields(b[k] ?? null, derivedText),
           )
         ) {
@@ -246,12 +252,26 @@ export function $checkWrite(writer: Writer): string[] {
         }
       }
     }
-    if (d.kind === 'line') {
-      const marker = writer.$marker(d);
+    // (Not a marker whose attributes are held back: the line shows its old
+    // ones until the hold ends, see Hidden.)
+    const hidden = writer.state.hidden;
+    if (
+      d.kind === 'line' &&
+      (hidden === null ||
+        hidden.marker === null ||
+        !hidden.marker.ends.has(end))
+    ) {
       const attrs = (end.content as ContentType).type.getAttrs() as Record<
         string,
         unknown
       >;
+      const desired = writer.$marker(d);
+      const marker = writer.$markerAsStored(
+        desired,
+        attrs,
+        writer.markerOwners(desired, attrs),
+        null,
+      );
       for (const k in marker) {
         if (
           !equalValue(attrs[k], marker[k]) &&
@@ -499,7 +519,7 @@ export function checkContainer(
   cs: CS,
   editorState: EditorState,
 ): string[] {
-  if (state.hidden !== null || state.unknownTypes.size > 0) {
+  if (state.differsOnPurpose()) {
     return [];
   }
   const live = editorState.read(() => {

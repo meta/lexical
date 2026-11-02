@@ -347,6 +347,51 @@ test.describe('Collab Y: version gate', () => {
       expect(await c.blocks()).toEqual(['paragraph:g1z']);
     }
   });
+
+  test('a client older than a version that wrote the document is read only', async ({
+    browser,
+  }) => {
+    const {clients, session} = await openClients(browser);
+    const [a, b] = clients;
+    session.expect(/\(@lexical\/y\/unsupported-schema\)$/);
+    await seed(clients, ['v1z']);
+    // A newer version of the app (`schemaVersion` 99) wrote to the document:
+    // it records its version on the root (`lexical-y-schema:<n>: true`, a
+    // record that only grows) with its first write.
+    await a.evaluate(() => {
+      const editor = document.querySelector(
+        '[data-lexical-editor]',
+      ).__lexicalEditor;
+      const {binding} =
+        editor[
+          Symbol.for('@lexical/extension/LexicalBuilder')
+        ].extensionNameMap.get('@lexical/y/Collab').state.output;
+      binding.doc.transact(() =>
+        binding.root.setAttr('lexical-y-schema:99', true),
+      );
+    });
+    for (const c of [a, b]) {
+      await expect.poll(() => c.status()).toBe('readonly');
+      await expect(c.editor).toHaveAttribute('contenteditable', 'false');
+      const notice = c.page.locator('.collab-y-notice');
+      await expect(notice).toBeVisible();
+      await expect(notice).toHaveAttribute(
+        'data-code',
+        '@lexical/y/unsupported-schema',
+      );
+      await expect(notice).toHaveAttribute('data-reason', 'newer');
+      await expect(notice).toContainText('newer version of the playground');
+      expect(await c.blocks()).toEqual(['paragraph:v1z']);
+    }
+    // Typing changes nothing.
+    await b.editor.click({force: true});
+    await b.type('kb1z');
+    await b.page.waitForTimeout(300);
+    for (const c of [a, b]) {
+      expect(await c.blocks()).toEqual(['paragraph:v1z']);
+      expect(c.problems).toEqual([]);
+    }
+  });
 });
 
 test.describe('Collab Y: before the first sync', () => {

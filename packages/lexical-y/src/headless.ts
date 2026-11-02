@@ -8,7 +8,7 @@
 
 // The implementation lives under ./internal and is bundled into this entry;
 // `@lexical/y` stays an external sibling.
-import {applyUpdate, Doc, encodeStateAsUpdate, mergeUpdates} from '@y/y';
+import {type Doc, encodeStateAsUpdate, mergeUpdates} from '@y/y';
 import {
   $getRoot,
   COLLABORATION_TAG,
@@ -16,7 +16,7 @@ import {
   SKIP_COLLAB_TAG,
 } from 'lexical';
 
-import {DEFAULT_ROOT_NAME} from '.';
+import {createYDoc, DEFAULT_ROOT_NAME, YUnsupportedYjsError} from '.';
 import {
   closeHeadlessYEditor,
   EDITOR_WARNING,
@@ -44,11 +44,13 @@ export type {
   YWriter,
 };
 export {
+  createYDoc,
   createYWriter,
   EDITOR_WARNING,
   FOLLOW_UPS_EXHAUSTED_WARNING,
   WRITER_NEW_CLIENT_ID_WARNING,
   YHeadlessError,
+  YUnsupportedYjsError,
 };
 
 /** @experimental The result of {@link editYState}. */
@@ -130,30 +132,6 @@ export interface EditYStateOptions {
 }
 
 /**
- * @experimental A `Y.Doc` for a relay or a server that loads a document's
- * state (to store, compact or merge it), with `state` applied when given.
- * It has Yjs's format cleanup turned off (`cleanupFormatting = false`), as
- * the binding has on the clients: applying an update there would otherwise
- * delete format items the clients keep, and the state it stores would read
- * differently from what the clients show once someone types there. Garbage
- * collected, as clients store a document. Merging updates with
- * `mergeUpdates` needs no document.
- */
-export function createYDoc(state?: Uint8Array | null): Doc {
-  const doc = new Doc();
-  doc.cleanupFormatting = false;
-  if (state != null) {
-    try {
-      applyUpdate(doc, state);
-    } catch (error) {
-      doc.destroy();
-      throw error;
-    }
-  }
-  return doc;
-}
-
-/**
  * A document's state as clients and Yjs servers store it: encoded from a
  * garbage-collected document, so content deleted by then keeps only its
  * tombstones.
@@ -230,7 +208,8 @@ function requireInitialized(opened: OpenedHeadlessYEditor): void {
  * template, an import, or a converter's editor). The content is written as
  * a client's `initialize()` writes its initial content: with a client id
  * derived from the content (53 bits under `'uint53'`, 32 under `'uint32'`)
- * and outside any undo history. Seeding identical content twice gives the
+ * and outside any undo history, with the config's `schemaVersion` recorded.
+ * Seeding identical content twice (with the same `schemaVersion`) gives the
  * same bytes, and the two seeds merge into one copy; content with random
  * parts (such as ids an extension draws for new blocks) is not identical.
  * With `BlockIdExtension`, a seed and a client's initialization of the same

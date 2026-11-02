@@ -50,7 +50,8 @@ import {
 } from 'lexical';
 import {expect} from 'vitest';
 
-import {YBinding, YCollabExtension} from '../..';
+import {createYDoc, YBinding, YCollabExtension, type YDoc} from '../..';
+import {misLinkedItems} from './structure';
 
 // An undeclared block container with a schema field ('node').
 const boxSchema = nodeSchema<BoxNode>()({
@@ -214,7 +215,7 @@ function pump(net: Network) {
 }
 
 export class Peer {
-  readonly doc: Y.Doc;
+  readonly doc: YDoc;
   readonly editor: LexicalEditor;
   readonly binding: YBinding;
   online = true;
@@ -229,8 +230,11 @@ export class Peer {
     readonly nodes: Klass<LexicalNode>[] = NODES,
     /** Runs on the editor before the binding starts. */
     readonly prepare?: (editor: LexicalEditor) => void,
+    readonly withBlockIds: boolean = WITH_BLOCK_IDS,
+    /** Yjs garbage collection (products use Yjs's default, on). */
+    readonly gc: boolean = WITH_GC,
   ) {
-    this.doc = new Y.Doc({gc: false});
+    this.doc = createYDoc(null, {gc});
     this.doc.clientID = clientID;
     const bound = createBoundEditor(this.doc, {
       namespace: 'test',
@@ -246,6 +250,7 @@ export class Peer {
       // turn the self-check on (it is off by default), so that a mismatch
       // fails them (expectConverged); benchmarks measure without it.
       selfCheck: process.env.LEXICAL_Y_BENCH !== '1',
+      withBlockIds,
     });
     this.editor = bound.editor;
     this.binding = bound.binding;
@@ -353,6 +358,8 @@ export async function setup(
     delivery?: Delivery;
     nodes?: Klass<LexicalNode>[];
     prepare?: (editor: LexicalEditor) => void;
+    withBlockIds?: boolean;
+    gc?: boolean;
   } = {},
 ): Promise<Setup> {
   const net: Network = {
@@ -363,7 +370,15 @@ export async function setup(
   };
   const ids = options.ids ?? [1, 2];
   const peers = ids.map(
-    id => new Peer(id, net, options.nodes, options.prepare),
+    id =>
+      new Peer(
+        id,
+        net,
+        options.nodes,
+        options.prepare,
+        options.withBlockIds,
+        options.gc,
+      ),
   );
   const [a] = peers;
   a.update(() => {
@@ -440,7 +455,13 @@ export async function freshReader(
     pumping: false,
     queue: [],
   };
-  const peer = new Peer(99, net, nodes || from.nodes, from.prepare);
+  const peer = new Peer(
+    99,
+    net,
+    nodes || from.nodes,
+    from.prepare,
+    from.withBlockIds,
+  );
   Y.applyUpdate(peer.doc, Y.encodeStateAsUpdate(from.doc), 'load');
   peer.binding.initialize();
   await flush();
@@ -457,6 +478,13 @@ export async function expectConverged(peers: Peer[], expected?: string) {
   for (const peer of peers) {
     expect(peer.errors).toEqual([]);
     expect(peer.warnings.filter(w => w.includes('self-check'))).toEqual([]);
+    // A write the binding could not store is recovered from (rewritten from
+    // the editor) and reported: never expected in a test that converges, as
+    // a recovery could hide the failure it recovered from.
+    expect(
+      peer.warnings.filter(w => w.includes('could not be written')),
+    ).toEqual([]);
+    expect(misLinkedItems(peer.doc)).toEqual([]);
     expect(peer.describe()).toBe(first.describe());
     expect(shape(peer)).toEqual(shape(first));
   }
@@ -539,6 +567,11 @@ export function mainNormalizes(peer: Peer): string | null {
  * YCollabExtension and BlockIdExtension, as an app that uses both does.
  */
 export const WITH_BLOCK_IDS = process.env.LEXICAL_Y_BLOCK_ID === '1';
+/**
+ * Peers' Yjs garbage collection: off unless a test asks for it, or
+ * `LEXICAL_Y_GC=1` runs every harness test with it on (as products run).
+ */
+export const WITH_GC = process.env.LEXICAL_Y_GC === '1';
 
 /**
  * An editor bound to `doc`: `createEditor` and a `YBinding` (started by
@@ -547,29 +580,39 @@ export const WITH_BLOCK_IDS = process.env.LEXICAL_Y_BLOCK_ID === '1';
  * its disposal).
  */
 export function createBoundEditor(
-  doc: Y.Doc,
+  doc: YDoc,
   config: {
     namespace: string;
     nodes: readonly Klass<LexicalNode>[];
     onError: (e: Error) => void;
     onWarn: (e: Error) => void;
     selfCheck: boolean;
+    withBlockIds?: boolean;
+    /** The binding's schemaVersion (default 1). */
+    schemaVersion?: number;
   },
 ): {editor: LexicalEditor; binding: YBinding; start: () => () => void} {
-  if (!WITH_BLOCK_IDS) {
+  if (!(config.withBlockIds ?? WITH_BLOCK_IDS)) {
     const editor = createEditor({
       namespace: config.namespace,
       nodes: [...config.nodes],
       onError: config.onError,
       onWarn: config.onWarn,
     });
-    const binding = new YBinding(editor, doc, {selfCheck: config.selfCheck});
+    const binding = new YBinding(editor, doc, {
+      schemaVersion: config.schemaVersion ?? 1,
+      selfCheck: config.selfCheck,
+    });
     return {binding, editor, start: () => binding.start()};
   }
   const editor = buildEditorFromExtensions(
     defineExtension({
       dependencies: [
-        configExtension(YCollabExtension, {doc, selfCheck: config.selfCheck}),
+        configExtension(YCollabExtension, {
+          doc,
+          schemaVersion: config.schemaVersion ?? 1,
+          selfCheck: config.selfCheck,
+        }),
         BlockIdExtension,
       ],
       name: '@lexical/y/test/' + config.namespace,

@@ -41,7 +41,7 @@ import {
 import {$assertNodeType} from 'lexical/src/__tests__/utils';
 import {expect, test} from 'vitest';
 
-import {YBinding, YCollabExtension} from '../..';
+import {createYDoc, YBinding, YCollabExtension} from '../..';
 import {$p, expectConverged, flush, freshReader, setup} from '../utils/harness';
 
 for (const how of ['setTextContent', '$createTextNode']) {
@@ -120,12 +120,16 @@ test('the line break keeps the NodeState of its line feed', async () => {
 
 for (const marks of [false, true]) {
   test(`a comment on just the line feed stays on the line break (MarkStateExtension ${marks ? 'on' : 'off'})`, async () => {
-    const doc = new Y.Doc();
+    const doc = createYDoc();
     const editor = buildEditorFromExtensions(
       defineExtension({
         $initialEditorState: null,
         dependencies: [
-          configExtension(YCollabExtension, {doc, selfCheck: true}),
+          configExtension(YCollabExtension, {
+            doc,
+            schemaVersion: 1,
+            selfCheck: true,
+          }),
           ...(marks ? [MarkStateExtension] : []),
         ],
         name: 'newline-mark',
@@ -226,9 +230,12 @@ test('a text node holding 300,000 line feeds', async () => {
         errors.push(e);
       },
     });
-    const doc = new Y.Doc({gc: false});
+    const doc = createYDoc(null, {gc: false});
     doc.clientID = id;
-    const binding = new YBinding(editor, doc, {selfCheck: false});
+    const binding = new YBinding(editor, doc, {
+      schemaVersion: 1,
+      selfCheck: false,
+    });
     binding.start();
     return {binding, doc, editor, errors};
   };

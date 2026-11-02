@@ -91,6 +91,8 @@ Framework-agnostic accessibility extensions. See [Keyboard Accessibility](/docs/
 
 - [MarkExtension](/docs/api/modules/lexical_mark#markextension) - MarkNode
 - [MarkStateExtension](/docs/api/modules/lexical_mark#markstateextension) - Experimental: comment and annotation ids stored as NodeState on the leaves they cover, so marks overlap without wrapper nodes (see [Comments and Annotations](/docs/collaboration/comments))
+- [defineMarkExtension](/docs/api/modules/lexical_mark#definemarkextension) - Experimental: one extension like MarkStateExtension per kind of annotation (comments, suggestions), each on its own NodeState key (see [Mark flavors](/docs/collaboration/comments#mark-flavors))
+- [MarkBaseExtension](/docs/api/modules/lexical_mark#markbaseextension) - Experimental: the shared base of the mark flavors, with the registry of an editor's flavors
 
 [@lexical/mdast](/docs/api/modules/lexical_mdast)
 

@@ -13,7 +13,13 @@ import type {
   LexicalWarning,
 } from 'lexical';
 import type {Doc} from '@y/y';
-import type {ClientIDRange, YWarning, YWarningCode} from '@lexical/y';
+import type {
+  ClientIDRange,
+  YDoc,
+  YDocOptions,
+  YWarning,
+  YWarningCode,
+} from '@lexical/y';
 
 /**
  * @lexical/y/headless: EXPERIMENTAL server-side edits, seeds and reads of
@@ -38,6 +44,8 @@ declare export opaque type YWriter: {readonly author: string};
 declare export function createYWriter(author: string): YWriter;
 
 export type HeadlessYConfig = {
+  // Required: the version of the app's document schema, as on the clients.
+  schemaVersion: number,
   extensions?: ReadonlyArray<AnyLexicalExtensionArgument>,
   nodes?: CreateEditorArgs['nodes'],
   root?: string,
@@ -64,9 +72,17 @@ declare export class YHeadlessError extends Error {
   ): void;
 }
 
-// A Y.Doc for a relay or a server that loads a stored state, with Yjs's
-// format cleanup turned off as on the clients, and `state` applied when given.
-declare export function createYDoc(state?: Uint8Array | null): Doc;
+// The same as @lexical/y's: thrown when the app's @y/y is not the one
+// @lexical/y supports, before anything is written.
+export {YUnsupportedYjsError} from '@lexical/y';
+
+// The same as @lexical/y's createYDoc: a Y.Doc for a relay or a server that
+// loads a stored state, with Yjs's format cleanup turned off as on the
+// clients, and `state` applied when given.
+declare export function createYDoc(
+  state?: Uint8Array | null,
+  options?: YDocOptions,
+): YDoc;
 
 export type EditYStateResult = {
   update: Uint8Array | null,

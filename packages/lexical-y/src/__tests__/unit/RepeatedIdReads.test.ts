@@ -31,7 +31,7 @@ import {
 } from 'lexical';
 import {afterAll, expect, test} from 'vitest';
 
-import {YCollabExtension} from '../..';
+import {createYDoc, YCollabExtension} from '../..';
 import {Reader} from '../../internal/Read';
 import {$createBoxNode, NODES} from '../utils/harness';
 
@@ -55,7 +55,7 @@ afterAll(() => {
 });
 
 function peer(id: number, stored: Uint8Array | null = null) {
-  const doc = new Y.Doc({gc: false});
+  const doc = createYDoc(null, {gc: false});
   doc.clientID = id;
   if (stored !== null) {
     Y.applyUpdate(doc, stored);
@@ -68,7 +68,11 @@ function peer(id: number, stored: Uint8Array | null = null) {
         configExtension(BlockIdExtension, {
           generateId: () => `b${id}x${next++}`,
         }),
-        configExtension(YCollabExtension, {doc, selfCheck: false}),
+        configExtension(YCollabExtension, {
+          doc,
+          schemaVersion: 1,
+          selfCheck: false,
+        }),
       ],
       name: `peer${id}`,
       nodes: NODES,

@@ -49,7 +49,7 @@ import {
 } from 'lexical';
 import {describe, expect, test} from 'vitest';
 
-import {YBinding, YCollabExtension} from '../..';
+import {createYDoc, YBinding, YCollabExtension, type YDoc} from '../..';
 
 const EXTENSIONS = [RichTextExtension, ListExtension, CheckListExtension];
 
@@ -65,9 +65,12 @@ function seed($build: () => void): Uint8Array {
     },
     {discrete: true},
   );
-  const doc = new Y.Doc();
+  const doc = createYDoc();
   doc.clientID = 7;
-  const binding = new YBinding(editor, doc, {captureTimeout: null});
+  const binding = new YBinding(editor, doc, {
+    captureTimeout: null,
+    schemaVersion: 1,
+  });
   binding.start();
   binding.initialize();
   binding.dispose();
@@ -79,14 +82,18 @@ function open(
   state: Uint8Array,
   clientID: number,
 ): {editor: LexicalEditor; binding: YBinding; doc: Y.Doc} {
-  const doc = new Y.Doc();
+  const doc = createYDoc();
   doc.clientID = clientID;
   Y.applyUpdate(doc, state, 'load');
   const editor = buildEditorFromExtensions(
     defineExtension({
       dependencies: [
         ...EXTENSIONS,
-        configExtension(YCollabExtension, {captureTimeout: 0, doc}),
+        configExtension(YCollabExtension, {
+          captureTimeout: 0,
+          doc,
+          schemaVersion: 1,
+        }),
       ],
       name: 'undo-selection',
       onError: e => {
@@ -290,7 +297,7 @@ class PictureNode extends DecoratorNode<null> {
 
 /** An editor with PictureNode bound to `doc` (YCollabExtension). */
 function openWithPictures(
-  doc: Y.Doc,
+  doc: YDoc,
   captureTimeout: number,
   warnings: string[],
 ): {editor: LexicalEditor; binding: YBinding} {
@@ -298,7 +305,11 @@ function openWithPictures(
     defineExtension({
       dependencies: [
         ...EXTENSIONS,
-        configExtension(YCollabExtension, {captureTimeout, doc}),
+        configExtension(YCollabExtension, {
+          captureTimeout,
+          doc,
+          schemaVersion: 1,
+        }),
       ],
       name: 'undo-selection-picture',
       nodes: () => [PictureNode],
@@ -320,7 +331,7 @@ function openWithPictures(
 
 /** What a client that opens `doc` now shows. */
 function freshJSON(doc: Y.Doc): string {
-  const copy = new Y.Doc();
+  const copy = createYDoc();
   copy.clientID = 9;
   Y.applyUpdate(copy, Y.encodeStateAsUpdate(doc), 'load');
   const {editor} = openWithPictures(copy, 0, []);
@@ -336,7 +347,7 @@ describe('select all over a block decorator, type, undo, redo', () => {
   for (const captureTimeout of [500, 0]) {
     for (const how of ['UNDO_COMMAND', 'binding.undo()']) {
       test(`undo and redo read cleanly (captureTimeout ${captureTimeout}, ${how})`, () => {
-        const seedDoc = new Y.Doc();
+        const seedDoc = createYDoc();
         seedDoc.clientID = 7;
         const seeder = openWithPictures(seedDoc, 0, []);
         seeder.editor.update(
@@ -356,7 +367,7 @@ describe('select all over a block decorator, type, undo, redo', () => {
           },
           {discrete: true},
         );
-        const doc = new Y.Doc();
+        const doc = createYDoc();
         doc.clientID = 1;
         Y.applyUpdate(doc, Y.encodeStateAsUpdate(seedDoc), 'load');
         const warnings: string[] = [];
@@ -418,7 +429,7 @@ describe('select all over a block decorator, type, undo, redo', () => {
 describe('Enter over a range after a block decorator, undo, redo', () => {
   for (const how of ['UNDO_COMMAND', 'binding.undo()']) {
     test(`the redo splits again (${how})`, () => {
-      const seedDoc = new Y.Doc();
+      const seedDoc = createYDoc();
       seedDoc.clientID = 7;
       const seeder = openWithPictures(seedDoc, 0, []);
       seeder.editor.update(
@@ -439,7 +450,7 @@ describe('Enter over a range after a block decorator, undo, redo', () => {
         },
         {discrete: true},
       );
-      const doc = new Y.Doc();
+      const doc = createYDoc();
       doc.clientID = 1;
       Y.applyUpdate(doc, Y.encodeStateAsUpdate(seedDoc), 'load');
       const warnings: string[] = [];
@@ -499,7 +510,7 @@ describe('Enter over a range after a block decorator, undo, redo', () => {
 
 describe('a selection the binding cannot put back after a read', () => {
   test('leaves the selection the read left, and the read stands', () => {
-    const doc = new Y.Doc();
+    const doc = createYDoc();
     doc.clientID = 1;
     const warnings: string[] = [];
     const a = openWithPictures(doc, 0, warnings);
@@ -515,7 +526,7 @@ describe('a selection the binding cannot put back after a read', () => {
       },
       {discrete: true},
     );
-    const other = new Y.Doc();
+    const other = createYDoc();
     other.clientID = 2;
     Y.applyUpdate(other, Y.encodeStateAsUpdate(doc), 'load');
     const b = openWithPictures(other, 0, []);

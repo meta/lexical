@@ -36,7 +36,7 @@ import {
 } from 'lexical';
 import {describe, expect, test} from 'vitest';
 
-import {YBinding} from '../..';
+import {createYDoc, YBinding} from '../..';
 import {describeNode, NODES} from '../utils/harness';
 
 type P = {
@@ -47,7 +47,7 @@ type P = {
 };
 
 function peer(id: number, state?: Uint8Array): P {
-  const doc = new Y.Doc({gc: false});
+  const doc = createYDoc(null, {gc: false});
   doc.clientID = id;
   if (state !== undefined) {
     Y.applyUpdate(doc, state, 'load');
@@ -62,6 +62,7 @@ function peer(id: number, state?: Uint8Array): P {
     onWarn: e => warnings.push(String(e)),
   });
   const binding = new YBinding(editor, doc, {
+    schemaVersion: 1,
     selfCheck: true,
   });
   binding.start();

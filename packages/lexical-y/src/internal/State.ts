@@ -117,16 +117,6 @@ export function isEndItem(it: Item): boolean {
   );
 }
 
-/** The previous live end item before `it` in its container, or null. */
-export function prevLiveEnd(it: Item | null): Item | null {
-  for (let p = it === null ? null : it.left; p !== null; p = p.left) {
-    if (!p.deleted && isEndItem(p)) {
-      return p;
-    }
-  }
-  return null;
-}
-
 export function nameOf(it: Item): string {
   return it.content instanceof ContentType
     ? ((it.content.type.name as string) ?? '')
@@ -170,6 +160,12 @@ export class State {
    */
   readonly unknownTypes = new Set<string>();
   /**
+   * Node types whose stored content this editor's classes throw on when they
+   * read it (see Reader#$readStored), each with the first error: as with
+   * unknownTypes, the binding goes read only.
+   */
+  readonly unreadable = new Map<string, unknown>();
+  /**
    * Of unknownTypes, the slots that are not a block node: a slot's key, or
    * the type of the inline node in it (see Slots).
    */
@@ -191,6 +187,24 @@ export class State {
     readonly doc: Doc,
     readonly root: YNode,
   ) {}
+
+  /**
+   * Whether the editor may show something other than the document on
+   * purpose, for a reason this state holds: remote content held back for a
+   * composition (see Hidden), or node types the editor cannot show or read
+   * (unknownTypes, unreadable: the binding is read only). A comparison of
+   * the two (the self-check, the follow-up check) is skipped then: a
+   * difference it found would be no bug. Not a test of whether they differ;
+   * a binding that failed closed differs too, and its own checks skip it
+   * (see YBinding#writesEdits).
+   */
+  differsOnPurpose(): boolean {
+    return (
+      this.hidden !== null ||
+      this.unknownTypes.size > 0 ||
+      this.unreadable.size > 0
+    );
+  }
 
   /**
    * A new state for `doc` and `root` with this one's configuration (what the
@@ -242,6 +256,9 @@ export class State {
     this.inlineRunStart.delete(key);
     const cs = this.containers.get(y);
     if (cs !== undefined) {
+      if (cs.key !== key && this.csByKey.get(cs.key) === cs) {
+        this.csByKey.delete(cs.key);
+      }
       cs.key = key;
       this.csByKey.set(key, cs);
     }
