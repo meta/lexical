@@ -66,4 +66,6 @@ test('40 editors bound, edited and disposed in a synchronous loop hold no docume
   // Each editor held about 1.8 MB (the editor, the document and the
   // binding) until the loop yielded.
   expect(heap() - start).toBeLessThan(8e6);
-});
+  // About 3 s alone (forty 1,000-line documents), over vitest's default 5 s
+  // limit when the whole suite runs.
+}, 30_000);

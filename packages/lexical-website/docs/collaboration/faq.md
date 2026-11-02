@@ -28,9 +28,28 @@ When the database is the source of truth, and if you want to be able to forget t
 _* Based on the advice of the Yjs author - [Kevin Jahns](https://github.com/yjs/yjs/issues/82#issuecomment-328365015)_
 
 
+With `@lexical/y`, store the document's Yjs state, load it into a relay or
+server with `createYDoc(stored)`, and create new documents in one place with
+`seedYState` (see [Servers](./y.md#servers) and
+[Server-side editing](./y-server.md)).
+
 ## Initializing `EditorState` from Yjs Document
 
-It's achievable by leveraging headless Lexical and no-op provider for Yjs:
+This section is about `@lexical/yjs` (Yjs 13). For a `@lexical/y` (Yjs 14)
+document, `readYState` from `@lexical/y/headless` does it in one call (see
+[Server-side editing](./y-server.md)):
+
+```ts
+import {readYState} from '@lexical/y/headless';
+import {$getEditor} from 'lexical';
+
+const json = readYState(state, {extensions, schemaVersion}, () =>
+  $getEditor().getEditorState().toJSON(),
+);
+```
+
+With `@lexical/yjs`, it's achievable by leveraging headless Lexical and
+no-op provider for Yjs:
 
 <details>
   <summary>createHeadlessCollaborativeEditor.ts</summary>

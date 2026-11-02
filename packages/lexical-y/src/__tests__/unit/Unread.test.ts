@@ -14,13 +14,8 @@
 import * as Y from '@y/y';
 import {expect, test} from 'vitest';
 
-import {
-  attrsBefore,
-  attrsOf,
-  deleteAttr,
-  emptyView,
-  seenBy,
-} from '../../internal/Unread';
+import {attrsBefore, attrsOf, deleteAttr} from '../../internal/Seen';
+import {emptyView, seenBy} from '../../internal/Unread';
 
 test('N2: before a write, an attribute an earlier write removed is gone, one this write removed is not', () => {
   const doc = new Y.Doc({gc: false});

@@ -201,7 +201,7 @@ describe('version gate', () => {
     for (const peer of t.peers) {
       expect(peer.binding.status).toBe('readonly');
       expect(layoutWarning(peer.warnings)).toBe(
-        `layout ${newest} is newer than ${LAYOUT_VERSION}`,
+        `layout ${newest} is newer than ${LAYOUT_VERSION}. A newer version of the binding wrote this document, so this editor is read only: upgrade the binding on every client of the document`,
       );
       expect(peer.binding.root.getAttrs()).toMatchObject({
         'lexical-y:1': true,
@@ -217,7 +217,7 @@ describe('version gate', () => {
     fresh.initialize();
     expect(fresh.status).toBe('readonly');
     expect(layoutWarning(warnings)).toBe(
-      `layout ${newest} is newer than ${LAYOUT_VERSION}`,
+      `layout ${newest} is newer than ${LAYOUT_VERSION}. A newer version of the binding wrote this document, so this editor is read only: upgrade the binding on every client of the document`,
     );
   });
 

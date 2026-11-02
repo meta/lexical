@@ -27,9 +27,9 @@ import {
   $addUpdateTag,
   $getNodeByKey,
   $getSelection,
+  $isBlockContainer,
   $isParagraphNode,
   $isRangeSelection,
-  $isRootOrShadowRoot,
   $isTextNode,
   $setState,
   COLLABORATION_TAG,
@@ -277,7 +277,7 @@ function $isShortcutParagraph(
 ): boolean {
   return (
     $isParagraphNode(node) &&
-    $isRootOrShadowRoot(node.getParent()) &&
+    $isBlockContainer(node.getParent()) &&
     node.getFirstChild() === anchorNode
   );
 }
@@ -302,7 +302,7 @@ function $isShortcutQuote(
   return (
     $isQuoteNode(node) &&
     !node.isShadowRoot() &&
-    $isRootOrShadowRoot(node.getParent()) &&
+    $isBlockContainer(node.getParent()) &&
     node.getFirstChild() === anchorNode
   );
 }

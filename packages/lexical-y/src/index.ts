@@ -19,6 +19,7 @@ import {type ClientIDRange} from './internal/ClientID';
 import {DEFAULT_ROOT_NAME, LAYOUT_VERSION} from './internal/constants';
 import {describeStorage} from './internal/Describe';
 import {type StorageKind} from './internal/Schema';
+import {SUPPORTED_YJS_VERSION} from './internal/SupportedYjs';
 import {
   isYWarning,
   NESTED_FALLBACK_WARNING,
@@ -54,6 +55,12 @@ import {
 } from './internal/Warnings';
 import {createYDoc, type YDoc, type YDocOptions} from './internal/YDoc';
 import {type YCollabConfig, YCollabExtension} from './internal/YExtension';
+import {
+  UNSUPPORTED_YJS_ERROR,
+  type YUnsupportedYjsData,
+  YUnsupportedYjsError,
+  type YUnsupportedYjsReason,
+} from './internal/YjsContract';
 
 export type {
   ClientIDRange,
@@ -78,6 +85,8 @@ export type {
   YUnsupportedLayoutData,
   YUnsupportedSchemaData,
   YUnsupportedSlotsData,
+  YUnsupportedYjsData,
+  YUnsupportedYjsReason,
   YUnsyncedValueData,
   YWarning,
   YWarningCode,
@@ -94,13 +103,16 @@ export {
   RECOVERED_WRITE_WARNING,
   SELF_CHECK_WARNING,
   STORAGE_MISMATCH_WARNING,
+  SUPPORTED_YJS_VERSION,
   UNKNOWN_NODE_TYPES_WARNING,
   UNSUPPORTED_CONFIG_WARNING,
   UNSUPPORTED_EDIT_WARNING,
   UNSUPPORTED_LAYOUT_WARNING,
   UNSUPPORTED_SCHEMA_WARNING,
   UNSUPPORTED_SLOTS_WARNING,
+  UNSUPPORTED_YJS_ERROR,
   UNSYNCED_VALUE_WARNING,
   YBinding,
   YCollabExtension,
+  YUnsupportedYjsError,
 };

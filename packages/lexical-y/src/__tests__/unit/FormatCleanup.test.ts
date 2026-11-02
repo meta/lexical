@@ -227,7 +227,7 @@ describe('a document that loads a stored state before the binding (S7-14)', () =
       [UNSUPPORTED_CONFIG_WARNING, {reason: 'cleanup-formatting'}],
     ]);
     expect((c.warnings[0] as LexicalWarning).message).toBe(
-      'the document cleans up formats: create it with createYDoc',
+      'the document cleans up formats: create it with createYDoc() instead of new Y.Doc(). Nothing is written until then',
     );
     // It still shows the document, and writes nothing.
     Y.applyUpdate(plain, insert);

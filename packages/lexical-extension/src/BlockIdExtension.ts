@@ -10,6 +10,7 @@ import type {NodeStructureExtension} from './NodeStructureExtension';
 
 import invariant from '@lexical/internal/invariant';
 import {
+  $getEditor,
   $getNodeByKey,
   $getRoot,
   $getSlot,
@@ -33,6 +34,7 @@ import {
   HISTORIC_TAG,
   HISTORY_MERGE_TAG,
   type InitialEditorConfig,
+  INTERNAL_getActiveEditorState,
   type Klass,
   type LexicalEditor,
   type LexicalNode,
@@ -46,6 +48,15 @@ import {
 
 import {$getExtensionOutput} from './getExtensionDependency';
 import {
+  buildHandleTable,
+  HANDLE_KEY_LENGTH,
+  handleInTable,
+  handleKey,
+  type HandleTable,
+  idsWithPrefix,
+  MIN_BLOCK_HANDLE_LENGTH,
+} from './internal/blockHandles';
+import {
   $documentKey,
   deriveDuplicateId,
   derivePositionalId,
@@ -55,7 +66,15 @@ import {
 import {namedSignals} from './namedSignals';
 import {effect, type Signal} from './signals';
 
+export {MIN_BLOCK_HANDLE_LENGTH} from './internal/blockHandles';
+
 const __DEV__ = process.env.NODE_ENV !== 'production';
+
+/**
+ * The most candidates an ambiguous {@link BlockHandleResult} lists, so that
+ * a handle matching many blocks (of ids that are not random) stays short.
+ */
+const MAX_HANDLE_CANDIDATES = 10;
 
 /**
  * Attempts to find a valid, unused id before giving up, which only a broken
@@ -124,11 +143,171 @@ export function $getBlockId(node: LexicalNode): string | null {
  * stale node. A block created, replaced or re-keyed earlier in the same
  * update is found once that update has committed: after
  * `$getBlockById(id).replace(node)`, look the id up again in a later update.
+ * The match is exact: a prefix of an id finds nothing.
+ *
+ * Showing blocks to a model? Use handles, which cost a few tokens instead of
+ * a whole id: {@link $getBlockHandle} / {@link $resolveBlockHandle}, or
+ * `handles: true` in `BlockIdHTMLExtension`.
+ *
+ * ```ts
+ * // What the model reads, and the handles it is shown:
+ * // [{block: '2bNo', text: 'Q3 plan'}, ...]
+ * const [blocks, shown] = editor.read(() => [
+ *   $getRoot()
+ *     .getChildren()
+ *     .map(node => ({block: $getBlockHandle(node), text: node.getTextContent()})),
+ *   $getBlockHandles(),
+ * ]);
+ * // What it answers: {block: '2bNo', text: 'Q4 plan'}
+ * editor.update(() => {
+ *   const result = $resolveBlockHandle(op.block, {read: shown});
+ *   if (result.status === 'found') {
+ *     // Change the block in place, only the characters that differ (the
+ *     // Block IDs page has a `$setBlockText` that does): replace() would
+ *     // re-create it, and what a collaborator types in it meanwhile would
+ *     // not stay where they typed it.
+ *     $setBlockText(result.node, op.text);
+ *   }
+ * });
+ * ```
  *
  * @experimental
  */
 export function $getBlockById(id: string): LexicalNode | null {
   return $getExtensionOutput(BlockIdExtension).$getBlockById(id);
+}
+
+/**
+ * What {@link $resolveBlockHandle} found for a handle:
+ *
+ * - `found`: the one identified block that the handle names.
+ * - `not-found`: it names no identified block (a mistyped handle, or a block
+ *   deleted since the handle was read).
+ * - `ambiguous`: it names several (a handle shorter than the one shown, or,
+ *   without `read`, a block added since whose handle shares its
+ *   characters). `candidates` holds their handles (current ones, or with
+ *   `read` the read's), at most 10.
+ * - `invalid`: neither a handle nor an id. `reason` is `'too-short'` for
+ *   fewer than {@link MIN_BLOCK_HANDLE_LENGTH} characters (a handle is never
+ *   that short, so the model dropped a character), and `'malformed'` for
+ *   anything that is not 1 to 64 characters of the base64url alphabet (or
+ *   not a string).
+ *
+ * @experimental
+ */
+export type BlockHandleResult =
+  | {readonly status: 'found'; readonly node: LexicalNode}
+  | {readonly status: 'not-found'; readonly handle: string}
+  | {
+      readonly status: 'ambiguous';
+      readonly handle: string;
+      readonly candidates: readonly string[];
+    }
+  | {
+      readonly status: 'invalid';
+      readonly handle: string;
+      readonly reason: 'too-short' | 'malformed';
+    };
+
+/**
+ * Returns the handle of an identified block: a short, opaque name for it in
+ * the current document, 4 to 11 characters of the base64url alphabet (`2bNo`
+ * for `V1StGXR8_Z5jdHi6B-myT`). It is the shortest prefix, at least
+ * {@link MIN_BLOCK_HANDLE_LENGTH} characters long, of a 64-bit hash of the
+ * block's id that no other identified block's hash starts with, like a short
+ * git hash. Hashing makes handles short (almost always 4 characters) and
+ * typo-safe whatever the ids look like: random, a timestamp first (UUIDv7),
+ * a counter, or `@lexical/y`'s derived ids. Returns `null` for a node that has no id
+ * or that {@link $getBlockById} would not find by its id (one that is not
+ * attached or not an identified block, a block named since the last commit,
+ * or a copy whose repeated id awaits its repair). Requires
+ * {@link BlockIdExtension}.
+ *
+ * Handles are for showing blocks to a model at a fraction of the tokens of a
+ * whole id: {@link $resolveBlockHandle} takes them back. They are derived
+ * from the ids of the document, never stored, so a handle can grow longer
+ * when a block whose hash shares its characters is added; a handle read
+ * earlier then resolves as `ambiguous` rather than to either block.
+ *
+ * Handles are computed all at once from the blocks of the last committed
+ * state: from the index of {@link $getBlockById} while the extension is
+ * enabled (cached until the ids change), and from a scan of that state while
+ * it is disabled (cached until the next commit).
+ *
+ * @experimental
+ */
+export function $getBlockHandle(node: LexicalNode): string | null {
+  return $getExtensionOutput(BlockIdExtension).$getBlockHandle(node);
+}
+
+/**
+ * Returns the handle of every identified block, by id (see
+ * {@link $getBlockHandle}). The map is a new one on each call.
+ * Requires {@link BlockIdExtension}.
+ *
+ * @experimental
+ */
+export function $getBlockHandles(): Map<string, string> {
+  return $getExtensionOutput(BlockIdExtension).$getBlockHandles();
+}
+
+/**
+ * Finds the identified block that a handle from {@link $getBlockHandle}
+ * names, for input that cannot be trusted (a language model's answer): it
+ * reports a mistyped, outdated or invalid handle in a
+ * {@link BlockHandleResult} instead of throwing. It returns a block only when
+ * the handle names exactly one. Requires {@link BlockIdExtension}.
+ *
+ * A handle has 4 to 11 characters (fewer is `invalid`, reason
+ * `'too-short'`), and names the blocks whose hash it starts. A handle that
+ * was longer when it was read still finds its block. A string longer than 11
+ * characters is taken as a whole id instead, so a whole id of 12 characters
+ * or more is accepted too; only handles are typo-safe.
+ *
+ * Without options, a handle names whichever block it names now, not the
+ * block it was read from: if that block was deleted and a block added since
+ * has a hash that starts the same way, it names that block. Whenever the
+ * document can change between the read and the edit, pass the handles the
+ * model was shown as {@link BlockHandleOptions.read}: the handle then names
+ * the block it named in the read, `found` while that block still exists and
+ * `not-found` once it is deleted.
+ *
+ * Resolve against the latest state, so that deletions since the read count:
+ * in the update that applies the edit in a live editor; with `@lexical/y` on
+ * a server, in a `readYState` of the stored state, before the edit is applied
+ * by id to the state the model read and merged (see "Showing blocks to a
+ * model" in the Block IDs documentation). Like {@link $getBlockById}, a block
+ * created earlier in the same update is found once that update has
+ * committed.
+ *
+ * @experimental
+ */
+export function $resolveBlockHandle(
+  handle: string,
+  options?: BlockHandleOptions,
+): BlockHandleResult {
+  return $getExtensionOutput(BlockIdExtension).$resolveBlockHandle(
+    handle,
+    options,
+  );
+}
+
+/**
+ * Options of {@link $resolveBlockHandle}.
+ *
+ * @experimental
+ */
+export interface BlockHandleOptions {
+  /**
+   * The handles the model was shown, as {@link $getBlockHandles} returned
+   * them at the read (id → handle). With it, a handle names the block it
+   * named in that read, and is `found` only while that block still exists:
+   * `not-found` once it is deleted, even if another block's id now starts
+   * with the handle, and never `ambiguous` because of a block added since.
+   * Mistyped handles fail against the read's ids. Pass it whenever the
+   * document can change between the read and the edit.
+   */
+  read?: ReadonlyMap<string, string>;
 }
 
 /**
@@ -259,6 +438,11 @@ export interface BlockIdConfig {
    * independent writers cannot see each other, so a replacement must stay
    * unique across writers (random ids of 120 bits or more, or a per-writer
    * prefix).
+   *
+   * Handles ({@link $getBlockHandle}) hash the ids, so they stay short and
+   * typo-safe whatever the ids look like: a timestamp first (UUIDv7) or a
+   * counter works as well as random ids.
+   *
    * Tests can inject a deterministic counter. Default:
    * {@link generateBlockId}.
    */
@@ -287,6 +471,15 @@ export interface BlockIdOutput {
   disabled: Signal<boolean>;
   /** The same as {@link $getBlockById} for this editor. */
   $getBlockById: (id: string) => LexicalNode | null;
+  /** The same as {@link $getBlockHandle} for this editor. */
+  $getBlockHandle: (node: LexicalNode) => string | null;
+  /** The same as {@link $getBlockHandles} for this editor. */
+  $getBlockHandles: () => Map<string, string>;
+  /** The same as {@link $resolveBlockHandle} for this editor. */
+  $resolveBlockHandle: (
+    handle: string,
+    options?: BlockHandleOptions,
+  ) => BlockHandleResult;
   /** The configured {@link BlockIdConfig.$isIdentifiedBlock}. */
   $isIdentifiedBlock: (node: LexicalNode) => boolean;
 }
@@ -299,10 +492,13 @@ export interface BlockIdOutput {
 class BlockIdIndex {
   readonly keysOfId = new Map<string, NodeKey | Set<NodeKey>>();
   readonly idOfKey = new Map<NodeKey, string>();
+  /** Changes whenever the set of indexed ids may have changed. */
+  version = 0;
 
   clear(): void {
     this.keysOfId.clear();
     this.idOfKey.clear();
+    this.version++;
   }
 
   holders(id: string): Iterable<NodeKey> {
@@ -317,6 +513,7 @@ class BlockIdIndex {
   set(key: NodeKey, id: string): void {
     if (this.idOfKey.get(key) !== id) {
       this.remove(key);
+      this.version++;
       this.idOfKey.set(key, id);
       const keys = this.keysOfId.get(id);
       if (keys === undefined) {
@@ -332,6 +529,7 @@ class BlockIdIndex {
   remove(key: NodeKey): void {
     const id = this.idOfKey.get(key);
     if (id !== undefined) {
+      this.version++;
       this.idOfKey.delete(key);
       const keys = this.keysOfId.get(id)!;
       if (typeof keys === 'string') {
@@ -371,6 +569,10 @@ interface BlockIdRuntime {
   /** The blocks named by any pass of that update. */
   provisionalSeen: Set<NodeKey>;
   provisionalState: EditorState | null;
+  /** The handles of the indexed ids, for the index version they were built at. */
+  handles: (HandleView & {readonly version: number}) | null;
+  /** The scan of the last committed state for handles while disabled. */
+  scan: HandleScan | null;
   $getBlockById: (id: string) => LexicalNode | null;
 }
 
@@ -1364,8 +1566,268 @@ function registerBlockIds(
     runtime.provisional.clear();
     runtime.provisionalSeen.clear();
     runtime.provisionalState = null;
+    runtime.handles = null;
+    runtime.scan = null;
     candidates.clear();
   };
+}
+
+/**
+ * The handles of the blocks {@link $getBlockById} sees, and how to find the
+ * live block of an id among them.
+ */
+interface HandleView {
+  readonly table: HandleTable;
+  readonly $lookup: (id: string) => LexicalNode | null;
+}
+
+function $getHandleView(
+  editor: LexicalEditor,
+  runtime: BlockIdRuntime,
+): HandleView {
+  if (runtime.active) {
+    // The ids of the committed state. Ids of blocks that the active update
+    // removed are still in it: they can only make a handle longer, and
+    // $getBlockById, which verifies against the active state, skips them.
+    const {index} = runtime;
+    let {handles} = runtime;
+    if (handles === null || handles.version !== index.version) {
+      handles = {
+        $lookup: frozenLookup(runtime.$getBlockById),
+        table: buildHandleTable(index.keysOfId.keys()),
+        version: index.version,
+      };
+      runtime.handles = handles;
+    }
+    return handles;
+  }
+  // Not indexed while disabled: a scan of the last committed state, as the
+  // index would be, cached until the next commit. Lookups are verified
+  // against the active state, as the index's are: the first holder of the id
+  // there, in document order, as $getBlockById finds it.
+  const committed = editor.getEditorState();
+  let {scan} = runtime;
+  if (scan === null || scan.state !== committed) {
+    const {$isIdentifiedBlock} = runtime.config;
+    const keysOfId = committed.read(
+      () => {
+        const keys = new Map<string, NodeKey[]>();
+        $walk(null, node => {
+          if ($isIdentifiedBlock(node)) {
+            const id = $getBlockId(node);
+            if (id !== null) {
+              const holders = keys.get(id);
+              if (holders === undefined) {
+                keys.set(id, [node.getKey()]);
+              } else {
+                holders.push(node.getKey());
+              }
+            }
+          }
+          return null;
+        });
+        return keys;
+      },
+      {editor},
+    );
+    scan = {
+      $lookup: frozenLookup(id => {
+        let found: LexicalNode | null = null;
+        for (const key of keysOfId.get(id) || []) {
+          const node = $getNodeByKey(key);
+          if (
+            node !== null &&
+            node.isAttached() &&
+            $isIdentifiedBlock(node) &&
+            $getBlockId(node) === id &&
+            (found === null || $compareDocumentOrder(node, found) < 0)
+          ) {
+            found = node;
+          }
+        }
+        return found;
+      }),
+      state: committed,
+      table: buildHandleTable(keysOfId.keys()),
+    };
+    runtime.scan = scan;
+  }
+  return scan;
+}
+
+/**
+ * `$lookup`, remembered per id for each frozen state it is asked about (a
+ * read of a committed state), so that reading the handle of every holder of
+ * a repeated id costs the holders once, not once per holder. While the
+ * active state is not frozen (an update), it asks `$lookup` every time.
+ */
+function frozenLookup(
+  $lookup: (id: string) => LexicalNode | null,
+): (id: string) => LexicalNode | null {
+  const byState = new WeakMap<EditorState, Map<string, LexicalNode | null>>();
+  return id => {
+    const state = INTERNAL_getActiveEditorState();
+    if (state === null || !state._readOnly) {
+      return $lookup(id);
+    }
+    let found = byState.get(state);
+    if (found === undefined) {
+      found = new Map();
+      byState.set(state, found);
+    }
+    let node = found.get(id);
+    if (node === undefined) {
+      node = $lookup(id);
+      found.set(id, node);
+    }
+    return node;
+  };
+}
+
+/** A {@link HandleView} of a scan of a committed state. */
+interface HandleScan extends HandleView {
+  readonly state: EditorState;
+}
+
+function $getHandleOf(
+  runtime: BlockIdRuntime,
+  node: LexicalNode,
+): string | null {
+  if (!node.isAttached() || !runtime.config.$isIdentifiedBlock(node)) {
+    return null;
+  }
+  const id = $getBlockId(node);
+  if (id === null) {
+    return null;
+  }
+  const {table, $lookup} = $getHandleView($getEditor(), runtime);
+  const handle = table.handles.get(id);
+  // Only a block that its id finds has a handle that finds it: not one named
+  // after the last commit (its handle is not in the table), nor a later
+  // holder of a repeated id, nor a node of another state.
+  if (handle === undefined) {
+    return null;
+  }
+  const found = $lookup(id);
+  return found !== null && found.is(node) ? handle : null;
+}
+
+function $getAllHandles(runtime: BlockIdRuntime): Map<string, string> {
+  const {table, $lookup} = $getHandleView($getEditor(), runtime);
+  const result = new Map<string, string>();
+  for (const [id, handle] of table.handles) {
+    if ($lookup(id) !== null) {
+      result.set(id, handle);
+    }
+  }
+  return result;
+}
+
+/** A string for untrusted input that is not one, without throwing. */
+function describeInvalid(value: unknown): string {
+  try {
+    return String(value);
+  } catch (_error) {
+    return '';
+  }
+}
+
+/**
+ * The block id that `handle` names among the ids of a read (see
+ * {@link BlockHandleOptions.read}), or why it names none. It reads the map
+ * as it is on each call (a scan of its ids, no cached index), so a map
+ * changed between calls is never half stale.
+ */
+function resolveInRead(
+  read: ReadonlyMap<string, string>,
+  handle: string,
+): {readonly id: string} | BlockHandleResult {
+  if (handle.length > HANDLE_KEY_LENGTH) {
+    return read.has(handle) ? {id: handle} : {handle, status: 'not-found'};
+  }
+  if (handle.length < MIN_BLOCK_HANDLE_LENGTH) {
+    return {handle, reason: 'too-short', status: 'invalid'};
+  }
+  const matches: [string, string][] = [];
+  for (const id of read.keys()) {
+    const key = handleKey(id);
+    if (key.startsWith(handle)) {
+      matches.push([key, id]);
+    }
+  }
+  if (matches.length === 0) {
+    return {handle, status: 'not-found'};
+  }
+  if (matches.length > 1) {
+    return {
+      candidates: matches
+        .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+        .slice(0, MAX_HANDLE_CANDIDATES)
+        .map(([key, id]) => read.get(id) ?? key),
+      handle,
+      status: 'ambiguous',
+    };
+  }
+  return {id: matches[0][1]};
+}
+
+function $resolveHandle(
+  runtime: BlockIdRuntime,
+  handle: string,
+  options?: BlockHandleOptions,
+): BlockHandleResult {
+  if (typeof handle !== 'string') {
+    return {
+      handle: describeInvalid(handle),
+      reason: 'malformed',
+      status: 'invalid',
+    };
+  }
+  if (!BLOCK_ID_PATTERN.test(handle)) {
+    return {handle, reason: 'malformed', status: 'invalid'};
+  }
+  const read = options && options.read;
+  if (read) {
+    // What the handle named in the read, if that block still exists: a
+    // block added since cannot take the handle, nor make it ambiguous.
+    const inRead = resolveInRead(read, handle);
+    if (!('id' in inRead)) {
+      return inRead;
+    }
+    const node = runtime.$getBlockById(inRead.id);
+    return node === null
+      ? {handle, status: 'not-found'}
+      : {node, status: 'found'};
+  }
+  if (handle.length > HANDLE_KEY_LENGTH) {
+    // Longer than any handle: a whole id.
+    const node = runtime.$getBlockById(handle);
+    return node === null
+      ? {handle, status: 'not-found'}
+      : {node, status: 'found'};
+  }
+  if (handle.length < MIN_BLOCK_HANDLE_LENGTH) {
+    // Never a handle: say so, rather than "not found".
+    return {handle, reason: 'too-short', status: 'invalid'};
+  }
+  const {table, $lookup} = $getHandleView($getEditor(), runtime);
+  let found: LexicalNode | null = null;
+  const candidates: string[] = [];
+  for (const id of idsWithPrefix(table, handle)) {
+    const node = $lookup(id);
+    if (node !== null) {
+      found = node;
+      if (candidates.length < MAX_HANDLE_CANDIDATES) {
+        candidates.push(handleInTable(table, id));
+      }
+    }
+  }
+  if (candidates.length > 1) {
+    return {candidates, handle, status: 'ambiguous'};
+  }
+  return found === null
+    ? {handle, status: 'not-found'}
+    : {node: found, status: 'found'};
 }
 
 function createRuntime(config: BlockIdConfig): BlockIdRuntime {
@@ -1396,6 +1858,7 @@ function createRuntime(config: BlockIdConfig): BlockIdRuntime {
     },
     active: false,
     config,
+    handles: null,
     hasContent: false,
     index: new BlockIdIndex(),
     placed: NO_PLACES,
@@ -1403,6 +1866,7 @@ function createRuntime(config: BlockIdConfig): BlockIdRuntime {
     provisional: new Map(),
     provisionalSeen: new Set(),
     provisionalState: null,
+    scan: null,
   };
   return runtime;
 }
@@ -1422,6 +1886,13 @@ function createRuntime(config: BlockIdConfig): BlockIdRuntime {
  * looks blocks up in an index maintained from the dirty nodes of each
  * update. See the Block IDs documentation page for the exact rules.
  *
+ * Showing blocks to a model? Use handles, short opaque names derived from a
+ * hash of each id (almost always 4 characters), instead of whole ids:
+ * {@link $getBlockHandle} / {@link $resolveBlockHandle}, or
+ * `handles: true` in `BlockIdHTMLExtension`. A mistyped or outdated
+ * handle almost always resolves as not found or ambiguous rather than as
+ * another block.
+ *
  * @experimental
  */
 export const BlockIdExtension = defineExtension({
@@ -1430,7 +1901,11 @@ export const BlockIdExtension = defineExtension({
     const signals = namedSignals({disabled: config.disabled});
     return {
       $getBlockById: runtime.$getBlockById,
+      $getBlockHandle: node => $getHandleOf(runtime, node),
+      $getBlockHandles: () => $getAllHandles(runtime),
       $isIdentifiedBlock: config.$isIdentifiedBlock,
+      $resolveBlockHandle: (handle, options) =>
+        $resolveHandle(runtime, handle, options),
       disabled: signals.disabled,
     };
   },

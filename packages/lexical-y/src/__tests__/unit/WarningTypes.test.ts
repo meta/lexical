@@ -163,7 +163,7 @@ describe('typed warnings', () => {
     );
     const schema = new LexicalWarning(
       UNSUPPORTED_SCHEMA_WARNING,
-      'schema 3 is newer than 2',
+      `schema 3 is newer than 2. A newer version of your app (a higher schemaVersion) wrote this document, so this editor is read only: load the newer app version to edit it`,
       {found: 3, reason: 'newer', supported: 2},
     );
     expect(isYWarning(schema) ? banner(schema) : '').toBe('schema:3>2');

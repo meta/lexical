@@ -23,7 +23,7 @@ import {cloneMap} from './LexicalGenMap';
 import {$exportNodeJSON, $withCompactExport} from './LexicalSerializedExport';
 import {$getSlot, $getSlotNames} from './LexicalSlot';
 import {readEditorState} from './LexicalUpdates';
-import {$getRoot} from './LexicalUtils';
+import {$getRoot, INTERNAL_$withExportMemo} from './LexicalUtils';
 import {
   $isElementNode,
   type SerializedElementNode,
@@ -321,9 +321,11 @@ export class EditorState {
     // write the compact form for the latter. Anything that is not a stated
     // form is the legacy one, which is what both overloads promise.
     return $withCompactExport(typeof compact === 'boolean' && compact, () =>
-      readEditorState(null, this, () => ({
-        root: $exportNodeToJSON($getRoot()) as SerializedRootNode,
-      })),
+      readEditorState(null, this, () =>
+        INTERNAL_$withExportMemo(() => ({
+          root: $exportNodeToJSON($getRoot()) as SerializedRootNode,
+        })),
+      ),
     );
   }
 }

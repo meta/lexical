@@ -307,6 +307,32 @@ const unregister = registerMarkIDsListener(
 );
 ```
 
+With [`@lexical/y`](./y.md) the document is a Yjs 14 (`@y/y`) document,
+which has no `Y.Map`: a shared type's attributes play its part. The same
+listener, with each thread a `Y.Node` stored under its id:
+
+```ts
+import * as Y from '@y/y';
+
+const threads = ydoc.get('threads');
+
+// In the listener, instead of the transaction above:
+ydoc.transact(() => {
+  for (const id of removed) {
+    const thread = threads.getAttr(id);
+    if (thread instanceof Y.Node) {
+      thread.setAttr('orphaned', true);
+    }
+  }
+  for (const id of added) {
+    const thread = threads.getAttr(id);
+    if (thread instanceof Y.Node) {
+      thread.deleteAttr('orphaned');
+    }
+  }
+});
+```
+
 Nothing is reported while a flavor is `disabled` (its ids stay in the
 document); when it is enabled again, the listener gets the net change. An
 id pasted from another document is reported as added like any other: the
@@ -375,12 +401,15 @@ TextNode it lands in has.
 - The selection that an insertion replaces is known when the insertion is
   dispatched as `CONTROLLED_TEXT_INSERTION_COMMAND` or `PASTE_COMMAND`
   (which typing, autocorrection and pasting use), inside an update or not,
-  or starts an input method composition. Code that replaces a selection
-  with `selection.insertText()` directly is treated as the smallest edit:
-  the letters the new text shares with the old one keep their ids, and only
-  the other letters are inserted. So such a replacement across the edge of
-  a mark, starting or ending with the letter it replaces, can join the
-  mark.
+  or starts an input method composition in an update of its own, as the
+  browser's `compositionstart` does. A composition that code starts and
+  writes in one update is compared as text instead, so letters it adds at
+  the end of a mark can be left without the mark's ids. Code that replaces a
+  selection with `selection.insertText()` directly is treated as the
+  smallest edit: the letters the new text shares with the old one keep their
+  ids, and only the other letters are inserted. So such a replacement across
+  the edge of a mark, starting or ending with the letter it replaces, can
+  join the mark.
 - Updates that the editor batches into one commit (several updates in the
   same task) are compared with the document from before the commit, as one
   edit. The last insertion or paste command dispatched before the commit
@@ -404,6 +433,9 @@ TextNode it lands in has.
 - If a collaborator edits the paragraph while an input method composition
   is in progress there, the composed text keeps the ids of the TextNode it
   was composed in, so it can join a mark at its edge.
+- Open issue: `$addMarkID` over part of a code highlighting token marks
+  nothing, or only part of the range
+  ([#9491](https://github.com/meta/lexical/issues/9491)).
 
 ## Collaboration
 

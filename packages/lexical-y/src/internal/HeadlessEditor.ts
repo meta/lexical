@@ -161,14 +161,24 @@ export class YHeadlessError extends Error {
 }
 
 /**
- * A `'read-only'` {@link YHeadlessError}: a short message, and the binding's
- * warnings (the reasons) as data.
+ * A `'read-only'` {@link YHeadlessError}: a short message followed by the
+ * binding's warnings' messages (the reasons, which say what to do), and the
+ * warnings themselves as data.
  */
 export function readOnlyError(
   message: string,
   warnings: readonly LexicalWarning[],
 ): YHeadlessError {
-  return new YHeadlessError('read-only', message, warnings.filter(isYWarning));
+  const reasons = warnings.filter(isYWarning);
+  // The message names the reasons too, so that an uncaught error says why
+  // and what to do; programs read `warnings` (code and data) instead.
+  return new YHeadlessError(
+    'read-only',
+    reasons.length > 0
+      ? `@lexical/y: ${message}: ${reasons.map(w => w.message).join('; ')}`
+      : `@lexical/y: ${message}`,
+    reasons,
+  );
 }
 
 /**
@@ -372,8 +382,6 @@ export function openHeadlessYEditor(
     "@lexical/y/headless: the config needs schemaVersion (got %s): start at 1 and increase it whenever a node's stored fields or node types change, as the clients' YCollabExtension does",
     String(options == null ? undefined : options.schemaVersion),
   );
-  const warnings: LexicalWarning[] = [];
-  const {editor, report, sink} = buildHeadlessEditor(options, warnings);
   // No garbage collection, only so that the root check of an edit's update
   // (editYState) can resolve deleted items: this document is temporary, and
   // the states the helpers return are garbage collected. The binding keeps
@@ -381,8 +389,19 @@ export function openHeadlessYEditor(
   // written before that. No format cleanup either, as on every document the
   // binding writes (see createYDoc): loading the state would otherwise
   // delete format items the clients keep, and those deletions would be in
-  // the returned state but not in the update.
+  // the returned state but not in the update. Made before the editor, so
+  // that createYDoc's check of the app's @y/y refuses before any extension
+  // is built or registered.
   const doc = createYDoc(null, {gc: false});
+  const warnings: LexicalWarning[] = [];
+  let built: ReturnType<typeof buildHeadlessEditor>;
+  try {
+    built = buildHeadlessEditor(options, warnings);
+  } catch (error) {
+    doc.destroy();
+    throw error;
+  }
+  const {editor, report, sink} = built;
   const writes: Uint8Array<ArrayBuffer>[] = [];
   const collect = (update: Uint8Array) => {
     writes.push(new Uint8Array(update));

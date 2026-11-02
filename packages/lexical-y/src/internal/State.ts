@@ -31,7 +31,6 @@ import {
   $isLine,
   $isWrapper,
   $nestedGroupOf,
-  type Attrs,
   BLOCK_PREFIX,
   getGroupSpec,
   getLineSpec,
@@ -40,7 +39,6 @@ import {
   MARKER,
   RUN_END,
 } from './Schema';
-import {isGone} from './Unread';
 
 // The state the reader and the writer share for one binding (State): the
 // containers (the root, and every node stored as its own Y.Node) and their
@@ -119,49 +117,6 @@ export function isEndItem(it: Item): boolean {
   );
 }
 
-/**
- * Whether `it` ends a unit as the editor shows its container: a live end
- * item that is not held back (see Hidden).
- */
-export function isShownEnd(it: Item, hidden: Hidden | null): boolean {
-  return !isGone(it) && isEndItem(it) && (hidden === null || !hidden.hides(it));
-}
-
-/**
- * Marker `end`'s attributes as the editor shows them: those a held change
- * set have the values they had (see Hidden#marker).
- */
-export function shownAttrs(end: Item, hidden: Hidden | null): Attrs {
-  const attrs = typeOf(end).getAttrs() as Attrs;
-  const held = hidden === null ? null : hidden.marker;
-  if (held !== null && held.ends.has(end)) {
-    for (const [k, v] of held.was) {
-      if (v === undefined) {
-        delete attrs[k];
-      } else {
-        attrs[k] = v;
-      }
-    }
-  }
-  return attrs;
-}
-
-/**
- * The end item before `it` in its container that the editor shows (see
- * isShownEnd), or null.
- */
-export function prevLiveEnd(
-  it: Item | null,
-  hidden: Hidden | null,
-): Item | null {
-  for (let p = it === null ? null : it.left; p !== null; p = p.left) {
-    if (isShownEnd(p, hidden)) {
-      return p;
-    }
-  }
-  return null;
-}
-
 export function nameOf(it: Item): string {
   return it.content instanceof ContentType
     ? ((it.content.type.name as string) ?? '')
@@ -234,6 +189,24 @@ export class State {
   ) {}
 
   /**
+   * Whether the editor may show something other than the document on
+   * purpose, for a reason this state holds: remote content held back for a
+   * composition (see Hidden), or node types the editor cannot show or read
+   * (unknownTypes, unreadable: the binding is read only). A comparison of
+   * the two (the self-check, the follow-up check) is skipped then: a
+   * difference it found would be no bug. Not a test of whether they differ;
+   * a binding that failed closed differs too, and its own checks skip it
+   * (see YBinding#writesEdits).
+   */
+  differsOnPurpose(): boolean {
+    return (
+      this.hidden !== null ||
+      this.unknownTypes.size > 0 ||
+      this.unreadable.size > 0
+    );
+  }
+
+  /**
    * A new state for `doc` and `root` with this one's configuration (what the
    * binding sets when it starts: `blockIds`, `blockIdHolder`), which writes
    * what this one would write.
@@ -283,6 +256,9 @@ export class State {
     this.inlineRunStart.delete(key);
     const cs = this.containers.get(y);
     if (cs !== undefined) {
+      if (cs.key !== key && this.csByKey.get(cs.key) === cs) {
+        this.csByKey.delete(cs.key);
+      }
       cs.key = key;
       this.csByKey.set(key, cs);
     }

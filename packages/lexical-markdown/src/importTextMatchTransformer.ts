@@ -8,18 +8,68 @@
 import type {TextMatchTransformer} from './MarkdownTransformers';
 import type {TextNode} from 'lexical';
 
-import {LINK} from './MarkdownTransformers';
+import {scanCodeSpans} from './importTextFormatTransformer';
+import {getLinkLabelOpener, LINK} from './MarkdownTransformers';
 import {isEscaped} from './utils';
 
+/**
+ * The first link in `text`, starting at the `[` that really opens its text,
+ * with none of its syntax inside a code span.
+ * The import pattern's lazy label runs from the first `[` to the first `](`,
+ * so a literal `[` before the link (`[1] *see* [here](url)`) would otherwise
+ * start the match and leave the text between them unparsed. Matching again
+ * from the real opener lets that text go through the other transformers.
+ */
 function matchLink(text: string, regExp: RegExp): RegExpExecArray | null {
   const search = new RegExp(
     regExp.source,
     regExp.flags.replace(/[gy]/g, '') + 'g',
   );
+  // Code spans bind tighter than link brackets
+  // (https://spec.commonmark.org/0.31.2/#code-spans), so a link whose syntax
+  // falls inside one is not a link.
+  const codeSpans = text.includes('`') ? scanCodeSpans(text) : [];
+  // The spans come in order, so a binary search finds the one that could hold
+  // `index`. Returns the end of that span, or -1 outside every span.
+  const codeSpanEnd = (index: number) => {
+    let low = 0;
+    let high = codeSpans.length - 1;
+    while (low <= high) {
+      const middle = (low + high) >> 1;
+      const {startIndex, endIndex} = codeSpans[middle];
+      if (index < startIndex) {
+        high = middle - 1;
+      } else if (index >= endIndex) {
+        low = middle + 1;
+      } else {
+        return endIndex;
+      }
+    }
+    return -1;
+  };
   let match;
   while ((match = search.exec(text)) !== null) {
-    if (!isEscaped(text, match.index)) return match;
-    search.lastIndex = match.index + 1;
+    const labelEnd =
+      match.index + 1 + (match[1] !== undefined ? match[1].length : 0);
+    const openerCodeEnd = codeSpanEnd(match.index);
+    if (openerCodeEnd !== -1) {
+      // No link can open inside this code span.
+      search.lastIndex = openerCodeEnd;
+      continue;
+    }
+    if (
+      isEscaped(text, match.index) ||
+      codeSpanEnd(labelEnd) !== -1 ||
+      codeSpanEnd(match.index + match[0].length - 1) !== -1
+    ) {
+      search.lastIndex = match.index + 1;
+      continue;
+    }
+    const opener = match[1] !== undefined ? getLinkLabelOpener(match[1]) : -1;
+    if (opener === null || opener === -1) {
+      return match;
+    }
+    search.lastIndex = match.index + 1 + opener;
   }
   return null;
 }
