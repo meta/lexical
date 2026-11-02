@@ -256,6 +256,7 @@ function $isInsertedText(
   text: string,
   start: number,
   end: number,
+  caret: number,
 ): boolean {
   // @internal access: the node in the committed state
   const prev = editor.getEditorState()._nodeMap.get(node.getKey());
@@ -272,6 +273,15 @@ function $isInsertedText(
   let prefix = 0;
   while (prefix < max && prevText[prefix] === text[prefix]) {
     prefix++;
+  }
+  // The caret disambiguates repeated text when the unchanged suffix still
+  // follows it. Capture it before the transform splits or replaces any text.
+  if (caret >= 0 && prevText.endsWith(text.slice(caret))) {
+    const startOfInsertion = Math.min(
+      prefix,
+      caret - (text.length - prevText.length),
+    );
+    return start >= startOfInsertion && end <= caret && end > start;
   }
   let suffix = 0;
   // Repeated characters can make the insertion boundary ambiguous. Find the
@@ -504,6 +514,14 @@ export function registerLexicalTextEntity<T extends TextNode>(
     if (!node.isSimpleText()) {
       return;
     }
+    const selection = $getSelection();
+    const caret =
+      $isRangeSelection(selection) &&
+      selection.isCollapsed() &&
+      selection.anchor.type === 'text' &&
+      selection.anchor.key === node.getKey()
+        ? selection.anchor.offset
+        : -1;
     // Text split off the end of an entity in this update: its pieces do not
     // give their NodeState to the entities made from them
     const splitOff = $splitOff(editor).has(node.getKey())
@@ -719,7 +737,7 @@ export function registerLexicalTextEntity<T extends TextNode>(
         .setDetail(nodeToReplace.getDetail());
       if (
         splitOff === null &&
-        !$isInsertedText(editor, node, nodeText, matchStart, matchEnd)
+        !$isInsertedText(editor, node, nodeText, matchStart, matchEnd, caret)
       ) {
         // The NodeState of the text becomes the entity's
         $carryNodeState(nodeToReplace, replacementNode);
