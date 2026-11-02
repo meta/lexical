@@ -11,7 +11,10 @@ import type {CompiledMdast} from './types';
 import type {ElementNode, LexicalEditor, LexicalNode, TextNode} from 'lexical';
 
 import {$createCodeNode, $isCodeNode} from '@lexical/code-core';
-import {$createHorizontalRuleNode} from '@lexical/extension';
+import {
+  $createHorizontalRuleNode,
+  HorizontalRuleNode,
+} from '@lexical/extension';
 import {
   $createListItemNode,
   $createListNode,
@@ -28,6 +31,7 @@ import {
   $addUpdateTag,
   $createParagraphNode,
   $findMatchingParent,
+  $getEditor,
   $getNodeByKey,
   $getSelection,
   $isParagraphNode,
@@ -115,6 +119,10 @@ function $placeBlock(container: ElementNode, block: LexicalNode): void {
  * GFM table export writes one after the table), so `---` typed in a cell
  * stays text. Checking the ancestors this way, rather than for a table cell,
  * keeps `@lexical/table` out of editors that don't use tables.
+ *
+ * An editor can import `thematicBreak` as its own node, without
+ * `HorizontalRuleExtension`. There the line stays text too, rather than
+ * fail on a node the editor doesn't have.
  */
 function $applyThematicBreak(
   container: ElementNode,
@@ -122,6 +130,7 @@ function $applyThematicBreak(
 ): boolean {
   const line = container.getTextContent();
   if (
+    !$getEditor().hasNode(HorizontalRuleNode) ||
     line.length !== markerLength ||
     !container.getChildren().every($isTextNode) ||
     $findMatchingParent(

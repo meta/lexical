@@ -50,7 +50,9 @@ import {describe, expect, it} from 'vitest';
 import {
   $convertToMarkdownString,
   MdastCommonMarkExtension,
+  MdastExtension,
   MdastGfmExtension,
+  MdastRichTextExtension,
   MdastShortcutsExtension,
 } from '../../index';
 import {codeFenceState, codeMetaState} from '../../state';
@@ -575,6 +577,52 @@ describe('@lexical/mdast streaming shortcuts', () => {
         $expectNoRule();
       });
     });
+
+    it.each([
+      ['space', ' '],
+      ['Enter', null],
+    ] as const)(
+      '--- + %s stays text when the editor has no HorizontalRuleNode',
+      (_, key) => {
+        const errors: Error[] = [];
+        // An editor that imports `thematicBreak` as its own node, without
+        // HorizontalRuleExtension.
+        using editor = buildEditorFromExtensions(
+          defineExtension({
+            dependencies: [
+              MdastRichTextExtension,
+              configExtension(MdastExtension, {
+                importRules: [
+                  {
+                    $import: () => $createParagraphNode(),
+                    type: 'thematicBreak',
+                  },
+                ],
+              }),
+              MdastShortcutsExtension,
+            ],
+            name: '[no horizontal rule]',
+            onError: error => {
+              errors.push(error);
+            },
+          }),
+        );
+        editor.update(
+          () => {
+            const paragraph = $createParagraphNode();
+            $getRoot().clear().append(paragraph);
+            paragraph.select();
+          },
+          {discrete: true},
+        );
+        type(editor, ['-', '-', '-']);
+        press(editor, key);
+        expect(errors).toEqual([]);
+        editor.read(() => {
+          expect($getRoot().getTextContent()).toMatch(/^---/);
+        });
+      },
+    );
   });
 
   describe('does not fire destructively', () => {
