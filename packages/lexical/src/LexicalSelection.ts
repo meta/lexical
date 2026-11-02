@@ -69,6 +69,7 @@ import {
 } from './LexicalEvents';
 import {getIsProcessingMutations} from './LexicalMutations';
 import {insertRangeAfter, type LexicalNode, type NodeKey} from './LexicalNode';
+import {$carryNodeState} from './LexicalNodeState';
 import {$normalizeSelection} from './LexicalNormalization';
 import {
   $getSelectionSlotFrame,
@@ -454,6 +455,9 @@ function $insertText(
         const replacement = $createTextNode(anchorNode.getTextContent());
         replacement.setFormat(format);
         replacement.setStyle(style);
+        replacement.setDetail(anchorNode.getDetail());
+        // The characters keep their NodeState (comment ids, for example)
+        $carryNodeState(anchorNode, replacement);
         const isCurrentSelection = $getSelection() === selection;
         anchorNode.replace(replacement);
         // replace() installs a clone of the active selection, so this
