@@ -72,16 +72,45 @@ const deletedContainers = (doc: Y.Doc): string[] => {
   return out;
 };
 
-const MODES: [string, 'none' | 'before' | 'after'][] = [
-  ['stays in B\u2019s document when B stopped without a clear', 'none'],
-  ['is collected when B cleared its undo history before stopping', 'before'],
+type Edit = 'delete' | 'delete, then bold' | 'bold, then delete';
+const CASES: [string, 'none' | 'before' | 'after', Edit, number][] = [
+  // [name, when B clears, B's edits in the cell, containers left in B]
+  [
+    'stays in B\u2019s document when B stopped without a clear',
+    'none',
+    'delete',
+    3,
+  ],
+  [
+    'stays in B\u2019s document when B deleted, then bolded, and stopped without a clear',
+    'none',
+    'delete, then bold',
+    3,
+  ],
+  // The binding kept the cell for its own bold (D88) before the delete, so
+  // the delete's undo step keeps only the character (Yjs's keepItem stops at
+  // a kept parent), and the binding's release at stop lets the cell go.
+  [
+    'is collected when B bolded before deleting and stopped without a clear',
+    'none',
+    'bold, then delete',
+    0,
+  ],
+  [
+    'is collected when B cleared its undo history before stopping',
+    'before',
+    'delete',
+    0,
+  ],
   [
     'stays in B\u2019s document when B cleared only after the table was deleted',
     'after',
+    'delete',
+    3,
   ],
 ];
 
-for (const [name, clear] of MODES) {
+for (const [name, clear, edit, kept] of CASES) {
   test(`a table a collaborator deletes ${name} (gc on)`, async () => {
     const t = await setup(
       () =>
@@ -99,20 +128,36 @@ for (const [name, clear] of MODES) {
       {gc: true, ids: [1, 2]},
     );
     try {
-      // B deletes a character in the cell: its undo manager keeps it and
-      // the cell, row and table.
-      t.b.update(() => {
+      // B edits the cell: a deleted character's undo step keeps it and the
+      // cell, row and table; a bold's format items are kept by the binding
+      // (D88), which walks up too.
+      const $range = (from: number, to: number) => {
         const table = $getRoot().getChildAtIndex(1) as ElementNode;
         const row = table.getFirstChild() as ElementNode;
         const cell = row.getFirstChild() as ElementNode;
         const text = cell.getAllTextNodes()[0] as TextNode;
         const s = $createRangeSelection();
-        s.anchor.set(text.getKey(), 1, 'text');
-        s.focus.set(text.getKey(), 2, 'text');
+        s.anchor.set(text.getKey(), from, 'text');
+        s.focus.set(text.getKey(), to, 'text');
         $setSelection(s);
-        s.removeText();
-        $setSelection(null);
-      });
+        return s;
+      };
+      const steps =
+        edit === 'delete'
+          ? ['delete']
+          : edit === 'delete, then bold'
+            ? ['delete', 'bold']
+            : ['bold', 'delete'];
+      for (const step of steps) {
+        t.b.update(() => {
+          if (step === 'delete') {
+            $range(1, 2).removeText();
+          } else {
+            $range(3, 6).formatText('bold');
+          }
+          $setSelection(null);
+        });
+      }
       await t.sync();
       // The containers A's delete removes: the table, its row and its cell.
       let removed: string[] = [];
@@ -138,7 +183,9 @@ for (const [name, clear] of MODES) {
         await deleteTable();
       }
       const left = deletedContainers(t.b.doc);
-      if (clear === 'before') {
+      // A's delete reached B in every case.
+      expect(removed).toHaveLength(3);
+      if (kept === 0) {
         expect(left).toEqual([]);
       } else {
         // The table, its row and its cell (the cell's paragraph is a line
@@ -146,7 +193,6 @@ for (const [name, clear] of MODES) {
         // at stop would leave none here when B stopped first (checked: 0),
         // at the cost D98 names; a clear after the delete releases the keeps
         // but collects nothing (D88).
-        expect(removed).toHaveLength(3);
         expect(left.sort()).toEqual(removed);
         // A fresh document from B's state collects them.
         const fresh = new Y.Doc();
