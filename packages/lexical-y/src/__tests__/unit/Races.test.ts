@@ -592,9 +592,10 @@ describe('@lexical/y undo of a format ‖ plain text typed inside its range', ()
 // #9575: writes inside a comment undone (here two collaborators', three
 // writes) while another client deletes text across the comment's end. Each
 // write ended the comment before its text and restored it after, leaving a
-// null of its writer right after the comment's end; the delete collapses
-// the deleted run there and keeps those nulls but not the comment's own end,
-// and the undos then remove them, so the comment runs on (y.md Limits).
+// null of its writer right after the comment's end. The delete's collapse of
+// the deleted run kept those nulls but not the comment's own end, and the
+// undos then removed them, so the comment ran on; a delete now keeps every
+// format item it leaves (D86), so the comment's end stays.
 describe('@lexical/y undo of writes inside a comment ‖ delete across its end', () => {
   /** Inserts uncommented `text` in the first line right after `prefix`. */
   function typeAfter(peer: Peer, prefix: string, text: string) {
@@ -656,10 +657,7 @@ describe('@lexical/y undo of writes inside a comment ‖ delete across its end',
     [1, 2, 3, 4],
     [4, 3, 2, 1],
   ]) {
-    test(`#9575 as documented: the comment runs on over the next words and line (${ids})`, async () => {
-      expect(await run(ids)).toEqual(['aa |Kilome cc dd[c1]', 'tail line[c1]']);
-    });
-    test.fails(`#9575: the comment ends where it ended (${ids})`, async () => {
+    test(`#9575: the comment ends where it ended (${ids})`, async () => {
       expect(await run(ids)).toEqual(['aa |Kilome[c1]| cc dd', 'tail line']);
     });
   }

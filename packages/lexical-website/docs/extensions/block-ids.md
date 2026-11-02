@@ -395,11 +395,17 @@ names now: once its block is deleted, a block added since whose hash starts
 the same way would take it.
 
 With [`@lexical/y`](/docs/collaboration/y) on a server, an agent's edit is
-applied to the state the model read and merged into the stored state (see
-[Edits by agents and tools](/docs/collaboration/y-server#edits-by-agents-and-tools)),
-so that what collaborators changed since is kept. Resolving the handle inside
-that edit would always find the block: the read still has it. Resolve it
-against the stored state, then apply the edit to the read by id:
+checked on the stored state and applied there (see
+[Edits by agents and tools](/docs/collaboration/y-server#edits-by-agents-and-tools)):
+resolve the handle against the stored state, check that the block is still
+where and what the model read (the whole block: its type, text, formats,
+style, NodeState and children, not only its text, as the checking schema
+exports them, so check with a schema that still declares every field stored
+versions may hold), then apply the edit to
+the stored state by id, storing it with a compare-and-set and starting over
+on a lost race. Resolved in the read instead, a handle always finds its
+block: the read still has it. With several ops, check them all first and
+apply none when one fails.
 
 ```ts
 import {
@@ -408,39 +414,56 @@ import {
   $getBlockId,
   $resolveBlockHandle,
 } from '@lexical/extension';
-import {createYWriter, editYState, readYState} from '@lexical/y/headless';
+import {readYState} from '@lexical/y/headless';
+import {$getRoot, $isElementNode} from 'lexical';
 
 // BlockIdExtension is among config.extensions, as on the clients.
-const agent = createYWriter('Writing assistant');
+// `applyChecked` (the check, the edit, the compare-and-set and its retries)
+// and `$blockAt` (where a block is and all it holds, as this schema exports
+// it) are the server page's:
+// see Edits by agents and tools, and Edits by block id.
 
 // At the read: `seen` is the state the model reads; keep the handles it is
-// shown with it.
+// shown with it, and each block it read as a whole.
 const shown = readYState(seen, config, () => $getBlockHandles());
+const read = new Map(
+  readYState(seen, config, () =>
+    $getRoot()
+      .getChildren()
+      .map(node => {
+        const id = $getBlockId(node)!;
+        return [id, $blockAt(id)];
+      }),
+  ),
+);
 
-// When the answer arrives (`stored`: the document's state now):
-// 1. Resolve against the stored state, with the handles the model was shown.
-const target = readYState(stored, config, () => {
-  const result = $resolveBlockHandle(op.block, {read: shown});
-  return result.status === 'found'
-    ? {id: $getBlockId(result.node)!, status: result.status}
-    : result;
-});
-if (target.status !== 'found') {
-  // Tell the model, as in the table above.
-} else {
-  // 2. Apply it to the state the model read, by id, in place.
-  let applied = false;
-  const {update} = editYState(
-    seen,
-    config,
-    () => {
-      applied = $setBlockText($getBlockById(target.id)!, op.text);
-    },
-    {writer: agent},
-  );
-  if (applied && update !== null) {
-    // 3. Merge `update` into the stored state and send it to the clients.
-  }
+// When the answer arrives: resolve the handle against the stored state, with
+// the handles the model was shown, check the block, and apply the edit there
+// by id, in place; or nothing.
+let id = '';
+const refused = await applyChecked(
+  store,
+  config,
+  () => {
+    const result = $resolveBlockHandle(op.block, {read: shown});
+    if (result.status !== 'found') {
+      return [result.status];
+    }
+    id = $getBlockId(result.node)!;
+    if ($blockAt(id) !== read.get(id)) {
+      return ['changed' as const];
+    }
+    return $isElementNode(result.node) && $holdsOnlyText(result.node)
+      ? []
+      : ['not just text' as const];
+  },
+  () =>
+    $setBlockText($getBlockById(id)!, op.text)
+      ? []
+      : ['not just text' as const],
+);
+if (refused !== null) {
+  // Tell the model, as in the table above ('changed': read it again).
 }
 ```
 

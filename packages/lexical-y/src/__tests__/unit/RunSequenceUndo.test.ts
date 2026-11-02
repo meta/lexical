@@ -48,8 +48,9 @@ const FORMATS: TextFormatType[] = [
   'strikethrough',
 ];
 const SEEDS = 200;
-// Seeds of this range that fail on main as well (#9599).
-const FAIL_ON_MAIN = [87];
+// Seeds of this range that fail. Seed 87 failed (#9599) until a restore's
+// scan stopped at another client's content (`runOpener`).
+const FAIL_ON_MAIN: number[] = [];
 
 function rngOf(seed: number) {
   let a = seed >>> 0;

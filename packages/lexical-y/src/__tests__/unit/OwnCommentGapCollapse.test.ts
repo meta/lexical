@@ -56,8 +56,9 @@ function $insertPlainAt(off: number, text: string) {
 
 // A comments "Kilo" and B comments "bb"; A types plain "X" inside "Kilo" in
 // one write, and both sync. Then A undoes it while B, having seen it,
-// deletes past the comment's end ("o", then the space or " bb"), so the
-// delete collapses a gap that holds the other comment's items. The comment
+// deletes past the comment's end ("o", then the space or " bb"), next to a
+// gap that holds the other comment's items (a delete collapsed such a gap
+// before D86; it now keeps every format item it leaves). The comment
 // ends where it ended on every client. Main passes; #9562 (parked) wrote a
 // second null of A's own right after the comment's end, the collapse kept
 // it (the key's last item) and dropped the comment's end, and A's undo

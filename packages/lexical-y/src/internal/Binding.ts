@@ -24,6 +24,9 @@ import {
   encodeStateAsUpdate,
   encodeStateVector,
   findIndexSS,
+  getItemCleanStart,
+  type ID,
+  type IdSet,
   Item,
   iterateStructsByIdSet,
   Node as YNode,
@@ -42,6 +45,7 @@ import {
   $getNodeByKey,
   $getRoot,
   $getSelection,
+  $hasUpdateTag,
   $isElementNode,
   $isNodeSelection,
   $isRangeSelection,
@@ -90,11 +94,18 @@ import {
   markFormatCloser,
 } from './Cursor';
 import {$canonicalizeGroup, $switchesWrapper} from './Groups';
-import {$applyStoredAttrs, Reader} from './Read';
+import {
+  $applyStoredAttrs,
+  $unstoredWrapperTextFields,
+  Reader,
+  type StoredFormatsMemo,
+} from './Read';
 import {
   $isGroupNode,
   $isWrapper,
   $nodeAttrs,
+  $setTextFields,
+  type Attrs,
   canStoreAs,
   deriveStorageKind,
   getGroupSpec,
@@ -109,6 +120,8 @@ import {
   type StorageKind,
   storageKindOf,
   withPins,
+  wrapperFieldsOf,
+  wrappersFromAttrs,
 } from './Schema';
 import {
   attrsBefore,
@@ -295,6 +308,28 @@ const MAX_PENDING_COMMITS = 16;
  * after every commit reaches it.
  */
 const MAX_REGISTRATION_RUNS = 100;
+
+/**
+ * The bindings that keep an item from garbage collection (D88), per item, and
+ * whether it was kept already when the first of them did (by an UndoManager's
+ * step): the item is released when the last of them releases it, and only
+ * if nothing else kept it before.
+ */
+const keepOwners = new WeakMap<
+  Item,
+  {external: boolean; owners: Set<object>}
+>();
+
+/**
+ * The items bindings kept again after their UndoManager let them go (a clear
+ * of a stack releases what its steps kept, parents included), with the
+ * binding lifetimes (the owners in keepOwners) that hold each such keep: the
+ * lifetimes that kept it again, or relied on it when another had, or held
+ * it when the last of those stopped. The keep is released when the last of
+ * them stops. And per lifetime, the items it holds so.
+ */
+const rekeepHolders = new WeakMap<Item, Set<object>>();
+const rekeptByOwner = new WeakMap<object, Set<Item>>();
 
 /** What an update listener gets for a commit (see YBinding#onUpdate). */
 type UpdatePayload = {
@@ -810,8 +845,8 @@ export class YBinding {
   private restoring: Set<string> | null = null;
   /** Stored nodes the running undo/redo deletes (it inserted them). */
   private removing: Set<Item> | null = null;
-  /** The items the running undo/redo deletes (see isKeptByUndo). */
-  private undoing: Set<Item> | null = null;
+  /** The ids of the items the running undo/redo deletes (see isKeptByUndo). */
+  private undoing: IdSet | null = null;
   private wasEditable = true;
   private undoCache = new WeakMap<YNode, Set<number>>();
   private readonly afterTransaction: (tr: Transaction) => void;
@@ -866,6 +901,12 @@ export class YBinding {
   private unread: Unread | null = null;
   /** While a change is read: the document as it is (see readChange). */
   private reading = false;
+  /** The stored formats one update's transforms looked up (see settleTextFields). */
+  private storedFormats: {
+    state: EditorState | null;
+    sequences: StoredFormatsMemo;
+    lines: Map<NodeKey, StoredLine>;
+  } = {lines: new Map(), sequences: new Map(), state: null};
   /** This binding's view, for its work (see guard). */
   private readonly seer = () => (this.reading ? null : this.unread);
   /**
@@ -1024,7 +1065,7 @@ export class YBinding {
     // Yjs cleans up formats after a remote transaction by rescanning every
     // type that has formats (whole containers here, so O(document) per remote
     // bold). The binding keeps format items a write leaves redundant that
-    // a concurrent write may rely on (see Cursor#collapseGap), so its
+    // a concurrent write may rely on (see Cursor#delete), so its
     // containers opt out: they are marked as having no formats before Yjs
     // decides whether to clean up. A document createYDoc made never cleans
     // up; this keeps one that does (read only, see unsupportedConfig) from
@@ -1094,6 +1135,220 @@ export class YBinding {
         trackedOrigins: new Set([this]),
       });
       this._undoManager = um;
+      // Undo reads the format items of the changes on its stacks, and the
+      // end each of them gave a run it deleted (see isKeptByUndo,
+      // closeRestoredRuns, changeEnd), after a collaborator deleted them:
+      // keep those from garbage collection (Item.keep, as UndoManager keeps
+      // the items a change deletes) so a collected item's key and value
+      // stay readable (#9623). The flag is local; while an item is kept,
+      // this document still holds its content (D88).
+      // What this binding keeps is released when both stacks are empty
+      // (after a clear, an undo that leaves nothing to redo, or a write the
+      // stacks did not capture) and when the binding is disposed. Another
+      // binding on the same document, or an UndoManager, may keep the same
+      // item: it stays kept until every binding that kept it released it.
+      // Releasing collects nothing: an item deleted while kept keeps its
+      // content until the document reloads, as Yjs leaves the items an
+      // UndoManager step kept (any UndoManager on the document may still
+      // restore it).
+      const kept = new Set<Item>();
+      // This listening lifetime: a binding started again after a dispose
+      // owns its keeps anew, apart from a release the old one queued.
+      const owner = {};
+      const rekept = new Set<Item>();
+      rekeptByOwner.set(owner, rekept);
+      const hold = (it: Item, by: object) => {
+        let holders = rekeepHolders.get(it);
+        if (holders === undefined) {
+          holders = new Set();
+          rekeepHolders.set(it, holders);
+        }
+        holders.add(by);
+        const theirs = rekeptByOwner.get(by);
+        if (theirs !== undefined) {
+          theirs.add(it);
+        }
+      };
+      // When this lifetime ends: each keep it holds goes to the other
+      // lifetimes that hold it, or that keep the item for a step of theirs,
+      // or is released by the last of them.
+      const releaseRekept = () => {
+        for (const it of rekept) {
+          const holders = rekeepHolders.get(it);
+          if (holders !== undefined) {
+            holders.delete(owner);
+            if (holders.size > 0) {
+              continue;
+            }
+            rekeepHolders.delete(it);
+          }
+          const entry = keepOwners.get(it);
+          if (entry !== undefined && entry.owners.size > 0) {
+            for (const other of entry.owners) {
+              hold(it, other);
+            }
+            continue;
+          }
+          it.keep = false;
+        }
+        rekept.clear();
+      };
+      const keep = (item: Item | null) => {
+        for (let it = item; it !== null; it = (it.parent as YNode)._item) {
+          let entry = keepOwners.get(it);
+          if (entry === undefined) {
+            // `external`: kept already (by an UndoManager's step), which
+            // this leaves to whoever kept it.
+            entry = {external: it.keep, owners: new Set()};
+            keepOwners.set(it, entry);
+          } else if (entry.owners.has(owner)) {
+            // Its parents are this lifetime's already.
+            break;
+          }
+          entry.owners.add(owner);
+          it.keep = true;
+          kept.add(it);
+        }
+      };
+      // Released only between transactions: inside one (another
+      // UndoManager's stack event, a listener) the transaction's own
+      // collection, which runs after its listeners, would still collect an
+      // item it deleted that another UndoManager has just kept.
+      // A queued release keeps the stronger request (dispose releases
+      // whatever the stacks hold), and a document destroyed meanwhile
+      // releases at once (its listeners, the queued one too, are gone).
+      let queued: 'empty' | 'always' | null = null;
+      let disposed = false;
+      const inTransaction = () =>
+        this._doc._transaction !== null ||
+        this._doc._transactionCleanups.length > 0;
+      const releaseNow = () => {
+        for (const it of kept) {
+          const entry = keepOwners.get(it);
+          if (entry !== undefined) {
+            entry.owners.delete(owner);
+            if (entry.owners.size > 0) {
+              continue;
+            }
+            keepOwners.delete(it);
+            if (entry.external) {
+              continue;
+            }
+          }
+          // A keep this lifetime set again after a clear goes with it; one
+          // another lifetime holds stays.
+          const holders = rekeepHolders.get(it);
+          if (holders !== undefined) {
+            holders.delete(owner);
+            rekept.delete(it);
+            if (holders.size > 0) {
+              continue;
+            }
+            rekeepHolders.delete(it);
+          }
+          it.keep = false;
+        }
+        kept.clear();
+        if (disposed) {
+          this._doc.off('destroy', onDestroy);
+          releaseRekept();
+        }
+      };
+      const release = (onlyWhenEmpty: boolean) => {
+        if (kept.size === 0 && (!disposed || rekept.size === 0)) {
+          if (disposed) {
+            this._doc.off('destroy', onDestroy);
+          }
+          return;
+        }
+        if (
+          onlyWhenEmpty &&
+          (um.undoStack.length > 0 || um.redoStack.length > 0)
+        ) {
+          return;
+        }
+        if (inTransaction() && !this._doc.isDestroyed) {
+          if (queued === null) {
+            this._doc.once('afterAllTransactions', () => {
+              const always = queued === 'always';
+              queued = null;
+              release(!always);
+            });
+          }
+          if (queued !== 'always') {
+            queued = onlyWhenEmpty ? 'empty' : 'always';
+          }
+          return;
+        }
+        releaseNow();
+      };
+      const onDestroy = () => {
+        disposed = true;
+        queued = null;
+        releaseNow();
+      };
+      this._doc.on('destroy', onDestroy);
+      const releaseWhenEmpty = () => release(true);
+      um.on('stack-cleared', () => {
+        releaseWhenEmpty();
+        // A clear of one stack makes the UndoManager release what that
+        // stack's steps kept, parents included: keep what this binding
+        // still relies on (another UndoManager on the document may rely on
+        // it too: Yjs's keep is one flag). Released when this binding stops
+        // (see releaseRekept), not before.
+        for (const it of kept) {
+          if (!it.keep) {
+            it.keep = true;
+            hold(it, owner);
+          } else if (rekeepHolders.has(it)) {
+            // Kept again by another binding: held by this one too.
+            hold(it, owner);
+          }
+        }
+      });
+      this.disposers.push(() => {
+        disposed = true;
+        release(false);
+      });
+      const keepFormats = (tr: Transaction) => {
+        // A listener call already under way when the binding was disposed
+        // keeps nothing.
+        if (!tr.local || disposed) {
+          return;
+        }
+        if (tr.origin === um) {
+          // An undo or redo that leaves both stacks empty (one that changes
+          // nothing pops its step without an event).
+          releaseWhenEmpty();
+        }
+        if (tr.origin !== this && tr.origin !== um) {
+          return;
+        }
+        const ends: Item[] = [];
+        iterateStructsByIdSet(tr, tr.deleteSet, s => {
+          if (
+            s instanceof Item &&
+            s.content instanceof ContentFormat &&
+            s.content.value !== null
+          ) {
+            const end = changeEnd(this._doc, s);
+            if (end !== null) {
+              ends.push(end);
+            }
+          }
+        });
+        ends.forEach(keep);
+        iterateStructsByIdSet(tr, tr.insertSet, s => {
+          if (s instanceof Item && s.content instanceof ContentFormat) {
+            keep(s);
+          }
+        });
+        // A write the stacks did not capture (a capture filter, an origin no
+        // longer tracked) leaves nothing an undo could read.
+        releaseWhenEmpty();
+      };
+      this._doc.on('afterTransaction', keepFormats);
+      this.disposers.push(() => this._doc.off('afterTransaction', keepFormats));
       // Each step keeps the selection from before it, which undoing it
       // restores (as @lexical/history does): a local edit's from before the
       // edit, and the step an undo or redo pushes to the other stack the
@@ -1164,10 +1419,116 @@ export class YBinding {
         $flushSyncAfterUpdate();
       }
     };
+    // A local change that leaves a wrapper holding no text (a delete of the
+    // text in a link, or in a mark inside a link) makes Lexical serialize the
+    // text fields this client set while the wrapper held text, which are
+    // stored nowhere: in the same update, the wrapper shows the stored ones,
+    // as every other client and a fresh reader do, and nothing follows the
+    // update for an app to answer. Otherwise the write would write the
+    // wrapper's whole value again over the content it keeps (a line break,
+    // an inline decorator), over a collaborator's concurrent removal or
+    // change of it. Runs on the element the change marks dirty: a stored
+    // element inside wrappers (see $unstoredWrapperTextFields), or the
+    // wrapper itself (its value is the one stored at its first atom).
+    const settleTextFields = (node: LexicalNode) =>
+      withPins(this._pins, () => {
+        const state = this.state;
+        const stored = state.yByKey.has(node.getKey());
+        if (
+          this._status !== 'active' ||
+          this.unread !== null ||
+          state.hidden !== null ||
+          !(
+            stored ||
+            ($isElementNode(node) && node.isInline() && $isWrapper(node))
+          ) ||
+          $hasUpdateTag(COLLABORATION_TAG)
+        ) {
+          return;
+        }
+        const editor = this._editor;
+        // The stored formats are looked up once per update (the document
+        // does not change during its transforms).
+        const memo = this.storedFormats;
+        if (memo.state !== editor._pendingEditorState) {
+          memo.state = editor._pendingEditorState;
+          memo.sequences = new Map();
+          memo.lines = new Map();
+        }
+        const fieldsOf = (type: string) => wrapperFieldsOf(editor, type);
+        // The wrappers around the stored element (see
+        // $unstoredWrapperTextFields), or the wrapper itself when its own
+        // text changed (a delete of the text directly in a link); its value
+        // is the one stored at its first atom before the update.
+        const found: (readonly [ElementNode, Attrs | null, number, string])[] =
+          stored
+            ? $unstoredWrapperTextFields(
+                state,
+                [node.getKey()],
+                fieldsOf,
+                memo.sequences,
+              ).map(
+                ([wrapper, json]) =>
+                  [
+                    wrapper,
+                    json,
+                    wrapper.getTextFormat(),
+                    wrapper.getTextStyle(),
+                  ] as const,
+              )
+            : (node as ElementNode).shouldSerializeTextStyles() &&
+                ((node as ElementNode).getTextFormat() !== 0 ||
+                  (node as ElementNode).getTextStyle() !== '')
+              ? [
+                  [
+                    node as ElementNode,
+                    null,
+                    (node as ElementNode).getTextFormat(),
+                    (node as ElementNode).getTextStyle(),
+                  ] as const,
+                ]
+              : [];
+        if (found.length === 0) {
+          return;
+        }
+        // Only a wrapper this update left without text, with the text fields
+        // it had before the update: ones this update set (on a wrapper
+        // without text, or in a transform) are stored by the write.
+        const stale = editor.read('latest', () =>
+          found.flatMap(([wrapper, json, format, style]) => {
+            const was = $getNodeByKey(wrapper.getKey());
+            if (
+              !$isElementNode(was) ||
+              was.shouldSerializeTextStyles() ||
+              was.getTextFormat() !== format ||
+              was.getTextStyle() !== style
+            ) {
+              return [];
+            }
+            if (json !== null) {
+              return [[wrapper, json] as const];
+            }
+            const value = this.$storedWrapperValue(was, memo.lines);
+            return value === null ? [] : [[wrapper, value] as const];
+          }),
+        );
+        for (const [wrapper, json] of stale) {
+          const {textFormat, textStyle} = json;
+          if (
+            wrapper.getTextFormat() !==
+              (typeof textFormat === 'number' ? textFormat : 0) ||
+            wrapper.getTextStyle() !==
+              (typeof textStyle === 'string' ? textStyle : '')
+          ) {
+            $setTextFields(wrapper, json);
+          }
+        }
+      });
     for (const {klass} of this._editor._nodes.values()) {
       if (klass.prototype instanceof ElementNode) {
         this.disposers.push(
           this._editor.registerNodeTransform(klass, noteTransformed),
+          this._editor.registerNodeTransform(klass, settleTextFields),
           // The node structure normalization never reaches a named slot.
           this._editor.registerNodeTransform(klass, $wrapSlotShadowRootInline),
         );
@@ -4312,6 +4673,110 @@ export class YBinding {
     return found;
   }
 
+  /**
+   * The value stored for `wrapper` (in the state being read, which the
+   * document stores) at its first atom: its JSON as wrappersFromAttrs reads
+   * it, or null. Each line's atoms, and the offsets of the wrappers in it,
+   * are found once (`lines`, kept for one update).
+   */
+  private $storedWrapperValue(
+    wrapper: ElementNode,
+    lines: Map<NodeKey, StoredLine>,
+  ): Attrs | null {
+    const owner = $ownerOf(wrapper);
+    if (owner === null) {
+      return null;
+    }
+    let line = lines.get(owner.getKey());
+    if (line === undefined) {
+      line = {atoms: this.storedAtoms(owner), offsets: $wrapperOffsets(owner)};
+      lines.set(owner.getKey(), line);
+    }
+    const offset = line.offsets.get(wrapper.getKey());
+    if (offset === undefined) {
+      return null;
+    }
+    // The atom range holding `offset` (ranges are in order).
+    const {atoms} = line;
+    let lo = 0;
+    let hi = atoms.length - 1;
+    let at: [number, number, Attrs] | undefined;
+    while (lo <= hi) {
+      const mid = (lo + hi) >> 1;
+      const [from, to] = atoms[mid];
+      if (offset < from) {
+        hi = mid - 1;
+      } else if (offset >= to) {
+        lo = mid + 1;
+      } else {
+        at = atoms[mid];
+        break;
+      }
+    }
+    if (at === undefined) {
+      return null;
+    }
+    const editor = this._editor;
+    const value = wrappersFromAttrs(at[2], type =>
+      wrapperFieldsOf(editor, type),
+    ).find(v => v.type === wrapper.getType());
+    return value === undefined ? null : value.json;
+  }
+
+  /**
+   * The content of the line (or inline container) `owner` as stored: each
+   * content item's atom range and the formats in effect at it.
+   */
+  private storedAtoms(owner: ElementNode): [number, number, Attrs][] {
+    const state = this.state;
+    const unit = state.unitByKey.get(owner.getKey());
+    let start: Item | null;
+    let formats: Map<string, unknown>;
+    if (unit !== undefined && unit.end !== null) {
+      const left = prevLiveEnd(unit.end, state.hidden);
+      start = left === null ? unit.cs.y._start : left.right;
+      formats = new Map(unit.start || []);
+    } else if (unit !== undefined && unit.kind === 'implicit') {
+      const units = unit.cs.units;
+      const idx = units.indexOf(unit);
+      let left = idx > 0 ? units[idx - 1].end : null;
+      while (left !== null && !isShownEnd(left, state.hidden)) {
+        left = prevLiveEnd(left, state.hidden);
+      }
+      start = left === null ? unit.cs.y._start : left.right;
+      formats = new Map(unit.start || []);
+    } else {
+      const cs = state.csByKey.get(owner.getKey());
+      if (cs === undefined || cs.kind !== 'i') {
+        return [];
+      }
+      start = cs.y._start;
+      formats = new Map();
+    }
+    const out: [number, number, Attrs][] = [];
+    let offset = 0;
+    for (let it = start; it !== null; it = it.right) {
+      if (!it.deleted && it.content instanceof ContentFormat) {
+        if (it.content.value === null) {
+          formats.delete(it.content.key);
+        } else {
+          formats.set(it.content.key, it.content.value);
+        }
+        continue;
+      }
+      const len = shownLength(it, state.hidden);
+      if (len === 0) {
+        if (isShownEnd(it, state.hidden)) {
+          break;
+        }
+        continue;
+      }
+      out.push([offset, offset + len, Object.fromEntries(formats) as Attrs]);
+      offset += len;
+    }
+    return out;
+  }
+
   /** Containers a write did not write a follow-up's change to (see refused). */
   private noteRefused(writer: Writer, naming: boolean): void {
     for (const cs of writer.refused) {
@@ -5050,7 +5515,7 @@ export class YBinding {
         if (!(it.content instanceof ContentFormat) || it.content.key !== key) {
           continue;
         }
-        if (this.undoing.has(it)) {
+        if (this.undoing.hasId(it.id)) {
           if (it.deleted) {
             return true;
           }
@@ -5255,8 +5720,14 @@ export class YBinding {
     const doc = this._doc;
     const store = doc.store;
     const client = doc.clientID;
-    // Where to write each null: after `left`, before `right`.
-    const ends: [left: Item | null, right: Item | null, key: string][] = [];
+    // Where to write each null: after the item that ends at `leftEnd`,
+    // before the item that starts at `right` (null: at that end of the
+    // list). Ids, not items: the scan's
+    // transaction splits items and its cleanup merges them back, so an item
+    // object it saw can be a piece no longer in the store by the time the
+    // null is written (an item linked to such a piece breaks the list's
+    // links).
+    const ends: [leftEnd: ID | null, right: ID | null, key: string][] = [];
     doc.transact(tr => {
       const copies: [original: Item, copy: Item][] = [];
       iterateStructsByIdSet(tr, step.deletes, s => {
@@ -5286,7 +5757,7 @@ export class YBinding {
         for (let it = copy.right; it !== null; it = it.right) {
           if (it === gone && it.deleted) {
             if (shown) {
-              ends.push([it, it.right, key]);
+              ends.push([it.lastId, it.right && it.right.id, key]);
             }
             break;
           }
@@ -5300,7 +5771,7 @@ export class YBinding {
                 it.id.client !== client &&
                 it.content.value === null
               ) {
-                ends.push([it.left, it, key]);
+                ends.push([it.left && it.left.lastId, it.id, key]);
               }
               break;
             }
@@ -5312,11 +5783,66 @@ export class YBinding {
     }, this.scanOrigin);
     if (ends.length > 0) {
       doc.transact(tr => {
-        for (const [left, right, key] of ends) {
+        // The nulls this loop writes: two keys can need an end in the same
+        // gap, and the second must not take the first's null for a change
+        // of the gap.
+        const written = new Set<Item>();
+        for (const [leftEnd, rightStart, key] of ends) {
+          // The items as the store holds them now, split at those ids.
+          const right =
+            rightStart === null ? null : getItemCleanStart(tr, rightStart);
+          let left: Item | null = null;
+          if (leftEnd !== null) {
+            const at = store.getItem(leftEnd);
+            if (
+              at instanceof Item &&
+              at.id.clock + at.length - 1 > leftEnd.clock
+            ) {
+              getItemCleanStart(
+                tr,
+                createID(leftEnd.client, leftEnd.clock + 1),
+              );
+            }
+            const found = store.getItem(leftEnd);
+            left = found instanceof Item ? found : null;
+          }
+          if (
+            (rightStart !== null && !(right instanceof Item)) ||
+            (leftEnd !== null && left === null) ||
+            (left === null && right === null) ||
+            (left !== null && right !== null && left.parent !== right.parent)
+          ) {
+            continue;
+          }
+          // Still next to each other but for the nulls written here, in one
+          // type (never next to an item of another type: see checkLinkable
+          // in Cursor). The null goes right before `right`, after those.
+          let before: Item | null;
+          if (right !== null) {
+            let l = right.left;
+            while (l !== null && written.has(l)) {
+              l = l.left;
+            }
+            if (l !== left) {
+              continue;
+            }
+            before = right.left;
+          } else {
+            let last = left as Item;
+            let r = last.right;
+            while (r !== null && written.has(r)) {
+              last = r;
+              r = r.right;
+            }
+            if (r !== null) {
+              continue;
+            }
+            before = last;
+          }
           const item = new Item(
             createID(client, store.getClock(client)),
-            left,
-            left && left.lastId,
+            before,
+            before && before.lastId,
             right,
             right && right.id,
             (left ?? right)!.parent,
@@ -5324,6 +5850,7 @@ export class YBinding {
             new ContentFormat(key, null as unknown as object),
           );
           item.integrate(tr, 0);
+          written.add(item);
           markFormatCloser(item);
         }
       }, this.runEndOrigin);
@@ -5344,7 +5871,6 @@ export class YBinding {
     }
     const names = new Set<string>();
     const removing = new Set<Item>();
-    const undoing = new Set<Item>();
     const isStored = (s: unknown): s is Item => {
       if (!(s instanceof Item) || !(s.content instanceof ContentType)) {
         return false;
@@ -5359,9 +5885,6 @@ export class YBinding {
         }
       });
       iterateStructsByIdSet(tr, top.inserts, s => {
-        if (s instanceof Item) {
-          undoing.add(s);
-        }
         if (isStored(s)) {
           removing.add(s);
         }
@@ -5369,7 +5892,9 @@ export class YBinding {
     }, this.scanOrigin);
     this.restoring = names;
     this.removing = removing;
-    this.undoing = undoing;
+    // By id: this scan's transaction splits items and merges them back, so
+    // the item objects it saw need not be those the undo meets.
+    this.undoing = top.inserts;
   }
 
   // -------------------------------------------------------------------------
@@ -6341,6 +6866,30 @@ function $ownerOf(node: LexicalNode): ElementNode | null {
     parent = parent.getParent();
   }
   return parent;
+}
+
+/** A line's stored atoms and the offsets of its wrappers (see YBinding). */
+type StoredLine = {
+  atoms: [number, number, Attrs][];
+  offsets: Map<NodeKey, number>;
+};
+
+/** The atom offset of every wrapper in the content of `owner`, in one pass. */
+function $wrapperOffsets(owner: ElementNode): Map<NodeKey, number> {
+  const out = new Map<NodeKey, number>();
+  let n = 0;
+  const visit = (el: ElementNode) => {
+    for (const c of el.getChildren()) {
+      if ($isWrapper(c)) {
+        out.set(c.getKey(), n);
+        visit(c as ElementNode);
+      } else {
+        n += $atomSize(c);
+      }
+    }
+  };
+  visit(owner);
+  return out;
 }
 
 function $atomsBefore(owner: ElementNode, target: LexicalNode): number {

@@ -449,6 +449,7 @@ export {
   getStaticNodeConfig,
   getTextDirection,
   INTERNAL_$isBlock,
+  INTERNAL_$withExportMemo,
   isBlockDomNode,
   isDocumentFragment,
   isDOMCapturingSelection,

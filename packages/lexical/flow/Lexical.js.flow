@@ -1358,6 +1358,8 @@ declare export function $getDocument(): Document;
 declare export function $getEditor(): LexicalEditor;
 /** @internal */
 declare export function INTERNAL_getActiveEditorState(): EditorState | null;
+/** @internal */
+declare export function INTERNAL_$withExportMemo<T>(f: () => T): T;
 declare export function $getEditorDOMRenderConfig(
   editor?: LexicalEditor,
 ): EditorDOMRenderConfig;

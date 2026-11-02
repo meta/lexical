@@ -11,7 +11,7 @@
 // Invariant: a document the binding writes never runs Yjs's format cleanup,
 // from its creation on. Why: after a remote change, the cleanup deletes the
 // format items it finds redundant, among them the ones left where text was
-// deleted. The binding keeps those (see Cursor#collapseGap): text a
+// deleted. The binding keeps those (see Cursor#delete): text a
 // collaborator types into the deleted text at the same time keeps the
 // formats it was typed with only while they are there. The cleanup is also
 // a write of this client's that reaches every peer. A document that ran it

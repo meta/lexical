@@ -49,6 +49,7 @@ import {
   $foreignFlatKeys,
   $groupFields,
   $isGroupNode,
+  $isWrapper,
   $levelItemFields,
   $lineAttrs,
   $lineBreakAttrs,
@@ -103,6 +104,7 @@ import {
   type WrapperValue,
 } from './Schema';
 import {
+  isGone,
   isHeld,
   isShown,
   isShownEnd,
@@ -286,6 +288,11 @@ export class Reader {
    * type it does not register is an unknown type (see State#unknownTypes).
    */
   private readonly wrapperFields: (type: string) => OwnedFields | null;
+  /**
+   * Stored elements (a mark, an overflow) whose children this read set (see
+   * $settleWrapperTextFields).
+   */
+  private readonly childrenSet = new Set<NodeKey>();
   /** Item -> unit cache for one read. */
   private located = new Map<Item, Unit | null>();
   /** Inline owners already read from the current document without a hold. */
@@ -407,6 +414,7 @@ export class Reader {
     try {
       read();
       if (this.depth === 1) {
+        this.$settleWrapperTextFields();
         this.$checkTakenOut();
       }
     } finally {
@@ -422,6 +430,7 @@ export class Reader {
     try {
       this.$readFullInner(cs, el);
       if (this.depth === 1) {
+        this.$settleWrapperTextFields();
         this.$checkTakenOut();
       }
     } finally {
@@ -2666,6 +2675,24 @@ export class Reader {
     const stack: Frame[] = [];
     const finish = (frame: Frame) => {
       this.$setChildren(frame.node, frame.children);
+      // A wrapper that holds no text (any more: a collaborator deleted its
+      // text around a line break) shows the textFormat and textStyle its
+      // value stores, as a fresh reader does: they are stored exactly while
+      // Lexical serializes them (see $wrapperAttrs), and one this client set
+      // while the wrapper held text was not stored.
+      const node = frame.node.getLatest();
+      const {textFormat, textStyle} = frame.value.json;
+      if (
+        (node.getTextFormat() !==
+          (typeof textFormat === 'number' ? textFormat : 0) ||
+          node.getTextStyle() !==
+            (typeof textStyle === 'string' ? textStyle : '')) &&
+        node.shouldSerializeTextStyles()
+      ) {
+        this.$updateStored(node, () =>
+          $setTextFields(node.getLatest(), frame.value.json),
+        );
+      }
     };
     const runLength = (from: number, sig: string) => {
       let n = 0;
@@ -2866,9 +2893,16 @@ export class Reader {
       const own: Attrs = {};
       $wrapperAttrs(reused, own);
       const current = wrappersFromAttrs(own, this.wrapperFields)[0];
+      // Without the text fields: they are stored only while the wrapper
+      // holds no text, which its children, set after this, decide, and are
+      // shown from the stored value then (see $readInline's `finish`).
+      const sansText = (json: Attrs) => {
+        const {textFormat: _f, textStyle: _s, ...rest} = json;
+        return stableStringify(rest);
+      };
       if (
         current === undefined ||
-        stableStringify(current.json) !== stableStringify(w.json)
+        sansText(current.json) !== sansText(w.json)
       ) {
         const spec = getWrapperSpec(klassOf(reused))!;
         const json = $schemaJSON(reused);
@@ -2900,8 +2934,30 @@ export class Reader {
     );
   }
 
+  /**
+   * The wrappers around a stored element (a link around a mark) whose
+   * content this read changed, without reading the wrappers' line: one that
+   * now holds no text shows the textFormat and textStyle its value stores,
+   * as wrappers built by a read do (see $readInline's `finish`).
+   */
+  private $settleWrapperTextFields(): void {
+    for (const [wrapper, json] of $unstoredWrapperTextFields(
+      this.state,
+      this.childrenSet,
+      this.wrapperFields,
+    )) {
+      this.$updateStored(wrapper, () =>
+        $setTextFields(wrapper.getLatest(), json),
+      );
+    }
+    this.childrenSet.clear();
+  }
+
   /** Make `el`'s children exactly `children`, keeping unchanged ends. */
   $setChildren(el: ElementNode, children: LexicalNode[]): void {
+    if (this.state.yByKey.has(el.getKey())) {
+      this.childrenSet.add(el.getKey());
+    }
     const prev = el.getChildren();
     let left = 0;
     const max = Math.min(prev.length, children.length);
@@ -3642,4 +3698,170 @@ function isDeleted(y: YNode): boolean {
     }
   }
   return false;
+}
+
+/**
+ * The wrappers around the stored elements `keys` (a link around a mark, and
+ * around that link's own stored ancestors up to the line) that hold no text
+ * and show other text fields than their stored value, with that value's.
+ * Lexical serializes a wrapper's textFormat and textStyle while it holds no
+ * text, and the binding stores them exactly then (see $wrapperAttrs), so
+ * every client must show the stored ones: one a client set while the
+ * wrapper held text was not stored. The wrappers above a stored element are
+ * formats in the sequence that holds its item; above the next stored
+ * element, in that one's.
+ */
+export function $unstoredWrapperTextFields(
+  state: State,
+  keys: Iterable<NodeKey>,
+  wrapperFields: (type: string) => OwnedFields | null,
+  memo?: StoredFormatsMemo,
+): [ElementNode, Attrs][] {
+  const candidates: [ElementNode, Item][] = [];
+  const seen = new Set<NodeKey>();
+  for (const key of keys) {
+    const el = $getNodeByKey(key);
+    let anchor = state.yByKey.get(key);
+    if (el === null || anchor === undefined) {
+      continue;
+    }
+    for (
+      let w: LexicalNode | null = el.getParent();
+      $isElementNode(w);
+      w = w.getParent()
+    ) {
+      const wy = state.yByKey.get(w.getKey());
+      // Inline content ends at the line: a stored element that is not
+      // inline (OverflowNode) still sits in it where its parent is inline.
+      const parent = w.getParent();
+      if (
+        !w.isInline() &&
+        !(wy !== undefined && $isElementNode(parent) && parent.isInline())
+      ) {
+        break;
+      }
+      if (wy !== undefined) {
+        anchor = wy;
+        continue;
+      }
+      if (
+        anchor._item !== null &&
+        !seen.has(w.getKey()) &&
+        $isWrapper(w) &&
+        w.shouldSerializeTextStyles()
+      ) {
+        seen.add(w.getKey());
+        candidates.push([w, anchor._item]);
+      }
+    }
+  }
+  if (candidates.length === 0) {
+    return [];
+  }
+  const attrs = attrsAtItems(
+    candidates.map(([, item]) => item),
+    memo,
+  );
+  const out: [ElementNode, Attrs][] = [];
+  for (const [w, item] of candidates) {
+    const value = wrappersFromAttrs(attrs.get(item)!, wrapperFields).find(
+      v => v.type === w.getType(),
+    );
+    if (value === undefined) {
+      continue;
+    }
+    const {textFormat, textStyle} = value.json;
+    if (
+      w.getTextFormat() !== (typeof textFormat === 'number' ? textFormat : 0) ||
+      w.getTextStyle() !== (typeof textStyle === 'string' ? textStyle : '')
+    ) {
+      out.push([w, value.json]);
+    }
+  }
+  return out;
+}
+
+/**
+ * The formats stored in effect at the stored nodes (Y.Node items) of the
+ * sequences read so far, by sequence: for lookups from several calls while
+ * the document does not change (the transforms of one update).
+ */
+export type StoredFormatsMemo = Map<unknown, Map<Item, Attrs>>;
+
+/**
+ * The formats stored in effect at each of `items`: one pass along each
+ * sequence that holds some of them (up to the last one, or, with `memo`,
+ * along all of it once, noting them at every stored node).
+ */
+function attrsAtItems(
+  items: Item[],
+  memo?: StoredFormatsMemo,
+): Map<Item, Attrs> {
+  const bySequence = new Map<unknown, Set<Item>>();
+  for (const item of items) {
+    let set = bySequence.get(item.parent);
+    if (set === undefined) {
+      set = new Set();
+      bySequence.set(item.parent, set);
+    }
+    set.add(item);
+  }
+  const out = new Map<Item, Attrs>();
+  for (const [parent, wanted] of bySequence) {
+    let known = memo === undefined ? undefined : memo.get(parent);
+    if (memo !== undefined && known === undefined) {
+      known = new Map();
+      memo.set(parent, known);
+      const formats = new Map<string, unknown>();
+      for (
+        let it = (parent as {_start: Item | null})._start;
+        it !== null;
+        it = it.right
+      ) {
+        if (it.content instanceof ContentType) {
+          known.set(it, Object.fromEntries(formats) as Attrs);
+        } else if (!isGone(it) && it.content instanceof ContentFormat) {
+          if (it.content.value === null) {
+            formats.delete(it.content.key);
+          } else {
+            formats.set(it.content.key, it.content.value);
+          }
+        }
+      }
+    }
+    if (known !== undefined) {
+      let all = true;
+      for (const item of wanted) {
+        const attrs = known.get(item);
+        if (attrs === undefined) {
+          all = false;
+        } else {
+          out.set(item, attrs);
+        }
+      }
+      if (all) {
+        continue;
+      }
+    }
+    const formats = new Map<string, unknown>();
+    let left = wanted.size;
+    for (
+      let it = (parent as {_start: Item | null})._start;
+      it !== null && left > 0;
+      it = it.right
+    ) {
+      if (wanted.has(it)) {
+        out.set(it, Object.fromEntries(formats) as Attrs);
+        left--;
+      }
+      if (!isGone(it) && it.content instanceof ContentFormat) {
+        if (it.content.value === null) {
+          formats.delete(it.content.key);
+        } else {
+          formats.set(it.content.key, it.content.value);
+        }
+      }
+    }
+  }
+  return out;
 }

@@ -87,6 +87,7 @@ import {
   getStaticNodeConfig,
   getSuperclassOf,
   internalMarkNodeAsDirty,
+  internalStopExportMemo,
 } from './LexicalUtils';
 
 const __DEV__ = process.env.NODE_ENV !== 'production';
@@ -1646,6 +1647,9 @@ export class LexicalNode {
       return this;
     }
     errorOnReadOnly();
+    // Before the clone, whose hooks may read: a node that changes ends an
+    // export walk's memo (see INTERNAL_$withExportMemo).
+    internalStopExportMemo();
     const editorState = getActiveEditorState();
     const editor = getActiveEditor();
     const key = this.__key;

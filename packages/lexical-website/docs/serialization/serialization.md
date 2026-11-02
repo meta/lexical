@@ -250,8 +250,9 @@ off the common path, so an element with nothing to persist never calls it. The
 predicate must be pure and take no arguments: the walk calls it once per
 property that names it, while generated code hoists one that several properties
 share and calls it once. This is how `ElementNode` persists `textFormat` and
-`textStyle` only for an element with no `TextNode` child, without either
-property leaving the direct-field path.
+`textStyle` only for an element with no text to derive them from (no
+`TextNode` child, and for an inline element such as a link no `TextNode`
+anywhere inside it), without either property leaving the direct-field path.
 
 `withField(schema, {field, when})` declares the same for a property that is the
 field in both directions. Either way the gate belongs to the export direction,

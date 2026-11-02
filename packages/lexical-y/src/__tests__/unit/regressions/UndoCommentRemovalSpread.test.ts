@@ -155,55 +155,53 @@ function onRange(
 describe('undoing the removal of a comment after its author undid adding it, with a second comment and typing', () => {
   for (const typed of [true, false]) {
     for (const second of [true, false]) {
-      // Fails on main (#9623): pinned until the fix lands.
-      it.fails(
-        `keeps the comment off the paragraphs after it (second comment: ${second}, typed at its start: ${typed})`,
-        () => {
-          const {A, B, sync} = clients();
-          onRange(A.editor, 0, 8, s => $addMarkID('c1', s));
-          if (second) onRange(A.editor, 0, 3, s => $addMarkID('c2', s));
-          if (typed)
-            onRange(A.editor, 0, 0, s => {
-              s.format = 0;
-              s.insertText(' new ');
-            });
-          // A's comments and typing are one undo step.
-          A.step();
-          sync();
-          B.editor.update(() => $removeMarkID('c1'), {discrete: true});
-          B.step();
-          sync();
-          A.editor.dispatchCommand(UNDO_COMMAND, undefined);
-          sync();
-          B.editor.dispatchCommand(UNDO_COMMAND, undefined);
-          sync();
-          const a = A.editor.getEditorState().read($show);
-          const b = B.editor.getEditorState().read($show);
-          const fresh = readYState(Y.encodeStateAsUpdate(A.doc), CONFIG, $show);
-          expect(b).toEqual(a);
-          expect(fresh).toEqual(a);
-          expect(a.slice(0, 2)).toEqual(PARAS.slice(0, 2));
-          expect(a.slice(3)).toEqual(PARAS.slice(3));
-          // And c1 is on exactly its words or nowhere: the comment's author
-          // undid it, and whether B's undo of its removal brings it back is
-          // undecided (it must not cover less, nor more).
-          const withC1 = A.editor.getEditorState().read(() => {
-            const block = $getRoot().getChildAtIndex(2);
-            return $isElementNode(block)
-              ? block
-                  .getAllTextNodes()
-                  .filter(n =>
-                    $getNodeMarkIDs(MarkStateExtension, n).includes('c1'),
-                  )
-                  .map(n => n.getTextContent())
-                  .join('')
-              : '?';
+      // Spread with garbage collection on (#9623) until the binding kept its
+      // own format items from collection while they are undoable.
+      it(`keeps the comment off the paragraphs after it (second comment: ${second}, typed at its start: ${typed})`, () => {
+        const {A, B, sync} = clients();
+        onRange(A.editor, 0, 8, s => $addMarkID('c1', s));
+        if (second) onRange(A.editor, 0, 3, s => $addMarkID('c2', s));
+        if (typed)
+          onRange(A.editor, 0, 0, s => {
+            s.format = 0;
+            s.insertText(' new ');
           });
-          expect(['', 'two two '], 'c1 on its words or nowhere').toContain(
-            withC1,
-          );
-        },
-      );
+        // A's comments and typing are one undo step.
+        A.step();
+        sync();
+        B.editor.update(() => $removeMarkID('c1'), {discrete: true});
+        B.step();
+        sync();
+        A.editor.dispatchCommand(UNDO_COMMAND, undefined);
+        sync();
+        B.editor.dispatchCommand(UNDO_COMMAND, undefined);
+        sync();
+        const a = A.editor.getEditorState().read($show);
+        const b = B.editor.getEditorState().read($show);
+        const fresh = readYState(Y.encodeStateAsUpdate(A.doc), CONFIG, $show);
+        expect(b).toEqual(a);
+        expect(fresh).toEqual(a);
+        expect(a.slice(0, 2)).toEqual(PARAS.slice(0, 2));
+        expect(a.slice(3)).toEqual(PARAS.slice(3));
+        // And c1 is on exactly its words or nowhere: the comment's author
+        // undid it, and whether B's undo of its removal brings it back is
+        // undecided (it must not cover less, nor more).
+        const withC1 = A.editor.getEditorState().read(() => {
+          const block = $getRoot().getChildAtIndex(2);
+          return $isElementNode(block)
+            ? block
+                .getAllTextNodes()
+                .filter(n =>
+                  $getNodeMarkIDs(MarkStateExtension, n).includes('c1'),
+                )
+                .map(n => n.getTextContent())
+                .join('')
+            : '?';
+        });
+        expect(['', 'two two '], 'c1 on its words or nowhere').toContain(
+          withC1,
+        );
+      });
     }
   }
 });

@@ -11,8 +11,10 @@
 // The "Handles and collaboration" example of the Block IDs documentation page
 // (packages/lexical-website/docs/extensions/block-ids.md): an agent that
 // addresses blocks by handle on a server resolves each handle against the
-// stored state with the handles it was shown, then applies the edit in place
-// to the state it read, by id, and merges. Keep the two in sync.
+// stored state with the handles it was shown, checks that the block is still
+// where and what it read (the whole block), then applies the edit in place to
+// the stored state, by id, with the server page's `applyChecked` (from
+// `../utils/agentEditSketch`, as written there). Keep the two in sync.
 
 import {
   $getBlockById,
@@ -45,6 +47,7 @@ import {
   readYState,
   seedYState,
 } from '../../headless';
+import {$blockAt, applyChecked, type DocStore} from '../utils/agentEditSketch';
 
 // As on the Block IDs page.
 // Changes a block's text in place: only the characters that differ, in the
@@ -183,7 +186,7 @@ function oneCharTypos(s: string): string[] {
 }
 
 describe('block handles with @lexical/y', () => {
-  test('resolving against the stored state, applying to the read in place', () => {
+  test('resolving and checking against the stored state, applying to it in place', async () => {
     const config = {
       extensions: [RichTextExtension, BlockIdExtension],
       onWarn: () => {},
@@ -216,44 +219,57 @@ describe('block handles with @lexical/y', () => {
       Y.mergeUpdates(updates as Uint8Array<ArrayBuffer>[]);
 
     // At the read: `seen` is the state the model reads; keep the handles it
-    // is shown with it.
+    // is shown with it, and each block it read as a whole.
     const seen = seed;
     const shown = readYState(seen, config, () => $getBlockHandles());
+    const read = new Map(
+      readYState(seen, config, () =>
+        $getRoot()
+          .getChildren()
+          .map(node => {
+            const id = $getBlockId(node)!;
+            return [id, $blockAt(id)];
+          }),
+      ),
+    );
 
-    // The documented steps, for one op.
-    const applyByHandle = (
+    // The documented steps, for one op, on a store that holds `stored`.
+    const applyByHandle = async (
       stored: Uint8Array,
       op: {block: string; text: string},
-    ): {stored: Uint8Array; told: string | null} => {
-      // 1. Resolve against the stored state, with the handles the model was
-      //    shown.
-      const target = readYState(stored, config, () => {
-        const result = $resolveBlockHandle(op.block, {read: shown});
-        return result.status === 'found'
-          ? {id: $getBlockId(result.node)!, status: result.status}
-          : result;
-      });
-      if (target.status !== 'found') {
-        return {stored, told: target.status};
-      }
-      // 2. Apply it to the state the model read, by id, in place.
-      let applied = false;
-      const {update} = editYState(
-        seen,
+    ): Promise<{stored: Uint8Array; told: string | null}> => {
+      let state = stored;
+      const store: DocStore = {
+        load: async () => ({state, version: 0}),
+        send: () => {},
+        storeIf: async (_version, next) => {
+          state = next;
+          return true;
+        },
+      };
+      let id = '';
+      const refused = await applyChecked(
+        store,
         config,
         () => {
-          applied = $setBlockText($getBlockById(target.id)!, op.text);
+          const result = $resolveBlockHandle(op.block, {read: shown});
+          if (result.status !== 'found') {
+            return [result.status];
+          }
+          id = $getBlockId(result.node)!;
+          if ($blockAt(id) !== read.get(id)) {
+            return ['changed' as const];
+          }
+          return $isElementNode(result.node) && $holdsOnlyText(result.node)
+            ? []
+            : ['not just text' as const];
         },
-        {writer: agent},
+        () =>
+          $setBlockText($getBlockById(id)!, op.text)
+            ? []
+            : ['not just text' as const],
       );
-      if (!applied) {
-        return {stored, told: 'not just text'};
-      }
-      // 3. Merge `update` into the stored state.
-      return {
-        stored: update === null ? stored : merge(stored, update),
-        told: null,
-      };
+      return {stored: state, told: refused?.failures[0] ?? null};
     };
 
     // What the model reads.
@@ -299,17 +315,20 @@ describe('block handles with @lexical/y', () => {
       // A block added since shares the prefix: still the block read.
       {block: '0ydd', text: 'Q3 goals'},
     ]) {
-      const result = applyByHandle(stored, op);
+      const result = await applyByHandle(stored, op);
       stored = result.stored;
       told.push(result.told);
     }
-    expect(told).toEqual([null, 'not-found', 'not-found', null]);
+    // The person typed in the block the model rewrites: sent back to read
+    // again, instead of merging the two.
+    expect(told).toEqual(['changed', 'not-found', 'not-found', null]);
     expect(
       readYState(stored, config, () => $resolveBlockHandle('Kwua').status),
     ).toBe('found');
-    // The edits landed in place: the person's typing stays where they typed.
+    // The edit landed in place, and the block the person typed in keeps
+    // their text.
     expect(readYState(stored, config, () => $getRoot().getTextContent())).toBe(
-      'Q3 goals\n\nRevenue grew about 6%.\n\nwith this one\n\nQ4 plan',
+      'Q3 goals\n\nRevenue grew about 4%.\n\nwith this one\n\nQ4 plan',
     );
 
     // A prefix freed by a deletion and taken by a block added since: without
@@ -329,7 +348,8 @@ describe('block handles with @lexical/y', () => {
       readYState(reused, config, () => $resolveBlockHandle('NnGk').status),
     ).toBe('found');
     expect(
-      applyByHandle(reused, {block: 'NnGk', text: 'Hiring is ahead.'}).told,
+      (await applyByHandle(reused, {block: 'NnGk', text: 'Hiring is ahead.'}))
+        .told,
     ).toBe('not-found');
 
     // Resolved inside the edit of the read instead, the deleted block is

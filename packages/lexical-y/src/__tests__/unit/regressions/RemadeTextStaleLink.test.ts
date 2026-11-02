@@ -13,11 +13,9 @@
 // while a stale edit computed before the rewrite formats a range of it. The
 // rewrite keeps the unchanged words between the changes as the same
 // characters (#9621), as it keeps a line's unchanged start or end with one
-// changed word (#9598), so a stale format whose range reaches past the link
-// restates the link on them: #9597, the mechanism by which a link a
-// collaborator removes comes back when another formats a range covering it
-// at the same time. Those cells are expected failures until the fix for
-// #9597 (#9601) lands.
+// changed word (#9598). A stale format whose range reaches past the link
+// does not restate the link on them (#9597: it writes no value for the
+// link), so the removed link stays removed.
 
 import {$createLinkNode, $isLinkNode, LinkExtension} from '@lexical/link';
 import {RichTextExtension} from '@lexical/rich-text';
@@ -101,58 +99,50 @@ for (const link of [['t25z', 't26z'], ['t24z', 't25z'], ['t25z']]) {
       ['t25z', 't25z'],
       ['t23z', 't26z'],
     ]) {
-      // The stale format reaches past the link (#9597).
-      const reachesPast = WORDS.slice(
-        WORDS.indexOf(range[0]),
-        WORDS.indexOf(range[1]) + 1,
-      ).some(w => !link.includes(w));
       for (const order of ['rewrite first', 'format first']) {
-        (reachesPast ? test.fails : test)(
-          `link on ${link.join(' ')}, a stale ${format} of ${range.join('..')}, ${order}: the removed link stays removed${reachesPast ? ' (#9597, fixed by #9601)' : ''}`,
-          () => {
-            const s0 = seedYState(config, () => {
-              const p = $createParagraphNode();
-              const i = WORDS.indexOf(link[0]);
-              const j = WORDS.indexOf(link[link.length - 1]);
-              if (i > 0) {
-                p.append($createTextNode(WORDS.slice(0, i).join(' ') + ' '));
-              }
-              p.append(
-                $createLinkNode('https://example.com').append(
-                  $createTextNode(link.join(' ')),
-                ),
-              );
-              if (j < WORDS.length - 1) {
-                p.append($createTextNode(' ' + WORDS.slice(j + 1).join(' ')));
-              }
-              $getRoot().append(p);
-            });
-            const rewrite = edit(s0, 'rewrite', () => {
-              const block = $getRoot().getFirstChildOrThrow() as ElementNode;
-              const next = block
-                .getTextContent()
-                .replace('t23z', 't66z')
-                .replace('t27z', 't68z');
-              for (const child of block.getChildren()) {
-                child.remove();
-              }
-              block.append($createTextNode(next));
-            });
-            const stale = edit(s0, 'stale', () => {
-              $selectWords(range[0], range[1]).formatText(format);
-            });
-            const doc = createYDoc(s0);
-            for (const u of order === 'rewrite first'
-              ? [rewrite, stale]
-              : [stale, rewrite]) {
-              Y.applyUpdate(doc, u);
+        test(`link on ${link.join(' ')}, a stale ${format} of ${range.join('..')}, ${order}: the removed link stays removed`, () => {
+          const s0 = seedYState(config, () => {
+            const p = $createParagraphNode();
+            const i = WORDS.indexOf(link[0]);
+            const j = WORDS.indexOf(link[link.length - 1]);
+            if (i > 0) {
+              p.append($createTextNode(WORDS.slice(0, i).join(' ') + ' '));
             }
-            const alone = createYDoc(s0);
-            Y.applyUpdate(alone, rewrite);
-            expect(linkedWords(Y.encodeStateAsUpdate(alone))).toEqual([]);
-            expect(linkedWords(Y.encodeStateAsUpdate(doc))).toEqual([]);
-          },
-        );
+            p.append(
+              $createLinkNode('https://example.com').append(
+                $createTextNode(link.join(' ')),
+              ),
+            );
+            if (j < WORDS.length - 1) {
+              p.append($createTextNode(' ' + WORDS.slice(j + 1).join(' ')));
+            }
+            $getRoot().append(p);
+          });
+          const rewrite = edit(s0, 'rewrite', () => {
+            const block = $getRoot().getFirstChildOrThrow() as ElementNode;
+            const next = block
+              .getTextContent()
+              .replace('t23z', 't66z')
+              .replace('t27z', 't68z');
+            for (const child of block.getChildren()) {
+              child.remove();
+            }
+            block.append($createTextNode(next));
+          });
+          const stale = edit(s0, 'stale', () => {
+            $selectWords(range[0], range[1]).formatText(format);
+          });
+          const doc = createYDoc(s0);
+          for (const u of order === 'rewrite first'
+            ? [rewrite, stale]
+            : [stale, rewrite]) {
+            Y.applyUpdate(doc, u);
+          }
+          const alone = createYDoc(s0);
+          Y.applyUpdate(alone, rewrite);
+          expect(linkedWords(Y.encodeStateAsUpdate(alone))).toEqual([]);
+          expect(linkedWords(Y.encodeStateAsUpdate(doc))).toEqual([]);
+        });
       }
     }
   }

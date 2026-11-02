@@ -142,6 +142,16 @@ export type DesiredContext = {
    * author then reads the content again, to show what every reader shows.
    */
   flattened?: boolean;
+  /**
+   * Set when a text node holds a surrogate half without its pair in it
+   * (D57: code split an emoji, or an app's selection inside one made
+   * Lexical split it into two nodes or keep one half). Such a half is
+   * stored as U+FFFD, as Yjs sends and stores it (its UTF-8 encoding of a
+   * lone half), so that the author's document holds what every other client
+   * and a reload read; the author then reads the content again, as for
+   * `flattened`.
+   */
+  unpaired?: boolean;
 };
 
 /**
@@ -173,7 +183,11 @@ export function $pushInline(
     if (node === PENDING_LINE_BREAK) {
       out.pushText('\n', {...wrapperAttrs});
     } else if ($isTextNode(node)) {
-      const text = node.getTextContent();
+      const shown = node.getTextContent();
+      const text = toWellFormed(shown);
+      if (text !== shown) {
+        ctx.unpaired = true;
+      }
       const segment = isMergeableText(node)
         ? null
         : (ctx.segments.get(node.getKey()) ??
@@ -1099,6 +1113,38 @@ export function keptStretches(
   composing: boolean,
 ): [number, number, number][] {
   const {prefix, suffix} = keptEnds(a, b, cursor, composing);
+  return withKeptWords(a, b, prefix, suffix, composing);
+}
+
+/**
+ * What text set whole (`setTextContent`, see setTextEnds) keeps of the text
+ * it replaces, as keptStretches gives it for text made again: its common
+ * start and end (setTextEnds, so a caret still places an insertion or a
+ * deletion), and between them every run of whole words a shortest
+ * word-by-word edit script keeps, so that a word a collaborator deletes
+ * between two changed words at the same time stays deleted.
+ */
+export function setTextStretches(
+  a: string,
+  b: string,
+  cursor: number,
+  composing: boolean,
+): [number, number, number][] {
+  const {prefix, suffix} = setTextEnds(a, b, cursor, composing);
+  return withKeptWords(a, b, prefix, suffix, composing);
+}
+
+/**
+ * The common start and end `prefix` and `suffix` of `a` and `b` as ranges
+ * (see keptStretches), with every run of whole words kept between them.
+ */
+function withKeptWords(
+  a: string,
+  b: string,
+  prefix: number,
+  suffix: number,
+  composing: boolean,
+): [number, number, number][] {
   const shift = a.length - b.length;
   const ends: [number, number, number][] = [
     [0, prefix, 0],
@@ -1177,3 +1223,34 @@ export function keptStretches(
 
 const isHighSurrogate = (c: number): boolean => c >= 0xd800 && c <= 0xdbff;
 const isLowSurrogate = (c: number): boolean => c >= 0xdc00 && c <= 0xdfff;
+
+const SURROGATE = /[\ud800-\udfff]/;
+
+/** Whether `s` holds a surrogate code unit that is not half of a pair. */
+export function hasLoneSurrogate(s: string): boolean {
+  return SURROGATE.test(s) && toWellFormed(s) !== s;
+}
+
+/**
+ * `s` with every surrogate code unit that is not half of a pair in it
+ * replaced with U+FFFD: what Yjs's UTF-8 encoding of `s` reads back as
+ * (`String#toWellFormed`, which not every supported browser has).
+ */
+export function toWellFormed(s: string): string {
+  if (!SURROGATE.test(s)) {
+    return s;
+  }
+  let out = '';
+  for (let i = 0; i < s.length; i++) {
+    const c = s.charCodeAt(i);
+    if (isHighSurrogate(c) && isLowSurrogate(s.charCodeAt(i + 1))) {
+      out += s[i] + s[i + 1];
+      i++;
+    } else if (isHighSurrogate(c) || isLowSurrogate(c)) {
+      out += '\ufffd';
+    } else {
+      out += s[i];
+    }
+  }
+  return out;
+}
