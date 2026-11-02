@@ -995,8 +995,13 @@ function withBracketContext<T>(
 ): T {
   const previous = bracketContext;
   bracketContext = {
+    // A transformer that exports nested content calls back in without
+    // options (the playground's table does this per cell), so an export
+    // inside one inherits what the enclosing export was asked for.
     escapeAmbiguousHtml:
-      options === undefined || options.escapeAmbiguousHtml !== false,
+      options === undefined
+        ? previous === null || previous.escapeAmbiguousHtml
+        : options.escapeAmbiguousHtml !== false,
     exportKinds: new Map(),
     lineStates: new Map(),
     textMatchTransformers,

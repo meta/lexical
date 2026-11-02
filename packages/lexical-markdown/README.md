@@ -104,7 +104,13 @@ escaping does not change adjacent emphasis flanking.
 `{escapeAmbiguousHtml: false}` writes `<` and `&` as the author typed them, for
 an app whose renderer is meant to read the inline HTML and the character
 references written in the editor; brackets and format characters are escaped
-either way.
+either way. Three things come with it: the renderer has to sanitize, since
+anything typed or pasted into the editor now reaches it as raw HTML; the
+output is not meant to be read back by `$convertFromMarkdownString`, which
+decodes numeric references, so `&#0036;5` re-imports as `$5`; and the option
+only applies to the default serializer, since `shouldPreserveNewLines`
+escapes nothing beyond `*`, `_`, `` ` `` and `~`. An export a transformer
+starts for nested content inherits the option from the export around it.
 
 There're three types of transformers:
 

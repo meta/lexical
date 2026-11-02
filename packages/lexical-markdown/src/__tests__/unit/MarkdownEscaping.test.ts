@@ -21,7 +21,9 @@ import {
   $convertSelectionToMarkdownString,
   $convertToMarkdownString,
   CHECK_LIST,
+  type ElementTransformer,
   LINK,
+  type MarkdownExportOptions,
   type TextMatchTransformer,
   TRANSFORMERS,
 } from '@lexical/markdown';
@@ -59,6 +61,24 @@ class TestInlineNode extends ElementNode {
     return false;
   }
 }
+
+/** A block container whose children are exported by a nested export. */
+class TestBlockNode extends ElementNode {
+  $config() {
+    return this.config('markdown-test-block', {extends: ElementNode});
+  }
+  createDOM(): HTMLElement {
+    throw new Error('not rendered');
+  }
+  updateDOM(): false {
+    return false;
+  }
+}
+
+const TestBlockExtension = defineExtension({
+  name: '@lexical/markdown/test-block',
+  nodes: [TestBlockNode],
+});
 
 /** An inline decorator exported as its text content. */
 class TestDecoratorNode extends DecoratorNode<null> {
@@ -1775,6 +1795,47 @@ describe('escapeAmbiguousHtml: false', () => {
         ),
       ),
     ).toBe('<b>&copy; x</b>');
+  });
+
+  it('is inherited by an export a transformer starts for nested content', () => {
+    // A cell-like container exported by writing its children through a
+    // second `$convertToMarkdownString`, the way the playground's table does.
+    const NESTED_CELL: ElementTransformer = {
+      dependencies: [],
+      export: node =>
+        node instanceof TestBlockNode
+          ? `| ${$convertToMarkdownString(TRANSFORMERS, node)} |`
+          : null,
+      regExp: /^$/,
+      replace: () => false,
+      type: 'element',
+    };
+    using editor = buildEditorFromExtensions(
+      MarkdownTestExtension,
+      TestBlockExtension,
+    );
+    editor.update(
+      () =>
+        $getRoot()
+          .clear()
+          .append(
+            $create(TestBlockNode).append(
+              $createParagraphNode().append($createTextNode('<u>under</u>')),
+            ),
+          ),
+      {discrete: true},
+    );
+    const write = (options?: MarkdownExportOptions) =>
+      editor.read(() =>
+        $convertToMarkdownString(
+          [NESTED_CELL, ...TRANSFORMERS],
+          undefined,
+          false,
+          options,
+        ),
+      );
+    expect(write({escapeAmbiguousHtml: false})).toBe('| <u>under</u> |');
+    expect(write()).toBe('| &#60;u>under&#60;/u> |');
   });
 
   it('escapes by default', () => {
