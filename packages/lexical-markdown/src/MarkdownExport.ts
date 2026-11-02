@@ -563,8 +563,16 @@ function $exportTextFormat(
     // Numeric escapes avoid changing emphasis flanking beside formatting.
     // Guard ambiguous '<' and '&' at node ends for constructs split across nodes.
     if (shouldPreserveNewLines) {
-      output = output.replace(/\\+(?=[*_`~])|[*_`~]/g, escaped =>
-        escaped[0] === '\\' ? escaped + escaped : `\\${escaped}`,
+      // A whole run of backslashes is matched, so that one before no marker
+      // is not tried again from each of its backslashes.
+      output = output.replace(
+        /\\+|[*_`~]/g,
+        (escaped, offset: number, text: string) =>
+          escaped[0] !== '\\'
+            ? `\\${escaped}`
+            : /[*_`~]/.test(text[offset + escaped.length])
+              ? escaped + escaped
+              : escaped,
       );
     } else {
       output = $escapeLiteralBrackets(
