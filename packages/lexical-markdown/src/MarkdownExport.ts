@@ -34,7 +34,7 @@ import {
   type TextMatchTransformer,
   type Transformer,
 } from './MarkdownTransformers';
-import {isEmptyParagraph, transformersByType} from './utils';
+import {isEmptyParagraph, PUNCTUATION, transformersByType} from './utils';
 
 /**
  * Renders string from markdown. The selection is moved to the start after the operation.
@@ -243,7 +243,32 @@ function $exportChildrenForSelection(
   unclosedTags?: OpenTag[],
   unclosableTags?: OpenTag[],
 ): {shouldInclude: boolean; markdown: string} {
-  const output = [];
+  const {pieces, shouldInclude} = $exportChildPiecesForSelection(
+    node,
+    selection,
+    textFormatTransformers,
+    textMatchTransformers,
+    shouldPreserveNewLines,
+    unclosedTags,
+    unclosableTags,
+  );
+  return {
+    markdown: joinPieces(keepTagRunsFlanking(pieces)),
+    shouldInclude,
+  };
+}
+
+/** The selected inline Markdown of `node`'s children, as pieces. */
+function $exportChildPiecesForSelection(
+  node: ElementNode,
+  selection: BaseSelection,
+  textFormatTransformers: TextFormatTransformer[],
+  textMatchTransformers: TextMatchTransformer[],
+  shouldPreserveNewLines: boolean,
+  unclosedTags?: OpenTag[],
+  unclosableTags?: OpenTag[],
+): {shouldInclude: boolean; pieces: Piece[]} {
+  const output: Piece[] = [];
   const children = node.getChildren();
   let anyChildIncluded = false;
 
@@ -298,7 +323,7 @@ function $exportChildrenForSelection(
           childIncluded = true;
         }
         if (childIncluded) {
-          output.push(result);
+          output.push(other(result));
           anyChildIncluded = true;
         }
         continue mainLoop;
@@ -307,13 +332,13 @@ function $exportChildrenForSelection(
 
     if ($isLineBreakNode(child)) {
       if (childIncluded) {
-        output.push($exportLineBreak(child));
+        output.push(other($exportLineBreak(child)));
         anyChildIncluded = true;
       }
     } else if ($isTextNode(child)) {
       if (childIncluded) {
         output.push(
-          $exportTextFormat(
+          ...$exportTextPieces(
             child,
             $exportedText(child, selection),
             textFormatTransformers,
@@ -326,7 +351,7 @@ function $exportChildrenForSelection(
         anyChildIncluded = true;
       }
     } else if ($isElementNode(child)) {
-      const childResult = $exportChildrenForSelection(
+      const childResult = $exportChildPiecesForSelection(
         child,
         selection,
         textFormatTransformers,
@@ -346,18 +371,18 @@ function $exportChildrenForSelection(
       }
 
       if (childIncluded || childResult.shouldInclude) {
-        output.push(childResult.markdown);
+        output.push(...childResult.pieces);
         anyChildIncluded = true;
       }
     } else if ($isDecoratorNode(child)) {
       if (childIncluded) {
-        output.push(child.getTextContent());
+        output.push(other(child.getTextContent()));
         anyChildIncluded = true;
       }
     }
   }
 
-  return {markdown: output.join(''), shouldInclude: anyChildIncluded};
+  return {pieces: output, shouldInclude: anyChildIncluded};
 }
 
 function $exportTopLevelElements(
@@ -411,7 +436,30 @@ function $exportChildren(
   unclosableTags?: OpenTag[],
   shouldPreserveNewLines: boolean = false,
 ): string {
-  const output = [];
+  return joinPieces(
+    keepTagRunsFlanking(
+      $exportChildPieces(
+        node,
+        textTransformersIndex,
+        textMatchTransformers,
+        unclosedTags,
+        unclosableTags,
+        shouldPreserveNewLines,
+      ),
+    ),
+  );
+}
+
+/** The inline Markdown of `node`'s children, as pieces (see Piece). */
+function $exportChildPieces(
+  node: ElementNode,
+  textTransformersIndex: TextFormatTransformer[],
+  textMatchTransformers: TextMatchTransformer[],
+  unclosedTags?: OpenTag[],
+  unclosableTags?: OpenTag[],
+  shouldPreserveNewLines: boolean = false,
+): Piece[] {
+  const output: Piece[] = [];
   const children = node.getChildren();
   // keep track of unclosed tags from the very beginning
   if (!unclosedTags) {
@@ -456,16 +504,16 @@ function $exportChildren(
       );
 
       if (result != null) {
-        output.push(result);
+        output.push(other(result));
         continue mainLoop;
       }
     }
 
     if ($isLineBreakNode(child)) {
-      output.push($exportLineBreak(child));
+      output.push(other($exportLineBreak(child)));
     } else if ($isTextNode(child)) {
       output.push(
-        $exportTextFormat(
+        ...$exportTextPieces(
           child,
           child.getTextContent(),
           textTransformersIndex,
@@ -478,7 +526,7 @@ function $exportChildren(
     } else if ($isElementNode(child)) {
       // empty paragraph returns ""
       output.push(
-        $exportChildren(
+        ...$exportChildPieces(
           child,
           textTransformersIndex,
           textMatchTransformers,
@@ -488,11 +536,11 @@ function $exportChildren(
         ),
       );
     } else if ($isDecoratorNode(child)) {
-      output.push(child.getTextContent());
+      output.push(other(child.getTextContent()));
     }
   }
 
-  return output.join('');
+  return output;
 }
 
 function $exportLineBreak(node: LineBreakNode): string {
@@ -503,13 +551,35 @@ function $exportTextFormat(
   node: TextNode,
   textContent: string,
   textTransformers: TextFormatTransformer[],
+  unclosedTags: OpenTag[],
+  unclosableTags: OpenTag[],
+  shouldPreserveNewLines: boolean,
+  selection: BaseSelection | null,
+): string {
+  return joinPieces(
+    $exportTextPieces(
+      node,
+      textContent,
+      textTransformers,
+      unclosedTags,
+      unclosableTags,
+      shouldPreserveNewLines,
+      selection,
+    ),
+  );
+}
+
+function $exportTextPieces(
+  node: TextNode,
+  textContent: string,
+  textTransformers: TextFormatTransformer[],
   // unclosed tags include the markdown tags that haven't been closed yet, and their associated formats
   unclosedTags: OpenTag[],
   unclosableTags: OpenTag[],
   shouldPreserveNewLines: boolean,
   // the selection being exported, which ends the text a tag can extend over
   selection: BaseSelection | null,
-): string {
+): Piece[] {
   // This function handles the case of a string looking like this: "   foo   "
   // Where it would be invalid markdown to generate: "**   foo   **"
   // so the tags go inside the whitespace instead: "   **foo**   ".
@@ -540,10 +610,10 @@ function $exportTextFormat(
   const holdsTag = canHoldTag(textContent);
 
   // the opening tags to be added to the result
-  let openingTags = '';
+  const openingTags: string[] = [];
   // the closing tags to be added to the result
-  let closingTagsBefore = '';
-  let closingTagsAfter = '';
+  const closingTagsBefore: string[] = [];
+  const closingTagsAfter: string[] = [];
 
   const prevNode = getTextSibling(node, true);
 
@@ -571,7 +641,7 @@ function $exportTextFormat(
         !unclosedTags.find(element => element.tag === tag)
       ) {
         unclosedTags.push({answers: new Map(), format, tag});
-        openingTags += tag;
+        openingTags.push(tag);
       }
     }
   }
@@ -602,9 +672,9 @@ function $exportTextFormat(
         if (!nodeHasFormat) {
           // Handles cases where the tag has not been closed before, e.g. if the previous node
           // was a text match transformer that did not account for closing tags of the next node (e.g. a link)
-          closingTagsBefore += unclosedTag.tag;
+          closingTagsBefore.push(unclosedTag.tag);
         } else {
-          closingTagsAfter += unclosedTag.tag;
+          closingTagsAfter.push(unclosedTag.tag);
         }
       }
       // Mutate the original array to remove the closed tag
@@ -612,6 +682,8 @@ function $exportTextFormat(
     }
     break;
   }
+  const closing = (tags: string[]): Piece[] =>
+    tags.map(text => ({kind: 'tag', opens: false, text}));
   if (isCode && textContent !== '') {
     // Inline code is an atomic literal span with a content-derived fence, so
     // its whitespace stays inside the fence and other formats wrap around it.
@@ -620,7 +692,11 @@ function $exportTextFormat(
   } else if (!holdsTag) {
     // If the node is entirely whitespace, we don't apply opening/closing tags
     // around it, but it must still output any closing tags.
-    return closingTagsBefore + closingTagsAfter + output;
+    return [
+      ...closing(closingTagsBefore),
+      ...closing(closingTagsAfter),
+      other(output),
+    ];
   }
 
   // Flanking Compliance: CommonMark flanking rules require formatting tags to be
@@ -631,14 +707,14 @@ function $exportTextFormat(
   const trimmedOutput = trimmedStart.trimEnd();
   const leadingSpace = output.slice(0, output.length - trimmedStart.length);
   const trailingSpace = trimmedStart.slice(trimmedOutput.length);
-  return (
-    closingTagsBefore +
-    leadingSpace +
-    openingTags +
-    trimmedOutput +
-    closingTagsAfter +
-    trailingSpace
-  );
+  return [
+    ...closing(closingTagsBefore),
+    other(leadingSpace),
+    ...openingTags.map((text): Piece => ({kind: 'tag', opens: true, text})),
+    ...(isCode ? [other(trimmedOutput)] : textPieces(trimmedOutput)),
+    ...closing(closingTagsAfter),
+    other(trailingSpace),
+  ];
 }
 
 /**
@@ -1219,6 +1295,219 @@ function $lineStateBefore(
     state = next;
   }
   return state;
+}
+
+/**
+ * A piece of exported inline Markdown: a format's tag (`**`), a character
+ * of text at the start or end of a text node (the only text a tag can
+ * touch), or anything else as written.
+ */
+type Piece =
+  | {kind: 'tag'; text: string; opens: boolean}
+  | {kind: 'char'; text: string}
+  | {kind: 'other'; text: string};
+
+function other(text: string): Piece {
+  return {kind: 'other', text};
+}
+
+function joinPieces(pieces: Piece[]): string {
+  let output = '';
+  for (const piece of pieces) {
+    output += piece.text;
+  }
+  return output;
+}
+
+/**
+ * The pieces of exported text: its first and last characters on their own
+ * (a backslash escape or a character reference is one piece, never encoded
+ * again), the rest as written.
+ */
+function textPieces(text: string): Piece[] {
+  const units =
+    text.match(/\\[!-/:-@[-`{-~]|&#(?:\d+|[xX][\da-fA-F]+);|[\s\S]/gu) || [];
+  if (units.length === 0) {
+    return [];
+  }
+  const piece = (unit: string): Piece =>
+    unit.length > 1 && (unit[0] === '\\' || unit[0] === '&')
+      ? other(unit)
+      : {kind: 'char', text: unit};
+  if (units.length === 1) {
+    return [piece(units[0]!)];
+  }
+  return [
+    piece(units[0]!),
+    other(units.slice(1, -1).join('')),
+    piece(units[units.length - 1]!),
+  ];
+}
+
+type CharClass = 'space' | 'punctuation' | 'word';
+
+/** A character as CommonMark classes it: Unicode P and S are punctuation. */
+function classOf(char: string): CharClass {
+  if (char === '' || /\s/u.test(char)) {
+    return 'space';
+  }
+  return /[\p{P}\p{S}]/u.test(char) ? 'punctuation' : 'word';
+}
+
+/**
+ * The same, as parsers that read text in UTF-16 units see it (the reference
+ * JavaScript implementation, markdown-it): a character outside the Basic
+ * Multilingual Plane is two surrogates, neither punctuation.
+ */
+function unitClassOf(char: string): CharClass {
+  return char.length > 1 ? 'word' : classOf(char);
+}
+
+/** The same, as this package's import classes it: ASCII punctuation only. */
+function asciiClassOf(char: string): CharClass {
+  const charClass = classOf(char);
+  return charClass === 'punctuation' && !PUNCTUATION.test(char)
+    ? 'word'
+    : charClass;
+}
+
+/**
+ * Whether a character can be written as a numeric character reference that
+ * every parser reads back as itself: a letter, a mark, a digit, a symbol or
+ * punctuation, never a control character (CommonMark maps the references of
+ * C1 controls to other characters: `&#128;` is `€`).
+ */
+function canBeReference(char: string): boolean {
+  return /^[\p{L}\p{M}\p{N}\p{P}\p{S}]$/u.test(char);
+}
+
+/**
+ * Keep every run of tags in `pieces` (the inline Markdown of one block) able
+ * to open and close, by CommonMark's flanking rules
+ * (https://spec.commonmark.org/0.31.2/#left-flanking-delimiter-run): a run
+ * that closes a tag cannot have punctuation before it and a letter or digit
+ * after it (`**Hello,**world`), and a run that opens one cannot have a
+ * letter or digit before it and punctuation after it (`x*(beta)*`), or the
+ * Markdown imported again keeps the asterisks as text. There the letter or
+ * digit is written as a numeric character reference, which is punctuation to
+ * the run and the same character once imported (`**Hello,**&#119;orld`,
+ * `&#120;*(beta)*`), so the text a reader sees is unchanged. Only a run
+ * that fails both as CommonMark classes characters and as parsers that read
+ * UTF-16 units do (they disagree on emoji and other characters outside the
+ * Basic Multilingual Plane) is changed, so Markdown that any of them reads
+ * back as written stays byte for byte as it was. A reference changes the
+ * character the next run sees, so the check repeats around each character it
+ * writes.
+ */
+function keepTagRunsFlanking(allPieces: Piece[]): Piece[] {
+  const pieces = allPieces.filter(piece => piece.text !== '');
+  // Runs: consecutive tags of one delimiter character, by piece index.
+  const runs: [number, number][] = [];
+  for (let i = 0; i < pieces.length; i++) {
+    const piece = pieces[i];
+    if (piece.kind !== 'tag') {
+      continue;
+    }
+    const last = runs[runs.length - 1];
+    if (
+      last !== undefined &&
+      last[1] === i - 1 &&
+      (pieces[i - 1] as {text: string}).text[0] === piece.text[0]
+    ) {
+      last[1] = i;
+    } else {
+      runs.push([i, i]);
+    }
+  }
+  if (runs.length === 0) {
+    return pieces;
+  }
+  const result = [...pieces];
+  // The character next to piece `i` on one side, skipping empty pieces.
+  const charBefore = (i: number): [string, number] => {
+    for (let j = i - 1; j >= 0; j--) {
+      const text = result[j].text;
+      if (text !== '') {
+        const last = text.charCodeAt(text.length - 1);
+        return [
+          last >= 0xdc00 && last <= 0xdfff && text.length > 1
+            ? text.slice(-2)
+            : text.slice(-1),
+          j,
+        ];
+      }
+    }
+    return ['', -1];
+  };
+  const charAfter = (i: number): [string, number] => {
+    for (let j = i + 1; j < result.length; j++) {
+      const text = result[j].text;
+      if (text !== '') {
+        return [String.fromCodePoint(text.codePointAt(0)!), j];
+      }
+    }
+    return ['', -1];
+  };
+  const encode = (j: number): boolean => {
+    const piece = result[j];
+    if (j < 0 || piece.kind !== 'char' || !canBeReference(piece.text)) {
+      return false;
+    }
+    result[j] = other(`&#${piece.text.codePointAt(0)};`);
+    return true;
+  };
+  // The pieces written as references here.
+  const written = new Set<number>();
+  // Which run touches each piece, to check again after it changes.
+  const runAt = new Map<number, number[]>();
+  const pending: number[] = [];
+  runs.forEach(([start, end], index) => {
+    pending.push(index);
+    for (const at of [charBefore(start)[1], charAfter(end)[1]]) {
+      if (at >= 0) {
+        runAt.set(at, [...(runAt.get(at) || []), index]);
+      }
+    }
+  });
+  while (pending.length > 0) {
+    const [start, end] = runs[pending.pop()!];
+    let opens = false;
+    let closes = false;
+    for (let i = start; i <= end; i++) {
+      const piece = result[i] as {opens: boolean};
+      opens = opens || piece.opens;
+      closes = closes || !piece.opens;
+    }
+    const [before, beforeAt] = charBefore(start);
+    const [after, afterAt] = charAfter(end);
+    // Only where the run fails by both readings of the characters, so that
+    // Markdown any parser reads back as written stays as it is.
+    const fails = (b: CharClass, a: CharClass) =>
+      closes && b === 'punctuation' && a === 'word'
+        ? 'after'
+        : opens && a === 'punctuation' && b === 'word'
+          ? 'before'
+          : null;
+    const proper = fails(classOf(before), classOf(after));
+    const units = fails(unitClassOf(before), unitClassOf(after));
+    // This package's import counts only ASCII punctuation: where a reference
+    // written here (punctuation to it) meets a character it takes for a
+    // letter (`€`, `—`), that character is written as a reference too.
+    const ascii = fails(asciiClassOf(before), asciiClassOf(after));
+    const side =
+      proper !== null && proper === units
+        ? proper
+        : (ascii === 'after' && written.has(beforeAt)) ||
+            (ascii === 'before' && written.has(afterAt))
+          ? ascii
+          : null;
+    const at = side === 'after' ? afterAt : side === 'before' ? beforeAt : -1;
+    if (at >= 0 && encode(at)) {
+      written.add(at);
+      pending.push(...(runAt.get(at) || []));
+    }
+  }
+  return result;
 }
 
 function getTextSibling(node: TextNode, backward: boolean): TextNode | null {
