@@ -1707,7 +1707,9 @@ export class YBinding {
    * providers and persistence first. Returns the document's state (pending
    * updates included) and a draft: the editor's state as JSON, taken before
    * it turned read only, with `differs` when it shows something the
-   * document does not hold (what a read-only binding could not write).
+   * document does not hold. A binding already read only ends the
+   * composition and drains the editor's pending work too, but writes
+   * nothing: what the editor held uncommitted is the draft, with `differs`.
    * Call it outside an editor update.
    */
   quiesce(): {
@@ -1719,34 +1721,48 @@ export class YBinding {
         '@lexical/y: quiesce() cannot run inside an editor update; call it after the update',
       );
     }
-    if (this.started && this._status === 'active') {
+    const editor = this._editor;
+    // What the editor holds and has not committed yet (a batched update),
+    // taken first: a read-only binding refuses it when it commits and reads
+    // the document back, which would erase it from the editor.
+    const held = editor._pendingEditorState;
+    const heldJson =
+      held !== null && this._status !== 'active' ? held.toJSON() : null;
+    if (this.started) {
       this.guard(() => {
         // A composition ends (its text is written like any typing), and a
-        // batched update, which commits in a microtask, commits now, so
-        // that the binding writes them.
+        // batched update, which commits in a microtask, commits now: an
+        // active binding writes them; a read-only one refuses them (no
+        // Yjs write) and they stay in the draft.
         if (
-          this._editor._compositionKey !== null ||
-          this._editor._pendingEditorState !== null ||
-          this._editor._updates.length > 0
+          editor._compositionKey !== null ||
+          editor._pendingEditorState !== null ||
+          editor._updates.length > 0
         ) {
-          this._editor.update(
+          editor.update(
             () => {
               $setCompositionKey(null);
             },
             {discrete: true},
           );
         }
-        if (this.pending.size > 0 && this.isIdle()) {
+        if (
+          this._status === 'active' &&
+          this.pending.size > 0 &&
+          this.isIdle()
+        ) {
           this.runPending();
         }
       });
     }
-    const json = this._editor.getEditorState().toJSON();
+    const json = heldJson ?? editor.getEditorState().toJSON();
     // What the editor shows and the document does not hold: local changes
-    // a read-only binding refused and has not read back yet, or keeps.
+    // a read-only binding refused and has not read back yet, or keeps, or
+    // held uncommitted when quiesce() began.
     const differs =
       this._status !== 'active' &&
-      (this.keepsUnstored ||
+      (heldJson !== null ||
+        this.keepsUnstored ||
         this.refused.size > 0 ||
         this.refusedComposing.size > 0 ||
         this.pending.has('reread') ||
