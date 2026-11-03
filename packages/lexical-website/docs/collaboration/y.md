@@ -727,6 +727,16 @@ block-beta
 _A heading, a paragraph with a link, a bold word and a NodeState value, and
 a custom container (`callout`) that holds a paragraph, in layout 1._
 
+**Layout 3** (what this release writes) stores format runs as pairs. A
+write's run of a text format, a link, a text field, a text node's type or a
+comment id is an opener (the value, or `[]` for "no value") and an end that
+names its opener by id, so a reader knows which write each end belongs to.
+Concurrent formats of one key nest instead of cutting each other short:
+when one collaborator's run ends, the run another collaborator opened
+around it shows again. Flat NodeState values (`s:<key>`) keep layout 1's
+plain values. The package README specifies it:
+[layout 3](https://github.com/meta/lexical/tree/main/packages/lexical-y#wire-format-layout-3).
+
 ## What changes when you turn on collaboration
 
 Because a paragraph, heading or list item is stored as text followed by a
@@ -1552,6 +1562,26 @@ not merge as a user might expect:
   `MIN_LAYOUT`. Export its content and reseed it into a top-level root with
   a release that reads its layout, or keep a release that reads the stored
   layout.
+- **Format runs (layout 3).** Each change only formats what it covers, and
+  concurrent formats of one key nest. A few outcomes are accepted:
+  - Text a collaborator types inside a range that another writer formats
+    at the same time takes the new format, as in Peritext and Automerge;
+    text typed exactly where a run starts or ends is ordered by client id,
+    as at a range's edge before layout 3.
+  - An edit that sets a value another author already set (a link over an
+    equal link) writes nothing of its own, so it follows that author's undo.
+  - Raw Yjs writes under the root are unsupported (see
+    [Wire format](#wire-format) and `RAW_YJS_WRITE_WARNING`): write through
+    an editor or `editYState`. Code that writes formats straight into Yjs
+    anyway writes plain items, not paired runs, and in a layout 3 room they
+    can change the formatting of other text (about 3.0% of randomized
+    sessions with one such writer); text is never affected. Stored format
+    names starting with U+0002 are not read.
+  - Text typed at the very end of a code highlight token while another
+    client re-segments the token can read, in one client id order, as two
+    highlight tokens of the same type on every peer. It renders the same;
+    code that inspects the document sees two nodes, and an installed code
+    highlighter merges them on its next pass.
 - **Other races.** A split racing a change of the line's type gives the
   first half the splitter's type. A join (Backspace at the start of a line,
   or undoing a split) while a collaborator inserts or moves a block to the
@@ -1652,6 +1682,28 @@ client reads the highest. A client reads and writes the layouts from
 new room records `SEED_LAYOUT` (currently 3). A room that records only an
 older layout opens read only (`'older'`) until it is migrated (see
 [Migrating stored documents](#migrating-stored-documents)).
+
+**Moving to layout 3.** This release reads and writes layout 3 only. A room
+stored at layout 1 or 2 opens read only in it, showing its content, until it
+is migrated with `@lexical/y/migrate/2to3` (after `@lexical/y/migrate/1to2`
+for layout 1): the server that stores a room migrates it on load (see the
+[server guide](./y-server.md#migrating-stored-documents)). The step keeps every character, node and line marker with its Yjs
+id, and the document reads the same before and after. What clients see:
+
+- **Older clients** (`@lexical/y` releases before layout 3) open a layout 3
+  room read only (`UNSUPPORTED_LAYOUT_WARNING`, reason `'newer'`). A
+  server with the generation fence (see the server guide) never serves them
+  the migrated room; a relay without it can, and they then show it read
+  only, possibly with wrong formatting, text intact.
+- **Undo across the migration.** The binding clears its undo history at the
+  migration. Clear an app `UndoManager` there too, with
+  `onYMigrationEpoch(doc, fn, root?)`: one that is not cleared can restore
+  formatting the migration replaced.
+- **Rooms written by code.** Raw Yjs writes under the root are unsupported
+  (development builds report them with `RAW_YJS_WRITE_WARNING`): code that
+  writes formats straight into Yjs (`Y.Node#format`) writes plain items,
+  which a layout 3 room reads beside its paired runs. Write through an
+  editor or `editYState` instead (see "Format runs" in the limits).
 
 - **Changes that keep the layout:** additions older clients can ignore, such
   as a new optional attribute. Rooms keep working in old and new clients.
