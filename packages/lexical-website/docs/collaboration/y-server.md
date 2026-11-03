@@ -940,10 +940,21 @@ of being admitted or refused.
   (retrying the same bytes), then dispose the binding, bootstrap a new
   document, persist it with the new generation, and only then drop the old
   copy.
-- **Replay** of a record's own changes onto the current document, at the
-  server as a checked edit, and a recovery view for the rest are planned,
-  not shipped: for now, show records read only and let users copy from
-  them.
+- **Replay** (`replayYRecovery(record, base, current, config)`) carries a
+  record's own changes onto the current document, at the server, as a
+  checked edit: compute it on the state of a version, apply its update and
+  commit its ledger only while that version holds, and compute it again on
+  a lost race. Only a record of the room's incarnation whose generation has
+  a base, migrated in place since, is replayed; the rest, and every
+  conflict, stays in the recovery view.
+- **Recovery view.** `recoveryYState(record, steps, base?)` returns the
+  state to render for a record: its source view (a `pending` record's whole
+  stored state and cut bytes) migrated on a scratch copy to the current
+  layout, through any gap, so items a migration cut stay visible, with its
+  legacy signals left out. Serve it to a client that renders it read only
+  (no client then carries migration code). It is for rendering only: it
+  holds collected structs the record never had and a scratch migration, so
+  never store it, send it into a room, merge it or replay it.
 
 ## API reference
 
