@@ -280,6 +280,29 @@ describe('Mdast punctuation modes', () => {
     expect(roundTrip(runs, 'cjk-friendly')).toEqual([cjkFriendly, runs]);
   });
 
+  it('reads a `*` run beside a `_` run alike in both import modes', () => {
+    for (const importPunctuation of [
+      'strict-commonmark',
+      'cjk-friendly',
+    ] as const) {
+      const editor = createEditor(undefined, importPunctuation);
+      editor.update(() => $convertFromMarkdownString('foo**_bar_**baz'), {
+        discrete: true,
+      });
+      expect(
+        editor.read('latest', () =>
+          $getRoot()
+            .getAllTextNodes()
+            .map(node => [node.getTextContent(), node.getFormat()]),
+        ),
+      ).toEqual([
+        ['foo**', 0],
+        ['bar', italic],
+        ['**baz', 0],
+      ]);
+    }
+  });
+
   it('keeps backslashes before a reference and a leading U+FEFF', () => {
     for (const runs of [
       [

@@ -10,7 +10,9 @@
 
 import {$isCodeNode} from '@lexical/code-core';
 import {
+  type AnyLexicalExtensionArgument,
   buildEditorFromExtensions,
+  configExtension,
   type LexicalEditorWithDispose,
 } from '@lexical/extension';
 import {$isLinkNode} from '@lexical/link';
@@ -36,18 +38,22 @@ import {describe, expect, it} from 'vitest';
 
 import {
   MdastCommonMarkExtension,
+  MdastExtension,
   MdastGfmExtension,
   MdastShortcutsExtension,
 } from '../../index';
 import {codeFenceState, codeMetaState} from '../../state';
 
-function createEditor(): LexicalEditorWithDispose {
+function createEditor(
+  ...extensions: AnyLexicalExtensionArgument[]
+): LexicalEditorWithDispose {
   const editor = buildEditorFromExtensions(
     defineExtension({
       dependencies: [
         MdastCommonMarkExtension,
         MdastGfmExtension,
         MdastShortcutsExtension,
+        ...extensions,
       ],
       name: '[root]',
     }),
@@ -289,6 +295,31 @@ describe('@lexical/mdast streaming shortcuts', () => {
         expect($getRoot().getTextContent()).toBe('strike');
       });
       expect(inlineFormats(editor).some(f => f !== 0)).toBe(true);
+    });
+
+    it('applies emphasis beside CJK punctuation as importPunctuation reads it', () => {
+      for (const [chunks, text] of [
+        [['中文**「强调」*', '*'], '「强调」'],
+        [['中文~~「强调」~', '~'], '「强调」'],
+      ] as const) {
+        using editor = createEditor();
+        type(editor, [...chunks]);
+        editor.read(() => {
+          expect($getRoot().getTextContent()).toBe(`中文${text}`);
+        });
+        expect(inlineFormats(editor).filter(f => f !== 0)).toHaveLength(1);
+
+        using strict = createEditor(
+          configExtension(MdastExtension, {
+            importPunctuation: 'strict-commonmark',
+          }),
+        );
+        type(strict, [...chunks]);
+        strict.read(() => {
+          expect($getRoot().getTextContent()).toBe(chunks.join(''));
+        });
+        expect(inlineFormats(strict).every(f => f === 0)).toBe(true);
+      }
     });
 
     it('[text](url) becomes a link', () => {

@@ -34,7 +34,7 @@
     "mdast-util-to-markdown": "^2.2.0",
     "mdast-util-to-string": "^4.0.0",
     "micromark": "^4.0.2",
-    "micromark-core-commonmark": "^2.0.3",
+    "micromark-core-commonmark": "^2.0.4",
     "micromark-extension-gfm-autolink-literal": "^2.1.0",
     "micromark-extension-gfm-strikethrough": "^2.1.0",
     "micromark-extension-gfm-table": "^2.1.2",
