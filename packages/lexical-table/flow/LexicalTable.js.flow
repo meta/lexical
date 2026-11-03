@@ -488,4 +488,7 @@ declare export function $moveTableRow(
 declare export function $mergeCells(cellNodes: TableCellNode[]): TableCellNode | null;
 
 /** @experimental */
-declare export function $padTableRows(tableNode: TableNode): boolean;
+declare export function $padTableRows(
+  tableNode: TableNode,
+  $shouldPad?: (row: TableRowNode) => boolean,
+): boolean;

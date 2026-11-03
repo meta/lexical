@@ -7,14 +7,10 @@
  */
 
 import {
-  ContentAny,
-  ContentBinary,
-  ContentType,
-  createID,
   createIdSet,
   type IdSet,
-  Item,
-  Node as YNode,
+  type Item,
+  type Node as YNode,
   type Transaction,
 } from '@y/y';
 
@@ -71,7 +67,7 @@ export function emptyView(root: YNode): Unread {
 }
 
 /** Whether one of the changes of `view` inserted `item`. */
-function inserted(view: Unread, item: Item): boolean {
+export function inserted(view: Unread, item: Item): boolean {
   for (const change of view.changes) {
     if (change.insertSet.hasId(item.id)) {
       return true;
@@ -81,7 +77,7 @@ function inserted(view: Unread, item: Item): boolean {
 }
 
 /** Whether one of the changes of `view` deleted `item`. */
-function deleted(view: Unread, item: Item): boolean {
+export function deleted(view: Unread, item: Item): boolean {
   for (const change of view.changes) {
     if (change.deleteSet.hasId(item.id)) {
       return true;
@@ -106,8 +102,11 @@ export function seenBy<T>(view: () => Unread | null, fn: () => T): T {
   }
 }
 
-/** The view the running work sees the items of `type` in, if any. */
-function viewOf(type: YNode): Unread | null {
+/**
+ * The view the running work sees the items of `type` in, if any (see Seen,
+ * which answers what the running work sees through it).
+ */
+export function viewOf(type: YNode): Unread | null {
   const view = seer === null ? null : seer();
   if (view === null) {
     return null;
@@ -124,169 +123,4 @@ function viewOf(type: YNode): Unread | null {
     view.under.set(type, under);
   }
   return under ? view : null;
-}
-
-/** Whether `item` is deleted, in the document the write sees. */
-export function isGone(item: Item): boolean {
-  const view = viewOf(item.parent as YNode);
-  if (view === null) {
-    return item.deleted;
-  }
-  if (inserted(view, item)) {
-    return true;
-  }
-  if (!item.deleted) {
-    return false;
-  }
-  return !deleted(view, item) || view.removed.hasId(item.id);
-}
-
-/** What each write only noted as deleted (see deleteItem), by transaction. */
-const notedIn = new WeakMap<Transaction, IdSet>();
-
-/**
- * Delete `item` (not gone, see isGone): an item an unread change deleted is
- * only noted as deleted by this write.
- */
-export function deleteItem(item: Item, tr: Transaction): void {
-  if (item.deleted) {
-    const view = viewOf(item.parent as YNode);
-    if (view !== null) {
-      view.removed.add(item.id.client, item.id.clock, item.length);
-      let noted = notedIn.get(tr);
-      if (noted === undefined) {
-        noted = createIdSet();
-        notedIn.set(tr, noted);
-      }
-      noted.add(item.id.client, item.id.clock, item.length);
-      return;
-    }
-  }
-  item.delete(tr);
-}
-
-/**
- * The item holding attribute `key` of `y` before the unread changes (the
- * current one, or one they replaced), or null.
- */
-function attrItem(y: YNode, view: Unread, key: string): Item | null {
-  let v: Item | null = y._map.get(key) ?? null;
-  while (v !== null && inserted(view, v)) {
-    v = v.left;
-  }
-  return v;
-}
-
-/** The value of attribute `key` of `y`, in the document the write sees. */
-export function attrOf(y: YNode, key: string): unknown {
-  const view = viewOf(y);
-  if (view === null) {
-    return y.getAttr(key);
-  }
-  const v = attrItem(y, view, key);
-  if (v === null || isGone(v)) {
-    return undefined;
-  }
-  const content = v.content.getContent();
-  return content[content.length - 1];
-}
-
-/** The attributes of `y`, in the document the write sees. */
-export function attrsOf(y: YNode): Record<string, unknown> {
-  if (viewOf(y) === null) {
-    return y.getAttrs() as Record<string, unknown>;
-  }
-  const out: Record<string, unknown> = {};
-  y._map.forEach((_item, key) => {
-    const value = attrOf(y, key);
-    if (value !== undefined) {
-      out[key] = value;
-    }
-  });
-  return out;
-}
-
-/**
- * The attributes `y` had before transaction `tr`, in the document the write
- * sees: of each name, the value of its latest item that neither `tr` nor an
- * unread change inserted, unless that item was gone before `tr`. Yjs keeps
- * the content of the items `tr` deletes until `tr` ends, so this also reads
- * a node `tr` deleted (a block it moved). With nothing unread, these are the
- * values every other client still has.
- */
-export function attrsBefore(
-  y: YNode,
-  tr: Transaction,
-): Record<string, unknown> {
-  const view = viewOf(y);
-  const out: Record<string, unknown> = {};
-  y._map.forEach((latest, key) => {
-    let v: Item | null = latest;
-    while (
-      v !== null &&
-      (tr.insertSet.hasId(v.id) || (view !== null && inserted(view, v)))
-    ) {
-      v = v.left;
-    }
-    // Deleted by `tr`, or only noted as deleted by it where an unread change
-    // deleted it too (see deleteItem): there before `tr`. What an earlier
-    // write noted was gone before it.
-    const noted = notedIn.get(tr);
-    if (
-      v !== null &&
-      (!isGone(v) ||
-        tr.deleteSet.hasId(v.id) ||
-        (noted !== undefined && noted.hasId(v.id)))
-    ) {
-      const content = v.content.getContent();
-      out[key] = content[content.length - 1];
-    }
-  });
-  return out;
-}
-
-/** Set attribute `key` of `y`, after its value in the document seen. */
-export function setAttr(
-  y: YNode,
-  key: string,
-  value: unknown,
-  tr: Transaction,
-): void {
-  const view = viewOf(y);
-  const left = view === null ? null : attrItem(y, view, key);
-  if (view === null || left === (y._map.get(key) ?? null)) {
-    y.setAttr(key, value as never);
-    return;
-  }
-  // As Y.Node#setAttr, after the value the write sees.
-  const doc = tr.doc;
-  const content =
-    value instanceof YNode
-      ? new ContentType(value)
-      : value instanceof Uint8Array
-        ? new ContentBinary(value)
-        : new ContentAny([value]);
-  new Item(
-    createID(doc.clientID, doc.store.getClock(doc.clientID)),
-    left,
-    left && left.lastId,
-    null,
-    null,
-    y,
-    key,
-    content,
-  ).integrate(tr, 0);
-}
-
-/** Delete attribute `key` of `y`: its value in the document seen. */
-export function deleteAttr(y: YNode, key: string, tr: Transaction): void {
-  const view = viewOf(y);
-  if (view === null) {
-    y.deleteAttr(key);
-    return;
-  }
-  const v = attrItem(y, view, key);
-  if (v !== null && !isGone(v)) {
-    deleteItem(v, tr);
-  }
 }

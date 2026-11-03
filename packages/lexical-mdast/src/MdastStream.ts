@@ -137,6 +137,12 @@ export class MarkdownStreamScanner {
           node: first,
         };
       case 'code':
+        // A line indented four columns is indented code: it has no marker and
+        // all of it is content, so it is not a shortcut, and Enter must not
+        // strip it. An opening fence alone on its line has no content yet.
+        if (first.value !== '') {
+          return null;
+        }
         // A code construct recognized from a single line is just the opening
         // fence (possibly with a language); the entire line is the marker.
         return {kind: 'code', markerLength: line.length, node: first};

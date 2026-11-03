@@ -96,7 +96,7 @@ export const WRAPPER_PREFIX = 'w:';
 /**
  * The family of a format key: the keys whose items together give content
  * one attribute, which the write cursor bounds and keeps at boundaries as
- * one (see Cursor#collapseGap and Cursor#format). A set-valued state's
+ * one (see Cursor#format). A set-valued state's
  * member entries (`s:<key>\u001f<member>`, see setMemberEntry) are the
  * family of the set's key (`s:<key>`), with an array an earlier build
  * stored whole under that key (see joinSetMembers): together they give
@@ -1976,6 +1976,21 @@ export function eachOuterLevel(
 const INSTANCE_KEY = '#';
 
 /**
+ * Wrapper values (see $wrapperAttrs) of wrappers that hold text: their text
+ * fields are not written (Lexical does not serialize them), so a value
+ * without them does not remove text fields stored there (see
+ * Writer#formatAsStored).
+ */
+const textHoldingValues = new WeakSet<object>();
+
+/** Whether `value` is a wrapper value of a wrapper that holds text. */
+export function isTextHoldingWrapperValue(value: unknown): boolean {
+  return (
+    value !== null && typeof value === 'object' && textHoldingValues.has(value)
+  );
+}
+
+/**
  * The format of one wrapper: one key, `w:<type>`, whose value is a flat
  * object of its schema fields and NodeState (`s:<key>`); a value that is not
  * a primitive, or a string that starts with NUL, is NUL and its JSON, since
@@ -1995,7 +2010,20 @@ export function $wrapperAttrs(
     putValue(own, f, json[f], `${node.getType()}.${f}`);
   }
   $stateAttrs(node.getLatest(), own);
-  $putTextFields(node.getLatest(), own);
+  // Only when Lexical serializes them (`shouldSerializeTextStyles`: the
+  // wrapper holds no text anywhere inside it, and a mark in a link holds
+  // text), so that the author and a fresh reader have the same JSON. With
+  // text, they follow that text (a format of it sets them), and a write of
+  // them alone would write the whole value again over the wrapper's text,
+  // which a collaborator's concurrent removal of the wrapper does not delete
+  // (the removed link came back).
+  const latest = node.getLatest();
+  if (
+    (latest.getTextFormat() !== 0 || latest.getTextStyle() !== '') &&
+    latest.shouldSerializeTextStyles()
+  ) {
+    $putTextFields(latest, own);
+  }
   for (const k in own) {
     const v = own[k];
     // Yjs compares format values one level deep: a value that is not a
@@ -2011,6 +2039,9 @@ export function $wrapperAttrs(
   }
   if (instance !== null) {
     own[INSTANCE_KEY] = instance;
+  }
+  if (!latest.shouldSerializeTextStyles()) {
+    textHoldingValues.add(own);
   }
   // The innermost wrapper of a type wins.
   out[WRAPPER_PREFIX + node.getType()] = own;
@@ -2142,7 +2173,8 @@ export function $lineAttrs(
 /**
  * An element's textFormat/textStyle, which Lexical serializes only while
  * the element has no text: every peer must hold the same values, so groups
- * and wrapper items always carry them (as lines do).
+ * and lines always carry them, and wrapper items while the wrapper holds no
+ * text (see $wrapperAttrs).
  */
 function $putTextFields(node: ElementNode, out: Attrs): void {
   const tf = node.getTextFormat();

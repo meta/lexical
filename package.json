@@ -180,6 +180,7 @@
     "eslint-plugin-react-hooks": "^7.1.1",
     "eslint-plugin-simple-import-sort": "^14.0.0",
     "eslint-plugin-sort-keys-fix": "^1.1.2",
+    "fast-check": "^4.10.2",
     "flow-bin": "^0.333.0",
     "flow-typed": "^4.1.1",
     "fs-extra": "^11.3.4",

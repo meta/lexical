@@ -50,7 +50,12 @@ import {
 } from 'lexical';
 
 import {scanCodeSpans} from './importTextFormatTransformer';
-import {isEmptyParagraph, isEscaped, unescapeText} from './utils';
+import {
+  isEmptyParagraph,
+  isEscaped,
+  toCharacterReference,
+  unescapeText,
+} from './utils';
 
 export type Transformer =
   | ElementTransformer
@@ -177,7 +182,12 @@ export type TextFormatTransformer = Readonly<{
 export type TextMatchTransformer = Readonly<{
   dependencies: Klass<LexicalNode>[];
   /**
-   * Determines how a node should be exported to markdown
+   * Determines how a node should be exported to markdown. Return null when
+   * this transformer does not export `node`.
+   *
+   * Markdown export may also call this with placeholder callbacks only to learn
+   * whether the transformer writes `node` in its own syntax (to decide which
+   * neighbouring brackets to escape), so it should have no side effects.
    */
   export?: (
     node: LexicalNode,
@@ -1190,13 +1200,13 @@ function escapeLinkPart(value: string, syntax: RegExp): string {
     .replace(/&(?=#\d+;|#[Xx][\dA-Fa-f]+;|[A-Za-z][\dA-Za-z]*;)/g, '&#38;')
     .replace(syntax, '\\$&')
     .replace(/`/g, '\\`')
-    .replace(/[\r\n]/g, lineEnding => `&#${lineEnding.charCodeAt(0)};`);
+    .replace(/[\r\n]/g, toCharacterReference);
 }
 
 // Mask escaped/code brackets without changing source offsets, then find an inner
 // opener after a literal prefix. Return -1 for balanced labels or null when
 // unmatched closers leave no recoverable opener.
-function getLinkLabelOpener(text: string): number | null {
+export function getLinkLabelOpener(text: string): number | null {
   const codeSpans = scanCodeSpans(text);
   let codeIndex = 0;
   const brackets = text.replace(/\\.|[[\]]/g, (part, index: number) => {
@@ -1331,6 +1341,8 @@ export const LINK: TextMatchTransformer = {
     const linkTitle =
       rawLinkTitle != null ? unescapeText(rawLinkTitle) : undefined;
     const linkNode = $createLinkNode(linkUrl, {title: linkTitle});
+    // Import passes the label from its real opener, so this finds none, but
+    // a custom caller may pass a match that starts at an earlier `[`.
     const openBracketIndex = getLinkLabelOpener(linkText);
     if (openBracketIndex === null) return;
     let parsedLinkText = linkText;

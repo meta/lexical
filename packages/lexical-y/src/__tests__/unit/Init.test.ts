@@ -88,6 +88,9 @@ function client(doc: YDoc, text: string | null, root?: Y.Node) {
   return {binding, codes, editor, warnings};
 }
 
+/** The id main 0823b74 derives for a pristine root seeded with 'Same seed'. */
+const PRISTINE_SEED_ID = 4267184775731454;
+
 const text = (editor: ReturnType<typeof createEditor>) =>
   editor.getEditorState().read(() => $getRoot().getTextContent());
 
@@ -123,6 +126,134 @@ describe('@lexical/y initialization', () => {
     expect(Y.encodeStateAsUpdate(d1)).toEqual(Y.encodeStateAsUpdate(d2));
     // The clients keep their own ids for later edits.
     expect(d1.clientID).not.toBe(d2.clientID);
+  });
+
+  // #9515: every root gets one copy, not only a pristine top-level one.
+  type Room =
+    | 'a root inside another shared type'
+    | 'a root that held text, deleted since'
+    | 'a root that held an attribute, deleted since'
+    | 'a root inside another shared type that held text, deleted since';
+  const ROOMS: Room[] = [
+    'a root inside another shared type',
+    'a root that held text, deleted since',
+    'a root that held an attribute, deleted since',
+    'a root inside another shared type that held text, deleted since',
+  ];
+  /** The room as clients load it, and where its root is. */
+  function room(where: Room) {
+    const base = createYDoc(null, {gc: false});
+    const nested = where.startsWith('a root inside');
+    let root: Y.Node = base.get('lexical-y');
+    if (nested) {
+      root = new Y.Node('editor-root');
+      base.get('app').setAttr('editor', root);
+    }
+    if (where.includes('held text')) {
+      root.insert(0, 'gone');
+      root.delete(0, 4);
+    } else if (where.includes('held an attribute')) {
+      root.setAttr('used', true);
+      root.deleteAttr('used');
+    }
+    const rootOf = (d: Y.Doc): Y.Node | undefined =>
+      nested ? (d.get('app').getAttr('editor') as Y.Node) : undefined;
+    return {base, rootOf};
+  }
+  for (const where of ROOMS) {
+    test(`two clients initializing ${where} with the same content write one copy`, () => {
+      const {base, rootOf} = room(where);
+      const docs = [
+        createYDoc(null, {gc: false}),
+        createYDoc(null, {gc: false}),
+      ];
+      for (const d of docs) {
+        Y.applyUpdate(d, Y.encodeStateAsUpdate(base));
+      }
+      const [a, b] = docs.map(d => client(d, 'Untitled', rootOf(d)));
+      a.binding.initialize();
+      b.binding.initialize();
+      expect(text(a.editor)).toBe('Untitled');
+      const u1 = Y.encodeStateAsUpdate(docs[0]);
+      const u2 = Y.encodeStateAsUpdate(docs[1]);
+      Y.applyUpdate(docs[0], u2);
+      Y.applyUpdate(docs[1], u1);
+      expect(text(a.editor)).toBe('Untitled');
+      expect(text(b.editor)).toBe('Untitled');
+      expect(Y.encodeStateAsUpdate(docs[0])).toEqual(
+        Y.encodeStateAsUpdate(docs[1]),
+      );
+      expect(a.warnings).toEqual([]);
+      expect(b.warnings).toEqual([]);
+      // A fresh reader shows one copy too.
+      const d = createYDoc();
+      Y.applyUpdate(d, u1);
+      Y.applyUpdate(d, u2);
+      const reader = client(d, null, rootOf(d));
+      reader.binding.initialize();
+      expect(text(reader.editor)).toBe('Untitled');
+      // The clients keep their own ids for later edits.
+      expect(docs[0].clientID).not.toBe(docs[1].clientID);
+    });
+
+    test(`two clients initializing ${where} after seeing different changes: one payload per id, both converge`, () => {
+      const {base, rootOf} = room(where);
+      const docs = [
+        createYDoc(null, {gc: false}),
+        createYDoc(null, {gc: false}),
+      ];
+      for (const d of docs) {
+        Y.applyUpdate(d, Y.encodeStateAsUpdate(base));
+      }
+      // The second client has seen a change elsewhere in the document: its
+      // write may name other items, so it must not share the first's id.
+      const other = createYDoc(null, {gc: false});
+      Y.applyUpdate(other, Y.encodeStateAsUpdate(base));
+      other.get('comments').setAttr('c1', 'hello');
+      Y.applyUpdate(
+        docs[1],
+        Y.encodeStateAsUpdate(other, Y.encodeStateVector(base)),
+      );
+      const [a, b] = docs.map(d => client(d, 'Untitled', rootOf(d)));
+      a.binding.initialize();
+      b.binding.initialize();
+      const seeded = (d: Y.Doc) =>
+        new Set(
+          [...d.store.clients.keys()].filter(
+            id => !base.store.clients.has(id) && !other.store.clients.has(id),
+          ),
+        );
+      const [s1, s2] = docs.map(seeded);
+      expect(s1.size).toBe(1);
+      expect(s2.size).toBe(1);
+      expect([...s1][0]).not.toBe([...s2][0]);
+      const u1 = Y.encodeStateAsUpdate(docs[0]);
+      const u2 = Y.encodeStateAsUpdate(docs[1]);
+      Y.applyUpdate(docs[0], u2);
+      Y.applyUpdate(docs[1], u1);
+      expect(text(a.editor)).toBe(text(b.editor));
+      expect(text(a.editor)).toBe('Untitled\n\nUntitled');
+    });
+  }
+
+  for (const gc of [false, true]) {
+    test(`initializing a nested root whose entry was deleted does not throw (gc ${gc})`, () => {
+      const doc = createYDoc(null, {gc});
+      const root = new Y.Node('editor-root');
+      doc.get('app').setAttr('editor', root);
+      doc.get('app').deleteAttr('editor');
+      const c = client(doc, 'Untitled', root);
+      expect(() => c.binding.initialize()).not.toThrow();
+      c.binding.dispose();
+    });
+  }
+
+  test('a pristine root is still written under the same id (older clients share it)', () => {
+    const doc = createYDoc();
+    const c = client(doc, 'Same seed');
+    c.binding.initialize();
+    const ids = [...doc.store.clients.keys()].filter(id => id !== doc.clientID);
+    expect(ids).toEqual([PRISTINE_SEED_ID]);
   });
 
   for (const content of [null, 'Same seed']) {

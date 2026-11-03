@@ -42,10 +42,11 @@ import {
   countLive,
   type DesiredContext,
   diffAtoms,
-  diffStrings,
+  hasLoneSurrogate,
   PENDING_LINE_BREAK,
   readAtoms,
   type Run,
+  setTextStretches,
   snapToWords,
 } from './Inline';
 import {
@@ -73,6 +74,7 @@ import {
   INLINE_PREFIX,
   isMergeableText,
   isTextFieldKey,
+  isTextHoldingWrapperValue,
   KIND_KEY,
   klassOf,
   LEVEL_KEY,
@@ -96,21 +98,6 @@ import {
   WRAPPER_PREFIX,
   wrapperFieldsOf,
 } from './Schema';
-import {$writeSlots} from './Slots';
-import {
-  type CS,
-  EMPTY_FORMATS,
-  isPartKey,
-  isShownEnd,
-  nameOf,
-  prevLiveEnd,
-  type Roles,
-  type State,
-  typeOf,
-  type Unit,
-} from './State';
-import {$isHeldInline} from './Structure';
-import {type Segment, type TextEditLog, TextReplay} from './TextEdits';
 import {
   attrOf,
   attrsBefore,
@@ -118,8 +105,25 @@ import {
   deleteAttr,
   deleteItem,
   isGone,
+  isHeld,
+  isShownEnd,
+  prevLiveEnd,
   setAttr,
-} from './Unread';
+  unheldLength,
+} from './Seen';
+import {$writeSlots} from './Slots';
+import {
+  type CS,
+  EMPTY_FORMATS,
+  isPartKey,
+  nameOf,
+  type Roles,
+  type State,
+  typeOf,
+  type Unit,
+} from './State';
+import {$isHeldInline} from './Structure';
+import {type Segment, type TextEditLog, TextReplay} from './TextEdits';
 
 /** storedTypeOf, in the document the write sees (see Unread). */
 const storedType = (y: YNode): string =>
@@ -424,7 +428,7 @@ export class Writer {
    * where it does not store the type as one (see wrapperFieldsOf).
    */
   readonly wrapperFields: (type: string) => OwnedFields | null;
-  /** Per item, the stored item found from it (see $groupReference). */
+  /** Per item, the stored item found from it (see $groupSource). */
   private readonly storedBefore = new Map<NodeKey, LexicalNode | null>();
   private readonly storedAfter = new Map<NodeKey, LexicalNode | null>();
   /**
@@ -442,7 +446,7 @@ export class Writer {
    */
   private readonly markersBefore = new Map<NodeKey, Attrs | null>();
   private readonly nodesBefore = new Map<NodeKey, [string, Attrs] | null>();
-  /** Per item, the item found from it (see $priorGroupItem). */
+  /** Per item, the item found from it as before (see $groupSource). */
   private readonly priorBefore = new Map<NodeKey, LexicalNode | null>();
   private readonly priorAfter = new Map<NodeKey, LexicalNode | null>();
   private readonly priorOfGroup = new Map<
@@ -814,7 +818,7 @@ export class Writer {
     this.setOriginOrder(oldOrigins);
     const ctx = this.$ctx(true);
     $pushInline(atoms, node.getChildren(), ctx);
-    if (ctx.flattened === true) {
+    if (ctx.flattened === true || ctx.unpaired === true) {
       this.refused.add(cs);
     }
     this.$writeSeq(
@@ -1006,7 +1010,7 @@ export class Writer {
       this.replay = editor._recordTextEdits
         ? new TextReplay(
             this.plan.textEdits ?? null,
-            this.prevState._nodeMap,
+            this.prevState,
             $isRangeSelection(selection) &&
               selection.isCollapsed() &&
               selection.anchor.type === 'text'
@@ -1639,6 +1643,7 @@ export class Writer {
     }
     const state = this.state;
     return {
+      compositionKey: state.editor._compositionKey,
       cursor,
       cursorAt: -1,
       originOf: withOrigins ? node => this.originOf(node) : null,
@@ -2069,19 +2074,18 @@ export class Writer {
       const [nd, no] = k < n ? anchors[k] : [desired.length, old.length];
       return nd - pd > 1 || no - po > 1;
     };
-    // A line without a marker that this update did not change, and that
-    // nothing follows, stays without one (see $implicitChanged); any other
-    // is given one. Nothing may follow it before the update either: the
-    // block node it ran up to, and what came after, are deleted by the
-    // segment after it, which starts at its content's end only when a marker
-    // ends it (with none, it started at the container's start, and deleted
-    // everything before).
+    // A line without a marker that this update did not change, and right
+    // after which it writes nothing (the end of the container, or the block
+    // node it runs up to, kept as it is), stays without one (see
+    // $implicitChanged); any other is given one. Why nothing right after it:
+    // a segment written there starts at the end of the unit before it, which
+    // is a marker only when one ends this line (with none, it started at the
+    // container's start, and deleted everything before).
     const keepsImplicit = (k: number) => {
       const [di, oi] = anchors[k];
       return (
         old[oi].kind === 'implicit' &&
-        di === desired.length - 1 &&
-        oi === old.length - 1 &&
+        !gapNonEmpty(k + 1) &&
         !this.$implicitChanged(desired[di].key!)
       );
     };
@@ -2454,10 +2458,10 @@ export class Writer {
    * write computes the format items it writes from the formats it starts
    * from; from the start of a unit after a deleted block node (inside a
    * format run around that node), a delete, which then removed the format
-   * items it found redundant (see Cursor#collapseGap), removed the opener
-   * of a run that goes on after the deleted content, and every reader
-   * showed that text without the format while the author kept it (also on
-   * a follow-up's delete).
+   * items it found redundant (before deletes kept them, see Cursor#delete),
+   * removed the opener of a run that goes on after the deleted content, and
+   * every reader showed that text without the format while the author
+   * kept it (also on a follow-up's delete).
    */
   private $deleteUnit(old: Unit[], idx: number): void {
     const u = old[idx];
@@ -2574,7 +2578,7 @@ export class Writer {
           }
         }
       });
-      if (ctx.flattened === true) {
+      if (ctx.flattened === true || ctx.unpaired === true) {
         this.refused.add(cs);
       }
       const items = this.$writeSeq(
@@ -2683,7 +2687,7 @@ export class Writer {
         }
         if (it.content instanceof ContentFormat) {
           applyFormat(current, it.content);
-          if (hidden === null || !hidden.hides(it)) {
+          if (!isHeld(it, hidden)) {
             applyFormat(shown, it.content);
           }
           continue;
@@ -2954,7 +2958,10 @@ export class Writer {
 
   /** Rewrite one line (its content and marker) on its own. */
   $writeLineAlone(u: Unit, d: Desired): void {
-    if (this.$writeTextEdit(u, d)) {
+    // A rewrite after a failed write diffs the line against the document:
+    // the edits Lexical recorded may be stored already (the failed write
+    // stored part of its change), and writing them again would repeat them.
+    if (!this.rewriteAll && this.$writeTextEdit(u, d)) {
       return;
     }
     const old = u.cs.units;
@@ -2973,7 +2980,7 @@ export class Writer {
     this.setOriginOrder(oldOrigins);
     const ctx = this.$ctx(true);
     $pushInline(atoms, $lineChildren(d), ctx);
-    if (ctx.flattened === true) {
+    if (ctx.flattened === true || ctx.unpaired === true) {
       this.refused.add(u.cs);
     }
     const at = atoms.length;
@@ -3026,7 +3033,9 @@ export class Writer {
    * not change. Its edits, as Lexical recorded them (see exactEdits), or a
    * diff of its old and new text where the record does not explain them,
    * are written at its offset, so the cost is in the line's items and the
-   * changed text, not in the line's length.
+   * changed text, not in the line's length. Not for text holding a
+   * surrogate half without its pair, which the line's write stores as U+FFFD
+   * and reads again (see DesiredContext.unpaired).
    */
   private $writeTextEdit(u: Unit, d: Desired): boolean {
     if (
@@ -3043,8 +3052,9 @@ export class Writer {
     if (before === undefined || !$isElementNode(before)) {
       return false;
     }
-    let changed: TextNode | null = null;
-    let changedBefore: TextNode | null = null;
+    // The changed text nodes, each with its old version and the atom its
+    // old text starts at.
+    const changes: [TextNode, TextNode, number][] = [];
     let offset = 0;
     let a: NodeKey | null = before.__first;
     let b: LexicalNode | null = line.getFirstChild();
@@ -3059,7 +3069,6 @@ export class Writer {
       }
       if (prev !== now) {
         if (
-          changed !== null ||
           !$isTextNode(prev) ||
           !$isTextNode(now) ||
           prev.__type !== now.__type ||
@@ -3072,93 +3081,71 @@ export class Writer {
         ) {
           return false;
         }
-        changed = now;
-        changedBefore = prev;
+        changes.push([now, prev, offset]);
+        offset += prev.__text.length;
       } else {
         // An element child (a link) is the same object when only its
         // children changed: its subtree must be unchanged too.
         if ($isElementNode(now) && !sameSubtree(now, prevMap)) {
           return false;
         }
-        if (changed === null) {
-          offset += $atomSize(now);
-        }
+        offset += $atomSize(now);
       }
       a = prev.__next;
       b = b.getNextSibling();
     }
+    // Several changed nodes only where text edits are not recorded (the
+    // record's own path writes those as it did, through the line).
     if (
-      changed === null ||
-      changedBefore === null ||
-      $runsWithNeighbour(changed)
+      changes.length === 0 ||
+      (changes.length > 1 && this.state.editor._recordTextEdits) ||
+      changes.some(
+        ([changed]) =>
+          $runsWithNeighbour(changed) || hasLoneSurrogate(changed.__text),
+      )
     ) {
       return false;
     }
-    const oldText = changedBefore.__text;
-    const newText = changed.__text;
-    // The node's segment key as stored: one read without a key (a code
-    // highlight a client stored without one) keeps none, or the text
-    // inserted here would be stored, and read, as a node of its own.
-    const segment = isMergeableText(changed)
-      ? null
-      : (this.state.segments.get(changed.getKey()) ?? null);
-    // The edits Lexical recorded, exactly where they were made (see
-    // TextReplay), and as made: a replacement is not widened to whole
-    // words (see snapToWords), which a diff's guess at shared letters
-    // needs, and a record does not. A diff where the record does not
-    // explain the line; the line written whole where the node holds
-    // characters of another.
-    const edits = this.exactEdits(changed, oldText.length);
-    if (edits === false) {
-      return false;
-    }
-    if (edits !== null) {
+    // Every node's edits first (nothing is written where one cannot be),
+    // then written in one pass from the first node to the last, with one
+    // cursor (each node starts at its old offset moved by the edits written
+    // before it).
+    const writes: [TextNode, TextNode, number, [number, number, string][]][] =
+      [];
+    for (const [changed, changedBefore, at] of changes) {
+      const edits = this.$textEdits(changed, changedBefore);
+      if (edits === false) {
+        return false;
+      }
       if (edits.length > 0) {
-        this.$writeEdits(
-          u,
-          offset,
-          edits,
-          oldText,
-          newText,
-          $textAttrs(changed, segment),
-        );
+        writes.push([changed, changedBefore, at, edits]);
       }
-    } else {
-      const selection = $getSelection();
-      let cursor = -1;
-      if ($isRangeSelection(selection) && selection.isCollapsed()) {
-        if (selection.anchor.key === changed.getKey()) {
-          cursor = selection.anchor.offset;
-        } else {
-          // A caret right before or after the changed node (in a link
-          // ending there) anchors the diff at that edge.
-          const at = selection.anchor.getNode();
-          if (at.isBefore(changed)) {
-            cursor = 0;
-          } else if (changed.isBefore(at)) {
-            cursor = newText.length;
-          }
-        }
-      }
-      const diff = diffStrings(oldText, newText, cursor);
-      const {prefix, suffix} = snapToWords(
-        oldText,
-        newText,
-        diff.prefix,
-        diff.suffix,
-        this.state.editor._compositionKey !== null,
+    }
+    if (writes.length > 0) {
+      const c = this.cursor(
+        u.cs.y,
+        prevLiveEnd(u.end!, this.state.hidden),
+        u.start || EMPTY_FORMATS,
       );
-      const del = oldText.length - prefix - suffix;
-      const to = newText.length - suffix;
-      if (del > 0 || to > prefix) {
-        this.$writeEdits(
-          u,
-          offset,
-          [[prefix, del, newText.slice(prefix, to)]],
-          oldText,
-          newText,
-          $textAttrs(changed, segment),
-        );
+      // Where the cursor stands, in atoms of the line as written so far,
+      // and how far the edits written so far moved what comes after them.
+      let pos = 0;
+      let moved = 0;
+      for (const [changed, changedBefore, at, edits] of writes) {
+        // The node's segment key as stored: one read without a key (a code
+        // highlight a client stored without one) keeps none, or the text
+        // inserted here would be stored, and read, as a node of its own.
+        const segment = isMergeableText(changed)
+          ? null
+          : (this.state.segments.get(changed.getKey()) ?? null);
+        const start = at + moved;
+        c.advance(start - pos);
+        const old = changedBefore.__text;
+        const now = changed.__text;
+        pos =
+          start +
+          this.$writeEdits(c, edits, old, now, $textAttrs(changed, segment));
+        moved += now.length - old.length;
       }
     }
     this.$writeMarker(u.end, d);
@@ -3168,31 +3155,81 @@ export class Writer {
   }
 
   /**
+   * The edits that make text node `changed` of its old version
+   * `changedBefore`: as Lexical recorded them, exactly where they were made
+   * (see TextReplay), and as made: a replacement is not widened to whole
+   * words (see snapToWords), which a diff's guess at shared letters needs,
+   * and a record does not. Else a diff (see setTextStretches): its common
+   * start and end, anchored at the caret, and every run of unchanged words
+   * between its changes. False where the node holds characters of another
+   * (the line is written whole).
+   */
+  private $textEdits(
+    changed: TextNode,
+    changedBefore: TextNode,
+  ): [number, number, string][] | false {
+    const oldText = changedBefore.__text;
+    const newText = changed.__text;
+    const edits = this.exactEdits(changed, oldText.length);
+    if (edits !== null) {
+      return edits;
+    }
+    const selection = $getSelection();
+    let cursor = -1;
+    if ($isRangeSelection(selection) && selection.isCollapsed()) {
+      if (selection.anchor.key === changed.getKey()) {
+        cursor = selection.anchor.offset;
+      } else {
+        // A caret right before or after the changed node (in a link
+        // ending there) anchors the diff at that edge.
+        const at = selection.anchor.getNode();
+        if (at.isBefore(changed)) {
+          cursor = 0;
+        } else if (changed.isBefore(at)) {
+          cursor = newText.length;
+        }
+      }
+    }
+    // What it keeps of the old text, and the edits between.
+    const kept = setTextStretches(
+      oldText,
+      newText,
+      cursor,
+      this.state.editor._compositionKey !== null,
+    );
+    const diff: [number, number, string][] = [];
+    let lastA = 0;
+    let lastB = 0;
+    for (const [x0, x1, dx] of kept) {
+      if (x0 + dx > lastA || x0 > lastB) {
+        diff.push([lastA, x0 + dx - lastA, newText.slice(lastB, x0)]);
+      }
+      lastA = x1 + dx;
+      lastB = x1;
+    }
+    return diff;
+  }
+
+  /**
    * Write a text node's edits (see exactEdits), which make its text `now`
-   * of its old text `old`, in line `u`, where the node starts at atom
-   * `offset`, with the node's attributes `attrs`.
+   * of its old text `old`, with the cursor at the node's start and the
+   * node's attributes `attrs`. Returns how far past the node's start the
+   * cursor ends, in atoms of its new text.
    */
   private $writeEdits(
-    u: Unit,
-    offset: number,
+    c: Cursor,
     edits: [number, number, string][],
     old: string,
     now: string,
     attrs: Attrs,
-  ): void {
-    const c = this.cursor(
-      u.cs.y,
-      prevLiveEnd(u.end!, this.state.hidden),
-      u.start || EMPTY_FORMATS,
-    );
-    c.advance(offset);
+  ): number {
     const hunks: Hunk[] = [];
     let shift = 0;
     for (const [at, del, ins] of edits) {
       hunks.push([at, del, at + shift, at + shift + ins.length]);
       shift += ins.length - del;
     }
-    this.$writeHunks(c, old, now, hunks, (cursor, from, to) => {
+    return this.$writeHunks(c, old, now, hunks, (cursor, from, to) => {
       cursor.insert(
         new ContentString(now.slice(from, to)),
         this.inheritUnknown(cursor, attrs),
@@ -3212,7 +3249,8 @@ export class Writer {
    * U+FFFD under their ids (and a lone half reads as U+FFFD), so the
    * author's editor showed `😀` while every reader showed `��` (a splice of
    * one half; a pair kept by two islands, stepped over one atom at a
-   * time).
+   * time). Returns where the cursor ends: the desired atom after the last
+   * hunk.
    */
   private $writeHunks(
     c: Cursor,
@@ -3220,8 +3258,9 @@ export class Writer {
     now: string,
     hunks: readonly Hunk[],
     insert: (cursor: Cursor, from: number, to: number) => void,
-  ): void {
+  ): number {
     let pos = 0;
+    let end = 0;
     for (const [at, del, from, to] of codePointHunks(hunks, old, now)) {
       if (__DEV__) {
         invariant(
@@ -3240,7 +3279,9 @@ export class Writer {
         insert(c, from, to);
       }
       pos = at + del;
+      end = to;
     }
+    return end;
   }
 
   // -------------------------------------------------------------------------
@@ -3572,12 +3613,22 @@ export class Writer {
             ? undefined
             : nodeAtoms.get(s.key);
         for (let t = s.start; t < s.end; t++, at++) {
-          const i =
+          let i =
             r !== undefined && t < r[1] - r[0]
               ? r[0] + t
               : atom !== undefined && this.sameAtom(old, atom, atoms, at)
                 ? atom
                 : -1;
+          // A character stored otherwise than it was (a surrogate half
+          // without its pair, written as U+FFFD: DesiredContext.unpaired)
+          // is new text.
+          if (
+            i >= 0 &&
+            !node &&
+            atoms.text.charCodeAt(at) !== old.text.charCodeAt(i)
+          ) {
+            i = -1;
+          }
           if (at >= j + n || (i >= 0 && kept[i] !== -1)) {
             return false;
           }
@@ -3736,7 +3787,16 @@ export class Writer {
     ) {
       return value;
     }
-    const owns = (m: string) => ownsMember(m, fields);
+    // A wrapper that holds text writes no text fields (Lexical does not
+    // serialize them), and does not remove ones stored there either: when a
+    // wrapper with no text that stores them gets text (a line break in a
+    // link, then text appended), its value is not written again over the
+    // content it kept, over a collaborator's concurrent removal or change
+    // of it (see $wrapperAttrs).
+    const keepsText = isTextHoldingWrapperValue(value);
+    const owns = (m: string) =>
+      ownsMember(m, fields) &&
+      !(keepsText && (m === 'textFormat' || m === 'textStyle'));
     if (same) {
       const a = value as Attrs;
       const b = stored as Attrs;
@@ -4158,9 +4218,8 @@ export class Writer {
    * `owners`): the members of the outer levels (OUTER_KEY) it does not own
    * kept as stored, and, for an item new to its group (`line`), the group's
    * fields it does not own taken from another item of the group, as every
-   * item stores them (see $groupReference), or, where none kept its
-   * marker, as an item of the group stored them before this write (see
-   * $priorGroupItem). Where this write made the marker anew for a line that
+   * item stores them, or as an item of the group stored them before this
+   * write (see $groupSource). Where this write made the marker anew for a line that
    * had one (`before`, what that one stored, see $markerBefore), the line's
    * fields it does not own are those, and its group's are found as for an
    * item new to its group.
@@ -4207,13 +4266,7 @@ export class Writer {
       GROUP_KEY in desired &&
       (before !== null || current[GROUP_KEY] === undefined)
     ) {
-      const gtype = desired[GROUP_KEY];
-      const item = this.$groupReference(line, gtype);
-      const ref = item === null ? null : this.storedItemAttrs(item, gtype);
-      const source =
-        item !== null && ref !== null
-          ? {asBefore: false, attrs: ref, key: item.getKey()}
-          : this.$priorGroupItem(line, gtype);
+      const source = this.$groupSource(line, desired[GROUP_KEY]);
       if (source !== null) {
         // Owned as at the other item, whose group has the item's type.
         const of = this.markerOwners(desired, source.attrs);
@@ -4355,38 +4408,43 @@ export class Writer {
   }
 
   /**
-   * The item of `line`'s group (of type `gtype`) nearest before it, else
-   * after it, that was in the group before this update and whose stored
-   * marker this write did not make (see storedItemAttrs), or null. Its
-   * neighbor, not any item: a client that does not own a group field shows
-   * one group where another client shows two that differ in it, and the
-   * item goes into the one it is next to.
+   * Where item `line`, new to its group (of type `gtype`) or with a marker
+   * this write made anew, takes the group's fields it does not own from: the
+   * first of these, in this order, with what it stores (`asBefore`: what it
+   * stored before this write), or null.
+   *
+   * 1. The item of the group nearest before it, else after it, that was in
+   *    the group before this update and whose stored marker this write did
+   *    not make (see storedItemAttrs). Its neighbor, not any item: a client
+   *    that does not own a group field shows one group where another client
+   *    shows two that differ in it, and the item goes into the one it is
+   *    next to.
+   * 2. Where no item kept its marker, an item of the group whose marker
+   *    before this write held the group's fields: `line` itself where it
+   *    was in the same group then (its group moved with it),
+   * 3. else the item nearest before it, else after it, that was (the group
+   *    moved, and `line` is new to it),
+   * 4. else the first item the group had then whose marker held them (its
+   *    items replaced).
+   *
+   * Null where none was (a group new in this write). The order matters: a
+   * nearest-item rule alone takes another source where a group moves or
+   * its items are replaced, and stores other values of the fields.
    */
-  private $groupReference(
+  private $groupSource(
     line: LexicalNode,
     gtype: unknown,
-  ): LexicalNode | null {
-    return this.$nearestItem(
+  ): {asBefore: boolean; attrs: Attrs; key: NodeKey} | null {
+    const stored = this.$nearestItem(
       line,
       c => this.$inGroupBefore(c) && this.storedItemAttrs(c, gtype) !== null,
       this.storedBefore,
       this.storedAfter,
     );
-  }
-
-  /**
-   * Where no other item of `line`'s group kept its marker (see
-   * $groupReference), an item of the group whose marker before this write
-   * held the group's fields, with what it stored then: `line` itself where
-   * it was in the same group then (its group moved with it), else the item
-   * nearest before it, else after it, that was (the group moved, and `line`
-   * is new to it), else any item the group had then (its items replaced).
-   * Null where none was (a group new in this write).
-   */
-  private $priorGroupItem(
-    line: LexicalNode,
-    gtype: unknown,
-  ): {asBefore: boolean; attrs: Attrs; key: NodeKey} | null {
+    const ref = stored === null ? null : this.storedItemAttrs(stored, gtype);
+    if (stored !== null && ref !== null) {
+      return {asBefore: false, attrs: ref, key: stored.getKey()};
+    }
     const own = this.$priorItemAttrs(line, gtype);
     if (own !== null) {
       return {asBefore: true, attrs: own, key: line.getKey()};
@@ -4937,7 +4995,7 @@ function readAtomsLimited(
   let n = 0;
   while (stop !== null && n < limit) {
     if (isLiveContent(stop)) {
-      n += hidden === null ? stop.length : hidden.shownLength(stop);
+      n += unheldLength(stop, hidden);
     }
     stop = stop.right;
   }

@@ -210,6 +210,17 @@ describe('@lexical/mdast streaming shortcuts', () => {
       });
     });
 
+    it('Enter keeps an indented line in the quote as text', () => {
+      using editor = createEditor();
+      type(editor, ['>', ' ', '    indented line']);
+      editor.dispatchCommand(KEY_ENTER_COMMAND, null);
+      editor.read(() => {
+        const quote = $assertNodeType($getRoot().getFirstChild(), $isQuoteNode);
+        expect(quote.getChildren().some($isCodeNode)).toBe(false);
+        expect(quote.getTextContent()).toBe('    indented line');
+      });
+    });
+
     it('```js + Enter -> code block nested in the quote', () => {
       using editor = createEditor();
       type(editor, ['>', ' ', '```js']);
@@ -330,6 +341,17 @@ describe('@lexical/mdast streaming shortcuts', () => {
       });
     });
 
+    it('a fence indented up to three spaces still converts', () => {
+      using editor = createEditor();
+      type(editor, ['   ```js']);
+      editor.dispatchCommand(KEY_ENTER_COMMAND, null);
+      editor.read(() => {
+        const code = $assertNodeType($getRoot().getFirstChild(), $isCodeNode);
+        expect(code.getLanguage()).toBe('js');
+        expect(code.getTextContent()).toBe('');
+      });
+    });
+
     it('```js title=x + Enter keeps the info-string meta and fence', () => {
       using editor = createEditor();
       type(editor, ['~~~js title=x']);
@@ -362,6 +384,21 @@ describe('@lexical/mdast streaming shortcuts', () => {
       type(editor, ['2024. was a big year']);
       editor.dispatchCommand(KEY_ENTER_COMMAND, null);
       $expectFirstChild(editor, $isParagraphNode);
+    });
+
+    it.each([
+      ['four spaces', '    indented line'],
+      ['a tab', '\tindented line'],
+    ])('Enter keeps a line indented with %s as text', (_, line) => {
+      using editor = createEditor();
+      // Four columns of indentation parse as indented code, which has no
+      // marker: Enter must not replace the line with an empty code block.
+      type(editor, [line]);
+      editor.dispatchCommand(KEY_ENTER_COMMAND, null);
+      $expectFirstChild(editor, $isParagraphNode);
+      editor.read(() => {
+        expect($getRoot().getTextContent()).toBe(line);
+      });
     });
 
     it('multi-character insertion (paste) does not transform', () => {

@@ -12,10 +12,10 @@ import {
   $addUpdateTag,
   $createRangeSelection,
   $getSelection,
+  $isBlockContainer,
   $isElementNode,
   $isLineBreakNode,
   $isRangeSelection,
-  $isRootOrShadowRoot,
   $isTextNode,
   $setSelection,
   COLLABORATION_TAG,
@@ -42,7 +42,13 @@ import {
   type Transformer,
   TRANSFORMERS,
 } from './MarkdownTransformers';
-import {indexBy, PUNCTUATION_OR_SPACE, transformersByType} from './utils';
+import {
+  characterAt,
+  characterBefore,
+  indexBy,
+  isPunctuationOrSpace,
+  transformersByType,
+} from './utils';
 
 function runElementTransformers(
   parentNode: ElementNode,
@@ -54,7 +60,7 @@ function runElementTransformers(
   const grandParentNode = parentNode.getParent();
 
   if (
-    !$isRootOrShadowRoot(grandParentNode) ||
+    !$isBlockContainer(grandParentNode) ||
     parentNode.getFirstChild() !== anchorNode
   ) {
     return false;
@@ -108,7 +114,7 @@ function runMultilineElementTransformers(
   const grandParentNode = parentNode.getParent();
 
   if (
-    !$isRootOrShadowRoot(grandParentNode) ||
+    !$isBlockContainer(grandParentNode) ||
     parentNode.getFirstChild() !== anchorNode
   ) {
     return false;
@@ -248,12 +254,12 @@ function $runTextFormatTransformers(
     }
 
     // Some tags can not be used within words, hence should have newline/space/punctuation after it
-    const afterCloseTagChar = textContent[closeTagEndIndex + 1];
+    const afterCloseTagChar = characterAt(textContent, closeTagEndIndex + 1);
 
     if (
       matcher.intraword === false &&
       afterCloseTagChar &&
-      !PUNCTUATION_OR_SPACE.test(afterCloseTagChar)
+      !isPunctuationOrSpace(afterCloseTagChar)
     ) {
       continue;
     }
@@ -313,12 +319,15 @@ function $runTextFormatTransformers(
     }
 
     // Some tags can not be used within words, hence should have newline/space/punctuation before it
-    const beforeOpenTagChar = prevOpenNodeText[openTagStartIndex - 1];
+    const beforeOpenTagChar = characterBefore(
+      prevOpenNodeText,
+      openTagStartIndex,
+    );
 
     if (
       matcher.intraword === false &&
       beforeOpenTagChar &&
-      !PUNCTUATION_OR_SPACE.test(beforeOpenTagChar)
+      !isPunctuationOrSpace(beforeOpenTagChar)
     ) {
       continue;
     }

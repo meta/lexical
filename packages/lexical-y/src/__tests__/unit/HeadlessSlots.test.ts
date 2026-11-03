@@ -203,7 +203,9 @@ describe('named slots, headless', () => {
     expect(error).toBeInstanceOf(YHeadlessError);
     expect((error as YHeadlessError).code).toBe('read-only');
     expect((error as YHeadlessError).message).toBe(
-      'the change was not written',
+      `@lexical/y: the change was not written: ${warnings
+        .map(w => w.message)
+        .join('; ')}`,
     );
     expect(warnings.map(w => w.code)).toEqual([UNSUPPORTED_SLOTS_WARNING]);
     expect((error as YHeadlessError).warnings).toEqual(warnings);
