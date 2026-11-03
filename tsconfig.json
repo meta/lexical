@@ -465,9 +465,6 @@
       "@lexical/utils/src": ["./packages/lexical-utils/src"],
       "@lexical/utils/src/*": ["./packages/lexical-utils/src/*"],
       "@lexical/y/src": ["./packages/lexical-y/src"],
-      "@lexical/y/src/__tests__/utils": [
-        "./packages/lexical-y/src/__tests__/utils/harness.ts"
-      ],
       "@lexical/y/src/*": ["./packages/lexical-y/src/*"],
       "@lexical/yjs/src": ["./packages/lexical-yjs/src"],
       "@lexical/yjs/src/*": ["./packages/lexical-yjs/src/*"]
