@@ -697,6 +697,7 @@ function standInText(
   written: Map<string, number>,
 ): ToMarkdownExtension {
   const handle = handlers.text;
+  const lookAhead = (handle as Handle & {peek?: Handle}).peek || handle;
   let peeking = 0;
   const wrapped: Record<string, Handle> = {};
   for (const type in handlers) {
@@ -726,8 +727,9 @@ function standInText(
     ...[node, parent, state, info]: Parameters<Handle>
   ): string => {
     // An autolink writes its text as is, with no emphasis around it.
+    const own = isCounted ? handle : lookAhead;
     if (state.stack.includes('autolink')) {
-      return handle.call(self, node, parent, state, info);
+      return own.call(self, node, parent, state, info);
     }
     const {value} = node as Text;
     // Set on the node itself, which the handler finds among its siblings.
@@ -742,7 +744,7 @@ function standInText(
       return standIn;
     });
     try {
-      return handle.call(self, node, parent, state, info);
+      return own.call(self, node, parent, state, info);
     } finally {
       (node as Text).value = value;
     }

@@ -132,19 +132,19 @@ function classify(character: string | undefined, cjk: boolean): number {
         ? CJK_CLASS | PUNCTUATION_CLASS
         : baseClass & ~IVS_CLASS;
   }
-  return WHITESPACE.test(character)
-    ? WHITESPACE_CLASS
-    : (PUNCTUATION.test(character) ? PUNCTUATION_CLASS : OTHER_CLASS) |
-        // Nothing below U+1100 is CJK or an ideographic variation selector.
-        (cjk &&
-        character.codePointAt(0)! >= 0x1100 &&
+  if (WHITESPACE.test(character)) {
+    return WHITESPACE_CLASS;
+  }
+  const base = PUNCTUATION.test(character) ? PUNCTUATION_CLASS : OTHER_CLASS;
+  // Nothing below U+1100 is CJK or an ideographic variation selector.
+  return cjk && character.codePointAt(0)! >= 0x1100
+    ? base |
         (CJK.test(character) ||
-          (NEW_EMOJI.test(character) && !EMOJI_PRESENTATION.test(character)))
+        (NEW_EMOJI.test(character) && !EMOJI_PRESENTATION.test(character))
           ? CJK_CLASS
           : 0) |
-        (cjk && character.codePointAt(0)! >= 0x1100 && IVS.test(character)
-          ? IVS_CLASS
-          : 0);
+        (IVS.test(character) ? IVS_CLASS : 0)
+    : base;
 }
 
 /**
