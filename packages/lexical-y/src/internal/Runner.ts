@@ -864,6 +864,111 @@ function outsideWrites(
   return {deleted, problems: problems.slice(0, 20), written};
 }
 
+/** An item's content as a string: a format's key and value, else its units. */
+function valueOf(it: Item): string {
+  if (it.content instanceof ContentFormat) {
+    let value: string;
+    try {
+      value = JSON.stringify(it.content.value) ?? 'undefined';
+    } catch {
+      value = '<value>';
+    }
+    return `format ${JSON.stringify(it.content.key)}=${value}`;
+  }
+  return unitsOf(it).join(',');
+}
+
+/**
+ * Every container of every top-level type of `doc` but `except`, by
+ * `<type name>/<container key>`: its live items in order and its live
+ * attributes, each with its id and content as strings (JSON values read
+ * deep, so a value changed in place shows). What a step must leave alone
+ * outside the root it migrates, and what a returned update must reproduce.
+ */
+function documentState(doc: Doc, except: YNode | null): Map<string, string> {
+  const out = new Map<string, string>();
+  for (const name of [...doc.share.keys()].sort()) {
+    const type = doc.share.get(name) as YNode;
+    if (type === except) {
+      continue;
+    }
+    for (const node of traverse(type)) {
+      const parts: string[] = [];
+      for (let it = node._start; it !== null; it = it.right) {
+        if (!it.deleted) {
+          parts.push(`${idOf(it)}=${valueOf(it)}`);
+        }
+      }
+      for (const key of [...node._map.keys()].sort()) {
+        const it = node._map.get(key)!;
+        if (!it.deleted) {
+          parts.push(`${JSON.stringify(key)}:${idOf(it)}=${valueOf(it)}`);
+        }
+      }
+      out.set(`${JSON.stringify(name)}/${keyOf(node, type)}`, parts.join('\n'));
+    }
+  }
+  return out;
+}
+
+/** The keys whose entries differ between two documentStates. */
+function documentDiff(
+  a: Map<string, string>,
+  b: Map<string, string>,
+): string[] {
+  return [...new Set([...a.keys(), ...b.keys()])]
+    .sort()
+    .filter(k => a.get(k) !== b.get(k));
+}
+
+/**
+ * The update that brings `integrated` (the input's integrated state) to
+ * `copy` (the migrated copy), checked: applied to a fresh document of
+ * `integrated`, it must give the same document as `copy` (same state
+ * vector, every container the same). A step that changed a value in place
+ * (no insertion, no deletion) leaves an update that does not; that throws
+ * 'post-condition'.
+ */
+function checkedUpdate(
+  integrated: Uint8Array,
+  copy: Doc,
+  vector: Uint8Array,
+): Uint8Array {
+  const update = encodeStateAsUpdate(copy, vector);
+  const fresh = createYDoc(integrated, {gc: copy.gc});
+  try {
+    applyUpdate(fresh, update);
+    const problems: string[] = [];
+    const sv = (d: Doc) =>
+      JSON.stringify(
+        [...d.store.clients.keys()].sort().map(c => [c, d.store.getClock(c)]),
+      );
+    if (sv(fresh) !== sv(copy)) {
+      problems.push(
+        'the input with the update has another state vector than the result',
+      );
+    }
+    for (const key of documentDiff(
+      documentState(fresh, null),
+      documentState(copy, null),
+    )) {
+      problems.push(
+        `the input with the update differs from the result in container ${key}`,
+      );
+    }
+    if (problems.length > 0) {
+      throw new YMigrationError(
+        'post-condition',
+        `@lexical/y: the migration's update does not bring the input to its result: ${problems.slice(0, 5).join('; ')}`,
+        problems,
+      );
+    }
+    return update;
+  } finally {
+    fresh.destroy();
+  }
+}
+
 /**
  * Run `step` on root `name` of `copy` (observer-free, the caller's alone)
  * in one transaction, then check the result. Throws a 'post-condition'
@@ -888,6 +993,7 @@ function runStep(
     'before',
   );
   problems.push(...[...before.values()].flatMap(c => c.problems));
+  const othersBefore = documentState(copy, root);
   const recordsBefore = Object.keys(root.getAttrs()).filter(k =>
     k.startsWith(LAYOUT_PREFIX),
   );
@@ -978,6 +1084,9 @@ function runStep(
     'after',
   );
   problems.push(...stateProblems(before, after, 'result', true));
+  for (const key of documentDiff(othersBefore, documentState(copy, root))) {
+    problems.push(`result: container ${key} outside the root changed`);
+  }
   for (const key of recordsBefore) {
     if (root.getAttr(key) !== true) {
       problems.push(`the layout record ${key} was removed`);
@@ -1249,7 +1358,7 @@ export function migrateYState(
           roots,
         },
         state: out,
-        update: encodeStateAsUpdate(copy, encodeStateVector(doc)),
+        update: checkedUpdate(integrated, copy, encodeStateVector(doc)),
       };
     } finally {
       copy.destroy();
@@ -1305,7 +1414,7 @@ export function migrateYDoc(
   try {
     applyUpdate(
       doc,
-      encodeStateAsUpdate(copy, encodeStateVector(doc)),
+      checkedUpdate(integrated, copy, encodeStateVector(doc)),
       MIGRATION_ORIGIN,
     );
   } finally {
