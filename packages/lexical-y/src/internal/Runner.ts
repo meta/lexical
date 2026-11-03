@@ -11,6 +11,7 @@ import {
   ContentFormat,
   ContentType,
   createIdSet,
+  decodeUpdate,
   diffUpdate,
   type Doc,
   encodeStateAsUpdate,
@@ -990,6 +991,7 @@ function runStep(
   name: string,
   step: YLayoutMigration,
   options: YMigrateOptions,
+  reserved: ReadonlySet<number>,
 ): YMigrationStepReceipt & {epoch: YLayoutEpoch} {
   const root = copy.get(name) as YNode;
   const problems: string[] = [];
@@ -1007,7 +1009,10 @@ function runStep(
   const recordsBefore = Object.keys(root.getAttrs()).filter(k =>
     k.startsWith(LAYOUT_PREFIX),
   );
-  const taken = (c: number) => copy.store.clients.has(c);
+  // Every client of the complete input (split material included, which
+  // the copy no longer holds) and every client an earlier step wrote: an
+  // id the migration takes must name nothing of the input's history.
+  const taken = (c: number) => copy.store.clients.has(c) || reserved.has(c);
   const range = options.clientIDRange ?? 'uint53';
   let client: number;
   if (options.clientID !== undefined) {
@@ -1158,6 +1163,23 @@ function runStep(
   };
 }
 
+/**
+ * Every client id of the complete input: the clients `doc` holds (items
+ * past a skipped range included) and, given the stored bytes, every client
+ * their structs name (pending structs included). The migration takes no
+ * such id, even one whose material it splits out. (A live document with
+ * pending material is refused before this.)
+ */
+function inputClients(doc: Doc, state: Uint8Array | null): Set<number> {
+  const out = new Set<number>(doc.store.clients.keys());
+  if (state !== null) {
+    for (const s of decodeUpdate(state).structs) {
+      out.add(s.id.client);
+    }
+  }
+  return out;
+}
+
 /** Pending structs, a pending delete set or skipped ranges in `doc`. */
 function heldProblems(doc: Doc): string[] {
   const store = doc.store;
@@ -1270,6 +1292,7 @@ function runOnCopy(
   gc: boolean,
   plans: readonly RootPlan[],
   options: YMigrateOptions,
+  reserved: ReadonlySet<number>,
 ): {copy: Doc; roots: YMigrationRootReceipt[]} | null {
   if (plans.every(p => p.steps.length === 0)) {
     return null;
@@ -1280,7 +1303,13 @@ function runOnCopy(
       const ran: YMigrationStepReceipt[] = [];
       let epoch: YLayoutEpoch | null = null;
       for (const step of plan.steps) {
-        const {epoch: e, ...receipt} = runStep(copy, plan.root, step, options);
+        const {epoch: e, ...receipt} = runStep(
+          copy,
+          plan.root,
+          step,
+          options,
+          reserved,
+        );
         ran.push(receipt);
         epoch = e;
       }
@@ -1355,7 +1384,13 @@ export function migrateYState(
       };
     }
     const {integrated, pending} = splitHeld(doc);
-    const {copy, roots} = runOnCopy(integrated, gc, plans, options)!;
+    const {copy, roots} = runOnCopy(
+      integrated,
+      gc,
+      plans,
+      options,
+      inputClients(doc, state),
+    )!;
     try {
       const out = encodeStateAsUpdate(copy);
       return {
@@ -1411,7 +1446,13 @@ export function migrateYDoc(
     );
   }
   const integrated = encodeStateAsUpdate(doc);
-  const result = runOnCopy(integrated, doc.gc, plans, options);
+  const result = runOnCopy(
+    integrated,
+    doc.gc,
+    plans,
+    options,
+    inputClients(doc, null),
+  );
   if (result === null) {
     return {
       bytesAfter: integrated.length,
