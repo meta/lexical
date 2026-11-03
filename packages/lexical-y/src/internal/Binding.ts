@@ -1783,7 +1783,8 @@ export class YBinding {
    */
   private migrateLocally(found: number): void {
     const loaders = this.options.migrateLocally;
-    if (loaders === undefined || this.migrating !== null) {
+    // A quiesced binding writes nothing again, a migration included.
+    if (loaders === undefined || this.migrating !== null || this.quiesced) {
       return;
     }
     let name: string | null = null;
@@ -1812,7 +1813,9 @@ export class YBinding {
         );
       }
       const steps = await runner.loadYMigrationSteps(loaders, found, to);
-      if (this.started) {
+      // Checked again right before writing: quiesce() or dispose() may
+      // have run while the steps loaded.
+      if (this.started && !this.quiesced) {
         runner.migrateYDoc(this._doc, steps, {
           clientIDRange: this.clientIDRange(),
           roots: [root],
