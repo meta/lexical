@@ -151,6 +151,12 @@ type Parsed = {
   start: Formats;
 };
 
+/** What $showSame built so far in one read, and what it may still build. */
+type Shown = {
+  budget: number;
+  of: Map<object, {shown: string | null; text: string}>;
+};
+
 type Piece = (
   | {
       kind: 'text';
@@ -2348,8 +2354,10 @@ export class Reader {
     formats: Formats,
   ): Piece[] {
     const pieces: Piece[] = [];
-    // What the node built from a piece (or run) shows (see $showSame).
-    const shownOf = new Map<object, string | null>();
+    // What the node built from a piece (or run) shows, with the text it was
+    // built from, and the text left to build for merge checks: a few times
+    // what the line holds, so a read stays linear (see $showSame).
+    const shown: Shown = {budget: 4096, of: new Map()};
     const current = new Map(formats);
     let tattrs: Attrs | null = null;
     let tsig = '';
@@ -2399,6 +2407,7 @@ export class Reader {
             pos++;
           }
           for (const run of tabRuns(part, tattrs!, tsig)) {
+            shown.budget += 8 * run.text.length;
             const holds = caret >= pos && caret < pos + run.text.length;
             const inRun = caret - pos;
             pos += run.text.length;
@@ -2408,7 +2417,7 @@ export class Reader {
               last.kind === 'text' &&
               !isTabText(run.tattrs) &&
               sameWrappers(last.wrappers, wrappers) &&
-              (last.tsig === run.tsig || this.$showSame(last, run, shownOf))
+              (last.tsig === run.tsig || this.$showSame(last, run, shown))
             ) {
               if (holds) {
                 last.caretAt = last.text.length + inRun;
@@ -2424,8 +2433,9 @@ export class Reader {
                 tsig: run.tsig,
                 wrappers,
               };
-              if (shownOf.has(run)) {
-                shownOf.set(piece, shownOf.get(run)!);
+              const known = shown.of.get(run);
+              if (known !== undefined) {
+                shown.of.set(piece, known);
               }
               pieces.push(piece);
             }
@@ -2458,7 +2468,7 @@ export class Reader {
   private $showSame(
     a: {tattrs: Attrs; text: string},
     b: {tattrs: Attrs; text: string},
-    shownOf: Map<object, string | null>,
+    known: Shown,
   ): boolean {
     const editor = this.state.editor;
     const type = decodeFormatValue(a.tattrs[TYPE_KEY] ?? null);
@@ -2477,43 +2487,40 @@ export class Reader {
     ) {
       return false;
     }
-    // Built as the reader builds a text node, then given the same
-    // attributes again as a node that already holds the text (see
-    // $readInline: a read reuses nodes too).
-    const shown = (text: string, attrs: Attrs) => {
+    // Past the budget the runs read apart, as before.
+    const cost = 2 * (a.text.length + b.text.length);
+    if (known.budget < cost) {
+      return false;
+    }
+    known.budget -= cost;
+    // Built as the reader builds a text node, and as it gives a reused
+    // node the attributes (see $readInline).
+    const build = (text: string, attrs: Attrs) => {
       const json = joinSetMembersInJSON(textJSONFromAttrs(text, attrs), editor);
       const node = $parseSerializedNode(
         json as unknown as SerializedLexicalNode,
       );
       return $isTextNode(node)
-        ? stableStringify(
-            $textAttrs(
-              node.updateFromJSON(
-                json as Parameters<TextNode['updateFromJSON']>[0],
-              ),
-              null,
-              false,
-            ),
-          )
+        ? stableStringify($textAttrs($applyJSON(node, json), null, false))
         : null;
     };
-    try {
-      // `a` is built once per piece: after a merge, the merged node shows
-      // what it did.
-      let shownA = shownOf.get(a);
-      if (shownA === undefined) {
-        shownA = shown(a.text, a.tattrs);
-        shownOf.set(a, shownA);
+    const of = (piece: {tattrs: Attrs; text: string}) => {
+      const memo = known.of.get(piece);
+      if (memo !== undefined && memo.text === piece.text) {
+        return memo.shown;
       }
-      const shownB = shown(b.text, b.tattrs);
-      shownOf.set(b, shownB);
+      const s = build(piece.text, piece.tattrs);
+      known.of.set(piece, {shown: s, text: piece.text});
+      return s;
+    };
+    try {
+      const shownA = of(a);
       return (
         shownA !== null &&
-        shownA === shownB &&
-        shownA === shown(a.text + b.text, a.tattrs)
+        shownA === of(b) &&
+        shownA === build(a.text + b.text, a.tattrs)
       );
     } catch (_e) {
-      shownOf.set(b, null);
       return false;
     }
   }
