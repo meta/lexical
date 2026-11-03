@@ -137,6 +137,15 @@ writes a character reference where a strict CommonMark reader needs one
 change either side; the `punctuation` option of `@lexical/markdown`'s
 import and export does the same there.
 
+Export picks emphasis, strong and strikethrough markers with
+`mdast-util-to-markdown`, which in 2.2.2 and earlier takes time that grows
+with the square of a paragraph's size in two known cases
+([syntax-tree/mdast-util-to-markdown#96](https://github.com/syntax-tree/mdast-util-to-markdown/issues/96)):
+many short runs of formatting side by side whose markers have to change,
+such as alternating bold, italic, and bold italic text, and many empty
+emphasis, strong or strikethrough nodes side by side, which only a
+contributed handler or mdast tree makes.
+
 GFM tables (`MdastTableExtension`) import a column's alignment as the
 element format of the paragraph in each of its cells, and write it from
 the content of the column's header cell (the format of the block holding
