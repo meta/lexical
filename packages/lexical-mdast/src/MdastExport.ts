@@ -600,14 +600,16 @@ const STOOD_IN =
 const MICROMARK_ONLY_WHITESPACE = /^[\u2028\u2029\ufeff]$/;
 
 /**
- * The index of a backslash before the last character of `value`, which the
- * text handler writes as it is, or -1. A reference that the handler writes
- * for that character would come out escaped, so the backslash stands in too,
- * and goes out escaped before a reference.
+ * The backslashes before the last character of `value`, as their index and
+ * count. A reference that the text handler writes for that character would
+ * come out escaped by the last of them, so each stands in, and goes out
+ * escaped.
  */
-function getTrailingBackslash(value: string): number {
-  const match = /(^|[^\\])\\[^\p{P}\p{S}\r\n]$/u.exec(value);
-  return match ? match.index + match[1].length : -1;
+function getTrailingBackslashes(value: string): [number, number] {
+  const match = value.includes('\\')
+    ? /\\+(?=[^\p{P}\p{S}\r\n]$)/u.exec(value)
+    : null;
+  return match ? [match.index, match[0].length] : [-1, 0];
 }
 
 // Stand-ins come from Supplemental Punctuation (U+2E00 to U+2E7F) first,
@@ -639,8 +641,9 @@ function countStoodIn(tree: Root, used: Set<number>): Map<string, number> {
       for (const [character] of node.value.matchAll(STOOD_IN)) {
         counts.set(character, (counts.get(character) || 0) + 1);
       }
-      if (getTrailingBackslash(node.value) >= 0) {
-        counts.set('\\', (counts.get('\\') || 0) + 1);
+      const [, backslashes] = getTrailingBackslashes(node.value);
+      if (backslashes > 0) {
+        counts.set('\\', (counts.get('\\') || 0) + backslashes);
       }
     }
     if ('children' in node) {
@@ -759,12 +762,14 @@ function standInText(
       }
       return found;
     };
-    const backslash = getTrailingBackslash(value);
+    const [backslash, backslashes] = getTrailingBackslashes(value);
     // Set on the node itself, which the handler finds among its siblings.
     (node as Text).value = (
       backslash < 0
         ? value
-        : value.slice(0, backslash) + standIn('\\') + value.slice(backslash + 1)
+        : value.slice(0, backslash) +
+          Array.from({length: backslashes}, () => standIn('\\')).join('') +
+          value.slice(backslash + backslashes)
     ).replace(STOOD_IN, standIn);
     try {
       return own.call(self, node, parent, state, info);
@@ -853,7 +858,7 @@ function toMarkdownWithStandIns(
       const written = new Map<string, number>();
       const restore = getRestore(characters, isCjkFriendly);
       const out = measuring(
-        measure ? value => measure(restore(value)) : restore,
+        measure ? value => measure(restore(value)) : value => restore(value),
         () =>
           toMarkdown(tree, {
             extensions: [
@@ -873,7 +878,7 @@ function toMarkdownWithStandIns(
         isClean &&= count <= (written.get(standIn) || 0);
       }
       if (isClean) {
-        return restore(out);
+        return restore(out, true);
       }
       // Only new characters to avoid make another attempt worth writing.
       const {size} = used;
@@ -917,10 +922,10 @@ function measuring(
 function getRestore(
   characters: Map<string, string>,
   isCjkFriendly: boolean,
-): (markdown: string) => string {
+): (markdown: string, isDocument?: boolean) => string {
   const pattern = new RegExp(`[${[...characters.keys()].join('')}]`, 'g');
-  return markdown =>
-    restoreStoodIn(markdown, characters, pattern, isCjkFriendly);
+  return (markdown, isDocument = false) =>
+    restoreStoodIn(markdown, characters, pattern, isCjkFriendly, isDocument);
 }
 
 function restoreStoodIn(
@@ -928,6 +933,7 @@ function restoreStoodIn(
   characters: Map<string, string>,
   pattern: RegExp,
   isCjkFriendly: boolean,
+  isDocument: boolean,
 ): string {
   pattern.lastIndex = 0;
   if (!pattern.test(markdown)) {
@@ -980,13 +986,17 @@ function restoreStoodIn(
   return markdown.replace(pattern, (standIn, i: number) => {
     const character = characters.get(standIn)!;
     if (character === '\\') {
-      return markdown[i + 1] === '&' ? '\\\\' : '\\';
+      return '\\\\';
+    }
+    // micromark drops a byte order mark that starts the document.
+    if (isDocument && i === 0 && character === '\ufeff') {
+      return '&#xFEFF;';
     }
     return (!isCjkFriendly || character.length === 1) &&
       ((ATTENTION_MARKER.test(markdown[i - 1]) && !isPortable(i, -1)) ||
         (ATTENTION_MARKER.test(markdown[i + 1]) && !isPortable(i, 1)))
       ? // A backslash before the reference would escape its `&`.
-        `${isEscaped(i) || characters.get(markdown[i - 1]) === '\\' ? '\\' : ''}&#x${character
+        `${isEscaped(i) ? '\\' : ''}&#x${character
           .codePointAt(0)!
           .toString(16)
           .toUpperCase()};`
@@ -1017,8 +1027,6 @@ function toCjkFriendly(markdown: string, compiled: CompiledMdast): string {
   // Only references that micromark reads as such: not escaped ones, nor
   // those in code. Its events are enough, without building a tree.
   const begins = new Set<number>();
-  // micromark skips a byte order mark that starts the document.
-  const shift = markdown.charCodeAt(0) === 0xfeff ? 1 : 0;
   const events = postprocess(
     parse({extensions: compiled.micromarkExtensions})
       .document()
@@ -1026,7 +1034,7 @@ function toCjkFriendly(markdown: string, compiled: CompiledMdast): string {
   );
   for (const [kind, token] of events) {
     if (kind === 'enter' && token.type === 'characterReferenceValue') {
-      begins.add(markdown.lastIndexOf('&', token.start.offset + shift));
+      begins.add(markdown.lastIndexOf('&', token.start.offset));
     }
   }
   return rewriteCjkReferences(markdown, begin => begins.has(begin));
@@ -1165,14 +1173,13 @@ export function createMdastExport(compiled: CompiledMdast): {
     ];
     // toMarkdown always appends a trailing newline; drop it so callers get the
     // same shape as `@lexical/markdown`'s `$convertToMarkdownString`.
+    const isCjkFriendly = compiled.exportPunctuation === 'cjk-friendly';
     const markdown = toMarkdownWithStandIns(
       tree,
       extensions,
-      compiled.exportPunctuation === 'cjk-friendly',
+      isCjkFriendly,
     ).replace(/\n$/, '');
-    return compiled.exportPunctuation === 'cjk-friendly'
-      ? toCjkFriendly(markdown, compiled)
-      : markdown;
+    return isCjkFriendly ? toCjkFriendly(markdown, compiled) : markdown;
   };
 
   const $exportToMdast = (node?: ElementNode): Root =>

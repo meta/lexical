@@ -1111,7 +1111,8 @@ function decideReferences(
   // goes out as a reference: the selector then varies the reference's `;`.
   const isVariedByStart = (index: number) =>
     encodeStart[index] === 1 &&
-    isVariationSelector(values[index].slice(firstChar(index).length));
+    values[index].length === firstChar(index).length + 1 &&
+    isVariationSelector(values[index].slice(-1));
   const endChar = (index: number) =>
     index < 0
       ? undefined

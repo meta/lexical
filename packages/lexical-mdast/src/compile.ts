@@ -129,7 +129,7 @@ export function compileMdast(
     micromarkExtensions:
       // Any mode but the CJK-friendly one reads strictly, as in
       // @lexical/markdown.
-      (config.importPunctuation || 'cjk-friendly') !== 'cjk-friendly'
+      config.importPunctuation !== 'cjk-friendly'
         ? [...config.micromarkExtensions]
         : [
             cjkFriendlyEmphasis(),

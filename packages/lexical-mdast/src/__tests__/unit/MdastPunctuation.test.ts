@@ -280,7 +280,7 @@ describe('Mdast punctuation modes', () => {
     expect(roundTrip(runs, 'cjk-friendly')).toEqual([cjkFriendly, runs]);
   });
 
-  it('escapes a backslash before a reference the export writes', () => {
+  it('keeps backslashes before a reference and a leading U+FEFF', () => {
     for (const runs of [
       [
         ['\\a', 0],
@@ -294,6 +294,11 @@ describe('Mdast punctuation modes', () => {
         ['a\\b', 0],
         ['。', bold],
       ],
+      [
+        ['a\\\\b', 0],
+        ['“x”', bold],
+      ],
+      [['\ufeffabc', 0]],
     ] as Runs[]) {
       for (const mode of ['strict-commonmark', 'cjk-friendly'] as const) {
         expect(roundTrip(runs, mode)[1]).toEqual(runs);
@@ -385,7 +390,7 @@ describe('Mdast punctuation modes', () => {
     ]);
   });
 
-  it('finds the references after a byte order mark', () => {
+  it('writes a leading U+FEFF as a reference', () => {
     const editor = createEditor('cjk-friendly');
     editor.update(
       () =>
@@ -397,7 +402,7 @@ describe('Mdast punctuation modes', () => {
       {discrete: true},
     );
     expect(editor.read('latest', () => $convertToMarkdownString())).toBe(
-      '\ufeff\u3002**你好。**世界',
+      '&#xFEFF;\u3002**你好。**世界',
     );
   });
 

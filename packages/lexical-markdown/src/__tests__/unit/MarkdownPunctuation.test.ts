@@ -314,6 +314,15 @@ describe('Markdown punctuation modes', () => {
       '**~~\u3002~~&#48;\ufe0e**&#65024;x',
       '**~~\u3002~~0\ufe0e**\ufe00x',
     ],
+    [
+      [
+        ['\u3002', strikethrough],
+        ['a\ufe0eb\ufe0e', 0],
+        ['“y”', bold],
+      ],
+      '~~\u3002~~&#97;\ufe0eb&#65038;**“y”**',
+      '~~\u3002~~a\ufe0eb&#65038;**“y”**',
+    ],
   ])('exports %j', (runs, strict, cjkFriendly) => {
     expect(exportRuns(runs)).toBe(strict);
     expect(exportRuns(runs, 'strict-commonmark')).toBe(strict);

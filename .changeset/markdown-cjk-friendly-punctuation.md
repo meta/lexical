@@ -1,4 +1,5 @@
 ---
+'@lexical/internal': patch
 '@lexical/markdown': patch
 '@lexical/mdast': patch
 ---
