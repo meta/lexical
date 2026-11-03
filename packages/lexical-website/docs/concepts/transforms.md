@@ -193,6 +193,12 @@ registerLexicalTextEntity<T extends TextNode>(
 ): Array<() => void>;
 ```
 
+Known limit: a matcher that looks back into a run of repeated characters
+(such as `/(?<=\$AA)A/`, an `A` right after `$AA`) can drop the NodeState of
+one existing character when typing extends the run, because the edit is read
+as text inserted at the end of the run
+([#9725](https://github.com/meta/lexical/issues/9725)).
+
 ## Examples
 
 1. [Emojis](https://github.com/meta/lexical/blob/main/packages/lexical-playground/src/plugins/EmojisExtension/index.ts)

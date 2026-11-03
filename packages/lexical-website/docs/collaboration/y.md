@@ -1184,9 +1184,50 @@ not merge as a user might expect:
   after its undo history is cleared stay kept until the binding stops: a
   table a collaborator deletes meanwhile stays in that client's state until
   it reloads (about 100 to 180 bytes for a small table); one deleted after
-  the binding stops is collected. When the binding stops it lets them go,
+  the binding stops is collected, when the undo history was cleared before
+  it stopped (see the next item), unless an undo or redo restored content
+  in it and that kept it (see the item after). When the binding stops it lets them go,
   also where another undo manager on the document still relies on them,
   which then finds them unkept, as after a clear of a Yjs `UndoManager`.
+- **An undo manager destroyed without a clear.** When the binding stops
+  (`binding.dispose()`, or the cleanup its start returns: an editor
+  unmounted or mounted again), it destroys its Yjs `UndoManager` without
+  clearing it, as Yjs does when a document is destroyed, and Yjs keeps what
+  that manager's steps protected: a character deleted in a table cell can
+  keep the cell, its row and its table (it does when nothing kept the cell
+  before the delete; a cell the binding already kept for a format of its
+  own is let go when it stops). A table a collaborator deletes afterwards
+  then stays in that client's document, and in any state it encodes, until
+  it reloads: 108 to 175 bytes per table, measured with one character
+  deleted and one word bolded in one cell of a 1x1 to a 4x4 table, and more
+  where more was deleted or more cells were edited. Binding the same
+  document again does not free it. Call `binding.undoManager?.clear()`
+  while the binding is started, before stopping, to prevent it where no
+  other undo manager on the document still needs what it kept (a clear
+  releases that too), except where an undo or redo restored content in the
+  cell and that kept it (see the next item); a table already deleted while the history held such
+  a step stays after the clear too; a reload, or a server or relay that
+  loads the state with garbage collection on, compacts it. Any editor that
+  destroys a Yjs `UndoManager` without clearing it first behaves the same;
+  the binding does not clear at stop because a clear also releases what
+  another undo manager on the document still keeps for its own undo.
+- **An undo or redo inside a container.** An undo or redo that restores
+  content in a table cell can keep the cell, its row and its table after its
+  undo history is cleared and the binding stops: Yjs keeps what an undo step
+  deleted, parents included, and a clear releases only the steps still on
+  the stacks, not the one the undo or redo took off them. It does unless
+  something releases the table afterwards: a clear releases every step
+  still on a stack that deleted in the table, before or after the undo, row
+  and table included, and the binding lets go a cell it kept for a format of
+  its own before that step. A table
+  a collaborator deletes afterwards then stays in that client's document,
+  and in any state it encodes, until it reloads: 139 to 151 bytes for a
+  one-cell table with nine characters, more with more content. A reload,
+  or a server or relay that loads the state with garbage collection on,
+  compacts it. Any editor that uses a Yjs `UndoManager` behaves the same
+  ([#9721](https://github.com/meta/lexical/issues/9721); reported to Yjs as
+  [yjs/yjs#833](https://github.com/yjs/yjs/issues/833), fix proposed in
+  [yjs/yjs#834](https://github.com/yjs/yjs/pull/834)).
 - **Named slots.** A slot holds one node: two collaborators setting the same
   slot at once keep one writer's node, and text typed in a slot that a
   collaborator replaces or removes at the same time is lost (as with delete
@@ -1271,9 +1312,14 @@ not merge as a user might expect:
   only without the extension, while other blocks there keep it everywhere;
   see [Block IDs](/docs/collaboration/block-ids)).
 - **Lone surrogates.** Text holding a lone surrogate (malformed UTF-16,
-  which code can produce by splitting a surrogate pair) reaches every other
-  client as U+FFFD, as Yjs encodes text as UTF-8; its author keeps it until
-  it reloads. Yjs 13 does the same.
+  which code can produce by splitting a surrogate pair, or by setting a
+  selection that starts or ends between the two halves of one) is stored
+  with U+FFFD in place of each half that has no pair in its text node, as
+  Yjs encodes text as UTF-8. The author's editor reads the line again after
+  such a write, so it shows U+FFFD there too, like every other client, and
+  undoing the write brings the character back. Yjs 13 (`@lexical/yjs`) also
+  delivers U+FFFD to other clients, but there the author keeps the lone half
+  until it reloads.
 - **Initial content with random values.** Clients that initialize a new
   document at once write it once only when their content is identical. An
   extension that gives new blocks random ids makes it differ, so the content
@@ -1295,6 +1341,11 @@ not merge as a user might expect:
   collaborator moved out of the removed range at the same time shows twice
   (the original next to the moved copy), and when two
   collaborators remove the same text and both undo, it shows twice.
+  A client's own undo can remove a format from a word that none of its
+  undone steps touched: type plain text into a bold run, bold a range that
+  ends at that text, type plain text later on, and undo the three steps
+  ([#9690](https://github.com/meta/lexical/issues/9690); kept, because
+  the format rules behind it fix many more cases than they break).
   Undoing the replacement of a block with a new one (`replace` without
   `includeChildren`, written as a removal and a new block) after a
   collaborator edited the new block brings the old block's text back and
@@ -1330,8 +1381,9 @@ not merge as a user might expect:
   format from part of the run or types inside it without the format: with
   `Kilo` bolded by one client, another unbolds `il` or types plain text
   inside `Kilo` as the first or a third bolds ` bb` (or `lo bb`), and with
-  some client id orders ` bb` stays plain. No text is lost, and when that
-  client undoes its edit, ` bb` is bold again. A local change the binding
+  some client id orders ` bb` stays plain
+  ([#9589](https://github.com/meta/lexical/issues/9589)). No text is lost,
+  and when that client undoes its edit, ` bb` is bold again. A local change the binding
   could not write and recovered from (reported as
   `@lexical/y/recovered-write`) can land as two undo steps: what the failed
   write stored, and its rewrite, when the rewrite takes longer than the
