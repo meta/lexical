@@ -233,6 +233,38 @@ type GuardedRead = {
   readonly tag?: string | string[];
 };
 
+/**
+ * The binding's UndoManager (YBinding#undoManager): a Yjs UndoManager whose
+ * undo() and redo() write nothing, and return null, while the binding does
+ * not admit writes (`admits`: its status and the root's layout record as it
+ * is then, see YBinding#recordAdmits). A subclass rather than a wrapper:
+ * the app keeps the same object, with its stacks, events and type, and code
+ * that holds a reference to it from before a change of the record is gated
+ * too.
+ */
+class BindingUndoManager extends UndoManager {
+  constructor(
+    scope: YNode,
+    admits: () => boolean,
+    options: ConstructorParameters<typeof UndoManager>[1],
+  ) {
+    super(scope, options);
+    undoAdmits.set(this, admits);
+  }
+  undo(): ReturnType<UndoManager['undo']> {
+    return undoAdmits.get(this)!() ? super.undo() : null;
+  }
+  redo(): ReturnType<UndoManager['redo']> {
+    return undoAdmits.get(this)!() ? super.redo() : null;
+  }
+}
+
+/**
+ * Each BindingUndoManager's check (kept apart from the instance, which is
+ * Yjs's: no field of ours on it).
+ */
+const undoAdmits = new WeakMap<BindingUndoManager, () => boolean>();
+
 /** A warning that says why the binding is read only. */
 const isReadOnlyCause = (w: LexicalWarning): boolean =>
   w.code === UNSUPPORTED_LAYOUT_WARNING ||
@@ -1232,7 +1264,7 @@ export class YBinding {
       ),
     );
     if (this.options.captureTimeout !== null) {
-      const um = new UndoManager(this._root, {
+      const um = new BindingUndoManager(this._root, () => this.writesEdits(), {
         captureTimeout: this.options.captureTimeout ?? 500,
         deleteFilter: item => !this.isKeptByUndo(item),
         trackedOrigins: new Set([this]),
@@ -5932,7 +5964,7 @@ export class YBinding {
       top === undefined ? null : ((top.meta.get(this) as YCursor) ?? null);
     try {
       // Queued undos run later: admitted then, as any write (see
-      // recordAdmits).
+      // recordAdmits); the UndoManager checks the same (BindingUndoManager).
       if (!this.writesEdits()) {
         return false;
       }

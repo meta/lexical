@@ -224,3 +224,16 @@ export function rawDoc(layout: number, text = 'abc'): Uint8Array {
   });
   return Y.encodeStateAsUpdate(doc);
 }
+
+/** Whether `root`'s record, as it is now, is one the binding writes. */
+export function admitted(root: Y.Node): boolean {
+  const keys = Object.keys(root.getAttrs()).filter(k =>
+    k.startsWith('lexical-y:'),
+  );
+  const versions = keys.map(k => k.slice('lexical-y:'.length));
+  if (keys.length === 0 || versions.some(v => !/^[1-9][0-9]*$/.test(v))) {
+    return false;
+  }
+  const layout = Math.max(...versions.map(Number));
+  return layout >= FLOOR && layout <= LAYOUT_VERSION;
+}

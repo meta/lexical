@@ -12,9 +12,9 @@
 // happen, not as the binding last read it (ported from the identity
 // project's review round 10). Inside an app transaction that makes the
 // record older than the floor, newer than the binding, missing or
-// malformed, the binding writes nothing: not an editor update and not its
-// own undo or redo, queued ones included; headless edits inside `transact`
-// likewise. Once the transaction ends the
+// malformed, the binding writes nothing: not an editor update, not its own
+// undo or redo, and not an undo or redo through its exposed UndoManager;
+// headless edits inside `transact` likewise. Once the transaction ends the
 // binding reads the record and is read only for that cause; a record put
 // back makes it active again. The floor is FLOOR (raised with the internal
 // override where MIN_LAYOUT is 1).
@@ -33,11 +33,18 @@ import {
 } from 'lexical';
 import {afterEach, describe, expect, test} from 'vitest';
 
-import {createYDoc, LAYOUT_VERSION, YBinding, type YDoc} from '../../..';
+import {
+  createYDoc,
+  LAYOUT_VERSION,
+  UNSUPPORTED_EDIT_WARNING,
+  UNSUPPORTED_LAYOUT_WARNING,
+  YBinding,
+  type YDoc,
+} from '../../..';
 import {editYState, seedYState} from '../../../headless';
 import {setMinLayoutForTests} from '../../../internal/Binding';
 import {catalogAppExtension, catalogHeadlessConfig} from '../../catalog/bind';
-import {FLOOR} from '../../utils/migrateSteps';
+import {admitted, FLOOR} from '../../utils/migrateSteps';
 
 const CFG = {blockIds: 'absent', marks: 'mark-state'} as const;
 const ROOT = 'lexical-y';
@@ -76,19 +83,6 @@ function repair(root: Y.Node): void {
     }
   }
   root.setAttr(`lexical-y:${FLOOR}`, true);
-}
-
-/** Whether `root`'s record, as it is now, is one the binding writes. */
-function admitted(root: Y.Node): boolean {
-  const keys = Object.keys(root.getAttrs()).filter(k =>
-    k.startsWith('lexical-y:'),
-  );
-  const versions = keys.map(k => k.slice('lexical-y:'.length));
-  if (keys.length === 0 || versions.some(v => !/^[1-9][0-9]*$/.test(v))) {
-    return false;
-  }
-  const layout = Math.max(...versions.map(Number));
-  return layout >= FLOOR && layout <= LAYOUT_VERSION;
 }
 
 /** Every live text under `node`, in document order. */
@@ -195,6 +189,8 @@ describe.each([false, true])('writes are admitted at write time, gc %s', gc => {
       for (const method of [
         'binding undo',
         'binding redo',
+        'manager undo',
+        'manager redo',
         'editor write',
       ] as const) {
         test(`${where}, record ${cause} inside an app transaction: ${method} writes nothing`, async () => {
@@ -203,6 +199,7 @@ describe.each([false, true])('writes are admitted at write time, gc %s', gc => {
           if (method.endsWith('redo')) {
             expect(t.binding.undo()).toBe(true);
           }
+          const manager = t.binding.undoManager!;
           let before = '';
           let after = '';
           let result: unknown = 'none';
@@ -213,6 +210,10 @@ describe.each([false, true])('writes are admitted at write time, gc %s', gc => {
               result = t.binding.undo();
             } else if (method === 'binding redo') {
               result = t.binding.redo();
+            } else if (method === 'manager undo') {
+              result = manager.undo();
+            } else if (method === 'manager redo') {
+              result = manager.redo();
             } else {
               t.editor.update(
                 () => {
@@ -281,9 +282,42 @@ describe.each([false, true])('writes are admitted at write time, gc %s', gc => {
     },
   );
 
-  test('outside such a transaction, history works as before', () => {
+  test.each(CAUSES)(
+    'an editor write refused inside an app transaction that makes the record %s: the cause is reported before the refusal',
+    async cause => {
+      const t = setup(gc, false);
+      t.warnings.length = 0;
+      t.doc.transact(() => {
+        spoil(t.root, cause);
+        t.editor.update(
+          () => {
+            $getRoot().append(
+              $createParagraphNode().append($createTextNode('forbidden')),
+            );
+          },
+          {discrete: true},
+        );
+      }, 'app');
+      await flush();
+      const refusal = t.warnings.indexOf('read-only');
+      expect(refusal).toBeGreaterThanOrEqual(0);
+      // Unless a build put the record back itself (then nothing is read
+      // only and there is no cause to report).
+      if (!admitted(t.root)) {
+        expect(t.warnings.slice(0, refusal)).toContain(cause);
+      }
+      t.binding.dispose();
+    },
+  );
+
+  test('outside such a transaction, history and the exposed UndoManager work as before', () => {
     const t = setup(gc, false);
+    const manager = t.binding.undoManager!;
     const all = text(t.root);
+    expect(manager.undo()).not.toBeNull();
+    expect(text(t.root)).not.toBe(all);
+    expect(manager.redo()).not.toBeNull();
+    expect(text(t.root)).toBe(all);
     expect(t.binding.undo()).toBe(true);
     expect(t.binding.redo()).toBe(true);
     expect(text(t.root)).toBe(all);
@@ -305,37 +339,44 @@ describe.each([false, true])('writes are admitted at write time, gc %s', gc => {
       copy.destroy();
       setMinLayoutForTests(FLOOR);
       let editor: LexicalEditor | undefined;
-      let out: Uint8Array | null = null;
-      try {
-        out = editYState(
-          base,
-          config,
-          () => {
-            editor = $getEditor();
+      const result = editYState(
+        base,
+        config,
+        () => {
+          editor = $getEditor();
+        },
+        {
+          transact: doc => {
+            spoil(doc.get(ROOT), cause);
+            editor!.update(
+              () => {
+                $getRoot().append(
+                  $createParagraphNode().append($createTextNode('forbidden')),
+                );
+              },
+              {discrete: true},
+            );
           },
-          {
-            transact: doc => {
-              spoil(doc.get(ROOT), cause);
-              editor!.update(
-                () => {
-                  $getRoot().append(
-                    $createParagraphNode().append($createTextNode('forbidden')),
-                  );
-                },
-                {discrete: true},
-              );
-            },
-            writer: null,
-          },
-        ).state;
-      } catch {
-        // A refusal is fine; what matters is that nothing is stored.
+          writer: null,
+        },
+      );
+      // Refused as on a read-only binding: the refusal, after its cause.
+      const codes = result.warnings.map(
+        w =>
+          `${w.code}:${String((w.data as {reason?: unknown} | undefined)?.reason)}`,
+      );
+      const refusal = codes.indexOf(`${UNSUPPORTED_EDIT_WARNING}:read-only`);
+      const why = codes.findIndex(c =>
+        c.startsWith(`${UNSUPPORTED_LAYOUT_WARNING}:`),
+      );
+      expect(refusal).toBeGreaterThanOrEqual(0);
+      const out = createYDoc(result.state, {gc});
+      if (!admitted(out.get(ROOT))) {
+        expect(why).toBeGreaterThanOrEqual(0);
+        expect(why).toBeLessThan(refusal);
       }
-      if (out !== null) {
-        expect(text(createYDoc(out, {gc}).get(ROOT))).not.toContain(
-          'forbidden',
-        );
-      }
+      expect(text(out.get(ROOT))).toBe('abc');
+      out.destroy();
     },
   );
 });
