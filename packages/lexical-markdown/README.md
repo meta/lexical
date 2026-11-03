@@ -119,7 +119,8 @@ with literal asterisks. Import defaults to `'cjk-friendly'`, which follows the
 [CommonMark CJK-friendly amendment](https://github.com/tats-u/markdown-cjk-friendly):
 it reads Markdown as CommonMark does except beside Chinese, Japanese and Korean
 characters and punctuation, where markers open and close as their writer
-meant. Export defaults to `'strict-commonmark'`, whose references every
+meant, and a variation selector before a marker reads as the character it
+follows. Export defaults to `'strict-commonmark'`, whose references every
 CommonMark, GFM and CJK-friendly reader reads the same way
 (`**你好。**&#19990;界`); `'cjk-friendly'` writes such CJK text as typed
 (`**你好。**世界`) for readers that follow the amendment.

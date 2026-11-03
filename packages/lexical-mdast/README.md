@@ -193,7 +193,8 @@ written:
   [CommonMark CJK-friendly amendment](https://github.com/tats-u/markdown-cjk-friendly)
   through `micromark-extension-cjk-friendly`. It reads Markdown as CommonMark
   does except beside Chinese, Japanese and Korean characters and
-  punctuation, where markers open and close as their writer meant.
+  punctuation, where markers open and close as their writer meant. A
+  variation selector before a marker reads as the character it follows.
 - `'strict-commonmark'` follows CommonMark and GFM.
 
 Import defaults to `'cjk-friendly'`, which accepts what CJK writers type and

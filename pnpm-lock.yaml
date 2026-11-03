@@ -1100,6 +1100,9 @@ importers:
       mdast-util-to-string:
         specifier: ^4.0.0
         version: 4.0.0
+      micromark:
+        specifier: ^4.0.2
+        version: 4.0.2(supports-color@10.2.2)
       micromark-extension-cjk-friendly:
         specifier: ^2.0.2
         version: 2.0.2(micromark-util-types@2.0.2)(micromark@4.0.2(supports-color@10.2.2))

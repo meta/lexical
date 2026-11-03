@@ -78,7 +78,8 @@ const WHITESPACE = /[\p{Zs}\t\n\f\r]/u;
  *   `markdown-it-cjk-friendly` and `micromark-extension-cjk-friendly` do: it
  *   reads such a marker as CommonMark does everywhere except beside Chinese,
  *   Japanese and Korean characters and punctuation, where it opens and closes
- *   as a writer of those languages expects.
+ *   as a writer of those languages expects. A variation selector before a
+ *   marker reads as the character it follows.
  */
 export type PunctuationMode = 'cjk-friendly' | 'strict-commonmark';
 
@@ -216,7 +217,7 @@ export function isPunctuationOrSpace(character: string): boolean {
 // whitespace, U+FEFF among it, as whitespace, and without the CJK-friendly
 // extension read a character outside the Basic Multilingual Plane one UTF-16
 // unit at a time, so as a letter.
-const MICROMARK_ONLY_WHITESPACE = /[\v\u2028\u2029\ufeff]/;
+const MICROMARK_ONLY_WHITESPACE = /^[\v\u2028\u2029\ufeff]$/;
 type Reader = (character: string | undefined) => number;
 const asMicromarkReads = (character: string | undefined) =>
   character !== undefined && MICROMARK_ONLY_WHITESPACE.test(character)
@@ -225,9 +226,11 @@ const asMicromarkReads = (character: string | undefined) =>
 const readCjkFriendly: Reader = character => classify(character, true);
 const readMicromarkCjkFriendly: Reader = character =>
   classify(asMicromarkReads(character), true);
-const CJK_FRIENDLY_READERS = [readCjkFriendly, readMicromarkCjkFriendly];
 // CJK-friendly readers read whatever strict readers read the same way, but
 // for corner cases, so an export for strict readers is checked with both.
+// Each list leaves out the micromark CJK-friendly reader, which reads as the
+// other CJK-friendly one does but for MICROMARK_ONLY_WHITESPACE.
+const CJK_FRIENDLY_READERS: Reader[] = [readCjkFriendly];
 const STRICT_READERS: Reader[] = [
   character => classify(character, false),
   character =>
@@ -238,10 +241,17 @@ const STRICT_READERS: Reader[] = [
       false,
     ),
   readCjkFriendly,
-  readMicromarkCjkFriendly,
 ];
 
 let exportReaders = STRICT_READERS;
+
+/** The readers export writes for that can read `a` and `b` differently. */
+function getReaders(a: string | undefined, b?: string): Reader[] {
+  return (a !== undefined && MICROMARK_ONLY_WHITESPACE.test(a)) ||
+    (b !== undefined && MICROMARK_ONLY_WHITESPACE.test(b))
+    ? exportReaders.concat(readMicromarkCjkFriendly)
+    : exportReaders;
+}
 
 /**
  * Runs `fn` with export writing emphasis markers for readers in `mode`, or as
@@ -278,7 +288,7 @@ export function isPortablyFlankedBy(
   secondary: string | undefined,
   isLeft: boolean,
 ): boolean {
-  return exportReaders.every(read =>
+  return getReaders(primary, secondary).every(read =>
     isFlankedByClass(read(primary), read(secondary), isLeft),
   );
 }
@@ -291,7 +301,7 @@ export function getPortableEmphasisSides(
 ): {canOpen: boolean; canClose: boolean} {
   let canOpen = true;
   let canClose = true;
-  for (const read of exportReaders) {
+  for (const read of getReaders(before, after)) {
     const sides = getSides(marker, read(before), read(after));
     canOpen &&= sides.canOpen;
     canClose &&= sides.canClose;
@@ -301,7 +311,9 @@ export function getPortableEmphasisSides(
 
 /** Whether some reader export writes for reads `character` as a letter. */
 export function isLetterForSomeReader(character: string): boolean {
-  return exportReaders.some(read => !isSpaceOrPunctuation(read(character)));
+  return getReaders(character).some(
+    read => !isSpaceOrPunctuation(read(character)),
+  );
 }
 
 /**

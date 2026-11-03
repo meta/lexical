@@ -234,4 +234,34 @@ describe('Markdown punctuation modes', () => {
     expect(importRuns(cjkFriendly)).toEqual(runs);
     expect(importMdastRuns(cjkFriendly, 'cjk-friendly')).toEqual(runs);
   });
+
+  it('reads null and an options object with the merge flag as before', () => {
+    const editor = createEditor();
+    const importText = (
+      options: boolean | MarkdownImportOptions | null,
+      shouldMergeAdjacentLines: boolean,
+    ) => {
+      editor.update(
+        () =>
+          $convertFromMarkdownString(
+            'a\nb',
+            TRANSFORMERS,
+            undefined,
+            // As JavaScript can pass it.
+            options as boolean,
+            shouldMergeAdjacentLines,
+          ),
+        {discrete: true},
+      );
+      return editor.read('latest', () => $getRoot().getTextContent());
+    };
+    expect(importText(null, false)).toBe('a\nb');
+    expect(importText(null, true)).toBe('a b');
+    expect(importText({punctuation: 'strict-commonmark'}, true)).toBe('a b');
+    expect(
+      editor.read('latest', () =>
+        $convertToMarkdownString(TRANSFORMERS, undefined, null as never),
+      ),
+    ).toBe('a b');
+  });
 });

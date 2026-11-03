@@ -97,7 +97,6 @@ export function compileMdast(
   return {
     exportHandlers,
     exportPunctuation: config.exportPunctuation,
-    exportSyntaxExtensions: [...config.micromarkExtensions],
     importHandlers,
     inlineShortcutTriggers: new Set(config.inlineShortcutTriggers),
     inlineShortcutTypes: new Set(config.inlineShortcutTypes),

@@ -198,6 +198,15 @@ describe('Mdast punctuation modes', () => {
       'b&#x1F600;~~」0你~~',
       'b\u{1f600}~~」0你~~',
     ],
+    // An escaped marker beside an emoji is punctuation like any other.
+    [
+      [
+        ['a*\u{1f389} ', 0],
+        ['b', italic],
+      ],
+      'a\\*\u{1f389} *b*',
+      'a\\*\u{1f389} *b*',
+    ],
     // A reference that is not beside a marker stays.
     [[['&世', 0]], '&世', '&世'],
   ])('exports %j', (runs, strict, cjkFriendly) => {

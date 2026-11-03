@@ -50,9 +50,9 @@ import {
   IS_ITALIC,
   IS_STRIKETHROUGH,
 } from 'lexical';
-import {fromMarkdown} from 'mdast-util-from-markdown';
 import {defaultHandlers, toMarkdown} from 'mdast-util-to-markdown';
 import {toString as mdastToString} from 'mdast-util-to-string';
+import {parse, postprocess, preprocess} from 'micromark';
 import {classifyCharacter, isCjk} from 'micromark-extension-cjk-friendly-util';
 
 import {
@@ -583,23 +583,33 @@ function createNodeExporter(
 }
 
 const ATTENTION_MARKER = /[*_~]/;
-const PUNCTUATION = /[\p{P}\p{S}]/u;
 // A character outside the Basic Multilingual Plane that CommonMark reads as
 // punctuation, such as an emoji.
 const ASTRAL_PUNCTUATION = /(?![\0-\uffff])[\p{P}\p{S}]/gu;
 
-/** Collects every string in `value`, node `data` included. */
-function collectStrings(
-  value: unknown,
-  strings: string[],
-  seen: Set<object>,
-): void {
+// Stand-ins come from Supplemental Punctuation (U+2E00 to U+2E7F) first,
+// then from the symbols from U+2600: characters a handler is unlikely to
+// write on its own.
+const STAND_IN_START = 0x2600;
+const STAND_IN_END = 0x2e80;
+const STAND_IN_FIRST = 0x2e00;
+
+/**
+ * Adds each character in the stand-in range of every string in `value`, node
+ * `data` included, to `used`.
+ */
+function collectUsed(value: unknown, used: Set<number>, seen: Set<object>) {
   if (typeof value === 'string') {
-    strings.push(value);
+    for (let i = 0; i < value.length; i++) {
+      const code = value.charCodeAt(i);
+      if (code >= STAND_IN_START && code < STAND_IN_END) {
+        used.add(code);
+      }
+    }
   } else if (typeof value === 'object' && value !== null && !seen.has(value)) {
     seen.add(value);
     for (const key in value) {
-      collectStrings((value as Record<string, unknown>)[key], strings, seen);
+      collectUsed((value as Record<string, unknown>)[key], used, seen);
     }
   }
 }
@@ -622,22 +632,23 @@ function countAstralPunctuation(tree: Root): Map<string, number> {
 
 /**
  * A stand-in for each of `characters`: a punctuation character of the Basic
- * Multilingual Plane that does not occur in `used`. Supplemental Punctuation
- * (U+2E00 to U+2E7F) comes first, then the symbols from U+2600, characters a
- * handler is unlikely to write on its own.
+ * Multilingual Plane that is not in `used`.
  */
 function pickStandIns(
   characters: Iterable<string>,
-  used: string,
+  used: Set<number>,
 ): Map<string, string> {
   const standIns = new Map<string, string>();
-  let i = 0;
+  const size = STAND_IN_END - STAND_IN_START;
+  let i = STAND_IN_FIRST - STAND_IN_START;
+  let tried = 0;
   for (const character of characters) {
-    for (; i < 0x880; i++) {
-      const standIn = String.fromCharCode(0x2600 + ((i + 0x800) % 0x880));
-      if (PUNCTUATION.test(standIn) && !used.includes(standIn)) {
-        standIns.set(character, standIn);
-        i++;
+    for (; tried < size; tried++, i = (i + 1) % size) {
+      const code = STAND_IN_START + i;
+      if (classifyCharacter(code) & PUNCTUATION_CLASS && !used.has(code)) {
+        standIns.set(character, String.fromCharCode(code));
+        tried++;
+        i = (i + 1) % size;
         break;
       }
     }
@@ -703,9 +714,8 @@ function toMarkdownWithStandIns(
 ): string {
   const counts = countAstralPunctuation(tree);
   if (counts.size > 0) {
-    const strings: string[] = [];
-    collectStrings(tree, strings, new Set());
-    let used = strings.join('\n');
+    const used = new Set<number>();
+    collectUsed(tree, used, new Set());
     const text = getTextHandler(extensions);
     // A handler that writes a stand-in of its own leaves more of it than the
     // text has: pick again, avoiding what it wrote, or go without.
@@ -714,14 +724,25 @@ function toMarkdownWithStandIns(
       const out = toMarkdown(tree, {
         extensions: [...extensions, standInText(text, standIns)],
       });
-      let isClean = true;
+      const found = new Map<string, number>();
+      const characters = new Map<string, string>();
       for (const [character, standIn] of standIns) {
-        isClean &&= out.split(standIn).length - 1 <= counts.get(character)!;
+        characters.set(standIn, character);
+      }
+      for (let i = 0; i < out.length; i++) {
+        const character = characters.get(out[i]);
+        if (character !== undefined) {
+          found.set(character, (found.get(character) || 0) + 1);
+        }
+      }
+      let isClean = true;
+      for (const [character, count] of found) {
+        isClean &&= count <= counts.get(character)!;
       }
       if (isClean) {
-        return restoreAstralPunctuation(out, standIns, isCjkFriendly);
+        return restoreAstralPunctuation(out, characters, isCjkFriendly);
       }
-      used += out;
+      collectUsed(out, used, new Set());
     }
   }
   return toMarkdown(tree, {extensions});
@@ -776,20 +797,28 @@ function getFlanking(marker: string, before: number, after: number): number {
  */
 function restoreAstralPunctuation(
   markdown: string,
-  standIns: Map<string, string>,
+  characters: Map<string, string>,
   isCjkFriendly: boolean,
 ): string {
-  const characters = new Map<string, string>();
-  for (const [character, standIn] of standIns) {
-    characters.set(standIn, character);
-  }
+  // Whether the character at `index` is escaped by a backslash.
+  const isEscaped = (index: number): boolean => {
+    let backslashes = 0;
+    while (markdown[index - 1 - backslashes] === '\\') {
+      backslashes++;
+    }
+    return backslashes % 2 === 1;
+  };
   // Whether the run beside `index`, toward `step`, flanks the same whether
   // the stand-in at `index`, and one beyond the run, read as letters.
   const isPortable = (index: number, step: 1 | -1): boolean => {
     const marker = markdown[index + step];
     let end = index + step;
-    while (markdown[end] === marker) {
+    while (markdown[end] === marker && !isEscaped(end)) {
       end += step;
+    }
+    if (end === index + step) {
+      // An escaped marker, which is punctuation like any other.
+      return true;
     }
     const beyond = markdown.charCodeAt(end);
     const fars = characters.has(markdown[end])
@@ -806,19 +835,19 @@ function restoreAstralPunctuation(
         flanking(LETTER_CLASS, far) === expected,
     );
   };
-  let result = '';
-  for (let i = 0; i < markdown.length; i++) {
-    const character = characters.get(markdown[i]);
-    result +=
-      character === undefined
-        ? markdown[i]
-        : !isCjkFriendly &&
-            ((ATTENTION_MARKER.test(markdown[i - 1]) && !isPortable(i, -1)) ||
-              (ATTENTION_MARKER.test(markdown[i + 1]) && !isPortable(i, 1)))
-          ? `&#x${character.codePointAt(0)!.toString(16).toUpperCase()};`
-          : character;
-  }
-  return result;
+  // `mdast-util-to-markdown` writes a reference only for whitespace or a
+  // letter, so never for a stand-in.
+  return markdown.replace(
+    new RegExp(`[${[...characters.keys()].join('')}]`, 'g'),
+    (standIn, i: number) => {
+      const character = characters.get(standIn)!;
+      return !isCjkFriendly &&
+        ((ATTENTION_MARKER.test(markdown[i - 1]) && !isPortable(i, -1)) ||
+          (ATTENTION_MARKER.test(markdown[i + 1]) && !isPortable(i, 1)))
+        ? `&#x${character.codePointAt(0)!.toString(16).toUpperCase()};`
+        : character;
+    },
+  );
 }
 
 /**
@@ -836,21 +865,18 @@ function toCjkFriendly(markdown: string, compiled: CompiledMdast): string {
     return markdown;
   }
   // Only references that micromark reads as such: not escaped ones, nor
-  // those in code.
+  // those in code. Its events are enough, without building a tree.
   const values: [start: number, end: number][] = [];
-  fromMarkdown(markdown, {
-    extensions: compiled.micromarkExtensions,
-    mdastExtensions: [
-      ...compiled.mdastExtensions,
-      {
-        enter: {
-          characterReferenceValue(token) {
-            values.push([token.start.offset, token.end.offset]);
-          },
-        },
-      },
-    ],
-  });
+  const events = postprocess(
+    parse({extensions: compiled.micromarkExtensions})
+      .document()
+      .write(preprocess()(markdown, undefined, true)),
+  );
+  for (const [kind, token] of events) {
+    if (kind === 'enter' && token.type === 'characterReferenceValue') {
+      values.push([token.start.offset, token.end.offset]);
+    }
+  }
   let result = '';
   let last = 0;
   for (const [start, end] of values) {

@@ -29,7 +29,8 @@ import type {Extension as MicromarkExtension} from 'micromark-util-types';
  *   `micromark-extension-cjk-friendly`: it reads markers as CommonMark does
  *   everywhere except beside Chinese, Japanese and Korean characters and
  *   punctuation, where they open and close as a writer of those languages
- *   expects.
+ *   expects. A variation selector before a marker reads as the character it
+ *   follows.
  * @experimental
  */
 export type MdastPunctuationMode = 'cjk-friendly' | 'strict-commonmark';
@@ -244,13 +245,6 @@ export interface CompiledMdast {
   toMarkdownExtensions: ToMarkdownExtension[];
   /** Which readers export writes emphasis for; see {@link MdastConfig}. */
   exportPunctuation: MdastPunctuationMode;
-  /**
-   * The micromark extensions without the CJK-friendly ones, with which
-   * export checks how micromark reads it.
-   *
-   * @internal
-   */
-  exportSyntaxExtensions: MicromarkExtension[];
   /** mdast inline `type`s eligible for streaming shortcut materialization. */
   inlineShortcutTypes: Set<string>;
   /** Characters that can close an inline construct and trigger a re-scan. */

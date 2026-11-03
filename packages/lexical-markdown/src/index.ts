@@ -103,9 +103,15 @@ function toImportOptions(
   options: boolean | MarkdownImportOptions,
   shouldMergeAdjacentLines: boolean,
 ): MarkdownImportOptions {
-  return typeof options === 'boolean'
-    ? {shouldMergeAdjacentLines, shouldPreserveNewLines: options}
-    : options;
+  // An argument that is not an options object (`null` from JavaScript
+  // included) is the `shouldPreserveNewLines` flag.
+  return typeof options === 'object' && options !== null
+    ? {
+        ...options,
+        shouldMergeAdjacentLines:
+          options.shouldMergeAdjacentLines || shouldMergeAdjacentLines,
+      }
+    : {shouldMergeAdjacentLines, shouldPreserveNewLines: Boolean(options)};
 }
 
 function $importMarkdown(
@@ -218,9 +224,9 @@ function $generateNodesFromMarkdownString(
 function toExportOptions(
   options: boolean | MarkdownExportOptions,
 ): MarkdownExportOptions {
-  return typeof options === 'boolean'
-    ? {shouldPreserveNewLines: options}
-    : options;
+  return typeof options === 'object' && options !== null
+    ? options
+    : {shouldPreserveNewLines: Boolean(options)};
 }
 
 /**
