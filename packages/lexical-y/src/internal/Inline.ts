@@ -12,6 +12,7 @@ import type {Item} from '@y/y';
 import {ContentFormat, ContentString, ContentType} from '@y/y';
 import {
   $isLineBreakNode,
+  $isTabNode,
   $isTextNode,
   type ElementNode,
   type LexicalNode,
@@ -134,12 +135,20 @@ export type DesiredContext = {
   /** Origin ranges of a text node's text (relative), see Atoms.origins. */
   originOf?: ((node: TextNode) => [number, number, string][]) | null;
   /**
+   * The key of the node being composed, if any (the editor's composition
+   * key: `isComposing()` reads none in the read-only state the writer reads).
+   */
+  compositionKey?: NodeKey | null;
+  /**
    * Set when the content is stored, and read, otherwise than the editor
    * holds it: a wrapper nested in a wrapper of its own type (a link in a
    * link), as the formats store one per type, the inner one; two adjacent
    * text nodes that store the same attributes (that Lexical did not merge,
-   * because of NodeState it compares by reference), as one text node. The
-   * author then reads the content again, to show what every reader shows.
+   * because of NodeState it compares by reference, or because they are not
+   * simple text: two parts of one stored token or segmented run, which a
+   * reader showed apart while a format covered one of them), as one text
+   * node. The author then reads the content again, to show what every reader
+   * shows.
    */
   flattened?: boolean;
   /**
@@ -174,8 +183,8 @@ export function $pushInline(
   ctx: DesiredContext,
   wrapperAttrs: Attrs = {},
 ): void {
-  // The stored attributes of the text node before, when it has no segment
-  // key (see DesiredContext.flattened).
+  // The stored attributes of the text node before (see
+  // DesiredContext.flattened).
   let prevText: string | null = null;
   for (const node of nodes) {
     const afterText: string | null = prevText;
@@ -194,8 +203,18 @@ export function $pushInline(
           ctx.segments.create(node.getKey()));
       const attrs = {...wrapperAttrs, ...$textAttrs(node, segment)};
       // (Not around the node being composed: Lexical holds its merges back
-      // until the composition ends, see DEFER_COMPOSITION_MERGE_TAG.)
-      if (segment === null && text !== '' && !node.isComposing()) {
+      // until the composition ends, see DEFER_COMPOSITION_MERGE_TAG.) A node
+      // with a segment key stores it, so only a node with the same key, a
+      // part of the same stored run, compares equal; and only while nothing
+      // is being composed: the read would make every part of the run one
+      // node, the composed one included, and rewrite the IME's target. Readers
+      // show every tab as a node of its own.
+      if (
+        text !== '' &&
+        !node.isComposing() &&
+        !$isTabNode(node) &&
+        (segment === null || (ctx.compositionKey ?? null) === null)
+      ) {
         prevText = stableStringify(attrs);
         if (prevText === afterText) {
           ctx.flattened = true;

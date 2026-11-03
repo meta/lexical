@@ -898,6 +898,71 @@ describe('MarkStateExtension', () => {
       }
     });
 
+    test('a hashtag inserted at the edge of a marked run is not marked, like MarkNode', () => {
+      // The inserted text lands in the marked node, and the hashtag
+      // transform splits the hashtag off with a copy of that node's ids
+      // (which the hashtag keeps): those are not the inserted text's own
+      const cases: [string, number, string, string, string][] = [
+        [
+          'pasted after',
+          3,
+          ' #tag',
+          'paragraph("see"[c1] " " "#tag" " more")',
+          'paragraph(mark[c1]("see") " " "#tag" " more")',
+        ],
+        [
+          'code after',
+          3,
+          ' #tag',
+          'paragraph("see"[c1] " " "#tag" " more")',
+          'paragraph(mark[c1]("see") " " "#tag" " more")',
+        ],
+        [
+          'code before',
+          0,
+          '#tag ',
+          // As on main: the space lands in the text with "see"
+          'paragraph("#tag" " see"[c1] " more")',
+          'paragraph("#tag" " " mark[c1]("see") " more")',
+        ],
+      ];
+      for (const [how, at, text, expected, expectedWithMarkNode] of cases) {
+        for (const withMarkNode of [false, true]) {
+          const editor = buildEditorFromExtensions(
+            defineExtension({
+              dependencies: [
+                RichTextExtension,
+                HashtagExtension,
+                MarkExtension,
+                ...(withMarkNode ? [] : [MarkStateExtension]),
+              ],
+              name: '[root]',
+            }),
+          );
+          update(editor, () => $init('see more'));
+          update(editor, () => {
+            const selection = $select(0, 3);
+            if (withMarkNode) {
+              $wrapSelectionInMarkNode(selection, false, 'c1');
+            } else {
+              $addMarkID('c1', selection);
+            }
+          });
+          update(editor, () => $select(at));
+          if (how.startsWith('pasted')) {
+            editor.dispatchCommand(PASTE_COMMAND, pasteEvent(text));
+          } else {
+            update(editor, () => $select(at).insertText(text));
+          }
+          expect([how, withMarkNode, tree(editor)]).toEqual([
+            how,
+            withMarkNode,
+            withMarkNode ? expectedWithMarkNode : expected,
+          ]);
+        }
+      }
+    });
+
     test('pasted Lexical data keeps its ids after a marked hashtag', () => {
       // Pasted or inserted content with the same ids as the hashtag is not
       // taken for text split off it: its ids are a value of its own, not
