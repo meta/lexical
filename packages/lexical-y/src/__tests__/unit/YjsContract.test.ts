@@ -433,6 +433,34 @@ function inventory(): Map<string, Set<string>> {
   return uses;
 }
 
+/**
+ * Where the two contract lists and the sources disagree. The core list
+ * covers what the core uses; the migration list covers what the runner,
+ * the server and the steps use beyond it. A member both use may be in both
+ * lists (the migration probe checks it again) or in the core list only.
+ */
+function contractGaps(
+  usedByCore: ReadonlySet<string>,
+  usedByMigration: ReadonlySet<string>,
+  listedCore: ReadonlySet<string>,
+  listedMigration: ReadonlySet<string>,
+) {
+  return {
+    core: {
+      listedButUnused: [...listedCore].filter(k => !usedByCore.has(k)).sort(),
+      usedButNotListed: [...usedByCore].filter(k => !listedCore.has(k)).sort(),
+    },
+    migration: {
+      listedButUnused: [...listedMigration]
+        .filter(k => !usedByMigration.has(k))
+        .sort(),
+      usedButNotListed: [...usedByMigration]
+        .filter(k => !listedCore.has(k) && !listedMigration.has(k))
+        .sort(),
+    },
+  };
+}
+
 describe('the contract', () => {
   // Type-checks the package's sources: about 1.5 s alone, more under load.
   test('lists exactly what the sources use of @y/y', {timeout: 60_000}, () => {
@@ -484,28 +512,81 @@ describe('the contract', () => {
     // src/internal/YjsContract.ts (or YjsMigrationContract.ts for what only
     // the runner and the server use), so the runtime check probes it.
     // Listed but no longer used: remove it.
-    const migrationOnly = [...usedByMigration].filter(k => !listedCore.has(k));
+    const gaps = contractGaps(
+      usedByCore,
+      usedByMigration,
+      listedCore,
+      listedMigration,
+    );
+    const located = (keys: string[]) => keys.map(k => k + where(k));
     expect({
       core: {
-        listedButUnused: [...listedCore].filter(k => !usedByCore.has(k)).sort(),
-        usedButNotListed: [...usedByCore]
-          .filter(k => !listedCore.has(k))
-          .sort()
-          .map(k => k + where(k)),
+        listedButUnused: gaps.core.listedButUnused,
+        usedButNotListed: located(gaps.core.usedButNotListed),
       },
       migration: {
-        listedButUnused: [...listedMigration]
-          .filter(k => !migrationOnly.includes(k))
-          .sort(),
-        usedButNotListed: migrationOnly
-          .filter(k => !listedMigration.has(k))
-          .sort()
-          .map(k => k + where(k)),
+        listedButUnused: gaps.migration.listedButUnused,
+        usedButNotListed: located(gaps.migration.usedButNotListed),
       },
     }).toEqual({
       core: {listedButUnused: [], usedButNotListed: []},
       migration: {listedButUnused: [], usedButNotListed: []},
     });
+  });
+
+  test('a member the core and the migration code both use may be in both lists (or only the core one)', () => {
+    const core = new Set(['GC#length', 'Item#id']);
+    const migration = new Set(['GC#length', 'export diffUpdate']);
+    const clean = {
+      core: {listedButUnused: [], usedButNotListed: []},
+      migration: {listedButUnused: [], usedButNotListed: []},
+    };
+    // Listed in both: a duplicate, allowed.
+    expect(
+      contractGaps(
+        core,
+        migration,
+        new Set(['GC#length', 'Item#id']),
+        new Set(['GC#length', 'export diffUpdate']),
+      ),
+    ).toEqual(clean);
+    // Listed in the core list only: covered there.
+    expect(
+      contractGaps(
+        core,
+        migration,
+        new Set(['GC#length', 'Item#id']),
+        new Set(['export diffUpdate']),
+      ),
+    ).toEqual(clean);
+    // The core uses it but only the migration list has it: the core's gap.
+    expect(
+      contractGaps(
+        core,
+        migration,
+        new Set(['Item#id']),
+        new Set(['GC#length', 'export diffUpdate']),
+      ).core.usedButNotListed,
+    ).toEqual(['GC#length']);
+    // Only the migration code uses it, and only the core list has it: the
+    // core lists what it does not use.
+    expect(
+      contractGaps(
+        new Set(['Item#id']),
+        migration,
+        new Set(['GC#length', 'Item#id']),
+        new Set(['export diffUpdate']),
+      ).core.listedButUnused,
+    ).toEqual(['GC#length']);
+    // Listed for the migration code, which no longer uses it.
+    expect(
+      contractGaps(
+        core,
+        new Set(['export diffUpdate']),
+        new Set(['GC#length', 'Item#id']),
+        new Set(['GC#length', 'export diffUpdate']),
+      ).migration.listedButUnused,
+    ).toEqual(['GC#length']);
   });
 
   test('the installed @y/y passes the migration probe, which the core does not ship', () => {
