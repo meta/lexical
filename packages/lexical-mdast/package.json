@@ -25,7 +25,6 @@
     "@lexical/table": "workspace:*",
     "@lexical/utils": "workspace:*",
     "@types/mdast": "^4.0.4",
-    "get-east-asian-width": "^1.7.0",
     "lexical": "workspace:*",
     "mdast-util-from-markdown": "^2.1.0",
     "mdast-util-gfm-autolink-literal": "^2.0.1",

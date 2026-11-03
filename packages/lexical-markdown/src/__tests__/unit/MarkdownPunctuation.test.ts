@@ -262,6 +262,14 @@ describe('Markdown punctuation modes', () => {
       '**\u00a9\ufe0e**&#50;024',
       '**\u00a9\ufe0e**&#50;024',
     ],
+    [
+      [
+        ['\ufe00', bold],
+        ['b?계', italic],
+      ],
+      '**&#65024;***&#98;?계*',
+      '**\ufe00***&#98;?계*',
+    ],
   ])('exports %j', (runs, strict, cjkFriendly) => {
     expect(exportRuns(runs)).toBe(strict);
     expect(exportRuns(runs, 'strict-commonmark')).toBe(strict);
@@ -302,5 +310,13 @@ describe('Markdown punctuation modes', () => {
         $convertToMarkdownString(TRANSFORMERS, undefined, null as never),
       ),
     ).toBe('a b');
+  });
+
+  it('exports a long paragraph of one-character pieces', () => {
+    const runs: Runs = [];
+    for (let i = 0; i < 4000; i++) {
+      runs.push([String(i % 10), i % 2 ? bold : italic]);
+    }
+    expect(exportRuns(runs).startsWith('*0***1***2*')).toBe(true);
   });
 });

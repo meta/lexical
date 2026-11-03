@@ -20,6 +20,8 @@ import {cjkFriendlyExtension} from 'micromark-extension-cjk-friendly';
 import {gfmStrikethroughCjkFriendly} from 'micromark-extension-cjk-friendly-gfm-strikethrough';
 import {
   classifyCharacter,
+  classifyPrecedingCharacter,
+  isCjk,
   isUnicodeWhitespace,
   tryGetCodeTwoBefore,
 } from 'micromark-extension-cjk-friendly-util';
@@ -37,7 +39,7 @@ export const gfmStrikethroughSyntax = /* @__PURE__ */ gfmStrikethrough();
  * `gfmStrikethroughCjkFriendly()`, but a `~` run after a variation selector
  * (U+FE00 to U+FE0E) closes as it does after the character the selector
  * varies, as the CJK-friendly emphasis reads it: version 2.0.1 reads the
- * character only for the run to open, so `~~Done ✔︎~~` stays literal.
+ * character only for the run to open, so `~~Done ✔\ufe0e~~` stays literal.
  */
 function cjkFriendlyStrikethrough(): MicromarkExtension {
   const syntax = gfmStrikethroughCjkFriendly();
@@ -51,12 +53,24 @@ function cjkFriendlyStrikethrough(): MicromarkExtension {
         previous !== null && previous >= 0xfe00 && previous <= 0xfe0e
           ? tryGetCodeTwoBefore(previous, this.now(), this.sliceSerialize)
           : null;
+      if (base === null || isUnicodeWhitespace(classifyCharacter(base))) {
+        return tokenize.call(this, effects, ok, nok);
+      }
+      // A character of the class the selector reads as: the one it varies,
+      // unless that is a `~`, which would join the run, or the selector
+      // makes it CJK punctuation.
+      const group = classifyPrecedingCharacter(
+        classifyCharacter(previous),
+        () => base,
+        previous,
+      );
+      const stand =
+        base !== 126 && group === classifyCharacter(base)
+          ? base
+          : // `一`, `。`, `a` or `!`.
+            (isCjk(group) ? [0x4e00, 0x3002] : [0x61, 0x21])[group & 2 ? 1 : 0];
       return tokenize.call(
-        base === null ||
-          base === 126 ||
-          isUnicodeWhitespace(classifyCharacter(base))
-          ? this
-          : Object.create(this, {previous: {value: base}}),
+        Object.create(this, {previous: {value: stand}}),
         effects,
         ok,
         nok,

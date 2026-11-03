@@ -1076,9 +1076,6 @@ importers:
       '@types/mdast':
         specifier: ^4.0.4
         version: 4.0.4
-      get-east-asian-width:
-        specifier: ^1.7.0
-        version: 1.7.0
       lexical:
         specifier: workspace:*
         version: link:../lexical

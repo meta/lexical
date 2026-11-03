@@ -588,8 +588,11 @@ const ATTENTION_MARKER = /[*_~]/;
 // Multilingual Plane that CommonMark reads as punctuation, such as an emoji,
 // and a general-use variation selector other than the emoji one, which the
 // CJK-friendly amendment reads before a marker as the character it varies.
-const STOOD_IN = /(?![\0-￿])[\p{P}\p{S}]|[︀-︎]/gu;
-const VARIATION_SELECTOR = /[︀-︎]/;
+// It also stands in for the characters micromark reads as whitespace and
+// CommonMark as letters.
+const STOOD_IN =
+  /(?![\0-\uffff])[\p{P}\p{S}]|[\ufe00-\ufe0e]|[\v\u2028\u2029\ufeff]/gu;
+const MICROMARK_ONLY_WHITESPACE = /[\v\u2028\u2029\ufeff]/;
 
 // Stand-ins come from Supplemental Punctuation (U+2E00 to U+2E7F) first,
 // then from the symbols from U+2600: characters a handler is unlikely to
@@ -610,7 +613,7 @@ function collectUsed(value: string, used: Set<number>): void {
 
 /**
  * How often each character of {@link STOOD_IN} occurs in the text of
- * `tree`; adds what the text and the other values of its nodes hold of the
+ * `tree`; adds what the strings of its nodes (not their `data`) hold of the
  * stand-in range to `used`.
  */
 function countStoodIn(tree: Root, used: Set<number>): Map<string, number> {
@@ -621,8 +624,11 @@ function countStoodIn(tree: Root, used: Set<number>): Map<string, number> {
         counts.set(character, (counts.get(character) || 0) + 1);
       }
     }
-    if ('value' in node) {
-      collectUsed(node.value, used);
+    for (const key in node) {
+      const value = (node as unknown as Record<string, unknown>)[key];
+      if (typeof value === 'string') {
+        collectUsed(value, used);
+      }
     }
     if ('children' in node) {
       node.children.forEach(visit);
@@ -709,7 +715,7 @@ function getTextHandler(
  * emoji or another such symbol as punctuation: a run between it and a letter
  * does not open or close for them (`Hello**🎉 launch**`). It reads a
  * variation selector as a letter too, where the amendment reads one before a
- * marker as the character it varies, mostly a symbol (`**©︎**2024`). So that
+ * marker as the character it varies, mostly a symbol (`**©\ufe0e**2024`). So that
  * the export writes the references and picks the markers those readers need,
  * each such character in text stands in, while the text is serialized, as a
  * punctuation character of the Basic Multilingual Plane that the tree does
@@ -780,12 +786,13 @@ function getFlanking(marker: string, before: number, after: number): number {
  * Puts back the characters {@link toMarkdownWithStandIns} stood in for. The
  * export reads as intended for every reader that reads them as punctuation.
  * micromark without the CJK-friendly extension reads an emoji one UTF-16
- * unit at a time, so as a letter, and every reader reads a variation
- * selector as one, but CJK-friendly readers before a marker, which read the
- * character it varies. Where a run beside such a character would flank
- * otherwise for those readers, the character goes out as a reference, which
+ * unit at a time, so as a letter; every reader reads a variation selector as
+ * one, but CJK-friendly readers before a marker, which read the character it
+ * varies; micromark reads U+FEFF, U+2028, U+2029 and `\v` as whitespace,
+ * other readers as letters. Where a run beside such a character would flank
+ * otherwise for some reader, the character goes out as a reference, which
  * every reader reads as punctuation; an export only for CJK-friendly readers
- * needs that for variation selectors alone.
+ * needs that for the characters of the Basic Multilingual Plane alone.
  */
 function restoreStoodIn(
   markdown: string,
@@ -800,8 +807,13 @@ function restoreStoodIn(
     }
     return backslashes % 2 === 1;
   };
-  // Whether the run beside `index`, toward `step`, flanks the same whether
-  // the stand-in at `index`, and one beyond the run, read as letters.
+  // How readers read the character a stand-in stands for.
+  const readings = (standIn: string): number[] =>
+    MICROMARK_ONLY_WHITESPACE.test(characters.get(standIn)!)
+      ? [PUNCTUATION_CLASS, WHITESPACE_CLASS, LETTER_CLASS]
+      : [PUNCTUATION_CLASS, LETTER_CLASS];
+  // Whether the run beside `index`, toward `step`, flanks the same for every
+  // reading of the stand-in at `index`, and of one beyond the run.
   const isPortable = (index: number, step: 1 | -1): boolean => {
     const marker = markdown[index + step];
     let end = index + step;
@@ -814,7 +826,7 @@ function restoreStoodIn(
     }
     const beyond = markdown.charCodeAt(end);
     const fars = characters.has(markdown[end])
-      ? [PUNCTUATION_CLASS, LETTER_CLASS]
+      ? readings(markdown[end])
       : [
           Number.isNaN(beyond)
             ? WHITESPACE_CLASS
@@ -824,11 +836,10 @@ function restoreStoodIn(
       step === 1
         ? getFlanking(marker, near, far)
         : getFlanking(marker, far, near);
+    const nears = readings(markdown[index]);
     const expected = flanking(PUNCTUATION_CLASS, fars[0]);
-    return fars.every(
-      far =>
-        flanking(PUNCTUATION_CLASS, far) === expected &&
-        flanking(LETTER_CLASS, far) === expected,
+    return fars.every(far =>
+      nears.every(near => flanking(near, far) === expected),
     );
   };
   // `mdast-util-to-markdown` writes a reference only for whitespace or a
@@ -837,7 +848,7 @@ function restoreStoodIn(
     new RegExp(`[${[...characters.keys()].join('')}]`, 'g'),
     (standIn, i: number) => {
       const character = characters.get(standIn)!;
-      return (!isCjkFriendly || VARIATION_SELECTOR.test(character)) &&
+      return (!isCjkFriendly || character.length === 1) &&
         ((ATTENTION_MARKER.test(markdown[i - 1]) && !isPortable(i, -1)) ||
           (ATTENTION_MARKER.test(markdown[i + 1]) && !isPortable(i, 1)))
         ? // A backslash before the reference would escape its `&`.

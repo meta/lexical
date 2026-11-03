@@ -240,6 +240,15 @@ describe('Mdast punctuation modes', () => {
       '**a\\\\&#xFE0E;**&#x62;',
       '**a\\\\&#xFE0E;**&#x62;',
     ],
+    // micromark reads U+FEFF as whitespace, CommonMark as a letter.
+    [
+      [
+        ['\u00a9', italic],
+        ['\ufeff\u3002世', 0],
+      ],
+      '*\u00a9*&#xFEFF;\u3002世',
+      '*\u00a9*&#xFEFF;\u3002世',
+    ],
     // An escaped marker beside an emoji is punctuation like any other.
     [
       [
@@ -339,14 +348,14 @@ describe('Mdast punctuation modes', () => {
     editor.update(
       () =>
         $appendRuns([
-          ['\ufeff', 0],
+          ['\ufeff\u3002', 0],
           ['你好。', bold],
           ['世界', 0],
         ]),
       {discrete: true},
     );
     expect(editor.read('latest', () => $convertToMarkdownString())).toBe(
-      '\ufeff**你好。**世界',
+      '\ufeff\u3002**你好。**世界',
     );
   });
 });
