@@ -60,12 +60,14 @@ export function transformersByType(transformers: Transformer[]): Readonly<{
 // CommonMark counts every character in the Unicode P (punctuation) and S
 // (symbol) general categories as punctuation, which includes all of the ASCII
 // punctuation characters. Its Unicode whitespace is Zs plus tab, line feed,
-// form feed and carriage return; JavaScript's `\s` adds others, such as
-// U+FEFF. Delimiter flanking depends on both.
+// form feed and carriage return. A vertical tab, which Office writes for a
+// soft line break, counts too, as every common reader (commonmark.js,
+// markdown-it and micromark) reads it; JavaScript's `\s` adds others, such
+// as U+FEFF. Delimiter flanking depends on both.
 // https://spec.commonmark.org/0.31.2/#unicode-punctuation-character
 // https://spec.commonmark.org/0.31.2/#unicode-whitespace-character
 const PUNCTUATION = /[\p{P}\p{S}]/u;
-const WHITESPACE = /[\p{Zs}\t\n\f\r]/u;
+const WHITESPACE = /[\p{Zs}\t\n\v\f\r]/u;
 
 /**
  * How emphasis markers read the punctuation beside them.
@@ -224,7 +226,7 @@ export function isPunctuationOrSpace(character: string): boolean {
 // whitespace, U+FEFF among it, as whitespace, and without the CJK-friendly
 // extension read a character outside the Basic Multilingual Plane one UTF-16
 // unit at a time, so as a letter.
-const MICROMARK_ONLY_WHITESPACE = /^[\v\u2028\u2029\ufeff]$/;
+const MICROMARK_ONLY_WHITESPACE = /^[\u2028\u2029\ufeff]$/;
 type Reader = (character: string | undefined) => number;
 const asMicromarkReads = (character: string | undefined) =>
   character !== undefined && MICROMARK_ONLY_WHITESPACE.test(character)

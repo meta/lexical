@@ -323,6 +323,16 @@ describe('Markdown punctuation modes', () => {
       '~~\u3002~~&#97;\ufe0eb&#65038;**“y”**',
       '~~\u3002~~a\ufe0eb&#65038;**“y”**',
     ],
+    // Every common reader takes a vertical tab as whitespace (#9747).
+    [
+      [
+        ['p\v', 0],
+        ['.', bold],
+        ['\vq', 0],
+      ],
+      'p\v**.**\vq',
+      'p\v**.**\vq',
+    ],
   ])('exports %j', (runs, strict, cjkFriendly) => {
     expect(exportRuns(runs)).toBe(strict);
     expect(exportRuns(runs, 'strict-commonmark')).toBe(strict);
