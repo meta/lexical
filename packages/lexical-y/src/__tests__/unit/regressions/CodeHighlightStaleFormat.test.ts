@@ -125,8 +125,8 @@ describe.each([false, true])('gc %s', gc => {
     expect(storedWith(t.b, 'f:italic')).toBe('ab');
   });
 
-  // Every format bit at once (and one no class knows, which stays a
-  // boundary): the highlight keeps none of the known ones.
+  // Every format bit at once, and one no class knows: the highlight keeps
+  // none of them.
   test('every known format bit over part of a highlight reads as one node', async () => {
     const t = await setup(
       () =>
@@ -150,7 +150,8 @@ describe.each([false, true])('gc %s', gc => {
       'outside',
     );
     await t.sync();
-    expect(textNodes(t.b)).toEqual(['alpha ', 'be', 'ta']);
+    expect(textNodes(t.b)).toEqual(['alpha beta']);
+    expect(storedWith(t.b, 'f:future')).toBe('be');
     for (const name of Object.keys(TEXT_TYPE_TO_FORMAT)) {
       expect(storedWith(t.b, `f:${name}`)).toBe('beta');
     }

@@ -8,13 +8,15 @@
 
 // @vitest-environment node
 
-// A reader leaves out of its node boundaries only the format bits the node
-// does not show, read off the node the stored attributes describe (see
-// hiddenTextFormats). Overriding setFormat is not enough to drop them: a
-// class can forward to TextNode's, keep some bits, or turn one bit
-// into another, or depend on the node's own fields. Expectations come from
-// each class's setter in an editor without collaboration, not from another
-// bound editor.
+// A reader leaves format bits out of its node boundaries only for a text
+// class that keeps none (see keepsNoTextFormats): one that declares
+// canHaveFormat() false and whose setFormat comes from that declaring class
+// or one it extends, as CodeHighlightNode. Overriding setFormat alone is not
+// enough: a class can forward to TextNode's, keep some bits, turn one bit
+// into another, or decide from its own fields, and a subclass of a
+// format-less class can bring formats back. Every other class reads as
+// before. Expected formats come from each class's setter in an editor
+// without collaboration, not from another bound editor.
 
 import {
   $create,
@@ -55,19 +57,6 @@ class KeepItalicNode extends TextNode {
     return super.setFormat(bitsOf(format) & TEXT_TYPE_TO_FORMAT.italic);
   }
 }
-class DropAllNode extends TextNode {
-  $config() {
-    return this.config('test-drop-all', {extends: TextNode});
-  }
-  setFormat(_format: TextFormatType | number): this {
-    return this;
-  }
-}
-class InheritsDropAllNode extends DropAllNode {
-  $config() {
-    return this.config('test-inherits-drop-all', {extends: DropAllNode});
-  }
-}
 class BoldAsItalicNode extends TextNode {
   $config() {
     return this.config('test-bold-as-italic', {extends: TextNode});
@@ -81,19 +70,6 @@ class BoldAsItalicNode extends TextNode {
     );
   }
 }
-class ThrowingSetterNode extends TextNode {
-  $config() {
-    return this.config('test-throwing-setter', {extends: TextNode});
-  }
-  setFormat(format: TextFormatType | number): this {
-    // Only a node an editor created has a key: a probe without one throws.
-    if (this.__key === undefined) {
-      throw new Error('no key');
-    }
-    return super.setFormat(format);
-  }
-}
-
 class FieldGatedNode extends TextNode {
   // Set by the constructor: a node an editor builds keeps every bit.
   __keepsFormats: boolean = true;
@@ -104,15 +80,62 @@ class FieldGatedNode extends TextNode {
     return this.__keepsFormats ? super.setFormat(format) : this;
   }
 }
+/** Drops every bit without saying so (canHaveFormat stays true). */
+class UndeclaredDropAllNode extends TextNode {
+  $config() {
+    return this.config('test-undeclared-drop-all', {extends: TextNode});
+  }
+  setFormat(_format: TextFormatType | number): this {
+    return this;
+  }
+}
+/** Declares it has no format, as CodeHighlightNode does. */
+class DropAllNode extends TextNode {
+  $config() {
+    return this.config('test-drop-all', {extends: TextNode});
+  }
+  canHaveFormat(): boolean {
+    return false;
+  }
+  setFormat(_format: TextFormatType | number): this {
+    return this;
+  }
+}
+class InheritsDropAllNode extends DropAllNode {
+  $config() {
+    return this.config('test-inherits-drop-all', {extends: DropAllNode});
+  }
+}
+/** A format-less class's subclass that brings formats back. */
+class RestoresFormatsNode extends DropAllNode {
+  $config() {
+    return this.config('test-restores-formats', {extends: DropAllNode});
+  }
+  setFormat(format: TextFormatType | number): this {
+    return TextNode.prototype.setFormat.call(this, format) as this;
+  }
+}
+/** Declares no format but keeps TextNode's setter. */
+class DeclaresOnlyNode extends TextNode {
+  $config() {
+    return this.config('test-declares-only', {extends: TextNode});
+  }
+  canHaveFormat(): boolean {
+    return false;
+  }
+}
 
-const CLASSES: Klass<TextNode>[] = [
-  ForwardFormatNode,
-  KeepItalicNode,
-  DropAllNode,
-  InheritsDropAllNode,
-  BoldAsItalicNode,
-  ThrowingSetterNode,
-  FieldGatedNode,
+/** Each class, and whether a reader leaves its format bits out. */
+const CLASSES: [Klass<TextNode>, boolean][] = [
+  [ForwardFormatNode, false],
+  [KeepItalicNode, false],
+  [BoldAsItalicNode, false],
+  [FieldGatedNode, false],
+  [UndeclaredDropAllNode, false],
+  [DropAllNode, true],
+  [InheritsDropAllNode, true],
+  [RestoresFormatsNode, false],
+  [DeclaresOnlyNode, false],
 ];
 
 /** What `klass` shows for `format`, in an editor without collaboration. */
@@ -160,7 +183,7 @@ const nodesOf = (p: Peer) =>
       .map(n => [n.getTextContent(), n.getFormat()]),
   );
 
-for (const klass of CLASSES) {
+for (const [klass, keepsNone] of CLASSES) {
   describe.each([false, true])(`${klass.name}, gc %s`, gc => {
     const nodes = [...NODES, klass];
 
@@ -186,7 +209,7 @@ for (const klass of CLASSES) {
     });
 
     for (const name of ['bold', 'italic'] as const) {
-      test(`a stored ${name} over part of a node splits it only where the class shows it`, async () => {
+      test(`a stored ${name} over part of a node reads as the class shows it`, async () => {
         const t = await setup(
           () =>
             $getRoot().append(
@@ -199,14 +222,22 @@ for (const klass of CLASSES) {
         formatRaw(t.a, 'beta', {[`f:${name}`]: true});
         await t.sync();
         const shown = shownBy(klass, TEXT_TYPE_TO_FORMAT[name]);
-        const expected =
-          shown === 0
+        // A class that keeps no bits reads as one node; any other class
+        // reads as before: apart where the stored bits change.
+        expect(nodesOf(t.b)).toEqual(
+          keepsNone
             ? [['alpha beta', 0]]
             : [
                 ['alpha ', 0],
                 ['beta', shown],
-              ];
-        expect(nodesOf(t.b)).toEqual(expected);
+              ],
+        );
+        expect((await freshReader(t.b)).describe()).toBe(t.b.describe());
+        if (!keepsNone && shown === 0) {
+          // Two nodes that show the same: typing into them is the case a
+          // class gets only by declaring canHaveFormat() false.
+          return;
+        }
         // Typing at the start of the formatted part reads back as typed.
         t.b.update(() => {
           const node = $getRoot()

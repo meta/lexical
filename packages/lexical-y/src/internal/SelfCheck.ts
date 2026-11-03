@@ -33,6 +33,7 @@ import {$pushInline, Atoms, readAtoms} from './Inline';
 import {Reader} from './Read';
 import {
   type Attrs,
+  decodeFormatValue,
   equalValue,
   getContainerGroupSpec,
   getGroupSpec,
@@ -52,7 +53,7 @@ import {
 } from './Schema';
 import {prevLiveEnd} from './Seen';
 import {type CS, EMPTY_FORMATS, State} from './State';
-import {formatBitOf, hiddenTextFormats} from './TextFormats';
+import {keepsNoTextFormats} from './TextFormats';
 
 // The opt-in self-check (YBindingOptions.selfCheck): the lines a local
 // write touched, read back from Yjs and compared with the editor
@@ -224,13 +225,13 @@ export function $checkWrite(writer: Writer): string[] {
         if (
           !wrappersOnly &&
           k.startsWith(TEXT_FORMAT_PREFIX) &&
-          (hiddenTextFormats(writer.state.editor, {...a, [k]: true}) &
-            formatBitOf(k)) !==
-            0
+          keepsNoTextFormats(
+            writer.state.editor,
+            decodeFormatValue(a[TYPE_KEY] ?? null),
+          )
         ) {
-          // A format bit the editor's node would not show (a code
-          // highlight shows none): the reader leaves it out, whatever is
-          // stored.
+          // A text class that keeps no formats (a code highlight): the
+          // reader shows none, whatever is stored.
           continue;
         }
         // What the write stores of it, where the editor owns it (see
