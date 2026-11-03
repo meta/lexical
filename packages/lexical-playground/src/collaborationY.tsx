@@ -38,6 +38,9 @@ import {useSignalValue} from '@lexical/react/useExtensionSignalValue';
 import {
   createYDoc,
   isYWarning,
+  LAYOUT_VERSION,
+  MIN_LAYOUT,
+  SEED_LAYOUT,
   STORAGE_MISMATCH_WARNING,
   UNKNOWN_NODE_TYPES_WARNING,
   UNSUPPORTED_CONFIG_WARNING,
@@ -58,7 +61,7 @@ import {
   type LexicalEditorWithDispose,
   LexicalWarning,
 } from 'lexical';
-import {type JSX, useEffect, useRef} from 'react';
+import {type JSX, useEffect, useRef, useState} from 'react';
 
 const params = new URLSearchParams(window.location.search);
 const WEBSOCKET_ENDPOINT =
@@ -74,6 +77,34 @@ const WEBSOCKET_ID = params.get('collabId') || '0';
  * tabs.
  */
 const SCHEMA_VERSION = Number(params.get('collabYSchemaVersion')) || 1;
+/**
+ * The oldest layout this page presents to the relay in its handshake
+ * (`?collabYMinLayout=<n>`, default MIN_LAYOUT), to try a release that raised
+ * the floor: the relay's verdict then refuses a room it has not migrated.
+ */
+const HANDSHAKE_MIN_LAYOUT =
+  Number(params.get('collabYMinLayout')) || MIN_LAYOUT;
+/** The relay's HTTP side (the handoff, the recovery list). */
+const RELAY_HTTP = WEBSOCKET_ENDPOINT.replace(/^ws/, 'http');
+/** The relay's fence verdict: a y-websocket message of this type (JSON). */
+const MESSAGE_FENCE = 8;
+
+/** The relay's verdict for this page's handshake (see collab-y-server.mjs). */
+export interface CollabYVerdict {
+  verdict: 'admit' | 'bootstrap' | 'stale' | 'refuse-layout' | 'legacy';
+  generation: string | null;
+  initialize: boolean;
+}
+
+/** A record the relay keeps for the room (the recovery list). */
+export interface CollabYRecord {
+  id: string;
+  kind: string;
+  source: string | null;
+  preview: string;
+  actionable?: boolean;
+  replay?: null | {applied: number; conflicts: number; eligible: boolean};
+}
 
 export interface CollabYSession {
   doc: YDoc;
@@ -85,6 +116,27 @@ export interface CollabYSession {
    * configuration it cannot write with), for the read-only notice's text.
    */
   readOnlyWarning: Signal<YWarning | null>;
+  /** The room's name on the relay. */
+  room: string;
+  /**
+   * The generation this page's document was made against (its generation
+   * record), adopted only from an admit or bootstrap verdict; null before.
+   */
+  generation: {value: string | null};
+  /** The relay's last verdict. */
+  verdict: Signal<CollabYVerdict | null>;
+  /**
+   * Every client id this page's document wrote under (Yjs switches to a new
+   * one after a collision): what the relay may treat as the replica's own.
+   */
+  clients: Set<number>;
+  /**
+   * Put the handshake the relay checks before it syncs anything in the
+   * provider's URL: the generation record, whether the document holds
+   * material, the layouts this page reads and its seed layout. Call it
+   * before every (re)connection.
+   */
+  present: () => void;
 }
 
 /** The binding's warnings that come with (or explain) its read-only state. */
@@ -111,6 +163,31 @@ function needsNewerApp(warning: YWarning | null): boolean {
   );
 }
 
+/** Read a lib0 var-string (a var-uint length, then UTF-8) from a decoder. */
+function readVarString(decoder: {arr: Uint8Array; pos: number}): string {
+  let len = 0;
+  let mult = 1;
+  for (;;) {
+    const byte = decoder.arr[decoder.pos++];
+    len += (byte & 0x7f) * mult;
+    mult *= 128;
+    if (byte < 0x80) {
+      break;
+    }
+  }
+  const bytes = decoder.arr.subarray(decoder.pos, decoder.pos + len);
+  decoder.pos += len;
+  return new TextDecoder().decode(bytes);
+}
+
+function base64(bytes: Uint8Array): string {
+  let s = '';
+  for (let i = 0; i < bytes.length; i += 0x8000) {
+    s += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  }
+  return btoa(s);
+}
+
 let session: CollabYSession | null = null;
 
 /**
@@ -129,17 +206,15 @@ export function getCollabYSession(
   if (session === null) {
     const doc = createYDoc();
     const readOnlyWarning = signal<YWarning | null>(null);
-    const provider = new WebsocketProvider(
-      WEBSOCKET_ENDPOINT,
-      WEBSOCKET_SLUG + '/' + WEBSOCKET_ID + '/' + id,
-      doc,
-      {
-        connect: false,
-        // Every update goes through the server, also between the two frames
-        // of the split view, so that "Disconnect" takes a frame offline.
-        disableBc: true,
-      },
-    );
+    const room = WEBSOCKET_SLUG + '/' + WEBSOCKET_ID + '/' + id;
+    const verdict = signal<CollabYVerdict | null>(null);
+    const generation = {value: null as string | null};
+    const provider = new WebsocketProvider(WEBSOCKET_ENDPOINT, room, doc, {
+      connect: false,
+      // Every update goes through the server, also between the two frames
+      // of the split view, so that "Disconnect" takes a frame offline.
+      disableBc: true,
+    });
     const editor = buildEditorFromExtensions(
       defineExtension({
         // What LexicalExtensionComposer adds around its extension.
@@ -180,7 +255,42 @@ export function getCollabYSession(
         },
       }),
     );
-    session = {doc, editor, provider, readOnlyWarning};
+    // The relay sends its verdict before any sync message.
+    provider.messageHandlers[MESSAGE_FENCE] = (_encoder, decoder) => {
+      const body: CollabYVerdict = JSON.parse(
+        readVarString(decoder as unknown as {arr: Uint8Array; pos: number}),
+      );
+      if (body.verdict === 'admit' || body.verdict === 'bootstrap') {
+        generation.value = body.generation;
+      }
+      verdict.value = body;
+    };
+    const clients = new Set<number>();
+    doc.on('afterTransaction', (transaction: {local: boolean}) => {
+      if (transaction.local) {
+        clients.add(doc.clientID);
+      }
+    });
+    const present = () => {
+      provider.params = {
+        g: generation.value ?? 'null',
+        hi: String(LAYOUT_VERSION),
+        lo: String(HANDSHAKE_MIN_LAYOUT),
+        m: doc.store.clients.size > 0 ? '1' : '0',
+        seed: String(SEED_LAYOUT),
+      };
+    };
+    session = {
+      clients,
+      doc,
+      editor,
+      generation,
+      present,
+      provider,
+      readOnlyWarning,
+      room,
+      verdict,
+    };
   }
   return session;
 }
@@ -190,11 +300,17 @@ export function getCollabYSession(
  * the toolbar's connect button, and shows the binding's read-only state.
  */
 export function CollabYPlugin({
-  provider,
-  readOnlyWarning,
+  session: {
+    clients,
+    generation,
+    present,
+    provider,
+    readOnlyWarning,
+    room,
+    verdict,
+  },
 }: {
-  provider: WebsocketProvider;
-  readOnlyWarning: Signal<YWarning | null>;
+  session: CollabYSession;
 }): JSX.Element | null {
   const [editor] = useLexicalComposerContext();
   const {binding, status} = getExtensionDependencyFromEditor(
@@ -203,6 +319,7 @@ export function CollabYPlugin({
   ).output;
   const statusValue = useSignalValue(status);
   const warning = useSignalValue(readOnlyWarning);
+  const verdictValue = useSignalValue(verdict);
 
   useEffect(() => {
     const onSync = (isSynced: boolean) => {
@@ -211,8 +328,12 @@ export function CollabYPlugin({
         binding.initialize();
       }
     };
+    present();
     const onStatus = ({status: value}: {status: string}) => {
       editor.dispatchCommand(CONNECTED_COMMAND, value === 'connected');
+      if (value !== 'connected') {
+        present();
+      }
     };
     provider.on('sync', onSync);
     provider.on('status', onStatus);
@@ -220,6 +341,7 @@ export function CollabYPlugin({
       TOGGLE_CONNECT_COMMAND,
       shouldConnect => {
         if (shouldConnect) {
+          present();
           provider.connect();
         } else {
           provider.disconnect();
@@ -238,7 +360,61 @@ export function CollabYPlugin({
       provider.off('status', onStatus);
       provider.disconnect();
     };
-  }, [binding, editor, provider]);
+  }, [binding, editor, present, provider]);
+
+  // A stale verdict: this document was made against another generation of
+  // the room (it migrated, or was replaced, while this page was away). Hand
+  // its material off: stop syncing, quiesce the binding, upload the record
+  // until the relay acknowledges it, then start over with a new document
+  // (this page keeps none: a reload).
+  useEffect(() => {
+    if (verdictValue === null || verdictValue.verdict !== 'stale') {
+      return;
+    }
+    let cancelled = false;
+    provider.disconnect();
+    const {state, draft} = binding.quiesce();
+    const body = JSON.stringify({
+      clients: [...clients],
+      draft: draft.differs ? draft : null,
+      generation: generation.value,
+      // The provider's BroadcastChannel is off: only the relay delivers to
+      // this page.
+      peers: false,
+      snapshot: base64(state),
+    });
+    (async () => {
+      for (let attempt = 0; !cancelled; attempt++) {
+        try {
+          const res = await fetch(
+            `${RELAY_HTTP}/handoff?room=${encodeURIComponent(room)}`,
+            {
+              body,
+              headers: {'content-type': 'application/json'},
+              method: 'POST',
+            },
+          );
+          const ack = res.ok ? await res.json() : null;
+          if (ack !== null && typeof ack.hash === 'string') {
+            sessionStorage.setItem(
+              `collabY:handoff:${room}`,
+              JSON.stringify(ack),
+            );
+            window.location.reload();
+            return;
+          }
+        } catch {
+          // Retry the same bytes.
+        }
+        await new Promise(resolve =>
+          setTimeout(resolve, Math.min(5000, 250 * 2 ** attempt)),
+        );
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [binding, clients, generation, provider, room, verdictValue]);
 
   // The binding keeps the editor non-editable until it has read the
   // document, and while it is read only (a layout it cannot write). Anything
@@ -276,8 +452,34 @@ export function CollabYPlugin({
     }
   }, [editor, statusValue]);
 
+  const recovery = <CollabYRecovery room={room} />;
+  if (verdictValue !== null && verdictValue.verdict === 'refuse-layout') {
+    return (
+      <>
+        <div
+          className="collab-y-notice"
+          role="status"
+          data-verdict={verdictValue.verdict}>
+          This document needs another version of the playground. Reload the page
+          to get the latest version.
+        </div>
+        {recovery}
+      </>
+    );
+  }
+  if (verdictValue !== null && verdictValue.verdict === 'stale') {
+    return (
+      <div
+        className="collab-y-notice"
+        role="status"
+        data-verdict={verdictValue.verdict}>
+        This document changed while you were away. Saving your edits for
+        recovery, then reloading.
+      </div>
+    );
+  }
   if (statusValue !== 'readonly') {
-    return null;
+    return recovery;
   }
   // The app's own text, chosen from the warning's typed `code` and
   // `reason`; the code and reason are also on the element, for the e2e
@@ -289,12 +491,80 @@ export function CollabYPlugin({
         ? 'This document was edited with a newer version of the playground. Reload the page to get the latest version; until then it is read only here.'
         : 'This document was written by a newer version of the playground. It is read only here.';
   return (
-    <div
-      className="collab-y-notice"
-      role="status"
-      data-code={warning === null ? undefined : warning.code}
-      data-reason={warning === null ? undefined : warning.data.reason}>
-      {text}
-    </div>
+    <>
+      <div
+        className="collab-y-notice"
+        role="status"
+        data-code={warning === null ? undefined : warning.code}
+        data-reason={warning === null ? undefined : warning.data.reason}>
+        {text}
+      </div>
+      {recovery}
+    </>
+  );
+}
+
+/**
+ * The room's quarantine records on the relay: what stale clients handed off
+ * (and how much of it was replayed) and what clients from before the fence
+ * held. A minimal recovery list: read only.
+ */
+function CollabYRecovery({room}: {room: string}): JSX.Element | null {
+  const [records, setRecords] = useState<CollabYRecord[]>([]);
+  const [handoff] = useState(() => {
+    const raw = sessionStorage.getItem(`collabY:handoff:${room}`);
+    return raw === null ? null : (JSON.parse(raw) as {hash: string});
+  });
+  useEffect(() => {
+    let stopped = false;
+    const load = async () => {
+      try {
+        const res = await fetch(
+          `${RELAY_HTTP}/records?room=${encodeURIComponent(room)}`,
+        );
+        if (res.ok && !stopped) {
+          setRecords(await res.json());
+        }
+      } catch {
+        // An unfenced or unreachable relay: no list.
+      }
+    };
+    load();
+    const timer = setInterval(load, 2000);
+    return () => {
+      stopped = true;
+      clearInterval(timer);
+    };
+  }, [room]);
+  if (records.length === 0 && handoff === null) {
+    return null;
+  }
+  return (
+    <details className="collab-y-recovery" data-records={records.length}>
+      <summary>
+        Recovered edits ({records.length})
+        {handoff !== null ? ' · your offline edits were saved' : ''}
+      </summary>
+      <ul>
+        {records.map(r => (
+          <li
+            key={r.id}
+            data-kind={r.kind}
+            data-replayed={
+              r.replay == null ? undefined : String(r.replay.applied)
+            }>
+            {r.kind} from {r.source ?? 'an unknown version'}:{' '}
+            {r.replay == null
+              ? r.actionable === false
+                ? 'nothing new'
+                : 'not replayed'
+              : r.replay.eligible
+                ? `replayed (${r.replay.applied} applied, ${r.replay.conflicts} conflicts)`
+                : 'kept for recovery'}{' '}
+            <q>{r.preview}</q>
+          </li>
+        ))}
+      </ul>
+    </details>
   );
 }

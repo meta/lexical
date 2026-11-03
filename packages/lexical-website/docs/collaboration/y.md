@@ -980,8 +980,13 @@ relay,
 [`collab-y-server.mjs`](https://github.com/meta/lexical/blob/main/packages/lexical-playground/scripts/collab-y-server.mjs),
 is a complete in-memory example (no persistence, authentication or room
 eviction) that `@y/websocket` clients connect to at `ws://host:port/<room>`;
-drop its test-only `/health` and `/delay` endpoints before you build a relay
-on it. It keeps one
+drop its test-only endpoints (`/health`, `/delay`, `/state`, `/floor`,
+`/reload`) before you build a relay on it. It is also the reference for the
+generation fence ([Migrating stored documents](./y-server.md#migrating-stored-documents)):
+[`collab-y-fence.mjs`](https://github.com/meta/lexical/blob/main/packages/lexical-playground/scripts/collab-y-fence.mjs)
+migrates a room when it loads, checks each connection's handshake, captures
+clients from before the fence, and stores, lists and replays the material a
+stale client hands off. It keeps one
 document per room, applies what each connection sends to it, and sends the
 updates the document emits to the room's connections, in the order it
 applied them. It uses `@y/y`, `@y/protocols` (the sync and awareness

@@ -956,6 +956,15 @@ of being admitted or refused.
   holds collected structs the record never had and a scratch migration, so
   never store it, send it into a room, merge it or replay it.
 
+The playground's development relay is a complete in-memory example of all
+of the above:
+[`collab-y-server.mjs`](https://github.com/meta/lexical/blob/main/packages/lexical-playground/scripts/collab-y-server.mjs)
+with
+[`collab-y-fence.mjs`](https://github.com/meta/lexical/blob/main/packages/lexical-playground/scripts/collab-y-fence.mjs),
+and the client side (the handshake, the handoff, a recovery list built
+from `recoveryYState`) in the playground's `src/collaborationY.tsx`. It sends the verdict as a y-websocket
+message of its own type before any sync, and takes the handoff over HTTP.
+
 ## API reference
 
 [`@lexical/y/headless`](/docs/api/modules/lexical_y/headless) ·
