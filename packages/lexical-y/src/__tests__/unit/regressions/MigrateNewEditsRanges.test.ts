@@ -14,7 +14,7 @@
 // clocks) is compared without throwing.
 
 import * as Y from '@y/y';
-import {describe, expect, test} from 'vitest';
+import {describe, expect, test, vi} from 'vitest';
 
 import {
   createYDoc,
@@ -112,5 +112,54 @@ describe.each([false, true])('hasNewYEdits by held ids, gc %s', gc => {
       true,
     );
     [doc, replica].forEach(d => d.destroy());
+  });
+
+  test('a long GC range of a client the base lacks costs a few lookups, not one per clock', () => {
+    const base = rawDoc(1);
+    for (const length of [1000, 50000]) {
+      const d = createYDoc(base, {gc: false});
+      d.transact(tr => new Y.GC(Y.createID(222, 0), length).integrate(tr, 0));
+      const snapshot = Y.encodeStateAsUpdate(d);
+      let lookups = 0;
+      const original = Map.prototype.get;
+      const spy = vi.spyOn(Map.prototype, 'get').mockImplementation(function (
+        this: Map<unknown, unknown>,
+        key,
+      ) {
+        if (key === 222) {
+          lookups++;
+        }
+        return original.call(this, key);
+      });
+      let actionable = true;
+      try {
+        actionable = hasNewYEdits(material(snapshot), base);
+      } finally {
+        spy.mockRestore();
+      }
+      expect(actionable).toBe(false);
+      expect(lookups).toBeLessThan(50);
+      d.destroy();
+    }
+  });
+
+  test('a GC range over ids the base holds live is a deletion; over ids it holds deleted, none', () => {
+    const doc = createYDoc(rawDoc(1, 'abcdef'), {gc});
+    const base = Y.encodeStateAsUpdate(doc);
+    const replica = createYDoc(base, {gc: true});
+    replica.get('lexical-y').delete(1, 3);
+    // Deleted items of a gc document: GC structs or deleted items.
+    expect(hasNewYEdits(material(Y.encodeStateAsUpdate(replica)), base)).toBe(
+      true,
+    );
+    const baseDeleted = createYDoc(base, {gc});
+    baseDeleted.get('lexical-y').delete(1, 3);
+    expect(
+      hasNewYEdits(
+        material(Y.encodeStateAsUpdate(replica)),
+        Y.encodeStateAsUpdate(baseDeleted),
+      ),
+    ).toBe(false);
+    [doc, replica, baseDeleted].forEach(d => d.destroy());
   });
 });

@@ -954,7 +954,8 @@ function holdsRange(
 
 /**
  * Whether `doc` holds, live, an item at one of `client`'s ids from `clock`,
- * `length` of them (ids it does not hold are skipped).
+ * `length` of them (ids it does not hold are skipped). Walks `doc`'s own
+ * structs over that range, never the missing clocks one by one.
  */
 function liveIn(
   doc: Doc,
@@ -962,16 +963,24 @@ function liveIn(
   clock: number,
   length: number,
 ): boolean {
-  for (let k = clock; k < clock + length; ) {
-    const s = structAt(doc, client, k);
-    if (s === null) {
-      k++;
-      continue;
+  const structs = doc.store.clients.get(client);
+  if (structs === undefined || structs.length === 0) {
+    return false;
+  }
+  const last = structs[structs.length - 1];
+  const from = Math.max(clock, structs[0].id.clock);
+  const to = Math.min(clock + length, last.id.clock + last.length);
+  if (from >= to) {
+    return false;
+  }
+  for (let i = findIndexSS(structs, from); i < structs.length; i++) {
+    const s = structs[i];
+    if (s.id.clock >= to) {
+      break;
     }
     if (s instanceof Item && !s.deleted) {
       return true;
     }
-    k = s.id.clock + s.length;
   }
   return false;
 }
