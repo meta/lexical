@@ -8,12 +8,13 @@
 
 // @vitest-environment node
 
-// A reader leaves out of its node boundaries only the format bits a text
-// class does not keep, judged by what the class's own setFormat does with
-// each bit (see textFormatKept). Overriding setFormat is not enough to drop
-// them: a class can forward to TextNode's, keep some bits, or turn one bit
-// into another. Expectations come from each class's setter in an editor
-// without collaboration, not from another bound editor.
+// A reader leaves out of its node boundaries only the format bits the node
+// does not show, read off the node the stored attributes describe (see
+// hiddenTextFormats). Overriding setFormat is not enough to drop them: a
+// class can forward to TextNode's, keep some bits, or turn one bit
+// into another, or depend on the node's own fields. Expectations come from
+// each class's setter in an editor without collaboration, not from another
+// bound editor.
 
 import {
   $create,
@@ -93,6 +94,17 @@ class ThrowingSetterNode extends TextNode {
   }
 }
 
+class FieldGatedNode extends TextNode {
+  // Set by the constructor: a node an editor builds keeps every bit.
+  __keepsFormats: boolean = true;
+  $config() {
+    return this.config('test-field-gated', {extends: TextNode});
+  }
+  setFormat(format: TextFormatType | number): this {
+    return this.__keepsFormats ? super.setFormat(format) : this;
+  }
+}
+
 const CLASSES: Klass<TextNode>[] = [
   ForwardFormatNode,
   KeepItalicNode,
@@ -100,6 +112,7 @@ const CLASSES: Klass<TextNode>[] = [
   InheritsDropAllNode,
   BoldAsItalicNode,
   ThrowingSetterNode,
+  FieldGatedNode,
 ];
 
 /** What `klass` shows for `format`, in an editor without collaboration. */

@@ -94,8 +94,6 @@ import {
   stableStringify,
   STATE_PREFIX,
   storedTypeOf,
-  TEXT_FORMAT_PREFIX,
-  textFormatKept,
   textJSONFromAttrs,
   TYPE_KEY,
   withoutUnownedMembers,
@@ -126,6 +124,7 @@ import {
   type Unit,
   type UnitKind,
 } from './State';
+import {formatBitOf, hiddenTextFormats} from './TextFormats';
 
 // Reader: Yjs to the editor. It reads whole containers ($readFull) and the
 // changes of remote transactions ($apply) into Lexical nodes, reusing the
@@ -2362,22 +2361,17 @@ export class Reader {
             tattrs![k] = v;
           }
         });
-        // A format bit the text class does not keep (a code highlight keeps
-        // none) is shown nowhere, so it does not set nodes apart either:
-        // text typed into such a node stores the formats the node shows,
-        // and a stored bit it ignores (a bold over part of a highlight)
-        // would otherwise read it as two nodes where its author shows one.
-        const type = decodeFormatValue(tattrs[TYPE_KEY] ?? null);
-        for (const k of Object.keys(tattrs)) {
-          if (
-            k.startsWith(TEXT_FORMAT_PREFIX) &&
-            !textFormatKept(
-              this.state.editor,
-              type,
-              k.slice(TEXT_FORMAT_PREFIX.length),
-            )
-          ) {
-            delete tattrs[k];
+        // A format bit the node does not show (a code highlight shows
+        // none) does not set nodes apart either: text typed into such a node
+        // stores the formats the node shows, and a stored bit it ignores (a
+        // bold over part of a highlight) would otherwise read it as two
+        // nodes where its author shows one. The bit stays stored.
+        const hiddenBits = hiddenTextFormats(this.state.editor, tattrs);
+        if (hiddenBits !== 0) {
+          for (const k of Object.keys(tattrs)) {
+            if ((hiddenBits & formatBitOf(k)) !== 0) {
+              delete tattrs[k];
+            }
           }
         }
         tsig = stableStringify(tattrs);
