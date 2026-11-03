@@ -37,7 +37,7 @@ import {
   type LexicalNode,
   type NodeKey,
   type SerializedLexicalNode,
-  type TextNode,
+  TextNode,
 } from 'lexical';
 
 import {$appendAll, spliceAll} from './Arrays';
@@ -125,7 +125,6 @@ import {
   type Unit,
   type UnitKind,
 } from './State';
-import {keepsNoTextFormats} from './TextFormats';
 
 // Reader: Yjs to the editor. It reads whole containers ($readFull) and the
 // changes of remote transactions ($apply) into Lexical nodes, reusing the
@@ -2362,27 +2361,7 @@ export class Reader {
             tattrs![k] = v;
           }
         });
-        // A text class that keeps no format bits (a code highlight) shows
-        // none, so they do not set its nodes apart either: text typed into
-        // such a node stores the formats the node shows (none), and a stored
-        // bit it ignores (a bold over part of a highlight) would otherwise
-        // read it as two nodes where its author shows one. The bits stay in
-        // the piece's attributes and in the document.
-        let sigAttrs: Attrs = tattrs;
-        if (
-          keepsNoTextFormats(
-            this.state.editor,
-            decodeFormatValue(tattrs[TYPE_KEY] ?? null),
-          )
-        ) {
-          sigAttrs = {};
-          for (const k of Object.keys(tattrs)) {
-            if (!k.startsWith(TEXT_FORMAT_PREFIX)) {
-              sigAttrs[k] = tattrs[k];
-            }
-          }
-        }
-        tsig = stableStringify(sigAttrs);
+        tsig = stableStringify(tattrs);
         wrappers = wrappersFromAttrs(all, this.wrapperFields);
       }
     };
@@ -2424,9 +2403,10 @@ export class Reader {
             if (
               last !== undefined &&
               last.kind === 'text' &&
-              last.tsig === run.tsig &&
               !isTabText(run.tattrs) &&
-              sameWrappers(last.wrappers, wrappers)
+              sameWrappers(last.wrappers, wrappers) &&
+              (last.tsig === run.tsig ||
+                this.$showSame(last.text, last.tattrs, run.text, run.tattrs))
             ) {
               if (holds) {
                 last.caretAt = last.text.length + inRun;
@@ -2454,6 +2434,64 @@ export class Reader {
     }
     this.lastFormats = current;
     return pieces;
+  }
+
+  /**
+   * Whether text `aText` stored with `a` and text `bText` stored with `b`,
+   * whose attributes differ only in format bits, read as one node: the
+   * nodes the reader builds from them show the same formats and attributes.
+   * A code highlight's setFormat ignores every bit, so a bit stored over
+   * part of one (a format written while the token was plain text, or by a
+   * write from outside the editor) is shown nowhere; read as two nodes,
+   * text typed into either stores the formats the node shows and reads
+   * apart from it in a fresh read. The bits stay stored. Only a text class
+   * (or replacement) with a setFormat of its own can show two such
+   * attributes the same; a node that cannot be built reads apart.
+   */
+  private $showSame(aText: string, a: Attrs, bText: string, b: Attrs): boolean {
+    const editor = this.state.editor;
+    const rest = (attrs: Attrs) => {
+      const out: Attrs = {};
+      for (const k of Object.keys(attrs)) {
+        if (!k.startsWith(TEXT_FORMAT_PREFIX)) {
+          out[k] = attrs[k];
+        }
+      }
+      return stableStringify(out);
+    };
+    const type = decodeFormatValue(a[TYPE_KEY] ?? null);
+    const info = editor._nodes.get(typeof type === 'string' ? type : 'text');
+    if (info === undefined) {
+      return false;
+    }
+    // Nodes are built as the replacement where it names its class; one
+    // that does not (`with` alone) may build any class.
+    const klass = info.replaceWithKlass || info.klass;
+    if (
+      ((klass.prototype as TextNode).setFormat ===
+        TextNode.prototype.setFormat &&
+        (info.replace === null || info.replaceWithKlass !== null)) ||
+      rest(a) !== rest(b)
+    ) {
+      return false;
+    }
+    const shown = (text: string, attrs: Attrs) => {
+      const node = $parseSerializedNode(
+        joinSetMembersInJSON(
+          textJSONFromAttrs(text, attrs),
+          editor,
+        ) as unknown as SerializedLexicalNode,
+      );
+      return $isTextNode(node)
+        ? stableStringify($textAttrs(node, null, false))
+        : null;
+    };
+    try {
+      const shownA = shown(aText, a);
+      return shownA !== null && shownA === shown(bText, b);
+    } catch (_e) {
+      return false;
+    }
   }
 
   /**

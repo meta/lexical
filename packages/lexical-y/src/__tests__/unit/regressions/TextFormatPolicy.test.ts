@@ -8,15 +8,15 @@
 
 // @vitest-environment node
 
-// A reader leaves format bits out of its node boundaries only for a text
-// class that keeps none (see keepsNoTextFormats): one that declares
-// canHaveFormat() false and whose setFormat comes from that declaring class
-// or one it extends, as CodeHighlightNode. Overriding setFormat alone is not
-// enough: a class can forward to TextNode's, keep some bits, turn one bit
-// into another, or decide from its own fields, and a subclass of a
-// format-less class can bring formats back. Every other class reads as
-// before. Expected formats come from each class's setter in an editor
-// without collaboration, not from another bound editor.
+// A reader reads text whose stored attributes differ only in format bits as
+// one node when the nodes it builds from them show the same (see
+// Reader#$showSame): a code highlight shows no bit, so a bit stored over part
+// of one does not split it. Whether a class shows a bit is what its own
+// setFormat does on the node: a class can forward to TextNode's, keep some
+// bits, turn one bit into another, or decide from its own fields, and a
+// subclass of a format-less class can bring formats back. Expected formats
+// come from each class's setter in an editor without collaboration, not
+// from another bound editor.
 
 import {
   $create,
@@ -80,7 +80,7 @@ class FieldGatedNode extends TextNode {
     return this.__keepsFormats ? super.setFormat(format) : this;
   }
 }
-/** Drops every bit without saying so (canHaveFormat stays true). */
+/** Drops every bit, without declaring canHaveFormat() false. */
 class UndeclaredDropAllNode extends TextNode {
   $config() {
     return this.config('test-undeclared-drop-all', {extends: TextNode});
@@ -125,17 +125,16 @@ class DeclaresOnlyNode extends TextNode {
   }
 }
 
-/** Each class, and whether a reader leaves its format bits out. */
-const CLASSES: [Klass<TextNode>, boolean][] = [
-  [ForwardFormatNode, false],
-  [KeepItalicNode, false],
-  [BoldAsItalicNode, false],
-  [FieldGatedNode, false],
-  [UndeclaredDropAllNode, false],
-  [DropAllNode, true],
-  [InheritsDropAllNode, true],
-  [RestoresFormatsNode, false],
-  [DeclaresOnlyNode, false],
+const CLASSES: Klass<TextNode>[] = [
+  ForwardFormatNode,
+  KeepItalicNode,
+  BoldAsItalicNode,
+  FieldGatedNode,
+  UndeclaredDropAllNode,
+  DropAllNode,
+  InheritsDropAllNode,
+  RestoresFormatsNode,
+  DeclaresOnlyNode,
 ];
 
 /** What `klass` shows for `format`, in an editor without collaboration. */
@@ -183,7 +182,7 @@ const nodesOf = (p: Peer) =>
       .map(n => [n.getTextContent(), n.getFormat()]),
   );
 
-for (const [klass, keepsNone] of CLASSES) {
+for (const klass of CLASSES) {
   describe.each([false, true])(`${klass.name}, gc %s`, gc => {
     const nodes = [...NODES, klass];
 
@@ -222,10 +221,10 @@ for (const [klass, keepsNone] of CLASSES) {
         formatRaw(t.a, 'beta', {[`f:${name}`]: true});
         await t.sync();
         const shown = shownBy(klass, TEXT_TYPE_TO_FORMAT[name]);
-        // A class that keeps no bits reads as one node; any other class
-        // reads as before: apart where the stored bits change.
+        // One node where the class does not show the bit, apart where it
+        // does.
         expect(nodesOf(t.b)).toEqual(
-          keepsNone
+          shown === 0
             ? [['alpha beta', 0]]
             : [
                 ['alpha ', 0],
@@ -233,11 +232,6 @@ for (const [klass, keepsNone] of CLASSES) {
               ],
         );
         expect((await freshReader(t.b)).describe()).toBe(t.b.describe());
-        if (!keepsNone && shown === 0) {
-          // Two nodes that show the same: typing into them is the case a
-          // class gets only by declaring canHaveFormat() false.
-          return;
-        }
         // Typing at the start of the formatted part reads back as typed.
         t.b.update(() => {
           const node = $getRoot()

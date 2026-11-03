@@ -25,6 +25,7 @@ import {
   type LexicalNode,
   type NodeKey,
   type SerializedLexicalNode,
+  TextNode,
 } from 'lexical';
 
 import {forgiveRepeatedIds} from './BlockIds';
@@ -53,7 +54,6 @@ import {
 } from './Schema';
 import {prevLiveEnd} from './Seen';
 import {type CS, EMPTY_FORMATS, State} from './State';
-import {keepsNoTextFormats} from './TextFormats';
 
 // The opt-in self-check (YBindingOptions.selfCheck): the lines a local
 // write touched, read back from Yjs and compared with the editor
@@ -225,10 +225,7 @@ export function $checkWrite(writer: Writer): string[] {
         if (
           !wrappersOnly &&
           k.startsWith(TEXT_FORMAT_PREFIX) &&
-          keepsNoTextFormats(
-            writer.state.editor,
-            decodeFormatValue(a[TYPE_KEY] ?? null),
-          )
+          dropsFormats(writer.state, a)
         ) {
           // A text class that keeps no formats (a code highlight): the
           // reader shows none, whatever is stored.
@@ -933,4 +930,21 @@ export function $followUpDifference(
     }
   }
   return null;
+}
+
+/**
+ * Whether the text class of `attrs` keeps no format bits: its setFormat is
+ * its own (a code highlight's ignores them), so a reader shows none.
+ */
+function dropsFormats(state: State, attrs: Attrs): boolean {
+  const type = decodeFormatValue(attrs[TYPE_KEY] ?? null);
+  const info = state.editor._nodes.get(
+    typeof type === 'string' ? type : 'text',
+  );
+  return (
+    info !== undefined &&
+    info.klass.prototype instanceof TextNode &&
+    (info.klass.prototype as TextNode).setFormat !==
+      TextNode.prototype.setFormat
+  );
 }
