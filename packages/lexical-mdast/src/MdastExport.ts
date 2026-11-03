@@ -837,22 +837,15 @@ function restoreStoodIn(
     new RegExp(`[${[...characters.keys()].join('')}]`, 'g'),
     (standIn, i: number) => {
       const character = characters.get(standIn)!;
-      const isVariationSelector = VARIATION_SELECTOR.test(character);
-      return (
-        // micromark-extension-cjk-friendly-gfm-strikethrough 2.0.1 reads a
-        // variation selector before a `~` run as the character it varies
-        // only for the run to open.
-        (isVariationSelector && markdown[i + 1] === '~') ||
-          ((!isCjkFriendly || isVariationSelector) &&
-            ((ATTENTION_MARKER.test(markdown[i - 1]) && !isPortable(i, -1)) ||
-              (ATTENTION_MARKER.test(markdown[i + 1]) && !isPortable(i, 1))))
-          ? // A backslash before the reference would escape its `&`.
-            `${isEscaped(i) ? '\\' : ''}&#x${character
-              .codePointAt(0)!
-              .toString(16)
-              .toUpperCase()};`
-          : character
-      );
+      return (!isCjkFriendly || VARIATION_SELECTOR.test(character)) &&
+        ((ATTENTION_MARKER.test(markdown[i - 1]) && !isPortable(i, -1)) ||
+          (ATTENTION_MARKER.test(markdown[i + 1]) && !isPortable(i, 1)))
+        ? // A backslash before the reference would escape its `&`.
+          `${isEscaped(i) ? '\\' : ''}&#x${character
+            .codePointAt(0)!
+            .toString(16)
+            .toUpperCase()};`
+        : character;
     },
   );
 }

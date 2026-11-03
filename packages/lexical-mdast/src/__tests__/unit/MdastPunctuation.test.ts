@@ -217,9 +217,19 @@ describe('Mdast punctuation modes', () => {
       '&#x78;*&#xFE0E;*&#x62;',
       '&#x78;*&#xFE0E;*&#x62;',
     ],
-    // micromark-extension-cjk-friendly-gfm-strikethrough does not let a
-    // `~~` run after a variation selector close.
-    [[['.\ufe0e', strikethrough]], '~~.&#xFE0E;~~', '~~.&#xFE0E;~~'],
+    [
+      [['Done \u2714\ufe0e', strikethrough]],
+      '~~Done \u2714\ufe0e~~',
+      '~~Done \u2714\ufe0e~~',
+    ],
+    [
+      [
+        ['Done \u2714\ufe0e', bold],
+        ['next', 0],
+      ],
+      '**Done \u2714&#xFE0E;**&#x6E;ext',
+      '**Done \u2714&#xFE0E;**&#x6E;ext',
+    ],
     // A backslash before a character that goes out as a reference is
     // escaped.
     [

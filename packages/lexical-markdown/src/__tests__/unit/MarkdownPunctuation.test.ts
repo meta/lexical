@@ -154,6 +154,26 @@ describe('Markdown punctuation modes', () => {
     ],
     // `_` still opens and closes inside a word only beside punctuation, and
     // text that is not CJK reads as CommonMark reads it.
+    // A variation selector before a closing marker reads as the character
+    // it varies; strict readers read a letter, so the run closes for both.
+    [
+      'x ~~Done \u2714\ufe0e~~ y',
+      [
+        ['x ', 0],
+        ['Done \u2714\ufe0e', strikethrough],
+        [' y', 0],
+      ],
+      [
+        ['x ', 0],
+        ['Done \u2714\ufe0e', strikethrough],
+        [' y', 0],
+      ],
+    ],
+    [
+      '~~a.\ufe00~~',
+      [['a.\ufe00', strikethrough]],
+      [['a.\ufe00', strikethrough]],
+    ],
     ['__「a」__世', [['__「a」__世', 0]], [['__「a」__世', 0]]],
     ['a**“b”**c', [['a**“b”**c', 0]], [['a**“b”**c', 0]]],
   ])('imports %j', (markdown, cjkFriendly, strict) => {

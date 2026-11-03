@@ -9,11 +9,20 @@
 import type {MdastConfig} from './MdastExtension';
 import type {CompiledMdast, MdastExportHandler, MdastExportRule} from './types';
 import type {LexicalEditor} from 'lexical';
+import type {
+  Construct,
+  Extension as MicromarkExtension,
+} from 'micromark-util-types';
 
 import invariant from '@lexical/internal/invariant';
 import {getStaticNodeConfig, iterStaticNodeConfigChain} from 'lexical';
 import {cjkFriendlyExtension} from 'micromark-extension-cjk-friendly';
 import {gfmStrikethroughCjkFriendly} from 'micromark-extension-cjk-friendly-gfm-strikethrough';
+import {
+  classifyCharacter,
+  isUnicodeWhitespace,
+  tryGetCodeTwoBefore,
+} from 'micromark-extension-cjk-friendly-util';
 import {gfmStrikethrough} from 'micromark-extension-gfm-strikethrough';
 
 /**
@@ -23,6 +32,39 @@ import {gfmStrikethrough} from 'micromark-extension-gfm-strikethrough';
  * @internal
  */
 export const gfmStrikethroughSyntax = /* @__PURE__ */ gfmStrikethrough();
+
+/**
+ * `gfmStrikethroughCjkFriendly()`, but a `~` run after a variation selector
+ * (U+FE00 to U+FE0E) closes as it does after the character the selector
+ * varies, as the CJK-friendly emphasis reads it: version 2.0.1 reads the
+ * character only for the run to open, so `~~Done ✔︎~~` stays literal.
+ */
+function cjkFriendlyStrikethrough(): MicromarkExtension {
+  const syntax = gfmStrikethroughCjkFriendly();
+  const construct = syntax.text![126] as Construct;
+  const {tokenize} = construct;
+  const fixed: Construct = {
+    ...construct,
+    tokenize(effects, ok, nok) {
+      const {previous} = this;
+      const base =
+        previous !== null && previous >= 0xfe00 && previous <= 0xfe0e
+          ? tryGetCodeTwoBefore(previous, this.now(), this.sliceSerialize)
+          : null;
+      return tokenize.call(
+        base === null ||
+          base === 126 ||
+          isUnicodeWhitespace(classifyCharacter(base))
+          ? this
+          : Object.create(this, {previous: {value: base}}),
+        effects,
+        ok,
+        nok,
+      );
+    },
+  };
+  return {...syntax, insideSpan: {null: [fixed]}, text: {126: fixed}};
+}
 
 function getExportRuleType(klass: MdastExportRule['type']): string {
   if (typeof klass === 'string') {
@@ -109,7 +151,7 @@ export function compileMdast(
         : [
             ...config.micromarkExtensions.map(extension =>
               extension === gfmStrikethroughSyntax
-                ? gfmStrikethroughCjkFriendly()
+                ? cjkFriendlyStrikethrough()
                 : extension,
             ),
             cjkFriendlyExtension(),
