@@ -77,7 +77,6 @@ import {
   isUnsafeKey,
   joinSetMembers,
   joinSetMembersInJSON,
-  keepsNoTextFormats,
   KIND_KEY,
   klassOf,
   learnedSetKeys,
@@ -96,6 +95,7 @@ import {
   STATE_PREFIX,
   storedTypeOf,
   TEXT_FORMAT_PREFIX,
+  textFormatKept,
   textJSONFromAttrs,
   TYPE_KEY,
   withoutUnownedMembers,
@@ -2362,16 +2362,22 @@ export class Reader {
             tattrs![k] = v;
           }
         });
-        // A text class that keeps no format bits (a code highlight) shows
-        // none, so they do not set its nodes apart either: text typed into
-        // such a node stores the formats the node shows (none), and a stored
-        // bit it ignores (a bold over part of a highlight) would otherwise
-        // read it as two nodes where its author shows one.
-        if (keepsNoTextFormats(this.state.editor, tattrs)) {
-          for (const k of Object.keys(tattrs)) {
-            if (k.startsWith(TEXT_FORMAT_PREFIX)) {
-              delete tattrs[k];
-            }
+        // A format bit the text class does not keep (a code highlight keeps
+        // none) is shown nowhere, so it does not set nodes apart either:
+        // text typed into such a node stores the formats the node shows,
+        // and a stored bit it ignores (a bold over part of a highlight)
+        // would otherwise read it as two nodes where its author shows one.
+        const type = decodeFormatValue(tattrs[TYPE_KEY] ?? null);
+        for (const k of Object.keys(tattrs)) {
+          if (
+            k.startsWith(TEXT_FORMAT_PREFIX) &&
+            !textFormatKept(
+              this.state.editor,
+              type,
+              k.slice(TEXT_FORMAT_PREFIX.length),
+            )
+          ) {
+            delete tattrs[k];
           }
         }
         tsig = stableStringify(tattrs);

@@ -858,23 +858,70 @@ export const decodeFormatValue = (v: unknown): unknown => {
   return v;
 };
 
+/** Per text node class, the format bits its setFormat keeps (see textFormatKept). */
+const keptFormats = new WeakMap<object, number>();
+
 /**
- * Whether the text class of `attrs` keeps no format bits: its setFormat is
- * its own (a code highlight's ignores them), so a reader shows none,
- * whatever is stored.
+ * Whether text of stored type `type` (absent: `text`) keeps format bit
+ * `name` (a TEXT_TYPE_TO_FORMAT name): what the class's setFormat does with
+ * it, probed once per class on a stand-in node. A code highlight keeps none
+ * (its setFormat ignores them), a class that forwards to TextNode's keeps
+ * every one, a class may keep some. A reader shows a bit the class does not
+ * keep nowhere, so it does not set nodes apart by it. A class whose setter
+ * the probe cannot run, or that turns one bit into others, keeps every bit,
+ * as TextNode does.
  */
-export function keepsNoTextFormats(
+export function textFormatKept(
   editor: LexicalEditor,
-  attrs: Attrs,
+  type: unknown,
+  name: string,
 ): boolean {
-  const type = decodeFormatValue(attrs[TYPE_KEY] ?? null);
+  if (!hasOwn(TEXT_TYPE_TO_FORMAT, name)) {
+    return true;
+  }
   const info = editor._nodes.get(typeof type === 'string' ? type : 'text');
+  const klass = info && (info.replaceWithKlass || info.klass);
+  if (!klass || !(klass.prototype instanceof TextNode)) {
+    return true;
+  }
+  const proto = klass.prototype as TextNode;
+  if (proto.setFormat === TextNode.prototype.setFormat) {
+    return true;
+  }
+  let kept = keptFormats.get(klass);
+  if (kept === undefined) {
+    kept = probeKeptFormats(proto);
+    keptFormats.set(klass, kept);
+  }
   return (
-    info !== undefined &&
-    info.klass.prototype instanceof TextNode &&
-    (info.klass.prototype as TextNode).setFormat !==
-      TextNode.prototype.setFormat
+    (kept & TEXT_TYPE_TO_FORMAT[name as keyof typeof TEXT_TYPE_TO_FORMAT]) !== 0
   );
+}
+
+/**
+ * The format bits `proto`'s setFormat keeps, each set alone on a stand-in
+ * node that is its own writable and latest version (so no editor state is
+ * touched); every bit (-1) when the setter throws or sets other bits.
+ */
+function probeKeptFormats(proto: TextNode): number {
+  let kept = 0;
+  try {
+    for (const bit of Object.values(TEXT_TYPE_TO_FORMAT)) {
+      const probe = Object.create(proto) as TextNode;
+      probe.__format = 0;
+      Object.defineProperty(probe, 'getWritable', {value: () => probe});
+      Object.defineProperty(probe, 'getLatest', {value: () => probe});
+      const out: unknown = proto.setFormat.call(probe, bit);
+      const result = out instanceof TextNode ? out.__format : probe.__format;
+      if ((result & ~bit) !== 0) {
+        return -1;
+      }
+      kept |= result & bit;
+    }
+  } catch (_e) {
+    return -1;
+  }
+  return kept;
 }
 
 /** Format attributes of a line break: its NodeState. */

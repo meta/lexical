@@ -33,13 +33,13 @@ import {$pushInline, Atoms, readAtoms} from './Inline';
 import {Reader} from './Read';
 import {
   type Attrs,
+  decodeFormatValue,
   equalValue,
   getContainerGroupSpec,
   getGroupSpec,
   getWrapperSpec,
   INLINE_PREFIX,
   isSetStateConfig,
-  keepsNoTextFormats,
   MARKER,
   ownsFormat,
   RUN_END,
@@ -48,6 +48,7 @@ import {
   stableStringify,
   STATE_PREFIX,
   TEXT_FORMAT_PREFIX,
+  textFormatKept,
   TYPE_KEY,
   WRAPPER_PREFIX,
 } from './Schema';
@@ -224,10 +225,14 @@ export function $checkWrite(writer: Writer): string[] {
         if (
           !wrappersOnly &&
           k.startsWith(TEXT_FORMAT_PREFIX) &&
-          keepsNoTextFormats(writer.state.editor, a)
+          !textFormatKept(
+            writer.state.editor,
+            decodeFormatValue(a[TYPE_KEY] ?? null),
+            k.slice(TEXT_FORMAT_PREFIX.length),
+          )
         ) {
-          // A text class that keeps no formats (a code highlight): the
-          // reader shows none, whatever is stored.
+          // A format bit the text class does not keep (a code highlight
+          // keeps none): the reader shows none, whatever is stored.
           continue;
         }
         // What the write stores of it, where the editor owns it (see

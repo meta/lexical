@@ -19,7 +19,12 @@
 // they stay stored.
 
 import {$createCodeHighlightNode, $createCodeNode} from '@lexical/code';
-import {$createParagraphNode, $getRoot, type TextNode} from 'lexical';
+import {
+  $createParagraphNode,
+  $getRoot,
+  TEXT_TYPE_TO_FORMAT,
+  type TextNode,
+} from 'lexical';
 import {describe, expect, test} from 'vitest';
 
 import {
@@ -118,6 +123,37 @@ describe.each([false, true])('gc %s', gc => {
     await expectAuthorEqualsFresh(t, t.b);
     expect(textNodes(t.b)).toEqual(['let', ' Xab;']);
     expect(storedWith(t.b, 'f:italic')).toBe('ab');
+  });
+
+  // Every format bit at once (and one no class knows, which stays a
+  // boundary): the highlight keeps none of the known ones.
+  test('every known format bit over part of a highlight reads as one node', async () => {
+    const t = await setup(
+      () =>
+        $getRoot().append(
+          $createParagraphNode().append(
+            $createCodeHighlightNode('alpha beta', 'comment'),
+          ),
+        ),
+      {gc},
+    );
+    const at = offsetOf(t.a, 'beta');
+    const all = Object.fromEntries(
+      Object.keys(TEXT_TYPE_TO_FORMAT).map(name => [`f:${name}`, true]),
+    );
+    t.a.doc.transact(() => raw(t.a).format(at, 4, all), 'outside');
+    await t.sync();
+    expect(textNodes(t.b)).toEqual(['alpha beta']);
+    expect((await freshReader(t.b)).describe()).toBe(t.b.describe());
+    t.a.doc.transact(
+      () => raw(t.a).format(at, 2, {'f:future': true}),
+      'outside',
+    );
+    await t.sync();
+    expect(textNodes(t.b)).toEqual(['alpha ', 'be', 'ta']);
+    for (const name of Object.keys(TEXT_TYPE_TO_FORMAT)) {
+      expect(storedWith(t.b, `f:${name}`)).toBe('beta');
+    }
   });
 
   // A highlight with a stored bold over its second word: one node, typed
