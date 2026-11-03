@@ -36,6 +36,7 @@ import {pushAll} from './Arrays';
 import {$withoutLevelId, innerBlockIds, NO_IDS} from './BlockIds';
 import {Cursor, equalFormatValue, type Formats, isLiveContent} from './Cursor';
 import {groupKeySig, groupSig} from './Groups';
+import {isShadowKey, stepFormat} from './Ident';
 import {
   $pushInline,
   Atoms,
@@ -102,11 +103,15 @@ import {
   attrOf,
   attrsBefore,
   attrsOf,
+  copyStart,
   deleteAttr,
   deleteItem,
+  deletions,
+  frontierOf,
   isGone,
   isHeld,
   isShownEnd,
+  noteFolded,
   prevLiveEnd,
   setAttr,
   unheldLength,
@@ -345,6 +350,9 @@ export type WritePlan = {
 };
 
 export class Writer {
+  /** The last format pass's fold (see $fixStartsAfter, perf P4). */
+  private passFold: {clock: number; deletions: number; fold: PassFold} | null =
+    null;
   /** Containers fully written in this transaction. */
   readonly written = new Set<NodeKey>();
   /** Lines and runs whose content was written (for the self-check). */
@@ -2198,8 +2206,10 @@ export class Writer {
   private $recomputeStarts(cs: CS): void {
     const formats = new Map<string, unknown>();
     let it: Item | null = cs.y._start;
+    let after: Item | null = null;
     for (const u of cs.units) {
       u.start = formats.size > 0 ? new Map(formats) : null;
+      noteFolded(u.start, after, true);
       const hidden = this.state.hidden;
       const held = hidden === null ? undefined : hidden.starts.get(u);
       if (held !== undefined) {
@@ -2211,14 +2221,10 @@ export class Writer {
       }
       for (; it !== null; it = it.right) {
         if (!isGone(it) && it.content instanceof ContentFormat) {
-          const {key, value} = it.content;
-          if (value === null) {
-            formats.delete(key);
-          } else {
-            formats.set(key, value);
-          }
+          stepFormat(formats, it);
         }
         if (it === u.end) {
+          after = it;
           it = it.right;
           break;
         }
@@ -2234,35 +2240,60 @@ export class Writer {
       if (unit.end === null || isGone(unit.end)) {
         return;
       }
-      const left = prevLiveEnd(unit.end, this.state.hidden);
-      const formats = new Map(unit.start || EMPTY_FORMATS);
-      for (
-        let it: Item | null = left === null ? unit.cs.y._start : left.right;
-        it !== null;
-        it = it.right
-      ) {
-        if (!isGone(it) && it.content instanceof ContentFormat) {
-          const {key, value} = it.content;
-          if (value === null) {
-            formats.delete(key);
-          } else {
-            formats.set(key, value);
-          }
-        }
-        if (it === unit.end) {
-          break;
-        }
-      }
+      // The next unit first (perf P4): without one, the fold below would
+      // set nothing.
       let next: Item | null = unit.end.right;
       while (next !== null && !isShownEnd(next, this.state.hidden)) {
         next = next.right;
       }
       const nextUnit: Unit | undefined =
         next === null ? undefined : this.state.unitByEnd.get(next);
-      if (nextUnit === undefined || sameFormatMaps(nextUnit.start, formats)) {
+      if (nextUnit === undefined) {
+        return;
+      }
+      const left = prevLiveEnd(unit.end, this.state.hidden);
+      // (Before the copy: a stale start is folded again, see frontierOf.)
+      let folded = frontierOf(unit.start, left, unit.cs.y);
+      let formats = new Map(unit.start || EMPTY_FORMATS);
+      let from: Item | null = left === null ? unit.cs.y._start : left.right;
+      // The format pass's fold of this line, where nothing was written since
+      // (perf P4): go on from where it stopped.
+      const pf = this.passFold;
+      if (
+        pf !== null &&
+        this.state.hidden === null &&
+        pf.deletions === deletions &&
+        pf.clock === this.tr.doc.store.getClock(this.tr.doc.clientID) &&
+        pf.fold.start === from &&
+        pf.fold.startFormats === (unit.start || EMPTY_FORMATS) &&
+        pf.fold.frontier === folded &&
+        pf.fold.stop !== null &&
+        reaches(pf.fold.stop, unit.end)
+      ) {
+        formats = new Map(pf.fold.after);
+        folded = pf.fold.folded;
+        from = pf.fold.stop;
+      }
+      for (let it: Item | null = from; it !== null; it = it.right) {
+        if (it === folded) {
+          folded = null;
+        }
+        if (
+          folded === null &&
+          !isGone(it) &&
+          it.content instanceof ContentFormat
+        ) {
+          stepFormat(formats, it);
+        }
+        if (it === unit.end) {
+          break;
+        }
+      }
+      if (sameFormatMaps(nextUnit.start, formats)) {
         return;
       }
       nextUnit.start = formats.size > 0 ? formats : null;
+      noteFolded(nextUnit.start, unit.end, true);
       unit = nextUnit;
     }
   }
@@ -2473,7 +2504,9 @@ export class Writer {
       const left = unitLeft(old, idx, this.state.hidden);
       const stop = unitStop(old, idx);
       const startItem = left === null ? u.cs.y._start : left.right;
+      this.frontier = frontierOf(u.start, left, u.cs.y);
       const cursor = this.cursor(u.cs.y, left, u.start || EMPTY_FORMATS);
+      this.frontier = null;
       // Its own content starts at its first item, right after the end item
       // of the unit before it, also once this write deleted that one (a line
       // without a marker always follows one, see parseRange): live text
@@ -2488,7 +2521,7 @@ export class Writer {
       cursor.delete(countLive(from, stop, this.state.hidden));
     }
     if (idx + 1 < old.length) {
-      old[idx + 1].start = u.start;
+      old[idx + 1].start = copyStart(u.start);
     }
   }
 
@@ -2542,6 +2575,12 @@ export class Writer {
         ? startFormats
         : inherited.stored || EMPTY_FORMATS;
     const startItem = left === null ? cs.y._start : left.right;
+    // Where the start formats were folded up to, when past `left` (see
+    // Seen.frontierOf): node units this write deleted before the first
+    // remaining one, or a gone or held end before it.
+    const frontier =
+      frontierOf(storedStartFormats, left, cs.y) ??
+      frontierOf(startFormats, left, cs.y);
     const lineItems = new Map<number, Item>();
     if (remaining.length > 0 || lines.length > 0) {
       const oldStop =
@@ -2581,17 +2620,25 @@ export class Writer {
       if (ctx.flattened === true || ctx.unpaired === true) {
         this.refused.add(cs);
       }
-      const items = this.$writeSeq(
-        cs.y,
-        left,
-        startFormats,
-        oldStop,
-        atoms,
-        ctx.cursorAt,
-        oldOrigins,
-      );
+      this.frontier = frontier;
+      let items: Map<number, Item>;
+      try {
+        items = this.$writeSeq(
+          cs.y,
+          left,
+          startFormats,
+          oldStop,
+          atoms,
+          ctx.cursorAt,
+          oldOrigins,
+        );
+      } finally {
+        this.frontier = null;
+      }
       if (openTail) {
+        this.frontier = frontier;
         const c = this.cursor(cs.y, left, startFormats);
+        this.frontier = null;
         c.advance(atoms.length);
         const lastD = desired[lines[lines.length - 1]];
         items.set(
@@ -2676,33 +2723,46 @@ export class Writer {
       const shown = new Map(startFormats);
       let pendingStart: Formats = new Map(current);
       let pendingShown: Formats = new Map(shown);
+      // Where the pending starts were folded up to (see Seen.noteFolded).
+      let pendingAt: Item | null = frontier ?? left;
       let k = 0;
+      let folded = frontier;
       for (
         let it = startItem;
         it !== null && k < segUnits.length;
         it = it.right
       ) {
+        if (it === folded) {
+          folded = null;
+        }
         if (isGone(it)) {
           continue;
         }
         if (it.content instanceof ContentFormat) {
-          applyFormat(current, it.content);
+          if (folded !== null) {
+            continue;
+          }
+          applyFormat(current, it);
           if (!isHeld(it, hidden)) {
-            applyFormat(shown, it.content);
+            applyFormat(shown, it);
           }
           continue;
         }
         const u = byEnd.get(it);
         if (u !== undefined) {
           u.start = pendingStart.size > 0 ? pendingStart : null;
+          noteFolded(u.start, pendingAt, true);
           if (heldSegment && !sameFormatMaps(pendingStart, pendingShown)) {
+            const shownStart = pendingShown.size > 0 ? pendingShown : null;
+            noteFolded(shownStart, pendingAt, true, hidden);
             hidden!.starts.set(u, {
-              shown: pendingShown.size > 0 ? pendingShown : null,
+              shown: shownStart,
               stored: u.start,
             });
           }
           pendingStart = new Map(current);
           pendingShown = new Map(shown);
+          pendingAt = it;
           k++;
         }
       }
@@ -2717,9 +2777,17 @@ export class Writer {
     const formats = new Map(storedStartFormats);
     let it: Item | null = startItem;
     if (after !== left) {
+      let folded = frontier;
       for (; it !== null; it = it.right) {
-        if (!isGone(it) && it.content instanceof ContentFormat) {
-          applyFormat(formats, it.content);
+        if (it === folded) {
+          folded = null;
+        }
+        if (
+          folded === null &&
+          !isGone(it) &&
+          it.content instanceof ContentFormat
+        ) {
+          applyFormat(formats, it);
         }
         if (it === after) {
           it = it.right;
@@ -2736,6 +2804,7 @@ export class Writer {
           !sameFormatMaps(next.start, formats)
         ) {
           next.start = formats.size > 0 ? formats : null;
+          noteFolded(next.start, after, true);
           this.$fixStartsAfter(next);
         }
         break;
@@ -2744,9 +2813,16 @@ export class Writer {
     return after;
   }
 
+  /**
+   * Where the start formats the running write seeds its folds and cursors
+   * with were folded up to, when that is past their `left` (see
+   * Seen.frontierOf); null otherwise. Set around the calls that use it.
+   */
+  private frontier: Item | null = null;
+
   /** A write cursor after `left` that skips content the editor hides. */
   private cursor(y: YNode, left: Item | null, formats: Formats): Cursor {
-    const c = new Cursor(this.tr, y, left, new Map(formats));
+    const c = new Cursor(this.tr, y, left, new Map(formats), this.frontier);
     c.hidden = this.state.hidden;
     return c;
   }
@@ -2765,6 +2841,7 @@ export class Writer {
       unit !== undefined && unit.start !== null ? unit.start : EMPTY_FORMATS,
       atoms,
       this.state.hidden,
+      frontierOf(unit !== undefined ? unit.start : null, start, item.parent),
     );
   }
 
@@ -2967,13 +3044,16 @@ export class Writer {
     const old = u.cs.units;
     let left: Item | null;
     let stop: Item | null;
+    let frontier: Item | null;
     if (u.end !== null) {
       left = prevLiveEnd(u.end, this.state.hidden);
       stop = u.end.right;
+      frontier = frontierOf(u.start, left, u.cs.y);
     } else {
       const idx = old.indexOf(u);
       left = unitLeft(old, idx, this.state.hidden);
       stop = unitStop(old, idx);
+      frontier = frontierOf(u.start, left, u.cs.y);
     }
     const atoms = new Atoms();
     const oldOrigins = this.oldOrigins([u]);
@@ -2989,30 +3069,40 @@ export class Writer {
       // Text without a marker (left by a concurrent edit): diff the content
       // alone (a trailing marker would defeat the common suffix), then end
       // it with a marker.
-      this.$writeSeq(
-        u.cs.y,
-        left,
-        u.start || EMPTY_FORMATS,
-        stop,
-        atoms,
-        ctx.cursorAt,
-        oldOrigins,
-      );
-      const c = this.cursor(u.cs.y, left, u.start || EMPTY_FORMATS);
-      c.advance(at);
-      end = c.insertPlain(new ContentType(new YNode(MARKER)));
+      this.frontier = frontier;
+      try {
+        this.$writeSeq(
+          u.cs.y,
+          left,
+          u.start || EMPTY_FORMATS,
+          stop,
+          atoms,
+          ctx.cursorAt,
+          oldOrigins,
+        );
+        const c = this.cursor(u.cs.y, left, u.start || EMPTY_FORMATS);
+        c.advance(at);
+        end = c.insertPlain(new ContentType(new YNode(MARKER)));
+      } finally {
+        this.frontier = null;
+      }
     } else {
       atoms.pushSpecial({kind: 'marker', ref: d}, null);
-      const items = this.$writeSeq(
-        u.cs.y,
-        left,
-        u.start || EMPTY_FORMATS,
-        stop,
-        atoms,
-        ctx.cursorAt,
-        oldOrigins,
-      );
-      end = items.get(at)!;
+      this.frontier = frontier;
+      try {
+        const items = this.$writeSeq(
+          u.cs.y,
+          left,
+          u.start || EMPTY_FORMATS,
+          stop,
+          atoms,
+          ctx.cursorAt,
+          oldOrigins,
+        );
+        end = items.get(at)!;
+      } finally {
+        this.frontier = null;
+      }
     }
     if (end !== u.end) {
       this.noteEnd(u);
@@ -3122,11 +3212,10 @@ export class Writer {
       }
     }
     if (writes.length > 0) {
-      const c = this.cursor(
-        u.cs.y,
-        prevLiveEnd(u.end!, this.state.hidden),
-        u.start || EMPTY_FORMATS,
-      );
+      const left = prevLiveEnd(u.end!, this.state.hidden);
+      this.frontier = frontierOf(u.start, left, u.cs.y);
+      const c = this.cursor(u.cs.y, left, u.start || EMPTY_FORMATS);
+      this.frontier = null;
       // Where the cursor stands, in atoms of the line as written so far,
       // and how far the edits written so far moved what comes after them.
       let pos = 0;
@@ -3142,9 +3231,8 @@ export class Writer {
         c.advance(start - pos);
         const old = changedBefore.__text;
         const now = changed.__text;
-        pos =
-          start +
-          this.$writeEdits(c, edits, old, now, $textAttrs(changed, segment));
+        const attrs = $textAttrs(changed, segment);
+        pos = start + this.$writeEdits(c, edits, old, now, attrs);
         moved += now.length - old.length;
       }
     }
@@ -3305,7 +3393,14 @@ export class Writer {
   ): Map<number, Item> {
     const startItem = left === null ? y._start : left.right;
     const old = new Atoms();
-    readAtoms(startItem, oldStop, startFormats, old, this.state.hidden);
+    readAtoms(
+      startItem,
+      oldStop,
+      startFormats,
+      old,
+      this.state.hidden,
+      this.frontier,
+    );
     const state = this.state;
     // Types of the new inline nodes (those without a shared node yet): a
     // replaced node of one of these types is kept by the new node of its own
@@ -3835,6 +3930,9 @@ export class Writer {
       attrs[TYPE_KEY],
     );
     cursor.formats.forEach((v, k) => {
+      if (isShadowKey(k)) {
+        return;
+      }
       let value = v;
       if (k in attrs) {
         value = this.formatAsStored(k, attrs[k], v, true);
@@ -3899,9 +3997,10 @@ export class Writer {
           break;
         }
       }
+      const attrs = run ? run.attrs : {};
       cursor.insert(
         new ContentString(atoms.text.slice(i, j)),
-        this.inheritUnknown(cursor, run ? run.attrs : {}),
+        this.inheritUnknown(cursor, attrs),
       );
       i = j;
     }
@@ -3916,13 +4015,23 @@ export class Writer {
   ): void {
     const startItem = left === null ? y._start : left.right;
     const actual = new Atoms();
-    readAtomsLimited(
+    const fold = readAtomsLimited(
+      this.frontier,
       startItem,
       startFormats,
       atoms.length,
       actual,
       this.state.hidden,
     );
+    // Kept for $fixStartsAfter while nothing is written (perf P4).
+    this.passFold =
+      this.state.hidden === null
+        ? {
+            clock: this.tr.doc.store.getClock(this.tr.doc.clientID),
+            deletions,
+            fold,
+          }
+        : null;
     const ops: {start: number; end: number; formats: Attrs; sig: string}[] = [];
     // A line break carries wrapper formats and its own NodeState; a child
     // node carries wrapper formats only. Of those, what this editor owns
@@ -3980,10 +4089,11 @@ export class Writer {
       while (rb < actual.runs.length && actual.runs[rb].end <= start) {
         rb++;
       }
-      const want =
+      const wanted =
         ra < atoms.runs.length && atoms.runs[ra].start <= start
           ? atoms.runs[ra].attrs
           : {};
+      const want = wanted;
       const have =
         rb < actual.runs.length && actual.runs[rb].start <= start
           ? actual.runs[rb].attrs
@@ -4985,12 +5095,13 @@ function unitStop(units: Unit[], idx: number): Item | null {
 
 /** Read exactly `limit` atoms from `start`. */
 function readAtomsLimited(
+  frontier: Item | null,
   start: Item | null,
   formats: Formats,
   limit: number,
   out: Atoms,
   hidden: Hidden | null,
-): void {
+): PassFold {
   let stop: Item | null = start;
   let n = 0;
   while (stop !== null && n < limit) {
@@ -4999,8 +5110,37 @@ function readAtomsLimited(
     }
     stop = stop.right;
   }
-  readAtoms(start, stop, formats, out, hidden);
+  const end = {folded: frontier};
+  const after = readAtoms(start, stop, formats, out, hidden, frontier, end);
+  return {
+    after,
+    folded: end.folded,
+    frontier,
+    start,
+    startFormats: formats,
+    stop,
+  };
 }
+
+/** Whether `end` is `from` or lies after it, walking right. */
+function reaches(from: Item, end: Item): boolean {
+  for (let it: Item | null = from; it !== null; it = it.right) {
+    if (it === end) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/** What a format pass folded (see Writer#$fixStartsAfter, perf P4). */
+type PassFold = {
+  start: Item | null;
+  startFormats: Formats;
+  frontier: Item | null;
+  stop: Item | null;
+  after: Formats;
+  folded: Item | null;
+};
 
 /** The origin key at each atom position (undefined outside text). */
 function keysAt(
@@ -5327,12 +5467,8 @@ function exactRange(
   return true;
 }
 
-function applyFormat(formats: Map<string, unknown>, f: ContentFormat): void {
-  if (f.value === null) {
-    formats.delete(f.key);
-  } else {
-    formats.set(f.key, f.value);
-  }
+function applyFormat(formats: Map<string, unknown>, it: Item): void {
+  stepFormat(formats, it);
 }
 
 /**

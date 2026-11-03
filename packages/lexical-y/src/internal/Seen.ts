@@ -12,16 +12,19 @@ import type {Attrs} from './Schema';
 import {
   ContentAny,
   ContentBinary,
+  ContentFormat,
   ContentType,
   createID,
   createIdSet,
+  type Doc,
   type IdSet,
   Item,
   Node as YNode,
   type Transaction,
 } from '@y/y';
 
-import {isEndItem, typeOf} from './State';
+import {pairedReadingIn, stepFormat} from './Ident';
+import {EMPTY_FORMATS, isEndItem, typeOf} from './State';
 import {deleted, inserted, type Unread, viewOf} from './Unread';
 
 /*
@@ -63,7 +66,12 @@ export function isGone(item: Item): boolean {
   if (!item.deleted) {
     return false;
   }
-  return !deleted(view, item) || view.removed.hasId(item.id);
+  if (view.removed.hasId(item.id)) {
+    return true;
+  }
+  // Deleted by an unread change, or by a held change that the line being
+  // composed still shows (a format item, see Hidden#keeps).
+  return !deleted(view, item) && (view.keeps === null || !view.keeps(item));
 }
 
 /** What each write only noted as deleted (see deleteItem), by transaction. */
@@ -85,11 +93,19 @@ export function deletedBy(item: Item, tr: Transaction): boolean {
  * Delete `item` (not gone, see isGone): an item an unread change deleted is
  * only noted as deleted by this write.
  */
+/** Bumped by every deleteItem (perf P4: a fold reused only while nothing was deleted). */
+export let deletions = 0;
 export function deleteItem(item: Item, tr: Transaction): void {
+  deletions++;
   if (item.deleted) {
     const view = viewOf(item.parent as YNode);
     if (view !== null) {
       view.removed.add(item.id.client, item.id.clock, item.length);
+      // A format item a hold showed, deleted by this write too: the editor
+      // no longer shows it (see Hidden#drop).
+      if (view.dropKept !== null) {
+        view.dropKept(item);
+      }
       let noted = notedIn.get(tr);
       if (noted === undefined) {
         noted = createIdSet();
@@ -238,15 +254,21 @@ export function unheldLength(item: Item, hidden: Hidden | null): number {
 
 /** The length of an item the editor shows (live content only). */
 export function shownLength(item: Item, hidden: Hidden | null): number {
-  if (isGone(item) || !item.countable) {
+  if (!item.countable || isGone(item)) {
     return 0;
   }
   return unheldLength(item, hidden);
 }
 
-/** Whether the editor shows `item`: live, and not held back. */
+/**
+ * Whether the editor shows `item`: live (or a deleted format item a hold
+ * keeps, see Hidden#keeps), and not held back.
+ */
 export function isShown(item: Item, hidden: Hidden | null): boolean {
-  return !isGone(item) && !isHeld(item, hidden);
+  return (
+    (!isGone(item) || (hidden !== null && hidden.keeps(item))) &&
+    !isHeld(item, hidden)
+  );
 }
 
 /** The part of string item `item`'s text `str` the editor shows. */
@@ -271,7 +293,9 @@ export function shownText(str: string, item: Item, hidden: Hidden): string {
  * item that is not held back (see Hidden).
  */
 export function isShownEnd(it: Item, hidden: Hidden | null): boolean {
-  return !isGone(it) && isEndItem(it) && !isHeld(it, hidden);
+  // The cheap type test first: walks over a line's items (most of them text
+  // and format items) then look up the write's view only for its ends.
+  return isEndItem(it) && !isGone(it) && !isHeld(it, hidden);
 }
 
 /**
@@ -297,6 +321,250 @@ export function shownAttrs(end: Item, hidden: Hidden | null): Attrs {
  * The end item before `it` in its container that the editor shows (see
  * isShownEnd), or null.
  */
+/**
+ * Where each start formats map was folded up to (that item and everything
+ * before it): every fold that makes a unit start notes it (noteFolded), and
+ * a copy shares nothing (a map passed on as it is keeps it).
+ */
+const FOLDED = Symbol('foldedTo');
+type Folded = {
+  [FOLDED]?: {
+    to: Item | null;
+    /**
+     * Whether the start is a shown one (folded over what the write's view
+     * shows, see isGone) rather than a stored one (every item not deleted):
+     * a refold keeps its lane.
+     */
+    shown: boolean;
+    /**
+     * For a shown start that also leaves out what a hold holds back (see
+     * Writer's held segments): that hold, whose filter a refold keeps.
+     */
+    unheld: Hidden | null;
+    /**
+     * Whether `to` lies after a walk's left, per left asked (items never
+     * move, so the answer never changes). Bounded: past 8 lefts the answers
+     * are dropped and asked again (each at most twice the shorter of the
+     * two directed distances, see liesAfter).
+     */
+    after: Map<Item | null, boolean> | null;
+  };
+};
+export function noteFolded(
+  formats: object | null,
+  to: Item | null,
+  shown = false,
+  unheld: Hidden | null = null,
+): void {
+  // Never on the shared empty map: one note there would serve every unit
+  // that starts with no formats (and keep the noted item's document alive).
+  if (formats !== null && formats !== EMPTY_FORMATS) {
+    // On the map itself (a WeakMap entry per fold cost a hash insertion per
+    // fold), non-enumerable, so maps still compare and print by entries.
+    const note = {after: null, shown, to, unheld};
+    if (Object.prototype.hasOwnProperty.call(formats, FOLDED)) {
+      (formats as Folded)[FOLDED] = note;
+    } else {
+      Object.defineProperty(formats, FOLDED, {value: note, writable: true});
+    }
+  }
+}
+
+/**
+ * A copy of unit start `start` with its fold note, for another unit: a
+ * start belongs to one unit, since frontierOf can fold it again in place.
+ */
+export function copyStart<T extends Map<string, unknown> | null>(start: T): T {
+  if (start === null) {
+    return start;
+  }
+  const copy = new Map(start);
+  const note = (start as Folded)[FOLDED];
+  if (note !== undefined) {
+    noteFolded(copy, note.to, note.shown, note.unheld);
+  }
+  return copy as T;
+}
+
+/**
+ * The frontier of a walk from `left` (exclusive) seeded with `start`: the
+ * item `start` was folded up to, when that lies after `left` (the walk
+ * would step the items up to it a second time: a paired run must not nest
+ * twice), else null. Only where runs are paired: below layout 3 stepping a
+ * plain value again changes nothing, and main's walks are kept byte for
+ * byte.
+ */
+export function frontierOf(
+  start: object | null,
+  left: Item | null,
+  parent: unknown,
+): Item | null {
+  if (start === null) {
+    return null;
+  }
+  const note = (start as Folded)[FOLDED];
+  if (note === undefined) {
+    return null;
+  }
+  let to = note.to;
+  if (to === null || to === left || !pairedReadingIn(parent)) {
+    return null;
+  }
+  // By its stored id: Yjs can merge the noted item into the one before it
+  // (adjacent text of one client), which leaves the noted object out of
+  // the container's items; the item that holds its id now is the point.
+  const doc = (parent as {doc: Doc | null}).doc;
+  if (doc !== null) {
+    const held = doc.store.getItem(to.id);
+    if (held instanceof Item && held !== to) {
+      to = held;
+      note.to = held;
+      note.after = null;
+    }
+  }
+  if (to === left) {
+    return null;
+  }
+  // A fold point that is gone is no boundary any more (a moved block's old
+  // marker), and the start may be stale both ways: it holds the items that
+  // were before `to` when it was folded, not those inserted since between
+  // `left` and `to` (an undo restoring a word there). Where `to` lies after
+  // `left`, the start is folded again from the container's start up to
+  // `left` (in place: the start belongs to this unit; once, the note then
+  // names `left`), and the walk steps everything from `left`.
+  if (note.shown ? isGone(to) : to.deleted) {
+    if (liesAfter(to, left, parent)) {
+      refoldUpTo(
+        start as Map<string, unknown>,
+        left,
+        parent,
+        note.shown,
+        note.unheld,
+      );
+      note.to = left;
+      note.after = null;
+    }
+    return null;
+  }
+  let after = note.after === null ? undefined : note.after.get(left);
+  if (after === undefined) {
+    after = liesAfter(to, left, parent);
+    if (note.after === null || note.after.size >= 8) {
+      note.after = new Map();
+    }
+    note.after.set(left, after);
+  }
+  return after ? to : null;
+}
+
+/**
+ * Whether item `to` lies after `left` (null: before the container's first
+ * item) in container `parent`, exactly: a walk right from `left` and a walk
+ * left from `to`, a step each in turn; the first to meet the other's end
+ * answers yes, the first to leave the container answers no. At most twice
+ * the shorter of the two directed distances.
+ */
+function liesAfter(to: Item, left: Item | null, parent: unknown): boolean {
+  if (left === null) {
+    return to.parent === parent;
+  }
+  let f: Item | null = left.right;
+  let b: Item | null = to.left;
+  for (;;) {
+    if (f === null) {
+      return false;
+    }
+    if (f === to) {
+      return true;
+    }
+    f = f.right;
+    if (b === null) {
+      return false;
+    }
+    if (b === left) {
+      return true;
+    }
+    b = b.left;
+  }
+}
+
+/** Fold `start` again: every live format item from `parent`'s start to `left`. */
+function refoldUpTo(
+  start: Map<string, unknown>,
+  left: Item | null,
+  parent: unknown,
+  shown: boolean,
+  unheld: Hidden | null = null,
+): void {
+  start.clear();
+  if (left === null) {
+    return;
+  }
+  for (
+    let it: Item | null = (parent as {_start: Item | null})._start;
+    it !== null;
+    it = it.right
+  ) {
+    if (
+      !(shown ? isGone(it) : it.deleted) &&
+      it.content instanceof ContentFormat &&
+      (unheld === null || !isHeld(it, unheld))
+    ) {
+      stepFormat(start, it);
+    }
+    if (it === left) {
+      break;
+    }
+  }
+}
+
+/**
+ * Test-only: unitLeftEnd also walks as prevLiveEnd does and throws where the
+ * two disagree (harnesses turn it on).
+ */
+let checkUnitLeft = false;
+const __DEV__ = process.env.NODE_ENV !== 'production';
+export function setUnitLeftChecks(on: boolean): void {
+  checkUnitLeft = on;
+}
+
+/**
+ * The end item before unit `unit` that the editor shows (prevLiveEnd of its
+ * end), read from the unit before it in its container when that one's end
+ * is shown, and null for the first unit of its container: a line's own
+ * items are not walked (a line holding thousands of deleted format items
+ * after toggles made every caret capture and restore walk them twice).
+ * Walks where that end is not shown (held or gone).
+ */
+export function unitLeftEnd(
+  units: readonly {end: Item | null}[],
+  unit: {end: Item | null; at?: number},
+  hidden: Hidden | null,
+): Item | null {
+  const end = unit.end!;
+  // Where it was last found (a hint: units are spliced in place).
+  let i = unit.at === undefined ? -1 : unit.at;
+  if (units[i] !== unit) {
+    i = units.indexOf(unit);
+    unit.at = i;
+  }
+  const prev = i > 0 ? units[i - 1].end : null;
+  // The first unit of its container: nothing is shown before it.
+  const known = i === 0;
+  const fast =
+    prev !== null && isShownEnd(prev, hidden) && prev !== end ? prev : null;
+  if ((fast === null && !known) || (__DEV__ && checkUnitLeft)) {
+    const walked = prevLiveEnd(end, hidden);
+    if ((fast !== null || known) && walked !== fast) {
+      throw new Error(
+        '@lexical/y: the end before a unit is not the end of the unit before it',
+      );
+    }
+    return walked;
+  }
+  return fast;
+}
+
 export function prevLiveEnd(
   it: Item | null,
   hidden: Hidden | null,

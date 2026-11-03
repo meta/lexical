@@ -13,6 +13,7 @@
 
 import {applyUpdate} from '@y/y';
 
+import {installCopyRepair} from './Ident';
 import {createRawYDoc, type YDoc, type YDocOptions} from './RawYDoc';
 
 export type {YDoc, YDocOptions};
@@ -37,6 +38,9 @@ export function createYDoc(
   const doc = createRawYDoc(null, options);
   // What a client's document needs beyond the raw one goes here, before
   // anything is applied and before any observer the app adds.
+  // Copy repair (see Ident.installCopyRepair): a client's document only,
+  // never a raw one (relays and migration scratch documents never undo).
+  installCopyRepair(doc);
   if (state != null) {
     try {
       applyUpdate(doc, state);

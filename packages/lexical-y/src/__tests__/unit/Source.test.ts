@@ -157,6 +157,7 @@ test('internal writes of node attributes go through Seen', () => {
     'Binding.ts $writeInitial: root.setAttr(LAYOUT_PREFIX + BASE_LAYOUT_VERSION)',
     'Binding.ts $writeInitial: root.setAttr(SCHEMA_PREFIX + this.options.schemaVersion)',
     'Binding.ts recordPins: root.setAttr(PIN_PREFIX + type)',
+    'Ident.ts writeIdentityRecord: root.setAttr(LAYOUT_PREFIX + IDENTITY_LAYOUT_VERSION)',
   ]);
 });
 

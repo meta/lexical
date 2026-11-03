@@ -25,7 +25,14 @@ import {type Item} from '@y/y';
  * line is the editor's view of Yjs minus these items, see `hides`). A change
  * that removes something the editor shows (a deletion, a join) is read at
  * once and whole, held items still skipped: Yjs does not keep what it
- * removed, so the editor cannot go on showing it.
+ * removed, so the editor cannot go on showing it. Format items are the
+ * exception, in documents read as paired runs (layout 3): a format item a
+ * change deletes in the line is kept (see `keeps`), so the line goes on
+ * showing it until the hold ends (a change that retokenizes the line, or an
+ * identity write, deletes the line's format items and writes others). A kept
+ * item a local edit leaves in another line (Enter before it) stays kept: the
+ * local edit wrote that line as the editor showed it, and it is read again
+ * when the hold ends, as every kept item's line is.
  *
  * The hold lasts while the composition goes on in that line and every held
  * item is still in it: it ends when the composition ends (or is cancelled,
@@ -67,6 +74,74 @@ export class Hidden {
    * Writer#$writeMarker)
    */
   constructor(public ownerKey: NodeKey) {}
+
+  /**
+   * Format items a held change deleted, which the editor still shows (see
+   * `keeps`), with whether the hold set their Item.keep (so that the
+   * deleting transaction's garbage collection left their key and value
+   * readable; cleared when the hold ends, see `releaseKeeps`).
+   */
+  private readonly kept = new Map<Item, boolean>();
+
+  /**
+   * Show deleted format item `item` until the hold ends: every reader and
+   * writer of the line sees it live (see Seen.isGone and isShown). It is
+   * kept from the deleting transaction's garbage collection, which runs
+   * after the change is read (Item.keep; a format item never merges with
+   * its neighbours, so the flag changes nothing else).
+   */
+  keep(item: Item): void {
+    if (this.kept.has(item)) {
+      return;
+    }
+    const set = !item.keep;
+    if (set) {
+      item.keep = true;
+    }
+    this.kept.set(item, set);
+  }
+
+  /**
+   * Stop showing `item`, a deleted format item the hold showed (see keep),
+   * which the local write deleted again: the editor no longer shows its
+   * format there, so the hold's readers and writers must not either (a held
+   * change deleted a node-type run around composed text, which the
+   * composer's own write then removed as well).
+   */
+  drop(item: Item): void {
+    const set = this.kept.get(item);
+    if (set === undefined) {
+      return;
+    }
+    if (set) {
+      item.keep = false;
+    }
+    this.kept.delete(item);
+  }
+
+  /** Whether `item` is a deleted format item the hold shows (see keep). */
+  keeps(item: Item): boolean {
+    return this.kept.size > 0 && item.deleted && this.kept.has(item);
+  }
+
+  /** Whether the hold shows a deleted format item (see keep). */
+  keepsAny(): boolean {
+    return this.kept.size > 0;
+  }
+
+  /** The deleted format items the hold shows (see keep). */
+  keptItems(): Iterable<Item> {
+    return this.kept.keys();
+  }
+
+  /** Clear the Item.keep flags the hold set (see keep). */
+  releaseKeeps(): void {
+    for (const [item, set] of this.kept) {
+      if (set) {
+        item.keep = false;
+      }
+    }
+  }
 
   /** Each hidden [start, end) clock range of `client`. */
   forEachRange(fn: (client: number, start: number, end: number) => void) {

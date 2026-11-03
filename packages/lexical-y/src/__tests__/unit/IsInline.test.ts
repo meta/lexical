@@ -32,6 +32,7 @@ import {
 import {$assertNodeType} from 'lexical/src/__tests__/utils';
 import {describe, expect, test} from 'vitest';
 
+import {isNullRunValue, isShadowKey, stepFormat} from '../../internal/Ident';
 import {
   $block,
   expectConverged,
@@ -163,15 +164,24 @@ function stored(peer: Peer, onAll = true): string[] {
       out.add(c.name);
     }
   }
-  const delta = peer.binding.root.toDelta().toJSON() as {
-    children?: {insert?: unknown; format?: Record<string, unknown>}[];
-  };
-  for (const c of delta.children ?? []) {
-    if (!onAll && typeof c.insert !== 'string') {
+  // The keys content shows, read by the paired fold (layout 3).
+  const formats = new Map<string, unknown>();
+  for (
+    let it = peer.binding.root._start as Y.Item | null;
+    it !== null;
+    it = it.right as Y.Item | null
+  ) {
+    if (it.deleted) {
       continue;
     }
-    for (const k of Object.keys(c.format ?? {})) {
-      out.add(k);
+    if (it.content instanceof Y.ContentFormat) {
+      stepFormat(formats, it);
+    } else if (onAll || it.content instanceof Y.ContentString) {
+      for (const [k, v] of formats) {
+        if (!isShadowKey(k) && v !== null && !isNullRunValue(v)) {
+          out.add(k);
+        }
+      }
     }
   }
   return [...out].sort();

@@ -12,6 +12,7 @@ import * as Y from '@y/y';
 import {describe, expect, test} from 'vitest';
 
 import {Cursor} from '../../internal/Cursor';
+import {isNullRunValue, isShadowKey, stepFormat} from '../../internal/Ident';
 
 // The binding's write cursor reimplements Yjs' text-position operations on
 // items (Yjs exports no way to start them from a known item). It must stay
@@ -103,6 +104,37 @@ function viaCursor(doc: Y.Doc, ops: Op[]) {
   }
 }
 
+/** Each live character with the formats it shows: paired fold or plain. */
+function shownChars(doc: Y.Doc, paired: boolean): string[] {
+  const formats = new Map<string, unknown>();
+  const out: string[] = [];
+  for (let it = doc.get('t')._start; it !== null; it = it.right) {
+    if (it.deleted) {
+      continue;
+    }
+    if (it.content instanceof Y.ContentFormat) {
+      if (paired) {
+        stepFormat(formats, it);
+      } else if (it.content.value === null) {
+        formats.delete(it.content.key);
+      } else {
+        formats.set(it.content.key, it.content.value);
+      }
+    } else if (it.content instanceof Y.ContentString) {
+      const shown: Record<string, unknown> = {};
+      for (const [k, v] of [...formats].sort(([x], [y]) => (x < y ? -1 : 1))) {
+        if (!isShadowKey(k) && v !== null && !isNullRunValue(v)) {
+          shown[k] = v;
+        }
+      }
+      for (const ch of it.content.str) {
+        out.push(ch + JSON.stringify(shown));
+      }
+    }
+  }
+  return out;
+}
+
 const liveFormatItems = (doc: Y.Doc) => {
   let n = 0;
   for (let it = doc.get('t')._start; it !== null; it = it.right) {
@@ -124,9 +156,9 @@ describe('@lexical/y write cursor', () => {
       b.clientID = 7;
       viaApplyDelta(a, ops);
       viaCursor(b, ops);
-      expect(b.get('t').toDelta().toJSON()).toEqual(
-        a.get('t').toDelta().toJSON(),
-      );
+      // Layout 3: the cursor writes paired runs, so its document shows (read
+      // by the paired fold) what applyDelta's shows by Yjs's plain fold.
+      expect(shownChars(b, true)).toEqual(shownChars(a, false));
       expect(liveFormatItems(b)).toBeGreaterThanOrEqual(liveFormatItems(a));
     },
   );

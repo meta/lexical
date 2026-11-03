@@ -149,6 +149,7 @@ describe('version gate', () => {
     doc.clientID = 6;
     Y.applyUpdate(doc, Y.encodeStateAsUpdate(src));
     doc.get('lexical-y').deleteAttr('lexical-y:1');
+    doc.get('lexical-y').deleteAttr('lexical-y:3');
     const e2 = mkEditor(warnings);
     const b2 = new YBinding(e2, doc, {schemaVersion: 1, selfCheck: true});
     b2.start();
@@ -156,7 +157,10 @@ describe('version gate', () => {
     expect(b2.status).toBe('readonly');
     expect(Y.decodeStateVector(Y.encodeStateVector(doc)).has(6)).toBe(false);
     // The version arrives later: the document is one this version reads.
-    doc.get('lexical-y').setAttr('lexical-y:1', true);
+    doc.transact(() => {
+      doc.get('lexical-y').setAttr('lexical-y:1', true);
+      doc.get('lexical-y').setAttr('lexical-y:3', true);
+    });
     expect(b2.status).toBe('active');
     expect(e2.isEditable()).toBe(true);
     e2.update(() => $getRoot().append($p('local')), {discrete: true});

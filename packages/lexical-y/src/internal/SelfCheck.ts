@@ -31,6 +31,7 @@ import {
 
 import {forgiveRepeatedIds} from './BlockIds';
 import {equalFormatValue, type Formats} from './Cursor';
+import {repairPendingCopies, stepFormat} from './Ident';
 import {$pushInline, Atoms, readAtoms} from './Inline';
 import {Reader} from './Read';
 import {
@@ -53,7 +54,7 @@ import {
   TYPE_KEY,
   WRAPPER_PREFIX,
 } from './Schema';
-import {prevLiveEnd} from './Seen';
+import {frontierOf, prevLiveEnd} from './Seen';
 import {type CS, EMPTY_FORMATS, State} from './State';
 
 // The opt-in self-check (YBindingOptions.selfCheck): the lines a local
@@ -124,6 +125,7 @@ function hasLiveContent(y: YNode): boolean {
  * mismatches found (empty when the write is faithful).
  */
 export function $checkWrite(writer: Writer): string[] {
+  repairPendingCopies(writer.state.doc);
   const problems: string[] = [];
   // A line written twice in one write (its container rewritten after it)
   // is checked as last written.
@@ -179,6 +181,7 @@ export function $checkWrite(writer: Writer): string[] {
       unit.start || EMPTY_FORMATS,
       have,
       writer.state.hidden,
+      frontierOf(unit.start, left, unit.cs.y),
     );
     if (want.text !== have.text && want.text !== $shownText(writer, have)) {
       problems.push(
@@ -200,7 +203,8 @@ export function $checkWrite(writer: Writer): string[] {
       while (rb < have.runs.length && have.runs[rb].end <= i) {
         rb++;
       }
-      const a = ra < want.runs.length ? want.runs[ra].attrs : {};
+      const wanted = ra < want.runs.length ? want.runs[ra].attrs : {};
+      const a = wanted;
       const b = rb < have.runs.length ? have.runs[rb].attrs : {};
       const isBreak = !want.specials.has(i) && want.text.charCodeAt(i) === 10;
       const wrappersOnly = want.specials.has(i) || isBreak;
@@ -890,11 +894,7 @@ export function $followUpDifference(
           ) {
             const content = scanned.content;
             if (!scanned.deleted && content instanceof ContentFormat) {
-              if (content.value === null) {
-                formats.delete(content.key);
-              } else {
-                formats.set(content.key, content.value);
-              }
+              stepFormat(formats, scanned);
             }
           }
           return new Map(formats);

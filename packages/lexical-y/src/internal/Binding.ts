@@ -89,6 +89,7 @@ import {
   BASE_LAYOUT_VERSION,
   DEFAULT_ROOT_NAME,
   EPOCH_KEY,
+  IDENTITY_LAYOUT_VERSION,
   LEGACY_ROOTS,
   MIN_LAYOUT,
   SCHEMA_PREFIX,
@@ -101,6 +102,25 @@ import {
   markFormatCloser,
 } from './Cursor';
 import {$canonicalizeGroup, $switchesWrapper} from './Groups';
+import {
+  attrsOf,
+  covered,
+  endsOf,
+  finishSeedRuns,
+  IdentityLayoutOrigin,
+  installIdentity,
+  isEndValue,
+  noteBoundRoot,
+  protectRecordAfter,
+  pruneEnds,
+  recordsIdentityLayout,
+  repairPendingCopies,
+  stepFormat,
+  takePairingChanges,
+  withSeeding,
+  writeIdentityRecord,
+  writesPairedRuns,
+} from './Ident';
 import {
   epochRecordIn,
   isGateKey,
@@ -147,10 +167,12 @@ import {
 } from './Schema';
 import {
   attrsBefore,
+  frontierOf,
   isGone,
   isShownEnd,
   prevLiveEnd,
   shownLength,
+  unitLeftEnd,
 } from './Seen';
 import {
   $checkWrite,
@@ -981,6 +1003,17 @@ function recordSetMembersLayout(root: YNode, tr: Transaction): void {
 }
 
 /**
+ * The origin of a binding's initialization transaction, and of its
+ * follow-up writes and pin records (one instance each): an instance of a
+ * class nothing outside this module holds, so no UndoManager tracks it, an
+ * app's that tracks `Object` included (Yjs matches tracked origins by
+ * identity and by `origin.constructor`; GPT layout 3 review r10, MUST 1).
+ */
+class InitOrigin {
+  constructor(readonly binding: YBinding) {}
+}
+
+/**
  * @experimental A Yjs 14 binding for one editor and one shared root.
  *
  * Every container (the root, and every node stored as its own Y.Node) holds
@@ -1003,9 +1036,9 @@ export class YBinding {
   private readonly options: YBindingOptions;
   private disposers: (() => void)[] = [];
   /** Origin of the initialization transaction (not tracked by undo). */
-  private readonly initOrigin = {binding: this};
+  private readonly initOrigin = new InitOrigin(this);
   /** Origin of follow-up writes and pin records (not tracked by undo). */
-  private readonly followUpOrigin = {binding: this, followUp: true};
+  private readonly followUpOrigin = new InitOrigin(this);
   /**
    * Elements Lexical's transforms ran on since the last commit (see
    * onUpdate).
@@ -1271,23 +1304,83 @@ export class YBinding {
     sequences: StoredFormatsMemo;
     lines: Map<NodeKey, StoredLine>;
   } = {lines: new Map(), sequences: new Map(), state: null};
+  /**
+   * Whether deleted item `item` is one the editor still shows: a format
+   * item a held change deleted in the line being composed (see
+   * Hidden#keeps).
+   */
+  private readonly keepsShown = (item: Item): boolean => {
+    const hidden = this.state.hidden;
+    return hidden !== null && hidden.keeps(item);
+  };
+  /** A write deleted a kept item again (see Hidden#drop). */
+  private readonly dropKept = (item: Item): void => {
+    const hidden = this.state.hidden;
+    if (hidden !== null) {
+      hidden.drop(item);
+    }
+  };
+  /**
+   * The document as the editor shows it while a hold keeps deleted format
+   * items and nothing is unread (see Hidden#keeps): Yjs, with those items
+   * live. One per hold.
+   */
+  private held: {hidden: Hidden; view: Unread} | null = null;
+  private heldView(): Unread | null {
+    const hidden = this.state.hidden;
+    if (hidden === null || !hidden.keepsAny()) {
+      return null;
+    }
+    if (this.held === null || this.held.hidden !== hidden) {
+      this.held = {
+        hidden,
+        view: emptyView(this._root, this.keepsShown, this.dropKept),
+      };
+    }
+    return this.held.view;
+  }
   /** This binding's view, for its work (see guard). */
-  private readonly seer = () => {
+  private readonly seer = (): Unread | null => {
     const view = this.unread;
-    if (!this.reading || view === null) {
-      return view;
+    if (!this.reading) {
+      return view ?? this.heldView();
     }
     // While a change is read: the document as it is, but for the changes
     // still deferred (see deferChange), which the editor does not show yet.
-    return this.deferred.length === 0
-      ? null
-      : {
-          changes: view.changes.filter(c => this.deferred.includes(c)),
-          removed: view.removed,
-          root: view.root,
-          under: view.under,
-        };
+    if (view === null || this.deferred.length === 0) {
+      return null;
+    }
+    // One object while neither changes (an operation compares the view it
+    // took with the binding's, see View).
+    const memo = this.deferredView;
+    if (
+      memo !== null &&
+      memo.unread === view &&
+      memo.changes === view.changes.length &&
+      memo.deferred.length === this.deferred.length &&
+      memo.deferred.every((c, k) => c === this.deferred[k])
+    ) {
+      return memo.view;
+    }
+    const filtered: Unread = {
+      ...view,
+      changes: view.changes.filter(c => this.deferred.includes(c)),
+    };
+    this.deferredView = {
+      changes: view.changes.length,
+      deferred: [...this.deferred],
+      unread: view,
+      view: filtered,
+    };
+    return filtered;
   };
+  /** The view seer last made while changes were deferred (see seer). */
+  private deferredView: {
+    unread: Unread;
+    changes: number;
+    deferred: Transaction[];
+    view: Unread;
+  } | null = null;
   /**
    * The selection before the local change being written (see onUpdate), for
    * the undo step it starts (see stack-item-added in startInner).
@@ -1364,6 +1457,48 @@ export class YBinding {
     return this._undoManager;
   }
 
+  /**
+   * Whether this binding's writes and undo steps treat `key` as paired runs
+   * (see Ident.covered and writesPairedRuns): then none of the rules that
+   * keep or close plain values for it run.
+   */
+  private pairsKey(key: string): boolean {
+    return covered(key) && writesPairedRuns(this._doc, this._root);
+  }
+
+  /**
+   * After each transaction: where a local transaction deleted the live
+   * layout 3 record, write it again in a transaction of its own with an
+   * origin no UndoManager tracks (IdentityLayoutOrigin; a record this
+   * client wrote first is protected by Ident.protectRecordAfter). Never on
+   * the remote-apply path: the client whose transaction deleted it records
+   * it.
+   */
+  private keepIdentityRecord(tr: Transaction): void {
+    if (
+      !tr.local ||
+      tr.origin instanceof IdentityLayoutOrigin ||
+      recordsIdentityLayout(this._root)
+    ) {
+      return;
+    }
+    const subs = tr.changed.get(this._root);
+    if (
+      subs !== undefined &&
+      subs.has(LAYOUT_PREFIX + IDENTITY_LAYOUT_VERSION)
+    ) {
+      // The new transaction runs after this one's cleanup (Yjs queues it).
+      const root = this._root;
+      this._doc.transact(own => {
+        // Development builds: the binding's own write (see noteRawWrite).
+        if (__DEV__) {
+          markBindingWrite(own);
+        }
+        writeIdentityRecord(root);
+      }, new IdentityLayoutOrigin());
+    }
+  }
+
   constructor(editor: LexicalEditor, doc: YDoc, options: YBindingOptions) {
     // Before anything else: the @y/y the app loaded is the one this package
     // supports (once per module), and the document and root come from it.
@@ -1378,6 +1513,7 @@ export class YBinding {
     this._doc = doc;
     this.options = options;
     this._root = options.root || doc.get(DEFAULT_ROOT_NAME);
+    noteBoundRoot(this._root);
     assertOwnYjsDoc(doc, this._root);
     this.state = new State(editor, doc, this._root);
     if (__DEV__) {
@@ -1414,6 +1550,9 @@ export class YBinding {
   }
 
   private startInner(): () => void {
+    // The copy fix-up and index of paired runs, while this binding runs
+    // (see Ident.installIdentity).
+    this.disposers.push(installIdentity(this._doc));
     if (this.options.clientIDRange === 'uint32') {
       this.disposers.push(constrainClientID(this._doc));
     }
@@ -1759,9 +1898,14 @@ export class YBinding {
             s.content instanceof ContentFormat &&
             s.content.value !== null
           ) {
-            const end = changeEnd(this._doc, s);
-            if (end !== null) {
-              ends.push(end);
+            if (!this.pairsKey(s.content.key)) {
+              const end = changeEnd(this._doc, s);
+              if (end !== null) {
+                ends.push(end);
+              }
+            } else if (!isEndValue(s.content.value)) {
+              // A paired run's own ends, by id (no end is guessed).
+              ends.push(...endsOf(s));
             }
           }
         });
@@ -2217,6 +2361,11 @@ export class YBinding {
         // binding's only items under another client id than the document's;
         // read back like any document's content, so the editor shows what
         // is stored (and the state maps it), with its selection kept.
+        // Inside an app's outer transaction (which an app UndoManager may
+        // track), its layout 3 record is protected after that transaction,
+        // the seed's bytes unchanged (see Ident.protectRecordAfter). Outside
+        // one, the initialization's own origin is never tracked.
+        const outer = this._doc._transaction;
         this._doc.transact(tr => {
           if (
             this.rootPristine() &&
@@ -2235,6 +2384,9 @@ export class YBinding {
           this.evaluate();
           return;
         }
+        if (outer !== null) {
+          protectRecordAfter(outer, this._root);
+        }
         if (kept !== null && kept.kind === 'node') {
           kept.items = seed.items;
         }
@@ -2252,7 +2404,14 @@ export class YBinding {
             markBindingWrite(tr);
           }
           seeded = true;
-          this.$writeInitial(this.state, this._root, tr, editorState);
+          // Main's bytes whatever the switch (see Ident.withSeeding).
+          withSeeding(this._doc, () =>
+            this.$writeInitial(this.state, this._root, tr, editorState),
+          );
+          // (As for the seed above.)
+          if (tr.origin !== this.initOrigin) {
+            protectRecordAfter(tr, this._root);
+          }
         }
       }, this.initOrigin);
       if (!seeded) {
@@ -2292,6 +2451,10 @@ export class YBinding {
     editorState: EditorState,
   ): void {
     root.setAttr(LAYOUT_PREFIX + BASE_LAYOUT_VERSION, true);
+    // Layout 3 only: a new document records it from the start, and its
+    // content's covered formats are written as canonical paired runs,
+    // interleaved with the content (see Ident.withSeeding).
+    writeIdentityRecord(root);
     root.setAttr(SCHEMA_PREFIX + this.options.schemaVersion, true);
     try {
       // Every element type of the initial content (into `root`, which may
@@ -2310,6 +2473,9 @@ export class YBinding {
         });
         writer.$writeContainer(cs, $getRoot());
       });
+      // The seed's runs still open at their container's end (see
+      // Ident.finishSeedRuns).
+      finishSeedRuns(tr);
     } finally {
       recordSetMembersLayout(root, tr);
     }
@@ -2393,7 +2559,9 @@ export class YBinding {
           : storedTypeOf(scratch, rootItem.id.client, rootItem.id.clock);
       const sstate = this.state.configuredLike(scratch, sroot);
       scratch.transact(tr =>
-        this.$writeInitial(sstate, sroot, tr, editorState),
+        withSeeding(scratch, () =>
+          this.$writeInitial(sstate, sroot, tr, editorState),
+        ),
       );
       // The editor's selection, as positions on the items written (and a
       // node selection's nodes, as those items): the same ids in the
@@ -3577,7 +3745,7 @@ export class YBinding {
       return;
     }
     if (this.unread === null) {
-      this.unread = emptyView(this._root);
+      this.unread = emptyView(this._root, this.keepsShown, this.dropKept);
     }
     this.unread.changes.push(tr);
   }
@@ -3661,12 +3829,16 @@ export class YBinding {
   /** Read remote change `tr` now (see onAfterTransaction). */
   private readNow(tr: Transaction): void {
     try {
+      this.keepIdentityRecord(tr);
       this.readChange(tr);
     } finally {
       this.reading = false;
       this.dropChange(tr);
       if (this.schemaSeenIn === tr) {
         this.schemaSeenIn = null;
+      }
+      if (this.unread === null && this.state.hidden === null) {
+        pruneEnds(this._doc, tr);
       }
       if (!this._editor._updating) {
         this.releaseUnread(tr);
@@ -3916,6 +4088,12 @@ export class YBinding {
       }
       return;
     }
+    if (tr.origin instanceof IdentityLayoutOrigin) {
+      // The layout 3 record this client wrote again (see
+      // keepIdentityRecord): nothing the editor shows changed, and reading
+      // does not depend on the record (see Ident.pairedReadingIn).
+      return;
+    }
     this.remoteSeq++;
     if (!this.readsChanges()) {
       return;
@@ -3924,6 +4102,14 @@ export class YBinding {
       if (recordedLayout(this._root) !== null) {
         this.evaluate();
       }
+      return;
+    }
+    // An opener that arrived after an end naming it (filling a Skip, or a
+    // missing struct): the pairing of what lies between them changed, which
+    // the change itself need not touch (see Ident.takePairingChanges).
+    // Prototype: everything is read again.
+    if (takePairingChanges(this._doc)) {
+      this.readAll(null, null, true);
       return;
     }
     const state = this.state;
@@ -4109,6 +4295,7 @@ export class YBinding {
     }
     reader.composingKey = this.$composingOwner();
     reader.composedAt = this.$composedCharacter(cursor);
+    reader.change = tr;
     reader.attrsBefore = (y, keys) => {
       const before = attrsBefore(y, tr);
       return new Map([...keys].map(key => [key, before[key]]));
@@ -4968,7 +5155,21 @@ export class YBinding {
       return;
     }
     state.hidden = null;
+    hidden.releaseKeeps();
     const items = this.hiddenItems(hidden);
+    // The format items held changes deleted, which the line showed until
+    // now (see Hidden#keeps): read where they were, as a deletion that just
+    // arrived (what follows them may start differently).
+    for (const it of hidden.keptItems()) {
+      if (it.parent instanceof YNode && this.state.containers.has(it.parent)) {
+        const list = items.get(it.parent);
+        if (list === undefined) {
+          items.set(it.parent, [it]);
+        } else {
+          list.push(it);
+        }
+      }
+    }
     // A local split can inherit a held format at its new boundary. Its
     // shown start was kept separate from storage (see Writer#$writeSegment):
     // render that successor too, even where the stored start already agrees.
@@ -5893,6 +6094,9 @@ export class YBinding {
     dirtyLeaves: Set<NodeKey>,
   ): Writer | null | Refusal {
     let writer: Writer | null = null;
+    // Inside an app's outer transaction that restored ends (an undo in it):
+    // repair the copies before anything reads pairing (see Ident).
+    repairPendingCopies(this._doc);
     let refused: 'layout' | 'schema' | null = null;
     // Admitted once, for the whole write: its pins and its recovery too,
     // which see the records as this write left them (`after`).
@@ -6343,18 +6547,26 @@ export class YBinding {
     const unit = state.unitByKey.get(owner.getKey());
     let start: Item | null;
     let formats: Map<string, unknown>;
+    // Where unit.start was folded up to, when past the walk's start (see
+    // seedFrontier).
+    let folded: Item | null = null;
     if (unit !== undefined && unit.end !== null) {
-      const left = prevLiveEnd(unit.end, state.hidden);
+      const left = unitLeftEnd(unit.cs.units, unit, state.hidden);
       start = left === null ? unit.cs.y._start : left.right;
+      // (Before the copy: a stale start is folded again, see frontierOf.)
+      folded = frontierOf(unit.start, left, unit.cs.y);
       formats = new Map(unit.start || []);
     } else if (unit !== undefined && unit.kind === 'implicit') {
       const units = unit.cs.units;
       const idx = units.indexOf(unit);
-      let left = idx > 0 ? units[idx - 1].end : null;
+      const prevEnd = idx > 0 ? units[idx - 1].end : null;
+      let left = prevEnd;
       while (left !== null && !isShownEnd(left, state.hidden)) {
         left = prevLiveEnd(left, state.hidden);
       }
       start = left === null ? unit.cs.y._start : left.right;
+      // (Before the copy: a stale start is folded again, see frontierOf.)
+      folded = frontierOf(unit.start, left, unit.cs.y);
       formats = new Map(unit.start || []);
     } else {
       const cs = state.csByKey.get(owner.getKey());
@@ -6367,11 +6579,12 @@ export class YBinding {
     const out: [number, number, Attrs][] = [];
     let offset = 0;
     for (let it = start; it !== null; it = it.right) {
+      if (it === folded) {
+        folded = null;
+      }
       if (!it.deleted && it.content instanceof ContentFormat) {
-        if (it.content.value === null) {
-          formats.delete(it.content.key);
-        } else {
-          formats.set(it.content.key, it.content.value);
+        if (folded === null) {
+          stepFormat(formats, it);
         }
         continue;
       }
@@ -6382,7 +6595,7 @@ export class YBinding {
         }
         continue;
       }
-      out.push([offset, offset + len, Object.fromEntries(formats) as Attrs]);
+      out.push([offset, offset + len, attrsOf(formats) as Attrs]);
       offset += len;
     }
     return out;
@@ -7374,7 +7587,8 @@ export class YBinding {
             copy instanceof Item &&
             !copy.deleted &&
             copy.content instanceof ContentFormat &&
-            copy.content.value !== null
+            copy.content.value !== null &&
+            !this.pairsKey(copy.content.key)
           ) {
             copies.push([s, copy]);
           }
@@ -8113,7 +8327,7 @@ export class YBinding {
     const implicit = unit !== undefined && unit.kind === 'implicit';
     let start: Item | null;
     if (unit !== undefined && unit.end !== null) {
-      const left = prevLiveEnd(unit.end, state.hidden);
+      const left = unitLeftEnd(unit.cs.units, unit, state.hidden);
       start = left === null ? unit.cs.y._start : left.right;
     } else if (unit !== undefined && implicit) {
       // Its content starts right after the unit before it, the end of the
@@ -8403,7 +8617,10 @@ export class YBinding {
     let start: Item | null;
     if (unit !== undefined && unit.key !== null && unit.kind === 'line') {
       ownerKey = unit.key;
-      const left = prevLiveEnd(end, hidden);
+      const left =
+        unit.end === end
+          ? unitLeftEnd(unit.cs.units, unit, hidden)
+          : prevLiveEnd(end, hidden);
       start = left === null ? parentY._start : left.right;
     } else {
       const cs = this.state.containers.get(parentY);
