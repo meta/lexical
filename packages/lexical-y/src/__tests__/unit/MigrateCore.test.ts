@@ -343,6 +343,9 @@ describe.each([false, true])('the binding and layout migrations, gc %s', gc => {
     expect(binding.status).toBe('readonly');
     expect(errors).toHaveLength(1);
     expect(errors[0].message).toMatch(/top-level roots only/);
+    // The advice names a path that works for a nested root.
+    expect(errors[0].message).toMatch(/reseed it into a top-level root/);
+    expect(errors[0].message).not.toMatch(/migrateYDoc/);
     expect(Buffer.from(Y.encodeStateAsUpdate(doc))).toEqual(
       Buffer.from(before),
     );

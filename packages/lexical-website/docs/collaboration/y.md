@@ -1450,10 +1450,12 @@ not merge as a user might expect:
   NodeState with its keys in sorted order, which every client builds the
   same way, not in the order the author's editor exported them (a Yjs map
   does not keep one). Compare node JSON without relying on key order.
-- **Local migration of a nested root.** `migrateLocally` migrates
-  top-level roots only: a binding whose root lives inside another shared
-  type stays read only below `MIN_LAYOUT` and reports it to the editor's
-  `onError`. Migrate such a document with `migrateYDoc`, or on its server.
+- **Migrating a nested root.** The migration runner, and so
+  `migrateLocally`, migrates top-level roots only: a binding whose root
+  lives inside another shared type stays read only below `MIN_LAYOUT` and
+  reports it to the editor's `onError`. Export its content and reseed it
+  into a top-level root with a release that reads its layout, or keep a
+  release that reads the stored layout.
 - **Other races.** A split racing a change of the line's type gives the
   first half the splitter's type. A join (Backspace at the start of a line,
   or undoing a split) while a collaborator inserts or moves a block to the

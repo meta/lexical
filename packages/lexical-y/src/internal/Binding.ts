@@ -1970,7 +1970,7 @@ export class YBinding {
           if (this.started) {
             this._editor._onError(
               new Error(
-                "@lexical/y: migrateLocally migrates top-level roots only, and this binding's root is inside another shared type, so the document stays read only: migrate it with migrateYDoc or on its server",
+                "@lexical/y: migrateLocally migrates top-level roots only, and this binding's root is inside another shared type, so the document stays read only (the migration runner migrates top-level roots only too). Export its content and reseed it into a top-level root with a release that reads its layout, or keep a release that reads the stored layout",
               ),
             );
           }
