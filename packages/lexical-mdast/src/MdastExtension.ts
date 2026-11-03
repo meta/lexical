@@ -141,7 +141,9 @@ export interface MdastConfig {
    * closing `~~`, which `micromark-extension-cjk-friendly-gfm-strikethrough`
    * leaves open, and a `***` run that both closes and opens
    * (`**“***!。**」!a***`), which commonmark.js and markdown-it read
-   * differently from micromark. `'cjk-friendly'` writes such CJK text as
+   * differently from micromark, and a selector after whitespace other than a
+   * space (`**。\v︎**`), which `markdown-it-cjk-friendly` leaves literal.
+   * `'cjk-friendly'` writes such CJK text as
    * typed (`**你好。**世界`), for readers that follow the CJK-friendly
    * amendment, such as a CJK-friendly import.
    */

@@ -204,17 +204,20 @@ Import defaults to `'cjk-friendly'`, which accepts what CJK writers type and
 what `@lexical/markdown` exported before it followed CommonMark's Unicode
 punctuation. Markdown exported earlier with an emoji or a text variation
 selector at the inner edge of a run beside a letter (`Hello**🎉 launch**`,
-`**©︎**2024`) now reads with literal markers, as the amendment and
-CommonMark read it; import `'strict-commonmark'` keeps the earlier reading.
+`**©︎**2024`) now reads with literal markers, as the amendment reads it;
+strict CommonMark readers still read the selector case as bold, since a
+selector is not punctuation. Import `'strict-commonmark'` keeps the earlier
+reading.
 Export defaults to `'strict-commonmark'`: it writes a character reference
 where a marker would not open or close otherwise (`**你好。**&#x4E16;界`),
 which every CommonMark, GFM and CJK-friendly reader reads the same way, with
-two exceptions. A variation selector before a closing `~~` (`~~Done ✔︎~~`)
+three exceptions. A variation selector before a closing `~~` (`~~Done ✔︎~~`)
 stays open in `micromark-extension-cjk-friendly-gfm-strikethrough`. A `***`
 run that both closes and opens (`**“***!。**」!a***`) is read differently by
 micromark and by commonmark.js and markdown-it, which apply the rule of 3 to
-the whole run. Export `'cjk-friendly'` writes
-such CJK text as typed (`**你好。**世界`) for readers that follow the
+the whole run. A selector after whitespace other than a space (`**。\v︎**`)
+reads with literal markers in `markdown-it-cjk-friendly`. Export
+`'cjk-friendly'` writes such CJK text as typed (`**你好。**世界`) for readers that follow the
 amendment:
 
 ```ts
