@@ -263,6 +263,20 @@ class BindingUndoManager extends UndoManager {
   redo(): ReturnType<UndoManager['redo']> {
     return gatedStep(this, false);
   }
+  /**
+   * Yjs emits `stack-item-popped` when its undo's transaction returns;
+   * inside gatedStep that transaction is joined to the wrapper's, which is
+   * still open: the event is held and emitted once the wrapper's
+   * transaction has ended (see gatedStep), as Yjs emits it.
+   */
+  emit(...args: Parameters<UndoManager['emit']>): void {
+    const held = heldPops.get(this);
+    if (held !== undefined && args[0] === 'stack-item-popped') {
+      held.push(args);
+      return;
+    }
+    super.emit(...args);
+  }
 }
 
 /**
@@ -283,6 +297,9 @@ function gatedStep(
   // Restored, not cleared, afterwards: a step started from a listener of an
   // earlier one (whose capture is still running) leaves that one's flags.
   const {undoing, redoing, currStackItem} = um;
+  const outerHeld = heldPops.get(um);
+  const held: Parameters<UndoManager['emit']>[] = [];
+  heldPops.set(um, held);
   try {
     um.doc.transact(tr => {
       if (!admits()) {
@@ -306,13 +323,34 @@ function gatedStep(
         um.currStackItem = result;
       }
     }, um);
+    // The transaction has ended (its capture included): the pop event now,
+    // with the step's flags set as Yjs has them while it emits.
+    if (outerHeld === undefined) {
+      heldPops.delete(um);
+    } else {
+      heldPops.set(um, outerHeld);
+    }
+    for (const args of held) {
+      um.emit(...args);
+    }
   } finally {
+    if (outerHeld === undefined) {
+      heldPops.delete(um);
+    } else {
+      heldPops.set(um, outerHeld);
+    }
     um.undoing = undoing;
     um.redoing = redoing;
     um.currStackItem = currStackItem;
   }
   return result;
 }
+
+/** Pop events held while a gated step's transaction is open. */
+const heldPops = new WeakMap<
+  BindingUndoManager,
+  Parameters<UndoManager['emit']>[]
+>();
 
 /**
  * Each BindingUndoManager's check (kept apart from the instance, which is
