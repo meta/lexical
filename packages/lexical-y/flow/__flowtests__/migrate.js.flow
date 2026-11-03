@@ -11,6 +11,7 @@
 
 import type {YLayoutMigration, YMigrationResult} from '@lexical/y/migrate';
 import type {YSessionVerdict} from '@lexical/y/server';
+import type {Node} from '@y/y';
 
 import {MIN_LAYOUT, SEED_LAYOUT, onLayoutEpoch} from '@lexical/y';
 import {migrateYState, YMigrationError} from '@lexical/y/migrate';
@@ -23,6 +24,33 @@ import {
 } from '@lexical/y/server';
 
 declare const stored: Uint8Array;
+declare const container: Node;
+
+// A step built by hand: every member, checkAfter included.
+const handmade: YLayoutMigration = {
+  checkAfter: (c: Node) => [],
+  from: 1,
+  id: 'handmade',
+  migrateContainer: (tr: unknown, c: Node) => ({deleted: 0, written: 0}),
+  readAfter: (c: Node) => [],
+  readBefore: (c: Node) => [],
+  revision: 1,
+  rewrites: (key: string) => false,
+  to: 2,
+};
+const problems: ReadonlyArray<string> = handmade.checkAfter(container);
+const frozenProblems: ReadonlyArray<string> = step1to2.checkAfter(container);
+// $FlowExpectedError[incompatible-type] a step without checkAfter is not a step
+const incomplete: YLayoutMigration = {
+  from: 1,
+  id: 'incomplete',
+  migrateContainer: (tr: unknown, c: Node) => ({deleted: 0, written: 0}),
+  readAfter: (c: Node) => [],
+  readBefore: (c: Node) => [],
+  revision: 1,
+  rewrites: (key: string) => false,
+  to: 2,
+};
 
 const steps: ReadonlyArray<YLayoutMigration> = [step1to2];
 const result: YMigrationResult = migrateYState(stored, steps, {gc: true, to: 2});

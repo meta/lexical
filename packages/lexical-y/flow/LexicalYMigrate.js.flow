@@ -27,6 +27,7 @@ export type YLayoutMigration = {
   ): {readonly written: number, readonly deleted: number},
   readBefore(container: YNode): ReadonlyArray<string>,
   readAfter(container: YNode): ReadonlyArray<string>,
+  checkAfter(container: YNode): ReadonlyArray<string>,
   rewrites(key: string): boolean,
 };
 
