@@ -2042,9 +2042,12 @@ function onKeyDown(event: KeyboardEvent, editor: LexicalEditor): void {
     // The virtual keyboard emits Shift events for manual toggles, but not for
     // automatic capitalization. Other key events may clear this state, never
     // set it, since their shiftKey flag also reflects automatic capitalization.
+    // Opening the #+= symbols plane sends the same Shift keydown and keeps
+    // shiftKey set through the symbols until after the next Return, so Shift
+    // only counts for an Enter pressed right after it: any other key clears it.
     inputState.isShiftKeyDown =
       event.key === 'Shift' ||
-      (inputState.isShiftKeyDown && event.shiftKey && event.key !== 'CapsLock');
+      (inputState.isShiftKeyDown && event.shiftKey && event.key === 'Enter');
   }
   inputState.lastKeyDownTimeStamp = event.timeStamp;
   inputState.lastKeyCode = event.key;
