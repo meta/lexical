@@ -877,7 +877,8 @@ seedContract}), handshake)`; the first row that matches wins:
 | 6 | no material | `bootstrap`: load the room's state into a new document, persist it with the generation, then bind (`initialize: true` in a never-seeded room) |
 
 The server never syncs a session whose verdict is not `admit`, so a stale
-client never holds items of two generations in one document. The room's
+client never holds items of two generations in one document. A handshake
+that is not well formed (it comes from the network) gets `refuse-layout`. The room's
 `layouts` are the lowest and highest layouts its served roots record: a
 client must read every served root.
 

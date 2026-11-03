@@ -299,6 +299,26 @@ export type YSessionVerdict =
   /** No handshake on a room it may not join: capture (captureYSession). */
   | {readonly verdict: 'legacy'};
 
+/** Whether `value` is a well-formed YSessionHandshake. */
+function isHandshake(value: unknown): boolean {
+  if (typeof value !== 'object' || value === null) {
+    return false;
+  }
+  const h = value as Record<string, unknown>;
+  const layout = (x: unknown) => Number.isSafeInteger(x) && (x as number) >= 1;
+  const layouts = h.layouts;
+  return (
+    (h.generation === null || typeof h.generation === 'string') &&
+    typeof h.material === 'boolean' &&
+    Array.isArray(layouts) &&
+    layouts.length === 2 &&
+    layout(layouts[0]) &&
+    layout(layouts[1]) &&
+    (layouts[0] as number) <= (layouts[1] as number) &&
+    layout(h.seed)
+  );
+}
+
 /**
  * @experimental The handshake verdict for a session (y-server.md
  * "Migrating stored documents"): the first row that matches wins.
@@ -315,6 +335,10 @@ export type YSessionVerdict =
  * 4. A pristine room whose seed contract is not `seed`: refuse-layout.
  * 5. The room's generation: admit (`initialize` in a pristine room).
  * 6. No material: bootstrap (`initialize` in a pristine room).
+ * A handshake that is not well formed (it arrives from the network: a
+ * generation that is neither a string nor null, a non-boolean material,
+ * layouts that are not two layouts from 1 in order, a seed that is not a
+ * layout) is `'refuse-layout'`.
  * Never sync a session whose verdict is not `'admit'`, and check every
  * update again at commit against the room's current generation.
  */
@@ -322,6 +346,9 @@ export function checkYSession(
   room: YRoomDescription,
   client: YSessionHandshake | null,
 ): YSessionVerdict {
+  if (client !== null && !isHandshake(client)) {
+    return {verdict: 'refuse-layout'};
+  }
   if (client === null) {
     return room.inherited && room.generation === `${room.incarnation}/-`
       ? {initialize: false, verdict: 'admit'}

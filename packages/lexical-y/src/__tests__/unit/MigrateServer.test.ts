@@ -417,6 +417,31 @@ describe.each([false, true])('@lexical/y/server, gc %s', gc => {
       expect(count).toBe(6 * 2 * 2 * 2 * 5 * 2 * 4 * 2);
     });
 
+    test('a malformed handshake (from the network): refuse-layout', () => {
+      const bad: unknown[] = [
+        {},
+        'hello',
+        {...client(), generation: 7},
+        {...client(), material: 'yes'},
+        {...client(), layouts: [2]},
+        {...client(), layouts: [3, 2]},
+        {...client(), layouts: [0, 2]},
+        {...client(), layouts: [1, 2.5]},
+        {...client(), layouts: '1,2'},
+        {...client(), seed: null},
+        {...client(), seed: 0},
+      ];
+      for (const handshake of bad) {
+        expect(checkYSession(room(), handshake as YSessionHandshake)).toEqual({
+          verdict: 'refuse-layout',
+        });
+      }
+      // Extra fields are fine.
+      expect(
+        checkYSession(room(), {...client(), extra: 1} as YSessionHandshake),
+      ).toEqual({initialize: false, verdict: 'admit'});
+    });
+
     test('needsNewIncarnation: a pristine room issued under another seed contract', () => {
       expect(needsNewIncarnation(room({...PRISTINE, seedContract: 1}), 3)).toBe(
         true,
