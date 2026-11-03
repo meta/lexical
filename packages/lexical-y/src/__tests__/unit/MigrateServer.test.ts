@@ -732,6 +732,35 @@ describe.each([false, true])('@lexical/y/server, gc %s', gc => {
       );
       expect(nothing.actionable).toBe(false);
     });
+
+    test('quarantineRecord: peers (default true, unknown provenance) and clients (default none) are kept, outside the hash, and change nothing it reads', () => {
+      const input = {
+        kind: 'handoff' as const,
+        receivedAt: 1,
+        snapshot: replica(insert),
+        source: SOURCE,
+      };
+      const plain = quarantineRecord(input, {
+        generation: 'inc-1/-',
+        state: base(),
+      });
+      expect(plain).toMatchObject({clients: [], peers: true});
+      const declared = quarantineRecord(
+        {...input, clients: [7, 9], peers: false},
+        {generation: 'inc-1/-', state: base()},
+      );
+      expect(declared).toMatchObject({clients: [7, 9], peers: false});
+      expect(declared.hash).toBe(plain.hash);
+      expect(declared.actionable).toBe(plain.actionable);
+      expect(declared.complete).toBe(plain.complete);
+      const none = {...input, snapshot: replica(() => {})};
+      expect(
+        quarantineRecord(
+          {...none, clients: [1], peers: false},
+          {generation: 'inc-1/-', state: base()},
+        ).actionable,
+      ).toBe(false);
+    });
   });
 
   test('replayYRecovery (internal) is not implemented yet', () => {

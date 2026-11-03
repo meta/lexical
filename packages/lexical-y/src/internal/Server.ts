@@ -606,6 +606,21 @@ export interface YQuarantineRecord {
   readonly session: string | null;
   readonly replica: string | null;
   readonly kind: 'handoff' | 'capture' | 'pending';
+  /**
+   * Whether any channel other than the authority could have delivered
+   * updates to the replica since its last sync with the authority (a
+   * property of the material's history, persisted with the replica's
+   * partition; unknown is true). A replica with peers can hold a deletion
+   * the authority never saw.
+   */
+  readonly peers: boolean;
+  /**
+   * Every client id the replica wrote under since its last sync with the
+   * authority (persisted with its partition; ids Yjs switched to after a
+   * collision and those of writers sharing its document included). What
+   * the replica wrote under another id is not proved its own.
+   */
+  readonly clients: readonly number[];
   readonly source: YRecordSource;
   /** The replica's whole document (V1), standalone. */
   readonly snapshot: Uint8Array | null;
@@ -638,6 +653,10 @@ export interface YQuarantineRecordInput {
   readonly session?: string | null;
   readonly replica?: string | null;
   readonly kind: YQuarantineRecord['kind'];
+  /** Default true (unknown provenance). */
+  readonly peers?: boolean;
+  /** Default none. */
+  readonly clients?: readonly number[];
   readonly source: YRecordSource;
   readonly snapshot?: Uint8Array | null;
   readonly deltas?: readonly Uint8Array[];
@@ -739,6 +758,7 @@ export function quarantineRecord(
   const record: YQuarantineRecord = {
     actionable: true,
     base: base === null ? null : base.generation,
+    clients: [...(input.clients ?? [])],
     collisions,
     complete: view.complete,
     deltas,
@@ -746,6 +766,7 @@ export function quarantineRecord(
     hash,
     id: input.id ?? hash,
     kind: input.kind,
+    peers: input.peers ?? true,
     queue,
     receivedAt: input.receivedAt,
     replica: input.replica ?? null,

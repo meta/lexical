@@ -888,7 +888,12 @@ of being admitted or refused.
   stale or legacy session held: a standalone snapshot, later deltas, a queue
   of unsent updates, a draft, where it came from, and a hash an
   acknowledgement names. `sourceView(record)` applies its material into one
-  scratch document; `hasNewYEdits(record, base)` says whether it holds a
+  scratch document. A record also declares `peers` (whether any channel
+  other than the server could have delivered updates to the replica since
+  its last sync with the server, persisted with the replica's storage;
+  unknown is `true`) and `clients` (every client id the replica wrote under
+  since that sync), which replaying a record's changes will need;
+  `hasNewYEdits(record, base)` says whether it holds a
   struct or a deletion the base lacks, a draft marked `differs`, or a
   missing dependency. Prompt users only for those; keep every record
   listable for the quarantine window.
