@@ -16,15 +16,16 @@
 // the client ids decide whether the typed text lands inside the new run or
 // past its end (found by a randomized multi-client session).
 //
-// Trade (i), a consistent structural difference: where the end sorts first,
-// the typed text reads as a second code highlight node on every peer and in
-// every fresh read (convergent), where main reads one. Not visible: both
-// nodes are plain highlight tokens of the same type and render the same, and
-// a code highlighter re-segments the line on its next transform of that code
-// block (an editor with the highlighter merges it on load).
+// An accepted limit (DECISIONS D105), a consistent structural difference:
+// where the end sorts first, the typed text reads as a second code highlight
+// node on every peer and in every fresh read (convergent), where main reads
+// one. It renders the same (both nodes are highlight tokens of the same
+// type), but code that inspects the document sees two nodes, and without a
+// highlighter the split stays; an installed code highlighter re-segments the
+// line on its next transform of that code block.
 // Stopping before the tombstones fixed this cell but put typed text on the
-// wrong side of a closer an undo brings back (UndoRestoredCloserTypedPlain), so the
-// writer keeps Yjs's placement.
+// wrong side of a closer an undo brings back
+// (UndoRestoredCloserTypedPlain), so the writer keeps Yjs's placement.
 
 import {$createCodeHighlightNode, $createCodeNode} from '@lexical/code';
 import {$getRoot, type ElementNode, type TextNode} from 'lexical';
