@@ -209,19 +209,24 @@ interface TextRest {
 /**
  * What lies before the text that a text match leaves to import, when that
  * text starts with a variation selector, which varies it: the character of
- * the match's syntax before where the text stands in the line.
+ * the match's syntax before where the text stands in the match, or the
+ * match's first character when the text is not found there as it is.
  */
 function $characterBeforeContent(
   text: string,
-  startIndex: number,
+  {startIndex, endIndex}: {startIndex: number; endIndex: number},
   node: TextNode | undefined,
 ): string | undefined {
   const content = node ? node.getTextContent() : '';
   if (!isVariationSelector(content[0])) {
     return undefined;
   }
-  const index = text.indexOf(content, startIndex);
-  return index > 0 ? text[index - 1] : undefined;
+  const index = text.indexOf(content, startIndex + 1);
+  return text[
+    index > startIndex && index + content.length <= endIndex
+      ? index - 1
+      : startIndex
+  ];
 }
 
 /**
@@ -445,7 +450,7 @@ function $importOutermost(
         // before it, such as a link's `[`.
         before: $characterBeforeContent(
           text,
-          foundTextMatch.startIndex,
+          foundTextMatch,
           result.transformedNode,
         ),
         node: result.transformedNode,

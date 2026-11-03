@@ -29,14 +29,6 @@ import {
 import {gfmStrikethrough} from 'micromark-extension-gfm-strikethrough';
 
 /**
- * The GFM strikethrough syntax that `MdastStrikethroughExtension`
- * contributes, which a CJK-friendly import swaps for its own.
- *
- * @internal
- */
-export const gfmStrikethroughSyntax = /* @__PURE__ */ gfmStrikethrough();
-
-/**
  * `gfmStrikethroughCjkFriendly()`, but a `~` run after a variation selector
  * (U+FE00 to U+FE0E) closes as it does after the character the selector
  * varies, as the CJK-friendly emphasis reads it: version 2.0.1 reads the
@@ -79,6 +71,34 @@ function cjkFriendlyStrikethrough(): MicromarkExtension {
     },
   };
   return {...syntax, insideSpan: {null: [fixed]}, text: {126: fixed}};
+}
+
+// The key under which a micromark extension holds the factory of the one a
+// CJK-friendly import uses in its place. Not enumerable, so micromark does
+// not read it as a hook.
+const CJK_FRIENDLY_VARIANT = '__lexicalCjkFriendlyVariant';
+
+/**
+ * The GFM strikethrough syntax that `MdastStrikethroughExtension`
+ * contributes, which a CJK-friendly import swaps for its own.
+ *
+ * @internal
+ * @__NO_SIDE_EFFECTS__
+ */
+export function getStrikethroughSyntax(): MicromarkExtension {
+  return Object.defineProperty(gfmStrikethrough(), CJK_FRIENDLY_VARIANT, {
+    value: cjkFriendlyStrikethrough,
+  });
+}
+
+/** The extension a CJK-friendly import uses in place of `extension`. */
+function toCjkFriendlyVariant(
+  extension: MicromarkExtension,
+): MicromarkExtension {
+  const variant = (
+    extension as {[CJK_FRIENDLY_VARIANT]?: () => MicromarkExtension}
+  )[CJK_FRIENDLY_VARIANT];
+  return variant ? variant() : extension;
 }
 
 function getExportRuleType(klass: MdastExportRule['type']): string {
@@ -159,17 +179,14 @@ export function compileMdast(
     inlineShortcutTypes: new Set(config.inlineShortcutTypes),
     mdastExtensions: [...config.mdastExtensions],
     // micromark tries the constructs of later extensions first, so the
-    // CJK-friendly emphasis goes last; its strikethrough replaces GFM's.
+    // CJK-friendly emphasis goes first, before the extensions of the config,
+    // which may handle markers of their own.
     micromarkExtensions:
       config.importPunctuation === 'strict-commonmark'
         ? [...config.micromarkExtensions]
         : [
-            ...config.micromarkExtensions.map(extension =>
-              extension === gfmStrikethroughSyntax
-                ? cjkFriendlyStrikethrough()
-                : extension,
-            ),
             cjkFriendlyExtension(),
+            ...config.micromarkExtensions.map(toCjkFriendlyVariant),
           ],
     toMarkdownExtensions: [...config.toMarkdownExtensions],
   };

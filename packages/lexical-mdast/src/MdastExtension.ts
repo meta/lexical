@@ -60,7 +60,7 @@ import {
 import {gfmAutolinkLiteral} from 'micromark-extension-gfm-autolink-literal';
 import {gfmTaskListItem} from 'micromark-extension-gfm-task-list-item';
 
-import {compileMdast, gfmStrikethroughSyntax} from './compile';
+import {compileMdast, getStrikethroughSyntax} from './compile';
 import {
   $exportCode,
   $exportHeading,
@@ -567,7 +567,7 @@ export const MdastStrikethroughExtension = defineExtension({
       inlineShortcutTriggers: ['~'],
       inlineShortcutTypes: ['delete'],
       mdastExtensions: [/* @__PURE__ */ gfmStrikethroughFromMarkdown()],
-      micromarkExtensions: [gfmStrikethroughSyntax],
+      micromarkExtensions: [getStrikethroughSyntax()],
       toMarkdownExtensions: [/* @__PURE__ */ gfmStrikethroughToMarkdown()],
     }),
   ],

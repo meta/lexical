@@ -783,6 +783,8 @@ function toMarkdownWithStandIns(
       const written = new Map<string, number>();
       const restore = (value: string) =>
         restoreStoodIn(value, characters, isCjkFriendly);
+      // A handler may export another document while this one is written.
+      const outerRestore = measuredRestore;
       measuredRestore = restore;
       let out: string;
       try {
@@ -790,7 +792,7 @@ function toMarkdownWithStandIns(
           extensions: [...extensions, standInText(text, standIns, written)],
         });
       } finally {
-        measuredRestore = null;
+        measuredRestore = outerRestore;
       }
       const found = new Map<string, number>();
       for (let i = 0; i < out.length; i++) {
@@ -805,7 +807,12 @@ function toMarkdownWithStandIns(
       if (isClean) {
         return restore(out);
       }
+      // Only new characters to avoid make another attempt worth writing.
+      const {size} = used;
       collectUsed(out, used);
+      if (used.size === size) {
+        break;
+      }
     }
   }
   return toMarkdown(tree, {extensions});
@@ -910,6 +917,11 @@ function restoreStoodIn(
   );
 }
 
+// A character reference, which `toCjkFriendly` may write as the character
+// beside a `*` or `~` run.
+const ATTENTION_RUN = /^[*~]$/;
+const REFERENCE = /&#(?:(\d+)|[xX]([\da-fA-F]+));/g;
+
 /**
  * The CJK-friendly form of a strict export. A strict export writes a
  * character reference beside a `*` or `~` run where the run would not open or
@@ -921,7 +933,23 @@ function restoreStoodIn(
  * two letters for any reader, so a reference beside one stays.
  */
 function toCjkFriendly(markdown: string, compiled: CompiledMdast): string {
-  if (!/[*~]&#|;[*~]/.test(markdown)) {
+  // Parse only when a reference to a CJK character stands beside a marker.
+  let isCandidate = false;
+  for (const match of markdown.matchAll(REFERENCE)) {
+    const {index} = match;
+    isCandidate =
+      (ATTENTION_RUN.test(markdown[index - 1]) ||
+        ATTENTION_RUN.test(markdown[index + match[0].length])) &&
+      isCjk(
+        classifyCharacter(
+          match[1] ? parseInt(match[1], 10) : parseInt(match[2], 16),
+        ),
+      );
+    if (isCandidate) {
+      break;
+    }
+  }
+  if (!isCandidate) {
     return markdown;
   }
   // Only references that micromark reads as such: not escaped ones, nor
