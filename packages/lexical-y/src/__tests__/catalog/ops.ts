@@ -177,7 +177,10 @@ export const CORE_OPS: readonly CoreOp[] = [
         return false;
       }
       const block = t.getTopLevelElement();
-      if (block === null) {
+      // A slot value is its own top-level element and has no parent: a
+      // sibling of it would cross the slot boundary, which throws by design
+      // (its host owns the slot).
+      if (block === null || block.getParent() === null) {
         return false;
       }
       block.insertAfter(
