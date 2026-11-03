@@ -64,14 +64,15 @@ test('internal writes of node attributes go through Seen', () => {
   const found: string[] = [];
   for (const name of fs.readdirSync(dir).sort()) {
     // YjsContract.ts probes @y/y on scratch documents of its own, and the
-    // migration runner (Runner.ts) writes an observer-free copy of its own,
-    // never a document a binding reads, so their writes have no Seen record
-    // to keep.
+    // migration runner (Runner.ts) and the server helpers (Server.ts) write
+    // observer-free copies of their own, never a document a binding reads,
+    // so their writes have no Seen record to keep.
     if (
       !name.endsWith('.ts') ||
       name === 'Seen.ts' ||
       name === 'YjsContract.ts' ||
-      name === 'Runner.ts'
+      name === 'Runner.ts' ||
+      name === 'Server.ts'
     ) {
       continue;
     }
