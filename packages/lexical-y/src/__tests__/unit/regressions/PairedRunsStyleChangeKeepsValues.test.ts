@@ -10,7 +10,7 @@
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
-// GPT code review r5's reproductions (written for the plain-fold window's
+// Reproductions (written for the plain-fold window's
 // merge), kept as behaviour: read by identity syntax, before the writer's
 // layout 3 record arrives, a client shows and keeps the paired values.
 //   MUST 1: a style change keeps the paired bold, and the paired set;
@@ -153,7 +153,7 @@ function $styleAll() {
 for (const gc of [false, true]) {
   const g = `gc ${gc ? 'on' : 'off'}`;
 
-  test(`r5 MUST 1: a style change keeps the paired bold on text the editor showed unbolded (${g})`, async () => {
+  test(`a style change keeps the paired bold on text the editor showed unbolded (${g})`, async () => {
     const {a, fresh} = await windowRun(
       gc,
       [],
@@ -172,7 +172,7 @@ for (const gc of [false, true]) {
     }
   });
 
-  test(`r5 MUST 1: a style change keeps the paired set on text whose plain set left a member out (${g})`, async () => {
+  test(`a style change keeps the paired set on text whose plain set left a member out (${g})`, async () => {
     const {a, fresh} = await windowRun(
       gc,
       [tags as StateConfig<string, unknown>],
@@ -191,7 +191,7 @@ for (const gc of [false, true]) {
     }
   });
 
-  test(`r5 MUST 2: changing one of two StateConfigs under one U+001F prefix leaves the other's paired value (${g})`, async () => {
+  test(`changing one of two StateConfigs under one U+001F prefix leaves the other's paired value (${g})`, async () => {
     const {a, fresh} = await windowRun(
       gc,
       [
@@ -217,7 +217,7 @@ for (const gc of [false, true]) {
     }
   });
 
-  test(`r5 MUST 5: an explicit singleton whose member spells the plain entries' signature is written (${g})`, async () => {
+  test(`an explicit singleton whose member spells the plain entries' signature is written (${g})`, async () => {
     const name = 'a\u0000[1]\u0001s:tags\u001fb';
     const {a, fresh} = await windowRun(
       gc,
@@ -283,7 +283,7 @@ async function numericWindow(gc: boolean) {
 for (const gc of [false, true]) {
   const g = `gc ${gc ? 'on' : 'off'}`;
 
-  test(`r5 MUST 4: a style change while the record's re-read waits for a composition keeps the paired value (${g})`, async () => {
+  test(`a style change while the record's re-read waits for a composition keeps the paired value (${g})`, async () => {
     const {a, earlier, t} = await numericWindow(gc);
     // L composes in x; then the record arrives (its re-read waits).
     a.update(() => {
@@ -311,7 +311,7 @@ for (const gc of [false, true]) {
     }
   });
 
-  test(`r5 MUST 6: a paste explicitly carrying the paired value after x keeps it (${g})`, async () => {
+  test(`a paste explicitly carrying the paired value after x keeps it (${g})`, async () => {
     const {a, t} = await numericWindow(gc);
     // L pastes "X" carrying [2] right after x.
     a.update(() => {

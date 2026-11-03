@@ -1007,7 +1007,7 @@ function recordSetMembersLayout(root: YNode, tr: Transaction): void {
  * follow-up writes and pin records (one instance each): an instance of a
  * class nothing outside this module holds, so no UndoManager tracks it, an
  * app's that tracks `Object` included (Yjs matches tracked origins by
- * identity and by `origin.constructor`; GPT layout 3 review r10, MUST 1).
+ * identity and by `origin.constructor`).
  */
 class InitOrigin {
   constructor(readonly binding: YBinding) {}
@@ -4107,7 +4107,7 @@ export class YBinding {
     // An opener that arrived after an end naming it (filling a Skip, or a
     // missing struct): the pairing of what lies between them changed, which
     // the change itself need not touch (see Ident.takePairingChanges).
-    // Prototype: everything is read again.
+    // Everything is read again.
     if (takePairingChanges(this._doc)) {
       this.readAll(null, null, true);
       return;

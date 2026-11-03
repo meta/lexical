@@ -8,15 +8,15 @@
 
 // @vitest-environment node
 
-// GPT layout 3 review round 12's cells (P8 dormant runs; the text format
-// rule of main's #9768).
+// A stored format key in the fold's own U+0002 namespace cannot overwrite
+// the dormant runs: the binding stays active and reads the text.
 import {$getRoot} from 'lexical';
 import {expect, test} from 'vitest';
 
 import {$p, freshReader, setup} from '../utils/harness';
 
 for (const gc of [false, true])
-  test(`R12 raw format key cannot corrupt dormant stacks gc=${gc}`, async () => {
+  test(`raw format key cannot corrupt dormant stacks gc=${gc}`, async () => {
     const t = await setup(() => $getRoot().append($p('abc')), {gc});
     const root = t.a.binding.root;
     let failed: unknown;

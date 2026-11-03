@@ -8,16 +8,13 @@
 
 // @vitest-environment node
 
-// GPT layout 3 review round 12's cells (P8 dormant runs; the text format
-// rule of main's #9768).
-
 // Text with a segment key of its own (a node kept apart, here a segmented
 // text node) appended after a tab at a line's end, as a join of the next line
 // writes it: the cursor can land inside the tab's run (before its ends), and a
 // reader reads text under a tab's type as plain text without any segment key
 // (see Reader's tabRuns). The text closes the tab's type for itself, so it
-// reads with its own key (soak L1B 2656880129: `self-check: format k at N`
-// after one join).
+// reads with its own key (before: `self-check: format k at N` after one
+// join), through the join's undo and redo too.
 
 import {$createHeadingNode} from '@lexical/rich-text';
 import {

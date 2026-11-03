@@ -8,7 +8,7 @@
 
 // @vitest-environment node
 
-// GPT code review r3, MUST 1 (written for values a plain fold read from end
+// Written for values a plain fold read from end
 // items before the layout 3 record arrived), kept as behaviour: a
 // StateConfig that canonicalizes its values to shared frozen singletons
 // gives two nodes the very same object; read by identity syntax before the

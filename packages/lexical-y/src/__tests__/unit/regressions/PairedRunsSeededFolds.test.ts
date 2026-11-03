@@ -7,7 +7,7 @@
  */
 // @vitest-environment node
 
-// N1-soak-11's class: a fold or a write cursor seeded with formats folded
+// A fold or a write cursor seeded with formats folded
 // past where it starts walking (the end of the unit before is gone or held,
 // so its walk starts at an earlier end) steps the items between twice; a
 // paired run must not be pushed twice (development builds throw when one

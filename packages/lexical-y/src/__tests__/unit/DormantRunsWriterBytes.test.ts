@@ -8,8 +8,8 @@
 
 // @vitest-environment node
 
-// GPT layout 3 review round 12's cells (P8 dormant runs; the text format
-// rule of main's #9768).
+// Dormant runs are a representation only: the writer's bytes at each
+// step of a session are pinned.
 import * as Y from '@y/y';
 import {$getRoot, $setSelection} from 'lexical';
 import {createHash} from 'node:crypto';
@@ -24,7 +24,7 @@ const DIGEST: Record<string, string> = {
 };
 
 for (const gc of [false, true])
-  test(`R12 dormant runs preserve writer output gc=${gc}`, async () => {
+  test(`dormant runs preserve writer output gc=${gc}`, async () => {
     const t = await setup(() => $getRoot().append($p('abcdef'), $p('uvwxyz')), {
       gc,
       ids: [101, 202],

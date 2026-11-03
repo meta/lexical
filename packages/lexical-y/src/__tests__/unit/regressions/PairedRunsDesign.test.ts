@@ -85,7 +85,7 @@ for (const gc of [false, true]) {
     [2, 1],
   ]) {
     describe(`gc ${gc ? 'on' : 'off'}, client ids ${ids}`, () => {
-      test('a legacy run whose opener lies inside a later removal: the removal keeps the opener (its effect reaches past the range) and splits around it, and the legacy author\'s undo removes exactly its own run (spec v4.4; main keeps "c" bold through its restore)', async () => {
+      test('a legacy run whose opener lies inside a later removal: the removal keeps the opener (its effect reaches past the range) and splits around it, and the legacy author\'s undo removes exactly its own run (main keeps "c" bold through its restore)', async () => {
         const t = await setup(() => $line($createTextNode('abcd')), {gc, ids});
         // A, before the document records layout 3, bolds "bc".
         bold(t.a, [0], 1, 3);
@@ -175,7 +175,7 @@ for (const gc of [false, true]) {
         await expectConverged(t.peers);
       });
 
-      test('declared trade (design 3, "what remains" b): a concurrent insert at the edge of a run a writer deletes, then that writer undoes', async () => {
+      test('declared trade: a concurrent insert at the edge of a run a writer deletes, then that writer undoes', async () => {
         const t = await setup(
           () =>
             $line($createTextNode('ab').setFormat(1), $createTextNode('tail')),
@@ -208,7 +208,7 @@ for (const gc of [false, true]) {
         expect(fresh.describe()).toBe(t.a.describe());
       });
 
-      test("unsupported (design 5): an app UndoManager that keeps a run's end and removes its opener reads with today's per-item meaning", async () => {
+      test("unsupported: an app UndoManager that keeps a run's end and removes its opener reads with today's per-item meaning", async () => {
         const t = await setup(() => $line($createTextNode('abcdtail')), {
           gc,
           ids,
@@ -465,7 +465,7 @@ for (const gc of [false, true]) {
     );
   });
 
-  test(`declared trade (design 3 c): text a collaborator types exactly at a boundary the overlay splits around takes its value from the boundary's side (gc ${gc ? 'on' : 'off'})`, async () => {
+  test(`declared trade: text a collaborator types exactly at a boundary the overlay splits around takes its value from the boundary's side (gc ${gc ? 'on' : 'off'})`, async () => {
     for (const ids of [
       [1, 2],
       [2, 1],
@@ -752,7 +752,7 @@ for (const gc of [false, true]) {
     }
   });
 
-  test(`GPT r5-1: deleted text between boundaries an undo restores after a later format takes that format (${g})`, async () => {
+  test(`deleted text between boundaries an undo restores after a later format takes that format (${g})`, async () => {
     const t = await setup(() => $line($createTextNode('Xaab')), {gc});
     // A legacy history (switch off) leaving X, null, [space], true, null, b.
     bold(t.a, [0], 1, 3);
@@ -790,7 +790,7 @@ for (const gc of [false, true]) {
     expect(fresh.get('lexical-y').toString()).toBe(rootOf(t.a).toString());
   });
 
-  test(`GPT r6-1: an empty run whose interval holds an unpaired item stays: "c" keeps its bold (${g})`, async () => {
+  test(`an empty run whose interval holds an unpaired item stays: "c" keeps its bold (${g})`, async () => {
     setFormatIdentityWritesDefault(true);
     const t = await setup(() => $line($createTextNode('alrbcd')), {gc});
     upgrade(t.a);
@@ -922,7 +922,7 @@ for (const gc of [false, true]) {
 }
 
 for (const gc of [false, true]) {
-  test(`v4.4 (GPT r3-3, legacy): a legacy opener between the previous content and the range's first content reaches past the range, so it stays; a concurrent bold insert at it races the overlay's opener by client id (declared trade c; main: "aXb" in every order) (gc ${gc ? 'on' : 'off'})`, async () => {
+  test(`legacy: a legacy opener between the previous content and the range's first content reaches past the range, so it stays; a concurrent bold insert at it races the overlay's opener by client id (a declared trade; main: "aXb" in every order) (gc ${gc ? 'on' : 'off'})`, async () => {
     for (const [ids, want] of [
       [[1, 2, 3], 'paragraph("aXb" "c"{1} "TAIL")'],
       [[3, 2, 1], 'paragraph("a" "X"{1} "b" "c"{1} "TAIL")'],
@@ -953,7 +953,7 @@ for (const gc of [false, true]) {
 }
 
 for (const gc of [false, true]) {
-  test(`GPT r9-1/r9-2: a legacy value buried below a retained paired run stays (it reaches past the range) and shows after the run; its author's undo removes exactly its own value (spec v4.4) (gc ${gc ? 'on' : 'off'})`, async () => {
+  test(`a legacy value buried below a retained paired run stays (it reaches past the range) and shows after the run; its author's undo removes exactly its own value (gc ${gc ? 'on' : 'off'})`, async () => {
     for (const ids of [
       [1, 2],
       [2, 1],
@@ -1054,12 +1054,12 @@ for (const gc of [false, true]) {
       await t.sync();
       // Layout 3: the seed's bold is a paired run of its own, so the order
       // no longer depends on client ids: plain in both orders, as on main
-      // (declared trade c arose for legacy runs only).
+      // (the client-id race arose for legacy runs only).
       await expectConverged(t.peers, 'paragraph("hel"{1} "lo!")');
     }
   });
 
-  test(`v4.4: plain text typed right after the legacy run's closer shows plain, and a new bold run there stays bold (${g})`, async () => {
+  test(`plain text typed right after the legacy run's closer shows plain, and a new bold run there stays bold (${g})`, async () => {
     for (const ids of orders) {
       const t = await setup(
         () =>
@@ -1089,7 +1089,7 @@ for (const gc of [false, true]) {
     }
   });
 
-  test(`v4.4: the legacy run's author undoes it after a paired change unbolded its start: exactly its run goes (main keeps "lo" bold through its restore) (${g})`, async () => {
+  test(`the legacy run's author undoes it after a paired change unbolded its start: exactly its run goes (main keeps "lo" bold through its restore) (${g})`, async () => {
     for (const ids of orders) {
       const t = await setup(() => $line($createTextNode('hello world')), {
         gc,
@@ -1109,7 +1109,7 @@ for (const gc of [false, true]) {
   });
 }
 
-// Spec v4.5 (GPT round 11): a deleted run must not change how far an item the
+// a deleted run must not change how far an item the
 // change keeps reaches, nothing is copied past the range, and a range ending
 // right before an unpaired item with its value is written as main's rule 3.
 for (const gc of [false, true]) {
@@ -1121,7 +1121,7 @@ for (const gc of [false, true]) {
     [1, 3, 2],
   ];
 
-  test(`GPT r11-1: a run whose interval holds a clearer is kept: the clearer's reach is unchanged (${g})`, async () => {
+  test(`a run whose interval holds a clearer is kept: the clearer's reach is unchanged (${g})`, async () => {
     for (const ids of orders) {
       setFormatIdentityWritesDefault(true);
       const t = await setup(() => $line($createTextNode('xabc')), {gc, ids});
@@ -1157,7 +1157,7 @@ for (const gc of [false, true]) {
     }
   });
 
-  test(`GPT r11-2: a run whose interval holds a held item is kept: after the release "c" keeps its value (${g})`, async () => {
+  test(`a run whose interval holds a held item is kept: after the release "c" keeps its value (${g})`, async () => {
     for (const ids of orders) {
       setFormatIdentityWritesDefault(true);
       const t = await setup(() => $line($createTextNode('xabcdZ')), {
@@ -1205,7 +1205,7 @@ for (const gc of [false, true]) {
     }
   });
 
-  test(`GPT r11-4: nothing is copied past the range: a concurrent color of the next character keeps its value in both id orders, as on main (${g})`, async () => {
+  test(`nothing is copied past the range: a concurrent color of the next character keeps its value in both id orders, as on main (${g})`, async () => {
     for (const ids of [
       [1, 2, 3],
       [1, 3, 2],
@@ -1230,7 +1230,7 @@ for (const gc of [false, true]) {
     }
   });
 
-  test(`GPT r12-1: a retained paired end inside the last segment does not cut the change short: "b" takes its value, as on main (${g})`, async () => {
+  test(`a retained paired end inside the last segment does not cut the change short: "b" takes its value, as on main (${g})`, async () => {
     for (const ids of orders) {
       setFormatIdentityWritesDefault(true);
       const t = await setup(() => $line($createTextNode('xabc')), {gc, ids});
@@ -1257,7 +1257,7 @@ for (const gc of [false, true]) {
     }
   });
 
-  test(`GPT r12-2: identity clients' changes and an undo after the upgrade: the undo brings back the older value, as on main (${g})`, async () => {
+  test(`identity clients' changes and an undo after the upgrade: the undo brings back the older value, as on main (${g})`, async () => {
     for (const ids of [
       [1, 2, 3, 4],
       [4, 3, 2, 1],
@@ -1294,7 +1294,7 @@ for (const gc of [false, true]) {
     }
   });
 
-  test(`GPT r12-3: a concurrent change deleting the item after a range does not let the range's value escape, as on main (${g})`, async () => {
+  test(`a concurrent change deleting the item after a range does not let the range's value escape, as on main (${g})`, async () => {
     for (const ids of orders) {
       const t = await setup(() => $line($createTextNode('xabcd')), {gc, ids});
       const [l, w, c] = t.peers;
@@ -1326,7 +1326,7 @@ for (const gc of [false, true]) {
     }
   });
 
-  test(`GPT r13-1 (documented outcome, spec v4.8): text deleted from a run the change wholly formats comes back plain after its undo, as on main (${g})`, async () => {
+  test(`(documented outcome) text deleted from a run the change wholly formats comes back plain after its undo, as on main (${g})`, async () => {
     for (const ids of orders) {
       const t = await setup(() => $line($createTextNode('xabc')), {gc, ids});
       pairAll(t.peers);
@@ -1343,13 +1343,13 @@ for (const gc of [false, true]) {
       d.undo();
       await t.sync();
       // = main, gc off and on: the run is deleted with the change (spec
-      // v4.8: deleted content does not keep a run), so the text comes back
+      // deleted content does not keep a run), so the text comes back
       // plain.
       await expectConverged(t.peers, 'paragraph("xabc")');
     }
   });
 
-  test(`GPT r13-1, redo (documented outcome, spec v4.8): text typed with the run's value, undone, then redone after a change that formats the rest of the run: as above (${g})`, async () => {
+  test(`redo (documented outcome): text typed with the run's value, undone, then redone after a change that formats the rest of the run: as above (${g})`, async () => {
     for (const ids of orders) {
       const t = await setup(() => $line($createTextNode('xbc')), {gc, ids});
       pairAll(t.peers);
@@ -1371,13 +1371,13 @@ for (const gc of [false, true]) {
       expect(d.binding.redo()).toBe(true);
       await t.sync();
       // = main, gc off and on: the run is deleted with the change (spec
-      // v4.8: deleted content does not keep a run), so the text comes back
+      // deleted content does not keep a run), so the text comes back
       // plain.
       await expectConverged(t.peers, 'paragraph("xabc")');
     }
   });
 
-  test(`GPT r11-4, bold: a legacy bold "b" unbolded while a collaborator bolds "c": both keep their values in every id order, as on main (${g})`, async () => {
+  test(`bold: a legacy bold "b" unbolded while a collaborator bolds "c": both keep their values in every id order, as on main (${g})`, async () => {
     for (const ids of orders) {
       const t = await setup(() => $line($createTextNode('xbcd')), {gc, ids});
       const [l, w, c] = t.peers;

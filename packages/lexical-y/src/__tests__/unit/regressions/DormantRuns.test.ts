@@ -8,7 +8,7 @@
 
 // @vitest-environment node
 
-// perf P8: a document of plain values (a main client's: a value, then a
+// A document of plain values (a main client's: a value, then a
 // null where it was removed) leaves one run of no value per key it ever
 // closed. Those runs are kept in one persistent map in the formats map, so a
 // copy of the map (every unit start takes one) copies one reference for all

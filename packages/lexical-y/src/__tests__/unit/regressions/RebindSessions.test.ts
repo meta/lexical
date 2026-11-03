@@ -10,8 +10,8 @@
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 /**
- * regress (format identity, 11/2): REBIND generator. Bindings that stop and restart on the same Y.Doc while a remote
- * peer writes are an input dimension; caches tied to binding lifetime need it (GPT code r2 MUST 4 class).
+ * Rebind generator. Bindings that stop and restart on the same Y.Doc while a remote
+ * peer writes are an input dimension; caches tied to binding lifetime need it.
  *
  * Per seed: one Y.Doc (createYDoc), a bound editor that writes random local edits, then STOPS (no binding attached);
  * a raw remote peer (plain @y/y Y.Doc, no @lexical/y code; its own clientID) applies random structural and format
@@ -47,7 +47,7 @@ import {createBoundEditor, NODES} from '../../utils/harness';
 // wrong in every setting (paired writes off and on, gc off and on): text
 // twice, or typed text in another paragraph, after a binding stopped while
 // a raw peer wrote and a new binding started on the same document. The
-// cause was a per-item memo of prevLiveEnd (perf P3) that outlived the
+// cause was a per-item memo of prevLiveEnd that outlived the
 // binding; it is removed. Main and this branch: none wrong.
 const SEEDS_WRONG_ON_HEAD_9 = [
   100014, 100017, 100035, 100044, 100059, 100080, 100081, 100093,

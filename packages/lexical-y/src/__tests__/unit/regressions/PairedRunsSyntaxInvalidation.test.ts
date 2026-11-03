@@ -8,8 +8,7 @@
 
 // @vitest-environment node
 
-// Record-independent identity syntax (prototype A'), GPT window structural
-// review 4: where an opener is deleted or restored, its pairing changes for
+// Record-independent identity syntax: where an opener is deleted or restored, its pairing changes for
 // every line between it and its end, which the change itself need not touch.
 // A client that reads by syntax, without the writer's layout 3 record, reads
 // those lines again: it converges with the writer and a fresh reader after

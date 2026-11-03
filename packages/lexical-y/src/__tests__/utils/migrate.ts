@@ -98,7 +98,7 @@ export const MIGRATOR_ID = 999_999_937;
 /**
  * A state captured below layout 3, migrated to layout 3 (see
  * migrateToLayout3) under MIGRATOR_ID: for repro cells that replay such a
- * capture, which l3only opens read only. Updates captured after it (a
+ * capture, which a layout 3 binding opens read only. Updates captured after it (a
  * legacy client's) apply on top as a raw writer's.
  */
 export function migratedState(

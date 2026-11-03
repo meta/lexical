@@ -1572,7 +1572,7 @@ describe('a value one client restates ‖ the undo of the change that gave it', 
         expect(await merged(t)).toBe(expected);
       });
     }
-    // S7-10: a format's undo ‖ its removal from part of the range (layout 3:
+    // A format's undo ‖ its removal from part of the range (layout 3:
     // the removal is a no-value run of its own and restates nothing after
     // it, so the undo removes the format everywhere; the part after it kept
     // the format before), or from all of it, and then the removal's undo

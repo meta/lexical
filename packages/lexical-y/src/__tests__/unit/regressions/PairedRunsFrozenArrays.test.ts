@@ -12,7 +12,7 @@
 // did so with a symbol property defined on the array, for every array on a
 // covered name, below layout 3 too: a raw writer's frozen array threw
 // ("object is not extensible") where main accepts it, and arrays of a
-// document below layout 3 were changed (GPT code review r1, item 6). Arrays
+// document below layout 3 were changed. Arrays
 // in a document without the layout 3 record are now left untouched (read
 // as identity syntax all the same: the raw-array trade), and a frozen array
 // is noted off the array in layout 3 too.

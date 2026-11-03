@@ -93,7 +93,7 @@ export function deletedBy(item: Item, tr: Transaction): boolean {
  * Delete `item` (not gone, see isGone): an item an unread change deleted is
  * only noted as deleted by this write.
  */
-/** Bumped by every deleteItem (perf P4: a fold reused only while nothing was deleted). */
+/** Bumped by every deleteItem (a fold reused only while nothing was deleted). */
 export let deletions = 0;
 export function deleteItem(item: Item, tr: Transaction): void {
   deletions++;

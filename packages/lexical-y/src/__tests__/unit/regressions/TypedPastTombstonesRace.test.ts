@@ -14,16 +14,16 @@
 // replaced: a new opener before it, a new end after it). Both writers step
 // over the tombstones (as Yjs does), so their items have the same origin and
 // the client ids decide whether the typed text lands inside the new run or
-// past its end (soak L1B 2807000566).
+// past its end (found by a randomized multi-client session).
 //
 // Trade (i), a consistent structural difference: where the end sorts first,
 // the typed text reads as a second code highlight node on every peer and in
 // every fresh read (convergent), where main reads one. Not visible: both
 // nodes are plain highlight tokens of the same type and render the same, and
 // a code highlighter re-segments the line on its next transform of that code
-// block (an editor with the highlighter merged it on load in the soak).
+// block (an editor with the highlighter merges it on load).
 // Stopping before the tombstones fixed this cell but put typed text on the
-// wrong side of a closer an undo brings back (TombstoneStopRegress), so the
+// wrong side of a closer an undo brings back (UndoRestoredCloserTypedPlain), so the
 // writer keeps Yjs's placement.
 
 import {$createCodeHighlightNode, $createCodeNode} from '@lexical/code';

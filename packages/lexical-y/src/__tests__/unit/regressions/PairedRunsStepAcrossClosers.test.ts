@@ -16,7 +16,7 @@
 // strikethrough closer (its unit, the closer and "def"'s opener, does not
 // give "no strikethrough"), so "Z" was written with a paired null run of its
 // own; A typed "1" right before "Z", inside that run, and B's undo deleted
-// it: "1" showed strikethrough (prop, OpsRun: 1,678 of 400,000 runs worse
+// it: "1" showed strikethrough (a randomized op-list oracle: 1,678 of 400,000 runs worse
 // than before positional units). A unit now stops at a second item of a key
 // it already has, as one write's items never repeat a key: "Z" goes past
 // every closer with no item of its own, as before.

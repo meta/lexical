@@ -12,7 +12,7 @@
 // validity check tested the end's target, key and container, not its
 // order: a raw writer's end stored before the opener it names made that
 // opener paired, so a later plain null (which replaces unpaired runs only)
-// left the run open to the end of the line (GPT code review r1, item 2).
+// left the run open to the end of the line.
 // Such an end is a clearer, and the opener stays unpaired.
 
 import * as Y from '@y/y';

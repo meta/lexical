@@ -8,8 +8,8 @@
 
 // @vitest-environment node
 
-// GPT layout 3 review round 12's cells (P8 dormant runs; the text format
-// rule of main's #9768).
+// Canonical stored formats on a text class whose instances declare in
+// their constructor that they keep formats: the stored bold reads back.
 import {
   $create,
   $createParagraphNode,
@@ -27,7 +27,7 @@ import {flush} from '../utils/harness';
 class Enabled extends TextNode {
   __allowsFormat = true;
   $config() {
-    return this.config('review_format_enabled', {extends: TextNode});
+    return this.config('test_format_enabled', {extends: TextNode});
   }
   canHaveFormat() {
     return !!this.__allowsFormat;
@@ -46,7 +46,7 @@ function editor() {
   });
 }
 for (const gc of [false, true])
-  test(`R12 canonical stored formats survive a constructor-dependent declaration gc=${gc}`, async () => {
+  test(`canonical stored formats survive a constructor-dependent declaration gc=${gc}`, async () => {
     const doc = createYDoc(null, {gc});
     const e = editor();
     const b = new YBinding(e, doc, {schemaVersion: 1, selfCheck: true});

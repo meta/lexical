@@ -8,7 +8,7 @@
 
 // @vitest-environment node
 
-// GPT layout 3 review round 10, MUST 1: the seed's layout 3 record stays
+// The seed's layout 3 record stays
 // live in every update an app UndoManager's undo emits, whether the app
 // tracks every plain-object origin (initialization outside an outer
 // transaction) or the outer transaction the initialization ran in (with the
@@ -28,13 +28,13 @@ import {flush, NODES} from '../utils/harness';
 for (const gc of [false, true])
   for (const nested of [false, true])
     for (const mode of ['Object capture', 'dispose in outer'] as const) {
-      test(`R10 seed protection ${mode} nested=${nested} gc=${gc}`, async () => {
+      test(`seed protection ${mode} nested=${nested} gc=${gc}`, async () => {
         const doc = createYDoc(null, {gc});
         doc.clientID = 7;
         const root = nested ? new Y.Node('editor-root') : doc.get('lexical-y');
         if (nested) doc.get('app').setAttr('editor', root);
         const editor = createEditor({
-          namespace: 'R10',
+          namespace: 'test',
           nodes: NODES,
           onError: e => {
             throw e;

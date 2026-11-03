@@ -11,7 +11,7 @@
 // The covered names are the frozen list (design section 4): `f:*`, `w:*`,
 // `t`, `k`, `p:*` and `s:` names holding U+001F. Coverage was every name
 // but a flat `s:` one, so a raw writer's own key (`foreign`) read as paired
-// runs in a layout 3 document (GPT code review r1, SHOULD 7).
+// runs in a layout 3 document.
 
 import {$getRoot, $setSelection} from 'lexical';
 import {afterEach, expect, test} from 'vitest';

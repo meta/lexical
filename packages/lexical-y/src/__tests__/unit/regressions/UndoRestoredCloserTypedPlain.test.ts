@@ -14,8 +14,7 @@
 // stays plain and every letter keeps its format, as on main: typed text that
 // continues a run steps over tombstones after it (stopping before them put it
 // on the wrong side of a closer the undo brings back, so it ended inside the
-// restored run). Reduced from prop's op-list runs 7031523, 7041381 and
-// 7070729, both client id orders, gc off and on.
+// restored run). Reduced from randomized op-list runs, both client id orders, gc off and on.
 
 import {
   buildEditorFromExtensions,

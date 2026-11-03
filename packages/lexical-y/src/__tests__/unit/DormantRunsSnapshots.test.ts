@@ -8,8 +8,8 @@
 
 // @vitest-environment node
 
-// GPT layout 3 review round 12's cells (P8 dormant runs; the text format
-// rule of main's #9768).
+// Dormant runs (a formats map's runs of no value, kept in one persistent
+// map): snapshots keep colliding keys apart and pair late ends.
 import * as Y from '@y/y';
 import {expect, test} from 'vitest';
 
@@ -33,7 +33,7 @@ function same(a: Map<string, unknown>, b: Map<string, unknown>) {
     );
 }
 for (const gc of [false, true])
-  test(`R12 dormant snapshots retain colliding keys and late pairing gc=${gc}`, () => {
+  test(`dormant snapshots retain colliding keys and late pairing gc=${gc}`, () => {
     const doc = createYDoc(null, {gc});
     doc.clientID = 17;
     const root = doc.get('c');

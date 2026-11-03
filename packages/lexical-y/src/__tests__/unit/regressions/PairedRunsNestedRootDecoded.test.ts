@@ -13,7 +13,7 @@
 // decoded with createYDoc read its nested layout 3 root as plain until a
 // binding started: its lifetime copy repair did nothing, and an app undo of
 // both format items around a word sent an unrepaired end (an encoded reload
-// read "Xb" plain where main keeps "b" bold; GPT code review r2, MUST 2).
+// read "Xb" plain where main keeps "b" bold).
 // The root is now the nearest type holding a layout record, whatever has
 // registered it.
 
@@ -90,7 +90,7 @@ for (const gc of [false, true])
       );
       expect(root.getAttr('lexical-y:3')).toBe(true);
       if (withoutLayout1) {
-        // GPT code review r3, MUST 2: an app UndoManager that captured the
+        // An app UndoManager that captured the
         // initialization, with a delete filter that keeps everything but the
         // layout 1 record, undoes it after paired writes: layout 3 stays and
         // layout 1 is gone. The root is still known by a layout record.

@@ -205,8 +205,7 @@ const pendingRecords = new WeakMap<Transaction, Set<YNode>>();
  * overwritten item, and every update it emits keeps a live record. Scoped
  * to `tr`, by a listener of the document that removes itself when `tr`
  * ends, not by a binding: a binding disposed before `tr` ends still has its
- * record protected, and nothing is left for a later transaction to act on
- * (GPT layout 3 review r10, MUST 1).
+ * record protected, and nothing is left for a later transaction to act on.
  */
 export function protectRecordAfter(tr: Transaction, root: YNode): void {
   let roots = pendingRecords.get(tr);
@@ -524,7 +523,7 @@ function endFollows(
     return true;
   }
   if (positions !== null) {
-    // A batch (an index scan): each container's item order once (perf P5),
+    // A batch (an index scan): each container's item order once,
     // not a walk per end (quadratic on a line with many items between an
     // opener and its end).
     let pos = positions.get(end.parent);
@@ -615,7 +614,7 @@ export function noteEnd(
     target.content.key !== (end.content as ContentFormat).key ||
     isEndValue(target.content.value) ||
     // An end this client's writer just wrote follows its opener: it wrote
-    // it after it (perf P5).
+    // it after it.
     (follows !== 'written' &&
       !endFollows(target, end, follows === null ? null : follows))
   ) {
@@ -883,7 +882,7 @@ export const noteHolder = (item: Item): void => {
   // per end cost a hash insertion per incoming end): Yjs encodes values as
   // JSON, which never sees it, and equality checks skip it.
   // On the array only in a document that records layout 3: an array a raw
-  // writer stored elsewhere stays as stored (GPT code review r1, item 6).
+  // writer stored elsewhere stays as stored.
   if (
     Object.isExtensible(v) &&
     item.parent instanceof YNode &&
@@ -980,8 +979,8 @@ const pairingChanged = new WeakSet<Doc>();
 
 /**
  * Whether an opener arrived after an end naming it since the last call (the
- * end now pairs with it, which changes how everything between them reads;
- * GPT window structural review, 1 and 4); clears it.
+ * end now pairs with it, which changes how everything between them reads);
+ * clears it.
  */
 export function takePairingChanges(doc: Doc): boolean {
   return pairingChanged.delete(doc);
@@ -1020,8 +1019,8 @@ function repairCopies(tr: Transaction): void {
       recordsIdentityLayout(rootOf(s.parent))
     ) {
       // A copy of an end (an undo's), in a root that records layout 3 (a
-      // root below it is left as stored, as main keeps it: GPT layout 3
-      // review r9, M3; nested roots by their own record).
+      // root below it is left as stored, as main keeps it; nested roots by
+      // their own record).
       const target = repairedTarget(doc, first, s);
       if (target !== null) {
         const {key} = s.content as ContentFormat;
@@ -1195,7 +1194,7 @@ function fnv1a(key: string): number {
 /**
  * Stacks that are one run of no value (a null, or `[]`, on nothing): a
  * document of plain values holds one per key it ever closed, and every unit
- * start copies its formats map (perf P8). They live in one persistent map
+ * start copies its formats map. They live in one persistent map
  * (a hash trie, path-copied on change) under DORMANT_KEY, so a copy of a
  * formats map copies one reference for all of them. Representation only:
  * the entries are the same objects, read wherever a key's stack is (see

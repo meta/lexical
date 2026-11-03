@@ -13,7 +13,7 @@
 // for an end. A paired write used to leave out any such value of an end's
 // shape ([1]), so setting `numeric\u001fstate` to [1] in a layout 3
 // document was discarded: existing and fresh readers kept [2] and the
-// self-check warned (GPT code review r2, MUST 1). What a paired write
+// self-check warned. What a paired write
 // leaves out is now decided by provenance: only values a read took from
 // end items with the plain fold (State.strayEntries).
 

@@ -11,8 +11,8 @@
 // A binding's root can be a nested Y.Node (the `root` option). Paired
 // writes climbed to the top-level type above it: they recorded layout 3
 // there, and read pairing from there, while the bound root kept layout 1,
-// so an older binding of that root stayed editable (GPT code review r1,
-// item 1). The bound root now holds the record, and pairing, recording and
+// so an older binding of that root stayed editable
+//. The bound root now holds the record, and pairing, recording and
 // invalidation use it.
 
 import {ListItemNode, ListNode} from '@lexical/list';

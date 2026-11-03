@@ -8,7 +8,7 @@
 
 // @vitest-environment node
 
-// GPT code review r1, its reproductions as written, where the cells of the
+// Reproductions of malformed and raw-writer shapes, as written, where the cells of the
 // fixes use other shapes: item 2 (an end before its opener, then a plain
 // null, an orphan end and text: the text plain) and item 4 (a raw array this
 // client stored below layout 3 on an array-valued NodeState named with
@@ -44,7 +44,7 @@ const runs = (peer: Peer, line: number) =>
   ).children.map(c => [c.text, c.format]);
 
 for (const gc of [false, true]) {
-  test(`item 2: an end before its opener, a plain null, an orphan end, text (gc ${gc ? 'on' : 'off'})`, async () => {
+  test(`an end before its opener, a plain null, an orphan end, text (gc ${gc ? 'on' : 'off'})`, async () => {
     setFormatIdentityWritesDefault(true);
     const t = await setup(() => $getRoot().append($p('t'), $p('q')), {gc});
     // A paired write on the second line records layout 3.

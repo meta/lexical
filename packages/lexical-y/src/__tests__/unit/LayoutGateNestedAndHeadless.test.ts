@@ -8,7 +8,7 @@
 
 // @vitest-environment node
 
-// GPT layout 3 review round 10, verification cells: copy repair by a nested
+// Layout 3 boundaries: copy repair by a nested
 // root's own layout, a nested root's minimum independent of its ancestor,
 // older headless opens and edits refused, and the pure reader equal to the
 // binding's fold on noncanonical states.
@@ -35,7 +35,7 @@ const config = {
   selfCheck: true,
 };
 for (const gc of [false, true]) {
-  test(`R10 copy repair uses a nested root's own layout gc=${gc}`, () => {
+  test(`copy repair uses a nested root's own layout gc=${gc}`, () => {
     for (const version of [1, 2, 3]) {
       const doc = createYDoc(null, {gc});
       doc.clientID = 7;
@@ -94,7 +94,7 @@ for (const gc of [false, true]) {
       doc.destroy();
     }
   });
-  test(`R10 nested root minimum blocks edits independent of ancestor gc=${gc}`, () => {
+  test(`nested root minimum blocks edits independent of ancestor gc=${gc}`, () => {
     const doc = createYDoc(null, {gc});
     doc.clientID = 7;
     const parent = doc.get('app');
@@ -127,7 +127,7 @@ for (const gc of [false, true]) {
     b.dispose();
     doc.destroy();
   });
-  test(`R10 headless older layouts refuse before the callback gc=${gc}`, () => {
+  test(`headless older layouts refuse before the callback gc=${gc}`, () => {
     for (const version of [1, 2]) {
       const doc = createYDoc(null, {gc});
       const root = doc.get('lexical-y');
@@ -155,7 +155,7 @@ for (const gc of [false, true]) {
       doc.destroy();
     }
   });
-  test(`R10 headless transact gates an editor edit after downgrade gc=${gc}`, () => {
+  test(`headless transact gates an editor edit after downgrade gc=${gc}`, () => {
     const base = seedYState(config, () => $getRoot().append($p('abc')));
     let e: LexicalEditor | undefined;
     const out = editYState(
@@ -176,7 +176,7 @@ for (const gc of [false, true]) {
     expect(text(doc.get('lexical-y'))).toBe('abc');
     doc.destroy();
   });
-  test(`R10 pure/core fold equivalence on 300 noncanonical states gc=${gc}`, () => {
+  test(`pure/core fold equivalence on 300 noncanonical states gc=${gc}`, () => {
     let seed = 82737;
     const random = () => {
       seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;

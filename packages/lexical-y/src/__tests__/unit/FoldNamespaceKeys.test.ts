@@ -8,8 +8,8 @@
 
 // @vitest-environment node
 
-// GPT layout 3 review round 13: stored keys in the fold's U+0002 namespace
-// are never read; text and convergence agree with main (trade g).
+// Stored keys in the fold's U+0002 namespace
+// are never read; text and convergence agree with main.
 import * as Y from '@y/y';
 import {$getRoot, $getState, $setState, createState} from 'lexical';
 import {expect, test} from 'vitest';
@@ -20,7 +20,7 @@ const state = createState('\u0002\u0000user', {
   parse: v => (typeof v === 'string' ? v : ''),
 });
 for (const gc of [false, true]) {
-  test(`R13 NodeState U+0002 keys retain their wire prefix gc=${gc}`, async () => {
+  test(`NodeState U+0002 keys retain their wire prefix gc=${gc}`, async () => {
     const t = await setup(
       () => {
         const p = $p('abc');
@@ -47,7 +47,7 @@ for (const gc of [false, true]) {
       t.b.read(() => $getState($getRoot().getAllTextNodes()[0], state)),
     ).toBe('changed');
   });
-  test(`R13 raw U+0002 format keys remain stored but are not user formats gc=${gc}`, async () => {
+  test(`raw U+0002 format keys remain stored but are not user formats gc=${gc}`, async () => {
     const t = await setup(() => $getRoot().append($p('abc')), {gc});
     t.a.doc.transact(
       () => t.a.binding.root.format(0, 1, {'\u0002raw': 'v'}),
