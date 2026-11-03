@@ -108,6 +108,12 @@ const TestInlineExtension = defineExtension({
   nodes: [TestInlineNode],
 });
 
+function $exportText(text: string) {
+  $getRoot()
+    .clear()
+    .append($createParagraphNode().append($createTextNode(text)));
+}
+
 const LITERALS = [
   ['<b>text</b>', '&#60;b>text&#60;/b>'],
   ['<https://example.com>', '&#60;https://example.com>'],
@@ -143,6 +149,51 @@ describe('literal Markdown text', () => {
       });
       expect(editor.read(() => $getRoot().getTextContent())).toBe(text);
     }
+  });
+
+  it.each([
+    '<3',
+    '1<2',
+    'I <3 you',
+    'x <- y',
+    'a <= b',
+    '<<',
+    '<3@x',
+    'Tom &',
+    'R&D',
+    '&#',
+    '&#x',
+    '&#12 no semicolon',
+    'emoji <:) and & done',
+  ])('keeps %j as typed, since it cannot start markup', text => {
+    using editor = buildEditorFromExtensions([MarkdownTestExtension]);
+    editor.update(() => $exportText(text), {discrete: true});
+    const written = editor.read(() => $convertToMarkdownString());
+    expect(written).toBe(text);
+    editor.update(() => $convertFromMarkdownString(written), {
+      discrete: true,
+    });
+    expect(editor.read(() => $getRoot().getTextContent())).toBe(text);
+  });
+
+  it.each([
+    ['<a', '&#60;a'],
+    ['</b>', '&#60;/b>'],
+    ['<!-- c -->', '&#60;!-- c -->'],
+    ['<?php', '&#60;?php'],
+    ['<!DOCTYPE html>', '&#60;!DOCTYPE html>'],
+    ['<3@x.co>', '&#60;3@x.co>'],
+    ['&#12;', '&#38;#12;'],
+    ['&#x1F600;', '&#38;#x1F600;'],
+  ])('escapes %j, which would start markup', (text, expected) => {
+    using editor = buildEditorFromExtensions([MarkdownTestExtension]);
+    editor.update(() => $exportText(text), {discrete: true});
+    const written = editor.read(() => $convertToMarkdownString());
+    expect(written).toBe(expected);
+    editor.update(() => $convertFromMarkdownString(written), {
+      discrete: true,
+    });
+    expect(editor.read(() => $getRoot().getTextContent())).toBe(text);
   });
 
   it.each(['AT&T', 'a < b', '&nbsp;', '&copy;'])(
@@ -220,7 +271,9 @@ describe('literal Markdown text', () => {
     [['&', 'copy;'], '&#38;copy;'],
     [['<', 'b>text</b>'], '&#60;b>text&#60;/b>'],
     [['AT&', 'T'], 'AT&#38;T'],
-    [['a <', ' b'], 'a &#60; b'],
+    [['a <', ' b'], 'a < b'],
+    [['1<', '2'], '1<2'],
+    [['<', '3 you'], '<3 you'],
   ] as const)('guards ambiguous node boundaries: %j', (pieces, expected) => {
     using editor = buildEditorFromExtensions([MarkdownTestExtension]);
     editor.update(

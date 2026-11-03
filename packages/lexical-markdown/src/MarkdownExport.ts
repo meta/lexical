@@ -561,7 +561,8 @@ function $exportTextFormat(
     // escape instead.
     // Default mode guards numeric references; named references keep legacy output.
     // Numeric escapes avoid changing emphasis flanking beside formatting.
-    // Guard ambiguous '<' and '&' at node ends for constructs split across nodes.
+    // A `<` or `&` is escaped only where it would start markup or a numeric
+    // reference, reading on into the next node at a node's end.
     if (shouldPreserveNewLines) {
       // A whole run of backslashes is matched, so that one before no marker
       // is not tried again from each of its backslashes.
@@ -575,12 +576,39 @@ function $exportTextFormat(
               : escaped,
       );
     } else {
+      let nextChar: string | null = null;
+      const $nextChar = () => {
+        if (nextChar === null) {
+          nextChar = $nextExportedChar(node, selection);
+        }
+        return nextChar;
+      };
+      let following: string | null = null;
+      const $following = () => {
+        if (following === null) {
+          // The longest email autolink: a 64-character local part and a
+          // 255-character domain.
+          following = $followingText(node, selection, 330);
+        }
+        return following;
+      };
       output = $escapeLiteralBrackets(
         node,
-        output.replace(/([*_`~\\]|<(?=\S|$)|&(?=#|$))/g, character =>
-          /[*_`~\\]/.test(character)
-            ? `\\${character}`
-            : toCharacterReference(character),
+        output.replace(
+          /[*_`~\\<&]/g,
+          (character, offset: number, text: string) =>
+            /[*_`~\\]/.test(character)
+              ? `\\${character}`
+              : (
+                    character === '<'
+                      ? $opensMarkup(text.slice(offset + 1), $following)
+                      : $opensCharacterReference(
+                          text.slice(offset + 1),
+                          $nextChar,
+                        )
+                  )
+                ? toCharacterReference(character)
+                : character,
         ),
         selection,
       );
@@ -1298,6 +1326,118 @@ const UNKNOWN = '\u0002';
  * (https://spec.commonmark.org/0.31.2/#link-label) and the `[` itself.
  */
 const MAX_LABEL_DISTANCE = 1000;
+
+/**
+ * The characters an email autolink's local part can hold
+ * (https://spec.commonmark.org/0.31.2/#email-autolink).
+ */
+const EMAIL_LOCAL = "[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]";
+const EMAIL_LABEL = '[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?';
+const EMAIL_AUTOLINK_REST = new RegExp(
+  `^${EMAIL_LOCAL}+@${EMAIL_LABEL}(?:\\.${EMAIL_LABEL})*>`,
+);
+/** Text that an email autolink could still go on from. */
+const EMAIL_AUTOLINK_PREFIX = new RegExp(
+  `^${EMAIL_LOCAL}*(?:@[A-Za-z0-9.-]*)?$`,
+);
+
+/**
+ * Whether a literal `<` followed by `rest`, the rest of its text node, would
+ * start markup a CommonMark reader parses: a tag, a closing tag, a comment, a
+ * processing instruction, a declaration or CDATA, an HTML block, or an
+ * autolink (https://spec.commonmark.org/0.31.2/#raw-html,
+ * https://spec.commonmark.org/0.31.2/#autolinks). Each starts with a letter,
+ * `/`, `!` or `?` right after the `<`, except an email autolink, whose local
+ * part may start with a digit. So `<3`, `1<2`, `<-` and `< b` stay as typed.
+ * `$following` reads on into the text exported after the node.
+ */
+function $opensMarkup(rest: string, $following: () => string): boolean {
+  const first = rest === '' ? ($following()[0] ?? '') : rest[0];
+  if (first === UNKNOWN || /^[A-Za-z/!?]$/.test(first)) {
+    return true;
+  } else if (EMAIL_AUTOLINK_REST.test(rest)) {
+    return true;
+  } else if (!EMAIL_AUTOLINK_PREFIX.test(rest)) {
+    return false;
+  }
+  // An email autolink may go on into the nodes after this one.
+  const text = rest + $following();
+  const unknown = text.indexOf(UNKNOWN);
+  return (
+    EMAIL_AUTOLINK_REST.test(text) ||
+    (unknown !== -1 && EMAIL_AUTOLINK_PREFIX.test(text.slice(0, unknown)))
+  );
+}
+
+/**
+ * The text exported after `node` in its block, up to `limit` characters or
+ * the first character that ends an autolink: a line break or a link, or
+ * `UNKNOWN` for text this pass cannot see. Inline code is read with its
+ * backticks.
+ */
+function $followingText(
+  node: LexicalNode,
+  selection: BaseSelection | null,
+  limit: number,
+): string {
+  let text = '';
+  for (
+    let leaf = $nextLeaf(node, selection);
+    leaf !== null && text.length < limit;
+    leaf = $nextLeaf(leaf, selection)
+  ) {
+    const kind = $exportKind(leaf);
+    if (kind === 'unknown') {
+      return text + UNKNOWN;
+    } else if (kind === 'link') {
+      return text + '[';
+    } else if ($isLineBreakNode(leaf)) {
+      return text + '\n';
+    } else if ($isTextNode(leaf)) {
+      const exported = asLiteral($exportedText(leaf, selection));
+      // An autolink binds as tightly as a code span and starts first, so it
+      // can run on through the backticks.
+      text += leaf.hasFormat('code') ? `\`${exported}\`` : exported;
+    }
+  }
+  return text;
+}
+
+/**
+ * Whether a literal `&` followed by `rest`, the rest of its text node, would
+ * start a numeric character reference, which both this package's importer
+ * and a CommonMark reader decode
+ * (https://spec.commonmark.org/0.31.2/#entity-and-numeric-character-references).
+ * At the end of the node, `$nextChar` reads on into the text exported after it.
+ * A named reference keeps its legacy output inside one node.
+ */
+function $opensCharacterReference(
+  rest: string,
+  $nextChar: () => string,
+): boolean {
+  if (/^#(?:[0-9]{1,7}|[xX][0-9a-fA-F]{1,6});/.test(rest)) {
+    return true;
+  }
+  // The reference may go on into the next node.
+  // A named reference split across nodes is guarded as well.
+  const continues =
+    rest === ''
+      ? /^[#A-Za-z]$/
+      : rest === '#'
+        ? /^[0-9xX]$/
+        : /^#[0-9]{1,7}$/.test(rest)
+          ? /^[0-9;]$/
+          : /^#[xX]$/.test(rest)
+            ? /^[0-9a-fA-F]$/
+            : /^#[xX][0-9a-fA-F]{1,6}$/.test(rest)
+              ? /^[0-9a-fA-F;]$/
+              : null;
+  if (continues === null) {
+    return false;
+  }
+  const after = $nextChar();
+  return after === UNKNOWN || continues.test(after);
+}
 
 /** Typed text that matches a sentinel is read as an ordinary character. */
 function asLiteral(text: string): string {
