@@ -2837,6 +2837,21 @@ export class YBinding {
   }
 
   /**
+   * A local change refused because the root's layout record, as it was when
+   * the change was written (inside an app's transaction, or after one of
+   * its beforeTransaction listeners), was missing, malformed or one this
+   * version does not write, while the binding was active. Not retried: a
+   * retry would write outside the app's atomic change.
+   */
+  private warnRefusedAtWrite(): void {
+    this.warn(
+      UNSUPPORTED_EDIT_WARNING,
+      "a local change was not written: when it was written (inside an app's transaction) the document's layout record was missing, malformed or one this version does not write. It is not retried, since a retry would write outside that transaction: edit again (see binding.status)",
+      {reason: 'read-only'},
+    );
+  }
+
+  /**
    * Whether the root's layout record, as it is now, is one this binding
    * writes: from the floor (MIN_LAYOUT) to LAYOUT_VERSION, well formed.
    *
@@ -4250,7 +4265,11 @@ export class YBinding {
         }
         if (commit.userEdit) {
           this.rereads = 0;
-          if (!this.warnedEdit) {
+          if (this._status === 'active') {
+            // Refused only by the record as it was when it wrote (see
+            // recordAdmits): no earlier warning names a cause.
+            this.warnRefusedAtWrite();
+          } else if (!this.warnedEdit) {
             this.warnedEdit = true;
             this.warn(
               UNSUPPORTED_EDIT_WARNING,
@@ -4551,6 +4570,9 @@ export class YBinding {
       // change is refused as on a read-only binding (read again once it can
       // be), and the record is read once the commit is done (see onUpdate).
       this.writeCursor = null;
+      if (commit.userEdit) {
+        this.warnRefusedAtWrite();
+      }
       this.$refuseChanged(
         dirtyElements,
         dirtyLeaves,

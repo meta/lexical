@@ -111,7 +111,7 @@ function $commented(): void {
   $addMarkID('c1', s);
 }
 
-function editorOf(warnings: string[]): LexicalEditor {
+function editorOf(warnings: string[], messages: string[]): LexicalEditor {
   return buildEditorFromExtensions(
     defineExtension({
       dependencies: [catalogAppExtension(CFG)],
@@ -121,6 +121,7 @@ function editorOf(warnings: string[]): LexicalEditor {
       },
       onWarn: w => {
         warnings.push(String((w as {data?: {reason?: string}}).data?.reason));
+        messages.push(w.message);
       },
     }),
   );
@@ -139,6 +140,7 @@ function setup(
   editor: LexicalEditor;
   binding: YBinding;
   warnings: string[];
+  messages: string[];
 } {
   const doc = createYDoc(null, {gc});
   doc.clientID = 7;
@@ -149,7 +151,8 @@ function setup(
     holder.setAttr('editor', root);
   }
   const warnings: string[] = [];
-  const editor = editorOf(warnings);
+  const messages: string[] = [];
+  const editor = editorOf(warnings, messages);
   editor.update($commented, {discrete: true});
   const binding = new YBinding(editor, doc, {
     captureTimeout: 0,
@@ -173,7 +176,7 @@ function setup(
     {discrete: true},
   );
   binding.undoManager!.stopCapturing();
-  return {binding, doc, editor, root, warnings};
+  return {binding, doc, editor, messages, root, warnings};
 }
 
 const flush = () => new Promise(resolve => setTimeout(resolve, 0));
@@ -306,6 +309,37 @@ describe.each([false, true])('writes are admitted at write time, gc %s', gc => {
       if (!admitted(t.root)) {
         expect(t.warnings.slice(0, refusal)).toContain(cause);
       }
+      t.binding.dispose();
+    },
+  );
+
+  test.each(CAUSES)(
+    'an app transaction that makes the record %s around an editor write and puts it back: refused, active, a warning naming the record and no earlier cause',
+    async cause => {
+      const t = setup(gc, false);
+      const before = text(t.root);
+      t.warnings.length = 0;
+      t.messages.length = 0;
+      t.doc.transact(() => {
+        spoil(t.root, cause);
+        t.editor.update(
+          () => {
+            $getRoot().append(
+              $createParagraphNode().append($createTextNode('forbidden')),
+            );
+          },
+          {discrete: true},
+        );
+        repair(t.root);
+      }, 'app');
+      await flush();
+      expect(text(t.root)).toBe(before);
+      expect(t.binding.status).toBe('active');
+      expect(t.warnings).toEqual(['read-only']);
+      expect(t.messages.join('\n')).toMatch(
+        /not written: when it was written \(inside an app's transaction\) the document's layout record was missing, malformed or one this version does not write\. It is not retried/,
+      );
+      expect(t.messages.join('\n')).not.toMatch(/an earlier warning/);
       t.binding.dispose();
     },
   );
