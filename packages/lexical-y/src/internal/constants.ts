@@ -43,6 +43,13 @@ export const MIN_LAYOUT = 1;
 /** The version a new document records. */
 export const BASE_LAYOUT_VERSION = 1;
 /**
+ * @experimental The layout a new document's seed records (written by
+ * `initialize()` and `seedYState`): what a client sends as `seed` in the
+ * handshake of @lexical/y/server, so an authority admits a seeder of a
+ * pristine room only at its own seed layout (D22).
+ */
+export const SEED_LAYOUT = BASE_LAYOUT_VERSION;
+/**
  * The version of a document holding member entries of set-valued NodeState
  * (`s:<key>\u001f<member>` = true).
  */

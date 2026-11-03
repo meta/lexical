@@ -173,9 +173,11 @@ test('public entries', () => {
   expect(Object.keys(mainEntry).sort()).toEqual([
     'DEFAULT_ROOT_NAME',
     'LAYOUT_VERSION',
+    'MIN_LAYOUT',
     'NESTED_FALLBACK_WARNING',
     'RECOVERED_READ_WARNING',
     'RECOVERED_WRITE_WARNING',
+    'SEED_LAYOUT',
     'SELF_CHECK_WARNING',
     'STORAGE_MISMATCH_WARNING',
     'SUPPORTED_YJS_VERSION',
@@ -193,6 +195,7 @@ test('public entries', () => {
     'createYDoc',
     'describeStorage',
     'isYWarning',
+    'onLayoutEpoch',
   ]);
   expect(Object.keys(headlessEntry).sort()).toEqual([
     'EDITOR_WARNING',

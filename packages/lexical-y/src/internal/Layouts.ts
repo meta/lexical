@@ -6,9 +6,9 @@
  *
  */
 
-import type {Doc, Node as YNode} from '@y/y';
+import type {Doc, Node as YNode, Transaction} from '@y/y';
 
-import {EPOCH_KEY, LAYOUT_PREFIX} from './constants';
+import {DEFAULT_ROOT_NAME, EPOCH_KEY, LAYOUT_PREFIX} from './constants';
 
 // The layout record and the epoch as the migration runner and the relay
 // helpers read them (see @lexical/y/migrate, @lexical/y/relay). Small on
@@ -118,4 +118,42 @@ export function epochOf(root: YNode): YLayoutEpoch | null {
 export function existingRoot(doc: Doc, name: string): YNode | null {
   const type = doc.share.get(name);
   return type === undefined ? null : (type as YNode);
+}
+
+/**
+ * @experimental Call `fn` once every transaction listener of a transaction
+ * that changed `root`'s epoch (a layout migration) has run, an
+ * UndoManager's capture included (in `afterAllTransactions`). The hook for
+ * an app's own UndoManagers: clear them there, since their stacks name
+ * items the migration replaced (the binding clears its own). `fn` gets the
+ * epoch, null when it is malformed. `root`: a root's name (default
+ * `'lexical-y'`) or the root itself. Returns a function that stops
+ * listening.
+ */
+export function onLayoutEpoch(
+  doc: Doc,
+  fn: (epoch: YLayoutEpoch | null) => void,
+  root: string | YNode = DEFAULT_ROOT_NAME,
+): () => void {
+  const target = typeof root === 'string' ? (doc.get(root) as YNode) : root;
+  let changed = false;
+  const after = (tr: Transaction) => {
+    // Typed: @y/y declares `changed` with a type it does not import.
+    const subs = (tr.changed as Map<unknown, Set<string | null>>).get(target);
+    if (subs !== undefined && subs.has(EPOCH_KEY)) {
+      changed = true;
+    }
+  };
+  const afterAll = () => {
+    if (changed) {
+      changed = false;
+      fn(epochOf(target));
+    }
+  };
+  doc.on('afterTransaction', after);
+  doc.on('afterAllTransactions', afterAll);
+  return () => {
+    doc.off('afterTransaction', after);
+    doc.off('afterAllTransactions', afterAll);
+  };
 }

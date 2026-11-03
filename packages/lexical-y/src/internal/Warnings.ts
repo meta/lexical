@@ -122,6 +122,19 @@ export type YUnsupportedLayoutData =
    * was removed while the binding was writing (`'removed'`).
    */
   | {readonly reason: 'missing' | 'removed'; readonly supported: number}
+  /**
+   * The root records layout `found`, older than `min`, the oldest this
+   * version reads (MIN_LAYOUT): migrate the document (see
+   * @lexical/y/migrate; YCollabConfig.migrateLocally for a document only
+   * this client writes). Sent only when the binding has neither
+   * `onOlderLayout` nor `migrateLocally`, which report it instead.
+   */
+  | {
+      readonly reason: 'older';
+      readonly found: number;
+      readonly min: number;
+      readonly supported: number;
+    }
   /** Older layouts' roots, `roots`, hold content. */
   | {
       readonly reason: 'legacy-roots';
