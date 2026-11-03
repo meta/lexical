@@ -142,7 +142,9 @@ export interface MdastConfig {
    * leaves open, and a `***` run that both closes and opens
    * (`**“***!。**」!a***`), which commonmark.js and markdown-it read
    * differently from micromark, and a selector after whitespace other than a
-   * space (`**。\v︎**`), which `markdown-it-cjk-friendly` leaves literal.
+   * space (`**。\v︎**`), which `markdown-it-cjk-friendly` leaves literal, and
+   * a vertical tab beside a marker (`p\v**.**\vq`), which cmark and cmark-gfm
+   * don't read as whitespace and no reference can stand for.
    * `'cjk-friendly'` writes such CJK text as
    * typed (`**你好。**世界`), for readers that follow the CJK-friendly
    * amendment, such as a CJK-friendly import.
