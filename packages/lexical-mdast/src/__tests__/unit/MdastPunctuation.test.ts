@@ -261,6 +261,15 @@ describe('Mdast punctuation modes', () => {
     ],
     // A reference that is not beside a marker stays.
     [[['&世', 0]], '&世', '&世'],
+    // No reference stands for `\v`, which micromark reads as whitespace.
+    [
+      [
+        ['x\v', 0],
+        ['!b', bold],
+      ],
+      'x\v**!b**',
+      'x\v**!b**',
+    ],
   ])('exports %j', (runs, strict, cjkFriendly) => {
     expect(roundTrip(runs)).toEqual([strict, runs]);
     expect(roundTrip(runs, 'strict-commonmark')).toEqual([strict, runs]);
@@ -413,6 +422,55 @@ describe('Mdast punctuation modes', () => {
     );
     expect(editor.read('latest', () => $convertToMarkdownString())).toBe(
       `<${url}>b\u2e00`,
+    );
+  });
+
+  it('counts no text that a look ahead at a link writes', () => {
+    // A handler that writes U+2E00, the emoji's first stand-in, once.
+    const editor = createEditor(undefined, undefined, {
+      toMarkdownExtensions: [
+        {
+          handlers: {
+            paragraph: (node, parent, state, info) =>
+              defaultHandlers.paragraph(node, parent, state, info) + ' \u2e00',
+          },
+        },
+      ],
+    });
+    editor.update(
+      () =>
+        $getRoot()
+          .clear()
+          .append(
+            $createParagraphNode().append(
+              $createTextNode('x\u{1f389} '),
+              $createLinkNode('https://x.com').append(
+                $createTextNode('\u{1f389}'),
+              ),
+            ),
+          ),
+      {discrete: true},
+    );
+    expect(editor.read('latest', () => $convertToMarkdownString())).toBe(
+      'x\u{1f389} [\u{1f389}](https://x.com) \u2e00',
+    );
+  });
+
+  it('aligns table cells as a CJK-friendly export writes them', () => {
+    const editor = createEditor('cjk-friendly');
+    editor.update(
+      () =>
+        $convertFromMarkdownString(
+          '| a | b |\n| - | - |\n| **你好。**世界 | x |',
+        ),
+      {discrete: true},
+    );
+    const lines = editor
+      .read('latest', () => $convertToMarkdownString())
+      .split('\n');
+    expect(lines[2]).toBe('| **你好。**世界 | x |');
+    expect(lines.map(line => line.length)).toEqual(
+      lines.map(() => lines[2].length),
     );
   });
 

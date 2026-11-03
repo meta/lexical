@@ -410,11 +410,13 @@ function $importOutermost(
     // line, as the rule of 3 would measure a cut run without the part the
     // tag took. A code span's content is not read for emphasis.
     // A variation selector that starts the content varies the tag.
+    // The tag's character beside the content: its last of the opening tag,
+    // its first of the closing one.
     const beside = (char: string, isStart: boolean) =>
       !isCodeSpan &&
       ((SPEC_MARKERS.includes(char) && char !== tag[0]) ||
         (isStart && isVariationSelector(char)))
-        ? tag[0]
+        ? tag[isStart ? tag.length - 1 : 0]
         : undefined;
     return importAround(
       result,

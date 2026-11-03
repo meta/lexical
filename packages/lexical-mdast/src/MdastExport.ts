@@ -589,10 +589,9 @@ const ATTENTION_MARKER = /[*_~]/;
 // and a general-use variation selector other than the emoji one, which the
 // CJK-friendly amendment reads before a marker as the character it varies.
 // It also stands in for the characters micromark reads as whitespace and
-// CommonMark as letters.
+// CommonMark as letters, but `\v`, which no reference can stand for.
 const STOOD_IN =
-  /(?![\0-\uffff])[\p{P}\p{S}]|[\ufe00-\ufe0e]|[\v\u2028\u2029\ufeff]/gu;
-const MICROMARK_ONLY_WHITESPACE = /[\v\u2028\u2029\ufeff]/;
+  /(?![\0-\uffff])[\p{P}\p{S}]|[\ufe00-\ufe0e]|[\u2028\u2029\ufeff]/gu;
 
 // Stand-ins come from Supplemental Punctuation (U+2E00 to U+2E7F) first,
 // then from the symbols from U+2600: characters a handler is unlikely to
@@ -679,15 +678,39 @@ function pickStandIns(
 }
 
 /**
- * Wraps the `text` handler so that it serializes the text with the
- * characters of {@link pickStandIns} standing in, counting in `written` how
- * often it writes each stand-in; a look at the text ahead counts nothing.
+ * Wraps the `text` handler of `handlers` so that it serializes the text with
+ * the characters of {@link pickStandIns} standing in, counting in `written`
+ * how often it writes each stand-in. A look at a node ahead counts nothing:
+ * every other handler gets a `peek`, which to-markdown calls for the look,
+ * whose text is not written.
  */
 function standInText(
-  handle: Handle,
+  handlers: Record<string, Handle>,
   standIns: Map<string, string>,
   written: Map<string, number>,
 ): ToMarkdownExtension {
+  const handle = handlers.text;
+  let peeking = 0;
+  const wrapped: Record<string, Handle> = {};
+  for (const type in handlers) {
+    const own = handlers[type];
+    const look = (own as Handle & {peek?: Handle}).peek || own;
+    // With what else the handler holds, such as how it marks attention.
+    wrapped[type] = Object.assign(
+      (...args: Parameters<Handle>) => own(...args),
+      own,
+      {
+        peek: (...args: Parameters<Handle>) => {
+          peeking++;
+          try {
+            return look(...args);
+          } finally {
+            peeking--;
+          }
+        },
+      },
+    );
+  }
   const serialize = (
     isCounted: boolean,
     ...[node, parent, state, info]: Parameters<Handle>
@@ -703,7 +726,7 @@ function standInText(
       if (standIn === undefined) {
         return character;
       }
-      if (isCounted) {
+      if (isCounted && peeking === 0) {
         written.set(standIn, (written.get(standIn) || 0) + 1);
       }
       return standIn;
@@ -714,26 +737,27 @@ function standInText(
       (node as Text).value = value;
     }
   };
-  const text = Object.assign(serialize.bind(null, true), {
+  wrapped.text = Object.assign(serialize.bind(null, true), {
     peek: serialize.bind(null, false),
   }) as Handle;
-  return {handlers: {text}};
+  return {handlers: wrapped};
 }
 
-/** The `text` handler that the last of `extensions` to set one sets. */
-function getTextHandler(
+/** The handlers that `extensions` set, over to-markdown's own. */
+function getHandlers(
   extensions: ToMarkdownExtension[],
-  handle: Handle = defaultHandlers.text,
-): Handle {
+  handlers: Record<string, Handle> = {...defaultHandlers} as Record<
+    string,
+    Handle
+  >,
+): Record<string, Handle> {
   for (const extension of extensions) {
     if (extension.extensions) {
-      handle = getTextHandler(extension.extensions, handle);
+      getHandlers(extension.extensions, handlers);
     }
-    if (extension.handlers && extension.handlers.text) {
-      handle = extension.handlers.text;
-    }
+    Object.assign(handlers, extension.handlers);
   }
-  return handle;
+  return handlers;
 }
 
 // How the export in progress puts its stand-ins back, for measuring.
@@ -767,10 +791,14 @@ function toMarkdownWithStandIns(
   extensions: ToMarkdownExtension[],
   isCjkFriendly: boolean,
 ): string {
+  // A CJK-friendly export writes some references as their characters after
+  // the table is aligned, so it measures them as such. A reference that
+  // micromark would not read as one, in code, measures short.
+  const measure = isCjkFriendly ? rewriteCjkReferences : undefined;
   const used = new Set<number>();
   const counts = countStoodIn(tree, used);
   if (counts.size > 0) {
-    const text = getTextHandler(extensions);
+    const handlers = getHandlers(extensions);
     // A handler that writes a stand-in of its own, or that writes some text
     // twice, leaves more of it than the text has: pick again, avoiding what
     // the output holds, and failing that serialize without stand-ins.
@@ -781,19 +809,17 @@ function toMarkdownWithStandIns(
         characters.set(standIn, character);
       }
       const written = new Map<string, number>();
-      const restore = (value: string) =>
-        restoreStoodIn(value, characters, isCjkFriendly);
-      // A handler may export another document while this one is written.
-      const outerRestore = measuredRestore;
-      measuredRestore = restore;
-      let out: string;
-      try {
-        out = toMarkdown(tree, {
-          extensions: [...extensions, standInText(text, standIns, written)],
-        });
-      } finally {
-        measuredRestore = outerRestore;
-      }
+      const restore = getRestore(characters, isCjkFriendly);
+      const out = measuring(
+        measure ? value => measure(restore(value)) : restore,
+        () =>
+          toMarkdown(tree, {
+            extensions: [
+              ...extensions,
+              standInText(handlers, standIns, written),
+            ],
+          }),
+      );
       const found = new Map<string, number>();
       for (let i = 0; i < out.length; i++) {
         if (characters.has(out[i])) {
@@ -815,7 +841,22 @@ function toMarkdownWithStandIns(
       }
     }
   }
-  return toMarkdown(tree, {extensions});
+  return measuring(measure, () => toMarkdown(tree, {extensions}));
+}
+
+/** Runs `serialize` with `measure` as how {@link getExportedLength} measures. */
+function measuring(
+  measure: ((value: string) => string) | undefined,
+  serialize: () => string,
+): string {
+  // A handler may export another document while this one is written.
+  const outer = measuredRestore;
+  measuredRestore = measure || null;
+  try {
+    return serialize();
+  } finally {
+    measuredRestore = outer;
+  }
 }
 
 const OPENS = 1;
@@ -839,20 +880,31 @@ function getFlanking(marker: string, before: number, after: number): number {
 }
 
 /**
- * Puts back the characters {@link toMarkdownWithStandIns} stood in for. The
+ * Puts back the characters {@link toMarkdownWithStandIns} stood in for, which
+ * `pattern` finds; {@link getRestore} builds it once for an export. The
  * export reads as intended for every reader that reads them as punctuation.
  * micromark without the CJK-friendly extension reads an emoji one UTF-16
  * unit at a time, so as a letter; every reader reads a variation selector as
  * one, but CJK-friendly readers before a marker, which read the character it
- * varies; micromark reads U+FEFF, U+2028, U+2029 and `\v` as whitespace,
+ * varies; micromark reads U+FEFF, U+2028 and U+2029 as whitespace,
  * other readers as letters. Where a run beside such a character would flank
  * otherwise for some reader, the character goes out as a reference, which
  * every reader reads as punctuation; an export only for CJK-friendly readers
  * needs that for the characters of the Basic Multilingual Plane alone.
  */
+function getRestore(
+  characters: Map<string, string>,
+  isCjkFriendly: boolean,
+): (markdown: string) => string {
+  const pattern = new RegExp(`[${[...characters.keys()].join('')}]`, 'g');
+  return markdown =>
+    restoreStoodIn(markdown, characters, pattern, isCjkFriendly);
+}
+
 function restoreStoodIn(
   markdown: string,
   characters: Map<string, string>,
+  pattern: RegExp,
   isCjkFriendly: boolean,
 ): string {
   // Whether the character at `index` is escaped by a backslash.
@@ -864,10 +916,14 @@ function restoreStoodIn(
     return backslashes % 2 === 1;
   };
   // How readers read the character a stand-in stands for.
-  const readings = (standIn: string): number[] =>
-    MICROMARK_ONLY_WHITESPACE.test(characters.get(standIn)!)
+  const readings = (standIn: string): number[] => {
+    const character = characters.get(standIn)!;
+    // Not a selector nor outside the Basic Multilingual Plane: micromark
+    // reads it as whitespace.
+    return character.length === 1 && !/[\ufe00-\ufe0e]/.test(character)
       ? [PUNCTUATION_CLASS, WHITESPACE_CLASS, LETTER_CLASS]
       : [PUNCTUATION_CLASS, LETTER_CLASS];
+  };
   // Whether the run beside `index`, toward `step`, flanks the same for every
   // reading of the stand-in at `index`, and of one beyond the run.
   const isPortable = (index: number, step: 1 | -1): boolean => {
@@ -900,25 +956,22 @@ function restoreStoodIn(
   };
   // `mdast-util-to-markdown` writes a reference only for whitespace or a
   // letter, so never for a stand-in.
-  return markdown.replace(
-    new RegExp(`[${[...characters.keys()].join('')}]`, 'g'),
-    (standIn, i: number) => {
-      const character = characters.get(standIn)!;
-      return (!isCjkFriendly || character.length === 1) &&
-        ((ATTENTION_MARKER.test(markdown[i - 1]) && !isPortable(i, -1)) ||
-          (ATTENTION_MARKER.test(markdown[i + 1]) && !isPortable(i, 1)))
-        ? // A backslash before the reference would escape its `&`.
-          `${isEscaped(i) ? '\\' : ''}&#x${character
-            .codePointAt(0)!
-            .toString(16)
-            .toUpperCase()};`
-        : character;
-    },
-  );
+  return markdown.replace(pattern, (standIn, i: number) => {
+    const character = characters.get(standIn)!;
+    return (!isCjkFriendly || character.length === 1) &&
+      ((ATTENTION_MARKER.test(markdown[i - 1]) && !isPortable(i, -1)) ||
+        (ATTENTION_MARKER.test(markdown[i + 1]) && !isPortable(i, 1)))
+      ? // A backslash before the reference would escape its `&`.
+        `${isEscaped(i) ? '\\' : ''}&#x${character
+          .codePointAt(0)!
+          .toString(16)
+          .toUpperCase()};`
+      : character;
+  });
 }
 
-// A character reference, which `toCjkFriendly` may write as the character
-// beside a `*` or `~` run.
+// A character reference, which {@link rewriteCjkReferences} may write as
+// its character.
 const ATTENTION_RUN = /^[*~]$/;
 const REFERENCE = /&#(?:(\d+)|[xX]([\da-fA-F]+));/g;
 
@@ -933,28 +986,13 @@ const REFERENCE = /&#(?:(\d+)|[xX]([\da-fA-F]+));/g;
  * two letters for any reader, so a reference beside one stays.
  */
 function toCjkFriendly(markdown: string, compiled: CompiledMdast): string {
-  // Parse only when a reference to a CJK character stands beside a marker.
-  let isCandidate = false;
-  for (const match of markdown.matchAll(REFERENCE)) {
-    const {index} = match;
-    isCandidate =
-      (ATTENTION_RUN.test(markdown[index - 1]) ||
-        ATTENTION_RUN.test(markdown[index + match[0].length])) &&
-      isCjk(
-        classifyCharacter(
-          match[1] ? parseInt(match[1], 10) : parseInt(match[2], 16),
-        ),
-      );
-    if (isCandidate) {
-      break;
-    }
-  }
-  if (!isCandidate) {
+  // Parse only when there is a reference to rewrite.
+  if (rewriteCjkReferences(markdown) === markdown) {
     return markdown;
   }
   // Only references that micromark reads as such: not escaped ones, nor
   // those in code. Its events are enough, without building a tree.
-  const values: [start: number, end: number][] = [];
+  const begins = new Set<number>();
   // micromark skips a byte order mark that starts the document.
   const shift = markdown.charCodeAt(0) === 0xfeff ? 1 : 0;
   const events = postprocess(
@@ -964,31 +1002,36 @@ function toCjkFriendly(markdown: string, compiled: CompiledMdast): string {
   );
   for (const [kind, token] of events) {
     if (kind === 'enter' && token.type === 'characterReferenceValue') {
-      values.push([token.start.offset + shift, token.end.offset + shift]);
+      begins.add(markdown.lastIndexOf('&', token.start.offset + shift));
     }
   }
-  let result = '';
-  let last = 0;
-  for (const [start, end] of values) {
-    // `&#` and `x` for hexadecimal come before the value, `;` after it.
-    const begin = markdown.lastIndexOf('&', start);
-    const code = parseInt(
-      markdown.slice(start, end),
-      start - begin === 3 ? 16 : 10,
-    );
-    const before = markdown[begin - 1];
-    const after = markdown[end + 1];
-    if (
-      (before === '*' || before === '~' || after === '*' || after === '~') &&
-      before !== '_' &&
-      after !== '_' &&
-      isCjk(classifyCharacter(code))
-    ) {
-      result += markdown.slice(last, begin) + String.fromCodePoint(code);
-      last = end + 1;
-    }
-  }
-  return result + markdown.slice(last);
+  return rewriteCjkReferences(markdown, begin => begins.has(begin));
+}
+
+/**
+ * Writes as its character each reference to a CJK character beside a `*` or
+ * `~` run, and not beside a `_` one, in `markdown`, where `isRead` accepts
+ * the offset of its `&`.
+ */
+function rewriteCjkReferences(
+  markdown: string,
+  isRead: (begin: number) => boolean = () => true,
+): string {
+  return markdown.replace(
+    REFERENCE,
+    (reference, decimal: string, hex: string, begin: number) => {
+      const code = decimal ? parseInt(decimal, 10) : parseInt(hex, 16);
+      const before = markdown[begin - 1];
+      const after = markdown[begin + reference.length];
+      return (ATTENTION_RUN.test(before) || ATTENTION_RUN.test(after)) &&
+        before !== '_' &&
+        after !== '_' &&
+        isCjk(classifyCharacter(code)) &&
+        isRead(begin)
+        ? String.fromCodePoint(code)
+        : reference;
+    },
+  );
 }
 
 /**
