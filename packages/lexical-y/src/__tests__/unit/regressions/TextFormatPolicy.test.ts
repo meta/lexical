@@ -249,3 +249,43 @@ for (const klass of CLASSES) {
     }
   });
 }
+
+/** Keeps formats only on text of 8 or more characters. */
+class LengthGatedNode extends TextNode {
+  $config() {
+    return this.config('test-length-gated', {extends: TextNode});
+  }
+  setFormat(format: TextFormatType | number): this {
+    return super.setFormat(this.getTextContent().length >= 8 ? format : 0);
+  }
+  setTextContent(text: string): this {
+    super.setTextContent(text);
+    return text.length < 8 ? super.setFormat(0) : this;
+  }
+}
+
+describe.each([false, true])('a setter that depends on the text, gc %s', gc => {
+  // Apart, neither part shows the bold; merged, the node would: the runs
+  // stay apart, as on main.
+  test('runs merge only where the merged node shows the same', async () => {
+    const t = await setup(
+      () =>
+        $getRoot().append(
+          $createParagraphNode().append(
+            $create(LengthGatedNode).setTextContent('alpha beta'),
+          ),
+        ),
+      {gc, nodes: [...NODES, LengthGatedNode]},
+    );
+    formatRaw(t.a, 'alp', {'f:bold': true});
+    await t.sync();
+    for (const peer of t.peers) {
+      expect(nodesOf(peer).every(([, format]) => format === 0)).toBe(true);
+    }
+    expect(nodesOf(await freshReader(t.b))).toEqual([
+      ['alp', 0],
+      ['ha beta', 0],
+    ]);
+    await expectConverged(t.peers);
+  });
+});
