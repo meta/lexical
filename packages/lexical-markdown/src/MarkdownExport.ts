@@ -43,6 +43,7 @@ import {
   isEscaped,
   isLetterForSomeReader,
   isPortablyFlankedBy,
+  isVariationSelector,
   toCharacterReference,
   transformersByType,
 } from './utils';
@@ -781,6 +782,15 @@ const UNREFERENCEABLE = /[\p{Cc}\p{Cs}\p{Noncharacter_Code_Point}]/u;
 
 /** Whether a character reference can stand in for `character` beside a marker. */
 function isReferenceable(character: string | undefined): boolean {
+  // Of a variation selector after the character it varies, the reference
+  // is to the selector.
+  if (
+    character !== undefined &&
+    character.length > 1 &&
+    isVariationSelector(character[character.length - 1])
+  ) {
+    character = character[character.length - 1];
+  }
   return (
     character !== undefined &&
     isLetterForSomeReader(character) &&

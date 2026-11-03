@@ -29,6 +29,7 @@ import {
   flankingBefore,
   getDelimiterRunEdge,
   getEmphasisSides,
+  isVariationSelector,
   unescapeText,
 } from './utils';
 
@@ -381,8 +382,11 @@ function importOutermost(
     // define and the tag does not cut it; otherwise beside the edge of a
     // line, as the rule of 3 would measure a cut run without the part the
     // tag took. A code span's content is not read for emphasis.
+    // A variation selector that starts the content varies the tag.
     const beside = (char: string) =>
-      !isCodeSpan && SPEC_MARKERS.includes(char) && char !== tag[0]
+      !isCodeSpan &&
+      ((SPEC_MARKERS.includes(char) && char !== tag[0]) ||
+        isVariationSelector(char))
         ? tag[0]
         : undefined;
     return importAround(
@@ -413,7 +417,17 @@ function importOutermost(
       result.textAfter,
       foundTextMatch.startIndex,
       foundTextMatch.endIndex,
-      {after: undefined, before: undefined, node: result.transformedNode},
+      {
+        after: undefined,
+        // A variation selector that starts the content varies the syntax
+        // before it, such as a link's `[`.
+        before:
+          result.transformedNode &&
+          isVariationSelector(result.transformedNode.getTextContent()[0])
+            ? text[foundTextMatch.startIndex]
+            : undefined,
+        node: result.transformedNode,
+      },
       result.transformedNode === undefined ? result.matchedNode : undefined,
     );
   }

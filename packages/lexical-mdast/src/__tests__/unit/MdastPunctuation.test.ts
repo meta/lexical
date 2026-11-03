@@ -12,6 +12,7 @@ import type {MdastConfig, MdastPunctuationMode} from '../../index';
 import type {Paragraph} from 'mdast';
 
 import {buildEditorFromExtensions} from '@lexical/extension';
+import {$createLinkNode} from '@lexical/link';
 import {
   $createParagraphNode,
   $createTextNode,
@@ -357,5 +358,30 @@ describe('Mdast punctuation modes', () => {
     expect(editor.read('latest', () => $convertToMarkdownString())).toBe(
       '\ufeff\u3002**你好。**世界',
     );
+  });
+
+  it('writes no reference in an autolink', () => {
+    for (const url of ['https://x.com/_\u{1f389}', 'https://x.com/a_\ufe0e']) {
+      const editor = createEditor();
+      editor.update(
+        () =>
+          $getRoot()
+            .clear()
+            .append(
+              $createParagraphNode().append(
+                $createLinkNode(url).append($createTextNode(url)),
+              ),
+            ),
+        {discrete: true},
+      );
+      const markdown = editor.read('latest', () => $convertToMarkdownString());
+      expect(markdown).toBe(`<${url}>`);
+      editor.update(() => $convertFromMarkdownString(markdown), {
+        discrete: true,
+      });
+      expect(editor.read('latest', () => $getRoot().getTextContent())).toBe(
+        url,
+      );
+    }
   });
 });

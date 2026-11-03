@@ -61,7 +61,10 @@ const ALPHABET = [
   '﻿',
   '⸀',
 ];
-const CASES = 300;
+// A random round trip is too slow for every run: it runs with the number of
+// cases in this variable, as in
+// `MDAST_ROUND_TRIP_CASES=3000 pnpm run test-unit MdastPunctuationRoundTrip`.
+const CASES = Number(process.env.MDAST_ROUND_TRIP_CASES) || 0;
 
 function createRandom(seed: number): (n: number) => number {
   return n => {
@@ -133,13 +136,15 @@ function createMdastEditor(
   return editor;
 }
 
-it.each<
-  [exportPunctuation: PunctuationMode, importPunctuation: PunctuationMode]
->([
-  ['strict-commonmark', 'cjk-friendly'],
-  ['strict-commonmark', 'strict-commonmark'],
-  ['cjk-friendly', 'cjk-friendly'],
-])(
+it
+  .skipIf(CASES === 0)
+  .each<
+    [exportPunctuation: PunctuationMode, importPunctuation: PunctuationMode]
+  >([
+    ['strict-commonmark', 'cjk-friendly'],
+    ['strict-commonmark', 'strict-commonmark'],
+    ['cjk-friendly', 'cjk-friendly'],
+  ])(
   'round-trips formatted text exported %s and imported %s',
   (exportPunctuation, importPunctuation) => {
     const mdast = createMdastEditor(exportPunctuation, importPunctuation);

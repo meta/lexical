@@ -9,6 +9,7 @@
 // @vitest-environment node
 
 import {buildEditorFromExtensions} from '@lexical/extension';
+import {LinkExtension} from '@lexical/link';
 import {
   $convertFromMarkdownString,
   $convertToMarkdownString,
@@ -47,7 +48,10 @@ function $runs(): Runs {
 
 function createEditor(): LexicalEditor {
   const editor = buildEditorFromExtensions(
-    defineExtension({dependencies: [RichTextExtension], name: '[root]'}),
+    defineExtension({
+      dependencies: [RichTextExtension, LinkExtension],
+      name: '[root]',
+    }),
   );
   onTestFinished(() => editor.dispose());
   return editor;
@@ -173,6 +177,24 @@ describe('Markdown punctuation modes', () => {
       '~~a.\ufe00~~',
       [['a.\ufe00', strikethrough]],
       [['a.\ufe00', strikethrough]],
+    ],
+    // A selector that starts formatted or link text varies the syntax before
+    // it.
+    [
+      '*\ufe0e__a__*',
+      [
+        ['\ufe0e', italic],
+        ['a', italic | bold],
+      ],
+      [['\ufe0e__a__', italic]],
+    ],
+    [
+      '[\ufe0e__a__](https://x.com)',
+      [
+        ['\ufe0e', 0],
+        ['a', bold],
+      ],
+      [['\ufe0e__a__', 0]],
     ],
     ['__「a」__世', [['__「a」__世', 0]], [['__「a」__世', 0]]],
     ['a**“b”**c', [['a**“b”**c', 0]], [['a**“b”**c', 0]]],

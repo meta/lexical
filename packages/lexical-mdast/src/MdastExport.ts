@@ -613,8 +613,8 @@ function collectUsed(value: string, used: Set<number>): void {
 
 /**
  * How often each character of {@link STOOD_IN} occurs in the text of
- * `tree`; adds what the strings of its nodes (not their `data`) hold of the
- * stand-in range to `used`.
+ * `tree`; when there is any, adds what the strings of its nodes (not their
+ * `data`) hold of the stand-in range to `used`.
  */
 function countStoodIn(tree: Root, used: Set<number>): Map<string, number> {
   const counts = new Map<string, number>();
@@ -624,17 +624,25 @@ function countStoodIn(tree: Root, used: Set<number>): Map<string, number> {
         counts.set(character, (counts.get(character) || 0) + 1);
       }
     }
-    for (const key in node) {
-      const value = (node as unknown as Record<string, unknown>)[key];
-      if (typeof value === 'string') {
-        collectUsed(value, used);
-      }
-    }
     if ('children' in node) {
       node.children.forEach(visit);
     }
   };
   visit(tree);
+  if (counts.size > 0) {
+    const collect = (node: Nodes) => {
+      for (const key in node) {
+        const value = (node as unknown as Record<string, unknown>)[key];
+        if (typeof value === 'string') {
+          collectUsed(value, used);
+        }
+      }
+      if ('children' in node) {
+        node.children.forEach(collect);
+      }
+    };
+    collect(tree);
+  }
   return counts;
 }
 
@@ -677,6 +685,10 @@ function standInText(
   standIns: Map<string, string>,
 ): ToMarkdownExtension {
   const text: Handle = (node: Text, parent, state, info) => {
+    // An autolink writes its text as is, with no emphasis around it.
+    if (state.stack.includes('autolink')) {
+      return handle(node, parent, state, info);
+    }
     const {value} = node;
     // Set on the node itself, which the handler finds among its siblings.
     node.value = value.replace(

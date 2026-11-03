@@ -142,6 +142,14 @@ function classify(character: string | undefined, cjk: boolean): number {
 }
 
 /**
+ * Whether `character` is a variation selector that flanking reads as the
+ * character before it.
+ */
+export function isVariationSelector(character: string | undefined): boolean {
+  return character !== undefined && VARIATION_SELECTOR.test(character);
+}
+
+/**
  * Whether the CJK-friendly amendment reads `character` as CJK.
  *
  * @internal

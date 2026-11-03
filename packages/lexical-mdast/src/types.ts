@@ -244,7 +244,7 @@ export interface CompiledMdast {
   mdastExtensions: FromMarkdownExtension[];
   toMarkdownExtensions: ToMarkdownExtension[];
   /** Which readers export writes emphasis for; see {@link MdastConfig}. */
-  exportPunctuation: MdastPunctuationMode;
+  exportPunctuation?: MdastPunctuationMode;
   /** mdast inline `type`s eligible for streaming shortcut materialization. */
   inlineShortcutTypes: Set<string>;
   /** Characters that can close an inline construct and trigger a re-scan. */
