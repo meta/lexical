@@ -151,11 +151,20 @@ type Parsed = {
   start: Formats;
 };
 
-/** What $showSame built so far in one read, and what it may still build. */
-type Shown = {
-  budget: number;
-  of: Map<object, {shown: string | null; text: string}>;
+/** A run of a text piece: what the piece is read from (see $checkMerged). */
+type MergedRun = {
+  item: Item;
+  tattrs: Attrs;
+  text: string;
+  tsig: string;
+  caretAt?: number;
 };
+
+/**
+ * Text pieces holding runs that $showSame read as one: their runs, and what
+ * the node built from the first run shows.
+ */
+type Merged = Map<Piece, {runs: MergedRun[]; shows: string}>;
 
 type Piece = (
   | {
@@ -2354,10 +2363,9 @@ export class Reader {
     formats: Formats,
   ): Piece[] {
     const pieces: Piece[] = [];
-    // What the node built from a piece (or run) shows, with the text it was
-    // built from, and the text left to build for merge checks: a few times
-    // what the line holds, so a read stays linear (see $showSame).
-    const shown: Shown = {budget: 4096, of: new Map()};
+    // Pieces that hold runs read as one by $showSame, with their runs (see
+    // the check after the loop).
+    const merged: Merged = new Map();
     const current = new Map(formats);
     let tattrs: Attrs | null = null;
     let tsig = '';
@@ -2407,7 +2415,6 @@ export class Reader {
             pos++;
           }
           for (const run of tabRuns(part, tattrs!, tsig)) {
-            shown.budget += 8 * run.text.length;
             const holds = caret >= pos && caret < pos + run.text.length;
             const inRun = caret - pos;
             pos += run.text.length;
@@ -2417,14 +2424,24 @@ export class Reader {
               last.kind === 'text' &&
               !isTabText(run.tattrs) &&
               sameWrappers(last.wrappers, wrappers) &&
-              (last.tsig === run.tsig || this.$showSame(last, run, shown))
+              (last.tsig === run.tsig || this.$showSame(last, run, merged))
             ) {
+              const into = merged.get(last);
+              if (into !== undefined) {
+                into.runs.push({
+                  ...(holds ? {caretAt: inRun} : {}),
+                  item: it,
+                  tattrs: run.tattrs,
+                  text: run.text,
+                  tsig: run.tsig,
+                });
+              }
               if (holds) {
                 last.caretAt = last.text.length + inRun;
               }
               last.text += run.text;
             } else {
-              const piece: Piece = {
+              pieces.push({
                 ...(holds ? {caretAt: inRun} : {}),
                 item: it,
                 kind: 'text',
@@ -2432,12 +2449,7 @@ export class Reader {
                 text: run.text,
                 tsig: run.tsig,
                 wrappers,
-              };
-              const known = shown.of.get(run);
-              if (known !== undefined) {
-                shown.of.set(piece, known);
-              }
-              pieces.push(piece);
+              });
             }
           }
         });
@@ -2449,7 +2461,56 @@ export class Reader {
       }
     }
     this.lastFormats = current;
-    return pieces;
+    return merged.size === 0 ? pieces : this.$checkMerged(pieces, merged);
+  }
+
+  /**
+   * Pieces that hold runs read as one by $showSame stay one only if the node
+   * built from the whole piece (its first run's attributes, all its text)
+   * shows what each run does: a node's formats can depend on its text. Any
+   * other piece reads as its runs, as before (runs with equal attributes
+   * still read as one). One build per merged piece keeps a read linear.
+   */
+  private $checkMerged(pieces: Piece[], merged: Merged): Piece[] {
+    const out: Piece[] = [];
+    for (const piece of pieces) {
+      const m = piece.kind === 'text' ? merged.get(piece) : undefined;
+      if (m === undefined || piece.kind !== 'text') {
+        out.push(piece);
+        continue;
+      }
+      let same = false;
+      try {
+        same = this.$builtShows(piece.text, piece.tattrs) === m.shows;
+      } catch (_e) {
+        same = false;
+      }
+      if (same) {
+        out.push(piece);
+        continue;
+      }
+      let at: (Piece & {kind: 'text'}) | null = null;
+      for (const run of m.runs) {
+        if (at !== null && at.tsig === run.tsig) {
+          if (run.caretAt !== undefined) {
+            at.caretAt = at.text.length + run.caretAt;
+          }
+          at.text += run.text;
+        } else {
+          at = {
+            ...(run.caretAt !== undefined ? {caretAt: run.caretAt} : {}),
+            item: run.item,
+            kind: 'text',
+            tattrs: run.tattrs,
+            text: run.text,
+            tsig: run.tsig,
+            wrappers: piece.wrappers,
+          };
+          out.push(at);
+        }
+      }
+    }
+    return out;
   }
 
   /**
@@ -2466,9 +2527,9 @@ export class Reader {
    * cannot be built reads apart, as before.
    */
   private $showSame(
-    a: {tattrs: Attrs; text: string},
+    a: Piece & {kind: 'text'},
     b: {tattrs: Attrs; text: string},
-    known: Shown,
+    merged: Merged,
   ): boolean {
     const editor = this.state.editor;
     const type = decodeFormatValue(a.tattrs[TYPE_KEY] ?? null);
@@ -2487,42 +2548,48 @@ export class Reader {
     ) {
       return false;
     }
-    // Past the budget the runs read apart, as before.
-    const cost = 2 * (a.text.length + b.text.length);
-    if (known.budget < cost) {
-      return false;
-    }
-    known.budget -= cost;
-    // Built as the reader builds a text node, and as it gives a reused
-    // node the attributes (see $readInline).
-    const build = (text: string, attrs: Attrs) => {
-      const json = joinSetMembersInJSON(textJSONFromAttrs(text, attrs), editor);
-      const node = $parseSerializedNode(
-        json as unknown as SerializedLexicalNode,
-      );
-      return $isTextNode(node)
-        ? stableStringify($textAttrs($applyJSON(node, json), null, false))
-        : null;
-    };
-    const of = (piece: {tattrs: Attrs; text: string}) => {
-      const memo = known.of.get(piece);
-      if (memo !== undefined && memo.text === piece.text) {
-        return memo.shown;
-      }
-      const s = build(piece.text, piece.tattrs);
-      known.of.set(piece, {shown: s, text: piece.text});
-      return s;
-    };
     try {
-      const shownA = of(a);
-      return (
-        shownA !== null &&
-        shownA === of(b) &&
-        shownA === build(a.text + b.text, a.tattrs)
-      );
+      // A piece that already holds runs read as one compares with what its
+      // first run shows; each run is built once.
+      let m = merged.get(a);
+      const shows =
+        m !== undefined ? m.shows : this.$builtShows(a.text, a.tattrs);
+      if (shows === null || shows !== this.$builtShows(b.text, b.tattrs)) {
+        return false;
+      }
+      if (m === undefined) {
+        m = {
+          runs: [
+            {
+              ...(a.caretAt !== undefined ? {caretAt: a.caretAt} : {}),
+              item: a.item,
+              tattrs: a.tattrs,
+              text: a.text,
+              tsig: a.tsig,
+            },
+          ],
+          shows,
+        };
+        merged.set(a, m);
+      }
+      return true;
     } catch (_e) {
       return false;
     }
+  }
+
+  /**
+   * What the text node stored as `text` with `attrs` shows: built as the
+   * reader builds a text node, and given the attributes as a read gives them
+   * to a node it reuses (see $readInline); null when it is not text.
+   */
+  private $builtShows(text: string, attrs: Attrs): string | null {
+    const editor = this.state.editor;
+    const json = joinSetMembersInJSON(textJSONFromAttrs(text, attrs), editor);
+    const node = $parseSerializedNode(json as unknown as SerializedLexicalNode);
+    return $isTextNode(node)
+      ? stableStringify($textAttrs($applyJSON(node, json), null, false))
+      : null;
   }
 
   /**
