@@ -135,12 +135,16 @@ function classify(character: string | undefined, cjk: boolean): number {
   return WHITESPACE.test(character)
     ? WHITESPACE_CLASS
     : (PUNCTUATION.test(character) ? PUNCTUATION_CLASS : OTHER_CLASS) |
+        // Nothing below U+1100 is CJK or an ideographic variation selector.
         (cjk &&
+        character.codePointAt(0)! >= 0x1100 &&
         (CJK.test(character) ||
           (NEW_EMOJI.test(character) && !EMOJI_PRESENTATION.test(character)))
           ? CJK_CLASS
           : 0) |
-        (cjk && IVS.test(character) ? IVS_CLASS : 0);
+        (cjk && character.codePointAt(0)! >= 0x1100 && IVS.test(character)
+          ? IVS_CLASS
+          : 0);
 }
 
 /**
@@ -161,7 +165,7 @@ export function isCjkCharacter(character: string): boolean {
 }
 
 /** Whitespace or punctuation that is not CJK. */
-function isSpaceOrPunctuation(characterClass: number): boolean {
+function isSpaceOrPunctuationClass(characterClass: number): boolean {
   return (
     characterClass === WHITESPACE_CLASS ||
     (characterClass & (PUNCTUATION_CLASS | CJK_CLASS)) === PUNCTUATION_CLASS
@@ -174,9 +178,9 @@ function isFlankedByClass(
   isLeft: boolean,
 ): boolean {
   return (
-    !isSpaceOrPunctuation(primary) ||
+    !isSpaceOrPunctuationClass(primary) ||
     (primary !== WHITESPACE_CLASS &&
-      (isSpaceOrPunctuation(secondary) ||
+      (isSpaceOrPunctuationClass(secondary) ||
         (secondary & (isLeft ? CJK_CLASS | IVS_CLASS : CJK_CLASS)) !== 0))
   );
 }
@@ -341,7 +345,7 @@ export function getPortableEmphasisSides(
 /** Whether some reader export writes for reads `character` as a letter. */
 export function isLetterForSomeReader(character: string): boolean {
   return getReaders(character).some(
-    read => !isSpaceOrPunctuation(read(character)),
+    read => !isSpaceOrPunctuationClass(read(character)),
   );
 }
 

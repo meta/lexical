@@ -53,7 +53,11 @@ import {
 import {defaultHandlers, toMarkdown} from 'mdast-util-to-markdown';
 import {toString as mdastToString} from 'mdast-util-to-string';
 import {parse, postprocess, preprocess} from 'micromark';
-import {classifyCharacter, isCjk} from 'micromark-extension-cjk-friendly-util';
+import {
+  classifyCharacter,
+  isCjk,
+  isNonEmojiGeneralUseVS,
+} from 'micromark-extension-cjk-friendly-util';
 import {classifyCharacter as classifyUnit} from 'micromark-util-classify-character';
 
 import {
@@ -617,14 +621,7 @@ function collectUsed(value: string, used: Set<number>): void {
  */
 function countStoodIn(tree: Root, used: Set<number>): Map<string, number> {
   const counts = new Map<string, number>();
-  const strings: string[] = [];
   const visit = (node: Nodes) => {
-    for (const key in node) {
-      const value = (node as unknown as Record<string, unknown>)[key];
-      if (typeof value === 'string') {
-        strings.push(value);
-      }
-    }
     if (node.type === 'text') {
       for (const [character] of node.value.matchAll(STOOD_IN)) {
         counts.set(character, (counts.get(character) || 0) + 1);
@@ -635,10 +632,20 @@ function countStoodIn(tree: Root, used: Set<number>): Map<string, number> {
     }
   };
   visit(tree);
+  // Most documents have none, and skip this second walk.
   if (counts.size > 0) {
-    for (const value of strings) {
-      collectUsed(value, used);
-    }
+    const collect = (node: Nodes) => {
+      for (const key in node) {
+        const value = (node as unknown as Record<string, unknown>)[key];
+        if (typeof value === 'string') {
+          collectUsed(value, used);
+        }
+      }
+      if ('children' in node) {
+        node.children.forEach(collect);
+      }
+    };
+    collect(tree);
   }
   return counts;
 }
@@ -934,7 +941,8 @@ function restoreStoodIn(
     const character = characters.get(standIn)!;
     // Not a selector nor outside the Basic Multilingual Plane: micromark
     // reads it as whitespace.
-    return character.length === 1 && !/[\ufe00-\ufe0e]/.test(character)
+    return character.length === 1 &&
+      !isNonEmojiGeneralUseVS(classifyCharacter(character.charCodeAt(0)))
       ? [PUNCTUATION_CLASS, WHITESPACE_CLASS, LETTER_CLASS]
       : [PUNCTUATION_CLASS, LETTER_CLASS];
   };

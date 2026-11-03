@@ -64,9 +64,42 @@ const ALPHABET = [
   '﻿',
   '⸀',
 ];
-// Seeded cases, a few hundred by default; set this variable for more, as in
+// Fixed cases run every time. Random ones are too slow for every run: they
+// run with the number of cases in this variable, as in
 // `MDAST_ROUND_TRIP_CASES=3000 pnpm run test-unit MdastPunctuationRoundTrip`.
-const CASES = Number(process.env.MDAST_ROUND_TRIP_CASES) || 200;
+const CASES = Number(process.env.MDAST_ROUND_TRIP_CASES) || 0;
+const FIXED_CASES: Runs[] = [
+  [
+    ['Hello', 0],
+    ['\u{1f389} launch', 1],
+  ],
+  [
+    ['你好。', 1],
+    ['世界', 0],
+  ],
+  [
+    ['Done \u2714\ufe0e', 1],
+    ['next', 0],
+  ],
+  [
+    ['a', 0],
+    ['「x」', 6],
+    ['b', 0],
+  ],
+  [
+    ['x\ufeff', 0],
+    ['。', 2],
+    ['世', 0],
+  ],
+  [
+    ['\u{1f680}', 7],
+    ['now', 0],
+  ],
+  [
+    ['code \u{1f389}', CODE],
+    ['b', 1],
+  ],
+];
 
 function createRandom(seed: number): (n: number) => number {
   return n => {
@@ -155,8 +188,11 @@ it.each<
     onTestFinished(() => markdown.dispose());
     const random = createRandom(1);
     const failures: string[] = [];
-    for (let i = 0; i < CASES; i++) {
-      const runs = generate(random);
+    const cases = [
+      ...FIXED_CASES,
+      ...Array.from({length: CASES}, () => generate(random)),
+    ];
+    for (const runs of cases) {
       // Each package's export, read back by both packages.
       mdast.update(() => $setRuns(runs), {discrete: true});
       markdown.update(() => $setRuns(runs), {discrete: true});
