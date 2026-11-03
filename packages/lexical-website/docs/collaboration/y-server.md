@@ -795,6 +795,126 @@ const converted = encodeStateAsUpdate(doc);
 Edits that old clients make after the conversion stay in the old root, so
 upgrade every client of the document at the same time.
 
+## Migrating stored documents
+
+These APIs are EXPERIMENTAL. When a release raises `MIN_LAYOUT` (see
+[Changing the layout and migrating](./y.md#migrating-stored-documents)),
+rooms stored at an older layout open read only in it until they are
+migrated. The server that stores a room migrates it when it loads it, before
+it serves it, with the steps imported statically (clients that have a
+server carry no migration code). `@lexical/y/server` has the pieces (no
+Lexical import):
+
+```ts
+import step1to2 from '@lexical/y/migrate/1to2';
+import {
+  checkYSession,
+  createYDoc,
+  describeYRoom,
+  prepareYRoom,
+} from '@lexical/y/server';
+
+const steps = [step1to2];
+```
+
+`createYDoc` from `@lexical/y/server` makes a relay's or server's copy of a
+document with Yjs only: format cleanup off and nothing else. A relay never
+undoes, so it needs nothing the binding adds to a client's document; bind a
+client's document with `createYDoc` from `@lexical/y`.
+
+### The migration moment
+
+1. **Barrier.** The room stops admitting sessions and applies what it has
+   already received from current sessions (one of those updates may fill a
+   gap); then it closes every connection. Anything that arrives after that,
+   or from a stale session, goes to the room's quarantine (below), never
+   into the document.
+2. **Seal and read** the stored `{state, incarnation, generation, version}`,
+   after persisting what step 1 applied.
+3. **Migrate a copy:** `prepareYRoom(state, {steps, incarnation, roots})`.
+   When no served root is below `MIN_LAYOUT` it returns `changed: false`
+   and the stored bytes: store nothing. On a `YMigrationError`, store
+   nothing, keep the room stuck (it applies nothing), and alert.
+4. **Commit atomically**, compare-and-set on the version read:
+   `{state, generation}` of the result, the immutable base of the old
+   generation (`base.state` under `base.generation`, never overwritten), and
+   a `pending` quarantine record when the result has pending material. A
+   lost compare-and-set discards the result and starts over.
+5. **Leave the barrier** at the new generation. Check every update again
+   when it is applied: only a session of the room's current generation
+   writes.
+
+One result per room is ever published, and clients only bootstrap from what
+was stored, so a discarded result is never seen.
+
+### Generations and the handshake
+
+A room's **generation** (`generationOf(doc, incarnation, roots)`) is its
+incarnation (a token you create with the room and replace whenever it is
+recreated, restored from a backup or moved to a new document) plus the
+epochs a migration recorded. A client keeps, beside its cached state and
+unsent edits, the generation they were made against, adopted only from the
+server's acknowledgement of a full sync or from bootstrapping a new
+document. Before any sync message it sends `{generation, material, layouts:
+[MIN_LAYOUT, LAYOUT_VERSION], seed: SEED_LAYOUT}` (`generation` null when it
+has none, `'unknown'` for material from before the fence). The server
+answers with `checkYSession(describeYRoom(doc, {incarnation, inherited,
+seedContract}), handshake)`; the first row that matches wins:
+
+| # | Client | Verdict |
+|---|---|---|
+| 1 | no handshake (a release before the fence) | `admit` as today when the room's incarnation is inherited (the room existed before the fence) and it never migrated or was replaced; otherwise `legacy`: capture it |
+| 2 | material, and another (no, an unknown) generation, or the room's layout outside `layouts`, or a never-seeded room whose seed contract is not `seed` | `stale`: no sync either way; the client hands off its material, then connects again. A client holding material is never refused before its material is acknowledged |
+| 3 | the room's layout is outside `layouts` | `refuse-layout`: reload to another release |
+| 4 | a never-seeded room whose seed contract is not `seed` | `refuse-layout` |
+| 5 | the room's generation | `admit` (`initialize: true` in a never-seeded room) |
+| 6 | no material | `bootstrap`: load the room's state into a new document, persist it with the generation, then bind (`initialize: true` in a never-seeded room) |
+
+The server never syncs a session whose verdict is not `admit`, so a stale
+client never holds items of two generations in one document.
+
+A room's **seed contract** is the `SEED_LAYOUT` its incarnation was issued
+under; store it with the incarnation. A server whose `SEED_LAYOUT` differs
+replaces a never-seeded room's incarnation before it admits anyone
+(`needsNewIncarnation(room, SEED_LAYOUT)`), so a replica that seeded under
+the old contract and never reached storage hands off its material instead
+of being admitted or refused.
+
+### Quarantine, capture and the handoff
+
+- **Records** (`quarantineRecord`) keep, per room and append-only, what a
+  stale or legacy session held: a standalone snapshot, later deltas, a queue
+  of unsent updates, a draft, where it came from, and a hash an
+  acknowledgement names. `sourceView(record)` applies its material into one
+  scratch document; `hasNewYEdits(record, base)` says whether it holds a
+  struct or a deletion the base lacks, a draft marked `differs`, or a
+  missing dependency. Prompt users only for those; keep every record
+  listable for the quarantine window.
+- **Legacy capture** (`captureYSession()`): answer the old client's sync
+  step 1 with an empty sync step 2 and send a sync step 1 with an empty
+  state vector (`messages`, framed for y-websocket), so its sync step 2 is
+  its whole document: keep it, and its later updates, with `add`.
+  `signal(supportedSchema)` (or `legacySignal`) builds an update on that
+  snapshot, under a fresh random client id, that records a schema version
+  above every one recorded or supported, so the old client turns read only
+  with its "newer version" state; send it to that client only, never apply
+  it to the room. Keep the signals with the record (`signals`): only an
+  item matching one in id, parent, key and content is ignored. An item the
+  client wrote at a signal's id (`collisions()`, a record's `collisions`)
+  is its own and kept: send another signal.
+- **Handoff** (a client whose verdict is `stale`): stop its providers and
+  persistence, `binding.quiesce()`, upload the snapshot, queue and draft as
+  one record, wait for the server's durable acknowledgement of that hash
+  (retrying the same bytes), then dispose the binding, bootstrap a new
+  document, persist it with the new generation, and only then drop the old
+  copy.
+- **Replay** of a record's own changes onto the current document, at the
+  server as a checked edit, and a recovery view for the rest are planned,
+  not shipped: for now, show records read only and let users copy from
+  them.
+
 ## API reference
 
-[`@lexical/y/headless`](/docs/api/modules/lexical_y/headless)
+[`@lexical/y/headless`](/docs/api/modules/lexical_y/headless) ·
+[`@lexical/y/migrate`](/docs/api/modules/lexical_y/migrate) ·
+[`@lexical/y/server`](/docs/api/modules/lexical_y/server)

@@ -1544,19 +1544,22 @@ For `MarkStateExtension` comments, see the
 The [wire format](https://github.com/meta/lexical/tree/main/packages/lexical-y#wire-format-layout-1)
 in the package README is the contract for what a room stores: the markers,
 attributes and records, and their names. Every room records the layout
-versions it needs (`lexical-y:<n>: true`, a record that only grows;
-`LAYOUT_VERSION` is currently 2), and a client reads the highest. A new
-room records layout 1; the first member of a set-valued NodeState stored
-per member (see the limits above) records layout 2, so rooms that never
-hold one stay readable and editable by layout 1 clients.
+versions it needs (`lexical-y:<n>: true`, a record that only grows), and a
+client reads the highest. A client reads and writes the layouts from
+`MIN_LAYOUT` to `LAYOUT_VERSION` (currently 1 to 2). A new room records
+`SEED_LAYOUT` (currently 1); the first member of a set-valued NodeState
+stored per member (see the limits above) records layout 2, so rooms that
+never hold one stay readable and editable by layout 1 clients.
 
 - **Changes that keep the layout:** additions older clients can ignore, such
   as a new optional attribute. Rooms keep working in old and new clients.
 - **Changes that bump `LAYOUT_VERSION`:** anything older clients would
-  misread. A newer `@lexical/y` reads every older layout and adds the new
-  version to a room's record only when it first writes something that needs
-  it, in the same transaction; from then on, older clients open that room
-  read only. Upgrade every client of a room together.
+  misread. A newer `@lexical/y` reads every layout from `MIN_LAYOUT` up and
+  adds the new version to a room's record only when it first writes
+  something that needs it, in the same transaction; from then on, older
+  clients open that room read only. Upgrade every client of a room together.
+- **Changes that raise `MIN_LAYOUT`:** the release stops reading older
+  layouts, and their rooms must be migrated (below).
 - **Changing your own node types:** bump `schemaVersion` (see
   [Versioning your schema](#versioning-your-schema)), so that clients still
   on the older version open the rooms a newer one edited read only instead
@@ -1576,6 +1579,88 @@ hold one stay readable and editable by layout 1 clients.
   change to a class's declared node structure does not apply to rooms that
   already hold that type (they keep the recorded kind); reseed them to adopt
   it.
+
+### Migrating stored documents
+
+These APIs are EXPERIMENTAL. A room whose layout is below `MIN_LAYOUT`
+binds read only: the editor shows it and nothing is written until it is
+migrated. The optional `onOlderLayout(found, min)` option (on
+`YCollabExtension` and `YBinding`) is called once per such read-only period,
+in a microtask, for an app that asks its server to migrate or shows a
+banner. For an app that handles such documents (`onOlderLayout` or
+`migrateLocally`, below) they are an expected state, reported through those
+only; without either, the binding reports `UNSUPPORTED_LAYOUT_WARNING` with
+`{reason: 'older', found, min, supported}` to the editor's `onWarn` (whose
+default throws in development). Other read-only causes (a newer, malformed
+or removed layout record) always warn. `readYState` and `editYState` refuse
+such a state (`'read-only'`): a server migrates a scratch copy first, then
+reads it.
+
+A migration moves a room from one layout to the next in place: text, nodes
+and line markers keep their Yjs ids, so cursors, relative positions and
+derived block ids survive. Each step is its own frozen module that the core
+never imports, `@lexical/y/migrate/<n>to<n+1>` (a default export), and the
+runner is `@lexical/y/migrate`:
+
+- `migrateYState(state, steps, options)`: migrates a stored state (for a
+  server); returns `{state, update, pending, receipt}`, or the input bytes
+  with `update: null` when no root is below the target (`to`, default
+  `MIN_LAYOUT`). Pending updates and skipped ranges come back apart, in
+  `pending`, never in `state`.
+- `migrateYDoc(doc, steps, options)`: the same on a live document, applied
+  in one transaction with `MIGRATION_ORIGIN`; refused inside a transaction.
+- `loadYMigrationSteps(loaders, from, to)`: loads only the steps a document
+  needs.
+
+Each step runs on a copy of the document, in one transaction under a client
+id hashed from its inputs (two servers that migrate the same bytes write the
+same update), and the runner checks the result before it returns or applies
+anything: every character, node and line marker kept, every attribute and
+untouched format kept, the document reading the same before and after, and
+the encoded result read again. A failed check throws a `YMigrationError`
+(`code: 'post-condition'`) and nothing is written. The transaction records
+the new layout and an epoch (`lexical-y-epoch`, see the wire format).
+
+**Who migrates.** A shared room is migrated by the server that stores it,
+when it loads the room, with every session out: see
+[Migrating stored documents](./y-server.md#migrating-stored-documents) in
+the server guide (`@lexical/y/server`), which also covers clients that held
+edits from before the migration. Never migrate a shared room in a browser.
+A document only one client writes (local storage, no server) can migrate in
+that client: pass the loaders, and bind after the storage has loaded it.
+
+```ts
+import {configExtension} from 'lexical';
+import {YCollabExtension} from '@lexical/y';
+
+configExtension(YCollabExtension, {
+  doc,
+  migrateLocally: {
+    1: () => import('@lexical/y/migrate/1to2'),
+    runner: () => import('@lexical/y/migrate'),
+  },
+  schemaVersion: 1,
+});
+```
+
+The binding stays read only, loads the steps, migrates the document between
+transactions, reads it again and becomes editable; a failed load or check
+leaves it read only with the document untouched, and goes to the editor's
+`onError`. Only the `'older'` cause clears: a newer schema, say, keeps it
+read only.
+
+**Undo.** A migration clears the binding's undo history once the
+migration's transaction has been captured. An app `UndoManager` should not
+track `MIGRATION_ORIGIN`, and should be cleared at the same point with
+`onLayoutEpoch(doc, fn, root?)`: its stack names items the migration
+replaced.
+
+**Handing a replica off.** `binding.quiesce()` ends a composition, commits
+what the editor holds into the document, and turns the binding read only
+for good (programmatic edits included); it returns the document's state and
+a draft (the editor's state as JSON, with `differs` when it shows what the
+document does not hold). A client whose server migrated the room uploads
+that material before it replaces its document (see the server guide).
 
 ### Reseeding a room
 
@@ -1637,4 +1722,6 @@ make stay in the old root.
 ## API reference
 
 [`@lexical/y`](/docs/api/modules/lexical_y) ·
-[`@lexical/y/headless`](/docs/api/modules/lexical_y/headless)
+[`@lexical/y/headless`](/docs/api/modules/lexical_y/headless) ·
+[`@lexical/y/migrate`](/docs/api/modules/lexical_y/migrate) ·
+[`@lexical/y/server`](/docs/api/modules/lexical_y/server)

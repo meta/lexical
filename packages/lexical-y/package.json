@@ -1,6 +1,6 @@
 {
   "name": "@lexical/y",
-  "description": "Experimental Yjs 14 (@y/y) collaboration binding for Lexical. Entries: @lexical/y (binding and extension), @lexical/y/headless (server-side edits, seeds and reads).",
+  "description": "Experimental Yjs 14 (@y/y) collaboration binding for Lexical. Entries: @lexical/y (binding and extension), @lexical/y/headless (server-side edits, seeds and reads), @lexical/y/migrate (layout migrations, with one step per layout), @lexical/y/server (migrating stored documents).",
   "keywords": [
     "lexical",
     "editor",

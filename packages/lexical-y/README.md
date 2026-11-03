@@ -3,7 +3,9 @@
 **Experimental.** A collaboration binding for [Lexical](https://lexical.dev)
 on [Yjs 14](https://github.com/yjs/yjs) (`@y/y`). It is separate from
 `@lexical/yjs` (Yjs 13): the two use different Yjs libraries and document
-layouts, and a document uses one or the other. Every export is
+layouts, and a document uses one or the other. Entries: `@lexical/y`,
+`@lexical/y/headless`, `@lexical/y/migrate` (with a step per layout,
+`@lexical/y/migrate/<n>to<n+1>`) and `@lexical/y/server`. Every export is
 `@experimental`, and `@y/y` is a release candidate.
 
 ## Install
@@ -76,7 +78,11 @@ binding.initialize();
 - [Server-side editing](https://lexical.dev/docs/collaboration/y-server):
   `@lexical/y/headless` (`seedYState`, `editYState`, `readYState`,
   `createYWriter` for who the server's edits are by, and `createYDoc` for a
-  relay's copy of a document).
+  relay's copy of a document), and migrating stored documents
+  (`@lexical/y/server`).
+- Layout migrations (EXPERIMENTAL): `@lexical/y/migrate` (the runner) and
+  one frozen step per layout (`@lexical/y/migrate/1to2`); see
+  [Changing the layout and migrating](https://lexical.dev/docs/collaboration/y#changing-the-layout-and-migrating).
 - [API reference](https://lexical.dev/docs/api/modules/lexical_y)
 
 ## Servers
@@ -177,7 +183,18 @@ of set-valued NodeState; layout 3 (planned, #9449) adds move records.
   records version 1 before its content), so no client receives that content
   without the version. Two clients that upgrade a document at once both
   record theirs, and every reader takes the higher. Any change to how a
-  stored shape is read is a new version.
+  stored shape is read is a new version. A reader also opens the document
+  read only when the version is older than `MIN_LAYOUT`, the oldest it
+  reads, until a migration (`@lexical/y/migrate`) moves it up.
+- **Epoch.** The root attribute `lexical-y-epoch` = `{v: 1, layout, client,
+  clock, step, revision}`, written by a layout migration in the same
+  transaction as the layout record it adds: `layout` is that version,
+  `(client, clock)` the id of that record's item (the transaction's first),
+  `step` and `revision` the step that ran (`lexical-y/layout/<n>to<n+1>`). It
+  is outside the `lexical-y:` namespace, so no layout gate parses it; each
+  migration replaces it. Servers derive a document's generation from it
+  (`generationOf` in `@lexical/y/server`); a client never adopts a
+  generation from it.
 - **Children of a container** (the root and every node stored as its own
   `Y.Node`), in order:
   - text (`Y` strings) with formats;
