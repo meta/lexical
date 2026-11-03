@@ -31,7 +31,7 @@
     "mdast-util-gfm-strikethrough": "^2.0.1",
     "mdast-util-gfm-table": "^2.0.0",
     "mdast-util-gfm-task-list-item": "^2.0.0",
-    "mdast-util-to-markdown": "^2.2.0",
+    "mdast-util-to-markdown": "^2.2.1",
     "mdast-util-to-string": "^4.0.0",
     "micromark": "^4.0.2",
     "micromark-core-commonmark": "^2.0.4",

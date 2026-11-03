@@ -208,9 +208,12 @@ selector at the inner edge of a run beside a letter (`Hello**🎉 launch**`,
 CommonMark read it; import `'strict-commonmark'` keeps the earlier reading.
 Export defaults to `'strict-commonmark'`: it writes a character reference
 where a marker would not open or close otherwise (`**你好。**&#x4E16;界`),
-which every CommonMark, GFM and CJK-friendly reader reads the same way, but
-for a variation selector before a closing `~~` (`~~Done ✔︎~~`), which
-`micromark-extension-cjk-friendly-gfm-strikethrough` leaves open. Export `'cjk-friendly'` writes
+which every CommonMark, GFM and CJK-friendly reader reads the same way, with
+two exceptions. A variation selector before a closing `~~` (`~~Done ✔︎~~`)
+stays open in `micromark-extension-cjk-friendly-gfm-strikethrough`. A `***`
+run that both closes and opens (`**“***!。**」!a***`) is read differently by
+micromark and by commonmark.js and markdown-it, which apply the rule of 3 to
+the whole run. Export `'cjk-friendly'` writes
 such CJK text as typed (`**你好。**世界`) for readers that follow the
 amendment:
 

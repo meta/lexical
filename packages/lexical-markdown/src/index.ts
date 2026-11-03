@@ -94,7 +94,9 @@ export interface MarkdownExportOptions {
    * beside punctuation would otherwise not open or close (`**你好。**&#19990;界`),
    * so that every CommonMark, GFM and CJK-friendly reader reads it the same
    * way, but for a variation selector before a closing `~~`, which
-   * `micromark-extension-cjk-friendly-gfm-strikethrough` leaves open.
+   * `micromark-extension-cjk-friendly-gfm-strikethrough` leaves open, and a
+   * `***` run that both closes and opens (`**“***!。**」!a***`), which
+   * commonmark.js and markdown-it read differently from micromark.
    * `'cjk-friendly'` writes such CJK text as typed (`**你好。**世界`), for
    * readers that follow the CJK-friendly amendment, such as import here.
    */

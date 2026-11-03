@@ -122,7 +122,12 @@ characters and punctuation, where markers open and close as their writer
 meant, and a variation selector before a marker reads as the character it
 follows. Export defaults to `'strict-commonmark'`, whose references every
 CommonMark, GFM and CJK-friendly reader reads the same way
-(`**你好。**&#19990;界`); `'cjk-friendly'` writes such CJK text as typed
+(`**你好。**&#19990;界`), with two exceptions. A variation selector before a
+closing `~~` (`~~Done ✔︎~~`) stays open in
+`micromark-extension-cjk-friendly-gfm-strikethrough`. A `***` run that both
+closes and opens (`**“***!。**」!a***`) is read differently by micromark and
+by commonmark.js and markdown-it, which apply the rule of 3 to the whole run.
+`'cjk-friendly'` writes such CJK text as typed
 (`**你好。**世界`) for readers that follow the amendment.
 
 ```ts
