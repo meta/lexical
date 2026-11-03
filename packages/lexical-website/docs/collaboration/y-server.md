@@ -898,7 +898,10 @@ of being admitted or refused.
   other than the server could have delivered updates to the replica since
   its last sync with the server, persisted with the replica's storage;
   unknown is `true`) and `clients` (every client id the replica wrote under
-  since that sync), which replaying a record's changes will need;
+  since that sync), which replaying a record's changes will need. The
+  record's `hash` (and its default `id`) covers its kind, its material
+  (snapshot, deltas, queue, draft) and that provenance, not its source,
+  session or times: an acknowledgement names that hash;
   `hasNewYEdits(record, base)` says whether it holds a
   struct or a deletion the base lacks, a draft marked `differs`, or a
   missing dependency. Prompt users only for those; keep every record

@@ -733,7 +733,7 @@ describe.each([false, true])('@lexical/y/server, gc %s', gc => {
       expect(nothing.actionable).toBe(false);
     });
 
-    test('quarantineRecord: peers (default true, unknown provenance) and clients (default none) are kept, outside the hash, and change nothing it reads', () => {
+    test('quarantineRecord: peers (default true, unknown provenance) and clients (default none) are kept, in the hash and the default id, and change nothing it reads', () => {
       const input = {
         kind: 'handoff' as const,
         receivedAt: 1,
@@ -750,7 +750,19 @@ describe.each([false, true])('@lexical/y/server, gc %s', gc => {
         {generation: 'inc-1/-', state: base()},
       );
       expect(declared).toMatchObject({clients: [7, 9], peers: false});
-      expect(declared.hash).toBe(plain.hash);
+      // Another history with the same bytes: another record.
+      expect(declared.hash).not.toBe(plain.hash);
+      expect(declared.id).not.toBe(plain.id);
+      // Canonical: the same ids in another order or twice, the same record.
+      const again = quarantineRecord(
+        {...input, clients: [9, 7, 9], peers: false},
+        {generation: 'inc-1/-', state: base()},
+      );
+      expect(again.clients).toEqual([7, 9]);
+      expect(again.hash).toBe(declared.hash);
+      expect(
+        quarantineRecord({...input, clients: [7, 9], peers: true}).hash,
+      ).not.toBe(declared.hash);
       expect(declared.actionable).toBe(plain.actionable);
       expect(declared.complete).toBe(plain.complete);
       const none = {...input, snapshot: replica(() => {})};

@@ -651,7 +651,11 @@ export interface YQuarantineRecord {
   /** Signals whose id holds other content (the replica's own): kept. */
   readonly collisions: readonly YLegacySignal[];
   readonly receivedAt: number;
-  /** A hash of the material (what an acknowledgement names). */
+  /**
+   * A hash of the record's kind, material (snapshot, deltas, queue, draft)
+   * and provenance (peers, clients): what an acknowledgement names. The
+   * source, session, replica and times are not in it.
+   */
   readonly hash: string;
   /** Whether the source view has every dependency (see sourceView). */
   readonly complete: boolean;
@@ -667,7 +671,7 @@ export interface YQuarantineRecordInput {
   readonly kind: YQuarantineRecord['kind'];
   /** Default true (unknown provenance). */
   readonly peers?: boolean;
-  /** Default none. */
+  /** Default none; kept once each, in order. */
   readonly clients?: readonly number[];
   readonly source: YRecordSource;
   readonly snapshot?: Uint8Array | null;
@@ -752,6 +756,9 @@ export function quarantineRecord(
   const queue = input.queue ?? [];
   const draft = input.draft ?? null;
   const signals = input.signals ?? [];
+  const peers = input.peers ?? true;
+  // Canonical: each id once, in order.
+  const clients = [...new Set(input.clients ?? [])].sort((a, b) => a - b);
   const hash = materialHash([
     utf8(input.kind),
     snapshot ?? new Uint8Array(0),
@@ -761,6 +768,9 @@ export function quarantineRecord(
     utf8(
       draft === null ? '' : `${draft.differs}:${JSON.stringify(draft.json)}`,
     ),
+    // The provenance decides how the material may be read (see peers and
+    // clients): two histories with the same bytes are two records.
+    utf8(`${peers ? 1 : 0}:${clients.join(',')}`),
   ]);
   const view = sourceView({deltas, queue, snapshot});
   const collisions = signals.filter(
@@ -770,7 +780,7 @@ export function quarantineRecord(
   const record: YQuarantineRecord = {
     actionable: true,
     base: base === null ? null : base.generation,
-    clients: [...(input.clients ?? [])],
+    clients,
     collisions,
     complete: view.complete,
     deltas,
@@ -778,7 +788,7 @@ export function quarantineRecord(
     hash,
     id: input.id ?? hash,
     kind: input.kind,
-    peers: input.peers ?? true,
+    peers,
     queue,
     receivedAt: input.receivedAt,
     replica: input.replica ?? null,
