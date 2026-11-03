@@ -1330,7 +1330,8 @@ export function $computeTableCellRectBoundary(
 
     // Check all cells in the table
     for (let row = 0; row < map.length; row++) {
-      for (let col = 0; col < map[0].length; col++) {
+      // Rows can have different lengths in a ragged table.
+      for (let col = 0; col < map[row].length; col++) {
         const cell = map[row][col];
         if (!cell) {
           continue;
@@ -1594,7 +1595,11 @@ export function $insertTableIntoGrid(
   let startRow = anchorCellMap.startRow;
   let startCol = anchorCellMap.startColumn;
   let affectedRowCount = templateGridMap.length;
-  let affectedColCount = affectedRowCount > 0 ? templateGridMap[0].length : 0;
+  // The widest row: the pasted table's rows can have different lengths.
+  let affectedColCount = templateGridMap.reduce(
+    (width, row) => Math.max(width, row.length),
+    0,
+  );
 
   if (isTableSel) {
     const selectionBoundary = $computeTableCellRectBoundary(
@@ -1621,6 +1626,13 @@ export function $insertTableIntoGrid(
   const unmergedKeys = new Set<NodeKey>();
   for (let row = startRow; row <= lastRowForUnmerge; row++) {
     for (let col = startCol; col <= lastColForUnmerge; col++) {
+      const templateRowMap = templateGridMap[row - startRow];
+      if (
+        templateRowMap === undefined ||
+        templateRowMap[col - startCol] === undefined
+      ) {
+        continue; // the pasted table has no cell here: leave this one be
+      }
       const cellMap = initialGridMap[row][col];
       if (unmergedKeys.has(cellMap.cell.getKey())) {
         continue; // cell was a merged cell that was already handled
@@ -1664,6 +1676,9 @@ export function $insertTableIntoGrid(
       const templateRow = row - startRow;
       const templateCol = col - startCol;
       const templateCellMap = templateGridMap[templateRow][templateCol];
+      if (templateCellMap === undefined) {
+        continue; // no cell here in a ragged pasted table: leave this one be
+      }
       if (
         templateCellMap.startRow !== templateRow ||
         templateCellMap.startColumn !== templateCol
