@@ -201,6 +201,7 @@ test('public entries', () => {
     'hasNewYEdits',
     'legacySignal',
     'needsNewIncarnation',
+    'pendingYRecord',
     'prepareYRoom',
     'quarantineRecord',
     'sourceView',

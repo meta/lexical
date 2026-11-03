@@ -195,6 +195,17 @@ declare export function quarantineRecord(
   base?: {readonly generation: string, readonly state: Uint8Array} | null,
 ): YQuarantineRecord;
 
+declare export function pendingYRecord(
+  input: {
+    readonly id?: string,
+    readonly stored: Uint8Array,
+    readonly pending: Uint8Array,
+    readonly source: YRecordSource,
+    readonly receivedAt: number,
+  },
+  base?: {readonly generation: string, readonly state: Uint8Array} | null,
+): YQuarantineRecord;
+
 declare export function hasNewYEdits(
   record: {
     readonly snapshot: Uint8Array | null,

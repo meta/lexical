@@ -781,6 +781,42 @@ export function quarantineRecord(
 }
 
 /**
+ * @experimental The quarantine record of a migration's `pending` material
+ * (prepareYRoom's or migrateYState's), stored atomically with the migrated
+ * state: kind `'pending'`, its snapshot the whole stored state it was split
+ * from (which still holds every cut item and what they depend on) and its
+ * queue the split bytes, so its source view renders the cut material in
+ * place, and a raw export of the record carries both. The stored state may
+ * itself lack updates (a skipped range): the record is then incomplete
+ * until they arrive (append them as deltas). `base`, as for
+ * quarantineRecord: the migrated state, which lacks the cut items.
+ */
+export function pendingYRecord(
+  input: {
+    readonly id?: string;
+    /** The stored state the material was split from. */
+    readonly stored: Uint8Array;
+    /** The split material (`pending`). */
+    readonly pending: Uint8Array;
+    readonly source: YRecordSource;
+    readonly receivedAt: number;
+  },
+  base: {readonly generation: string; readonly state: Uint8Array} | null = null,
+): YQuarantineRecord {
+  return quarantineRecord(
+    {
+      id: input.id,
+      kind: 'pending',
+      queue: [input.pending],
+      receivedAt: input.receivedAt,
+      snapshot: input.stored,
+      source: input.source,
+    },
+    base,
+  );
+}
+
+/**
  * @experimental Whether a quarantine record holds anything `base` (the
  * state of the generation it was made against) lacks, read from its source
  * view (Yjs only, no Lexical): a struct the base lacks (not a legacy

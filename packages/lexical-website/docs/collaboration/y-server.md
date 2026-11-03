@@ -837,9 +837,14 @@ client's document with `createYDoc` from `@lexical/y`.
    nothing, keep the room stuck (it applies nothing), and alert.
 4. **Commit atomically**, compare-and-set on the version read:
    `{state, generation}` of the result, the immutable base of the old
-   generation (`base.state` under `base.generation`, never overwritten), and
-   a `pending` quarantine record when the result has pending material. A
-   lost compare-and-set discards the result and starts over.
+   generation (`base.state` under `base.generation`, never overwritten), and,
+   when the result has pending material, its quarantine record:
+   `pendingYRecord({stored: state, pending, source, receivedAt})`. Its
+   snapshot is the whole stored state the material was split from and its
+   queue the split bytes, so its source view renders the cut items in place
+   and its raw export carries both; a stored state that itself lacked
+   updates leaves the record incomplete until they arrive (append them as
+   deltas). A lost compare-and-set discards the result and starts over.
 5. **Leave the barrier** at the new generation. Check every update again
    when it is applied: only a session of the room's current generation
    writes.
