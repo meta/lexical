@@ -1120,7 +1120,7 @@ describe('named-slots: core foundation', () => {
 
   test('re-reconciling a decorator-host slot leaves an unchanged contentEditable alone', () => {
     // In Chrome, writing `contenteditable` on a connected element forces a
-    // synchronous style and layout update even when the value is unchanged,
+    // synchronous style recalculation even when the value is unchanged,
     // so the reconciler only writes it when the editable state changes.
     const descriptor = Object.getOwnPropertyDescriptor(
       HTMLElement.prototype,

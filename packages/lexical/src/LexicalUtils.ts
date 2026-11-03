@@ -3478,7 +3478,7 @@ export function $markSlotEditable(
   const editable = editor.isEditable();
   const value = editable ? 'true' : 'false';
   // In Chrome, any write of `contenteditable` to a connected element forces a
-  // synchronous style and layout update, even when the value is unchanged.
+  // synchronous style recalculation, even when the value is unchanged.
   // This runs on every reconcile of a slot host, so skip the no-op write.
   // (getAttribute, not the getter: the getter reads 'inherit' when unset.)
   if (element.getAttribute('contenteditable') !== value) {
