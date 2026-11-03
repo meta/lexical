@@ -667,6 +667,9 @@ export class TableNode extends ElementNode {
         >();
         for (const mapRow of tableMap) {
           for (const mapValue of mapRow) {
+            if (mapValue === undefined) {
+              continue; // no cell here in a ragged table
+            }
             const key = mapValue.cell.getKey();
             if (!cellValues.has(key)) {
               cellValues.set(key, {

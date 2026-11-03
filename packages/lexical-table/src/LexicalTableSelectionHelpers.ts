@@ -1111,7 +1111,12 @@ export function applyTableHandlers(
         const visited = new Set<TableCellNode>();
         for (let i = minRow; i <= maxRow; i++) {
           for (let j = minColumn; j <= maxColumn; j++) {
-            const cell = tableMap[i][j].cell;
+            const value = tableMap[i][j];
+            if (value === undefined) {
+              // No cell here in a ragged table.
+              continue;
+            }
+            const cell = value.cell;
             if (visited.has(cell)) {
               continue;
             }
