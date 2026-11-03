@@ -30,7 +30,8 @@ import {describe, expect, test} from 'vitest';
 import {createYDoc} from '../../..';
 import {migrateYState} from '../../../migrate';
 import {createBoundEditor, NODES} from '../../utils/harness';
-import {SEED, STAMP} from '../../utils/migrateSteps';
+import {SEED, STAMP, stamp} from '../../utils/migrateSteps';
+import {rightOriginSplit, textOf, unitDump} from '../../utils/splitFixtures';
 
 const flush = () => new Promise(r => setTimeout(r, 0));
 
@@ -119,9 +120,15 @@ describe.each([false, true])('gc %s', gc => {
     Y.applyUpdate(out, result!.pending!);
     Y.applyUpdate(out, sent[0]);
     expect(out.store.skips.isEmpty()).toBe(true);
-    expect(Y.encodeStateVector(out).length).toBeGreaterThan(0);
+    expect(out.store.pendingStructs).toBeNull();
     // Control: once u0 is applied (a plain relay), the same migration runs.
     Y.applyUpdate(relay, sent[0]);
+    // Preservation: the reconstruction (migrated state, split material and
+    // the queued update) holds what the plain merge holds, unit by unit
+    // (text, formats, attributes, ids, deletions), the second writer's
+    // ' Y' included.
+    expect(unitDump(out)).toEqual(unitDump(relay));
+    expect(textOf(out.get('lexical-y'))).toContain(' Y');
     let after: string | null = null;
     try {
       migrateYState(Y.encodeStateAsUpdate(relay), [STAMP], {gc, to: SEED + 1});
@@ -134,5 +141,28 @@ describe.each([false, true])('gc %s', gc => {
       pending: false,
       skipped: true,
     });
+  });
+
+  test('the right-origin split: state, split material and the missing prefix hold what the plain merge holds', () => {
+    const {stored, missing, docs} = rightOriginSplit(gc);
+    const result = migrateYState(stored, [stamp(2)], {gc, to: 3});
+    const out = createYDoc(result.state, {gc});
+    expect(out.store.skips.isEmpty()).toBe(true);
+    expect(out.store.pendingStructs).toBeNull();
+    expect(out.store.pendingDs).toBeNull();
+    // G and everything of its client, and client 222's suffix, are cut.
+    expect(textOf(out.get('lexical-y'))).toBe('base');
+    expect(out.store.clients.has(222)).toBe(false);
+    expect(out.store.clients.has(333)).toBe(false);
+    Y.applyUpdate(out, result.pending!);
+    Y.applyUpdate(out, missing);
+    const control = createYDoc(stored, {gc});
+    Y.applyUpdate(control, missing);
+    expect(unitDump(out)).toEqual(unitDump(control));
+    expect(textOf(out.get('lexical-y'))).toBe(textOf(control.get('lexical-y')));
+    expect(textOf(out.get('side'))).toBe('S');
+    expect(textOf(out.get('unseen'))).toBe('missing');
+    expect(out.store.skips.isEmpty()).toBe(true);
+    [out, control, ...docs].forEach(d => d.destroy());
   });
 });

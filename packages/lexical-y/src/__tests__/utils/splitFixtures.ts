@@ -23,8 +23,13 @@ export function docAt(client: number, gc: boolean, state?: Uint8Array): Y.Doc {
 export function textOf(node: Y.Node): string {
   let out = '';
   for (let it = node._start; it !== null; it = it.right) {
-    if (!it.deleted && it.content instanceof Y.ContentString) {
+    if (it.deleted) {
+      continue;
+    }
+    if (it.content instanceof Y.ContentString) {
       out += it.content.str;
+    } else if (it.content instanceof Y.ContentType) {
+      out += textOf(it.content.type as Y.Node);
     }
   }
   return out;
@@ -69,4 +74,77 @@ export function rightOriginSplit(gc: boolean): {
     missing: cu[0],
     stored: Y.encodeStateAsUpdate(stored),
   };
+}
+
+/** The migration's own clients: those that wrote the record and epoch. */
+function epochClients(doc: Y.Doc): Set<number> {
+  const out = new Set<number>();
+  doc.share.forEach(type => {
+    const node = type as Y.Node;
+    const epoch = node.getAttr('lexical-y-epoch') as {client?: number} | null;
+    if (epoch !== null && typeof epoch === 'object' && epoch.client) {
+      out.add(epoch.client);
+    }
+  });
+  return out;
+}
+
+/** Where an item lives: its root's name or its parent item's id, and key. */
+function placeOf(doc: Y.Doc, item: Y.Item): string {
+  const parent = item.parent as Y.Node;
+  const parentItem = parent._item;
+  let where: string;
+  if (parentItem === null) {
+    where = 'root?';
+    doc.share.forEach((type, name) => {
+      if (type === parent) {
+        where = `root:${name}`;
+      }
+    });
+  } else {
+    where = `${parentItem.id.client}.${parentItem.id.clock}`;
+  }
+  return item.parentSub === null ? where : `${where}#${item.parentSub}`;
+}
+
+/**
+ * Every id unit of every client but the migration's, with what it holds:
+ * `deleted`, or its place (root or parent item, key) and value (a code unit
+ * of a string, a format, an embed, a type's name). Item splits and GC
+ * structs compare equal; text, formats, attributes, ids and deletions are
+ * all in it.
+ */
+export function unitDump(doc: Y.Doc): Map<string, string> {
+  const skip = epochClients(doc);
+  const out = new Map<string, string>();
+  for (const [client, structs] of doc.store.clients) {
+    if (skip.has(client)) {
+      continue;
+    }
+    for (const s of structs) {
+      if (s instanceof Y.Skip) {
+        continue;
+      }
+      for (let i = 0; i < s.length; i++) {
+        const key = `${client}.${s.id.clock + i}`;
+        if (!(s instanceof Y.Item) || s.deleted) {
+          out.set(key, 'deleted');
+          continue;
+        }
+        const c = s.content;
+        let value: string;
+        if (c instanceof Y.ContentString) {
+          value = JSON.stringify(c.str[i]);
+        } else if (c instanceof Y.ContentFormat) {
+          value = `format ${c.key}=${JSON.stringify(c.value)}`;
+        } else if (c instanceof Y.ContentType) {
+          value = `type ${(c.type as Y.Node).name}`;
+        } else {
+          value = JSON.stringify(c.getContent()[i]);
+        }
+        out.set(key, `${placeOf(doc, s)} ${value}`);
+      }
+    }
+  }
+  return out;
 }
