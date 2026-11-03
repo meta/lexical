@@ -15,6 +15,9 @@
 // only: format cleanup off, nothing the binding adds to a client's). No
 // Lexical import.
 
+// The layout constants a server needs, from the constants module alone:
+// a server never needs the core entry (which loads the binding).
+import {LAYOUT_VERSION, MIN_LAYOUT, SEED_LAYOUT} from './internal/constants';
 import {
   createRawYDoc as createYDoc,
   type YDoc,
@@ -68,11 +71,14 @@ export {
   describeYRoom,
   generationOf,
   hasNewYEdits,
+  LAYOUT_VERSION,
   legacySignal,
+  MIN_LAYOUT,
   needsNewIncarnation,
   pendingYRecord,
   prepareYRoom,
   quarantineRecord,
+  SEED_LAYOUT,
   sourceView,
   UNKNOWN_GENERATION,
 };

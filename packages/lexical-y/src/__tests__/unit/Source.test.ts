@@ -194,6 +194,9 @@ test('public entries', () => {
   ]);
   expect(Object.keys(step1to2Entry)).toEqual(['default']);
   expect(Object.keys(serverEntry).sort()).toEqual([
+    'LAYOUT_VERSION',
+    'MIN_LAYOUT',
+    'SEED_LAYOUT',
     'UNKNOWN_GENERATION',
     'captureYSession',
     'checkYSession',
@@ -329,6 +332,18 @@ test('the core, the runner, the steps and the server entry stay apart', () => {
     // a client's createYDoc (YDoc.ts), which may add what the binding needs.
     expect(files.has('internal/YDoc.ts')).toBe(false);
   }
+  // A server's layout constants are the core's, from the constants module
+  // alone (the server never needs the core entry).
+  expect([
+    serverEntry.LAYOUT_VERSION,
+    serverEntry.MIN_LAYOUT,
+    serverEntry.SEED_LAYOUT,
+  ]).toEqual([
+    mainEntry.LAYOUT_VERSION,
+    mainEntry.MIN_LAYOUT,
+    mainEntry.SEED_LAYOUT,
+  ]);
+  expect(graph('server.ts').files.has('index.ts')).toBe(false);
   // The server entry reaches the runner through the public migrate entry
   // (external in the build: one runner, one YMigrationError class).
   const serverImports = graph('internal/Server.ts');

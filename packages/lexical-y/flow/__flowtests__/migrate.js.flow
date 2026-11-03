@@ -21,9 +21,11 @@ import {
   createYDoc,
   generationOf,
   prepareYRoom,
+  SEED_LAYOUT as SERVER_SEED_LAYOUT,
 } from '@lexical/y/server';
 
 declare const stored: Uint8Array;
+const serverSeed: number = SERVER_SEED_LAYOUT;
 declare const container: Node;
 
 // A step built by hand: every member, checkAfter included.

@@ -812,10 +812,15 @@ import {
   createYDoc,
   describeYRoom,
   prepareYRoom,
+  SEED_LAYOUT,
 } from '@lexical/y/server';
 
 const steps = [step1to2];
 ```
+
+`@lexical/y/server` also exports `MIN_LAYOUT`, `LAYOUT_VERSION` and
+`SEED_LAYOUT`, the same constants as `@lexical/y`'s: a server never needs
+to import the core entry, which loads the binding.
 
 `createYDoc` from `@lexical/y/server` makes a relay's or server's copy of a
 document with Yjs only: format cleanup off and nothing else. A relay never

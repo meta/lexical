@@ -25,6 +25,10 @@ export type {YDoc, YDocOptions};
 
 // A Y.Doc for a relay's or server's copy of a document: format cleanup off,
 // nothing else (a relay never undoes; bind clients with @lexical/y's).
+declare export var LAYOUT_VERSION: number;
+declare export var MIN_LAYOUT: number;
+declare export var SEED_LAYOUT: number;
+
 declare export function createYDoc(
   state?: Uint8Array | null,
   options?: YDocOptions,
