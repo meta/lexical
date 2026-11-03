@@ -27,7 +27,7 @@ import {
   quarantineRecord,
   type YRecordSource,
 } from '../../../server';
-import {SEED} from '../../utils/migrateSteps';
+import {rawDoc, SEED} from '../../utils/migrateSteps';
 import {textOf, unitDump} from '../../utils/splitFixtures';
 
 const SOURCE: YRecordSource = {
@@ -147,6 +147,84 @@ describe.skipIf(SEED !== 1)('cut client ids', () => {
           to: 2,
         }),
       ).toThrow(/not a free client id/);
+      [author, stored].forEach(d => d.destroy());
+    });
+
+    test(`gc ${gc}: a client only the pending delete set names is not taken, by the hash or an allocator`, () => {
+      const S = rawDoc(1);
+      const options = {gc, to: 2};
+      const oldClient = firstClient(migrateYState(S, [step1to2], options));
+      const author = createYDoc(null, {gc});
+      author.clientID = oldClient;
+      const updates: Uint8Array[] = [];
+      author.on('update', (u: Uint8Array) => updates.push(u));
+      author.get('unseen').insert(0, 'x');
+      author.get('unseen').delete(0, 1);
+      const stored = createYDoc(S, {gc});
+      Y.applyUpdate(stored, updates[1]);
+      expect(stored.store.pendingDs).not.toBeNull();
+      expect(stored.store.clients.has(oldClient)).toBe(false);
+      const input = Y.encodeStateAsUpdate(stored);
+      const result = migrateYState(input, [step1to2], options);
+      expect(firstClient(result)).not.toBe(oldClient);
+      expect(() =>
+        migrateYState(input, [step1to2], {
+          ...options,
+          clientID: () => oldClient,
+        }),
+      ).toThrow(/not a free client id/);
+      [author, stored].forEach(d => d.destroy());
+    });
+
+    test(`gc ${gc}: a client only a pending struct's parent names is not taken, by the hash or an allocator`, () => {
+      const S = rawDoc(1);
+      const options = {gc, to: 2};
+      const parentClient = firstClient(migrateYState(S, [step1to2], options));
+      const author = createYDoc(null, {gc});
+      author.clientID = parentClient;
+      const parent = new Y.Node('holder');
+      const updates: Uint8Array[] = [];
+      author.on('update', (u: Uint8Array) => updates.push(u));
+      author.get('other').insert(0, [parent]);
+      author.clientID = parentClient === 333 ? 334 : 333;
+      parent.insert(0, 'x');
+      const stored = createYDoc(S, {gc});
+      Y.applyUpdate(stored, updates[1]);
+      expect(stored.store.pendingStructs).not.toBeNull();
+      expect(stored.store.clients.has(parentClient)).toBe(false);
+      const input = Y.encodeStateAsUpdate(stored);
+      const result = migrateYState(input, [step1to2], options);
+      expect(firstClient(result)).not.toBe(parentClient);
+      expect(() =>
+        migrateYState(input, [step1to2], {
+          ...options,
+          clientID: () => parentClient,
+        }),
+      ).toThrow(/not a free client id/);
+      [author, stored].forEach(d => d.destroy());
+    });
+
+    test(`gc ${gc}: a client only a pending struct's origin names is not taken`, () => {
+      const S = rawDoc(1);
+      const options = {gc, to: 2};
+      const originClient = firstClient(migrateYState(S, [step1to2], options));
+      const author = createYDoc(S, {gc});
+      author.clientID = originClient;
+      const updates: Uint8Array[] = [];
+      author.on('update', (u: Uint8Array) => updates.push(u));
+      author.get('lexical-y').insert(1, 'o');
+      author.clientID = originClient === 333 ? 334 : 333;
+      author.get('lexical-y').insert(2, 'p');
+      const stored = createYDoc(S, {gc});
+      Y.applyUpdate(stored, updates[1]);
+      expect(stored.store.pendingStructs).not.toBeNull();
+      expect(stored.store.clients.has(originClient)).toBe(false);
+      const result = migrateYState(
+        Y.encodeStateAsUpdate(stored),
+        [step1to2],
+        options,
+      );
+      expect(firstClient(result)).not.toBe(originClient);
       [author, stored].forEach(d => d.destroy());
     });
   }

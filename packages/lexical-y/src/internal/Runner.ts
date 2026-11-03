@@ -1222,18 +1222,34 @@ function runStep(
 }
 
 /**
- * Every client id of the complete input: the clients `doc` holds (items
- * past a skipped range included) and, given the stored bytes, every client
- * their structs name (pending structs included). The migration takes no
- * such id, even one whose material it splits out. (A live document with
- * pending material is refused before this.)
+ * Every client id the complete input names: the clients `doc` holds (items
+ * past a skipped range included) and, in the stored bytes (pending structs
+ * and the pending delete set included), every struct's client, every
+ * client its origin, right origin or parent names, and every client of the
+ * delete set. The migration takes no such id, even one only split material
+ * or a deletion names.
  */
-function inputClients(doc: Doc, state: Uint8Array | null): Set<number> {
+function inputClients(doc: Doc, state: Uint8Array): Set<number> {
   const out = new Set<number>(doc.store.clients.keys());
-  if (state !== null) {
-    for (const s of decodeUpdate(state).structs) {
-      out.add(s.id.client);
+  const decoded = decodeUpdate(state);
+  const named = (ref: unknown) => {
+    if (typeof ref === 'object' && ref !== null) {
+      const client = (ref as {client?: unknown}).client;
+      if (typeof client === 'number') {
+        out.add(client);
+      }
     }
+  };
+  for (const s of decoded.structs) {
+    out.add(s.id.client);
+    if (s instanceof Item) {
+      named(s.origin);
+      named(s.rightOrigin);
+      named(s.parent);
+    }
+  }
+  for (const client of decoded.ds.clients.keys()) {
+    out.add(client);
   }
   return out;
 }
@@ -1509,7 +1525,7 @@ export function migrateYDoc(
     doc.gc,
     plans,
     options,
-    inputClients(doc, null),
+    inputClients(doc, integrated),
   );
   if (result === null) {
     return {
