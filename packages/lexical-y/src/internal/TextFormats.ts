@@ -175,9 +175,10 @@ function shownFormat(
 }
 
 /**
- * A new editor with the bound editor's nodes and replacements, built the way
- * the bound editor was (see SelfCheck's freshEditorFor). Nothing is attached
- * to its root: the nodes built there are collected at its commit.
+ * A new editor with the bound editor's nodes, replacements and namespace,
+ * built the way the bound editor was (see SelfCheck's freshEditorFor).
+ * Nothing is attached to its root: the nodes built there are collected at
+ * its commit.
  */
 function scratchEditorFor(editor: LexicalEditor): LexicalEditor {
   const nodes: LexicalNodeConfig[] = [...editor._nodes.values()].map(info =>
@@ -194,14 +195,15 @@ function scratchEditorFor(editor: LexicalEditor): LexicalEditor {
   const onError = (e: Error) => {
     throw e;
   };
+  const namespace = editor._config.namespace;
   if (LexicalBuilder.maybeFromEditor(editor) !== undefined) {
     return buildEditorFromExtensions({
       $initialEditorState: null,
       name: '@lexical/y/text-formats',
-      namespace: '@lexical/y text formats',
+      namespace,
       nodes: () => nodes,
       onError,
     });
   }
-  return createEditor({namespace: '@lexical/y text formats', nodes, onError});
+  return createEditor({namespace, nodes, onError});
 }
