@@ -289,3 +289,48 @@ describe.each([false, true])('a setter that depends on the text, gc %s', gc => {
     await expectConverged(t.peers);
   });
 });
+
+/** Shows its formats only while its text holds an X. */
+class HasXFormatsNode extends TextNode {
+  $config() {
+    return this.config('test-has-x-formats', {extends: TextNode});
+  }
+  setFormat(format: TextFormatType | number): this {
+    return super.setFormat(this.getTextContent().includes('X') ? format : 0);
+  }
+}
+
+describe.each([false, true])(
+  'a setter that depends on the text content, gc %s',
+  gc => {
+    // Outside the contract: a TextNode's shown format must not depend on
+    // its text content (the same assumption as TextNode#splitText and
+    // mergeWithSibling). "ab" (stored bold) and "cd" show no format apart or
+    // merged, so they read as one node; typing X into the plain "cd" makes
+    // the merged node show the bold, so a fresh read cuts the line where
+    // the author, which does not read its own line again, does not.
+    test.fails('typing into a merged node reads back as typed', async () => {
+      const t = await setup(
+        () =>
+          $getRoot().append(
+            $createParagraphNode().append(
+              $create(HasXFormatsNode).setTextContent('abcd'),
+            ),
+          ),
+        {gc, nodes: [...NODES, HasXFormatsNode]},
+      );
+      formatRaw(t.a, 'ab', {'f:bold': true});
+      await t.sync();
+      t.b.update(() => {
+        const node = $getRoot()
+          .getAllTextNodes()
+          .find(n => n.getTextContent().includes('cd'))!;
+        const i = node.getTextContent().indexOf('cd');
+        node.select(i, i).insertText('X');
+      });
+      await t.sync();
+      expect((await freshReader(t.b)).describe()).toBe(t.b.describe());
+      await expectConverged(t.peers);
+    });
+  },
+);

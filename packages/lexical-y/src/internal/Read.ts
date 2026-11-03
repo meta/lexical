@@ -2424,7 +2424,11 @@ export class Reader {
               last.kind === 'text' &&
               !isTabText(run.tattrs) &&
               sameWrappers(last.wrappers, wrappers) &&
-              (last.tsig === run.tsig || this.$showSame(last, run, merged))
+              // (In a piece that holds runs read as one, every run is checked:
+              // equal to the first run's attributes is not equal to what it
+              // shows.)
+              ((last.tsig === run.tsig && !merged.has(last)) ||
+                this.$showSame(last, run, merged))
             ) {
               const into = merged.get(last);
               if (into !== undefined) {
@@ -2525,6 +2529,13 @@ export class Reader {
    * read. The bits stay stored. Only a text class (or replacement) with a
    * setFormat of its own can show two such attributes the same; a node that
    * cannot be built reads apart, as before.
+   *
+   * Contract: a TextNode's shown format must not depend on its text content
+   * (the same assumption as TextNode#splitText, which gives every part the
+   * node's format, and mergeWithSibling). The merged piece is checked as a
+   * whole (see $checkMerged), but a class that shows a bit only for some
+   * text can change its verdict when text is typed into the merged node,
+   * which its author does not read again.
    */
   private $showSame(
     a: Piece & {kind: 'text'},
@@ -2587,9 +2598,22 @@ export class Reader {
     const editor = this.state.editor;
     const json = joinSetMembersInJSON(textJSONFromAttrs(text, attrs), editor);
     const node = $parseSerializedNode(json as unknown as SerializedLexicalNode);
-    return $isTextNode(node)
-      ? stableStringify($textAttrs($applyJSON(node, json), null, false))
-      : null;
+    if (!$isTextNode(node)) {
+      return null;
+    }
+    // As $applyJSON gives a reused node the attributes: applied again, or,
+    // where the node does not export them, the fields of a node built from
+    // them (this one).
+    const built = stableStringify($textAttrs(node, null, false));
+    if (json.$ !== undefined && node.__state !== undefined) {
+      $setStateInOrder(node, json.$ as Attrs);
+    }
+    const applied = node.updateFromJSON(
+      json as Parameters<TextNode['updateFromJSON']>[0],
+    );
+    return exportsJSON(applied, json)
+      ? stableStringify($textAttrs(applied, null, false))
+      : built;
   }
 
   /**
@@ -3396,6 +3420,24 @@ function $setStateInOrder(node: LexicalNode, state: Attrs): void {
   $getWritableNodeState(node).updateFromJSON(state);
 }
 
+/** Whether `node` exports the fields `json` gives it (see $applyJSON). */
+function exportsJSON(node: LexicalNode, json: Attrs): boolean {
+  const after = node.exportJSON() as unknown as Attrs;
+  for (const k in json) {
+    if (
+      k !== 'children' &&
+      k !== 'version' &&
+      k !== '$' &&
+      k !== 'textFormat' &&
+      k !== 'textStyle' &&
+      stableStringify(after[k]) !== stableStringify(json[k])
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
+
 /**
  * Apply serialized fields to a node. A class without a generated
  * updateFromJSON (a hand-written importJSON that reads fields of its own)
@@ -3409,22 +3451,7 @@ function $applyJSON<T extends LexicalNode>(node: T, json: Attrs): T {
   const w = node.updateFromJSON(
     json as Parameters<LexicalNode['updateFromJSON']>[0],
   ) as T;
-  const after = w.exportJSON() as unknown as Attrs;
-  let same = true;
-  for (const k in json) {
-    if (
-      k !== 'children' &&
-      k !== 'version' &&
-      k !== '$' &&
-      k !== 'textFormat' &&
-      k !== 'textStyle' &&
-      stableStringify(after[k]) !== stableStringify(json[k])
-    ) {
-      same = false;
-      break;
-    }
-  }
-  if (same) {
+  if (exportsJSON(w, json)) {
     return w;
   }
   const tmp = $parseSerializedNode({
