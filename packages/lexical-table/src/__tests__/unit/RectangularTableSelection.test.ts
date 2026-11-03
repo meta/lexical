@@ -229,7 +229,9 @@ for (const [label, rows] of RECTANGULAR) {
     }
     const print = fingerprint(outputs.join('\n'));
     expect(print).toBe(EXPECTED[label]);
-  });
+    // 81 selections, each copied, pasted twice and deleted: about 5 s on a
+    // loaded CI runner, past the 5 s default.
+  }, 30000);
 }
 
 // The row-span table: the row under A is covered within a selection from A
