@@ -233,6 +233,22 @@ type GuardedRead = {
   readonly tag?: string | string[];
 };
 
+/** A warning that says why the binding is read only. */
+const isReadOnlyCause = (w: LexicalWarning): boolean =>
+  w.code === UNSUPPORTED_LAYOUT_WARNING ||
+  w.code === UNSUPPORTED_SCHEMA_WARNING;
+
+/** The refusal of a local edit while read only (it names its cause). */
+const isReadOnlyRefusal = (w: LexicalWarning): boolean => {
+  const data = w.data as {reason?: unknown} | null | undefined;
+  return (
+    w.code === UNSUPPORTED_EDIT_WARNING &&
+    data !== null &&
+    data !== undefined &&
+    data.reason === 'read-only'
+  );
+};
+
 /** The floor a test set (see setMinLayoutForTests), null: MIN_LAYOUT. */
 let minLayoutForTests: number | null = null;
 
@@ -2655,7 +2671,27 @@ export class YBinding {
    * YBindingStatus, and staysReadOnly for what keeps it read only).
    */
   private writesEdits(): boolean {
-    return this._status === 'active';
+    return this._status === 'active' && this.recordAdmits();
+  }
+
+  /**
+   * Whether the root's layout record, as it is now, is one this binding
+   * writes: from the floor (MIN_LAYOUT) to LAYOUT_VERSION, well formed.
+   *
+   * Invariant: checked at every write (an editor update, an undo or redo,
+   * through the binding or its UndoManager), not only read from the status.
+   * Why: inside an app's transaction that changes the record, the binding
+   * has not read the change yet (it reads once the transaction ends), and
+   * a write made then would be written to a document it does not admit.
+   */
+  private recordAdmits(): boolean {
+    const version = recordedLayout(this._root);
+    return (
+      version !== null &&
+      !Number.isNaN(version) &&
+      version >= minLayout() &&
+      version <= LAYOUT_VERSION
+    );
   }
 
   /**
@@ -2837,6 +2873,18 @@ export class YBinding {
       doc._transactionCleanups.length > 0
     ) {
       return;
+    }
+    // The refusal of an edit names an earlier warning as its cause: a write
+    // checks the layout record itself, so inside an app's transaction that
+    // changed it the refusal is queued before the binding reads the record
+    // and queues why. The cause goes first.
+    const causes = this.pendingWarnings.filter(isReadOnlyCause);
+    if (causes.length > 0) {
+      const refusals = this.pendingWarnings.filter(isReadOnlyRefusal);
+      if (refusals.length > 0) {
+        const rest = this.pendingWarnings.filter(w => !isReadOnlyRefusal(w));
+        this.pendingWarnings.splice(0, Infinity, ...rest, ...refusals);
+      }
     }
     this.flushingWarnings = true;
     try {
@@ -5883,6 +5931,11 @@ export class YBinding {
     this.stepCursor =
       top === undefined ? null : ((top.meta.get(this) as YCursor) ?? null);
     try {
+      // Queued undos run later: admitted then, as any write (see
+      // recordAdmits).
+      if (!this.writesEdits()) {
+        return false;
+      }
       const popped = undo ? um.undo() : um.redo();
       if (popped !== null) {
         this.carryCloserMarks(popped);
