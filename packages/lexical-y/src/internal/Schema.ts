@@ -24,7 +24,7 @@ import {
   type LexicalNode,
   ParagraphNode,
   TEXT_TYPE_TO_FORMAT,
-  type TextNode,
+  TextNode,
 } from 'lexical';
 
 import {
@@ -857,6 +857,25 @@ export const decodeFormatValue = (v: unknown): unknown => {
   }
   return v;
 };
+
+/**
+ * Whether the text class of `attrs` keeps no format bits: its setFormat is
+ * its own (a code highlight's ignores them), so a reader shows none,
+ * whatever is stored.
+ */
+export function keepsNoTextFormats(
+  editor: LexicalEditor,
+  attrs: Attrs,
+): boolean {
+  const type = decodeFormatValue(attrs[TYPE_KEY] ?? null);
+  const info = editor._nodes.get(typeof type === 'string' ? type : 'text');
+  return (
+    info !== undefined &&
+    info.klass.prototype instanceof TextNode &&
+    (info.klass.prototype as TextNode).setFormat !==
+      TextNode.prototype.setFormat
+  );
+}
 
 /** Format attributes of a line break: its NodeState. */
 export function $lineBreakAttrs(
