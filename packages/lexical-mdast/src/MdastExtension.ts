@@ -137,7 +137,9 @@ export interface MdastConfig {
    * Defaults to `'strict-commonmark'`, which writes a character reference
    * where a marker beside punctuation would otherwise not open or close
    * (`**你好。**&#x4E16;界`), so that every CommonMark, GFM and CJK-friendly
-   * reader reads it the same way. `'cjk-friendly'` writes such CJK text as
+   * reader reads it the same way, but for a variation selector before a
+   * closing `~~`, which `micromark-extension-cjk-friendly-gfm-strikethrough`
+   * leaves open. `'cjk-friendly'` writes such CJK text as
    * typed (`**你好。**世界`), for readers that follow the CJK-friendly
    * amendment, such as a CJK-friendly import.
    */
