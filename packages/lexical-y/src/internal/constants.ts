@@ -33,6 +33,13 @@ export const LAYOUT_PREFIX = 'lexical-y:';
  * version 1 then open it read only instead of missing the members).
  */
 export const LAYOUT_VERSION = 2;
+/**
+ * @experimental The oldest layout version this binding reads and writes. A
+ * root below it binds read only (UNSUPPORTED_LAYOUT_WARNING, `'older'`)
+ * until it is migrated (see @lexical/y/migrate); the migration runner's
+ * default target.
+ */
+export const MIN_LAYOUT = 1;
 /** The version a new document records. */
 export const BASE_LAYOUT_VERSION = 1;
 /**
@@ -40,6 +47,14 @@ export const BASE_LAYOUT_VERSION = 1;
  * (`s:<key>\u001f<member>` = true).
  */
 export const SET_MEMBERS_LAYOUT_VERSION = 2;
+/**
+ * The root attribute a layout migration records (see @lexical/y/migrate):
+ * `{v: 1, layout, client, clock, step, revision}`, where `(client, clock)`
+ * is the id of the migration transaction's first item (its layout record).
+ * Outside the layout records' namespace (LAYOUT_PREFIX), so no layout gate
+ * parses it; it only grows with each migration, and nothing else writes it.
+ */
+export const EPOCH_KEY = 'lexical-y-epoch';
 /**
  * Prefix of the root attributes that record the versions of the app's own
  * schema (`schemaVersion`: its node types and their stored fields) that
