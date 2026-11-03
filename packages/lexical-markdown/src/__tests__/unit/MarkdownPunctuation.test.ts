@@ -304,6 +304,16 @@ describe('Markdown punctuation modes', () => {
       '**&#65024;***&#98;?계*',
       '**\ufe00***&#98;?계*',
     ],
+    // A selector after a character written as a reference varies its `;`.
+    [
+      [
+        ['\u3002', bold | strikethrough],
+        ['0\ufe0e', bold],
+        ['\ufe00x', 0],
+      ],
+      '**~~\u3002~~&#48;\ufe0e**&#65024;x',
+      '**~~\u3002~~0\ufe0e**\ufe00x',
+    ],
   ])('exports %j', (runs, strict, cjkFriendly) => {
     expect(exportRuns(runs)).toBe(strict);
     expect(exportRuns(runs, 'strict-commonmark')).toBe(strict);

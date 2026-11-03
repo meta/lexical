@@ -1107,12 +1107,19 @@ function decideReferences(
       : encodeStart[index] || isEncoded(index)
         ? '&'
         : firstChar(index);
+  // A piece of a character and a variation selector whose first character
+  // goes out as a reference: the selector then varies the reference's `;`.
+  const isVariedByStart = (index: number) =>
+    encodeStart[index] === 1 &&
+    isVariationSelector(values[index].slice(firstChar(index).length));
   const endChar = (index: number) =>
     index < 0
       ? undefined
       : encodeEnd[index] || isEncoded(index)
         ? ';'
-        : lastChar(index);
+        : isVariedByStart(index)
+          ? flankingBefore(values[index].slice(-1), 1, ';')!
+          : lastChar(index);
   // Whether the last (or first) character of the piece at `index` can go out
   // as a reference.
   const canReference = (index: number, atEnd: boolean): boolean =>
@@ -1246,7 +1253,10 @@ function decideReferences(
       if (opens && afterFirst === undefined) {
         pending.push(index);
       }
-      if (isEncoded(after) && runAfter[after] !== -1) {
+      if (
+        (isEncoded(after) || isVariedByStart(after)) &&
+        runAfter[after] !== -1
+      ) {
         pending.push(runAfter[after]);
       }
     }

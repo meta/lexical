@@ -199,7 +199,6 @@ const thirdPartyExternals = [
         'micromark-extension-gfm-strikethrough',
         'micromark-extension-gfm-table',
         'micromark-extension-gfm-task-list-item',
-        'micromark-util-classify-character',
       ]),
 ];
 const thirdPartyExternalsRegExp = new RegExp(

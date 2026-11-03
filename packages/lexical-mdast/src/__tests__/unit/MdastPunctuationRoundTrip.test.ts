@@ -63,6 +63,8 @@ const ALPHABET = [
   '︎',
   '﻿',
   '⸀',
+  '\\',
+  '&',
 ];
 // Fixed cases run every time. Random ones are too slow for every run: they
 // run with the number of cases in this variable, as in

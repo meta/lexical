@@ -53,12 +53,13 @@ import {
 import {defaultHandlers, toMarkdown} from 'mdast-util-to-markdown';
 import {toString as mdastToString} from 'mdast-util-to-string';
 import {parse, postprocess, preprocess} from 'micromark';
-import {classifyCharacter as classifyUnit} from 'micromark-util-classify-character';
 
 import {
   classifyCode,
+  getRunFlanking,
   isCjkClass,
-  isVariationSelectorClass,
+  PUNCTUATION,
+  WHITESPACE,
 } from './cjkFriendly';
 import {
   $exportLineBreak,
@@ -596,6 +597,18 @@ const ATTENTION_MARKER = /[*_~]/;
 // CommonMark as letters, but `\v`, which no reference can stand for.
 const STOOD_IN =
   /(?![\0-\uffff])[\p{P}\p{S}]|[\ufe00-\ufe0e]|[\u2028\u2029\ufeff]/gu;
+const MICROMARK_ONLY_WHITESPACE = /^[\u2028\u2029\ufeff]$/;
+
+/**
+ * The index of a backslash before the last character of `value`, which the
+ * text handler writes as it is, or -1. A reference that the handler writes
+ * for that character would come out escaped, so the backslash stands in too,
+ * and goes out escaped before a reference.
+ */
+function getTrailingBackslash(value: string): number {
+  const match = /(^|[^\\])\\[^\p{P}\p{S}\r\n]$/u.exec(value);
+  return match ? match.index + match[1].length : -1;
+}
 
 // Stand-ins come from Supplemental Punctuation (U+2E00 to U+2E7F) first,
 // then from the symbols from U+2600: characters a handler is unlikely to
@@ -626,6 +639,9 @@ function countStoodIn(tree: Root, used: Set<number>): Map<string, number> {
       for (const [character] of node.value.matchAll(STOOD_IN)) {
         counts.set(character, (counts.get(character) || 0) + 1);
       }
+      if (getTrailingBackslash(node.value) >= 0) {
+        counts.set('\\', (counts.get('\\') || 0) + 1);
+      }
     }
     if ('children' in node) {
       node.children.forEach(visit);
@@ -650,11 +666,12 @@ function countStoodIn(tree: Root, used: Set<number>): Map<string, number> {
   return counts;
 }
 
-// What `classifyUnit` returns (micromark's `constants.characterGroup*`), and
-// a class for what it leaves undefined.
-const WHITESPACE_CLASS = 1;
-const PUNCTUATION_CLASS = 2;
-const LETTER_CLASS = 3;
+// How `mdast-util-to-markdown` reads a UTF-16 unit beside a marker, in the
+// classes of `classifyCode`: whitespace, punctuation or a letter.
+const LETTER = 0;
+function classifyUnit(code: number): number {
+  return classifyCode(code) & (WHITESPACE | PUNCTUATION);
+}
 
 /**
  * A stand-in for each of `characters`: a punctuation character of the Basic
@@ -675,7 +692,7 @@ function pickStandIns(
       const code = STAND_IN_START + next;
       next = (next + 1) % size;
       left--;
-      if (classifyUnit(code) === PUNCTUATION_CLASS && !used.has(code)) {
+      if (classifyUnit(code) === PUNCTUATION && !used.has(code)) {
         standIns.set(character, String.fromCharCode(code));
         break;
       }
@@ -732,17 +749,23 @@ function standInText(
       return own.call(self, node, parent, state, info);
     }
     const {value} = node as Text;
-    // Set on the node itself, which the handler finds among its siblings.
-    (node as Text).value = value.replace(STOOD_IN, character => {
-      const standIn = standIns.get(character);
-      if (standIn === undefined) {
+    const standIn = (character: string): string => {
+      const found = standIns.get(character);
+      if (found === undefined) {
         return character;
       }
       if (isCounted && peeking === 0) {
-        written.set(standIn, (written.get(standIn) || 0) + 1);
+        written.set(found, (written.get(found) || 0) + 1);
       }
-      return standIn;
-    });
+      return found;
+    };
+    const backslash = getTrailingBackslash(value);
+    // Set on the node itself, which the handler finds among its siblings.
+    (node as Text).value = (
+      backslash < 0
+        ? value
+        : value.slice(0, backslash) + standIn('\\') + value.slice(backslash + 1)
+    ).replace(STOOD_IN, standIn);
     try {
       return own.call(self, node, parent, state, info);
     } finally {
@@ -878,26 +901,6 @@ function measuring(
   }
 }
 
-const OPENS = 1;
-const CLOSES = 2;
-
-/**
- * How a run of `marker` between characters of these classes flanks: whether
- * it {@link OPENS} and whether it {@link CLOSES}.
- */
-function getFlanking(marker: string, before: number, after: number): number {
-  const left =
-    after !== WHITESPACE_CLASS &&
-    (after !== PUNCTUATION_CLASS || before !== LETTER_CLASS);
-  const right =
-    before !== WHITESPACE_CLASS &&
-    (before !== PUNCTUATION_CLASS || after !== LETTER_CLASS);
-  return marker === '_'
-    ? (left && (!right || before === PUNCTUATION_CLASS) ? OPENS : 0) |
-        (right && (!left || after === PUNCTUATION_CLASS) ? CLOSES : 0)
-    : (left ? OPENS : 0) | (right ? CLOSES : 0);
-}
-
 /**
  * Puts back the characters {@link toMarkdownWithStandIns} stood in for, which
  * `pattern` finds; {@link getRestore} builds it once for an export. The
@@ -939,15 +942,10 @@ function restoreStoodIn(
     return backslashes % 2 === 1;
   };
   // How readers read the character a stand-in stands for.
-  const readings = (standIn: string): number[] => {
-    const character = characters.get(standIn)!;
-    // Not a selector nor outside the Basic Multilingual Plane: micromark
-    // reads it as whitespace.
-    return character.length === 1 &&
-      !isVariationSelectorClass(classifyCode(character.charCodeAt(0)))
-      ? [PUNCTUATION_CLASS, WHITESPACE_CLASS, LETTER_CLASS]
-      : [PUNCTUATION_CLASS, LETTER_CLASS];
-  };
+  const readings = (standIn: string): number[] =>
+    MICROMARK_ONLY_WHITESPACE.test(characters.get(standIn)!)
+      ? [PUNCTUATION, WHITESPACE, LETTER]
+      : [PUNCTUATION, LETTER];
   // Whether the run beside `index`, toward `step`, flanks the same for every
   // reading of the stand-in at `index`, and of one beyond the run.
   const isPortable = (index: number, step: 1 | -1): boolean => {
@@ -963,17 +961,16 @@ function restoreStoodIn(
     const beyond = markdown.charCodeAt(end);
     const fars = characters.has(markdown[end])
       ? readings(markdown[end])
-      : [
-          Number.isNaN(beyond)
-            ? WHITESPACE_CLASS
-            : classifyUnit(beyond) || LETTER_CLASS,
-        ];
-    const flanking = (near: number, far: number) =>
-      step === 1
-        ? getFlanking(marker, near, far)
-        : getFlanking(marker, far, near);
+      : [Number.isNaN(beyond) ? WHITESPACE : classifyUnit(beyond)];
+    const flanking = (near: number, far: number) => {
+      const [open, close] =
+        step === 1
+          ? getRunFlanking(marker.charCodeAt(0), near, far)
+          : getRunFlanking(marker.charCodeAt(0), far, near);
+      return Number(open) | (Number(close) << 1);
+    };
     const nears = readings(markdown[index]);
-    const expected = flanking(PUNCTUATION_CLASS, fars[0]);
+    const expected = flanking(PUNCTUATION, fars[0]);
     return fars.every(far =>
       nears.every(near => flanking(near, far) === expected),
     );
@@ -982,11 +979,14 @@ function restoreStoodIn(
   // letter, so never for a stand-in.
   return markdown.replace(pattern, (standIn, i: number) => {
     const character = characters.get(standIn)!;
+    if (character === '\\') {
+      return markdown[i + 1] === '&' ? '\\\\' : '\\';
+    }
     return (!isCjkFriendly || character.length === 1) &&
       ((ATTENTION_MARKER.test(markdown[i - 1]) && !isPortable(i, -1)) ||
         (ATTENTION_MARKER.test(markdown[i + 1]) && !isPortable(i, 1)))
       ? // A backslash before the reference would escape its `&`.
-        `${isEscaped(i) ? '\\' : ''}&#x${character
+        `${isEscaped(i) || characters.get(markdown[i - 1]) === '\\' ? '\\' : ''}&#x${character
           .codePointAt(0)!
           .toString(16)
           .toUpperCase()};`

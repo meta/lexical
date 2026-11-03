@@ -280,6 +280,27 @@ describe('Mdast punctuation modes', () => {
     expect(roundTrip(runs, 'cjk-friendly')).toEqual([cjkFriendly, runs]);
   });
 
+  it('escapes a backslash before a reference the export writes', () => {
+    for (const runs of [
+      [
+        ['\\a', 0],
+        ['\u{1f389}a', bold],
+      ],
+      [
+        ['\\0', 0],
+        ['\ufe0e', italic],
+      ],
+      [
+        ['a\\b', 0],
+        ['。', bold],
+      ],
+    ] as Runs[]) {
+      for (const mode of ['strict-commonmark', 'cjk-friendly'] as const) {
+        expect(roundTrip(runs, mode)[1]).toEqual(runs);
+      }
+    }
+  });
+
   it('keeps references in code and escaped ones', () => {
     const editor = createEditor('cjk-friendly');
     const markdown = '`**&#x4E16;`\n\n\\&#x4E16;**a**';

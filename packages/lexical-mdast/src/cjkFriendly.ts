@@ -22,8 +22,10 @@ import {attention} from 'micromark-core-commonmark';
 // beside a marker, as classes of bits. The constructs below read runs as
 // `micromark-extension-cjk-friendly` does, and also read a variation
 // selector before a closing `~~` as the character it varies.
-const WHITESPACE = 1;
-const PUNCTUATION = 2;
+/** @internal */
+export const WHITESPACE = 1;
+/** @internal */
+export const PUNCTUATION = 2;
 const CJK = 4;
 // An ideographic variation selector, which counts as CJK before a marker.
 const IVS = 8;
@@ -35,6 +37,10 @@ const ASTERISK = 42;
 const UNDERSCORE = 95;
 const TILDE = 126;
 
+function isSelector(code: number): boolean {
+  return code >= 0xfe00 && code <= 0xfe0e;
+}
+
 /**
  * The class of `code`, a code point or one of micromark's codes, which reads
  * the end of the input and its whitespace codes as whitespace.
@@ -45,7 +51,7 @@ export function classifyCode(code: Code): number {
   if (code === null || code < 0) {
     return WHITESPACE;
   }
-  if (code >= 0xfe00 && code <= 0xfe0e) {
+  if (isSelector(code)) {
     return VARIATION_SELECTOR;
   }
   const character = String.fromCodePoint(code);
@@ -66,26 +72,30 @@ export function isCjkClass(characterClass: number): boolean {
   return (characterClass & CJK) !== 0;
 }
 
-/** Whether `characterClass` is a selector that varies the character before. @internal */
-export function isVariationSelectorClass(characterClass: number): boolean {
-  return characterClass === VARIATION_SELECTOR;
-}
-
 /**
  * The code before the tokenizer's position and the class the amendment
  * reads for it: for a variation selector, that of the character it varies,
  * with quotation marks that U+FE01 shows full width as CJK punctuation.
  */
 function readBefore(context: TokenizeContext): [Code, number] {
+  let {previous} = context;
+  // Only the second half of a pair or a selector needs the text before.
+  if (
+    previous === null ||
+    !((previous >= 0xdc00 && previous <= 0xdfff) || isSelector(previous))
+  ) {
+    return [previous, classifyCode(previous)];
+  }
   const now = context.now();
-  // Enough of the current chunk for two characters outside the BMP.
+  // Enough of the current chunk for a selector after a pair.
   const text = context.sliceSerialize({
     end: now,
-    start: {...now, _bufferIndex: Math.max(0, now._bufferIndex - 4)},
+    start: {...now, _bufferIndex: Math.max(0, now._bufferIndex - 3)},
   });
   const last = text.codePointAt(text.length - 2);
-  const previous =
-    last !== undefined && last > 0xffff ? last : context.previous;
+  if (last !== undefined && last > 0xffff) {
+    previous = last;
+  }
   const before = classifyCode(previous);
   if (before !== VARIATION_SELECTOR) {
     return [previous, before];
@@ -149,6 +159,30 @@ function getFlanking(
 }
 
 /**
+ * Whether a run of `marker` between characters of these classes opens and
+ * whether it closes, as {@link getFlanking} reads it, with CommonMark's
+ * further rule for `_`, which does not open or close inside a word. Without
+ * CJK classes, CommonMark reads runs the same way.
+ *
+ * @internal
+ */
+export function getRunFlanking(
+  marker: Code,
+  before: number,
+  after: number,
+  markerBefore = false,
+  markerAfter = false,
+): [open: boolean, close: boolean] {
+  const [open, close] = getFlanking(before, after, markerBefore, markerAfter);
+  return marker === UNDERSCORE
+    ? [
+        open && ((before & (WHITESPACE | PUNCTUATION)) !== 0 || !close),
+        close && ((after & (WHITESPACE | PUNCTUATION)) !== 0 || !open),
+      ]
+    : [open, close];
+}
+
+/**
  * micromark's CJK-friendly emphasis, which reads `*` and `_` runs as the
  * amendment does.
  *
@@ -170,22 +204,14 @@ export function cjkFriendlyEmphasis(): Extension {
           return inside;
         }
         const token = effects.exit('attentionSequence');
-        const after = classifyAfter(this, code);
         // Another marker beside the run, such as `~`, flanks as space.
-        const [open, close] = getFlanking(
+        [token._open, token._close] = getRunFlanking(
+          marker,
           before,
-          after,
+          classifyAfter(this, code),
           markers.includes(previous!) && !isCoreMarker(previous),
           markers.includes(code!) && !isCoreMarker(code),
         );
-        token._open =
-          marker === ASTERISK
-            ? open
-            : open && ((before & (WHITESPACE | PUNCTUATION)) !== 0 || !close);
-        token._close =
-          marker === ASTERISK
-            ? close
-            : close && ((after & (WHITESPACE | PUNCTUATION)) !== 0 || !open);
         return ok(code);
       };
       return code => {
@@ -228,11 +254,10 @@ export function cjkFriendlyStrikethrough(syntax: Extension): Extension {
           return more;
         }
         const token = effects.exit('strikethroughSequenceTemporary');
-        [token._open, token._close] = getFlanking(
+        [token._open, token._close] = getRunFlanking(
+          TILDE,
           before,
           classifyAfter(this, code),
-          false,
-          false,
         );
         return ok(code);
       };
