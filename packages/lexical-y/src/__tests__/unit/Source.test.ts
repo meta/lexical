@@ -19,6 +19,7 @@ import {STEP_LOADERS} from '../../internal/StepLoaders';
 import {PUBLISHED_STEPS} from '../../internal/StepTable';
 import * as migrateEntry from '../../migrate';
 import * as step1to2Entry from '../../migrate/1to2';
+import * as step2to3Entry from '../../migrate/2to3';
 import * as serverEntry from '../../server';
 
 // Bundlers replace only process.env.NODE_ENV: any other process.env read in
@@ -183,6 +184,8 @@ test('public entries', () => {
     './migrate.js',
     './migrate/1to2',
     './migrate/1to2.js',
+    './migrate/2to3',
+    './migrate/2to3.js',
     './server',
     './server.js',
   ]);
@@ -193,6 +196,7 @@ test('public entries', () => {
     'migrateYState',
   ]);
   expect(Object.keys(step1to2Entry)).toEqual(['default']);
+  expect(Object.keys(step2to3Entry)).toEqual(['default']);
   expect(Object.keys(serverEntry).sort()).toEqual([
     'LAYOUT_VERSION',
     'MIN_LAYOUT',
@@ -399,12 +403,19 @@ test('the core, the runner, the steps and the server entry stay apart', () => {
   for (const entry of ['index.ts', 'headless.ts']) {
     expect([...graph(entry).files].filter(migrationCode)).toEqual([]);
   }
-  for (const entry of ['migrate.ts', 'migrate/1to2.ts', 'server.ts']) {
+  for (const entry of [
+    'migrate.ts',
+    'migrate/1to2.ts',
+    'migrate/2to3.ts',
+    'server.ts',
+  ]) {
     const {files, bare} = graph(entry);
     // The server's static step table imports the published steps by their
     // own entries (never inlined); the runner loads them on demand.
     expect([...bare].sort()).toEqual(
-      entry === 'server.ts' ? ['@lexical/y/migrate/1to2', '@y/y'] : ['@y/y'],
+      entry === 'server.ts'
+        ? ['@lexical/y/migrate/1to2', '@lexical/y/migrate/2to3', '@y/y']
+        : ['@y/y'],
     );
     expect(files.has('internal/Binding.ts')).toBe(false);
     // Their documents come from the Yjs-only factory (RawYDoc), never from
@@ -435,9 +446,11 @@ test('the core, the runner, the steps and the server entry stay apart', () => {
   // Core's createYDoc builds on the Yjs-only factory.
   expect(graph('internal/YDoc.ts').files.has('internal/RawYDoc.ts')).toBe(true);
   // A step imports nothing of the package but its own frozen sources.
-  expect(
-    [...graph('migrate/1to2.ts').files].filter(
-      f => !f.startsWith('migrate/1to2'),
-    ),
-  ).toEqual([]);
+  for (const step of ['1to2', '2to3']) {
+    expect(
+      [...graph(`migrate/${step}.ts`).files].filter(
+        f => !f.startsWith(`migrate/${step}`),
+      ),
+    ).toEqual([]);
+  }
 });
