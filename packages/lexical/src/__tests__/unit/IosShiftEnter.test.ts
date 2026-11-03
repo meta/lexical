@@ -234,6 +234,36 @@ describe('iOS line breaks and auto-capitalization', () => {
     ]);
   });
 
+  // Opening the #+= symbols plane of the software keyboard sends the same
+  // Shift keydown as a Shift press, then holds Shift through the symbols
+  // until after the next Return, so that Return arrives with shiftKey set.
+  test.each(['*', '%'])(
+    'inserts a paragraph after %s typed on the symbols plane',
+    symbol => {
+      using editor = editorWithText();
+      dispatchKey(editor, 'keydown', 'Shift', true);
+      dispatchKey(editor, 'keydown', symbol, true);
+      dispatchKey(editor, 'keyup', symbol, true);
+      pressEnter(editor, true);
+      expect(paragraphs(editor)).toEqual([
+        {text: 'Some words', type: 'paragraph'},
+        {text: '', type: 'paragraph'},
+      ]);
+    },
+  );
+
+  test('inserts a line break when Shift is pressed again after a symbol', () => {
+    using editor = editorWithText();
+    dispatchKey(editor, 'keydown', 'Shift', true);
+    dispatchKey(editor, 'keydown', '*', true);
+    dispatchKey(editor, 'keyup', '*', true);
+    dispatchKey(editor, 'keydown', 'Shift', true);
+    pressEnter(editor, true);
+    expect(paragraphs(editor)).toEqual([
+      {text: 'Some words\n', type: 'paragraph'},
+    ]);
+  });
+
   // A read-only editor dispatches no BLUR_COMMAND, but a blur still ends
   // the keyboard state of its last edit.
   test('clears explicit Shift on blur while read-only', () => {
