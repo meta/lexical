@@ -1,0 +1,135 @@
+/**
+ * Copyright (c) Meta Platforms, Inc. and affiliates.
+ *
+ * This source code is licensed under the MIT license found in the
+ * LICENSE file in the root directory of this source tree.
+ *
+ * @flow strict
+ */
+
+import type {Doc, Node as YNode} from '@y/y';
+import type {ClientIDRange, YLayoutEpoch} from '@lexical/y';
+
+/**
+ * @lexical/y/migrate: EXPERIMENTAL layout migrations of stored documents.
+ */
+
+export type {YLayoutEpoch};
+
+export type YLayoutMigration = {
+  readonly id: string,
+  readonly revision: number,
+  readonly from: number,
+  readonly to: number,
+  migrateContainer(
+    tr: unknown,
+    container: YNode,
+  ): {readonly written: number, readonly deleted: number},
+  readBefore(container: YNode): ReadonlyArray<string>,
+  readAfter(container: YNode): ReadonlyArray<string>,
+  rewrites(key: string): boolean,
+};
+
+export type YMigrationErrorCode =
+  | 'missing-step'
+  | 'invalid-steps'
+  | 'missing'
+  | 'malformed'
+  | 'newer'
+  | 'pending'
+  | 'post-condition'
+  | 'in-transaction';
+
+declare export class YMigrationError extends Error {
+  readonly code: YMigrationErrorCode;
+  readonly problems: ReadonlyArray<string>;
+  readonly root: string | null;
+  constructor(
+    code: YMigrationErrorCode,
+    message: string,
+    problems?: ReadonlyArray<string>,
+    root?: string | null,
+  ): void;
+}
+
+export type YMigrationStepReceipt = {
+  readonly id: string,
+  readonly revision: number,
+  readonly client: number,
+  readonly written: number,
+  readonly deleted: number,
+};
+
+export type YMigrationRootReceipt = {
+  readonly root: string,
+  readonly from: number | null,
+  readonly to: number | null,
+  readonly changed: boolean,
+  readonly steps: ReadonlyArray<YMigrationStepReceipt>,
+  readonly epoch: YLayoutEpoch | null,
+};
+
+export type YMigrationReceipt = {
+  readonly roots: ReadonlyArray<YMigrationRootReceipt>,
+  readonly changed: boolean,
+  readonly bytesBefore: number,
+  readonly bytesAfter: number,
+  readonly ms: number,
+};
+
+export type YMigrationStepInput = {
+  readonly root: string,
+  readonly step: string,
+  readonly revision: number,
+  readonly to: number,
+};
+
+export type YMigrateOptions = {
+  readonly roots?: ReadonlyArray<string>,
+  readonly to?: number,
+  readonly clientIDRange?: ClientIDRange,
+  readonly clientID?: (input: YMigrationStepInput) => number,
+};
+
+export type YMigrateStateOptions = {
+  ...YMigrateOptions,
+  readonly gc?: boolean,
+};
+
+export type YMigrationResult = {
+  readonly state: Uint8Array,
+  readonly update: Uint8Array | null,
+  readonly pending: Uint8Array | null,
+  readonly receipt: YMigrationReceipt,
+};
+
+export type YMigrationLoaders = {
+  readonly [from: number]: () => Promise<unknown>,
+};
+
+declare export var MIGRATION_ORIGIN: symbol;
+
+declare export function migrateYState(
+  state: Uint8Array,
+  steps: ReadonlyArray<YLayoutMigration>,
+  options?: YMigrateStateOptions,
+): YMigrationResult;
+
+declare export function migrateYDoc(
+  doc: Doc,
+  steps: ReadonlyArray<YLayoutMigration>,
+  options?: YMigrateOptions,
+): YMigrationReceipt;
+
+declare export function loadYMigrationSteps(
+  loaders: YMigrationLoaders,
+  from: number,
+  to?: number,
+): Promise<Array<YLayoutMigration>>;
+
+declare export function recordedLayout(doc: Doc, root?: string): number | null;
+
+declare export function layoutEpoch(
+  doc: Doc,
+  root?: string,
+): YLayoutEpoch | null;

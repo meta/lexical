@@ -107,9 +107,15 @@ describe('public package.json audits (`pnpm run update-packages` to fix most iss
       test.each(exportedModules)(
         `should have a source file for exported module %s`,
         exportedModule => {
-          expect(sourceFiles).toContain(
-            exportedModule.slice(npmName.length + 1) || 'index',
-          );
+          // src/<name>.tsx?, or src/<entry>/<name>.tsx? for a sub-entry
+          // (`<npm name>/<entry>/<name>`, see PackageMetadata and
+          // updateVersion).
+          const name = exportedModule.slice(npmName.length + 1) || 'index';
+          expect(
+            ['.ts', '.tsx']
+              .map(ext => `src/${name}${ext}`)
+              .filter(file => fs.existsSync(pkg.resolve(file))),
+          ).not.toEqual([]);
         },
       );
       describe('TypeScript "too old" guard (clear error for stale TypeScript)', () => {

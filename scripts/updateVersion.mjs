@@ -423,6 +423,23 @@ function updatePublicPackage(pkg) {
           // @mdxeditor/editor uses this at least as of v3.46.0
           exports[`./${basename}.js`] = entry;
         }
+        // Sub-entries of an entry: src/<entry>/<name>.ts is exported as
+        // "<package>/<entry>/<name>" (e.g. @lexical/y/migrate/2to3).
+        const subDir = pkg.resolve('src', basename);
+        if (!isIndex && fs.existsSync(subDir)) {
+          for (const sub of fs.readdirSync(subDir).sort()) {
+            if (/^[^.]+\.ts$/.test(sub)) {
+              const subBase = sub.replace(/\.ts$/, '');
+              const subEntry = exportEntry(
+                npmToWwwName(`${packageName}/${basename}/${subBase}`),
+                `${basename}/${subBase}.d.ts`,
+                `src/${basename}/${sub}`,
+              );
+              exports[`./${basename}/${subBase}`] = subEntry;
+              exports[`./${basename}/${subBase}.js`] = subEntry;
+            }
+          }
+        }
       }
     }
     packageJson.exports = exports;

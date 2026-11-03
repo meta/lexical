@@ -26,6 +26,8 @@ function configOf(doc: YDoc): YCollabConfig {
     clientIDRange: 'uint53',
     convert: false,
     doc,
+    migrateLocally: null,
+    onOlderLayout: null,
     root: null,
     schemaVersion: 1,
     selfCheck: null,

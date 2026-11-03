@@ -1,0 +1,54 @@
+/**
+ * Copyright (c) Meta Platforms, Inc. and affiliates.
+ *
+ * This source code is licensed under the MIT license found in the
+ * LICENSE file in the root directory of this source tree.
+ *
+ * @flow strict
+ */
+
+// Checked by `pnpm run flow` (not shipped): the migration entries.
+
+import type {YLayoutMigration, YMigrationResult} from '@lexical/y/migrate';
+import type {YSessionVerdict} from '@lexical/y/server';
+
+import {MIN_LAYOUT, SEED_LAYOUT, onLayoutEpoch} from '@lexical/y';
+import {migrateYState, YMigrationError} from '@lexical/y/migrate';
+import step1to2 from '@lexical/y/migrate/1to2';
+import {
+  checkYSession,
+  createYDoc,
+  generationOf,
+  prepareYRoom,
+} from '@lexical/y/server';
+
+declare const stored: Uint8Array;
+
+const steps: ReadonlyArray<YLayoutMigration> = [step1to2];
+const result: YMigrationResult = migrateYState(stored, steps, {gc: true, to: 2});
+const update: Uint8Array | null = result.update;
+// $FlowExpectedError[incompatible-type] update is null when nothing ran
+const always: Uint8Array = result.update;
+const error = new YMigrationError('missing-step', 'no step');
+// $FlowExpectedError[incompatible-type] codes are a closed set
+const bad = new YMigrationError('other', 'no');
+const doc = createYDoc(stored);
+const generation: string = generationOf(doc, 'incarnation');
+const room = prepareYRoom(stored, {incarnation: 'i', steps});
+const verdict: YSessionVerdict = checkYSession(
+  {
+    generation: room.generation,
+    incarnation: 'i',
+    inherited: false,
+    layout: 1,
+    pristine: false,
+    seedContract: SEED_LAYOUT,
+  },
+  {generation: null, layouts: [MIN_LAYOUT, 2], material: false, seed: SEED_LAYOUT},
+);
+if (verdict.verdict === 'admit') {
+  const initialize: boolean = verdict.initialize;
+}
+const stop: () => void = onLayoutEpoch(doc, epoch => {
+  const layout: ?number = epoch?.layout;
+});

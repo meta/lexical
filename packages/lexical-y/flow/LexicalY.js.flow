@@ -7,7 +7,12 @@
  * @flow strict
  */
 
-import type {LexicalEditor, LexicalExtension, PointType} from 'lexical';
+import type {
+  LexicalEditor,
+  LexicalExtension,
+  PointType,
+  SerializedEditorState,
+} from 'lexical';
 import {LexicalWarning} from 'lexical';
 import type {Doc, Node as YNode, UndoManager} from '@y/y';
 import type {ReadonlySignal} from '@lexical/extension';
@@ -18,6 +23,8 @@ import type {ReadonlySignal} from '@lexical/extension';
 
 declare export var DEFAULT_ROOT_NAME: 'lexical-y';
 declare export var LAYOUT_VERSION: 2;
+declare export var MIN_LAYOUT: 1;
+declare export var SEED_LAYOUT: 1;
 
 export type YBindingStatus = 'pending' | 'active' | 'readonly';
 
@@ -53,6 +60,7 @@ export type YUnsupportedLayoutData =
   | {readonly reason: 'newer', readonly found: number, readonly supported: number}
   | {readonly reason: 'malformed', readonly key: string, readonly found: unknown, readonly supported: number}
   | {readonly reason: 'missing' | 'removed', readonly supported: number}
+  | {readonly reason: 'older', readonly found: number, readonly min: number, readonly supported: number}
   | {readonly reason: 'legacy-roots', readonly roots: ReadonlyArray<string>, readonly supported: number};
 export type YUnsupportedSchemaData =
   | {readonly reason: 'newer', readonly found: number, readonly supported: number}
@@ -178,7 +186,34 @@ export type YBindingOptions = {
   selfCheckSample?: number,
   convert?: boolean,
   clientIDRange?: ClientIDRange,
+  migrateLocally?: YMigrateLocally,
+  onOlderLayout?: (found: number, min: number) => void,
 };
+
+// Loaders for YBindingOptions.migrateLocally: one per layout a step
+// migrates from, and the runner (@lexical/y/migrate).
+export type YMigrateLocally = {
+  readonly [from: number]: () => Promise<unknown>,
+  readonly runner: () => Promise<unknown>,
+};
+
+// What a layout migration records under `lexical-y-epoch`.
+export type YLayoutEpoch = {
+  readonly v: 1,
+  readonly layout: number,
+  readonly client: number,
+  readonly clock: number,
+  readonly step: string,
+  readonly revision: number,
+};
+
+// Calls `fn` after every listener of a transaction that changed `root`'s
+// epoch (a migration) has run: clear app UndoManagers there.
+declare export function onLayoutEpoch(
+  doc: Doc,
+  fn: (epoch: YLayoutEpoch | null) => void,
+  root?: string | YNode,
+): () => void;
 
 export type YCursor = {anchor: unknown, focus: unknown};
 
@@ -248,6 +283,10 @@ declare export class YBinding {
   undo(): boolean;
   redo(): boolean;
   getCursor(): YCursor | null;
+  quiesce(): {
+    state: Uint8Array,
+    draft: {json: SerializedEditorState, differs: boolean},
+  };
   $resolveCursor(cursor: YCursor): {anchor: PointType, focus: PointType} | null;
 }
 
@@ -272,6 +311,8 @@ export type YCollabConfig = {
   selfCheck: boolean | null,
   selfCheckSample: number | null,
   convert: boolean,
+  migrateLocally: YMigrateLocally | null,
+  onOlderLayout: ((found: number, min: number) => void) | null,
 };
 
 declare export var YCollabExtension: LexicalExtension<

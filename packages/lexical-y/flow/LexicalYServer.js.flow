@@ -1,0 +1,203 @@
+/**
+ * Copyright (c) Meta Platforms, Inc. and affiliates.
+ *
+ * This source code is licensed under the MIT license found in the
+ * LICENSE file in the root directory of this source tree.
+ *
+ * @flow strict
+ */
+
+import type {Doc} from '@y/y';
+import type {ClientIDRange, YDoc, YDocOptions} from '@lexical/y';
+import type {
+  YLayoutMigration,
+  YMigrationReceipt,
+  YMigrationStepInput,
+} from '@lexical/y/migrate';
+
+/**
+ * @lexical/y/server: EXPERIMENTAL pieces of a server or relay that stores
+ * @lexical/y documents: load-time migration, generations, the handshake
+ * verdict, legacy capture and quarantine records. No Lexical import.
+ */
+
+export type {YDoc, YDocOptions};
+
+// A Y.Doc for a relay's or server's copy of a document: format cleanup off,
+// nothing else (a relay never undoes; bind clients with @lexical/y's).
+declare export function createYDoc(
+  state?: Uint8Array | null,
+  options?: YDocOptions,
+): YDoc;
+
+declare export function generationOf(
+  doc: Doc,
+  incarnation: string,
+  roots?: ReadonlyArray<string>,
+): string;
+
+export type YPrepareRoomOptions = {
+  readonly steps: ReadonlyArray<YLayoutMigration>,
+  readonly incarnation: string,
+  readonly roots?: ReadonlyArray<string>,
+  readonly gc?: boolean,
+  readonly to?: number,
+  readonly clientIDRange?: ClientIDRange,
+  readonly clientID?: (input: YMigrationStepInput) => number,
+};
+
+export type YPreparedRoom = {
+  readonly changed: boolean,
+  readonly state: Uint8Array,
+  readonly generation: string,
+  readonly base: {readonly generation: string, readonly state: Uint8Array} | null,
+  readonly pending: Uint8Array | null,
+  readonly receipt: YMigrationReceipt,
+};
+
+declare export function prepareYRoom(
+  stored: Uint8Array,
+  options: YPrepareRoomOptions,
+): YPreparedRoom;
+
+declare export var UNKNOWN_GENERATION: 'unknown';
+
+export type YSessionHandshake = {
+  readonly generation: string | null,
+  readonly material: boolean,
+  readonly layouts: [number, number],
+  readonly seed: number,
+};
+
+export type YRoomDescription = {
+  readonly generation: string,
+  readonly incarnation: string,
+  readonly inherited: boolean,
+  readonly pristine: boolean,
+  readonly layout: number | null,
+  readonly seedContract: number,
+};
+
+declare export function describeYRoom(
+  doc: Doc,
+  options: {
+    readonly incarnation: string,
+    readonly inherited: boolean,
+    readonly seedContract: number,
+    readonly roots?: ReadonlyArray<string>,
+  },
+): YRoomDescription;
+
+declare export function needsNewIncarnation(
+  room: YRoomDescription,
+  seedLayout: number,
+): boolean;
+
+export type YSessionVerdict =
+  | {readonly verdict: 'admit', readonly initialize: boolean}
+  | {readonly verdict: 'bootstrap', readonly initialize: boolean}
+  | {readonly verdict: 'stale'}
+  | {readonly verdict: 'refuse-layout'}
+  | {readonly verdict: 'legacy'};
+
+declare export function checkYSession(
+  room: YRoomDescription,
+  client: YSessionHandshake | null,
+): YSessionVerdict;
+
+export type YLegacySignal = {
+  readonly update: Uint8Array,
+  readonly client: number,
+  readonly clock: number,
+  readonly root: string,
+  readonly key: string,
+};
+
+export type YSessionCapture = {
+  readonly syncStep2: Uint8Array,
+  readonly syncStep1: Uint8Array,
+  readonly messages: ReadonlyArray<Uint8Array>,
+  add(update: Uint8Array): void,
+  signal(supportedSchema: number, root?: string): YLegacySignal | null,
+  collisions(): Array<YLegacySignal>,
+  material(): {
+    snapshot: Uint8Array | null,
+    deltas: Array<Uint8Array>,
+    signals: Array<YLegacySignal>,
+  },
+};
+
+declare export function captureYSession(): YSessionCapture;
+
+declare export function legacySignal(
+  snapshot: Uint8Array,
+  supportedSchema: number,
+  root?: string,
+): YLegacySignal;
+
+export type YRecordSource = {
+  readonly incarnation: string | null,
+  readonly generation: string | null,
+  readonly layouts: [number, number] | null,
+  readonly schemaVersion: number | null,
+  readonly renderer: string | null,
+};
+
+export type YDraft = {readonly json: unknown, readonly differs: boolean};
+
+export type YQuarantineRecord = {
+  readonly id: string,
+  readonly session: string | null,
+  readonly replica: string | null,
+  readonly kind: 'handoff' | 'capture' | 'pending',
+  readonly source: YRecordSource,
+  readonly snapshot: Uint8Array | null,
+  readonly deltas: ReadonlyArray<Uint8Array>,
+  readonly queue: ReadonlyArray<Uint8Array>,
+  readonly draft: YDraft | null,
+  readonly base: string | null,
+  readonly signals: ReadonlyArray<YLegacySignal>,
+  readonly collisions: ReadonlyArray<YLegacySignal>,
+  readonly receivedAt: number,
+  readonly hash: string,
+  readonly complete: boolean,
+  readonly actionable: boolean,
+};
+
+export type YQuarantineRecordInput = {
+  readonly id?: string,
+  readonly session?: string | null,
+  readonly replica?: string | null,
+  readonly kind: 'handoff' | 'capture' | 'pending',
+  readonly source: YRecordSource,
+  readonly snapshot?: Uint8Array | null,
+  readonly deltas?: ReadonlyArray<Uint8Array>,
+  readonly queue?: ReadonlyArray<Uint8Array>,
+  readonly draft?: YDraft | null,
+  readonly signals?: ReadonlyArray<YLegacySignal>,
+  readonly receivedAt: number,
+};
+
+declare export function sourceView(record: {
+  readonly snapshot: Uint8Array | null,
+  readonly deltas: ReadonlyArray<Uint8Array>,
+  readonly queue: ReadonlyArray<Uint8Array>,
+  ...
+}): {doc: Doc, complete: boolean};
+
+declare export function quarantineRecord(
+  input: YQuarantineRecordInput,
+  base?: {readonly generation: string, readonly state: Uint8Array} | null,
+): YQuarantineRecord;
+
+declare export function hasNewYEdits(
+  record: {
+    readonly snapshot: Uint8Array | null,
+    readonly deltas: ReadonlyArray<Uint8Array>,
+    readonly queue: ReadonlyArray<Uint8Array>,
+    readonly signals: ReadonlyArray<YLegacySignal>,
+    readonly draft: YDraft | null,
+    ...
+  },
+  base: Uint8Array,
+): boolean;
