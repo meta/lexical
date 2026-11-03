@@ -746,6 +746,13 @@ function $createNode(key: NodeKey, slot: DOMSlot | null): HTMLElement {
     setDOMUnmanaged(dom, {captureSelection: true});
   }
 
+  // A child created below can take over (move) the DOM that `slot.before`
+  // points at: a node moved from another parent in this update reuses its
+  // DOM. Remember the node in front of it, so that this DOM still goes where
+  // `slot.before` stood.
+  const beforeDOM = slot !== null ? slot.before : null;
+  const beforePrevDOM = beforeDOM !== null ? beforeDOM.previousSibling : null;
+
   if ($isElementNode(node)) {
     const outerBefore = subTreeTextContent;
     const indent = node.__indent;
@@ -840,7 +847,21 @@ function $createNode(key: NodeKey, slot: DOMSlot | null): HTMLElement {
   }
 
   if (slot !== null) {
-    slot.insertChild(dom);
+    if (
+      beforeDOM !== null &&
+      beforeDOM.parentNode !== slot.element &&
+      (beforePrevDOM === null || beforePrevDOM.parentNode === slot.element)
+    ) {
+      slot
+        .withBefore(
+          beforePrevDOM !== null
+            ? beforePrevDOM.nextSibling
+            : slot.getFirstChild(),
+        )
+        .insertChild(dom);
+    } else {
+      slot.insertChild(dom);
+    }
   }
 
   activeEditorDOMRenderConfig.$decorateDOM(node, null, dom, activeEditor);
@@ -2081,7 +2102,15 @@ function $reconcileNodeChildren(
         // of the lexical range; fall back to `slot.before` so slots with a
         // trailing non-lexical decoration (e.g. block drag handle) keep
         // that decoration after the new child.
-        $createNode(nextKey, slot.withBefore(siblingDOM ?? slot.before));
+        const createdDOM = $createNode(
+          nextKey,
+          slot.withBefore(siblingDOM ?? slot.before),
+        );
+        // The created subtree can have taken over siblingDOM (a node moved
+        // into it from this parent); the created DOM stands in its place.
+        if (siblingDOM !== null && siblingDOM.parentNode !== slot.element) {
+          siblingDOM = getNextSibling(createdDOM);
+        }
         nextIndex++;
       } else {
         // Move next
