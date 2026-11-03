@@ -66,14 +66,16 @@ test('internal writes of node attributes go through Seen', () => {
   const dir = path.resolve(__dirname, '../../internal');
   const found: string[] = [];
   for (const name of fs.readdirSync(dir).sort()) {
-    // YjsContract.ts probes @y/y on scratch documents of its own, and the
-    // migration runner (Runner.ts) and the server helpers (Server.ts) write
-    // observer-free copies of their own, never a document a binding reads,
-    // so their writes have no Seen record to keep.
+    // YjsContract.ts and YjsMigrationContract.ts probe @y/y on scratch
+    // documents of their own, and the migration runner (Runner.ts) and the
+    // server helpers (Server.ts) write observer-free copies of their own,
+    // never a document a binding reads, so their writes have no Seen record
+    // to keep.
     if (
       !name.endsWith('.ts') ||
       name === 'Seen.ts' ||
       name === 'YjsContract.ts' ||
+      name === 'YjsMigrationContract.ts' ||
       name === 'Runner.ts' ||
       name === 'Server.ts'
     ) {
@@ -314,6 +316,7 @@ test('the core, the runner, the steps and the server entry stay apart', () => {
   const migrationCode = (f: string) =>
     f === 'internal/Runner.ts' ||
     f === 'internal/Server.ts' ||
+    f === 'internal/YjsMigrationContract.ts' ||
     f.startsWith('migrate/');
   for (const entry of ['index.ts', 'headless.ts']) {
     expect([...graph(entry).files].filter(migrationCode)).toEqual([]);

@@ -34,6 +34,11 @@ import {
   YJS_EXPORTS,
   yjsMembers,
 } from '../../internal/YjsContract';
+import {
+  MIGRATION_YJS_EXPORTS,
+  migrationYjsMembers,
+  probeMigrationYjs,
+} from '../../internal/YjsMigrationContract';
 
 const PACKAGE_DIR = path.resolve(__dirname, '../../..');
 const SRC_DIR = path.join(PACKAGE_DIR, 'src');
@@ -161,8 +166,9 @@ function inventory(): Map<string, Set<string>> {
       } else if (
         /\.tsx?$/.test(entry.name) &&
         !/\.(test|bench)\.tsx?$/.test(entry.name) &&
-        // The contract's own probe is not a use.
-        entry.name !== 'YjsContract.ts'
+        // The contract's own probes are not uses.
+        entry.name !== 'YjsContract.ts' &&
+        entry.name !== 'YjsMigrationContract.ts'
       ) {
         files.push(p);
       }
@@ -433,17 +439,28 @@ describe('the contract', () => {
     const uses = inventory();
     // `YNode` is the class @y/y exports as `Node`.
     const exportName = (name: string) => (name === 'YNode' ? 'Node' : name);
-    const used = new Set<string>();
-    for (const key of uses.keys()) {
-      if (key.startsWith('import ')) {
-        used.add(`export ${exportName(key.slice(7))}`);
-      } else if (key.startsWith('new ')) {
-        used.add(`export ${exportName(key.slice(4))}`);
-      } else {
-        used.add(key);
+    const keyOf = (key: string) =>
+      key.startsWith('import ')
+        ? `export ${exportName(key.slice(7))}`
+        : key.startsWith('new ')
+          ? `export ${exportName(key.slice(4))}`
+          : key;
+    // The runner, the server entry and the steps check their own part of
+    // the contract (YjsMigrationContract); the core checks the rest.
+    const isMigration = (file: string) =>
+      file === 'internal/Runner.ts' ||
+      file === 'internal/Server.ts' ||
+      file.startsWith('migrate/') ||
+      file.startsWith('migrate.') ||
+      file.startsWith('server.');
+    const usedByCore = new Set<string>();
+    const usedByMigration = new Set<string>();
+    for (const [key, files] of uses) {
+      for (const file of files) {
+        (isMigration(file) ? usedByMigration : usedByCore).add(keyOf(key));
       }
     }
-    const listed = new Set<string>([
+    const listedCore = new Set<string>([
       ...YJS_EXPORTS.map(name => `export ${name}`),
       ...Object.entries(yjsMembers()).flatMap(([owner, members]) =>
         Object.keys(members).map(m => `${owner}#${m}`),
@@ -452,21 +469,53 @@ describe('the contract', () => {
         events.map(e => `${owner}@${e}`),
       ),
     ]);
+    const listedMigration = new Set<string>([
+      ...MIGRATION_YJS_EXPORTS.map(name => `export ${name}`),
+      ...Object.entries(migrationYjsMembers()).flatMap(([owner, members]) =>
+        Object.keys(members).map(m => `${owner}#${m}`),
+      ),
+    ]);
     const where = (key: string) => {
       const files =
         uses.get(key) || uses.get(key.replace('export ', 'import '));
       return files ? ` (${[...files].join(', ')})` : '';
     };
     // Used but not in the contract: add it to the lists in
-    // src/internal/YjsContract.ts (its arity for an export), so the runtime
-    // check probes it. Listed but no longer used: remove it.
+    // src/internal/YjsContract.ts (or YjsMigrationContract.ts for what only
+    // the runner and the server use), so the runtime check probes it.
+    // Listed but no longer used: remove it.
+    const migrationOnly = [...usedByMigration].filter(k => !listedCore.has(k));
     expect({
-      listedButUnused: [...listed].filter(k => !used.has(k)).sort(),
-      usedButNotListed: [...used]
-        .filter(k => !listed.has(k))
-        .sort()
-        .map(k => k + where(k)),
-    }).toEqual({listedButUnused: [], usedButNotListed: []});
+      core: {
+        listedButUnused: [...listedCore].filter(k => !usedByCore.has(k)).sort(),
+        usedButNotListed: [...usedByCore]
+          .filter(k => !listedCore.has(k))
+          .sort()
+          .map(k => k + where(k)),
+      },
+      migration: {
+        listedButUnused: [...listedMigration]
+          .filter(k => !migrationOnly.includes(k))
+          .sort(),
+        usedButNotListed: migrationOnly
+          .filter(k => !listedMigration.has(k))
+          .sort()
+          .map(k => k + where(k)),
+      },
+    }).toEqual({
+      core: {listedButUnused: [], usedButNotListed: []},
+      migration: {listedButUnused: [], usedButNotListed: []},
+    });
+  });
+
+  test('the installed @y/y passes the migration probe, which the core does not ship', () => {
+    expect(probeMigrationYjs()).toEqual([]);
+    expect(probeMigrationYjs({...Y, diffUpdate: undefined} as never)).toEqual([
+      'diffUpdate',
+    ]);
+    // Nothing of the core reaches it.
+    const src = fs.readFileSync(path.join(SRC_DIR, 'internal/YDoc.ts'), 'utf8');
+    expect(src.includes('YjsMigrationContract')).toBe(false);
   });
 
   test('the installed @y/y passes the probe', () => {

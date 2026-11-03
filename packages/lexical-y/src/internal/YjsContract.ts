@@ -17,18 +17,15 @@ import {
   createIdSet,
   createRelativePositionFromJSON,
   decodeUpdate,
-  diffUpdate,
   Doc,
   encodeStateAsUpdate,
   encodeStateVector,
-  encodeStateVectorFromUpdate,
   findIndexSS,
   findRootTypeKey,
   type GC,
   getItemCleanStart,
   type ID,
   type IdSet,
-  intersectUpdateWithContentIds,
   Item,
   iterateStructsByIdSet,
   mergeUpdates,
@@ -92,14 +89,11 @@ export const YJS_EXPORTS = [
   'createIdSet',
   'createRelativePositionFromJSON',
   'decodeUpdate',
-  'diffUpdate',
   'encodeStateAsUpdate',
   'encodeStateVector',
-  'encodeStateVectorFromUpdate',
   'findIndexSS',
   'findRootTypeKey',
   'getItemCleanStart',
-  'intersectUpdateWithContentIds',
   'iterateStructsByIdSet',
   'mergeUpdates',
   'relativePositionToJSON',
@@ -111,19 +105,20 @@ type IdRange = ReturnType<IdRanges['getIds']>[number];
 type StackItem = UndoManager['undoStack'][number];
 type AbstractContent = Item['content'];
 type DecodedUpdate = ReturnType<typeof decodeUpdate>;
-type ContentIds = Parameters<typeof intersectUpdateWithContentIds>[1];
 interface StackItemEvent {
   stackItem: StackItem;
   origin: unknown;
 }
 
-const isFunction = (value: unknown): boolean => typeof value === 'function';
-const isObject = (value: unknown): boolean =>
+export const isFunction = (value: unknown): boolean =>
+  typeof value === 'function';
+export const isObject = (value: unknown): boolean =>
   typeof value === 'object' && value !== null;
 /** A field that may hold null (an empty pointer), never undefined. */
-const isSet = (value: unknown): boolean => value !== undefined;
-const isNumber = (value: unknown): boolean => typeof value === 'number';
-const isBoolean = (value: unknown): boolean => typeof value === 'boolean';
+export const isSet = (value: unknown): boolean => value !== undefined;
+export const isNumber = (value: unknown): boolean => typeof value === 'number';
+export const isBoolean = (value: unknown): boolean =>
+  typeof value === 'boolean';
 /** A Map from any realm (@y/y may run in another one, such as a VM's). */
 const isMap = (value: unknown): boolean => {
   try {
@@ -153,10 +148,6 @@ export function yjsMembers() {
       key: (c: ContentFormat) => typeof c.key === 'string',
       value: (c: ContentFormat) => isSet(c.value),
     },
-    ContentIds: {
-      deletes: (c: ContentIds) => isObject(c.deletes),
-      inserts: (c: ContentIds) => isObject(c.inserts),
-    },
     ContentString: {
       str: (c: ContentString) => typeof c.str === 'string',
     },
@@ -169,7 +160,6 @@ export function yjsMembers() {
       cleanupFormatting: (d: Doc) => isBoolean(d.cleanupFormatting),
       clientID: (d: Doc) => isNumber(d.clientID),
       destroy: (d: Doc) => isFunction(d.destroy),
-      gc: (d: Doc) => isBoolean(d.gc),
       get: (d: Doc) => isFunction(d.get),
       isDestroyed: (d: Doc) => isBoolean(d.isDestroyed),
       off: (d: Doc) => isFunction(d.off),
@@ -184,7 +174,6 @@ export function yjsMembers() {
     },
     GC: {
       id: (g: GC) => isObject(g.id),
-      length: (g: GC) => isNumber(g.length),
     },
     ID: {
       client: (id: ID) => isNumber(id.client),
@@ -201,7 +190,6 @@ export function yjsMembers() {
       add: (s: IdSet) => isFunction(s.add),
       clients: (s: IdSet) => isMap(s.clients),
       hasId: (s: IdSet) => isFunction(s.hasId),
-      isEmpty: (s: IdSet) => isFunction(s.isEmpty),
     },
     Item: {
       content: (it: Item) => isObject(it.content),
@@ -227,7 +215,6 @@ export function yjsMembers() {
     },
     Skip: {
       id: (k: Skip) => isObject(k.id),
-      length: (k: Skip) => isNumber(k.length),
     },
     StackItem: {
       deletes: (s: StackItem) => isObject(s.deletes),
@@ -242,9 +229,6 @@ export function yjsMembers() {
       clients: (s: StructStore) => isMap(s.clients),
       getClock: (s: StructStore) => isFunction(s.getClock),
       getItem: (s: StructStore) => isFunction(s.getItem),
-      pendingDs: (s: StructStore) => isSet(s.pendingDs),
-      pendingStructs: (s: StructStore) => isSet(s.pendingStructs),
-      skips: (s: StructStore) => isObject(s.skips),
     },
     Transaction: {
       changed: (tr: Transaction) => isMap(tr.changed),
@@ -405,14 +389,11 @@ function yjsExports() {
     createIdSet,
     createRelativePositionFromJSON,
     decodeUpdate,
-    diffUpdate,
     encodeStateAsUpdate,
     encodeStateVector,
-    encodeStateVectorFromUpdate,
     findIndexSS,
     findRootTypeKey,
     getItemCleanStart,
-    intersectUpdateWithContentIds,
     iterateStructsByIdSet,
     mergeUpdates,
     relativePositionToJSON,
@@ -576,17 +557,6 @@ function probeMembers(y: YjsExports, found: string[]): void {
     sample('RelativePosition', new y.RelativePosition(null, null, null, 0));
     sample('Skip', new y.Skip(y.createID(1, 0), 1));
     sample('decodeUpdate', y.decodeUpdate(y.encodeStateAsUpdate(doc)));
-    // The pattern intersectUpdateWithContentIds reads (the migration runner
-    // passes one): an empty one keeps no struct of a document with some.
-    const pattern = {deletes: y.createIdSet(), inserts: y.createIdSet()};
-    sample('ContentIds', pattern);
-    if (
-      y.decodeUpdate(
-        y.intersectUpdateWithContentIds(y.encodeStateAsUpdate(doc), pattern),
-      ).structs.length !== 0
-    ) {
-      found.push('intersectUpdateWithContentIds ignores ContentIds#inserts');
-    }
     undoManager.undo();
     undoManager.clear();
   } catch (error) {

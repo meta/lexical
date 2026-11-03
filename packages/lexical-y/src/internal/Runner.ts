@@ -38,7 +38,17 @@ import {
   layoutRecordOf,
   type YLayoutEpoch,
 } from './Layouts';
-import {createRawYDoc as createYDoc} from './RawYDoc';
+import {createRawYDoc, type YDoc, type YDocOptions} from './RawYDoc';
+import {assertSupportedMigrationYjs} from './YjsMigrationContract';
+
+/**
+ * A scratch document (Yjs only, see RawYDoc), once @y/y is checked against
+ * the core's contract and this module's part of it.
+ */
+function createYDoc(state?: Uint8Array | null, options?: YDocOptions): YDoc {
+  assertSupportedMigrationYjs();
+  return createRawYDoc(state, options);
+}
 
 // The layout migration runner (see @lexical/y/migrate). Never imported by
 // the binding: a server imports it with its steps; a client loads both
@@ -1383,6 +1393,7 @@ export function migrateYDoc(
   steps: readonly YLayoutMigration[],
   options: YMigrateOptions = {},
 ): YMigrationReceipt {
+  assertSupportedMigrationYjs();
   if (doc._transaction !== null) {
     throw new YMigrationError(
       'in-transaction',

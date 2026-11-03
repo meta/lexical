@@ -26,7 +26,17 @@ import {
 import {type ClientIDRange} from './ClientID';
 import {DEFAULT_ROOT_NAME, MIN_LAYOUT, SCHEMA_PREFIX} from './constants';
 import {epochRecordOf, existingRoot, layoutRecordOf} from './Layouts';
-import {createRawYDoc as createYDoc} from './RawYDoc';
+import {createRawYDoc, type YDoc, type YDocOptions} from './RawYDoc';
+import {assertSupportedMigrationYjs} from './YjsMigrationContract';
+
+/**
+ * A scratch document (Yjs only, see RawYDoc), once @y/y is checked against
+ * the core's contract and this module's part of it.
+ */
+function createYDoc(state?: Uint8Array | null, options?: YDocOptions): YDoc {
+  assertSupportedMigrationYjs();
+  return createRawYDoc(state, options);
+}
 
 // The authority's side of layout migrations and the generation fence
 // (@lexical/y/server; D102, y-server.md "Migrating stored documents"): the
