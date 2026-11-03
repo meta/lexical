@@ -93,6 +93,8 @@ const IVS_CLASS = 8;
 // The amendment's CJK characters: East Asian Width F, H and W, without the
 // characters shown as emoji, and the Hangul script, from the Unicode 17 data
 // of `get-east-asian-width` 1.7 that `micromark-extension-cjk-friendly` reads.
+// The MdastCjkTable test compares it with that package: regenerate it when
+// a dependency update makes that test fail.
 const CJK =
   // A range that starts at a combining mark is still a range of code points.
   // eslint-disable-next-line no-misleading-character-class

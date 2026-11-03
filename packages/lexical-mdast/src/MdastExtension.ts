@@ -131,7 +131,7 @@ export interface MdastConfig {
    * `**你好。**世界` as its CJK writer meant and everything else as
    * CommonMark does.
    */
-  readonly importPunctuation: MdastPunctuationMode;
+  readonly importPunctuation?: MdastPunctuationMode;
   /**
    * Which readers export writes emphasis and strikethrough markers for.
    * Defaults to `'strict-commonmark'`, which writes a character reference
@@ -141,7 +141,7 @@ export interface MdastConfig {
    * typed (`**你好。**世界`), for readers that follow the CJK-friendly
    * amendment, such as a CJK-friendly import.
    */
-  readonly exportPunctuation: MdastPunctuationMode;
+  readonly exportPunctuation?: MdastPunctuationMode;
 }
 
 /**

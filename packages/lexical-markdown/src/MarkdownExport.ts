@@ -1089,7 +1089,9 @@ function decideReferences(
     flankingBefore(
       values[index],
       values[index].length,
-      index > 0 && /^[\ufe00-\ufe0e]$/.test(values[index])
+      index > 0 &&
+        values[index].length === 1 &&
+        isVariationSelector(values[index])
         ? endChar(index - 1)
         : undefined,
     )!;

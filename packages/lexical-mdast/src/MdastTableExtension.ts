@@ -57,6 +57,7 @@ import {gfmTableFromMarkdown, gfmTableToMarkdown} from 'mdast-util-gfm-table';
 import {gfmTable} from 'micromark-extension-gfm-table';
 
 import {$append, $isBlockLevelNode, inlineMarker} from './handlers';
+import {getExportedLength} from './MdastExport';
 import {MdastExtension} from './MdastExtension';
 
 /**
@@ -582,7 +583,7 @@ const cellLine = (value: string) =>
  * @__NO_SIDE_EFFECTS__
  */
 function gfmTableCellsToMarkdown(): ToMarkdownExtension {
-  const extension = gfmTableToMarkdown();
+  const extension = gfmTableToMarkdown({stringLength: getExportedLength});
   const handlers = extension.handlers || {};
   const handleTable = handlers.table as Handle;
   const table: Handle = (node: Table, parent, state, info) => {

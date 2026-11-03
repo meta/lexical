@@ -196,6 +196,18 @@ describe('Markdown punctuation modes', () => {
       ],
       [['\ufe0e__a__', 0]],
     ],
+    [
+      'b[\ufe0e__a__](https://x.com)',
+      [
+        ['b', 0],
+        ['\ufe0e', 0],
+        ['a', bold],
+      ],
+      [
+        ['b', 0],
+        ['\ufe0e__a__', 0],
+      ],
+    ],
     ['__「a」__世', [['__「a」__世', 0]], [['__「a」__世', 0]]],
     ['a**“b”**c', [['a**“b”**c', 0]], [['a**“b”**c', 0]]],
   ])('imports %j', (markdown, cjkFriendly, strict) => {

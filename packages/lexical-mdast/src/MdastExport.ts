@@ -652,7 +652,9 @@ const LETTER_CLASS = 3;
 
 /**
  * A stand-in for each of `characters`: a punctuation character of the Basic
- * Multilingual Plane that is not in `used`.
+ * Multilingual Plane that is not in `used`. A document that uses the
+ * range's hundreds of punctuation characters leaves the rest without one,
+ * and they go out as they are.
  */
 function pickStandIns(
   characters: Iterable<string>,
@@ -678,29 +680,43 @@ function pickStandIns(
 
 /**
  * Wraps the `text` handler so that it serializes the text with the
- * characters of {@link pickStandIns} standing in.
+ * characters of {@link pickStandIns} standing in, counting in `written` how
+ * often it writes each stand-in; a look at the text ahead counts nothing.
  */
 function standInText(
   handle: Handle,
   standIns: Map<string, string>,
+  written: Map<string, number>,
 ): ToMarkdownExtension {
-  const text: Handle = (node: Text, parent, state, info) => {
+  const serialize = (
+    isCounted: boolean,
+    ...[node, parent, state, info]: Parameters<Handle>
+  ): string => {
     // An autolink writes its text as is, with no emphasis around it.
     if (state.stack.includes('autolink')) {
       return handle(node, parent, state, info);
     }
-    const {value} = node;
+    const {value} = node as Text;
     // Set on the node itself, which the handler finds among its siblings.
-    node.value = value.replace(
-      STOOD_IN,
-      character => standIns.get(character) || character,
-    );
+    (node as Text).value = value.replace(STOOD_IN, character => {
+      const standIn = standIns.get(character);
+      if (standIn === undefined) {
+        return character;
+      }
+      if (isCounted) {
+        written.set(standIn, (written.get(standIn) || 0) + 1);
+      }
+      return standIn;
+    });
     try {
       return handle(node, parent, state, info);
     } finally {
-      node.value = value;
+      (node as Text).value = value;
     }
   };
+  const text = Object.assign(serialize.bind(null, true), {
+    peek: serialize.bind(null, false),
+  }) as Handle;
   return {handlers: {text}};
 }
 
@@ -718,6 +734,19 @@ function getTextHandler(
     }
   }
   return handle;
+}
+
+// How the export in progress puts its stand-ins back, for measuring.
+let measuredRestore: ((value: string) => string) | null = null;
+
+/**
+ * The length of `value`, a part of the Markdown being exported, once its
+ * stand-ins are put back: a table measures its cells with it to align them.
+ *
+ * @internal
+ */
+export function getExportedLength(value: string): number {
+  return (measuredRestore ? measuredRestore(value) : value).length;
 }
 
 /**
@@ -747,26 +776,34 @@ function toMarkdownWithStandIns(
     // the output holds, and failing that serialize without stand-ins.
     for (let attempt = 0; attempt < 2; attempt++) {
       const standIns = pickStandIns(counts.keys(), used);
-      const out = toMarkdown(tree, {
-        extensions: [...extensions, standInText(text, standIns)],
-      });
-      const found = new Map<string, number>();
       const characters = new Map<string, string>();
       for (const [character, standIn] of standIns) {
         characters.set(standIn, character);
       }
+      const written = new Map<string, number>();
+      const restore = (value: string) =>
+        restoreStoodIn(value, characters, isCjkFriendly);
+      measuredRestore = restore;
+      let out: string;
+      try {
+        out = toMarkdown(tree, {
+          extensions: [...extensions, standInText(text, standIns, written)],
+        });
+      } finally {
+        measuredRestore = null;
+      }
+      const found = new Map<string, number>();
       for (let i = 0; i < out.length; i++) {
-        const character = characters.get(out[i]);
-        if (character !== undefined) {
-          found.set(character, (found.get(character) || 0) + 1);
+        if (characters.has(out[i])) {
+          found.set(out[i], (found.get(out[i]) || 0) + 1);
         }
       }
       let isClean = true;
-      for (const [character, count] of found) {
-        isClean &&= count <= counts.get(character)!;
+      for (const [standIn, count] of found) {
+        isClean &&= count <= (written.get(standIn) || 0);
       }
       if (isClean) {
-        return restoreStoodIn(out, characters, isCjkFriendly);
+        return restore(out);
       }
       collectUsed(out, used);
     }

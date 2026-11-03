@@ -22,6 +22,7 @@ import {
   classifyCharacter,
   classifyPrecedingCharacter,
   isCjk,
+  isNonEmojiGeneralUseVS,
   isUnicodeWhitespace,
   tryGetCodeTwoBefore,
 } from 'micromark-extension-cjk-friendly-util';
@@ -50,7 +51,7 @@ function cjkFriendlyStrikethrough(): MicromarkExtension {
     tokenize(effects, ok, nok) {
       const {previous} = this;
       const base =
-        previous !== null && previous >= 0xfe00 && previous <= 0xfe0e
+        previous !== null && isNonEmojiGeneralUseVS(classifyCharacter(previous))
           ? tryGetCodeTwoBefore(previous, this.now(), this.sliceSerialize)
           : null;
       if (base === null || isUnicodeWhitespace(classifyCharacter(base))) {

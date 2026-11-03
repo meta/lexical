@@ -20,10 +20,12 @@ import type {Extension as MicromarkExtension} from 'micromark-util-types';
 /**
  * How emphasis markers read the punctuation beside them.
  *
- * - `'strict-commonmark'` follows CommonMark 0.31.2 and GFM: a marker between
- *   a letter and punctuation, such as the closing `**` of `**你好。**世界`,
- *   does not open or close, so CJK text needs a space or a character
- *   reference there.
+ * - `'strict-commonmark'` follows CommonMark 0.31.2 and GFM, as micromark
+ *   reads them: a marker between a letter and punctuation, such as the
+ *   closing `**` of `**你好。**世界`, does not open or close, so CJK text
+ *   needs a space or a character reference there. micromark reads a
+ *   character outside the Basic Multilingual Plane, such as an emoji, as a
+ *   letter where CommonMark reads punctuation.
  * - `'cjk-friendly'` follows the CommonMark CJK-friendly amendment
  *   (https://github.com/tats-u/markdown-cjk-friendly), through
  *   `micromark-extension-cjk-friendly`: it reads markers as CommonMark does

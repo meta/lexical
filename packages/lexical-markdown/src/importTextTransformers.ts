@@ -109,7 +109,7 @@ function characterBeyondRun(
  * first, imports the text before each match and then the text inside it,
  * until there are no more transformers to apply.
  */
-export function importTextTransformers(
+export function $importTextTransformers(
   textNode: TextNode,
   textFormatTransformersIndex: TextFormatTransformersIndex,
   textMatchTransformers: TextMatchTransformer[],
@@ -125,7 +125,7 @@ export function importTextTransformers(
   const deferred: Deferred[] = [];
   let rest: TextRest | null = {after, before, node: textNode, scan: null};
   while (rest !== null) {
-    rest = importOutermost(
+    rest = $importOutermost(
       rest,
       textFormatTransformersIndex,
       textMatchTransformers,
@@ -134,8 +134,12 @@ export function importTextTransformers(
   }
   for (let i = deferred.length - 1; i >= 0; i--) {
     const {outside, inside, matched} = deferred[i];
-    importTextPart(outside, textFormatTransformersIndex, textMatchTransformers);
-    importTextPart(inside, textFormatTransformersIndex, textMatchTransformers);
+    $importTextPart(
+      outside,
+      textFormatTransformersIndex,
+      textMatchTransformers,
+    );
+    $importTextPart(inside, textFormatTransformersIndex, textMatchTransformers);
     if (
       !canContainTransformableMarkdown(inside.node) &&
       canContainTransformableMarkdown(matched) &&
@@ -157,13 +161,13 @@ interface TextPart {
   after: string | undefined;
 }
 
-function importTextPart(
+function $importTextPart(
   {node, before, after}: TextPart,
   textFormatTransformersIndex: TextFormatTransformersIndex,
   textMatchTransformers: TextMatchTransformer[],
 ) {
   if (canContainTransformableMarkdown(node)) {
-    importTextTransformers(
+    $importTextTransformers(
       node,
       textFormatTransformersIndex,
       textMatchTransformers,
@@ -203,11 +207,29 @@ interface TextRest {
 }
 
 /**
+ * What lies before the text that a text match leaves to import, when that
+ * text starts with a variation selector, which varies it: the character of
+ * the match's syntax before where the text stands in the line.
+ */
+function $characterBeforeContent(
+  text: string,
+  startIndex: number,
+  node: TextNode | undefined,
+): string | undefined {
+  const content = node ? node.getTextContent() : '';
+  if (!isVariationSelector(content[0])) {
+    return undefined;
+  }
+  const index = text.indexOf(content, startIndex);
+  return index > 0 ? text[index - 1] : undefined;
+}
+
+/**
  * Applies the outermost transformer in `textNode`, adds the import of the
  * text before and inside its match to `deferred`, and returns the text after
  * it, for the caller to import next.
  */
-function importOutermost(
+function $importOutermost(
   {node: textNode, before, after, scan: previousScan}: TextRest,
   textFormatTransformersIndex: TextFormatTransformersIndex,
   textMatchTransformers: TextMatchTransformer[],
@@ -383,10 +405,10 @@ function importOutermost(
     // line, as the rule of 3 would measure a cut run without the part the
     // tag took. A code span's content is not read for emphasis.
     // A variation selector that starts the content varies the tag.
-    const beside = (char: string) =>
+    const beside = (char: string, isStart: boolean) =>
       !isCodeSpan &&
       ((SPEC_MARKERS.includes(char) && char !== tag[0]) ||
-        isVariationSelector(char))
+        (isStart && isVariationSelector(char)))
         ? tag[0]
         : undefined;
     return importAround(
@@ -395,8 +417,8 @@ function importOutermost(
       startIndex,
       endIndex,
       {
-        after: beside(text[endIndex - tag.length - 1]),
-        before: beside(text[startIndex + tag.length]),
+        after: beside(text[endIndex - tag.length - 1], false),
+        before: beside(text[startIndex + tag.length], true),
         node: result.transformedNode,
       },
       undefined,
@@ -421,11 +443,11 @@ function importOutermost(
         after: undefined,
         // A variation selector that starts the content varies the syntax
         // before it, such as a link's `[`.
-        before:
-          result.transformedNode &&
-          isVariationSelector(result.transformedNode.getTextContent()[0])
-            ? text[foundTextMatch.startIndex]
-            : undefined,
+        before: $characterBeforeContent(
+          text,
+          foundTextMatch.startIndex,
+          result.transformedNode,
+        ),
         node: result.transformedNode,
       },
       result.transformedNode === undefined ? result.matchedNode : undefined,

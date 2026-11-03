@@ -384,4 +384,53 @@ describe('Mdast punctuation modes', () => {
       );
     }
   });
+
+  it('counts the stand-ins text writes, not text an autolink writes', () => {
+    // A text handler that writes U+2E00, the first stand-in, after `b`.
+    const editor = createEditor(undefined, undefined, {
+      toMarkdownExtensions: [
+        {
+          handlers: {
+            text: (node, parent, state, info) =>
+              defaultHandlers.text(node, parent, state, info) +
+              (node.value === 'b' ? '\u2e00' : ''),
+          },
+        },
+      ],
+    });
+    const url = 'https://x.com/\u{1f389}';
+    editor.update(
+      () =>
+        $getRoot()
+          .clear()
+          .append(
+            $createParagraphNode().append(
+              $createLinkNode(url).append($createTextNode(url)),
+              $createTextNode('b'),
+            ),
+          ),
+      {discrete: true},
+    );
+    expect(editor.read('latest', () => $convertToMarkdownString())).toBe(
+      `<${url}>b\u2e00`,
+    );
+  });
+
+  it('aligns table cells by the characters put back', () => {
+    const editor = createEditor();
+    editor.update(
+      () =>
+        $convertFromMarkdownString(
+          '| \u{1f389}\u{1f389}\u{1f389} | x |\n| - | - |\n| &#x61;**\u{1f389}**&#x62; | b |',
+        ),
+      {discrete: true},
+    );
+    const lines = editor
+      .read('latest', () => $convertToMarkdownString())
+      .split('\n');
+    expect(lines[2]).toBe('| &#x61;**&#x1F389;**&#x62; | b |');
+    expect(lines.map(line => line.length)).toEqual(
+      lines.map(() => lines[2].length),
+    );
+  });
 });

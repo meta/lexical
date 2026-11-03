@@ -89,8 +89,8 @@ export type MdastConfig = {
   readonly toMarkdownExtensions: ReadonlyArray<unknown>,
   readonly inlineShortcutTypes: ReadonlyArray<string>,
   readonly inlineShortcutTriggers: ReadonlyArray<string>,
-  readonly importPunctuation: MdastPunctuationMode,
-  readonly exportPunctuation: MdastPunctuationMode,
+  readonly importPunctuation?: MdastPunctuationMode,
+  readonly exportPunctuation?: MdastPunctuationMode,
 };
 
 export type MdastShortcutsConfig = {
