@@ -2054,12 +2054,27 @@ export class YBinding {
       const kept = editorState.read($selectionState);
       const selected = kept !== null && kept.kind === 'node' ? kept.keys : [];
       const seed = this.seedUpdate(editorState, selected);
+      // The root is checked again inside the seed's own transaction, after
+      // every beforeTransaction listener of the document ran (one may
+      // record a layout or an epoch, or write content): only a root still
+      // pristine, whose record the seed creates, is seeded. Otherwise
+      // nothing is written and the root is read.
+      let seeded = false;
       if (seed !== null) {
         // The seed's exact bytes, under the id derived from them, the
         // binding's only items under another client id than the document's;
         // read back like any document's content, so the editor shows what
         // is stored (and the state maps it), with its selection kept.
-        applyUpdate(this._doc, seed.bytes, this.initOrigin);
+        this._doc.transact(() => {
+          if (this.rootPristine()) {
+            seeded = true;
+            applyUpdate(this._doc, seed.bytes, this.initOrigin);
+          }
+        }, this.initOrigin);
+        if (!seeded) {
+          this.evaluate();
+          return;
+        }
         if (kept !== null && kept.kind === 'node') {
           kept.items = seed.items;
         }
@@ -2067,8 +2082,15 @@ export class YBinding {
         return;
       }
       this._doc.transact(tr => {
-        this.$writeInitial(this.state, this._root, tr, editorState);
+        if (this.rootPristine()) {
+          seeded = true;
+          this.$writeInitial(this.state, this._root, tr, editorState);
+        }
       }, this.initOrigin);
+      if (!seeded) {
+        this.evaluate();
+        return;
+      }
       if (kept !== null && kept.kind === 'node') {
         kept.items = editorState.read(() =>
           this.$selectedAnchors(this.state, selected),
@@ -2843,6 +2865,22 @@ export class YBinding {
    */
   private writesEdits(): boolean {
     return this._status === 'active' && this.recordAdmits();
+  }
+
+  /**
+   * Whether the root is as initialization found it: no content, no layout
+   * record (well formed or not) and no epoch.
+   */
+  private rootPristine(): boolean {
+    if (this._root.length > 0) {
+      return false;
+    }
+    for (const key of Object.keys(this._root.getAttrs())) {
+      if (key.startsWith(LAYOUT_PREFIX) || key === EPOCH_KEY) {
+        return false;
+      }
+    }
+    return true;
   }
 
   /**
@@ -4898,6 +4936,12 @@ export class YBinding {
       }
       if (!commit.followUp) {
         this._doc.transact(() => {
+          // Admitted inside its own transaction too (see the write's): a
+          // record that stopped admitting writes gets no pin, and is read
+          // (see readChange).
+          if (!this.recordAdmits()) {
+            return;
+          }
           this.recordPins(this._root, editorState, [
             ...dirtyElements.keys(),
             ...dirtyLeaves,
@@ -4916,8 +4960,14 @@ export class YBinding {
           String(e instanceof Error ? e.message : e),
         {error: e, reason: 'local-change'},
       );
+      let recoveryRefused = false;
       try {
         this._doc.transact(tr => {
+          // Admitted inside its own transaction, as the write it recovers.
+          if (!this.recordAdmits()) {
+            recoveryRefused = true;
+            return;
+          }
           try {
             const all: WritePlan = {
               attrs: new Set(state.yByKey.keys()),
@@ -4952,7 +5002,7 @@ export class YBinding {
       } catch (e2) {
         this._editor._onError(e2 instanceof Error ? e2 : new Error(String(e2)));
       }
-      return null;
+      return recoveryRefused ? 'refused' : null;
     }
   }
 
