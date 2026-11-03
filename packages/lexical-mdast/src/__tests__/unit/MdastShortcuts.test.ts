@@ -216,6 +216,14 @@ describe('@lexical/mdast streaming shortcuts', () => {
         '- [ ] plain\n- [x] done',
       );
     });
+
+    it('[x] at the start of an unchecked task item checks it', () => {
+      using editor = importList('- [ ] todo\n- plain', 'start');
+      type(editor, ['[', 'x', ']', ' ']);
+      expect(editor.read(() => $convertToMarkdownString())).toBe(
+        '- [x] todo\n- [ ] plain',
+      );
+    });
   });
 
   // `> ## H2` imports as a QuoteNode holding a HeadingNode, so typing the

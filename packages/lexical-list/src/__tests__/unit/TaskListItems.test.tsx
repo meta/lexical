@@ -149,7 +149,8 @@ describe('task items in bullet and number lists', () => {
         expect(
           editor.read(() => $items().map(item => item.getChecked())),
         ).toEqual([undefined, undefined, undefined]);
-        // A checked state set the old way is still dropped outside a check list.
+        // A checked state set the old way still does not show outside a check
+        // list, and does not make the item a task.
         editor.update(() => $items()[0].setChecked(true), {discrete: true});
         expect(readChecked(editor)).toEqual([undefined, false, true]);
       });
@@ -276,6 +277,53 @@ describe('task items in bullet and number lists', () => {
       expect(readChecked(editor)).toEqual([false, false, true]);
       editor.update($setListType('bullet'), {discrete: true});
       expect(readChecked(editor)).toEqual([undefined, undefined, undefined]);
+    });
+  });
+
+  describe('when the list becomes a check list', () => {
+    function $setListType(listType: ListType) {
+      const list = $getRoot().getFirstChildOrThrow();
+      invariant($isListNode(list), 'Expected a ListNode at root');
+      list.setListType(listType);
+    }
+
+    // Outside a check list, setChecked() only hides the value, so an item can
+    // still hold one when it is made a task.
+    it('the task state wins over a checked state set the old way', () => {
+      using editor = buildEditor('bullet');
+      editor.update(() => $items()[1].setChecked(true), {discrete: true});
+      editor.update(() => $setTaskListItemChecked($items()[1], false), {
+        discrete: true,
+      });
+      editor.update(() => $setListType('check'), {discrete: true});
+      expect(readChecked(editor)).toEqual([false, false, true]);
+    });
+
+    it('the task state wins over the tick of a check list left in the same update', () => {
+      using editor = buildEditor('check');
+      editor.update(
+        () => {
+          $setListType('bullet');
+          $setTaskListItemChecked($items()[2], false);
+          $setListType('check');
+        },
+        {discrete: true},
+      );
+      expect(readChecked(editor)).toEqual([false, false, false]);
+    });
+
+    it('a checked state set in the check list wins over the task state', () => {
+      // As the `[x] ` shortcut does on a task item: the list becomes a check
+      // list, then the item is checked, before the transforms run.
+      using editor = buildEditor('bullet');
+      editor.update(
+        () => {
+          $setListType('check');
+          $items()[1].setChecked(true);
+        },
+        {discrete: true},
+      );
+      expect(readChecked(editor)).toEqual([false, true, true]);
     });
   });
 

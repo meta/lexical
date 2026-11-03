@@ -897,6 +897,10 @@ export function $getTaskListItemChecked(
  * Makes a task item of a bullet or number list that is now in a check list
  * (a paste, or a list made a check list with `setListType`) one of its items.
  * Those keep their checked state themselves, so the item keeps its tick there.
+ * A checked state set in the check list before this runs wins, as when the
+ * `[x] ` shortcut of `@lexical/mdast` makes the list a check list and checks
+ * the item in one update. {@link $setTaskListItemChecked} clears the checked
+ * state, so one left from before the item was a task does not win.
  * Called for each item by the list's transform, which runs whenever the list
  * changes, and by the item's own transform.
  * @param listItem - An item of a check list.
@@ -928,6 +932,12 @@ export function $setTaskListItemChecked(
   const parent = listItem.getParent();
   if ($isListNode(parent) && parent.getListType() === 'check') {
     return listItem.setChecked(checked);
+  }
+  // The item can still hold a checked state here: from a check list it was in
+  // earlier in this update, or from setChecked(), which only hides it outside
+  // a check list. It must not win over the task state in $adoptTaskListItem.
+  if (listItem.getLatest().__checked != null) {
+    listItem.setChecked(undefined);
   }
   return $setState(
     listItem,
