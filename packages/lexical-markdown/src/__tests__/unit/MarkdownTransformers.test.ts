@@ -287,6 +287,53 @@ describe('CODE_SPAN_PRECEDENCE', () => {
   });
 });
 
+describe('UNDERSCORE_AFTER_UNICODE_PUNCTUATION', () => {
+  // Underscore formats do not apply inside a word, so the character before the
+  // opening tag has to be whitespace or punctuation. CommonMark counts every
+  // Unicode punctuation (P) and symbol (S) character as punctuation, not only
+  // the ASCII ones.
+  // https://spec.commonmark.org/0.31.2/#unicode-punctuation-character
+  const EN_DASH = '\u2013';
+  const LEFT_DOUBLE_QUOTE = '\u201C';
+
+  test.each([
+    [`See ${EN_DASH}_here_`, `See ${EN_DASH}`],
+    [`See ${LEFT_DOUBLE_QUOTE}_here_`, `See ${LEFT_DOUBLE_QUOTE}`],
+    // An emoji (So) outside the Basic Multilingual Plane, read whole.
+    ['See \u{1F600}_here_', 'See \u{1F600}'],
+  ])('typing %j formats the word between the underscores', (typed, before) => {
+    using editor = buildEditorFromExtensions([MarkdownShortcutTestExtension]);
+    typeMarkdown(editor, typed);
+    editor.read(() => {
+      const paragraph = $getRoot().getFirstChildOrThrow();
+      assert($isParagraphNode(paragraph), 'Root child must be a paragraph');
+      const textNodes = paragraph.getChildren().filter($isTextNode);
+      expect(textNodes.map(node => node.getTextContent())).toEqual([
+        before,
+        'here',
+      ]);
+      expect(textNodes.map(node => node.hasFormat('italic'))).toEqual([
+        false,
+        true,
+      ]);
+    });
+  });
+
+  test('typing an underscore format right after a letter still does not format it', () => {
+    using editor = buildEditorFromExtensions([MarkdownShortcutTestExtension]);
+    typeMarkdown(editor, 'See \u00E9_here_');
+    editor.read(() => {
+      const paragraph = $getRoot().getFirstChildOrThrow();
+      assert($isParagraphNode(paragraph), 'Root child must be a paragraph');
+      const textNodes = paragraph.getChildren().filter($isTextNode);
+      expect(textNodes.map(node => node.getTextContent())).toEqual([
+        'See \u00E9_here_',
+      ]);
+      expect(textNodes[0].hasFormat('italic')).toBe(false);
+    });
+  });
+});
+
 describe('WRAPPING_PRESERVES_FORMAT', () => {
   test('**...** around already-bold text preserves bold', () => {
     // https://github.com/meta/lexical/issues/8727

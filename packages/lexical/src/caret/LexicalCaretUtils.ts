@@ -9,6 +9,7 @@ import type {LexicalNode, NodeKey} from '../LexicalNode';
 
 import invariant from '@lexical/internal/invariant';
 
+import {$carryNodeState} from '../LexicalNodeState';
 import {
   $createRangeSelection,
   $getSelection,
@@ -348,7 +349,10 @@ export function $removeTextFromCaretRange<D extends CaretDirection>(
         const src = nextCaret.origin;
         const plainTextNode = $createTextNode(src.getTextContent())
           .setStyle(src.getStyle())
-          .setFormat(src.getFormat());
+          .setFormat(src.getFormat())
+          .setDetail(src.getDetail());
+        // The characters left keep their NodeState (comment ids, for example)
+        $carryNodeState(src, plainTextNode);
         caretBefore.replaceOrInsert(plainTextNode);
         nextCaret = $getTextPointCaret(
           plainTextNode,
