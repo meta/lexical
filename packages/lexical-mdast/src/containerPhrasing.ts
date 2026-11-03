@@ -517,7 +517,9 @@ function scan(
         for (const one of involved) {
           const list = wrong.get(one);
           if (list) {
-            list.push(...involved);
+            for (const other of involved) {
+              list.push(other);
+            }
           }
         }
       }
@@ -625,10 +627,12 @@ function renderItem(
   if (close.outside) {
     context.encodeAfter = outsideAfter;
   }
-  tokens.push({attention: item, value: sequence}, ...insideTokens, {
-    attention: item,
-    value: sequence,
-  });
+  // Not `push(...insideTokens)`: that throws for very many tokens.
+  tokens.push({attention: item, value: sequence});
+  for (const token of insideTokens) {
+    tokens.push(token);
+  }
+  tokens.push({attention: item, value: sequence});
   context.previous = sequence.charAt(sequence.length - 1);
 }
 
@@ -671,21 +675,29 @@ function serialize(items: Item[], before: string, after: string): string {
   starts.push(length);
   const initial = join(tokens);
 
-  // Each attention, deep, to the top-level item it is in.
+  // Each attention, deep, to the top-level item it is in, and whether any
+  // attention has no content.
   const top = new Map<AttentionResult, number>();
-  const tops = (attention: AttentionResult, index: number) => {
+  const tops = (attention: AttentionResult, index: number): boolean => {
+    let hollow = attention.children.length === 0;
     top.set(attention, index);
     for (const child of attention.children) {
-      if (typeof child !== 'string') {
-        tops(child, index);
+      if (typeof child !== 'string' && tops(child, index)) {
+        hollow = true;
       }
     }
+    return hollow;
   };
+  let hollow = false;
   for (let index = 0; index < items.length; index++) {
     const item = items[index];
-    if (typeof item !== 'string') {
-      tops(item, index);
+    if (typeof item !== 'string' && tops(item, index)) {
+      hollow = true;
     }
+  }
+  // Attention without content never forms, so no other sequences fix it.
+  if (hollow) {
+    return initial;
   }
   // Each attention to the indices of its opening and closing sequence.
   const positions = new Map<AttentionResult, [number, number]>();

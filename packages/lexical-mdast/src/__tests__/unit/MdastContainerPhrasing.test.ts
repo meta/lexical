@@ -132,6 +132,21 @@ it('serializes phrasing as mdast-util-to-markdown does', () => {
   const random = createRandom(1);
   const trees = [
     paragraph(touching(12)),
+    // Attention without content, which never forms.
+    paragraph(
+      Array.from(
+        {length: 60},
+        (_, index): PhrasingContent => ({
+          children: [],
+          type: ['delete', 'emphasis', 'strong'][index % 3] as 'delete',
+        }),
+      ),
+    ),
+    paragraph([
+      {children: [{type: 'text', value: 'a'}], type: 'strong'},
+      {children: [], type: 'emphasis'},
+      {children: [{type: 'text', value: '.'}], type: 'emphasis'},
+    ]),
     paragraph([
       {type: 'text', value: 'a\n'},
       {type: 'html', value: '<div>'},
