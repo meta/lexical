@@ -423,6 +423,45 @@ describe('entities of two registrations that touch', () => {
   });
 });
 
+describe('a hashtag before differently formatted text', () => {
+  test('typing before a bold word keeps its format and the caret position', () => {
+    const editor = createHashtagEditor();
+    editor.update(
+      () => {
+        const text = $createTextNode('foobar');
+        $getRoot().append(
+          $createParagraphNode().append(
+            $createTextNode('bold').setFormat('bold'),
+            text,
+            $createTextNode('bold').setFormat('bold'),
+          ),
+        );
+        text.select(3, 3);
+      },
+      {discrete: true},
+    );
+    for (const character of ' #tag ') {
+      editor.update(
+        () => {
+          const selection = $getSelection();
+          if (!$isRangeSelection(selection)) {
+            throw new Error('Expected a range selection');
+          }
+          selection.insertText(character);
+        },
+        {discrete: true},
+      );
+    }
+    expect(read(editor)).toEqual([
+      ['text', 'bold', 1, ''],
+      ['text', 'foo ', 0, ''],
+      ['hashtag', '#tag', 0, ''],
+      ['text', ' bar', 0, ''],
+      ['text', 'bold', 1, ''],
+    ]);
+  });
+});
+
 describe('an entity that may not be kept does not grow', () => {
   class PhraseNode extends TextNode {
     $config() {
