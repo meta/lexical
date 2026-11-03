@@ -58,8 +58,9 @@ export const SET_MEMBERS_LAYOUT_VERSION = 2;
  * The root attribute a layout migration records (see @lexical/y/migrate):
  * `{v: 1, layout, client, clock, step, revision}`, where `(client, clock)`
  * is the id of the migration transaction's first item (its layout record).
- * Outside the layout records' namespace (LAYOUT_PREFIX), so no layout gate
- * parses it; it only grows with each migration, and nothing else writes it.
+ * Outside the layout records' namespace (LAYOUT_PREFIX); each migration
+ * replaces it with its own, and nothing else writes it. A malformed one
+ * opens the document read only, as a malformed layout record does.
  */
 export const EPOCH_KEY = 'lexical-y-epoch';
 /**

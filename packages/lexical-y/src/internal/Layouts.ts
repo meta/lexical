@@ -10,9 +10,9 @@ import type {Doc, Node as YNode, Transaction} from '@y/y';
 
 import {DEFAULT_ROOT_NAME, EPOCH_KEY, LAYOUT_PREFIX} from './constants';
 
-// The layout record and the epoch as the migration runner and the relay
-// helpers read them (see @lexical/y/migrate, @lexical/y/relay). Small on
-// purpose: each of those entries bundles its own copy.
+// The layout record and the epoch as the core, the migration runner and the
+// server helpers read them (see @lexical/y/migrate, @lexical/y/server).
+// Small on purpose: the core and the runner each bundle a copy.
 
 /**
  * @experimental What a layout migration records under `lexical-y-epoch`
