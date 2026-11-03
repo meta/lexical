@@ -190,8 +190,8 @@ so `**你好。**世界` reads with literal asterisks. `importPunctuation` and
 written:
 
 - `'cjk-friendly'` follows the
-  [CommonMark CJK-friendly amendment](https://github.com/tats-u/markdown-cjk-friendly)
-  through `micromark-extension-cjk-friendly`. It reads Markdown as CommonMark
+  [CommonMark CJK-friendly amendment](https://github.com/tats-u/markdown-cjk-friendly),
+  as `micromark-extension-cjk-friendly` does. It reads Markdown as CommonMark
   does except beside Chinese, Japanese and Korean characters and
   punctuation, where markers open and close as their writer meant. A
   variation selector before a marker reads as the character it follows.
@@ -213,13 +213,9 @@ amendment:
 configExtension(MdastExtension, {exportPunctuation: 'cjk-friendly'});
 ```
 
-A CJK-friendly import swaps the `gfmStrikethrough()` syntax that
-`MdastStrikethroughExtension` contributes for
-`micromark-extension-cjk-friendly-gfm-strikethrough`. A strikethrough syntax
-contributed some other way through `micromarkExtensions` is left as it is.
-`gfmStrikethroughCjkFriendly()` 2.0.1 does not close a `~~` run after a
-variation selector (`~~Done ✔︎~~`); the swap works around that, so prefer
-`MdastStrikethroughExtension` to contributing it yourself.
+A CJK-friendly import reads the `~~` runs of `MdastStrikethroughExtension`
+as it reads emphasis. A strikethrough syntax contributed some other way
+through `micromarkExtensions` is left as it is.
 
 ### Raw HTML (`MdastHtmlExtension`)
 

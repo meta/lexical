@@ -27,8 +27,8 @@ import type {Extension as MicromarkExtension} from 'micromark-util-types';
  *   character outside the Basic Multilingual Plane, such as an emoji, as a
  *   letter where CommonMark reads punctuation.
  * - `'cjk-friendly'` follows the CommonMark CJK-friendly amendment
- *   (https://github.com/tats-u/markdown-cjk-friendly), through
- *   `micromark-extension-cjk-friendly`: it reads markers as CommonMark does
+ *   (https://github.com/tats-u/markdown-cjk-friendly), as
+ *   `micromark-extension-cjk-friendly` does: it reads markers as CommonMark does
  *   everywhere except beside Chinese, Japanese and Korean characters and
  *   punctuation, where they open and close as a writer of those languages
  *   expects. A variation selector before a marker reads as the character it

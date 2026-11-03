@@ -53,13 +53,13 @@ import {
 import {defaultHandlers, toMarkdown} from 'mdast-util-to-markdown';
 import {toString as mdastToString} from 'mdast-util-to-string';
 import {parse, postprocess, preprocess} from 'micromark';
-import {
-  classifyCharacter,
-  isCjk,
-  isNonEmojiGeneralUseVS,
-} from 'micromark-extension-cjk-friendly-util';
 import {classifyCharacter as classifyUnit} from 'micromark-util-classify-character';
 
+import {
+  classifyCode,
+  isCjkClass,
+  isVariationSelectorClass,
+} from './cjkFriendly';
 import {
   $exportLineBreak,
   $isBlockLevelNode,
@@ -944,7 +944,7 @@ function restoreStoodIn(
     // Not a selector nor outside the Basic Multilingual Plane: micromark
     // reads it as whitespace.
     return character.length === 1 &&
-      !isNonEmojiGeneralUseVS(classifyCharacter(character.charCodeAt(0)))
+      !isVariationSelectorClass(classifyCode(character.charCodeAt(0)))
       ? [PUNCTUATION_CLASS, WHITESPACE_CLASS, LETTER_CLASS]
       : [PUNCTUATION_CLASS, LETTER_CLASS];
   };
@@ -1055,7 +1055,7 @@ function rewriteCjkReferences(
         after !== '_' &&
         // micromark reads references past the last code point too.
         code <= 0x10ffff &&
-        isCjk(classifyCharacter(code)) &&
+        isCjkClass(classifyCode(code)) &&
         isRead(begin)
         ? String.fromCodePoint(code)
         : reference;

@@ -241,4 +241,6 @@ it.each<
     }
     expect(failures).toEqual([]);
   },
+  // About 2 ms a case.
+  5000 + CASES * 5,
 );

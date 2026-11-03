@@ -9,69 +9,13 @@
 import type {MdastConfig} from './MdastExtension';
 import type {CompiledMdast, MdastExportHandler, MdastExportRule} from './types';
 import type {LexicalEditor} from 'lexical';
-import type {
-  Construct,
-  Extension as MicromarkExtension,
-} from 'micromark-util-types';
+import type {Extension as MicromarkExtension} from 'micromark-util-types';
 
 import invariant from '@lexical/internal/invariant';
 import {getStaticNodeConfig, iterStaticNodeConfigChain} from 'lexical';
-import {cjkFriendlyExtension} from 'micromark-extension-cjk-friendly';
-import {gfmStrikethroughCjkFriendly} from 'micromark-extension-cjk-friendly-gfm-strikethrough';
-import {
-  classifyCharacter,
-  classifyPrecedingCharacter,
-  isCjk,
-  isNonEmojiGeneralUseVS,
-  isUnicodeWhitespace,
-  tryGetCodeTwoBefore,
-} from 'micromark-extension-cjk-friendly-util';
 import {gfmStrikethrough} from 'micromark-extension-gfm-strikethrough';
 
-/**
- * `gfmStrikethroughCjkFriendly()`, but a `~` run after a variation selector
- * (U+FE00 to U+FE0E) closes as it does after the character the selector
- * varies, as the CJK-friendly emphasis reads it: version 2.0.1 reads the
- * character only for the run to open, so `~~Done ✔\ufe0e~~` stays literal.
- */
-function cjkFriendlyStrikethrough(): MicromarkExtension {
-  const syntax = gfmStrikethroughCjkFriendly();
-  const construct = syntax.text![126] as Construct;
-  const {tokenize} = construct;
-  const fixed: Construct = {
-    ...construct,
-    tokenize(effects, ok, nok) {
-      const {previous} = this;
-      const base =
-        previous !== null && isNonEmojiGeneralUseVS(classifyCharacter(previous))
-          ? tryGetCodeTwoBefore(previous, this.now(), this.sliceSerialize)
-          : null;
-      if (base === null || isUnicodeWhitespace(classifyCharacter(base))) {
-        return tokenize.call(this, effects, ok, nok);
-      }
-      // A character of the class the selector reads as: the one it varies,
-      // unless that is a `~`, which would join the run, or the selector
-      // makes it CJK punctuation.
-      const group = classifyPrecedingCharacter(
-        classifyCharacter(previous),
-        () => base,
-        previous,
-      );
-      const stand =
-        base !== 126 && group === classifyCharacter(base)
-          ? base
-          : // `一`, `。`, `a` or `!`.
-            (isCjk(group) ? [0x4e00, 0x3002] : [0x61, 0x21])[group & 2 ? 1 : 0];
-      return tokenize.call(
-        Object.create(this, {previous: {value: stand}}),
-        effects,
-        ok,
-        nok,
-      );
-    },
-  };
-  return {...syntax, insideSpan: {null: [fixed]}, text: {126: fixed}};
-}
+import {cjkFriendlyEmphasis, cjkFriendlyStrikethrough} from './cjkFriendly';
 
 // The key under which a micromark extension holds the factory of the one a
 // CJK-friendly import uses in its place. Not enumerable, so micromark does
@@ -86,8 +30,9 @@ const CJK_FRIENDLY_VARIANT = '__lexicalCjkFriendlyVariant';
  * @__NO_SIDE_EFFECTS__
  */
 export function getStrikethroughSyntax(): MicromarkExtension {
-  return Object.defineProperty(gfmStrikethrough(), CJK_FRIENDLY_VARIANT, {
-    value: cjkFriendlyStrikethrough,
+  const syntax = gfmStrikethrough();
+  return Object.defineProperty(syntax, CJK_FRIENDLY_VARIANT, {
+    value: () => cjkFriendlyStrikethrough(syntax),
   });
 }
 
@@ -187,7 +132,7 @@ export function compileMdast(
       (config.importPunctuation || 'cjk-friendly') !== 'cjk-friendly'
         ? [...config.micromarkExtensions]
         : [
-            cjkFriendlyExtension(),
+            cjkFriendlyEmphasis(),
             ...config.micromarkExtensions.map(toCjkFriendlyVariant),
           ],
     toMarkdownExtensions: [...config.toMarkdownExtensions],

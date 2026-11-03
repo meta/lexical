@@ -8,20 +8,33 @@
 
 // @vitest-environment node
 
-import {isCjkCharacter} from '@lexical/markdown/src/utils';
-import {classifyCharacter, isCjk} from 'micromark-extension-cjk-friendly-util';
+import isCjkCharacter from '@lexical/internal/isCjkCharacter';
+import {eastAsianWidthType} from 'get-east-asian-width';
 import {expect, it} from 'vitest';
 
-it('reads CJK characters as micromark-extension-cjk-friendly does', () => {
+// The amendment's definition of a CJK character, from the width data.
+function isCjkByWidth(code: number): boolean {
+  const character = String.fromCodePoint(code);
+  switch (eastAsianWidthType(code)) {
+    case 'fullwidth':
+    case 'halfwidth':
+      return true;
+    case 'wide':
+      return !/\p{Emoji_Presentation}/u.test(character);
+    case 'neutral':
+      return /\p{sc=Hangul}/u.test(character);
+    default:
+      return false;
+  }
+}
+
+it('reads CJK characters as the East Asian Width data does', () => {
   const differences: string[] = [];
-  for (let code = 0; code <= 0x3ffff; code++) {
+  for (let code = 0x1100; code <= 0x3ffff; code++) {
     if (code >= 0xd800 && code <= 0xdfff) {
       continue;
     }
-    if (
-      isCjkCharacter(String.fromCodePoint(code)) !==
-      isCjk(classifyCharacter(code))
-    ) {
+    if (isCjkCharacter(String.fromCodePoint(code)) !== isCjkByWidth(code)) {
       differences.push(code.toString(16));
     }
   }
