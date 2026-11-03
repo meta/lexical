@@ -374,6 +374,53 @@ describe('HTML', () => {
     });
   });
 
+  test.each([
+    'bdi',
+    'bdo',
+    'big',
+    'data',
+    'dfn',
+    'font',
+    'nobr',
+    'small',
+    'strike',
+  ])('$generateNodesFromDOM keeps the spaces around an inline <%s>', tag => {
+    const editor = createHeadlessEditor();
+    const dom = new DOMParser().parseFromString(
+      `<p>is <${tag}>old</${tag}> now</p>`,
+      'text/html',
+    );
+    editor.update(
+      () => {
+        const nodes = $generateNodesFromDOM(editor, dom);
+        $insertGeneratedNodes(editor, nodes, $getRoot().select(0));
+      },
+      {discrete: true},
+    );
+    expect(editor.read(() => $getRoot().getTextContent())).toBe('is old now');
+  });
+
+  test('$generateNodesFromDOM breaks the line at an empty block between two inline <font>s, as between two <span>s', () => {
+    const lines = (html: string) => {
+      const editor = createHeadlessEditor();
+      const dom = new DOMParser().parseFromString(html, 'text/html');
+      editor.update(
+        () => {
+          const nodes = $generateNodesFromDOM(editor, dom);
+          $insertGeneratedNodes(editor, nodes, $getRoot().select(0));
+        },
+        {discrete: true},
+      );
+      return editor.read(() => $getRoot().getTextContent());
+    };
+    expect(lines('<div><span>a</span><div></div><span>b</span></div>')).toBe(
+      'a\nb',
+    );
+    expect(lines('<div><font>a</font><div></div><font>b</font></div>')).toBe(
+      'a\nb',
+    );
+  });
+
   describe('importDOM preserves dir attribute', () => {
     function importAndGetDirection(html: string): string | null {
       const editor = createHeadlessEditor({
