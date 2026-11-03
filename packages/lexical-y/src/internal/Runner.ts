@@ -669,58 +669,75 @@ function contentKind(it: Item): number {
  * A value as a string that keeps its type, for equality only: unlike JSON,
  * a byte array, an undefined, -0, NaN, a bigint, a Date or a class instance
  * reads differently from the plain object or number it would turn into
- * (keys in their own order, as Yjs stores them).
+ * (keys in their own order, as Yjs stores them). Complete at any depth;
+ * arrays by index with their length, a hole read as undefined, as Yjs
+ * encodes it. A value that contains itself (which Yjs cannot store either)
+ * is a post-condition failure, never compared equal.
  */
-function typedValue(value: unknown, depth = 0): string {
-  if (depth > 64) {
-    return '<deep>';
-  }
-  switch (typeof value) {
-    case 'undefined':
-      return 'u';
-    case 'boolean':
-      return value ? 'T' : 'F';
-    case 'number':
-      return Object.is(value, -0) ? 'n-0' : `n${String(value)}`;
-    case 'bigint':
-      return `i${String(value)}`;
-    case 'string':
-      return `s${JSON.stringify(value)}`;
-    case 'object':
-      break;
-    default:
-      return `?${typeof value}`;
-  }
-  if (value === null) {
-    return 'N';
-  }
-  if (value instanceof Uint8Array) {
-    let hex = '';
-    for (let i = 0; i < value.length; i++) {
-      hex += value[i].toString(16).padStart(2, '0');
+function typedValue(value: unknown): string {
+  const open = new Set<object>();
+  const visit = (v: unknown): string => {
+    switch (typeof v) {
+      case 'undefined':
+        return 'u';
+      case 'boolean':
+        return v ? 'T' : 'F';
+      case 'number':
+        return Object.is(v, -0) ? 'n-0' : `n${String(v)}`;
+      case 'bigint':
+        return `i${String(v)}`;
+      case 'string':
+        return `s${JSON.stringify(v)}`;
+      case 'object':
+        break;
+      default:
+        return `?${typeof v}`;
     }
-    return `b${hex}`;
-  }
-  if (Array.isArray(value)) {
-    return `[${value.map(v => typedValue(v, depth + 1)).join(',')}]`;
-  }
-  const proto = Object.getPrototypeOf(value);
-  const plain = proto === Object.prototype || proto === null;
-  let tag = '';
-  if (!plain) {
-    const ctor = (proto as {constructor?: {name?: unknown}}).constructor;
-    tag = ctor === undefined ? '?' : String(ctor.name);
-  }
-  const body = Object.keys(value as object)
-    .map(
-      k =>
-        `${JSON.stringify(k)}:${typedValue(
-          (value as Record<string, unknown>)[k],
-          depth + 1,
-        )}`,
-    )
-    .join(',');
-  return `${tag}{${body}}`;
+    if (v === null) {
+      return 'N';
+    }
+    if (v instanceof Uint8Array) {
+      let hex = '';
+      for (let i = 0; i < v.length; i++) {
+        hex += v[i].toString(16).padStart(2, '0');
+      }
+      return `b${hex}`;
+    }
+    if (open.has(v)) {
+      throw new YMigrationError(
+        'post-condition',
+        '@lexical/y: a value of the document contains itself, so it cannot be compared (or stored)',
+        ['a value contains itself'],
+      );
+    }
+    open.add(v);
+    try {
+      if (Array.isArray(v)) {
+        const parts: string[] = [];
+        for (let i = 0; i < v.length; i++) {
+          parts.push(visit(v[i]));
+        }
+        return `[${v.length}:${parts.join(',')}]`;
+      }
+      const proto = Object.getPrototypeOf(v);
+      const plain = proto === Object.prototype || proto === null;
+      let tag = '';
+      if (!plain) {
+        const ctor = (proto as {constructor?: {name?: unknown}}).constructor;
+        tag = ctor === undefined ? '?' : String(ctor.name);
+      }
+      const body = Object.keys(v)
+        .map(
+          k =>
+            `${JSON.stringify(k)}:${visit((v as Record<string, unknown>)[k])}`,
+        )
+        .join(',');
+      return `${tag}{${body}}`;
+    } finally {
+      open.delete(v);
+    }
+  };
+  return visit(value);
 }
 
 /** What a container must keep (see the checks in runStep). */

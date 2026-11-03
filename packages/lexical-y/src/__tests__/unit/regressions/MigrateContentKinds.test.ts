@@ -117,6 +117,75 @@ describe.each([false, true])('content kinds and value types, gc %s', gc => {
     }
   });
 
+  test('a leaf changed 70 levels deep in another root: post-condition', () => {
+    let deep: Record<string, unknown> = {value: 1};
+    for (let i = 0; i < 70; i++) {
+      deep = {next: deep};
+    }
+    const d = createYDoc(rawDoc(1), {gc});
+    d.get('application').setAttr('deep', deep as never);
+    const state = Y.encodeStateAsUpdate(d);
+    d.destroy();
+    const leafOf = (v: unknown) => {
+      let x = v as Record<string, unknown>;
+      for (let i = 0; i < 70; i++) {
+        x = x.next as Record<string, unknown>;
+      }
+      return x;
+    };
+    const mutate = stamp(1, {
+      migrateContainer: tr => {
+        leafOf((tr.doc as Y.Doc).get('application').getAttr('deep')).value = 2;
+        return {deleted: 0, written: 0};
+      },
+    });
+    expect(
+      refusal(() => migrateYState(state, [mutate], {gc, to: 2})).code,
+    ).toBe('post-condition');
+    // Control: the same deep value unchanged migrates, and stays.
+    const result = migrateYState(state, [stamp(1)], {gc, to: 2});
+    const out = createYDoc(result.state, {gc});
+    expect(leafOf(out.get('application').getAttr('deep')).value).toBe(1);
+    out.destroy();
+  });
+
+  test('an empty array given one hole in place: post-condition', () => {
+    const d = createYDoc(rawDoc(1), {gc});
+    d.get('application').setAttr('array', [] as never);
+    const state = Y.encodeStateAsUpdate(d);
+    d.destroy();
+    const grow = stamp(1, {
+      migrateContainer: tr => {
+        (
+          (tr.doc as Y.Doc).get('application').getAttr('array') as unknown[]
+        ).length = 1;
+        return {deleted: 0, written: 0};
+      },
+    });
+    expect(refusal(() => migrateYState(state, [grow], {gc, to: 2})).code).toBe(
+      'post-condition',
+    );
+  });
+
+  test('a value made to contain itself in place: post-condition, not equal', () => {
+    const d = createYDoc(rawDoc(1), {gc});
+    d.get('application').setAttr('loop', {a: 1} as never);
+    const state = Y.encodeStateAsUpdate(d);
+    d.destroy();
+    const loop = stamp(1, {
+      migrateContainer: tr => {
+        const v = (tr.doc as Y.Doc).get('application').getAttr('loop') as {
+          self?: unknown;
+        };
+        v.self = v;
+        return {deleted: 0, written: 0};
+      },
+    });
+    expect(refusal(() => migrateYState(state, [loop], {gc, to: 2})).code).toBe(
+      'post-condition',
+    );
+  });
+
   test('control: a document with binary, embeds and split string items migrates', () => {
     const d = createYDoc(rawDoc(1, 'abcdef'), {gc});
     const root = d.get('lexical-y');
