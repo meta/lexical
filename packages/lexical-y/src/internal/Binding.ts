@@ -249,15 +249,69 @@ class BindingUndoManager extends UndoManager {
     admits: () => boolean,
     options: ConstructorParameters<typeof UndoManager>[1],
   ) {
-    super(scope, options);
+    super(scope, {
+      ...options,
+      // A refused undo's transaction (see gatedStep) is no one's step.
+      captureTransaction: tr => !refusedHistory.has(tr),
+    });
     undoAdmits.set(this, admits);
+    undoSteps.set(this, {redo: () => super.redo(), undo: () => super.undo()});
   }
   undo(): ReturnType<UndoManager['undo']> {
-    return undoAdmits.get(this)!() ? super.undo() : null;
+    return gatedStep(this, true);
   }
   redo(): ReturnType<UndoManager['redo']> {
-    return undoAdmits.get(this)!() ? super.redo() : null;
+    return gatedStep(this, false);
   }
+}
+
+/**
+ * An undo or redo of `um` inside a transaction of its own (Yjs's undo joins
+ * it), admitted inside it: after every `beforeTransaction` listener of the
+ * document ran, any of which may change the layout record before anything
+ * is written. Refused, it writes nothing and returns null.
+ */
+function gatedStep(
+  um: BindingUndoManager,
+  undo: boolean,
+): ReturnType<UndoManager['undo']> {
+  const admits = undoAdmits.get(um)!;
+  if (!admits()) {
+    return null;
+  }
+  let result: ReturnType<UndoManager['undo']> = null;
+  // Restored, not cleared, afterwards: a step started from a listener of an
+  // earlier one (whose capture is still running) leaves that one's flags.
+  const {undoing, redoing, currStackItem} = um;
+  try {
+    um.doc.transact(tr => {
+      if (!admits()) {
+        refusedHistory.add(tr);
+        return;
+      }
+      const steps = undoSteps.get(um)!;
+      try {
+        result = undo ? steps.undo() : steps.redo();
+      } finally {
+        // Yjs resets these when its own (joined) transaction returns (or a
+        // listener of its pop throws), but this one ends later: its capture
+        // must still see an undo or a redo, and a step a listener of that
+        // capture starts must still find this step under way (Yjs then pops
+        // nothing), as with Yjs's own transaction.
+        if (undo) {
+          um.undoing = true;
+        } else {
+          um.redoing = true;
+        }
+        um.currStackItem = result;
+      }
+    }, um);
+  } finally {
+    um.undoing = undoing;
+    um.redoing = redoing;
+    um.currStackItem = currStackItem;
+  }
+  return result;
 }
 
 /**
@@ -281,6 +335,18 @@ const isReadOnlyRefusal = (w: LexicalWarning): boolean => {
     data.reason === 'read-only'
   );
 };
+
+/** Each BindingUndoManager's own undo and redo (Yjs's). */
+const undoSteps = new WeakMap<
+  BindingUndoManager,
+  {
+    undo: () => ReturnType<UndoManager['undo']>;
+    redo: () => ReturnType<UndoManager['redo']>;
+  }
+>();
+
+/** Transactions of an undo or redo refused inside them: not captured. */
+const refusedHistory = new WeakSet<Transaction>();
 
 /** The floor a test set (see setMinLayoutForTests), null: MIN_LAYOUT. */
 let minLayoutForTests: number | null = null;
@@ -1069,6 +1135,10 @@ export class YBinding {
   private olderNotified = false;
   /** Whether quiesce() ran: read only for good. */
   private quiesced = false;
+  /** A write was refused inside its transaction (see $writeCommit). */
+  private layoutChangedInWrite = false;
+  /** An evaluation is queued (see evaluateSoon). */
+  private evaluateQueued = false;
   /** The local migration under way (see migrateLocally), null: none. */
   private migrating: Promise<void> | null = null;
 
@@ -2527,6 +2597,38 @@ export class YBinding {
     );
   }
 
+  /** Whether `tr` changed the root's layout records or epoch. */
+  private changedRecord(tr: Transaction): boolean {
+    const keys = tr.changed.get(this._root);
+    if (keys === undefined) {
+      return false;
+    }
+    for (const k of keys) {
+      if (k !== null && (k.startsWith(LAYOUT_PREFIX) || k === EPOCH_KEY)) {
+        return !this.readsRecordedLayout();
+      }
+    }
+    return false;
+  }
+
+  /** Evaluate the root in a microtask (once), while started. */
+  private evaluateSoon(): void {
+    if (this.evaluateQueued) {
+      return;
+    }
+    this.evaluateQueued = true;
+    queueMicrotask(() => {
+      this.evaluateQueued = false;
+      if (
+        this.started &&
+        this._status === 'active' &&
+        !this.readsRecordedLayout()
+      ) {
+        this.guard(() => this.evaluate());
+      }
+    });
+  }
+
   /** Self-check of containers a remote change rebuilt (see checkContainer). */
   private checkRead(rebuilt: ReadonlySet<CS>): void {
     const check = this.options.selfCheck === true;
@@ -3177,6 +3279,13 @@ export class YBinding {
       tr.origin === this.followUpOrigin ||
       tr.origin === this.scanOrigin
     ) {
+      // The binding's own transaction is not read, but an app's
+      // beforeTransaction listener may have changed the layout record in it
+      // (every write checks the record itself, see writesEdits): the record
+      // is read once this transaction's caller is done.
+      if (this._status === 'active' && this.changedRecord(tr)) {
+        this.evaluateSoon();
+      }
       return;
     }
     this.remoteSeq++;
@@ -4224,6 +4333,13 @@ export class YBinding {
         payload.normalizedNodes ?? null,
       ),
     );
+    if (this.layoutChangedInWrite) {
+      // Refused inside its transaction (see $writeCommit): the binding's own
+      // transaction is not read as a change, so the record is read here.
+      this.layoutChangedInWrite = false;
+      this.evaluate();
+      return;
+    }
     this.queueCommitFollowUps(state, commit, localKeys, untransformed);
   }
 
@@ -4419,7 +4535,7 @@ export class YBinding {
             }
           })
         : null;
-    const writer = this.$runWriter(
+    const written = this.$runWriter(
       state,
       commit,
       roles,
@@ -4430,6 +4546,24 @@ export class YBinding {
       dirtyElements,
       dirtyLeaves,
     );
+    if (written === 'refused') {
+      // The layout record changed inside the write's own transaction: the
+      // change is refused as on a read-only binding (read again once it can
+      // be), and the record is read once the commit is done (see onUpdate).
+      this.writeCursor = null;
+      this.$refuseChanged(
+        dirtyElements,
+        dirtyLeaves,
+        editorState,
+        prevEditorState,
+        this._editor._compositionKey !== null
+          ? this.refusedComposing
+          : this.refused,
+      );
+      this.layoutChangedInWrite = true;
+      return;
+    }
+    const writer = written;
     if (writer !== null) {
       this.noteWriteRefusals(
         state,
@@ -4695,10 +4829,18 @@ export class YBinding {
     prevEditorState: EditorState,
     dirtyElements: Map<NodeKey, boolean>,
     dirtyLeaves: Set<NodeKey>,
-  ): Writer | null {
+  ): Writer | null | 'refused' {
     let writer: Writer | null = null;
+    let refused = false;
     try {
       this._doc.transact(tr => {
+        // Admitted inside the transaction, after every beforeTransaction
+        // listener of the document ran (any may change the layout record
+        // before anything is written): refused, nothing is written.
+        if (!this.recordAdmits()) {
+          refused = true;
+          return;
+        }
         try {
           writer = new Writer(state, roles, tr, prevEditorState, plan);
           writer.followUp = commit.followUp;
@@ -4718,6 +4860,9 @@ export class YBinding {
           recordSetMembersLayout(this._root, tr);
         }
       }, origin);
+      if (refused) {
+        return 'refused';
+      }
       if (!commit.followUp) {
         this._doc.transact(() => {
           this.recordPins(this._root, editorState, [

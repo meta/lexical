@@ -258,15 +258,21 @@ export function yjsMembers() {
       canRedo: (u: UndoManager) => isFunction(u.canRedo),
       canUndo: (u: UndoManager) => isFunction(u.canUndo),
       clear: (u: UndoManager) => isFunction(u.clear),
+      currStackItem: (u: UndoManager) => u.currStackItem === null,
       destroy: (u: UndoManager) => isFunction(u.destroy),
+      doc: (u: UndoManager) => isObject(u.doc),
       on: (u: UndoManager) => isFunction(u.on),
       redo: (u: UndoManager) => isFunction(u.redo),
       redoStack: (u: UndoManager) => Array.isArray(u.redoStack),
+      redoing: (u: UndoManager) => u.redoing === false,
       undo: (u: UndoManager) => isFunction(u.undo),
       undoStack: (u: UndoManager) => Array.isArray(u.undoStack),
+      undoing: (u: UndoManager) => u.undoing === false,
     },
     UndoManagerOptions: {
       captureTimeout: (u: UndoManager) => u.captureTimeout === 0,
+      captureTransaction: (u: UndoManager) =>
+        u.captureTransaction === PROBE_CAPTURE_TRANSACTION,
       deleteFilter: (u: UndoManager) => u.deleteFilter === PROBE_DELETE_FILTER,
       trackedOrigins: (u: UndoManager) => u.trackedOrigins.has(PROBE_ORIGIN),
     },
@@ -296,6 +302,7 @@ const PROBE_GUID = '@lexical/y/yjs-probe';
 /** The undo manager options the probe passes, checked on what it kept. */
 const PROBE_ORIGIN = {};
 const PROBE_DELETE_FILTER = () => true;
+const PROBE_CAPTURE_TRANSACTION = () => true;
 
 /** The events the binding listens to, by emitter. */
 export const YJS_EVENTS = {
@@ -504,6 +511,7 @@ function probeMembers(y: YjsExports, found: string[]): void {
     }
     const undoManager = new y.UndoManager(root, {
       captureTimeout: 0,
+      captureTransaction: PROBE_CAPTURE_TRANSACTION,
       deleteFilter: PROBE_DELETE_FILTER,
       trackedOrigins: new Set<unknown>([PROBE_ORIGIN]),
     });
