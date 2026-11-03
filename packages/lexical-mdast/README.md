@@ -188,7 +188,8 @@ strikethrough markers that read back correctly
 ([syntax-tree/mdast-util-to-markdown#96](https://github.com/syntax-tree/mdast-util-to-markdown/issues/96)).
 The known cases are a paragraph of many short runs of formatting side by
 side whose markers have to change, such as alternating bold, italic, and
-bold italic text (2,000 runs take about 7.5 s), and many empty emphasis,
+bold italic text (2,000 runs take about 7.5 s), with or without
+strikethrough among them, and many empty emphasis,
 strong or strikethrough nodes side by side, which only a contributed handler
 or mdast tree makes (1,000 take about 14 s).
 
@@ -210,9 +211,9 @@ written:
   `micromark-extension-cjk-friendly-gfm-strikethrough` leaves it open.
 - `'strict-commonmark'` follows CommonMark and GFM.
 
-Import defaults to `'cjk-friendly'`, which accepts what CJK writers type and
-what `@lexical/markdown` exported before it followed CommonMark's Unicode
-punctuation. Markdown exported earlier with an emoji or a text variation
+Import defaults to `'cjk-friendly'`, which accepts what CJK writers type and,
+beside CJK text, what `@lexical/markdown` exported before it followed
+CommonMark's Unicode punctuation. Markdown exported earlier with an emoji or a text variation
 selector at the inner edge of a run beside a letter (`Hello**🎉 launch**`,
 `**©︎**2024`) now reads with literal markers, as the amendment reads it;
 strict CommonMark readers still read the selector case as bold, since a
