@@ -46,12 +46,14 @@ import {
   $isElementNode,
   $isLineBreakNode,
   $isNodeSelection,
+  $isParagraphNode,
   $isRangeSelection,
   $isTextNode,
   defineExtension,
   type ElementFormatType,
   type ElementNode,
   type LexicalNode,
+  mergeRegister,
 } from 'lexical';
 import {gfmTableFromMarkdown, gfmTableToMarkdown} from 'mdast-util-gfm-table';
 import {gfmTable} from 'micromark-extension-gfm-table';
@@ -219,6 +221,35 @@ function $tableGrid(table: TableNode): {
     }
   });
   return {grid, rows};
+}
+
+/**
+ * Gives the paragraphs with no format in each new body cell of `table` the
+ * alignment of the cell's column, which export writes from the header cell.
+ * A cell that `@lexical/table` adds (in an inserted row, or split from a
+ * merged cell) comes with a plain paragraph, so it was drawn unaligned in a
+ * column the Markdown aligns. Cells that were there before, and paragraphs
+ * with a format of their own, are left as they are.
+ */
+function $alignNewCells(
+  table: TableNode,
+  isNew: (cell: TableCellNode) => boolean,
+): void {
+  const {grid} = $tableGrid(table);
+  for (const cells of grid.slice(1)) {
+    cells.forEach(({cell, origin}, column) => {
+      const header = grid[0][column];
+      const align =
+        origin && header && isNew(cell) && gfmAlign($cellFormat(header.cell));
+      if (align) {
+        for (const block of cell.getChildren()) {
+          if ($isParagraphNode(block) && block.getFormatType() === '') {
+            block.setFormat(align);
+          }
+        }
+      }
+    });
+  }
 }
 
 /** A line ending, as Markdown reads one. */
@@ -664,6 +695,9 @@ function gfmTableCellsToMarkdown(): ToMarkdownExtension {
  * cell, where blocks in a nested table count for nothing and start and end
  * are none; a merged header cell's for each column it spans), none for one
  * GFM can't express. The alignment of other cells has no form in GFM.
+ * A new body cell (in an inserted row, or split from a merged cell) gets its
+ * column's alignment on its paragraphs with no format, so it is drawn as the
+ * column is written.
  *
  * @example
  * ```ts
@@ -697,4 +731,27 @@ export const MdastTableExtension = defineExtension({
   ],
   name: '@lexical/mdast/Table',
   nodes: [TableNode, TableRowNode, TableCellNode],
+  register: editor => {
+    // A node that isn't in the last committed editor state is new.
+    const isNew = (node: LexicalNode) =>
+      !editor.getEditorState()._nodeMap.has(node.getKey());
+    return mergeRegister(
+      // Splitting a merged cell adds cells to rows without marking the table,
+      // so a new cell marks it.
+      editor.registerNodeTransform(TableCellNode, cell => {
+        const tableNode = isNew(cell) ? $findTableNode(cell) : null;
+        if (tableNode && !isNew(tableNode)) {
+          tableNode.markDirty();
+        }
+      }),
+      // A table that is new as a whole (imported, loaded or pasted) keeps the
+      // formats it came with. Loading a saved editor state marks every node
+      // dirty and gives it a new key, so all its cells count as new.
+      editor.registerNodeTransform(TableNode, tableNode => {
+        if (!isNew(tableNode)) {
+          $alignNewCells(tableNode, isNew);
+        }
+      }),
+    );
+  },
 });

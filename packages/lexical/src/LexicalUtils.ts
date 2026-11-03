@@ -2866,7 +2866,7 @@ export function isDocumentFragment(x: unknown): x is DocumentFragment {
 }
 
 const INLINE_TAG_RE =
-  /^(a|abbr|acronym|b|cite|code|del|em|i|ins|kbd|label|mark|output|q|ruby|s|samp|span|strong|sub|sup|time|u|tt|var|#text)$/i;
+  /^(a|abbr|acronym|b|bdi|bdo|big|cite|code|data|del|dfn|em|font|i|ins|kbd|label|mark|nobr|output|q|ruby|s|samp|small|span|strike|strong|sub|sup|time|u|tt|var|#text)$/i;
 
 /**
  *
@@ -3476,7 +3476,14 @@ export function $markSlotEditable(
   editor: LexicalEditor = $getEditor(),
 ): void {
   const editable = editor.isEditable();
-  element.contentEditable = editable ? 'true' : 'false';
+  const value = editable ? 'true' : 'false';
+  // In Chrome, any write of `contenteditable` to a connected element forces a
+  // synchronous style recalculation, even when the value is unchanged.
+  // This runs on every reconcile of a slot host, so skip the no-op write.
+  // (getAttribute, not the getter: the getter reads 'inherit' when unset.)
+  if (element.getAttribute('contenteditable') !== value) {
+    element.contentEditable = value;
+  }
   if (editable) {
     element.__lexicalEditor = editor;
   } else {

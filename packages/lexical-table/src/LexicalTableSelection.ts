@@ -377,9 +377,36 @@ export class TableSelection implements BaseSelection {
       [tableNode.getKey(), tableNode],
     ]);
     let lastRow: null | TableRowNode = null;
+    // A row the selection spans with no cell of its own in it (only cells
+    // spanning from above, or holes in a ragged table) belongs to it when a
+    // later row has a cell of its own or a hole there, so that a copy keeps
+    // the later rows in place. Trailing rows covered only by spans are left
+    // out, as before.
+    let lastRowNeeded = minRow - 1;
     for (let i = minRow; i <= maxRow; i++) {
       for (let j = minColumn; j <= maxColumn; j++) {
-        const {cell} = map[i][j];
+        const value = map[i][j];
+        if (value === undefined || value.startRow === i) {
+          lastRowNeeded = i;
+          break;
+        }
+      }
+    }
+    const rowNodes = tableNode.getChildren();
+    for (let i = minRow; i <= maxRow; i++) {
+      const rowNode = rowNodes[i];
+      if (i <= lastRowNeeded && $isTableRowNode(rowNode)) {
+        nodeMap.set(rowNode.getKey(), rowNode);
+        lastRow = rowNode;
+      }
+      for (let j = minColumn; j <= maxColumn; j++) {
+        const value = map[i][j];
+        if (value === undefined) {
+          // A ragged table (rows of different lengths, e.g. after concurrent
+          // row and column inserts) has no cell here.
+          continue;
+        }
+        const {cell} = value;
         const currentRow = cell.getParent();
         invariant(
           $isTableRowNode(currentRow),
@@ -405,13 +432,27 @@ export class TableSelection implements BaseSelection {
   }
 
   getTextContent(): string {
-    const nodes = this.getNodes().filter(node => $isTableCellNode(node));
+    const allNodes = this.getNodes();
+    const nodes = allNodes.filter(node => $isTableCellNode(node));
+    // The rows of the table that hold no selected cell of their own (rows a
+    // ragged table or a row span leaves empty within the selection) are
+    // blank lines, so that the lines keep their rows.
+    const rowsWithCells = new Set(nodes.map(node => node.__parent));
     let textContent = '';
-    for (let i = 0; i < nodes.length; i++) {
-      const node = nodes[i];
-      const row = node.__parent;
-      const nextRow = (nodes[i + 1] || {}).__parent;
-      textContent += node.getTextContent() + (nextRow !== row ? '\n' : '\t');
+    let cellIndex = 0;
+    for (const node of allNodes) {
+      if ($isTableCellNode(node)) {
+        const row = node.__parent;
+        const nextRow = (nodes[cellIndex + 1] || {}).__parent;
+        textContent += node.getTextContent() + (nextRow !== row ? '\n' : '\t');
+        cellIndex++;
+      } else if (
+        $isTableRowNode(node) &&
+        node.__parent === this.tableKey &&
+        !rowsWithCells.has(node.__key)
+      ) {
+        textContent += '\n';
+      }
     }
     return textContent;
   }

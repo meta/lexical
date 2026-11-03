@@ -1643,6 +1643,7 @@ export class Writer {
     }
     const state = this.state;
     return {
+      compositionKey: state.editor._compositionKey,
       cursor,
       cursorAt: -1,
       originOf: withOrigins ? node => this.originOf(node) : null,
