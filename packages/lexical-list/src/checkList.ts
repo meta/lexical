@@ -317,9 +317,14 @@ export function registerCheckList(
               // checkbox, the caret-moving arrows above all: the caret leaves
               // the check mark behind, so the focus has to follow it. Text
               // entry arrives here too, but not all of it comes from a key,
-              // which is why beforeinput covers that separately.
+              // which is why beforeinput covers that separately. A Space is
+              // text too while the caret is in another block, as it is after
+              // a click on a check mark.
               keydown: event => {
-                if (!CHECKBOX_KEYS.has(event.key)) {
+                if (
+                  !CHECKBOX_KEYS.has(event.key) ||
+                  (event.key === ' ' && isSelectionOutsideActiveItem(editor))
+                ) {
                   returnFocusToRoot(editor);
                 }
               },
@@ -503,6 +508,35 @@ function isCheckListItem(dom: HTMLElement): boolean {
     // @ts-ignore internal field
     parentNode.__lexicalListType === 'check'
   );
+}
+
+// A click on a check mark focuses its item but leaves the selection where it
+// was, often in another block. Space then belongs to that selection, not to
+// the item. This turns on where the selection is, not on how the item got the
+// focus: focus moved onto the item without moving the selection, for example
+// by assistive technology, also leaves Space to the selection. Both ends are
+// checked, so a selection that reaches into the item from either direction
+// gets the same answer.
+function isSelectionOutsideActiveItem(editor: LexicalEditor): boolean {
+  const activeItem = getActiveCheckListItem(editor);
+
+  if (activeItem === null) {
+    return false;
+  }
+
+  return editor.read('latest', () => {
+    const item = $getNearestNodeFromDOMNode(activeItem);
+    const selection = $getSelection();
+
+    if (!$isListItemNode(item) || !$isRangeSelection(selection)) {
+      return false;
+    }
+
+    return [selection.anchor, selection.focus].some(point => {
+      const node = point.getNode();
+      return !node.is(item) && !item.isParentOf(node);
+    });
+  });
 }
 
 function getActiveCheckListItem(editor: LexicalEditor): HTMLElement | null {

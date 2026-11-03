@@ -15,6 +15,7 @@ import {
   moveToEditorBeginning,
   moveToEditorEnd,
   moveToLineBeginning,
+  moveToLineEnd,
   moveToParagraphEnd,
   pressBackspace,
   redo,
@@ -228,6 +229,38 @@ test.describe('Checklist space key', () => {
 
     await expect(item).toHaveAttribute('aria-checked', 'false');
     await expect(item).toHaveText('Task');
+  });
+
+  test('space after a checkbox click types at a caret in another block', async ({
+    isCollab,
+    page,
+  }) => {
+    await initialize({isCollab, page});
+    await focusEditor(page);
+
+    await page.keyboard.type('Owners sign off by Friday.');
+    await page.keyboard.press('Enter');
+    await toggleCheckList(page);
+    await page.keyboard.type('Task');
+
+    // Back to the end of the paragraph above the list
+    await moveToEditorBeginning(page);
+    await moveToLineEnd(page);
+
+    // The click checks the item and focuses it, but the caret stays in the
+    // paragraph, so what is typed next belongs there.
+    const item = page.locator('li[role="checkbox"]').first();
+    const box = await item.boundingBox();
+    await page.mouse.click(box.x + 5, box.y + box.height / 2);
+    await expect(item).toHaveAttribute('aria-checked', 'true');
+
+    await page.keyboard.type(' Ping me');
+
+    await expect(item).toHaveAttribute('aria-checked', 'true');
+    await expect(item).toHaveText('Task');
+    await expect(
+      page.locator('[data-lexical-editor="true"] > p').first(),
+    ).toHaveText('Owners sign off by Friday. Ping me');
   });
 
   test('clicking the label after the checkbox gives focus back', async ({
