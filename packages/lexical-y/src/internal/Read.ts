@@ -151,20 +151,11 @@ type Parsed = {
   start: Formats;
 };
 
-/** A run of a text piece: what the piece is read from (see $checkMerged). */
-type MergedRun = {
-  item: Item;
-  tattrs: Attrs;
-  text: string;
-  tsig: string;
-  caretAt?: number;
-};
-
 /**
- * Text pieces holding runs that $showSame read as one: their runs, and what
- * the node built from the first run shows.
+ * Text pieces holding runs that $showSame read as one, with what the node
+ * built from each piece's first run shows.
  */
-type Merged = Map<Piece, {runs: MergedRun[]; shows: string}>;
+type Merged = Map<Piece, string>;
 
 type Piece = (
   | {
@@ -2363,8 +2354,7 @@ export class Reader {
     formats: Formats,
   ): Piece[] {
     const pieces: Piece[] = [];
-    // Pieces that hold runs read as one by $showSame, with their runs (see
-    // the check after the loop).
+    // Pieces that hold runs read as one by $showSame (see there).
     const merged: Merged = new Map();
     const current = new Map(formats);
     let tattrs: Attrs | null = null;
@@ -2424,22 +2414,8 @@ export class Reader {
               last.kind === 'text' &&
               !isTabText(run.tattrs) &&
               sameWrappers(last.wrappers, wrappers) &&
-              // (In a piece that holds runs read as one, every run is checked:
-              // equal to the first run's attributes is not equal to what it
-              // shows.)
-              ((last.tsig === run.tsig && !merged.has(last)) ||
-                this.$showSame(last, run, merged))
+              (last.tsig === run.tsig || this.$showSame(last, run, merged))
             ) {
-              const into = merged.get(last);
-              if (into !== undefined) {
-                into.runs.push({
-                  ...(holds ? {caretAt: inRun} : {}),
-                  item: it,
-                  tattrs: run.tattrs,
-                  text: run.text,
-                  tsig: run.tsig,
-                });
-              }
               if (holds) {
                 last.caretAt = last.text.length + inRun;
               }
@@ -2465,79 +2441,27 @@ export class Reader {
       }
     }
     this.lastFormats = current;
-    return merged.size === 0 ? pieces : this.$checkMerged(pieces, merged);
-  }
-
-  /**
-   * Pieces that hold runs read as one by $showSame stay one only if the node
-   * built from the whole piece (its first run's attributes, all its text)
-   * shows what each run does: a node's formats can depend on its text. Any
-   * other piece reads as its runs, as before (runs with equal attributes
-   * still read as one). One build per merged piece keeps a read linear.
-   */
-  private $checkMerged(pieces: Piece[], merged: Merged): Piece[] {
-    const out: Piece[] = [];
-    for (const piece of pieces) {
-      const m = piece.kind === 'text' ? merged.get(piece) : undefined;
-      if (m === undefined || piece.kind !== 'text') {
-        out.push(piece);
-        continue;
-      }
-      let same = false;
-      try {
-        same = this.$builtShows(piece.text, piece.tattrs) === m.shows;
-      } catch (_e) {
-        same = false;
-      }
-      if (same) {
-        out.push(piece);
-        continue;
-      }
-      let at: (Piece & {kind: 'text'}) | null = null;
-      for (const run of m.runs) {
-        if (at !== null && at.tsig === run.tsig) {
-          if (run.caretAt !== undefined) {
-            at.caretAt = at.text.length + run.caretAt;
-          }
-          at.text += run.text;
-        } else {
-          at = {
-            ...(run.caretAt !== undefined ? {caretAt: run.caretAt} : {}),
-            item: run.item,
-            kind: 'text',
-            tattrs: run.tattrs,
-            text: run.text,
-            tsig: run.tsig,
-            wrappers: piece.wrappers,
-          };
-          out.push(at);
-        }
-      }
-    }
-    return out;
+    return pieces;
   }
 
   /**
    * Whether run `b` reads as part of the text piece `a` before it, where
    * their stored attributes differ only in format bits: the nodes the reader
-   * builds from them, apart and merged (the merged node keeps `a`'s
-   * attributes), show the same formats and attributes. A code highlight's
-   * setFormat ignores every bit, so a bit stored over part of one (a format
-   * written while the token was plain text, or by a write from outside the
-   * editor) is shown nowhere; read as two nodes, text typed into either
-   * stores the formats the node shows and reads apart from it in a fresh
-   * read. The bits stay stored. Only a text class (or replacement) with a
-   * setFormat of its own can show two such attributes the same; a node that
-   * cannot be built reads apart, as before.
+   * builds from them show the same formats and attributes. A code
+   * highlight's setFormat ignores every bit, so a bit stored over part of one
+   * (a format written while the token was plain text, or by a write from
+   * outside the editor) is shown nowhere; read as two nodes, text typed into
+   * either stores the formats the node shows and reads apart from it in a
+   * fresh read. The bits stay stored. Only a text class (or replacement) with
+   * a setFormat of its own can show two such attributes the same; a node that
+   * cannot be built reads apart, as before. Each run is built once.
    *
    * Contract: a TextNode's shown format depends on its class, fields and
-   * NodeState, not on its text content or on where it is attached (the same
-   * assumption as TextNode#splitText, which gives every part the node's
-   * format before it is inserted, and mergeWithSibling). The merged piece is
-   * checked as a whole (see $checkMerged), but a class that shows a bit only
-   * for some text can change its verdict when text is typed into the merged
-   * node, which its author does not read again, and the nodes compared here
-   * are not attached.
+   * NodeState, not on its text (content or length), the editor, or where it
+   * is attached (the same assumption as TextNode#splitText, which gives every
+   * part the node's format before it is inserted, and mergeWithSibling). So
+   * the merged node shows what its first run does, and runs with equal
+   * attributes show the same.
    */
   private $showSame(
     a: Piece & {kind: 'text'},
@@ -2562,29 +2486,11 @@ export class Reader {
       return false;
     }
     try {
-      // A piece that already holds runs read as one compares with what its
-      // first run shows; each run is built once.
-      let m = merged.get(a);
-      const shows =
-        m !== undefined ? m.shows : this.$builtShows(a.text, a.tattrs);
+      const shows = merged.get(a) ?? this.$builtShows(a.text, a.tattrs);
       if (shows === null || shows !== this.$builtShows(b.text, b.tattrs)) {
         return false;
       }
-      if (m === undefined) {
-        m = {
-          runs: [
-            {
-              ...(a.caretAt !== undefined ? {caretAt: a.caretAt} : {}),
-              item: a.item,
-              tattrs: a.tattrs,
-              text: a.text,
-              tsig: a.tsig,
-            },
-          ],
-          shows,
-        };
-        merged.set(a, m);
-      }
+      merged.set(a, shows);
       return true;
     } catch (_e) {
       return false;

@@ -21,9 +21,12 @@
 import {
   $create,
   $createParagraphNode,
+  $getEditor,
   $getRoot,
   createEditor,
   type Klass,
+  type LexicalEditor,
+  type NodeKey,
   TEXT_TYPE_TO_FORMAT,
   type TextFormatType,
   TextNode,
@@ -264,31 +267,35 @@ class LengthGatedNode extends TextNode {
   }
 }
 
-describe.each([false, true])('a setter that depends on the text, gc %s', gc => {
-  // Apart, neither part shows the bold; merged, the node would: the runs
-  // stay apart, as on main.
-  test('runs merge only where the merged node shows the same', async () => {
-    const t = await setup(
-      () =>
-        $getRoot().append(
-          $createParagraphNode().append(
-            $create(LengthGatedNode).setTextContent('alpha beta'),
-          ),
-        ),
-      {gc, nodes: [...NODES, LengthGatedNode]},
+describe.each([false, true])(
+  'a setter that depends on the text length, gc %s',
+  gc => {
+    // Outside the contract: a TextNode's shown format must not depend on
+    // its text, content or length (the same assumption as TextNode#splitText
+    // and mergeWithSibling). Apart, neither part shows the bold; merged, the
+    // node would.
+    test.fails(
+      'a stored bold over part of a node reads as on main',
+      async () => {
+        const t = await setup(
+          () =>
+            $getRoot().append(
+              $createParagraphNode().append(
+                $create(LengthGatedNode).setTextContent('alpha beta'),
+              ),
+            ),
+          {gc, nodes: [...NODES, LengthGatedNode]},
+        );
+        formatRaw(t.a, 'alp', {'f:bold': true});
+        await t.sync();
+        expect(nodesOf(await freshReader(t.b))).toEqual([
+          ['alp', 0],
+          ['ha beta', 0],
+        ]);
+      },
     );
-    formatRaw(t.a, 'alp', {'f:bold': true});
-    await t.sync();
-    for (const peer of t.peers) {
-      expect(nodesOf(peer).every(([, format]) => format === 0)).toBe(true);
-    }
-    expect(nodesOf(await freshReader(t.b))).toEqual([
-      ['alp', 0],
-      ['ha beta', 0],
-    ]);
-    await expectConverged(t.peers);
-  });
-});
+  },
+);
 
 /** Shows its formats only while its text holds an X. */
 class HasXFormatsNode extends TextNode {
@@ -304,34 +311,29 @@ describe.each([false, true])(
   'a setter that depends on the text content, gc %s',
   gc => {
     // Outside the contract: a TextNode's shown format must not depend on
-    // its text content or on where it is attached (the same assumption as
-    // TextNode#splitText and mergeWithSibling). "ab" (stored bold) and "cd" show no format apart or
-    // merged, so they read as one node; typing X into the plain "cd" makes
-    // the merged node show the bold, so a fresh read cuts the line where
-    // the author, which does not read its own line again, does not.
-    test.fails('typing into a merged node reads back as typed', async () => {
-      const t = await setup(
-        () =>
-          $getRoot().append(
-            $createParagraphNode().append(
-              $create(HasXFormatsNode).setTextContent('abcd'),
+    // its text, content or length (the same assumption as TextNode#splitText
+    // and mergeWithSibling). Apart, neither "ab" (stored bold) nor "Xd" shows
+    // a format; merged, the node holds an X and shows the bold.
+    test.fails(
+      'a stored bold over part of a node reads as on main',
+      async () => {
+        const t = await setup(
+          () =>
+            $getRoot().append(
+              $createParagraphNode().append(
+                $create(HasXFormatsNode).setTextContent('abXd'),
+              ),
             ),
-          ),
-        {gc, nodes: [...NODES, HasXFormatsNode]},
-      );
-      formatRaw(t.a, 'ab', {'f:bold': true});
-      await t.sync();
-      t.b.update(() => {
-        const node = $getRoot()
-          .getAllTextNodes()
-          .find(n => n.getTextContent().includes('cd'))!;
-        const i = node.getTextContent().indexOf('cd');
-        node.select(i, i).insertText('X');
-      });
-      await t.sync();
-      expect((await freshReader(t.b)).describe()).toBe(t.b.describe());
-      await expectConverged(t.peers);
-    });
+          {gc, nodes: [...NODES, HasXFormatsNode]},
+        );
+        formatRaw(t.a, 'ab', {'f:bold': true});
+        await t.sync();
+        expect(nodesOf(await freshReader(t.b))).toEqual([
+          ['ab', 0],
+          ['Xd', 0],
+        ]);
+      },
+    );
   },
 );
 
@@ -369,6 +371,55 @@ describe.each([false, true])(
         formatRaw(t.a, 'a', {'f:bold': true});
         await t.sync();
         expect(nodesOf(await freshReader(t.b))).toEqual([
+          ['a', 1],
+          ['b', 0],
+        ]);
+      },
+    );
+  },
+);
+
+const owners = new WeakMap<object, LexicalEditor>();
+/** Shows its formats only while the editor that built it is editable. */
+class EditableFormatsNode extends TextNode {
+  constructor(text = '', key?: NodeKey) {
+    super(text, key);
+    owners.set(this, $getEditor());
+  }
+  $config() {
+    return this.config('test-editable-formats', {extends: TextNode});
+  }
+  getFormat(): number {
+    const owner = owners.get(this.getLatest());
+    return owner !== undefined && owner.isEditable() ? super.getFormat() : 0;
+  }
+  setFormat(format: TextFormatType | number): this {
+    return super.setFormat(format);
+  }
+}
+
+describe.each([false, true])(
+  'a format that depends on the editor, gc %s',
+  gc => {
+    // Outside the contract (see above): it shows no format while its editor
+    // is not editable yet, as when a fresh reader builds and compares nodes.
+    test.fails(
+      'a stored bold over part of a node reads where it is stored',
+      async () => {
+        const t = await setup(
+          () =>
+            $getRoot().append(
+              $createParagraphNode().append(
+                $create(EditableFormatsNode).setTextContent('ab'),
+              ),
+            ),
+          {gc, nodes: [...NODES, EditableFormatsNode]},
+        );
+        for (const peer of t.peers) {
+          peer.stop();
+        }
+        formatRaw(t.a, 'a', {'f:bold': true});
+        expect(nodesOf(await freshReader(t.a))).toEqual([
           ['a', 1],
           ['b', 0],
         ]);
