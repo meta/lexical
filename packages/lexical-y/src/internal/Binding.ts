@@ -246,7 +246,7 @@ type GuardedRead = {
 class BindingUndoManager extends UndoManager {
   constructor(
     scope: YNode,
-    admits: () => boolean,
+    admits: UndoAdmission,
     options: ConstructorParameters<typeof UndoManager>[1],
   ) {
     super(scope, {
@@ -289,10 +289,11 @@ function gatedStep(
   um: BindingUndoManager,
   undo: boolean,
 ): ReturnType<UndoManager['undo']> {
-  const admits = undoAdmits.get(um)!;
-  if (!admits()) {
+  const admission = undoAdmits.get(um)!;
+  if (!admission.admits()) {
     return null;
   }
+  const schema = admission.snapshot();
   let result: ReturnType<UndoManager['undo']> = null;
   // Restored, not cleared, afterwards: a step started from a listener of an
   // earlier one (whose capture is still running) leaves that one's flags.
@@ -302,7 +303,7 @@ function gatedStep(
   heldPops.set(um, held);
   try {
     um.doc.transact(tr => {
-      if (!admits()) {
+      if (!admission.admitsSince(schema)) {
         refusedHistory.add(tr);
         return;
       }
@@ -356,7 +357,18 @@ const heldPops = new WeakMap<
  * Each BindingUndoManager's check (kept apart from the instance, which is
  * Yjs's: no field of ours on it).
  */
-const undoAdmits = new WeakMap<BindingUndoManager, () => boolean>();
+const undoAdmits = new WeakMap<BindingUndoManager, UndoAdmission>();
+
+/**
+ * How a BindingUndoManager asks its binding whether it may write: before
+ * the step (`admits`), and inside the step's transaction against the schema
+ * records as they were before it (`snapshot`, `admitsSince`).
+ */
+type UndoAdmission = {
+  admits: () => boolean;
+  snapshot: () => string;
+  admitsSince: (before: string) => boolean;
+};
 
 /** A warning that says why the binding is read only. */
 const isReadOnlyCause = (w: LexicalWarning): boolean =>
@@ -1385,11 +1397,19 @@ export class YBinding {
       ),
     );
     if (this.options.captureTimeout !== null) {
-      const um = new BindingUndoManager(this._root, () => this.writesEdits(), {
-        captureTimeout: this.options.captureTimeout ?? 500,
-        deleteFilter: item => !this.isKeptByUndo(item),
-        trackedOrigins: new Set([this]),
-      });
+      const um = new BindingUndoManager(
+        this._root,
+        {
+          admits: () => this.writesEdits(),
+          admitsSince: before => this.writesEdits() && this.admitsSince(before),
+          snapshot: () => this.schemaState(),
+        },
+        {
+          captureTimeout: this.options.captureTimeout ?? 500,
+          deleteFilter: item => !this.isKeptByUndo(item),
+          trackedOrigins: new Set([this]),
+        },
+      );
       this._undoManager = um;
       // Undo reads the format items of the changes on its stacks, and the
       // end each of them gave a run it deleted (see isKeptByUndo,
@@ -2114,13 +2134,14 @@ export class YBinding {
       // pristine, whose record the seed creates, is seeded. Otherwise
       // nothing is written and the root is read.
       let seeded = false;
+      const seedSchema = this.schemaState();
       if (seed !== null) {
         // The seed's exact bytes, under the id derived from them, the
         // binding's only items under another client id than the document's;
         // read back like any document's content, so the editor shows what
         // is stored (and the state maps it), with its selection kept.
         this._doc.transact(() => {
-          if (this.rootPristine()) {
+          if (this.rootPristine() && this.schemaState() === seedSchema) {
             seeded = true;
             applyUpdate(this._doc, seed.bytes, this.initOrigin);
           }
@@ -2136,7 +2157,7 @@ export class YBinding {
         return;
       }
       this._doc.transact(tr => {
-        if (this.rootPristine()) {
+        if (this.rootPristine() && this.schemaState() === seedSchema) {
           seeded = true;
           this.$writeInitial(this.state, this._root, tr, editorState);
         }
@@ -2692,6 +2713,9 @@ export class YBinding {
       if (k !== null && (k.startsWith(LAYOUT_PREFIX) || k === EPOCH_KEY)) {
         return !this.readsRecordedLayout();
       }
+      if (k !== null && k.startsWith(SCHEMA_PREFIX) && this.schemaRefuses()) {
+        return true;
+      }
     }
     return false;
   }
@@ -2707,7 +2731,7 @@ export class YBinding {
       if (
         this.started &&
         this._status === 'active' &&
-        !this.readsRecordedLayout()
+        (!this.readsRecordedLayout() || this.schemaRefuses())
       ) {
         this.guard(() => this.evaluate());
       }
@@ -2969,6 +2993,45 @@ export class YBinding {
       !Number.isNaN(version) &&
       version >= minLayout() &&
       version <= LAYOUT_VERSION
+    );
+  }
+  /** The root's schema records as they are now (see admitsSince). */
+  private schemaState(): string {
+    const attrs = this._root.getAttrs() as Record<string, unknown>;
+    return Object.keys(attrs)
+      .filter(k => k.startsWith(SCHEMA_PREFIX))
+      .sort()
+      .map(k => `${k}=${String(attrs[k])}`)
+      .join(',');
+  }
+
+  /**
+   * The admission check inside a binding-authored write transaction
+   * (editor writes, initialization, the recovery rewrite, pins, undo and
+   * redo): the layout record and the epoch as they are now (recordAdmits),
+   * and the schema records as they were before the transaction opened
+   * (`before`, see schemaState) unless one changed since and this version
+   * no longer writes the document (a newer or malformed schema record, see
+   * checkSchema). Why only a change: a schema record the binding already
+   * read is the schema gate's (gateSchema), which lets the local updates
+   * made before it be written.
+   */
+  private admitsSince(before: string): boolean {
+    if (!this.recordAdmits()) {
+      return false;
+    }
+    return this.schemaState() === before || !this.schemaRefuses();
+  }
+
+  /**
+   * Whether the root's schema records, as they are now, keep this version
+   * from writing (a newer or malformed one, see checkSchema).
+   */
+  private schemaRefuses(): boolean {
+    const newest = newestSchema(this._root);
+    return (
+      malformedSchema(this._root) !== null ||
+      (newest !== null && newest > this.options.schemaVersion)
     );
   }
 
@@ -4957,12 +5020,14 @@ export class YBinding {
   ): Writer | null | 'refused' {
     let writer: Writer | null = null;
     let refused = false;
+    const schema = this.schemaState();
     try {
       this._doc.transact(tr => {
         // Admitted inside the transaction, after every beforeTransaction
-        // listener of the document ran (any may change the layout record
-        // before anything is written): refused, nothing is written.
-        if (!this.recordAdmits()) {
+        // listener of the document ran (any may change the layout record or
+        // the schema record before anything is written): refused, nothing
+        // is written.
+        if (!this.admitsSince(schema)) {
           refused = true;
           return;
         }
@@ -4989,11 +5054,12 @@ export class YBinding {
         return 'refused';
       }
       if (!commit.followUp) {
+        const pinSchema = this.schemaState();
         this._doc.transact(() => {
           // Admitted inside its own transaction too (see the write's): a
           // record that stopped admitting writes gets no pin, and is read
           // (see readChange).
-          if (!this.recordAdmits()) {
+          if (!this.admitsSince(pinSchema)) {
             return;
           }
           this.recordPins(this._root, editorState, [
@@ -5015,10 +5081,11 @@ export class YBinding {
         {error: e, reason: 'local-change'},
       );
       let recoveryRefused = false;
+      const recoverySchema = this.schemaState();
       try {
         this._doc.transact(tr => {
           // Admitted inside its own transaction, as the write it recovers.
-          if (!this.recordAdmits()) {
+          if (!this.admitsSince(recoverySchema)) {
             recoveryRefused = true;
             return;
           }
