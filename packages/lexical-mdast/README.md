@@ -194,7 +194,10 @@ written:
   as `micromark-extension-cjk-friendly` does. It reads Markdown as CommonMark
   does except beside Chinese, Japanese and Korean characters and
   punctuation, where markers open and close as their writer meant. A
-  variation selector before a marker reads as the character it follows.
+  variation selector before a marker reads as the character it follows,
+  before a closing `~` or `~~` too, as `markdown-it-cjk-friendly` reads it:
+  `x ~~Done ✔︎~~ y` closes, where
+  `micromark-extension-cjk-friendly-gfm-strikethrough` leaves it open.
 - `'strict-commonmark'` follows CommonMark and GFM.
 
 Import defaults to `'cjk-friendly'`, which accepts what CJK writers type and

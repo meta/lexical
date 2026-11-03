@@ -606,10 +606,18 @@ const MICROMARK_ONLY_WHITESPACE = /^[\u2028\u2029\ufeff]$/;
  * escaped.
  */
 function getTrailingBackslashes(value: string): [number, number] {
-  const match = value.includes('\\')
-    ? /\\+(?=[^\p{P}\p{S}\r\n]$)/u.exec(value)
-    : null;
-  return match ? [match.index, match[0].length] : [-1, 0];
+  // Scanned back from the last character, which a regex search from the
+  // start would do once for each backslash of a run elsewhere.
+  const last = value.codePointAt(value.length - 2);
+  const end = value.length - (last !== undefined && last > 0xffff ? 2 : 1);
+  if (end < 1 || /[\p{P}\p{S}\r\n]/u.test(value.slice(end))) {
+    return [-1, 0];
+  }
+  let start = end;
+  while (start > 0 && value.charCodeAt(start - 1) === 92) {
+    start--;
+  }
+  return start < end ? [start, end - start] : [-1, 0];
 }
 
 // Stand-ins come from Supplemental Punctuation (U+2E00 to U+2E7F) first,
