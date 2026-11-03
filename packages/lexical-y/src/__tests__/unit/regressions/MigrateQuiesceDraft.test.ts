@@ -99,6 +99,58 @@ describe.each([false, true])('quiesce on a read-only binding, gc %s', gc => {
     t.dispose();
   });
 
+  test.each(['app-transaction', 'beforeTransaction'] as const)(
+    'an active binding whose record stops admitting writes (%s) as quiesce() commits: the batched update is in the draft, differs',
+    async where => {
+      const t = setup(gc);
+      expect(t.binding.status).toBe('active');
+      t.editor.update(() => $setCompositionKey($textKey()), {discrete: true});
+      await flush();
+      t.editor.update(
+        () => {
+          (
+            (
+              $getRoot().getFirstChildOrThrow() as ElementNode
+            ).getFirstChildOrThrow() as TextNode
+          ).setTextContent('abcIME');
+        },
+        {skipTransforms: true},
+      );
+      expect(t.editor._pendingEditorState).not.toBeNull();
+      let handoff: ReturnType<YBinding['quiesce']> | null = null;
+      if (where === 'app-transaction') {
+        t.doc.transact(() => {
+          t.doc
+            .get('lexical-y')
+            .setAttr(`lexical-y:${LAYOUT_VERSION + 1}`, true);
+          expect(t.binding.status).toBe('active');
+          handoff = t.binding.quiesce();
+        }, 'app');
+      } else {
+        let once = false;
+        t.doc.on('beforeTransaction', () => {
+          if (!once) {
+            once = true;
+            t.doc
+              .get('lexical-y')
+              .setAttr(`lexical-y:${LAYOUT_VERSION + 1}`, true);
+          }
+        });
+        handoff = t.binding.quiesce();
+      }
+      const {state, draft} = handoff!;
+      expect(JSON.stringify(draft.json)).toContain('abcIME');
+      expect(draft.differs).toBe(true);
+      expect(t.editor._compositionKey).toBeNull();
+      // The text is in neither the state nor the document.
+      const out = createYDoc(state, {gc});
+      expect(out.get('lexical-y').toString()).not.toContain('IME');
+      out.destroy();
+      expect(t.doc.get('lexical-y').toString()).not.toContain('IME');
+      t.dispose();
+    },
+  );
+
   test('a read-only binding with nothing pending: the draft is the editor state, differs false', async () => {
     const t = setup(gc);
     t.doc.get('lexical-y').setAttr(`lexical-y:${LAYOUT_VERSION + 1}`, true);

@@ -1135,6 +1135,8 @@ export class YBinding {
   private olderNotified = false;
   /** Whether quiesce() ran: read only for good. */
   private quiesced = false;
+  /** Local commits refused so far (see quiesce). */
+  private refusals = 0;
   /** A write was refused inside its transaction (see $writeCommit). */
   private layoutChangedInWrite = false;
   /** An evaluation is queued (see evaluateSoon). */
@@ -1802,11 +1804,13 @@ export class YBinding {
     }
     const editor = this._editor;
     // What the editor holds and has not committed yet (a batched update),
-    // taken first: a read-only binding refuses it when it commits and reads
-    // the document back, which would erase it from the editor.
+    // taken first, whatever the status: the commit below may be refused (a
+    // read-only binding, or a record that stopped admitting writes before
+    // the status shows it, see recordAdmits), and a refusal reads the
+    // document back, which would erase it from the editor.
     const held = editor._pendingEditorState;
-    const heldJson =
-      held !== null && this._status !== 'active' ? held.toJSON() : null;
+    const heldJson = held !== null ? held.toJSON() : null;
+    const refusalsBefore = this.refusals;
     if (this.started) {
       this.guard(() => {
         // A composition ends (its text is written like any typing), and a
@@ -1834,18 +1838,23 @@ export class YBinding {
         }
       });
     }
-    const json = heldJson ?? editor.getEditorState().toJSON();
+    // Refused: the draft is what the editor held, not what it shows now.
+    const refused = this.refusals !== refusalsBefore;
+    const json =
+      heldJson !== null && refused
+        ? heldJson
+        : editor.getEditorState().toJSON();
     // What the editor shows and the document does not hold: local changes
-    // a read-only binding refused and has not read back yet, or keeps, or
-    // held uncommitted when quiesce() began.
+    // the binding refused and has not read back yet, or keeps, or held
+    // uncommitted when quiesce() began and could not write.
     const differs =
-      this._status !== 'active' &&
-      (heldJson !== null ||
-        this.keepsUnstored ||
-        this.refused.size > 0 ||
-        this.refusedComposing.size > 0 ||
-        this.pending.has('reread') ||
-        this.pending.has('restore'));
+      (heldJson !== null && refused) ||
+      (this._status !== 'active' &&
+        (this.keepsUnstored ||
+          this.refused.size > 0 ||
+          this.refusedComposing.size > 0 ||
+          this.pending.has('reread') ||
+          this.pending.has('restore')));
     this.quiesced = true;
     this.setStatus('readonly');
     return {draft: {differs, json}, state: encodeStateAsUpdate(this._doc)};
@@ -4260,6 +4269,7 @@ export class YBinding {
         );
       }
       if (refused) {
+        this.refusals++;
         if (commit.naming) {
           this.refusedNaming = true;
         }
@@ -4570,6 +4580,7 @@ export class YBinding {
       // change is refused as on a read-only binding (read again once it can
       // be), and the record is read once the commit is done (see onUpdate).
       this.writeCursor = null;
+      this.refusals++;
       if (commit.userEdit) {
         this.warnRefusedAtWrite();
       }
