@@ -1328,18 +1328,14 @@ const UNKNOWN = '\u0002';
 const MAX_LABEL_DISTANCE = 1000;
 
 /**
- * The characters an email autolink's local part can hold
+ * The rest of an email autolink after its `<`
  * (https://spec.commonmark.org/0.31.2/#email-autolink).
  */
-const EMAIL_LOCAL = "[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]";
-const EMAIL_LABEL = '[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?';
-const EMAIL_AUTOLINK_REST = new RegExp(
-  `^${EMAIL_LOCAL}+@${EMAIL_LABEL}(?:\\.${EMAIL_LABEL})*>`,
-);
+const EMAIL_AUTOLINK_REST =
+  /^[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)*>/;
 /** Text that an email autolink could still go on from. */
-const EMAIL_AUTOLINK_PREFIX = new RegExp(
-  `^${EMAIL_LOCAL}*(?:@[A-Za-z0-9.-]*)?$`,
-);
+const EMAIL_AUTOLINK_PREFIX =
+  /^[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]*(?:@[A-Za-z0-9.-]*)?$/;
 
 /**
  * Whether a literal `<` followed by `rest`, the rest of its text node, would
