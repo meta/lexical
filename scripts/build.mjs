@@ -199,9 +199,6 @@ const thirdPartyExternals = [
         'micromark-extension-gfm-strikethrough',
         'micromark-extension-gfm-table',
         'micromark-extension-gfm-task-list-item',
-        'micromark-util-character',
-        'micromark-util-classify-character',
-        'micromark-util-html-tag-name',
       ]),
 ];
 const thirdPartyExternalsRegExp = new RegExp(

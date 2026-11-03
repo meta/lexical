@@ -61,7 +61,6 @@ import {
   PUNCTUATION,
   WHITESPACE,
 } from './cjkFriendly';
-import {containerPhrasing} from './containerPhrasing';
 import {
   $exportLineBreak,
   $isBlockLevelNode,
@@ -841,13 +840,17 @@ export function getExportedLength(value: string): number {
  * each such character in text stands in, while the text is serialized, as a
  * punctuation character of the Basic Multilingual Plane that the tree does
  * not hold, and {@link restoreStoodIn} puts it back.
+ *
+ * `mdast-util-to-markdown` 2.2.2 serializes many touching runs of attention,
+ * or attention without content, in quadratic time
+ * (https://github.com/syntax-tree/mdast-util-to-markdown/issues/96). Check
+ * again when its version changes, and vendor the fix if no release has it.
  */
 function toMarkdownWithStandIns(
   tree: Root,
-  given: ToMarkdownExtension[],
+  extensions: ToMarkdownExtension[],
   isCjkFriendly: boolean,
 ): string {
-  const extensions = [...given, linearPhrasing(getHandlers(given))];
   // A CJK-friendly export writes some references as their characters after
   // the table is aligned, so it measures them as such. A reference that
   // micromark would not read as one, in code, measures short.
@@ -899,25 +902,6 @@ function toMarkdownWithStandIns(
     }
   }
   return measuring(measure, () => toMarkdown(tree, {extensions}));
-}
-
-/**
- * Has the handlers serialize phrasing with {@link containerPhrasing}, which
- * writes what `mdast-util-to-markdown` would in linear rather than quadratic
- * time, by setting it on the state when the root is serialized.
- */
-function linearPhrasing(handlers: Record<string, Handle>): ToMarkdownExtension {
-  const {root} = handlers;
-  return {
-    handlers: {
-      root(this: unknown, node, parent, state, info) {
-        state.containerPhrasing = function (this: State, phrasingParent, at) {
-          return containerPhrasing(phrasingParent, this, at);
-        };
-        return root.call(this, node, parent, state, info);
-      },
-    },
-  };
 }
 
 /** Runs `serialize` with `measure` as how {@link getExportedLength} measures. */
