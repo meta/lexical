@@ -193,26 +193,34 @@ const EXPECTED: Record<string, string> = {
   'row span': '33c3a3eb',
 };
 
+// Each runs 81 selections with HTML copies, seconds even on an idle machine,
+// so each gets more than the default 5 s limit, which a loaded one exceeds.
 for (const [label, rows] of RECTANGULAR) {
   test(`copy, delete and paste of every selection are unchanged: ${label}`, () => {
     const names = rows
       .flat()
       .map(spec => (typeof spec === 'string' ? spec : spec[0]));
     const outputs: string[] = [];
+    // One source and one target, reset to their first state for each
+    // selection, which is much faster than building editors for each.
+    using source = build(rows);
+    using target = build([
+      ['T0', 'T1', 'T2'],
+      ['T3', 'T4', 'T5'],
+      ['T6', 'T7', 'T8'],
+    ]);
+    const sourceState = source.getEditorState();
+    const targetState = target.getEditorState();
     for (const anchor of names) {
       for (const focus of names) {
-        using source = build(rows);
+        source.setEditorState(sourceState);
         select(source, anchor, focus);
         const copied = source.read(() =>
           $getClipboardDataFromSelection($getSelection()!),
         );
         outputs.push(JSON.stringify(copied));
         for (const mime of ['application/x-lexical-editor', 'text/html']) {
-          using target = build([
-            ['T0', 'T1', 'T2'],
-            ['T3', 'T4', 'T5'],
-            ['T6', 'T7', 'T8'],
-          ]);
+          target.setEditorState(targetState);
           paste(source, target, anchor, focus, 'T0', undefined, mime);
           outputs.push(JSON.stringify(target.getEditorState().toJSON()));
         }
@@ -229,7 +237,7 @@ for (const [label, rows] of RECTANGULAR) {
     }
     const print = fingerprint(outputs.join('\n'));
     expect(print).toBe(EXPECTED[label]);
-  });
+  }, 30_000);
 }
 
 // The row-span table: the row under A is covered within a selection from A
