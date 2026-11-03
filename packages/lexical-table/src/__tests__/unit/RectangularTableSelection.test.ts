@@ -193,26 +193,46 @@ const EXPECTED: Record<string, string> = {
   'row span': '33c3a3eb',
 };
 
-// Each runs 81 selections with HTML copies, seconds even on an idle machine,
-// so each gets more than the default 5 s limit, which a loaded one exceeds.
+// Fingerprints of the sample of selections the suite runs by default.
+const EXPECTED_SAMPLE: Record<string, string> = {
+  'column span': '9c82479d',
+  plain: 'ef8d39f9',
+  'row span': '205e0219',
+};
+
+// Every selection, 81 of them with HTML copies, takes seconds, so the suite
+// runs a sample by default: one cell, the whole table in both directions, and
+// an inner diagonal. Set TABLE_SELECTION_SWEEP to run them all.
+const SWEEP = !!process.env.TABLE_SELECTION_SWEEP;
+
 for (const [label, rows] of RECTANGULAR) {
-  test(`copy, delete and paste of every selection are unchanged: ${label}`, () => {
-    const names = rows
-      .flat()
-      .map(spec => (typeof spec === 'string' ? spec : spec[0]));
-    const outputs: string[] = [];
-    // One source and one target, reset to their first state for each
-    // selection, which is much faster than building editors for each.
-    using source = build(rows);
-    using target = build([
-      ['T0', 'T1', 'T2'],
-      ['T3', 'T4', 'T5'],
-      ['T6', 'T7', 'T8'],
-    ]);
-    const sourceState = source.getEditorState();
-    const targetState = target.getEditorState();
-    for (const anchor of names) {
-      for (const focus of names) {
+  test(
+    `copy, delete and paste of ${SWEEP ? 'every selection' : 'sample selections'} are unchanged: ${label}`,
+    () => {
+      const names = rows
+        .flat()
+        .map(spec => (typeof spec === 'string' ? spec : spec[0]));
+      const last = names.length - 1;
+      const pairs = SWEEP
+        ? names.flatMap(anchor => names.map(focus => [anchor, focus]))
+        : [
+            [names[0], names[0]],
+            [names[0], names[last]],
+            [names[last], names[0]],
+            [names[1], names[last - 1]],
+          ];
+      const outputs: string[] = [];
+      // One source and one target, reset to their first state for each
+      // selection, which is much faster than building editors for each.
+      using source = build(rows);
+      using target = build([
+        ['T0', 'T1', 'T2'],
+        ['T3', 'T4', 'T5'],
+        ['T6', 'T7', 'T8'],
+      ]);
+      const sourceState = source.getEditorState();
+      const targetState = target.getEditorState();
+      for (const [anchor, focus] of pairs) {
         source.setEditorState(sourceState);
         select(source, anchor, focus);
         const copied = source.read(() =>
@@ -234,10 +254,11 @@ for (const [label, rows] of RECTANGULAR) {
         );
         outputs.push(JSON.stringify(source.getEditorState().toJSON()));
       }
-    }
-    const print = fingerprint(outputs.join('\n'));
-    expect(print).toBe(EXPECTED[label]);
-  }, 30_000);
+      const print = fingerprint(outputs.join('\n'));
+      expect(print).toBe((SWEEP ? EXPECTED : EXPECTED_SAMPLE)[label]);
+    },
+    SWEEP ? 60_000 : undefined,
+  );
 }
 
 // The row-span table: the row under A is covered within a selection from A
