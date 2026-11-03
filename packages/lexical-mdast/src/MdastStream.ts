@@ -8,7 +8,14 @@
 
 import type {CompiledMdast, MdastNode} from './types';
 import type {LexicalNode} from 'lexical';
-import type {Blockquote, Code, Heading, List, PhrasingContent} from 'mdast';
+import type {
+  Blockquote,
+  Code,
+  Heading,
+  List,
+  PhrasingContent,
+  ThematicBreak,
+} from 'mdast';
 
 import {fromMarkdown} from 'mdast-util-from-markdown';
 
@@ -18,7 +25,8 @@ export type MdastBlockMatch =
   | {kind: 'heading'; node: Heading; markerLength: number}
   | {kind: 'blockquote'; node: Blockquote; markerLength: number}
   | {kind: 'list'; node: List; markerLength: number}
-  | {kind: 'code'; node: Code; markerLength: number};
+  | {kind: 'code'; node: Code; markerLength: number}
+  | {kind: 'thematicBreak'; node: ThematicBreak; markerLength: number};
 
 /**
  * Returns the offset of the first content character inside a block construct,
@@ -146,6 +154,9 @@ export class MarkdownStreamScanner {
         // A code construct recognized from a single line is just the opening
         // fence (possibly with a language); the entire line is the marker.
         return {kind: 'code', markerLength: line.length, node: first};
+      case 'thematicBreak':
+        // A thematic break has no content: the entire line is the marker.
+        return {kind: 'thematicBreak', markerLength: line.length, node: first};
       default:
         return null;
     }
