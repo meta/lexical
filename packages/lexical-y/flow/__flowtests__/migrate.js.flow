@@ -68,9 +68,10 @@ const verdict: YSessionVerdict = checkYSession(
     generation: room.generation,
     incarnation: 'i',
     inherited: false,
-    layout: 1,
+    layouts: [1, 1],
     pristine: false,
     seedContract: SEED_LAYOUT,
+    unreadable: [],
   },
   {generation: null, layouts: [MIN_LAYOUT, 2], material: false, seed: SEED_LAYOUT},
 );

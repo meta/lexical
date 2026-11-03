@@ -182,8 +182,17 @@ export interface YRoomDescription {
   readonly inherited: boolean;
   /** Whether the room has no state at all (never seeded). */
   readonly pristine: boolean;
-  /** The highest layout the served roots record, null when none does. */
-  readonly layout: number | null;
+  /**
+   * The lowest and highest layouts the served roots record, null when none
+   * does. A client must read every served root: both bounds inside its
+   * `layouts`.
+   */
+  readonly layouts: readonly [number, number] | null;
+  /**
+   * Served roots with content but no well-formed layout record (missing or
+   * malformed): no client reads them.
+   */
+  readonly unreadable: readonly string[];
   /**
    * The room's seed contract: the SEED_LAYOUT its incarnation was issued
    * under. An authority whose own SEED_LAYOUT differs replaces a pristine
@@ -204,28 +213,36 @@ export function describeYRoom(
   },
 ): YRoomDescription {
   const roots = options.roots ?? [DEFAULT_ROOT_NAME];
-  let layout: number | null = null;
+  let layouts: [number, number] | null = null;
+  const unreadable: string[] = [];
   let pristine = true;
-  for (const name of roots) {
+  for (const name of [...roots].sort()) {
     const root = existingRoot(doc, name);
-    if (root === null) {
+    if (root === null || (root._start === null && root._map.size === 0)) {
       continue;
     }
-    if (root._start !== null || root._map.size > 0) {
-      pristine = false;
-    }
+    pristine = false;
     const record = layoutRecordOf(root);
     if (record.kind === 'layout') {
-      layout = Math.max(layout ?? 0, record.layout);
+      layouts =
+        layouts === null
+          ? [record.layout, record.layout]
+          : [
+              Math.min(layouts[0], record.layout),
+              Math.max(layouts[1], record.layout),
+            ];
+    } else {
+      unreadable.push(name);
     }
   }
   return {
     generation: generationOf(doc, options.incarnation, roots),
     incarnation: options.incarnation,
     inherited: options.inherited,
-    layout,
+    layouts,
     pristine,
     seedContract: options.seedContract,
+    unreadable,
   };
 }
 
@@ -276,10 +293,11 @@ export type YSessionVerdict =
  *    (no epoch) or was replaced (a new incarnation is never inherited);
  *    otherwise legacy.
  * 2. Material, and any of: another generation (another token, unknown or
- *    null), the room's layout outside the client's `layouts`, a pristine
+ *    null), a served root's layout outside the client's `layouts` (or a
+ *    served root without a well-formed record), a pristine
  *    room whose seed contract is not the client's `seed`: stale. No client
  *    holding material is refused before its material is acknowledged.
- * 3. The room's layout outside `layouts`: refuse-layout.
+ * 3. A served root's layout outside `layouts`: refuse-layout.
  * 4. A pristine room whose seed contract is not `seed`: refuse-layout.
  * 5. The room's generation: admit (`initialize` in a pristine room).
  * 6. No material: bootstrap (`initialize` in a pristine room).
@@ -299,9 +317,12 @@ export function checkYSession(
     client.generation !== null &&
     client.generation !== UNKNOWN_GENERATION &&
     client.generation === room.generation;
+  // Every served root inside the client's range.
   const [min, max] = client.layouts;
   const readable =
-    room.layout === null || (room.layout >= min && room.layout <= max);
+    room.unreadable.length === 0 &&
+    (room.layouts === null ||
+      (room.layouts[0] >= min && room.layouts[1] <= max));
   const seedable = !room.pristine || client.seed === room.seedContract;
   if (client.material && (!same || !readable || !seedable)) {
     return {verdict: 'stale'};

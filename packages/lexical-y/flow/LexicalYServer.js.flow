@@ -74,7 +74,8 @@ export type YRoomDescription = {
   readonly incarnation: string,
   readonly inherited: boolean,
   readonly pristine: boolean,
-  readonly layout: number | null,
+  readonly layouts: [number, number] | null,
+  readonly unreadable: ReadonlyArray<string>,
   readonly seedContract: number,
 };
 

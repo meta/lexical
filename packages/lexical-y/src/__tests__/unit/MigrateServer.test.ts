@@ -201,9 +201,10 @@ describe.each([false, true])('@lexical/y/server, gc %s', gc => {
       generation: 'inc-1/lexical-y=2.5.0',
       incarnation: INC,
       inherited: false,
-      layout: 2,
+      layouts: [2, 2],
       pristine: false,
       seedContract: 1,
+      unreadable: [],
       ...over,
     });
     const client = (
@@ -221,7 +222,11 @@ describe.each([false, true])('@lexical/y/server, gc %s', gc => {
       'inc-1/-',
       'inc-0/lexical-y=2.5.0',
     ];
-    const PRISTINE = {generation: 'inc-1/-', layout: null, pristine: true};
+    const PRISTINE = {
+      generation: 'inc-1/-',
+      layouts: null,
+      pristine: true,
+    };
 
     test('row 1: no handshake: admit on an inherited room that never migrated or was replaced, else legacy', () => {
       const unmigrated = {generation: 'inc-1/-'};
@@ -244,7 +249,12 @@ describe.each([false, true])('@lexical/y/server, gc %s', gc => {
       // Before every other row: whatever the layout, seed or pristine.
       expect(
         checkYSession(
-          room({...unmigrated, inherited: true, layout: 9, seedContract: 7}),
+          room({
+            ...unmigrated,
+            inherited: true,
+            layouts: [9, 9],
+            seedContract: 7,
+          }),
           null,
         ),
       ).toEqual({initialize: false, verdict: 'admit'});
@@ -255,13 +265,15 @@ describe.each([false, true])('@lexical/y/server, gc %s', gc => {
         expect(checkYSession(room(), client({generation}))).toEqual({
           verdict: 'stale',
         });
-        expect(checkYSession(room({layout: 3}), client({generation}))).toEqual({
+        expect(
+          checkYSession(room({layouts: [3, 3]}), client({generation})),
+        ).toEqual({
           verdict: 'stale',
         });
       }
       // The room's generation, but a layout it cannot read: stale, not
       // refused (its material is acknowledged first).
-      expect(checkYSession(room({layout: 3}), client())).toEqual({
+      expect(checkYSession(room({layouts: [3, 3]}), client())).toEqual({
         verdict: 'stale',
       });
       // The room's generation, pristine under another seed contract.
@@ -282,11 +294,11 @@ describe.each([false, true])('@lexical/y/server, gc %s', gc => {
 
     test('row 3: no material and a layout outside the client layouts: refuse-layout', () => {
       expect(
-        checkYSession(room({layout: 3}), client({material: false})),
+        checkYSession(room({layouts: [3, 3]}), client({material: false})),
       ).toEqual({verdict: 'refuse-layout'});
       expect(
         checkYSession(
-          room({layout: 1}),
+          room({layouts: [1, 1]}),
           client({generation: null, layouts: [2, 3], material: false}),
         ),
       ).toEqual({verdict: 'refuse-layout'});
@@ -333,7 +345,10 @@ describe.each([false, true])('@lexical/y/server, gc %s', gc => {
 
     test('a grid of rooms and clients: the first matching row wins, and no client with material is refused', () => {
       let count = 0;
-      for (const layout of [null, 1, 2, 3]) {
+      for (const layouts of [null, [1, 1], [2, 2], [3, 3], [1, 2], [2, 3]] as (
+        | [number, number]
+        | null
+      )[]) {
         for (const pristine of [false, true]) {
           for (const inherited of [false, true]) {
             for (const roomGeneration of ['g/-', 'g/r=2.1.0']) {
@@ -356,9 +371,10 @@ describe.each([false, true])('@lexical/y/server, gc %s', gc => {
                         generation: roomGeneration,
                         incarnation: 'g',
                         inherited,
-                        layout,
+                        layouts,
                         pristine,
                         seedContract: 1,
+                        unreadable: [],
                       });
                       const c = client({
                         generation,
@@ -369,8 +385,8 @@ describe.each([false, true])('@lexical/y/server, gc %s', gc => {
                       count++;
                       const same = generation === roomGeneration;
                       const readable =
-                        layout === null ||
-                        (layout >= range[0] && layout <= range[1]);
+                        layouts === null ||
+                        (layouts[0] >= range[0] && layouts[1] <= range[1]);
                       const seedable = !pristine || seed === 1;
                       const want =
                         material && (!same || !readable || !seedable)
@@ -398,7 +414,7 @@ describe.each([false, true])('@lexical/y/server, gc %s', gc => {
           }
         }
       }
-      expect(count).toBe(4 * 2 * 2 * 2 * 5 * 2 * 4 * 2);
+      expect(count).toBe(6 * 2 * 2 * 2 * 5 * 2 * 4 * 2);
     });
 
     test('needsNewIncarnation: a pristine room issued under another seed contract', () => {
@@ -422,9 +438,10 @@ describe.each([false, true])('@lexical/y/server, gc %s', gc => {
         generation: 'inc-1/-',
         incarnation: INC,
         inherited: true,
-        layout: SEED,
+        layouts: [SEED, SEED],
         pristine: false,
         seedContract: SEED_LAYOUT,
+        unreadable: [],
       });
       expect(
         describeYRoom(createYDoc(null, {gc}), {
@@ -436,9 +453,10 @@ describe.each([false, true])('@lexical/y/server, gc %s', gc => {
         generation: 'inc-1/-',
         incarnation: INC,
         inherited: false,
-        layout: null,
+        layouts: null,
         pristine: true,
         seedContract: SEED_LAYOUT,
+        unreadable: [],
       });
     });
 

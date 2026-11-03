@@ -864,14 +864,16 @@ seedContract}), handshake)`; the first row that matches wins:
 | # | Client | Verdict |
 |---|---|---|
 | 1 | no handshake (a release before the fence) | `admit` as today when the room's incarnation is inherited (the room existed before the fence) and it never migrated or was replaced; otherwise `legacy`: capture it |
-| 2 | material, and another (no, an unknown) generation, or the room's layout outside `layouts`, or a never-seeded room whose seed contract is not `seed` | `stale`: no sync either way; the client hands off its material, then connects again. A client holding material is never refused before its material is acknowledged |
-| 3 | the room's layout is outside `layouts` | `refuse-layout`: reload to another release |
+| 2 | material, and another (no, an unknown) generation, or a served root's layout outside `layouts` (or a served root without a layout record), or a never-seeded room whose seed contract is not `seed` | `stale`: no sync either way; the client hands off its material, then connects again. A client holding material is never refused before its material is acknowledged |
+| 3 | a served root's layout is outside `layouts` (or one has no layout record) | `refuse-layout`: reload to another release |
 | 4 | a never-seeded room whose seed contract is not `seed` | `refuse-layout` |
 | 5 | the room's generation | `admit` (`initialize: true` in a never-seeded room) |
 | 6 | no material | `bootstrap`: load the room's state into a new document, persist it with the generation, then bind (`initialize: true` in a never-seeded room) |
 
 The server never syncs a session whose verdict is not `admit`, so a stale
-client never holds items of two generations in one document.
+client never holds items of two generations in one document. The room's
+`layouts` are the lowest and highest layouts its served roots record: a
+client must read every served root.
 
 A room's **seed contract** is the `SEED_LAYOUT` its incarnation was issued
 under; store it with the incarnation. A server whose `SEED_LAYOUT` differs
