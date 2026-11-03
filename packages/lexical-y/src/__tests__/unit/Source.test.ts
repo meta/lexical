@@ -326,6 +326,15 @@ test('the core, the runner, the steps and the server entry stay apart', () => {
     // a client's createYDoc (YDoc.ts), which may add what the binding needs.
     expect(files.has('internal/YDoc.ts')).toBe(false);
   }
+  // The server entry reaches the runner through the public migrate entry
+  // (external in the build: one runner, one YMigrationError class).
+  const serverImports = graph('internal/Server.ts');
+  expect(serverImports.files.has('migrate.ts')).toBe(true);
+  expect(
+    fs
+      .readFileSync(path.join(src, 'internal/Server.ts'), 'utf8')
+      .includes("from './Runner'"),
+  ).toBe(false);
   // Core's createYDoc builds on the Yjs-only factory.
   expect(graph('internal/YDoc.ts').files.has('internal/RawYDoc.ts')).toBe(true);
   // A step imports nothing of the package but its own frozen sources.

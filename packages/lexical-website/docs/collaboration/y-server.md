@@ -833,7 +833,8 @@ client's document with `createYDoc` from `@lexical/y`.
    after persisting what step 1 applied.
 3. **Migrate a copy:** `prepareYRoom(state, {steps, incarnation, roots})`.
    When no served root is below `MIN_LAYOUT` it returns `changed: false`
-   and the stored bytes: store nothing. On a `YMigrationError`, store
+   and the stored bytes: store nothing. On a `YMigrationError` (the class
+   `@lexical/y/migrate` exports, which `@lexical/y/server` uses), store
    nothing, keep the room stuck (it applies nothing), and alert.
 4. **Commit atomically**, compare-and-set on the version read:
    `{state, generation}` of the result, the immutable base of the old

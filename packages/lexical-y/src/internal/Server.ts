@@ -16,15 +16,17 @@ import {
   Skip,
 } from '@y/y';
 
-import {type ClientIDRange} from './ClientID';
-import {DEFAULT_ROOT_NAME, MIN_LAYOUT, SCHEMA_PREFIX} from './constants';
-import {epochRecordOf, existingRoot, layoutRecordOf} from './Layouts';
-import {createRawYDoc as createYDoc} from './RawYDoc';
+// Through the public entry (external in the build): one runner and one
+// YMigrationError class for an app that imports both entries.
 import {
   migrateYState,
   type YLayoutMigration,
   type YMigrationReceipt,
-} from './Runner';
+} from '../migrate';
+import {type ClientIDRange} from './ClientID';
+import {DEFAULT_ROOT_NAME, MIN_LAYOUT, SCHEMA_PREFIX} from './constants';
+import {epochRecordOf, existingRoot, layoutRecordOf} from './Layouts';
+import {createRawYDoc as createYDoc} from './RawYDoc';
 
 // The authority's side of layout migrations and the generation fence
 // (@lexical/y/server; D102, y-server.md "Migrating stored documents"): the
