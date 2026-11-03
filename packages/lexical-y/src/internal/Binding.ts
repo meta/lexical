@@ -1173,6 +1173,8 @@ export class YBinding {
   private olderNotified = false;
   /** Whether quiesce() ran: read only for good. */
   private quiesced = false;
+  /** migrateLocally reported a nested root it cannot migrate. */
+  private nestedMigrationReported = false;
   /** Local commits refused so far (see quiesce). */
   private refusals = 0;
   /** A write was refused inside its transaction (see $writeCommit). */
@@ -1939,7 +1941,21 @@ export class YBinding {
     }
     if (name === null) {
       // A root inside another shared type: the runner migrates top-level
-      // roots only. It stays read only.
+      // roots only. It stays read only, and the app is told why (y.md,
+      // Limits).
+      // Once per binding, after the work in progress (onError may throw).
+      if (!this.nestedMigrationReported) {
+        this.nestedMigrationReported = true;
+        queueMicrotask(() => {
+          if (this.started) {
+            this._editor._onError(
+              new Error(
+                "@lexical/y: migrateLocally migrates top-level roots only, and this binding's root is inside another shared type, so the document stays read only: migrate it with migrateYDoc or on its server",
+              ),
+            );
+          }
+        });
+      }
       return;
     }
     const root: string = name;

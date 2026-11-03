@@ -301,6 +301,56 @@ describe.each([false, true])('the binding and layout migrations, gc %s', gc => {
     }
   });
 
+  test('migrateLocally on a root inside another shared type: read only, untouched, the reason to onError once', async () => {
+    setMinLayoutForTests(FLOOR);
+    const doc = createYDoc(null, {gc});
+    const holder = doc.get('app');
+    const root = new Y.Node('editor-root');
+    holder.setAttr('editor', root);
+    const old = createYDoc(OLD, {gc});
+    // The old document's records and content, under the nested root.
+    doc.transact(() => {
+      for (const [k, v] of Object.entries(old.get('lexical-y').getAttrs())) {
+        root.setAttr(k, v as never);
+      }
+    });
+    old.destroy();
+    const errors: Error[] = [];
+    const warnings: Warning[] = [];
+    const editor = buildEditorFromExtensions(
+      defineExtension({
+        dependencies: [catalogAppExtension(CFG)],
+        name: 'migrate-nested',
+        onError: (e: Error) => {
+          errors.push(e);
+        },
+        onWarn: (w: Error) => {
+          const {code, data} = w as unknown as Warning;
+          warnings.push({code, data});
+        },
+      }),
+    );
+    const binding = new YBinding(editor, doc, {
+      migrateLocally: LOADERS,
+      root,
+      schemaVersion: 1,
+    });
+    binding.start();
+    binding.initialize();
+    const before = Y.encodeStateAsUpdate(doc);
+    await until(() => errors.length > 0);
+    await until(() => false, 3);
+    expect(binding.status).toBe('readonly');
+    expect(errors).toHaveLength(1);
+    expect(errors[0].message).toMatch(/top-level roots only/);
+    expect(Buffer.from(Y.encodeStateAsUpdate(doc))).toEqual(
+      Buffer.from(before),
+    );
+    binding.dispose();
+    editor.dispose();
+    doc.destroy();
+  });
+
   test("a successful local migration clears only the 'older' cause: a newer schema keeps it read only", async () => {
     setMinLayoutForTests(FLOOR);
     const doc = createYDoc(OLD, {gc});
