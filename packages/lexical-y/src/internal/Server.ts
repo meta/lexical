@@ -11,7 +11,9 @@ import {
   ContentAny,
   type Doc,
   encodeStateAsUpdate,
+  findIndexSS,
   Item,
+  Skip,
 } from '@y/y';
 
 import {type ClientIDRange} from './ClientID';
@@ -787,37 +789,33 @@ export function hasNewYEdits(
         ignored.add(`${sg.client}.${sg.clock}`);
       }
     }
+    // An incomplete base (a skipped range or pending material): what the
+    // record holds cannot be told apart from what the base lacks.
+    if (!isWhole(was)) {
+      return true;
+    }
     for (const [client, structs] of view.doc.store.clients) {
-      const from = was.store.getClock(client);
       for (const s of structs) {
         // A struct the base lacks (an item; a GC struct is content made and
-        // removed while apart, which shows nothing).
+        // removed while apart, which shows nothing; a skip is not held).
         if (
           s instanceof Item &&
-          s.id.clock + s.length > from &&
-          !(s.length === 1 && ignored.has(`${client}.${s.id.clock}`))
+          !(s.length === 1 && ignored.has(`${client}.${s.id.clock}`)) &&
+          !holdsRange(was, client, s.id.clock, s.length)
         ) {
           return true;
         }
       }
     }
-    // A deletion of an item the base holds live.
-    for (const [client, structs] of was.store.clients) {
-      if (!view.doc.store.clients.has(client)) {
-        continue;
-      }
+    // A deletion (a deleted item or a GC struct) of an item the base holds
+    // live, for ids both hold.
+    for (const [client, structs] of view.doc.store.clients) {
       for (const s of structs) {
-        if (!(s instanceof Item) || s.deleted) {
+        if (s instanceof Skip || (s instanceof Item && !s.deleted)) {
           continue;
         }
-        for (let i = 0; i < s.length; i++) {
-          const it = view.doc.store.getItem({
-            client,
-            clock: s.id.clock + i,
-          } as Item['id']);
-          if (it instanceof Item && it.deleted) {
-            return true;
-          }
+        if (liveIn(was, client, s.id.clock, s.length)) {
+          return true;
         }
       }
     }
@@ -826,6 +824,77 @@ export function hasNewYEdits(
     was.destroy();
     view.doc.destroy();
   }
+}
+
+/** Whether `doc` holds no skipped range and no pending material. */
+function isWhole(doc: Doc): boolean {
+  const store = doc.store;
+  return (
+    store.skips.isEmpty() &&
+    store.pendingStructs === null &&
+    store.pendingDs === null
+  );
+}
+
+/** A struct of a document's store (an item, a GC struct or a skip). */
+type Struct = NonNullable<ReturnType<Doc['store']['clients']['get']>>[number];
+
+/**
+ * The struct of `doc` holding `client`'s `clock` (a skip holds nothing),
+ * or null.
+ */
+function structAt(doc: Doc, client: number, clock: number): Struct | null {
+  const structs = doc.store.clients.get(client);
+  if (structs === undefined || structs.length === 0) {
+    return null;
+  }
+  const last = structs[structs.length - 1];
+  if (clock < structs[0].id.clock || clock >= last.id.clock + last.length) {
+    return null;
+  }
+  const s = structs[findIndexSS(structs, clock)];
+  return s instanceof Skip ? null : s;
+}
+
+/** Whether `doc` holds every id of `client` from `clock`, `length` of them. */
+function holdsRange(
+  doc: Doc,
+  client: number,
+  clock: number,
+  length: number,
+): boolean {
+  for (let k = clock; k < clock + length; ) {
+    const s = structAt(doc, client, k);
+    if (s === null) {
+      return false;
+    }
+    k = s.id.clock + s.length;
+  }
+  return true;
+}
+
+/**
+ * Whether `doc` holds, live, an item at one of `client`'s ids from `clock`,
+ * `length` of them (ids it does not hold are skipped).
+ */
+function liveIn(
+  doc: Doc,
+  client: number,
+  clock: number,
+  length: number,
+): boolean {
+  for (let k = clock; k < clock + length; ) {
+    const s = structAt(doc, client, k);
+    if (s === null) {
+      k++;
+      continue;
+    }
+    if (s instanceof Item && !s.deleted) {
+      return true;
+    }
+    k = s.id.clock + s.length;
+  }
+  return false;
 }
 
 /**
