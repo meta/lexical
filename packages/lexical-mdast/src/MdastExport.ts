@@ -617,7 +617,14 @@ function collectUsed(value: string, used: Set<number>): void {
  */
 function countStoodIn(tree: Root, used: Set<number>): Map<string, number> {
   const counts = new Map<string, number>();
+  const strings: string[] = [];
   const visit = (node: Nodes) => {
+    for (const key in node) {
+      const value = (node as unknown as Record<string, unknown>)[key];
+      if (typeof value === 'string') {
+        strings.push(value);
+      }
+    }
     if (node.type === 'text') {
       for (const [character] of node.value.matchAll(STOOD_IN)) {
         counts.set(character, (counts.get(character) || 0) + 1);
@@ -629,22 +636,15 @@ function countStoodIn(tree: Root, used: Set<number>): Map<string, number> {
   };
   visit(tree);
   if (counts.size > 0) {
-    const collect = (node: Nodes) => {
-      for (const key in node) {
-        const value = (node as unknown as Record<string, unknown>)[key];
-        if (typeof value === 'string') {
-          collectUsed(value, used);
-        }
-      }
-      if ('children' in node) {
-        node.children.forEach(collect);
-      }
-    };
-    collect(tree);
+    for (const value of strings) {
+      collectUsed(value, used);
+    }
   }
   return counts;
 }
 
+// What `classifyUnit` returns (micromark's `constants.characterGroup*`), and
+// a class for what it leaves undefined.
 const WHITESPACE_CLASS = 1;
 const PUNCTUATION_CLASS = 2;
 const LETTER_CLASS = 3;
@@ -661,15 +661,15 @@ function pickStandIns(
 ): Map<string, string> {
   const standIns = new Map<string, string>();
   const size = STAND_IN_END - STAND_IN_START;
-  let i = STAND_IN_FIRST - STAND_IN_START;
-  let tried = 0;
+  let next = STAND_IN_FIRST - STAND_IN_START;
+  let left = size;
   for (const character of characters) {
-    for (; tried < size; tried++, i = (i + 1) % size) {
-      const code = STAND_IN_START + i;
+    while (left > 0) {
+      const code = STAND_IN_START + next;
+      next = (next + 1) % size;
+      left--;
       if (classifyUnit(code) === PUNCTUATION_CLASS && !used.has(code)) {
         standIns.set(character, String.fromCharCode(code));
-        tried++;
-        i = (i + 1) % size;
         break;
       }
     }
@@ -697,13 +697,15 @@ function standInText(
     const look = (own as Handle & {peek?: Handle}).peek || own;
     // With what else the handler holds, such as how it marks attention.
     wrapped[type] = Object.assign(
-      (...args: Parameters<Handle>) => own(...args),
+      function (this: unknown, ...args: Parameters<Handle>) {
+        return own.apply(this, args);
+      },
       own,
       {
-        peek: (...args: Parameters<Handle>) => {
+        peek(this: unknown, ...args: Parameters<Handle>) {
           peeking++;
           try {
-            return look(...args);
+            return look.apply(this, args);
           } finally {
             peeking--;
           }
@@ -712,12 +714,13 @@ function standInText(
     );
   }
   const serialize = (
+    self: unknown,
     isCounted: boolean,
     ...[node, parent, state, info]: Parameters<Handle>
   ): string => {
     // An autolink writes its text as is, with no emphasis around it.
     if (state.stack.includes('autolink')) {
-      return handle(node, parent, state, info);
+      return handle.call(self, node, parent, state, info);
     }
     const {value} = node as Text;
     // Set on the node itself, which the handler finds among its siblings.
@@ -732,14 +735,21 @@ function standInText(
       return standIn;
     });
     try {
-      return handle(node, parent, state, info);
+      return handle.call(self, node, parent, state, info);
     } finally {
       (node as Text).value = value;
     }
   };
-  wrapped.text = Object.assign(serialize.bind(null, true), {
-    peek: serialize.bind(null, false),
-  }) as Handle;
+  wrapped.text = Object.assign(
+    function (this: unknown, ...args: Parameters<Handle>) {
+      return serialize(this, true, ...args);
+    },
+    {
+      peek(this: unknown, ...args: Parameters<Handle>) {
+        return serialize(this, false, ...args);
+      },
+    },
+  );
   return {handlers: wrapped};
 }
 
@@ -907,6 +917,10 @@ function restoreStoodIn(
   pattern: RegExp,
   isCjkFriendly: boolean,
 ): string {
+  pattern.lastIndex = 0;
+  if (!pattern.test(markdown)) {
+    return markdown;
+  }
   // Whether the character at `index` is escaped by a backslash.
   const isEscaped = (index: number): boolean => {
     let backslashes = 0;
@@ -1017,6 +1031,9 @@ function rewriteCjkReferences(
   markdown: string,
   isRead: (begin: number) => boolean = () => true,
 ): string {
+  if (!markdown.includes('&#')) {
+    return markdown;
+  }
   return markdown.replace(
     REFERENCE,
     (reference, decimal: string, hex: string, begin: number) => {
@@ -1026,6 +1043,8 @@ function rewriteCjkReferences(
       return (ATTENTION_RUN.test(before) || ATTENTION_RUN.test(after)) &&
         before !== '_' &&
         after !== '_' &&
+        // micromark reads references past the last code point too.
+        code <= 0x10ffff &&
         isCjk(classifyCharacter(code)) &&
         isRead(begin)
         ? String.fromCodePoint(code)

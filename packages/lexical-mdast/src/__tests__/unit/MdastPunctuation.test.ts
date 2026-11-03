@@ -291,6 +291,17 @@ describe('Mdast punctuation modes', () => {
     );
   });
 
+  it('keeps a reference past the last code point', () => {
+    const editor = createEditor('cjk-friendly');
+    const markdown = '\\&#9999999;**x**';
+    editor.update(() => $convertFromMarkdownString(markdown), {
+      discrete: true,
+    });
+    expect(editor.read('latest', () => $convertToMarkdownString())).toBe(
+      markdown,
+    );
+  });
+
   it('picks emoji stand-ins that handlers do not write', () => {
     // A handler that writes a character the export would otherwise use as
     // the emoji's stand-in, and one it would use next.
@@ -422,6 +433,32 @@ describe('Mdast punctuation modes', () => {
     );
     expect(editor.read('latest', () => $convertToMarkdownString())).toBe(
       `<${url}>b\u2e00`,
+    );
+  });
+
+  it('calls handlers with the state as this', () => {
+    const editor = createEditor(undefined, undefined, {
+      toMarkdownExtensions: [
+        {
+          handlers: {
+            paragraph(this: unknown, node, parent, state, info) {
+              expect(this).toBe(state);
+              return defaultHandlers.paragraph(node, parent, state, info);
+            },
+          },
+        },
+      ],
+    });
+    editor.update(
+      () =>
+        $appendRuns([
+          ['Hello', 0],
+          ['\u{1f389} launch', bold],
+        ]),
+      {discrete: true},
+    );
+    expect(editor.read('latest', () => $convertToMarkdownString())).toBe(
+      'Hell&#x6F;**&#x1F389; launch**',
     );
   });
 

@@ -26,6 +26,7 @@ import {
 } from './importTextMatchTransformer';
 import {
   characterAt,
+  characterBefore,
   flankingBefore,
   getDelimiterRunEdge,
   getEmphasisSides,
@@ -222,11 +223,9 @@ function $characterBeforeContent(
     return undefined;
   }
   const index = text.indexOf(content, startIndex + 1);
-  return text[
-    index > startIndex && index + content.length <= endIndex
-      ? index - 1
-      : startIndex
-  ];
+  return index > startIndex && index + content.length <= endIndex
+    ? characterBefore(text, index)
+    : characterAt(text, startIndex);
 }
 
 /**

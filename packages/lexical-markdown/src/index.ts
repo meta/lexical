@@ -160,6 +160,7 @@ function $convertFromMarkdownString(
   transformers?: Transformer[],
   node?: ElementNode,
   shouldPreserveNewLines?: boolean | MarkdownImportOptions,
+  shouldMergeAdjacentLines?: boolean,
 ): void;
 function $convertFromMarkdownString(
   markdown: string,
@@ -204,6 +205,7 @@ function $generateNodesFromMarkdownString(
   markdown: string,
   transformers?: Transformer[],
   shouldPreserveNewLines?: boolean | MarkdownImportOptions,
+  shouldMergeAdjacentLines?: boolean,
 ): LexicalNode[];
 function $generateNodesFromMarkdownString(
   markdown: string,

@@ -198,7 +198,11 @@ written:
 - `'strict-commonmark'` follows CommonMark and GFM.
 
 Import defaults to `'cjk-friendly'`, which accepts what CJK writers type and
-what Lexical has exported. Export defaults to `'strict-commonmark'`: it
+what `@lexical/markdown` exported before it followed CommonMark's Unicode
+punctuation. Markdown exported earlier with an emoji or a text variation
+selector at the inner edge of a run beside a letter (`Hello**🎉 launch**`,
+`**©︎**2024`) now reads with literal markers, as the amendment and
+CommonMark read it; import `'strict-commonmark'` keeps the earlier reading. Export defaults to `'strict-commonmark'`: it
 writes a character reference where a marker would not open or close
 otherwise (`**你好。**&#x4E16;界`), which every CommonMark, GFM and
 CJK-friendly reader reads the same way. Export `'cjk-friendly'` writes

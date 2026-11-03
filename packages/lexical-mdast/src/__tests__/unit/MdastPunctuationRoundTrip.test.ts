@@ -25,6 +25,7 @@ import {
   configExtension,
   defineExtension,
   type LexicalEditor,
+  TEXT_TYPE_TO_FORMAT,
 } from 'lexical';
 import {expect, it, onTestFinished} from 'vitest';
 
@@ -36,6 +37,8 @@ import {
 } from '../../index';
 
 type Runs = [text: string, format: number][];
+
+const CODE = TEXT_TYPE_TO_FORMAT.code;
 
 // Characters that each read differently for some reader beside a marker.
 const ALPHABET = [
@@ -61,10 +64,9 @@ const ALPHABET = [
   '﻿',
   '⸀',
 ];
-// A random round trip is too slow for every run: it runs with the number of
-// cases in this variable, as in
+// Seeded cases, a few hundred by default; set this variable for more, as in
 // `MDAST_ROUND_TRIP_CASES=3000 pnpm run test-unit MdastPunctuationRoundTrip`.
-const CASES = Number(process.env.MDAST_ROUND_TRIP_CASES) || 0;
+const CASES = Number(process.env.MDAST_ROUND_TRIP_CASES) || 200;
 
 function createRandom(seed: number): (n: number) => number {
   return n => {
@@ -93,8 +95,9 @@ function generate(random: (n: number) => number): Runs {
     for (let j = 1 + random(3); j > 0; j--) {
       text += ALPHABET[random(ALPHABET.length)];
     }
-    // Formatting does not keep whitespace at its edges.
-    runs.push([text.trim() || 'x', random(6)]);
+    // Formatting does not keep whitespace at its edges. Any of bold, italic
+    // and strikethrough, and now and then code.
+    runs.push([text.trim() || 'x', random(8) | (random(4) === 0 ? CODE : 0)]);
   }
   return normalize(runs);
 }
@@ -136,15 +139,13 @@ function createMdastEditor(
   return editor;
 }
 
-it
-  .skipIf(CASES === 0)
-  .each<
-    [exportPunctuation: PunctuationMode, importPunctuation: PunctuationMode]
-  >([
-    ['strict-commonmark', 'cjk-friendly'],
-    ['strict-commonmark', 'strict-commonmark'],
-    ['cjk-friendly', 'cjk-friendly'],
-  ])(
+it.each<
+  [exportPunctuation: PunctuationMode, importPunctuation: PunctuationMode]
+>([
+  ['strict-commonmark', 'cjk-friendly'],
+  ['strict-commonmark', 'strict-commonmark'],
+  ['cjk-friendly', 'cjk-friendly'],
+])(
   'round-trips formatted text exported %s and imported %s',
   (exportPunctuation, importPunctuation) => {
     const mdast = createMdastEditor(exportPunctuation, importPunctuation);
