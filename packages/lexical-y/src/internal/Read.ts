@@ -2347,6 +2347,8 @@ export class Reader {
     formats: Formats,
   ): Piece[] {
     const pieces: Piece[] = [];
+    // Per pair of signatures, whether they read as one node (see $showSame).
+    const sameShown = new Map<string, boolean>();
     const current = new Map(formats);
     let tattrs: Attrs | null = null;
     let tsig = '';
@@ -2405,8 +2407,7 @@ export class Reader {
               last.kind === 'text' &&
               !isTabText(run.tattrs) &&
               sameWrappers(last.wrappers, wrappers) &&
-              (last.tsig === run.tsig ||
-                this.$showSame(last.text, last.tattrs, run.text, run.tattrs))
+              (last.tsig === run.tsig || this.$showSame(last, run, sameShown))
             ) {
               if (holds) {
                 last.caretAt = last.text.length + inRun;
@@ -2437,18 +2438,35 @@ export class Reader {
   }
 
   /**
-   * Whether text `aText` stored with `a` and text `bText` stored with `b`,
-   * whose attributes differ only in format bits, read as one node: the
-   * nodes the reader builds from them show the same formats and attributes.
-   * A code highlight's setFormat ignores every bit, so a bit stored over
-   * part of one (a format written while the token was plain text, or by a
-   * write from outside the editor) is shown nowhere; read as two nodes,
-   * text typed into either stores the formats the node shows and reads
-   * apart from it in a fresh read. The bits stay stored. Only a text class
-   * (or replacement) with a setFormat of its own can show two such
-   * attributes the same; a node that cannot be built reads apart.
+   * Whether text stored with attributes `a` and text stored with `b`, which
+   * differ only in format bits, read as one node: the nodes the reader
+   * builds from them show the same formats and attributes. A code
+   * highlight's setFormat ignores every bit, so a bit stored over part of one
+   * (a format written while the token was plain text, or by a write from
+   * outside the editor) is shown nowhere; read as two nodes, text typed into
+   * either stores the formats the node shows and reads apart from it in a
+   * fresh read. The bits stay stored. Only a text class (or replacement)
+   * with a setFormat of its own can show two such attributes the same; a
+   * node that cannot be built reads apart. The nodes are built with a
+   * stand-in text: what a node shows of its formats does not depend on its
+   * text (Lexical's splitText gives every part the node's format, and a
+   * merge keeps it for the longer text).
    */
-  private $showSame(aText: string, a: Attrs, bText: string, b: Attrs): boolean {
+  private $showSame(
+    a: {tattrs: Attrs; tsig: string},
+    b: {tattrs: Attrs; tsig: string},
+    cache: Map<string, boolean>,
+  ): boolean {
+    const key = a.tsig + '\u0000' + b.tsig;
+    let same = cache.get(key);
+    if (same === undefined) {
+      same = this.$buildShowSame(a.tattrs, b.tattrs);
+      cache.set(key, same);
+    }
+    return same;
+  }
+
+  private $buildShowSame(a: Attrs, b: Attrs): boolean {
     const editor = this.state.editor;
     const rest = (attrs: Attrs) => {
       const out: Attrs = {};
@@ -2475,10 +2493,10 @@ export class Reader {
     ) {
       return false;
     }
-    const shown = (text: string, attrs: Attrs) => {
+    const shown = (attrs: Attrs) => {
       const node = $parseSerializedNode(
         joinSetMembersInJSON(
-          textJSONFromAttrs(text, attrs),
+          textJSONFromAttrs('x', attrs),
           editor,
         ) as unknown as SerializedLexicalNode,
       );
@@ -2487,8 +2505,8 @@ export class Reader {
         : null;
     };
     try {
-      const shownA = shown(aText, a);
-      return shownA !== null && shownA === shown(bText, b);
+      const shownA = shown(a);
+      return shownA !== null && shownA === shown(b);
     } catch (_e) {
       return false;
     }
