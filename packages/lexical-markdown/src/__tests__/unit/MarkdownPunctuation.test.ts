@@ -35,7 +35,7 @@ import {
 } from 'lexical';
 import {assert, describe, expect, it, onTestFinished} from 'vitest';
 
-const {bold, strikethrough} = TEXT_TYPE_TO_FORMAT;
+const {bold, italic, strikethrough} = TEXT_TYPE_TO_FORMAT;
 
 type Runs = [text: string, format: number][];
 
@@ -222,6 +222,25 @@ describe('Markdown punctuation modes', () => {
       ],
       '&#97;**“b”**',
       '&#97;**“b”**',
+    ],
+    // A variation selector that starts a piece varies what the piece before
+    // it ends with, here a marker.
+    [
+      [
+        ['x', 0],
+        ['\ufe0e', italic],
+        ['b', 0],
+      ],
+      'x*\ufe0e*&#98;',
+      'x*\ufe0e*&#98;',
+    ],
+    [
+      [
+        ['\u00a9\ufe0e', bold],
+        ['2024', 0],
+      ],
+      '**\u00a9\ufe0e**&#50;024',
+      '**\u00a9\ufe0e**&#50;024',
     ],
   ])('exports %j', (runs, strict, cjkFriendly) => {
     expect(exportRuns(runs)).toBe(strict);

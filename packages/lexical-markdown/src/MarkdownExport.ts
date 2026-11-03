@@ -1073,8 +1073,14 @@ function decideReferences(
     }
   }
   const firstChar = (index: number) => characterAt(values[index], 0)!;
-  const lastChar = (index: number) =>
-    flankingBefore(values[index], values[index].length)!;
+  // A variation selector that starts a piece varies what ends the piece
+  // before it.
+  const lastChar = (index: number): string =>
+    flankingBefore(
+      values[index],
+      values[index].length,
+      index > 0 ? endChar(index - 1) : undefined,
+    )!;
   // A one-character piece written as a reference reads as punctuation at
   // both ends: `&#97;`.
   const isOneCharacter = (index: number) =>

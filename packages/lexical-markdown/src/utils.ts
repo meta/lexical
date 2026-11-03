@@ -318,18 +318,24 @@ export function isLetterForSomeReader(character: string): boolean {
 
 /**
  * The character (code point) that ends just before `index`, as flanking reads
- * it: with the character before it when it is a variation selector.
+ * it: with the character before it when it is a variation selector, which is
+ * the last character of `outside`, what lies before the text, when the
+ * selector starts it.
  */
 export function flankingBefore(
   text: string,
   index: number,
+  outside?: string,
 ): string | undefined {
   const character = characterBefore(text, index);
-  return character !== undefined &&
-    index > 1 &&
-    VARIATION_SELECTOR.test(character)
-    ? characterBefore(text, index - 1) + character
-    : character;
+  if (character === undefined || !VARIATION_SELECTOR.test(character)) {
+    return character;
+  }
+  const base =
+    index > 1
+      ? characterBefore(text, index - 1)
+      : outside && characterBefore(outside, outside.length);
+  return base === undefined ? character : base + character;
 }
 
 /** The character (code point) that starts at `index`, if any. */

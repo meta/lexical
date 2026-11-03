@@ -425,7 +425,7 @@ function scanDelimiters(
 
     const {canOpen, canClose} = getEmphasisSides(
       char,
-      i === 0 ? before : flankingBefore(text, i),
+      i === 0 ? before : flankingBefore(text, i, before),
       i + len === text.length ? after : characterAt(text, i + len),
     );
 

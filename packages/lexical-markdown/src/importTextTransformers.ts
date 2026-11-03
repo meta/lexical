@@ -97,7 +97,7 @@ function characterBeyondRun(
       ? characterAt(text, edge)
       : outside
     : edge > 0
-      ? flankingBefore(text, edge)
+      ? flankingBefore(text, edge, outside)
       : outside;
 }
 
@@ -349,7 +349,11 @@ function importOutermost(
       isTextMatch &&
       restBefore === undefined &&
       delimiters.has(rest[0]) &&
-      readsOtherwiseBesideEdge(rest, flankingBefore(text, endIndex), after)
+      readsOtherwiseBesideEdge(
+        rest,
+        flankingBefore(text, endIndex, before),
+        after,
+      )
     ) {
       isReusable = findPairAtEdge(formats, rest, textFormatTransformersIndex);
     }

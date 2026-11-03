@@ -1076,6 +1076,9 @@ importers:
       '@types/mdast':
         specifier: ^4.0.4
         version: 4.0.4
+      get-east-asian-width:
+        specifier: ^1.7.0
+        version: 1.7.0
       lexical:
         specifier: workspace:*
         version: link:../lexical
@@ -1124,6 +1127,9 @@ importers:
       micromark-extension-gfm-task-list-item:
         specifier: ^2.1.0
         version: 2.1.0
+      micromark-util-classify-character:
+        specifier: ^2.0.1
+        version: 2.0.1
       micromark-util-types:
         specifier: ^2.0.2
         version: 2.0.2

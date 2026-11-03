@@ -198,6 +198,38 @@ describe('Mdast punctuation modes', () => {
       'b&#x1F600;~~」0你~~',
       'b\u{1f600}~~」0你~~',
     ],
+    // A variation selector before a marker reads, for CJK-friendly readers,
+    // as the character it varies; for others it is a letter.
+    [
+      [
+        ['\u00a9\ufe0e', bold],
+        ['2024', 0],
+      ],
+      '**\u00a9&#xFE0E;**&#x32;024',
+      '**\u00a9&#xFE0E;**&#x32;024',
+    ],
+    [
+      [
+        ['x', 0],
+        ['\ufe0e', italic],
+        ['b', 0],
+      ],
+      '&#x78;*&#xFE0E;*&#x62;',
+      '&#x78;*&#xFE0E;*&#x62;',
+    ],
+    // micromark-extension-cjk-friendly-gfm-strikethrough does not let a
+    // `~~` run after a variation selector close.
+    [[['.\ufe0e', strikethrough]], '~~.&#xFE0E;~~', '~~.&#xFE0E;~~'],
+    // A backslash before a character that goes out as a reference is
+    // escaped.
+    [
+      [
+        ['a\\\ufe0e', bold],
+        ['b', 0],
+      ],
+      '**a\\\\&#xFE0E;**&#x62;',
+      '**a\\\\&#xFE0E;**&#x62;',
+    ],
     // An escaped marker beside an emoji is punctuation like any other.
     [
       [
@@ -290,5 +322,21 @@ describe('Mdast punctuation modes', () => {
     expect(paragraphs.map(paragraph => mdastToString(paragraph))).toEqual([
       'Hello\u{1f389} launch',
     ]);
+  });
+
+  it('finds the references after a byte order mark', () => {
+    const editor = createEditor('cjk-friendly');
+    editor.update(
+      () =>
+        $appendRuns([
+          ['\ufeff', 0],
+          ['你好。', bold],
+          ['世界', 0],
+        ]),
+      {discrete: true},
+    );
+    expect(editor.read('latest', () => $convertToMarkdownString())).toBe(
+      '\ufeff**你好。**世界',
+    );
   });
 });

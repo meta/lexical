@@ -54,6 +54,7 @@ import {defaultHandlers, toMarkdown} from 'mdast-util-to-markdown';
 import {toString as mdastToString} from 'mdast-util-to-string';
 import {parse, postprocess, preprocess} from 'micromark';
 import {classifyCharacter, isCjk} from 'micromark-extension-cjk-friendly-util';
+import {classifyCharacter as classifyUnit} from 'micromark-util-classify-character';
 
 import {
   $exportLineBreak,
@@ -583,9 +584,12 @@ function createNodeExporter(
 }
 
 const ATTENTION_MARKER = /[*_~]/;
-// A character outside the Basic Multilingual Plane that CommonMark reads as
-// punctuation, such as an emoji.
-const ASTRAL_PUNCTUATION = /(?![\0-\uffff])[\p{P}\p{S}]/gu;
+// What export serializes with a stand-in: a character outside the Basic
+// Multilingual Plane that CommonMark reads as punctuation, such as an emoji,
+// and a general-use variation selector other than the emoji one, which the
+// CJK-friendly amendment reads before a marker as the character it varies.
+const STOOD_IN = /(?![\0-￿])[\p{P}\p{S}]|[︀-︎]/gu;
+const VARIATION_SELECTOR = /[︀-︎]/;
 
 // Stand-ins come from Supplemental Punctuation (U+2E00 to U+2E7F) first,
 // then from the symbols from U+2600: characters a handler is unlikely to
@@ -594,41 +598,43 @@ const STAND_IN_START = 0x2600;
 const STAND_IN_END = 0x2e80;
 const STAND_IN_FIRST = 0x2e00;
 
-/**
- * Adds each character in the stand-in range of every string in `value`, node
- * `data` included, to `used`.
- */
-function collectUsed(value: unknown, used: Set<number>, seen: Set<object>) {
-  if (typeof value === 'string') {
-    for (let i = 0; i < value.length; i++) {
-      const code = value.charCodeAt(i);
-      if (code >= STAND_IN_START && code < STAND_IN_END) {
-        used.add(code);
-      }
-    }
-  } else if (typeof value === 'object' && value !== null && !seen.has(value)) {
-    seen.add(value);
-    for (const key in value) {
-      collectUsed((value as Record<string, unknown>)[key], used, seen);
+/** Adds each character of `value` in the stand-in range to `used`. */
+function collectUsed(value: string, used: Set<number>): void {
+  for (let i = 0; i < value.length; i++) {
+    const code = value.charCodeAt(i);
+    if (code >= STAND_IN_START && code < STAND_IN_END) {
+      used.add(code);
     }
   }
 }
 
-/** How often each character of {@link ASTRAL_PUNCTUATION} occurs in text. */
-function countAstralPunctuation(tree: Root): Map<string, number> {
+/**
+ * How often each character of {@link STOOD_IN} occurs in the text of
+ * `tree`; adds what the text and the other values of its nodes hold of the
+ * stand-in range to `used`.
+ */
+function countStoodIn(tree: Root, used: Set<number>): Map<string, number> {
   const counts = new Map<string, number>();
   const visit = (node: Nodes) => {
     if (node.type === 'text') {
-      for (const [character] of node.value.matchAll(ASTRAL_PUNCTUATION)) {
+      for (const [character] of node.value.matchAll(STOOD_IN)) {
         counts.set(character, (counts.get(character) || 0) + 1);
       }
-    } else if ('children' in node) {
+    }
+    if ('value' in node) {
+      collectUsed(node.value, used);
+    }
+    if ('children' in node) {
       node.children.forEach(visit);
     }
   };
   visit(tree);
   return counts;
 }
+
+const WHITESPACE_CLASS = 1;
+const PUNCTUATION_CLASS = 2;
+const LETTER_CLASS = 3;
 
 /**
  * A stand-in for each of `characters`: a punctuation character of the Basic
@@ -645,7 +651,7 @@ function pickStandIns(
   for (const character of characters) {
     for (; tried < size; tried++, i = (i + 1) % size) {
       const code = STAND_IN_START + i;
-      if (classifyCharacter(code) & PUNCTUATION_CLASS && !used.has(code)) {
+      if (classifyUnit(code) === PUNCTUATION_CLASS && !used.has(code)) {
         standIns.set(character, String.fromCharCode(code));
         tried++;
         i = (i + 1) % size;
@@ -668,7 +674,7 @@ function standInText(
     const {value} = node;
     // Set on the node itself, which the handler finds among its siblings.
     node.value = value.replace(
-      ASTRAL_PUNCTUATION,
+      STOOD_IN,
       character => standIns.get(character) || character,
     );
     try {
@@ -701,24 +707,26 @@ function getTextHandler(
  * character outside the Basic Multilingual Plane one UTF-16 unit at a time,
  * so as a letter, where CommonMark and the CJK-friendly amendment read an
  * emoji or another such symbol as punctuation: a run between it and a letter
- * does not open or close for them (`Hello**🎉 launch**`). So that the export
- * writes the references and picks the markers those readers need, each such
- * character in text stands in, while the text is serialized, as a
- * punctuation character of the Basic Multilingual Plane that occurs nowhere
- * in the tree, and {@link restoreAstralPunctuation} puts it back.
+ * does not open or close for them (`Hello**🎉 launch**`). It reads a
+ * variation selector as a letter too, where the amendment reads one before a
+ * marker as the character it varies, mostly a symbol (`**©︎**2024`). So that
+ * the export writes the references and picks the markers those readers need,
+ * each such character in text stands in, while the text is serialized, as a
+ * punctuation character of the Basic Multilingual Plane that the tree does
+ * not hold, and {@link restoreStoodIn} puts it back.
  */
 function toMarkdownWithStandIns(
   tree: Root,
   extensions: ToMarkdownExtension[],
   isCjkFriendly: boolean,
 ): string {
-  const counts = countAstralPunctuation(tree);
+  const used = new Set<number>();
+  const counts = countStoodIn(tree, used);
   if (counts.size > 0) {
-    const used = new Set<number>();
-    collectUsed(tree, used, new Set());
     const text = getTextHandler(extensions);
-    // A handler that writes a stand-in of its own leaves more of it than the
-    // text has: pick again, avoiding what it wrote, or go without.
+    // A handler that writes a stand-in of its own, or that writes some text
+    // twice, leaves more of it than the text has: pick again, avoiding what
+    // the output holds, and failing that serialize without stand-ins.
     for (let attempt = 0; attempt < 2; attempt++) {
       const standIns = pickStandIns(counts.keys(), used);
       const out = toMarkdown(tree, {
@@ -740,30 +748,12 @@ function toMarkdownWithStandIns(
         isClean &&= count <= counts.get(character)!;
       }
       if (isClean) {
-        return restoreAstralPunctuation(out, characters, isCjkFriendly);
+        return restoreStoodIn(out, characters, isCjkFriendly);
       }
-      collectUsed(out, used, new Set());
+      collectUsed(out, used);
     }
   }
   return toMarkdown(tree, {extensions});
-}
-
-const WHITESPACE_CLASS = 1;
-const PUNCTUATION_CLASS = 2;
-const LETTER_CLASS = 3;
-
-/**
- * The class micromark without the CJK-friendly extension reads the UTF-16
- * unit `code` as: it reads half of a character outside the Basic
- * Multilingual Plane as a letter.
- */
-function classifyUnit(code: number): number {
-  const group = classifyCharacter(code);
-  return group === WHITESPACE_CLASS
-    ? WHITESPACE_CLASS
-    : group & PUNCTUATION_CLASS
-      ? PUNCTUATION_CLASS
-      : LETTER_CLASS;
 }
 
 const OPENS = 1;
@@ -788,14 +778,16 @@ function getFlanking(marker: string, before: number, after: number): number {
 
 /**
  * Puts back the characters {@link toMarkdownWithStandIns} stood in for. The
- * export reads as intended for every reader that reads them as punctuation,
- * but micromark without the CJK-friendly extension reads them one UTF-16
- * unit at a time, so as letters. Unless the export is only for CJK-friendly
- * readers, where a run beside one would flank otherwise for that reader, the
- * character goes out as a reference, which every reader reads as
- * punctuation.
+ * export reads as intended for every reader that reads them as punctuation.
+ * micromark without the CJK-friendly extension reads an emoji one UTF-16
+ * unit at a time, so as a letter, and every reader reads a variation
+ * selector as one, but CJK-friendly readers before a marker, which read the
+ * character it varies. Where a run beside such a character would flank
+ * otherwise for those readers, the character goes out as a reference, which
+ * every reader reads as punctuation; an export only for CJK-friendly readers
+ * needs that for variation selectors alone.
  */
-function restoreAstralPunctuation(
+function restoreStoodIn(
   markdown: string,
   characters: Map<string, string>,
   isCjkFriendly: boolean,
@@ -823,7 +815,11 @@ function restoreAstralPunctuation(
     const beyond = markdown.charCodeAt(end);
     const fars = characters.has(markdown[end])
       ? [PUNCTUATION_CLASS, LETTER_CLASS]
-      : [Number.isNaN(beyond) ? WHITESPACE_CLASS : classifyUnit(beyond)];
+      : [
+          Number.isNaN(beyond)
+            ? WHITESPACE_CLASS
+            : classifyUnit(beyond) || LETTER_CLASS,
+        ];
     const flanking = (near: number, far: number) =>
       step === 1
         ? getFlanking(marker, near, far)
@@ -841,11 +837,22 @@ function restoreAstralPunctuation(
     new RegExp(`[${[...characters.keys()].join('')}]`, 'g'),
     (standIn, i: number) => {
       const character = characters.get(standIn)!;
-      return !isCjkFriendly &&
-        ((ATTENTION_MARKER.test(markdown[i - 1]) && !isPortable(i, -1)) ||
-          (ATTENTION_MARKER.test(markdown[i + 1]) && !isPortable(i, 1)))
-        ? `&#x${character.codePointAt(0)!.toString(16).toUpperCase()};`
-        : character;
+      const isVariationSelector = VARIATION_SELECTOR.test(character);
+      return (
+        // micromark-extension-cjk-friendly-gfm-strikethrough 2.0.1 reads a
+        // variation selector before a `~` run as the character it varies
+        // only for the run to open.
+        (isVariationSelector && markdown[i + 1] === '~') ||
+          ((!isCjkFriendly || isVariationSelector) &&
+            ((ATTENTION_MARKER.test(markdown[i - 1]) && !isPortable(i, -1)) ||
+              (ATTENTION_MARKER.test(markdown[i + 1]) && !isPortable(i, 1))))
+          ? // A backslash before the reference would escape its `&`.
+            `${isEscaped(i) ? '\\' : ''}&#x${character
+              .codePointAt(0)!
+              .toString(16)
+              .toUpperCase()};`
+          : character
+      );
     },
   );
 }
@@ -867,6 +874,8 @@ function toCjkFriendly(markdown: string, compiled: CompiledMdast): string {
   // Only references that micromark reads as such: not escaped ones, nor
   // those in code. Its events are enough, without building a tree.
   const values: [start: number, end: number][] = [];
+  // micromark skips a byte order mark that starts the document.
+  const shift = markdown.charCodeAt(0) === 0xfeff ? 1 : 0;
   const events = postprocess(
     parse({extensions: compiled.micromarkExtensions})
       .document()
@@ -874,7 +883,7 @@ function toCjkFriendly(markdown: string, compiled: CompiledMdast): string {
   );
   for (const [kind, token] of events) {
     if (kind === 'enter' && token.type === 'characterReferenceValue') {
-      values.push([token.start.offset, token.end.offset]);
+      values.push([token.start.offset + shift, token.end.offset + shift]);
     }
   }
   let result = '';
