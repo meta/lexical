@@ -244,6 +244,13 @@ export interface CompiledMdast {
   toMarkdownExtensions: ToMarkdownExtension[];
   /** Which readers export writes emphasis for; see {@link MdastConfig}. */
   exportPunctuation: MdastPunctuationMode;
+  /**
+   * The micromark extensions without the CJK-friendly ones, with which
+   * export checks how micromark reads it.
+   *
+   * @internal
+   */
+  exportSyntaxExtensions: MicromarkExtension[];
   /** mdast inline `type`s eligible for streaming shortcut materialization. */
   inlineShortcutTypes: Set<string>;
   /** Characters that can close an inline construct and trigger a re-scan. */

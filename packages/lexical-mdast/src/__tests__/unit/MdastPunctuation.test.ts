@@ -33,12 +33,15 @@ const {bold, italic, strikethrough} = TEXT_TYPE_TO_FORMAT;
 
 type Runs = [text: string, format: number][];
 
-function createEditor(exportPunctuation?: MdastPunctuationMode): LexicalEditor {
+function createEditor(
+  exportPunctuation?: MdastPunctuationMode,
+  importPunctuation?: MdastPunctuationMode,
+): LexicalEditor {
   const editor = buildEditorFromExtensions(
     defineExtension({
       dependencies: [
         MdastGfmExtension,
-        configExtension(MdastExtension, {exportPunctuation}),
+        configExtension(MdastExtension, {exportPunctuation, importPunctuation}),
       ],
       name: '[root]',
     }),
@@ -50,8 +53,9 @@ function createEditor(exportPunctuation?: MdastPunctuationMode): LexicalEditor {
 function roundTrip(
   runs: Runs,
   exportPunctuation?: MdastPunctuationMode,
+  importPunctuation?: MdastPunctuationMode,
 ): [markdown: string, runs: Runs] {
-  const editor = createEditor(exportPunctuation);
+  const editor = createEditor(exportPunctuation, importPunctuation);
   editor.update(
     () =>
       $getRoot()
@@ -125,11 +129,72 @@ describe('Mdast punctuation modes', () => {
       '&#x61;**“b”**',
       '&#x61;**“b”**',
     ],
+    // An emoji, outside the Basic Multilingual Plane, is punctuation for
+    // CJK-friendly readers as for CommonMark, so a letter beside a run that
+    // starts or ends with one goes out as a reference.
+    [
+      [
+        ['Hello', 0],
+        ['\u{1f389} launch', bold],
+      ],
+      'Hell&#x6F;**\u{1f389} launch**',
+      'Hell&#x6F;**\u{1f389} launch**',
+    ],
+    [
+      [
+        ['Release', 0],
+        ['\u{1f680}', bold],
+        ['now', 0],
+      ],
+      'Releas&#x65;**\u{1f680}**&#x6E;ow',
+      'Releas&#x65;**\u{1f680}**&#x6E;ow',
+    ],
+    [
+      [
+        ['foo', 0],
+        ['\u{1f525}hot', italic],
+        ['bar', 0],
+      ],
+      'fo&#x6F;*\u{1f525}hot*bar',
+      'fo&#x6F;*\u{1f525}hot*bar',
+    ],
+    [
+      [
+        ['a', 0],
+        ['\u{1f44d}ok', strikethrough],
+      ],
+      '&#x61;~~\u{1f44d}ok~~',
+      '&#x61;~~\u{1f44d}ok~~',
+    ],
+    // A CJK character beside the emoji needs one only for strict readers.
+    [
+      [
+        ['你好', 0],
+        ['\u{1f389}', bold],
+      ],
+      '你&#x597D;**\u{1f389}**',
+      '你好**\u{1f389}**',
+    ],
+    // micromark without the CJK-friendly extension reads an emoji as a
+    // letter, so one that would keep the run from opening for it goes out as
+    // a reference.
+    [
+      [
+        ['b\u{1f600}', 0],
+        ['」0你', strikethrough],
+      ],
+      'b&#x1F600;~~」0你~~',
+      'b&#x1F600;~~」0你~~',
+    ],
     // A reference that is not beside a marker stays.
     [[['&世', 0]], '&世', '&世'],
   ])('exports %j', (runs, strict, cjkFriendly) => {
     expect(roundTrip(runs)).toEqual([strict, runs]);
     expect(roundTrip(runs, 'strict-commonmark')).toEqual([strict, runs]);
+    expect(roundTrip(runs, 'strict-commonmark', 'strict-commonmark')).toEqual([
+      strict,
+      runs,
+    ]);
     expect(roundTrip(runs, 'cjk-friendly')).toEqual([cjkFriendly, runs]);
   });
 

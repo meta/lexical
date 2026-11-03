@@ -208,6 +208,13 @@ amendment:
 configExtension(MdastExtension, {exportPunctuation: 'cjk-friendly'});
 ```
 
+A CJK-friendly import swaps the `gfmStrikethrough()` syntax that
+`MdastStrikethroughExtension` contributes for
+`micromark-extension-cjk-friendly-gfm-strikethrough`. A strikethrough syntax
+contributed some other way through `micromarkExtensions` is left as it is, so
+contribute `gfmStrikethroughCjkFriendly()` yourself for it to read
+strikethrough the CJK-friendly way.
+
 ### Raw HTML (`MdastHtmlExtension`)
 
 Markdown passes raw HTML through — GitHub-style `<details>` blocks, inline

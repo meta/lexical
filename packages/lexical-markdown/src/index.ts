@@ -138,6 +138,19 @@ function $importMarkdown(
  */
 function $convertFromMarkdownString(
   markdown: string,
+  transformers?: Transformer[],
+  node?: ElementNode,
+  options?: MarkdownImportOptions,
+): void;
+function $convertFromMarkdownString(
+  markdown: string,
+  transformers?: Transformer[],
+  node?: ElementNode,
+  shouldPreserveNewLines?: boolean,
+  shouldMergeAdjacentLines?: boolean,
+): void;
+function $convertFromMarkdownString(
+  markdown: string,
   transformers: Transformer[] = TRANSFORMERS,
   node?: ElementNode,
   shouldPreserveNewLines: boolean | MarkdownImportOptions = false,
@@ -164,6 +177,17 @@ function $convertFromMarkdownString(
  *  @param {boolean | MarkdownImportOptions} [shouldPreserveNewLines] By setting this to true, new lines will be preserved between conversions. {@link MarkdownImportOptions} can be passed here instead, in place of this and `shouldMergeAdjacentLines`.
  *  @param {boolean} [shouldMergeAdjacentLines] By setting this to true, adjacent non empty lines will be merged according to commonmark spec: https://spec.commonmark.org/0.24/#example-177. Not applicable if shouldPreserveNewLines = true.
  */
+function $generateNodesFromMarkdownString(
+  markdown: string,
+  transformers?: Transformer[],
+  options?: MarkdownImportOptions,
+): LexicalNode[];
+function $generateNodesFromMarkdownString(
+  markdown: string,
+  transformers?: Transformer[],
+  shouldPreserveNewLines?: boolean,
+  shouldMergeAdjacentLines?: boolean,
+): LexicalNode[];
 function $generateNodesFromMarkdownString(
   markdown: string,
   transformers: Transformer[] = TRANSFORMERS,
