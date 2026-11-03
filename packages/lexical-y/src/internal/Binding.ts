@@ -2997,12 +2997,25 @@ export class YBinding {
   }
   /** The root's schema records as they are now (see admitsSince). */
   private schemaState(): string {
+    // Each record as an escaped (key, type, value) tuple, in key order: the
+    // boolean true and the string "true" (a malformed record) differ, and
+    // no key or value can be read as another's.
     const attrs = this._root.getAttrs() as Record<string, unknown>;
-    return Object.keys(attrs)
-      .filter(k => k.startsWith(SCHEMA_PREFIX))
-      .sort()
-      .map(k => `${k}=${String(attrs[k])}`)
-      .join(',');
+    return JSON.stringify(
+      Object.keys(attrs)
+        .filter(k => k.startsWith(SCHEMA_PREFIX))
+        .sort()
+        .map(k => {
+          const v = attrs[k];
+          let json: string;
+          try {
+            json = JSON.stringify(v) ?? 'undefined';
+          } catch {
+            json = '<value>';
+          }
+          return [k, typeof v, Object.prototype.toString.call(v), json];
+        }),
+    );
   }
 
   /**

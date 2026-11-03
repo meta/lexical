@@ -146,6 +146,31 @@ describe.each([false, true])('schema admission at write time, gc %s', gc => {
     });
   }
 
+  for (const value of ['true', 1, false, null, {}]) {
+    test(`an editor write: a listener turning the existing valid schema record into ${JSON.stringify(value)} at its start: nothing written`, async () => {
+      const doc = createYDoc(rawDoc(SEED), {gc});
+      const errors: Error[] = [];
+      const warnings: string[] = [];
+      const editor = editorOf(errors, warnings);
+      const binding = new YBinding(editor, doc, {schemaVersion: 2});
+      binding.start();
+      binding.initialize();
+      expect(binding.status).toBe('active');
+      expect(doc.get('lexical-y').getAttr('lexical-y-schema:1')).toBe(true);
+      const before = textOf(doc.get('lexical-y'));
+      onNextTransaction(doc, () =>
+        doc.get('lexical-y').setAttr('lexical-y-schema:1', value as never),
+      );
+      append(editor, 'forbidden');
+      await flush();
+      expect(textOf(doc.get('lexical-y'))).toBe(before);
+      expect(binding.status).toBe('readonly');
+      binding.dispose();
+      editor.dispose();
+      doc.destroy();
+    });
+  }
+
   test('control: a schema record at or below the version, recorded by a listener, does not refuse the write', async () => {
     const doc = createYDoc(rawDoc(SEED), {gc});
     const errors: Error[] = [];
