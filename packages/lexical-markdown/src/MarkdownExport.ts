@@ -586,9 +586,7 @@ function $exportTextFormat(
       let following: string | null = null;
       const $following = () => {
         if (following === null) {
-          // The longest email autolink: a 64-character local part and a
-          // 255-character domain.
-          following = $followingText(node, selection, 330);
+          following = $followingText(node, selection);
         }
         return following;
       };
@@ -1333,6 +1331,9 @@ const MAX_LABEL_DISTANCE = 1000;
  */
 const EMAIL_AUTOLINK_REST =
   /^[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)*>/;
+/** The same, with a local part that format markers could fill. */
+const EMAIL_AUTOLINK_REST_AFTER_MARKERS =
+  /^[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]*@[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)*>/;
 /** Text that an email autolink could still go on from. */
 const EMAIL_AUTOLINK_PREFIX =
   /^[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]*(?:@[A-Za-z0-9.-]*)?$/;
@@ -1356,30 +1357,33 @@ function $opensMarkup(rest: string, $following: () => string): boolean {
   } else if (!EMAIL_AUTOLINK_PREFIX.test(rest)) {
     return false;
   }
-  // An email autolink may go on into the nodes after this one.
+  // An email autolink may go on into the nodes after this one. Format
+  // markers written between nodes (`**`, `~~`, `==`) are local part
+  // characters, so after a `<` that ends its node they can fill an empty
+  // local part: `<` + bold `@x.co>` is written `<**@x.co>**`.
   const text = rest + $following();
   const unknown = text.indexOf(UNKNOWN);
   return (
     EMAIL_AUTOLINK_REST.test(text) ||
+    (rest === '' && EMAIL_AUTOLINK_REST_AFTER_MARKERS.test(text)) ||
     (unknown !== -1 && EMAIL_AUTOLINK_PREFIX.test(text.slice(0, unknown)))
   );
 }
 
 /**
- * The text exported after `node` in its block, up to `limit` characters or
- * the first character that ends an autolink: a line break or a link, or
- * `UNKNOWN` for text this pass cannot see. Inline code is read with its
- * backticks.
+ * The text exported after `node` in its block, read until an email autolink
+ * could not go on past it: a character outside an autolink, a line break or a
+ * link, or `UNKNOWN` for text this pass cannot see. Inline code is read with
+ * its backticks.
  */
 function $followingText(
   node: LexicalNode,
   selection: BaseSelection | null,
-  limit: number,
 ): string {
   let text = '';
   for (
     let leaf = $nextLeaf(node, selection);
-    leaf !== null && text.length < limit;
+    leaf !== null && !AUTOLINK_ENDED.test(text);
     leaf = $nextLeaf(leaf, selection)
   ) {
     const kind = $exportKind(leaf);
@@ -1398,6 +1402,12 @@ function $followingText(
   }
   return text;
 }
+
+/**
+ * Text that holds a character no email autolink can go on past: its closing
+ * `>`, or anything that is neither a local part nor a domain character.
+ */
+const AUTOLINK_ENDED = /[^A-Za-z0-9.!#$%&'*+/=?^_`{|}~@-]/;
 
 /**
  * Whether a literal `&` followed by `rest`, the rest of its text node, would

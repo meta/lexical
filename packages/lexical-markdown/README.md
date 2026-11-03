@@ -90,7 +90,8 @@ Transformers are explicitly passed to markdown API allowing application-specific
 Default export protects numeric-reference, HTML and link syntax in text,
 including constructs split across text nodes. A literal `<` is escaped only where
 it would start a tag, a comment, a declaration, a processing instruction or an
-autolink, and a literal `&` only where it would start a numeric reference, so
+autolink, and a literal `&` only where it would start a numeric reference (or, at
+the end of a text node, a named one), so
 `AT&T`, `a < b`, `<3`, `1<2` and `Tom &` export as typed; named references keep
 their legacy import and export behavior. Code and strings
 returned by custom transformers retain their existing serialization rules, as

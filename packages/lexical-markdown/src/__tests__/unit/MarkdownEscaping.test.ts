@@ -38,6 +38,7 @@ import {
   defineExtension,
   ElementNode,
   type LexicalNode,
+  type TextFormatType,
 } from 'lexical';
 import {assert, describe, expect, it} from 'vitest';
 
@@ -292,6 +293,63 @@ describe('literal Markdown text', () => {
       {discrete: true},
     );
     expect(editor.read(() => $convertToMarkdownString())).toBe(expected);
+  });
+
+  it.each([
+    [['<', '@x.co>'], 1, '&#60;**@x.co>**', 'bold'],
+    [['<', '@x.co>'], 0, '**&#60;**@x.co>', 'bold'],
+    [
+      ['Mail <', '@team.example> today'],
+      1,
+      'Mail &#60;**@team.example> today**',
+      'bold',
+    ],
+    [['<', '@x.co>'], 1, '&#60;*@x.co>*', 'italic'],
+    [['<', '@x.co>'], 1, '&#60;~~@x.co>~~', 'strikethrough'],
+    [['<', '@x.co>'], 1, '&#60;==@x.co>==', 'highlight'],
+    [['<', '3 you'], 1, '<**3 you**', 'bold'],
+  ] as const)(
+    'escapes a < whose email autolink format markers would complete: %j',
+    (pieces, formatted, expected, format: TextFormatType) => {
+      using editor = buildEditorFromExtensions([MarkdownTestExtension]);
+      editor.update(
+        () =>
+          $getRoot()
+            .clear()
+            .append(
+              $createParagraphNode().append(
+                ...pieces.map((text, index) => {
+                  const node = $createTextNode(text);
+                  return index === formatted ? node.toggleFormat(format) : node;
+                }),
+              ),
+            ),
+        {discrete: true},
+      );
+      expect(editor.read(() => $convertToMarkdownString())).toBe(expected);
+    },
+  );
+
+  it('reads on past a long email local part split across nodes', () => {
+    using editor = buildEditorFromExtensions([MarkdownTestExtension]);
+    const half = 'a'.repeat(200);
+    editor.update(
+      () =>
+        $getRoot()
+          .clear()
+          .append(
+            $createParagraphNode().append(
+              $createTextNode('<').setStyle('color: red'),
+              $createTextNode(half).setStyle('color: blue'),
+              $createTextNode(half).setStyle('color: green'),
+              $createTextNode('@x.co>').setStyle('color: red'),
+            ),
+          ),
+      {discrete: true},
+    );
+    expect(editor.read(() => $convertToMarkdownString())).toBe(
+      `&#60;${half}${half}@x.co>`,
+    );
   });
 
   it.each([
