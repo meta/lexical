@@ -16,9 +16,8 @@
 // only with the schema warning. A schema record the binding already read
 // keeps its existing gate (the local updates made before it are written).
 
-import type * as Y from '@y/y';
-
 import {buildEditorFromExtensions} from '@lexical/extension';
+import * as Y from '@y/y';
 import {
   $createParagraphNode,
   $createTextNode,
@@ -26,9 +25,10 @@ import {
   defineExtension,
   type LexicalEditor,
 } from 'lexical';
-import {describe, expect, test} from 'vitest';
+import {describe, expect, test, vi} from 'vitest';
 
 import {createYDoc, UNSUPPORTED_SCHEMA_WARNING, YBinding} from '../../..';
+import {Writer} from '../../../internal/Write';
 import {catalogAppExtension} from '../../catalog/bind';
 import {rawDoc, SEED} from '../../utils/migrateSteps';
 import {textOf} from '../../utils/splitFixtures';
@@ -170,6 +170,101 @@ describe.each([false, true])('schema admission at write time, gc %s', gc => {
       doc.destroy();
     });
   }
+
+  test('the recovery of a write whose failed attempt recorded a newer schema rewrites nothing', async () => {
+    const doc = createYDoc(rawDoc(SEED), {gc});
+    const errors: Error[] = [];
+    const warnings: string[] = [];
+    const editor = editorOf(errors, warnings);
+    const binding = new YBinding(editor, doc, {schemaVersion: 1});
+    binding.start();
+    binding.initialize();
+    const before = textOf(doc.get('lexical-y'));
+    const original = Writer.prototype.$run;
+    let once = false;
+    const spy = vi.spyOn(Writer.prototype, '$run').mockImplementation(function (
+      this: Writer,
+    ) {
+      if (!once) {
+        once = true;
+        doc.get('lexical-y').setAttr('lexical-y-schema:2', true);
+        throw new Error('the first attempt failed after the schema changed');
+      }
+      return original.call(this);
+    });
+    try {
+      append(editor, 'forbidden');
+      await flush();
+    } finally {
+      spy.mockRestore();
+    }
+    expect(textOf(doc.get('lexical-y'))).toBe(before);
+    expect(binding.status).toBe('readonly');
+    binding.dispose();
+    editor.dispose();
+    doc.destroy();
+  });
+
+  for (const step of ['undo', 'redo'] as const) {
+    test(`binding.undoManager.${step}() inside the app transaction that recorded a newer schema (status still active): nothing written`, async () => {
+      const doc = createYDoc(rawDoc(SEED), {gc});
+      const errors: Error[] = [];
+      const warnings: string[] = [];
+      const editor = editorOf(errors, warnings);
+      const binding = new YBinding(editor, doc, {
+        captureTimeout: 0,
+        schemaVersion: 1,
+      });
+      binding.start();
+      binding.initialize();
+      append(editor, 'local');
+      await flush();
+      if (step === 'redo') {
+        expect(binding.undoManager!.undo()).not.toBeNull();
+        await flush();
+      }
+      const before = textOf(doc.get('lexical-y'));
+      let result: unknown = 'unset';
+      doc.transact(() => {
+        doc.get('lexical-y').setAttr('lexical-y-schema:2', true);
+        expect(binding.status).toBe('active');
+        result = binding.undoManager![step]();
+      }, 'app');
+      await flush();
+      expect(result).toBeNull();
+      expect(textOf(doc.get('lexical-y'))).toBe(before);
+      expect(binding.status).toBe('readonly');
+      binding.dispose();
+      editor.dispose();
+      doc.destroy();
+    });
+  }
+
+  test("control (D08): a local edit pending when a peer's newer schema record arrives is still written, then read only", async () => {
+    const doc = createYDoc(rawDoc(SEED), {gc});
+    const errors: Error[] = [];
+    const warnings: string[] = [];
+    const editor = editorOf(errors, warnings);
+    const binding = new YBinding(editor, doc, {schemaVersion: 1});
+    binding.start();
+    binding.initialize();
+    const peer = createYDoc(Y.encodeStateAsUpdate(doc), {gc});
+    peer.get('lexical-y').setAttr('lexical-y-schema:2', true);
+    const bump = Y.encodeStateAsUpdate(peer, Y.encodeStateVector(doc));
+    editor.update(() => {
+      $getRoot().append($createParagraphNode().append($createTextNode('mine')));
+      // The peer's record arrives while the local update is running.
+      Y.applyUpdate(doc, bump, 'remote');
+    });
+    await flush();
+    expect(textOf(doc.get('lexical-y'))).toContain('mine');
+    expect(binding.status).toBe('readonly');
+    expect(warnings).toContain(UNSUPPORTED_SCHEMA_WARNING);
+    peer.destroy();
+    binding.dispose();
+    editor.dispose();
+    doc.destroy();
+  });
 
   test('control: a schema record at or below the version, recorded by a listener, does not refuse the write', async () => {
     const doc = createYDoc(rawDoc(SEED), {gc});

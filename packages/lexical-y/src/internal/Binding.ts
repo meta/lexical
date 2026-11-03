@@ -246,7 +246,7 @@ type GuardedRead = {
 class BindingUndoManager extends UndoManager {
   constructor(
     scope: YNode,
-    admits: UndoAdmission,
+    admits: () => boolean,
     options: ConstructorParameters<typeof UndoManager>[1],
   ) {
     super(scope, {
@@ -290,10 +290,9 @@ function gatedStep(
   undo: boolean,
 ): ReturnType<UndoManager['undo']> {
   const admission = undoAdmits.get(um)!;
-  if (!admission.admits()) {
+  if (!admission()) {
     return null;
   }
-  const schema = admission.snapshot();
   let result: ReturnType<UndoManager['undo']> = null;
   // Restored, not cleared, afterwards: a step started from a listener of an
   // earlier one (whose capture is still running) leaves that one's flags.
@@ -303,7 +302,7 @@ function gatedStep(
   heldPops.set(um, held);
   try {
     um.doc.transact(tr => {
-      if (!admission.admitsSince(schema)) {
+      if (!admission()) {
         refusedHistory.add(tr);
         return;
       }
@@ -357,18 +356,18 @@ const heldPops = new WeakMap<
  * Each BindingUndoManager's check (kept apart from the instance, which is
  * Yjs's: no field of ours on it).
  */
-const undoAdmits = new WeakMap<BindingUndoManager, UndoAdmission>();
+/**
+ * D08's permission for one local write (see Binding.admitsIn): the schema
+ * records (see Binding.schemaState) it was admitted on.
+ */
+type SchemaGrace = {state: string};
 
 /**
- * How a BindingUndoManager asks its binding whether it may write: before
- * the step (`admits`), and inside the step's transaction against the schema
- * records as they were before it (`snapshot`, `admitsSince`).
+ * How a BindingUndoManager asks its binding whether it may write, before
+ * the step and again inside its transaction: a fresh request, checked
+ * against the records as they are (see Binding.admitsNow).
  */
-type UndoAdmission = {
-  admits: () => boolean;
-  snapshot: () => string;
-  admitsSince: (before: string) => boolean;
-};
+const undoAdmits = new WeakMap<BindingUndoManager, () => boolean>();
 
 /** A warning that says why the binding is read only. */
 const isReadOnlyCause = (w: LexicalWarning): boolean =>
@@ -1185,6 +1184,8 @@ export class YBinding {
   private olderNotified = false;
   /** Whether quiesce() ran: read only for good. */
   private quiesced = false;
+  /** The D08 permission of the commit being written (see admitsIn). */
+  private writeGrace: SchemaGrace | null = null;
   /** migrateLocally reported a nested root it cannot migrate. */
   private nestedMigrationReported = false;
   /** Local commits refused so far (see quiesce). */
@@ -1399,11 +1400,7 @@ export class YBinding {
     if (this.options.captureTimeout !== null) {
       const um = new BindingUndoManager(
         this._root,
-        {
-          admits: () => this.writesEdits(),
-          admitsSince: before => this.writesEdits() && this.admitsSince(before),
-          snapshot: () => this.schemaState(),
-        },
+        () => this.writesEdits() && this.admitsIn(null),
         {
           captureTimeout: this.options.captureTimeout ?? 500,
           deleteFilter: item => !this.isKeptByUndo(item),
@@ -2995,7 +2992,7 @@ export class YBinding {
       version <= LAYOUT_VERSION
     );
   }
-  /** The root's schema records as they are now (see admitsSince). */
+  /** The root's schema records as they are now (see admitsIn). */
   private schemaState(): string {
     // Each record as an escaped (key, type, value) tuple, in key order: the
     // boolean true and the string "true" (a malformed record) differ, and
@@ -3022,18 +3019,21 @@ export class YBinding {
    * The admission check inside a binding-authored write transaction
    * (editor writes, initialization, the recovery rewrite, pins, undo and
    * redo): the layout record and the epoch as they are now (recordAdmits),
-   * and the schema records as they were before the transaction opened
-   * (`before`, see schemaState) unless one changed since and this version
-   * no longer writes the document (a newer or malformed schema record, see
-   * checkSchema). Why only a change: a schema record the binding already
-   * read is the schema gate's (gateSchema), which lets the local updates
-   * made before it be written.
+   * and the schema records as they are now (schemaRefuses), even while the
+   * status the binding last read is still active. One exception, D08's: a
+   * local update made before a schema record it did not see (see
+   * schemaGatesWrite and gateSchema) is written, and its whole write (the
+   * recovery rewrite and pins included) carries that permission as `grace`,
+   * for exactly the schema records it was admitted on.
    */
-  private admitsSince(before: string): boolean {
+  private admitsIn(grace: SchemaGrace | null): boolean {
     if (!this.recordAdmits()) {
       return false;
     }
-    return this.schemaState() === before || !this.schemaRefuses();
+    return (
+      !this.schemaRefuses() ||
+      (grace !== null && this.schemaState() === grace.state)
+    );
   }
 
   /**
@@ -4386,15 +4386,17 @@ export class YBinding {
       this.state.refresh.clear();
       return;
     }
-    if (
-      this.writesEdits() &&
-      !commit.remote &&
-      !commit.skip &&
-      this.schemaGatesWrite(editorState)
-    ) {
-      // Made on a schema record a newer version wrote: read only first, so
-      // that it is refused below.
-      this.gateSchema();
+    let grace: SchemaGrace | null = null;
+    if (this.writesEdits() && !commit.remote && !commit.skip) {
+      if (this.schemaGatesWrite(editorState)) {
+        // Made on a schema record a newer version wrote: read only first, so
+        // that it is refused below.
+        this.gateSchema();
+      } else if (this.schemaRefuses()) {
+        // Made before a schema record it did not see (D08): written, on
+        // exactly these records (see admitsIn).
+        grace = {state: this.schemaState()};
+      }
     }
     if (
       !this.writesEdits() &&
@@ -4517,19 +4519,24 @@ export class YBinding {
     const state = this.state;
     // On the document as it was before a remote change not read yet, while
     // there is one (see Unread and guard).
-    editorState.read(() =>
-      this.$writeCommit(
-        state,
-        commit,
-        editorState,
-        prevEditorState,
-        dirtyElements,
-        dirtyLeaves,
-        transformed,
-        localKeys,
-        payload.normalizedNodes ?? null,
-      ),
-    );
+    this.writeGrace = grace;
+    try {
+      editorState.read(() =>
+        this.$writeCommit(
+          state,
+          commit,
+          editorState,
+          prevEditorState,
+          dirtyElements,
+          dirtyLeaves,
+          transformed,
+          localKeys,
+          payload.normalizedNodes ?? null,
+        ),
+      );
+    } finally {
+      this.writeGrace = null;
+    }
     if (this.layoutChangedInWrite) {
       // Refused inside its transaction (see $writeCommit): the binding's own
       // transaction is not read as a change, so the record is read here.
@@ -5033,14 +5040,15 @@ export class YBinding {
   ): Writer | null | 'refused' {
     let writer: Writer | null = null;
     let refused = false;
-    const schema = this.schemaState();
+    // Admitted once, for the whole write: its pins and its recovery too.
+    const grace = this.writeGrace;
     try {
       this._doc.transact(tr => {
         // Admitted inside the transaction, after every beforeTransaction
         // listener of the document ran (any may change the layout record or
         // the schema record before anything is written): refused, nothing
         // is written.
-        if (!this.admitsSince(schema)) {
+        if (!this.admitsIn(grace)) {
           refused = true;
           return;
         }
@@ -5067,12 +5075,11 @@ export class YBinding {
         return 'refused';
       }
       if (!commit.followUp) {
-        const pinSchema = this.schemaState();
         this._doc.transact(() => {
           // Admitted inside its own transaction too (see the write's): a
           // record that stopped admitting writes gets no pin, and is read
           // (see readChange).
-          if (!this.admitsSince(pinSchema)) {
+          if (!this.admitsIn(grace)) {
             return;
           }
           this.recordPins(this._root, editorState, [
@@ -5094,11 +5101,10 @@ export class YBinding {
         {error: e, reason: 'local-change'},
       );
       let recoveryRefused = false;
-      const recoverySchema = this.schemaState();
       try {
         this._doc.transact(tr => {
           // Admitted inside its own transaction, as the write it recovers.
-          if (!this.admitsSince(recoverySchema)) {
+          if (!this.admitsIn(grace)) {
             recoveryRefused = true;
             return;
           }
