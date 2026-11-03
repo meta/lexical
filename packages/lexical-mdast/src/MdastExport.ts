@@ -19,9 +19,11 @@ import type {
   PhrasingContent,
   Root,
   RootContent,
+  Text,
   ThematicBreak,
 } from 'mdast';
 import type {
+  Handle,
   Options as ToMarkdownExtension,
   State,
 } from 'mdast-util-to-markdown';
@@ -580,68 +582,165 @@ function createNodeExporter(
   return {exportChildren: context.exportChildren};
 }
 
+const ATTENTION_MARKER = /[*_~]/;
+const PUNCTUATION = /[\p{P}\p{S}]/u;
 // A character outside the Basic Multilingual Plane that CommonMark reads as
 // punctuation, such as an emoji.
-const ATTENTION_MARKER = /[*_~]/;
 const ASTRAL_PUNCTUATION = /(?![\0-\uffff])[\p{P}\p{S}]/gu;
 
-/**
- * `mdast-util-to-markdown` reads a character outside the Basic Multilingual
- * Plane one UTF-16 unit at a time, so as a letter, where CommonMark and the
- * CJK-friendly amendment read an emoji or another such symbol as
- * punctuation: a run between it and a letter does not open or close for them
- * (`Hello**🎉 launch**`). So that the export writes the references and picks
- * the markers those readers need, each such character in the text of `tree`
- * stands in as a symbol of the Basic Multilingual Plane found nowhere in the
- * tree while it is serialized. Returns the stand-ins to put back.
- */
-function standInForAstralPunctuation(tree: Root): Map<string, string> {
-  const texts: {value: string}[] = [];
+/** Collects every string in `value`, node `data` included. */
+function collectStrings(
+  value: unknown,
+  strings: string[],
+  seen: Set<object>,
+): void {
+  if (typeof value === 'string') {
+    strings.push(value);
+  } else if (typeof value === 'object' && value !== null && !seen.has(value)) {
+    seen.add(value);
+    for (const key in value) {
+      collectStrings((value as Record<string, unknown>)[key], strings, seen);
+    }
+  }
+}
+
+/** How often each character of {@link ASTRAL_PUNCTUATION} occurs in text. */
+function countAstralPunctuation(tree: Root): Map<string, number> {
+  const counts = new Map<string, number>();
   const visit = (node: Nodes) => {
     if (node.type === 'text') {
-      texts.push(node);
+      for (const [character] of node.value.matchAll(ASTRAL_PUNCTUATION)) {
+        counts.set(character, (counts.get(character) || 0) + 1);
+      }
     } else if ('children' in node) {
       node.children.forEach(visit);
     }
   };
   visit(tree);
+  return counts;
+}
+
+/**
+ * A stand-in for each of `characters`: a punctuation character of the Basic
+ * Multilingual Plane that does not occur in `used`. Supplemental Punctuation
+ * (U+2E00 to U+2E7F) comes first, then the symbols from U+2600, characters a
+ * handler is unlikely to write on its own.
+ */
+function pickStandIns(
+  characters: Iterable<string>,
+  used: string,
+): Map<string, string> {
   const standIns = new Map<string, string>();
-  for (const text of texts) {
-    for (const [character] of text.value.matchAll(ASTRAL_PUNCTUATION)) {
-      standIns.set(character, '');
-    }
-  }
-  if (standIns.size > 0) {
-    const used = JSON.stringify(tree);
-    let code = 0x2600;
-    for (const character of standIns.keys()) {
-      while (code < 0x2c00 && used.includes(String.fromCharCode(code))) {
-        code++;
+  let i = 0;
+  for (const character of characters) {
+    for (; i < 0x880; i++) {
+      const standIn = String.fromCharCode(0x2600 + ((i + 0x800) % 0x880));
+      if (PUNCTUATION.test(standIn) && !used.includes(standIn)) {
+        standIns.set(character, standIn);
+        i++;
+        break;
       }
-      if (code === 0x2c00) {
-        standIns.delete(character);
-      } else {
-        standIns.set(character, String.fromCharCode(code++));
-      }
-    }
-    for (const text of texts) {
-      text.value = text.value.replace(
-        ASTRAL_PUNCTUATION,
-        character => standIns.get(character) || character,
-      );
     }
   }
   return standIns;
+}
+
+/**
+ * Wraps the `text` handler so that it serializes the text with the
+ * characters of {@link pickStandIns} standing in.
+ */
+function standInText(
+  handle: Handle,
+  standIns: Map<string, string>,
+): ToMarkdownExtension {
+  const text: Handle = (node: Text, parent, state, info) => {
+    const {value} = node;
+    // Set on the node itself, which the handler finds among its siblings.
+    node.value = value.replace(
+      ASTRAL_PUNCTUATION,
+      character => standIns.get(character) || character,
+    );
+    try {
+      return handle(node, parent, state, info);
+    } finally {
+      node.value = value;
+    }
+  };
+  return {handlers: {text}};
+}
+
+/** The `text` handler that the last of `extensions` to set one sets. */
+function getTextHandler(
+  extensions: ToMarkdownExtension[],
+  handle: Handle = defaultHandlers.text,
+): Handle {
+  for (const extension of extensions) {
+    if (extension.extensions) {
+      handle = getTextHandler(extension.extensions, handle);
+    }
+    if (extension.handlers && extension.handlers.text) {
+      handle = extension.handlers.text;
+    }
+  }
+  return handle;
+}
+
+/**
+ * Serializes `tree` with `extensions`. `mdast-util-to-markdown` reads a
+ * character outside the Basic Multilingual Plane one UTF-16 unit at a time,
+ * so as a letter, where CommonMark and the CJK-friendly amendment read an
+ * emoji or another such symbol as punctuation: a run between it and a letter
+ * does not open or close for them (`Hello**🎉 launch**`). So that the export
+ * writes the references and picks the markers those readers need, each such
+ * character in text stands in, while the text is serialized, as a
+ * punctuation character of the Basic Multilingual Plane that occurs nowhere
+ * in the tree, and {@link restoreAstralPunctuation} puts it back.
+ */
+function toMarkdownWithStandIns(
+  tree: Root,
+  extensions: ToMarkdownExtension[],
+  isCjkFriendly: boolean,
+): string {
+  const counts = countAstralPunctuation(tree);
+  if (counts.size > 0) {
+    const strings: string[] = [];
+    collectStrings(tree, strings, new Set());
+    let used = strings.join('\n');
+    const text = getTextHandler(extensions);
+    // A handler that writes a stand-in of its own leaves more of it than the
+    // text has: pick again, avoiding what it wrote, or go without.
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const standIns = pickStandIns(counts.keys(), used);
+      const out = toMarkdown(tree, {
+        extensions: [...extensions, standInText(text, standIns)],
+      });
+      let isClean = true;
+      for (const [character, standIn] of standIns) {
+        isClean &&= out.split(standIn).length - 1 <= counts.get(character)!;
+      }
+      if (isClean) {
+        return restoreAstralPunctuation(out, standIns, isCjkFriendly);
+      }
+      used += out;
+    }
+  }
+  return toMarkdown(tree, {extensions});
 }
 
 const WHITESPACE_CLASS = 1;
 const PUNCTUATION_CLASS = 2;
 const LETTER_CLASS = 3;
 
-function classify(character: string | undefined): number {
-  return character === undefined || /\s/.test(character)
+/**
+ * The class micromark without the CJK-friendly extension reads the UTF-16
+ * unit `code` as: it reads half of a character outside the Basic
+ * Multilingual Plane as a letter.
+ */
+function classifyUnit(code: number): number {
+  const group = classifyCharacter(code);
+  return group === WHITESPACE_CLASS
     ? WHITESPACE_CLASS
-    : /[\p{P}\p{S}]/u.test(character)
+    : group & PUNCTUATION_CLASS
       ? PUNCTUATION_CLASS
       : LETTER_CLASS;
 }
@@ -666,83 +765,60 @@ function getFlanking(marker: string, before: number, after: number): number {
     : (left ? OPENS : 0) | (right ? CLOSES : 0);
 }
 
-/** Whether two mdast trees are the same apart from their positions. */
-function isSameTree(a: unknown, b: unknown): boolean {
-  if (a === b) {
-    return true;
-  }
-  if (typeof a !== 'object' || typeof b !== 'object' || !a || !b) {
-    return false;
-  }
-  const keys = Object.keys(a).filter(key => key !== 'position');
-  return (
-    keys.length === Object.keys(b).filter(key => key !== 'position').length &&
-    keys.every(key =>
-      isSameTree(
-        (a as Record<string, unknown>)[key],
-        (b as Record<string, unknown>)[key],
-      ),
-    )
-  );
-}
-
 /**
- * Puts back the characters {@link standInForAstralPunctuation} stood in for.
- * micromark without the CJK-friendly extension still reads such a character
- * as a letter, so where one beside a delimiter run would make the run flank
- * otherwise for it, and that changes how it reads the export, the character
- * goes out as a reference, which every reader reads as punctuation.
+ * Puts back the characters {@link toMarkdownWithStandIns} stood in for. The
+ * export reads as intended for every reader that reads them as punctuation,
+ * but micromark without the CJK-friendly extension reads them one UTF-16
+ * unit at a time, so as letters. Unless the export is only for CJK-friendly
+ * readers, where a run beside one would flank otherwise for that reader, the
+ * character goes out as a reference, which every reader reads as
+ * punctuation.
  */
 function restoreAstralPunctuation(
   markdown: string,
   standIns: Map<string, string>,
-  compiled: CompiledMdast,
+  isCjkFriendly: boolean,
 ): string {
   const characters = new Map<string, string>();
   for (const [character, standIn] of standIns) {
     characters.set(standIn, character);
   }
-  // Whether the run beside `index`, toward `step`, flanks the same for both
-  // readings of the stand-in at `index`.
+  // Whether the run beside `index`, toward `step`, flanks the same whether
+  // the stand-in at `index`, and one beyond the run, read as letters.
   const isPortable = (index: number, step: 1 | -1): boolean => {
     const marker = markdown[index + step];
     let end = index + step;
     while (markdown[end] === marker) {
       end += step;
     }
-    const beyond = markdown[end];
-    const far = characters.has(beyond) ? PUNCTUATION_CLASS : classify(beyond);
-    const flanking = (near: number) =>
+    const beyond = markdown.charCodeAt(end);
+    const fars = characters.has(markdown[end])
+      ? [PUNCTUATION_CLASS, LETTER_CLASS]
+      : [Number.isNaN(beyond) ? WHITESPACE_CLASS : classifyUnit(beyond)];
+    const flanking = (near: number, far: number) =>
       step === 1
         ? getFlanking(marker, near, far)
         : getFlanking(marker, far, near);
-    return flanking(PUNCTUATION_CLASS) === flanking(LETTER_CLASS);
+    const expected = flanking(PUNCTUATION_CLASS, fars[0]);
+    return fars.every(
+      far =>
+        flanking(PUNCTUATION_CLASS, far) === expected &&
+        flanking(LETTER_CLASS, far) === expected,
+    );
   };
-  let raw = '';
-  let referenced = '';
+  let result = '';
   for (let i = 0; i < markdown.length; i++) {
     const character = characters.get(markdown[i]);
-    if (character === undefined) {
-      raw += markdown[i];
-      referenced += markdown[i];
-    } else {
-      raw += character;
-      referenced +=
-        (ATTENTION_MARKER.test(markdown[i - 1]) && !isPortable(i, -1)) ||
-        (ATTENTION_MARKER.test(markdown[i + 1]) && !isPortable(i, 1))
+    result +=
+      character === undefined
+        ? markdown[i]
+        : !isCjkFriendly &&
+            ((ATTENTION_MARKER.test(markdown[i - 1]) && !isPortable(i, -1)) ||
+              (ATTENTION_MARKER.test(markdown[i + 1]) && !isPortable(i, 1)))
           ? `&#x${character.codePointAt(0)!.toString(16).toUpperCase()};`
           : character;
-    }
   }
-  if (raw === referenced) {
-    return raw;
-  }
-  const parse = (value: string) =>
-    fromMarkdown(value, {
-      extensions: compiled.exportSyntaxExtensions,
-      mdastExtensions: compiled.mdastExtensions,
-    });
-  return isSameTree(parse(raw), parse(referenced)) ? raw : referenced;
+  return result;
 }
 
 /**
@@ -894,20 +970,18 @@ export function createMdastExport(compiled: CompiledMdast): {
     if (strong) {
       defaults.strong = strong;
     }
-    const standIns = standInForAstralPunctuation(tree);
-    const out = toMarkdown(tree, {
-      extensions: [
-        defaults,
-        ...compiled.toMarkdownExtensions,
-        syntaxToMarkdown(collectHardBreaks(tree)),
-      ],
-    });
+    const extensions = [
+      defaults,
+      ...compiled.toMarkdownExtensions,
+      syntaxToMarkdown(collectHardBreaks(tree)),
+    ];
     // toMarkdown always appends a trailing newline; drop it so callers get the
     // same shape as `@lexical/markdown`'s `$convertToMarkdownString`.
-    let markdown = out.replace(/\n$/, '');
-    if (standIns.size > 0) {
-      markdown = restoreAstralPunctuation(markdown, standIns, compiled);
-    }
+    const markdown = toMarkdownWithStandIns(
+      tree,
+      extensions,
+      compiled.exportPunctuation === 'cjk-friendly',
+    ).replace(/\n$/, '');
     return compiled.exportPunctuation === 'cjk-friendly'
       ? toCjkFriendly(markdown, compiled)
       : markdown;

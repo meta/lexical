@@ -13,6 +13,7 @@ import {
   $convertFromMarkdownString,
   $convertToMarkdownString,
   $generateNodesFromMarkdownString,
+  type MarkdownImportOptions,
   type PunctuationMode,
   TRANSFORMERS,
 } from '@lexical/markdown';
@@ -169,11 +170,14 @@ describe('Markdown punctuation modes', () => {
       let result: number[] = [];
       editor.update(
         () => {
-          const [paragraph] = $generateNodesFromMarkdownString(
-            '**你好。**世界',
-            TRANSFORMERS,
-            {punctuation},
-          );
+          // As a wrapper that forwards either form would pass them.
+          const $generate = (options: boolean | MarkdownImportOptions) =>
+            $generateNodesFromMarkdownString(
+              '**你好。**世界',
+              TRANSFORMERS,
+              options,
+            );
+          const [paragraph] = $generate({punctuation});
           assert($isParagraphNode(paragraph));
           result = paragraph.getAllTextNodes().map(node => node.getFormat());
         },

@@ -123,6 +123,12 @@ declare export function $convertFromMarkdownString(
   shouldPreserveNewLines?: boolean,
   shouldMergeAdjacentLines?: boolean,
 ): void;
+declare export function $convertFromMarkdownString(
+  markdown: string,
+  transformers?: Transformer[],
+  node?: ElementNode,
+  shouldPreserveNewLines?: boolean | MarkdownImportOptions,
+): void;
 
 declare export function $generateNodesFromMarkdownString(
   markdown: string,
@@ -134,6 +140,11 @@ declare export function $generateNodesFromMarkdownString(
   transformers?: Transformer[],
   shouldPreserveNewLines?: boolean,
   shouldMergeAdjacentLines?: boolean,
+): Array<LexicalNode>;
+declare export function $generateNodesFromMarkdownString(
+  markdown: string,
+  transformers?: Transformer[],
+  shouldPreserveNewLines?: boolean | MarkdownImportOptions,
 ): Array<LexicalNode>;
 
 declare export function $convertSelectionToMarkdownString(

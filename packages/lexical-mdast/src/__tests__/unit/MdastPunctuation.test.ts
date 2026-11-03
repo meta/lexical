@@ -8,7 +8,8 @@
 
 // @vitest-environment node
 
-import type {MdastPunctuationMode} from '../../index';
+import type {MdastConfig, MdastPunctuationMode} from '../../index';
+import type {Paragraph} from 'mdast';
 
 import {buildEditorFromExtensions} from '@lexical/extension';
 import {
@@ -18,9 +19,12 @@ import {
   configExtension,
   defineExtension,
   type LexicalEditor,
+  ParagraphNode,
   TEXT_TYPE_TO_FORMAT,
 } from 'lexical';
-import {describe, expect, it, onTestFinished} from 'vitest';
+import {defaultHandlers} from 'mdast-util-to-markdown';
+import {toString as mdastToString} from 'mdast-util-to-string';
+import {assert, describe, expect, it, onTestFinished} from 'vitest';
 
 import {
   $convertFromMarkdownString,
@@ -36,12 +40,17 @@ type Runs = [text: string, format: number][];
 function createEditor(
   exportPunctuation?: MdastPunctuationMode,
   importPunctuation?: MdastPunctuationMode,
+  config: Partial<MdastConfig> = {},
 ): LexicalEditor {
   const editor = buildEditorFromExtensions(
     defineExtension({
       dependencies: [
         MdastGfmExtension,
-        configExtension(MdastExtension, {exportPunctuation, importPunctuation}),
+        configExtension(MdastExtension, {
+          ...config,
+          exportPunctuation,
+          importPunctuation,
+        }),
       ],
       name: '[root]',
     }),
@@ -50,25 +59,25 @@ function createEditor(
   return editor;
 }
 
+function $appendRuns(runs: Runs): void {
+  $getRoot()
+    .clear()
+    .append(
+      $createParagraphNode().append(
+        ...runs.map(([text, format]) =>
+          $createTextNode(text).setFormat(format),
+        ),
+      ),
+    );
+}
+
 function roundTrip(
   runs: Runs,
   exportPunctuation?: MdastPunctuationMode,
   importPunctuation?: MdastPunctuationMode,
 ): [markdown: string, runs: Runs] {
   const editor = createEditor(exportPunctuation, importPunctuation);
-  editor.update(
-    () =>
-      $getRoot()
-        .clear()
-        .append(
-          $createParagraphNode().append(
-            ...runs.map(([text, format]) =>
-              $createTextNode(text).setFormat(format),
-            ),
-          ),
-        ),
-    {discrete: true},
-  );
+  editor.update(() => $appendRuns(runs), {discrete: true});
   const markdown = editor.read('latest', () => $convertToMarkdownString());
   editor.update(() => $convertFromMarkdownString(markdown), {discrete: true});
   return [
@@ -131,13 +140,16 @@ describe('Mdast punctuation modes', () => {
     ],
     // An emoji, outside the Basic Multilingual Plane, is punctuation for
     // CJK-friendly readers as for CommonMark, so a letter beside a run that
-    // starts or ends with one goes out as a reference.
+    // starts or ends with one goes out as a reference. micromark without the
+    // CJK-friendly extension reads it as a letter, so for strict readers the
+    // emoji goes out as one too where that would change how the run beside
+    // it flanks.
     [
       [
         ['Hello', 0],
         ['\u{1f389} launch', bold],
       ],
-      'Hell&#x6F;**\u{1f389} launch**',
+      'Hell&#x6F;**&#x1F389; launch**',
       'Hell&#x6F;**\u{1f389} launch**',
     ],
     [
@@ -146,7 +158,7 @@ describe('Mdast punctuation modes', () => {
         ['\u{1f680}', bold],
         ['now', 0],
       ],
-      'Releas&#x65;**\u{1f680}**&#x6E;ow',
+      'Releas&#x65;**&#x1F680;**&#x6E;ow',
       'Releas&#x65;**\u{1f680}**&#x6E;ow',
     ],
     [
@@ -155,7 +167,7 @@ describe('Mdast punctuation modes', () => {
         ['\u{1f525}hot', italic],
         ['bar', 0],
       ],
-      'fo&#x6F;*\u{1f525}hot*bar',
+      'fo&#x6F;*&#x1F525;hot*bar',
       'fo&#x6F;*\u{1f525}hot*bar',
     ],
     [
@@ -163,7 +175,7 @@ describe('Mdast punctuation modes', () => {
         ['a', 0],
         ['\u{1f44d}ok', strikethrough],
       ],
-      '&#x61;~~\u{1f44d}ok~~',
+      '&#x61;~~&#x1F44D;ok~~',
       '&#x61;~~\u{1f44d}ok~~',
     ],
     // A CJK character beside the emoji needs one only for strict readers.
@@ -172,7 +184,7 @@ describe('Mdast punctuation modes', () => {
         ['你好', 0],
         ['\u{1f389}', bold],
       ],
-      '你&#x597D;**\u{1f389}**',
+      '你&#x597D;**&#x1F389;**',
       '你好**\u{1f389}**',
     ],
     // micromark without the CJK-friendly extension reads an emoji as a
@@ -184,7 +196,7 @@ describe('Mdast punctuation modes', () => {
         ['」0你', strikethrough],
       ],
       'b&#x1F600;~~」0你~~',
-      'b&#x1F600;~~」0你~~',
+      'b\u{1f600}~~」0你~~',
     ],
     // A reference that is not beside a marker stays.
     [[['&世', 0]], '&世', '&世'],
@@ -207,5 +219,67 @@ describe('Mdast punctuation modes', () => {
     expect(editor.read('latest', () => $convertToMarkdownString())).toBe(
       markdown,
     );
+  });
+
+  it('picks emoji stand-ins that handlers do not write', () => {
+    // A handler that writes a character the export would otherwise use as
+    // the emoji's stand-in, and one it would use next.
+    const editor = createEditor(undefined, undefined, {
+      toMarkdownExtensions: [
+        {
+          handlers: {
+            paragraph: (node, parent, state, info) =>
+              defaultHandlers.paragraph(node, parent, state, info) +
+              ' \u2e00\u2e01',
+          },
+        },
+      ],
+    });
+    editor.update(
+      () =>
+        $appendRuns([
+          ['Hello', 0],
+          ['\u{1f389} launch', bold],
+        ]),
+      {discrete: true},
+    );
+    expect(editor.read('latest', () => $convertToMarkdownString())).toBe(
+      'Hell&#x6F;**&#x1F389; launch** \u2e00\u2e01',
+    );
+  });
+
+  it('leaves the mdast tree as it was, data that is not JSON included', () => {
+    const paragraphs: Paragraph[] = [];
+    const editor = createEditor(undefined, undefined, {
+      exportRules: [
+        {
+          $export: (_node, context) => {
+            const [paragraph] = context.next();
+            assert(paragraph.type === 'paragraph');
+            paragraph.data = {
+              cycle: paragraph,
+              size: BigInt(1),
+            } as Paragraph['data'];
+            paragraphs.push(paragraph);
+            return paragraph;
+          },
+          type: ParagraphNode,
+        },
+      ],
+    });
+    editor.update(
+      () =>
+        $appendRuns([
+          ['Hello', 0],
+          ['\u{1f389} launch', bold],
+        ]),
+      {discrete: true},
+    );
+    expect(editor.read('latest', () => $convertToMarkdownString())).toBe(
+      'Hell&#x6F;**&#x1F389; launch**',
+    );
+    expect(paragraphs.map(paragraph => mdastToString(paragraph))).toEqual([
+      'Hello\u{1f389} launch',
+    ]);
   });
 });
