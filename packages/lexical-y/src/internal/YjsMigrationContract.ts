@@ -49,6 +49,7 @@ export const MIGRATION_YJS_EXPORTS = [
 ] as const;
 
 type StructStore = Doc['store'];
+type AbstractContent = Item['content'];
 type ContentIds = Parameters<typeof intersectUpdateWithContentIds>[1];
 
 /**
@@ -59,6 +60,9 @@ type ContentIds = Parameters<typeof intersectUpdateWithContentIds>[1];
  */
 export function migrationYjsMembers() {
   return {
+    AbstractContent: {
+      getRef: (c: AbstractContent) => isFunction(c.getRef),
+    },
     ContentIds: {
       deletes: (c: ContentIds) => isObject(c.deletes),
       inserts: (c: ContentIds) => isObject(c.inserts),
@@ -165,6 +169,24 @@ export function probeMigrationYjs(
       'GC',
       structs.find(s => !(s instanceof y.Item)),
     );
+    // The kind codes the runner compares content by: a string and an
+    // "any" item differ.
+    const text = new y.Doc({guid: PROBE_GUID});
+    const t = text.get('probe');
+    text.transact(() => {
+      t.insert(0, 'a');
+      t.insert(1, [1]);
+    });
+    const first = t._start;
+    sample('AbstractContent', first === null ? null : first.content);
+    if (
+      first === null ||
+      first.right === null ||
+      first.content.getRef() === first.right.content.getRef()
+    ) {
+      found.push('AbstractContent#getRef does not tell content kinds apart');
+    }
+    text.destroy();
     const ids = y.createIdSet();
     sample('IdSet', ids);
     sample('Skip', new y.Skip(y.createID(1, 0), 1));

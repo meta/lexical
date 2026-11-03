@@ -643,22 +643,84 @@ function scannedContainers(doc: Doc, root: YNode): Set<string> {
 
 /** One unit of an item's content, for equality only. */
 function unitsOf(it: Item): string[] {
+  // The content's kind (Yjs's own code for it: string, any, binary, embed,
+  // format, JSON, type, document), so that one kind replaced by another
+  // with the same values shows.
+  const kind = contentKind(it);
   if (it.content instanceof ContentType) {
     const type = it.content.type as YNode & {name?: unknown};
-    return [`<${String(type.name ?? '')}>`];
+    return [`${kind}<${typedValue(type.name ?? '')}>`];
   }
   const content = it.content.getContent();
   const out: string[] = [];
   for (let i = 0; i < it.length; i++) {
-    let text: string;
-    try {
-      text = JSON.stringify(content[i]) ?? 'undefined';
-    } catch {
-      text = '<content>';
-    }
-    out.push(text);
+    out.push(`${kind}:${typedValue(content[i])}`);
   }
   return out;
+}
+
+/** The kind code of an item's content (see unitsOf). */
+function contentKind(it: Item): number {
+  const content: Item['content'] = it.content;
+  return content.getRef();
+}
+
+/**
+ * A value as a string that keeps its type, for equality only: unlike JSON,
+ * a byte array, an undefined, -0, NaN, a bigint, a Date or a class instance
+ * reads differently from the plain object or number it would turn into
+ * (keys in their own order, as Yjs stores them).
+ */
+function typedValue(value: unknown, depth = 0): string {
+  if (depth > 64) {
+    return '<deep>';
+  }
+  switch (typeof value) {
+    case 'undefined':
+      return 'u';
+    case 'boolean':
+      return value ? 'T' : 'F';
+    case 'number':
+      return Object.is(value, -0) ? 'n-0' : `n${String(value)}`;
+    case 'bigint':
+      return `i${String(value)}`;
+    case 'string':
+      return `s${JSON.stringify(value)}`;
+    case 'object':
+      break;
+    default:
+      return `?${typeof value}`;
+  }
+  if (value === null) {
+    return 'N';
+  }
+  if (value instanceof Uint8Array) {
+    let hex = '';
+    for (let i = 0; i < value.length; i++) {
+      hex += value[i].toString(16).padStart(2, '0');
+    }
+    return `b${hex}`;
+  }
+  if (Array.isArray(value)) {
+    return `[${value.map(v => typedValue(v, depth + 1)).join(',')}]`;
+  }
+  const proto = Object.getPrototypeOf(value);
+  const plain = proto === Object.prototype || proto === null;
+  let tag = '';
+  if (!plain) {
+    const ctor = (proto as {constructor?: {name?: unknown}}).constructor;
+    tag = ctor === undefined ? '?' : String(ctor.name);
+  }
+  const body = Object.keys(value as object)
+    .map(
+      k =>
+        `${JSON.stringify(k)}:${typedValue(
+          (value as Record<string, unknown>)[k],
+          depth + 1,
+        )}`,
+    )
+    .join(',');
+  return `${tag}{${body}}`;
 }
 
 /** What a container must keep (see the checks in runStep). */
@@ -692,7 +754,7 @@ function containerState(
     if (it.content instanceof ContentFormat) {
       if (!rewrites(it.content.key)) {
         formats.add(
-          `${idOf(it)}|${JSON.stringify(it.content.key)}=${JSON.stringify(it.content.value)}`,
+          `${idOf(it)}|${JSON.stringify(it.content.key)}=${typedValue(it.content.value)}`,
         );
       }
     } else if (it.countable) {
@@ -878,13 +940,9 @@ function outsideWrites(
 /** An item's content as a string: a format's key and value, else its units. */
 function valueOf(it: Item): string {
   if (it.content instanceof ContentFormat) {
-    let value: string;
-    try {
-      value = JSON.stringify(it.content.value) ?? 'undefined';
-    } catch {
-      value = '<value>';
-    }
-    return `format ${JSON.stringify(it.content.key)}=${value}`;
+    return `format ${JSON.stringify(it.content.key)}=${typedValue(
+      it.content.value,
+    )}`;
   }
   return unitsOf(it).join(',');
 }
