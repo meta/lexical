@@ -97,7 +97,7 @@ afterEach(() => {
 });
 
 describe.each([false, true])('the older gate, gc %s', gc => {
-  test('a seed written inside an app transaction, then an app undo of only its layout 2 record: never writable below the floor (M1)', async () => {
+  test('a seed written inside an app transaction, then an app undo of only its layout record: the record is written again untracked, so the undo changes nothing and both stay writable', async () => {
     setMinLayoutForTests(FLOOR);
     const doc = createYDoc(null, {gc});
     doc.clientID = 7;
@@ -123,45 +123,21 @@ describe.each([false, true])('the older gate, gc %s', gc => {
     doc.on('update', (u: Uint8Array) => updates.push(u));
     app.undo();
     await flush();
-    expect(updates.length).toBeGreaterThan(0);
-    // The seeding binding: read only and unwritten while its record is below
-    // the floor or gone (a build may also put its record back itself: then
-    // it is active at the floor).
-    const dropped = recordedLayout(doc);
-    if (dropped === null || dropped < FLOOR) {
-      expect(b.status).toBe('readonly');
-      expect(writes(editor, doc)).toBe(false);
-    } else {
-      expect(dropped).toBe(FLOOR);
-      expect(b.status).toBe('active');
-    }
-    // The receiver, update by update: read only whenever below the floor,
-    // and a write between updates changes nothing.
-    const seen: [number | null, string, boolean][] = [];
-    for (const u of updates) {
-      Y.applyUpdate(receiver, u, 'remote');
-      await flush();
-      const layout = recordedLayout(receiver);
-      const status = r.binding.status;
-      const wrote = writes(r.editor, receiver);
-      seen.push([layout, status, wrote]);
-      if (layout === null || layout < FLOOR) {
-        expect(status).toBe('readonly');
-        expect(wrote).toBe(false);
-      }
-    }
-    if (seen.some(([layout]) => layout === null || layout < FLOOR)) {
-      expect(r.warnings.some(w => w === 'older' || w === 'missing')).toBe(true);
-    }
-    // Redo restores the record: both read it again and write.
-    app.redo();
-    await flush();
+    // The seed's record is written again after the outer transaction, in a
+    // transaction no UndoManager tracks (Ident.protectRecordAfter): the undo
+    // deletes only the item that write overwrote, so it changes nothing,
+    // sends nothing, and both bindings stay writable at the floor.
+    expect(updates).toEqual([]);
+    expect(recordedLayout(doc)).toBe(FLOOR);
+    expect(b.status).toBe('active');
+    expect(r.binding.status).toBe('active');
+    expect(writes(editor, doc)).toBe(true);
+    // The receiver gets the write and stays at the floor.
     for (const u of updates.splice(0)) {
       Y.applyUpdate(receiver, u, 'remote');
     }
     await flush();
-    expect(recordedLayout(doc)).toBe(FLOOR);
-    expect(b.status).toBe('active');
+    expect(recordedLayout(receiver)).toBe(FLOOR);
     expect(r.binding.status).toBe('active');
     app.destroy();
     b.dispose();
