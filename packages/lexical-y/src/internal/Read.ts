@@ -2530,12 +2530,14 @@ export class Reader {
    * setFormat of its own can show two such attributes the same; a node that
    * cannot be built reads apart, as before.
    *
-   * Contract: a TextNode's shown format must not depend on its text content
-   * (the same assumption as TextNode#splitText, which gives every part the
-   * node's format, and mergeWithSibling). The merged piece is checked as a
-   * whole (see $checkMerged), but a class that shows a bit only for some
-   * text can change its verdict when text is typed into the merged node,
-   * which its author does not read again.
+   * Contract: a TextNode's shown format depends on its class, fields and
+   * NodeState, not on its text content or on where it is attached (the same
+   * assumption as TextNode#splitText, which gives every part the node's
+   * format before it is inserted, and mergeWithSibling). The merged piece is
+   * checked as a whole (see $checkMerged), but a class that shows a bit only
+   * for some text can change its verdict when text is typed into the merged
+   * node, which its author does not read again, and the nodes compared here
+   * are not attached.
    */
   private $showSame(
     a: Piece & {kind: 'text'},

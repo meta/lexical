@@ -304,8 +304,8 @@ describe.each([false, true])(
   'a setter that depends on the text content, gc %s',
   gc => {
     // Outside the contract: a TextNode's shown format must not depend on
-    // its text content (the same assumption as TextNode#splitText and
-    // mergeWithSibling). "ab" (stored bold) and "cd" show no format apart or
+    // its text content or on where it is attached (the same assumption as
+    // TextNode#splitText and mergeWithSibling). "ab" (stored bold) and "cd" show no format apart or
     // merged, so they read as one node; typing X into the plain "cd" makes
     // the merged node show the bold, so a fresh read cuts the line where
     // the author, which does not read its own line again, does not.
@@ -332,5 +332,47 @@ describe.each([false, true])(
       expect((await freshReader(t.b)).describe()).toBe(t.b.describe());
       await expectConverged(t.peers);
     });
+  },
+);
+
+/** Shows its formats only while attached. */
+class AttachedFormatsNode extends TextNode {
+  $config() {
+    return this.config('test-attached-formats', {extends: TextNode});
+  }
+  getFormat(): number {
+    return this.getParent() === null ? 0 : super.getFormat();
+  }
+  setFormat(format: TextFormatType | number): this {
+    return super.setFormat(format);
+  }
+}
+
+describe.each([false, true])(
+  'a format that depends on attachment, gc %s',
+  gc => {
+    // Outside the contract (see above): the nodes $showSame compares are not
+    // attached, so they show no format and the runs read as one, and the
+    // attached node then shows the first run's bold over both.
+    test.fails(
+      'a stored bold over part of a node reads where it is stored',
+      async () => {
+        const t = await setup(
+          () =>
+            $getRoot().append(
+              $createParagraphNode().append(
+                $create(AttachedFormatsNode).setTextContent('ab'),
+              ),
+            ),
+          {gc, nodes: [...NODES, AttachedFormatsNode]},
+        );
+        formatRaw(t.a, 'a', {'f:bold': true});
+        await t.sync();
+        expect(nodesOf(await freshReader(t.b))).toEqual([
+          ['a', 1],
+          ['b', 0],
+        ]);
+      },
+    );
   },
 );
