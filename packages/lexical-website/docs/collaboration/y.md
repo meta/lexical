@@ -1502,9 +1502,6 @@ reproduces it:
   its first node at the same time, turn one of the two nodes into a
   paragraph and leave the room read only:
   [#9512](https://github.com/meta/lexical/issues/9512).
-- An update listener that throws stops the listeners registered after it,
-  so when it was registered before the binding, that commit is never
-  written: [#9514](https://github.com/meta/lexical/issues/9514).
 - A line without a marker joins the start of a paragraph a collaborator
   appends at the same time:
   [#9524](https://github.com/meta/lexical/issues/9524).
