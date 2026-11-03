@@ -85,6 +85,7 @@ import {type ClientIDRange, constrainClientID} from './ClientID';
 import {
   BASE_LAYOUT_VERSION,
   DEFAULT_ROOT_NAME,
+  EPOCH_KEY,
   LEGACY_ROOTS,
   MIN_LAYOUT,
   SCHEMA_PREFIX,
@@ -97,7 +98,7 @@ import {
   markFormatCloser,
 } from './Cursor';
 import {$canonicalizeGroup, $switchesWrapper} from './Groups';
-import {onLayoutEpoch} from './Layouts';
+import {epochRecordOf, onLayoutEpoch} from './Layouts';
 import {
   $applyStoredAttrs,
   $unstoredWrapperTextFields,
@@ -689,7 +690,11 @@ function recordedLayout(root: YNode): number | null {
   return malformedLayout(root) !== null ? NaN : newestLayout(root);
 }
 
-/** The first `lexical-y:<n>` attribute of `root` that is not a version. */
+/**
+ * The first `lexical-y:<n>` attribute of `root` that is not a version, or
+ * its epoch (EPOCH_KEY) when it is not well formed (see epochRecordOf; no
+ * epoch is fine: a document that never migrated).
+ */
 function malformedLayout(root: YNode): {key: string; found: unknown} | null {
   const attrs = root.getAttrs() as Record<string, unknown>;
   for (const key in attrs) {
@@ -699,6 +704,10 @@ function malformedLayout(root: YNode): {key: string; found: unknown} | null {
         return {found: attrs[key], key};
       }
     }
+  }
+  const epoch = epochRecordOf(root);
+  if (epoch.kind === 'malformed') {
+    return {found: epoch.found, key: EPOCH_KEY};
   }
   return null;
 }
@@ -2331,7 +2340,7 @@ export class YBinding {
     if (malformed !== null) {
       this.warn(
         UNSUPPORTED_LAYOUT_WARNING,
-        `the layout record ${malformed.key} is malformed, so this editor is read only: something other than this binding wrote the root's records; reseed the content into a new room with seedYState`,
+        `the layout record ${malformed.key} is malformed, so this editor is read only: something other than this binding (or a migration) wrote the root's records; reseed the content into a new room with seedYState`,
         {...malformed, reason: 'malformed', supported: LAYOUT_VERSION},
       );
       this.setStatus('readonly');
@@ -3216,7 +3225,7 @@ export class YBinding {
       }
       if (type === this._root) {
         if (
-          [...keys].some(k => k.startsWith(LAYOUT_PREFIX)) &&
+          [...keys].some(k => k.startsWith(LAYOUT_PREFIX) || k === EPOCH_KEY) &&
           !this.readsRecordedLayout()
         ) {
           this.evaluate();

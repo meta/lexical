@@ -192,7 +192,7 @@ export interface YRoomDescription {
   readonly layouts: readonly [number, number] | null;
   /**
    * Served roots with content but no well-formed layout record (missing or
-   * malformed): no client reads them.
+   * malformed) or with a malformed epoch: no client reads them.
    */
   readonly unreadable: readonly string[];
   /**
@@ -225,7 +225,7 @@ export function describeYRoom(
     }
     pristine = false;
     const record = layoutRecordOf(root);
-    if (record.kind === 'layout') {
+    if (record.kind === 'layout' && epochRecordOf(root).kind !== 'malformed') {
       layouts =
         layouts === null
           ? [record.layout, record.layout]
