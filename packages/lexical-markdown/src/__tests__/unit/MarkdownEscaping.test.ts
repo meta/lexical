@@ -330,6 +330,29 @@ describe('literal Markdown text', () => {
     },
   );
 
+  it('exports a < before many unspaced styled nodes in linear time', () => {
+    using editor = buildEditorFromExtensions([MarkdownTestExtension]);
+    editor.update(
+      () =>
+        $getRoot()
+          .clear()
+          .append(
+            $createParagraphNode().append(
+              $createTextNode('<').setStyle('color: red'),
+              ...Array.from({length: 20000}, (_, index) =>
+                $createTextNode('a').setStyle(`color: #${index % 2}00`),
+              ),
+            ),
+          ),
+      {discrete: true},
+    );
+    const start = performance.now();
+    const written = editor.read(() => $convertToMarkdownString());
+    // Linear exports take tens of milliseconds; a quadratic one takes seconds.
+    expect(performance.now() - start).toBeLessThan(10000);
+    expect(written).toBe('&#60;' + 'a'.repeat(20000));
+  });
+
   it('reads on past a long email local part split across nodes', () => {
     using editor = buildEditorFromExtensions([MarkdownTestExtension]);
     const half = 'a'.repeat(200);

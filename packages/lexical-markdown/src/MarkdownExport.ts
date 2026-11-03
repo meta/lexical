@@ -599,7 +599,11 @@ function $exportTextFormat(
               ? `\\${character}`
               : (
                     character === '<'
-                      ? $opensMarkup(text.slice(offset + 1), $following)
+                      ? $opensMarkup(
+                          text.slice(offset + 1),
+                          $nextChar,
+                          $following,
+                        )
                       : $opensCharacterReference(
                           text.slice(offset + 1),
                           $nextChar,
@@ -1348,8 +1352,12 @@ const EMAIL_AUTOLINK_PREFIX =
  * part may start with a digit. So `<3`, `1<2`, `<-` and `< b` stay as typed.
  * `$following` reads on into the text exported after the node.
  */
-function $opensMarkup(rest: string, $following: () => string): boolean {
-  const first = rest === '' ? ($following()[0] ?? '') : rest[0];
+function $opensMarkup(
+  rest: string,
+  $nextChar: () => string,
+  $following: () => string,
+): boolean {
+  const first = rest === '' ? $nextChar() : rest[0];
   if (first === UNKNOWN || /^[A-Za-z/!?]$/.test(first)) {
     return true;
   } else if (EMAIL_AUTOLINK_REST.test(rest)) {
@@ -1381,9 +1389,10 @@ function $followingText(
   selection: BaseSelection | null,
 ): string {
   let text = '';
+  let ended = false;
   for (
     let leaf = $nextLeaf(node, selection);
-    leaf !== null && !AUTOLINK_ENDED.test(text);
+    leaf !== null && !ended;
     leaf = $nextLeaf(leaf, selection)
   ) {
     const kind = $exportKind(leaf);
@@ -1397,7 +1406,9 @@ function $followingText(
       const exported = asLiteral($exportedText(leaf, selection));
       // An autolink binds as tightly as a code span and starts first, so it
       // can run on through the backticks.
-      text += leaf.hasFormat('code') ? `\`${exported}\`` : exported;
+      const piece = leaf.hasFormat('code') ? `\`${exported}\`` : exported;
+      text += piece;
+      ended = AUTOLINK_ENDED.test(piece);
     }
   }
   return text;
