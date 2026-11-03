@@ -12,7 +12,7 @@
 // its opener) was installed by the first binding and removed with the last:
 // an app UndoManager that redid into the document after its binding stopped
 // sent unrepaired ends, and a reload or a peer read "Xb" plain where main
-// keeps "b" bold (GPT code review r1, item 5). createYDoc now installs it
+// keeps "b" bold. createYDoc now installs it
 // before anything is applied, for the document's lifetime.
 
 import * as Y from '@y/y';

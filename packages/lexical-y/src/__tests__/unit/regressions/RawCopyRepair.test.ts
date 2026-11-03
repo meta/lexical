@@ -9,8 +9,8 @@
 // @vitest-environment node
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
-// A raw Yjs writer's copy of a seed's end (prop's raw-writer lane, seed
-// 9001291): a plain Y.Doc peer (createYDoc, so copy repair is installed)
+// A raw Yjs writer's copy of a seed's end (a randomized raw-writer
+// session): a plain Y.Doc peer (createYDoc, so copy repair is installed)
 // removes italic over part of the seed's paired italic run; Yjs's format()
 // restores the previous value after its range by copying the seed's relative
 // end into a new item of its own client, in a local transaction. Copy repair
@@ -84,7 +84,7 @@ function $chars(): [string, string[]][] {
   return out;
 }
 
-// prop id1102 raw writer (GPT C1 class): a legacy-seeded document; 1-2 binding peers and one RAW peer R (a plain Y.Doc,
+// A raw-writer session: a seeded document; 1-2 binding peers and one RAW peer R (a plain Y.Doc,
 // no binding) that writes plain values with Yjs format() on covered keys. Phase 1: binding peers format (concurrent);
 // full sync (R sees the layout 3 record and the runs in mixed mode). Phase 2: R writes 1-2 raw formats while each
 // binding peer makes 0-1 more change; full sync. UW_MODE=legacy: binding peers legacy (main's path); mixed: identity.
@@ -161,7 +161,7 @@ function runRW(spec: any, mode: string, gcOn: boolean) {
   const peers = spec.ids.slice(0, spec.nb).map((id: number, n: number) => {
     const doc = createYDoc(seeded, {gc: gcOn});
     doc.clientID = id;
-    if (mode === 'mixed') throw new Error('l3only: no switch');
+    if (mode === 'mixed') throw new Error('no switch');
     const editor = buildEditorFromExtensions(
       defineExtension({
         dependencies: [
@@ -231,14 +231,14 @@ function runRW(spec: any, mode: string, gcOn: boolean) {
   }
 }
 /**
- * prop id1102 guard (raw writer's Yjs-level copy of a seed end): seed 9001291 of the raw-writer family. The plain Y.Doc
+ * Guard (a raw writer's Yjs-level copy of a seed end): one session of the raw-writer family. The plain Y.Doc
  * peer R (createYDoc, so copy repair is installed) unitalicizes "f..i" over the seed's paired italic run of "def"; Yjs's
  * format() restores the previous value after its range by COPYING the seed's relative end [5] into a new item of R's
  * client. Copy repair must rewrite that copy to name the seed opener absolutely ([seedClient, 10]); 15b69da6 does,
  * 6954dfe7 / 180c7224 (perf (a): holders noted only where a local transaction deletes an end) leave it relative, so it
  * names nothing and "de" lose their italic. Expected (15b69da6, main): d and e bold+italic.
  */
-test('raw writer copy of a seed end is repaired (seed 9001291, gc off and on)', () => {
+test('a raw writer copy of a seed end is repaired (gc off and on)', () => {
   for (const gc of [false, true]) {
     const r: any = runRW(gen(9001291), 'legacy', gc);
     const chars = JSON.parse(r.chars)

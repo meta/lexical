@@ -14,10 +14,9 @@
 // as plain values until the record arrives; then every container is read
 // again, a table cell's line included. Before: only the root's lines were,
 // and a comment's end stayed on the text after the comment as the NodeState
-// {"markIds\u001fa2": [1]} (soak, head 3/4 with paired writes, 4 sessions).
+// {"markIds\u001fa2": [1]}.
 // Where that text is in another comment its signature does not change when
-// it is read again, so the stray entry itself makes it built again (soak,
-// head 5).
+// it is read again, so the stray entry itself makes it built again.
 
 import {buildEditorFromExtensions} from '@lexical/extension';
 import {$addMarkID, MarkStateExtension} from '@lexical/mark';

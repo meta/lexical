@@ -8,8 +8,8 @@
 
 // @vitest-environment node
 
-// GPT code review round 9 of the layout 3 writer (internal/Layout3.ts), its
-// reproductions: the pure reader follows the binding's grammar exactly
+// The layout 3 writer and reader for whole containers (internal/Layout3.ts):
+// the pure reader follows the binding's grammar exactly
 // (overlapping runs, orphan and malformed ends), every value is validated
 // before anything is written, an array's holes encode as null, and the
 // canonical form is the live writer's.
@@ -76,7 +76,7 @@ function liveFormats(root: Y.Node) {
 }
 
 for (const gc of [false, true]) {
-  test(`R9 overlapping binding-written style pairs: pure/core agreement gc=${gc}`, async () => {
+  test(`overlapping binding-written style pairs: pure/core agreement gc=${gc}`, async () => {
     const t = await setup(() => $getRoot().append($p('abcd')), {
       delivery: 'sender',
       gc,
@@ -96,7 +96,7 @@ for (const gc of [false, true]) {
     const root = t.a.doc.get('lexical-y');
     expect(readLayout3Formats(root).map(obj)).toEqual(coreRead(root));
   });
-  test(`R9 orphan and malformed ends: pure/core agreement gc=${gc}`, () => {
+  test(`orphan and malformed ends: pure/core agreement gc=${gc}`, () => {
     const results: unknown[] = [];
     for (const value of [[9999], ['bad']]) {
       const doc = rawDoc(gc);
@@ -114,7 +114,7 @@ for (const gc of [false, true]) {
     for (const result of results as {pure: unknown; core: unknown}[])
       expect(result.pure).toEqual(result.core);
   });
-  test(`R9 undefined refused before any write gc=${gc}`, () => {
+  test(`undefined refused before any write gc=${gc}`, () => {
     const doc = rawDoc(gc);
     const root = doc.get('c');
     root.format(0, 3, {'f:bold': true});
@@ -137,7 +137,7 @@ for (const gc of [false, true]) {
     expect(doc.store.getClock(7)).toBe(clock);
     expect(Y.encodeStateAsUpdate(doc)).toEqual(before);
   });
-  test(`R9 values JSON cannot encode are refused before any write gc=${gc}`, () => {
+  test(`values JSON cannot encode are refused before any write gc=${gc}`, () => {
     for (const bad of [
       () => 1,
       Symbol('s'),
@@ -170,7 +170,7 @@ for (const gc of [false, true]) {
       expect(Y.encodeStateAsUpdate(doc)).toEqual(before);
     }
   });
-  test(`R9 sparse raw arrays roundtrip gc=${gc}`, () => {
+  test(`sparse raw arrays roundtrip gc=${gc}`, () => {
     const doc = rawDoc(gc);
     const root = doc.get('c');
     const v = Array(2);
@@ -184,7 +184,7 @@ for (const gc of [false, true]) {
     const encoded = readLayout3Formats(root)[0].get('p:meta') as {json: string};
     expect(JSON.parse(encoded.json)).toEqual([null, null]);
   });
-  test(`R9 all countable content and stored key classes roundtrip gc=${gc}`, () => {
+  test(`all countable content and stored key classes roundtrip gc=${gc}`, () => {
     const doc = new Y.Doc({gc});
     doc.cleanupFormatting = false;
     doc.clientID = 7;
@@ -214,7 +214,7 @@ for (const gc of [false, true]) {
     expect(marker.getAttrs()).toEqual(attrs);
     expect(child._start).toBe(nested);
   });
-  test(`R9 deterministic updates with reordered map keys gc=${gc}`, () => {
+  test(`deterministic updates with reordered map keys gc=${gc}`, () => {
     const run = (reverse: boolean) => {
       const doc = rawDoc(gc);
       const root = doc.get('c');
@@ -237,7 +237,7 @@ for (const gc of [false, true]) {
     };
     expect(run(false)).toEqual(run(true));
   });
-  test(`R9 canonical form: maximal equal-map segments, ends in the openers' (key) order gc=${gc}`, () => {
+  test(`canonical form: maximal equal-map segments, ends in the openers' (key) order gc=${gc}`, () => {
     // Settled canonical form (full-map, the live writer's): a segment is a
     // maximal run of units whose covered values are all equal; each opens
     // every key it has, in key order, and ends them in the same order.
@@ -264,7 +264,7 @@ for (const gc of [false, true]) {
     ]);
     expect(readLayout3Formats(root).map(obj)).toEqual(values.map(obj));
   });
-  test(`R9 one-shot live insert canonical order gc=${gc}`, () => {
+  test(`one-shot live insert canonical order gc=${gc}`, () => {
     const doc = new Y.Doc({gc});
     doc.cleanupFormatting = false;
     doc.clientID = 7;
@@ -309,7 +309,7 @@ for (const gc of [false, true]) {
       readLayout3Formats(root).map(obj),
     );
   });
-  test(`R9 live consecutive inserts compared with whole-container canonical gc=${gc}`, () => {
+  test(`live consecutive inserts compared with whole-container canonical gc=${gc}`, () => {
     const doc = new Y.Doc({gc});
     doc.cleanupFormatting = false;
     doc.clientID = 7;

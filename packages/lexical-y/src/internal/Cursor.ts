@@ -538,7 +538,7 @@ export class Cursor {
       }
       if (isNodeTypeOpener(it.content as ContentFormat)) {
         // (Whether or not its run holds content yet: an empty node run is
-        // still the header the node's content goes after, soak 2664304150.)
+        // still the header the node's content goes after.)
         return true;
       }
       // An end or a plain null closes another run: the header of a node is
@@ -1551,7 +1551,7 @@ export class Cursor {
    *    range to right before the live content after it) whose entry, in the
    *    fold before the change, leaves the stack inside the region, so
    *    deleting it changes nothing outside. A held item stays. Nothing is
-   *    restored or copied (spec v4.6).
+   *    restored or copied.
    * 2. Where any content of the range then shows another value, it writes
    *    its value over the whole range as disjoint paired segments, split at
    *    every retained paired opener, kept unpaired item, clearer and held
@@ -1619,11 +1619,11 @@ export class Cursor {
       }
       return v === null || !isPaired(x);
     };
-    // The before-fold, per key (one snapshot before any mutation [r3-9]),
+    // The before-fold, per key (one snapshot before any mutation),
     // as the document reads once it records layout 3 (this change writes
     // the record before its first paired item): with run stacks, also in a
     // document still below layout 3. It gives the unpaired items whose entry
-    // leaves the stack inside the region (deleted, spec v4.4 step 1) and the
+    // leaves the stack inside the region (deleted, step 1) and the
     // clearers (ends naming no run open at their position, kept).
     const leaving = new Map<string, Set<Item>>();
     const clearers = new Set<Item>();
@@ -1674,7 +1674,7 @@ export class Cursor {
      * Whether the interval of the run `opener` opened, up to its end `end`,
      * holds a clearer, a held item, or an unpaired item of `key` this change
      * keeps: deleting the run would change how far that item reaches
-     * (spec v4.5 step 1; r6-1, r11-1, r11-2).
+     * (step 1).
      */
     const shields = (opener: Item, end: Item, key: string): boolean => {
       const leaves = leaving.get(key)!;
@@ -1727,7 +1727,7 @@ export class Cursor {
     }
     // Every unpaired item of a key in the region whose entry leaves the
     // stack inside it: its effect reaches no live content outside the range
-    // (spec v4.4, step 1). Every other unpaired item stays (inside the range
+    // (step 1). Every other unpaired item stays (inside the range
     // it is a boundary), and so does every clearer.
     const planned = new Set(plan.flatMap(([, o, e]) => [o, ...e]));
     for (const key of keys) {
@@ -1780,7 +1780,7 @@ export class Cursor {
         continue;
       }
       const extending = extendsPastContent(key);
-      // Where the last segment ends (spec v4.6 step 3): after the format
+      // Where the last segment ends (step 3): after the format
       // items that follow the range's last content, passing over paired
       // ends and paired openers (such a run is pushed above this one and
       // survives its end), and before the first unpaired item, clearer or
@@ -1832,7 +1832,7 @@ export class Cursor {
       // them and the next content (deleted text an undo brings back) stays
       // inside a segment, as it is inside the range. The first segment opens
       // right before the range's first content. A segment never holds no
-      // content. An identity client writes only paired items (spec v4.6):
+      // content. An identity client writes only paired items:
       // each opener is written when its segment closes, right before its end.
       let open = null as [after: Item | null, before: Item | null] | null;
       let reopenAfter = null as Item | null;
@@ -1919,7 +1919,7 @@ export class Cursor {
    * live content item between them, held and unread content included), when
    * that end lies before the range's last content (`lastAt`, by
    * `spanIndex`) and its interval holds no clearer (an invalid end) and no
-   * held item of `key` (spec v4.4 step 1).
+   * held item of `key` (step 1).
    * Null otherwise. The caller checks the opener lies after the range's
    * first content.
    */
@@ -1945,7 +1945,7 @@ export class Cursor {
         return null;
       }
       if (isFormat(x) && keyOf(x) === key && !isGone(x)) {
-        // a held item of the key, or a clearer (spec v4.4 step 1)
+        // a held item of the key, or a clearer (step 1)
         if (
           this.isHeldFormat(x) ||
           (isEndValue(valueOf(x)) && !isValidEnd(x))

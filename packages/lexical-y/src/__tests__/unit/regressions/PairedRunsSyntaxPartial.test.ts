@@ -8,8 +8,7 @@
 
 // @vitest-environment node
 
-// Prototype A' (record-independent identity syntax), GPT window structural
-// review 1: a `[]` opener means "no value" from birth, also while the end
+// Record-independent identity syntax: a `[]` opener means "no value" from birth, also while the end
 // that closes it waits for content another client wrote, and before the
 // layout 3 record: the reader never shows main's plain reading of it (an
 // empty-URL link). Once the end arrives, every client converges.

@@ -8,8 +8,7 @@
 
 // @vitest-environment node
 
-// The layout 3 whole-container writer (internal/Layout3.ts; contract in
-// l3-writer-api.md v4): it reproduces the values it is given, read by its
+// The layout 3 whole-container writer (internal/Layout3.ts): it reproduces the values it is given, read by its
 // own pure fold and by the binding's, deterministically, rewriting every
 // covered item and nothing else.
 

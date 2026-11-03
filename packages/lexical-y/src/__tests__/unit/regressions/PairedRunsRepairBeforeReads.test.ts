@@ -12,7 +12,7 @@
 // ends that the copy repair re-points before observers run; a binding
 // started in the same transaction read before that, so the new opener read
 // as unpaired while its end was valid, and the binding showed "Xb" plain
-// where main shows "b" bold (GPT code review r2, MUST 3; also head 4).
+// where main shows "b" bold.
 // Reads now bring pending copies current first.
 
 import * as Y from '@y/y';

@@ -9,7 +9,7 @@
 // @vitest-environment node
 
 // Seen.frontierOf (where a unit's folded start stops: the walk skips the
-// items up to it) is exact (GPT design review r2, SHOULD 9):
+// items up to it) is exact:
 // - whether the fold point lies after the walk's left is a two-way walk,
 //   with no bound (a bound hit gave a wrong "no");
 // - a fold point Yjs merged into the item before it (adjacent text of one

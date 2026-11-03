@@ -17,8 +17,8 @@
 // showing them), then makes the same change when its composition ends. A's
 // write deletes those items again, so the hold must stop showing them: a
 // write and its self-check that still read them stored X as a token
-// (`self-check: format t at N`; soak L1C 2705440127, and L2 2670880604's
-// `format k at N` at a code composition's end).
+// (`self-check: format t at N`, and `format k at N` at a code
+// composition's end).
 
 import {
   $createParagraphNode,

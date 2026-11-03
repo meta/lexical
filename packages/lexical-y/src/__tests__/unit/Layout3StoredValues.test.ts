@@ -8,7 +8,7 @@
 
 // @vitest-environment node
 
-// GPT layout 3 review round 10, MUST 3: Layout3 stores what Yjs's own
+// Layout3 stores what Yjs's own
 // encoder (JSON.stringify, toJSON honoured) gives for a value, and refuses
 // before any write a value that encodes to nothing.
 import * as Y from '@y/y';
@@ -22,7 +22,7 @@ class HiddenUndefined {
   }
 }
 for (const gc of [false, true]) {
-  test(`R10 refuse a value the actual JSON encoder cannot encode before mutation gc=${gc}`, () => {
+  test(`refuse a value the actual JSON encoder cannot encode before mutation gc=${gc}`, () => {
     const doc = new Y.Doc({gc});
     doc.cleanupFormatting = false;
     doc.clientID = 7;
@@ -49,7 +49,7 @@ for (const gc of [false, true]) {
     expect(doc.store.getClock(7)).toBe(clock);
     expect(Y.encodeStateAsUpdate(doc)).toEqual(before);
   });
-  test(`R10 raw array escaping follows native JSON representation gc=${gc}`, () => {
+  test(`raw array escaping follows native JSON representation gc=${gc}`, () => {
     const doc = new Y.Doc({gc});
     doc.cleanupFormatting = false;
     doc.clientID = 7;
@@ -65,7 +65,7 @@ for (const gc of [false, true]) {
 }
 
 for (const gc of [false, true]) {
-  test(`R10 values are stored as their JSON (toJSON, dropped properties), objects and arrays alike gc=${gc}`, () => {
+  test(`values are stored as their JSON (toJSON, dropped properties), objects and arrays alike gc=${gc}`, () => {
     const doc = new Y.Doc({gc});
     doc.cleanupFormatting = false;
     doc.clientID = 7;

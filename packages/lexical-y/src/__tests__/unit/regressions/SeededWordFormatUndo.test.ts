@@ -12,7 +12,7 @@
  * seeding, so they come from legacy-seeded words. 6 random ones reduced keeping
  * "identity bad, main right" (gc off). Shape (7171768:12, 6 ops): B removes a format from a range of a seeded word and
  * types Z inside it; sync; A types plain "1" next to Z; B undoes twice. Expected (main): "1" plain; that revision: "1" takes
- * the seeded word's format back. With the held typed-plain-runs switch on (C3) 119 of the 124 pass.
+ * the seeded word's format back. With the held typed-plain-runs switch on, 119 of the 124 pass.
  * Oracle: letters keep their formats, digits plain, no Z left, peers converge.
  */
 

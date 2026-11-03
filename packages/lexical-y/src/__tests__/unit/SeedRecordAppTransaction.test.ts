@@ -8,7 +8,7 @@
 
 // @vitest-environment node
 
-// GPT layout 3 review round 9, M1: a seed written inside an app's outer
+// A seed written inside an app's outer
 // transaction that an app UndoManager tracks: undoing only the layout 3
 // record must not leave any update (or the document) without it, so no
 // older client ever sees a writable older layout.
@@ -25,11 +25,11 @@ import {createYDoc, YBinding} from '../..';
 import {flush, NODES} from '../utils/harness';
 
 for (const gc of [false, true])
-  test(`R9 D09 seed initialization inside app transaction preserves record in every update gc=${gc}`, async () => {
+  test(`D09 seed initialization inside app transaction preserves record in every update gc=${gc}`, async () => {
     const doc = createYDoc(null, {gc});
     doc.clientID = 7;
     const editor = createEditor({
-      namespace: 'R9',
+      namespace: 'test',
       nodes: NODES,
       onError: e => {
         throw e;

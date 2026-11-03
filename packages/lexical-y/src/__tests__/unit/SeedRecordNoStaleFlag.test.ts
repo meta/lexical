@@ -8,8 +8,7 @@
 
 // @vitest-environment node
 
-// GPT layout 3 review round 10, MUST 1 (a regression of 4037b157a): a
-// request to protect a seed's record belongs to the transaction that wrote
+// A request to protect a seed's record belongs to the transaction that wrote
 // it; nothing is left on the root for a later binding to act on, so a
 // read-only binding of the older root writes nothing on an unrelated
 // remote update.
@@ -21,7 +20,7 @@ import {createYDoc, YBinding} from '../..';
 import {$p, flush, NODES} from '../utils/harness';
 
 for (const gc of [false, true])
-  test(`R10 deferred seed record does not survive as a stale root flag gc=${gc}`, async () => {
+  test(`deferred seed record does not survive as a stale root flag gc=${gc}`, async () => {
     const doc = createYDoc(null, {gc});
     const root = doc.get('lexical-y');
     const e = createEditor({

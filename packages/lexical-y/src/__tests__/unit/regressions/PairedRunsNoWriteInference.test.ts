@@ -9,7 +9,7 @@
 // @vitest-environment node
 
 // Where a write stores paired runs, nothing infers which write made an item
-// from its client and clocks (GPT design review r2, SHOULD 8): format items
+// from its client and clocks: format items
 // are grouped by position (a family's items right after one another, up to
 // another family, a held or gone item or content), and a node's opener is
 // found by position and stored pairing (pre-upgrade headers included).
@@ -164,7 +164,7 @@ for (const gc of [false, true]) {
   });
 
   test(`a family's items apart in a gap are not one unit: typed plain text stops before the first (gc ${gc ? 'on' : 'off'})`, async () => {
-    // GPT's counterexample: the gap s:markIds␟a = true, f:bold = true,
+    // A counterexample: the gap s:markIds␟a = true, f:bold = true,
     // s:markIds␟a = null (and bold's closer) before "y". Grouping the
     // comment's items over the whole gap would step over the first only and
     // type inside the comment.

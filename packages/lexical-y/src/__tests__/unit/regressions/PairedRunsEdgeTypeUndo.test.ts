@@ -8,7 +8,7 @@
 
 // @vitest-environment node
 
-// Paired runs (spec v4.6, ID-prop-3): text typed plain right after a format
+// Paired runs: text typed plain right after a format
 // change's range, where a collaborator's paired run opens or the word's own
 // pre-upgrade closers follow, stays out of the change's run, so the change's
 // undo leaves it plain. Six random-session

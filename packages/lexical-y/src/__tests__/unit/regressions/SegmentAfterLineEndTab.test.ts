@@ -13,8 +13,8 @@
 // writes it: the cursor can land inside the tab's run (before its ends), and a
 // reader reads text under a tab's type as plain text without any segment key
 // (see Reader's tabRuns). The text closes the tab's type for itself, so it
-// reads with its own key (soak L1B 2656880129: `self-check: format k at N`
-// after one join).
+// reads with its own key (before: `self-check: format k at N` after one
+// join).
 
 import {$createHeadingNode} from '@lexical/rich-text';
 import {

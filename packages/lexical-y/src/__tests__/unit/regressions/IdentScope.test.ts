@@ -7,7 +7,7 @@
  */
 // @vitest-environment node
 
-// Paired runs' process-wide state is scoped (code review r1, item 11):
+// Paired runs' process-wide state is scoped:
 // seeding suppresses paired writes only in the document being seeded, so a
 // write to another document during a seed (an app listener editing another
 // room) writes as that document says; and the interned key infos stay

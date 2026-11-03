@@ -8,8 +8,8 @@
 
 // @vitest-environment node
 
-// GPT layout 3 review round 12's cells (P8 dormant runs; the text format
-// rule of main's #9768).
+// A text class whose instances keep formats by a constructor-set field
+// keeps a stored format, as on main.
 import * as Y from '@y/y';
 import {
   $createParagraphNode,
@@ -27,7 +27,7 @@ import {flush} from '../utils/harness';
 class ConstructorEnabled extends TextNode {
   __allowsFormat = true;
   $config() {
-    return this.config('review_constructor_enabled', {extends: TextNode});
+    return this.config('test_constructor_enabled', {extends: TextNode});
   }
   canHaveFormat() {
     return !!this.__allowsFormat;
@@ -53,7 +53,7 @@ function editor() {
   });
 }
 for (const gc of [false, true])
-  test(`R12 constructor-enabled formats are retained gc=${gc}`, async () => {
+  test(`constructor-enabled formats are retained gc=${gc}`, async () => {
     const doc = createYDoc(null, {gc});
     const e = editor();
     const b = new YBinding(e, doc, {schemaVersion: 1, selfCheck: true});

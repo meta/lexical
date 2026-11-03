@@ -350,7 +350,7 @@ export type WritePlan = {
 };
 
 export class Writer {
-  /** The last format pass's fold (see $fixStartsAfter, perf P4). */
+  /** The last format pass's fold (see $fixStartsAfter). */
   private passFold: {clock: number; deletions: number; fold: PassFold} | null =
     null;
   /** Containers fully written in this transaction. */
@@ -2240,7 +2240,7 @@ export class Writer {
       if (unit.end === null || isGone(unit.end)) {
         return;
       }
-      // The next unit first (perf P4): without one, the fold below would
+      // The next unit first: without one, the fold below would
       // set nothing.
       let next: Item | null = unit.end.right;
       while (next !== null && !isShownEnd(next, this.state.hidden)) {
@@ -2256,8 +2256,8 @@ export class Writer {
       let folded = frontierOf(unit.start, left, unit.cs.y);
       let formats = new Map(unit.start || EMPTY_FORMATS);
       let from: Item | null = left === null ? unit.cs.y._start : left.right;
-      // The format pass's fold of this line, where nothing was written since
-      // (perf P4): go on from where it stopped.
+      // The format pass's fold of this line, where nothing was written since:
+      // go on from where it stopped.
       const pf = this.passFold;
       if (
         pf !== null &&
@@ -4023,7 +4023,7 @@ export class Writer {
       actual,
       this.state.hidden,
     );
-    // Kept for $fixStartsAfter while nothing is written (perf P4).
+    // Kept for $fixStartsAfter while nothing is written.
     this.passFold =
       this.state.hidden === null
         ? {
@@ -5132,7 +5132,7 @@ function reaches(from: Item, end: Item): boolean {
   return false;
 }
 
-/** What a format pass folded (see Writer#$fixStartsAfter, perf P4). */
+/** What a format pass folded (see Writer#$fixStartsAfter). */
 type PassFold = {
   start: Item | null;
   startFormats: Formats;

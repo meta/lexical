@@ -8,7 +8,7 @@
 
 // @vitest-environment node
 
-// GPT layout 3 review round 9, M3: the copy repair of ends an undo or redo
+// The copy repair of ends an undo or redo
 // restores changes nothing in a root below layout 3 (main keeps a raw
 // writer's `[1]` as stored); a root that records layout 3 is repaired.
 import * as Y from '@y/y';
@@ -18,7 +18,7 @@ import {createYDoc} from '../..';
 
 for (const gc of [false, true])
   for (const layout of [1, 2]) {
-    test(`R9 copy repair leaves older-layout app undo bytes alone layout=${layout} gc=${gc}`, () => {
+    test(`copy repair leaves older-layout app undo bytes alone layout=${layout} gc=${gc}`, () => {
       const doc = createYDoc(null, {gc});
       doc.clientID = 7;
       const root = doc.get('lexical-y');
@@ -74,7 +74,7 @@ for (const gc of [false, true])
   }
 
 for (const gc of [false, true]) {
-  test(`R9 copy repair still repairs a root that records layout 3 gc=${gc}`, () => {
+  test(`copy repair still repairs a root that records layout 3 gc=${gc}`, () => {
     const doc = createYDoc(null, {gc});
     doc.clientID = 7;
     const root = doc.get('lexical-y');

@@ -11,14 +11,14 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
 /**
- * GPT code review r3, MUST 1 and 2, as written independently from the review
+ * Two shapes, as written independently
  * text, including the same-paragraph shape: the first paired
  * write in a line with untouched text must keep what is stored there (it
  * stored a clearer over x's [2]). Read by identity syntax, the client shows
  * the paired values before the writer's record and records layout 3 with its
  * first write.
- *   R3 MUST 1: provenance must not alias independent NodeState entries that share a canonical parsed object.
- *   R3 MUST 2: a nested root whose layout 1 record was undone (layout 3 and schema left) is still known as a layout
+ *   1. provenance must not alias independent NodeState entries that share a canonical parsed object.
+ *   2. a nested root whose layout 1 record was undone (layout 3 and schema left) is still known as a layout
  *              root before any binding: app delete + undo of the pair around X reads the same on the object and on
  *              an encoded reload.
  */
@@ -110,7 +110,7 @@ for (const gc of [false, true]) {
       [true, false],
       [true, true],
     ] as const) {
-      test(`R3 MUST 1: a canonical parsed object shared by a raw end value and a legitimate entry (${sameKeyOnly ? 'same paragraph' : 'separate paragraph'}${distinct ? ', legit value distinct: regress variant, the window write in that line' : ''})`, async () => {
+      test(`a canonical parsed object shared by a raw end value and a legitimate entry (${sameKeyOnly ? 'same paragraph' : 'separate paragraph'}${distinct ? ', legit value distinct' : ''})`, async () => {
         const LEGIT = distinct ? Object.freeze([3]) : ONE;
         const t = await setup(
           () => {
@@ -175,7 +175,7 @@ for (const gc of [false, true]) {
       });
     }
 
-    test('R3 MUST 2: a nested root with its layout 1 record undone (layout 3 kept), no binding: app delete + undo of the pair around X', async () => {
+    test('a nested root with its layout 1 record undone (layout 3 kept), no binding: app delete + undo of the pair around X', async () => {
       const doc = createYDoc(null, {gc});
       doc.clientID = 7;
       setFormatIdentityWrites(doc, true);

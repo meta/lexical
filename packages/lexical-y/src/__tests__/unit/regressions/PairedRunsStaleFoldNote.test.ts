@@ -14,9 +14,8 @@
 // unit keeps the start, and items inserted later between the unit's left and
 // that item (an undo restoring a word) were never folded into it. The walk
 // skipped them: an author's resolve then wrote against a line read without
-// its restored word's comment and code format (soak, heads 6 and 7 with
-// paired writes: 2680960913, self-check "format f:code at 0" and the author
-// dropping the comment). A gone fold point is no boundary: the walk steps
+// its restored word's comment and code format (self-check "format f:code
+// at 0" and the author dropping the comment). A gone fold point is no boundary: the walk steps
 // everything from its left.
 
 import type * as Y from '@y/y';

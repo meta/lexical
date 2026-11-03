@@ -8,8 +8,7 @@
 
 // @vitest-environment node
 
-// Prototype A' (record-independent identity syntax), GPT window structural
-// review 4: an end can integrate before the opener it names (a later update
+// Record-independent identity syntax: an end can integrate before the opener it names (a later update
 // of the same writer merged with an earlier one around a gap, as a provider
 // merging updates sends it: the missing clocks are a Skip). When the opener arrives (filling that Skip), the end pairs with it,
 // which changes how everything between them reads although the arriving

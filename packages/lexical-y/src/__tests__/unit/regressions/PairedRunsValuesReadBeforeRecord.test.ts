@@ -8,7 +8,7 @@
 
 // @vitest-environment node
 
-// GPT code review r4, MUST 1-3 (written for values a plain fold read from
+// Written for values a plain fold read from
 // end items before the layout 3 record arrived), kept as behaviour: read by
 // identity syntax before the writer's record, no end shows as a value, and
 // what an app does with the values the client shows is stored as it shows
@@ -143,7 +143,7 @@ const $seed = () => {
 };
 
 for (const gc of [false, true]) {
-  test(`r4 MUST 1: an app assigning a value read before the record to another node stores it (gc ${gc ? 'on' : 'off'})`, async () => {
+  test(`an app assigning a value read before the record to another node stores it (gc ${gc ? 'on' : 'off'})`, async () => {
     const t = await setup($seed, {delivery: 'sender', gc, prepare});
     const [a] = t.peers;
     const sent = await deliverSecondOnly(t, () => {
@@ -167,7 +167,7 @@ for (const gc of [false, true]) {
     expect(a.warnings.filter(w => w.includes('self-check'))).toEqual([]);
   });
 
-  test(`r4 MUST 2: a canonicalizing state keeps main's values with paired writes off (gc ${gc ? 'on' : 'off'})`, async () => {
+  test(`a canonicalizing state keeps main's values with paired writes off (gc ${gc ? 'on' : 'off'})`, async () => {
     const t = await setup($seed, {delivery: 'sender', gc, prepare});
     const [a] = t.peers;
     const sent = await deliverSecondOnly(t, () => {
@@ -197,7 +197,7 @@ for (const gc of [false, true]) {
     void sent;
   });
 
-  test(`r4 MUST 3: an explicit edit of the link read before the record is kept (gc ${gc ? 'on' : 'off'})`, async () => {
+  test(`an explicit edit of the link read before the record is kept (gc ${gc ? 'on' : 'off'})`, async () => {
     const t = await setup(
       () => {
         $getRoot().append(
