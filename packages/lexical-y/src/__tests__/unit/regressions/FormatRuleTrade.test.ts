@@ -10,7 +10,7 @@
 
 // Rare sequences in which a format ends up on text nobody formatted, made
 // wrong by the rules that fixed #9671 and #9599: a trade recorded as D95
-// (#9690). Each passed before those rules. `test.fails` until stored
+// (#9690). Each passed before those rules. `test` until stored
 // provenance can tell a range's end from a removal's start.
 // B makes its steps (each its own undo step), A types a plain character, B
 // undoes everything. Expected: every original letter keeps exactly its
@@ -221,7 +221,7 @@ const CASES: {
 
 for (const c of CASES) {
   for (const gc of [false, true]) {
-    test.fails(`${c.name} (gc ${gc ? 'on' : 'off'}, ids ${c.ids})`, () => {
+    test(`${c.name} (gc ${gc ? 'on' : 'off'}, ids ${c.ids})`, () => {
       const orig = c.words
         .flatMap(([w, fs]) =>
           [...w].map(

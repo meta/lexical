@@ -21,6 +21,7 @@ import {
 } from 'lexical';
 
 import {type Formats, isLiveContent} from './Cursor';
+import {attrsOf, stepFormat} from './Ident';
 import {
   $foreignFlatKeys,
   $isWrapper,
@@ -37,7 +38,7 @@ import {
   TYPE_KEY,
   WRAPPER_PREFIX,
 } from './Schema';
-import {isGone, unheldLength} from './Seen';
+import {isGone, noteFolded, unheldLength} from './Seen';
 
 // Inline content as atoms, the form both the editor's side ($pushInline)
 // and the shared side (readAtoms) are compared in: one atom per content unit
@@ -300,20 +301,33 @@ export function readAtoms(
   formats: Formats,
   out: Atoms,
   hidden: Hidden | null = null,
+  frontier: Item | null = null,
+  end: {folded: Item | null} | null = null,
 ): Formats {
   const current = new Map(formats);
   // The formats the editor shows: `current` without held-back ones.
   const shown = hidden === null ? current : new Map(formats);
   let attrs: Attrs | null = null;
+  // Format items up to `frontier` are in `formats` already (see
+  // seedFrontier).
+  let folded = frontier;
+  const step = stepFormat;
   for (let it = start; it !== null && it !== stop; it = it.right) {
-    if (isGone(it)) {
+    if (it === folded) {
+      folded = null;
+    }
+    if (isGone(it) && (hidden === null || !hidden.keeps(it))) {
       continue;
     }
     const content = it.content;
     if (content instanceof ContentFormat) {
-      applyFormat(current, content);
+      if (folded !== null) {
+        attrs = null;
+        continue;
+      }
+      step(current, it);
       if (shown !== current && !hidden!.hides(it)) {
-        applyFormat(shown, content);
+        step(shown, it);
       }
       attrs = null;
       continue;
@@ -322,7 +336,7 @@ export function readAtoms(
       continue;
     }
     if (attrs === null) {
-      attrs = Object.fromEntries(shown);
+      attrs = attrsOf(shown) as Attrs;
     }
     if (hidden !== null) {
       const runs = hidden.runs(it);
@@ -360,15 +374,13 @@ export function readAtoms(
       }
     }
   }
-  return current;
-}
-
-function applyFormat(formats: Formats, content: ContentFormat): void {
-  if (content.value === null) {
-    formats.delete(content.key);
-  } else {
-    formats.set(content.key, content.value);
+  if (stop !== null) {
+    noteFolded(current, stop.left, true);
   }
+  if (end !== null) {
+    end.folded = folded;
+  }
+  return current;
 }
 
 /**

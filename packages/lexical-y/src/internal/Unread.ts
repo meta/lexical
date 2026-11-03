@@ -56,14 +56,35 @@ export interface Unread {
   readonly removed: IdSet;
   /** Whether each type is under the root (see viewOf). */
   readonly under: Map<YNode, boolean>;
+  /**
+   * Whether a deleted item is one the editor still shows: a format item a
+   * held change deleted in the line being composed (see Hidden#keeps).
+   */
+  readonly keeps: ((item: Item) => boolean) | null;
+  /**
+   * A write deleted `item` again, a deleted item the editor showed (see
+   * keeps): the editor no longer shows it (see Hidden#drop).
+   */
+  readonly dropKept: ((item: Item) => void) | null;
 }
 
 /** The view of the binding whose work is running (see seenBy). */
 let seer: (() => Unread | null) | null = null;
 
 /** The document under `root` as it was before any change. */
-export function emptyView(root: YNode): Unread {
-  return {changes: [], removed: createIdSet(), root, under: new Map()};
+export function emptyView(
+  root: YNode,
+  keeps: ((item: Item) => boolean) | null = null,
+  dropKept: ((item: Item) => void) | null = null,
+): Unread {
+  return {
+    changes: [],
+    dropKept,
+    keeps,
+    removed: createIdSet(),
+    root,
+    under: new Map(),
+  };
 }
 
 /** Whether one of the changes of `view` inserted `item`. */

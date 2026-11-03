@@ -83,6 +83,8 @@ export type Unit = {
   sig: string;
   /** Formats in effect at the start of the unit (null: none). */
   start: Formats | null;
+  /** Its index in its container's units when last looked up (a hint). */
+  at?: number;
 };
 
 type Role =

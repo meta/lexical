@@ -14,6 +14,7 @@ import {
   ContentType,
   type Item,
   type Node as YNode,
+  type Transaction,
 } from '@y/y';
 import {
   $create,
@@ -45,6 +46,18 @@ import {$innerBlockIdsOf, BlockIdSettler, NO_IDS} from './BlockIds';
 import {type Formats} from './Cursor';
 import {groupKeySig, groupSig} from './Groups';
 import {Hidden} from './Hidden';
+import {
+  attrsOf,
+  covered as coveredKey,
+  endTarget,
+  equalStacks,
+  isEndValue,
+  isShadowKey,
+  itemAtId,
+  pairedReadingIn,
+  repairPendingCopies,
+  stepFormat,
+} from './Ident';
 import {
   $foreignFlatKeys,
   $groupFields,
@@ -92,6 +105,7 @@ import {
   ownsMarkerAttr,
   ownsNodeAttr,
   SEGMENT_KEY,
+  SET_MEMBER_SEPARATOR,
   stableStringify,
   STATE_PREFIX,
   storedTypeOf,
@@ -106,10 +120,13 @@ import {
   type WrapperValue,
 } from './Schema';
 import {
+  copyStart,
+  frontierOf,
   isGone,
   isHeld,
   isShown,
   isShownEnd,
+  noteFolded,
   prevLiveEnd,
   shownAttrs,
   shownText,
@@ -224,18 +241,18 @@ function parseRange(
   const current = new Map(formats);
   let unitStart = start;
   let unitFormats = new Map(current);
+  noteFolded(unitFormats, start === null ? null : start.left);
+  let last: Item | null = start === null ? null : start.left;
   let pending = false;
+  const step = stepFormat;
   for (let it = start; it !== null && it !== stop; it = it.right) {
+    last = it;
     if (it.deleted) {
       continue;
     }
     const content = it.content;
     if (content instanceof ContentFormat) {
-      if (content.value === null) {
-        current.delete(content.key);
-      } else {
-        current.set(content.key, content.value);
-      }
+      step(current, it);
       continue;
     }
     if (!it.countable || isHeld(it, hidden)) {
@@ -256,7 +273,9 @@ function parseRange(
         parsed.push({
           end: it,
           kind: 'node',
-          start: unitFormats,
+          // (Its own map when a line without a marker before it has one:
+          // a start belongs to one unit, see copyStart.)
+          start: pending ? copyStart(unitFormats) : unitFormats,
           startItem: it,
           stop: it.right,
         });
@@ -271,6 +290,7 @@ function parseRange(
       }
       unitStart = it.right;
       unitFormats = new Map(current);
+      noteFolded(unitFormats, it);
       pending = false;
     } else {
       pending = true;
@@ -285,6 +305,7 @@ function parseRange(
       stop,
     });
   }
+  noteFolded(current, last);
   return {after: current, parsed};
 }
 
@@ -352,6 +373,11 @@ export class Reader {
   attrsBefore:
     | ((y: YNode, keys: ReadonlySet<string>) => Map<string, unknown>)
     | null = null;
+  /**
+   * The transaction being read (set by the binding for a remote change):
+   * the format items it inserted and deleted were never shown (see $hold).
+   */
+  change: Transaction | null = null;
   /** The marker attributes the change read set (see $apply). */
   private changedAttrs: Map<YNode, Set<string>> = new Map();
   /** Units whose marker attributes changed in this transaction. */
@@ -420,6 +446,12 @@ export class Reader {
    * one container sets aside can be placed again by the read of another.
    */
   $reading(read: () => void): void {
+    // Copies of ends an undo or redo inserted in the running transaction
+    // (an app's outer one) are repaired before anything is read: their
+    // openers read as paired (see Ident.repairPendingCopies).
+    if (this.depth === 0) {
+      repairPendingCopies(this.state.doc);
+    }
     this.depth++;
     try {
       read();
@@ -762,6 +794,27 @@ export class Reader {
    * reaches a unit whose end was deleted; the deleted end item of an
    * earlier join ends nothing and is passed.
    */
+  /**
+   * The opener in the same container that end item `it` names, in a
+   * document read as paired runs; null otherwise.
+   */
+  private openerOf(it: Item): Item | null {
+    const content = it.content as ContentFormat;
+    if (
+      !coveredKey(content.key) ||
+      !isEndValue(content.value) ||
+      !pairedReadingIn(it.parent)
+    ) {
+      return null;
+    }
+    const id = endTarget(it);
+    if (id === null) {
+      return null;
+    }
+    const opener = itemAtId(this.state.doc, id.client, id.clock);
+    return opener !== null && opener.parent === it.parent ? opener : null;
+  }
+
   private $unitOf(
     cs: CS,
     item: Item,
@@ -846,6 +899,18 @@ export class Reader {
         const u = this.located.get(it);
         if (u !== undefined && u !== null) {
           formatUnits.push(u);
+        }
+        // Paired runs: an end that arrives, is deleted or is restored changes
+        // whether its opener is paired, which changes what is read from that
+        // opener on (an unpaired item replaces unpaired runs; a paired one
+        // nests over them): recompute from the opener's unit, and read it.
+        const opener = this.openerOf(it);
+        if (opener !== null) {
+          const ou = this.$unitOf(cs, opener, {structural: false, tail: false});
+          if (ou !== null) {
+            formatUnits.push(ou);
+            affected.add(ou);
+          }
         }
       }
     }
@@ -960,7 +1025,11 @@ export class Reader {
    * A change that removes something the editor shows (Yjs does not keep
    * it) is read whole, its inserts too, so the line never shows a word it
    * replaced without its replacement; lines it makes before the line are
-   * not the line's, and are read (see $linesBefore).
+   * not the line's, and are read (see $linesBefore). In a document read as
+   * paired runs, a format item it deletes is not such a thing: the line
+   * goes on showing it until the hold ends (see Hidden#keeps), as it goes
+   * on without the format items the change inserted; one the change both
+   * inserted and deleted was never shown. Content it deletes is read whole.
    */
   private $hold(unit: Unit | null, items: Item[], attrs: boolean): boolean {
     const state = this.state;
@@ -972,9 +1041,19 @@ export class Reader {
       return false;
     }
     let hidden = state.hidden;
+    // Deleted format items the line goes on showing (see Hidden#keeps).
+    const kept: Item[] = [];
     for (const it of items) {
       if (it.deleted && !isHeld(it, hidden)) {
-        return false;
+        if (
+          !(it.content instanceof ContentFormat) ||
+          !pairedReadingIn(it.parent)
+        ) {
+          return false;
+        }
+        if (this.change === null || !this.change.insertSet.hasId(it.id)) {
+          kept.push(it);
+        }
       }
     }
     const before =
@@ -990,13 +1069,20 @@ export class Reader {
       attrs && end !== null && this.attrsBefore !== null
         ? this.$ownedChanges(end, hidden)
         : null;
-    if (held.length > 0 || (changed !== null && changed.size > 0)) {
+    if (
+      held.length > 0 ||
+      kept.length > 0 ||
+      (changed !== null && changed.size > 0)
+    ) {
       if (hidden === null) {
         hidden = new Hidden(this.composingKey!);
         state.hidden = hidden;
       }
       for (const it of held) {
         hidden.add(it.id.client, it.id.clock, it.length);
+      }
+      for (const it of kept) {
+        hidden.keep(it);
       }
       if (changed !== null && changed.size > 0) {
         const marker = hidden.marker || {
@@ -2366,6 +2452,9 @@ export class Reader {
         tattrs = {};
         const all: Attrs = {};
         current.forEach((v, k) => {
+          if (isShadowKey(k)) {
+            return;
+          }
           all[k] = v;
           if (!k.startsWith(WRAPPER_PREFIX)) {
             tattrs![k] = v;
@@ -2377,17 +2466,14 @@ export class Reader {
     };
     // As the editor shows it: without what is held back (see Hidden).
     const hidden = this.state.hidden;
+    const step = stepFormat;
     for (let it = start; it !== null && it !== stop; it = it.right) {
       if (!isShown(it, hidden)) {
         continue;
       }
       const content = it.content;
       if (content instanceof ContentFormat) {
-        if (content.value === null) {
-          current.delete(content.key);
-        } else {
-          current.set(content.key, content.value);
-        }
+        step(current, it);
         tattrs = null;
         continue;
       }
@@ -2880,7 +2966,12 @@ export class Reader {
           const currentSig = stableStringify($textAttrs(node, segment, false));
           // NodeState kept with another class's configuration (see
           // $foreignFlatKeys): built again as its own class reads it.
-          const foreign = $foreignFlatKeys(node) !== null;
+          // A set member entry kept with a value other than `true` (a raw
+          // or paired end item read as a plain value before the layout 3
+          // record arrived): the signature skips it, so it is built again.
+          const foreign =
+            $foreignFlatKeys(node) !== null ||
+            $coveredStateDiffers(node, piece.tattrs);
           if (foreign) {
             node.getWritable().__state = undefined;
           }
@@ -2918,7 +3009,10 @@ export class Reader {
       } else if (piece.kind === 'br') {
         let br = brs.shift() || $createLineBreakNode();
         const brState = lineBreakStateFromAttrs(piece.tattrs);
+        // (Also one holding values its last read took from end items: the
+        // comparison leaves set member entries that are not `true` out.)
         if (
+          $coveredStateDiffers(br, piece.tattrs) ||
           stableStringify(
             lineBreakStateFromAttrs($lineBreakAttrs(br, {}, false)),
           ) !== stableStringify(brState)
@@ -3485,15 +3579,14 @@ function formatsAfter(
   formats: Formats,
 ): Formats {
   const out = new Map(formats);
+  let last: Item | null = start === null ? null : start.left;
   for (let it = start; it !== null && it !== stop; it = it.right) {
+    last = it;
     if (!it.deleted && it.content instanceof ContentFormat) {
-      if (it.content.value === null) {
-        out.delete(it.content.key);
-      } else {
-        out.set(it.content.key, it.content.value);
-      }
+      stepFormat(out, it);
     }
   }
+  noteFolded(out, last);
   return out;
 }
 
@@ -3502,6 +3595,7 @@ function formatsAfter(
  * shared items, until they agree again past the last of `from`; returns the
  * units whose start changed (they must be read again).
  */
+
 function recomputeUnitStarts(cs: CS, from: Unit[]): Unit[] {
   const units = cs.units;
   const changed: Unit[] = [];
@@ -3516,12 +3610,16 @@ function recomputeUnitStarts(cs: CS, from: Unit[]): Unit[] {
       last = Math.max(last, i);
     }
   }
-  if (first >= units.length) {
+  // Starts of the units after `first` are recomputed: none after the last
+  // unit (the fold of the last unit's items would set nothing).
+  if (first >= units.length - 1) {
     return changed;
   }
   const formats = new Map<string, unknown>(units[first].start || EMPTY_FORMATS);
+  let at: Item | null = null;
   const set = (u: Unit): boolean => {
     const next = formats.size > 0 ? new Map(formats) : null;
+    noteFolded(next, at);
     const differs = !sameFormats(
       u.start || EMPTY_FORMATS,
       next || EMPTY_FORMATS,
@@ -3537,18 +3635,29 @@ function recomputeUnitStarts(cs: CS, from: Unit[]): Unit[] {
   for (let m = first - 1; m >= 0 && left === null; m--) {
     left = units[m].end;
   }
+  // After a unit without an end item, units[first] (a block node) starts
+  // with the formats folded up to its own item (see the loop): the items
+  // before it are in its start already (see Seen.frontierOf).
+  // Items up to where units[first].start was folded are in it already.
+  let folded: Item | null = frontierOf(units[first].start, left, cs.y);
+  // A stale start is folded again in place (see frontierOf): copy it again.
+  if (folded === null && units[first].start !== null) {
+    formats.clear();
+    for (const [key, v] of units[first].start!) {
+      formats.set(key, v);
+    }
+  }
   for (
     let it = left === null ? cs.y._start : left.right;
     it !== null && k < units.length;
     it = it.right
   ) {
-    if (!it.deleted && it.content instanceof ContentFormat) {
-      const {key, value} = it.content;
-      if (value === null) {
-        formats.delete(key);
-      } else {
-        formats.set(key, value);
-      }
+    at = it;
+    if (it === folded) {
+      folded = null;
+    }
+    if (folded === null && !it.deleted && it.content instanceof ContentFormat) {
+      stepFormat(formats, it);
     }
     // Text without an end item ends where the next unit (a block node)
     // starts.
@@ -3589,18 +3698,25 @@ function formatsAfterUnit(units: Unit[], k: number): Formats {
       left = e;
     }
   }
+  // Items up to where u.start was folded are in it already.
+  let folded: Item | null = frontierOf(u.start, left, u.cs.y);
+  // A stale start is folded again in place (see frontierOf): copy it again.
+  if (folded === null && u.start !== null) {
+    formats.clear();
+    for (const [key, v] of u.start) {
+      formats.set(key, v);
+    }
+  }
   for (
     let it: Item | null = left === null ? u.cs.y._start : left.right;
     it !== null;
     it = it.right
   ) {
-    if (!it.deleted && it.content instanceof ContentFormat) {
-      const {key, value} = it.content;
-      if (value === null) {
-        formats.delete(key);
-      } else {
-        formats.set(key, value);
-      }
+    if (it === folded) {
+      folded = null;
+    }
+    if (folded === null && !it.deleted && it.content instanceof ContentFormat) {
+      stepFormat(formats, it);
     }
     if (it === u.end) {
       break;
@@ -3815,11 +3931,22 @@ function sameWrappers(a: WrapperValue[], b: WrapperValue[]): boolean {
 }
 
 function sameFormats(a: Formats, b: Formats): boolean {
+  if (a === b) {
+    return true;
+  }
   if (a.size !== b.size) {
     return false;
   }
   for (const [k, v] of a) {
-    if (stableStringify(b.get(k)) !== stableStringify(v)) {
+    const w = b.get(k);
+    if (v === w) {
+      continue;
+    }
+    if (
+      isShadowKey(k)
+        ? !equalStacks(v, w)
+        : w === undefined || stableStringify(w) !== stableStringify(v)
+    ) {
       return false;
     }
   }
@@ -3954,13 +4081,9 @@ function attrsAtItems(
         it = it.right
       ) {
         if (it.content instanceof ContentType) {
-          known.set(it, Object.fromEntries(formats) as Attrs);
+          known.set(it, attrsOf(formats) as Attrs);
         } else if (!isGone(it) && it.content instanceof ContentFormat) {
-          if (it.content.value === null) {
-            formats.delete(it.content.key);
-          } else {
-            formats.set(it.content.key, it.content.value);
-          }
+          stepFormat(formats, it);
         }
       }
     }
@@ -3986,17 +4109,52 @@ function attrsAtItems(
       it = it.right
     ) {
       if (wanted.has(it)) {
-        out.set(it, Object.fromEntries(formats) as Attrs);
+        out.set(it, attrsOf(formats) as Attrs);
         left--;
       }
       if (!isGone(it) && it.content instanceof ContentFormat) {
-        if (it.content.value === null) {
-          formats.delete(it.content.key);
-        } else {
-          formats.set(it.content.key, it.content.value);
-        }
+        stepFormat(formats, it);
       }
     }
   }
   return out;
+}
+
+/**
+ * Whether node `node` holds, under a covered NodeState name (one holding
+ * U+001F), a value other than what its stored format attributes `tattrs`
+ * give it: a reader's comparison of stored attributes leaves member entries
+ * that are not `true` out, so a node that kept one from an earlier read (an
+ * array a raw writer stored, read as a value before the layout 3 record) is
+ * built again. It compares the node with what is stored there.
+ */
+function $coveredStateDiffers(node: LexicalNode, tattrs: Attrs): boolean {
+  const state = node.getLatest().__state;
+  if (state === undefined) {
+    return false;
+  }
+  const [unknown, known] = state.getInternalState();
+  const differs = (key: string, held: unknown) => {
+    if (key.indexOf(SET_MEMBER_SEPARATOR) < 0) {
+      return false;
+    }
+    const stored = tattrs[STATE_PREFIX + key];
+    if (stored === undefined || stored === null) {
+      return held !== undefined && held !== true;
+    }
+    return stableStringify(decodeFormatValue(stored)) !== stableStringify(held);
+  };
+  if (unknown !== undefined) {
+    for (const key in unknown) {
+      if (differs(key, unknown[key])) {
+        return true;
+      }
+    }
+  }
+  for (const [config, value] of known) {
+    if (differs(config.key, value)) {
+      return true;
+    }
+  }
+  return false;
 }

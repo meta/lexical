@@ -47,91 +47,88 @@ for (const ids of [
     ['B types after t5z, after a no-op unstrike', true, true],
     ['control: B does nothing', false, false],
   ] as [string, boolean, boolean][]) {
-    // #9626: B's closer at the old end of the bold run wins over A's
-    // extension of it for this order.
+    // #9626 (B's closer at the old end of the bold run won over A's
+    // extension of it for this order): fixed by paired runs, layout 3.
     const known = bTypes && ids[0] === 1;
-    (known ? test.fails : test)(
-      `${name}, ids ${ids}: t7z keeps A's bold${known ? ' (#9626)' : ''}`,
-      async () => {
-        const t = await setup(
-          () => {
-            $getRoot().append(
-              $createParagraphNode().append(
-                $createTextNode('t1z t2z t3z t4z t5z t6z t7z t8z t9z t10z'),
-              ),
-            );
-          },
-          {ids},
-        );
-        const $select = (from: string, to: string) => {
-          const [s, e] = $range(from, to);
-          return $selectIn([0], s, e);
-        };
-        try {
-          t.offline();
-          if (bUnstrike) {
-            t.b.update(() => {
-              const selection = $select('t8z', 't8z');
-              selection.format = 4;
-              selection.formatText('strikethrough');
-              $setSelection(null);
-            });
-          }
-          t.a.update(() => {
-            $select('t5z', 't6z').formatText('bold');
-            $setSelection(null);
-          });
-          t.a.update(() => {
-            $select('t7z', 't10z');
-            $toggleLink('https://x.test/01');
-            $setSelection(null);
-          });
-          t.a.update(() => {
-            $select('t6z', 't6z').formatText('underline');
-            $setSelection(null);
-          });
-          t.a.update(() => {
-            $select('t6z', 't7z').formatText('bold');
-            $setSelection(null);
-          });
-          // B gets A's first three updates, not the fourth.
-          const pending = (
-            t.b as unknown as {pending: Map<unknown, Uint8Array[]>}
-          ).pending.get(t.a)!;
-          for (const update of pending.splice(0, 3)) {
-            Y.applyUpdate(
-              t.b.doc,
-              update,
-              (t.b as unknown as {net: unknown}).net,
-            );
-          }
-          await new Promise(resolve => setTimeout(resolve, 0));
-          if (bTypes) {
-            t.b.update(() => {
-              const [, end] = $range('t5z', 't5z');
-              const selection = $selectIn([0], end, end);
-              selection.format = 0;
-              selection.insertText(' q12z');
-              $setSelection(null);
-            });
-          }
-          await t.sync();
-          await expectConverged(t.peers);
-          expect(
-            t.a.read(() =>
-              (
-                $getRoot()
-                  .getAllTextNodes()
-                  .find(n => n.getTextContent().includes('t7z')) as TextNode
-              ).hasFormat('bold'),
+    test(`${name}, ids ${ids}: t7z keeps A's bold${known ? ' (#9626)' : ''}`, async () => {
+      const t = await setup(
+        () => {
+          $getRoot().append(
+            $createParagraphNode().append(
+              $createTextNode('t1z t2z t3z t4z t5z t6z t7z t8z t9z t10z'),
             ),
-          ).toBe(true);
-        } finally {
-          for (const p of t.peers) {
-            p.stop();
-          }
+          );
+        },
+        {ids},
+      );
+      const $select = (from: string, to: string) => {
+        const [s, e] = $range(from, to);
+        return $selectIn([0], s, e);
+      };
+      try {
+        t.offline();
+        if (bUnstrike) {
+          t.b.update(() => {
+            const selection = $select('t8z', 't8z');
+            selection.format = 4;
+            selection.formatText('strikethrough');
+            $setSelection(null);
+          });
         }
-      },
-    );
+        t.a.update(() => {
+          $select('t5z', 't6z').formatText('bold');
+          $setSelection(null);
+        });
+        t.a.update(() => {
+          $select('t7z', 't10z');
+          $toggleLink('https://x.test/01');
+          $setSelection(null);
+        });
+        t.a.update(() => {
+          $select('t6z', 't6z').formatText('underline');
+          $setSelection(null);
+        });
+        t.a.update(() => {
+          $select('t6z', 't7z').formatText('bold');
+          $setSelection(null);
+        });
+        // B gets A's first three updates, not the fourth.
+        const pending = (
+          t.b as unknown as {pending: Map<unknown, Uint8Array[]>}
+        ).pending.get(t.a)!;
+        for (const update of pending.splice(0, 3)) {
+          Y.applyUpdate(
+            t.b.doc,
+            update,
+            (t.b as unknown as {net: unknown}).net,
+          );
+        }
+        await new Promise(resolve => setTimeout(resolve, 0));
+        if (bTypes) {
+          t.b.update(() => {
+            const [, end] = $range('t5z', 't5z');
+            const selection = $selectIn([0], end, end);
+            selection.format = 0;
+            selection.insertText(' q12z');
+            $setSelection(null);
+          });
+        }
+        await t.sync();
+        await expectConverged(t.peers);
+        expect(
+          t.a.read(() =>
+            (
+              $getRoot()
+                .getAllTextNodes()
+                .find(n => n.getTextContent().includes('t7z')) as TextNode
+            ).hasFormat('bold'),
+          ),
+        ).toBe(true);
+      } finally {
+        for (const p of t.peers) {
+          p.stop();
+        }
+      }
+    });
   }
 }

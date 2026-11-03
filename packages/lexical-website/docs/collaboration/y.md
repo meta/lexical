@@ -1648,10 +1648,10 @@ in the package README is the contract for what a room stores: the markers,
 attributes and records, and their names. Every room records the layout
 versions it needs (`lexical-y:<n>: true`, a record that only grows), and a
 client reads the highest. A client reads and writes the layouts from
-`MIN_LAYOUT` to `LAYOUT_VERSION` (currently 1 to 2). A new room records
-`SEED_LAYOUT` (currently 1); the first member of a set-valued NodeState
-stored per member (see the limits above) records layout 2, so rooms that
-never hold one stay readable and editable by layout 1 clients.
+`MIN_LAYOUT` to `LAYOUT_VERSION` (currently 3 to 3: paired format runs). A
+new room records `SEED_LAYOUT` (currently 3). A room that records only an
+older layout opens read only (`'older'`) until it is migrated (see
+[Migrating stored documents](#migrating-stored-documents)).
 
 - **Changes that keep the layout:** additions older clients can ignore, such
   as a new optional attribute. Rooms keep working in old and new clients.

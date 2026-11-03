@@ -677,7 +677,7 @@ describe.each([false, true])('@lexical/y/server, gc %s', gc => {
       root.setAttr('lexical-y-requirement', 'x' as never);
       root.setAttr('lexical-y-other', 1 as never);
       const other = doc.get('other');
-      other.setAttr('lexical-y:1', true);
+      other.setAttr(`lexical-y:${SEED}`, true);
       other.setAttr('lexical-y-require:zeta', true);
       other.setAttr('lexical-y-require:\u00e9', true);
       expect(describeRoom(doc)).toMatchObject({

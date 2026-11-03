@@ -395,10 +395,15 @@ describe("a node kept apart written next to another client's", () => {
       }
       for (const side of ['after', 'before'] as const) {
         for (const op of ['undo', 'remove'] as const) {
-          // Only a tab keeps its type when it was written inside the run of a
-          // node its author then undoes (see Cursor#ownSegmentKeys): other
-          // types and modes still follow that run (#9586).
-          const known = op === 'undo' && side === 'after' && kind !== 'tab';
+          // Only a tab and a hashtag keep their type when written inside the
+          // run of a node their author then undoes (see
+          // Cursor#ownSegmentKeys; the hashtag by its paired type run, layout
+          // 3): other types and modes still follow that run (#9586).
+          const known =
+            op === 'undo' &&
+            side === 'after' &&
+            kind !== 'tab' &&
+            kind !== 'hashtag';
           const check = known ? test.fails : test;
           for (const ids of [
             [1, 2],

@@ -41,55 +41,53 @@ for (const ids of [
     ['A bolds t4z..t7z || B bolds t3z..t6z (no link)', false, true],
     ['control: A links t5z t6z, then bolds t4z..t7z', true, false],
   ] as [string, boolean, boolean][]) {
-    // #9626: overlapping bolds of two collaborators leave part plain.
+    // #9626 (overlapping bolds of two collaborators left part plain): fixed
+    // by paired runs, layout 3.
     const known = bBolds;
-    (known ? test.fails : test)(
-      `${name}, ids ${ids}: t7z keeps A's bold${known ? ' (#9626)' : ''}`,
-      async () => {
-        const t = await setup(
-          () => {
-            $getRoot().append(
-              $createParagraphNode().append($createTextNode(LINE)),
-            );
-          },
-          {ids},
-        );
-        try {
-          t.offline();
-          if (aLinksFirst) {
-            t.a.update(() => {
-              $selectIn([0], at('t5z'), at('t6z') + 3);
-              $toggleLink('https://x.test/12');
-              $setSelection(null);
-            });
-          }
+    test(`${name}, ids ${ids}: t7z keeps A's bold${known ? ' (#9626)' : ''}`, async () => {
+      const t = await setup(
+        () => {
+          $getRoot().append(
+            $createParagraphNode().append($createTextNode(LINE)),
+          );
+        },
+        {ids},
+      );
+      try {
+        t.offline();
+        if (aLinksFirst) {
           t.a.update(() => {
-            $selectIn([0], at('t4z'), at('t7z') + 3).formatText('bold');
+            $selectIn([0], at('t5z'), at('t6z') + 3);
+            $toggleLink('https://x.test/12');
             $setSelection(null);
           });
-          if (bBolds) {
-            t.b.update(() => {
-              $selectIn([0], at('t3z'), at('t6z') + 3).formatText('bold');
-              $setSelection(null);
-            });
-          }
-          await t.sync();
-          await expectConverged(t.peers);
-          expect(
-            t.a.read(() =>
-              (
-                $getRoot()
-                  .getAllTextNodes()
-                  .find(n => n.getTextContent().includes('t7z')) as TextNode
-              ).hasFormat('bold'),
-            ),
-          ).toBe(true);
-        } finally {
-          for (const p of t.peers) {
-            p.stop();
-          }
         }
-      },
-    );
+        t.a.update(() => {
+          $selectIn([0], at('t4z'), at('t7z') + 3).formatText('bold');
+          $setSelection(null);
+        });
+        if (bBolds) {
+          t.b.update(() => {
+            $selectIn([0], at('t3z'), at('t6z') + 3).formatText('bold');
+            $setSelection(null);
+          });
+        }
+        await t.sync();
+        await expectConverged(t.peers);
+        expect(
+          t.a.read(() =>
+            (
+              $getRoot()
+                .getAllTextNodes()
+                .find(n => n.getTextContent().includes('t7z')) as TextNode
+            ).hasFormat('bold'),
+          ),
+        ).toBe(true);
+      } finally {
+        for (const p of t.peers) {
+          p.stop();
+        }
+      }
+    });
   }
 }
