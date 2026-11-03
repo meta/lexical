@@ -266,6 +266,69 @@ describe.each([false, true])('schema admission at write time, gc %s', gc => {
     doc.destroy();
   });
 
+  // D08's permission covers exactly the records the pending edit was
+  // admitted on: a listener changing a malformed record into another
+  // malformed value (NaN, Infinity, -Infinity, -0 and 0, undefined and null
+  // look alike in JSON), or rewriting an object-valued one with an equal
+  // value, ends it; the records unchanged keep it.
+  for (const [first, second] of [
+    [NaN, Infinity],
+    [Infinity, -Infinity],
+    [-0, 0],
+    [null, undefined],
+    [new Uint8Array([1]), new Uint8Array([2])],
+    [new Date(1), new Date(2)],
+    [{v: 1}, {v: 1}],
+    [null, null],
+  ] as const) {
+    const unchanged = Object.is(first, second);
+    const label = (v: unknown) =>
+      Object.is(v, -0)
+        ? '-0'
+        : v instanceof Uint8Array
+          ? `bytes ${String(v[0])}`
+          : v instanceof Date
+            ? `date ${v.getTime()}`
+            : typeof v === 'object' && v !== null
+              ? `an object ${JSON.stringify(v)}`
+              : String(v);
+    test(`D08: a peer's malformed schema record ${label(first)}, then a listener sets ${label(second)} at the pending edit's write: ${unchanged ? 'written (control)' : 'nothing written'}`, async () => {
+      const doc = createYDoc(rawDoc(SEED), {gc});
+      const errors: Error[] = [];
+      const warnings: string[] = [];
+      const editor = editorOf(errors, warnings);
+      const binding = new YBinding(editor, doc, {schemaVersion: 1});
+      binding.start();
+      binding.initialize();
+      const peer = createYDoc(Y.encodeStateAsUpdate(doc), {gc});
+      peer.get('lexical-y').setAttr('lexical-y-schema:2', first as never);
+      const bump = Y.encodeStateAsUpdate(peer, Y.encodeStateVector(doc));
+      let once = false;
+      doc.on('beforeTransaction', tr => {
+        if (tr.origin === binding && !once) {
+          once = true;
+          if (!unchanged) {
+            doc.get('lexical-y').setAttr('lexical-y-schema:2', second as never);
+          }
+        }
+      });
+      editor.update(() => {
+        $getRoot().append(
+          $createParagraphNode().append($createTextNode('mine')),
+        );
+        Y.applyUpdate(doc, bump, 'remote');
+      });
+      await flush();
+      expect(once).toBe(true);
+      expect(textOf(doc.get('lexical-y')).includes('mine')).toBe(unchanged);
+      expect(binding.status).toBe('readonly');
+      peer.destroy();
+      binding.dispose();
+      editor.dispose();
+      doc.destroy();
+    });
+  }
+
   test('control: a schema record at or below the version, recorded by a listener, does not refuse the write', async () => {
     const doc = createYDoc(rawDoc(SEED), {gc});
     const errors: Error[] = [];

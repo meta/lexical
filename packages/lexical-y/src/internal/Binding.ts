@@ -358,9 +358,29 @@ const heldPops = new WeakMap<
  */
 /**
  * D08's permission for one local write (see Binding.admitsIn): the schema
- * records (see Binding.schemaState) it was admitted on.
+ * records (see Binding.schemaRecords) it was admitted on.
  */
-type SchemaGrace = {state: string};
+type SchemaGrace = {records: SchemaRecords};
+
+/**
+ * The root's schema records as stored: [key, value] pairs in key order,
+ * the values themselves (see sameSchemaRecords).
+ */
+type SchemaRecords = [string, unknown][];
+
+/**
+ * Whether two captures of the schema records are the same records: the
+ * same keys, each value the same by Object.is. Exact without serializing:
+ * NaN, Infinity, -Infinity, -0 and 0 all differ, other primitives compare by
+ * value, and an object-valued record compares by reference, so any rewrite
+ * of one (a new item, a new value) reads as a change.
+ */
+function sameSchemaRecords(a: SchemaRecords, b: SchemaRecords): boolean {
+  return (
+    a.length === b.length &&
+    a.every(([k, v], i) => b[i][0] === k && Object.is(b[i][1], v))
+  );
+}
 
 /**
  * How a BindingUndoManager asks its binding whether it may write, before
@@ -2131,14 +2151,17 @@ export class YBinding {
       // pristine, whose record the seed creates, is seeded. Otherwise
       // nothing is written and the root is read.
       let seeded = false;
-      const seedSchema = this.schemaState();
+      const seedSchema = this.schemaRecords();
       if (seed !== null) {
         // The seed's exact bytes, under the id derived from them, the
         // binding's only items under another client id than the document's;
         // read back like any document's content, so the editor shows what
         // is stored (and the state maps it), with its selection kept.
         this._doc.transact(() => {
-          if (this.rootPristine() && this.schemaState() === seedSchema) {
+          if (
+            this.rootPristine() &&
+            sameSchemaRecords(this.schemaRecords(), seedSchema)
+          ) {
             seeded = true;
             applyUpdate(this._doc, seed.bytes, this.initOrigin);
           }
@@ -2154,7 +2177,10 @@ export class YBinding {
         return;
       }
       this._doc.transact(tr => {
-        if (this.rootPristine() && this.schemaState() === seedSchema) {
+        if (
+          this.rootPristine() &&
+          sameSchemaRecords(this.schemaRecords(), seedSchema)
+        ) {
           seeded = true;
           this.$writeInitial(this.state, this._root, tr, editorState);
         }
@@ -2992,27 +3018,14 @@ export class YBinding {
       version <= LAYOUT_VERSION
     );
   }
+
   /** The root's schema records as they are now (see admitsIn). */
-  private schemaState(): string {
-    // Each record as an escaped (key, type, value) tuple, in key order: the
-    // boolean true and the string "true" (a malformed record) differ, and
-    // no key or value can be read as another's.
+  private schemaRecords(): SchemaRecords {
     const attrs = this._root.getAttrs() as Record<string, unknown>;
-    return JSON.stringify(
-      Object.keys(attrs)
-        .filter(k => k.startsWith(SCHEMA_PREFIX))
-        .sort()
-        .map(k => {
-          const v = attrs[k];
-          let json: string;
-          try {
-            json = JSON.stringify(v) ?? 'undefined';
-          } catch {
-            json = '<value>';
-          }
-          return [k, typeof v, Object.prototype.toString.call(v), json];
-        }),
-    );
+    return Object.keys(attrs)
+      .filter(k => k.startsWith(SCHEMA_PREFIX))
+      .sort()
+      .map(k => [k, attrs[k]]);
   }
 
   /**
@@ -3032,7 +3045,7 @@ export class YBinding {
     }
     return (
       !this.schemaRefuses() ||
-      (grace !== null && this.schemaState() === grace.state)
+      (grace !== null && sameSchemaRecords(this.schemaRecords(), grace.records))
     );
   }
 
@@ -4395,7 +4408,7 @@ export class YBinding {
       } else if (this.schemaRefuses()) {
         // Made before a schema record it did not see (D08): written, on
         // exactly these records (see admitsIn).
-        grace = {state: this.schemaState()};
+        grace = {records: this.schemaRecords()};
       }
     }
     if (
