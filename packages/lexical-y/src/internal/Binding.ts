@@ -4123,7 +4123,12 @@ export class YBinding {
     // the change itself need not touch (see Ident.takePairingChanges).
     // Everything is read again.
     if (takePairingChanges(this._doc)) {
-      this.readAll(null, null, true);
+      // The selection is put back where it was (a caret, a composition's
+      // caret included): the read gives the lines it is in other nodes.
+      const cursor = this._editor
+        .getEditorState()
+        .read(() => this.$cursorBeforeRead());
+      this.readAll(cursor, null, true);
       return;
     }
     const state = this.state;
