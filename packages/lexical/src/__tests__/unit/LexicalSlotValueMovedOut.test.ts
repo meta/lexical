@@ -393,3 +393,38 @@ describe('slot values swapped in one update', () => {
     });
   }
 });
+
+test('a new element rendered before the old host that is removed in the same update keeps its DOM', () => {
+  const {editor, errors, root} = mount();
+  const k: Record<string, NodeKey> = {};
+  editor.update(
+    () => {
+      const x = $text('x');
+      const host = new Host().append($text('a'));
+      const value = $text('moved');
+      $setSlot(host as never, 's0' as never, value);
+      $getRoot().clear().append(x, host, $text('tail'));
+      k.x = x.getKey();
+      k.host = host.getKey();
+      k.value = value.getKey();
+    },
+    {discrete: true},
+  );
+  editor.update(
+    () => {
+      const host = $getNodeByKey(k.host)!;
+      const t = new Host().append($text('t'));
+      $getNodeByKey(k.x)!.insertBefore(t);
+      $removeSlot(host as never, 's0' as never);
+      t.append($getNodeByKey(k.value)!);
+      host.remove();
+      k.t = t.getKey();
+    },
+    {discrete: true},
+  );
+  expect(errors).toEqual([]);
+  expect(root.contains(editor.getElementByKey(k.t))).toBe(true);
+  expect(root.innerHTML).toBe(freshHTML(editor.getEditorState()));
+  editor.setRootElement(null);
+  root.remove();
+});
