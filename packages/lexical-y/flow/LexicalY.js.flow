@@ -235,7 +235,9 @@ declare export function isYWarning(
 declare export function isYWarning(value: unknown): value is YWarning;
 
 export type YBindingOptions = {
-  // Required: the version of the app's document schema, an integer from 1.
+  // Required: the version of your editor's nodes (registered node classes,
+  // their fields and NodeState). Bump it when you add, remove or change one,
+  // not on every release. An integer from 1.
   schemaVersion: number,
   root?: YNode,
   captureTimeout?: number | null,
@@ -357,9 +359,29 @@ declare export function describeStorage(
   },
 ): {[type: string]: StorageKind | 'text'};
 
+// What an app writes: doc and schemaVersion required, every option with a
+// default optional (later options are additive). Type configs with it.
+export type YCollabInput = {
+  doc: YDoc,
+  // The version of your editor's nodes: registered node classes, their
+  // fields and NodeState. Bump it when you add, remove or change one, not on
+  // every release.
+  schemaVersion: number,
+  root?: YNode | null,
+  synced?: boolean,
+  captureTimeout?: number | null,
+  clientIDRange?: ClientIDRange,
+  selfCheck?: boolean | null,
+  selfCheckSample?: number | null,
+  convert?: boolean,
+};
+
+// The extension's resolved configuration (grows with each option).
 export type YCollabConfig = {
   doc: YDoc | null,
-  // Required (the extension throws without one): an integer from 1.
+  // The version of your editor's nodes: registered node classes, their
+  // fields and NodeState. Bump it when you add, remove or change one, not on
+  // every release. Required (the extension throws without one): from 1.
   schemaVersion: number,
   root: YNode | null,
   synced: boolean,

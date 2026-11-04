@@ -77,9 +77,10 @@ export type YHeadlessWarningCode =
  */
 export interface HeadlessYConfig {
   /**
-   * The version of the app's document schema, as on the clients
-   * (`YCollabExtension`'s `schemaVersion`): the version of the code that
-   * runs here. Required. A document a newer version wrote to is read only
+   * The version of your editor's nodes: registered node classes, their
+   * fields and NodeState. Bump it when you add, remove or change one, not on
+   * every release. As on the clients (`YCollabExtension`'s
+   * `schemaVersion`), for the code that runs here. Required. A document a newer version wrote to is read only
    * here: `editYState` and `readYState` refuse it (`'read-only'`, with an
    * `UNSUPPORTED_SCHEMA_WARNING`), and a seed or an edit records this
    * version.

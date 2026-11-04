@@ -64,7 +64,11 @@ import {
   type YWarningData,
 } from './internal/Warnings';
 import {createYDoc, type YDoc, type YDocOptions} from './internal/YDoc';
-import {type YCollabConfig, YCollabExtension} from './internal/YExtension';
+import {
+  type YCollabConfig,
+  YCollabExtension,
+  type YCollabInput,
+} from './internal/YExtension';
 import {
   UNSUPPORTED_YJS_ERROR,
   type YUnsupportedYjsData,
@@ -78,6 +82,7 @@ export type {
   YBindingOptions,
   YBindingStatus,
   YCollabConfig,
+  YCollabInput,
   YCursor,
   YDoc,
   YDocOptions,

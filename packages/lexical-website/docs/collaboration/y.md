@@ -235,10 +235,15 @@ content with random values" in [Limits](#limits)).
 - To seed or convert a document on a server, use `seedYState` (see
   [Server-side editing](./y-server.md)).
 
+Type a config you write as `YCollabInput`: `doc` and `schemaVersion` are
+required and every other option is optional, so options a later release
+adds never break it (`YCollabConfig` is the extension's resolved
+configuration, which names every option).
+
 | Option | Default | |
 | -- | -- | -- |
 | `doc` | (required) | The Yjs document, from `createYDoc`. |
-| `schemaVersion` | (required) | The version of your app's document schema, an integer from 1: see [Versioning your schema](#versioning-your-schema). The extension throws without one. |
+| `schemaVersion` | (required) | The version of your editor's nodes: registered node classes, their fields and NodeState. Bump it when you add, remove or change one, not on every release. An integer from 1: see [Versioning your schema](#versioning-your-schema). The extension throws without one. |
 | `root` | `doc.get('lexical-y')` | The shared root to bind. |
 | `synced` | `false` | Initialize as soon as the binding starts. |
 | `captureTimeout` | `500` | Undo capture timeout in ms; `null` turns collaborative undo off. |
@@ -461,8 +466,10 @@ defineExtension({
 
 Your app's node types and the fields they store are its document schema.
 `schemaVersion` (required, on `YCollabExtension` and in the
-[headless config](./y-server.md#api)) is its version: start at 1 and
-increase it whenever a node's stored fields or node types change. Ship each
+[headless config](./y-server.md#api)) is its version: the version of your
+editor's nodes (registered node classes, their fields and NodeState). Start
+at 1, and bump it when you add, remove or change one, not on every
+release. Ship each
 release's clients with the version of the schema they were built with.
 
 - **What is recorded.** A client records its version in the document with

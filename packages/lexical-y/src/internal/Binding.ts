@@ -604,9 +604,9 @@ export type YBindingStatus =
 /** @experimental Options of {@link YBinding} (and `YCollabExtension`). */
 export interface YBindingOptions {
   /**
-   * The version of the app's document schema: its node types and the fields
-   * they store. Required: start at 1 and increase it whenever a node's
-   * stored fields or node types change. The document records the highest
+   * The version of your editor's nodes: registered node classes, their
+   * fields and NodeState. Bump it when you add, remove or change one, not on
+   * every release. Required: start at 1. The document records the highest
    * version that wrote to it; a binding whose version is lower opens it read
    * only (UNSUPPORTED_SCHEMA_WARNING). An integer from 1.
    */

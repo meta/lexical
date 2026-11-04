@@ -37,7 +37,38 @@ import {isSchemaVersion, YBinding, type YBindingStatus} from './Binding';
 // the editor, wires collaborative undo to UNDO_COMMAND and REDO_COMMAND, and
 // exposes the binding's status as a signal.
 
-/** @experimental The configuration of {@link YCollabExtension}. */
+/**
+ * @experimental What an app writes to configure {@link YCollabExtension}:
+ * `doc` and `schemaVersion` are required, and every option that has a
+ * default is optional, so a later release adds options without breaking
+ * code typed with it. Type your config with this, not with
+ * {@link YCollabConfig} (the extension's resolved configuration, which
+ * names every option and grows with them).
+ */
+export interface YCollabInput {
+  /** See YCollabConfig.doc. */
+  doc: YDoc;
+  /**
+   * The version of your editor's nodes: registered node classes, their
+   * fields and NodeState. Bump it when you add, remove or change one, not on
+   * every release. An integer from 1 (see YCollabConfig.schemaVersion).
+   */
+  schemaVersion: number;
+  root?: YNode | null;
+  synced?: boolean;
+  captureTimeout?: number | null;
+  clientIDRange?: ClientIDRange;
+  selfCheck?: boolean | null;
+  selfCheckSample?: number | null;
+  convert?: boolean;
+}
+
+/**
+ * @experimental The resolved configuration of {@link YCollabExtension}:
+ * every option, defaults filled in. Later releases add options to it, so
+ * write a config as {@link YCollabInput} (or a `Partial<YCollabConfig>`)
+ * rather than spelling out a whole YCollabConfig.
+ */
 export interface YCollabConfig {
   /**
    * The shared document, made by `createYDoc` (with a stored state:
@@ -45,9 +76,9 @@ export interface YCollabConfig {
    */
   doc: YDoc | null;
   /**
-   * The version of the app's document schema: its node types and the fields
-   * they store. Required: start at 1 and increase it whenever a node's
-   * stored fields or node types change. The document records the highest
+   * The version of your editor's nodes: registered node classes, their
+   * fields and NodeState. Bump it when you add, remove or change one, not on
+   * every release. Required: start at 1. The document records the highest
    * version that wrote to it, and a client whose version is lower opens it
    * read only (`UNSUPPORTED_SCHEMA_WARNING`), so an out-of-date client never
    * edits content it cannot read in full. An integer from 1; the extension

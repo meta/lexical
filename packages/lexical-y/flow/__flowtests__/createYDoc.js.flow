@@ -11,7 +11,7 @@
 // document createYDoc made.
 
 import type {LexicalEditor} from 'lexical';
-import type {YCollabConfig, YDoc} from '@lexical/y';
+import type {YCollabConfig, YCollabInput, YDoc} from '@lexical/y';
 
 import {Doc} from '@y/y';
 import {createYDoc, YBinding} from '@lexical/y';
@@ -66,3 +66,9 @@ new YBinding(editor, new Doc(), {schemaVersion: 1});
 const forged: YDoc = new Doc();
 // $FlowExpectedError[incompatible-type] a plain Y.Doc may clean up formats
 configOf(new Doc());
+
+// What an app writes: doc and schemaVersion, every other option optional.
+const input: YCollabInput = {doc, schemaVersion: 1};
+const tuned: YCollabInput = {captureTimeout: null, doc, schemaVersion: 2};
+// $FlowExpectedError[incompatible-type] schemaVersion is required
+const unversioned: YCollabInput = {doc};
