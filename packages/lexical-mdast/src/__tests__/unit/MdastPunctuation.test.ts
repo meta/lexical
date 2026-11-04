@@ -17,11 +17,13 @@ import {
   $createParagraphNode,
   $createTextNode,
   $getRoot,
+  $isTextNode,
   configExtension,
   defineExtension,
   type LexicalEditor,
   ParagraphNode,
   TEXT_TYPE_TO_FORMAT,
+  TextNode,
 } from 'lexical';
 import {defaultHandlers} from 'mdast-util-to-markdown';
 import {toString as mdastToString} from 'mdast-util-to-string';
@@ -648,6 +650,47 @@ describe('Mdast punctuation modes', () => {
     expect(lines[3]).toContain('&#x4E16;**b**');
     expect(lines.map(line => line.length)).toEqual(
       lines.map(() => lines[4].length),
+    );
+  });
+
+  it('measures a cell as inline text in a CJK-friendly export', () => {
+    // Writes text that starts with `<` as raw HTML.
+    const editor = createEditor('cjk-friendly', undefined, {
+      exportRules: [
+        {
+          $export: node =>
+            $isTextNode(node) && node.getTextContent().startsWith('<')
+              ? {type: 'html', value: node.getTextContent()}
+              : null,
+          type: TextNode,
+        },
+      ],
+    });
+    editor.update(
+      () => {
+        $convertFromMarkdownString(
+          '| a | b |\n| - | - |\n| cell | x |\n| yyyyyyyyyyyyyyyyyy | z |',
+        );
+        const cell = $getRoot()
+          .getAllTextNodes()
+          .find(node => node.getTextContent() === 'cell');
+        assert(cell !== undefined);
+        // Underlined so that it stays a node of its own.
+        const html = cell.replace(
+          $createTextNode('<div>').setFormat('underline'),
+        );
+        html
+          .insertAfter($createTextNode('世'))
+          .insertAfter($createTextNode('。').setFormat('bold'));
+      },
+      {discrete: true},
+    );
+    const lines = editor
+      .read('latest', () => $convertToMarkdownString())
+      .split('\n');
+    expect(lines[2]).toContain('<div>世**。**');
+    expect(lines.map(line => line.length)).toEqual(
+      lines.map(() => lines[3].length),
     );
   });
 

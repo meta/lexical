@@ -37,7 +37,8 @@ const ASTERISK = 42;
 const UNDERSCORE = 95;
 const TILDE = 126;
 
-function isSelector(code: number): boolean {
+/** Whether `code` is a general-use variation selector but the emoji one. @internal */
+export function isSelector(code: number): boolean {
   return code >= 0xfe00 && code <= 0xfe0e;
 }
 

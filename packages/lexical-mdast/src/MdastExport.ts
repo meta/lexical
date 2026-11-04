@@ -58,6 +58,7 @@ import {
   classifyCode,
   getRunFlanking,
   isCjkClass,
+  isSelector,
   PUNCTUATION,
   WHITESPACE,
 } from './cjkFriendly';
@@ -598,7 +599,6 @@ const ATTENTION_MARKER = /[*_~]/;
 const STOOD_IN =
   /(?![\0-\uffff])[\p{P}\p{S}]|[\ufe00-\ufe0e]|[\u2028\u2029\ufeff]/gu;
 const MICROMARK_ONLY_WHITESPACE = /^[\u2028\u2029\ufeff]$/;
-const VARIATION_SELECTOR = /^[\ufe00-\ufe0e]$/;
 
 /**
  * The backslashes before the last character of `value`, as their index and
@@ -1046,7 +1046,7 @@ function restoreStoodIn(
         // selector before `~` as a letter, not as what it varies, and so
         // never closes the run there, but reads its reference as every
         // reader does.
-        (VARIATION_SELECTOR.test(character) && closesAfter(index))));
+        (isSelector(character.charCodeAt(0)) && closesAfter(index))));
   // Where the run of backslashes being restored ends, and whether a
   // reference follows it, which would come out escaped by the last of them.
   let runEnd = -1;
@@ -1079,10 +1079,12 @@ function restoreStoodIn(
   });
 }
 
-// A character reference, which {@link rewriteCjkReferences} may write as
-// its character.
+// A marker of a run that a CJK-friendly reader reads beside a CJK character
+// as beside a reference.
 const ATTENTION_RUN = /^[*~]$/;
-// With the escaped backslash before it, which the character needs no longer.
+// A character reference, which {@link rewriteCjkReferences} may write as its
+// character, with the escaped backslash before it, which the character needs
+// no longer.
 const REFERENCE = /(\\\\)?&#(?:(\d+)|[xX]([\da-fA-F]+));/g;
 
 /**
@@ -1305,7 +1307,12 @@ export function createMdastExport(compiled: CompiledMdast): {
       tree,
       extensions,
       isCjkFriendly,
-      isCjkFriendly ? value => toCjkFriendly(value, compiled) : undefined,
+      // Measured behind a letter and a space, as it stands behind `| ` in
+      // its row, so that it reads as inline text there too and not as a
+      // block of its own, such as an HTML block.
+      isCjkFriendly
+        ? value => toCjkFriendly(`a ${value}`, compiled).slice(2)
+        : undefined,
     ).replace(/\n$/, '');
     return isCjkFriendly ? toCjkFriendly(markdown, compiled) : markdown;
   };
