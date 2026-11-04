@@ -4493,7 +4493,9 @@ export class YBinding {
           try {
             // Nested, Lexical runs this once the work that queued it has
             // returned (see guard): on this binding's view still, which
-            // hides the changes still deferred (see deferChange).
+            // hides the changes still deferred (see deferChange), and in
+            // which the deleted format items a composition's hold keeps
+            // read as live (or a kept opener reads without its kept end).
             seenBy(this.seer, () => read.$read());
             this.markReadEnd();
           } catch (error) {
