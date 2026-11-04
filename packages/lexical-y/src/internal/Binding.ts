@@ -2888,7 +2888,14 @@ export class YBinding {
       if (this.schemaSeenIn === tr) {
         this.schemaSeenIn = null;
       }
-      this.releaseUnread(tr);
+      if (!this._editor._updating) {
+        this.releaseUnread(tr);
+      } else if (this.heldUnread.has(tr)) {
+        // Nested in an update, the read is only queued (see guardedRead),
+        // and releases what it holds once it ran; this covers a read that
+        // never runs.
+        queueMicrotask(() => this.releaseUnread(tr));
+      }
     }
     // Deferred while it was read (see scheduleDeferred).
     this.scheduleDeferred();
@@ -3202,6 +3209,8 @@ export class YBinding {
         // applies) sees it as read, not as still unread.
         this.reading = false;
         this.dropChange(tr);
+        // Read: what it deleted is the editor's no more (see holdDeleted).
+        this.releaseUnread(tr);
       },
       after: () => {
         // Also where `before` gated already (a no-op then).

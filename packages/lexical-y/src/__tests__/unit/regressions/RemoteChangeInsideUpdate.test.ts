@@ -11,6 +11,7 @@
 import * as Y from '@y/y';
 import {
   $createParagraphNode,
+  $createRangeSelection,
   $createTextNode,
   $getRoot,
   $getSelection,
@@ -626,6 +627,46 @@ describe.each([false, true])(
       expect(t.a.read(() => $getRoot().getTextContent())).toContain('!');
       expect(t.a.read(() => $getRoot().getTextContent())).toContain('X');
       await t.sync();
+      await expectConverged(t.peers);
+      expect((await freshReader(t.a)).describe()).toBe(t.a.describe());
+    });
+
+    test('a deferred change that joins two lines, read in an update queued first', async () => {
+      const t = await setup(
+        () =>
+          $getRoot().append(
+            $createParagraphNode().append($createTextNode('alpha beta')),
+            $createParagraphNode().append($createTextNode('gamma delta')),
+            $createParagraphNode().append($createTextNode('epsilon zeta')),
+          ),
+        {gc},
+      );
+      t.offline();
+      const seen = Y.encodeStateVector(t.b.doc);
+      t.b.update(() => {
+        const [first, second] = $getRoot().getAllTextNodes();
+        const selection = $createRangeSelection();
+        selection.anchor.set(first.getKey(), 1, 'text');
+        selection.focus.set(second.getKey(), 9, 'text');
+        selection.removeText();
+      });
+      const delta = Y.encodeStateAsUpdate(t.b.doc, seen);
+      t.a.update(() => {
+        $getRoot().getAllTextNodes()[0].select(2, 3).formatText('bold');
+        Y.applyUpdate(t.a.doc, delta, 'provider');
+      });
+      expect(t.a.read(() => $getRoot().getTextContent())).toBe(
+        t.b.read(() => $getRoot().getTextContent()),
+      );
+      expect((await freshReader(t.a)).describe()).toBe(t.a.describe());
+      // An edit next to the joined line writes nothing back.
+      t.a.update(() => {
+        $getRoot().getAllTextNodes()[0].selectEnd().insertText('!');
+      });
+      await t.sync();
+      expect(t.a.read(() => $getRoot().getTextContent())).not.toContain(
+        'alpha beta',
+      );
       await expectConverged(t.peers);
       expect((await freshReader(t.a)).describe()).toBe(t.a.describe());
     });
