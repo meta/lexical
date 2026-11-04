@@ -414,6 +414,7 @@ for developers (what happened and what to do): render your own text from
 | `UNSUPPORTED_EDIT_WARNING` | A local update changed the editor while the binding is read only (reported once each time it goes read only), or, on an active binding, a write refused at write time because the layout or schema record changed inside its transaction (each such write, not retried). Not written; what it changed is read again, or, once the document cannot be read, the editor shows again the last state it showed before the update. | `'read-only'` |
 | `SELF_CHECK_WARNING` | The self-check (`selfCheck`) found the editor and the document disagree. | `'local'`, `'remote'`: `problems` |
 | `RECOVERED_READ_WARNING` | A change could not be read; the editor was rebuilt from the document. | `'remote-change'`, `'reread'`: `error` |
+| `RAW_YJS_WRITE_WARNING` | Development builds only: a local transaction that is not the binding's (nor a Y.UndoManager's) changed the Yjs content under the binding's root, which is private and unsupported for direct writes (see [Wire format](#wire-format)). Once per binding and origin; nothing else happens. | `'raw-write'`: `root`, `kind` (`'format'`, `'attribute'`, `'content'`), `key`, `origin` (the origin's constructor name) |
 | `RECOVERED_WRITE_WARNING` | A local change could not be written; the document was rewritten. | `'local-change'`: `error` |
 
 A read-only banner of your own, from the fields:
@@ -641,6 +642,17 @@ specified in the
 
 ## Wire format
 
+The Yjs content under the binding's root is private to the binding: the
+root, its record keys (`lexical-y:<n>`, `lexical-y-schema:<n>`,
+`lexical-y-epoch`, `lexical-y-require:<feature>`, any `lexical-y-*`
+attribute) and every node, marker, format and state key below it. It is
+documented so servers and tools can read stored documents; writing it
+directly with Yjs is unsupported. Change a document through the editor,
+`editYState` (on a server) or a migration step. In development builds the
+binding reports a local transaction of another origin that changes the
+content under its root with `RAW_YJS_WRITE_WARNING` (once per origin;
+Y.UndoManager steps and remote updates are not reported).
+
 The diagrams below use the stored names. The package README specifies them
 exactly:
 [layout 1](https://github.com/meta/lexical/tree/main/packages/lexical-y#wire-format-layout-1).
@@ -802,8 +814,10 @@ What this means for your app:
 ## Edits made by code (agents, tools)
 
 Code that edits a document on someone's behalf (an agent, an import, a
-formatter) merges with collaborators best when its edits look like a
-person's:
+formatter) edits it through Lexical: an editor bound to the document, or
+`editYState` on a server, never by writing Yjs under the binding's root
+(see [Wire format](#wire-format)). Its edits merge with collaborators best
+when they look like a person's:
 
 - **Edit text in place** (insert and delete characters in a text node)
   rather than replacing blocks or whole documents. A replaced block is a

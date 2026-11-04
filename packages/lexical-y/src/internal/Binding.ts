@@ -105,6 +105,7 @@ import {
   readRequirements,
 } from './Layouts';
 import {type YLayoutUpgradeHandle} from './LayoutUpgrade';
+import {noteRawWrite, registerBindingOrigins} from './RawWrites';
 import {
   $applyStoredAttrs,
   $unstoredWrapperTextFields,
@@ -156,6 +157,7 @@ import {emptyView, seenBy, type Unread} from './Unread';
 import {
   NESTED_FALLBACK_WARNING,
   notesSince,
+  RAW_YJS_WRITE_WARNING,
   RECOVERED_READ_WARNING,
   RECOVERED_WRITE_WARNING,
   SELF_CHECK_WARNING,
@@ -603,6 +605,8 @@ export type YBindingStatus =
   | 'readonly';
 
 /** @experimental Options of {@link YBinding} (and `YCollabExtension`). */
+const __DEV__ = process.env.NODE_ENV !== 'production';
+
 export interface YBindingOptions {
   /**
    * The version of your editor's nodes: registered node classes, their
@@ -1248,6 +1252,15 @@ export class YBinding {
     this._root = options.root || doc.get(DEFAULT_ROOT_NAME);
     assertOwnYjsDoc(doc, this._root);
     this.state = new State(editor, doc, this._root);
+    if (__DEV__) {
+      registerBindingOrigins([
+        this,
+        this.initOrigin,
+        this.followUpOrigin,
+        this.scanOrigin,
+        this.runEndOrigin,
+      ]);
+    }
     this.afterTransaction = tr =>
       this.guard(() => withPins(this._pins, () => this.onAfterTransaction(tr)));
     this.beforeTransaction = tr => {
@@ -3377,6 +3390,18 @@ export class YBinding {
   }
 
   private onAfterTransaction(tr: Transaction): void {
+    if (__DEV__) {
+      // Development builds only (the whole check is left out of
+      // production ones): RAW_YJS_WRITE_WARNING.
+      noteRawWrite(
+        tr,
+        this,
+        this._doc,
+        this._root,
+        this._status === 'pending',
+        (message, data) => this.warn(RAW_YJS_WRITE_WARNING, message, data),
+      );
+    }
     try {
       this.readChange(tr);
     } finally {

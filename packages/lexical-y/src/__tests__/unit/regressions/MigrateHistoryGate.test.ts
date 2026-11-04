@@ -339,7 +339,10 @@ describe.each([false, true])('writes are admitted at write time, gc %s', gc => {
         t.editor.getEditorState().read(() => $getRoot().getTextContent()),
       ).not.toContain('forbidden');
       expect(t.binding.status).toBe('active');
-      expect(t.warnings).toEqual(['read-only']);
+      // The app's transaction wrote the record raw: reported as such in
+      // development, besides the refusal.
+      expect(t.warnings.filter(w => w !== 'raw-write')).toEqual(['read-only']);
+      expect(t.warnings).toContain('raw-write');
       expect(t.messages.join('\n')).toMatch(
         /not written: when it was written \(inside an app's transaction\) the document's layout or schema record was missing, malformed or one this version does not write\. It is not retried/,
       );

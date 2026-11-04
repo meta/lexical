@@ -933,7 +933,11 @@ test.each(['a raw Yjs delete', 'a peer deleting its text'])(
     // A raw delete applied to A's document as a remote change (not relayed).
     for (const peer of how === 'a raw Yjs delete' ? [t.a] : t.peers) {
       expect(peer.describe()).toBe('paragraph("prepost")');
-      expect(peer.warnings).toEqual([]);
+      // The raw delete itself is reported (development builds); nothing
+      // else is.
+      expect(
+        peer.warnings.filter(w => !w.includes('unsupported for direct writes')),
+      ).toEqual([]);
     }
     for (const peer of t.peers) {
       peer.stop();

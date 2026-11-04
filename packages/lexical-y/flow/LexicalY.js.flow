@@ -44,6 +44,10 @@ declare export var UNSUPPORTED_SLOTS_WARNING: '@lexical/y/unsupported-slots';
 declare export var UNSUPPORTED_CONFIG_WARNING: '@lexical/y/unsupported-config';
 declare export var UNSUPPORTED_EDIT_WARNING: '@lexical/y/unsupported-edit';
 declare export var UNSUPPORTED_SCHEMA_WARNING: '@lexical/y/unsupported-schema';
+// Development builds: a local transaction of another origin changed the
+// Yjs content under the binding's root (private, unsupported for direct
+// writes). Once per binding and origin.
+declare export var RAW_YJS_WRITE_WARNING: '@lexical/y/raw-yjs-write';
 // The codes this version reports; YWarningCode is open (a later version may
 // add codes: keep a fallback).
 export type YKnownWarningCode =
@@ -58,7 +62,8 @@ export type YKnownWarningCode =
   | typeof UNSUPPORTED_SLOTS_WARNING
   | typeof UNSUPPORTED_CONFIG_WARNING
   | typeof UNSUPPORTED_EDIT_WARNING
-  | typeof UNSUPPORTED_SCHEMA_WARNING;
+  | typeof UNSUPPORTED_SCHEMA_WARNING
+  | typeof RAW_YJS_WRITE_WARNING;
 export type YWarningCode = string;
 // What any code may carry besides its own variants (permanent fallback).
 export type YOtherWarningData = {
@@ -146,6 +151,13 @@ export type YNestedFallbackData =
         | 'group-incomplete-schema',
       readonly type: string,
     };
+export type YRawYjsWriteData = {
+  readonly reason: 'raw-write',
+  readonly root: string,
+  readonly kind: 'format' | 'attribute' | 'content',
+  readonly key: string | null,
+  readonly origin: string,
+};
 export type YUnsyncedValueData = {readonly reason: 'not-json', readonly property: string};
 
 declare export class YWarningOf<out C extends string, out D>
@@ -170,6 +182,7 @@ type YWarningDataByCode = {
   '@lexical/y/unsupported-config': YUnsupportedConfigData | YOtherWarningData,
   '@lexical/y/unsupported-edit': YUnsupportedEditData | YOtherWarningData,
   '@lexical/y/unsupported-schema': YUnsupportedSchemaData | YOtherWarningData,
+  '@lexical/y/raw-yjs-write': YRawYjsWriteData | YOtherWarningData,
 };
 // The `data` of a warning whose (known) `code` is `C`.
 export type YWarningData<C extends YKnownWarningCode> = YWarningDataByCode[C];
@@ -186,7 +199,8 @@ export type YKnownWarning =
   | YWarningOf<typeof UNSUPPORTED_SLOTS_WARNING, YWarningData<typeof UNSUPPORTED_SLOTS_WARNING>>
   | YWarningOf<typeof UNSUPPORTED_CONFIG_WARNING, YWarningData<typeof UNSUPPORTED_CONFIG_WARNING>>
   | YWarningOf<typeof UNSUPPORTED_EDIT_WARNING, YWarningData<typeof UNSUPPORTED_EDIT_WARNING>>
-  | YWarningOf<typeof UNSUPPORTED_SCHEMA_WARNING, YWarningData<typeof UNSUPPORTED_SCHEMA_WARNING>>;
+  | YWarningOf<typeof UNSUPPORTED_SCHEMA_WARNING, YWarningData<typeof UNSUPPORTED_SCHEMA_WARNING>>
+  | YWarningOf<typeof RAW_YJS_WRITE_WARNING, YWarningData<typeof RAW_YJS_WRITE_WARNING>>;
 declare export function isYWarning(
   value: unknown,
   code: typeof UNSUPPORTED_LAYOUT_WARNING,
@@ -235,6 +249,10 @@ declare export function isYWarning(
   value: unknown,
   code: typeof UNSUPPORTED_SCHEMA_WARNING,
 ): value is YWarningOf<typeof UNSUPPORTED_SCHEMA_WARNING, YWarningData<typeof UNSUPPORTED_SCHEMA_WARNING>>;
+declare export function isYWarning(
+  value: unknown,
+  code: typeof RAW_YJS_WRITE_WARNING,
+): value is YWarningOf<typeof RAW_YJS_WRITE_WARNING, YWarningData<typeof RAW_YJS_WRITE_WARNING>>;
 declare export function isYWarning(value: unknown): value is YWarning;
 
 export type YBindingOptions = {

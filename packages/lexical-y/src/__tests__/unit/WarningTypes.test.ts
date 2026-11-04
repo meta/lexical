@@ -17,6 +17,7 @@ import {
   isYWarning,
   LAYOUT_VERSION,
   NESTED_FALLBACK_WARNING,
+  RAW_YJS_WRITE_WARNING,
   RECOVERED_READ_WARNING,
   RECOVERED_WRITE_WARNING,
   SELF_CHECK_WARNING,
@@ -110,6 +111,12 @@ function banner(value: unknown): string {
         ? `other:${data.detailCode}`
         : data.type;
   }
+  if (isYWarning(value, RAW_YJS_WRITE_WARNING)) {
+    const data = value.data;
+    return data.reason === 'other'
+      ? `other:${data.detailCode}`
+      : `raw:${data.kind}:${data.key ?? ''}:${data.origin}`;
+  }
   if (isYWarning(value, UNSYNCED_VALUE_WARNING)) {
     const data = value.data;
     return data.reason === 'other' ? `other:${data.detailCode}` : data.property;
@@ -195,6 +202,7 @@ describe('typed warnings', () => {
       UNSUPPORTED_CONFIG_WARNING,
       UNSUPPORTED_EDIT_WARNING,
       UNSUPPORTED_SCHEMA_WARNING,
+      RAW_YJS_WRITE_WARNING,
     ];
     for (const code of codes) {
       expect(isYWarning(new LexicalWarning(code, 'm', {}))).toBe(true);

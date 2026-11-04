@@ -163,6 +163,17 @@ otherwise.
 
 ## Wire format: layout 1
 
+**Private: read it, never write it.** The Yjs content under the binding's
+root is the binding's private encoding: the root itself, its record keys
+(`lexical-y:<n>`, `lexical-y-schema:<n>`, `lexical-y-epoch`,
+`lexical-y-require:<feature>` and every other `lexical-y-*` key), and every
+node, marker, format and state key below it. It is specified here for
+readers (servers, tools that inspect stored documents), not for writers.
+Direct Yjs writes under the root are unsupported: change a document through
+the editor, `editYState` or a migration step. Development builds report a
+local transaction of another origin that changes it
+(`RAW_YJS_WRITE_WARNING`).
+
 Layout 1 is frozen: these names are stored in documents and do not change.
 A change to any of them is a new layout version, which older clients open
 read only. Layout 2 (below) keeps everything here and adds member entries

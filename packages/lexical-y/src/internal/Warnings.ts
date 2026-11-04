@@ -78,6 +78,16 @@ export const UNSUPPORTED_EDIT_WARNING = '@lexical/y/unsupported-edit';
  * YUnsupportedSchemaData.
  */
 export const UNSUPPORTED_SCHEMA_WARNING = '@lexical/y/unsupported-schema';
+/**
+ * @experimental Development builds only: a local transaction that is not the
+ * binding's (nor a Y.UndoManager's) changed the Yjs content under the
+ * binding's root. The encoding under the root is private to the binding and
+ * unsupported for direct writes: change the document through the editor
+ * (or editYState). Once per binding and origin; nothing else happens (the
+ * binding reads the change as it reads a remote one). `data`:
+ * YRawYjsWriteData.
+ */
+export const RAW_YJS_WRITE_WARNING = '@lexical/y/raw-yjs-write';
 
 /**
  * @experimental The codes of the `LexicalWarning`s this version of the
@@ -97,7 +107,8 @@ export type YKnownWarningCode =
   | typeof UNSUPPORTED_SLOTS_WARNING
   | typeof UNSUPPORTED_CONFIG_WARNING
   | typeof UNSUPPORTED_EDIT_WARNING
-  | typeof UNSUPPORTED_SCHEMA_WARNING;
+  | typeof UNSUPPORTED_SCHEMA_WARNING
+  | typeof RAW_YJS_WRITE_WARNING;
 
 /**
  * @experimental A warning code: one this version knows (YKnownWarningCode,
@@ -375,6 +386,24 @@ export type YNestedFallbackData =
     };
 
 /**
+ * @experimental `data` of a `RAW_YJS_WRITE_WARNING` (development builds).
+ */
+export interface YRawYjsWriteData {
+  readonly reason: 'raw-write';
+  /** The binding's root, by its name in the document (`'lexical-y'`). */
+  readonly root: string;
+  /**
+   * What the transaction changed first under the root: a text format
+   * (`'format'`, `key` its name), a node attribute (`'attribute'`, `key`
+   * its name) or other content (`'content'`, `key` null).
+   */
+  readonly kind: 'format' | 'attribute' | 'content';
+  readonly key: string | null;
+  /** The transaction origin's constructor name (`'null'` for none). */
+  readonly origin: string;
+}
+
+/**
  * @experimental `data` of an `UNSYNCED_VALUE_WARNING`: `property`
  * (`'<type>.<field>'` or `'NodeState <key>'`) holds a value that is not plain
  * JSON, so it is not synchronized.
@@ -394,6 +423,7 @@ interface YWarningDataByCode {
   [RECOVERED_WRITE_WARNING]: YRecoveredWriteData;
   [NESTED_FALLBACK_WARNING]: YNestedFallbackData;
   [UNSYNCED_VALUE_WARNING]: YUnsyncedValueData;
+  [RAW_YJS_WRITE_WARNING]: YRawYjsWriteData;
   [UNSUPPORTED_SLOTS_WARNING]: YUnsupportedSlotsData;
   [UNSUPPORTED_CONFIG_WARNING]: YUnsupportedConfigData;
   [UNSUPPORTED_EDIT_WARNING]: YUnsupportedEditData;
@@ -446,6 +476,7 @@ const CODES: ReadonlySet<string> = new Set<YKnownWarningCode>([
   UNSUPPORTED_CONFIG_WARNING,
   UNSUPPORTED_EDIT_WARNING,
   UNSUPPORTED_SCHEMA_WARNING,
+  RAW_YJS_WRITE_WARNING,
 ]);
 
 /**
