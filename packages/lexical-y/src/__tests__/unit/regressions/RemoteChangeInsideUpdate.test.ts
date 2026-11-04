@@ -451,5 +451,81 @@ describe.each([false, true])(
         expect((await freshReader(t.a)).describe()).toBe(t.a.describe());
       });
     }
+
+    test('the caret a deferred read keeps, where Yjs merged the change into shown text', async () => {
+      const t = await setup(
+        () =>
+          $getRoot().append(
+            $createParagraphNode().append($createTextNode('base')),
+          ),
+        {gc, ids: [2, 1]},
+      );
+      t.b.update(() =>
+        $getRoot().getAllTextNodes()[0].selectEnd().insertText('[k2]'),
+      );
+      await t.sync();
+      t.offline();
+      const seen = Y.encodeStateVector(t.b.doc);
+      t.b.update(() =>
+        $getRoot().getAllTextNodes()[0].selectEnd().insertText('[k7]'),
+      );
+      const delta = Y.encodeStateAsUpdate(t.b.doc, seen);
+      t.a.update(() =>
+        $getRoot().getAllTextNodes()[0].selectEnd().insertText('[k4]'),
+      );
+      // An update that changes nothing: the change is read once idle.
+      t.a.editor.update(() => Y.applyUpdate(t.a.doc, delta, 'provider'), {
+        discrete: true,
+      });
+      await new Promise(r => setTimeout(r, 0));
+      // Backspace at the caret, which stayed after a's own "[k4]".
+      t.a.update(() => {
+        const selection = $getSelection();
+        if ($isRangeSelection(selection)) {
+          const {anchor} = selection;
+          anchor.set(anchor.key, anchor.offset - 1, anchor.type);
+          selection.removeText();
+        }
+      });
+      await t.sync();
+      expect(t.a.read(() => $getRoot().getTextContent())).toBe(
+        'base[k2][k7][k4',
+      );
+      await expectConverged(t.peers);
+    });
+
+    test('text a deferred change deletes next to text deleted before', async () => {
+      // With gc on, Yjs would collect what the change deleted when it is
+      // applied, while a still shows it.
+      const t = await setup(
+        () =>
+          $getRoot().append(
+            $createParagraphNode().append($createTextNode('base')),
+          ),
+        {gc, ids: [2, 1]},
+      );
+      t.b.update(() =>
+        $getRoot().getAllTextNodes()[0].selectEnd().insertText('[k2][k7]'),
+      );
+      await t.sync();
+      t.b.update(() =>
+        $getRoot().getAllTextNodes()[0].select(4, 8).removeText(),
+      );
+      await t.sync();
+      t.offline();
+      const seen = Y.encodeStateVector(t.b.doc);
+      t.b.update(() =>
+        $getRoot().getAllTextNodes()[0].select(4, 8).removeText(),
+      );
+      const delta = Y.encodeStateAsUpdate(t.b.doc, seen);
+      t.a.update(() => {
+        $getRoot().getAllTextNodes()[0].select(0, 2).formatText('bold');
+        Y.applyUpdate(t.a.doc, delta, 'provider');
+      });
+      await t.sync();
+      expect(t.a.read(() => $getRoot().getTextContent())).toBe('base');
+      await expectConverged(t.peers);
+      expect((await freshReader(t.a)).describe()).toBe(t.a.describe());
+    });
   },
 );

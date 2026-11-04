@@ -33,6 +33,7 @@ import {
   RelativePosition,
   relativePositionToJSON,
   type Transaction,
+  tryGc,
   UndoManager,
 } from '@y/y';
 import {
@@ -911,6 +912,11 @@ export class YBinding {
   private drainingDeferred = false;
   /** Whether an update that reads the deferred changes is queued. */
   private deferredQueued = false;
+  /**
+   * The items each deferred change deleted that the binding keeps from
+   * garbage collection until it is read (see deferChange).
+   */
+  private readonly keptUnread = new Map<Transaction, Item[]>();
   /** While a read of the binding's runs (see guardedRead). */
   private readsNow = 0;
   /** The stored formats one update's transforms looked up (see settleTextFields). */
@@ -1021,6 +1027,11 @@ export class YBinding {
     this.afterTransaction = tr =>
       this.guard(() => withPins(this._pins, () => this.onAfterTransaction(tr)));
     this.beforeTransaction = tr => {
+      if (tr.origin === this.scanOrigin) {
+        // A scan changes nothing (see getCursor): the cursor stays.
+        this.noteChange(tr);
+        return;
+      }
       this.pendingCursor =
         this._status !== 'pending' &&
         tr.origin !== this &&
@@ -1609,6 +1620,9 @@ export class YBinding {
     }
     this.state.clear();
     this.pending.clear();
+    for (const tr of [...this.keptUnread.keys()]) {
+      this.releaseUnread(tr);
+    }
     this.deferred.length = 0;
     this.localRefresh.clear();
     this.refused.clear();
@@ -2837,6 +2851,10 @@ export class YBinding {
   }
 
   private onAfterTransaction(tr: Transaction): void {
+    if (tr.origin === this.scanOrigin) {
+      // Changes nothing (see scanStackItem, getCursor).
+      return;
+    }
     if (this.defersChange(tr)) {
       this.deferChange(tr);
       return;
@@ -2860,6 +2878,7 @@ export class YBinding {
       if (this.schemaSeenIn === tr) {
         this.schemaSeenIn = null;
       }
+      this.releaseUnread(tr);
     }
     // Deferred while it was read (see scheduleDeferred).
     this.scheduleDeferred();
@@ -2907,6 +2926,22 @@ export class YBinding {
    */
   private deferChange(tr: Transaction): void {
     this.deferred.push(tr);
+    if (this._doc.gc) {
+      // Yjs collects the content a change deleted right after this (in the
+      // change's transaction cleanup): kept until the change is read, the
+      // text the editor still shows stays there for the writes in between
+      // (see Unread), which would otherwise write it again.
+      const kept: Item[] = [];
+      iterateStructsByIdSet(tr, tr.deleteSet, s => {
+        if (s instanceof Item && s.deleted && !s.keep) {
+          s.keep = true;
+          kept.push(s);
+        }
+      });
+      if (kept.length > 0) {
+        this.keptUnread.set(tr, kept);
+      }
+    }
     if (this._editor._pendingEditorState === null) {
       // From a commit's listeners or callbacks: in an update of its own,
       // ahead of the updates the app queued there, which commit, and are
@@ -2950,6 +2985,23 @@ export class YBinding {
         {discrete: true, skipTransforms: true, tag: REMOTE_TAGS},
       );
     }
+  }
+
+  /**
+   * Let Yjs collect what deferred change `tr` deleted, now that it is read
+   * (see deferChange), as it would have when the change was applied.
+   */
+  private releaseUnread(tr: Transaction): void {
+    const kept = this.keptUnread.get(tr);
+    if (kept === undefined) {
+      return;
+    }
+    this.keptUnread.delete(tr);
+    for (const item of kept) {
+      item.keep = false;
+    }
+    const doc = this._doc;
+    doc.transact(t => tryGc(t, tr.deleteSet, doc.gcFilter), this.scanOrigin);
   }
 
   /** Read the remote changes deferred so far, in order (see deferChange). */
@@ -6106,8 +6158,19 @@ export class YBinding {
 
   /** The local selection as relative positions (JSON), or null. */
   getCursor(): YCursor | null {
-    // On the document as this binding's editor shows it (see guard).
-    return seenBy(this.seer, () => this.readCursor());
+    if (this.unread === null) {
+      // On the document as this binding's editor shows it (see guard).
+      return seenBy(this.seer, () => this.readCursor());
+    }
+    // With changes not read yet: in a transaction that splits the items at
+    // their bounds (see splitAtUnread), as a write does. The positions are
+    // ids, which stay valid once Yjs merges the items again.
+    let cursor: YCursor | null = null;
+    this._doc.transact(tr => {
+      this.splitAtUnread(tr);
+      cursor = seenBy(this.seer, () => this.readCursor());
+    }, this.scanOrigin);
+    return cursor;
   }
 
   private readCursor(): YCursor | null {

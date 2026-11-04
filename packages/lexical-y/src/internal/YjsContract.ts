@@ -34,6 +34,7 @@ import {
   relativePositionToJSON,
   Skip,
   type Transaction,
+  tryGc,
   UndoManager,
 } from '@y/y';
 
@@ -97,6 +98,7 @@ export const YJS_EXPORTS = [
   'iterateStructsByIdSet',
   'mergeUpdates',
   'relativePositionToJSON',
+  'tryGc',
 ] as const;
 
 type StructStore = Doc['store'];
@@ -158,6 +160,8 @@ export function yjsMembers() {
       cleanupFormatting: (d: Doc) => isBoolean(d.cleanupFormatting),
       clientID: (d: Doc) => isNumber(d.clientID),
       destroy: (d: Doc) => isFunction(d.destroy),
+      gc: (d: Doc) => isBoolean(d.gc),
+      gcFilter: (d: Doc) => isFunction(d.gcFilter),
       get: (d: Doc) => isFunction(d.get),
       isDestroyed: (d: Doc) => isBoolean(d.isDestroyed),
       off: (d: Doc) => isFunction(d.off),
@@ -388,6 +392,7 @@ function yjsExports() {
     iterateStructsByIdSet,
     mergeUpdates,
     relativePositionToJSON,
+    tryGc,
   };
 }
 
