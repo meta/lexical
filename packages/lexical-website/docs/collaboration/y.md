@@ -1448,11 +1448,6 @@ not merge as a user might expect:
   collaborator moved out of the removed range at the same time shows twice
   (the original next to the moved copy), and when two
   collaborators remove the same text and both undo, it shows twice.
-  A client's own undo can remove a format from a word that none of its
-  undone steps touched: type plain text into a bold run, bold a range that
-  ends at that text, type plain text later on, and undo the three steps
-  ([#9690](https://github.com/meta/lexical/issues/9690); kept, because
-  the format rules behind it fix many more cases than they break).
   Undoing the replacement of a block with a new one (`replace` without
   `includeChildren`, written as a removal and a new block) after a
   collaborator edited the new block brings the old block's text back and
@@ -1460,14 +1455,15 @@ not merge as a user might expect:
   block they put in its place, shows after the old text (twice, where they
   put the same text back). `replace(node, true)`, which `$setBlocksType`
   uses, keeps the block's children, and undoing it keeps their text once.
-  Undoing a format change does not undo a collaborator's later change of
-  part of its range, nor the value that change restored after itself: color
-  `abc`, let a collaborator recolor `b`, then undo the color, and `c` keeps
-  the old color, up to the end of the range. The same holds for text a
-  collaborator types or pastes inside the range without that format,
-  whether you saw it before you undo or it arrives as you undo: bold
-  `one two`, let a collaborator type plain ` mid` after `one`, then undo
-  the bold, and ` two` stays bold. Undoing a link
+  Undoing a format change removes exactly its own run. It does not undo a
+  collaborator's later change of part of its range: color `abc`, let a
+  collaborator recolor `b`, then undo the color, and `b` stays blue while
+  `a` and `c` lose the color. Text a collaborator types or pastes inside
+  the range without that format stays without it, whether you saw it
+  before you undo or it arrives as you undo: bold `one two`, let a
+  collaborator type plain ` mid` after `one`, then undo the bold, and
+  nothing stays bold. Text a collaborator typed inside the run with its
+  format loses the format with your undo. Undoing a link
   while a collaborator formats text inside it removes the link on every
   client: a format writes no link while the link holds text. A link with no
   text (only an inline decorator or a line break) still stores its text
@@ -1481,16 +1477,7 @@ not merge as a user might expect:
   one shows a change, as with Yjs's `UndoManager` in any editor that uses it
   as it is. When you undo a format change
   while a collaborator removes that format and undoes the removal, the text
-  keeps the format: the collaborator's undo brings it back. A format a collaborator applies
-  starting right where a run of that format ends, or from inside the run
-  past its end, can be lost on their text after the run when a client
-  other than the one that formatted the run, at the same time, removes the
-  format from part of the run or types inside it without the format: with
-  `Kilo` bolded by one client, another unbolds `il` or types plain text
-  inside `Kilo` as the first or a third bolds ` bb` (or `lo bb`), and with
-  some client id orders ` bb` stays plain
-  ([#9589](https://github.com/meta/lexical/issues/9589)). No text is lost,
-  and when that client undoes its edit, ` bb` is bold again. A local change the binding
+  keeps the format: the collaborator's undo brings it back. A local change the binding
   could not write and recovered from (reported as
   `@lexical/y/recovered-write`) can land as two undo steps: what the failed
   write stored, and its rewrite, when the rewrite takes longer than the
@@ -1590,23 +1577,12 @@ not merge as a user might expect:
   into a code block that way becomes code), and the line after stays apart:
   after a Backspace it takes the type of the line before (a paragraph after
   a heading becomes a heading), after undoing a split it keeps its own.
-  Bold ‖ bold on adjacent ranges of one line
-  can leave part unformatted, and so can the same format (bold, the same
-  comment id, a link) applied by two collaborators to overlapping ranges at
-  once
-  ([#9626](https://github.com/meta/lexical/issues/9626)): a Yjs text gives
-  each place one value per key
-  ([yjs/yjs#382](https://github.com/yjs/yjs/issues/382)), so one writer's
-  end of its range can end the other's run there too. A link behaves
-  like a comment there: a range that crosses a link's edge can lose part
-  of its bold for either client id order, and a bold reaching into a
-  link's first word can lose it there when a collaborator one update
-  behind types inside the old bold range. A format removed from a range while a
-  collaborator types inside it without that format (unbolding a word as
-  they type into it, resolving a comment as they paste into it) comes back
-  on the part of the range after their text: their write restores the
-  format they saw there, which the removal could not see. It stops at the
-  end of the range. Text typed inside or at the edge of text a
+  Two collaborators applying the same format (bold, the same comment id, a
+  link) to adjacent or overlapping ranges at once both keep it: each run
+  ends at its own end, so the runs nest, also across a link's edge. A
+  format removed from a range while a collaborator types inside it without
+  that format (unbolding a word as they type into it, resolving a comment
+  as they paste into it) stays removed. Text typed inside or at the edge of text a
   collaborator deletes at the same time keeps the formats it was typed
   with. Text typed inside a range a collaborator formats at the same time
   takes that format (also when the range comes from an older read, as an
@@ -1664,9 +1640,6 @@ reproduces it:
 - Undoing plain text typed into a format run gives the run's format (or
   comment, or style) to plain text a collaborator typed right next to it:
   [#9681](https://github.com/meta/lexical/issues/9681).
-- With Yjs garbage collection on, undoing a format removal while a
-  collaborator applies the same format again can take it off the next
-  character: [#9683](https://github.com/meta/lexical/issues/9683).
 
 For `MarkStateExtension` comments, see the
 [comments limitations](./comments.md#limitations).

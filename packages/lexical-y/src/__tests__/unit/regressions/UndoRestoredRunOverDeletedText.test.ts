@@ -15,11 +15,10 @@
 // paragraph's other words or the paragraphs after it. B's undo brings back
 // A's opener, and the end that closed it was A's own, deleted by A's undo;
 // the run the copy opens has to end there although nothing between the copy
-// and that end is shown. The cells marked `it` spread the value over
-// the rest of the document (#9689): the restoring client cannot tell
+// and that end is shown. On main the cells marked `spreads` spread the value
+// over the rest of the document (#9689): the restoring client could not tell
 // the author's own end from the end of a later, separate write by the same
-// author (a fix that trusted `changeEnd` there was parked in #9687; see
-// UndoRestoredRunSharedEnd.test.ts for the case it got wrong).
+// author. Layout 3: an end names its opener, so none spreads.
 
 import {
   buildEditorFromExtensions,
@@ -182,7 +181,7 @@ type Shape = {
   /** B's removal. */
   remove: (B: Client) => void;
   twoSteps?: boolean;
-  /** Which of the two orders still spreads the value (#9689). */
+  /** Which of the two orders spread the value on main (#9689). */
   failsOn?: 'concurrent' | 'sequential';
 };
 
