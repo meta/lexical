@@ -53,6 +53,7 @@ import {
   endTarget,
   equalStacks,
   isEndValue,
+  isOnStack,
   isShadowKey,
   itemAtId,
   pairedReadingIn,
@@ -919,6 +920,35 @@ export class Reader {
             affected.add(ou);
             if (ou !== this.located.get(it)) {
               pairingUnits.add(ou);
+            }
+          }
+          // Whether the opener is paired decides how the items over its run
+          // step (an end removes the unpaired runs above the topmost paired
+          // one): read every unit whose start holds its run. A deleted
+          // opener's run goes with it (the starts after it change); the line
+          // being composed is read for this only where nothing is held there
+          // (see $hold).
+          if (ou !== null && !opener.deleted) {
+            const units = cs.units;
+            const content = opener.content as ContentFormat;
+            for (let k = units.indexOf(ou) + 1; k < units.length; k++) {
+              const start = units[k].start;
+              if (
+                start === null ||
+                !isOnStack(
+                  start,
+                  content.key,
+                  opener.id.client,
+                  opener.id.clock,
+                )
+              ) {
+                break;
+              }
+              formatUnits.push(units[k]);
+              affected.add(units[k]);
+              if (units[k].key !== this.composingKey) {
+                pairingUnits.add(units[k]);
+              }
             }
           }
         }
