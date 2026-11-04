@@ -357,6 +357,48 @@ describe('literal Markdown text', () => {
     );
   });
 
+  it('keeps an & before a decorator as typed', () => {
+    using editor = buildEditorFromExtensions(
+      MarkdownTestExtension,
+      TestDecoratorExtension,
+    );
+    editor.update(
+      () =>
+        $getRoot()
+          .clear()
+          .append(
+            $createParagraphNode().append(
+              $createTextNode('Q&A with AT&T and '),
+              $create(TestDecoratorNode),
+            ),
+          ),
+      {discrete: true},
+    );
+    expect(editor.read(() => $convertToMarkdownString())).toBe(
+      'Q&A with AT&T and foo',
+    );
+  });
+
+  it('reads on from an & only where a reference could continue', () => {
+    using editor = buildEditorFromExtensions([MarkdownTestExtension]);
+    const text = 'a&'.repeat(200000);
+    editor.update(
+      () =>
+        $getRoot()
+          .clear()
+          .append(
+            $createParagraphNode().append(
+              $createTextNode(text),
+              $createTextNode('x').toggleFormat('bold'),
+            ),
+          ),
+      {discrete: true},
+    );
+    // Every `&` but the last is followed by a letter in its own node, so only
+    // the last one reads on into the next node.
+    expect(editor.read(() => $convertToMarkdownString())).toBe(text + '**x**');
+  });
+
   it('reads on past a long email local part split across nodes', () => {
     using editor = buildEditorFromExtensions([MarkdownTestExtension]);
     const half = '1'.repeat(200);

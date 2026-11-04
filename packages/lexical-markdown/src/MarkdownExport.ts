@@ -1436,8 +1436,11 @@ function $opensCharacterReference(
   if (/^#(?:[0-9]{1,7}|[xX][0-9a-fA-F]{1,6});/.test(rest)) {
     return true;
   }
-  // The reference may go on into the next node: `rest` and the character
-  // after it are still the start of one.
+  // The reference may go on into the next node only when all of `rest` is
+  // still the start of one, and `rest` with the character after it is too.
+  if (!/^(?:#(?:[0-9]{0,7}|[xX][0-9a-fA-F]{0,6}))?$/.test(rest)) {
+    return false;
+  }
   const after = $nextChar();
   return (
     after !== '' &&
