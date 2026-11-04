@@ -8,7 +8,12 @@
 
 import type {Doc, Node as YNode, Transaction} from '@y/y';
 
-import {DEFAULT_ROOT_NAME, EPOCH_KEY, LAYOUT_PREFIX} from './constants';
+import {
+  DEFAULT_ROOT_NAME,
+  EPOCH_KEY,
+  LAYOUT_PREFIX,
+  REQUIRE_PREFIX,
+} from './constants';
 
 // The layout record and the epoch as the core, the migration runner and the
 // server helpers read them (see @lexical/y/migrate, @lexical/y/server).
@@ -138,6 +143,66 @@ export function epochRecordOf(root: YNode): EpochRecord {
 export function epochOf(root: YNode): YMigrationEpoch | null {
   const record = epochRecordOf(root);
   return record.kind === 'epoch' ? record.epoch : null;
+}
+
+/** A root's feature requirements (see readRequirements). */
+export interface YRequirements {
+  /** Every feature the root requires (well formed), sorted. */
+  readonly required: readonly string[];
+  /** Those the reader does not support, sorted. */
+  readonly unknown: readonly string[];
+  /** Requirements that are not well formed, by key order. */
+  readonly malformed: readonly {
+    readonly key: string;
+    readonly found: unknown;
+  }[];
+}
+
+/** The features this release supports (none yet). */
+export const SUPPORTED_FEATURES: ReadonlySet<string> = new Set();
+
+/**
+ * The feature requirements `root` records (`lexical-y-require:<feature> =
+ * true`, see REQUIRE_PREFIX), against the features `supported` (default:
+ * this release's). A root may be written only when `unknown` and
+ * `malformed` are both empty; otherwise it is read only (shown, kept, never
+ * rewritten). The binding, headless editing and the server's admission all
+ * read it here.
+ */
+export function readRequirements(
+  root: YNode,
+  supported: ReadonlySet<string> = SUPPORTED_FEATURES,
+): YRequirements {
+  const attrs = root.getAttrs() as Record<string, unknown>;
+  const required: string[] = [];
+  const malformed: {key: string; found: unknown}[] = [];
+  for (const key of Object.keys(attrs).sort()) {
+    if (key.startsWith(REQUIRE_PREFIX)) {
+      const feature = key.slice(REQUIRE_PREFIX.length);
+      if (feature === '' || attrs[key] !== true) {
+        malformed.push({found: attrs[key], key});
+      } else {
+        required.push(feature);
+      }
+    }
+  }
+  return {
+    malformed,
+    required,
+    unknown: required.filter(f => !supported.has(f)),
+  };
+}
+
+/**
+ * Whether `key` is a root attribute the layout gate reads: a layout record,
+ * the epoch or a feature requirement.
+ */
+export function isGateKey(key: string): boolean {
+  return (
+    key.startsWith(LAYOUT_PREFIX) ||
+    key === EPOCH_KEY ||
+    key.startsWith(REQUIRE_PREFIX)
+  );
 }
 
 /**

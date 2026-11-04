@@ -135,6 +135,15 @@ export type YUnsupportedLayoutData =
       readonly min: number;
       readonly supported: number;
     }
+  /**
+   * The root requires features this version does not support, `features`
+   * (`lexical-y-require:<feature>`): shown, kept, never rewritten.
+   */
+  | {
+      readonly reason: 'requires';
+      readonly features: readonly string[];
+      readonly supported: number;
+    }
   /** Older layouts' roots, `roots`, hold content. */
   | {
       readonly reason: 'legacy-roots';

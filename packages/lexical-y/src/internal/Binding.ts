@@ -98,7 +98,12 @@ import {
   markFormatCloser,
 } from './Cursor';
 import {$canonicalizeGroup, $switchesWrapper} from './Groups';
-import {epochRecordOf, onYMigrationEpoch} from './Layouts';
+import {
+  epochRecordOf,
+  isGateKey,
+  onYMigrationEpoch,
+  readRequirements,
+} from './Layouts';
 import {
   $applyStoredAttrs,
   $unstoredWrapperTextFields,
@@ -768,17 +773,22 @@ function opensRun(item: Item): boolean {
 /**
  * The layout version `root` records: the highest of its `lexical-y:<n>`
  * attributes (see LAYOUT_PREFIX), null when it has none, and NaN when one is
- * not a version (an integer from 1, set to true), which opens the document
- * read only.
+ * not a version (an integer from 1, set to true), the epoch or a feature
+ * requirement is not well formed, or the root requires a feature this
+ * version does not support: each opens the document read only.
  */
 function recordedLayout(root: YNode): number | null {
-  return malformedLayout(root) !== null ? NaN : newestLayout(root);
+  return malformedLayout(root) !== null ||
+    readRequirements(root).unknown.length > 0
+    ? NaN
+    : newestLayout(root);
 }
 
 /**
- * The first `lexical-y:<n>` attribute of `root` that is not a version, or
- * its epoch (EPOCH_KEY) when it is not well formed (see epochRecordOf; no
- * epoch is fine: a document that never migrated).
+ * The first `lexical-y:<n>` attribute of `root` that is not a version, its
+ * epoch (EPOCH_KEY) when it is not well formed (see epochRecordOf; no epoch
+ * is fine: a document that never migrated), or its first feature
+ * requirement that is not well formed (see readRequirements).
  */
 function malformedLayout(root: YNode): {key: string; found: unknown} | null {
   const attrs = root.getAttrs() as Record<string, unknown>;
@@ -794,7 +804,8 @@ function malformedLayout(root: YNode): {key: string; found: unknown} | null {
   if (epoch.kind === 'malformed') {
     return {found: epoch.found, key: EPOCH_KEY};
   }
-  return null;
+  const [requirement] = readRequirements(root).malformed;
+  return requirement === undefined ? null : requirement;
 }
 
 /** The highest version of `root`'s layout records, null when it has none. */
@@ -2393,6 +2404,14 @@ export class YBinding {
         {...malformed, reason: 'malformed', supported: LAYOUT_VERSION},
       );
       this.setStatus('readonly');
+    } else if (readRequirements(this._root).unknown.length > 0) {
+      const features = readRequirements(this._root).unknown;
+      this.warn(
+        UNSUPPORTED_LAYOUT_WARNING,
+        `the document requires ${features.join(', ')}, which this version does not support, so this editor is read only: upgrade the binding on every client of the document`,
+        {features, reason: 'requires', supported: LAYOUT_VERSION},
+      );
+      this.setStatus('readonly');
     } else if (version > LAYOUT_VERSION) {
       this.warn(
         UNSUPPORTED_LAYOUT_WARNING,
@@ -2573,7 +2592,7 @@ export class YBinding {
       return false;
     }
     for (const k of keys) {
-      if (k !== null && (k.startsWith(LAYOUT_PREFIX) || k === EPOCH_KEY)) {
+      if (k !== null && isGateKey(k)) {
         return !this.readsRecordedLayout();
       }
       if (k !== null && k.startsWith(SCHEMA_PREFIX) && this.schemaRefuses()) {
@@ -2817,7 +2836,7 @@ export class YBinding {
       return false;
     }
     for (const key of Object.keys(this._root.getAttrs())) {
-      if (key.startsWith(LAYOUT_PREFIX) || key === EPOCH_KEY) {
+      if (isGateKey(key)) {
         return false;
       }
     }
@@ -3403,10 +3422,7 @@ export class YBinding {
         return;
       }
       if (type === this._root) {
-        if (
-          [...keys].some(k => k.startsWith(LAYOUT_PREFIX) || k === EPOCH_KEY) &&
-          !this.readsRecordedLayout()
-        ) {
+        if ([...keys].some(k => isGateKey(k)) && !this.readsRecordedLayout()) {
           this.evaluate();
           return;
         }

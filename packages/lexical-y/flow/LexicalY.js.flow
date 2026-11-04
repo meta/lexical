@@ -61,6 +61,7 @@ export type YUnsupportedLayoutData =
   | {readonly reason: 'malformed', readonly key: string, readonly found: unknown, readonly supported: number}
   | {readonly reason: 'missing' | 'removed', readonly supported: number}
   | {readonly reason: 'older', readonly found: number, readonly min: number, readonly supported: number}
+  | {readonly reason: 'requires', readonly features: ReadonlyArray<string>, readonly supported: number}
   | {readonly reason: 'legacy-roots', readonly roots: ReadonlyArray<string>, readonly supported: number};
 export type YUnsupportedSchemaData =
   | {readonly reason: 'newer', readonly found: number, readonly supported: number}

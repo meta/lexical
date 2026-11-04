@@ -201,6 +201,14 @@ of set-valued NodeState; layout 3 (planned, #9449) adds move records.
   read only (an absent epoch is fine). Each migration replaces it. Servers derive a document's generation from it
   (`generationOf` in `@lexical/y/server`); a client never adopts a
   generation from it.
+- **Feature requirements.** Root attributes `lexical-y-require:<feature>` =
+  `true`, grow-only, the feature id an opaque string, written before (or
+  with) the content that needs the feature. A reader that does not support
+  every required feature, or finds a requirement that is not well formed
+  (an empty id, a value other than `true`), opens the root read only: it
+  shows it, keeps it and never rewrites it (`UNSUPPORTED_LAYOUT_WARNING`,
+  `'requires'` or `'malformed'`). This release supports no feature. Any
+  other `lexical-y-*` attribute a reader does not know is kept and ignored.
 - **Children of a container** (the root and every node stored as its own
   `Y.Node`), in order:
   - text (`Y` strings) with formats;

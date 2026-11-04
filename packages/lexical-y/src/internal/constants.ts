@@ -68,6 +68,16 @@ export const SET_MEMBERS_LAYOUT_VERSION = 2;
  */
 export const EPOCH_KEY = 'lexical-y-epoch';
 /**
+ * Prefix of the root attributes that declare a feature the root's content
+ * needs (`lexical-y-require:<feature> = true`, grow-only, the feature id an
+ * opaque string). A reader that does not support every required feature, or
+ * finds a requirement that is not well formed (an empty id, a value other
+ * than true), opens the root read only: it shows it, keeps it and never
+ * rewrites it. This release supports no feature. Any other `lexical-y-*`
+ * attribute it does not know is kept and ignored.
+ */
+export const REQUIRE_PREFIX = 'lexical-y-require:';
+/**
  * Prefix of the root attributes that record the versions of the app's own
  * schema (`schemaVersion`: its node types and their stored fields) that
  * wrote to a document (internal): `lexical-y-schema:<version>` = true, one

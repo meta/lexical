@@ -382,7 +382,7 @@ for developers (what happened and what to do): render your own text from
 | Constant | Reported when | `data` (`reason`: other fields) |
 | -- | -- | -- |
 | `UNSUPPORTED_SCHEMA_WARNING` | A client of a newer version of your app (a higher `schemaVersion`) wrote to the document, on open or mid-session; see [Versioning your schema](#versioning-your-schema). Read only. | `'newer'`: `found`; `'malformed'`: `key`, `found`. All: `supported` (your `schemaVersion`) |
-| `UNSUPPORTED_LAYOUT_WARNING` | The layout is one this version cannot read, or one below `MIN_LAYOUT` (`'older'`, once per read-only period: an expected state for an app whose server migrates, so handle it in `onWarn`). Read only. | `'newer'`: `found`; `'older'`: `found`, `min`; `'malformed'`: `key`, `found`; `'missing'`, `'removed'`; `'legacy-roots'`: `roots`. All: `supported` |
+| `UNSUPPORTED_LAYOUT_WARNING` | The layout is one this version cannot read, or one below `MIN_LAYOUT` (`'older'`, once per read-only period: an expected state for an app whose server migrates, so handle it in `onWarn`), or the root requires a feature this version does not support (`'requires'`, see the wire format). Read only. | `'newer'`: `found`; `'older'`: `found`, `min`; `'requires'`: `features`; `'malformed'`: `key`, `found`; `'missing'`, `'removed'`; `'legacy-roots'`: `roots`. All: `supported` |
 | `UNKNOWN_NODE_TYPES_WARNING` | The document has node types the editor cannot build: types it does not register, however they are stored (a link class it lacks too), or content its classes throw on; or the document could not be read at all (`'unreadable'` with empty `types`, the cause in `error`). Read only. | `'unregistered'`, `'malformed-slot'`: `types`; `'unreadable'`: `types`, `error` |
 | `STORAGE_MISMATCH_WARNING` | A node type is stored in a way its class cannot be (one warning per type). Read only. | `'declaration-changed'`: `type`, `stored`, `declared`; `'malformed'`: `type`, `key`, `found` |
 | `UNSUPPORTED_SLOTS_WARNING` | Named slots where the document cannot store them. Not written; read only. | `'stored-host'`, `'root'`: `types` |
@@ -621,8 +621,10 @@ formats are ranges over the characters: `f:<format>` for a text format, and
 `w:<type>` for an inline element stored as a format, such as a link. A node
 of its own is a `b:<type>` child that holds its own sequence (`c: b` when it
 holds blocks), and each of its named slots as an attribute `slot:<name>`
-whose value is the slot's `b:<type>` node. The root also records the layout
-versions the document needs
+whose value is the slot's `b:<type>` node. A root may also declare features
+its content needs (`lexical-y-require:<feature>`): a reader that does not
+support one opens the root read only and keeps it as it is. The root also
+records the layout versions the document needs
 (`lexical-y:1`, a record that only grows) and, per type, the storage kind its
 first write chose (`k:<type>`).
 
