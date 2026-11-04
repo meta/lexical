@@ -771,7 +771,11 @@ describe.each([false, true])(
       expect((await freshReader(t.a)).describe()).toBe(t.a.describe());
     });
 
-    for (const last of ['in another cell', 'with nothing to read'] as const) {
+    for (const last of [
+      'in another cell',
+      'with nothing to read',
+      'with nothing to read, applied after the update',
+    ] as const) {
       test(`the self-check still covers what an earlier deferred change read, the last one ${last}`, async () => {
         const t = await setup(
           () =>
@@ -836,12 +840,23 @@ describe.each([false, true])(
           return result;
         };
         try {
+          const after =
+            last === 'with nothing to read, applied after the update';
+          const inside = after ? deltas.slice(0, -1) : deltas;
           t.a.update(() => {
-            $getRoot().getAllTextNodes()[1].selectEnd();
-            for (const d of deltas) {
+            if (!after) {
+              $getRoot().getAllTextNodes()[1].selectEnd();
+            }
+            // (Changing nothing else, so the changes are read in a
+            // microtask.)
+            for (const d of inside) {
               Y.applyUpdate(t.a.doc, d, 'provider');
             }
           });
+          if (after) {
+            // Before the deferred changes are read.
+            Y.applyUpdate(t.a.doc, deltas.at(-1)!, 'provider');
+          }
           await new Promise(r => setTimeout(r, 0));
         } finally {
           binding.$readRemote = read;

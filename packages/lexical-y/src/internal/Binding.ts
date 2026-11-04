@@ -2924,6 +2924,23 @@ export class YBinding {
     }
     // Deferred while it was read (see scheduleDeferred).
     this.scheduleDeferred();
+    this.flushCheckLater();
+  }
+
+  /**
+   * Self-check what earlier reads rebuilt while changes were deferred or
+   * unread (see checkRead), once none is and the editor is idle: where the
+   * last change had nothing to read, no read checks them.
+   */
+  private flushCheckLater(committed = false): void {
+    if (
+      this.checkLater.size > 0 &&
+      this.deferred.length === 0 &&
+      this.unread === null &&
+      (committed || !this._editor._updating)
+    ) {
+      this.guard(() => this.checkRead(new Set()));
+    }
   }
 
   /**
@@ -3105,19 +3122,10 @@ export class YBinding {
     if (this.deferred.length === 0 && this.checkLater.size > 0) {
       // Where the last change had nothing to read (no read, no self-check
       // of what the earlier ones read: see checkRead), once it committed.
-      const flush = () => {
-        if (
-          this.deferred.length === 0 &&
-          this.unread === null &&
-          this.checkLater.size > 0
-        ) {
-          this.guard(() => this.checkRead(new Set()));
-        }
-      };
       if (this._editor._updating) {
-        $onUpdate(flush);
+        $onUpdate(() => this.flushCheckLater(true));
       } else {
-        flush();
+        this.flushCheckLater();
       }
     }
   }
