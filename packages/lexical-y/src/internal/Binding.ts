@@ -84,6 +84,7 @@ import {
 
 import {ARGUMENTS_CHUNK, pushAll, spliceAll} from './Arrays';
 import {$unsettledAfterWrite} from './BlockIds';
+import {$nextUpdateSelection, $normalizedAtBoundaries} from './Boundary';
 import {type ClientIDRange, constrainClientID} from './ClientID';
 import {
   BASE_LAYOUT_VERSION,
@@ -535,6 +536,7 @@ type PendingWork =
   | 'replies'
   | 'restore'
   | 'hidden'
+  | 'foresee'
   | 'reread'
   | 'normalize'
   | 'refresh'
@@ -543,6 +545,7 @@ const PENDING_ORDER: readonly PendingWork[] = [
   'replies',
   'restore',
   'hidden',
+  'foresee',
   'reread',
   'normalize',
   'refresh',
@@ -1652,6 +1655,9 @@ export class YBinding {
             this.scheduleDeferred();
           }
           const hidden = this.state.hidden;
+          if (hidden !== null) {
+            this.noteComposed(hidden, payload);
+          }
           if (
             hidden !== null &&
             !payload.editorState.read(() => this.$holds(hidden))
@@ -4305,6 +4311,9 @@ export class YBinding {
     // Whether the editor shows a caret, before the read changes the nodes
     // the selection is in (see $restoreSelection).
     const caret = keepCaret && $showsCaret();
+    // The composition's node, text and caret before the read (see below).
+    const composed = this.$composedCaret();
+    const composing = this._editor._compositionKey;
     const reader = new Reader(state);
     setRebuilt(reader.rebuilt);
     // What a composition held back whose hold has ended (see $holds) shows
@@ -4349,7 +4358,24 @@ export class YBinding {
       // This change ended the hold (it removed the line being composed).
       this.$release(state, reader);
     }
-    if (cursor !== null) {
+    // A composition whose node the read kept as it was, under a hold, keeps
+    // its caret where it is: mapped again from the document (whose items
+    // the hold shows differently) it can land on the neighbouring node at a
+    // format boundary, and the composition moves with it (Lexical moves the
+    // composition key with a point set on another node).
+    const keepComposed =
+      composed !== null &&
+      state.hidden !== null &&
+      (() => {
+        const now = this.$composedCaret();
+        return (
+          now !== null &&
+          now.key === composed.key &&
+          now.text === composed.text &&
+          now.offset === composed.offset
+        );
+      })();
+    if (cursor !== null && !keepComposed) {
       // A caret whose line the transaction replaced keeps its offset in the
       // line that replaced it (see $replacedLineCaret); any other selection
       // is mapped by identity.
@@ -4357,9 +4383,191 @@ export class YBinding {
         this.$restoreSelection(cursor, caret);
       }
     }
+    // The hold must not leave the composition's caret where Lexical's own
+    // selection normalization moves it, and the composition with it, to
+    // another node at the next update (the end of a text node in a link,
+    // the start of one after another text node): what the hold shows (a
+    // link it keeps beside one that replaced it) can put a boundary there
+    // that what is stored does not have. The change is read at once then,
+    // with everything held (see $release), as main reads every change.
+    if (
+      state.hidden !== null &&
+      this.predicts &&
+      this.$caretOnMovingBoundary()
+    ) {
+      const held = this.$cursorBeforeRead();
+      this.$release(state, reader);
+      if (held !== null) {
+        this.$restoreSelection(held, caret);
+      }
+    }
     $clampSelection();
     this.$caretOnText();
     this.$quietSelection();
+    // A hold this read started holds the node composed in before it (see
+    // noteComposed).
+    if (state.hidden !== null && state.hidden.composedKey === null) {
+      state.hidden.composedKey = composing;
+    }
+    // What the editor's next update does to the composition, whatever the
+    // check above does not see (an element point resolved to text), once
+    // this read has committed and the editor shows it (see
+    // foreseeNextUpdate).
+    if (
+      state.hidden !== null &&
+      this._editor._compositionKey !== null &&
+      this._editor.getRootElement() !== null
+    ) {
+      this.pending.add('foresee');
+    }
+  }
+
+  /**
+   * After a remote read that a composition's hold held part of, once it has
+   * committed (the editor's DOM and its DOM selection show it): foresee what
+   * the editor's next update makes of the composition, read-only (see
+   * Boundary.$nextUpdateSelection: the DOM selection read, its points
+   * resolved by the current nodes, normalization at boundaries, which moves
+   * the composition key with a point that leaves its node; no update, no
+   * app code but node methods that read). Where it would move the
+   * composition off its node, the hold showed a boundary there that what is
+   * stored need not have: the hold ends now (Hidden#missed), and what it
+   * held is read, in an ordinary read of the binding's (as flushHidden's,
+   * the composition kept where it is), as main reads every change, before
+   * the next update.
+   */
+  private foreseeNextUpdate(): void {
+    const editor = this._editor;
+    const hidden = this.state.hidden;
+    const key = editor._compositionKey;
+    if (
+      !this.predicts ||
+      hidden === null ||
+      key === null ||
+      editor.getRootElement() === null
+    ) {
+      return;
+    }
+    const next = editor.read(() => $nextUpdateSelection(editor));
+    if (next === null || next === undefined || next.composing === key) {
+      return;
+    }
+    hidden.missed = true;
+    const cursor = this.getCursor();
+    let rebuilt: ReadonlySet<CS> = new Set();
+    // An ordinary read of the binding's (as flushHidden's), which keeps the
+    // composition where it was: Lexical makes this update's selection from
+    // the DOM selection too, and would move it as foreseen.
+    this.guardedRead({
+      $read: () => {
+        const state = this.state;
+        if (state.hidden !== hidden) {
+          return;
+        }
+        if ($isTextNode($getNodeByKey(key))) {
+          $setCompositionKey(key);
+        }
+        const caret = $showsCaret();
+        const reader = new Reader(state);
+        rebuilt = reader.rebuilt;
+        reader.composedAt = this.$composedCharacter(cursor);
+        this.$release(state, reader);
+        if (cursor !== null) {
+          this.$restoreSelection(cursor, caret);
+        }
+        this.$caretOnText();
+        this.$quietSelection();
+      },
+      after: () => {
+        this.checkUnknownTypes();
+        this.checkRead(rebuilt);
+        this.flushRefresh(true);
+      },
+      recover: (error, shown) => this.recoverRead(error, shown),
+      tag: REMOTE_TAGS,
+    });
+  }
+
+  /**
+   * Whether the binding foresees what the editor's next update does to a
+   * composition under a hold: its check in the read ($caretOnMovingBoundary)
+   * and after it (foreseeNextUpdate). Tests turn it off to
+   * show that a move neither saw still ends the hold, and the editor then
+   * shows what is stored (see noteComposed).
+   */
+  private predicts = true;
+
+  /**
+   * After every commit while a hold lasts: note the node the composition
+   * runs in. A move to another node that the binding did not see coming
+   * (see foreseeNextUpdate: an app's selection transform, a case it does
+   * not follow) ends the hold at once (Hidden#missed, see
+   * $holds), so that the editor shows what is stored: a move in a remote
+   * read (which keeps the composed node under a hold, so any move is the
+   * selection put back across a boundary the hold shows), or in a local
+   * update to another node of the same line or inline container (Lexical's
+   * selection normalization at such a boundary; a write of the composer's
+   * own moves it to another line, Enter, which ends the hold anyway).
+   */
+  private noteComposed(
+    hidden: Hidden,
+    payload: {tags: Set<string>; editorState: EditorState},
+  ): void {
+    const key = this._editor._compositionKey;
+    const was = hidden.composedKey;
+    if (
+      was !== null &&
+      key !== null &&
+      key !== was &&
+      (payload.tags.has(COLLABORATION_TAG) ||
+        payload.editorState.read(() => this.$composingOwner()) ===
+          hidden.ownerKey)
+    ) {
+      hidden.missed = true;
+    }
+    hidden.composedKey = key;
+  }
+
+  /**
+   * The composition's text node (attached, its text) and the offset of a
+   * collapsed caret in it, or null where the caret is not in it.
+   */
+  private $composedCaret(): {
+    key: NodeKey;
+    text: string;
+    offset: number;
+  } | null {
+    const key = this._editor._compositionKey;
+    const selection = $getSelection();
+    if (
+      key === null ||
+      !$isRangeSelection(selection) ||
+      !selection.isCollapsed() ||
+      selection.anchor.type !== 'text' ||
+      selection.anchor.key !== key
+    ) {
+      return null;
+    }
+    const node = $getNodeByKey(key);
+    return $isTextNode(node) && node.isAttached()
+      ? {key, offset: selection.anchor.offset, text: node.getTextContent()}
+      : null;
+  }
+
+  /**
+   * Whether Lexical's selection normalization at the next update moves the
+   * composition to another node (see Boundary): a point of the selection in
+   * the composed node set on another one at a boundary.
+   */
+  private $caretOnMovingBoundary(): boolean {
+    const key = this._editor._compositionKey;
+    const selection = $getSelection();
+    return (
+      key !== null &&
+      $isRangeSelection(selection) &&
+      $normalizedAtBoundaries(selection.anchor, selection.focus, key)
+        .composing !== key
+    );
   }
 
   /**
@@ -5118,6 +5326,9 @@ export class YBinding {
    * content out of it).
    */
   private $holds(hidden: Hidden): boolean {
+    if (hidden.missed) {
+      return false;
+    }
     const owner = this.$composingOwner();
     if (owner === null || owner !== hidden.ownerKey) {
       return false;
@@ -7008,6 +7219,8 @@ export class YBinding {
           this.restoreShown();
         } else if (work === 'hidden') {
           this.flushHidden();
+        } else if (work === 'foresee') {
+          this.foreseeNextUpdate();
         } else if (work === 'reread') {
           this.rereadRefused();
         } else if (work === 'normalize') {
