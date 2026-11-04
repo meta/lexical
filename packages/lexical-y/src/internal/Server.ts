@@ -32,6 +32,7 @@ import {
   readRequirements,
 } from './Layouts';
 import {createRawYDoc, type YDoc, type YDocOptions} from './RawYDoc';
+import {canonicalJSON, Sha256} from './RecordHash';
 import {PUBLISHED_STEPS} from './StepTable';
 import {assertSupportedMigrationYjs} from './YjsMigrationContract';
 
@@ -749,8 +750,18 @@ export interface YDraft {
   readonly differs: boolean;
 }
 
-/** @experimental A per-document quarantine record (append-only). */
+/**
+ * @experimental A per-document quarantine record (version 1; the room's
+ * records are append-only).
+ */
 export interface YQuarantineRecord {
+  /** The record format's version. */
+  readonly v: 1;
+  /**
+   * The encoding of `snapshot`, `deltas`, `queue` and signal updates: Yjs
+   * update format V1.
+   */
+  readonly updateFormat: 'yjs-v1';
   /** The record's id: its hash unless given. */
   readonly id: string;
   readonly session: string | null;
@@ -790,9 +801,23 @@ export interface YQuarantineRecord {
   readonly collisions: readonly YLegacySignal[];
   readonly receivedAt: number;
   /**
-   * A hash of the record's kind, material (snapshot, deltas, queue, draft)
-   * and provenance (peers, clients): what an acknowledgement names. The
-   * source, session, replica and times are not in it.
+   * Features its material needs to be read (see YRoomDescription's
+   * `requires`), sorted by code units, each once; none by default. A record
+   * that requires a feature this release does not know is kept and
+   * exported as it is, never read as one it knows.
+   */
+  readonly requires: readonly string[];
+  /**
+   * The hash of the record's canonical payload, version 1:
+   * `'yr1-sha256:'` and the lowercase hex SHA-256 of its kind, source
+   * (provenance, incarnation and generation included), peers, clients,
+   * snapshot, deltas, queue, draft (canonical JSON, keys sorted), signal
+   * transcripts, requirements and format (see y-server.md, "Records"). Not in
+   * it: the id, session, replica, times and what the server derives
+   * (`base`, `complete`, `actionable`, `collisions`). Equal hashes are not
+   * proof of equal records: confirm the exact payload before discarding
+   * either. An acknowledgement names it within its scope (see
+   * YRecordAcknowledgement).
    */
   readonly hash: string;
   /** Whether the source view has every dependency (see sourceView). */
@@ -817,33 +842,99 @@ export interface YQuarantineRecordInput {
   readonly queue?: readonly Uint8Array[];
   readonly draft?: YDraft | null;
   readonly signals?: readonly YLegacySignal[];
+  /** Default none; kept once each, sorted. */
+  readonly requires?: readonly string[];
   readonly receivedAt: number;
 }
 
-/** FNV-1a 32 over `bytes`, continuing `h`. */
-function fnv(h: number, bytes: Uint8Array): number {
-  for (let i = 0; i < bytes.length; i++) {
-    h = Math.imul(h ^ bytes[i], 0x01000193) >>> 0;
-  }
-  return h;
+/**
+ * @experimental The durable acknowledgement of one record, version 1: the
+ * server holds it only once the record is stored durably. It acknowledges
+ * exactly the uploaded payload, in its scope: the room, the replica that
+ * uploaded it, the generation its material was made against
+ * (`source.generation`, `'unknown'` when none), the record's id and hash. A
+ * replica drops its material only for an acknowledgement whose every field
+ * matches what it uploaded; a bare hash, or one from another room, replica
+ * or generation, acknowledges nothing, and an acknowledgement of an unknown
+ * version keeps the material.
+ */
+export interface YRecordAcknowledgement {
+  readonly v: 1;
+  readonly room: string;
+  readonly replica: string;
+  readonly sourceGeneration: string;
+  readonly record: string;
+  readonly hash: string;
 }
 
 /** UTF-8 bytes of `text`. */
 const utf8 = (text: string): Uint8Array => new TextEncoder().encode(text);
 
+/** The tag of a version 1 record hash: payload encoding 1, SHA-256. */
+const RECORD_HASH_TAG = 'yr1-sha256:';
+
 /**
- * A 64-bit hash (two FNV-1a 32) of a record's material, in hex: each part
- * length-prefixed, so different splits of the same bytes differ.
+ * The hash of a record's canonical payload, version 1: SHA-256 over
+ * `'lexical-y-record:1\n'`, the header's UTF-8 length (4 bytes, big endian),
+ * the header (canonical JSON of the record's kind, source, peers, clients,
+ * draft, requirements, format, version, signal transcripts and the length of
+ * every byte part) and then the byte parts in the header's order: snapshot,
+ * deltas, queue, signal updates. Frozen.
  */
-function materialHash(parts: readonly Uint8Array[]): string {
-  let a = 0x811c9dc5;
-  let b = 0x050c5d1f;
-  for (const part of parts) {
-    const len = utf8(`${part.length}:`);
-    a = fnv(fnv(a, len), part);
-    b = fnv(fnv(b, len), part);
+function recordHash(record: {
+  readonly kind: string;
+  readonly source: YRecordSource;
+  readonly peers: boolean;
+  readonly clients: readonly number[];
+  readonly snapshot: Uint8Array | null;
+  readonly deltas: readonly Uint8Array[];
+  readonly queue: readonly Uint8Array[];
+  readonly draft: YDraft | null;
+  readonly signals: readonly YLegacySignal[];
+  readonly requires: readonly string[];
+}): string {
+  const header = utf8(
+    canonicalJSON({
+      clients: record.clients,
+      deltas: record.deltas.map(d => d.length),
+      draft:
+        record.draft === null
+          ? null
+          : {differs: record.draft.differs, json: record.draft.json},
+      kind: record.kind,
+      peers: record.peers,
+      queue: record.queue.map(q => q.length),
+      requires: record.requires,
+      signals: record.signals.map(sg => ({
+        client: sg.client,
+        clock: sg.clock,
+        key: sg.key,
+        root: sg.root,
+        update: sg.update.length,
+      })),
+      snapshot: record.snapshot === null ? null : record.snapshot.length,
+      source: record.source,
+      updateFormat: 'yjs-v1',
+      v: 1,
+    }),
+  );
+  const size = new Uint8Array(4);
+  new DataView(size.buffer).setUint32(0, header.length);
+  const hash = new Sha256()
+    .update(utf8('lexical-y-record:1\n'))
+    .update(size)
+    .update(header);
+  if (record.snapshot !== null) {
+    hash.update(record.snapshot);
   }
-  return a.toString(16).padStart(8, '0') + b.toString(16).padStart(8, '0');
+  for (const part of [
+    ...record.deltas,
+    ...record.queue,
+    ...record.signals.map(sg => sg.update),
+  ]) {
+    hash.update(part);
+  }
+  return RECORD_HASH_TAG + hash.hex();
 }
 
 type RecordMaterial = Pick<
@@ -880,10 +971,12 @@ export function sourceView(
 }
 
 /**
- * @experimental Build a quarantine record: its hash (of the kind, snapshot,
- * deltas, queue and draft), whether its source view is complete, and, when
- * `base` is given (the state of the base generation), whether it holds
- * anything new (hasNewYEdits; without a base, it counts as actionable).
+ * @experimental Build a quarantine record (version 1): its hash (of its
+ * canonical payload, see YQuarantineRecord's `hash`), whether its source view
+ * is complete, and, when `base` is given (the state of the base generation),
+ * whether it holds anything new (hasNewYEdits; without a base, or when it
+ * requires a feature, it counts as actionable). Throws a TypeError when the
+ * draft is not JSON: keep the material and report it.
  */
 export function quarantineRecord(
   input: YQuarantineRecordInput,
@@ -897,19 +990,22 @@ export function quarantineRecord(
   const peers = input.peers ?? true;
   // Canonical: each id once, in order.
   const clients = [...new Set(input.clients ?? [])].sort((a, b) => a - b);
-  const hash = materialHash([
-    utf8(input.kind),
-    snapshot ?? new Uint8Array(0),
-    ...deltas,
-    utf8('|'),
-    ...queue,
-    utf8(
-      draft === null ? '' : `${draft.differs}:${JSON.stringify(draft.json)}`,
-    ),
-    // The provenance decides how the material may be read (see peers and
-    // clients): two histories with the same bytes are two records.
-    utf8(`${peers ? 1 : 0}:${clients.join(',')}`),
-  ]);
+  const requires = [...new Set(input.requires ?? [])].sort();
+  // The provenance decides how the material may be read (see peers and
+  // clients, and replay's base generation): two histories with the same
+  // bytes are two records.
+  const hash = recordHash({
+    clients,
+    deltas,
+    draft,
+    kind: input.kind,
+    peers,
+    queue,
+    requires,
+    signals,
+    snapshot,
+    source: input.source,
+  });
   const view = sourceView({deltas, queue, snapshot});
   const collisions = signals.filter(
     sg => signalAt(view.doc, sg) === 'collision',
@@ -930,12 +1026,17 @@ export function quarantineRecord(
     queue,
     receivedAt: input.receivedAt,
     replica: input.replica ?? null,
+    requires,
     session: input.session ?? null,
     signals,
     snapshot,
     source: input.source,
+    updateFormat: 'yjs-v1',
+    v: 1,
   };
-  return base === null
+  // A record whose material needs a feature this release does not know
+  // cannot be shown to hold nothing new.
+  return base === null || requires.length > 0
     ? record
     : {...record, actionable: hasNewYEdits(record, base.state)};
 }

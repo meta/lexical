@@ -172,6 +172,8 @@ export type YRecordSource = {
 export type YDraft = {readonly json: unknown, readonly differs: boolean};
 
 export type YQuarantineRecord = {
+  readonly v: 1,
+  readonly updateFormat: 'yjs-v1',
   readonly id: string,
   readonly session: string | null,
   readonly replica: string | null,
@@ -187,9 +189,19 @@ export type YQuarantineRecord = {
   readonly signals: ReadonlyArray<YLegacySignal>,
   readonly collisions: ReadonlyArray<YLegacySignal>,
   readonly receivedAt: number,
+  readonly requires: ReadonlyArray<string>,
   readonly hash: string,
   readonly complete: boolean,
   readonly actionable: boolean,
+};
+
+export type YRecordAcknowledgement = {
+  readonly v: 1,
+  readonly room: string,
+  readonly replica: string,
+  readonly sourceGeneration: string,
+  readonly record: string,
+  readonly hash: string,
 };
 
 export type YQuarantineRecordInput = {
@@ -205,6 +217,7 @@ export type YQuarantineRecordInput = {
   readonly queue?: ReadonlyArray<Uint8Array>,
   readonly draft?: YDraft | null,
   readonly signals?: ReadonlyArray<YLegacySignal>,
+  readonly requires?: ReadonlyArray<string>,
   readonly receivedAt: number,
 };
 

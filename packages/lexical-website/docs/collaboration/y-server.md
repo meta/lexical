@@ -934,22 +934,45 @@ of being admitted or refused.
 
 ### Quarantine, capture and the handoff
 
-- **Records** (`quarantineRecord`) keep, per room and append-only, what a
-  stale or legacy session held: a standalone snapshot, later deltas, a queue
-  of unsent updates, a draft, where it came from, and a hash an
-  acknowledgement names. `sourceView(record)` applies its material into one
-  scratch document. A record also declares `peers` (whether any channel
-  other than the server could have delivered updates to the replica since
-  its last sync with the server, persisted with the replica's storage;
-  unknown is `true`) and `clients` (every client id the replica wrote under
-  since that sync), which replaying a record's changes will need. The
-  record's `hash` (and its default `id`) covers its kind, its material
-  (snapshot, deltas, queue, draft) and that provenance, not its source,
-  session or times: an acknowledgement names that hash;
-  `hasNewYEdits(record, base)` says whether it holds a
-  struct or a deletion the base lacks, a draft marked `differs`, or a
-  missing dependency. Prompt users only for those; keep every record
-  listable for the quarantine window.
+- **Records** (`quarantineRecord`, version 1: `v: 1`, `updateFormat:
+  'yjs-v1'`) keep, per room and append-only, what a stale or legacy session
+  held: a standalone snapshot, later deltas, a queue of unsent updates, a
+  draft, where it came from (`source`, with its incarnation and generation),
+  the features its material needs (`requires`, none by default) and a hash.
+  `sourceView(record)` applies its material into one scratch document. A
+  record also declares `peers` (whether any channel other than the server
+  could have delivered updates to the replica since its last sync with the
+  server, persisted with the replica's storage; unknown is `true`) and
+  `clients` (every client id the replica wrote under since that sync), which
+  replaying a record's changes needs. `hasNewYEdits(record, base)` says
+  whether it holds a struct or a deletion the base lacks, a draft marked
+  `differs`, or a missing dependency (a record that requires a feature
+  always counts). Prompt users only for those; keep every record listable
+  for the quarantine window, and keep a record that requires a feature you
+  do not know as it is (store and export it; never read it as one you
+  know).
+- **The record hash** (its default `id`) is `'yr1-sha256:'` and the
+  lowercase hex SHA-256 of the record's canonical payload, version 1:
+  `'lexical-y-record:1\n'`, the header's UTF-8 length (4 bytes, big
+  endian), the header, then the snapshot, deltas, queue and signal updates
+  in that order. The header is canonical JSON (object keys sorted by UTF-16
+  code units, no whitespace, strings and numbers as `JSON.stringify` writes
+  them) of `{clients, deltas, draft, kind, peers, queue, requires, signals,
+  snapshot, source, updateFormat, v}`, where each byte part is replaced by
+  its length and each signal by `{client, clock, key, root, update}` (its
+  update's length). The id, session, replica, times and what the server
+  derives (`base`, `complete`, `actionable`, `collisions`) are not in it. A
+  draft that is not JSON is refused (`quarantineRecord` throws): keep the
+  material. Equal hashes are not proof of equal records: compare the exact
+  payload before discarding either.
+- **Acknowledgement.** The server answers a stored record with a durable
+  acknowledgement, `YRecordAcknowledgement`: `{v: 1, room, replica,
+  sourceGeneration, record, hash}`, sent only once the record is stored
+  durably. It acknowledges exactly that payload in that scope. A replica
+  drops its material only for an acknowledgement whose every field matches
+  what it uploaded; a bare hash, or one from another room, replica or
+  generation, acknowledges nothing, and one of an unknown version keeps the
+  material.
 - **Legacy capture** (`captureYSession()`): answer the old client's sync
   step 1 with an empty sync step 2 and send a sync step 1 with an empty
   state vector (`messages`, framed for y-websocket), so its sync step 2 is
@@ -964,7 +987,7 @@ of being admitted or refused.
   is its own and kept: send another signal.
 - **Handoff** (a client whose verdict is `stale`): stop its providers and
   persistence, `binding.quiesce()`, upload the snapshot, queue and draft as
-  one record, wait for the server's durable acknowledgement of that hash
+  one record, wait for the server's durable acknowledgement of that record
   (retrying the same bytes), then dispose the binding, bootstrap a new
   document, persist it with the new generation, and only then drop the old
   copy.

@@ -16,6 +16,7 @@
 // draft). gc off and on.
 
 import * as Y from '@y/y';
+import {createHash} from 'node:crypto';
 import {describe, expect, test} from 'vitest';
 
 import {LAYOUT_VERSION, SEED_LAYOUT} from '../..';
@@ -36,6 +37,7 @@ import {
   sourceView,
   UNKNOWN_GENERATION,
   type YLegacySignal,
+  type YRecordAcknowledgement,
   type YRoomDescription,
   type YSessionHandshake,
   type YSessionVerdict,
@@ -952,7 +954,8 @@ describe.each([false, true])('@lexical/y/server, gc %s', gc => {
       };
       const a = quarantineRecord(input);
       const b = quarantineRecord({...input, receivedAt: 2});
-      expect(a.hash).toMatch(/^[0-9a-f]{16}$/);
+      expect(a.hash).toMatch(/^yr1-sha256:[0-9a-f]{64}$/);
+      expect(a).toMatchObject({requires: [], updateFormat: 'yjs-v1', v: 1});
       expect(b.hash).toBe(a.hash);
       expect(a.id).toBe(a.hash);
       expect(a.actionable).toBe(true);
@@ -1021,6 +1024,174 @@ describe.each([false, true])('@lexical/y/server, gc %s', gc => {
           {generation: 'inc-1/-', state: base()},
         ).actionable,
       ).toBe(false);
+    });
+    test('the record hash (version 1) is SHA-256 over the documented canonical payload, and covers exactly the payload', () => {
+      const signal: YLegacySignal = {
+        client: 99,
+        clock: 0,
+        key: 'lexical-y-schema:9',
+        root: 'lexical-y',
+        update: new Uint8Array([1, 2, 3]),
+      };
+      // Valid updates for the byte parts (each part is applied when the
+      // source view is built).
+      const updates: Uint8Array[] = [];
+      const author = new Y.Doc({gc});
+      author.clientID = 500;
+      author.on('update', (u: Uint8Array) => updates.push(u));
+      author.get('x').insert(0, 'a');
+      author.get('x').insert(1, 'b');
+      author.get('x').insert(2, 'c');
+      const input = {
+        clients: [9, 3, 9],
+        deltas: [updates[0], updates[1]],
+        // Keys out of order on purpose: the hash sorts them.
+        // eslint-disable-next-line sort-keys-fix/sort-keys-fix
+        draft: {differs: true, json: {b: [1, 'x'], a: {d: null, c: true}}},
+        kind: 'handoff' as const,
+        peers: false,
+        queue: [updates[2]],
+        receivedAt: 1,
+        replica: 'r1',
+        requires: ['z', 'a', 'z'],
+        session: 's1',
+        signals: [signal],
+        snapshot: replica(insert),
+        source: SOURCE,
+      };
+      const built = quarantineRecord(input);
+      // An independent build of the payload the docs describe.
+      const header = JSON.stringify({
+        clients: [3, 9],
+        deltas: [updates[0].length, updates[1].length],
+        draft: {differs: true, json: {a: {c: true, d: null}, b: [1, 'x']}},
+        kind: 'handoff',
+        peers: false,
+        queue: [updates[2].length],
+        requires: ['a', 'z'],
+        signals: [
+          {
+            client: 99,
+            clock: 0,
+            key: 'lexical-y-schema:9',
+            root: 'lexical-y',
+            update: 3,
+          },
+        ],
+        snapshot: input.snapshot.length,
+        source: Object.fromEntries(
+          Object.entries(SOURCE).sort(([x], [y]) => (x < y ? -1 : 1)),
+        ),
+        updateFormat: 'yjs-v1',
+        v: 1,
+      });
+      const size = Buffer.alloc(4);
+      size.writeUInt32BE(Buffer.byteLength(header));
+      const want = createHash('sha256')
+        .update('lexical-y-record:1\n')
+        .update(size)
+        .update(header)
+        .update(input.snapshot)
+        .update(input.deltas[0])
+        .update(input.deltas[1])
+        .update(input.queue[0])
+        .update(signal.update)
+        .digest('hex');
+      expect(built.hash).toBe(`yr1-sha256:${want}`);
+      expect(built).toMatchObject({clients: [3, 9], requires: ['a', 'z']});
+      // Not in it: the id, session, replica and times; a draft's key order.
+      for (const same of [
+        {...input, id: 'other'},
+        {...input, session: 's2'},
+        {...input, replica: 'r2'},
+        {...input, receivedAt: 2},
+        {
+          ...input,
+          // eslint-disable-next-line sort-keys-fix/sort-keys-fix
+          draft: {differs: true, json: {a: {d: null, c: true}, b: [1, 'x']}},
+        },
+        {...input, requires: ['a', 'z']},
+      ]) {
+        expect(quarantineRecord(same).hash).toBe(built.hash);
+      }
+      // In it: the source (generation and incarnation), the signal
+      // transcripts, the requirements, every byte part and its split.
+      for (const other of [
+        {...input, source: {...SOURCE, generation: 'another'}},
+        {...input, source: {...SOURCE, incarnation: 'another'}},
+        {...input, source: {...SOURCE, renderer: 'another'}},
+        {...input, signals: []},
+        {...input, signals: [{...signal, clock: 1}]},
+        {...input, signals: [{...signal, update: new Uint8Array([1, 2, 4])}]},
+        {...input, requires: ['a']},
+        {...input, deltas: [updates[1], updates[0]]},
+        {
+          ...input,
+          deltas: [input.deltas[0]],
+          queue: [input.deltas[1], ...input.queue],
+        },
+        {...input, draft: {differs: false, json: input.draft.json}},
+        {...input, draft: null},
+        {...input, snapshot: null},
+      ]) {
+        expect(quarantineRecord(other).hash).not.toBe(built.hash);
+      }
+      // A draft that is not JSON is refused: keep the material.
+      for (const json of [
+        {a: undefined, b: NaN},
+        {a: () => 1},
+        {a: BigInt(1)},
+        {a: new Date(0)},
+        // eslint-disable-next-line no-sparse-arrays
+        [1, , 2],
+      ]) {
+        expect(() =>
+          quarantineRecord({...input, draft: {differs: true, json}}),
+        ).toThrow(TypeError);
+      }
+    });
+
+    test('a record requiring a feature is kept as it is and counts as actionable', () => {
+      const input = {
+        kind: 'handoff' as const,
+        receivedAt: 1,
+        snapshot: replica(() => {}),
+        source: SOURCE,
+      };
+      const known = quarantineRecord(input, {generation: G0, state: base()});
+      expect(known.actionable).toBe(false);
+      const required = quarantineRecord(
+        {...input, requires: ['future']},
+        {generation: G0, state: base()},
+      );
+      expect(required).toMatchObject({actionable: true, requires: ['future']});
+      expect(required.hash).not.toBe(known.hash);
+    });
+
+    test('a durable acknowledgement names the room, the replica, the source generation, the record and its hash', () => {
+      const stored = quarantineRecord({
+        kind: 'handoff',
+        receivedAt: 1,
+        replica: 'r1',
+        snapshot: replica(insert),
+        source: SOURCE,
+      });
+      const ack: YRecordAcknowledgement = {
+        hash: stored.hash,
+        record: stored.id,
+        replica: stored.replica!,
+        room: 'room-1',
+        sourceGeneration: stored.source.generation ?? UNKNOWN_GENERATION,
+        v: 1,
+      };
+      expect(ack).toEqual({
+        hash: stored.hash,
+        record: stored.id,
+        replica: 'r1',
+        room: 'room-1',
+        sourceGeneration: SOURCE.generation,
+        v: 1,
+      });
     });
   });
 
