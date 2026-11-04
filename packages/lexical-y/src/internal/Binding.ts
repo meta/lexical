@@ -1339,16 +1339,21 @@ export class YBinding {
     }
     return this.held.view;
   }
-  /** This binding's view, for its work (see guard). */
+  /**
+   * This binding's view, for its work (see guard). While a change is read,
+   * the document as Yjs has it but for the changes still deferred (see
+   * deferChange), with the deleted format items a hold keeps (see
+   * Hidden#keeps): every reader of the line being composed sees them live,
+   * as its writes do, so that a kept opener and its kept end still pair,
+   * whatever key they carry.
+   */
   private readonly seer = (): Unread | null => {
     const view = this.unread;
     if (!this.reading) {
       return view ?? this.heldView();
     }
-    // While a change is read: the document as it is, but for the changes
-    // still deferred (see deferChange), which the editor does not show yet.
     if (view === null || this.deferred.length === 0) {
-      return null;
+      return this.heldView();
     }
     // One object while neither changes (an operation compares the view it
     // took with the binding's, see View).
