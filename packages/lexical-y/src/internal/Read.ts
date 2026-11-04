@@ -37,7 +37,7 @@ import {
   type LexicalNode,
   type NodeKey,
   type SerializedLexicalNode,
-  type TextNode,
+  TextNode,
 } from 'lexical';
 
 import {$appendAll, spliceAll} from './Arrays';
@@ -62,6 +62,7 @@ import {
   BLOCK_PREFIX,
   decodeFormatValue,
   eachOuterLevel,
+  equalValue,
   FIELD_PREFIX,
   fieldsOfTypes,
   getContainerGroupSpec,
@@ -94,6 +95,7 @@ import {
   stableStringify,
   STATE_PREFIX,
   storedTypeOf,
+  TEXT_FORMAT_PREFIX,
   textJSONFromAttrs,
   TYPE_KEY,
   withoutUnownedMembers,
@@ -147,6 +149,14 @@ type Parsed = {
   startItem: Item | null;
   stop: Item | null;
   start: Formats;
+};
+
+/** What $showSame learned in one read. */
+type Shown = {
+  /** What the node built from a piece's (or run's) first run shows. */
+  first: Map<object, string | null>;
+  /** Whether a type replaced by `with` alone builds its own setFormat. */
+  owns: Map<string, boolean>;
 };
 
 type Piece = (
@@ -2346,6 +2356,7 @@ export class Reader {
     formats: Formats,
   ): Piece[] {
     const pieces: Piece[] = [];
+    const shown: Shown = {first: new Map(), owns: new Map()};
     const current = new Map(formats);
     let tattrs: Attrs | null = null;
     let tsig = '';
@@ -2402,16 +2413,16 @@ export class Reader {
             if (
               last !== undefined &&
               last.kind === 'text' &&
-              last.tsig === run.tsig &&
               !isTabText(run.tattrs) &&
-              sameWrappers(last.wrappers, wrappers)
+              sameWrappers(last.wrappers, wrappers) &&
+              (last.tsig === run.tsig || this.$showSame(last, run, shown))
             ) {
               if (holds) {
                 last.caretAt = last.text.length + inRun;
               }
               last.text += run.text;
             } else {
-              pieces.push({
+              const piece: Piece = {
                 ...(holds ? {caretAt: inRun} : {}),
                 item: it,
                 kind: 'text',
@@ -2419,7 +2430,12 @@ export class Reader {
                 text: run.text,
                 tsig: run.tsig,
                 wrappers,
-              });
+              };
+              // The run was built to compare with the piece before it.
+              if (shown.first.has(run)) {
+                shown.first.set(piece, shown.first.get(run)!);
+              }
+              pieces.push(piece);
             }
           }
         });
@@ -2432,6 +2448,103 @@ export class Reader {
     }
     this.lastFormats = current;
     return pieces;
+  }
+
+  /**
+   * Whether run `b` reads as part of the text piece `a` before it, where
+   * their stored attributes differ only in format bits: the nodes the reader
+   * builds from them show the same formats and attributes. A code
+   * highlight's setFormat ignores every bit, so a bit stored over part of one
+   * (a format written while the token was plain text, or by a write from
+   * outside the editor) is shown nowhere; read as two nodes, text typed into
+   * either stores the formats the node shows and reads apart from it in a
+   * fresh read. The bits stay stored. Only a text class (or replacement) with
+   * a setFormat of its own can show two such attributes the same; a node that
+   * cannot be built reads apart, as before. Each run is built once.
+   *
+   * Contract: a TextNode's shown format depends on its class, fields and
+   * NodeState, not on its text (content or length), the editor, or where it
+   * is attached (the same assumption as TextNode#splitText, which gives every
+   * part the node's format before it is inserted, and mergeWithSibling). So
+   * the merged node shows what its first run does, and runs with equal
+   * attributes show the same.
+   */
+  private $showSame(
+    a: Piece & {kind: 'text'},
+    b: {tattrs: Attrs; text: string},
+    shown: Shown,
+  ): boolean {
+    const editor = this.state.editor;
+    const type = decodeFormatValue(a.tattrs[TYPE_KEY] ?? null);
+    const name = typeof type === 'string' ? type : 'text';
+    const info = editor._nodes.get(name);
+    if (info === undefined || !sameButFormats(a.tattrs, b.tattrs)) {
+      return false;
+    }
+    try {
+      // Nodes are built as the replacement where it names its class; one
+      // that does not (`with` alone) is asked once per read what it builds.
+      if (info.replace !== null && info.replaceWithKlass === null) {
+        let owns = shown.owns.get(name);
+        if (owns === undefined) {
+          const node = $parseSerializedNode(
+            joinSetMembersInJSON(
+              textJSONFromAttrs(a.text, a.tattrs),
+              editor,
+            ) as unknown as SerializedLexicalNode,
+          );
+          owns =
+            $isTextNode(node) &&
+            node.setFormat !== TextNode.prototype.setFormat;
+          shown.owns.set(name, owns);
+        }
+        if (!owns) {
+          return false;
+        }
+      } else if (
+        ((info.replaceWithKlass || info.klass).prototype as TextNode)
+          .setFormat === TextNode.prototype.setFormat
+      ) {
+        return false;
+      }
+      let first = shown.first.get(a);
+      if (first === undefined) {
+        first = this.$builtShows(a.text, a.tattrs);
+        shown.first.set(a, first);
+      }
+      const next = this.$builtShows(b.text, b.tattrs);
+      shown.first.set(b, next);
+      return first !== null && first === next;
+    } catch (_e) {
+      return false;
+    }
+  }
+
+  /**
+   * What the text node stored as `text` with `attrs` shows: built as the
+   * reader builds a text node, and given the attributes as a read gives them
+   * to a node it reuses (see $readInline); null when it is not text.
+   */
+  private $builtShows(text: string, attrs: Attrs): string | null {
+    const editor = this.state.editor;
+    const json = joinSetMembersInJSON(textJSONFromAttrs(text, attrs), editor);
+    const node = $parseSerializedNode(json as unknown as SerializedLexicalNode);
+    if (!$isTextNode(node)) {
+      return null;
+    }
+    // As $applyJSON gives a reused node the attributes: applied again, or,
+    // where the node does not export them, the fields of a node built from
+    // them (this one).
+    const built = stableStringify($textAttrs(node, null, false));
+    if (json.$ !== undefined && node.__state !== undefined) {
+      $setStateInOrder(node, json.$ as Attrs);
+    }
+    const applied = node.updateFromJSON(
+      json as Parameters<TextNode['updateFromJSON']>[0],
+    );
+    return exportsJSON(applied, json)
+      ? stableStringify($textAttrs(applied, null, false))
+      : built;
   }
 
   /**
@@ -3238,6 +3351,24 @@ function $setStateInOrder(node: LexicalNode, state: Attrs): void {
   $getWritableNodeState(node).updateFromJSON(state);
 }
 
+/** Whether `node` exports the fields `json` gives it (see $applyJSON). */
+function exportsJSON(node: LexicalNode, json: Attrs): boolean {
+  const after = node.exportJSON() as unknown as Attrs;
+  for (const k in json) {
+    if (
+      k !== 'children' &&
+      k !== 'version' &&
+      k !== '$' &&
+      k !== 'textFormat' &&
+      k !== 'textStyle' &&
+      stableStringify(after[k]) !== stableStringify(json[k])
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
+
 /**
  * Apply serialized fields to a node. A class without a generated
  * updateFromJSON (a hand-written importJSON that reads fields of its own)
@@ -3251,22 +3382,7 @@ function $applyJSON<T extends LexicalNode>(node: T, json: Attrs): T {
   const w = node.updateFromJSON(
     json as Parameters<LexicalNode['updateFromJSON']>[0],
   ) as T;
-  const after = w.exportJSON() as unknown as Attrs;
-  let same = true;
-  for (const k in json) {
-    if (
-      k !== 'children' &&
-      k !== 'version' &&
-      k !== '$' &&
-      k !== 'textFormat' &&
-      k !== 'textStyle' &&
-      stableStringify(after[k]) !== stableStringify(json[k])
-    ) {
-      same = false;
-      break;
-    }
-  }
-  if (same) {
+  if (exportsJSON(w, json)) {
     return w;
   }
   const tmp = $parseSerializedNode({
@@ -3312,6 +3428,25 @@ function tabRuns(
       ? {tattrs, text: run, tsig}
       : {tattrs: plain, text: run, tsig: plainSig},
   );
+}
+
+/** Whether `a` and `b` store the same attributes apart from format bits. */
+function sameButFormats(a: Attrs, b: Attrs): boolean {
+  let count = 0;
+  for (const k in a) {
+    if (!k.startsWith(TEXT_FORMAT_PREFIX)) {
+      if (!hasOwn(b, k) || !equalValue(a[k], b[k])) {
+        return false;
+      }
+      count++;
+    }
+  }
+  for (const k in b) {
+    if (!k.startsWith(TEXT_FORMAT_PREFIX)) {
+      count--;
+    }
+  }
+  return count === 0;
 }
 
 /** Whether text read with `tattrs` is a tab's (one node per `\t`). */

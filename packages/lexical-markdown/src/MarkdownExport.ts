@@ -34,7 +34,17 @@ import {
   type TextMatchTransformer,
   type Transformer,
 } from './MarkdownTransformers';
-import {isEmptyParagraph, transformersByType} from './utils';
+import {
+  characterAt,
+  characterBefore,
+  getPortableEmphasisSides,
+  isEmptyParagraph,
+  isEscaped,
+  isLetterForSomeReader,
+  isPortablyFlankedBy,
+  toCharacterReference,
+  transformersByType,
+} from './utils';
 
 /**
  * Renders string from markdown. The selection is moved to the start after the operation.
@@ -178,13 +188,15 @@ function $processNodeForSelection(
     const result = transformer.export(
       node,
       node_ =>
-        $exportChildrenForSelection(
-          node_,
-          selection,
-          textFormatTransformers,
-          textMatchTransformers,
-          shouldPreserveNewLines,
-        ).markdown,
+        joinPieces(
+          $exportChildrenForSelection(
+            node_,
+            selection,
+            textFormatTransformers,
+            textMatchTransformers,
+            shouldPreserveNewLines,
+          ).pieces,
+        ),
       selection,
     );
 
@@ -217,7 +229,7 @@ function $processNodeForSelection(
       shouldPreserveNewLines,
     );
     return {
-      markdown: childResult.markdown,
+      markdown: joinPieces(childResult.pieces),
       shouldInclude: shouldInclude || childResult.shouldInclude,
     };
   } else if ($isDecoratorNode(node)) {
@@ -242,8 +254,8 @@ function $exportChildrenForSelection(
   shouldPreserveNewLines: boolean,
   unclosedTags?: OpenTag[],
   unclosableTags?: OpenTag[],
-): {shouldInclude: boolean; markdown: string} {
-  const output = [];
+  output: MarkdownPieces = createPieces(),
+): {shouldInclude: boolean; pieces: MarkdownPieces} {
   const children = node.getChildren();
   let anyChildIncluded = false;
 
@@ -266,24 +278,28 @@ function $exportChildrenForSelection(
       const result = transformer.export(
         child,
         parentNode =>
-          $exportChildrenForSelection(
-            parentNode,
-            selection,
-            textFormatTransformers,
-            textMatchTransformers,
-            shouldPreserveNewLines,
-            unclosedTags,
-            [...unclosableTags, ...unclosedTags],
-          ).markdown,
+          joinPieces(
+            $exportChildrenForSelection(
+              parentNode,
+              selection,
+              textFormatTransformers,
+              textMatchTransformers,
+              shouldPreserveNewLines,
+              unclosedTags,
+              [...unclosableTags, ...unclosedTags],
+            ).pieces,
+          ),
         textNode =>
-          $exportTextFormat(
-            textNode,
-            $exportedText(textNode, selection),
-            textFormatTransformers,
-            unclosedTags,
-            unclosableTags,
-            shouldPreserveNewLines,
-            selection,
+          joinPieces(
+            $exportTextFormat(
+              textNode,
+              $exportedText(textNode, selection),
+              textFormatTransformers,
+              unclosedTags,
+              unclosableTags,
+              shouldPreserveNewLines,
+              selection,
+            ),
           ),
       );
 
@@ -298,7 +314,7 @@ function $exportChildrenForSelection(
           childIncluded = true;
         }
         if (childIncluded) {
-          output.push(result);
+          pushPiece(output, RAW, result);
           anyChildIncluded = true;
         }
         continue mainLoop;
@@ -307,21 +323,20 @@ function $exportChildrenForSelection(
 
     if ($isLineBreakNode(child)) {
       if (childIncluded) {
-        output.push($exportLineBreak(child));
+        pushPiece(output, RAW, $exportLineBreak(child));
         anyChildIncluded = true;
       }
     } else if ($isTextNode(child)) {
       if (childIncluded) {
-        output.push(
-          $exportTextFormat(
-            child,
-            $exportedText(child, selection),
-            textFormatTransformers,
-            unclosedTags,
-            unclosableTags,
-            shouldPreserveNewLines,
-            selection,
-          ),
+        $exportTextFormat(
+          child,
+          $exportedText(child, selection),
+          textFormatTransformers,
+          unclosedTags,
+          unclosableTags,
+          shouldPreserveNewLines,
+          selection,
+          output,
         );
         anyChildIncluded = true;
       }
@@ -334,6 +349,7 @@ function $exportChildrenForSelection(
         shouldPreserveNewLines,
         unclosedTags,
         unclosableTags,
+        output,
       );
 
       // extractWithChild: if child has selected descendants, ask parent if it should be included
@@ -345,19 +361,19 @@ function $exportChildrenForSelection(
         childIncluded = true;
       }
 
+      // An element child writes pieces only when it has included ones.
       if (childIncluded || childResult.shouldInclude) {
-        output.push(childResult.markdown);
         anyChildIncluded = true;
       }
     } else if ($isDecoratorNode(child)) {
       if (childIncluded) {
-        output.push(child.getTextContent());
+        pushPiece(output, TEXT, child.getTextContent());
         anyChildIncluded = true;
       }
     }
   }
 
-  return {markdown: output.join(''), shouldInclude: anyChildIncluded};
+  return {pieces: output, shouldInclude: anyChildIncluded};
 }
 
 function $exportTopLevelElements(
@@ -411,7 +427,27 @@ function $exportChildren(
   unclosableTags?: OpenTag[],
   shouldPreserveNewLines: boolean = false,
 ): string {
-  const output = [];
+  return joinPieces(
+    $exportChildPieces(
+      node,
+      textTransformersIndex,
+      textMatchTransformers,
+      unclosedTags,
+      unclosableTags,
+      shouldPreserveNewLines,
+    ),
+  );
+}
+
+function $exportChildPieces(
+  node: ElementNode,
+  textTransformersIndex: TextFormatTransformer[],
+  textMatchTransformers: TextMatchTransformer[],
+  unclosedTags?: OpenTag[],
+  unclosableTags?: OpenTag[],
+  shouldPreserveNewLines: boolean = false,
+  output: MarkdownPieces = createPieces(),
+): MarkdownPieces {
   const children = node.getChildren();
   // keep track of unclosed tags from the very beginning
   if (!unclosedTags) {
@@ -444,55 +480,55 @@ function $exportChildren(
             shouldPreserveNewLines,
           ),
         (textNode, textContent) =>
-          $exportTextFormat(
-            textNode,
-            textContent,
-            textTransformersIndex,
-            unclosedTags,
-            unclosableTags,
-            shouldPreserveNewLines,
-            null,
+          joinPieces(
+            $exportTextFormat(
+              textNode,
+              textContent,
+              textTransformersIndex,
+              unclosedTags,
+              unclosableTags,
+              shouldPreserveNewLines,
+              null,
+            ),
           ),
       );
 
       if (result != null) {
-        output.push(result);
+        pushPiece(output, RAW, result);
         continue mainLoop;
       }
     }
 
     if ($isLineBreakNode(child)) {
-      output.push($exportLineBreak(child));
+      pushPiece(output, RAW, $exportLineBreak(child));
     } else if ($isTextNode(child)) {
-      output.push(
-        $exportTextFormat(
-          child,
-          child.getTextContent(),
-          textTransformersIndex,
-          unclosedTags,
-          unclosableTags,
-          shouldPreserveNewLines,
-          null,
-        ),
+      $exportTextFormat(
+        child,
+        child.getTextContent(),
+        textTransformersIndex,
+        unclosedTags,
+        unclosableTags,
+        shouldPreserveNewLines,
+        null,
+        output,
       );
     } else if ($isElementNode(child)) {
       // empty paragraph returns ""
-      output.push(
-        $exportChildren(
-          child,
-          textTransformersIndex,
-          textMatchTransformers,
-          unclosedTags,
-          unclosableTags,
-          shouldPreserveNewLines,
-        ),
+      $exportChildPieces(
+        child,
+        textTransformersIndex,
+        textMatchTransformers,
+        unclosedTags,
+        unclosableTags,
+        shouldPreserveNewLines,
+        output,
       );
     } else if ($isDecoratorNode(child)) {
-      output.push(child.getTextContent());
+      pushPiece(output, TEXT, child.getTextContent());
     }
   }
 
-  return output.join('');
+  return output;
 }
 
 function $exportLineBreak(node: LineBreakNode): string {
@@ -509,7 +545,9 @@ function $exportTextFormat(
   shouldPreserveNewLines: boolean,
   // the selection being exported, which ends the text a tag can extend over
   selection: BaseSelection | null,
-): string {
+  // where the exported pieces go
+  pieces: MarkdownPieces = createPieces(),
+): MarkdownPieces {
   // This function handles the case of a string looking like this: "   foo   "
   // Where it would be invalid markdown to generate: "**   foo   **"
   // so the tags go inside the whitespace instead: "   **foo**   ".
@@ -518,19 +556,31 @@ function $exportTextFormat(
 
   let output = textContent;
   if (!isCode) {
-    // Preserve literal backslashes when preserving source newlines.
+    // Preserve literal backslashes when preserving source newlines, except
+    // right before a character escaped here, where they would escape the
+    // escape instead.
     // Default mode guards numeric references; named references keep legacy output.
     // Numeric escapes avoid changing emphasis flanking beside formatting.
     // Guard ambiguous '<' and '&' at node ends for constructs split across nodes.
     if (shouldPreserveNewLines) {
-      output = output.replace(/([*_`~])/g, '\\$1');
+      // A whole run of backslashes is matched, so that one before no marker
+      // is not tried again from each of its backslashes.
+      output = output.replace(
+        /\\+|[*_`~]/g,
+        (escaped, offset: number, text: string) =>
+          escaped[0] !== '\\'
+            ? `\\${escaped}`
+            : /[*_`~]/.test(text[offset + escaped.length])
+              ? escaped + escaped
+              : escaped,
+      );
     } else {
       output = $escapeLiteralBrackets(
         node,
         output.replace(/([*_`~\\]|<(?=\S|$)|&(?=#|$))/g, character =>
           /[*_`~\\]/.test(character)
             ? `\\${character}`
-            : `&#${character.charCodeAt(0)};`,
+            : toCharacterReference(character),
         ),
         selection,
       );
@@ -620,25 +670,566 @@ function $exportTextFormat(
   } else if (!holdsTag) {
     // If the node is entirely whitespace, we don't apply opening/closing tags
     // around it, but it must still output any closing tags.
-    return closingTagsBefore + closingTagsAfter + output;
+    pushPiece(pieces, CLOSER, closingTagsBefore + closingTagsAfter);
+    pushPiece(pieces, TEXT, output);
+    return pieces;
   }
 
   // Flanking Compliance: CommonMark flanking rules require formatting tags to be
   // adjacent to non-whitespace characters, so openingTags and closingTagsAfter
   // are placed INSIDE the whitespace boundaries!
+  // Tags stay inside JavaScript whitespace, which holds CommonMark's and the
+  // other characters some readers count as whitespace.
   // (Trimming rather than a regex keeps this linear in long whitespace runs.)
   const trimmedStart = output.trimStart();
   const trimmedOutput = trimmedStart.trimEnd();
   const leadingSpace = output.slice(0, output.length - trimmedStart.length);
   const trailingSpace = trimmedStart.slice(trimmedOutput.length);
+  pushPiece(pieces, CLOSER, closingTagsBefore);
+  pushPiece(pieces, TEXT, leadingSpace);
+  pushPiece(pieces, OPENER, openingTags);
+  // Inline code is a literal span: a character reference would show as is.
+  pushPiece(pieces, isCode ? RAW : TEXT, trimmedOutput);
+  pushPiece(pieces, CLOSER, closingTagsAfter);
+  pushPiece(pieces, TEXT, trailingSpace);
+  return pieces;
+}
+
+/**
+ * Exported inline Markdown, with the format markers kept apart from the text
+ * until `joinPieces` can see the characters on both sides of each delimiter
+ * run: `values[i]` is a piece of the output and `kinds[i]` what it is. A
+ * character reference can stand in for a character of `TEXT`, which is text
+ * and decorator content; `RAW` is anything else, such as code spans, line
+ * breaks and the output of transformers, whose syntax a reference could
+ * break. `OPENER` and `CLOSER` are format markers.
+ */
+type PieceKind = typeof TEXT | typeof RAW | typeof OPENER | typeof CLOSER;
+
+interface MarkdownPieces {
+  kinds: PieceKind[];
+  values: string[];
+}
+
+const TEXT = 0;
+const RAW = 1;
+const OPENER = 2;
+const CLOSER = 3;
+
+function createPieces(): MarkdownPieces {
+  return {kinds: [], values: []};
+}
+
+// Adjacent text (and adjacent raw output) is merged, so that each run of
+// markers sits between the pieces whose characters a reader sees beside it.
+function pushPiece(pieces: MarkdownPieces, kind: PieceKind, value: string) {
+  const {kinds, values} = pieces;
+  const last = kinds.length - 1;
+  if (value === '') {
+    return;
+  } else if (last >= 0 && kinds[last] === kind && !isMarker(kind)) {
+    values[last] += value;
+  } else {
+    kinds.push(kind);
+    values.push(value);
+  }
+}
+
+function isMarker(kind: PieceKind | undefined): boolean {
+  return kind === OPENER || kind === CLOSER;
+}
+
+// Characters a URL or email can hold: GFM ends an autolink at
+// whitespace or `<`, and a URL's host and path may hold any other character.
+// This takes in the backslash that escapes a marker too.
+const LINK_END = /[\s\p{Cc}<]/u;
+function isLinkCharacter(character: string): boolean {
+  return !LINK_END.test(character);
+}
+/** Where the run of URL characters that ends `text` starts. */
+function linkRunStart(text: string): number {
+  let start = text.length;
+  while (start > 0 && isLinkCharacter(text[start - 1])) {
+    start--;
+  }
+  return start;
+}
+// What starts a URL: `http://`, `https://` (and cmark-gfm's `ftp://`) with
+// a host after it, which may start with an emoji but not with other ASCII
+// punctuation than `-` and `_`, and `www.`, which micromark links with
+// anything after it. GFM readers start `www.` only at the start of a run or
+// after `*_~(`, and a scheme after anything but a letter.
+const LINK_PREFIX = /(?:https?|ftp):\/\/(?![\s\p{Cc}!-,./:-@[-^`{-~])|www\./giu;
+function startsLink(prefix: string, before: string): boolean {
+  return /^w/i.test(prefix) ? '*_~('.includes(before) : !/[a-z]/i.test(before);
+}
+// Characters an email can hold (word characters, `.+@-`, and the backslash
+// that escapes one), and what makes one: GFM needs a dot in its domain. An
+// email takes in no format, and cmark-gfm finds it in the text with its
+// references decoded, but micromark only where its `@` is written as is.
+const ADDRESS_CHARACTER = /[\w.+@\\-]/;
+const ADDRESS = /[\w.+-]@[\w-]+\.[\w-]/;
+const LINKISH = /www\.|:\/\/|@/i;
+// Characters that GFM readers leave out at the end of a URL.
+const LINK_TRAIL = '?!.,:*_~';
+
+// Characters that a reference does not stand in for everywhere: CommonMark
+// readers and HTML decode references to control characters, unpaired
+// surrogates and noncharacters as U+FFFD (or remap them).
+const UNREFERENCEABLE = /[\p{Cc}\p{Cs}\p{Noncharacter_Code_Point}]/u;
+
+/** Whether a character reference can stand in for `character` beside a marker. */
+function isReferenceable(character: string | undefined): boolean {
   return (
-    closingTagsBefore +
-    leadingSpace +
-    openingTags +
-    trimmedOutput +
-    closingTagsAfter +
-    trailingSpace
+    character !== undefined &&
+    isLetterForSomeReader(character) &&
+    !UNREFERENCEABLE.test(character)
   );
+}
+
+/**
+ * Adjacent markers between the pieces at `before` and `after`: whether the
+ * first delimiter run opens a tag, the marker character after it within the
+ * markers (if any), whether the last delimiter run closes a tag, and the
+ * marker character before it.
+ */
+type MarkerRun = [
+  before: number,
+  after: number,
+  opens: boolean,
+  afterFirst: string | undefined,
+  closes: boolean,
+  beforeLast: string | undefined,
+];
+
+/**
+ * Joins exported pieces into Markdown. A delimiter run between a word
+ * character and punctuation can only open or close on the punctuation side
+ * (CommonMark flanking), so plain `a` before a bold `*` cannot go out as
+ * `a**\***`. The word character beside such a run goes out as a numeric
+ * reference instead, whose `&` or `;` is punctuation: `&#97;**\***`.
+ */
+function joinPieces({kinds, values}: MarkdownPieces): string {
+  const text = values.join('');
+  if (kinds.every(kind => kind === TEXT)) {
+    return text;
+  }
+  const [encodeStart, encodeEnd] = decideReferences(kinds, values);
+  // The code units of `text` that go out as references.
+  const isReference = new Uint8Array(text.length);
+  for (let index = 0, base = 0; index < kinds.length; index++) {
+    const value = values[index];
+    const start = encodeStart[index] ? characterAt(value, 0)!.length : 0;
+    let end = value.length;
+    if (encodeEnd[index] && end > start) {
+      end -= characterBefore(value, end)!.length;
+    }
+    // A backslash left unescaped (when preserving newlines, or in decorator
+    // text) would escape the reference, marker or raw punctuation written
+    // after it, or end the line with a hard break.
+    if (
+      kinds[index] === TEXT &&
+      (isMarker(kinds[index + 1]) ||
+        (kinds[index + 1] === RAW && ESCAPABLE.test(values[index + 1]))) &&
+      end > start &&
+      isEscaped(value, end)
+    ) {
+      end--;
+    }
+    isReference.fill(1, base, base + start);
+    isReference.fill(1, base + end, (base += value.length));
+  }
+  spoilLinks(kinds, values, isReference);
+  let markdown = '';
+  let from = 0;
+  for (
+    let at = isReference.indexOf(1);
+    at !== -1;
+    at = isReference.indexOf(1, from)
+  ) {
+    const character = characterAt(text, at)!;
+    markdown += text.slice(from, at) + toCharacterReference(character);
+    from = at + character.length;
+  }
+  return markdown + text.slice(from);
+}
+
+// What a backslash before it escapes: ASCII punctuation or a line ending.
+const ESCAPABLE = /^[!-/:-@[-`{-~\n\r]/;
+
+/**
+ * Raw output as the bare-URL scan sees it. It keeps whitespace and `<`, which
+ * end a URL, `*_~(`, after which `www.` starts one, and ASCII letters, before
+ * which no scheme starts one, as `x`, and is `#` elsewhere. So no URL starts
+ * inside it, but one before it runs on into it, as GFM readers run a URL on
+ * through a code span or a link.
+ */
+function maskRaw(value: string): string {
+  return value.replace(/[a-z]/gi, 'x').replace(/[^\sx<*_~(]/g, '#');
+}
+
+/**
+ * Finds the bare URLs and `www.` hosts that GFM readers would link in the
+ * joined pieces, and that a reference would land in or that would take in
+ * the markers, code span or other raw output after them: the reader would
+ * keep the reference's characters in the link, or the markers and code as
+ * text. Such a URL is spoiled instead, by writing the `.` of `www.` or the
+ * `:` after its scheme as a reference, so that no reader links it and its
+ * text and formats come through. So is a URL that a reference before it
+ * would start. `isReference` marks the code units of the joined text that go
+ * out as references, and the ones that spoil a link are marked in it too.
+ */
+function spoilLinks(
+  kinds: PieceKind[],
+  values: string[],
+  isReference: Uint8Array,
+): void {
+  // Every URL and email starts with one of these. With no reference written,
+  // only a URL that runs on to the end of its text, into the markers or raw
+  // output after it, is spoiled.
+  const hasReferences = isReference.includes(1);
+  if (
+    !values.some(
+      (value, i) =>
+        kinds[i] === TEXT &&
+        LINKISH.test(value) &&
+        (hasReferences || LINKISH.test(value.slice(linkRunStart(value)))),
+    )
+  ) {
+    return;
+  }
+  let text = '';
+  // Whether each code unit is not text, as `1`.
+  let isFormat = '';
+  for (let i = 0; i < values.length; i++) {
+    text += kinds[i] === RAW ? maskRaw(values[i]) : values[i];
+    isFormat += (kinds[i] === TEXT ? '0' : '1').repeat(values[i].length);
+  }
+  // Running counts of referenced code units and of code units that are not
+  // text, so that whether any lie in a span is a subtraction.
+  const references = new Uint32Array(text.length + 1);
+  const formats = new Uint32Array(text.length + 1);
+  for (let i = 0; i < text.length; i++) {
+    references[i + 1] = references[i] + isReference[i];
+    formats[i + 1] = formats[i] + Number(isFormat[i] === '1');
+  }
+  const has = (sums: Uint32Array, from: number, to: number) =>
+    from < to && sums[to] > sums[from];
+  // A reference in an email would cut a micromark reader's link short, so
+  // each `@` of one that holds a reference is spoiled.
+  const spoilEmails = (from: number, to: number) => {
+    for (let start = from; start < to; ) {
+      let end = start;
+      while (end < to && ADDRESS_CHARACTER.test(text[end])) {
+        end++;
+      }
+      if (
+        has(references, start, end) &&
+        ADDRESS.test(text.slice(start, end).replace(/\\/g, ''))
+      ) {
+        for (let i = start; i < end; i++) {
+          // A raw backslash before an `@` would escape the reference's `&`.
+          if (
+            text[i] === '@' &&
+            !isReference[i] &&
+            isFormat[i] === '0' &&
+            !isEscaped(text, i)
+          ) {
+            isReference[i] = 1;
+          }
+        }
+      }
+      start = Math.max(end, start + 1);
+    }
+  };
+  for (let start = 0; start < text.length; ) {
+    let end = start;
+    while (
+      end < text.length &&
+      (isLinkCharacter(text[end]) || isReference[end] === 1)
+    ) {
+      end++;
+    }
+    if (end === start) {
+      start++;
+      continue;
+    }
+    // A URL runs to the end of the run, less the punctuation at its end. It
+    // takes in a backslash before that punctuation, which then no longer
+    // escapes it, so the punctuation can join the markers after it.
+    let trimmed = end;
+    while (trimmed > start && LINK_TRAIL.includes(text[trimmed - 1])) {
+      trimmed--;
+    }
+    if (isEscaped(text, trimmed) && has(formats, trimmed, end)) {
+      trimmed = end;
+    }
+    // Where the text that is not part of a URL starts, which may hold an
+    // email, and where the next URL may start.
+    let rest = start;
+    for (const prefix of text.slice(start, end).matchAll(LINK_PREFIX)) {
+      const at = start + prefix.index;
+      if (at < rest) {
+        continue;
+      }
+      // A reference before the prefix, or a spoiled `.` or `:`, puts `;`
+      // there.
+      const before = at > start ? text[at - 1] : '';
+      const wasLink = at === start || startsLink(prefix[0], before);
+      if (
+        at > start &&
+        !startsLink(prefix[0], isReference[at - 1] ? ';' : before)
+      ) {
+        continue;
+      }
+      spoilEmails(rest, at);
+      if (wasLink && !has(references, at, end) && !has(formats, at, trimmed)) {
+        rest = end;
+        break;
+      }
+      // A reference in the prefix spoils it already. A URL whose `.` or `:`
+      // is a custom format's marker is left as it is.
+      const spoil = at + prefix[0].search(/[.:]/);
+      if (!has(references, at, at + prefix[0].length)) {
+        if (isFormat[spoil] === '1') {
+          rest = end;
+          break;
+        }
+        isReference[spoil] = 1;
+      }
+      rest = at + prefix[0].length;
+    }
+    spoilEmails(rest, end);
+    start = end;
+  }
+}
+
+/**
+ * Walks the delimiter run at the edge of the markers from `from` to `to`,
+ * forward when `step` is 1 and backward when it is -1. Returns whether a
+ * marker of `kind` is part of that run, and the character past it within the
+ * markers, if any.
+ */
+function scanDelimiterRun(
+  kinds: PieceKind[],
+  values: string[],
+  from: number,
+  to: number,
+  step: 1 | -1,
+  kind: PieceKind,
+): [boolean, string | undefined] {
+  const edge = values[from];
+  const delimiter = edge[step === 1 ? 0 : edge.length - 1];
+  let hasKind = false;
+  for (let i = from; i !== to + step; i += step) {
+    const value = values[i];
+    for (
+      let c = step === 1 ? 0 : value.length - 1;
+      c >= 0 && c < value.length;
+      c += step
+    ) {
+      if (value[c] !== delimiter) {
+        return [hasKind, value[c]];
+      }
+      hasKind ||= kinds[i] === kind;
+    }
+  }
+  return [hasKind, undefined];
+}
+
+/**
+ * Marks the text pieces whose first (in the first array) or last character
+ * has to go out as a reference for the marker run beside it to open or close.
+ */
+function decideReferences(
+  kinds: PieceKind[],
+  values: string[],
+): [Uint8Array, Uint8Array] {
+  const count = kinds.length;
+  const encodeStart = new Uint8Array(count);
+  const encodeEnd = new Uint8Array(count);
+  const runs: MarkerRun[] = [];
+  // The run that follows and the run that precedes each piece, or -1. (A
+  // typed array ignores a write out of its bounds.)
+  const runAfter = new Int32Array(count).fill(-1);
+  const runBefore = new Int32Array(count).fill(-1);
+  for (let start = 0; start < count; start++) {
+    if (isMarker(kinds[start])) {
+      let end = start;
+      while (isMarker(kinds[end + 1])) {
+        end++;
+      }
+      runAfter[start - 1] = runBefore[end + 1] = runs.length;
+      // Markers of one character form one delimiter run, and only the first
+      // and the last delimiter run touch text.
+      runs.push([
+        start - 1,
+        end + 1,
+        ...scanDelimiterRun(kinds, values, start, end, 1, OPENER),
+        ...scanDelimiterRun(kinds, values, end, start, -1, CLOSER),
+      ]);
+      start = end;
+    }
+  }
+  const firstChar = (index: number) => characterAt(values[index], 0)!;
+  const lastChar = (index: number) =>
+    characterBefore(values[index], values[index].length)!;
+  // A one-character piece written as a reference reads as punctuation at
+  // both ends: `&#97;`.
+  const isOneCharacter = (index: number) =>
+    firstChar(index).length === values[index].length;
+  const isEncoded = (index: number) =>
+    (encodeStart[index] || encodeEnd[index]) && isOneCharacter(index);
+  const startChar = (index: number) =>
+    index >= count
+      ? undefined
+      : encodeStart[index] || isEncoded(index)
+        ? '&'
+        : firstChar(index);
+  const endChar = (index: number) =>
+    index < 0
+      ? undefined
+      : encodeEnd[index] || isEncoded(index)
+        ? ';'
+        : lastChar(index);
+  // Whether the last (or first) character of the piece at `index` can go out
+  // as a reference.
+  const canReference = (index: number, atEnd: boolean): boolean =>
+    kinds[index] === TEXT &&
+    isReferenceable(atEnd ? endChar(index) : startChar(index));
+  // Writing a one-character piece as a reference makes its other edge
+  // punctuation too. That can stop the delimiter run touching that edge from
+  // flanking unless the piece past it is written as a reference as well, and
+  // so on along a chain of one-character pieces. Where the chain ends at
+  // something that cannot be (raw output, say), writing the first reference
+  // would only trade one lost format for another, so it is not written.
+  // Each piece's answer is remembered for each direction, so each piece is
+  // walked at most twice. Raw output and unreferenceable characters stay
+  // what they are. A remembered block could only lift if a piece on its
+  // chain were later written as a reference from the other side, which takes
+  // a run of one marker character that both closes and opens; then a
+  // reference that would have kept a format is not written.
+  // 0 while unknown, then 1 when it spreads and 2 when it is blocked.
+  const spreads = [new Uint8Array(count), new Uint8Array(count)];
+  const canSpread = (index: number, leftward: boolean): boolean => {
+    const known = spreads[Number(leftward)];
+    const visited: number[] = [];
+    let result = true;
+    for (let piece = index; ; ) {
+      if (known[piece] !== 0) {
+        result = known[piece] === 1;
+        break;
+      }
+      visited.push(piece);
+      const runIndex = (leftward ? runBefore : runAfter)[piece];
+      if (runIndex === -1) {
+        break;
+      }
+      const [before, after, opens, afterFirst, closes, beforeLast] =
+        runs[runIndex];
+      const next = leftward ? before : after;
+      // Only a run of a single delimiter character touches both pieces.
+      if (
+        !(leftward
+          ? opens && afterFirst === undefined
+          : closes && beforeLast === undefined) ||
+        isPortablyFlankedBy(
+          leftward ? '&' : ';',
+          leftward ? endChar(next) : startChar(next),
+        )
+      ) {
+        break;
+      }
+      if (!canReference(next, leftward)) {
+        result = false;
+        break;
+      }
+      if (!isOneCharacter(next)) {
+        break;
+      }
+      piece = next;
+    }
+    for (const piece of visited) {
+      known[piece] = result ? 1 : 2;
+    }
+    return result;
+  };
+  // Whether a reference beside the run, before it when `opening` and after it
+  // otherwise, lets its first delimiter run open (or its last close) where it
+  // could not, and whether that reference can be written. `_` between two
+  // letters cannot open either way.
+  const isHelpedBy = (
+    [before, after, opens, afterFirst, closes, beforeLast]: MarkerRun,
+    opening: boolean,
+  ): boolean => {
+    const piece = opening ? before : after;
+    if (!(opening ? opens : closes) || !canReference(piece, opening)) {
+      return false;
+    }
+    const side = opening ? 'canOpen' : 'canClose';
+    const marker = opening
+      ? values[before + 1][0]
+      : values[after - 1][values[after - 1].length - 1];
+    const previous = (!opening && beforeLast) || endChar(before);
+    const next = (opening && afterFirst) || startChar(after);
+    return (
+      !getPortableEmphasisSides(marker, previous, next)[side] &&
+      getPortableEmphasisSides(
+        marker,
+        opening ? ';' : previous,
+        opening ? next : '&',
+      )[side] &&
+      (!isOneCharacter(piece) || canSpread(piece, opening))
+    );
+  };
+  // Text does not escape every tag character (the `=` of `==`, say), and one
+  // right beside a marker of the same character would join its delimiter
+  // run, so it goes out as a reference.
+  for (let i = 0; i < count; i++) {
+    const value = values[i];
+    if (kinds[i] === TEXT) {
+      if (
+        isMarker(kinds[i + 1]) &&
+        value[value.length - 1] === values[i + 1][0] &&
+        !isEscaped(value, value.length - 1)
+      ) {
+        encodeEnd[i] = 1;
+      }
+      if (
+        isMarker(kinds[i - 1]) &&
+        value[0] === values[i - 1][values[i - 1].length - 1]
+      ) {
+        encodeStart[i] = 1;
+      }
+    }
+  }
+  const pending = runs.map((_run, index) => index);
+  // Writing a one-character piece as a reference changes what the run on its
+  // other side sees, so that run is decided again. Each piece changes at most
+  // twice, so this stays linear.
+  while (pending.length > 0) {
+    const index = pending.pop()!;
+    const run = runs[index];
+    const [before, after, opens, afterFirst] = run;
+    if (isHelpedBy(run, true)) {
+      encodeEnd[before] = 1;
+      if (isEncoded(before) && runBefore[before] !== -1) {
+        pending.push(runBefore[before]);
+      }
+    }
+    if (isHelpedBy(run, false)) {
+      encodeStart[after] = 1;
+      // An opener that sees the same character, of a run that both closes
+      // and opens, may now need its own reference.
+      if (opens && afterFirst === undefined) {
+        pending.push(index);
+      }
+      if (isEncoded(after) && runAfter[after] !== -1) {
+        pending.push(runAfter[after]);
+      }
+    }
+  }
+  return [encodeStart, encodeEnd];
 }
 
 /**

@@ -142,7 +142,10 @@ separated by `<br>` (whatever spelling of the tag, such as `<br/>` or
 `</br>`, was read), with a code block's lines as inline code. A merged
 cell is written where it starts with empty cells where it spans, flow
 content with no form in a cell (such as a horizontal rule) is written
-after the table, and the alignment of a body cell is dropped.
+after the table, and the alignment of a body cell is dropped. A body
+cell added in the editor (in an inserted row, or split from a merged
+cell) gets its column's alignment on its paragraphs with no format, so
+it is shown as the column is written.
 Editing tables in the editor also takes `TableExtension` from
 `@lexical/table`.
 

@@ -50,7 +50,12 @@ import {
 } from 'lexical';
 
 import {scanCodeSpans} from './importTextFormatTransformer';
-import {isEmptyParagraph, isEscaped, unescapeText} from './utils';
+import {
+  isEmptyParagraph,
+  isEscaped,
+  toCharacterReference,
+  unescapeText,
+} from './utils';
 
 export type Transformer =
   | ElementTransformer
@@ -1195,7 +1200,7 @@ function escapeLinkPart(value: string, syntax: RegExp): string {
     .replace(/&(?=#\d+;|#[Xx][\dA-Fa-f]+;|[A-Za-z][\dA-Za-z]*;)/g, '&#38;')
     .replace(syntax, '\\$&')
     .replace(/`/g, '\\`')
-    .replace(/[\r\n]/g, lineEnding => `&#${lineEnding.charCodeAt(0)};`);
+    .replace(/[\r\n]/g, toCharacterReference);
 }
 
 // Mask escaped/code brackets without changing source offsets, then find an inner
@@ -1336,6 +1341,8 @@ export const LINK: TextMatchTransformer = {
     const linkTitle =
       rawLinkTitle != null ? unescapeText(rawLinkTitle) : undefined;
     const linkNode = $createLinkNode(linkUrl, {title: linkTitle});
+    // Import passes the label from its real opener, so this finds none, but
+    // a custom caller may pass a match that starts at an earlier `[`.
     const openBracketIndex = getLinkLabelOpener(linkText);
     if (openBracketIndex === null) return;
     let parsedLinkText = linkText;

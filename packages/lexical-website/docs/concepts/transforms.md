@@ -193,6 +193,11 @@ registerLexicalTextEntity<T extends TextNode>(
 ): Array<() => void>;
 ```
 
+For insertions into repeated text, the transform uses the collapsed caret when
+the text after it matches the previous suffix. Otherwise it compares the unchanged
+prefix and suffix independently, preserving the NodeState of characters that may
+have existed before the edit.
+
 ## Examples
 
 1. [Emojis](https://github.com/meta/lexical/blob/main/packages/lexical-playground/src/plugins/EmojisExtension/index.ts)
