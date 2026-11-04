@@ -184,6 +184,38 @@ describe('Markdown punctuation modes', () => {
       [['a.\ufe00', strikethrough]],
       [['a.\ufe00', strikethrough]],
     ],
+    // A selector right after a link varies its `)`, also where a marker in
+    // the link text pairs with one after it.
+    [
+      'x [*a](u)\ufe0e_b_*',
+      [
+        ['x ', 0],
+        ['*a', 0],
+        ['\ufe0e', 0],
+        ['b', italic],
+        ['*', 0],
+      ],
+      [
+        ['x ', 0],
+        ['*a', 0],
+        ['\ufe0e_b_*', 0],
+      ],
+    ],
+    [
+      'x [*a](u)\ufe0e*_*「\ufe0e',
+      [
+        ['x ', 0],
+        ['*a', 0],
+        ['\ufe0e', 0],
+        ['_', italic],
+        ['「\ufe0e', 0],
+      ],
+      [
+        ['x ', 0],
+        ['*a', 0],
+        ['\ufe0e*_*「\ufe0e', 0],
+      ],
+    ],
     // A selector that starts formatted or link text varies the syntax before
     // it.
     [

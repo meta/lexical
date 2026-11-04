@@ -355,14 +355,19 @@ function $importOutermost(
     if (textAfter !== null && textAfter !== rest) {
       return {after: undefined, before: undefined, node: nodeAfter, scan: null};
     }
-    const restBefore = characterBeyondRun(
-      text,
-      endIndex,
-      -1,
-      before,
-      delimiters,
-      isTextMatch,
-    );
+    const restBefore =
+      isTextMatch && isVariationSelector(rest[0])
+        ? // A variation selector that starts the rest varies the end of the
+          // match, such as a link's `)`.
+          flankingBefore(text, endIndex, before)
+        : characterBeyondRun(
+            text,
+            endIndex,
+            -1,
+            before,
+            delimiters,
+            isTextMatch,
+          );
     // The scan read a run at the start of the rest beside the end of the
     // match. Read beside the edge of a line instead, it can only change the
     // pair it opens, since it has nothing before it in the rest to close.

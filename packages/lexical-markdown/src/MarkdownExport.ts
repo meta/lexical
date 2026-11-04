@@ -1083,16 +1083,20 @@ function decideReferences(
     }
   }
   const firstChar = (index: number) => characterAt(values[index], 0)!;
+  const isLoneSelector = (index: number) =>
+    values[index].length === 1 && isVariationSelector(values[index]);
   // A variation selector that starts a piece varies what ends the piece
-  // before it.
+  // before it. Only the last character of that is read, which for a piece
+  // that is a selector too is the selector, so the lookup stops there rather
+  // than walk a chain of such pieces at every call.
   const lastChar = (index: number): string =>
     flankingBefore(
       values[index],
       values[index].length,
-      index > 0 &&
-        values[index].length === 1 &&
-        isVariationSelector(values[index])
-        ? endChar(index - 1)
+      index > 0 && isLoneSelector(index)
+        ? isLoneSelector(index - 1) && !isEncoded(index - 1)
+          ? values[index - 1]
+          : endChar(index - 1)
         : undefined,
     )!;
   // A one-character piece written as a reference reads as punctuation at
