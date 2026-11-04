@@ -872,32 +872,41 @@ recreated, restored from a backup or moved to a new document) plus the
 epochs a migration recorded. A client keeps, beside its cached state and
 unsent edits, the generation they were made against, adopted only from the
 server's acknowledgement of a full sync or from bootstrapping a new
-document. Before any sync message it sends the handshake its layout upgrade
-handle builds, `layoutUpgrade.handshake({generation, material})` (the
-handle from `createYServerLayoutUpgrade()` that the client passed to
-`createYCollabConfig`): `{v: 1, generation, material, layouts: [MIN_LAYOUT,
-LAYOUT_VERSION], seed: SEED_LAYOUT, features}` (`generation` null when it
-has none, `'unknown'` for material from before the fence). Never build it
-by hand. The server
-answers with `checkYSession(describeYRoom(doc, {incarnation, inherited,
-seedContract}), handshake)`; the first row that matches wins:
+document. Before any sync message it sends the version 1 handshake its
+layout upgrade handle builds, `layoutUpgrade.handshake({generation,
+material})` (the handle from `createYServerLayoutUpgrade()` that the client
+passed to `createYCollabConfig`): `{v: 1, generation, material, layouts:
+[MIN_LAYOUT, LAYOUT_VERSION], seed: SEED_LAYOUT, features}` (`generation`
+null when it has none, `'unknown'` for material from before the fence;
+`features` the features it implements, default none). Never build it by
+hand. The server answers with `checkYSession(describeYRoom(doc,
+{incarnation, inherited, seedContract}), handshake)`; the first row that
+matches wins:
 
 | # | Client | Verdict |
 |---|---|---|
-| 1 | no handshake (a release before the fence) | `admit` as today when the room's incarnation is inherited (the room existed before the fence) and it never migrated or was replaced; otherwise `legacy`: capture it |
-| 2 | material, and another (no, an unknown) generation, or a served root's layout outside `layouts` (or a served root without a layout record), or a never-seeded room whose seed contract is not `seed` | `stale`: no sync either way; the client hands off its material, then connects again. A client holding material is never refused before its material is acknowledged |
-| 3 | a served root's layout is outside `layouts` (or one has no layout record) | `refuse-layout`: reload to another release |
-| 4 | a never-seeded room whose seed contract is not `seed` | `refuse-layout` |
-| 5 | the room's generation | `admit` (`initialize: true` in a never-seeded room) |
-| 6 | no material | `bootstrap`: load the room's state into a new document, persist it with the generation, then bind (`initialize: true` in a never-seeded room) |
+| 1 | no handshake (a release before the fence) | `admit` as today when the room's incarnation is inherited (the room existed before the fence), it never migrated (`hasMigration` false) or was replaced, it requires no feature and every served root is readable; otherwise `legacy`: capture it |
+| 2 | a handshake that is not well formed: no `v` or another version, `features` that are not strings, or a field of the wrong type | `refuse-layout` |
+| 3 | material, and another (no, an unknown) generation, or a served root's layout outside `layouts` (or an unreadable served root), or a never-seeded room whose seed contract is not `seed`, or a required feature missing from `features` | `stale`: no sync either way; the client hands off its material, then connects again. A client holding material is never refused before its material is acknowledged |
+| 4 | a served root's layout is outside `layouts` (or one is unreadable) | `refuse-layout`: reload to another release |
+| 5 | a required feature is missing from `features` | `refuse-layout` |
+| 6 | a never-seeded room whose seed contract is not `seed` | `refuse-layout` |
+| 7 | the room's generation | `admit` (`initialize: true` in a never-seeded room) |
+| 8 | no material | `bootstrap`: load the room's state into a new document, persist it with the generation, then bind (`initialize: true` in a never-seeded room) |
+
+The five verdicts are permanent. A verdict may carry a `reason` (for
+example `'generation'`, `'layout'`, `'requires'`, `'seed'`,
+`'malformed-handshake'`, `'migrated'`): an explanation for logs, open to new
+values, never something to branch on. Unknown handshake fields are ignored;
+a later handshake that needs new semantics negotiates them with a feature or
+a new `v`.
 
 The server never syncs a session whose verdict is not `admit`, so a stale
-client never holds items of two generations in one document. Row 2 also
+client never holds items of two generations in one document. Row 3 also
 covers a fence-aware client holding material from before the fence
 (generation `'unknown'`): it is stale even in an inherited room that never
 migrated, and until replay ships, its offline edits become read-only
-quarantine records. A handshake
-that is not well formed (it comes from the network) gets `refuse-layout`. The room's
+quarantine records. The room's
 `layouts` are the lowest and highest layouts its served roots record: a
 client must read every served root.
 

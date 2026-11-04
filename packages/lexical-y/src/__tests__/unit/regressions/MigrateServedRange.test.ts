@@ -36,16 +36,18 @@ describe.each([false, true])('served roots, gc %s', gc => {
         layouts: [2, 2],
         material: true,
         seed: 1,
+        v: 1,
       }),
-    ).toEqual({verdict: 'stale'});
+    ).toMatchObject({verdict: 'stale'});
     expect(
       checkYSession(room, {
         generation: null,
         layouts: [2, 2],
         material: false,
         seed: 1,
+        v: 1,
       }),
-    ).toEqual({verdict: 'refuse-layout'});
+    ).toMatchObject({verdict: 'refuse-layout'});
     // A client reading both: admitted.
     expect(
       checkYSession(room, {
@@ -53,6 +55,7 @@ describe.each([false, true])('served roots, gc %s', gc => {
         layouts: [1, 2],
         material: true,
         seed: 1,
+        v: 1,
       }),
     ).toEqual({initialize: false, verdict: 'admit'});
     doc.destroy();
@@ -79,6 +82,7 @@ describe.each([false, true])('served roots, gc %s', gc => {
           layouts: [1, 9],
           material,
           seed: 1,
+          v: 1,
         }).verdict,
       ).toBe(material ? 'stale' : 'refuse-layout');
     }

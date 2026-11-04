@@ -76,10 +76,12 @@ declare export function prepareYRoom(
 declare export var UNKNOWN_GENERATION: 'unknown';
 
 export type YSessionHandshake = {
+  readonly v: 1,
   readonly generation: string | null,
   readonly material: boolean,
   readonly layouts: [number, number],
   readonly seed: number,
+  readonly features?: ReadonlyArray<string>,
 };
 
 export type YRoomDescription = {
@@ -91,6 +93,7 @@ export type YRoomDescription = {
   readonly unreadable: ReadonlyArray<string>,
   readonly seedContract: number,
   readonly requires: ReadonlyArray<string>,
+  readonly hasMigration: boolean,
 };
 
 declare export function describeYRoom(
@@ -109,11 +112,19 @@ declare export function needsNewIncarnation(
 ): boolean;
 
 export type YSessionVerdict =
-  | {readonly verdict: 'admit', readonly initialize: boolean}
-  | {readonly verdict: 'bootstrap', readonly initialize: boolean}
-  | {readonly verdict: 'stale'}
-  | {readonly verdict: 'refuse-layout'}
-  | {readonly verdict: 'legacy'};
+  | {
+      readonly verdict: 'admit',
+      readonly initialize: boolean,
+      readonly reason?: string,
+    }
+  | {
+      readonly verdict: 'bootstrap',
+      readonly initialize: boolean,
+      readonly reason?: string,
+    }
+  | {readonly verdict: 'stale', readonly reason?: string}
+  | {readonly verdict: 'refuse-layout', readonly reason?: string}
+  | {readonly verdict: 'legacy', readonly reason?: string};
 
 declare export function checkYSession(
   room: YRoomDescription,

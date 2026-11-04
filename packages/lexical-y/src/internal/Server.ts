@@ -180,18 +180,24 @@ export function prepareYRoom(
 export const UNKNOWN_GENERATION = 'unknown';
 
 /**
- * @experimental What a client sends before any sync message: the
- * generation its replica's material was made against (null: none,
+ * @experimental What a client sends before any sync message (version 1):
+ * the generation its replica's material was made against (null: none,
  * `'unknown'`: material without a recorded generation), whether it holds
  * material (unsent edits or a cached state), the layouts its release reads
- * (`[MIN_LAYOUT, LAYOUT_VERSION]`) and the layout its seed records
- * (`SEED_LAYOUT`).
+ * (`[MIN_LAYOUT, LAYOUT_VERSION]`), the layout its seed records
+ * (`SEED_LAYOUT`) and the features it implements (see YRoomDescription's
+ * `requires`; default none). `v` is required: a handshake without it, or
+ * with another version, is malformed (refuse-layout); no handshake at all
+ * (null) is the legacy route. Unknown fields are ignored: a later version
+ * that needs new semantics negotiates them with a feature or a new `v`.
  */
 export interface YSessionHandshake {
+  readonly v: 1;
   readonly generation: string | null;
   readonly material: boolean;
   readonly layouts: readonly [number, number];
   readonly seed: number;
+  readonly features?: readonly string[];
 }
 
 /** @experimental The room as checkYSession sees it (see describeYRoom). */
@@ -230,6 +236,11 @@ export interface YRoomDescription {
    * its root unreadable instead.
    */
   readonly requires: readonly string[];
+  /**
+   * Whether a served root records an epoch (a migration ran on it), or a
+   * malformed one: a client from before the fence is then never admitted.
+   */
+  readonly hasMigration: boolean;
 }
 
 /** @experimental Describe a room's document for checkYSession. */
@@ -247,6 +258,7 @@ export function describeYRoom(
   let layouts: [number, number] | null = null;
   const unreadable: string[] = [];
   const requires = new Set<string>();
+  let hasMigration = false;
   let pristine = true;
   for (const name of [...roots].sort()) {
     const root = existingRoot(doc, name);
@@ -260,6 +272,10 @@ export function describeYRoom(
     }
     pristine = false;
     const record = layoutRecordOf(root);
+    const epoch = epochRecordOf(root);
+    if (epoch.kind !== 'none') {
+      hasMigration = true;
+    }
     // Every well-formed requirement, whether this server supports the
     // feature or not: a session must present it (checkYSession).
     const requirements = readRequirements(root);
@@ -268,7 +284,7 @@ export function describeYRoom(
     }
     if (
       record.kind === 'layout' &&
-      epochRecordOf(root).kind !== 'malformed' &&
+      epoch.kind !== 'malformed' &&
       requirements.malformed.length === 0
     ) {
       layouts =
@@ -284,6 +300,7 @@ export function describeYRoom(
   }
   return {
     generation: generationOf(doc, options.incarnation, roots),
+    hasMigration,
     incarnation: options.incarnation,
     inherited: options.inherited,
     layouts,
@@ -309,39 +326,61 @@ export function needsNewIncarnation(
   return room.pristine && room.seedContract !== seedLayout;
 }
 
-/** @experimental checkYSession's verdict (y-server.md, the handshake table). */
+/**
+ * @experimental checkYSession's verdict (y-server.md, the handshake table).
+ * The five verdicts are permanent. `reason` is an optional explanation for
+ * logs and diagnostics (open: new reasons may be added; never branch on
+ * it): `'malformed-handshake'`, `'generation'`, `'layout'`, `'seed'`,
+ * `'requires'`, `'unreadable'`, `'migrated'`, `'not-inherited'`.
+ */
 export type YSessionVerdict =
   /**
    * Sync both ways. `initialize`: the room is pristine and the client may
    * seed it.
    */
-  | {readonly verdict: 'admit'; readonly initialize: boolean}
+  | {
+      readonly verdict: 'admit';
+      readonly initialize: boolean;
+      readonly reason?: string;
+    }
   /**
    * A replica without material: load the room's state into a new document,
    * persist it with the generation, then bind. `initialize`: the room is
    * pristine and the client may seed it.
    */
-  | {readonly verdict: 'bootstrap'; readonly initialize: boolean}
+  | {
+      readonly verdict: 'bootstrap';
+      readonly initialize: boolean;
+      readonly reason?: string;
+    }
   /**
    * A replica with material that may not sync with this room: no sync
    * either way; it hands its material off (recovery handoff) and connects
    * again once acknowledged, without material.
    */
-  | {readonly verdict: 'stale'}
-  /** The client cannot read or seed the room: reload to another release. */
-  | {readonly verdict: 'refuse-layout'}
+  | {readonly verdict: 'stale'; readonly reason?: string}
+  /**
+   * The client cannot read, seed or meet the requirements of the room:
+   * reload to another release.
+   */
+  | {readonly verdict: 'refuse-layout'; readonly reason?: string}
   /** No handshake on a room it may not join: capture (captureYSession). */
-  | {readonly verdict: 'legacy'};
+  | {readonly verdict: 'legacy'; readonly reason?: string};
 
-/** Whether `value` is a well-formed YSessionHandshake. */
+/** Whether `value` is a well-formed YSessionHandshake (version 1). */
 function isHandshake(value: unknown): boolean {
-  if (typeof value !== 'object' || value === null) {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
     return false;
   }
   const h = value as Record<string, unknown>;
   const layout = (x: unknown) => Number.isSafeInteger(x) && (x as number) >= 1;
   const layouts = h.layouts;
+  const features = h.features;
   return (
+    h.v === 1 &&
+    (features === undefined ||
+      (Array.isArray(features) &&
+        features.every(f => typeof f === 'string'))) &&
     (h.generation === null || typeof h.generation === 'string') &&
     typeof h.material === 'boolean' &&
     Array.isArray(layouts) &&
@@ -357,22 +396,27 @@ function isHandshake(value: unknown): boolean {
  * @experimental The handshake verdict for a session (y-server.md
  * "Migrating stored documents"): the first row that matches wins.
  * 1. No handshake (`client` null, a release before the fence): admit as
- *    today when the room's incarnation is inherited and it never migrated
- *    (no epoch) or was replaced (a new incarnation is never inherited);
- *    otherwise legacy.
- * 2. Material, and any of: another generation (another token, unknown or
+ *    today when the room's incarnation is inherited, it never migrated (no
+ *    epoch, `hasMigration` false) or was replaced (a new incarnation is
+ *    never inherited), it requires no feature and every served root is
+ *    readable; otherwise legacy.
+ * 2. A handshake that is not well formed (it arrives from the network: no
+ *    `v` or another version, `features` that are not strings, a generation
+ *    that is neither a string nor null, a non-boolean material, layouts
+ *    that are not two layouts from 1 in order, a seed that is not a
+ *    layout): refuse-layout.
+ * 3. Material, and any of: another generation (another token, unknown or
  *    null), a served root's layout outside the client's `layouts` (or a
- *    served root without a well-formed record), a pristine
- *    room whose seed contract is not the client's `seed`: stale. No client
- *    holding material is refused before its material is acknowledged.
- * 3. A served root's layout outside `layouts`: refuse-layout.
- * 4. A pristine room whose seed contract is not `seed`: refuse-layout.
- * 5. The room's generation: admit (`initialize` in a pristine room).
- * 6. No material: bootstrap (`initialize` in a pristine room).
- * A handshake that is not well formed (it arrives from the network: a
- * generation that is neither a string nor null, a non-boolean material,
- * layouts that are not two layouts from 1 in order, a seed that is not a
- * layout) is `'refuse-layout'`.
+ *    served root that is unreadable), a pristine room whose seed contract
+ *    is not the client's `seed`, a required feature the client does not
+ *    present: stale. No client holding material is refused before its
+ *    material is acknowledged.
+ * 4. A served root's layout outside `layouts`, or an unreadable root:
+ *    refuse-layout.
+ * 5. A required feature the client does not present: refuse-layout.
+ * 6. A pristine room whose seed contract is not `seed`: refuse-layout.
+ * 7. The room's generation: admit (`initialize` in a pristine room).
+ * 8. No material: bootstrap (`initialize` in a pristine room).
  * Never sync a session whose verdict is not `'admit'`, and check every
  * update again at commit against the room's current generation.
  */
@@ -380,17 +424,28 @@ export function checkYSession(
   room: YRoomDescription,
   client: YSessionHandshake | null,
 ): YSessionVerdict {
-  if (client !== null && !isHandshake(client)) {
-    return {verdict: 'refuse-layout'};
-  }
   if (client === null) {
-    return room.inherited && room.generation === `${room.incarnation}/-`
-      ? {initialize: false, verdict: 'admit'}
-      : {verdict: 'legacy'};
+    if (!room.inherited) {
+      return {reason: 'not-inherited', verdict: 'legacy'};
+    }
+    if (room.hasMigration) {
+      return {reason: 'migrated', verdict: 'legacy'};
+    }
+    if (room.requires.length > 0) {
+      return {reason: 'requires', verdict: 'legacy'};
+    }
+    if (room.unreadable.length > 0) {
+      return {reason: 'unreadable', verdict: 'legacy'};
+    }
+    return {initialize: false, verdict: 'admit'};
+  }
+  if (!isHandshake(client)) {
+    return {reason: 'malformed-handshake', verdict: 'refuse-layout'};
   }
   const same =
     client.generation !== null &&
     client.generation !== UNKNOWN_GENERATION &&
+    room.generation !== UNKNOWN_GENERATION &&
     client.generation === room.generation;
   // Every served root inside the client's range.
   const [min, max] = client.layouts;
@@ -398,12 +453,24 @@ export function checkYSession(
     room.unreadable.length === 0 &&
     (room.layouts === null ||
       (room.layouts[0] >= min && room.layouts[1] <= max));
+  const features = new Set(client.features ?? []);
+  const featured = room.requires.every(f => features.has(f));
   const seedable = !room.pristine || client.seed === room.seedContract;
-  if (client.material && (!same || !readable || !seedable)) {
-    return {verdict: 'stale'};
+  // Why a session may not join, in the order the rows test it.
+  const refusal = !readable
+    ? room.unreadable.length > 0
+      ? 'unreadable'
+      : 'layout'
+    : !featured
+      ? 'requires'
+      : !seedable
+        ? 'seed'
+        : null;
+  if (client.material && (!same || refusal !== null)) {
+    return {reason: refusal ?? 'generation', verdict: 'stale'};
   }
-  if (!readable || !seedable) {
-    return {verdict: 'refuse-layout'};
+  if (refusal !== null) {
+    return {reason: refusal, verdict: 'refuse-layout'};
   }
   if (same) {
     return {initialize: room.pristine, verdict: 'admit'};

@@ -38,6 +38,7 @@ import {
   type YLegacySignal,
   type YRoomDescription,
   type YSessionHandshake,
+  type YSessionVerdict,
 } from '../../server';
 import {$snapshot, catalogHeadlessConfig, seedShapes} from '../catalog/bind';
 import {NODE_SHAPES, shapesWith} from '../catalog/nodes';
@@ -200,6 +201,7 @@ describe.each([false, true])('@lexical/y/server, gc %s', gc => {
   describe('checkYSession', () => {
     const room = (over: Partial<YRoomDescription> = {}): YRoomDescription => ({
       generation: 'inc-1/lexical-y=2.5.0',
+      hasMigration: true,
       incarnation: INC,
       inherited: false,
       layouts: [2, 2],
@@ -216,8 +218,17 @@ describe.each([false, true])('@lexical/y/server, gc %s', gc => {
       layouts: [1, 2],
       material: true,
       seed: 1,
+      v: 1,
       ...over,
     });
+    /** The verdict without its (diagnostic) reason. */
+    const check = (
+      r: YRoomDescription,
+      c: YSessionHandshake | null,
+    ): YSessionVerdict => {
+      const {reason: _reason, ...verdict} = checkYSession(r, c);
+      return verdict;
+    };
     const OTHERS = [
       null,
       UNKNOWN_GENERATION,
@@ -226,31 +237,38 @@ describe.each([false, true])('@lexical/y/server, gc %s', gc => {
     ];
     const PRISTINE = {
       generation: 'inc-1/-',
+      hasMigration: false,
       layouts: null,
       pristine: true,
     };
 
     test('row 1: no handshake: admit on an inherited room that never migrated or was replaced, else legacy', () => {
-      const unmigrated = {generation: 'inc-1/-'};
-      expect(
-        checkYSession(room({...unmigrated, inherited: true}), null),
-      ).toEqual({initialize: false, verdict: 'admit'});
-      expect(checkYSession(room({inherited: true}), null)).toEqual({
+      const unmigrated = {generation: 'inc-1/-', hasMigration: false};
+      expect(check(room({...unmigrated, inherited: true}), null)).toEqual({
+        initialize: false,
+        verdict: 'admit',
+      });
+      expect(check(room({inherited: true}), null)).toEqual({
         verdict: 'legacy',
       });
-      expect(checkYSession(room(unmigrated), null)).toEqual({
+      expect(check(room(unmigrated), null)).toEqual({
         verdict: 'legacy',
       });
       // Replaced: a new incarnation (never inherited) in the generation.
       expect(
-        checkYSession(
-          room({generation: 'inc-2/-', incarnation: 'inc-2', inherited: false}),
+        check(
+          room({
+            generation: 'inc-2/-',
+            hasMigration: false,
+            incarnation: 'inc-2',
+            inherited: false,
+          }),
           null,
         ),
       ).toEqual({verdict: 'legacy'});
       // Before every other row: whatever the layout, seed or pristine.
       expect(
-        checkYSession(
+        check(
           room({
             ...unmigrated,
             inherited: true,
@@ -264,30 +282,28 @@ describe.each([false, true])('@lexical/y/server, gc %s', gc => {
 
     test('row 2: material and another generation, an unreadable layout or a pristine room under another seed contract: stale, before any refusal', () => {
       for (const generation of OTHERS) {
-        expect(checkYSession(room(), client({generation}))).toEqual({
+        expect(check(room(), client({generation}))).toEqual({
           verdict: 'stale',
         });
-        expect(
-          checkYSession(room({layouts: [3, 3]}), client({generation})),
-        ).toEqual({
+        expect(check(room({layouts: [3, 3]}), client({generation}))).toEqual({
           verdict: 'stale',
         });
       }
       // The room's generation, but a layout it cannot read: stale, not
       // refused (its material is acknowledged first).
-      expect(checkYSession(room({layouts: [3, 3]}), client())).toEqual({
+      expect(check(room({layouts: [3, 3]}), client())).toEqual({
         verdict: 'stale',
       });
       // The room's generation, pristine under another seed contract.
       expect(
-        checkYSession(
+        check(
           room({...PRISTINE, seedContract: 3}),
           client({generation: 'inc-1/-'}),
         ),
       ).toEqual({verdict: 'stale'});
       // A token that happens to read 'unknown' never matches.
       expect(
-        checkYSession(
+        check(
           room({generation: UNKNOWN_GENERATION}),
           client({generation: UNKNOWN_GENERATION}),
         ),
@@ -295,11 +311,11 @@ describe.each([false, true])('@lexical/y/server, gc %s', gc => {
     });
 
     test('row 3: no material and a layout outside the client layouts: refuse-layout', () => {
+      expect(check(room({layouts: [3, 3]}), client({material: false}))).toEqual(
+        {verdict: 'refuse-layout'},
+      );
       expect(
-        checkYSession(room({layouts: [3, 3]}), client({material: false})),
-      ).toEqual({verdict: 'refuse-layout'});
-      expect(
-        checkYSession(
+        check(
           room({layouts: [1, 1]}),
           client({generation: null, layouts: [2, 3], material: false}),
         ),
@@ -309,7 +325,7 @@ describe.each([false, true])('@lexical/y/server, gc %s', gc => {
     test('row 4: no material and a pristine room under another seed contract: refuse-layout, before admit and bootstrap', () => {
       for (const generation of [null, 'inc-1/-']) {
         expect(
-          checkYSession(
+          check(
             room({...PRISTINE, seedContract: 3}),
             client({generation, material: false}),
           ),
@@ -318,30 +334,29 @@ describe.each([false, true])('@lexical/y/server, gc %s', gc => {
     });
 
     test('row 5: the room generation: admit, with initialize in a pristine room', () => {
-      expect(checkYSession(room(), client())).toEqual({
+      expect(check(room(), client())).toEqual({
         initialize: false,
         verdict: 'admit',
       });
-      expect(checkYSession(room(), client({material: false}))).toEqual({
+      expect(check(room(), client({material: false}))).toEqual({
         initialize: false,
         verdict: 'admit',
       });
-      expect(
-        checkYSession(room(PRISTINE), client({generation: 'inc-1/-'})),
-      ).toEqual({initialize: true, verdict: 'admit'});
+      expect(check(room(PRISTINE), client({generation: 'inc-1/-'}))).toEqual({
+        initialize: true,
+        verdict: 'admit',
+      });
     });
 
     test('row 6: no material: bootstrap, with initialize in a pristine room', () => {
       for (const generation of OTHERS) {
-        expect(
-          checkYSession(room(), client({generation, material: false})),
-        ).toEqual({initialize: false, verdict: 'bootstrap'});
+        expect(check(room(), client({generation, material: false}))).toEqual({
+          initialize: false,
+          verdict: 'bootstrap',
+        });
       }
       expect(
-        checkYSession(
-          room(PRISTINE),
-          client({generation: null, material: false}),
-        ),
+        check(room(PRISTINE), client({generation: null, material: false})),
       ).toEqual({initialize: true, verdict: 'bootstrap'});
     });
 
@@ -371,6 +386,7 @@ describe.each([false, true])('@lexical/y/server, gc %s', gc => {
                     for (const seed of [1, 3]) {
                       const r = room({
                         generation: roomGeneration,
+                        hasMigration: roomGeneration !== 'g/-',
                         incarnation: 'g',
                         inherited,
                         layouts,
@@ -398,12 +414,12 @@ describe.each([false, true])('@lexical/y/server, gc %s', gc => {
                             : same
                               ? {initialize: pristine, verdict: 'admit'}
                               : {initialize: pristine, verdict: 'bootstrap'};
-                      const got = checkYSession(r, c);
+                      const got = check(r, c);
                       expect(got).toEqual(want);
                       if (material) {
                         expect(got.verdict).not.toBe('refuse-layout');
                       }
-                      expect(checkYSession(r, null)).toEqual(
+                      expect(check(r, null)).toEqual(
                         inherited && roomGeneration === 'g/-'
                           ? {initialize: false, verdict: 'admit'}
                           : {verdict: 'legacy'},
@@ -434,14 +450,119 @@ describe.each([false, true])('@lexical/y/server, gc %s', gc => {
         {...client(), seed: 0},
       ];
       for (const handshake of bad) {
-        expect(checkYSession(room(), handshake as YSessionHandshake)).toEqual({
+        expect(check(room(), handshake as YSessionHandshake)).toEqual({
           verdict: 'refuse-layout',
         });
       }
       // Extra fields are fine.
       expect(
-        checkYSession(room(), {...client(), extra: 1} as YSessionHandshake),
+        check(room(), {...client(), extra: 1} as YSessionHandshake),
       ).toEqual({initialize: false, verdict: 'admit'});
+    });
+
+    test('version 1: a handshake without v, with another v or with features that are not strings is malformed (refuse-layout, with or without material); null stays the legacy route', () => {
+      const {v: _v, ...unversioned} = client();
+      for (const material of [false, true]) {
+        for (const bad of [
+          {...unversioned, material},
+          {...client({material}), v: 2},
+          {...client({material}), v: '1'},
+          {...client({material}), v: 0},
+          {...client({material}), v: null},
+          {...client({material}), features: 'x'},
+          {...client({material}), features: [1]},
+          {...client({material}), features: {x: true}},
+          [],
+        ]) {
+          expect(checkYSession(room(), bad as YSessionHandshake)).toEqual({
+            reason: 'malformed-handshake',
+            verdict: 'refuse-layout',
+          });
+        }
+      }
+      expect(check(room(), client({features: []}))).toEqual({
+        initialize: false,
+        verdict: 'admit',
+      });
+      expect(check(room({hasMigration: false, inherited: true}), null)).toEqual(
+        {initialize: false, verdict: 'admit'},
+      );
+    });
+
+    test('requirements: every required feature presented admits; one missing is stale with material, else refuse-layout; a client from before the fence is never admitted', () => {
+      const req = room({requires: ['a', 'b']});
+      for (const features of [
+        ['a', 'b'],
+        ['b', 'a', 'c'],
+        ['a', 'b', 'b'],
+      ]) {
+        expect(check(req, client({features}))).toEqual({
+          initialize: false,
+          verdict: 'admit',
+        });
+        expect(
+          check(req, client({features, generation: null, material: false})),
+        ).toEqual({initialize: false, verdict: 'bootstrap'});
+      }
+      for (const features of [undefined, [], ['a'], ['A', 'b'], ['a ', 'b']]) {
+        expect(checkYSession(req, client({features}))).toEqual({
+          reason: 'requires',
+          verdict: 'stale',
+        });
+        // Even at the room's generation: its material is acknowledged first.
+        expect(checkYSession(req, client({features, material: false}))).toEqual(
+          {reason: 'requires', verdict: 'refuse-layout'},
+        );
+      }
+      // Before the fence: whatever else, never admitted to a room with
+      // requirements or an unreadable root.
+      const inherited = {hasMigration: false, inherited: true};
+      expect(
+        checkYSession(room({...inherited, requires: ['a']}), null),
+      ).toEqual({reason: 'requires', verdict: 'legacy'});
+      expect(
+        checkYSession(room({...inherited, unreadable: ['lexical-y']}), null),
+      ).toEqual({reason: 'unreadable', verdict: 'legacy'});
+    });
+
+    test('reasons: why a session was not admitted, in the order the rows test it', () => {
+      const cases: [YRoomDescription, YSessionHandshake | null, string][] = [
+        [room(), null, 'not-inherited'],
+        [room({inherited: true}), null, 'migrated'],
+        [room(), client({generation: 'other'}), 'generation'],
+        [room({layouts: [3, 3]}), client(), 'layout'],
+        [room({layouts: [3, 3]}), client({material: false}), 'layout'],
+        [room({unreadable: ['x']}), client(), 'unreadable'],
+        [room({requires: ['f']}), client(), 'requires'],
+        [
+          room({...PRISTINE, seedContract: 3}),
+          client({generation: 'inc-1/-'}),
+          'seed',
+        ],
+        [
+          room({...PRISTINE, seedContract: 3}),
+          client({material: false}),
+          'seed',
+        ],
+        [
+          room({layouts: [3, 3], requires: ['f']}),
+          client({material: false}),
+          'layout',
+        ],
+      ];
+      for (const [r, c, reason] of cases) {
+        expect(checkYSession(r, c).reason).toBe(reason);
+      }
+      expect(checkYSession(room(), client()).reason).toBeUndefined();
+    });
+
+    test('a room whose generation reads unknown never admits on it', () => {
+      expect(
+        check(
+          room({generation: UNKNOWN_GENERATION}),
+          client({generation: UNKNOWN_GENERATION, material: false}),
+        ),
+      ).toEqual({initialize: false, verdict: 'bootstrap'});
     });
 
     test('needsNewIncarnation: a pristine room issued under another seed contract', () => {
@@ -463,6 +584,7 @@ describe.each([false, true])('@lexical/y/server, gc %s', gc => {
         }),
       ).toEqual({
         generation: 'inc-1/-',
+        hasMigration: false,
         incarnation: INC,
         inherited: true,
         layouts: [SEED, SEED],
@@ -479,6 +601,7 @@ describe.each([false, true])('@lexical/y/server, gc %s', gc => {
         }),
       ).toEqual({
         generation: 'inc-1/-',
+        hasMigration: false,
         incarnation: INC,
         inherited: false,
         layouts: null,
