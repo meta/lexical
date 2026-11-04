@@ -19,8 +19,8 @@ import * as Y from '@y/y';
 import {describe, expect, test} from 'vitest';
 
 import {createYDoc} from '../../..';
+import {migrateYDoc} from '../../../internal/Runner';
 import {
-  migrateYDoc,
   migrateYState,
   type YLayoutMigration,
   YMigrationError,

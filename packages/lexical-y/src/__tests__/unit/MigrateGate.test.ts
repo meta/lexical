@@ -13,8 +13,8 @@
 // override where MIN_LAYOUT is 1): an app UndoManager that undoes only the
 // newest layout record a seed wrote inside an app transaction, and a
 // remote update that removes it, never leave a writable binding below the
-// floor (or without a record); onOlderLayout fires once per read-only
-// period. The seed holds a MarkState comment, so on a build whose seed
+// floor (or without a record); the 'older' warning comes once per
+// read-only period. The seed holds a MarkState comment, so on a build whose seed
 // records layout 1 it records layout 2 too.
 
 import {buildEditorFromExtensions} from '@lexical/extension';
@@ -198,14 +198,11 @@ describe.each([false, true])('the older gate, gc %s', gc => {
     b.binding.dispose();
   });
 
-  test('onOlderLayout fires once per read-only period (S1)', async () => {
+  test("the 'older' warning comes once per read-only period (S1)", async () => {
     setMinLayoutForTests(FLOOR);
     const doc = createYDoc(rawDoc(FLOOR - 1), {gc});
     doc.clientID = 7;
-    const calls: [number, number][] = [];
-    const b = bindTo(doc, {
-      onOlderLayout: (found, min) => calls.push([found, min]),
-    });
+    const b = bindTo(doc, {});
     await flush();
     const incoming = (fn: (root: Y.Node) => void) => {
       const r = createYDoc(Y.encodeStateAsUpdate(doc), {gc});
@@ -225,10 +222,7 @@ describe.each([false, true])('the older gate, gc %s', gc => {
     });
     await flush();
     expect(b.binding.status).toBe('readonly');
-    expect(calls).toEqual([
-      [FLOOR - 1, FLOOR],
-      [FLOOR - 1, FLOOR],
-    ]);
+    expect(b.warnings.filter(w => w === 'older')).toHaveLength(2);
     b.binding.dispose();
   });
 });

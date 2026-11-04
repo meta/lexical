@@ -107,19 +107,11 @@ export type YMigrationLoaders = {
   readonly [from: number]: () => Promise<unknown>,
 };
 
-declare export var MIGRATION_ORIGIN: symbol;
-
 declare export function migrateYState(
   state: Uint8Array,
   steps: ReadonlyArray<YLayoutMigration>,
   options?: YMigrateStateOptions,
 ): YMigrationResult;
-
-declare export function migrateYDoc(
-  doc: Doc,
-  steps: ReadonlyArray<YLayoutMigration>,
-  options?: YMigrateOptions,
-): YMigrationReceipt;
 
 declare export function loadYMigrationSteps(
   loaders: YMigrationLoaders,

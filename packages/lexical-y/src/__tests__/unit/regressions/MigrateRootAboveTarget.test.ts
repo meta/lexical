@@ -18,7 +18,8 @@ import * as Y from '@y/y';
 import {describe, expect, test} from 'vitest';
 
 import {LAYOUT_VERSION} from '../../..';
-import {migrateYDoc, migrateYState, recordedLayout} from '../../../migrate';
+import {migrateYDoc} from '../../../internal/Runner';
+import {migrateYState, recordedLayout} from '../../../migrate';
 import {createYDoc, prepareYRoom} from '../../../server';
 import {rawDoc, SEED, STAMP} from '../../utils/migrateSteps';
 

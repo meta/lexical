@@ -22,9 +22,7 @@ import {type YLayoutEpoch} from './internal/Layouts';
 import {
   layoutEpoch,
   loadYMigrationSteps,
-  migrateYDoc,
   migrateYState,
-  MIGRATION_ORIGIN,
   recordedLayout,
   type YLayoutMigration,
   type YMigrateOptions,
@@ -55,9 +53,7 @@ export type {
 export {
   layoutEpoch,
   loadYMigrationSteps,
-  migrateYDoc,
   migrateYState,
-  MIGRATION_ORIGIN,
   recordedLayout,
   YMigrationError,
 };

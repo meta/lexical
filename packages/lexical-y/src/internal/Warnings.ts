@@ -125,8 +125,9 @@ export type YUnsupportedLayoutData =
   /**
    * The root records layout `found`, older than `min`, the oldest this
    * version reads (MIN_LAYOUT): migrate the document (see
-   * @lexical/y/migrate). Sent only when the binding has no
-   * `onOlderLayout`, which reports it instead.
+   * @lexical/y/migrate). A document below the floor is an expected state
+   * for an app whose server migrates: handle this reason in `onWarn` (its
+   * development default throws).
    */
   | {
       readonly reason: 'older';

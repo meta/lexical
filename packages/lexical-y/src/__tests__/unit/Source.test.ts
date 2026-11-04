@@ -184,11 +184,9 @@ test('public entries', () => {
     './server.js',
   ]);
   expect(Object.keys(migrateEntry).sort()).toEqual([
-    'MIGRATION_ORIGIN',
     'YMigrationError',
     'layoutEpoch',
     'loadYMigrationSteps',
-    'migrateYDoc',
     'migrateYState',
     'recordedLayout',
   ]);

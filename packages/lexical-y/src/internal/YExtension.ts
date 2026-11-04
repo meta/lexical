@@ -75,8 +75,6 @@ export interface YCollabConfig {
   selfCheckSample: number | null;
   /** See YBindingOptions.convert (default false). */
   convert: boolean;
-  /** See YBindingOptions.onOlderLayout (EXPERIMENTAL; null: none). */
-  onOlderLayout: ((found: number, min: number) => void) | null;
 }
 
 /**
@@ -114,7 +112,6 @@ export const YCollabExtension = defineExtension({
         captureTimeout: config.captureTimeout,
         clientIDRange: config.clientIDRange,
         convert: config.convert,
-        onOlderLayout: config.onOlderLayout ?? undefined,
         onStatus: value => {
           status.value = value;
         },
@@ -161,7 +158,6 @@ export const YCollabExtension = defineExtension({
     clientIDRange: 'uint53',
     convert: false,
     doc: null,
-    onOlderLayout: null,
     root: null,
     // Not a version: the app must set its own (see build).
     schemaVersion: 0,

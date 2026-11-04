@@ -20,8 +20,9 @@ import {describe, expect, test} from 'vitest';
 
 import {LAYOUT_VERSION, SEED_LAYOUT} from '../..';
 import {readYState} from '../../headless';
+import {migrateYDoc} from '../../internal/Runner';
 import {replayYRecovery} from '../../internal/Server';
-import {migrateYDoc, YMigrationError} from '../../migrate';
+import {YMigrationError} from '../../migrate';
 import {
   captureYSession,
   checkYSession,

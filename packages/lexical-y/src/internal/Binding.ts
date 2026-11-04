@@ -645,15 +645,6 @@ export interface YBindingOptions {
    * yrs before 0.28; see {@link ClientIDRange}).
    */
   clientIDRange?: ClientIDRange;
-  /**
-   * EXPERIMENTAL. Called once per read-only period that a layout below
-   * MIN_LAYOUT starts, in a microtask, with the layout found and
-   * MIN_LAYOUT: ask the document's server to migrate it, or show a banner.
-   * With it, such a document is an expected state:
-   * UNSUPPORTED_LAYOUT_WARNING's `'older'` variant is not sent to the
-   * editor's `onWarn` (whose default throws in development).
-   */
-  onOlderLayout?: (found: number, min: number) => void;
 }
 
 /**
@@ -1159,8 +1150,6 @@ export class YBinding {
   /** Whether initialize() was called before start(), which then runs it. */
   private initializeOnStart = false;
   private readonly afterAllTransactions = (): void => this.flushWarnings();
-  /** Whether onOlderLayout was called in this read-only period. */
-  private olderNotified = false;
   /** Whether quiesce() ran: read only for good. */
   private quiesced = false;
   /** The D08 permission of the commit being written (see admitsIn). */
@@ -1892,24 +1881,6 @@ export class YBinding {
     return {draft: {differs, json}, state: encodeStateAsUpdate(this._doc)};
   }
 
-  /** Call onOlderLayout once per read-only period, in a microtask. */
-  private notifyOlder(found: number, min: number): void {
-    const notify = this.options.onOlderLayout;
-    if (notify === undefined || this.olderNotified) {
-      return;
-    }
-    this.olderNotified = true;
-    queueMicrotask(() => {
-      if (this.started) {
-        try {
-          notify(found, min);
-        } catch (error) {
-          rethrowLater(error);
-        }
-      }
-    });
-  }
-
   /** Disconnect from the document and the editor (`start` returns this). */
   dispose(): void {
     this.started = false;
@@ -2430,23 +2401,17 @@ export class YBinding {
       );
       this.setStatus('readonly');
     } else if (version < minLayout()) {
-      // An expected state for an app that handles it (onOlderLayout):
-      // reported through it only. Otherwise a warning, as for the other
-      // read-only causes.
-      if (this.options.onOlderLayout === undefined) {
-        this.warn(
-          UNSUPPORTED_LAYOUT_WARNING,
-          `layout ${version} is older than ${minLayout()}, the oldest this version reads, so this editor is read only: migrate the document (its server migrates it on load with migrateYState)`,
-          {
-            found: version,
-            min: minLayout(),
-            reason: 'older',
-            supported: LAYOUT_VERSION,
-          },
-        );
-      }
+      this.warn(
+        UNSUPPORTED_LAYOUT_WARNING,
+        `layout ${version} is older than ${minLayout()}, the oldest this version reads, so this editor is read only: migrate the document (its server migrates it on load with migrateYState)`,
+        {
+          found: version,
+          min: minLayout(),
+          reason: 'older',
+          supported: LAYOUT_VERSION,
+        },
+      );
       this.setStatus('readonly');
-      this.notifyOlder(version, minLayout());
     } else if (newerSchema) {
       this.setStatus('readonly');
     } else if (this._status === 'active' || this.staysReadOnly()) {
@@ -3003,7 +2968,6 @@ export class YBinding {
     }
     if (status === 'active') {
       this.warnedEdit = false;
-      this.olderNotified = false;
     }
     if (this._status !== status && this.options.onStatus) {
       // Reported with the warnings, once Yjs is idle (see flushWarnings).

@@ -382,7 +382,7 @@ for developers (what happened and what to do): render your own text from
 | Constant | Reported when | `data` (`reason`: other fields) |
 | -- | -- | -- |
 | `UNSUPPORTED_SCHEMA_WARNING` | A client of a newer version of your app (a higher `schemaVersion`) wrote to the document, on open or mid-session; see [Versioning your schema](#versioning-your-schema). Read only. | `'newer'`: `found`; `'malformed'`: `key`, `found`. All: `supported` (your `schemaVersion`) |
-| `UNSUPPORTED_LAYOUT_WARNING` | The layout is one this version cannot read, or one below `MIN_LAYOUT` (only when the app sets no `onOlderLayout`). Read only. | `'newer'`: `found`; `'older'`: `found`, `min`; `'malformed'`: `key`, `found`; `'missing'`, `'removed'`; `'legacy-roots'`: `roots`. All: `supported` |
+| `UNSUPPORTED_LAYOUT_WARNING` | The layout is one this version cannot read, or one below `MIN_LAYOUT` (`'older'`, once per read-only period: an expected state for an app whose server migrates, so handle it in `onWarn`). Read only. | `'newer'`: `found`; `'older'`: `found`, `min`; `'malformed'`: `key`, `found`; `'missing'`, `'removed'`; `'legacy-roots'`: `roots`. All: `supported` |
 | `UNKNOWN_NODE_TYPES_WARNING` | The document has node types the editor cannot build: types it does not register, however they are stored (a link class it lacks too), or content its classes throw on; or the document could not be read at all (`'unreadable'` with empty `types`, the cause in `error`). Read only. | `'unregistered'`, `'malformed-slot'`: `types`; `'unreadable'`: `types`, `error` |
 | `STORAGE_MISMATCH_WARNING` | A node type is stored in a way its class cannot be (one warning per type). Read only. | `'declaration-changed'`: `type`, `stored`, `declared`; `'malformed'`: `type`, `key`, `found` |
 | `UNSUPPORTED_SLOTS_WARNING` | Named slots where the document cannot store them. Not written; read only. | `'stored-host'`, `'root'`: `types` |
@@ -1589,15 +1589,12 @@ never hold one stay readable and editable by layout 1 clients.
 
 These APIs are EXPERIMENTAL. A room whose layout is below `MIN_LAYOUT`
 binds read only: the editor shows it and nothing is written until it is
-migrated. The optional `onOlderLayout(found, min)` option (on
-`YCollabExtension` and `YBinding`) is called once per such read-only period,
-in a microtask, for an app that asks its server to migrate or shows a
-banner. For an app that handles such documents (`onOlderLayout`) they are
-an expected state, reported through it only; without it, the binding
-reports `UNSUPPORTED_LAYOUT_WARNING` with
-`{reason: 'older', found, min, supported}` to the editor's `onWarn` (whose
-default throws in development). Other read-only causes (a newer, malformed
-or removed layout record) always warn. `readYState` and `editYState` refuse
+migrated. The binding reports it once per such read-only period with
+`UNSUPPORTED_LAYOUT_WARNING` and `{reason: 'older', found, min, supported}`
+to the editor's `onWarn`, as it reports the other read-only causes (a
+newer, malformed or removed layout record). An app whose server migrates
+documents handles that reason in `onWarn` (ask the server to migrate, or
+show a banner): the editor's default `onWarn` throws in development. `readYState` and `editYState` refuse
 such a state (`'read-only'`): a server migrates a scratch copy first, then
 reads it.
 
@@ -1612,8 +1609,6 @@ runner is `@lexical/y/migrate`:
   with `update: null` when no root is below the target (`to`, default
   `MIN_LAYOUT`). Pending updates and skipped ranges come back apart, in
   `pending`, never in `state`.
-- `migrateYDoc(doc, steps, options)`: the same on a live document, applied
-  in one transaction with `MIGRATION_ORIGIN`; refused inside a transaction.
 - `loadYMigrationSteps(loaders, from, to)`: loads only the steps a document
   needs.
 
@@ -1623,24 +1618,24 @@ same update), and the runner checks the result before it returns or applies
 anything: every character, node and line marker kept, every attribute and
 untouched format kept, the document reading the same before and after, and
 the encoded result read again. A failed check throws a `YMigrationError`
-(`code: 'post-condition'`) and nothing is written. The transaction records
+(`code: 'post-condition'`) and nothing is returned. The transaction records
 the new layout and an epoch (`lexical-y-epoch`, see the wire format).
 
 **Who migrates.** A shared room is migrated by the server that stores it,
 when it loads the room, with every session out: see
 [Migrating stored documents](./y-server.md#migrating-stored-documents) in
 the server guide (`@lexical/y/server`), which also covers clients that held
-edits from before the migration. Never migrate a shared room in a browser. This release has no client-side
-migration path; an app whose documents only one client writes (local
-storage, no server) migrates them where it loads them, with `migrateYDoc`
-before it binds, or keeps them below the floor until a later release adds
-one.
+edits from before the migration. Never migrate a shared room in a browser.
+This release has no client-side migration path: an app whose documents
+only one client writes (local storage, no server) migrates their stored
+bytes with `migrateYState` before it loads and binds them, or keeps them
+below the floor until a later release adds one.
 
-**Undo.** A migration clears the binding's undo history once the
-migration's transaction has been captured. An app `UndoManager` should not
-track `MIGRATION_ORIGIN`, and should be cleared at the same point with
-`onLayoutEpoch(doc, fn, root?)`: its stack names items the migration
-replaced.
+**Undo.** A migration reaches a bound document as an update from its
+server; it clears the binding's undo history once that update's
+transaction has been captured. An app `UndoManager` should be cleared at
+the same point with `onLayoutEpoch(doc, fn, root?)`: its stack names items
+the migration replaced.
 
 **Handing a replica off.** `binding.quiesce()` ends a composition, commits
 what the editor holds into the document, and turns the binding read only

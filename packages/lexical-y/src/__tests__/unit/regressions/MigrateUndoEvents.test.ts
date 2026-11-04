@@ -26,7 +26,7 @@ import {
 import {describe, expect, test} from 'vitest';
 
 import {createYDoc, YBinding} from '../../..';
-import {migrateYDoc} from '../../../migrate';
+import {migrateYDoc} from '../../../internal/Runner';
 import {catalogAppExtension} from '../../catalog/bind';
 import {rawDoc, SEED, stamp} from '../../utils/migrateSteps';
 import {textOf} from '../../utils/splitFixtures';

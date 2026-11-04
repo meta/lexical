@@ -19,13 +19,11 @@ import {describe, expect, test, vi} from 'vitest';
 
 import {createYDoc, LAYOUT_VERSION} from '../..';
 import {createYWriter, editYState, seedYState} from '../../headless';
-import {migrationClientID} from '../../internal/Runner';
+import {migrateYDoc, MIGRATION_ORIGIN,migrationClientID} from '../../internal/Runner';
 import {
   layoutEpoch,
   loadYMigrationSteps,
-  migrateYDoc,
   migrateYState,
-  MIGRATION_ORIGIN,
   recordedLayout,
   type YLayoutMigration,
   YMigrationError,

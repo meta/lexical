@@ -48,7 +48,8 @@ import {
 } from '../..';
 import {editYState, readYState, YHeadlessError} from '../../headless';
 import {setMinLayoutForTests} from '../../internal/Binding';
-import {migrateYDoc, MIGRATION_ORIGIN, recordedLayout} from '../../migrate';
+import {migrateYDoc, MIGRATION_ORIGIN} from '../../internal/Runner';
+import {recordedLayout} from '../../migrate';
 import {
   $snapshot,
   catalogAppExtension,
@@ -207,10 +208,9 @@ describe.each([false, true])('the binding and layout migrations, gc %s', gc => {
     const unbound = bind(AT_FLOOR, gc);
     const shown = json(unbound.editor);
     unbound.dispose();
-    const b = bind(OLD, gc, {onOlderLayout: () => {}});
+    const b = bind(OLD, gc);
     expect(b.binding.status).toBe('readonly');
-    // Handled by onOlderLayout: no warning.
-    expect(olderWarnings(b.warnings)).toEqual([]);
+    expect(olderWarnings(b.warnings)).toHaveLength(1);
     migrateYDoc(b.doc, [stamp(BELOW)], {to: FLOOR});
     await until(() => b.binding.status === 'active');
     expect(b.binding.status).toBe('active');
@@ -239,7 +239,7 @@ describe.each([false, true])('the binding and layout migrations, gc %s', gc => {
     setMinLayoutForTests(FLOOR);
     const doc = createYDoc(OLD, {gc});
     doc.get('lexical-y').setAttr('lexical-y-schema:5', true);
-    const b = bind(Y.encodeStateAsUpdate(doc), gc, {onOlderLayout: () => {}});
+    const b = bind(Y.encodeStateAsUpdate(doc), gc);
     migrateYDoc(b.doc, [stamp(BELOW)], {to: FLOOR});
     await until(() => false, 5);
     expect(recordedLayout(b.doc)).toBe(FLOOR);
@@ -248,23 +248,18 @@ describe.each([false, true])('the binding and layout migrations, gc %s', gc => {
     b.dispose();
   });
 
-  test("the 'older' warning goes to onWarn only when the app handles it in neither way", async () => {
+  test("the 'older' warning always reaches onWarn with its typed data; so do the other read-only causes", async () => {
     setMinLayoutForTests(FLOOR);
-    const configs: [string, Partial<YBindingOptions>, number][] = [
-      ['neither', {}, 1],
-      ['onOlderLayout', {onOlderLayout: () => {}}, 0],
-    ];
-    for (const [, options, warnings] of configs) {
-      const b = bind(OLD, gc, options);
-      await until(() => false, 3);
-      expect(b.binding.status).toBe('readonly');
-      expect(olderWarnings(b.warnings)).toHaveLength(warnings);
-      b.dispose();
-    }
-    // Other read-only causes keep onWarn.
+    const b = bind(OLD, gc);
+    await until(() => false, 3);
+    expect(b.binding.status).toBe('readonly');
+    expect(olderWarnings(b.warnings).map(w => w.data)).toEqual([
+      {found: BELOW, min: FLOOR, reason: 'older', supported: LAYOUT_VERSION},
+    ]);
+    b.dispose();
     const newer = createYDoc(AT_FLOOR, {gc});
     newer.get('lexical-y').setAttr(`lexical-y:${LAYOUT_VERSION + 1}`, true);
-    const n = bind(Y.encodeStateAsUpdate(newer), gc, {onOlderLayout: () => {}});
+    const n = bind(Y.encodeStateAsUpdate(newer), gc);
     expect(
       n.warnings.filter(
         w => w.code === UNSUPPORTED_LAYOUT_WARNING && w.data.reason === 'newer',
@@ -273,63 +268,47 @@ describe.each([false, true])('the binding and layout migrations, gc %s', gc => {
     n.dispose();
   });
 
-  test('onOlderLayout through YCollabExtension', async () => {
+  test("the 'older' warning through YCollabExtension reaches the editor's onWarn", async () => {
     setMinLayoutForTests(FLOOR);
-    const calls: [number, number][] = [];
-    const warnings: unknown[] = [];
+    const warnings: {code?: string; data?: unknown}[] = [];
     const editor = buildEditorFromExtensions(
       defineExtension({
         dependencies: [
           catalogAppExtension(CFG),
           configExtension(YCollabExtension, {
             doc: createYDoc(OLD, {gc}),
-            onOlderLayout: (found, min) => calls.push([found, min]),
             schemaVersion: 1,
             synced: true,
           }),
         ],
         name: 'older-ext',
-        onWarn: w => warnings.push(w),
+        onWarn: w => warnings.push(w as {code?: string; data?: unknown}),
       }),
     );
     await Promise.resolve();
-    expect(calls).toEqual([[BELOW, FLOOR]]);
-    expect(warnings).toEqual([]);
+    expect(
+      warnings
+        .filter(w => w.code === UNSUPPORTED_LAYOUT_WARNING)
+        .map(w => w.data),
+    ).toEqual([
+      {found: BELOW, min: FLOOR, reason: 'older', supported: LAYOUT_VERSION},
+    ]);
     editor.dispose();
   });
 
-  test('onOlderLayout(found, min): once per read-only period, in a microtask', async () => {
+  test("the 'older' warning: once per read-only period", async () => {
     setMinLayoutForTests(FLOOR);
-    const calls: [number, number][] = [];
-    const b = bind(OLD, gc, {
-      onOlderLayout: (found, min) => calls.push([found, min]),
-    });
-    expect(calls).toEqual([]);
-    await Promise.resolve();
-    expect(calls).toEqual([[BELOW, FLOOR]]);
+    const b = bind(OLD, gc);
+    expect(olderWarnings(b.warnings)).toHaveLength(1);
     // Read again while still read only: not again.
     b.doc.get('lexical-y').setAttr('k:other', 'element');
     await until(() => false, 3);
-    expect(calls).toEqual([[BELOW, FLOOR]]);
+    expect(olderWarnings(b.warnings)).toHaveLength(1);
     b.dispose();
-    // Another binding's period, ended by a migration: once.
-    const c = bind(OLD, gc, {
-      onOlderLayout: (found, min) => calls.push([found, min]),
-    });
-    await Promise.resolve();
-    migrateYDoc(c.doc, [stamp(BELOW)], {to: FLOOR});
-    await until(() => c.binding.status === 'active');
-    expect(calls).toEqual([
-      [BELOW, FLOOR],
-      [BELOW, FLOOR],
-    ]);
-    c.dispose();
     // At or above the floor: never.
-    const d = bind(AT_FLOOR, gc, {
-      onOlderLayout: (found, min) => calls.push([found, min]),
-    });
+    const d = bind(AT_FLOOR, gc);
     await until(() => false, 3);
-    expect(calls).toHaveLength(2);
+    expect(olderWarnings(d.warnings)).toHaveLength(0);
     d.dispose();
   });
 

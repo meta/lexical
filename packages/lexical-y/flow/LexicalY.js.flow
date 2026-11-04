@@ -186,7 +186,6 @@ export type YBindingOptions = {
   selfCheckSample?: number,
   convert?: boolean,
   clientIDRange?: ClientIDRange,
-  onOlderLayout?: (found: number, min: number) => void,
 };
 
 // What a layout migration records under `lexical-y-epoch`.
@@ -303,7 +302,6 @@ export type YCollabConfig = {
   selfCheck: boolean | null,
   selfCheckSample: number | null,
   convert: boolean,
-  onOlderLayout: ((found: number, min: number) => void) | null,
 };
 
 declare export var YCollabExtension: LexicalExtension<

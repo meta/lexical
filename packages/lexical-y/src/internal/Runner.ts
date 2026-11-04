@@ -262,7 +262,8 @@ export interface YMigrationResult {
 }
 
 /**
- * @experimental The origin of the transaction that applies a migration to a
+ * @internal (not exported from @lexical/y/migrate). The origin of the
+ * transaction that applies a migration to a
  * document (migrateYDoc). A registered symbol, so every copy of the package
  * (the binding's bundle and the runner's) names the same one.
  */
@@ -1497,7 +1498,9 @@ export function migrateYState(
 }
 
 /**
- * @experimental Migrate a live document in place: the steps run and are
+ * @internal (not exported from @lexical/y/migrate: servers migrate stored
+ * bytes with migrateYState). Migrate a live document in place: the steps run
+ * and are
  * checked on an observer-free copy of its integrated state, and only then
  * is their update applied to `doc` in one transaction with
  * MIGRATION_ORIGIN (pending material stays pending in `doc`). Only for a
