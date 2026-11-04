@@ -188,21 +188,25 @@ export type YBindingOptions = {
   clientIDRange?: ClientIDRange,
 };
 
-// What a layout migration records under `lexical-y-epoch`.
-export type YLayoutEpoch = {
+// What a migration records under `lexical-y-epoch` (inexact: readers keep
+// fields they do not know). kind: `layout` today; step ids are opaque.
+export type YMigrationEpoch = {
   readonly v: 1,
+  readonly kind: string,
   readonly layout: number,
   readonly client: number,
   readonly clock: number,
   readonly step: string,
   readonly revision: number,
+  readonly schema?: {readonly id: string, readonly version: number, ...},
+  ...
 };
 
 // Calls `fn` after every listener of a transaction that changed `root`'s
 // epoch (a migration) has run: clear app UndoManagers there.
-declare export function onLayoutEpoch(
+declare export function onYMigrationEpoch(
   doc: Doc,
-  fn: (epoch: YLayoutEpoch | null) => void,
+  fn: (epoch: YMigrationEpoch | null) => void,
   root?: string | YNode,
 ): () => void;
 

@@ -236,7 +236,7 @@ test('public entries', () => {
     'createYDoc',
     'describeStorage',
     'isYWarning',
-    'onLayoutEpoch',
+    'onYMigrationEpoch',
   ]);
   expect(Object.keys(headlessEntry).sort()).toEqual([
     'EDITOR_WARNING',

@@ -18,7 +18,7 @@
 // or relay that owns its storage, with every session evicted, or a reseed
 // tool). The binding never imports this entry or a step.
 
-import {type YLayoutEpoch} from './internal/Layouts';
+import {type YMigrationEpoch} from './internal/Layouts';
 import {
   layoutEpoch,
   loadYMigrationSteps,
@@ -38,10 +38,10 @@ import {
 } from './internal/Runner';
 
 export type {
-  YLayoutEpoch,
   YLayoutMigration,
   YMigrateOptions,
   YMigrateStateOptions,
+  YMigrationEpoch,
   YMigrationErrorCode,
   YMigrationLoaders,
   YMigrationReceipt,

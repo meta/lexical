@@ -13,7 +13,7 @@ import type {YLayoutMigration, YMigrationResult} from '@lexical/y/migrate';
 import type {YSessionVerdict} from '@lexical/y/server';
 import type {Node} from '@y/y';
 
-import {MIN_LAYOUT, SEED_LAYOUT, onLayoutEpoch} from '@lexical/y';
+import {MIN_LAYOUT, SEED_LAYOUT, onYMigrationEpoch} from '@lexical/y';
 import {migrateYState, YMigrationError} from '@lexical/y/migrate';
 import step1to2 from '@lexical/y/migrate/1to2';
 import {
@@ -80,6 +80,6 @@ const verdict: YSessionVerdict = checkYSession(
 if (verdict.verdict === 'admit') {
   const initialize: boolean = verdict.initialize;
 }
-const stop: () => void = onLayoutEpoch(doc, epoch => {
+const stop: () => void = onYMigrationEpoch(doc, epoch => {
   const layout: ?number = epoch?.layout;
 });

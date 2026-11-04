@@ -186,14 +186,19 @@ of set-valued NodeState; layout 3 (planned, #9449) adds move records.
   stored shape is read is a new version. A reader also opens the document
   read only when the version is older than `MIN_LAYOUT`, the oldest it
   reads, until a migration (`@lexical/y/migrate`) moves it up.
-- **Epoch.** The root attribute `lexical-y-epoch` = `{v: 1, layout, client,
-  clock, step, revision}`, written by a layout migration in the same
-  transaction as the layout record it adds: `layout` is that version,
-  `(client, clock)` the id of that record's item (the transaction's first),
-  `step` and `revision` the step that ran (`lexical-y/layout/<n>to<n+1>`). It
-  is outside the `lexical-y:` namespace, so older releases ignore it; this
-  release opens a document whose epoch is malformed read only (an absent
-  epoch is fine). Each migration replaces it. Servers derive a document's generation from it
+- **Epoch.** The root attribute `lexical-y-epoch` = `{v: 1, kind, layout,
+  client, clock, step, revision, schema?}`, written by a migration in the
+  same transaction as what it changes: `kind` is the family (`'layout'`, the
+  only one this release writes; a missing kind reads as `'layout'`),
+  `layout` the root's layout after it (from 1), `(client, clock)` the id of
+  the transition's first newly written item (for a layout migration, its
+  layout record), `step` and `revision` the step that ran (an opaque,
+  namespaced id such as `lexical-y/layout/<n>to<n+1>`), and `schema`, when
+  present, `{id, version}` of an app schema. Readers accept fields they do
+  not know and leave them in place. It is outside the `lexical-y:`
+  namespace, so older releases ignore it; this release opens a document
+  whose epoch has another `v`, or a known field that is not well formed,
+  read only (an absent epoch is fine). Each migration replaces it. Servers derive a document's generation from it
   (`generationOf` in `@lexical/y/server`); a client never adopts a
   generation from it.
 - **Children of a container** (the root and every node stored as its own

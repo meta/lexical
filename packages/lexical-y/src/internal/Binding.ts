@@ -98,7 +98,7 @@ import {
   markFormatCloser,
 } from './Cursor';
 import {$canonicalizeGroup, $switchesWrapper} from './Groups';
-import {epochRecordOf, onLayoutEpoch} from './Layouts';
+import {epochRecordOf, onYMigrationEpoch} from './Layouts';
 import {
   $applyStoredAttrs,
   $unstoredWrapperTextFields,
@@ -1351,7 +1351,7 @@ export class YBinding {
     // undo stacks name: clear them once every capture of its transaction has
     // run (D102). Earlier, the migration's own capture would stay.
     this.disposers.push(
-      onLayoutEpoch(
+      onYMigrationEpoch(
         this._doc,
         () => {
           if (this._undoManager !== null) {

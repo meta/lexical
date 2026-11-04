@@ -15,18 +15,29 @@ import {DEFAULT_ROOT_NAME, EPOCH_KEY, LAYOUT_PREFIX} from './constants';
 // Small on purpose: the core and the runner each bundle a copy.
 
 /**
- * @experimental What a layout migration records under `lexical-y-epoch`
- * (see @lexical/y/migrate): the layout it migrated the root to, the id of
- * its transaction's first item (`client`, `clock`: the layout record), and
- * the step that ran.
+ * @experimental What a migration records under `lexical-y-epoch` (see
+ * @lexical/y/migrate): the transition that last changed the root. `kind`
+ * names the family (`'layout'` for a layout migration, the only one this
+ * release writes; a missing kind reads as `'layout'`, and readers keep any
+ * other as a label), `layout` the root's layout after it (from 1),
+ * (`client`, `clock`) the id of the transition's first newly written item,
+ * `step` the step's id (an opaque, namespaced string such as
+ * `lexical-y/layout/1to2`: readers never parse it) and `revision` its
+ * revision. `schema`, when present, names an app schema and its version.
+ * Readers accept fields they do not know and keep them in the document;
+ * an epoch of another format version (`v`), or one whose known fields are
+ * not well formed, closes writes (read only), as a malformed layout record
+ * does.
  */
-export interface YLayoutEpoch {
+export interface YMigrationEpoch {
   readonly v: 1;
+  readonly kind: string;
   readonly layout: number;
   readonly client: number;
   readonly clock: number;
   readonly step: string;
   readonly revision: number;
+  readonly schema?: {readonly id: string; readonly version: number};
 }
 
 /** A root's layout records (see LAYOUT_PREFIX). */
@@ -59,14 +70,14 @@ export function layoutRecordOf(root: YNode): LayoutRecord {
 export type EpochRecord =
   | {readonly kind: 'none'}
   | {readonly kind: 'malformed'; readonly found: unknown}
-  | {readonly kind: 'epoch'; readonly epoch: YLayoutEpoch};
-
-const EPOCH_FIELDS = 'client,clock,layout,revision,step,v';
+  | {readonly kind: 'epoch'; readonly epoch: YMigrationEpoch};
 
 /**
- * The epoch `root` records, parsed strictly: exactly the fields of
- * YLayoutEpoch, `v` 1, a layout from 2, a client from 1, a clock from 0, a
- * revision from 1 and the step's id.
+ * The epoch `root` records (see YMigrationEpoch): `v` 1; a layout from 1, a
+ * client from 1, a clock from 0, a revision from 1 and a non-empty step id;
+ * a kind, when present, a non-empty string (missing: `'layout'`); a schema,
+ * when present, `{id: non-empty string, version: integer from 1}`. Fields
+ * it does not know are accepted (and left in the document).
  */
 export function epochRecordOf(root: YNode): EpochRecord {
   const attrs = root.getAttrs() as Record<string, unknown>;
@@ -74,39 +85,57 @@ export function epochRecordOf(root: YNode): EpochRecord {
     return {kind: 'none'};
   }
   const value = attrs[EPOCH_KEY];
+  const malformed: EpochRecord = {found: value, kind: 'malformed'};
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+    return malformed;
+  }
   const e = value as Record<string, unknown>;
   const int = (x: unknown, min: number) =>
     Number.isSafeInteger(x) && (x as number) >= min;
+  const name = (x: unknown) => typeof x === 'string' && x !== '';
+  const kind = e.kind === undefined ? 'layout' : e.kind;
   if (
-    value === null ||
-    typeof value !== 'object' ||
-    Array.isArray(value) ||
-    Object.keys(e).sort().join(',') !== EPOCH_FIELDS ||
     e.v !== 1 ||
-    !int(e.layout, 2) ||
+    !name(kind) ||
+    !int(e.layout, 1) ||
     !int(e.client, 1) ||
     !int(e.clock, 0) ||
     !int(e.revision, 1) ||
-    typeof e.step !== 'string' ||
-    !/^lexical-y\/layout\/[1-9][0-9]*to[1-9][0-9]*$/.test(e.step)
+    !name(e.step)
   ) {
-    return {found: value, kind: 'malformed'};
+    return malformed;
   }
+  let schema: YMigrationEpoch['schema'];
+  if (e.schema !== undefined) {
+    const sc = e.schema as Record<string, unknown> | null;
+    if (
+      sc === null ||
+      typeof sc !== 'object' ||
+      Array.isArray(sc) ||
+      !name(sc.id) ||
+      !int(sc.version, 1)
+    ) {
+      return malformed;
+    }
+    schema = {id: sc.id as string, version: sc.version as number};
+  }
+  const epoch: YMigrationEpoch = {
+    client: e.client as number,
+    clock: e.clock as number,
+    kind: kind as string,
+    layout: e.layout as number,
+    revision: e.revision as number,
+    step: e.step as string,
+    v: 1,
+  };
   return {
-    epoch: {
-      client: e.client as number,
-      clock: e.clock as number,
-      layout: e.layout as number,
-      revision: e.revision as number,
-      step: e.step,
-      v: 1,
-    },
+    epoch: schema === undefined ? epoch : {...epoch, schema},
     kind: 'epoch',
   };
 }
 
 /** The epoch `root` records, null when none or malformed. */
-export function epochOf(root: YNode): YLayoutEpoch | null {
+export function epochOf(root: YNode): YMigrationEpoch | null {
   const record = epochRecordOf(root);
   return record.kind === 'epoch' ? record.epoch : null;
 }
@@ -122,7 +151,7 @@ export function existingRoot(doc: Doc, name: string): YNode | null {
 
 /**
  * @experimental Call `fn` once every transaction listener of a transaction
- * that changed `root`'s epoch (a layout migration) has run, an
+ * that changed `root`'s epoch (a migration) has run, an
  * UndoManager's capture included (in `afterAllTransactions`). The hook for
  * an app's own UndoManagers: clear them there, since their stacks name
  * items the migration replaced (the binding clears its own). `fn` gets the
@@ -130,9 +159,9 @@ export function existingRoot(doc: Doc, name: string): YNode | null {
  * `'lexical-y'`) or the root itself. Returns a function that stops
  * listening.
  */
-export function onLayoutEpoch(
+export function onYMigrationEpoch(
   doc: Doc,
-  fn: (epoch: YLayoutEpoch | null) => void,
+  fn: (epoch: YMigrationEpoch | null) => void,
   root: string | YNode = DEFAULT_ROOT_NAME,
 ): () => void {
   const target = typeof root === 'string' ? (doc.get(root) as YNode) : root;

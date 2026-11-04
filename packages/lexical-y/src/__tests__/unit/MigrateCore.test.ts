@@ -12,7 +12,7 @@
 // binds read only with the 'older' warning (headless reads and edits
 // refuse it), a migration of the bound document clears only that cause, a
 // migration clears the undo history
-// after its capture (the binding's, and an app's through onLayoutEpoch),
+// after its capture (the binding's, and an app's through onYMigrationEpoch),
 // and quiesce() writes what the editor holds and turns read only for good.
 // The tests use a floor (FLOOR: MIN_LAYOUT, or 2 raised with the internal
 // override where MIN_LAYOUT is 1) and a raw document one layout below it,
@@ -37,7 +37,7 @@ import {
   createYDoc,
   LAYOUT_VERSION,
   MIN_LAYOUT,
-  onLayoutEpoch,
+  onYMigrationEpoch,
   SEED_LAYOUT,
   UNSUPPORTED_LAYOUT_WARNING,
   UNSUPPORTED_SCHEMA_WARNING,
@@ -328,7 +328,7 @@ describe.each([false, true])('the binding and layout migrations, gc %s', gc => {
     const um = b.binding.undoManager!;
     expect(um.canUndo()).toBe(true);
     let cleared = -1;
-    const stop = onLayoutEpoch(b.doc, () => {
+    const stop = onYMigrationEpoch(b.doc, () => {
       cleared = um.undoStack.length;
     });
     // A migration's epoch, from another origin (a step to the next layout,
@@ -360,7 +360,7 @@ describe.each([false, true])('the binding and layout migrations, gc %s', gc => {
     b.dispose();
   });
 
-  test("onLayoutEpoch fires once per migration, after an app UndoManager's capture", () => {
+  test("onYMigrationEpoch fires once per migration, after an app UndoManager's capture", () => {
     const doc = createYDoc(SEEDED, {gc});
     const root = doc.get('lexical-y');
     const um = new Y.UndoManager(root, {
@@ -369,7 +369,7 @@ describe.each([false, true])('the binding and layout migrations, gc %s', gc => {
     });
     const seen: unknown[] = [];
     const lengths: number[] = [];
-    const stop = onLayoutEpoch(doc, epoch => {
+    const stop = onYMigrationEpoch(doc, epoch => {
       seen.push(epoch);
       lengths.push(um.undoStack.length);
       um.clear();

@@ -37,7 +37,7 @@ import {
   epochRecordOf,
   existingRoot,
   layoutRecordOf,
-  type YLayoutEpoch,
+  type YMigrationEpoch,
 } from './Layouts';
 import {createRawYDoc, type YDoc, type YDocOptions} from './RawYDoc';
 import {assertSupportedMigrationYjs} from './YjsMigrationContract';
@@ -188,7 +188,7 @@ export interface YMigrationRootReceipt {
   readonly changed: boolean;
   readonly steps: readonly YMigrationStepReceipt[];
   /** The epoch the last step recorded, null when none ran. */
-  readonly epoch: YLayoutEpoch | null;
+  readonly epoch: YMigrationEpoch | null;
 }
 
 /**
@@ -1070,7 +1070,7 @@ function runStep(
   step: YLayoutMigration,
   options: YMigrateOptions,
   reserved: ReadonlySet<number>,
-): YMigrationStepReceipt & {epoch: YLayoutEpoch} {
+): YMigrationStepReceipt & {epoch: YMigrationEpoch} {
   const root = copy.get(name) as YNode;
   const problems: string[] = [];
   const before = rootState(
@@ -1129,7 +1129,7 @@ function runStep(
   }
   const containers = traverse(root);
   const own = copy.clientID;
-  let epoch: YLayoutEpoch | null = null;
+  let epoch: YMigrationEpoch | null = null;
   let counts = {deleted: 0, problems: [] as string[], written: 0};
   copy.clientID = client;
   try {
@@ -1143,6 +1143,7 @@ function runStep(
         epoch = {
           client,
           clock,
+          kind: 'layout',
           layout: step.to,
           revision: step.revision,
           step: step.id,
@@ -1165,7 +1166,7 @@ function runStep(
       name,
     );
   }
-  const written: YLayoutEpoch = epoch;
+  const written: YMigrationEpoch = epoch;
   problems.push(...counts.problems);
   const after = rootState(
     copy,
@@ -1395,7 +1396,7 @@ function runOnCopy(
   try {
     const roots = plans.map((plan): YMigrationRootReceipt => {
       const ran: YMigrationStepReceipt[] = [];
-      let epoch: YLayoutEpoch | null = null;
+      let epoch: YMigrationEpoch | null = null;
       for (const step of plan.steps) {
         const {epoch: e, ...receipt} = runStep(
           copy,
@@ -1470,9 +1471,9 @@ export function migrateYState(
           bytesAfter: state.length,
           bytesBefore: state.length,
           changed: false,
-          v: 1,
           ms: Date.now() - t0,
           roots: unchanged(plans),
+          v: 1,
         },
         state,
         update: null,
@@ -1494,9 +1495,9 @@ export function migrateYState(
           bytesAfter: out.length,
           bytesBefore: state.length,
           changed: true,
-          v: 1,
           ms: Date.now() - t0,
           roots,
+          v: 1,
         },
         state: out,
         update: checkedUpdate(integrated, copy, encodeStateVector(doc)),
@@ -1556,9 +1557,9 @@ export function migrateYDoc(
       bytesAfter: integrated.length,
       bytesBefore: integrated.length,
       changed: false,
-      v: 1,
       ms: Date.now() - t0,
       roots: unchanged(plans),
+      v: 1,
     };
   }
   const {copy, roots} = result;
@@ -1575,9 +1576,9 @@ export function migrateYDoc(
     bytesAfter: encodeStateAsUpdate(doc).length,
     bytesBefore: integrated.length,
     changed: true,
-    v: 1,
     ms: Date.now() - t0,
     roots,
+    v: 1,
   };
 }
 
@@ -1606,7 +1607,7 @@ export function recordedLayout(
 export function layoutEpoch(
   doc: Doc,
   root: string = DEFAULT_ROOT_NAME,
-): YLayoutEpoch | null {
+): YMigrationEpoch | null {
   const type = existingRoot(doc, root);
   return type === null ? null : epochOf(type);
 }

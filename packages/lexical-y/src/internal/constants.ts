@@ -57,12 +57,14 @@ export const SEED_LAYOUT: number = BASE_LAYOUT_VERSION;
  */
 export const SET_MEMBERS_LAYOUT_VERSION = 2;
 /**
- * The root attribute a layout migration records (see @lexical/y/migrate):
- * `{v: 1, layout, client, clock, step, revision}`, where `(client, clock)`
- * is the id of the migration transaction's first item (its layout record).
- * Outside the layout records' namespace (LAYOUT_PREFIX); each migration
- * replaces it with its own, and nothing else writes it. A malformed one
- * opens the document read only, as a malformed layout record does.
+ * The root attribute a migration records (see @lexical/y/migrate and
+ * YMigrationEpoch): `{v: 1, kind: 'layout', layout, client, clock, step,
+ * revision}` (and an optional `schema`), where `(client, clock)` is the id
+ * of the transition's first newly written item. Outside the layout records'
+ * namespace (LAYOUT_PREFIX); each migration replaces it with its own, and
+ * nothing else writes it. Readers accept fields they do not know; another
+ * `v`, or a known field that is not well formed, opens the document read
+ * only, as a malformed layout record does.
  */
 export const EPOCH_KEY = 'lexical-y-epoch';
 /**

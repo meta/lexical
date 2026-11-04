@@ -469,11 +469,10 @@ describe.each([false, true])('migration runner, gc %s', gc => {
           {
             client: 1,
             clock: 0,
-            extra: 1,
             layout: 2,
             revision: 1,
             step: `lexical-y/layout/${SEED}to${SEED + 1}`,
-            v: 1,
+            v: 2,
           },
         ],
         [
@@ -726,6 +725,7 @@ describe.each([false, true])('migration runner, gc %s', gc => {
       expect(root.epoch).toEqual({
         client: s2.client,
         clock: 0,
+        kind: 'layout',
         layout: SEED + 2,
         revision: 1,
         step: `lexical-y/layout/${SEED + 1}to${SEED + 2}`,

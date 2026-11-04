@@ -1634,7 +1634,7 @@ below the floor until a later release adds one.
 **Undo.** A migration reaches a bound document as an update from its
 server; it clears the binding's undo history once that update's
 transaction has been captured. An app `UndoManager` should be cleared at
-the same point with `onLayoutEpoch(doc, fn, root?)`: its stack names items
+the same point with `onYMigrationEpoch(doc, fn, root?)`: its stack names items
 the migration replaced.
 
 **Handing a replica off.** `binding.quiesce()` ends a composition, commits

@@ -23,7 +23,7 @@ import {
   SEED_LAYOUT,
 } from './internal/constants';
 import {describeStorage} from './internal/Describe';
-import {onLayoutEpoch, type YLayoutEpoch} from './internal/Layouts';
+import {onYMigrationEpoch, type YMigrationEpoch} from './internal/Layouts';
 import {type StorageKind} from './internal/Schema';
 import {SUPPORTED_YJS_VERSION} from './internal/SupportedYjs';
 import {
@@ -77,7 +77,7 @@ export type {
   YCursor,
   YDoc,
   YDocOptions,
-  YLayoutEpoch,
+  YMigrationEpoch,
   YNestedFallbackData,
   YNestedFallbackReason,
   YRecoveredReadData,
@@ -107,7 +107,7 @@ export {
   LAYOUT_VERSION,
   MIN_LAYOUT,
   NESTED_FALLBACK_WARNING,
-  onLayoutEpoch,
+  onYMigrationEpoch,
   RECOVERED_READ_WARNING,
   RECOVERED_WRITE_WARNING,
   SEED_LAYOUT,

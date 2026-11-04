@@ -333,7 +333,7 @@ describe('@lexical/y/migrate/1to2 golden fixtures', () => {
       step: sha(path.join(src, '1to2.ts')),
     }).toMatchInlineSnapshot(`
       {
-        "fixtures": "f88c2f328503ff0c7de8c68ba7ad9ca03ec227cff066a1c43865086a1cb8b30d",
+        "fixtures": "755a1c4d0e8163ad153a37d60330cbabb36ed039f78d93664450e4b3d052caeb",
         "read": "87e4170109df818d96e500100fd09f0e15d7292bb2c0128d9417adfdb768a3ac",
         "step": "00936211b610a4dfc6ee69cd9e36756c52f3f18f722456cd268ebd481eb86098",
       }

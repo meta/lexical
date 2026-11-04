@@ -8,13 +8,13 @@
  */
 
 import type {Doc, Node as YNode} from '@y/y';
-import type {ClientIDRange, YLayoutEpoch} from '@lexical/y';
+import type {ClientIDRange, YMigrationEpoch} from '@lexical/y';
 
 /**
  * @lexical/y/migrate: EXPERIMENTAL layout migrations of stored documents.
  */
 
-export type {YLayoutEpoch};
+export type {YMigrationEpoch};
 
 export type YLayoutMigration = {
   readonly id: string,
@@ -66,7 +66,7 @@ export type YMigrationRootReceipt = {
   readonly to: number | null,
   readonly changed: boolean,
   readonly steps: ReadonlyArray<YMigrationStepReceipt>,
-  readonly epoch: YLayoutEpoch | null,
+  readonly epoch: YMigrationEpoch | null,
 };
 
 // Format version `v` (1); its root and step receipts are of the same
@@ -127,4 +127,4 @@ declare export function recordedLayout(doc: Doc, root?: string): number | null;
 declare export function layoutEpoch(
   doc: Doc,
   root?: string,
-): YLayoutEpoch | null;
+): YMigrationEpoch | null;

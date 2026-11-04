@@ -27,6 +27,7 @@ import {describe, expect, test} from 'vitest';
 
 import {createYDoc, UNSUPPORTED_LAYOUT_WARNING, YBinding} from '../../..';
 import {editYState, readYState, YHeadlessError} from '../../../headless';
+import {epochRecordOf} from '../../../internal/Layouts';
 import {migrateYState} from '../../../migrate';
 import {describeYRoom} from '../../../server';
 import {catalogAppExtension, catalogHeadlessConfig} from '../../catalog/bind';
@@ -37,7 +38,80 @@ const CFG = {blockIds: 'absent'} as const;
 const BROKEN = [
   'broken',
   {v: 1},
-  {client: 1, clock: 0, layout: 2, revision: 1, step: 'x', v: 2},
+  // Another format version.
+  {
+    client: 1,
+    clock: 0,
+    kind: 'layout',
+    layout: 2,
+    revision: 1,
+    step: 'x',
+    v: 2,
+  },
+  // A known field not well formed: layout 0, an empty step, an empty kind,
+  // a schema without its version.
+  {client: 1, clock: 0, layout: 0, revision: 1, step: 'x', v: 1},
+  {client: 1, clock: 0, layout: 2, revision: 1, step: '', v: 1},
+  {client: 1, clock: 0, kind: '', layout: 2, revision: 1, step: 'x', v: 1},
+  {
+    client: 1,
+    clock: 0,
+    kind: 'schema',
+    layout: 2,
+    revision: 1,
+    schema: {id: 'acme/notes'},
+    step: 'acme/notes/schema/3to4',
+    v: 1,
+  },
+];
+
+// Well formed (M3 of the API review): a missing kind reads as 'layout',
+// unknown fields are accepted, step ids are opaque, any layout from 1, and
+// another kind (an app schema step) with its schema.
+const WELL_FORMED: [
+  string,
+  Record<string, unknown>,
+  Record<string, unknown>,
+][] = [
+  [
+    'no kind (reads as layout)',
+    {client: 3, clock: 0, layout: 2, revision: 1, step: 'x/y', v: 1},
+    {kind: 'layout', layout: 2, step: 'x/y'},
+  ],
+  [
+    'an unknown optional field',
+    {
+      client: 3,
+      clock: 1,
+      kind: 'layout',
+      layout: 2,
+      note: 'diagnostics',
+      revision: 1,
+      step: 'lexical-y/layout/1to2',
+      v: 1,
+    },
+    {kind: 'layout', layout: 2},
+  ],
+  [
+    'a schema-style step at layout 1',
+    {
+      client: 3,
+      clock: 2,
+      kind: 'schema',
+      layout: 1,
+      revision: 2,
+      schema: {id: 'acme/notes', version: 4},
+      step: 'acme/notes/schema/3to4',
+      v: 1,
+    },
+    {
+      kind: 'schema',
+      layout: 1,
+      revision: 2,
+      schema: {id: 'acme/notes', version: 4},
+      step: 'acme/notes/schema/3to4',
+    },
+  ],
 ];
 
 function bind(state: Uint8Array, gc: boolean) {
@@ -157,6 +231,37 @@ describe.each([false, true])('malformed epochs, gc %s', gc => {
     doc.destroy();
   });
 
+  test.each(WELL_FORMED)(
+    'an epoch with %s is well formed: active, kept as it is, parsed',
+    (_name, raw, parsed) => {
+      const state = withEpoch(gc, raw);
+      const t = bind(state, gc);
+      expect(t.binding.status).toBe('active');
+      expect(t.warnings.some(malformedEpoch)).toBe(false);
+      t.append('allowed');
+      expect(text(t.doc)).toContain('allowed');
+      // Left in the document as written, unknown fields included.
+      expect(t.doc.get('lexical-y').getAttr('lexical-y-epoch')).toEqual(raw);
+      const record = epochRecordOf(t.doc.get('lexical-y'));
+      expect(record.kind).toBe('epoch');
+      expect(record.kind === 'epoch' && record.epoch).toMatchObject(parsed);
+      t.dispose();
+      // The runner and the server read it too.
+      const doc = createYDoc(state, {gc});
+      expect(
+        describeYRoom(doc, {
+          incarnation: 'i',
+          inherited: false,
+          seedContract: 1,
+        }).unreadable,
+      ).toEqual([]);
+      doc.destroy();
+      expect(
+        migrateYState(state, [stamp(SEED)], {gc, to: SEED + 1}).receipt.changed,
+      ).toBe(true);
+    },
+  );
+
   test('no epoch, or a well-formed one, keeps the binding active', () => {
     const t = bind(rawDoc(SEED), gc);
     expect(t.binding.status).toBe('active');
@@ -166,7 +271,11 @@ describe.each([false, true])('malformed epochs, gc %s', gc => {
       to: SEED + 1,
     }).state;
     const m = bind(migrated, gc);
+    // The runner writes the kind.
     expect(m.doc.get('lexical-y').getAttr('lexical-y-epoch')).toMatchObject({
+      kind: 'layout',
+      layout: SEED + 1,
+      step: `lexical-y/layout/${SEED}to${SEED + 1}`,
       v: 1,
     });
     // Active when this build reads SEED + 1; else read only as newer.
