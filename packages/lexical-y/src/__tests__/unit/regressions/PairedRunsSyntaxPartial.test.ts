@@ -25,7 +25,7 @@ import {
   type ElementNode,
   type TextNode,
 } from 'lexical';
-import {afterEach, beforeEach, expect, test} from 'vitest';
+import {expect, test} from 'vitest';
 
 import {
   $p,
@@ -35,13 +35,6 @@ import {
   type Peer,
   setup,
 } from '../../utils/harness';
-import {
-  setFormatIdentityWrites,
-  setFormatIdentityWritesDefault,
-} from '../../utils/noSwitch';
-
-beforeEach(() => setFormatIdentityWritesDefault(false));
-afterEach(() => setFormatIdentityWritesDefault(false));
 
 function $text(token: string): TextNode {
   const nodes = $getRoot().getAllTextNodes();
@@ -96,7 +89,6 @@ for (const gc of [false, true]) {
       {delivery: 'sender', gc, ids: [1, 2, 3]},
     );
     const [l, r, s] = t.peers;
-    setFormatIdentityWrites(r.doc, true);
     // R's first paired write records layout 3 (withheld from L).
     r.update(() => {
       $selectIn([1], 0, 1).formatText('bold');

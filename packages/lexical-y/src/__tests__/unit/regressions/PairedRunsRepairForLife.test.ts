@@ -22,17 +22,9 @@ import {
   $getRoot,
   $setSelection,
 } from 'lexical';
-import {afterEach, expect, test} from 'vitest';
+import {expect, test} from 'vitest';
 
 import {$selectIn, freshReader, setup} from '../../utils/harness';
-import {
-  setFormatIdentityWrites,
-  setFormatIdentityWritesDefault,
-} from '../../utils/noSwitch';
-
-afterEach(() => {
-  setFormatIdentityWritesDefault(false);
-});
 
 for (const gc of [false, true]) {
   test(`an app's redo after the binding stopped sends repaired ends (gc ${gc ? 'on' : 'off'})`, async () => {
@@ -45,7 +37,6 @@ for (const gc of [false, true]) {
       {gc},
     );
     const [a, b] = t.peers;
-    setFormatIdentityWrites(a.doc, true);
     // The app's manager tracks the binding's writes; its undo keeps text
     // and deletes every format item (both members of each pair).
     const app = new Y.UndoManager(a.doc, {

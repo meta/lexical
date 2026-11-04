@@ -161,7 +161,7 @@ function runRW(spec: any, mode: string, gcOn: boolean) {
   const peers = spec.ids.slice(0, spec.nb).map((id: number, n: number) => {
     const doc = createYDoc(seeded, {gc: gcOn});
     doc.clientID = id;
-    if (mode === 'mixed') throw new Error('no switch');
+    if (mode === 'mixed') throw new Error('unsupported mode: mixed');
     const editor = buildEditorFromExtensions(
       defineExtension({
         dependencies: [

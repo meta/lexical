@@ -29,7 +29,7 @@ import {
   $setSelection,
   type TextNode,
 } from 'lexical';
-import {afterEach, expect, test} from 'vitest';
+import {expect, test} from 'vitest';
 
 import {createYDoc} from '../../..';
 import {
@@ -39,15 +39,7 @@ import {
   type Peer,
   setup,
 } from '../../utils/harness';
-import {
-  setFormatIdentityWrites,
-  setFormatIdentityWritesDefault,
-} from '../../utils/noSwitch';
 import {prepareMarkState as prepare} from '../../utils/sizeOps';
-
-afterEach(() => {
-  setFormatIdentityWritesDefault(false);
-});
 
 function $text(token: string): TextNode {
   for (const n of $getRoot().getAllTextNodes()) {
@@ -97,7 +89,6 @@ async function settle(t: Awaited<ReturnType<typeof setup>>) {
 
 for (const gc of [false, true]) {
   test(`two comments ending at one place: typed plain text there reads the same, one write or two (gc ${gc ? 'on' : 'off'})`, async () => {
-    setFormatIdentityWritesDefault(true);
     const results: unknown[] = [];
     for (const two of [false, true]) {
       const t = await setup(() => $getRoot().append($p('ab cd')), {
@@ -125,7 +116,6 @@ for (const gc of [false, true]) {
   });
 
   test(`a bold tab: plain text typed before it reads the same, one write or two (gc ${gc ? 'on' : 'off'})`, async () => {
-    setFormatIdentityWritesDefault(true);
     const results: unknown[] = [];
     for (const two of [false, true]) {
       const t = await setup(() => $getRoot().append($p('ab')), {
@@ -168,7 +158,6 @@ for (const gc of [false, true]) {
     // s:markIds␟a = null (and bold's closer) before "y". Grouping the
     // comment's items over the whole gap would step over the first only and
     // type inside the comment.
-    setFormatIdentityWritesDefault(true);
     const t = await setup(() => $getRoot().append($p('t'), $p('xy')), {
       gc,
       prepare,
@@ -244,9 +233,6 @@ for (const gc of [false, true]) {
       }
       await t.sync();
       // The upgrade: a paired write on the second line.
-      for (const peer of t.peers) {
-        setFormatIdentityWrites(peer.doc, true);
-      }
       t.a.update(() => {
         $text('q').select(0, 1).formatText('italic');
         $setSelection(null);
@@ -272,7 +258,6 @@ for (const gc of [false, true]) {
   });
 
   test(`two comments opening at one place: text typed there inside both is placed the same, one write or two (gc ${gc ? 'on' : 'off'})`, async () => {
-    setFormatIdentityWritesDefault(true);
     const results: unknown[] = [];
     const written: number[] = [];
     for (const two of [false, true]) {

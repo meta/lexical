@@ -20,7 +20,7 @@
 
 import type * as Y from '@y/y';
 
-import {expect, test} from 'vitest';
+import {expect, test, vi} from 'vitest';
 
 import {createYDoc} from '../../..';
 import {frontierOf, noteFolded} from '../../../internal/Seen';
@@ -54,8 +54,8 @@ test('a start folded again once is a fresh fold: no refold per later walk', () =
   const doc = createYDoc(null, {gc: false});
   const root = doc.get('lexical-y');
   root.setAttr('lexical-y:3', true);
-  // A long container: 60,000 items before the unit's left.
-  for (let i = 0; i < 60_000; i++) {
+  // A container: 1,000 items before the unit's left.
+  for (let i = 0; i < 1_000; i++) {
     root.insert(0, String.fromCharCode(97 + (i % 26)));
   }
   // Two items that do not merge (the second inserted before the first).
@@ -71,13 +71,14 @@ test('a start folded again once is a fresh fold: no refold per later walk', () =
   noteFolded(start, to);
   root.delete(root.length - 1, 1);
   expect(to.deleted).toBe(true);
-  // The first walk folds the start again (once); 1,000 more walks from the
-  // same left (keystrokes in that line) take it as folded up to `left`.
+  // The first walk folds the start again (once: a refold clears the start
+  // and folds it up to `left`); 1,000 more walks from the same left
+  // (keystrokes in that line) take it as folded up to `left`.
+  const refolds = vi.spyOn(start, 'clear');
   expect(frontierOf(start, left, root)).toBeNull();
-  const t0 = performance.now();
+  expect(refolds).toHaveBeenCalledTimes(1);
   for (let i = 0; i < 1000; i++) {
     expect(frontierOf(start, left, root)).toBeNull();
   }
-  // A refold per walk would step 60,000,000 items (about 1.2 s here).
-  expect(performance.now() - t0).toBeLessThan(200);
-}, 30_000);
+  expect(refolds).toHaveBeenCalledTimes(1);
+});

@@ -44,7 +44,7 @@ import {createYDoc, type YDoc} from '../../..';
 import {createBoundEditor, NODES} from '../../utils/harness';
 
 // Sessions of the rebind generator that an earlier identity revision got
-// wrong in every setting (paired writes off and on, gc off and on): text
+// wrong with gc off and on: text
 // twice, or typed text in another paragraph, after a binding stopped while
 // a raw peer wrote and a new binding started on the same document. The
 // cause was a per-item memo of prevLiveEnd that outlived the

@@ -14,13 +14,12 @@
 // undo leaves it plain. Six random-session
 // runs reduced from the property suite (main shape: "def" bold; A types a
 // plain "0" inside it; B unbolds a range ending at "d"; A types a plain "1"
-// between "d" and "0"; B undoes: "1" stays plain), each with the switch on
-// and off, gc off and on. Oracle: letters keep their formats, digits stay
+// between "d" and "0"; B undoes: "1" stays plain), each with gc off and
+// on. Oracle: letters keep their formats, digits stay
 // plain, no "Z" is left, the peers converge.
 
-import {afterEach, expect, test} from 'vitest';
+import {expect, test} from 'vitest';
 
-import {setFormatIdentityWritesDefault} from '../../utils/noSwitch';
 import {type Run, run} from '../../utils/opsRun';
 
 const RUNS: Run[] = [
@@ -236,17 +235,10 @@ const UNFORMAT_TYPE_UNDO: Run[] = [
   },
 ];
 
-afterEach(() => {
-  setFormatIdentityWritesDefault(false);
-});
-
-for (const on of [false, true]) {
-  for (const gc of [false, true]) {
-    for (const spec of [...RUNS, ...UNFORMAT_TYPE_UNDO]) {
-      test(`switch ${on ? 'on' : 'off'}, gc ${gc ? 'on' : 'off'}: run ${spec.key} keeps the typed digits plain and every letter's format`, () => {
-        setFormatIdentityWritesDefault(on);
-        expect(run(spec, gc)).toBe('');
-      });
-    }
+for (const gc of [false, true]) {
+  for (const spec of [...RUNS, ...UNFORMAT_TYPE_UNDO]) {
+    test(`gc ${gc ? 'on' : 'off'}: run ${spec.key} keeps the typed digits plain and every letter's format`, () => {
+      expect(run(spec, gc)).toBe('');
+    });
   }
 }

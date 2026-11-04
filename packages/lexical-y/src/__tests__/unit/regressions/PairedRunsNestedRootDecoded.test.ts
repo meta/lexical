@@ -30,7 +30,6 @@ import {
 import {afterEach, expect, test} from 'vitest';
 
 import {createYDoc, YBinding} from '../../..';
-import {setFormatIdentityWrites} from '../../utils/noSwitch';
 
 const bindings: YBinding[] = [];
 afterEach(() => {
@@ -78,7 +77,6 @@ for (const gc of [false, true])
         ab.toggleFormat('bold');
         $getRoot().append($createParagraphNode().append(ab));
       });
-      setFormatIdentityWrites(doc, true);
       editor.update(
         () => {
           const ab = $getRoot().getAllTextNodes()[0] as TextNode;

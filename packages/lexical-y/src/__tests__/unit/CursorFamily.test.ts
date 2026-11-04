@@ -9,16 +9,12 @@
 // @vitest-environment node
 
 import * as Y from '@y/y';
-import {afterEach, beforeEach, describe, expect, test, vi} from 'vitest';
+import {describe, expect, test, vi} from 'vitest';
 
 import {Cursor} from '../../internal/Cursor';
-import {setFormatIdentityWritesDefault} from '../utils/noSwitch';
 
-// The rules of today's writer (paired writes off, whatever the suite
-// forces): with paired writes a cursor places as in a layout 3 document,
-// whose cells cover these races.
-beforeEach(() => setFormatIdentityWritesDefault(false));
-afterEach(() => setFormatIdentityWritesDefault(false));
+// The write cursor's placement rules for plain format items, as main
+// places them; paired runs place as the layout 3 cells cover.
 
 // A layout that stores one attribute under several format keys (here a set
 // stored one key per member, `m|<member>` = true) names them one family

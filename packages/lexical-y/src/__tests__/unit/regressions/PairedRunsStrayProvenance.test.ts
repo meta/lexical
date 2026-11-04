@@ -30,7 +30,7 @@ import {
   type LexicalEditor,
   type TextNode,
 } from 'lexical';
-import {afterEach, expect, test} from 'vitest';
+import {expect, test} from 'vitest';
 
 import {
   $selectIn,
@@ -40,14 +40,6 @@ import {
   type Peer,
   setup,
 } from '../../utils/harness';
-import {
-  setFormatIdentityWrites,
-  setFormatIdentityWritesDefault,
-} from '../../utils/noSwitch';
-
-afterEach(() => {
-  setFormatIdentityWritesDefault(false);
-});
 
 const ONE: readonly number[] = Object.freeze([1]);
 const TWO: readonly number[] = Object.freeze([2]);
@@ -98,7 +90,6 @@ for (const gc of [false, true]) {
       {delivery: 'sender', gc, prepare},
     );
     const [a, b] = t.peers;
-    setFormatIdentityWrites(b.doc, true);
     // B's first paired write records layout 3; its second writes a paired
     // run of the state over "a" (its end, B's next item, is [1]).
     b.update(() => {
@@ -119,7 +110,6 @@ for (const gc of [false, true]) {
     // end's [1].
     expect(values(a)[1]).toEqual(['x', [2]]);
     // A upgrades by bolding "b".
-    setFormatIdentityWrites(a.doc, true);
     a.update(() => {
       $selectIn([1], 0, 1).formatText('bold');
       $setSelection(null);

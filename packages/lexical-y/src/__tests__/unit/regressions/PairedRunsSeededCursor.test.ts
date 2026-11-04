@@ -25,7 +25,6 @@ import {
   setup,
   WITH_GC,
 } from '../../utils/harness';
-import {setFormatIdentityWritesDefault} from '../../utils/noSwitch';
 
 // A writer seeded with the formats of a line's start (a line moved, or
 // written again) steps over the format items between the previous line's
@@ -68,52 +67,47 @@ describe.each(
   ]) {
     for (const where of ['down', 'up'] as const) {
       test(`moved ${where}, client ids ${ids.join(',')}`, async () => {
-        setFormatIdentityWritesDefault(true);
-        try {
-          const t = await setup(
-            () => {
-              const lines = [$p('one'), $line(), $p('two'), $p('three')];
-              if (boxed) {
-                $getRoot().append(
-                  $p('before'),
-                  $createBoxNode().append(...lines),
-                );
-              } else {
-                $getRoot().append(...lines);
-              }
-            },
-            {gc: WITH_GC, ids},
-          );
-          t.a.update(() => {
-            const root = boxed
-              ? ($getRoot().getChildAtIndex(1) as ElementNode)
-              : $getRoot();
-            const line = root.getChildAtIndex(1) as ElementNode;
-            if (where === 'down') {
-              root.getChildAtIndex(2)!.insertAfter(line);
+        const t = await setup(
+          () => {
+            const lines = [$p('one'), $line(), $p('two'), $p('three')];
+            if (boxed) {
+              $getRoot().append(
+                $p('before'),
+                $createBoxNode().append(...lines),
+              );
             } else {
-              root.getFirstChild()!.insertBefore(line);
+              $getRoot().append(...lines);
             }
-          });
-          const fresh = await freshReader(t.a);
-          expect(t.a.describe()).toBe(fresh.describe());
-          await t.sync();
-          await expectConverged(t.peers);
-          // Then a collaborator types after the line's content.
-          t.b.update(() => {
-            const root = boxed
-              ? ($getRoot().getChildAtIndex(1) as ElementNode)
-              : $getRoot();
-            const line = root.getChildAtIndex(
-              where === 'down' ? 2 : 0,
-            ) as ElementNode;
-            line.selectEnd().insertText('!');
-          });
-          await t.sync();
-          await expectConverged(t.peers);
-        } finally {
-          setFormatIdentityWritesDefault(false);
-        }
+          },
+          {gc: WITH_GC, ids},
+        );
+        t.a.update(() => {
+          const root = boxed
+            ? ($getRoot().getChildAtIndex(1) as ElementNode)
+            : $getRoot();
+          const line = root.getChildAtIndex(1) as ElementNode;
+          if (where === 'down') {
+            root.getChildAtIndex(2)!.insertAfter(line);
+          } else {
+            root.getFirstChild()!.insertBefore(line);
+          }
+        });
+        const fresh = await freshReader(t.a);
+        expect(t.a.describe()).toBe(fresh.describe());
+        await t.sync();
+        await expectConverged(t.peers);
+        // Then a collaborator types after the line's content.
+        t.b.update(() => {
+          const root = boxed
+            ? ($getRoot().getChildAtIndex(1) as ElementNode)
+            : $getRoot();
+          const line = root.getChildAtIndex(
+            where === 'down' ? 2 : 0,
+          ) as ElementNode;
+          line.selectEnd().insertText('!');
+        });
+        await t.sync();
+        await expectConverged(t.peers);
       });
     }
   }

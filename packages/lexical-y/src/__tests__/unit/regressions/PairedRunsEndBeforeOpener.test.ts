@@ -17,7 +17,7 @@
 
 import * as Y from '@y/y';
 import {$getRoot, $setSelection} from 'lexical';
-import {afterEach, expect, test} from 'vitest';
+import {expect, test} from 'vitest';
 
 import {isValidEnd, liveEndsOf} from '../../../internal/Ident';
 import {
@@ -28,11 +28,6 @@ import {
   type Peer,
   setup,
 } from '../../utils/harness';
-import {setFormatIdentityWritesDefault} from '../../utils/noSwitch';
-
-afterEach(() => {
-  setFormatIdentityWritesDefault(false);
-});
 
 const rootOf = (peer: Peer) => peer.doc.get('lexical-y');
 
@@ -46,7 +41,6 @@ const runs = (peer: Peer) =>
 
 for (const gc of [false, true]) {
   test(`an end stored before the opener it names is a clearer (gc ${gc ? 'on' : 'off'})`, async () => {
-    setFormatIdentityWritesDefault(true);
     const t = await setup(() => $getRoot().append($p('xyz'), $p('q')), {gc});
     // A paired write on the second line records layout 3.
     t.a.update(() => {

@@ -22,7 +22,6 @@ import {
   setup,
   WITH_GC,
 } from '../../utils/harness';
-import {setFormatIdentityWrites} from '../../utils/noSwitch';
 
 // A value from an unpaired item (one written before paired runs, or an
 // opener whose end has not arrived yet) outlives paired runs nested above it.
@@ -45,9 +44,6 @@ async function legacyBoldThenPaired(ids: number[]) {
     },
     {gc: WITH_GC, ids},
   );
-  for (const peer of t.peers) {
-    setFormatIdentityWrites(peer.doc, true);
-  }
   return t;
 }
 

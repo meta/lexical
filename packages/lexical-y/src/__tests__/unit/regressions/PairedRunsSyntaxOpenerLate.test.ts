@@ -16,17 +16,10 @@
 
 import * as Y from '@y/y';
 import {$getRoot, $isTextNode, $setSelection, type TextNode} from 'lexical';
-import {afterEach, beforeEach, expect, test} from 'vitest';
+import {expect, test} from 'vitest';
 
 import {endsOf, endTarget} from '../../../internal/Ident';
 import {$p, $selectIn, flush, freshReader, setup} from '../../utils/harness';
-import {
-  setFormatIdentityWrites,
-  setFormatIdentityWritesDefault,
-} from '../../utils/noSwitch';
-
-beforeEach(() => setFormatIdentityWritesDefault(false));
-afterEach(() => setFormatIdentityWritesDefault(false));
 
 function $text(token: string): TextNode {
   const n = $getRoot()
@@ -47,7 +40,6 @@ for (const gc of [false, true]) {
         ids: [1, 2],
       });
       const [a, c] = t.peers;
-      setFormatIdentityWrites(a.doc, true);
       // A records layout 3, bolds "xyz" (an opener and its end), then a
       // raw end on A's client names that opener after "y".
       a.update(() => {

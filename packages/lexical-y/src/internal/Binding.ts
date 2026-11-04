@@ -2404,7 +2404,7 @@ export class YBinding {
             markBindingWrite(tr);
           }
           seeded = true;
-          // Main's bytes whatever the switch (see Ident.withSeeding).
+          // The canonical layout 3 seed (see Ident.withSeeding).
           withSeeding(this._doc, () =>
             this.$writeInitial(this.state, this._root, tr, editorState),
           );

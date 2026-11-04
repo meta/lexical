@@ -42,7 +42,7 @@ import {
   stringValue,
   type TextNode,
 } from 'lexical';
-import {afterEach, beforeEach, expect, test} from 'vitest';
+import {expect, test} from 'vitest';
 
 import {
   $p,
@@ -52,15 +52,6 @@ import {
   type Peer,
   setup,
 } from '../../utils/harness';
-import {
-  setFormatIdentityWrites,
-  setFormatIdentityWritesDefault,
-} from '../../utils/noSwitch';
-
-beforeEach(() => {
-  setFormatIdentityWritesDefault(false);
-});
-afterEach(() => setFormatIdentityWritesDefault(false));
 
 const tags = createState('tags', {parse: arraySetValue(stringValue())});
 const numericParse = (v: unknown) =>
@@ -116,9 +107,6 @@ async function windowRun(
   const [a, b] = t.peers;
   a.update(() => $seed($text('ax')));
   await t.sync();
-  for (const p of t.peers) {
-    setFormatIdentityWrites(p.doc, true);
-  }
   b.update(() => {
     $selectIn([1], 0, 1).formatText('bold');
     $setSelection(null);
@@ -260,9 +248,6 @@ async function numericWindow(gc: boolean) {
     $setState($text('ax'), numericState, [2]);
   });
   await t.sync();
-  for (const p of t.peers) {
-    setFormatIdentityWrites(p.doc, true);
-  }
   b.update(() => {
     $selectIn([1], 0, 1).formatText('bold');
     $setSelection(null);

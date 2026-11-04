@@ -28,7 +28,6 @@ import {
 import {afterEach, expect, test} from 'vitest';
 
 import {createYDoc, YBinding} from '../../..';
-import {setFormatIdentityWrites} from '../../utils/noSwitch';
 
 const bindings: YBinding[] = [];
 afterEach(() => {
@@ -74,7 +73,6 @@ for (const gc of [false, true]) {
       ab.toggleFormat('bold');
       $getRoot().append($createParagraphNode().append(ab));
     });
-    setFormatIdentityWrites(doc, true);
     // The app's manager keeps text and removes both format items of each
     // pair the binding's writes made.
     const um = new Y.UndoManager(doc.get('lexical-y'), {

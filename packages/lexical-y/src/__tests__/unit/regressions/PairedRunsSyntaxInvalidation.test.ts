@@ -22,13 +22,9 @@ import {
   $setSelection,
   type ElementNode,
 } from 'lexical';
-import {afterEach, beforeEach, expect, test} from 'vitest';
+import {expect, test} from 'vitest';
 
 import {$p, flush, freshReader, type Peer, setup} from '../../utils/harness';
-import {
-  setFormatIdentityWrites,
-  setFormatIdentityWritesDefault,
-} from '../../utils/noSwitch';
 import {prepareMarkState as prepare} from '../../utils/sizeOps';
 
 /** A peer's lines but the last ("q", whose bold L gets last), with comments. */
@@ -48,9 +44,6 @@ const shown = (p: Peer) =>
       .join(' / '),
   );
 
-beforeEach(() => setFormatIdentityWritesDefault(false));
-afterEach(() => setFormatIdentityWritesDefault(false));
-
 for (const gc of [false, true]) {
   for (const remove of ['first line', 'first word'] as const) {
     test(`a comment over three lines: deleting its start (${remove}) and undoing it converge without the record (gc ${gc ? 'on' : 'off'})`, async () => {
@@ -65,7 +58,6 @@ for (const gc of [false, true]) {
         {delivery: 'sender', gc, ids: [1, 2], prepare},
       );
       const [l, r] = t.peers;
-      setFormatIdentityWrites(r.doc, true);
       // R's first paired write records layout 3 (on "q"): withheld from L.
       r.update(() => {
         const q = (

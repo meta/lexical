@@ -12,10 +12,10 @@
 // end items before the layout 3 record arrived), kept as behaviour: read by
 // identity syntax before the writer's record, no end shows as a value, and
 // what an app does with the values the client shows is stored as it shows
-// them (switch off = main):
+// them, as on main:
 // 1. an app assigning x's value to b makes it b's state;
 // 2. a canonicalizing StateConfig (parse to frozen singletons, unparse by
-//    identity) keeps main's values, with paired writes off;
+//    identity) keeps main's values;
 // 3. an explicit edit of the link the writer wrote (setURL) is kept.
 
 import {$isLinkNode, $toggleLink, type LinkNode} from '@lexical/link';
@@ -34,7 +34,7 @@ import {
   type LexicalEditor,
   type TextNode,
 } from 'lexical';
-import {afterEach, beforeEach, expect, test} from 'vitest';
+import {expect, test} from 'vitest';
 
 import {
   $selectIn,
@@ -44,17 +44,6 @@ import {
   type Peer,
   setup,
 } from '../../utils/harness';
-import {
-  setFormatIdentityWrites,
-  setFormatIdentityWritesDefault,
-} from '../../utils/noSwitch';
-
-beforeEach(() => {
-  setFormatIdentityWritesDefault(false);
-});
-afterEach(() => {
-  setFormatIdentityWritesDefault(false);
-});
 
 const ONE: readonly number[] = Object.freeze([1]);
 const TWO: readonly number[] = Object.freeze([2]);
@@ -100,7 +89,6 @@ async function deliverSecondOnly(
   second: () => void,
 ) {
   const [a, b] = t.peers;
-  setFormatIdentityWrites(b.doc, true);
   b.update(() => {
     $selectIn([2], 0, 1).formatText('italic');
     $setSelection(null);
@@ -153,7 +141,6 @@ for (const gc of [false, true]) {
     });
     // Read by syntax: x shows the paired [2], never the end as [1].
     expect(values(a)[1]).toEqual(['x', [2]]);
-    setFormatIdentityWrites(a.doc, true);
     a.update(() => {
       const b = $text('b');
       $setState(b, numeric, $getState($text('x'), numeric));
@@ -167,7 +154,7 @@ for (const gc of [false, true]) {
     expect(a.warnings.filter(w => w.includes('self-check'))).toEqual([]);
   });
 
-  test(`a canonicalizing state keeps main's values with paired writes off (gc ${gc ? 'on' : 'off'})`, async () => {
+  test(`a canonicalizing state keeps main's values (gc ${gc ? 'on' : 'off'})`, async () => {
     const t = await setup($seed, {delivery: 'sender', gc, prepare});
     const [a] = t.peers;
     const sent = await deliverSecondOnly(t, () => {
@@ -218,7 +205,6 @@ for (const gc of [false, true]) {
       $toggleLink('https://old.example');
       $setSelection(null);
     });
-    setFormatIdentityWrites(a.doc, true);
     // Read by syntax: the link on "a" only, no blank link on "x".
     const urlOf = (peer: Peer, token: string) =>
       peer.read(() => {

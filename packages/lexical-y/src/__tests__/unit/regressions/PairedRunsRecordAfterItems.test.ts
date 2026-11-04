@@ -36,19 +36,14 @@ import {
   $isTextNode,
   defineExtension,
 } from 'lexical';
-import {afterEach, expect, test} from 'vitest';
+import {expect, test} from 'vitest';
 
 import {createYCollabConfig, createYDoc} from '../../..';
 import {createYWriter, editYState, seedYState} from '../../../headless';
 import {flush} from '../../utils/harness';
-import {setFormatIdentityWritesDefault} from '../../utils/noSwitch';
 
 const EXTENSIONS = [RichTextExtension, TableExtension, MarkStateExtension];
 const CONFIG = {extensions: EXTENSIONS, schemaVersion: 1};
-
-afterEach(() => {
-  setFormatIdentityWritesDefault(false);
-});
 
 /** Comment `id` on `token` in the text node that holds it. */
 function $markToken(token: string, id: string): void {
@@ -112,7 +107,6 @@ for (const gc of [false, true]) {
     [true, true],
   ]) {
     test(`a comment's end in a table cell reads as an end once the record arrives (${lateRecord ? 'record after the items' : 'causal'}${covered ? ', the text after it in another comment' : ''}, gc ${gc ? 'on' : 'off'})`, async () => {
-      setFormatIdentityWritesDefault(true);
       const seeded = seedYState(CONFIG, () => {
         const $cell = (text: string) =>
           $createTableCellNode().append(

@@ -30,7 +30,7 @@ import {
   type LexicalEditor,
   type TextNode,
 } from 'lexical';
-import {afterEach, expect, test} from 'vitest';
+import {expect, test} from 'vitest';
 
 import {
   $selectIn,
@@ -39,14 +39,6 @@ import {
   type Peer,
   setup,
 } from '../../utils/harness';
-import {
-  setFormatIdentityWrites,
-  setFormatIdentityWritesDefault,
-} from '../../utils/noSwitch';
-
-afterEach(() => {
-  setFormatIdentityWritesDefault(false);
-});
 
 const numeric = createState('numeric\u001fstate', {
   parse: (v: unknown) =>
@@ -78,9 +70,6 @@ const values = (peer: Peer) =>
 for (const gc of [false, true]) {
   for (const already of [false, true]) {
     test(`a numeric array NodeState under a U+001F name is written in a layout 3 document (${already ? 'already layout 3' : 'upgraded by bolding'}, gc ${gc ? 'on' : 'off'})`, async () => {
-      if (already) {
-        setFormatIdentityWritesDefault(true);
-      }
       const t = await setup(
         () => {
           const ab = $createTextNode('ab');
@@ -102,7 +91,6 @@ for (const gc of [false, true]) {
         });
         await t.sync();
       }
-      setFormatIdentityWrites(t.a.doc, true);
       // A upgrades (or writes paired runs) by bolding "ab".
       t.a.update(() => {
         $selectIn([0], 0, 2).formatText('bold');
@@ -110,8 +98,7 @@ for (const gc of [false, true]) {
       });
       await t.sync();
       expect(t.a.doc.get('lexical-y').getAttr('lexical-y:3')).toBe(true);
-      // The writing switch off: the document still writes paired runs.
-      setFormatIdentityWrites(t.a.doc, false);
+      // The next write is a paired run too.
       t.a.update(() => {
         const ab = $getRoot().getAllTextNodes()[0] as TextNode;
         $setState(ab, numeric, [1]);
