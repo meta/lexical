@@ -38,6 +38,7 @@ import {
 } from '@y/y';
 import {
   $addUpdateTag,
+  $cloneWithProperties,
   $createLineBreakNode,
   $createNodeSelection,
   $createPoint,
@@ -131,7 +132,12 @@ import {
   prevLiveEnd,
   shownLength,
 } from './Seen';
-import {$checkWrite, $followUpDifference, checkContainer} from './SelfCheck';
+import {
+  $checkWrite,
+  $deepJSON,
+  $followUpDifference,
+  checkContainer,
+} from './SelfCheck';
 import {$unstorableSlotHosts, $wrapSlotShadowRootInline} from './Slots';
 import {
   type CS,
@@ -331,6 +337,22 @@ const keepOwners = new WeakMap<
  */
 const rekeepHolders = new WeakMap<Item, Set<object>>();
 const rekeptByOwner = new WeakMap<object, Set<Item>>();
+
+/**
+ * Fields Lexical derives as it renders a commit (see $writeReadEdits): the
+ * root's text, and the text format and style an element with children takes
+ * from its text (LexicalReconciler's reconcileTextFormat), which depend on
+ * what the editor rendered before. An empty element keeps the ones set on
+ * it.
+ */
+function isDerivedField(node: LexicalNode, field: string): boolean {
+  return (
+    field === '__cachedText' ||
+    ((field === '__textFormat' || field === '__textStyle') &&
+      $isElementNode(node) &&
+      node.__size > 0)
+  );
+}
 
 /** What an update listener gets for a commit (see YBinding#onUpdate). */
 type UpdatePayload = {
@@ -931,6 +953,17 @@ export class YBinding {
   } | null = null;
   /** While a read of the binding's runs (see guardedRead). */
   private readsNow = 0;
+  /**
+   * What a read of the binding's made, as its update callback returned (see
+   * markReadEnd): the state it is in, and the nodes it changed, as they were
+   * then. Lexical goes on in that update and its commit (the selection's
+   * transforms, the selection change command, node transforms), and an
+   * app's code there can change nodes too (see $writeReadEdits).
+   */
+  private readEnd: {
+    state: EditorState;
+    nodes: Map<NodeKey, LexicalNode | undefined>;
+  } | null = null;
   /** The stored formats one update's transforms looked up (see settleTextFields). */
   private storedFormats: {
     state: EditorState | null;
@@ -3546,6 +3579,7 @@ export class YBinding {
             // returned (see guard): on this binding's view still, which
             // hides the changes still deferred (see deferChange).
             seenBy(this.seer, () => read.$read());
+            this.markReadEnd();
           } catch (error) {
             failure = {error};
             // It is recovered from right after (see read.recover): a
@@ -3587,6 +3621,257 @@ export class YBinding {
     if (!nested) {
       settle();
     }
+  }
+
+  /**
+   * Note what a read made, as its callback returns (see readEnd): a copy of
+   * each node it changed (Lexical changes a node already copied in the
+   * update in place, so a later change in the update would change the node
+   * itself), its NodeState included.
+   */
+  private markReadEnd(): void {
+    const editor = this._editor;
+    const pending = editor._pendingEditorState;
+    if (pending === null) {
+      return;
+    }
+    const nodes = new Map<NodeKey, LexicalNode | undefined>();
+    const note = (key: NodeKey) => {
+      const node = pending._nodeMap.get(key);
+      if (node === undefined) {
+        nodes.set(key, undefined);
+        return;
+      }
+      const copy = $cloneWithProperties(node);
+      if (copy.__state !== undefined) {
+        copy.__state = copy.__state.getWritable(copy);
+      }
+      nodes.set(key, copy);
+    };
+    for (const key of editor._dirtyLeaves) {
+      note(key);
+    }
+    for (const key of editor._dirtyElements.keys()) {
+      note(key);
+    }
+    this.readEnd = {nodes, state: pending};
+  }
+
+  /**
+   * Write what an app's code changed in the update of a read of the
+   * binding's, after the read (see readEnd): the selection's transforms
+   * (TextNode#selectionTransform), updates queued behind the read. Its
+   * commit is tagged as a remote change, which is not written: where the
+   * content of a top-level block or the order of the blocks differs from
+   * what the read left (see $readEditsShow), the nodes that changed after
+   * the read, and their parents, are written as a change of this client's
+   * (not in the undo history), over the state the read made; while read
+   * only, read again, as a local change is (see onUpdate). Lexical's merge
+   * of adjacent text nodes is no change, nor are the fields it derives as it
+   * renders (see isDerivedField). The update runs no node transforms (see
+   * $quietSelection).
+   *
+   * Invariant: the editor never shows a change that is neither stored nor
+   * read again. Why: no other client has it, and the editor's next edit
+   * would be written on content the document does not have.
+   */
+  private $writeReadEdits(
+    readEnd: NonNullable<YBinding['readEnd']>,
+    payload: UpdatePayload,
+    transformed: ReadonlySet<NodeKey>,
+  ): void {
+    const {editorState, prevEditorState} = payload;
+    const now = editorState._nodeMap;
+    const before = prevEditorState._nodeMap;
+    const read = (key: NodeKey) =>
+      readEnd.nodes.has(key) ? readEnd.nodes.get(key) : before.get(key);
+    // Attached as the read left it (a node it removed is collected by
+    // Lexical as it commits: no change).
+    const attached = (node: LexicalNode | undefined): boolean => {
+      for (let at = node; at !== undefined; ) {
+        if (at.__key === 'root') {
+          return true;
+        }
+        const parent = at.__parent;
+        at = parent === null ? undefined : read(parent);
+      }
+      return false;
+    };
+    // A node the read changed is compared with its copy (see markReadEnd),
+    // NodeState included (a field JSON does not enumerate).
+    const sameAll = (x: LexicalNode, y: LexicalNode): boolean => {
+      try {
+        const all = (n: LexicalNode) =>
+          JSON.stringify([
+            JSON.stringify(n, (k, v) => (isDerivedField(n, k) ? undefined : v)),
+            n.__state === undefined ? null : n.__state.toJSON(),
+          ]);
+        return all(x) === all(y);
+      } catch (_e) {
+        return false;
+      }
+    };
+    const dirtyElements = new Map<NodeKey, boolean>();
+    const dirtyLeaves = new Set<NodeKey>();
+    const merged = payload.normalizedNodes ?? new Set<NodeKey>();
+    for (const key of new Set([
+      ...payload.dirtyLeaves,
+      ...payload.dirtyElements.keys(),
+    ])) {
+      const after = now.get(key);
+      const then = read(key);
+      if (
+        after === then ||
+        (after === undefined && !attached(then)) ||
+        (after !== undefined &&
+          then !== undefined &&
+          readEnd.nodes.has(key) &&
+          sameAll(after, then))
+      ) {
+        continue;
+      }
+      if ($isElementNode(after ?? then)) {
+        dirtyElements.set(key, true);
+      } else {
+        dirtyLeaves.add(key);
+      }
+    }
+    if (dirtyElements.size === 0 && dirtyLeaves.size === 0) {
+      return;
+    }
+    // Their parents, as they are and as the read left them: a node moved
+    // within its parent changes the order of the parent's children, and not
+    // the parent's own fields.
+    for (const key of [...dirtyElements.keys(), ...dirtyLeaves]) {
+      for (const node of [now.get(key), read(key)]) {
+        const parent = node === undefined ? null : node.__parent;
+        if (parent !== null && now.has(parent)) {
+          dirtyElements.set(parent, true);
+        }
+      }
+    }
+    const map = new Map(before);
+    for (const [key, node] of readEnd.nodes) {
+      if (node === undefined) {
+        map.delete(key);
+      } else {
+        map.set(key, node);
+      }
+    }
+    const ReadState = prevEditorState.constructor as new (
+      nodeMap: Map<NodeKey, LexicalNode>,
+      selection: null,
+      slotsUsed: boolean,
+    ) => EditorState;
+    const readState = new ReadState(map, null, prevEditorState._slotsUsed);
+    readState._readOnly = true;
+    // Whether the app's code changed what the editor shows: the content of
+    // each top-level block a node it changed is in (its JSON with its
+    // children, NodeState included, adjacent text that differs only in its
+    // text as one, see $deepJSON: Lexical's merge of text nodes is no
+    // change), or the order of the blocks.
+    if (
+      !this.$readEditsShow(dirtyElements, dirtyLeaves, editorState, readState)
+    ) {
+      return;
+    }
+    if (!this.writesEdits()) {
+      this.$refuseChanged(dirtyElements, dirtyLeaves, editorState, readState);
+      return;
+    }
+    const commit: Commit = {
+      followUp: false,
+      naming: false,
+      normalize: false,
+      refresh: false,
+      registration: false,
+      remote: false,
+      scansGroups: false,
+      skip: false,
+      userEdit: false,
+    };
+    const state = this.state;
+    editorState.read(() =>
+      this.$writeCommit(
+        state,
+        commit,
+        editorState,
+        readState,
+        dirtyElements,
+        dirtyLeaves,
+        transformed,
+        new Set(),
+        merged,
+      ),
+    );
+  }
+
+  /** See $writeReadEdits. */
+  private $readEditsShow(
+    dirtyElements: ReadonlyMap<NodeKey, boolean>,
+    dirtyLeaves: ReadonlySet<NodeKey>,
+    editorState: EditorState,
+    readState: EditorState,
+  ): boolean {
+    const editor = this._editor;
+    const tops = (state: EditorState, keys: Iterable<NodeKey>) =>
+      state.read(
+        () => {
+          const out = new Set<NodeKey>();
+          for (const key of keys) {
+            const node = $getNodeByKey(key);
+            if (node === null) {
+              continue;
+            }
+            if ($isRootNode(node)) {
+              out.add('root');
+              continue;
+            }
+            const top = node.isAttached() ? node.getTopLevelElement() : null;
+            if (top !== null) {
+              out.add(top.getKey());
+            }
+          }
+          return out;
+        },
+        {editor},
+      );
+    const keys = [...dirtyElements.keys(), ...dirtyLeaves];
+    const blocks = new Set([
+      ...tops(editorState, keys),
+      ...tops(readState, keys),
+    ]);
+    const shown = (state: EditorState, key: NodeKey) =>
+      state.read(
+        () => {
+          const node = $getNodeByKey(key);
+          if (node === null || !node.isAttached()) {
+            return null;
+          }
+          if ($isRootNode(node)) {
+            return JSON.stringify(node.getChildrenKeys());
+          }
+          return JSON.stringify(
+            $deepJSON(node, null, null, true),
+            function (this: Record<string, unknown>, k, v) {
+              // See isDerivedField: an element's text format and style, where it
+              // has children it takes them from.
+              return (k === 'textFormat' || k === 'textStyle') &&
+                Array.isArray(this.children) &&
+                this.children.length > 0
+                ? undefined
+                : v;
+            },
+          );
+        },
+        {editor},
+      );
+    for (const key of blocks) {
+      if (shown(editorState, key) !== shown(readState, key)) {
+        return true;
+      }
+    }
+    return false;
   }
 
   /**
@@ -4082,6 +4367,18 @@ export class YBinding {
       dirtyLeaves,
       prevEditorState,
     );
+    const readEnd = this.readEnd;
+    this.readEnd = null;
+    if (
+      readEnd !== null &&
+      readEnd.state === editorState &&
+      !commit.skip &&
+      (this.writesEdits() || this.readsChanges())
+    ) {
+      // A read of the binding's, after which an app's code changed nodes in
+      // its update (see $writeReadEdits).
+      this.$writeReadEdits(readEnd, payload, transformed);
+    }
     if (commit.refresh && !commit.registration) {
       // See $refreshGroups: only users' own edits write.
       this.state.refresh.clear();
@@ -5811,8 +6108,9 @@ export class YBinding {
   /**
    * At the end of a read: the read's selection counts as notified, and
    * SELECTION_CHANGE_COMMAND is dispatched once the read has committed, in an
-   * update of its own (Lexical skips the notification itself where it would
-   * not run: headless, no root element).
+   * update of its own, where the read or an app's selectionTransform after
+   * it changed the selection (Lexical skips the notification itself where it
+   * would not run: headless, no root element).
    *
    * Invariant: a read runs no node transforms. Why: when a read's selection
    * changes, Lexical extends the commit with the selection change command
@@ -5826,9 +6124,6 @@ export class YBinding {
     $clampSelection();
     const selection = $getSelection();
     const previous = editor._lastNotifiedSelection;
-    if (selection === null ? previous === null : selection.is(previous)) {
-      return;
-    }
     const root = editor._rootElement;
     if (
       (selection === null || $isRangeSelection(selection)) &&
@@ -5836,16 +6131,30 @@ export class YBinding {
     ) {
       return;
     }
+    const changed =
+      selection === null ? previous !== null : !selection.is(previous);
+    if (!changed && selection === null) {
+      return;
+    }
     // The selection itself, not a copy: Lexical's normalization at the end
-    // of the read's update (text nodes the read left side by side merge)
-    // moves its points in place, and the commit compares what it ends as
-    // with what was notified. A copy would differ there, and Lexical would
-    // extend the read's commit with the selection change command, running
-    // every node transform over what the read brought. Lexical gives each
-    // later update a selection of its own, so this one changes no more once
-    // the read has committed.
+    // of the read's update (text nodes the read left side by side merge),
+    // and an app's TextNode#selectionTransform, which Lexical runs after the
+    // read in its update, move its points in place, and the commit compares
+    // what it ends as with what was notified. A copy would differ there, and
+    // Lexical would extend the read's commit with the selection change
+    // command, running every node transform over what the read brought.
+    // Lexical gives each later update a selection of its own, so this one
+    // changes no more once the read has committed.
     editor._lastNotifiedSelection = selection;
     $onUpdate(() => {
+      // Where the read left the selection as it was, notified only if the
+      // app's code moved it in the read's update.
+      if (!changed) {
+        const now = editor.getEditorState()._selection;
+        if (now === null || now.is(previous)) {
+          return;
+        }
+      }
       editor.update(() => {
         editor.dispatchCommand(SELECTION_CHANGE_COMMAND, undefined);
       });

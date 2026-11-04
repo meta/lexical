@@ -296,12 +296,15 @@ const CHANGED = '\u0000changed';
  * Adjacent text nodes that differ only in their text are compared as one
  * (Lexical keeps them apart while one of them is being composed). `unstored`
  * are nodes whose NodeState is left out (see $runNodes); `changed`, elements
- * marked CHANGED (see stripFollowUpText).
+ * marked CHANGED (see stripFollowUpText). With `simpleOnly`, only the text
+ * nodes Lexical merges as it normalizes (TextNode#isSimpleText: class
+ * `text`, mode normal) are.
  */
-function $deepJSON(
+export function $deepJSON(
   node: LexicalNode,
   unstored: ReadonlySet<NodeKey> | null = null,
   changed: ReadonlySet<NodeKey> | null = null,
+  simpleOnly = false,
 ): Attrs {
   const json = node.exportJSON() as unknown as Attrs;
   if (unstored !== null && unstored.has(node.getKey())) {
@@ -313,12 +316,14 @@ function $deepJSON(
     }
     const children: Attrs[] = [];
     for (const child of node.getChildren()) {
-      const c = $deepJSON(child, unstored, changed);
+      const c = $deepJSON(child, unstored, changed, simpleOnly);
       const prev = children[children.length - 1];
+      const simple = (j: Attrs) => j.type === 'text' && j.mode === 'normal';
       if (
         prev !== undefined &&
         typeof prev.text === 'string' &&
         typeof c.text === 'string' &&
+        (!simpleOnly || (simple(prev) && simple(c))) &&
         stableStringify({...prev, text: ''}) ===
           stableStringify({...c, text: ''})
       ) {
@@ -335,7 +340,7 @@ function $deepJSON(
     for (const name of names) {
       const slot = $getSlot(node, name);
       if (slot !== null) {
-        slots[name] = $deepJSON(slot, unstored, changed);
+        slots[name] = $deepJSON(slot, unstored, changed, simpleOnly);
       }
     }
     json.$slots = slots;
