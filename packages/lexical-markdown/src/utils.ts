@@ -63,10 +63,12 @@ export function transformersByType(transformers: Transformer[]): Readonly<{
 // form feed and carriage return. A vertical tab, which Office writes for a
 // soft line break, counts too, as every common reader (commonmark.js,
 // markdown-it and micromark) reads it; JavaScript's `\s` adds others, such
-// as U+FEFF. Delimiter flanking depends on both.
+// as U+FEFF. Delimiter flanking depends on both. Readers read U+0000 as the
+// U+FFFD that replaces it, a symbol.
 // https://spec.commonmark.org/0.31.2/#unicode-punctuation-character
 // https://spec.commonmark.org/0.31.2/#unicode-whitespace-character
-const PUNCTUATION = /[\p{P}\p{S}]/u;
+// https://spec.commonmark.org/0.31.2/#insecure-characters
+const PUNCTUATION = /[\0\p{P}\p{S}]/u;
 const WHITESPACE = /[\p{Zs}\t\n\v\f\r]/u;
 
 /**
@@ -83,6 +85,9 @@ const WHITESPACE = /[\p{Zs}\t\n\v\f\r]/u;
  *   Japanese and Korean characters and punctuation, where it opens and closes
  *   as a writer of those languages expects. A variation selector before a
  *   marker reads as the character it follows.
+ *
+ * Both read a vertical tab beside a marker as whitespace, as commonmark.js,
+ * markdown-it and micromark do, though cmark and cmark-gfm don't.
  */
 export type PunctuationMode = 'cjk-friendly' | 'strict-commonmark';
 

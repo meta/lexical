@@ -354,6 +354,22 @@ describe('Mdast punctuation modes', () => {
     expect(read('a**x\0\ufe0e**b')).toEqual([['a**x\ufffd\ufe0e**b', 0]]);
   });
 
+  it('writes U+0000 as the U+FFFD symbol readers replace it with', () => {
+    const runs: Runs = [
+      ['a\0', bold],
+      ['b', 0],
+    ];
+    for (const mode of ['strict-commonmark', 'cjk-friendly'] as const) {
+      expect(roundTrip(runs, mode)).toEqual([
+        '**a\0**&#x62;',
+        [
+          ['a\ufffd', bold],
+          ['b', 0],
+        ],
+      ]);
+    }
+  });
+
   it('writes no reference beside `~` without strikethrough', () => {
     const editor = buildEditorFromExtensions(
       defineExtension({dependencies: [MdastExtension], name: '[root]'}),

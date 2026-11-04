@@ -431,6 +431,23 @@ describe('Markdown punctuation modes', () => {
     expect(importMdastRuns(cjkFriendly, 'cjk-friendly')).toEqual(runs);
   });
 
+  it('reads U+0000 as the U+FFFD that readers replace it with', () => {
+    const runs: Runs = [
+      ['a\0', bold],
+      ['b', 0],
+    ];
+    for (const punctuation of ['cjk-friendly', 'strict-commonmark'] as const) {
+      const markdown = exportRuns(runs, punctuation);
+      expect(markdown).toBe('**a\0**&#98;');
+      expect(importRuns(markdown, punctuation)).toEqual(runs);
+      // @lexical/mdast imports U+0000 as U+FFFD.
+      expect(importMdastRuns(markdown, punctuation)).toEqual([
+        ['a\ufffd', bold],
+        ['b', 0],
+      ]);
+    }
+  });
+
   it('reads null and an options object with the merge flag as before', () => {
     const editor = createEditor();
     const importText = (

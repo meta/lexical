@@ -597,9 +597,10 @@ const ATTENTION_AND_STRIKETHROUGH_MARKERS = /[*_~]/;
 // and a general-use variation selector other than the emoji one, which the
 // CJK-friendly amendment reads before a marker as the character it varies.
 // It also stands in for the characters micromark reads as whitespace and
-// CommonMark as letters, but `\v`, which no reference can stand for.
+// CommonMark as letters, but `\v`, which no reference can stand for, and
+// for U+0000, which readers read as the U+FFFD that replaces it.
 const STOOD_IN =
-  /(?![\0-\uffff])[\p{P}\p{S}]|[\ufe00-\ufe0e]|[\u2028\u2029\ufeff]/gu;
+  /(?![\0-\uffff])[\p{P}\p{S}]|[\ufe00-\ufe0e]|[\u2028\u2029\ufeff]|\0/gu;
 const MICROMARK_ONLY_WHITESPACE = /^[\u2028\u2029\ufeff]$/;
 
 /**
@@ -997,10 +998,15 @@ function restoreStoodIn(
     return backslashes % 2 === 1;
   };
   // How readers read the character a stand-in stands for.
-  const readings = (standIn: string): number[] =>
-    MICROMARK_ONLY_WHITESPACE.test(characters.get(standIn)!)
-      ? [PUNCTUATION, WHITESPACE, LETTER]
-      : [PUNCTUATION, LETTER];
+  const readings = (standIn: string): number[] => {
+    const character = characters.get(standIn)!;
+    // Every reader reads U+0000 as the U+FFFD that replaces it.
+    return character === '\0'
+      ? [PUNCTUATION]
+      : MICROMARK_ONLY_WHITESPACE.test(character)
+        ? [PUNCTUATION, WHITESPACE, LETTER]
+        : [PUNCTUATION, LETTER];
+  };
   // Whether the run beside `index`, toward `step`, flanks the same for every
   // reading of the stand-in at `index`, and of one beyond the run.
   const isPortable = (index: number, step: 1 | -1): boolean => {
