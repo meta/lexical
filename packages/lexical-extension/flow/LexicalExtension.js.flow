@@ -137,6 +137,11 @@ export {
   registerTabIndentation,
   TabIndentationExtension,
 } from '@lexical/extension/TabIndentationExtension';
+export type {TextSubstitutionConfig} from '@lexical/extension/TextSubstitutionExtension';
+export {
+  DEFAULT_TEXT_SUBSTITUTIONS,
+  TextSubstitutionExtension,
+} from '@lexical/extension/TextSubstitutionExtension';
 export {WatchEditableExtension} from '@lexical/extension/WatchEditableExtension';
 export {watchedSignal} from '@lexical/extension/watchedSignal';
 export type {

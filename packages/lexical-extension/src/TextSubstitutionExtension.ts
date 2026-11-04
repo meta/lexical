@@ -12,7 +12,7 @@ import {
   $isRangeSelection,
   $isTextNode,
   COLLABORATION_TAG,
-  COMMAND_PRIORITY_HIGH,
+  COMMAND_PRIORITY_LOW,
   defineExtension,
   DELETE_CHARACTER_COMMAND,
   HISTORIC_TAG,
@@ -63,6 +63,17 @@ interface SubstitutionRecord {
   start: number;
 }
 
+/**
+ * Tag applied to every update this extension makes itself (the
+ * substitution, the chained-substitution rewrite, and the Backspace
+ * revert). The update listener skips tagged updates, so the revert of
+ * `—` back to `--` — which moves the caret forward by one at the end
+ * of the node — is not read as a newly typed character and
+ * re-substituted, and a custom entry such as `{':)': '::)'}` cannot
+ * loop either.
+ */
+const TEXT_SUBSTITUTION_TAG = 'text-substitution';
+
 function $findSubstitution(
   text: string,
   entries: readonly (readonly [string, string])[],
@@ -100,7 +111,11 @@ function registerTextSubstitution(
   return mergeRegister(
     editor.registerUpdateListener(
       ({dirtyLeaves, editorState, prevEditorState, tags}) => {
-        if (tags.has(HISTORIC_TAG) || tags.has(COLLABORATION_TAG)) {
+        if (
+          tags.has(HISTORIC_TAG) ||
+          tags.has(COLLABORATION_TAG) ||
+          tags.has(TEXT_SUBSTITUTION_TAG)
+        ) {
           return;
         }
         if (!editor.isEditable() || editor.isComposing()) {
@@ -114,6 +129,11 @@ function registerTextSubstitution(
           !selection.isCollapsed() ||
           selection.is(prevSelection)
         ) {
+          // Any update that is not the extension's own, and not a
+          // collapsed caret move of exactly one character, invalidates
+          // the "Backspace reverts" record: moving the caret back after
+          // an earlier substitution must not restore its alias.
+          lastSubstitution = null;
           return;
         }
         const anchorKey = selection.anchor.key;
@@ -126,13 +146,15 @@ function registerTextSubstitution(
           : null;
         if (
           anchorText === null ||
-          !dirtyLeaves.has(anchorKey) ||
           // Only fire on a single typed character, at the end of the
           // node: typing in the middle of a word must not substitute.
           prevSelection.anchor.key !== anchorKey ||
           anchorOffset !== prevSelection.anchor.offset + 1 ||
           anchorOffset !== anchorText.length
         ) {
+          // A caret move (or any other non-typing update) that is not
+          // the chained-substitution case invalidates the record.
+          lastSubstitution = null;
           return;
         }
         const text = anchorText;
@@ -143,7 +165,8 @@ function registerTextSubstitution(
         // replacement instead of leaving '—>' behind.
         if (
           lastSubstitution !== null &&
-          lastSubstitution.nodeKey === anchorKey
+          lastSubstitution.nodeKey === anchorKey &&
+          dirtyLeaves.has(anchorKey)
         ) {
           const typedChar = text[anchorOffset - 1];
           const extendedAlias = lastSubstitution.alias + typedChar;
@@ -173,6 +196,7 @@ function registerTextSubstitution(
                 record.start + extendedReplacement.length,
               );
               $addUpdateTag(HISTORY_PUSH_TAG);
+              $addUpdateTag(TEXT_SUBSTITUTION_TAG);
               lastSubstitution = {
                 alias: extendedAlias,
                 nodeKey: target.getKey(),
@@ -182,6 +206,12 @@ function registerTextSubstitution(
             });
             return;
           }
+        }
+        // Any other typed character is a new edit, not a continuation
+        // of the previous substitution: the old record is stale.
+        lastSubstitution = null;
+        if (!dirtyLeaves.has(anchorKey)) {
+          return;
         }
         const match = $findSubstitution(text, entries);
         if (match === null) {
@@ -206,6 +236,7 @@ function registerTextSubstitution(
             match.start + match.replacement.length,
           );
           $addUpdateTag(HISTORY_PUSH_TAG);
+          $addUpdateTag(TEXT_SUBSTITUTION_TAG);
           lastSubstitution = {
             alias: match.alias,
             nodeKey: target.getKey(),
@@ -222,45 +253,47 @@ function registerTextSubstitution(
           return false;
         }
         const record = lastSubstitution;
+        // A command handler already runs inside an update, so the
+        // revert is done directly here — a nested editor.update()
+        // would only be queued, letting the rich-text delete handler
+        // remove the replacement first. Returning true stops that
+        // handler from running at all.
+        const selection = $getSelection();
+        if (!$isRangeSelection(selection) || !selection.isCollapsed()) {
+          lastSubstitution = null;
+          return false;
+        }
+        const node = selection.anchor.getNode();
+        if (
+          !$isTextNode(node) ||
+          node.getKey() !== record.nodeKey ||
+          selection.anchor.offset !== record.start + record.replacement.length
+        ) {
+          lastSubstitution = null;
+          return false;
+        }
+        const text = node.getTextContent();
+        if (
+          text.slice(record.start, record.start + record.replacement.length) !==
+          record.replacement
+        ) {
+          lastSubstitution = null;
+          return false;
+        }
         lastSubstitution = null;
-        let reverted = false;
-        editor.update(() => {
-          const selection = $getSelection();
-          if (!$isRangeSelection(selection) || !selection.isCollapsed()) {
-            return;
-          }
-          const node = selection.anchor.getNode();
-          if (
-            !$isTextNode(node) ||
-            node.getKey() !== record.nodeKey ||
-            selection.anchor.offset !== record.start + record.replacement.length
-          ) {
-            return;
-          }
-          const text = node.getTextContent();
-          if (
-            text.slice(
-              record.start,
-              record.start + record.replacement.length,
-            ) !== record.replacement
-          ) {
-            return;
-          }
-          node.spliceText(
-            record.start,
-            record.replacement.length,
-            record.alias,
-          );
-          node.select(
-            record.start + record.alias.length,
-            record.start + record.alias.length,
-          );
-          $addUpdateTag(HISTORY_PUSH_TAG);
-          reverted = true;
-        });
-        return reverted;
+        node.spliceText(record.start, record.replacement.length, record.alias);
+        node.select(
+          record.start + record.alias.length,
+          record.start + record.alias.length,
+        );
+        $addUpdateTag(HISTORY_PUSH_TAG);
+        $addUpdateTag(TEXT_SUBSTITUTION_TAG);
+        return true;
       },
-      COMMAND_PRIORITY_HIGH,
+      // RichTextExtension's delete handler runs at COMMAND_PRIORITY_EDITOR
+      // (0); LOW (1) runs before it, so returning true here stops the
+      // character from being deleted instead of reverted.
+      COMMAND_PRIORITY_LOW,
     ),
   );
 }
@@ -279,6 +312,21 @@ function registerTextSubstitution(
  * after a replacement — with the caret still right after it and no other
  * edits in between — restores the alias text instead of deleting one
  * character.
+ *
+ * To turn off a single default, map it to itself, e.g.
+ * `{'--': '--'}`: an alias equal to its replacement is never applied.
+ * Substitutions only fire at the end of a text node, so typing `--` in
+ * the middle of an existing sentence does not substitute.
+ *
+ * Known interactions: typing `---` cannot trigger a horizontal-rule
+ * markdown shortcut alongside this extension, because `--` is replaced
+ * with `—` before the third `-` is typed. The chained substitution
+ * (`--` then `>` producing `→`) is a second history entry, so one
+ * Ctrl+Z after `-->` restores `—>`, not `-->`; a second Ctrl+Z restores
+ * `-->`'s alias chain fully. In collaborative editors, undo ignores the
+ * history-push boundary. On Android Chrome, Backspace is handled
+ * natively by the browser, so the Backspace-restore behaviour may not
+ * apply there.
  */
 export const TextSubstitutionExtension = defineExtension({
   build(editor, config, state) {

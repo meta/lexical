@@ -395,6 +395,22 @@
       "production": "./dist/LexicalExtensionTabIndentationExtension.prod.js",
       "default": "./dist/LexicalExtensionTabIndentationExtension.js"
     },
+    "./TextSubstitutionExtension": {
+      "source": "./src/TextSubstitutionExtension.ts",
+      "types@<5.2": "./dist/typescript-too-old.d.ts",
+      "types": "./dist/TextSubstitutionExtension.d.ts",
+      "development": "./dist/LexicalExtensionTextSubstitutionExtension.dev.js",
+      "production": "./dist/LexicalExtensionTextSubstitutionExtension.prod.js",
+      "default": "./dist/LexicalExtensionTextSubstitutionExtension.js"
+    },
+    "./TextSubstitutionExtension.js": {
+      "source": "./src/TextSubstitutionExtension.ts",
+      "types@<5.2": "./dist/typescript-too-old.d.ts",
+      "types": "./dist/TextSubstitutionExtension.d.ts",
+      "development": "./dist/LexicalExtensionTextSubstitutionExtension.dev.js",
+      "production": "./dist/LexicalExtensionTextSubstitutionExtension.prod.js",
+      "default": "./dist/LexicalExtensionTextSubstitutionExtension.js"
+    },
     "./WatchEditableExtension": {
       "source": "./src/WatchEditableExtension.ts",
       "types@<5.2": "./dist/typescript-too-old.d.ts",
