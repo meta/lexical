@@ -76,11 +76,18 @@ describe.each(Object.entries(shrink))('%s', (name, $shrink) => {
     const out = editor.getEditorState().read(() => {
       const s = $getSelection();
       return $isRangeSelection(s)
-        ? {focus: s.focus.offset, size: $text().getTextContentSize()}
+        ? {
+            focusKey: s.focus.key,
+            focusOffset: s.focus.offset,
+            size: $text().getTextContentSize(),
+            targetKey: $text().getKey(),
+          }
         : null;
     });
     expect(out).not.toBeNull();
-    expect(out!.focus).toBeLessThanOrEqual(out!.size);
+    expect(out!.focusKey).toBe(out!.targetKey);
+    expect(out!.focusOffset).toBe(1);
+    expect(out!.size).toBe(1);
   });
 
   test('a later splitText on the node does not throw', () => {
@@ -141,4 +148,26 @@ test('control: an in-bounds selection and the same splitText', () => {
     {discrete: true},
   );
   expect(String(error)).toBe('null');
+});
+
+test('splitText with caret past the split offset preserves caret in the split sibling', () => {
+  const editor = buildEditorFromExtensions(ext);
+  editor.update(
+    () => {
+      const t = $createTextNode('abcdef');
+      $getRoot().clear().append($createParagraphNode().append(t));
+      // Caret at offset 5 (in 'ef')
+      const s = t.select(5, 5);
+      // Split at offset 3 ('abc' and 'def')
+      const splits = t.splitText(3);
+      expect(splits).toHaveLength(2);
+      expect(splits[0].getTextContent()).toBe('abc');
+      expect(splits[1].getTextContent()).toBe('def');
+      expect(s.anchor.getNode()).toBe(splits[1]);
+      expect(s.anchor.offset).toBe(2);
+      expect(s.focus.getNode()).toBe(splits[1]);
+      expect(s.focus.offset).toBe(2);
+    },
+    {discrete: true},
+  );
 });
