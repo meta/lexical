@@ -46,8 +46,13 @@ import {
   getExtensionDependencyFromEditor,
 } from '@lexical/extension';
 import {RichTextExtension} from '@lexical/rich-text';
-import {createYDoc, YCollabExtension} from '@lexical/y';
-import {configExtension, defineExtension} from 'lexical';
+import {
+  createYCollabConfig,
+  createYDoc,
+  createYServerLayoutUpgrade,
+  YCollabExtension,
+} from '@lexical/y';
+import {defineExtension} from 'lexical';
 
 // Yjs's format cleanup off (createYDoc(stored) for a stored state): the
 // binding takes no other document.
@@ -56,9 +61,14 @@ const editor = buildEditorFromExtensions(
   defineExtension({
     dependencies: [
       RichTextExtension,
-      // Required: your app's document schema version, bumped whenever a
-      // node's stored fields or node types change.
-      configExtension(YCollabExtension, {doc, schemaVersion: 1}),
+      // Required: the version of your editor's nodes (bump it when you add,
+      // remove or change one), and how documents below MIN_LAYOUT are
+      // upgraded (your server migrates them, or null: read only).
+      createYCollabConfig({
+        doc,
+        layoutUpgrade: createYServerLayoutUpgrade(),
+        schemaVersion: 1,
+      }),
     ],
     name: 'app',
   }),

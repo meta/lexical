@@ -121,9 +121,14 @@ import {
 } from '@lexical/extension';
 import {ListExtension} from '@lexical/list';
 import {RichTextExtension} from '@lexical/rich-text';
-import {createYDoc, YCollabExtension} from '@lexical/y';
+import {
+  createYCollabConfig,
+  createYDoc,
+  createYServerLayoutUpgrade,
+  YCollabExtension,
+} from '@lexical/y';
 import {WebsocketProvider} from '@y/websocket';
-import {configExtension, defineExtension} from 'lexical';
+import {defineExtension} from 'lexical';
 
 const doc = createYDoc();
 
@@ -132,8 +137,13 @@ const editor = buildEditorFromExtensions(
     dependencies: [
       RichTextExtension,
       ListExtension,
-      // schemaVersion is required: see "Versioning your schema".
-      configExtension(YCollabExtension, {doc, schemaVersion: 1}),
+      // schemaVersion and layoutUpgrade are required: see "Versioning your
+      // schema" and "Layout upgrades".
+      createYCollabConfig({
+        doc,
+        layoutUpgrade: createYServerLayoutUpgrade(),
+        schemaVersion: 1,
+      }),
     ],
     name: 'my-app/editor',
   }),
@@ -235,14 +245,16 @@ content with random values" in [Limits](#limits)).
 - To seed or convert a document on a server, use `seedYState` (see
   [Server-side editing](./y-server.md)).
 
-Type a config you write as `YCollabInput`: `doc` and `schemaVersion` are
-required and every other option is optional, so options a later release
-adds never break it (`YCollabConfig` is the extension's resolved
-configuration, which names every option).
+Configure the extension with `createYCollabConfig(input)`, whose input
+(`YCollabInput`) requires `doc`, `schemaVersion` and `layoutUpgrade`; every
+other option is optional, so options a later release adds never break it
+(`YCollabConfig` is the extension's resolved configuration, which names
+every option).
 
 | Option | Default | |
 | -- | -- | -- |
 | `doc` | (required) | The Yjs document, from `createYDoc`. |
+| `layoutUpgrade` | (required) | How documents below `MIN_LAYOUT` are upgraded: `createYServerLayoutUpgrade()` (the document's server migrates them on load) or `null` (they stay read only). See [Layout upgrades](#layout-upgrades). |
 | `schemaVersion` | (required) | The version of your editor's nodes: registered node classes, their fields and NodeState. Bump it when you add, remove or change one, not on every release. An integer from 1: see [Versioning your schema](#versioning-your-schema). The extension throws without one. |
 | `root` | `doc.get('lexical-y')` | The shared root to bind. |
 | `synced` | `false` | Initialize as soon as the binding starts. |
@@ -392,11 +404,11 @@ for developers (what happened and what to do): render your own text from
 | Constant | Reported when | `data` (`reason`: other fields) |
 | -- | -- | -- |
 | `UNSUPPORTED_SCHEMA_WARNING` | A client of a newer version of your app (a higher `schemaVersion`) wrote to the document, on open or mid-session; see [Versioning your schema](#versioning-your-schema). Read only. | `'newer'`: `found`; `'malformed'`: `key`, `found`. All: `supported` (your `schemaVersion`) |
-| `UNSUPPORTED_LAYOUT_WARNING` | The layout is one this version cannot read, or one below `MIN_LAYOUT` (`'older'`, once per read-only period: an expected state for an app whose server migrates, so handle it in `onWarn`), or the root requires a feature this version does not support (`'requires'`, see the wire format). Read only. | `'newer'`: `found`; `'older'`: `found`, `min`; `'requires'`: `features`; `'malformed'`: `key`, `found`; `'missing'`, `'removed'`; `'legacy-roots'`: `roots`. All: `supported` |
+| `UNSUPPORTED_LAYOUT_WARNING` | The layout is one this version cannot read, or one below `MIN_LAYOUT` (`'older'`, once per read-only period: an expected state for an app whose server migrates, so handle it in `onWarn`), or the root requires a feature this version does not support (`'requires'`, see the wire format). Read only. | `'newer'`: `found`; `'older'`: `found`, `min`, `upgrade`; `'requires'`: `features`; `'malformed'`: `key`, `found`; `'missing'`, `'removed'`; `'legacy-roots'`: `roots`. All: `supported` |
 | `UNKNOWN_NODE_TYPES_WARNING` | The document has node types the editor cannot build: types it does not register, however they are stored (a link class it lacks too), or content its classes throw on; or the document could not be read at all (`'unreadable'` with empty `types`, the cause in `error`). Read only. | `'unregistered'`, `'malformed-slot'`: `types`; `'unreadable'`: `types`, `error` |
 | `STORAGE_MISMATCH_WARNING` | A node type is stored in a way its class cannot be (one warning per type). Read only. | `'declaration-changed'`: `type`, `stored`, `declared`; `'malformed'`: `type`, `key`, `found` |
 | `UNSUPPORTED_SLOTS_WARNING` | Named slots where the document cannot store them. Not written; read only. | `'stored-host'`, `'root'`: `types` |
-| `UNSUPPORTED_CONFIG_WARNING` | `BlockIdExtension` with `repairTransforms: true`, or a document with Yjs's format cleanup on (not from `createYDoc`), see [Set up an editor](#set-up-an-editor). Nothing is written; read only. | `'repair-transforms'`: `options`; `'cleanup-formatting'` |
+| `UNSUPPORTED_CONFIG_WARNING` | `BlockIdExtension` with `repairTransforms: true`, or a document with Yjs's format cleanup on (not from `createYDoc`), see [Set up an editor](#set-up-an-editor); or a document below `MIN_LAYOUT` with no `layoutUpgrade` declared (`'missing-layout-upgrade'`, with the `'older'` layout warning, see [Layout upgrades](#layout-upgrades)). Nothing is written; read only. | `'repair-transforms'`: `options`; `'cleanup-formatting'`; `'missing-layout-upgrade'` |
 | `NESTED_FALLBACK_WARNING` | A class that declares a line, format or group is stored as a node of its own (see [How content is stored](#how-content-is-stored)). Once per binding, class and reason. | `'merge-override'`: `type`, `method`; `'undeclared-properties'`: `type`, `properties`; `'inline-slots'`, `'inline-incomplete-schema'`, `'type-name'`, `'merge-incomplete-schema'`, `'merge-slots'`, `'group-children'`, `'group-state-merge'`, `'group-incomplete-schema'`: `type` |
 | `UNSYNCED_VALUE_WARNING` | A property or NodeState value is not plain JSON, so it is not synchronized. Once per binding and property. | `'not-json'`: `property` |
 | `UNSUPPORTED_EDIT_WARNING` | A local update changed the editor while the binding is read only (reported once each time it goes read only), or, on an active binding, a write refused at write time because the layout or schema record changed inside its transaction (each such write, not retried). Not written; what it changed is read again, or, once the document cannot be read, the editor shows again the last state it showed before the update. | `'read-only'` |
@@ -1605,6 +1617,28 @@ never hold one stay readable and editable by layout 1 clients.
   change to a class's declared node structure does not apply to rooms that
   already hold that type (they keep the recorded kind); reseed them to adopt
   it.
+
+### Layout upgrades
+
+A document below `MIN_LAYOUT` (stored by an older release) opens read only
+until it is migrated. Every app declares what happens to such documents
+with the required `layoutUpgrade` option of `createYCollabConfig`:
+
+- `createYServerLayoutUpgrade()`: the document's server migrates it on load
+  ([Migrating stored documents](./y-server.md#migrating-stored-documents)).
+  The handle's `handshake({generation, material})` returns the complete
+  handshake the client sends before syncing (`checkYSession`), so the app
+  never builds it by hand.
+- `null`: such documents stay read only (an app without a migrating
+  server).
+
+The editor behaves the same either way: a document below the floor is read
+only, and `UNSUPPORTED_LAYOUT_WARNING` `'older'` says which was declared
+(`upgrade: 'server'`, so the server should have migrated it, or
+`'read-only'`). A config written without the option (plain JavaScript, or
+`configExtension(YCollabExtension, ...)` directly) falls back to read only
+below the floor and also reports `UNSUPPORTED_CONFIG_WARNING`
+`'missing-layout-upgrade'`.
 
 ### Migrating stored documents
 

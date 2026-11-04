@@ -8,7 +8,14 @@
  */
 
 import type {Doc} from '@y/y';
-import type {ClientIDRange, YDoc, YDocOptions} from '@lexical/y';
+import type {
+  ClientIDRange,
+  YClientSession,
+  YDoc,
+  YDocOptions,
+  YLayoutUpgradeHandle,
+  YServerLayoutUpgradeOptions,
+} from '@lexical/y';
 import type {
   YLayoutMigration,
   YMigrationReceipt,
@@ -223,3 +230,12 @@ declare export function hasNewYEdits(
   },
   base: Uint8Array,
 ): boolean;
+
+// The layout upgrade handle, the same as @lexical/y's.
+export type {YClientSession, YLayoutUpgradeHandle, YServerLayoutUpgradeOptions};
+declare export function createYServerLayoutUpgrade(
+  options?: YServerLayoutUpgradeOptions,
+): YLayoutUpgradeHandle;
+declare export function isYLayoutUpgradeHandle(
+  value: unknown,
+): value is YLayoutUpgradeHandle;

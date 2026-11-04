@@ -36,6 +36,7 @@ import {ReactExtension} from '@lexical/react/ReactExtension';
 import {ReactProviderExtension} from '@lexical/react/ReactProviderExtension';
 import {useSignalValue} from '@lexical/react/useExtensionSignalValue';
 import {
+  createYCollabConfig,
   createYDoc,
   isYWarning,
   STORAGE_MISMATCH_WARNING,
@@ -161,8 +162,11 @@ export function getCollabYSession(
           // and not on `import.meta.env.DEV`, which Vite derives from
           // NODE_ENV: `vite build --mode development`, the build the e2e CI
           // job tests, has NODE_ENV production and DEV false.
-          configExtension(YCollabExtension, {
+          createYCollabConfig({
             doc,
+            // The playground's relay does not migrate stored documents:
+            // one below the floor stays read only.
+            layoutUpgrade: null,
             schemaVersion: SCHEMA_VERSION,
             selfCheck: import.meta.env?.MODE !== 'production',
           }),

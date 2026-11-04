@@ -10,12 +10,14 @@
 import type {
   LexicalEditor,
   LexicalExtension,
+  NormalizedLexicalExtensionArgument,
   PointType,
   SerializedEditorState,
 } from 'lexical';
 import {LexicalWarning} from 'lexical';
 import type {Doc, Node as YNode, UndoManager} from '@y/y';
 import type {ReadonlySignal} from '@lexical/extension';
+import type {YSessionHandshake} from '@lexical/y/server';
 
 /**
  * @lexical/y: EXPERIMENTAL Yjs 14 binding (block-marker layout).
@@ -69,7 +71,7 @@ export type YUnsupportedLayoutData =
   | {readonly reason: 'newer', readonly found: number, readonly supported: number}
   | {readonly reason: 'malformed', readonly key: string, readonly found: unknown, readonly supported: number}
   | {readonly reason: 'missing' | 'removed', readonly supported: number}
-  | {readonly reason: 'older', readonly found: number, readonly min: number, readonly supported: number}
+  | {readonly reason: 'older', readonly found: number, readonly min: number, readonly supported: number, readonly upgrade: string}
   | {readonly reason: 'requires', readonly features: ReadonlyArray<string>, readonly supported: number}
   | {readonly reason: 'legacy-roots', readonly roots: ReadonlyArray<string>, readonly supported: number};
 export type YUnsupportedSchemaData =
@@ -102,7 +104,8 @@ export type YUnsupportedSlotsData = {
 };
 export type YUnsupportedConfigData =
   | {readonly reason: 'repair-transforms', readonly options: ReadonlyArray<string>}
-  | {readonly reason: 'cleanup-formatting'};
+  | {readonly reason: 'cleanup-formatting'}
+  | {readonly reason: 'missing-layout-upgrade'};
 export type YUnsupportedEditData = {readonly reason: 'read-only'};
 export type YSelfCheckData = {
   readonly reason: 'local' | 'remote',
@@ -246,6 +249,10 @@ export type YBindingOptions = {
   selfCheckSample?: number,
   convert?: boolean,
   clientIDRange?: ClientIDRange,
+  // How documents below MIN_LAYOUT are upgraded: a handle, or null (read
+  // only). Left out: read only, plus UNSUPPORTED_CONFIG_WARNING
+  // 'missing-layout-upgrade' for such a document.
+  layoutUpgrade?: YLayoutUpgradeHandle | null,
 };
 
 // What a migration records under `lexical-y-epoch` (inexact: readers keep
@@ -367,6 +374,9 @@ declare export function describeStorage(
 // default optional (later options are additive). Type configs with it.
 export type YCollabInput = {
   doc: YDoc,
+  // Required: how documents below MIN_LAYOUT are upgraded (see y.md "Layout
+  // upgrades"): createYServerLayoutUpgrade(), or null (read only).
+  layoutUpgrade: YLayoutUpgradeHandle | null,
   // The version of your editor's nodes: registered node classes, their
   // fields and NodeState. Bump it when you add, remove or change one, not on
   // every release.
@@ -394,9 +404,41 @@ export type YCollabConfig = {
   selfCheck: boolean | null,
   selfCheckSample: number | null,
   convert: boolean,
+  layoutUpgrade?: YLayoutUpgradeHandle | null,
 };
 
 declare export var YCollabExtension: LexicalExtension<
+  YCollabConfig,
+  '@lexical/y/Collab',
+  {binding: YBinding, status: ReadonlySignal<YBindingStatus>},
+  unknown,
+>;
+
+// What a client sends before any sync message (see checkYSession).
+export type YClientSession = {
+  readonly generation: string | null,
+  readonly material: boolean,
+};
+// How documents below MIN_LAYOUT are upgraded (branded at runtime with a
+// registered symbol; open: later releases may add kinds and fields).
+export type YLayoutUpgradeHandle = {
+  readonly kind: string,
+  readonly target: number,
+  handshake(session: YClientSession): YSessionHandshake,
+  ...
+};
+export type YServerLayoutUpgradeOptions = {readonly target?: number};
+declare export function createYServerLayoutUpgrade(
+  options?: YServerLayoutUpgradeOptions,
+): YLayoutUpgradeHandle;
+declare export function isYLayoutUpgradeHandle(
+  value: unknown,
+): value is YLayoutUpgradeHandle;
+// The configured YCollabExtension: the way to configure it (its input
+// requires layoutUpgrade).
+declare export function createYCollabConfig(
+  input: YCollabInput,
+): NormalizedLexicalExtensionArgument<
   YCollabConfig,
   '@lexical/y/Collab',
   {binding: YBinding, status: ReadonlySignal<YBindingStatus>},

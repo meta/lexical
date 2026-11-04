@@ -82,3 +82,13 @@ export {
   sourceView,
   UNKNOWN_GENERATION,
 };
+
+// The layout upgrade handle (see y.md "Layout upgrades"), the same as
+// @lexical/y's: a test or a server builds a client's handshake with it.
+export {
+  createYServerLayoutUpgrade,
+  isYLayoutUpgradeHandle,
+  type YClientSession,
+  type YLayoutUpgradeHandle,
+  type YServerLayoutUpgradeOptions,
+} from './internal/LayoutUpgrade';

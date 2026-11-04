@@ -154,6 +154,13 @@ export type YUnsupportedLayoutData =
       readonly found: number;
       readonly min: number;
       readonly supported: number;
+      /**
+       * What the app declared (`layoutUpgrade`): `'server'` (its server
+       * upgrades such documents, so this one should have been migrated) or
+       * `'read-only'` (none, or not declared). A later release may add
+       * kinds.
+       */
+      readonly upgrade: 'server' | 'read-only' | (string & {});
     }
   /**
    * The root requires features this version does not support, `features`
@@ -272,7 +279,14 @@ export type YUnsupportedConfigData =
    * The document runs Yjs's format cleanup (`doc.cleanupFormatting` is not
    * false): it was not made by `createYDoc`.
    */
-  | {readonly reason: 'cleanup-formatting'};
+  | {readonly reason: 'cleanup-formatting'}
+  /**
+   * No `layoutUpgrade` was declared (a config written without
+   * createYCollabConfig, or plain JavaScript), and the document is below
+   * MIN_LAYOUT: read only, as with `layoutUpgrade: null`. Sent with the
+   * `'older'` layout warning.
+   */
+  | {readonly reason: 'missing-layout-upgrade'};
 
 /**
  * @experimental `data` of an `UNSUPPORTED_EDIT_WARNING`: a local update

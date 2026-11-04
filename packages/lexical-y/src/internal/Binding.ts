@@ -104,6 +104,7 @@ import {
   onYMigrationEpoch,
   readRequirements,
 } from './Layouts';
+import {type YLayoutUpgradeHandle} from './LayoutUpgrade';
 import {
   $applyStoredAttrs,
   $unstoredWrapperTextFields,
@@ -644,6 +645,17 @@ export interface YBindingOptions {
    * converter writing the layout root of an existing document.
    */
   convert?: boolean;
+  /**
+   * How documents below MIN_LAYOUT are upgraded (see y.md "Layout
+   * upgrades"): a handle from createYServerLayoutUpgrade (the document's
+   * server migrates them on load) or null (they stay read only). The
+   * binding behaves the same with either: a document below the floor is
+   * read only until it is migrated, and the `'older'` warning says which
+   * was declared (`upgrade`). Left out (plain JavaScript, or a config
+   * written without createYCollabConfig), such a document also brings
+   * UNSUPPORTED_CONFIG_WARNING `'missing-layout-upgrade'`.
+   */
+  layoutUpgrade?: YLayoutUpgradeHandle | null;
   /**
    * The range of the document's client ids: `'uint53'` (default, Yjs 14's
    * ids, left as they are) or `'uint32'` (kept in 32 bits, for servers on
@@ -2439,16 +2451,27 @@ export class YBinding {
       );
       this.setStatus('readonly');
     } else if (version < minLayout()) {
+      const upgrade = this.options.layoutUpgrade;
       this.warn(
         UNSUPPORTED_LAYOUT_WARNING,
-        `layout ${version} is older than ${minLayout()}, the oldest this version reads, so this editor is read only: migrate the document (its server migrates it on load with migrateYState)`,
+        upgrade
+          ? `layout ${version} is older than ${minLayout()}, the oldest this version reads, so this editor is read only: the app declared that its server upgrades such documents, and this one was not migrated (its server migrates it on load with prepareYRoom)`
+          : `layout ${version} is older than ${minLayout()}, the oldest this version reads, so this editor is read only (the app declared no layout upgrade): migrate the document on its server with prepareYRoom`,
         {
           found: version,
           min: minLayout(),
           reason: 'older',
           supported: LAYOUT_VERSION,
+          upgrade: upgrade ? upgrade.kind : 'read-only',
         },
       );
+      if (upgrade === undefined) {
+        this.warn(
+          UNSUPPORTED_CONFIG_WARNING,
+          'no layoutUpgrade was declared, so a document below the floor is read only: create the config with createYCollabConfig and pass layoutUpgrade (a handle from createYServerLayoutUpgrade, or null)',
+          {reason: 'missing-layout-upgrade'},
+        );
+      }
       this.setStatus('readonly');
     } else if (newerSchema) {
       this.setStatus('readonly');

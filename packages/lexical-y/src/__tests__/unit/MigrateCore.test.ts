@@ -153,7 +153,13 @@ describe.each([false, true])('the binding and layout migrations, gc %s', gc => {
     expect(b.binding.status).toBe('readonly');
     expect(b.editor.isEditable()).toBe(false);
     expect(olderWarnings(b.warnings).map(w => w.data)).toEqual([
-      {found: BELOW, min: FLOOR, reason: 'older', supported: LAYOUT_VERSION},
+      {
+        found: BELOW,
+        min: FLOOR,
+        reason: 'older',
+        supported: LAYOUT_VERSION,
+        upgrade: 'read-only',
+      },
     ]);
     // The editor shows the document, and a local edit is not written.
     expect(
@@ -199,6 +205,7 @@ describe.each([false, true])('the binding and layout migrations, gc %s', gc => {
         min: FLOOR,
         reason: 'older',
         supported: LAYOUT_VERSION,
+        upgrade: 'read-only',
       });
     }
     // At the floor: active.
@@ -258,7 +265,13 @@ describe.each([false, true])('the binding and layout migrations, gc %s', gc => {
     await until(() => false, 3);
     expect(b.binding.status).toBe('readonly');
     expect(olderWarnings(b.warnings).map(w => w.data)).toEqual([
-      {found: BELOW, min: FLOOR, reason: 'older', supported: LAYOUT_VERSION},
+      {
+        found: BELOW,
+        min: FLOOR,
+        reason: 'older',
+        supported: LAYOUT_VERSION,
+        upgrade: 'read-only',
+      },
     ]);
     b.dispose();
     const newer = createYDoc(AT_FLOOR, {gc});
@@ -295,7 +308,13 @@ describe.each([false, true])('the binding and layout migrations, gc %s', gc => {
         .filter(w => w.code === UNSUPPORTED_LAYOUT_WARNING)
         .map(w => w.data),
     ).toEqual([
-      {found: BELOW, min: FLOOR, reason: 'older', supported: LAYOUT_VERSION},
+      {
+        found: BELOW,
+        min: FLOOR,
+        reason: 'older',
+        supported: LAYOUT_VERSION,
+        upgrade: 'read-only',
+      },
     ]);
     editor.dispose();
   });

@@ -8,8 +8,9 @@
 
 // YCollabConfig names every option of YCollabExtension, so code that
 // spelled out a whole YCollabConfig broke each time an option was added.
-// YCollabInput is what an app writes: doc and schemaVersion required,
-// every option with a default optional, so a new option is additive.
+// YCollabInput is what an app writes: doc, schemaVersion and layoutUpgrade
+// required, every option with a default optional, so a new option is
+// additive.
 
 import {buildEditorFromExtensions} from '@lexical/extension';
 import {configExtension, defineExtension} from 'lexical';
@@ -22,12 +23,14 @@ import {
   type YCollabInput,
 } from '../../..';
 
-// The keys an input must name: exactly doc and schemaVersion.
+// The keys an input must name: exactly doc, layoutUpgrade and
+// schemaVersion.
 type RequiredKeys<T> = {
   [K in keyof T]-?: Record<string, never> extends Pick<T, K> ? never : K;
 }[keyof T];
 const required: Record<RequiredKeys<YCollabInput>, true> = {
   doc: true,
+  layoutUpgrade: true,
   schemaVersion: true,
 };
 // Every option of the resolved config is an option of the input: adding an
@@ -37,6 +40,7 @@ const everyOption: Record<keyof YCollabConfig, keyof YCollabInput> = {
   clientIDRange: 'clientIDRange',
   convert: 'convert',
   doc: 'doc',
+  layoutUpgrade: 'layoutUpgrade',
   root: 'root',
   schemaVersion: 'schemaVersion',
   selfCheck: 'selfCheck',
@@ -47,16 +51,26 @@ const everyOption: Record<keyof YCollabConfig, keyof YCollabInput> = {
 export function invalidInputs(doc: YCollabInput['doc']): YCollabInput[] {
   return [
     // @ts-expect-error schemaVersion is required
-    {doc},
+    {doc, layoutUpgrade: null},
     // @ts-expect-error doc is required
-    {schemaVersion: 1},
+    {layoutUpgrade: null, schemaVersion: 1},
+    // @ts-expect-error layoutUpgrade is required
+    {doc, schemaVersion: 1},
   ];
 }
 
-test('a YCollabInput with only doc and schemaVersion configures the extension; the input type names every option', () => {
-  expect(Object.keys(required).sort()).toEqual(['doc', 'schemaVersion']);
-  expect(Object.keys(everyOption)).toHaveLength(9);
-  const input: YCollabInput = {doc: createYDoc(), schemaVersion: 1};
+test('a YCollabInput with only its required keys configures the extension; the input type names every option', () => {
+  expect(Object.keys(required).sort()).toEqual([
+    'doc',
+    'layoutUpgrade',
+    'schemaVersion',
+  ]);
+  expect(Object.keys(everyOption)).toHaveLength(10);
+  const input: YCollabInput = {
+    doc: createYDoc(),
+    layoutUpgrade: null,
+    schemaVersion: 1,
+  };
   const editor = buildEditorFromExtensions(
     defineExtension({
       dependencies: [configExtension(YCollabExtension, input)],
