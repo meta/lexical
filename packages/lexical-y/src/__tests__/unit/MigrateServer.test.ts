@@ -20,7 +20,6 @@ import {describe, expect, test} from 'vitest';
 
 import {LAYOUT_VERSION, SEED_LAYOUT} from '../..';
 import {readYState} from '../../headless';
-import {replayYRecovery} from '../../internal/Server';
 import {migrateYDoc, YMigrationError} from '../../migrate';
 import {
   captureYSession,
@@ -32,6 +31,7 @@ import {
   needsNewIncarnation,
   prepareYRoom,
   quarantineRecord,
+  replayYRecovery,
   sourceView,
   UNKNOWN_GENERATION,
   type YLegacySignal,
@@ -800,23 +800,30 @@ describe.each([false, true])('@lexical/y/server, gc %s', gc => {
     });
   });
 
-  test('replayYRecovery (internal) is not implemented yet', () => {
-    expect(() =>
-      replayYRecovery(
-        quarantineRecord({
-          kind: 'handoff',
-          receivedAt: 0,
-          source: {
-            generation: null,
-            incarnation: null,
-            layouts: null,
-            renderer: null,
-            schemaVersion: null,
-          },
-        }),
-        LAYOUT1,
-        docOf(LAYOUT1),
-      ),
-    ).toThrow(/not implemented/);
+  test('replayYRecovery leaves a record of an unknown source to the recovery view', () => {
+    const r = replayYRecovery(
+      quarantineRecord({
+        kind: 'handoff',
+        receivedAt: 0,
+        snapshot: LAYOUT1,
+        source: {
+          generation: null,
+          incarnation: null,
+          layouts: null,
+          renderer: null,
+          schemaVersion: null,
+        },
+      }),
+      LAYOUT1,
+      LAYOUT1,
+      {
+        baseGeneration: 'inc-1/-',
+        generation: 'inc-1/x',
+        inPlace: true,
+        incarnation: 'inc-1',
+      },
+    );
+    expect(r).toMatchObject({eligible: false, update: null});
+    expect(r.state).toBe(LAYOUT1);
   });
 });

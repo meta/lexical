@@ -478,6 +478,9 @@ describe('the contract', () => {
     const isMigration = (file: string) =>
       file === 'internal/Runner.ts' ||
       file === 'internal/Server.ts' ||
+      file === 'internal/Replay.ts' ||
+      file === 'internal/Recovery.ts' ||
+      file === 'internal/ReplayCodec.ts' ||
       file.startsWith('migrate/') ||
       file.startsWith('migrate.') ||
       file.startsWith('server.');

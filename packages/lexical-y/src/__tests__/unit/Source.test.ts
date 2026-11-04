@@ -207,8 +207,11 @@ test('public entries', () => {
     'legacySignal',
     'needsNewIncarnation',
     'pendingYRecord',
+    'plainRead',
     'prepareYRoom',
     'quarantineRecord',
+    'recoveryYState',
+    'replayYRecovery',
     'sourceView',
   ]);
   expect(mainEntry.DEFAULT_ROOT_NAME).toBe('lexical-y');

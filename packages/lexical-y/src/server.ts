@@ -11,7 +11,9 @@
 // the load-time migration (prepareYRoom), the generation of a stored state
 // (generationOf), the handshake verdict (checkYSession), the legacy capture
 // (captureYSession, legacySignal), quarantine records (quarantineRecord,
-// sourceView, hasNewYEdits), and createYDoc for a relay's documents (Yjs
+// sourceView, hasNewYEdits), the replay of a record onto the current
+// document (replayYRecovery), the state a recovery view renders
+// (recoveryYState, render only), and createYDoc for a relay's documents (Yjs
 // only: format cleanup off, nothing the binding adds to a client's). No
 // Lexical import.
 
@@ -23,6 +25,15 @@ import {
   type YDoc,
   type YDocOptions,
 } from './internal/RawYDoc';
+import {recoveryYState, type YRecoveryOptions} from './internal/Recovery';
+import {
+  plainRead,
+  replayYRecovery,
+  type YReplayChange,
+  type YReplayCodec,
+  type YReplayConfig,
+  type YReplayResult,
+} from './internal/Replay';
 import {
   captureYSession,
   checkYSession,
@@ -59,6 +70,11 @@ export type {
   YQuarantineRecord,
   YQuarantineRecordInput,
   YRecordSource,
+  YRecoveryOptions,
+  YReplayChange,
+  YReplayCodec,
+  YReplayConfig,
+  YReplayResult,
   YRoomDescription,
   YSessionCapture,
   YSessionHandshake,
@@ -76,8 +92,11 @@ export {
   MIN_LAYOUT,
   needsNewIncarnation,
   pendingYRecord,
+  plainRead,
   prepareYRoom,
   quarantineRecord,
+  recoveryYState,
+  replayYRecovery,
   SEED_LAYOUT,
   sourceView,
   UNKNOWN_GENERATION,

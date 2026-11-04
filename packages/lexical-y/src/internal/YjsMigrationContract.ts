@@ -19,7 +19,7 @@ import {
   Doc,
   encodeStateAsUpdate,
   encodeStateVectorFromUpdate,
-  type GC,
+  GC,
   type IdSet,
   intersectUpdateWithContentIds,
   Item,
@@ -43,6 +43,7 @@ import {
  * (YJS_EXPORTS).
  */
 export const MIGRATION_YJS_EXPORTS = [
+  'GC',
   'diffUpdate',
   'encodeStateVectorFromUpdate',
   'intersectUpdateWithContentIds',
@@ -61,7 +62,9 @@ type ContentIds = Parameters<typeof intersectUpdateWithContentIds>[1];
 export function migrationYjsMembers() {
   return {
     AbstractContent: {
+      copy: (c: AbstractContent) => isFunction(c.copy),
       getRef: (c: AbstractContent) => isFunction(c.getRef),
+      splice: (c: AbstractContent) => isFunction(c.splice),
     },
     ContentIds: {
       deletes: (c: ContentIds) => isObject(c.deletes),
@@ -91,6 +94,7 @@ export function migrationYjsMembers() {
 function migrationYjsExports() {
   return {
     Doc,
+    GC,
     Item,
     Node: YNode,
     Skip,

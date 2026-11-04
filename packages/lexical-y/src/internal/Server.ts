@@ -1016,17 +1016,3 @@ function liveIn(
   }
   return false;
 }
-
-/**
- * @internal NOT IMPLEMENTED YET, and not exported: the replay of a
- * quarantine record's own changes onto the current document, at the
- * authority, as a checked edit (design: the three-way replay). Throws.
- */
-export function replayYRecovery(
-  _record: YQuarantineRecord,
-  _base: Uint8Array,
-  _current: Doc,
-  _config?: unknown,
-): never {
-  throw new Error('@lexical/y: replayYRecovery is not implemented yet');
-}
