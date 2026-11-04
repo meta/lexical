@@ -148,7 +148,7 @@ function gen(seed: number) {
   };
 }
 
-function runRW(spec: any, mode: string, gcOn: boolean) {
+function runRW(spec: any, mode: string, gcOn: boolean, mixed = false) {
   const seeded = seedYState(CONFIG, () => {
     const p = $createParagraphNode();
     for (const [w, f] of spec.words) {
@@ -203,9 +203,18 @@ function runRW(spec: any, mode: string, gcOn: boolean) {
     syncAll();
     const root: any = (raw as any).share.get('lexical-y');
     for (const o of spec.raw)
-      raw.transact(() =>
-        root.format(o.i, o.j - o.i, {[FKEY[o.key]]: o.v ? true : null}),
-      );
+      raw.transact(() => {
+        root.format(o.i, o.j - o.i, {[FKEY[o.key]]: o.v ? true : null});
+        if (mixed) {
+          // The same app transaction also applies an unrelated update, which
+          // leaves the transaction non-local.
+          const other = new Y.Doc();
+          other.clientID = 901;
+          other.get('activity').setAttr('event', true);
+          Y.applyUpdate(raw, Y.encodeStateAsUpdate(other), 'remote');
+          other.destroy();
+        }
+      });
     peers.forEach((p: any, n: number) => {
       for (const o of spec.p2[n])
         p.editor.update(() => $setRange(o.i, o.j, o.key, o.v), {
@@ -231,12 +240,15 @@ function runRW(spec: any, mode: string, gcOn: boolean) {
   }
 }
 /**
- * Guard (a raw writer's Yjs-level copy of a seed end): one session of the raw-writer family. The plain Y.Doc
- * peer R (createYDoc, so copy repair is installed) unitalicizes "f..i" over the seed's paired italic run of "def"; Yjs's
- * format() restores the previous value after its range by COPYING the seed's relative end [5] into a new item of R's
- * client. Copy repair must rewrite that copy to name the seed opener absolutely ([seedClient, 10]); 15b69da6 does,
- * 6954dfe7 / 180c7224 (perf (a): holders noted only where a local transaction deletes an end) leave it relative, so it
- * names nothing and "de" lose their italic. Expected (15b69da6, main): d and e bold+italic.
+ * Guard (a raw writer's Yjs-level copy of a seed end): one session of the
+ * raw-writer family. The plain Y.Doc peer R (createYDoc, so copy repair is
+ * installed) unitalicizes "f..i" over the seed's paired italic run of "def";
+ * Yjs's format() restores the previous value after its range by copying the
+ * seed's relative end [5] into a new item of R's client. Copy repair must
+ * rewrite that copy to name the seed's opener absolutely; left relative, it
+ * names nothing and "de" lose their italic. Expected (as on main): d and e
+ * bold and italic. The second cell runs R's format inside an app transaction
+ * that also applies an unrelated update (a non-local transaction).
  */
 test('a raw writer copy of a seed end is repaired (gc off and on)', () => {
   for (const gc of [false, true]) {
@@ -247,3 +259,15 @@ test('a raw writer copy of a seed end is repaired (gc off and on)', () => {
     expect(chars).toBe('a[s]b[s]c[is]d[bi]e[bi]f[bs]g[s]h[s]i[s]');
   }
 });
+
+test.each([false, true])(
+  'a raw format copy in an app transaction applying an unrelated update is repaired (gc %s)',
+  gc => {
+    const r: any = runRW(gen(9001291), 'legacy', gc, true);
+    const chars = JSON.parse(r.chars)
+      .map(([c, f]: any) => c + (f.length ? '[' + f.join('') + ']' : ''))
+      .join('');
+    expect(r.conv).toBe(true);
+    expect(chars).toBe('a[s]b[s]c[is]d[bi]e[bi]f[bs]g[s]h[s]i[s]');
+  },
+);

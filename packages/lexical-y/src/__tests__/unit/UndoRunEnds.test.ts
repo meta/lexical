@@ -830,8 +830,8 @@ describe('undo run ends, more orders of events', () => {
       ).toContain('T');
     },
   );
-  // #9682: an undo of a run's value left it after a restore it has seen
-  // (fixed by paired runs, layout 3).
+  // D64: text a collaborator typed inside the run with the run's value loses
+  // it when the run is undone, on main and with paired runs.
   test.fails.each(
     ORDERS.flatMap(ids => [
       ['after " mid"', ...ids],
