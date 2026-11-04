@@ -8,7 +8,7 @@
     "utils"
   ],
   "license": "MIT",
-  "version": "0.53.0",
+  "version": "0.53.1-nightly.20261104.0",
   "main": "./dist/LexicalDevtoolsCore.js",
   "types": "./dist/typescript-too-old.d.ts",
   "dependencies": {
