@@ -1021,7 +1021,11 @@ function repairCopies(tr: Transaction): void {
       if (waiting !== undefined) {
         index.waiting.delete(k);
         for (const end of waiting) {
-          noteEnd(doc, end);
+          // Not an end collected since it was noted (gc replaces a deleted
+          // item's content): nothing names the opener through it.
+          if (isCoveredEnd(end)) {
+            noteEnd(doc, end);
+          }
         }
         pairingChanged.add(doc);
       }
