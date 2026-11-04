@@ -48,8 +48,11 @@ import {
 } from '../..';
 import {editYState, readYState, YHeadlessError} from '../../headless';
 import {setMinLayoutForTests} from '../../internal/Binding';
-import {migrateYDoc, MIGRATION_ORIGIN} from '../../internal/Runner';
-import {recordedLayout} from '../../migrate';
+import {
+  migrateYDoc,
+  MIGRATION_ORIGIN,
+  recordedLayout,
+} from '../../internal/Runner';
 import {
   $snapshot,
   catalogAppExtension,

@@ -19,7 +19,8 @@ import * as Y from '@y/y';
 import {createYDoc, LAYOUT_VERSION} from '../..';
 import {seedYState} from '../../headless';
 import {MIN_LAYOUT} from '../../internal/constants';
-import {recordedLayout, type YLayoutMigration} from '../../migrate';
+import {recordedLayout} from '../../internal/Runner';
+import {type YLayoutMigration} from '../../migrate';
 
 /** The layout a seed records on this build (read from a seed). */
 export const SEED: number = recordedLayout(

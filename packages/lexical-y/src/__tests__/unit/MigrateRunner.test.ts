@@ -20,15 +20,15 @@ import {describe, expect, test, vi} from 'vitest';
 import {createYDoc, LAYOUT_VERSION} from '../..';
 import {createYWriter, editYState, seedYState} from '../../headless';
 import {
+  layoutEpoch,
   migrateYDoc,
   MIGRATION_ORIGIN,
   migrationClientID,
+  recordedLayout,
 } from '../../internal/Runner';
 import {
-  layoutEpoch,
   loadYMigrationSteps,
   migrateYState,
-  recordedLayout,
   type YLayoutMigration,
   YMigrationError,
   type YMigrationErrorCode,

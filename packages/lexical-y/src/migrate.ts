@@ -20,11 +20,11 @@
 
 import {type YMigrationEpoch} from './internal/Layouts';
 import {
-  layoutEpoch,
+  getYLayoutInfo,
   loadYMigrationSteps,
   migrateYState,
-  recordedLayout,
   type YKnownMigrationErrorCode,
+  type YLayoutInfo,
   type YLayoutMigration,
   type YMigrateOptions,
   type YMigrateStateOptions,
@@ -40,6 +40,7 @@ import {
 
 export type {
   YKnownMigrationErrorCode,
+  YLayoutInfo,
   YLayoutMigration,
   YMigrateOptions,
   YMigrateStateOptions,
@@ -52,10 +53,4 @@ export type {
   YMigrationStepInput,
   YMigrationStepReceipt,
 };
-export {
-  layoutEpoch,
-  loadYMigrationSteps,
-  migrateYState,
-  recordedLayout,
-  YMigrationError,
-};
+export {getYLayoutInfo, loadYMigrationSteps, migrateYState, YMigrationError};

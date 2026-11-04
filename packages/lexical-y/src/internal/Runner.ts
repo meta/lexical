@@ -37,6 +37,7 @@ import {
   epochRecordOf,
   existingRoot,
   layoutRecordOf,
+  readRequirements,
   type YMigrationEpoch,
 } from './Layouts';
 import {createRawYDoc, type YDoc, type YDocOptions} from './RawYDoc';
@@ -1606,9 +1607,111 @@ export function migrateYDoc(
 }
 
 /**
- * @experimental The layout `doc` records under `root`: the highest
- * `lexical-y:<n>` record; null when it has none (or no such root); NaN when
- * a record is not a version (the binding opens it read only).
+ * @experimental What `getYLayoutInfo` finds on a root, by `status`:
+ *
+ * - `'ready'`: this version reads and writes it. It records `layout`, from
+ *   MIN_LAYOUT to LAYOUT_VERSION, and its epoch (`null`: none, a document
+ *   that never migrated).
+ * - `'missing'`: no layout record. `empty`: the root is absent or holds
+ *   nothing (a new document, seeded on bind); otherwise it holds content
+ *   without a record (read only).
+ * - `'invalid'`: a layout record, the epoch or a feature requirement is not
+ *   well formed: `key` and its raw value `found` (read only).
+ * - `'unsupported'`: well formed, but not for this version: `'older'`
+ *   (below `min`: migrate it), `'newer'` (above `supported`) or
+ *   `'requires'` (`features` this version lacks). `layout` is null when the
+ *   root records none.
+ *
+ * Later versions may add fields, never statuses.
+ */
+export type YLayoutInfo =
+  | {
+      readonly status: 'ready';
+      readonly root: string;
+      readonly layout: number;
+      readonly epoch: YMigrationEpoch | null;
+    }
+  | {readonly status: 'missing'; readonly root: string; readonly empty: boolean}
+  | {
+      readonly status: 'invalid';
+      readonly root: string;
+      readonly key: string;
+      readonly found: unknown;
+    }
+  | {
+      readonly status: 'unsupported';
+      readonly root: string;
+      readonly reason: 'older' | 'newer' | 'requires';
+      readonly layout: number | null;
+      readonly epoch: YMigrationEpoch | null;
+      readonly min: number;
+      readonly supported: number;
+      readonly features: readonly string[];
+    };
+
+/**
+ * @experimental The layout state of `doc`'s root `root` (default
+ * `'lexical-y'`) as this version reads it: see YLayoutInfo. Reads only (an
+ * absent root is not created).
+ */
+export function getYLayoutInfo(
+  doc: Doc,
+  root: string = DEFAULT_ROOT_NAME,
+): YLayoutInfo {
+  const type = existingRoot(doc, root);
+  if (type === null) {
+    return {empty: true, root, status: 'missing'};
+  }
+  const record = layoutRecordOf(type);
+  if (record.kind === 'malformed') {
+    return {found: record.found, key: record.key, root, status: 'invalid'};
+  }
+  const epochRecord = epochRecordOf(type);
+  if (epochRecord.kind === 'malformed') {
+    return {found: epochRecord.found, key: EPOCH_KEY, root, status: 'invalid'};
+  }
+  const requirements = readRequirements(type);
+  const [bad] = requirements.malformed;
+  if (bad !== undefined) {
+    return {found: bad.found, key: bad.key, root, status: 'invalid'};
+  }
+  const layout = record.kind === 'layout' ? record.layout : null;
+  const epoch = epochRecord.kind === 'epoch' ? epochRecord.epoch : null;
+  const unsupported = (
+    reason: 'older' | 'newer' | 'requires',
+  ): YLayoutInfo => ({
+    epoch,
+    features: requirements.unknown,
+    layout,
+    min: MIN_LAYOUT,
+    reason,
+    root,
+    status: 'unsupported',
+    supported: LAYOUT_VERSION,
+  });
+  if (requirements.unknown.length > 0) {
+    return unsupported('requires');
+  }
+  if (layout === null) {
+    return {
+      empty: type.length === 0 && epochRecord.kind === 'none',
+      root,
+      status: 'missing',
+    };
+  }
+  if (layout > LAYOUT_VERSION) {
+    return unsupported('newer');
+  }
+  if (layout < MIN_LAYOUT) {
+    return unsupported('older');
+  }
+  return {epoch, layout, root, status: 'ready'};
+}
+
+/**
+ * The layout `doc` records under `root`: the highest `lexical-y:<n>`
+ * record; null when it has none (or no such root); NaN when a record is not
+ * a version. Internal (tests); the public read is getYLayoutInfo.
  */
 export function recordedLayout(
   doc: Doc,
@@ -1626,7 +1729,7 @@ export function recordedLayout(
       : null;
 }
 
-/** @experimental The epoch `doc` records under `root`, null when none or malformed. */
+/** The epoch `doc` records under `root`, null when none or malformed. Internal (tests). */
 export function layoutEpoch(
   doc: Doc,
   root: string = DEFAULT_ROOT_NAME,

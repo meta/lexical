@@ -32,7 +32,7 @@ import {afterEach, describe, expect, test} from 'vitest';
 
 import {createYDoc, YBinding, type YBindingOptions, type YDoc} from '../..';
 import {setMinLayoutForTests} from '../../internal/Binding';
-import {recordedLayout} from '../../migrate';
+import {recordedLayout} from '../../internal/Runner';
 import {catalogAppExtension} from '../catalog/bind';
 import {FLOOR, rawDoc} from '../utils/migrateSteps';
 

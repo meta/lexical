@@ -185,10 +185,9 @@ test('public entries', () => {
   ]);
   expect(Object.keys(migrateEntry).sort()).toEqual([
     'YMigrationError',
-    'layoutEpoch',
+    'getYLayoutInfo',
     'loadYMigrationSteps',
     'migrateYState',
-    'recordedLayout',
   ]);
   expect(Object.keys(step1to2Entry)).toEqual(['default']);
   expect(Object.keys(serverEntry).sort()).toEqual([

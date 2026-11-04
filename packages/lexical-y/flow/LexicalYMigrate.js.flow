@@ -127,9 +127,30 @@ declare export function loadYMigrationSteps(
   to?: number,
 ): Promise<Array<YLayoutMigration>>;
 
-declare export function recordedLayout(doc: Doc, root?: string): number | null;
+// The layout state of a root; later versions may add fields, never statuses.
+export type YLayoutInfo =
+  | {
+      readonly status: 'ready',
+      readonly root: string,
+      readonly layout: number,
+      readonly epoch: YMigrationEpoch | null,
+    }
+  | {readonly status: 'missing', readonly root: string, readonly empty: boolean}
+  | {
+      readonly status: 'invalid',
+      readonly root: string,
+      readonly key: string,
+      readonly found: unknown,
+    }
+  | {
+      readonly status: 'unsupported',
+      readonly root: string,
+      readonly reason: 'older' | 'newer' | 'requires',
+      readonly layout: number | null,
+      readonly epoch: YMigrationEpoch | null,
+      readonly min: number,
+      readonly supported: number,
+      readonly features: ReadonlyArray<string>,
+    };
 
-declare export function layoutEpoch(
-  doc: Doc,
-  root?: string,
-): YMigrationEpoch | null;
+declare export function getYLayoutInfo(doc: Doc, root?: string): YLayoutInfo;

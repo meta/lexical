@@ -1625,6 +1625,11 @@ runner is `@lexical/y/migrate`:
   `pending`, never in `state`.
 - `loadYMigrationSteps(loaders, from, to)`: loads only the steps a document
   needs.
+- `getYLayoutInfo(doc, root?)`: what a root records, as a status:
+  `'ready'` (`layout`, `epoch`), `'missing'` (no record; `empty`),
+  `'invalid'` (a malformed record, epoch or requirement: `key`, `found`) or
+  `'unsupported'` (`'older'`, `'newer'` or `'requires'`, with `layout`,
+  `min`, `supported`, `features`).
 
 A step names the execution contract it is written against (`v: 1`); a
 runner refuses a step of a contract it does not run before calling any of

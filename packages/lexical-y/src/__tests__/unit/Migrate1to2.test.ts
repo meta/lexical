@@ -37,13 +37,8 @@ import {
   seedYState,
 } from '../../headless';
 import {MIN_LAYOUT} from '../../internal/constants';
-import {migrateYDoc} from '../../internal/Runner';
-import {
-  layoutEpoch,
-  migrateYState,
-  recordedLayout,
-  type YLayoutMigration,
-} from '../../migrate';
+import {layoutEpoch, migrateYDoc, recordedLayout} from '../../internal/Runner';
+import {migrateYState, type YLayoutMigration} from '../../migrate';
 import step1to2 from '../../migrate/1to2';
 import {$snapshot, catalogHeadlessConfig, seedShapes} from '../catalog/bind';
 import {type CatalogConfig} from '../catalog/configs';
