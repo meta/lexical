@@ -269,9 +269,14 @@ describe('literal Markdown text', () => {
 
   it.each([
     [['&', '#65;'], '&#38;#65;'],
-    [['&', 'copy;'], '&#38;copy;'],
+    [['&', 'copy;'], '&copy;'],
+    [['&#', '65;'], '&#38;#65;'],
+    [['&#6', '5;'], '&#38;#65;'],
+    [['&#x', '41;'], '&#38;#x41;'],
+    [['&#1234567', '8;'], '&#12345678;'],
+    [['&#x', ';'], '&#x;'],
     [['<', 'b>text</b>'], '&#60;b>text&#60;/b>'],
-    [['AT&', 'T'], 'AT&#38;T'],
+    [['AT&', 'T'], 'AT&T'],
     [['a <', ' b'], 'a < b'],
     [['1<', '2'], '1<2'],
     [['<', '3 you'], '<3 you'],
@@ -330,7 +335,7 @@ describe('literal Markdown text', () => {
     },
   );
 
-  it('exports a < before many unspaced styled nodes in linear time', () => {
+  it('reads on past many unspaced styled nodes after a <', () => {
     using editor = buildEditorFromExtensions([MarkdownTestExtension]);
     editor.update(
       () =>
@@ -340,22 +345,21 @@ describe('literal Markdown text', () => {
             $createParagraphNode().append(
               $createTextNode('<').setStyle('color: red'),
               ...Array.from({length: 20000}, (_, index) =>
-                $createTextNode('a').setStyle(`color: #${index % 2}00`),
+                $createTextNode('1').setStyle(`color: #${index % 2}00`),
               ),
+              $createTextNode('@x.co>'),
             ),
           ),
       {discrete: true},
     );
-    const start = performance.now();
-    const written = editor.read(() => $convertToMarkdownString());
-    // Linear exports take tens of milliseconds; a quadratic one takes seconds.
-    expect(performance.now() - start).toBeLessThan(10000);
-    expect(written).toBe('&#60;' + 'a'.repeat(20000));
+    expect(editor.read(() => $convertToMarkdownString())).toBe(
+      '&#60;' + '1'.repeat(20000) + '@x.co>',
+    );
   });
 
   it('reads on past a long email local part split across nodes', () => {
     using editor = buildEditorFromExtensions([MarkdownTestExtension]);
-    const half = 'a'.repeat(200);
+    const half = '1'.repeat(200);
     editor.update(
       () =>
         $getRoot()

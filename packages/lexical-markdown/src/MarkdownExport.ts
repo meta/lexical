@@ -1426,7 +1426,8 @@ const AUTOLINK_ENDED = /[^A-Za-z0-9.!#$%&'*+/=?^_`{|}~@-]/;
  * and a CommonMark reader decode
  * (https://spec.commonmark.org/0.31.2/#entity-and-numeric-character-references).
  * At the end of the node, `$nextChar` reads on into the text exported after it.
- * A named reference keeps its legacy output inside one node.
+ * A named reference keeps its legacy output, in one node or split across
+ * nodes.
  */
 function $opensCharacterReference(
   rest: string,
@@ -1435,25 +1436,16 @@ function $opensCharacterReference(
   if (/^#(?:[0-9]{1,7}|[xX][0-9a-fA-F]{1,6});/.test(rest)) {
     return true;
   }
-  // The reference may go on into the next node.
-  // A named reference split across nodes is guarded as well.
-  const continues =
-    rest === ''
-      ? /^[#A-Za-z]$/
-      : rest === '#'
-        ? /^[0-9xX]$/
-        : /^#[0-9]{1,7}$/.test(rest)
-          ? /^[0-9;]$/
-          : /^#[xX]$/.test(rest)
-            ? /^[0-9a-fA-F]$/
-            : /^#[xX][0-9a-fA-F]{1,6}$/.test(rest)
-              ? /^[0-9a-fA-F;]$/
-              : null;
-  if (continues === null) {
-    return false;
-  }
+  // The reference may go on into the next node: `rest` and the character
+  // after it are still the start of one.
   const after = $nextChar();
-  return after === UNKNOWN || continues.test(after);
+  return (
+    after !== '' &&
+    (after === UNKNOWN ||
+      /^#(?:[0-9]{0,7}|[xX][0-9a-fA-F]{0,6}|[0-9]{1,7};|[xX][0-9a-fA-F]{1,6};)$/.test(
+        rest + after,
+      ))
+  );
 }
 
 /** Typed text that matches a sentinel is read as an ordinary character. */
