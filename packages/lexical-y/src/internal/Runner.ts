@@ -191,8 +191,18 @@ export interface YMigrationRootReceipt {
   readonly epoch: YLayoutEpoch | null;
 }
 
-/** @experimental What a migration did. */
+/**
+ * @experimental What a migration did. Its format version is `v` (1); the
+ * root and step receipts inside it are of the same version. An app may
+ * persist a receipt: a reader keeps fields it does not know, and shows a
+ * receipt of a version it does not know as it is, without acting on it.
+ * `from` and `to` are layout numbers in every version. The counts
+ * (`written`, `deleted`, the byte sizes) and `ms` are diagnostics: neither
+ * an identity of the migration nor a proof of what it did.
+ */
 export interface YMigrationReceipt {
+  /** The receipt's format version. */
+  readonly v: 1;
   /** One per root, sorted by name. */
   readonly roots: readonly YMigrationRootReceipt[];
   /** Whether any root changed. */
@@ -1460,6 +1470,7 @@ export function migrateYState(
           bytesAfter: state.length,
           bytesBefore: state.length,
           changed: false,
+          v: 1,
           ms: Date.now() - t0,
           roots: unchanged(plans),
         },
@@ -1483,6 +1494,7 @@ export function migrateYState(
           bytesAfter: out.length,
           bytesBefore: state.length,
           changed: true,
+          v: 1,
           ms: Date.now() - t0,
           roots,
         },
@@ -1544,6 +1556,7 @@ export function migrateYDoc(
       bytesAfter: integrated.length,
       bytesBefore: integrated.length,
       changed: false,
+      v: 1,
       ms: Date.now() - t0,
       roots: unchanged(plans),
     };
@@ -1562,6 +1575,7 @@ export function migrateYDoc(
     bytesAfter: encodeStateAsUpdate(doc).length,
     bytesBefore: integrated.length,
     changed: true,
+    v: 1,
     ms: Date.now() - t0,
     roots,
   };

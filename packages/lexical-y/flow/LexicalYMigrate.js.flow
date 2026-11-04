@@ -69,7 +69,10 @@ export type YMigrationRootReceipt = {
   readonly epoch: YLayoutEpoch | null,
 };
 
+// Format version `v` (1); its root and step receipts are of the same
+// version. Counts and ms are diagnostics.
 export type YMigrationReceipt = {
+  readonly v: 1,
   readonly roots: ReadonlyArray<YMigrationRootReceipt>,
   readonly changed: boolean,
   readonly bytesBefore: number,

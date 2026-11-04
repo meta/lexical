@@ -19,7 +19,11 @@ import {describe, expect, test, vi} from 'vitest';
 
 import {createYDoc, LAYOUT_VERSION} from '../..';
 import {createYWriter, editYState, seedYState} from '../../headless';
-import {migrateYDoc, MIGRATION_ORIGIN,migrationClientID} from '../../internal/Runner';
+import {
+  migrateYDoc,
+  MIGRATION_ORIGIN,
+  migrationClientID,
+} from '../../internal/Runner';
 import {
   layoutEpoch,
   loadYMigrationSteps,
@@ -696,6 +700,7 @@ describe.each([false, true])('migration runner, gc %s', gc => {
         update,
         receipt,
       } = migrateYState(state, [STAMP, REWRITE], {gc, to: SEED + 2});
+      expect(receipt.v).toBe(1);
       expect(receipt.changed).toBe(true);
       expect(receipt.bytesBefore).toBe(state.length);
       expect(receipt.bytesAfter).toBe(out.length);
