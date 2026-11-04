@@ -336,7 +336,11 @@ right after that update commits, in an update of its own.
 to and from Yjs relative positions for an awareness-based cursor UI; the
 binding does not render remote cursors itself.
 `getCursor()` returns plain JSON, so it can go in the awareness state the
-provider shares:
+provider shares. While a remote change applied inside an update waits to be
+read, it takes the positions in a Yjs transaction that changes nothing (the
+document's `beforeTransaction` and `afterTransaction` observers see it);
+called again from those observers, it returns the same positions without
+opening another:
 
 ```ts
 // Share this client's selection.

@@ -1188,5 +1188,48 @@ describe.each([false, true])(
       await t.sync();
       await expectConverged(t.peers);
     });
+
+    test('the cursor an app takes while a change Yjs merged into shown text waits', async () => {
+      const t = await setup(
+        () =>
+          $getRoot().append(
+            $createParagraphNode().append($createTextNode('base')),
+          ),
+        {gc, ids: [2, 1]},
+      );
+      t.b.update(() =>
+        $getRoot().getAllTextNodes()[0].selectEnd().insertText('[seen]'),
+      );
+      await t.sync();
+      t.offline();
+      const seen = Y.encodeStateVector(t.b.doc);
+      t.b.update(() =>
+        $getRoot().getAllTextNodes()[0].selectEnd().insertText('[hidden]'),
+      );
+      const delta = Y.encodeStateAsUpdate(t.b.doc, seen);
+      t.a.update(() =>
+        $getRoot().getAllTextNodes()[0].selectEnd().insertText('[own]'),
+      );
+      const expected = JSON.stringify(t.a.binding.getCursor());
+      // An awareness cursor published once the document's transactions end.
+      const published: string[] = [];
+      const publish = () =>
+        published.push(JSON.stringify(t.a.binding.getCursor()));
+      t.a.doc.on('afterAllTransactions', publish);
+      try {
+        t.a.editor.update(() => Y.applyUpdate(t.a.doc, delta, 'provider'), {
+          discrete: true,
+        });
+        // Still unread (the update changed nothing).
+        expect(JSON.stringify(t.a.binding.getCursor())).toBe(expected);
+      } finally {
+        t.a.doc.off('afterAllTransactions', publish);
+      }
+      expect(published.length).toBeGreaterThan(0);
+      expect(new Set(published)).toEqual(new Set([expected]));
+      await new Promise(r => setTimeout(r, 0));
+      await t.sync();
+      await expectConverged(t.peers);
+    });
   },
 );

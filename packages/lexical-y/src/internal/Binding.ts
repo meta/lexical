@@ -920,6 +920,11 @@ export class YBinding {
   private readonly heldUnread = new Set<Transaction>();
   /** Containers read while changes were deferred, checked later (see checkRead). */
   private readonly checkLater = new Set<CS>();
+  /** While takeCursor's transaction runs. */
+  private takingCursor = false;
+  /** The cursor takeCursor took last, and on which editor state. */
+  private takenCursor: {cursor: YCursor | null; state: EditorState} | null =
+    null;
   private gcFilters: {
     ours: (item: Item) => boolean;
     prev: (item: Item) => boolean;
@@ -6272,32 +6277,58 @@ export class YBinding {
   // -------------------------------------------------------------------------
   // Cursors
 
-  /**
-   * The local selection as relative positions (JSON), or null. A read of
-   * the document only: an app may call it from its own document observers
-   * (an awareness cursor refreshed on every transaction).
-   */
+  /** The local selection as relative positions (JSON), or null. */
   getCursor(): YCursor | null {
-    // On the document as this binding's editor shows it (see guard).
-    return seenBy(this.seer, () => this.readCursor());
+    return this.takeCursor();
   }
 
   /**
-   * getCursor, for the binding's own work: with changes not read yet, in a
-   * transaction that splits the items at their bounds (see splitAtUnread),
-   * as a write does, since Yjs merges a change's items with neighbouring
-   * items of the same client. The positions are ids, which stay valid once
-   * Yjs merges the items again.
+   * See getCursor. With changes not read yet, the items are split at their
+   * bounds first (see splitAtUnread), as for a write, since Yjs merges a
+   * change's items with neighbouring items of the same client and the view
+   * tells them apart by item: in the transaction running, if any (its
+   * cleanup merges them back), else in a transaction of its own. The
+   * positions are ids, which stay valid once Yjs merges the items again.
+   * Taken again from that transaction's observers (an app's awareness
+   * cursor refreshed on every transaction), it is the one just taken, for
+   * the same editor state: no transaction opens from there, which would
+   * call those observers again.
    */
   private takeCursor(): YCursor | null {
     if (this.unread === null) {
-      return this.getCursor();
+      // On the document as this binding's editor shows it (see guard).
+      return seenBy(this.seer, () => this.readCursor());
+    }
+    const doc = this._doc;
+    const state = this._editor.getEditorState();
+    if (
+      this.takingCursor ||
+      doc._transactionCleanups.some(t => t.origin === this.scanOrigin)
+    ) {
+      const taken = this.takenCursor;
+      return taken !== null && taken.state === state
+        ? taken.cursor
+        : seenBy(this.seer, () => this.readCursor());
+    }
+    const take = (tr: Transaction) => {
+      this.splitAtUnread(tr);
+      const cursor = seenBy(this.seer, () => this.readCursor());
+      this.takenCursor = {cursor, state};
+      return cursor;
+    };
+    const running = doc._transaction;
+    if (running !== null) {
+      return take(running);
     }
     let cursor: YCursor | null = null;
-    this._doc.transact(tr => {
-      this.splitAtUnread(tr);
-      cursor = seenBy(this.seer, () => this.readCursor());
-    }, this.scanOrigin);
+    this.takingCursor = true;
+    try {
+      doc.transact(tr => {
+        cursor = take(tr);
+      }, this.scanOrigin);
+    } finally {
+      this.takingCursor = false;
+    }
     return cursor;
   }
 
