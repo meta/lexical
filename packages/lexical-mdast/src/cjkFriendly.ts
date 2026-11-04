@@ -100,7 +100,17 @@ function readBefore(context: TokenizeContext): [Code, number] {
   if (before !== VARIATION_SELECTOR) {
     return [previous, before];
   }
-  const rest = text.slice(0, -1);
+  // A selector that starts its chunk follows a code of its own, such as the
+  // U+FFFD micromark reads for a NUL.
+  const rest =
+    text.length > 1 || now._index === 0
+      ? text.slice(0, -1)
+      : context
+          .sliceSerialize({
+            end: now,
+            start: {...now, _bufferIndex: -1, _index: now._index - 1},
+          })
+          .slice(0, -1);
   if (rest === '') {
     return [previous, before];
   }

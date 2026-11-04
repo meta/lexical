@@ -331,6 +331,27 @@ describe('Mdast punctuation modes', () => {
     expect(roundTrip(runs, 'cjk-friendly')).toEqual([cjkFriendly, runs]);
   });
 
+  it('reads a selector after a NUL as the U+FFFD that stands for it', () => {
+    const editor = createEditor(undefined, 'cjk-friendly');
+    const read = (markdown: string) => {
+      editor.update(() => $convertFromMarkdownString(markdown), {
+        discrete: true,
+      });
+      return editor.read('latest', () =>
+        $getRoot()
+          .getAllTextNodes()
+          .map(node => [node.getTextContent(), node.getFormat()]),
+      );
+    };
+    // As markdown-it-cjk-friendly reads them.
+    expect(read('a\0\ufe0e**“x”** b')).toEqual([
+      ['a\ufffd\ufe0e', 0],
+      ['“x”', bold],
+      [' b', 0],
+    ]);
+    expect(read('a**x\0\ufe0e**b')).toEqual([['a**x\ufffd\ufe0e**b', 0]]);
+  });
+
   it('reads a `*` run beside a `_` run alike in both import modes', () => {
     for (const importPunctuation of [
       'strict-commonmark',
@@ -608,6 +629,25 @@ describe('Mdast punctuation modes', () => {
     expect(lines[2]).toBe('| **你好。**世界 | x |');
     expect(lines.map(line => line.length)).toEqual(
       lines.map(() => lines[2].length),
+    );
+  });
+
+  it('aligns table cells with references a CJK-friendly export keeps', () => {
+    const editor = createEditor('cjk-friendly');
+    editor.update(
+      () =>
+        $convertFromMarkdownString(
+          '| a | b |\n| - | - |\n| `a&#x4E16;**` | x |\n| a\\&#x4E16;**b** | x |\n| yyyyyyyyyyyyyyyyyy | z |',
+        ),
+      {discrete: true},
+    );
+    const lines = editor
+      .read('latest', () => $convertToMarkdownString())
+      .split('\n');
+    expect(lines[2]).toContain('`a&#x4E16;**`');
+    expect(lines[3]).toContain('&#x4E16;**b**');
+    expect(lines.map(line => line.length)).toEqual(
+      lines.map(() => lines[4].length),
     );
   });
 

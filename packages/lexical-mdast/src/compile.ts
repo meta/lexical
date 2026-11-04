@@ -127,8 +127,9 @@ export function compileMdast(
     // CJK-friendly emphasis goes first, before the extensions of the config,
     // which may handle markers of their own.
     micromarkExtensions:
-      // Any mode but the CJK-friendly one reads strictly, as in
+      // Reads CJK-friendly by default, and any other mode strictly, as in
       // @lexical/markdown.
+      config.importPunctuation !== undefined &&
       config.importPunctuation !== 'cjk-friendly'
         ? [...config.micromarkExtensions]
         : [

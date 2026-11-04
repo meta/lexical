@@ -871,11 +871,8 @@ function toMarkdownWithStandIns(
   tree: Root,
   extensions: ToMarkdownExtension[],
   isCjkFriendly: boolean,
+  measure?: (value: string) => string,
 ): string {
-  // A CJK-friendly export writes some references as their characters after
-  // the table is aligned, so it measures them as such. A reference that
-  // micromark would not read as one, in code, measures short.
-  const measure = isCjkFriendly ? rewriteCjkReferences : undefined;
   const used = new Set<number>();
   const beforeMarker = new Set<Nodes>();
   const counts = countStoodIn(tree, used, beforeMarker);
@@ -1100,7 +1097,7 @@ const REFERENCE = /(\\\\)?&#(?:(\d+)|[xX]([\da-fA-F]+));/g;
  */
 function toCjkFriendly(markdown: string, compiled: CompiledMdast): string {
   // Parse only when there is a reference to rewrite.
-  if (rewriteCjkReferences(markdown) === markdown) {
+  if (!markdown.includes('&#') || !hasCjkReference(markdown)) {
     return markdown;
   }
   // Only references that micromark reads as such: not escaped ones, nor
@@ -1120,39 +1117,79 @@ function toCjkFriendly(markdown: string, compiled: CompiledMdast): string {
 }
 
 /**
+ * The code point of the reference that {@link REFERENCE} matched in
+ * `markdown` at `offset`, when it is a CJK character beside a `*` or `~` run
+ * and not beside a `_` one; otherwise -1.
+ */
+function getCjkReference(
+  markdown: string,
+  match: string,
+  backslashes: string | undefined,
+  decimal: string | undefined,
+  hex: string | undefined,
+  offset: number,
+): number {
+  const code = decimal ? parseInt(decimal, 10) : parseInt(hex!, 16);
+  const before = markdown[backslashes ? offset + 1 : offset - 1];
+  const after = markdown[offset + match.length];
+  return (ATTENTION_RUN.test(before) || ATTENTION_RUN.test(after)) &&
+    before !== '_' &&
+    after !== '_' &&
+    // micromark reads references past the last code point too.
+    code <= 0x10ffff &&
+    isCjkClass(classifyCode(code))
+    ? code
+    : -1;
+}
+
+/** Whether `markdown` holds a reference {@link rewriteCjkReferences} may rewrite. */
+function hasCjkReference(markdown: string): boolean {
+  for (const match of markdown.matchAll(REFERENCE)) {
+    if (
+      getCjkReference(
+        markdown,
+        match[0],
+        match[1],
+        match[2],
+        match[3],
+        match.index,
+      ) >= 0
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
  * Writes as its character each reference to a CJK character beside a `*` or
  * `~` run, and not beside a `_` one, in `markdown`, where `isRead` accepts
  * the offset of its `&`.
  */
 function rewriteCjkReferences(
   markdown: string,
-  isRead: (begin: number) => boolean = () => true,
+  isRead: (begin: number) => boolean,
 ): string {
-  if (!markdown.includes('&#')) {
-    return markdown;
-  }
   return markdown.replace(
     REFERENCE,
     (
       match: string,
       backslashes: string | undefined,
-      decimal: string,
-      hex: string,
+      decimal: string | undefined,
+      hex: string | undefined,
       offset: number,
     ) => {
-      const code = decimal ? parseInt(decimal, 10) : parseInt(hex, 16);
-      const begin = backslashes ? offset + 2 : offset;
-      const before = markdown[begin - 1];
-      const after = markdown[offset + match.length];
+      const code = getCjkReference(
+        markdown,
+        match,
+        backslashes,
+        decimal,
+        hex,
+        offset,
+      );
       // A backslash before a CJK character is not an escape, so the
       // backslash that escaped it before the reference goes too.
-      return (ATTENTION_RUN.test(before) || ATTENTION_RUN.test(after)) &&
-        before !== '_' &&
-        after !== '_' &&
-        // micromark reads references past the last code point too.
-        code <= 0x10ffff &&
-        isCjkClass(classifyCode(code)) &&
-        isRead(begin)
+      return code >= 0 && isRead(backslashes ? offset + 2 : offset)
         ? (backslashes ? '\\' : '') + String.fromCodePoint(code)
         : match;
     },
@@ -1262,10 +1299,13 @@ export function createMdastExport(compiled: CompiledMdast): {
     // toMarkdown always appends a trailing newline; drop it so callers get the
     // same shape as `@lexical/markdown`'s `$convertToMarkdownString`.
     const isCjkFriendly = compiled.exportPunctuation === 'cjk-friendly';
+    // A CJK-friendly export writes some references as their characters after
+    // a table is aligned, so it measures each cell as such.
     const markdown = toMarkdownWithStandIns(
       tree,
       extensions,
       isCjkFriendly,
+      isCjkFriendly ? value => toCjkFriendly(value, compiled) : undefined,
     ).replace(/\n$/, '');
     return isCjkFriendly ? toCjkFriendly(markdown, compiled) : markdown;
   };

@@ -265,57 +265,62 @@ describe('Markdown export read by markdown-it', () => {
   it.each<[punctuation: PunctuationMode, readers: Reader[]]>([
     ['strict-commonmark', [STRICT, CJK_FRIENDLY]],
     ['cjk-friendly', [CJK_FRIENDLY]],
-  ])('reads %s exports as they were written', (punctuation, readers) => {
-    const {markdown, mdast} = createEditors(punctuation);
-    const random = createRandom(1);
-    const failures: string[] = [];
-    const cases = [
-      ...FIXED_CASES,
-      ...Array.from({length: CASES}, () => generate(random)),
-    ];
-    const $read = () =>
-      normalize(
-        $getRoot()
-          .getAllTextNodes()
-          .map(node => [node.getTextContent(), node.getFormat() & FORMATS]),
-      );
-    for (const runs of cases) {
-      mdast.update(() => $setRuns(runs), {discrete: true});
-      markdown.update(() => $setRuns(runs), {discrete: true});
-      const exported = mdast.read('latest', () => $convertToMarkdownString());
-      mdast.update(() => $convertFromMarkdownString(exported), {
-        discrete: true,
-      });
-      const exportedMarkdown = markdown.read('latest', () =>
-        $exportMarkdown(TRANSFORMERS, undefined, {punctuation}),
-      );
-      markdown.update(
-        () =>
-          $importMarkdown(exportedMarkdown, TRANSFORMERS, undefined, {
-            punctuation,
-          }),
-        {discrete: true},
-      );
-      for (const [text, expected] of [
-        [exported, mdast.read('latest', $read)],
-        [exportedMarkdown, markdown.read('latest', $read)],
-      ] as const) {
-        // markdown-it applies the rule of 3 to the whole length of a run,
-        // and micromark to what is left of it, so a run of three or more
-        // markers that one pair uses only part of reads differently.
-        if (/\*{3}|_{3}/.test(text)) {
-          continue;
-        }
-        for (const reader of readers) {
-          const actual = read(reader, text);
-          if (JSON.stringify(actual) !== JSON.stringify(expected)) {
-            failures.push(
-              `${JSON.stringify(runs)} -> ${JSON.stringify(text)} -> ${JSON.stringify(actual)}, not ${JSON.stringify(expected)}`,
-            );
+  ])(
+    'reads %s exports as they were written',
+    (punctuation, readers) => {
+      const {markdown, mdast} = createEditors(punctuation);
+      const random = createRandom(1);
+      const failures: string[] = [];
+      const cases = [
+        ...FIXED_CASES,
+        ...Array.from({length: CASES}, () => generate(random)),
+      ];
+      const $read = () =>
+        normalize(
+          $getRoot()
+            .getAllTextNodes()
+            .map(node => [node.getTextContent(), node.getFormat() & FORMATS]),
+        );
+      for (const runs of cases) {
+        mdast.update(() => $setRuns(runs), {discrete: true});
+        markdown.update(() => $setRuns(runs), {discrete: true});
+        const exported = mdast.read('latest', () => $convertToMarkdownString());
+        mdast.update(() => $convertFromMarkdownString(exported), {
+          discrete: true,
+        });
+        const exportedMarkdown = markdown.read('latest', () =>
+          $exportMarkdown(TRANSFORMERS, undefined, {punctuation}),
+        );
+        markdown.update(
+          () =>
+            $importMarkdown(exportedMarkdown, TRANSFORMERS, undefined, {
+              punctuation,
+            }),
+          {discrete: true},
+        );
+        for (const [text, expected] of [
+          [exported, mdast.read('latest', $read)],
+          [exportedMarkdown, markdown.read('latest', $read)],
+        ] as const) {
+          // markdown-it applies the rule of 3 to the whole length of a run,
+          // and micromark to what is left of it, so a run of three or more
+          // markers that one pair uses only part of reads differently.
+          if (/\*{3}|_{3}/.test(text)) {
+            continue;
+          }
+          for (const reader of readers) {
+            const actual = read(reader, text);
+            if (JSON.stringify(actual) !== JSON.stringify(expected)) {
+              failures.push(
+                `${JSON.stringify(runs)} -> ${JSON.stringify(text)} -> ${JSON.stringify(actual)}, not ${JSON.stringify(expected)}`,
+              );
+            }
           }
         }
       }
-    }
-    expect(failures).toEqual([]);
-  });
+      expect(failures).toEqual([]);
+    },
+    // Random cases take about 1 ms each.
+    5000 + CASES * 5,
+  );
 });
