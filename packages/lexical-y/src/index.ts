@@ -14,6 +14,7 @@ import {
   type YBindingOptions,
   type YBindingStatus,
   type YCursor,
+  type YQuiescedState,
 } from './internal/Binding';
 import {type ClientIDRange} from './internal/ClientID';
 import {
@@ -86,6 +87,7 @@ export type {
   YNestedFallbackData,
   YNestedFallbackReason,
   YOtherWarningData,
+  YQuiescedState,
   YRecoveredReadData,
   YRecoveredWriteData,
   YSelfCheckData,

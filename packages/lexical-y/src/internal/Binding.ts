@@ -653,6 +653,21 @@ export interface YBindingOptions {
 }
 
 /**
+ * @experimental What `YBinding.quiesce()` returns: the document's state
+ * (pending updates included), to hand to the server, and a draft, the
+ * editor's state as JSON taken before it turned read only, with `differs`
+ * when the editor shows something the document does not hold (a local
+ * change the binding could not write).
+ */
+export interface YQuiescedState {
+  readonly state: Uint8Array;
+  readonly draft: {
+    readonly json: SerializedEditorState;
+    readonly differs: boolean;
+  };
+}
+
+/**
  * @experimental A selection as Yjs relative positions, from
  * `YBinding#getCursor` (for an awareness-based cursor UI).
  */
@@ -1816,19 +1831,23 @@ export class YBinding {
    * yet, the binding's own pending work) into the document as ordinary
    * local writes, so it gets Yjs identities; then turns the binding read
    * only for good, local and programmatic edits included (they are not
-   * written, and the editor shows the document again). Stop the app's
-   * providers and persistence first. Returns the document's state (pending
-   * updates included) and a draft: the editor's state as JSON, taken before
-   * it turned read only, with `differs` when it shows something the
-   * document does not hold. A binding already read only ends the
-   * composition and drains the editor's pending work too, but writes
-   * nothing: what the editor held uncommitted is the draft, with `differs`.
-   * Call it outside an editor update.
+   * written, and the editor shows the document again). Returns a
+   * YQuiescedState.
+   *
+   * - Stop the app's providers and persistence first: what they deliver
+   *   after the handoff is not in the returned state.
+   * - Call it outside an editor update (inside one it throws, and changes
+   *   nothing).
+   * - A binding already read only (for any reason) ends the composition and
+   *   drains the editor's pending work too, but writes nothing: what the
+   *   editor held uncommitted is the draft, with `differs`.
+   * - Calling it again writes nothing and returns the document's state as
+   *   it is then (the same, when nothing else wrote to it) and the same
+   *   draft.
+   * - After `dispose()` it writes nothing either: it returns the document's
+   *   state and the editor's state as the draft.
    */
-  quiesce(): {
-    state: Uint8Array;
-    draft: {json: SerializedEditorState; differs: boolean};
-  } {
+  quiesce(): YQuiescedState {
     if (this._editor._updating) {
       throw new Error(
         '@lexical/y: quiesce() cannot run inside an editor update; call it after the update',

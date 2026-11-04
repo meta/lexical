@@ -1672,10 +1672,20 @@ the migration replaced.
 
 **Handing a replica off.** `binding.quiesce()` ends a composition, commits
 what the editor holds into the document, and turns the binding read only
-for good (programmatic edits included); it returns the document's state and
-a draft (the editor's state as JSON, with `differs` when it shows what the
-document does not hold). A client whose server migrated the room uploads
-that material before it replaces its document (see the server guide).
+for good (programmatic edits included); it returns a `YQuiescedState`: the
+document's state and a draft (the editor's state as JSON, with `differs`
+when it shows what the document does not hold). A client whose server
+migrated the room uploads that material before it replaces its document
+(see the server guide).
+
+- Stop the app's providers and persistence first: what they deliver after
+  the handoff is not in the returned state.
+- Call it outside an editor update; inside one it throws and changes
+  nothing.
+- On a binding that is already read only it writes nothing: what the
+  editor held uncommitted is the draft, with `differs`.
+- Calling it again, or after `dispose()`, writes nothing and returns the
+  document's state and the draft again.
 
 ### Reseeding a room
 

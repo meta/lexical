@@ -336,12 +336,16 @@ declare export class YBinding {
   undo(): boolean;
   redo(): boolean;
   getCursor(): YCursor | null;
-  quiesce(): {
-    state: Uint8Array,
-    draft: {json: SerializedEditorState, differs: boolean},
-  };
+  quiesce(): YQuiescedState;
   $resolveCursor(cursor: YCursor): {anchor: PointType, focus: PointType} | null;
 }
+
+// What YBinding.quiesce() returns (repeat calls and calls after dispose
+// write nothing).
+export type YQuiescedState = {
+  readonly state: Uint8Array,
+  readonly draft: {readonly json: SerializedEditorState, readonly differs: boolean},
+};
 
 export type StorageKind = 'line' | 'format' | 'group' | 'nested';
 

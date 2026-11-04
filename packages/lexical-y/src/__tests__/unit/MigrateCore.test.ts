@@ -45,6 +45,7 @@ import {
   type YBindingOptions,
   YCollabExtension,
   type YDoc,
+  type YQuiescedState,
 } from '../..';
 import {editYState, readYState, YHeadlessError} from '../../headless';
 import {setMinLayoutForTests} from '../../internal/Binding';
@@ -461,6 +462,31 @@ describe.each([false, true])('the binding and layout migrations, gc %s', gc => {
         $getRoot().getTextContent(),
       ),
     ).toContain('compo');
+    b.dispose();
+  });
+
+  test('quiesce() again, and after dispose: nothing written, the same state, a YQuiescedState', () => {
+    const b = bind(SEEDED, gc);
+    b.editor.update(
+      () => {
+        $getRoot().append(
+          $createParagraphNode().append($createTextNode('kept')),
+        );
+      },
+      {discrete: true},
+    );
+    const first: YQuiescedState = b.binding.quiesce();
+    // Again: already read only for good; nothing is written.
+    const second = b.binding.quiesce();
+    expect(Buffer.from(second.state)).toEqual(Buffer.from(first.state));
+    expect(second.draft).toEqual(first.draft);
+    expect(b.binding.status).toBe('readonly');
+    // After dispose: the document's state and the editor's draft, no write.
+    b.binding.dispose();
+    const disposed = b.binding.quiesce();
+    expect(Buffer.from(disposed.state)).toEqual(Buffer.from(first.state));
+    expect(JSON.stringify(disposed.draft.json)).toContain('kept');
+    expect(disposed.draft.differs).toBe(false);
     b.dispose();
   });
 
