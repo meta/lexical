@@ -19,7 +19,12 @@ import {expect, test} from 'vitest';
 
 import {Cursor} from '../../internal/Cursor';
 import {covered, isShadowKey, stepFormat} from '../../internal/Ident';
-import {readLayout3Formats, writeLayout3Formats} from '../../internal/Layout3';
+import {
+  isCoveredKey,
+  readLayout3Formats,
+  storedUnit,
+  writeLayout3Formats,
+} from '../../internal/Layout3';
 import {$p, $selectIn, setup} from '../utils/harness';
 
 const obj = (m: ReadonlyMap<string, unknown>) => Object.fromEntries(m);
@@ -113,6 +118,35 @@ for (const gc of [false, true]) {
     }
     for (const result of results as {pure: unknown; core: unknown}[])
       expect(result.pure).toEqual(result.core);
+  });
+  test(`the covered keys can be narrowed; by default they are isCoveredKey's gc=${gc}`, () => {
+    const doc = rawDoc(gc);
+    const root = doc.get('c');
+    root.format(0, 3, {'f:italic': true});
+    const bold = (key: string) => key === 'f:bold';
+    doc.transact(tr =>
+      writeLayout3Formats(
+        tr,
+        root,
+        Array.from({length: 3}, () => new Map([['f:bold', true]])),
+        bold,
+      ),
+    );
+    // The italic items are not the narrowed writer's: they stay, and only
+    // the default read shows them.
+    expect(readLayout3Formats(root, bold).map(obj)).toEqual(
+      Array.from({length: 3}, () => ({'f:bold': true})),
+    );
+    expect(readLayout3Formats(root).map(obj)).toEqual(
+      Array.from({length: 3}, () => ({'f:bold': true, 'f:italic': true})),
+    );
+    expect(readLayout3Formats(root, isCoveredKey)).toEqual(
+      readLayout3Formats(root),
+    );
+    expect(() => storedUnit(new Map([['f:italic', true]]), bold)).toThrow();
+    expect(storedUnit(new Map([['f:italic', true]]))).toEqual(
+      new Map([['f:italic', ['true', true]]]),
+    );
   });
   test(`undefined refused before any write gc=${gc}`, () => {
     const doc = rawDoc(gc);

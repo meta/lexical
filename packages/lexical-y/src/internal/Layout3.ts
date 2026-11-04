@@ -134,12 +134,16 @@ export type StoredUnit = ReadonlyMap<string, readonly [string, unknown]>;
 /**
  * A unit's covered values as written (see storedValue), each with its
  * signature (its JSON, keys sorted), in key order. Throws, before anything
- * is written, for an uncovered key or a value JSON cannot store.
+ * is written, for an uncovered key (by `keys`, default isCoveredKey) or a
+ * value JSON cannot store.
  */
-export function storedUnit(values: StoredFormats): StoredUnit {
+export function storedUnit(
+  values: StoredFormats,
+  keys: (key: string) => boolean = isCoveredKey,
+): StoredUnit {
   const unit = new Map<string, [string, unknown]>();
   for (const key of [...values.keys()].sort(byCodeUnit)) {
-    if (!isCoveredKey(key)) {
+    if (!keys(key)) {
       throw new Error(`@lexical/y: ${JSON.stringify(key)} is not covered`);
     }
     const stored = storedValue(values.get(key));
@@ -182,12 +186,14 @@ export function runBoundary(
  * container, then write the canonical runs (see the header). Touches
  * nothing else. Throws, before writing, when `values.length` differs from
  * the container's countable length, a key is not covered, a value cannot
- * be JSON-encoded, or the container is not in `tr.doc`.
+ * be JSON-encoded, or the container is not in `tr.doc`. `keys` tells the
+ * covered keys (default isCoveredKey).
  */
 export function writeLayout3Formats(
   tr: Transaction,
   container: YNode,
   values: readonly StoredFormats[],
+  keys: (key: string) => boolean = isCoveredKey,
 ): {written: number; deleted: number} {
   const doc = tr.doc;
   if ((container as unknown as {doc: unknown}).doc !== doc) {
@@ -202,7 +208,7 @@ export function writeLayout3Formats(
   // Each unit's covered keys → [signature, stored value], in key order.
   const units: StoredUnit[] = [];
   for (const map of values) {
-    units.push(storedUnit(map));
+    units.push(storedUnit(map, keys));
   }
   // Delete every live covered format item.
   let deleted = 0;
@@ -210,7 +216,7 @@ export function writeLayout3Formats(
     if (
       !it.deleted &&
       it.content instanceof ContentFormat &&
-      isCoveredKey(it.content.key)
+      keys(it.content.key)
     ) {
       it.delete(tr);
       deleted++;
@@ -316,9 +322,13 @@ export function writeLayout3Formats(
  *   it; otherwise it drops the unpaired runs above the topmost paired run,
  *   and where it names a run below, that run goes too, with the unpaired
  *   runs between it and the top (the paired runs above it stay).
- * The top run's value shows; null and `[]` show none.
+ * The top run's value shows; null and `[]` show none. `keys` tells the
+ * covered keys (default isCoveredKey).
  */
-export function readLayout3Formats(container: YNode): Map<string, unknown>[] {
+export function readLayout3Formats(
+  container: YNode,
+  keys: (key: string) => boolean = isCoveredKey,
+): Map<string, unknown>[] {
   // Pass 1: the paired openers ("client:clock").
   const before = new Map<string, Item>();
   const paired = new Set<string>();
@@ -327,7 +337,7 @@ export function readLayout3Formats(container: YNode): Map<string, unknown>[] {
       continue;
     }
     const {key, value} = it.content;
-    if (!isCoveredKey(key)) {
+    if (!keys(key)) {
       continue;
     }
     if (isEnd(value)) {
@@ -375,7 +385,7 @@ export function readLayout3Formats(container: YNode): Map<string, unknown>[] {
     }
     if (it.content instanceof ContentFormat) {
       const {key, value} = it.content;
-      if (!isCoveredKey(key)) {
+      if (!keys(key)) {
         continue;
       }
       const top = stacks.get(key) ?? null;
