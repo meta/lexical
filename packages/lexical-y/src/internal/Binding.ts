@@ -2234,6 +2234,15 @@ export class YBinding {
   dispose(): void {
     this.started = false;
     this.initializeOnStart = false;
+    // A composition held when the binding stops: its hold ends here, so the
+    // deleted format items it kept showing lose the Item.keep it set (see
+    // Hidden#keep), as when a hold ends (see $release). Only the flags
+    // change; nothing is written.
+    const hidden = this.state.hidden;
+    if (hidden !== null) {
+      this.state.hidden = null;
+      hidden.releaseKeeps();
+    }
     this.schemaGateAfter = null;
     this.schemaSeenIn = null;
     for (const d of this.disposers.splice(0)) {
