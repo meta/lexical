@@ -277,6 +277,15 @@ test('the layout constants are typed number, in the core and the server entry', 
   }
 });
 
+test('policy: the floor never rises past layout 3, and the runner targets it by default', () => {
+  // After the one-time break to layout 3, MIN_LAYOUT stays put: layouts are
+  // only added, the package never drops a reader or a step, and an app
+  // that wants a higher floor raises its own (its server stops admitting
+  // clients that cannot read the next layout).
+  expect(mainEntry.MIN_LAYOUT).toBeLessThanOrEqual(3);
+  expect(serverEntry.MIN_LAYOUT).toBe(mainEntry.MIN_LAYOUT);
+});
+
 test('YBinding does not offer flushPending', () => {
   type Offered = 'flushPending' extends keyof mainEntry.YBinding ? true : false;
   const offered: Offered = false;

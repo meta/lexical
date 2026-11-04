@@ -38,7 +38,12 @@ import {
 } from '../../headless';
 import {MIN_LAYOUT} from '../../internal/constants';
 import {migrateYDoc} from '../../internal/Runner';
-import {layoutEpoch, migrateYState, recordedLayout} from '../../migrate';
+import {
+  layoutEpoch,
+  migrateYState,
+  recordedLayout,
+  type YLayoutMigration,
+} from '../../migrate';
 import step1to2 from '../../migrate/1to2';
 import {$snapshot, catalogHeadlessConfig, seedShapes} from '../catalog/bind';
 import {type CatalogConfig} from '../catalog/configs';
@@ -250,10 +255,17 @@ describe.skipIf(!LAYOUT1_BUILD).each([false, true])(
   },
 );
 
-// Golden fixtures: written once (MIGRATE_GOLDEN_WRITE=1 when the file does
-// not exist), never regenerated. Each holds an input state and the exact
-// bytes 1to2 writes for it with gc off and on.
-const GOLDEN = path.join(__dirname, 'golden', 'migrate-1to2.json');
+// Golden fixtures, pinned per revision: golden/migrate-1to2-r<N>.json holds
+// input states and the exact bytes revision N of 1to2 writes for them with
+// gc off and on. Written once (MIGRATE_GOLDEN_WRITE=1 when the file does not
+// exist), never regenerated. The default export stays revision 1 forever; a
+// correction that changes the output is a new named revision, added to
+// REVISIONS with its own file, and every file keeps running against its own
+// revision.
+const GOLDEN_DIR = path.join(__dirname, 'golden');
+const GOLDEN = path.join(GOLDEN_DIR, 'migrate-1to2-r1.json');
+/** Every revision of 1to2 the package exports, by revision. */
+const REVISIONS: Readonly<Record<number, YLayoutMigration>> = {1: step1to2};
 
 type Golden = {
   name: string;
@@ -303,6 +315,30 @@ describe('@lexical/y/migrate/1to2 golden fixtures', () => {
     fs.writeFileSync(GOLDEN, JSON.stringify(fixtures, null, 2) + '\n');
   }
 
+  test('golden files are pinned per revision: each runs against its own revision, and the default export is revision 1', () => {
+    const files = fs
+      .readdirSync(GOLDEN_DIR)
+      .filter(f => f.startsWith('migrate-1to2'))
+      .sort();
+    expect(files).toEqual(['migrate-1to2-r1.json']);
+    for (const file of files) {
+      const revision = Number(/-r([1-9][0-9]*)\.json$/.exec(file)?.[1]);
+      const step = REVISIONS[revision];
+      expect(step).toMatchObject({id: 'lexical-y/layout/1to2', revision, v: 1});
+      const fixtures = JSON.parse(
+        fs.readFileSync(path.join(GOLDEN_DIR, file), 'utf8'),
+      ) as Golden[];
+      for (const f of fixtures) {
+        for (const gc of [false, true]) {
+          const out = migrateYState(unb64(f.input), [step], {gc, to: 2}).state;
+          expect(b64(out)).toBe(gc ? f.output.gcOn : f.output.gcOff);
+        }
+      }
+    }
+    // The default revision never moves (a correction is a new named one).
+    expect(step1to2.revision).toBe(1);
+  });
+
   test('every fixture migrates to its frozen bytes', () => {
     const fixtures = JSON.parse(fs.readFileSync(GOLDEN, 'utf8')) as Golden[];
     expect(fixtures.map(f => [f.name, f.layout])).toEqual([
@@ -335,7 +371,7 @@ describe('@lexical/y/migrate/1to2 golden fixtures', () => {
       {
         "fixtures": "755a1c4d0e8163ad153a37d60330cbabb36ed039f78d93664450e4b3d052caeb",
         "read": "87e4170109df818d96e500100fd09f0e15d7292bb2c0128d9417adfdb768a3ac",
-        "step": "3114b0954b08c676af1d4c5487efaac7a6eedd1922d6b57356fab4ce5a7314cb",
+        "step": "6c53eb8f06bfbeeb4114d05e656e5d50a4d1b724cd4ea30b478e68a9ddba6dce",
       }
     `);
     expect(step1to2).toMatchObject({

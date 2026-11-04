@@ -7,8 +7,12 @@
  */
 
 // @lexical/y/migrate/1to2: the frozen step from layout 1 to layout 2.
-// EXPERIMENTAL. FROZEN: a change to what it writes bumps `revision` and
-// adds golden fixtures; the existing ones are never regenerated.
+// EXPERIMENTAL. FROZEN: (id, revision, v) names fixed output bytes for
+// fixed input bytes. This default export stays revision 1 forever; a
+// correction that changes what a step writes ships as a new, separately
+// named revision with its own golden fixtures, which apps select
+// explicitly. Golden fixtures are pinned per revision and never
+// regenerated.
 //
 // It writes nothing but what the runner records (`lexical-y:2` and the
 // epoch): layout 2 only adds member entries of set-valued NodeState, and

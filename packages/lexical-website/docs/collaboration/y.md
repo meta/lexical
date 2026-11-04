@@ -1630,6 +1630,15 @@ A step names the execution contract it is written against (`v: 1`); a
 runner refuses a step of a contract it does not run before calling any of
 it (`'invalid-steps'`).
 
+**Migration identity.** A step's `(id, revision, v)` names fixed output
+bytes for fixed input bytes: two servers, or two releases, that migrate the
+same stored state with it write the same update. The default export of each
+step stays revision 1 forever. A correction that would change what a step
+writes ships as a new, separately named revision, which an app selects
+explicitly; documents already migrated are never revised. Each revision's
+golden fixtures are pinned to it. The runner's default target (`to`) is
+`MIN_LAYOUT`, and after layout 3 `MIN_LAYOUT` never rises.
+
 Each step runs on a copy of the document, in one transaction under a client
 id hashed from its inputs (two servers that migrate the same bytes write the
 same update), and the runner checks the result before it returns or applies
