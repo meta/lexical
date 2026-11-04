@@ -14,6 +14,7 @@ import prettier from 'prettier';
 import {PackageMetadata} from './shared/PackageMetadata.mjs';
 import {packagesManager} from './shared/packagesManager.mjs';
 import readMonorepoPackageJson from './shared/readMonorepoPackageJson.mjs';
+import {subEntriesOf} from './shared/subEntries.mjs';
 import {
   MIN_TYPESCRIPT_VERSION,
   tooOldStubPath,
@@ -423,10 +424,15 @@ function updatePublicPackage(pkg) {
           // @mdxeditor/editor uses this at least as of v3.46.0
           exports[`./${basename}.js`] = entry;
         }
-        // Sub-entries of an entry: src/<entry>/<name>.ts is exported as
-        // "<package>/<entry>/<name>" (e.g. @lexical/y/migrate/2to3).
+        // Sub-entries of an entry that opts in (see shared/subEntries):
+        // src/<entry>/<name>.ts is exported as "<package>/<entry>/<name>"
+        // (e.g. @lexical/y/migrate/1to2).
         const subDir = pkg.resolve('src', basename);
-        if (!isIndex && fs.existsSync(subDir)) {
+        if (
+          !isIndex &&
+          subEntriesOf(packageName).includes(basename) &&
+          fs.existsSync(subDir)
+        ) {
           for (const sub of fs.readdirSync(subDir).sort()) {
             if (/^[^.]+\.ts$/.test(sub)) {
               const subBase = sub.replace(/\.ts$/, '');
