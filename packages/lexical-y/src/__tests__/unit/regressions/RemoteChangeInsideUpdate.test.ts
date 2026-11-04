@@ -603,5 +603,31 @@ describe.each([false, true])(
       await expectConverged(t.peers);
       expect((await freshReader(t.a)).describe()).toBe(t.a.describe());
     });
+
+    test('a binding started again before a deferred change was read', async () => {
+      const {t, delta} = await twoPeers(gc);
+      t.a.editor.update(() => Y.applyUpdate(t.a.doc, delta, 'provider'), {
+        discrete: true,
+      });
+      // Before the microtask that reads it.
+      t.a.stop();
+      t.a.stop = t.a.binding.start();
+      const seen = Y.encodeStateVector(t.b.doc);
+      t.b.update(() =>
+        $getRoot().getAllTextNodes().at(-1)!.selectEnd().insertText('!'),
+      );
+      const more = Y.encodeStateAsUpdate(t.b.doc, seen);
+      t.a.update(() => {
+        $appendX();
+        Y.applyUpdate(t.a.doc, more, 'provider');
+      });
+      // Before anything else reaches a: read after the update.
+      await new Promise(r => setTimeout(r, 0));
+      expect(t.a.read(() => $getRoot().getTextContent())).toContain('!');
+      expect(t.a.read(() => $getRoot().getTextContent())).toContain('X');
+      await t.sync();
+      await expectConverged(t.peers);
+      expect((await freshReader(t.a)).describe()).toBe(t.a.describe());
+    });
   },
 );

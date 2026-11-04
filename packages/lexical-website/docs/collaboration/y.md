@@ -231,7 +231,12 @@ content with random values" in [Limits](#limits)).
   integrated before them, and they are written after it, on the document as
   it was before that change, which they were made on: their edits land
   where they were made, and the change is read after them (providers that
-  apply changes from network or channel events never do this).
+  apply changes from network or channel events never do this). A remote
+  change applied inside an update (in `editor.update()`, a command, a
+  transform or a listener) is read after that update has committed and been
+  written, in a commit of its own tagged `COLLABORATION_TAG`; where the
+  update commits nothing or throws, a microtask after `editor.update()`
+  returns.
 - To seed or convert a document on a server, use `seedYState` (see
   [Server-side editing](./y-server.md)).
 

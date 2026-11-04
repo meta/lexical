@@ -1628,6 +1628,11 @@ export class YBinding {
     for (const tr of [...this.heldUnread]) {
       this.releaseUnread(tr);
     }
+    // Never read: out of the unread view too, which a binding started
+    // again starts from (see scheduleDeferred).
+    for (const tr of this.deferred) {
+      this.dropChange(tr);
+    }
     this.deferred.length = 0;
     this.localRefresh.clear();
     this.refused.clear();
@@ -5931,9 +5936,10 @@ export class YBinding {
         try {
           this.guard(() => withPins(this._pins, fn));
           if (later.length > 0) {
-            // After the commit; where there is none (`fn` changed nothing,
-            // and Lexical drops such an update with its callbacks), once
-            // the editor is idle.
+            // After the commit (which the callback itself makes happen,
+            // even when `fn` changed nothing); where a commit listener
+            // throws before Lexical runs the callbacks (see notifyApart),
+            // once the editor is idle.
             let handed = false;
             const handBack = () => {
               if (!handed) {
