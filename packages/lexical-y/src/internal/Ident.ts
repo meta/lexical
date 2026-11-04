@@ -122,8 +122,8 @@ export function seedRunsOf(container: YNode): SeedRuns {
 
 /**
  * The seed's last step, in `tr`: close every run still open, right after
- * its container's last unit, ends in reverse key order (Layout3's
- * runBoundary), as writeLayout3Formats places them.
+ * its container's last unit, ends in key order (Layout3's runBoundary), as
+ * writeLayout3Formats places them.
  */
 export function finishSeedRuns(tr: Transaction): void {
   const byContainer = seedRuns.get(tr.doc);
@@ -468,7 +468,6 @@ export function endTarget(end: Item): ID | null {
   return storedTarget(end);
 }
 
-/** The struct with id `id`, or null where its client never wrote that clock. */
 /**
  * Whether no struct holds `id` yet, or a Skip does (a merged update's gap):
  * an end naming it waits for it. Not a GC'd struct, which never arrives.
@@ -483,6 +482,7 @@ function notArrived(doc: Doc, id: ID): boolean {
   return doc.store.getItem(id) instanceof Skip;
 }
 
+/** The struct with id `id`, or null where its client never wrote that clock. */
 function itemAt(doc: Doc, id: ID): Item | null {
   if (id.clock < 0 || id.clock >= doc.store.getClock(id.client)) {
     return null;
@@ -921,13 +921,6 @@ function repairedTarget(doc: Doc, first: Item, copy: Item): ID | null {
   return target === null ? id : target.id;
 }
 
-/**
- * Before observers, the UndoManager's capture, gc and the update's
- * encoding: in roots that record layout 3, each copy of an end the transaction
- * inserted (see repairedTarget) gets new content naming its repaired target
- * (never the shared array: a new ContentFormat); then the transaction's ends
- * go into the index.
- */
 /** Whether changed attribute names `keys` hold a layout record's. */
 function hasLayoutKey(keys: Set<string | null>): boolean {
   for (const key of keys) {
@@ -977,6 +970,13 @@ export function takePairingChanges(doc: Doc): boolean {
   return pairingChanged.delete(doc);
 }
 
+/**
+ * Before observers, the UndoManager's capture, gc and the update's
+ * encoding: in roots that record layout 3, each copy of an end the transaction
+ * inserted (see repairedTarget) gets new content naming its repaired target
+ * (never the shared array: a new ContentFormat); then the transaction's ends
+ * go into the index.
+ */
 function repairCopies(tr: Transaction): void {
   const doc = tr.doc;
   const index = indexes.get(doc);
@@ -1594,7 +1594,6 @@ function rebuildOnto(
   return out;
 }
 
-/** The runs on the stack of `key` in `formats`, top first. */
 /**
  * A map with only what `formats` holds for `key` (its value and its stack):
  * a fold of that key's items alone needs nothing else.

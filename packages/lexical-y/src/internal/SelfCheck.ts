@@ -203,8 +203,7 @@ export function $checkWrite(writer: Writer): string[] {
       while (rb < have.runs.length && have.runs[rb].end <= i) {
         rb++;
       }
-      const wanted = ra < want.runs.length ? want.runs[ra].attrs : {};
-      const a = wanted;
+      const a = ra < want.runs.length ? want.runs[ra].attrs : {};
       const b = rb < have.runs.length ? have.runs[rb].attrs : {};
       const isBreak = !want.specials.has(i) && want.text.charCodeAt(i) === 10;
       const wrappersOnly = want.specials.has(i) || isBreak;
