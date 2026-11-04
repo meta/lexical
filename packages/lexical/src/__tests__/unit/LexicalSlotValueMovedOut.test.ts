@@ -428,3 +428,32 @@ test('a new element rendered before the old host that is removed in the same upd
   editor.setRootElement(null);
   root.remove();
 });
+
+test("a slot value moved right before its top-level host keeps the editor's root element on the page", () => {
+  const {editor, errors, root} = mount();
+  const k: Record<string, NodeKey> = {};
+  editor.update(
+    () => {
+      const host = new Host().append($text('a'));
+      const value = $text('value');
+      $setSlot(host as never, 's0' as never, value);
+      $getRoot().clear().append(host);
+      k.host = host.getKey();
+      k.value = value.getKey();
+    },
+    {discrete: true},
+  );
+  editor.update(
+    () => {
+      const host = $getNodeByKey(k.host)!;
+      $removeSlot(host as never, 's0' as never);
+      host.insertBefore($getNodeByKey(k.value)!);
+    },
+    {discrete: true},
+  );
+  expect(errors).toEqual([]);
+  expect(root.isConnected).toBe(true);
+  expect(root.innerHTML).toBe(freshHTML(editor.getEditorState()));
+  editor.setRootElement(null);
+  root.remove();
+});
