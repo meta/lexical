@@ -71,6 +71,7 @@ import {
   HISTORY_MERGE_TAG,
   INTERNAL_$normalizeNodeStructure,
   isCurrentlyReadOnlyMode,
+  isDispatchingCommitListeners,
   type Klass,
   type LexicalEditor,
   type LexicalNode,
@@ -2202,7 +2203,12 @@ export class YBinding {
       if (
         $isRootNode(node) &&
         this._status === 'active' &&
-        this.commitsAtOnce()
+        this.commitsAtOnce() &&
+        // Not while the editor notifies the listeners of a commit (an
+        // update a mutation listener makes, which Lexical runs at once):
+        // committed there, its listeners would run before the rest of that
+        // commit's, which would then write an older state over it.
+        !isDispatchingCommitListeners(this._editor)
       ) {
         $flushSyncAfterUpdate();
       }
