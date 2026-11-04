@@ -604,7 +604,8 @@ const VARIATION_SELECTOR = /^[\ufe00-\ufe0e]$/;
  * The backslashes before the last character of `value`, as their index and
  * count. A reference that the text handler writes for that character would
  * come out escaped by the last of them, so where a marker follows, each
- * stands in, and goes out escaped when a reference follows.
+ * stands in. The last goes out escaped only when a reference follows, and
+ * the others always, as to-markdown escapes a backslash before another.
  */
 function getTrailingBackslashes(value: string): [number, number] {
   // Scanned back from the last character, which a regex search from the
@@ -1068,7 +1069,8 @@ function restoreStoodIn(
           markdown[runEnd] === '&' ||
           (next !== undefined && isReferenced(runEnd, next));
       }
-      return isBeforeReference ? '\\\\' : '\\';
+      // Escaped before another backslash, as to-markdown would have.
+      return isBeforeReference || i + 1 < runEnd ? '\\\\' : '\\';
     }
     return isReferenced(i, character)
       ? // A backslash before the reference would escape its `&`.
@@ -1083,7 +1085,8 @@ function restoreStoodIn(
 // A character reference, which {@link rewriteCjkReferences} may write as
 // its character.
 const ATTENTION_RUN = /^[*~]$/;
-const REFERENCE = /&#(?:(\d+)|[xX]([\da-fA-F]+));/g;
+// With the escaped backslash before it, which the character needs no longer.
+const REFERENCE = /(\\\\)?&#(?:(\d+)|[xX]([\da-fA-F]+));/g;
 
 /**
  * The CJK-friendly form of a strict export. A strict export writes a
@@ -1130,10 +1133,19 @@ function rewriteCjkReferences(
   }
   return markdown.replace(
     REFERENCE,
-    (reference, decimal: string, hex: string, begin: number) => {
+    (
+      match: string,
+      backslashes: string | undefined,
+      decimal: string,
+      hex: string,
+      offset: number,
+    ) => {
       const code = decimal ? parseInt(decimal, 10) : parseInt(hex, 16);
+      const begin = backslashes ? offset + 2 : offset;
       const before = markdown[begin - 1];
-      const after = markdown[begin + reference.length];
+      const after = markdown[offset + match.length];
+      // A backslash before a CJK character is not an escape, so the
+      // backslash that escaped it before the reference goes too.
       return (ATTENTION_RUN.test(before) || ATTENTION_RUN.test(after)) &&
         before !== '_' &&
         after !== '_' &&
@@ -1141,8 +1153,8 @@ function rewriteCjkReferences(
         code <= 0x10ffff &&
         isCjkClass(classifyCode(code)) &&
         isRead(begin)
-        ? String.fromCodePoint(code)
-        : reference;
+        ? (backslashes ? '\\' : '') + String.fromCodePoint(code)
+        : match;
     },
   );
 }

@@ -264,6 +264,34 @@ describe('Mdast punctuation modes', () => {
       'C:\\dir\\x**y**',
     ],
     [[['Use \\n', bold]], '**Use \\n**', '**Use \\n**'],
+    // A backslash before another is escaped, as to-markdown escapes it.
+    [[['Use \\\\n', bold]], '**Use \\\\\\n**', '**Use \\\\\\n**'],
+    [
+      [
+        ['a\\\\b', 0],
+        ['x', bold],
+      ],
+      'a\\\\\\b**x**',
+      'a\\\\\\b**x**',
+    ],
+    // Every backslash of a run before a reference is escaped, and the
+    // escape of the last goes where the reference becomes its character.
+    [
+      [
+        ['a\\\\\ufe0e', bold],
+        ['b', 0],
+      ],
+      '**a\\\\\\\\&#xFE0E;**&#x62;',
+      '**a\\\\\\\\&#xFE0E;**&#x62;',
+    ],
+    [
+      [
+        ['a\\\\世', 0],
+        ['。', bold],
+      ],
+      'a\\\\\\\\&#x4E16;**。**',
+      'a\\\\\\世**。**',
+    ],
     // micromark reads U+FEFF as whitespace, CommonMark as a letter.
     [
       [
