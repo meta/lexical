@@ -13,7 +13,9 @@
 // (Cursor#insert, Ident.seedRunsOf). It is the one layout 3 seed path, so its
 // bytes are golden: every admitted seeder at a seed layout writes the same
 // bytes for the same content, and a change to them needs a seed-format bump.
-// It is structurally identical to writeLayout3Formats's output for the same
+// Each golden is stored with its input (golden/seed-layout3.json): the nodes
+// its shape's builder makes, as the seed reads them, so the bytes come again
+// from that input whatever the builders become. It is structurally identical to writeLayout3Formats's output for the same
 // values: the same openers and ends at the same places relative to the
 // content, every end naming the same opener, the same reads (only clocks,
 // origins and end distances differ).
@@ -34,8 +36,15 @@ import {
   $createTabNode,
   $createTextNode,
   $getRoot,
+  $isElementNode,
+  $parseSerializedNode,
+  ElementNode,
   type LexicalNode,
+  type SerializedLexicalNode,
 } from 'lexical';
+import {createHash} from 'node:crypto';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 import {describe, expect, test} from 'vitest';
 
 import {createYDoc} from '../..';
@@ -192,36 +201,96 @@ const fresh = (state: Uint8Array) =>
   readYState(state, config, () => JSON.stringify($getRoot().exportJSON()));
 
 /**
- * Golden seed bytes per shape (base64), the canonical (full-map) form: a
- * change to them at layout 3 needs a seed-format bump.
+ * Golden seed bytes per shape (base64), the canonical (full-map) form, each
+ * stored beside its input: the nodes its shape's builder made, as the seed
+ * reads them (see $inputJSON), which the bytes are seeded from. A change to
+ * the bytes at layout 3 needs a seed-format bump. Written once
+ * (SEED_GOLDEN_WRITE=1 adds a shape that has none, then format the file with
+ * prettier and pin its new hash below), never regenerated.
  */
-const GOLDEN: Record<string, string> = {
-  'a tab and a line break':
-    'ARaXpqvEnfqLCQAoAQlsZXhpY2FsLXkLbGV4aWNhbC15OjEBeCgBCWxleGljYWwteQtsZXhpY2FsLXk6MwF4KAEJbGV4aWNhbC15EmxleGljYWwteS1zY2hlbWE6MQF4KAEJbGV4aWNhbC15C2s6cGFyYWdyYXBoAXcEbGluZQYBCWxleGljYWwteQZmOmJvbGQEdHJ1ZYSXpqvEnfqLCQQBeIaXpqvEnfqLCQUGZjpib2xkA1syXYaXpqvEnfqLCQYGZjpib2xkBHRydWWGl6arxJ36iwkHAWsPIjFlZWt1dzhwdmRqLjQihpemq8Sd+osJCAF0BSJ0YWIihJemq8Sd+osJCQEJhpemq8Sd+osJCgZmOmJvbGQDWzRdhpemq8Sd+osJCwFrA1s0XYaXpqvEnfqLCQwBdANbNF2Gl6arxJ36iwkNBmY6Ym9sZAR0cnVlhJemq8Sd+osJDgF5hpemq8Sd+osJDwZmOmJvbGQDWzJdhJemq8Sd+osJEAEKhpemq8Sd+osJEQZmOmJvbGQEdHJ1ZYSXpqvEnfqLCRIBeoaXpqvEnfqLCRMGZjpib2xkA1syXYeXpqvEnfqLCRQDAsK2AA==',
-  'nested containers':
-    'ASvpl56r7dd2ACgBCWxleGljYWwteQtsZXhpY2FsLXk6MQF4KAEJbGV4aWNhbC15C2xleGljYWwteTozAXgoAQlsZXhpY2FsLXkSbGV4aWNhbC15LXNjaGVtYToxAXgoAQlsZXhpY2FsLXkJazpoZWFkaW5nAXcEbGluZSgBCWxleGljYWwteQdrOnF1b3RlAXcEbGluZSgBCWxleGljYWwteQZrOmxpc3QBdw5ncm91cHxsaXN0VHlwZSgBCWxleGljYWwteQprOmxpc3RpdGVtAXcEbGluZSgBCWxleGljYWwteQprOnRlc3RfYm94AXcGbmVzdGVkKAEJbGV4aWNhbC15C2s6cGFyYWdyYXBoAXcEbGluZQYBCWxleGljYWwteQhmOml0YWxpYwR0cnVlhOmXnqvt13YJBXRpdGxlhumXnqvt13YOCGY6aXRhbGljA1s2XYfpl56r7dd2DwMCwraG6Zeeq+3XdhAIZjppdGFsaWMEdHJ1ZYTpl56r7dd2EQFxhumXnqvt13YSCGY6aXRhbGljA1syXYTpl56r7dd2EwFyh+mXnqvt13YUAwLCtobpl56r7dd2FQZmOmJvbGQEdHJ1ZYTpl56r7dd2FgNvbmWG6Zeeq+3XdhkGZjpib2xkA1s0XYfpl56r7dd2GgMCwraG6Zeeq+3XdhsGZjpib2xkBHRydWWE6Zeeq+3XdhwDdHdvhumXnqvt13YfBmY6Ym9sZANbNF2H6Zeeq+3XdiADAsK2KADpl56r7dd2EAF0AXcHaGVhZGluZygA6Zeeq+3XdhUBdAF3BXF1b3RlKADpl56r7dd2GwF0AXcIbGlzdGl0ZW0oAOmXnqvt13YbAWcBdwRsaXN0KADpl56r7dd2GwpnOmxpc3RUeXBlAXcGYnVsbGV0KADpl56r7dd2GwFsAX0AKADpl56r7dd2IQF0AXcIbGlzdGl0ZW0oAOmXnqvt13YhAWcBdwRsaXN0KADpl56r7dd2IQpnOmxpc3RUeXBlAXcGYnVsbGV0KADpl56r7dd2IQFsAX0Ah+mXnqvt13YhAwpiOnRlc3RfYm94KADpl56r7dd2LAZwOnRvbmUBdwRibHVlKADpl56r7dd2LAFjAXcBYgYA6Zeeq+3XdiwGZjpib2xkBHRydWWE6Zeeq+3Xdi8GaW4gYm94humXnqvt13Y1BmY6Ym9sZANbN12H6Zeeq+3XdjYDAsK2AA==',
-  'overlapping keys and styles':
-    'ARaw+5y16JjqCwAoAQlsZXhpY2FsLXkLbGV4aWNhbC15OjEBeCgBCWxleGljYWwteQtsZXhpY2FsLXk6MwF4KAEJbGV4aWNhbC15EmxleGljYWwteS1zY2hlbWE6MQF4KAEJbGV4aWNhbC15C2s6cGFyYWdyYXBoAXcEbGluZQYBCWxleGljYWwteQZmOmJvbGQEdHJ1ZYSw+5y16JjqCwQCYWKGsPucteiY6gsGBmY6Ym9sZANbM12GsPucteiY6gsHBmY6Ym9sZAR0cnVlhrD7nLXomOoLCAhmOml0YWxpYwR0cnVlhLD7nLXomOoLCQJjZIaw+5y16JjqCwsGZjpib2xkA1s0XYaw+5y16JjqCwwIZjppdGFsaWMDWzRdhrD7nLXomOoLDQhmOml0YWxpYwR0cnVlhrD7nLXomOoLDgdwOnN0eWxlDCJjb2xvcjogcmVkIoSw+5y16JjqCw8CZWaGsPucteiY6gsRCGY6aXRhbGljA1s0XYaw+5y16JjqCxIHcDpzdHlsZQNbNF2GsPucteiY6gsTB3A6c3R5bGUMImNvbG9yOiByZWQihLD7nLXomOoLFAJnaIaw+5y16JjqCxYHcDpzdHlsZQNbM12EsPucteiY6gsXAmlqh7D7nLXomOoLGQMCwrYA',
-  table:
-    'ASPQ5Nuak+KNDQAoAQlsZXhpY2FsLXkLbGV4aWNhbC15OjEBeCgBCWxleGljYWwteQtsZXhpY2FsLXk6MwF4KAEJbGV4aWNhbC15EmxleGljYWwteS1zY2hlbWE6MQF4KAEJbGV4aWNhbC15B2s6dGFibGUBdwZuZXN0ZWQoAQlsZXhpY2FsLXkKazp0YWJsZXJvdwF3Bm5lc3RlZCgBCWxleGljYWwteQtrOnRhYmxlY2VsbAF3Bm5lc3RlZCgBCWxleGljYWwteQtrOnBhcmFncmFwaAF3BGxpbmUHAQlsZXhpY2FsLXkDB2I6dGFibGUoANDk25qT4o0NBwFjAXcBYgcA0OTbmpPijQ0HAwpiOnRhYmxlcm93KADQ5Nuak+KNDQkBYwF3AWIHANDk25qT4o0NCQMLYjp0YWJsZWNlbGwoANDk25qT4o0NCwFjAXcBYgYA0OTbmpPijQ0LBmY6Ym9sZAR0cnVlhNDk25qT4o0NDQJhMYbQ5Nuak+KNDQ8GZjpib2xkA1szXYfQ5Nuak+KNDRADAsK2h9Dk25qT4o0NCwMLYjp0YWJsZWNlbGwoANDk25qT4o0NEgFjAXcBYgYA0OTbmpPijQ0SBmY6Ym9sZAR0cnVlhNDk25qT4o0NFAJhMobQ5Nuak+KNDRYGZjpib2xkA1szXYfQ5Nuak+KNDRcDAsK2h9Dk25qT4o0NCQMKYjp0YWJsZXJvdygA0OTbmpPijQ0ZAWMBdwFiBwDQ5Nuak+KNDRkDC2I6dGFibGVjZWxsKADQ5Nuak+KNDRsBYwF3AWIEANDk25qT4o0NGwJiMYfQ5Nuak+KNDR4DAsK2h9Dk25qT4o0NGwMLYjp0YWJsZWNlbGwoANDk25qT4o0NIAFjAXcBYgYA0OTbmpPijQ0gCGY6aXRhbGljBHRydWWE0OTbmpPijQ0iAmIyhtDk25qT4o0NJAhmOml0YWxpYwNbM12H0OTbmpPijQ0lAwLCtgA=',
-  'wrappers and marks':
-    'ARbPlsmc1K+/BgAoAQlsZXhpY2FsLXkLbGV4aWNhbC15OjEBeCgBCWxleGljYWwteQtsZXhpY2FsLXk6MwF4KAEJbGV4aWNhbC15EmxleGljYWwteS1zY2hlbWE6MQF4KAEJbGV4aWNhbC15C2s6cGFyYWdyYXBoAXcEbGluZSgBCWxleGljYWwteQZrOmxpbmsBdxtmb3JtYXR8dXJsLHRhcmdldCxyZWwsdGl0bGUoAQlsZXhpY2FsLXkGazptYXJrAXcGbmVzdGVkBgEJbGV4aWNhbC15Bnc6bGluaxh7InVybCI6Imh0dHBzOi8veC50ZXN0In2Ez5bJnNSvvwYGAmFihs+WyZzUr78GCAZ3OmxpbmsDWzNdhs+WyZzUr78GCQZmOmJvbGQEdHJ1ZYbPlsmc1K+/BgoGdzpsaW5rGHsidXJsIjoiaHR0cHM6Ly94LnRlc3QifYTPlsmc1K+/BgsCY2SGz5bJnNSvvwYNBmY6Ym9sZANbNF2Gz5bJnNSvvwYOBnc6bGluawNbNF2Hz5bJnNSvvwYPAwZpOm1hcmsoAM+WyZzUr78GEAVwOmlkcwF1AXcCYzEoAM+WyZzUr78GEAFjAXcBaQYAz5bJnNSvvwYQBmY6Ym9sZAR0cnVlhM+WyZzUr78GEwJlZoTPlsmc1K+/BhACZ2iHz5bJnNSvvwYXAwLCtobPlsmc1K+/BhUGZjpib2xkA1s2XQA=',
-};
+const GOLDEN = path.join(__dirname, 'golden', 'seed-layout3.json');
+
+type Golden = {name: string; input: SerializedLexicalNode[]; bytes: string};
+
+const b64 = (bytes: Uint8Array) => Buffer.from(bytes).toString('base64');
+
+/**
+ * A node with its children as the seed reads it: its class's schema JSON
+ * (LexicalNode's own exportJSON, compact), which parses back to the same
+ * fields. (A class's exportJSON can add more: ParagraphNode's adds the
+ * first text's format, which parses back as the paragraph's own.)
+ */
+function $inputJSON(node: LexicalNode): SerializedLexicalNode {
+  const json = ElementNode.prototype.exportJSON.call(
+    node,
+    true,
+  ) as SerializedLexicalNode & {children?: SerializedLexicalNode[]};
+  if ($isElementNode(node)) {
+    json.children = node.getChildren().map($inputJSON);
+  }
+  return json;
+}
+
+/** The input a shape's builder makes, as the seed's own update has it. */
+function inputOf($build: () => LexicalNode[]): SerializedLexicalNode[] {
+  let input: SerializedLexicalNode[] = [];
+  seedYState(config, () => {
+    $getRoot().append(...$build());
+    input = $getRoot().getChildren().map($inputJSON);
+  });
+  return JSON.parse(JSON.stringify(input));
+}
+
+/** The seed of a stored input. */
+const seedOf = (input: SerializedLexicalNode[]) =>
+  seedYState(config, () =>
+    $getRoot().append(...input.map(c => $parseSerializedNode(c))),
+  );
+
+function load(): Golden[] {
+  const fixtures: Golden[] = fs.existsSync(GOLDEN)
+    ? JSON.parse(fs.readFileSync(GOLDEN, 'utf8'))
+    : [];
+  if (process.env.SEED_GOLDEN_WRITE === '1') {
+    let added = false;
+    for (const [name, $build] of SHAPES) {
+      if (!fixtures.some(f => f.name === name)) {
+        const input = inputOf($build);
+        fixtures.push({bytes: b64(seedOf(input)), input, name});
+        added = true;
+      }
+    }
+    if (added) {
+      fs.writeFileSync(GOLDEN, JSON.stringify(fixtures, null, 2) + '\n');
+    }
+  }
+  return fixtures;
+}
+
+const FIXTURES = load();
 
 describe('the layout 3 seed', () => {
+  test('one stored input and golden per shape, unchanged', () => {
+    expect(FIXTURES.map(f => f.name)).toEqual(SHAPES.map(([name]) => name));
+    expect(
+      createHash('sha256').update(fs.readFileSync(GOLDEN)).digest('hex'),
+    ).toBe('6c713829c691092aeabc771b05960c0b718ae6962457c721fe7acb1da73ee634');
+  });
+
   for (const [name, $build] of SHAPES) {
-    test(`${name}: golden seed bytes`, () => {
-      const seed = seedYState(config, () => $getRoot().append(...$build()));
-      const again = seedYState(config, () => $getRoot().append(...$build()));
-      expect(again).toEqual(seed);
-      const b64 = Buffer.from(seed).toString('base64');
-      const golden = GOLDEN[name];
-      if (process.env.SEED_GOLDEN_PRINT === '1') {
-        // eslint-disable-next-line no-console
-        console.log(`GOLDEN ${JSON.stringify(name)}: ${b64}`);
-      }
+    test(`${name}: its builder makes the stored input`, () => {
+      const golden = FIXTURES.find(f => f.name === name);
       expect(golden).toBeDefined();
-      expect(b64).toBe(golden);
+      expect(inputOf($build)).toEqual(golden!.input);
+    });
+
+    test(`${name}: golden seed bytes, from the stored input and from the builder`, () => {
+      const golden = FIXTURES.find(f => f.name === name)!;
+      const seed = seedOf(golden.input);
+      expect(seedOf(golden.input)).toEqual(seed);
+      expect(b64(seed)).toBe(golden.bytes);
+      const built = seedYState(config, () => $getRoot().append(...$build()));
+      expect(b64(built)).toBe(golden.bytes);
     });
 
     test(`${name}: structurally identical to writeLayout3Formats`, () => {
