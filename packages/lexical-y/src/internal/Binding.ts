@@ -918,6 +918,8 @@ export class YBinding {
    * binding's own wraps (see holdDeleted).
    */
   private readonly heldUnread = new Set<Transaction>();
+  /** Containers read while changes were deferred, checked later (see checkRead). */
+  private readonly checkLater = new Set<CS>();
   private gcFilters: {
     ours: (item: Item) => boolean;
     prev: (item: Item) => boolean;
@@ -1634,6 +1636,7 @@ export class YBinding {
       this.dropChange(tr);
     }
     this.deferred.length = 0;
+    this.checkLater.clear();
     this.localRefresh.clear();
     this.refused.clear();
     this.refusedComposing.clear();
@@ -2260,17 +2263,35 @@ export class YBinding {
   }
 
   /** Self-check of containers a remote change rebuilt (see checkContainer). */
-  private checkRead(rebuilt: ReadonlySet<CS>): void {
+  private checkRead(read: ReadonlySet<CS>): void {
     const check = this.options.selfCheck === true;
+    if (!check) {
+      return;
+    }
+    if (this.deferred.length > 0) {
+      // Changes are still deferred (see deferChange): the document holds
+      // them, the editor does not yet. Checked with the last one's read.
+      for (const cs of read) {
+        this.checkLater.add(cs);
+      }
+      return;
+    }
+    let rebuilt = read;
+    if (this.checkLater.size > 0) {
+      const all = new Set(read);
+      for (const cs of this.checkLater) {
+        if (this.state.containers.get(cs.y) === cs) {
+          all.add(cs);
+        }
+      }
+      this.checkLater.clear();
+      rebuilt = all;
+    }
     // Skipped while a re-read is pending (see refused): the editor then
-    // shows a follow-up's change that is read again right after. And while
-    // changes are still deferred (see deferChange): the document holds them,
-    // the editor does not yet, and each is checked once read.
+    // shows a follow-up's change that is read again right after.
     if (
-      !check ||
       rebuilt.size === 0 ||
       this.refused.size > 0 ||
-      this.deferred.length > 0 ||
       Math.random() >= (this.options.selfCheckSample ?? 1)
     ) {
       return;
@@ -3079,6 +3100,20 @@ export class YBinding {
       }
     } finally {
       this.drainingDeferred = false;
+    }
+    if (this.deferred.length === 0 && this.checkLater.size > 0) {
+      // Where the last change had nothing to read (no read, no self-check
+      // of what the earlier ones read: see checkRead), once it committed.
+      const flush = () => {
+        if (this.deferred.length === 0 && this.checkLater.size > 0) {
+          this.guard(() => this.checkRead(new Set()));
+        }
+      };
+      if (this._editor._updating) {
+        $onUpdate(flush);
+      } else {
+        flush();
+      }
     }
   }
 

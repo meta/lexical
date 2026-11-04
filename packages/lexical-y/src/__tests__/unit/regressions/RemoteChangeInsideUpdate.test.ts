@@ -9,6 +9,11 @@
 // @vitest-environment node
 
 import {$createListItemNode, $createListNode, $isListNode} from '@lexical/list';
+import {
+  $createTableCellNode,
+  $createTableNode,
+  $createTableRowNode,
+} from '@lexical/table';
 import * as Y from '@y/y';
 import {
   $createParagraphNode,
@@ -765,5 +770,89 @@ describe.each([false, true])(
       await expectConverged(t.peers);
       expect((await freshReader(t.a)).describe()).toBe(t.a.describe());
     });
+
+    for (const last of ['in another cell', 'with nothing to read'] as const) {
+      test(`the self-check still covers what an earlier deferred change read, the last one ${last}`, async () => {
+        const t = await setup(
+          () =>
+            $getRoot().append(
+              $createTableNode().append(
+                $createTableRowNode().append(
+                  $createTableCellNode().append(
+                    $createParagraphNode().append($createTextNode('LEFT')),
+                  ),
+                  $createTableCellNode().append(
+                    $createParagraphNode().append($createTextNode('RIGHT')),
+                  ),
+                ),
+              ),
+            ),
+          {gc},
+        );
+        t.offline();
+        const deltas: Uint8Array[] = [];
+        const change = (fn: () => void) => {
+          const seen = Y.encodeStateVector(t.b.doc);
+          fn();
+          deltas.push(Y.encodeStateAsUpdate(t.b.doc, seen));
+        };
+        // The first rebuilds the left cell.
+        change(() =>
+          t.b.update(() =>
+            $getRoot()
+              .getAllTextNodes()[0]
+              .getParentOrThrow()
+              .getParentOrThrow()
+              .append($createParagraphNode().append($createTextNode('NEW'))),
+          ),
+        );
+        change(() =>
+          last === 'in another cell'
+            ? t.b.update(() =>
+                $getRoot()
+                  .getAllTextNodes()
+                  .at(-1)!
+                  .select(0, 2)
+                  .formatText('italic'),
+              )
+            : (
+                t.b.doc.get('side') as unknown as {
+                  setAttr(k: string, v: unknown): void;
+                }
+              ).setAttr('k', true),
+        );
+        // A reader fault in the first read, which the self-check repairs.
+        const binding = t.a.binding as unknown as {
+          $readRemote: (...args: unknown[]) => unknown;
+        };
+        const read = binding.$readRemote;
+        let faulted = false;
+        binding.$readRemote = function (this: unknown, ...args: unknown[]) {
+          const result = read.apply(this, args);
+          if (!faulted) {
+            faulted = true;
+            $getRoot().getAllTextNodes()[0].setTextContent('BROKEN');
+          }
+          return result;
+        };
+        try {
+          t.a.update(() => {
+            $getRoot().getAllTextNodes()[1].selectEnd();
+            for (const d of deltas) {
+              Y.applyUpdate(t.a.doc, d, 'provider');
+            }
+          });
+          await new Promise(r => setTimeout(r, 0));
+        } finally {
+          binding.$readRemote = read;
+        }
+        expect(faulted).toBe(true);
+        expect(t.a.warnings.filter(w => w.includes('self-check'))).toHaveLength(
+          1,
+        );
+        t.a.warnings.length = 0;
+        expect((await freshReader(t.a)).describe()).toBe(t.a.describe());
+      });
+    }
   },
 );
