@@ -2263,11 +2263,14 @@ export class YBinding {
   private checkRead(rebuilt: ReadonlySet<CS>): void {
     const check = this.options.selfCheck === true;
     // Skipped while a re-read is pending (see refused): the editor then
-    // shows a follow-up's change that is read again right after.
+    // shows a follow-up's change that is read again right after. And while
+    // changes are still deferred (see deferChange): the document holds them,
+    // the editor does not yet, and each is checked once read.
     if (
       !check ||
       rebuilt.size === 0 ||
       this.refused.size > 0 ||
+      this.deferred.length > 0 ||
       Math.random() >= (this.options.selfCheckSample ?? 1)
     ) {
       return;
@@ -3059,6 +3062,20 @@ export class YBinding {
         this.pendingCursor =
           this._status === 'pending' ? null : this.getCursor();
         this.readNow(tr);
+        if (this._editor._updating && this.deferred.length > 0) {
+          // Nested, that read is only queued (see guardedRead), and the
+          // next caret (see getCursor) would be the committed state's,
+          // without it: read the rest once this update has committed (which
+          // the callback makes happen), or once the editor is idle where a
+          // commit listener throws before the callbacks run.
+          const rest = () =>
+            this.guard(() =>
+              withPins(this._pins, () => this.scheduleDeferred()),
+            );
+          $onUpdate(rest);
+          queueMicrotask(rest);
+          break;
+        }
       }
     } finally {
       this.drainingDeferred = false;

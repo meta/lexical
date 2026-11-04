@@ -8,6 +8,7 @@
 
 // @vitest-environment node
 
+import {$createListItemNode, $createListNode, $isListNode} from '@lexical/list';
 import * as Y from '@y/y';
 import {
   $createParagraphNode,
@@ -667,6 +668,100 @@ describe.each([false, true])(
       expect(t.a.read(() => $getRoot().getTextContent())).not.toContain(
         'alpha beta',
       );
+      await expectConverged(t.peers);
+      expect((await freshReader(t.a)).describe()).toBe(t.a.describe());
+    });
+
+    test('two remote changes in a committing update, the first before the caret', async () => {
+      const t = await setup(
+        () =>
+          $getRoot().append(
+            $createParagraphNode().append($createTextNode('one two three')),
+          ),
+        {gc},
+      );
+      t.offline();
+      const deltas: Uint8Array[] = [];
+      const change = (fn: () => void) => {
+        const seen = Y.encodeStateVector(t.b.doc);
+        t.b.update(fn);
+        deltas.push(Y.encodeStateAsUpdate(t.b.doc, seen));
+      };
+      change(() =>
+        $getRoot().getAllTextNodes()[0].select(0, 0).insertText('AAA'),
+      );
+      change(() =>
+        $getRoot().getAllTextNodes()[0].select(0, 3).formatText('bold'),
+      );
+      t.a.update(() => {
+        $getRoot().getAllTextNodes()[0].select(7, 7).insertText('X');
+        for (const d of deltas) {
+          Y.applyUpdate(t.a.doc, d, 'provider');
+        }
+      });
+      await new Promise(r => setTimeout(r, 0));
+      // The caret stays right after the local "X".
+      expect(
+        t.a.read(() => {
+          const selection = $getSelection();
+          if (!$isRangeSelection(selection)) {
+            return null;
+          }
+          const {anchor} = selection;
+          let before = '';
+          for (const n of $getRoot().getAllTextNodes()) {
+            if (n.getKey() === anchor.key) {
+              return before + n.getTextContent().slice(0, anchor.offset);
+            }
+            before += n.getTextContent();
+          }
+          return null;
+        }),
+      ).toBe('AAAone twoX');
+      await t.sync();
+      await expectConverged(t.peers);
+    });
+
+    test('two remote changes in an update that changes nothing, the second on another line', async () => {
+      const t = await setup(
+        () =>
+          $getRoot().append(
+            $createParagraphNode().append($createTextNode('one')),
+            $createListNode('bullet').append(
+              $createListItemNode().append($createTextNode('item')),
+            ),
+          ),
+        {gc},
+      );
+      t.offline();
+      const deltas: Uint8Array[] = [];
+      const change = (fn: () => void) => {
+        const seen = Y.encodeStateVector(t.b.doc);
+        t.b.update(fn);
+        deltas.push(Y.encodeStateAsUpdate(t.b.doc, seen));
+      };
+      change(() =>
+        $getRoot().append(
+          $createParagraphNode().append($createTextNode('two')),
+        ),
+      );
+      change(() => {
+        const list = $getRoot().getChildren()[1];
+        if ($isListNode(list)) {
+          list.setListType('check');
+        }
+      });
+      t.a.editor.update(
+        () => {
+          for (const d of deltas) {
+            Y.applyUpdate(t.a.doc, d, 'provider');
+          }
+        },
+        {discrete: true},
+      );
+      await new Promise(r => setTimeout(r, 0));
+      expect(t.a.warnings.filter(w => w.includes('self-check'))).toEqual([]);
+      await t.sync();
       await expectConverged(t.peers);
       expect((await freshReader(t.a)).describe()).toBe(t.a.describe());
     });
