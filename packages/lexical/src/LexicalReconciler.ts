@@ -314,6 +314,11 @@ let activePrevEditorState: EditorState;
 let activeNextNodeMap: NodeMap;
 let activePrevKeyToDOMMap: Map<NodeKey, HTMLElement & LexicalPrivateDOM>;
 let activeDirtyChildrenByParent: Map<NodeKey, Set<NodeKey>>;
+// @experimental named-slots. The previous slot container of each slot value
+// whose DOM this reconciliation has moved (see $createNode), recorded before
+// the move: once the DOM is moved, its parentElement no longer names the
+// container (see $slotContainerForKey).
+let activeMovedSlotContainers: Map<NodeKey, HTMLElement>;
 let mutatedNodes: MutatedNodes;
 let activeEditorDOMRenderConfig: EditorDOMRenderConfig;
 
@@ -583,6 +588,10 @@ function $applySlotTarget(
 // decorator host that moves its slot containers into its decorate() chrome — and
 // can't match a slot subtree's own nested slot container.
 function $slotContainerForKey(slotKey: NodeKey): HTMLElement | null {
+  const movedFrom = activeMovedSlotContainers.get(slotKey);
+  if (movedFrom !== undefined) {
+    return movedFrom;
+  }
   const slotDom = activePrevKeyToDOMMap.get(slotKey);
   return slotDom !== undefined ? slotDom.parentElement : null;
 }
@@ -718,6 +727,16 @@ function $createNode(key: NodeKey, slot: DOMSlot | null): HTMLElement {
         const slotChildDomDetached =
           nextSlotHost !== null && existingDOM.parentElement !== slot.element;
         if (modelMoved || slotChildDomDetached) {
+          // A slot value's DOM sits in its slot container. Moving it makes
+          // its parentElement the new place, so keep the old container for
+          // the cleanup of the slot it left, which may run later in this
+          // reconciliation (a host rendered after the new place).
+          if (prevSlotHost !== null && !activeMovedSlotContainers.has(key)) {
+            const prevContainer = existingDOM.parentElement;
+            if (prevContainer !== null) {
+              activeMovedSlotContainers.set(key, prevContainer);
+            }
+          }
           slot.insertChild(existingDOM);
           return $reconcileNode(key, slot.element);
         }
@@ -2198,6 +2217,7 @@ export function $reconcileRoot(
   activeEditorStateReadOnly = nextEditorState._readOnly;
   activePrevKeyToDOMMap = cloneMap(editor._keyToDOMMap);
   activeDirtyChildrenByParent = $buildDirtyChildrenByParent();
+  activeMovedSlotContainers = new Map();
   // We keep track of mutated nodes so we can trigger mutation
   // listeners later in the update cycle.
   const currentMutatedNodes = new Map();
@@ -2227,6 +2247,8 @@ export function $reconcileRoot(
   activePrevKeyToDOMMap = undefined;
   // @ts-ignore
   activeDirtyChildrenByParent = undefined;
+  // @ts-ignore
+  activeMovedSlotContainers = undefined;
   // @ts-ignore
   mutatedNodes = undefined;
   activeEditorDOMRenderConfig = DEFAULT_EDITOR_DOM_CONFIG;
