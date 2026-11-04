@@ -191,8 +191,9 @@ of set-valued NodeState; layout 3 (planned, #9449) adds move records.
   transaction as the layout record it adds: `layout` is that version,
   `(client, clock)` the id of that record's item (the transaction's first),
   `step` and `revision` the step that ran (`lexical-y/layout/<n>to<n+1>`). It
-  is outside the `lexical-y:` namespace, so no layout gate parses it; each
-  migration replaces it. Servers derive a document's generation from it
+  is outside the `lexical-y:` namespace, so older releases ignore it; this
+  release opens a document whose epoch is malformed read only (an absent
+  epoch is fine). Each migration replaces it. Servers derive a document's generation from it
   (`generationOf` in `@lexical/y/server`); a client never adopts a
   generation from it.
 - **Children of a container** (the root and every node stored as its own

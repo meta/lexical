@@ -353,10 +353,6 @@ const heldPops = new WeakMap<
 >();
 
 /**
- * Each BindingUndoManager's check (kept apart from the instance, which is
- * Yjs's: no field of ours on it).
- */
-/**
  * D08's permission for one local write (see Binding.admitsIn): the schema
  * records (see Binding.schemaRecords) it was admitted on.
  */
@@ -383,9 +379,10 @@ function sameSchemaRecords(a: SchemaRecords, b: SchemaRecords): boolean {
 }
 
 /**
- * How a BindingUndoManager asks its binding whether it may write, before
- * the step and again inside its transaction: a fresh request, checked
- * against the records as they are (see Binding.admitsNow).
+ * Each BindingUndoManager's check (kept apart from the instance, which is
+ * Yjs's: no field of ours on it): whether its binding may write, asked
+ * before the step and again inside its transaction, a fresh request checked
+ * against the records as they are (see Binding.admitsIn).
  */
 const undoAdmits = new WeakMap<BindingUndoManager, () => boolean>();
 
@@ -2987,14 +2984,15 @@ export class YBinding {
   /**
    * A local change refused because the root's layout record, as it was when
    * the change was written (inside an app's transaction, or after one of
-   * its beforeTransaction listeners), was missing, malformed or one this
+   * its beforeTransaction listeners), or its schema record, was missing,
+   * malformed or one this
    * version does not write, while the binding was active. Not retried: a
    * retry would write outside the app's atomic change.
    */
   private warnRefusedAtWrite(): void {
     this.warn(
       UNSUPPORTED_EDIT_WARNING,
-      "a local change was not written: when it was written (inside an app's transaction) the document's layout record was missing, malformed or one this version does not write. It is not retried, since a retry would write outside that transaction: edit again (see binding.status)",
+      "a local change was not written: when it was written (inside an app's transaction) the document's layout or schema record was missing, malformed or one this version does not write. It is not retried, since a retry would write outside that transaction: edit again (see binding.status)",
       {reason: 'read-only'},
     );
   }

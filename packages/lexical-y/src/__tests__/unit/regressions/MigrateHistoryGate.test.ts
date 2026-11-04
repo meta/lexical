@@ -334,10 +334,14 @@ describe.each([false, true])('writes are admitted at write time, gc %s', gc => {
       }, 'app');
       await flush();
       expect(text(t.root)).toBe(before);
+      // The refused edit is read back: the editor no longer shows it.
+      expect(
+        t.editor.getEditorState().read(() => $getRoot().getTextContent()),
+      ).not.toContain('forbidden');
       expect(t.binding.status).toBe('active');
       expect(t.warnings).toEqual(['read-only']);
       expect(t.messages.join('\n')).toMatch(
-        /not written: when it was written \(inside an app's transaction\) the document's layout record was missing, malformed or one this version does not write\. It is not retried/,
+        /not written: when it was written \(inside an app's transaction\) the document's layout or schema record was missing, malformed or one this version does not write\. It is not retried/,
       );
       expect(t.messages.join('\n')).not.toMatch(/an earlier warning/);
       t.binding.dispose();

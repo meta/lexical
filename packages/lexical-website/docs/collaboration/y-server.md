@@ -849,7 +849,9 @@ client's document with `createYDoc` from `@lexical/y`.
    `{state, generation}` of the result, the immutable base of the old
    generation (`base.state` under `base.generation`, never overwritten), and,
    when the result has pending material, its quarantine record:
-   `pendingYRecord({stored: state, pending, source, receivedAt})`. Its
+   `pendingYRecord({stored: state, pending, source, receivedAt})`. Pending
+   material can include text clients already saw: Yjs 14 integrates items
+   past a gap, and the runner cuts them out with the rest. Its
    snapshot is the whole stored state the material was split from and its
    queue the split bytes, so its source view renders the cut items in place
    and its raw export carries both; a stored state that itself lacked
@@ -886,7 +888,11 @@ seedContract}), handshake)`; the first row that matches wins:
 | 6 | no material | `bootstrap`: load the room's state into a new document, persist it with the generation, then bind (`initialize: true` in a never-seeded room) |
 
 The server never syncs a session whose verdict is not `admit`, so a stale
-client never holds items of two generations in one document. A handshake
+client never holds items of two generations in one document. Row 2 also
+covers a fence-aware client holding material from before the fence
+(generation `'unknown'`): it is stale even in an inherited room that never
+migrated, and until replay ships, its offline edits become read-only
+quarantine records. A handshake
 that is not well formed (it comes from the network) gets `refuse-layout`. The room's
 `layouts` are the lowest and highest layouts its served roots record: a
 client must read every served root.
