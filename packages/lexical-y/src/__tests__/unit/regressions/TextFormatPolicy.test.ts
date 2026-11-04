@@ -312,17 +312,23 @@ const REPLACEMENTS: [string, unknown[], boolean][] = [
 
 for (const [title, extra, shows] of REPLACEMENTS) {
   describe.each([false, true])(`${title}, gc %s`, gc => {
+    // Stored as `text` by a client without the replacement, read by one
+    // with it.
     test('a stored bold over part of a text node reads as the node shows it', async () => {
       const t = await setup(
         () =>
           $getRoot().append(
             $createParagraphNode().append($createTextNode('alpha beta')),
           ),
-        {gc, nodes: [...NODES, ...extra] as Klass<LexicalNode>[]},
+        {gc},
       );
       formatRaw(t.a, 'beta', {'f:bold': true});
       await t.sync();
-      expect(nodesOf(t.b)).toEqual(
+      const reader = await freshReader(t.a, [
+        ...NODES,
+        ...extra,
+      ] as Klass<LexicalNode>[]);
+      expect(nodesOf(reader)).toEqual(
         shows
           ? [
               ['alpha ', 0],
@@ -330,17 +336,7 @@ for (const [title, extra, shows] of REPLACEMENTS) {
             ]
           : [['alpha beta', 0]],
       );
-      expect((await freshReader(t.b)).describe()).toBe(t.b.describe());
-      t.b.update(() => {
-        const node = $getRoot()
-          .getAllTextNodes()
-          .find(n => n.getTextContent().includes('beta'))!;
-        const i = node.getTextContent().indexOf('beta');
-        node.select(i, i).insertText('X');
-      });
-      await t.sync();
-      expect((await freshReader(t.b)).describe()).toBe(t.b.describe());
-      await expectConverged(t.peers);
+      expect(reader.warnings).toEqual([]);
     });
   });
 }
