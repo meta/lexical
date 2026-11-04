@@ -587,22 +587,24 @@ export function createYSessionCapture(
     readonly signals?: readonly YLegacySignal[];
   } | null = null,
 ): YSessionCapture {
-  let snapshot: Uint8Array | null = resume === null ? null : resume.snapshot;
+  // The capture keeps copies of what it is given and hands out copies.
+  let snapshot: Uint8Array | null =
+    resume == null || resume.snapshot === null ? null : resume.snapshot.slice();
   const deltas: Uint8Array[] =
-    resume === null ? [] : [...(resume.deltas ?? [])];
+    resume == null ? [] : (resume.deltas ?? []).map(d => d.slice());
   const signals: YLegacySignal[] =
-    resume === null ? [] : [...(resume.signals ?? [])];
+    resume == null ? [] : (resume.signals ?? []).map(copySignal);
   const material = () => ({
-    deltas: [...deltas],
-    signals: [...signals],
-    snapshot,
+    deltas: deltas.map(d => d.slice()),
+    signals: signals.map(copySignal),
+    snapshot: snapshot === null ? null : snapshot.slice(),
   });
   return {
     add(update: Uint8Array): void {
       if (snapshot === null) {
-        snapshot = update;
+        snapshot = update.slice();
       } else {
-        deltas.push(update);
+        deltas.push(update.slice());
       }
     },
     collisions(): YLegacySignal[] {
@@ -630,13 +632,33 @@ export function createYSessionCapture(
           root,
         );
         signals.push(signal);
-        return signal;
+        return copySignal(signal);
       } finally {
         view.doc.destroy();
       }
     },
     syncStep1: emptyStateVector(),
     syncStep2: emptyUpdate(),
+  };
+}
+
+/** A copy of a legacy signal (its update's bytes included). */
+function copySignal(sg: YLegacySignal): YLegacySignal {
+  return {
+    client: sg.client,
+    clock: sg.clock,
+    key: sg.key,
+    root: sg.root,
+    update: sg.update.slice(),
+  };
+}
+
+/** A copy of a record's source (fields it does not know kept as they are). */
+function copySource(source: YRecordSource): YRecordSource {
+  return {
+    ...source,
+    layouts:
+      source.layouts === null ? null : [source.layouts[0], source.layouts[1]],
   };
 }
 
@@ -1041,11 +1063,22 @@ function materialRecord(
   input: YQuarantineRecordInput,
   base: {readonly generation: string; readonly state: Uint8Array} | null = null,
 ): YQuarantineRecord {
-  const snapshot = input.snapshot ?? null;
-  const deltas = input.deltas ?? [];
-  const queue = input.queue ?? [];
-  const draft = input.draft ?? null;
-  const signals = input.signals ?? [];
+  // Copies of everything the caller handed over (bytes and arrays): an
+  // acknowledged payload never changes under its hash.
+  const snapshot = input.snapshot == null ? null : input.snapshot.slice();
+  const deltas = (input.deltas ?? []).map(d => d.slice());
+  const queue = (input.queue ?? []).map(q => q.slice());
+  const draft =
+    input.draft == null
+      ? null
+      : {
+          differs: input.draft.differs,
+          // Canonical JSON refuses what is not JSON, and its parse is a deep
+          // copy.
+          json: JSON.parse(canonicalJSON(input.draft.json)) as unknown,
+        };
+  const signals = (input.signals ?? []).map(copySignal);
+  const source = copySource(input.source);
   const peers = input.peers ?? true;
   // Canonical: each id once, in order.
   const clients = [...new Set(input.clients ?? [])].sort((a, b) => a - b);
@@ -1063,7 +1096,7 @@ function materialRecord(
     requires,
     signals,
     snapshot,
-    source: input.source,
+    source,
   });
   const view = sourceView({deltas, queue, snapshot});
   const collisions = signals.filter(
@@ -1089,7 +1122,7 @@ function materialRecord(
     session: input.session ?? null,
     signals,
     snapshot,
-    source: input.source,
+    source,
     updateFormat: 'yjs-v1',
     v: 1,
   };

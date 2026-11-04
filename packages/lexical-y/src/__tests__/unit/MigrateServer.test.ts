@@ -771,7 +771,7 @@ describe.each([false, true])('@lexical/y/server, gc %s', gc => {
     const sv = Y.encodeStateVector(legacy);
     node.insert(0, 'later ');
     resumed.add(Y.encodeStateAsUpdate(legacy, sv));
-    expect(resumed.material().snapshot).toBe(persisted.snapshot);
+    expect(resumed.material().snapshot).toEqual(persisted.snapshot);
     expect(resumed.material().deltas).toHaveLength(1);
     expect(resumed.material().signals).toEqual([signal]);
     // The next signal is built on the snapshot and the delta (signals are
@@ -1194,6 +1194,69 @@ describe.each([false, true])('@lexical/y/server, gc %s', gc => {
           createYQuarantineRecord({...input, draft: {differs: true, json}}),
         ).toThrow(TypeError);
       }
+    });
+
+    test('a record and a capture copy what they are given: changing the inputs afterwards changes nothing', () => {
+      const snapshot = replica(insert);
+      const delta = replica(remove);
+      const signal: YLegacySignal = {
+        client: 99,
+        clock: 0,
+        key: 'lexical-y-schema:9',
+        root: 'lexical-y',
+        update: new Uint8Array([1, 2, 3]),
+      };
+      const draftJson = {a: [1], b: {c: 'x'}};
+      const source = {...SOURCE, layouts: [1, 2] as [number, number]};
+      const input = {
+        clients: [3, 1],
+        deltas: [delta],
+        draft: {differs: true, json: draftJson},
+        kind: 'handoff' as const,
+        queue: [] as Uint8Array[],
+        receivedAt: 1,
+        requires: ['f'],
+        signals: [signal],
+        snapshot,
+        source,
+      };
+      const built = createYQuarantineRecord(input);
+      const copy = JSON.stringify({
+        ...built,
+        deltas: built.deltas.map(d => [...d]),
+        signals: built.signals.map(sg => ({...sg, update: [...sg.update]})),
+        snapshot: [...built.snapshot!],
+      });
+      snapshot[snapshot.length - 1] ^= 0xff;
+      delta[0] ^= 0xff;
+      signal.update[0] = 9;
+      input.deltas.push(new Uint8Array([0]));
+      input.signals.push(signal);
+      input.clients.push(7);
+      input.requires.push('g');
+      draftJson.a.push(2);
+      draftJson.b.c = 'changed';
+      source.layouts[1] = 9;
+      expect(
+        JSON.stringify({
+          ...built,
+          deltas: built.deltas.map(d => [...d]),
+          signals: built.signals.map(sg => ({...sg, update: [...sg.update]})),
+          snapshot: [...built.snapshot!],
+        }),
+      ).toBe(copy);
+      // A capture keeps copies too, and hands out copies.
+      const update = replica(insert);
+      const capture = createYSessionCapture();
+      capture.add(update);
+      const kept = [...update];
+      update[0] ^= 0xff;
+      const material = capture.material();
+      expect([...material.snapshot!]).toEqual(kept);
+      material.snapshot![0] ^= 0xff;
+      material.deltas.push(new Uint8Array([0]));
+      expect([...capture.material().snapshot!]).toEqual(kept);
+      expect(capture.material().deltas).toHaveLength(0);
     });
 
     test('a record requiring a feature is kept as it is and counts as actionable', () => {

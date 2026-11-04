@@ -953,7 +953,12 @@ of being admitted or refused.
   that requires a feature always counts). Prompt users only for those; keep every record listable
   for the quarantine window, and keep a record that requires a feature you
   do not know as it is (store and export it; never read it as one you
-  know).
+  know). A record (and a capture's `material()`) holds copies of
+  the bytes and arrays it was given, so a payload never changes under its
+  hash. Append-only means a new record or a separately stored append (a
+  capture's later deltas), never a change to an acknowledged one; derive
+  `complete` and `actionable` again from the assembled material rather than
+  trusting a stored `actionable: false` as leave to delete anything.
 - **The record hash** (its default `id`) is `'yr1-sha256:'` and the
   lowercase hex SHA-256 of the record's canonical payload, version 1:
   `'lexical-y-record:1\n'`, the header's UTF-8 length (4 bytes, big
