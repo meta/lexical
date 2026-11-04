@@ -95,12 +95,13 @@ export interface MarkdownExportOptions {
    * so that every CommonMark, GFM and CJK-friendly reader reads it the same
    * way, but for a run of three markers that a pair uses only part of
    * (`***a*b*c***`), which commonmark.js and markdown-it read differently from
-   * micromark, and a selector after whitespace other than a space (`**。\v︎**`),
-   * which `markdown-it-cjk-friendly` leaves literal, and a vertical tab beside
-   * a marker (`p\v**.**\vq`), which cmark and cmark-gfm don't read as
-   * whitespace and no reference can stand for. `'cjk-friendly'` writes such CJK
-   * text as typed (`**你好。**世界`), for readers that follow the CJK-friendly
-   * amendment, such as import here.
+   * micromark, and a selector after a tab, a line ending, a vertical tab or a
+   * form feed that ends a run (`**。\v︎**`), which `markdown-it-cjk-friendly`
+   * reads as that whitespace, leaving those markers literal, and a vertical
+   * tab beside a marker (`p\v**.**\vq`), which cmark and cmark-gfm don't read
+   * as whitespace and no reference can stand for. `'cjk-friendly'` writes
+   * such CJK text as typed (`**你好。**世界`), for readers that follow the
+   * CJK-friendly amendment, such as import here.
    */
   punctuation?: PunctuationMode;
 }

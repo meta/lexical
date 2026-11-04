@@ -78,6 +78,15 @@ export function isCjkClass(characterClass: number): boolean {
   return (characterClass & CJK) !== 0;
 }
 
+// readBefore and classifyAfter slice the text around the tokenizer with
+// points built from micromark's private `Point._index` (the chunk) and
+// `_bufferIndex` (the position in a string chunk), as micromark 4.0 lays its
+// chunks out: a string per run of text, and codes of their own for a tab
+// (with the virtual spaces after it), a line ending and the U+FFFD that
+// stands for a NUL. These fields have no semver guarantee, so check both on
+// any micromark update. The tests of a selector after a NUL, a tab, a CRLF
+// and a LF cover readBefore's read across chunks, which changes the result
+// only after a NUL; tests of an emoji after a marker cover classifyAfter.
 /**
  * The code before the tokenizer's position and the class the amendment
  * reads for it: for a variation selector, that of the character it varies,
@@ -107,7 +116,9 @@ function readBefore(context: TokenizeContext): [Code, number] {
     return [previous, before];
   }
   // A selector that starts its chunk follows a code of its own, such as the
-  // U+FFFD micromark reads for a NUL.
+  // U+FFFD micromark reads for a NUL. After that U+FFFD it reads as the
+  // symbol it varies, as markdown-it-cjk-friendly and @lexical/markdown read
+  // it, where micromark-extension-cjk-friendly reads the selector itself.
   const rest =
     text.length > 1 || now._index === 0
       ? text.slice(0, -1)

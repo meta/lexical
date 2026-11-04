@@ -210,6 +210,9 @@ written:
   `x ~~Done ✔︎~~ y` closes, where
   `micromark-extension-cjk-friendly-gfm-strikethrough` leaves it open, so
   export writes such a selector as a reference (`x ~~Done ✔&#xFE0E;~~ y`).
+  After a U+0000, which micromark reads as U+FFFD, a selector reads as that
+  U+FFFD, as `markdown-it-cjk-friendly` reads it, where
+  `micromark-extension-cjk-friendly` reads the selector itself.
 - `'strict-commonmark'` follows CommonMark and GFM.
 
 Import defaults to `'cjk-friendly'`, which accepts what CJK writers type and,
@@ -226,8 +229,9 @@ which every CommonMark, GFM and CJK-friendly reader reads the same way, with
 three exceptions. A run of three markers that a pair uses only part of
 (`***a*b*c***`, as on earlier versions, or `**“***!。**」!a***`) is read
 differently by micromark and by commonmark.js and markdown-it, which apply the
-rule of 3 to the whole run. A selector after whitespace other than a space
-(`**。\v︎**`) reads with literal markers in `markdown-it-cjk-friendly`.
+rule of 3 to the whole run. A selector after a tab, a line ending, a vertical
+tab or a form feed that ends a run (`**。\v︎**`) reads as that whitespace in
+`markdown-it-cjk-friendly`, which leaves those markers literal.
 A vertical tab beside a marker (`p\v**.**\vq`) reads as whitespace in
 commonmark.js, markdown-it and micromark, but not in cmark and cmark-gfm
 (GitHub's renderer), which follow CommonMark's definition of whitespace, and

@@ -9,7 +9,7 @@
 // @vitest-environment node
 
 import {buildEditorFromExtensions} from '@lexical/extension';
-import {LinkExtension} from '@lexical/link';
+import {$createLinkNode, LinkExtension, LinkNode} from '@lexical/link';
 import {
   $convertFromMarkdownString,
   $convertToMarkdownString,
@@ -17,6 +17,7 @@ import {
   type MarkdownImportOptions,
   type MultilineElementTransformer,
   type PunctuationMode,
+  type TextMatchTransformer,
   TRANSFORMERS,
 } from '@lexical/markdown';
 import {
@@ -478,6 +479,243 @@ describe('Markdown punctuation modes', () => {
         ['b', 0],
       ]);
     }
+  });
+
+  it('writes a selector after U+0000 for both CJK-friendly readings', () => {
+    // micromark-extension-cjk-friendly reads the selector as itself,
+    // markdown-it-cjk-friendly as the U+FFFD.
+    const cases: [Runs, string][] = [
+      [
+        [
+          ['a\0\ufe0e', 0],
+          ['“x”', bold],
+          [' b', 0],
+        ],
+        'a\0&#65038;**“x”** b',
+      ],
+      [
+        [
+          ['x\0\ufe0e', bold],
+          ['b', 0],
+        ],
+        '**x\0\ufe0e**&#98;',
+      ],
+    ];
+    for (const [runs, expected] of cases) {
+      for (const punctuation of [
+        'cjk-friendly',
+        'strict-commonmark',
+      ] as const) {
+        const markdown = exportRuns(runs, punctuation);
+        expect(markdown).toBe(expected);
+        expect(importRuns(markdown, punctuation)).toEqual(runs);
+      }
+    }
+  });
+
+  it('varies the syntax before link text read with its escapes out', () => {
+    // A link whose text has its escapes taken out, which the URL holds too.
+    const UNESCAPED_LINK: TextMatchTransformer = {
+      dependencies: [LinkNode],
+      importRegExp: /\[((?:\\.|[^\]\\])*)\]\(([^)]*)\)/,
+      regExp: /\[((?:\\.|[^\]\\])*)\]\(([^)]*)\)$/,
+      replace: (textNode, match) => {
+        const text = $createTextNode(match[1].replace(/\\(.)/g, '$1'));
+        textNode.replace($createLinkNode(match[2]).append(text));
+        return text;
+      },
+      type: 'text-match',
+    };
+    const editor = createEditor();
+    editor.update(
+      () =>
+        $convertFromMarkdownString(
+          '[\ufe0e\\_x_](u\ufe0e_x_)',
+          [UNESCAPED_LINK, ...TRANSFORMERS],
+          undefined,
+          {punctuation: 'cjk-friendly'},
+        ),
+      {discrete: true},
+    );
+    // The selector varies the `[`, not the `u` before the copy in the URL.
+    expect(editor.read('latest', $runs)).toEqual([
+      ['\ufe0e', 0],
+      ['x', italic],
+    ]);
+  });
+
+  it('varies the character before content wherever it stands in the match', () => {
+    // Syntax with a letter before the content, content that starts the
+    // match, and content after a selector in the syntax.
+    const KEYWORD: TextMatchTransformer = {
+      dependencies: [],
+      importRegExp: /\{@k ([^}]*)\}/,
+      regExp: /\{@k ([^}]*)\}$/,
+      replace: (textNode, match) => {
+        const text = $createTextNode(match[1]);
+        textNode.replace(text);
+        return text;
+      },
+      type: 'text-match',
+    };
+    const BANGS: TextMatchTransformer = {
+      dependencies: [],
+      importRegExp: /(\ufe0e[^!]*)!!/,
+      regExp: /(\ufe0e[^!]*)!!$/,
+      replace: (textNode, match) => {
+        const text = $createTextNode(match[1]);
+        textNode.replace(text);
+        return text;
+      },
+      type: 'text-match',
+    };
+    // A link whose text has its escapes taken out, found by its opening
+    // alone, which getEndIndex ends.
+    const OPENED_LINK: TextMatchTransformer = {
+      dependencies: [LinkNode],
+      getEndIndex: (_node, match) => {
+        const end = match.input!.indexOf('}}', match.index!);
+        return end === -1 ? false : end + 2;
+      },
+      importRegExp: /\{\{([^|}]*)\|/,
+      regExp: /\{\{([^|}]*)\|[^}]*\}\}$/,
+      replace: (textNode, match) => {
+        const text = $createTextNode(match[1].replace(/\\(.)/g, '$1'));
+        textNode.replace($createLinkNode('u').append(text));
+        return text;
+      },
+      type: 'text-match',
+    };
+    // A regular expression of flags that no copy with the `d` flag can be
+    // made of, as in a browser without that flag.
+    class WithoutIndices extends RegExp {
+      get flags() {
+        return 'q';
+      }
+    }
+    const QUESTIONS: TextMatchTransformer = {
+      dependencies: [],
+      importRegExp: new WithoutIndices(/(\ufe0e[^?]*)\?\?/.source),
+      regExp: /(\ufe0e[^?]*)\?\?$/,
+      replace: (textNode, match) => {
+        const text = $createTextNode(match[1]);
+        textNode.replace(text);
+        return text;
+      },
+      type: 'text-match',
+    };
+    // Content that no group holds, and the same after a copy of it.
+    const PIPED: TextMatchTransformer = {
+      dependencies: [],
+      importRegExp: /\ufe0e\*\*“x”\*\*\|\ufe0e\*\*“x”\*\*/,
+      regExp: /\ufe0e\*\*“x”\*\*\|\ufe0e\*\*“x”\*\*$/,
+      replace: (textNode, match) => {
+        const text = $createTextNode(match[0].slice(match[0].indexOf('|') + 1));
+        textNode.replace(text);
+        return text;
+      },
+      type: 'text-match',
+    };
+    const SLICED_KEYWORD: TextMatchTransformer = {
+      dependencies: [],
+      importRegExp: /\{@s [^}]*\}/,
+      regExp: /\{@s [^}]*\}$/,
+      replace: (textNode, match) => {
+        const text = $createTextNode(match[0].slice(4, -1));
+        textNode.replace(text);
+        return text;
+      },
+      type: 'text-match',
+    };
+    // Content after a selector in the syntax.
+    const WIKI_LINK: TextMatchTransformer = {
+      dependencies: [],
+      importRegExp: /\[\[([^|\]]*)\|([^\]]*)\]\]/,
+      regExp: /\[\[([^|\]]*)\|([^\]]*)\]\]$/,
+      replace: (textNode, match) => {
+        const text = $createTextNode(match[2]);
+        textNode.replace(text);
+        return text;
+      },
+      type: 'text-match',
+    };
+    // The same, with group indices: the importer moves them with the match
+    // it keeps for what is left of the text after an earlier match.
+    const WIKI_LINK_WITH_INDICES: TextMatchTransformer = {
+      ...WIKI_LINK,
+      importRegExp: new RegExp(/\(\(([^|)]*)\|([^)]*)\)\)/.source, 'd'),
+      regExp: /\(\(([^|)]*)\|([^)]*)\)\)$/,
+    };
+    const editor = createEditor();
+    const importText = (markdown: string) => {
+      editor.update(
+        () =>
+          $convertFromMarkdownString(
+            markdown,
+            [
+              KEYWORD,
+              BANGS,
+              WIKI_LINK,
+              WIKI_LINK_WITH_INDICES,
+              SLICED_KEYWORD,
+              PIPED,
+              QUESTIONS,
+              OPENED_LINK,
+              ...TRANSFORMERS,
+            ],
+            undefined,
+            {punctuation: 'cjk-friendly'},
+          ),
+        {discrete: true},
+      );
+      return editor.read('latest', $runs);
+    };
+    // The selector varies the space, not the `{`, so `**` stays literal.
+    expect(importText('{@k \ufe0e**“x”**}')).toEqual([['\ufe0e**“x”**', 0]]);
+    // The selector varies the `中` before the match, so `**` opens.
+    expect(importText('中\ufe0e**“x”**!! b')).toEqual([
+      ['中\ufe0e', 0],
+      ['“x”', bold],
+      [' b', 0],
+    ]);
+    // The selector varies the `|`, not the `u` before the selector in the
+    // target, so `**` opens.
+    expect(importText('[[u\ufe0ey|\ufe0e**“x”**]]')).toEqual([
+      ['\ufe0e', 0],
+      ['“x”', bold],
+    ]);
+    // Nor the `a` before a copy of the text in the target.
+    expect(importText('[[a\ufe0e**“x”**|\ufe0e**“x”**]]')).toEqual([
+      ['\ufe0e', 0],
+      ['“x”', bold],
+    ]);
+    expect(importText('{@s \ufe0e**“x”**}')).toEqual([['\ufe0e**“x”**', 0]]);
+    // Found without group indices at the match's start, after the `中`.
+    expect(importText('中\ufe0e**“x”**??')).toEqual([
+      ['中\ufe0e', 0],
+      ['“x”', bold],
+    ]);
+    // The copy after the match's start, before which is the `|`.
+    expect(importText('a\ufe0e**“x”**|\ufe0e**“x”**')).toEqual([
+      ['a\ufe0e', 0],
+      ['“x”', bold],
+    ]);
+    // The `{`, not the `u` before a copy of the text after the `|`.
+    expect(importText('{{\ufe0e\\_x_|u\ufe0e_x_}}')).toEqual([
+      ['\ufe0e', 0],
+      ['x', italic],
+    ]);
+    expect(importText('a *b* ((u\ufe0ey|\ufe0e**“x”**))')).toEqual([
+      ['a ', 0],
+      ['b', italic],
+      [' \ufe0e', 0],
+      ['“x”', bold],
+    ]);
+    // Content that starts the text of a link: the selector varies the `[`.
+    expect(importText('[\ufe0e**“x”**!!](u)')).toEqual([
+      ['\ufe0e', 0],
+      ['“x”', bold],
+    ]);
   });
 
   it('reads null and an options object with the merge flag as before', () => {

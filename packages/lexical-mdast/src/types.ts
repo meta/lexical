@@ -32,7 +32,10 @@ import type {Extension as MicromarkExtension} from 'micromark-util-types';
  *   everywhere except beside Chinese, Japanese and Korean characters and
  *   punctuation, where they open and close as a writer of those languages
  *   expects. A variation selector before a marker reads as the character it
- *   follows.
+ *   follows, but after whitespace as itself, as
+ *   `micromark-extension-cjk-friendly` reads it, and after a U+0000 (which
+ *   micromark reads as U+FFFD) as that U+FFFD, as `markdown-it-cjk-friendly`
+ *   reads it.
  * @experimental
  */
 export type MdastPunctuationMode = 'cjk-friendly' | 'strict-commonmark';

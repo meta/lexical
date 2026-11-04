@@ -84,7 +84,10 @@ const WHITESPACE = /[\p{Zs}\t\n\v\f\r]/u;
  *   reads such a marker as CommonMark does everywhere except beside Chinese,
  *   Japanese and Korean characters and punctuation, where it opens and closes
  *   as a writer of those languages expects. A variation selector before a
- *   marker reads as the character it follows.
+ *   marker reads as the character it follows, but after whitespace as
+ *   itself, as `micromark-extension-cjk-friendly` reads it, and after a
+ *   U+0000 as the U+FFFD that readers put in its place, as
+ *   `markdown-it-cjk-friendly` reads it.
  *
  * Both read a vertical tab beside a marker as whitespace, as commonmark.js,
  * markdown-it and micromark do, though cmark and cmark-gfm don't.
@@ -230,20 +233,37 @@ export function isPunctuationOrSpace(character: string): boolean {
 // Readers built on micromark, such as `@lexical/mdast`, count JavaScript's
 // whitespace, U+FEFF among it, as whitespace, and without the CJK-friendly
 // extension read a character outside the Basic Multilingual Plane one UTF-16
-// unit at a time, so as a letter.
-const MICROMARK_ONLY_WHITESPACE = /^[\u2028\u2029\ufeff]$/;
+// unit at a time, so as a letter. micromark-extension-cjk-friendly reads a
+// variation selector after a U+0000, which micromark keeps apart as a U+FFFD,
+// as the selector itself, where markdown-it-cjk-friendly reads the U+FFFD.
+// That whitespace, or a U+0000 and one of the selectors of VARIATION_SELECTOR.
+const READ_OTHERWISE_BY_MICROMARK =
+  /^(?:[\u2028\u2029\ufeff]|\0[\ufe00-\ufe0e])$/;
+const isReadOtherwiseByMicromark = (character: string) =>
+  READ_OTHERWISE_BY_MICROMARK.test(character);
 type Reader = (character: string | undefined) => number;
 const asMicromarkReads = (character: string | undefined) =>
-  character !== undefined && MICROMARK_ONLY_WHITESPACE.test(character)
-    ? ' '
-    : character;
+  character === undefined || !isReadOtherwiseByMicromark(character)
+    ? character
+    : character[0] === '\0'
+      ? // The selector after the U+0000.
+        character.slice(1)
+      : ' ';
 const readCjkFriendly: Reader = character => classify(character, true);
 const readMicromarkCjkFriendly: Reader = character =>
   classify(asMicromarkReads(character), true);
 // CJK-friendly readers read whatever strict readers read the same way, but
 // for corner cases, so an export for strict readers is checked with both.
-// Each list leaves out the micromark CJK-friendly reader, which reads as the
-// other CJK-friendly one does but for MICROMARK_ONLY_WHITESPACE.
+// readCjkFriendly reads as markdown-it-cjk-friendly does but for a selector
+// after whitespace, which it reads as the selector itself, as
+// micromark-extension-cjk-friendly does, where markdown-it-cjk-friendly reads
+// a tab, a line ending, a vertical tab or a form feed before it as that
+// whitespace, and a U+3000 before it as a CJK character. Both let a run after
+// the selector open, where export writes a reference for the other readers
+// anyway. The first also stops a run that the selector ends from closing,
+// which no reference beside the run helps (an exception the docs of export
+// list). Each list leaves out the micromark CJK-friendly reader, which reads
+// as readCjkFriendly does but for READ_OTHERWISE_BY_MICROMARK.
 const CJK_FRIENDLY_READERS: Reader[] = [readCjkFriendly];
 const readStrict: Reader = character => classify(character, false);
 const readMicromarkStrict: Reader = character =>
@@ -274,8 +294,8 @@ let exportReaders = STRICT_READERS;
 
 /** The readers export writes for that can read `a` and `b` differently. */
 function getReaders(a: string | undefined, b?: string): Reader[] {
-  return (a !== undefined && MICROMARK_ONLY_WHITESPACE.test(a)) ||
-    (b !== undefined && MICROMARK_ONLY_WHITESPACE.test(b))
+  return (a !== undefined && isReadOtherwiseByMicromark(a)) ||
+    (b !== undefined && isReadOtherwiseByMicromark(b))
     ? exportReaders === CJK_FRIENDLY_READERS
       ? CJK_FRIENDLY_AND_MICROMARK_READERS
       : STRICT_AND_MICROMARK_READERS

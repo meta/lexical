@@ -333,7 +333,7 @@ describe('Mdast punctuation modes', () => {
     expect(roundTrip(runs, 'cjk-friendly')).toEqual([cjkFriendly, runs]);
   });
 
-  it('reads a selector after a NUL as the U+FFFD that stands for it', () => {
+  it('reads a selector after a code of its own in a chunk of its own', () => {
     const editor = createEditor(undefined, 'cjk-friendly');
     const read = (markdown: string) => {
       editor.update(() => $convertFromMarkdownString(markdown), {
@@ -345,13 +345,40 @@ describe('Mdast punctuation modes', () => {
           .map(node => [node.getTextContent(), node.getFormat()]),
       );
     };
-    // As markdown-it-cjk-friendly reads them.
+    // As markdown-it-cjk-friendly and @lexical/markdown read them, where
+    // micromark-extension-cjk-friendly reads the selector itself.
     expect(read('a\0\ufe0e**“x”** b')).toEqual([
       ['a\ufffd\ufe0e', 0],
       ['“x”', bold],
       [' b', 0],
     ]);
     expect(read('a**x\0\ufe0e**b')).toEqual([['a**x\ufffd\ufe0e**b', 0]]);
+    // After a tab (with virtual spaces after it or not) or a line ending, as
+    // after a space, the selector reads as itself, not as what comes before
+    // the code, as micromark-extension-cjk-friendly reads it, where
+    // markdown-it-cjk-friendly reads the whitespace before it.
+    expect(read('中\t\ufe0e**“x”** b')).toEqual([
+      ['中', 0],
+      ['\t', 0],
+      ['\ufe0e**“x”** b', 0],
+    ]);
+    expect(read('ab中\t\ufe0e**“x”** b')).toEqual([
+      ['ab中', 0],
+      ['\t', 0],
+      ['\ufe0e**“x”** b', 0],
+    ]);
+    for (const lineEnding of ['\r\n', '\n']) {
+      expect(read(`中${lineEnding}\ufe0e**“x”** b`)).toEqual([
+        ['中', 0],
+        ['\ufe0e**“x”** b', 0],
+      ]);
+    }
+    expect(read('**x“\t\ufe0e**b')).toEqual([
+      ['x“', bold],
+      ['\t', bold],
+      ['\ufe0e', bold],
+      ['b', 0],
+    ]);
   });
 
   it('writes U+0000 as the U+FFFD symbol readers replace it with', () => {

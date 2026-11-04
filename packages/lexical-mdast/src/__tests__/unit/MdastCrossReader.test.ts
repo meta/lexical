@@ -40,9 +40,9 @@ import {
 // through its CJK-friendly plugin, must read as Lexical's own import of them
 // does, so that "a strict export reads the same in every reader" holds
 // beyond Lexical's importers. The cases the READMEs list as exceptions (a
-// variation selector after whitespace other than a space, a vertical tab
-// beside a marker, and a `***` run that a pair uses only part of) are left
-// out.
+// variation selector after a tab, a line ending, a vertical tab or a form
+// feed that ends a run, a vertical tab beside a marker, and a `***` run that
+// a pair uses only part of) are left out.
 
 type Runs = [text: string, format: number][];
 type Reader = InstanceType<typeof MarkdownIt>;
@@ -115,6 +115,11 @@ const FIXED_CASES: Runs[] = [
     ['x', 0],
     ['\ufe0e', italic],
     ['b', 0],
+  ],
+  [
+    ['a\t\ufe0e', 0],
+    ['“x”', bold],
+    [' b', 0],
   ],
   [
     ['x ', 0],

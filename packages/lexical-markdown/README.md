@@ -111,8 +111,9 @@ the markers or code span after it, export writes a character of its prefix as
 a reference too (`www&#46;x.co*a*b`), so that no reader links it and the
 formatting comes through.
 
-Import and export take an options object in place of `shouldPreserveNewLines`,
-whose `punctuation` option (`'cjk-friendly'` or `'strict-commonmark'`) chooses
+Import and export also take an options object in the position of the
+`shouldPreserveNewLines` argument, which still takes a boolean. Its
+`punctuation` option (`'cjk-friendly'` or `'strict-commonmark'`) chooses
 how markers beside punctuation are read and written. CommonMark doesn't let
 `**` open or close between a letter and punctuation, so `**你好。**世界` reads
 with literal asterisks. Import defaults to `'cjk-friendly'`, which follows the
@@ -120,14 +121,17 @@ with literal asterisks. Import defaults to `'cjk-friendly'`, which follows the
 it reads Markdown as CommonMark does except beside Chinese, Japanese and Korean
 characters and punctuation, where markers open and close as their writer
 meant, and a variation selector before a marker reads as the character it
-follows. Export defaults to `'strict-commonmark'`, whose references every
-CommonMark, GFM and CJK-friendly reader reads the same way
-(`**你好。**&#19990;界`), with three exceptions. A run of three
+follows, but after whitespace as itself, as `micromark-extension-cjk-friendly`
+reads it, and after a U+0000 as the U+FFFD that readers put in its place, as
+`markdown-it-cjk-friendly` reads it. Export defaults to `'strict-commonmark'`,
+whose references every CommonMark, GFM and CJK-friendly reader reads the same
+way (`**你好。**&#19990;界`), with three exceptions. A run of three
 markers that a pair uses only part of (`***a*b*c***`, as on earlier versions,
 or `**“***!。**」!a***`) is read differently by micromark and by commonmark.js
 and markdown-it, which apply the rule of 3 to the whole run.
-A selector after whitespace other than a space (`**。\v︎**`) reads with
-literal markers in `markdown-it-cjk-friendly`.
+A selector after a tab, a line ending, a vertical tab or a form feed that ends
+a run (`**。\v︎**`) reads as that whitespace in `markdown-it-cjk-friendly`,
+which leaves those markers literal.
 A vertical tab beside a marker (`p\v**.**\vq`) reads as whitespace in
 commonmark.js, markdown-it and micromark, but not in cmark and cmark-gfm
 (GitHub's renderer), which follow CommonMark's definition of whitespace, and

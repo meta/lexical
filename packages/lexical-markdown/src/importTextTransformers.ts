@@ -207,25 +207,134 @@ interface TextRest {
   scan: TextScan | null;
 }
 
+// Each transformer's importRegExp, sticky and with the `d` flag, or `null`
+// where the browser has no `d` flag.
+const indexedCopies = new WeakMap<RegExp, RegExp | null>();
+
+/** `regExp`, sticky and with the `d` flag, made once. */
+function withIndicesOf(regExp: RegExp): RegExp | null {
+  let copy = indexedCopies.get(regExp);
+  if (copy === undefined) {
+    const own = regExp.flags.replace(/[dgy]/g, '');
+    copy = null;
+    try {
+      copy = new RegExp(regExp.source, own + 'dy');
+    } catch {
+      // No `d` flag before ES2022.
+    }
+    indexedCopies.set(regExp, copy);
+  }
+  return copy;
+}
+
+/**
+ * Where the first group of `match` (the whole match among them) within
+ * `startIndex` and `endIndex` that holds `content`, as it is or with its
+ * escapes and references read, starts, or -1, from the indices `match`
+ * has. Nothing tells which of two groups that hold it the transformer read
+ * it from.
+ */
+function findContentGroup(
+  match: RegExpMatchArray,
+  startIndex: number,
+  endIndex: number,
+  content: string,
+): number {
+  const indices = match.indices!;
+  for (let i = 0; i < match.length; i++) {
+    const range = indices[i];
+    // Reading escapes and references only shortens a group.
+    if (
+      range !== undefined &&
+      range[0] >= startIndex &&
+      range[1] <= endIndex &&
+      (match[i] === content ||
+        (match[i]!.length > content.length &&
+          unescapeText(match[i]!) === content))
+    ) {
+      return range[0];
+    }
+  }
+  return -1;
+}
+
+/**
+ * The text match `found` at `startIndex` of `text`, with where its groups
+ * stand, or `null` where the browser has no `d` flag.
+ */
+function matchWithIndices(
+  found: RegExpMatchArray,
+  regExp: RegExp,
+  text: string,
+  startIndex: number,
+): RegExpMatchArray | null {
+  if (found.indices) {
+    return found;
+  }
+  const withIndices = withIndicesOf(regExp);
+  if (withIndices === null) {
+    return null;
+  }
+  withIndices.lastIndex = startIndex;
+  const match = withIndices.exec(text);
+  // The same match, which with getEndIndex is not all of the syntax.
+  return match && match[0] === found[0] ? match : null;
+}
+
 /**
  * What lies before the text that a text match leaves to import, when that
- * text starts with a variation selector, which varies it: the character of
- * the match's syntax before where the text stands in the match, or the
- * match's first character when the text is not found there as it is.
+ * text starts with a variation selector, which varies it: the character
+ * before the first group of the match (the whole match among them) that holds
+ * the text as it is or with its escapes and references read, or else before
+ * the text where the match holds it as it is, or else the match's first
+ * character. `before` is what lies before `text`.
  */
 function $characterBeforeContent(
   text: string,
-  {startIndex, endIndex}: {startIndex: number; endIndex: number},
+  {
+    startIndex,
+    endIndex,
+    match: found,
+    transformer,
+  }: {
+    startIndex: number;
+    endIndex: number;
+    match: RegExpMatchArray;
+    transformer: TextMatchTransformer;
+  },
   node: TextNode | undefined,
+  before: string | undefined,
 ): string | undefined {
   const content = node ? node.getTextContent() : '';
   if (!isVariationSelector(content[0])) {
     return undefined;
   }
-  const index = text.indexOf(content, startIndex + 1);
-  return index > startIndex && index + content.length <= endIndex
-    ? characterBefore(text, index)
-    : characterAt(text, startIndex);
+  const match = matchWithIndices(
+    found,
+    transformer.importRegExp!,
+    text,
+    startIndex,
+  );
+  let index = match
+    ? findContentGroup(match, startIndex, endIndex, content)
+    : -1;
+  if (index === -1) {
+    // Without the `d` flag, or where no group holds the text: the text in the
+    // match after its start, or else at it.
+    const syntax = text.slice(startIndex, endIndex);
+    const at = syntax.indexOf(content, 1);
+    index =
+      at !== -1
+        ? startIndex + at
+        : syntax.startsWith(content)
+          ? startIndex
+          : -1;
+  }
+  return index === -1
+    ? characterAt(text, startIndex)
+    : index === 0
+      ? before
+      : characterBefore(text, index);
 }
 
 /**
@@ -458,6 +567,7 @@ function $importOutermost(
           text,
           foundTextMatch,
           result.transformedNode,
+          before,
         ),
         node: result.transformedNode,
       },
