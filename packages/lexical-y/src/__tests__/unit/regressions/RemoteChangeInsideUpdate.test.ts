@@ -408,5 +408,48 @@ describe.each([false, true])(
         }),
       ).toEqual([' twoX', 5]);
     });
+
+    for (const ids of [
+      [1, 2],
+      [2, 1],
+    ]) {
+      test(`a deferred change Yjs merged into text the editor shows, ids ${ids}`, async () => {
+        // b's "[k7]" continues its own "[k2]": once a applies it, Yjs merges
+        // the two into one item, while a still shows only "[k2]".
+        const t = await setup(
+          () =>
+            $getRoot().append(
+              $createParagraphNode().append($createTextNode('w171_2 base')),
+            ),
+          {gc, ids},
+        );
+        t.b.update(() =>
+          $getRoot().getAllTextNodes()[0].selectEnd().insertText('[k2]'),
+        );
+        await t.sync();
+        t.offline();
+        const seen = Y.encodeStateVector(t.b.doc);
+        t.b.update(() =>
+          $getRoot().getAllTextNodes().at(-1)!.selectEnd().insertText('[k7]'),
+        );
+        const delta = Y.encodeStateAsUpdate(t.b.doc, seen);
+        t.a.update(() =>
+          $getRoot().getAllTextNodes().at(-1)!.selectEnd().insertText('[k4]'),
+        );
+        t.a.editor.update(() => {
+          $getRoot()
+            .getAllTextNodes()[0]
+            .select(0, 7)
+            .formatText('strikethrough');
+          Y.applyUpdate(t.a.doc, delta, 'provider');
+        });
+        await t.sync();
+        expect(t.a.read(() => $getRoot().getTextContent())).toMatch(
+          /^w171_2 base\[k2\](\[k7\]\[k4\]|\[k4\]\[k7\])$/,
+        );
+        await expectConverged(t.peers);
+        expect((await freshReader(t.a)).describe()).toBe(t.a.describe());
+      });
+    }
   },
 );

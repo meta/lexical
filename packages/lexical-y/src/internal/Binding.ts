@@ -2802,6 +2802,25 @@ export class YBinding {
     this.unread.changes.push(tr);
   }
 
+  /**
+   * In write transaction `tr`, split the items at the bounds of what the
+   * changes not read yet inserted and deleted (see Unread), which tells
+   * them apart by item. Yjs merges the items a change leaves next to items
+   * of the same client once the change's transaction ends: a change read
+   * later (see deferChange) would otherwise share an item with text the
+   * editor shows, and the write would take that text for unread.
+   */
+  private splitAtUnread(tr: Transaction): void {
+    const view = this.unread;
+    if (view === null) {
+      return;
+    }
+    for (const change of view.changes) {
+      iterateStructsByIdSet(tr, change.insertSet, () => {});
+      iterateStructsByIdSet(tr, change.deleteSet, () => {});
+    }
+  }
+
   /** The change `tr` is read, or has nothing to read (see noteChange). */
   private dropChange(tr: Transaction): void {
     const view = this.unread;
@@ -4507,6 +4526,7 @@ export class YBinding {
     let writer: Writer | null = null;
     try {
       this._doc.transact(tr => {
+        this.splitAtUnread(tr);
         try {
           writer = new Writer(state, roles, tr, prevEditorState, plan);
           writer.followUp = commit.followUp;
@@ -4548,6 +4568,7 @@ export class YBinding {
       );
       try {
         this._doc.transact(tr => {
+          this.splitAtUnread(tr);
           try {
             const all: WritePlan = {
               attrs: new Set(state.yByKey.keys()),
