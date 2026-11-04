@@ -32,14 +32,16 @@ export const LAYOUT_PREFIX = 'lexical-y:';
  * NodeState written into a document also records 2 (clients that only read
  * version 1 then open it read only instead of missing the members).
  */
-export const LAYOUT_VERSION = 2;
+// Typed `number`, not its literal: a later release raises it, and code that
+// names its type must not stop compiling (so do MIN_LAYOUT and SEED_LAYOUT).
+export const LAYOUT_VERSION: number = 2;
 /**
  * @experimental The oldest layout version this binding reads and writes. A
  * root below it binds read only (UNSUPPORTED_LAYOUT_WARNING, `'older'`)
  * until it is migrated (see @lexical/y/migrate); the migration runner's
  * default target.
  */
-export const MIN_LAYOUT = 1;
+export const MIN_LAYOUT: number = 1;
 /** The version a new document records. */
 export const BASE_LAYOUT_VERSION = 1;
 /**
@@ -48,7 +50,7 @@ export const BASE_LAYOUT_VERSION = 1;
  * handshake of @lexical/y/server, so an authority admits a seeder of a
  * pristine room only at its own seed layout (D22).
  */
-export const SEED_LAYOUT = BASE_LAYOUT_VERSION;
+export const SEED_LAYOUT: number = BASE_LAYOUT_VERSION;
 /**
  * The version of a document holding member entries of set-valued NodeState
  * (`s:<key>\u001f<member>` = true).

@@ -254,6 +254,29 @@ test('public entries', () => {
 
 // The headless helpers' hook into the binding is not part of its published
 // type (`private` to the type only, so the declarations do not offer it).
+test('the layout constants are typed number, in the core and the server entry', () => {
+  // A later release raises LAYOUT_VERSION: code naming these types must keep
+  // compiling, so none of them is a literal type.
+  const raised: [
+    typeof mainEntry.LAYOUT_VERSION,
+    typeof mainEntry.MIN_LAYOUT,
+    typeof mainEntry.SEED_LAYOUT,
+    typeof serverEntry.LAYOUT_VERSION,
+    typeof serverEntry.MIN_LAYOUT,
+    typeof serverEntry.SEED_LAYOUT,
+  ] = [99, 98, 97, 99, 98, 97];
+  expect(raised).toHaveLength(6);
+  for (const entry of [mainEntry, serverEntry]) {
+    for (const value of [
+      entry.LAYOUT_VERSION,
+      entry.MIN_LAYOUT,
+      entry.SEED_LAYOUT,
+    ]) {
+      expect(Number.isSafeInteger(value)).toBe(true);
+    }
+  }
+});
+
 test('YBinding does not offer flushPending', () => {
   type Offered = 'flushPending' extends keyof mainEntry.YBinding ? true : false;
   const offered: Offered = false;

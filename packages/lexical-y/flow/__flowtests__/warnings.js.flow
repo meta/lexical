@@ -21,7 +21,9 @@ import {
 } from '@lexical/y';
 
 const root: 'lexical-y' = DEFAULT_ROOT_NAME;
-const layout: 2 = LAYOUT_VERSION;
+// Typed number: a later release raises it.
+const layout: number = LAYOUT_VERSION;
+const raised: typeof LAYOUT_VERSION = 99;
 
 function reasonOf(error: unknown): string {
   if (isYWarning(error)) {
