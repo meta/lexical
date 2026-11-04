@@ -9,7 +9,6 @@
 import {
   $createPoint,
   $getDOMSlot,
-  $getNearestNodeFromDOMNode,
   $getNodeByKey,
   $getSelection,
   $getSiblingCaret,
@@ -22,6 +21,7 @@ import {
   type ElementNode,
   getDOMSelection,
   getDOMSelectionPoints,
+  getParentElement,
   IS_APPLE_WEBKIT,
   IS_IOS,
   IS_SAFARI,
@@ -178,6 +178,33 @@ export function $normalizedAtBoundaries(
   return {anchor: a, composing: key, focus: f};
 }
 
+/**
+ * A stale DOM key met by $nodeFromDOM: the DOM names a node the editor no
+ * longer has (see $resolvedDOMPoint).
+ */
+class StaleKey extends Error {}
+
+/**
+ * Lexical's $getNodeFromDOM: the node of the nearest DOM ancestor of `dom`
+ * (itself included) that carries a key of `editor`'s. Where that key names
+ * no node, Lexical resolves nothing there, as if no key were found; the
+ * binding then foresees nothing (StaleKey).
+ */
+function $nodeFromDOM(dom: Node, editor: LexicalEditor): LexicalNode | null {
+  const prop = `__lexicalKey_${editor._key}`;
+  for (let at: Node | null = dom; at !== null; at = getParentElement(at)) {
+    const key = (at as Node & Record<string, NodeKey | undefined>)[prop];
+    if (key !== undefined) {
+      const node = $getNodeByKey(key);
+      if (node === null) {
+        throw new StaleKey();
+      }
+      return node;
+    }
+  }
+  return null;
+}
+
 /** Lexical's shouldResolveAncestor. */
 function shouldResolveAncestor(
   resolvedElement: ElementNode,
@@ -221,14 +248,14 @@ function $resolvedDOMPoint(
     }
     const childDOM = childNodes[resolvedOffset];
     resolvedNode =
-      childDOM === undefined ? null : $getNearestNodeFromDOMNode(childDOM);
+      childDOM === undefined ? null : $nodeFromDOM(childDOM, editor);
     if ($isTextNode(resolvedNode)) {
       resolvedOffset = $getTextNodeOffset(
         resolvedNode,
         moveSelectionToEnd ? 'next' : 'previous',
       );
     } else {
-      let resolvedElement = $getNearestNodeFromDOMNode(dom);
+      let resolvedElement = $nodeFromDOM(dom, editor);
       if (resolvedElement === null) {
         return null;
       }
@@ -303,7 +330,7 @@ function $resolvedDOMPoint(
       let position: 'before' | 'after' = 'after';
       if (
         elementDOM !== null &&
-        $getNearestNodeFromDOMNode(dom) === resolvedElement
+        $nodeFromDOM(dom, editor) === resolvedElement
       ) {
         const slot = $getDOMSlot(resolvedElement, elementDOM, editor);
         if (slot.element !== elementDOM) {
@@ -323,7 +350,7 @@ function $resolvedDOMPoint(
       };
     }
   } else {
-    resolvedNode = $getNearestNodeFromDOMNode(dom);
+    resolvedNode = $nodeFromDOM(dom, editor);
   }
   if (!$isTextNode(resolvedNode)) {
     return null;
@@ -346,17 +373,31 @@ function $resolvedDOMPoint(
  * a point that leaves the node composed in takes the composition key with
  * it ($normalizedAtBoundaries). Null: the next update has no range
  * selection, the composition key stays. Undefined: not foreseen (see
- * $resolvedDOMPoint; slots). Selection transforms (an app's node method
- * that writes) are not foreseen: see YBinding#noteComposed.
+ * $resolvedDOMPoint; slots; a stale DOM key, see $nodeFromDOM). Selection
+ * transforms (an app's node method that writes) are not foreseen: see
+ * YBinding#noteComposed.
  */
-export function $nextUpdateSelection(editor: LexicalEditor):
+export function $nextUpdateSelection(editor: LexicalEditor): Foreseen {
+  try {
+    return $foresee(editor);
+  } catch (error) {
+    if (error instanceof StaleKey) {
+      return undefined;
+    }
+    throw error;
+  }
+}
+
+type Foreseen =
   | {
       anchor: BoundaryPoint;
       focus: BoundaryPoint;
       composing: NodeKey | null;
     }
   | null
-  | undefined {
+  | undefined;
+
+function $foresee(editor: LexicalEditor): Foreseen {
   const composing = editor._compositionKey;
   const last = $getSelection();
   const window = editor._window;
@@ -402,8 +443,8 @@ export function $nextUpdateSelection(editor: LexicalEditor):
   if (
     anchor.type === 'element' &&
     focus.type === 'element' &&
-    $isDecoratorNode($getNearestNodeFromDOMNode(anchorNode)) &&
-    $isDecoratorNode($getNearestNodeFromDOMNode(focusNode))
+    $isDecoratorNode($nodeFromDOM(anchorNode, editor)) &&
+    $isDecoratorNode($nodeFromDOM(focusNode, editor))
   ) {
     return null;
   }
