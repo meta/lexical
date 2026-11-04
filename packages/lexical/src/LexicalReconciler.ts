@@ -317,7 +317,13 @@ let activeDirtyChildrenByParent: Map<NodeKey, Set<NodeKey>>;
 let mutatedNodes: MutatedNodes;
 let activeEditorDOMRenderConfig: EditorDOMRenderConfig;
 
-function $destroyNode(key: NodeKey, parentDOM: null | HTMLElement): void {
+function $destroyNode(
+  key: NodeKey,
+  parentDOM: null | HTMLElement,
+  // Leave slot containers in place: the caller's DOM they sat in is being
+  // replaced as a whole (see $createNode).
+  keepSlotContainers: boolean = false,
+): void {
   const node = activePrevNodeMap.get(key);
   // A node "moved" across parents in the same transaction still exists in
   // the next node map. We only detach its DOM from the old parent here;
@@ -342,7 +348,13 @@ function $destroyNode(key: NodeKey, parentDOM: null | HTMLElement): void {
 
   if ($isElementNode(node)) {
     const children = $createChildrenArray(node, activePrevNodeMap);
-    $destroyChildren(children, 0, children.length - 1, null);
+    $destroyChildren(
+      children,
+      0,
+      children.length - 1,
+      null,
+      keepSlotContainers,
+    );
   }
 
   // Slots are a separate channel from the linked-list children, so the
@@ -355,8 +367,10 @@ function $destroyNode(key: NodeKey, parentDOM: null | HTMLElement): void {
   // where remove() is a harmless no-op on a detached parent.
   if (node !== undefined) {
     for (const slotKey of $readSlots(node).values()) {
-      const container = $slotContainerForKey(slotKey);
-      $destroyNode(slotKey, null);
+      const container = keepSlotContainers
+        ? null
+        : $slotContainerForKey(slotKey);
+      $destroyNode(slotKey, null, keepSlotContainers);
       if (container !== null) {
         container.remove();
       }
@@ -376,12 +390,13 @@ function $destroyChildren(
   _startIndex: number,
   endIndex: number,
   dom: null | HTMLElement,
+  keepSlotContainers: boolean = false,
 ): void {
   for (let startIndex = _startIndex; startIndex <= endIndex; ++startIndex) {
     const child = children[startIndex];
 
     if (child !== undefined) {
-      $destroyNode(child, dom);
+      $destroyNode(child, dom, keepSlotContainers);
     }
   }
 }
@@ -844,6 +859,26 @@ function $createNode(key: NodeKey, slot: DOMSlot | null): HTMLElement {
       }
     }
     subTreeTextContent += text;
+  }
+
+  // A node that was in the previous state but is built anew here (its
+  // element's updateDOM asked for a new DOM, it sits under such an element,
+  // or it took a parent's only child slot from its old ancestor) is not
+  // reconciled against its previous children and slot values. Destroy the
+  // ones that left the state, so that they leave the DOM map and report
+  // 'destroyed'; $destroyNode skips the ones still in the next state. The
+  // DOM they rendered is replaced as a whole, so slot containers are left as
+  // they are (a container found through a slot value's DOM can already be
+  // the value's new one).
+  const prevNode = activePrevNodeMap.get(key);
+  if (prevNode !== undefined) {
+    if ($isElementNode(prevNode)) {
+      const prevChildren = $createChildrenArray(prevNode, activePrevNodeMap);
+      $destroyChildren(prevChildren, 0, prevChildren.length - 1, null, true);
+    }
+    for (const prevSlotKey of $readSlots(prevNode).values()) {
+      $destroyNode(prevSlotKey, null, true);
+    }
   }
 
   if (slot !== null) {
