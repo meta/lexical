@@ -14,6 +14,7 @@ import {
   $createTableNode,
   $createTableRowNode,
   $createTableSelectionFrom,
+  $isTableCellNode,
   $isTableNode,
   $isTableRowNode,
   type TableCellNode,
@@ -23,12 +24,15 @@ import {
 import {
   $createParagraphNode,
   $createTextNode,
+  $findMatchingParent,
   $getRoot,
+  $getSelection,
+  $isRangeSelection,
   $setSelection,
   defineExtension,
   type LexicalEditor,
 } from 'lexical';
-import {describe, expect, test} from 'vitest';
+import {assert, describe, expect, test} from 'vitest';
 
 // Plain text pasted into a table selection is spread over the cells as tab-
 // and newline-separated values, starting at the selection's top-left cell
@@ -203,6 +207,23 @@ describe('TableSelection.insertRawText: where the pasted grid starts', () => {
       ['D', 'E', 'F', 'h'],
       ['G', 'H', 'I', 'l'],
     ]);
+  });
+
+  test('the caret lands at the start of the pasted grid after a paste from the bottom right', () => {
+    const editor = build(GRID);
+    pastePlain(editor, [1, 2], [0, 1], 'W\tX\nY\tZ');
+    editor.read(() => {
+      const selection = $getSelection();
+      assert($isRangeSelection(selection), 'Expected a range selection');
+      expect(selection.isCollapsed()).toBe(true);
+      expect(selection.anchor.offset).toBe(0);
+      expect(
+        $findMatchingParent(selection.anchor.getNode(), $isTableCellNode)!.is(
+          $cellAt(0, 1),
+        ),
+      ).toBe(true);
+      expect($cellAt(0, 1).getTextContent()).toBe('W');
+    });
   });
 
   test('a single value goes to the cell the selection was started from', () => {
