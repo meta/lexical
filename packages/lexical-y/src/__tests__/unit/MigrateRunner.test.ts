@@ -455,7 +455,7 @@ describe.each([false, true])('migration runner, gc %s', gc => {
       ).toBe(false);
     });
 
-    test('a malformed record or epoch: malformed; a newer record: newer', () => {
+    test('a malformed record or epoch: malformed; a record at or above the target, even above LAYOUT_VERSION: unchanged', () => {
       const bad: [string, unknown][] = [
         ['lexical-y:x', true],
         ['lexical-y:02', true],
@@ -499,15 +499,23 @@ describe.each([false, true])('migration runner, gc %s', gc => {
           key,
         );
       }
+      // A rollback from a newer release, or a server upgraded after its
+      // clients: no step, nothing written, the same bytes.
       const doc = docOf(stateOf(RSEED));
-      doc.get(ROOT).setAttr('lexical-y:9', true);
+      doc.get(ROOT).setAttr(`lexical-y:${LAYOUT_VERSION + 7}`, true);
       const newer = Y.encodeStateAsUpdate(doc);
-      expectRefused(() => migrateYState(newer, [STAMP], {gc, ...TO2}), 'newer');
-      expectRefused(
-        () => migrateYState(newer, [STAMP, REWRITE], {gc, to: SEED + 2}),
-        'newer',
-      );
-      expect(recordedLayout(doc)).toBe(9);
+      for (const steps of [[], [STAMP], [STAMP, REWRITE]]) {
+        const result = migrateYState(newer, steps, {gc, to: SEED + 2});
+        expect(result.update).toBeNull();
+        expect(Buffer.from(result.state)).toEqual(Buffer.from(newer));
+        expect(result.receipt.roots[0]).toMatchObject({
+          from: LAYOUT_VERSION + 7,
+          steps: [],
+        });
+      }
+      const live = docOf(newer);
+      expect(migrateYDoc(live, [], {to: SEED + 2}).changed).toBe(false);
+      expect(recordedLayout(live)).toBe(LAYOUT_VERSION + 7);
     });
 
     test('inside a transaction of the document: in-transaction, nothing written', () => {
@@ -765,7 +773,7 @@ describe.each([false, true])('migration runner, gc %s', gc => {
       expect(recordedLayout(doc)).toBe(SEED + 1);
       // A refusal of one root refuses both.
       const bad = docOf(both);
-      bad.get('B').setAttr('lexical-y:9', true);
+      bad.get('B').setAttr('lexical-y:x', true);
       expectRefused(
         () =>
           migrateYState(Y.encodeStateAsUpdate(bad), [STAMP], {
@@ -773,7 +781,7 @@ describe.each([false, true])('migration runner, gc %s', gc => {
             roots: [ROOT, 'B'],
             ...TO2,
           }),
-        'newer',
+        'malformed',
       );
     });
   });

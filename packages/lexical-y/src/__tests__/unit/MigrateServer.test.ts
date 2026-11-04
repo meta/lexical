@@ -166,7 +166,7 @@ describe.each([false, true])('@lexical/y/server, gc %s', gc => {
     expect(again.generation).toBe(room.generation);
     // A refusal throws: store nothing.
     const bad = docOf(LAYOUT1);
-    bad.get('lexical-y').setAttr('lexical-y:9', true);
+    bad.get('lexical-y').setAttr('lexical-y:x', true);
     expect(() =>
       prepareYRoom(Y.encodeStateAsUpdate(bad), {
         gc,

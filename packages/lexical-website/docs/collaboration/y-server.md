@@ -837,8 +837,12 @@ client's document with `createYDoc` from `@lexical/y`.
 2. **Seal and read** the stored `{state, incarnation, generation, version}`,
    after persisting what step 1 applied.
 3. **Migrate a copy:** `prepareYRoom(state, {steps, incarnation, roots})`.
-   When no served root is below `MIN_LAYOUT` it returns `changed: false`
-   and the stored bytes: store nothing. On a `YMigrationError` (the class
+   When no served root is below `MIN_LAYOUT` (the default target) it
+   returns `changed: false` and the stored bytes: store nothing. A root at
+   or above the target needs no step, even one above this release's
+   `LAYOUT_VERSION` (a rollback from a newer release, or a server upgraded
+   after its clients): it stays as it is. Only a root below the target with
+   no chain of steps is refused (`'missing-step'`). On a `YMigrationError` (the class
    `@lexical/y/migrate` exports, which `@lexical/y/server` uses), store
    nothing, keep the room stuck (it applies nothing), and alert.
 4. **Commit atomically**, compare-and-set on the version read:

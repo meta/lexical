@@ -135,8 +135,6 @@ export type YMigrationErrorCode =
   | 'missing'
   /** A root's layout record or epoch is malformed. */
   | 'malformed'
-  /** A root records a layout newer than the runner and the target. */
-  | 'newer'
   /** migrateYDoc on a document holding pending material or skipped ranges. */
   | 'pending'
   /** A step failed a check on the copy (or threw); nothing was written. */
@@ -515,7 +513,6 @@ function planOf(
     );
   }
   const names = [...new Set(options.roots ?? [DEFAULT_ROOT_NAME])].sort();
-  const ceiling = Math.max(to, LAYOUT_VERSION);
   return names.map(name => {
     const root = existingRoot(doc, name);
     if (root === null) {
@@ -550,15 +547,10 @@ function planOf(
       }
       return {from: null, root: name, steps: []};
     }
+    // At or above the target, even above this build's LAYOUT_VERSION (a
+    // rollback, or a server upgraded after its clients), a root needs no
+    // step and stays as it is; only a root below it needs a chain.
     const from = record.layout;
-    if (from > ceiling) {
-      throw new YMigrationError(
-        'newer',
-        `@lexical/y: root ${name} records layout ${from}, newer than ${ceiling}`,
-        [],
-        name,
-      );
-    }
     return {
       from,
       root: name,
