@@ -2992,12 +2992,12 @@ export class YBinding {
     // items) and the app's filter lets go.
     doc.transact(t => tryGc(t, tr.deleteSet, doc.gcFilter), this.scanOrigin);
     const filters = this.gcFilters;
-    if (
-      this.heldUnread.size === 0 &&
-      filters !== null &&
-      doc.gcFilter === filters.ours
-    ) {
-      doc.gcFilter = filters.prev;
+    if (this.heldUnread.size === 0 && filters !== null) {
+      // Unless something replaced or wrapped it since: the binding's holds
+      // nothing now, and the next hold wraps whatever the document has.
+      if (doc.gcFilter === filters.ours) {
+        doc.gcFilter = filters.prev;
+      }
       this.gcFilters = null;
     }
   }
@@ -3013,10 +3013,11 @@ export class YBinding {
    */
   private holdDeleted(tr: Transaction): void {
     this.heldUnread.add(tr);
-    if (this.gcFilters !== null) {
+    const doc = this._doc;
+    if (this.gcFilters !== null && doc.gcFilter === this.gcFilters.ours) {
       return;
     }
-    const doc = this._doc;
+    // (Again if the app replaced the filter while the binding held some.)
     const prev = doc.gcFilter;
     const ours = (item: Item) => {
       for (const held of this.heldUnread) {

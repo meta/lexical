@@ -565,5 +565,43 @@ describe.each([false, true])(
         undo.destroy();
       }
     });
+
+    test('a deferred deletion once the app replaced the gcFilter', async () => {
+      const t = await setup(
+        () =>
+          $getRoot().append(
+            $createParagraphNode().append($createTextNode('base[k2][k7]')),
+          ),
+        {gc},
+      );
+      t.offline();
+      const deltas: Uint8Array[] = [];
+      for (const at of [4, 4]) {
+        const seen = Y.encodeStateVector(t.b.doc);
+        t.b.update(() =>
+          $getRoot()
+            .getAllTextNodes()[0]
+            .select(at, at + 4)
+            .removeText(),
+        );
+        deltas.push(Y.encodeStateAsUpdate(t.b.doc, seen));
+      }
+      t.a.update(() => {
+        Y.applyUpdate(t.a.doc, deltas[0], 'provider');
+        t.a.doc.gcFilter = () => true;
+      });
+      // Read (offline still), which releases the first deletion.
+      for (let i = 0; i < 4; i++) {
+        await new Promise(r => setTimeout(r, 0));
+      }
+      t.a.update(() => {
+        $getRoot().getAllTextNodes()[0].select(0, 2).formatText('bold');
+        Y.applyUpdate(t.a.doc, deltas[1], 'provider');
+      });
+      await t.sync();
+      expect(t.a.read(() => $getRoot().getTextContent())).toBe('base');
+      await expectConverged(t.peers);
+      expect((await freshReader(t.a)).describe()).toBe(t.a.describe());
+    });
   },
 );
