@@ -2201,18 +2201,18 @@ export class Writer {
    * Set every unit's start formats (the formats in effect where it starts)
    * from the shared items as they are stored (a held insertion counts, a
    * kept deletion does not, see isStored): deletes and inserts start from
-   * them, and a stale value would leave a format open or close one early. A locally split
-   * unit still covered by a hold keeps its shown start until release, with
-   * the stored start recorded separately (see Hidden#starts).
+   * them, and a stale value would leave a format open or close one early. A
+   * locally split unit still covered by a hold keeps its shown start until
+   * release, with the stored start recorded separately (see Hidden#starts).
    */
   private $recomputeStarts(cs: CS): void {
     const formats = new Map<string, unknown>();
     let it: Item | null = cs.y._start;
     let after: Item | null = null;
     for (const u of cs.units) {
-      u.start = formats.size > 0 ? new Map(formats) : null;
-      noteFolded(u.start, after, true);
       const hidden = this.state.hidden;
+      u.start = formats.size > 0 ? new Map(formats) : null;
+      noteFolded(u.start, after, 'stored', hidden);
       const held = hidden === null ? undefined : hidden.starts.get(u);
       if (held !== undefined) {
         held.stored = u.start;
@@ -2257,9 +2257,12 @@ export class Writer {
         return;
       }
       const left = prevLiveEnd(unit.end, this.state.hidden);
-      // (Before the copy: a stale start is folded again, see frontierOf.)
-      let folded = frontierOf(unit.start, left, unit.cs.y);
-      let formats = new Map(unit.start || EMPTY_FORMATS);
+      // From the unit's stored start (a split half of the line being
+      // composed shows another, see Hidden#starts). (Before the copy: a
+      // stale start is folded again, see frontierOf.)
+      const start = this.storedStart(unit);
+      let folded = frontierOf(start, left, unit.cs.y);
+      let formats = new Map(start || EMPTY_FORMATS);
       let from: Item | null = left === null ? unit.cs.y._start : left.right;
       // The format pass's fold of this line, where nothing was written since:
       // go on from where it stopped.
@@ -2270,7 +2273,7 @@ export class Writer {
         pf.deletions === deletions &&
         pf.clock === this.tr.doc.store.getClock(this.tr.doc.clientID) &&
         pf.fold.start === from &&
-        pf.fold.startFormats === (unit.start || EMPTY_FORMATS) &&
+        pf.fold.startFormats === (start || EMPTY_FORMATS) &&
         pf.fold.frontier === folded &&
         pf.fold.stop !== null &&
         reaches(pf.fold.stop, unit.end)
@@ -2294,12 +2297,39 @@ export class Writer {
           break;
         }
       }
-      if (sameFormatMaps(nextUnit.start, formats)) {
+      if (sameFormatMaps(this.storedStart(nextUnit), formats)) {
         return;
       }
-      nextUnit.start = formats.size > 0 ? formats : null;
-      noteFolded(nextUnit.start, unit.end, true);
+      this.setStoredStart(nextUnit, formats, unit.end);
       unit = nextUnit;
+    }
+  }
+
+  /**
+   * Unit `u`'s stored start formats: its start, or, for a half of the line
+   * being composed that a local split made (see Hidden#starts), the stored
+   * one kept beside the start it shows.
+   */
+  private storedStart(u: Unit): Formats | null {
+    const hidden = this.state.hidden;
+    const split = hidden === null ? undefined : hidden.starts.get(u);
+    return split === undefined ? u.start : split.stored;
+  }
+
+  /**
+   * Set unit `u`'s stored start formats to `formats`, folded up to `at`
+   * (see storedStart): a split half of the line being composed keeps the
+   * start it shows.
+   */
+  private setStoredStart(u: Unit, formats: Formats, at: Item | null): void {
+    const hidden = this.state.hidden;
+    const start = formats.size > 0 ? formats : null;
+    noteFolded(start, at, 'stored', hidden);
+    const split = hidden === null ? undefined : hidden.starts.get(u);
+    if (split === undefined) {
+      u.start = start;
+    } else {
+      split.stored = start;
     }
   }
 
@@ -2761,14 +2791,18 @@ export class Writer {
         const u = byEnd.get(it);
         if (u !== undefined) {
           u.start = pendingStart.size > 0 ? pendingStart : null;
-          noteFolded(u.start, pendingAt, true);
+          noteFolded(u.start, pendingAt, 'stored', hidden);
           if (heldSegment && !sameFormatMaps(pendingStart, pendingShown)) {
             const shownStart = pendingShown.size > 0 ? pendingShown : null;
-            noteFolded(shownStart, pendingAt, true, hidden);
+            noteFolded(shownStart, pendingAt, 'shown', hidden);
             hidden!.starts.set(u, {
               shown: shownStart,
               stored: u.start,
             });
+            u.start = shownStart;
+          } else if (hidden !== null && hidden.starts.has(u)) {
+            // A half the hold already shows: its starts agree now.
+            hidden.starts.set(u, {shown: u.start, stored: u.start});
           }
           pendingStart = new Map(current);
           pendingShown = new Map(shown);
@@ -2811,10 +2845,9 @@ export class Writer {
         if (
           next !== undefined &&
           !used.has(next) &&
-          !sameFormatMaps(next.start, formats)
+          !sameFormatMaps(this.storedStart(next), formats)
         ) {
-          next.start = formats.size > 0 ? formats : null;
-          noteFolded(next.start, after, true);
+          this.setStoredStart(next, formats, after);
           this.$fixStartsAfter(next);
         }
         break;
@@ -2845,13 +2878,19 @@ export class Writer {
     const unit = this.state.unitByEnd.get(item);
     const start = prevLiveEnd(item, this.state.hidden);
     const atoms = new Atoms();
+    // The stored formats after it (see readAtoms), from the unit's stored
+    // start (see storedStart).
+    const stored = unit === undefined ? null : this.storedStart(unit);
     return readAtoms(
       start === null ? (item.parent as YNode)._start : start.right,
       item.right,
       unit !== undefined && unit.start !== null ? unit.start : EMPTY_FORMATS,
       atoms,
       this.state.hidden,
-      frontierOf(unit !== undefined ? unit.start : null, start, item.parent),
+      frontierOf(stored, start, item.parent) ??
+        frontierOf(unit !== undefined ? unit.start : null, start, item.parent),
+      null,
+      stored || EMPTY_FORMATS,
     );
   }
 

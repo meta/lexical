@@ -38,7 +38,7 @@ import {
   TYPE_KEY,
   WRAPPER_PREFIX,
 } from './Schema';
-import {isGone, noteFolded, unheldLength} from './Seen';
+import {isGone, isStored, noteFolded, unheldLength} from './Seen';
 
 // Inline content as atoms, the form both the editor's side ($pushInline)
 // and the shared side (readAtoms) are compared in: one atom per content unit
@@ -291,9 +291,11 @@ export function $pushInline(
 /**
  * Atoms of the shared items from `start` (inclusive) up to `stop`
  * (exclusive, null = end), with the formats in effect at `start`, as the
- * editor shows them: without what is held back (see Hidden). Returns the
- * formats stored at `stop`, held-back ones too (where a write cursor starts,
- * see Cursor).
+ * editor shows them: without what is held back, with the deleted items the
+ * hold keeps showing (see Hidden). Returns the formats stored at `stop`
+ * (see Seen.isStored: held insertions in, kept deletions out), folded from
+ * `storedFormats`, the stored formats at `start` (where a write cursor
+ * starts, see Cursor, and what a line hands on).
  */
 export function readAtoms(
   start: Item | null,
@@ -303,9 +305,10 @@ export function readAtoms(
   hidden: Hidden | null = null,
   frontier: Item | null = null,
   end: {folded: Item | null} | null = null,
+  storedFormats: Formats = formats,
 ): Formats {
-  const current = new Map(formats);
-  // The formats the editor shows: `current` without held-back ones.
+  const current = new Map(storedFormats);
+  // The formats the editor shows (see Ident.withHeldView).
   const shown = hidden === null ? current : new Map(formats);
   let attrs: Attrs | null = null;
   // Format items up to `frontier` are in `formats` already (see
@@ -325,7 +328,9 @@ export function readAtoms(
         attrs = null;
         continue;
       }
-      step(current, it);
+      if (shown === current || isStored(it, hidden)) {
+        step(current, it);
+      }
       if (shown !== current && !hidden!.hides(it)) {
         withHeldView(hidden, () => step(shown, it));
       }
@@ -375,7 +380,7 @@ export function readAtoms(
     }
   }
   if (stop !== null) {
-    noteFolded(current, stop.left, true);
+    noteFolded(current, stop.left, 'stored', hidden);
   }
   if (end !== null) {
     end.folded = folded;

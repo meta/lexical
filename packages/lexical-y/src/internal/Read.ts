@@ -495,7 +495,7 @@ export class Reader {
     if (cs.kind === 'i') {
       this.$setChildren(
         el,
-        this.$readInline(cs.y._start, null, EMPTY_FORMATS, el),
+        this.$readInlineAs(cs.key, cs.y._start, null, EMPTY_FORMATS, el),
       );
       for (const u of cs.units) {
         this.state.dropUnit(u);
@@ -717,7 +717,7 @@ export class Reader {
         }
         this.$setChildren(
           el,
-          this.$readInline(y._start, null, EMPTY_FORMATS, el),
+          this.$readInlineAs(cs.key, y._start, null, EMPTY_FORMATS, el),
         );
       } else {
         this.$readChanges(cs, el, items, markerUnits.get(cs));
@@ -769,7 +769,7 @@ export class Reader {
     if (pcs.kind === 'i') {
       this.$setChildren(
         pel,
-        this.$readInline(parent._start, null, EMPTY_FORMATS, pel),
+        this.$readInlineAs(pcs.key, parent._start, null, EMPTY_FORMATS, pel),
       );
       return;
     }
@@ -924,10 +924,10 @@ export class Reader {
           }
           // Whether the opener is paired decides how the items over its run
           // step (an end removes the unpaired runs above the topmost paired
-          // one): read every unit whose start holds its run. A deleted
-          // opener's run goes with it (the starts after it change); the line
-          // being composed is read for this only where nothing is held there
-          // (see $hold).
+          // one): read every unit whose start holds its run, the line being
+          // composed too (a pairing changed from outside the line is nothing
+          // the hold holds, see I1 in Hidden). A deleted opener's run goes
+          // with it (the starts after it change).
           if (ou !== null && !opener.deleted) {
             const units = cs.units;
             const content = opener.content as ContentFormat;
@@ -946,9 +946,7 @@ export class Reader {
               }
               formatUnits.push(units[k]);
               affected.add(units[k]);
-              if (units[k].key !== this.composingKey) {
-                pairingUnits.add(units[k]);
-              }
+              pairingUnits.add(units[k]);
             }
           }
         }
@@ -1390,7 +1388,11 @@ export class Reader {
       const startFormats =
         i < len
           ? units[i].start || EMPTY_FORMATS
-          : formatsAfterUnit(units, i - 1);
+          : formatsAfterUnit(
+              units,
+              i - 1,
+              this.state.hidden === null ? null : this.state.hidden.starts,
+            );
       const {parsed, after} = parseRange(
         startItem,
         stop,
@@ -1621,7 +1623,11 @@ export class Reader {
     const after =
       hidden === null
         ? this.lastFormats
-        : formatsAfter(first, u.end, u.start || EMPTY_FORMATS);
+        : formatsAfter(
+            first,
+            u.end,
+            storedStartOf(u, hidden.starts) || EMPTY_FORMATS,
+          );
     let nextEnd: Item | null = u.end.right;
     while (nextEnd !== null && !isShownEnd(nextEnd, hidden)) {
       nextEnd = nextEnd.right;
@@ -1939,7 +1945,13 @@ export class Reader {
         !affected.has(prevUnit) &&
         $isElementNode(existing) &&
         existing.getType() === attrs[TYPE_KEY] &&
-        sameFormats(prevUnit.start || EMPTY_FORMATS, p.start);
+        sameFormats(
+          storedStartOf(
+            prevUnit,
+            state.hidden === null ? null : state.hidden.starts,
+          ) || EMPTY_FORMATS,
+          p.start,
+        );
       const line = untouched
         ? (existing as ElementNode)
         : this.$lineFromMarker(
@@ -1948,14 +1960,23 @@ export class Reader {
             derived,
           );
       state.ids.noteStoredId(line.getKey(), storedId);
+      // A half of the line being composed that a local split made (see
+      // Hidden#starts) shows the start it showed, and keeps the stored one
+      // beside it for the release.
+      const split =
+        prevUnit === undefined || state.hidden === null
+          ? undefined
+          : state.hidden.starts.get(prevUnit);
       if (!untouched) {
         this.$setChildren(
           line,
           this.$readInlineAs(
-            line.getKey(),
+            split !== undefined && prevUnit !== undefined
+              ? prevUnit.key
+              : line.getKey(),
             p.startItem,
             p.stop,
-            p.start,
+            split === undefined ? p.start : split.shown || EMPTY_FORMATS,
             line,
             merged !== null && prevUnit !== undefined && prevUnit.key !== null
               ? (() => {
@@ -1983,7 +2004,11 @@ export class Reader {
       unit.kind = p.kind;
       unit.end = p.end;
       unit.key = line.getKey();
-      unit.start = p.start.size > 0 ? p.start : null;
+      if (split === undefined) {
+        unit.start = p.start.size > 0 ? p.start : null;
+      } else {
+        split.stored = p.start.size > 0 ? p.start : null;
+      }
       unit.sig = lineGroupSig(attrs, ginfo);
       unit.first = unit.last = unit.key;
       const group: GroupItem | null =
@@ -2842,7 +2867,7 @@ export class Reader {
    * (see withHeldView), every other line as stored.
    */
   private $readInlineAs(
-    key: NodeKey,
+    key: NodeKey | null,
     ...args: Parameters<Reader['$readInline']>
   ): LexicalNode[] {
     const hidden = this.state.hidden;
@@ -3823,7 +3848,8 @@ function recomputeUnitStarts(
   if (first >= units.length - 1) {
     return changed;
   }
-  const formats = new Map<string, unknown>(units[first].start || EMPTY_FORMATS);
+  const firstStart = storedStartOf(units[first], splits);
+  const formats = new Map<string, unknown>(firstStart || EMPTY_FORMATS);
   let at: Item | null = null;
   const set = (u: Unit): boolean => {
     const next = formats.size > 0 ? new Map(formats) : null;
@@ -3854,11 +3880,11 @@ function recomputeUnitStarts(
   // with the formats folded up to its own item (see the loop): the items
   // before it are in its start already (see Seen.frontierOf).
   // Items up to where units[first].start was folded are in it already.
-  let folded: Item | null = frontierOf(units[first].start, left, cs.y);
+  let folded: Item | null = frontierOf(firstStart, left, cs.y);
   // A stale start is folded again in place (see frontierOf): copy it again.
-  if (folded === null && units[first].start !== null) {
+  if (folded === null && firstStart !== null) {
     formats.clear();
-    for (const [key, v] of units[first].start!) {
+    for (const [key, v] of firstStart) {
       formats.set(key, v);
     }
   }
@@ -3896,13 +3922,31 @@ function recomputeUnitStarts(
   return changed;
 }
 
+/**
+ * Unit `u`'s stored start formats: its start, or, for a half of the line
+ * being composed that a local split made (see Hidden#starts), the stored
+ * one kept beside the start it shows.
+ */
+function storedStartOf(
+  u: Unit,
+  splits: Hidden['starts'] | null,
+): Formats | null {
+  const split = splits === null ? undefined : splits.get(u);
+  return split === undefined ? u.start : split.stored;
+}
+
 /** The formats in effect right after unit `k` (empty before the first). */
-function formatsAfterUnit(units: Unit[], k: number): Formats {
+function formatsAfterUnit(
+  units: Unit[],
+  k: number,
+  splits: Hidden['starts'] | null = null,
+): Formats {
   if (k < 0) {
     return EMPTY_FORMATS;
   }
   const u = units[k];
-  const formats = new Map(u.start || EMPTY_FORMATS);
+  const start = storedStartOf(u, splits);
+  const formats = new Map(start || EMPTY_FORMATS);
   if (u.end === null) {
     return formats;
   }
@@ -3914,11 +3958,11 @@ function formatsAfterUnit(units: Unit[], k: number): Formats {
     }
   }
   // Items up to where u.start was folded are in it already.
-  let folded: Item | null = frontierOf(u.start, left, u.cs.y);
+  let folded: Item | null = frontierOf(start, left, u.cs.y);
   // A stale start is folded again in place (see frontierOf): copy it again.
-  if (folded === null && u.start !== null) {
+  if (folded === null && start !== null) {
     formats.clear();
-    for (const [key, v] of u.start) {
+    for (const [key, v] of start) {
       formats.set(key, v);
     }
   }
@@ -4238,6 +4282,7 @@ export function $unstoredWrapperTextFields(
   const attrs = attrsAtItems(
     candidates.map(([, item]) => item),
     memo,
+    state.hidden === null ? null : state,
   );
   const out: [ElementNode, Attrs][] = [];
   for (const [w, item] of candidates) {
@@ -4273,6 +4318,7 @@ export type StoredFormatsMemo = Map<unknown, Map<Item, Attrs>>;
 function attrsAtItems(
   items: Item[],
   memo?: StoredFormatsMemo,
+  held: State | null = null,
 ): Map<Item, Attrs> {
   const bySequence = new Map<unknown, Set<Item>>();
   for (const item of items) {
@@ -4330,6 +4376,56 @@ function attrsAtItems(
       if (!isGone(it) && it.content instanceof ContentFormat) {
         stepFormat(formats, it);
       }
+    }
+  }
+  // In the line or inline container being composed (and the halves a
+  // local split of the line made), the formats it shows (see
+  // Ident.withHeldView): from its shown start (an inline container starts
+  // with none).
+  const hidden = held === null ? null : held.hidden;
+  if (held !== null && hidden !== null) {
+    for (const item of items) {
+      const container = held.containers.get(item.parent as YNode);
+      let start: Formats | null = null;
+      let from: Item | null = null;
+      let folded: Item | null = null;
+      if (
+        container !== undefined &&
+        container.kind === 'i' &&
+        container.key === hidden.ownerKey
+      ) {
+        from = container.y._start;
+      } else {
+        let end: Item | null = item;
+        while (end !== null && !isShownEnd(end, hidden)) {
+          end = end.right;
+        }
+        const unit = end === null ? undefined : held.unitByEnd.get(end);
+        if (
+          unit === undefined ||
+          (unit.key !== hidden.ownerKey && !hidden.starts.has(unit))
+        ) {
+          continue;
+        }
+        const left = prevLiveEnd(unit.end!, hidden);
+        start = unit.start;
+        folded = frontierOf(unit.start, left, unit.cs.y);
+        from = left === null ? unit.cs.y._start : left.right;
+      }
+      const formats = new Map(start || EMPTY_FORMATS);
+      for (let it = from; it !== null && it !== item; it = it.right) {
+        if (it === folded) {
+          folded = null;
+        }
+        if (
+          folded === null &&
+          it.content instanceof ContentFormat &&
+          isShown(it, hidden)
+        ) {
+          withHeldView(hidden, () => stepFormat(formats, it));
+        }
+      }
+      out.set(item, attrsOf(formats) as Attrs);
     }
   }
   return out;

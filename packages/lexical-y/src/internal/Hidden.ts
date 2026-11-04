@@ -41,6 +41,22 @@ import {type Item} from '@y/y';
  * across lines, a paste). Every held change is then read where its content
  * is (see YBinding#$release). Items can be split or merged by Yjs, so this
  * works on id ranges, not items.
+ *
+ * Invariants:
+ * - I1: only the display of the line being composed (and of the lines a
+ *   local split of it made while composing, see `starts`) differs from the
+ *   stored document, and a remote change never replaces the composed node
+ *   or its DOM text node. That display leaves held items out, shows kept
+ *   ones, and folds as if a held end paired nothing (Ident.withHeldView),
+ *   from the line's shown start.
+ * - I2: every other line reads as a fresh read of the stored document. What
+ *   the composed line hands on to the lines after it is folded from its
+ *   stored items: held insertions in, kept deletions out (Seen.isStored).
+ *   Fold notes carry the lane they were folded in (Seen.FoldLane).
+ * - I3: when the hold ends, the line reads what is stored.
+ * - I4: the composer's own writes in the line are made, and self-checked,
+ *   against its display, without bringing kept items back or dropping held
+ *   insertions.
  */
 export class Hidden {
   /** Sorted, merged [start, end) clock ranges per client. */
