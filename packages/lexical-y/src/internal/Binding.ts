@@ -5471,8 +5471,15 @@ export class YBinding {
     ) {
       return;
     }
-    editor._lastNotifiedSelection =
-      selection === null ? null : selection.clone();
+    // The selection itself, not a copy: Lexical's normalization at the end
+    // of the read's update (text nodes the read left side by side merge)
+    // moves its points in place, and the commit compares what it ends as
+    // with what was notified. A copy would differ there, and Lexical would
+    // extend the read's commit with the selection change command, running
+    // every node transform over what the read brought. Lexical gives each
+    // later update a selection of its own, so this one changes no more once
+    // the read has committed.
+    editor._lastNotifiedSelection = selection;
     $onUpdate(() => {
       editor.update(() => {
         editor.dispatchCommand(SELECTION_CHANGE_COMMAND, undefined);
