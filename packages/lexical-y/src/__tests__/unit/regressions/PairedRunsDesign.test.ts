@@ -23,9 +23,8 @@ import {
   $setCompositionKey,
   $setSelection,
 } from 'lexical';
-import {afterEach, describe, expect, test} from 'vitest';
+import {describe, expect, test} from 'vitest';
 
-import {setOwnRunsOnly} from '../../../internal/Ident';
 import {
   $block,
   $createBoxNode,
@@ -39,12 +38,6 @@ import {
 } from '../../utils/harness';
 
 const LAYOUT_3 = 'lexical-y:3';
-
-// Every cell starts with format changes free to delete any client's runs
-// (setOwnRunsOnly off).
-afterEach(() => {
-  setOwnRunsOnly(false);
-});
 
 const $line = (...nodes: ReturnType<typeof $createTextNode>[]) =>
   $getRoot().append($createParagraphNode().append(...nodes));
@@ -86,23 +79,17 @@ for (const gc of [false, true]) {
         await expectConverged(t.peers, 'paragraph("abcd")');
       });
 
-      test('a retained run inside a removal is restated over: nothing stays bold (K1 and own-runs-only)', async () => {
-        for (const own of [false, true]) {
-          setOwnRunsOnly(own);
-          const t = await setup(() => $line($createTextNode('abc')), {
-            gc,
-            ids,
-          });
-          bold(t.b, [0], 1, 2);
-          await t.sync();
-          bold(t.a, [0], 0, 3);
-          bold(t.a, [0], 0, 3, 0);
-          await t.sync();
-          await expectConverged(t.peers, 'paragraph("abc")');
-        }
+      test('a retained run inside a removal is restated over: nothing stays bold', async () => {
+        const t = await setup(() => $line($createTextNode('abc')), {gc, ids});
+        bold(t.b, [0], 1, 2);
+        await t.sync();
+        bold(t.a, [0], 0, 3);
+        bold(t.a, [0], 0, 3, 0);
+        await t.sync();
+        await expectConverged(t.peers, 'paragraph("abc")');
       });
 
-      test('an empty paired run strictly inside a range is deleted, opener and first end (spec 3.2)', async () => {
+      test('an empty paired run strictly inside a range is deleted, opener and first end', async () => {
         const t = await setup(() => $line($createTextNode('abcd')), {gc, ids});
         bold(t.b, [0], 2, 3);
         await t.sync();

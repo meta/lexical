@@ -38,7 +38,6 @@ import {
   noteEnd,
   noteHolder,
   NULL_RUN,
-  ownRunsOnly,
   pairedReadingIn,
   rootOf,
   seedRunsOf,
@@ -1539,7 +1538,7 @@ export class Cursor {
    * Apply covered `formats` to the next `n` content units as paired runs
    * (layout 3). Per key:
    *
-   * 1. It deletes the runs whose content it wholly formats (K1): any
+   * 1. It deletes the runs whose content it wholly formats: any
    *    client's paired run that holds at least one content item of the range
    *    and whose every live content item is content this change formats
    *    (counted over every live countable item: held and unread content
@@ -1602,7 +1601,6 @@ export class Cursor {
     for (; it !== null && !isLiveContent(it); it = it.right) {
       span.push(it);
     }
-    const doc = this.tr.doc;
     const keys = Object.keys(formats);
     const lastAt = span.indexOf(lastContent);
     const firstAt = span.indexOf(contents[0]);
@@ -1696,19 +1694,14 @@ export class Cursor {
       return false;
     };
     // The deletion plan: per key, the runs this change wholly formats the
-    // content of (K1) and the empty runs inside the range, unless a run
+    // content of (step 1) and the empty runs inside the range, unless a run
     // shields an item it keeps.
     const plan: [key: string, opener: Item, ends: Item[]][] = [];
     for (const key of keys) {
       for (let si = 0; si <= lastAt; si++) {
         const s = span[si];
         const v = isKeyItem(s, key) ? valueOf(s) : null;
-        if (
-          v === null ||
-          isEndValue(v) ||
-          !isPaired(s) ||
-          (ownRunsOnly && s.id.client !== doc.clientID)
-        ) {
+        if (v === null || isEndValue(v) || !isPaired(s)) {
           continue;
         }
         const ends = liveEndsOf(s);

@@ -11,7 +11,7 @@
 // Paired runs: the index of ends (which opener each end names) drops what no
 // reader can need once every change is read: deleted ends and the entries of
 // deleted openers. A word bolded and unbolded 1,000 times deletes each run
-// it made (K1); the index stays at most 256 openers (pruned whenever it
+// it made; the index stays at most 256 openers (pruned whenever it
 // doubles) instead of holding all 500 runs ever written (gc on and off; the
 // document's one binding per peer).
 
