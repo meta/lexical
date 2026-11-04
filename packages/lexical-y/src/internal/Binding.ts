@@ -6561,7 +6561,10 @@ export class YBinding {
 
   /**
    * The content of the line (or inline container) `owner` as stored: each
-   * content item's atom range and the formats in effect at it.
+   * content item's atom range and the formats in effect at it. (Only while
+   * no composition holds anything back: its caller, settleTextFields, does
+   * not run during a hold, so the stored formats are what every line
+   * shows.)
    */
   private storedAtoms(owner: ElementNode): [number, number, Attrs][] {
     const state = this.state;

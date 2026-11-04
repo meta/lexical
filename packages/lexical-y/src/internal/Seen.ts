@@ -23,7 +23,7 @@ import {
   type Transaction,
 } from '@y/y';
 
-import {pairedReadingIn, stepFormat} from './Ident';
+import {pairedReadingIn, stepFormat, withHeldView} from './Ident';
 import {EMPTY_FORMATS, isEndItem, typeOf} from './State';
 import {deleted, inserted, type Unread, viewOf} from './Unread';
 
@@ -335,20 +335,23 @@ export function shownAttrs(end: Item, hidden: Hidden | null): Attrs {
  * a copy shares nothing (a map passed on as it is keeps it).
  */
 const FOLDED = Symbol('foldedTo');
+/**
+ * Which items a start formats map was folded over, so that a refold keeps
+ * it (see frontierOf):
+ * - 'raw': every item not deleted (the reader's folds, and main's);
+ * - 'stored': the document the write sees as it is stored (see isStored): a
+ *   held insertion counts, a deleted item a hold keeps showing does not;
+ * - 'shown': what the write's view shows (see isGone), with what `hidden`
+ *   holds back left out and its held ends pairing nothing (see
+ *   Ident.withHeldView): the display of the line being composed.
+ */
+export type FoldLane = 'raw' | 'stored' | 'shown';
 type Folded = {
   [FOLDED]?: {
     to: Item | null;
-    /**
-     * Whether the start is a shown one (folded over what the write's view
-     * shows, see isGone) rather than a stored one (every item not deleted):
-     * a refold keeps its lane.
-     */
-    shown: boolean;
-    /**
-     * For a shown start that also leaves out what a hold holds back (see
-     * Writer's held segments): that hold, whose filter a refold keeps.
-     */
-    unheld: Hidden | null;
+    lane: FoldLane;
+    /** The hold a 'stored' or 'shown' fold went by, or null. */
+    hidden: Hidden | null;
     /**
      * Whether `to` lies after a walk's left, per left asked (items never
      * move, so the answer never changes). Bounded: past 8 lefts the answers
@@ -361,15 +364,15 @@ type Folded = {
 export function noteFolded(
   formats: object | null,
   to: Item | null,
-  shown = false,
-  unheld: Hidden | null = null,
+  lane: FoldLane = 'raw',
+  hidden: Hidden | null = null,
 ): void {
   // Never on the shared empty map: one note there would serve every unit
   // that starts with no formats (and keep the noted item's document alive).
   if (formats !== null && formats !== EMPTY_FORMATS) {
     // On the map itself (a WeakMap entry per fold cost a hash insertion per
     // fold), non-enumerable, so maps still compare and print by entries.
-    const note = {after: null, shown, to, unheld};
+    const note = {after: null, hidden, lane, to};
     if (Object.prototype.hasOwnProperty.call(formats, FOLDED)) {
       (formats as Folded)[FOLDED] = note;
     } else {
@@ -389,7 +392,7 @@ export function copyStart<T extends Map<string, unknown> | null>(start: T): T {
   const copy = new Map(start);
   const note = (start as Folded)[FOLDED];
   if (note !== undefined) {
-    noteFolded(copy, note.to, note.shown, note.unheld);
+    noteFolded(copy, note.to, note.lane, note.hidden);
   }
   return copy as T;
 }
@@ -440,14 +443,16 @@ export function frontierOf(
   // `left`, the start is folded again from the container's start up to
   // `left` (in place: the start belongs to this unit; once, the note then
   // names `left`), and the walk steps everything from `left`.
-  if (note.shown ? isGone(to) : to.deleted) {
+  // (In its lane: a deleted item a hold keeps showing is no fold point of
+  // a stored start, see FoldLane.)
+  if (!inLane(to, note.lane, note.hidden)) {
     if (liesAfter(to, left, parent)) {
       refoldUpTo(
         start as Map<string, unknown>,
         left,
         parent,
-        note.shown,
-        note.unheld,
+        note.lane,
+        note.hidden,
       );
       note.to = left;
       note.after = null;
@@ -496,29 +501,48 @@ function liesAfter(to: Item, left: Item | null, parent: unknown): boolean {
   }
 }
 
-/** Fold `start` again: every live format item from `parent`'s start to `left`. */
-function refoldUpTo(
+/**
+ * Whether format item `it` counts in a fold of lane `lane` (see FoldLane).
+ */
+export function inLane(
+  it: Item,
+  lane: FoldLane,
+  hidden: Hidden | null,
+): boolean {
+  return lane === 'raw'
+    ? !it.deleted
+    : lane === 'stored'
+      ? isStored(it, hidden)
+      : !isGone(it) && !isHeld(it, hidden);
+}
+
+/**
+ * Fold `start` again in its lane (see FoldLane): every format item from
+ * `parent`'s start to `left` the lane counts.
+ */
+export function refoldUpTo(
   start: Map<string, unknown>,
   left: Item | null,
   parent: unknown,
-  shown: boolean,
-  unheld: Hidden | null = null,
+  lane: FoldLane,
+  hidden: Hidden | null = null,
 ): void {
   start.clear();
   if (left === null) {
     return;
   }
+  const step = (it: Item) => stepFormat(start, it);
   for (
     let it: Item | null = (parent as {_start: Item | null})._start;
     it !== null;
     it = it.right
   ) {
-    if (
-      !(shown ? isGone(it) : it.deleted) &&
-      it.content instanceof ContentFormat &&
-      (unheld === null || !isHeld(it, unheld))
-    ) {
-      stepFormat(start, it);
+    if (it.content instanceof ContentFormat && inLane(it, lane, hidden)) {
+      if (lane === 'shown' && hidden !== null) {
+        withHeldView(hidden, () => step(it));
+      } else {
+        step(it);
+      }
     }
     if (it === left) {
       break;

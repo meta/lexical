@@ -41,9 +41,9 @@ import {
   pairedReadingIn,
   rootOf,
   seedRunsOf,
-  stepFormat,
   stepPaired,
   unmarkPending,
+  withHeldView,
   writesPairedRuns,
 } from './Ident';
 import {runBoundary, type StoredUnit, storedUnit} from './Layout3';
@@ -422,6 +422,29 @@ export class Cursor {
 
   /** The fold of this cursor's steps (see stepperFor). */
   private step: ((formats: Formats, it: Item) => void) | null = null;
+  /**
+   * Whether opener `it` is paired as the editor shows it: an end the hold
+   * holds back pairs nothing (see Ident.withHeldView).
+   */
+  private pairedShown(it: Item): boolean {
+    return this.hidden === null
+      ? isPaired(it)
+      : withHeldView(this.hidden, () => isPaired(it));
+  }
+
+  /**
+   * Step format item `it` into `formats` as the editor shows it: an end the
+   * hold holds back pairs nothing (see Ident.withHeldView). The cursor walks
+   * what the editor shows (held formats are passed over, see isHeldFormat).
+   */
+  private stepShown(formats: Formats, it: Item): void {
+    const step = (this.step ??= stepPaired);
+    if (this.hidden === null) {
+      step(formats, it);
+    } else {
+      withHeldView(this.hidden, () => step(formats, it));
+    }
+  }
 
   /** Before this write's first paired item (see ensureIdentityRecord). */
   private beforePairedItem(): void {
@@ -582,7 +605,7 @@ export class Cursor {
         !covered(keyOf(item)) ||
         !pairedReadingIn(this.parent)
       ) {
-        (this.step ??= stepPaired)(this.formats, item);
+        this.stepShown(this.formats, item);
       }
     }
     this.left = item;
@@ -795,7 +818,7 @@ export class Cursor {
       ) {
         return 0;
       }
-      stepFormat(sim, x);
+      this.stepShown(sim, x);
       if (v === null) {
         unpaired = true;
       }
@@ -867,7 +890,7 @@ export class Cursor {
       // stack of its runs shows, not the items' raw values.
       const sim = new Map(this.formats);
       for (const it of unit) {
-        stepFormat(sim, it);
+        this.stepShown(sim, it);
       }
       for (const it of unit) {
         after.set(keyOf(it), sim.get(keyOf(it)) ?? null);
@@ -1615,7 +1638,7 @@ export class Cursor {
       if (isEndValue(v)) {
         return !isValidEnd(x);
       }
-      return v === null || !isPaired(x);
+      return v === null || !this.pairedShown(x);
     };
     // The before-fold, per key (one snapshot before any mutation),
     // as the document reads once it records layout 3 (this change writes
@@ -1646,7 +1669,7 @@ export class Cursor {
             clearers.add(x);
           }
         }
-        stepPaired(sim, x);
+        this.stepShown(sim, x);
         if (!isEndValue(valueOf(x)) && isBoundary(x)) {
           pending.push(x);
         }
@@ -1701,9 +1724,13 @@ export class Cursor {
       for (let si = 0; si <= lastAt; si++) {
         const s = span[si];
         const v = isKeyItem(s, key) ? valueOf(s) : null;
-        if (v === null || isEndValue(v) || !isPaired(s)) {
+        if (v === null || isEndValue(v) || !this.pairedShown(s)) {
           continue;
         }
+        // Every live end of the run, held ones too: a run deleted goes with
+        // all its ends in the document (one left behind would name nothing).
+        // The plan never takes a run whose interval or end the hold holds
+        // (see wholeRunEnd, emptyRunEnd and shields).
         const ends = liveEndsOf(s);
         const end =
           this.wholeRunEnd(s, ends, contentSet) ??
@@ -1756,7 +1783,7 @@ export class Cursor {
       for (const s of span) {
         if (isFormat(s)) {
           if (keyOf(s) === key && !isGone(s) && !this.isHeldFormat(s)) {
-            stepFormat(sim, s);
+            this.stepShown(sim, s);
           }
         } else if (
           contentSet.has(s) &&
