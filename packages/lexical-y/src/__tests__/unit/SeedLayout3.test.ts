@@ -51,9 +51,17 @@ import {createYDoc} from '../..';
 import {readYState, seedYState} from '../../headless';
 import {covered} from '../../internal/Ident';
 import {readLayout3Formats, writeLayout3Formats} from '../../internal/Layout3';
+import {
+  $createNumericFieldWrapper,
+  NumericFieldWrapperNode,
+} from '../catalog/coveredValues';
 import {$createBoxNode, NODES} from '../utils/harness';
 
-const config = {nodes: NODES, onWarn: () => {}, schemaVersion: 1};
+const config = {
+  nodes: [...NODES, NumericFieldWrapperNode],
+  onWarn: () => {},
+  schemaVersion: 1,
+};
 
 const $t = (text: string, format = 0, style = '') =>
   $createTextNode(text).setFormat(format).setStyle(style);
@@ -129,6 +137,18 @@ const SHAPES: [string, () => LexicalNode[]][] = [
         $t('y', BOLD),
         $createLineBreakNode(),
         $t('z', BOLD),
+      ),
+    ],
+  ],
+  // A wrapper whose class declares a field named `0`: its value is the
+  // object {"0": 3}, a value like any other.
+  [
+    'a wrapper with a numeric field name',
+    () => [
+      $createParagraphNode().append(
+        $t('before '),
+        $createNumericFieldWrapper($t('ab'), $t('c', BOLD)),
+        $t(' after'),
       ),
     ],
   ],
@@ -274,7 +294,7 @@ describe('the layout 3 seed', () => {
     expect(FIXTURES.map(f => f.name)).toEqual(SHAPES.map(([name]) => name));
     expect(
       createHash('sha256').update(fs.readFileSync(GOLDEN)).digest('hex'),
-    ).toBe('6c713829c691092aeabc771b05960c0b718ae6962457c721fe7acb1da73ee634');
+    ).toBe('360deeb469789ecda5f6a3d0663ef6f0c6fa5a156ccbccd450326fa333ad8526');
   });
 
   for (const [name, $build] of SHAPES) {
