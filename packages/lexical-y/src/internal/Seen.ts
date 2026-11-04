@@ -54,6 +54,18 @@ export function isHeld(item: Item, hidden: Hidden | null): boolean {
   return hidden !== null && hidden.hides(item);
 }
 
+/**
+ * Whether `item` is in the document the write sees as it is stored: not
+ * gone, and not a deleted item the hold only shows (see Hidden#keeps). What
+ * a line hands on to the lines after it is folded from these: a held
+ * insertion included, a kept deletion not.
+ */
+export function isStored(item: Item, hidden: Hidden | null): boolean {
+  return (
+    !isGone(item) && !(item.deleted && hidden !== null && hidden.keeps(item))
+  );
+}
+
 /** Whether `item` is deleted, in the document the write sees. */
 export function isGone(item: Item): boolean {
   const view = viewOf(item.parent as YNode);

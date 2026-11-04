@@ -49,6 +49,7 @@ import {Hidden} from './Hidden';
 import {
   attrsOf,
   covered as coveredKey,
+  endsOf,
   endTarget,
   equalStacks,
   isEndValue,
@@ -57,6 +58,7 @@ import {
   pairedReadingIn,
   repairPendingCopies,
   stepFormat,
+  withHeldView,
 } from './Ident';
 import {
   $foreignFlatKeys,
@@ -311,6 +313,10 @@ function parseRange(
 
 /** Whether UTF-16 code unit `c` is the second half of a surrogate pair. */
 const isLowSurrogate = (c: number): boolean => c >= 0xdc00 && c <= 0xdfff;
+
+/** Whether `it` is a format item of `key`. */
+const sameKey = (it: Item, key: string): boolean =>
+  it.content instanceof ContentFormat && it.content.key === key;
 
 export class Reader {
   /**
@@ -894,6 +900,7 @@ export class Reader {
     // start with: recompute them from the first such unit, until they agree
     // again past the last one, and read the units whose start changed.
     const formatUnits: Unit[] = [];
+    const pairingUnits = new Set<Unit>();
     for (const it of items) {
       if (it.content instanceof ContentFormat) {
         const u = this.located.get(it);
@@ -910,13 +917,20 @@ export class Reader {
           if (ou !== null) {
             formatUnits.push(ou);
             affected.add(ou);
+            if (ou !== this.located.get(it)) {
+              pairingUnits.add(ou);
+            }
           }
         }
       }
     }
     const startChanged =
       formatUnits.length > 0
-        ? recomputeUnitStarts(cs, formatUnits)
+        ? recomputeUnitStarts(
+            cs,
+            formatUnits,
+            this.state.hidden === null ? null : this.state.hidden.starts,
+          )
         : ([] as Unit[]);
     for (const u of startChanged) {
       affected.add(u);
@@ -934,7 +948,8 @@ export class Reader {
           composingItems,
           attrUnits !== undefined && attrUnits.has(u),
         ) &&
-        !startChanged.includes(u)
+        !startChanged.includes(u) &&
+        !pairingUnits.has(u)
       ) {
         affected.delete(u);
         this.attrChanged.delete(u);
@@ -1041,6 +1056,21 @@ export class Reader {
       return false;
     }
     let hidden = state.hidden;
+    // An item the hold keeps whose run this change makes reach past the
+    // line (what bounded it is gone now, or its other half is back): it
+    // shows no more, and the line reads the change at once.
+    if (hidden !== null && hidden.keepsAny()) {
+      let dropped = false;
+      for (const it of [...hidden.keptItems()]) {
+        if (!this.runInLine(it)) {
+          hidden.drop(it);
+          dropped = true;
+        }
+      }
+      if (dropped) {
+        return false;
+      }
+    }
     // Deleted format items the line goes on showing (see Hidden#keeps).
     const kept: Item[] = [];
     for (const it of items) {
@@ -1052,6 +1082,15 @@ export class Reader {
           return false;
         }
         if (this.change === null || !this.change.insertSet.hasId(it.id)) {
+          if (!this.runInLine(it)) {
+            // Part of a run that reaches past the line, or whose other half
+            // stays (other lines read their own changes as they come): kept
+            // here, it would pair with nothing there, now or once the rest
+            // is removed, and its run would reach on past the line. The
+            // line reads the removal now, as it reads any removal outside
+            // paired runs.
+            return false;
+          }
           kept.push(it);
         }
       }
@@ -1102,6 +1141,89 @@ export class Reader {
       }
     }
     return before === null && (!attrs || changed !== null);
+  }
+
+  /**
+   * Whether deleted format item `it` can go on showing in its line (see
+   * Hidden#keep) without changing what any other line shows: its run, as
+   * the line showed it before the change being read (see shownBefore), lies
+   * in the line and goes with it. For an end: its opener is deleted too and
+   * after the line's start. For an opener: every end that names it is
+   * deleted too and before the line's end. For a plain value (a raw
+   * writer's, or an opener no shown end names): the next plain value of its
+   * key that stays, which ends its effect, is in the line. An inline
+   * container has no lines: its whole content counts as one.
+   */
+  private runInLine(it: Item): boolean {
+    const hidden = this.state.hidden;
+    const content = it.content as ContentFormat;
+    if (isEndValue(content.value)) {
+      const opener = this.openerOf(it);
+      if (opener === null || !opener.deleted || !this.shownBefore(opener)) {
+        return false;
+      }
+      for (let p = it.left; p !== null; p = p.left) {
+        if (p === opener) {
+          return true;
+        }
+        if (isShownEnd(p, hidden)) {
+          return false;
+        }
+      }
+      return false;
+    }
+    const ends = new Set(endsOf(it).filter(end => this.shownBefore(end)));
+    for (const end of ends) {
+      if (!end.deleted) {
+        return false;
+      }
+    }
+    const plain = ends.size === 0;
+    for (let p = it.right; p !== null; p = p.right) {
+      if (plain) {
+        // The next plain value of the key ends its effect (a paired run's
+        // opener and end stack on it, see stepPaired).
+        if (
+          sameKey(p, content.key) &&
+          !p.deleted &&
+          this.shownBefore(p) &&
+          !isEndValue((p.content as ContentFormat).value) &&
+          !endsOf(p).some(end => this.shownBefore(end))
+        ) {
+          return true;
+        }
+      } else if (ends.delete(p)) {
+        if (ends.size === 0) {
+          return true;
+        }
+        continue;
+      }
+      if (isShownEnd(p, hidden)) {
+        return false;
+      }
+    }
+    return false;
+  }
+
+  /**
+   * Whether item `p` showed before the change being read: live and neither
+   * held back nor inserted by the change, or deleted by the change or kept
+   * by the hold (an item deleted before that the hold does not keep shows
+   * nowhere, though an undo manager may keep it findable).
+   */
+  private shownBefore(p: Item): boolean {
+    const change = this.change;
+    const hidden = this.state.hidden;
+    if (isHeld(p, hidden)) {
+      return false;
+    }
+    if (p.deleted) {
+      return (
+        (hidden !== null && hidden.keeps(p)) ||
+        (change !== null && change.deleteSet.hasId(p.id))
+      );
+    }
+    return change === null || !change.insertSet.hasId(p.id);
   }
 
   /**
@@ -1448,9 +1570,17 @@ export class Reader {
     );
     const left = prevLiveEnd(u.end, hidden);
     const first = left === null ? u.cs.y._start : left.right;
+    // The line being composed reads as it shows (see withHeldView); every
+    // other line, and what this one hands on (below), as stored.
     this.$setChildren(
       line,
-      this.$readInline(first, u.end, u.start || EMPTY_FORMATS, line),
+      this.$readInlineAs(
+        line.getKey(),
+        first,
+        u.end,
+        u.start || EMPTY_FORMATS,
+        line,
+      ),
     );
     // Whether it keeps the id it derives, as a line placed anew does (see
     // $commitUnits): the attributes just applied can change that (a quote
@@ -1472,7 +1602,14 @@ export class Reader {
       next !== undefined &&
       !sameFormats(next.start || EMPTY_FORMATS, after)
     ) {
-      next.start = after.size > 0 ? new Map(after) : null;
+      const split = hidden === null ? undefined : hidden.starts.get(next);
+      if (split !== undefined) {
+        // A split successor of the line being composed keeps its shown
+        // start; the stored one is what the release reads (Hidden#starts).
+        split.stored = after.size > 0 ? new Map(after) : null;
+      } else {
+        next.start = after.size > 0 ? new Map(after) : null;
+      }
       if (next.kind !== 'line' || !this.$readLineInPlace(next)) {
         const el = $getNodeByKey(next.cs.key);
         const i = next.cs.units.indexOf(next);
@@ -1784,7 +1921,8 @@ export class Reader {
       if (!untouched) {
         this.$setChildren(
           line,
-          this.$readInline(
+          this.$readInlineAs(
+            line.getKey(),
             p.startItem,
             p.stop,
             p.start,
@@ -2669,6 +2807,42 @@ export class Reader {
    * Lexical inline nodes for the content between two items, reusing the
    * nodes currently under `el` (and `extraPool`) where possible.
    */
+  /**
+   * $readInline for line `key`: the line being composed reads as it shows
+   * (see withHeldView), every other line as stored.
+   */
+  private $readInlineAs(
+    key: NodeKey,
+    ...args: Parameters<Reader['$readInline']>
+  ): LexicalNode[] {
+    const hidden = this.state.hidden;
+    return withHeldView(
+      hidden !== null && this.showsHeld(key) ? hidden : null,
+      () => this.$readInline(...args),
+    );
+  }
+
+  /**
+   * Whether line `key` is the line being composed, or a line a local split
+   * of it made while composing (see Hidden#starts): it shows the held view
+   * (see withHeldView).
+   */
+  private showsHeld(key: NodeKey | null): boolean {
+    const hidden = this.state.hidden;
+    if (hidden === null || key === null) {
+      return false;
+    }
+    if (key === this.composingKey) {
+      return true;
+    }
+    for (const u of hidden.starts.keys()) {
+      if (u.key === key) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   $readInline(
     start: Item | null,
     stop: Item | null,
@@ -3596,7 +3770,11 @@ function formatsAfter(
  * units whose start changed (they must be read again).
  */
 
-function recomputeUnitStarts(cs: CS, from: Unit[]): Unit[] {
+function recomputeUnitStarts(
+  cs: CS,
+  from: Unit[],
+  splits: Hidden['starts'] | null = null,
+): Unit[] {
   const units = cs.units;
   const changed: Unit[] = [];
   const index = new Map<Unit, number>();
@@ -3620,6 +3798,13 @@ function recomputeUnitStarts(cs: CS, from: Unit[]): Unit[] {
   const set = (u: Unit): boolean => {
     const next = formats.size > 0 ? new Map(formats) : null;
     noteFolded(next, at);
+    // A split successor of the line being composed keeps its shown start
+    // (see Hidden#starts): its stored start is recorded for the release.
+    const split = splits === null ? undefined : splits.get(u);
+    if (split !== undefined) {
+      split.stored = next;
+      return false;
+    }
     const differs = !sameFormats(
       u.start || EMPTY_FORMATS,
       next || EMPTY_FORMATS,
