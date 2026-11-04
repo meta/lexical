@@ -1296,12 +1296,57 @@ async function run(
 }
 
 // Sessions that failed once (their recorded actions), run on every run:
+// - 558: the binding read the composed line again after A's own typing (a
+//   write it could not store as the editor holds it), in an update Lexical
+//   ran after A's, outside the binding's view: the run the hold kept read
+//   without its kept end, and A's next write warned `format f:italic`.
 // - 7644, 7799: a value a raw writer inserted in the composed line, under a
 //   run the hold kept there, reached past the line in the document but not
 //   in the hold's view: the next line showed it, the composed line handed on
 //   no such format, and A's next write warned `format s:markIds␟c1` and
 //   `format f:bold`.
 const FOUND: {seed: number; gc: boolean; ops: Op[]}[] = [
+  {
+    gc: true,
+    ops: [
+      {k: 'online', on: false, who: 'B'},
+      {at: 24, k: 'raw', n: 6, value: true, who: 'C'},
+      {k: 'start', line: 2, off: 2},
+      {at: 20, k: 'raw', n: 6, value: false, who: 'C'},
+      {k: 'fmt', range: [2, 9, 2, 11], value: 'c1', what: 'comment', who: 'B'},
+      {
+        k: 'del',
+        key: 's:markIds\u001fc1',
+        mode: 'key',
+        pos: 39,
+        rank: 0,
+        who: 'B',
+      },
+      {at: 9, k: 'raw', n: 3, value: true, who: 'C'},
+      {k: 'sync'},
+      {k: 'fmt', range: [1, 13, 1, 9], value: '', what: 'italic', who: 'C'},
+      {at: 10, k: 'raw', n: 8, value: true, who: 'B'},
+      {k: 'enter'},
+      {k: 'fmt', range: [0, 2, 1, 12], value: '', what: 'italic', who: 'C'},
+      {k: 'end'},
+      {k: 'start', line: 1, off: 12},
+      {k: 'end'},
+      {k: 'fmt', range: [1, 5, 1, 13], value: '', what: 'bold', who: 'B'},
+      {k: 'start', line: 1, off: 8},
+      {k: 'fmt', range: [3, 4, 3, 7], value: '', what: 'unlink', who: 'B'},
+      {k: 'app redo', who: 'B'},
+      {k: 'sync'},
+      {k: 'del', key: 'f:italic', mode: 'key', pos: 14, rank: 0, who: 'C'},
+      {k: 'del', key: 'f:bold', mode: 'key', pos: 31, rank: 0, who: 'C'},
+      {k: 'online', on: false, who: 'A'},
+      {k: 'app undo', who: 'B'},
+      {at: 30, k: 'raw', n: 2, value: true, who: 'C'},
+      {k: 'del', key: 'f:bold', mode: 'key', pos: 30, rank: 0, who: 'C'},
+      {ch: 'x', k: 'type'},
+      {k: 'fmt', range: [2, 1, 3, 9], value: 'blue', what: 'color', who: 'C'},
+    ],
+    seed: 558,
+  },
   {
     gc: true,
     ops: [
