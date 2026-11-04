@@ -39,10 +39,10 @@ import {
 // Exports read through markdown-it, the most used CommonMark reader, and
 // through its CJK-friendly plugin, must read as Lexical's own import of them
 // does, so that "a strict export reads the same in every reader" holds
-// beyond Lexical's importers. The cases the
-// READMEs list as exceptions (a variation selector before a closing `~~` or
-// after whitespace other than a space, a vertical tab beside a marker, and
-// a `***` run that both closes and opens) are left out.
+// beyond Lexical's importers. The cases the READMEs list as exceptions (a
+// variation selector after whitespace other than a space, a vertical tab
+// beside a marker, and a `***` run that a pair uses only part of) are left
+// out.
 
 type Runs = [text: string, format: number][];
 type Reader = InstanceType<typeof MarkdownIt>;
@@ -115,6 +115,16 @@ const FIXED_CASES: Runs[] = [
     ['x', 0],
     ['\ufe0e', italic],
     ['b', 0],
+  ],
+  [
+    ['x ', 0],
+    ['Done \u2714\ufe0e', strikethrough],
+    [' y', 0],
+  ],
+  [
+    ['x ', 0],
+    ['Done \u2714\ufe0e', strikethrough],
+    ['next', 0],
   ],
   [
     ['世', italic],

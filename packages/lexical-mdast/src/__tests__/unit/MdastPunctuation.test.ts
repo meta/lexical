@@ -112,6 +112,18 @@ describe('Mdast punctuation modes', () => {
       '&#x4E16;~~「x」~~&#x754C;',
       '世~~「x」~~界',
     ],
+    // A selector before a closing `~~` goes out as a reference, which
+    // micromark-extension-cjk-friendly-gfm-strikethrough reads as other
+    // readers do.
+    [
+      [
+        ['x ', 0],
+        ['Done \u2714\ufe0e', strikethrough],
+        [' y', 0],
+      ],
+      'x ~~Done \u2714&#xFE0E;~~ y',
+      'x ~~Done \u2714&#xFE0E;~~ y',
+    ],
     // A reference to whitespace inside a run stays.
     [
       [
@@ -220,8 +232,8 @@ describe('Mdast punctuation modes', () => {
     ],
     [
       [['Done \u2714\ufe0e', strikethrough]],
-      '~~Done \u2714\ufe0e~~',
-      '~~Done \u2714\ufe0e~~',
+      '~~Done \u2714&#xFE0E;~~',
+      '~~Done \u2714&#xFE0E;~~',
     ],
     [
       [

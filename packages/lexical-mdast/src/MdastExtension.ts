@@ -134,20 +134,17 @@ export interface MdastConfig {
   readonly importPunctuation?: MdastPunctuationMode;
   /**
    * Which readers export writes emphasis and strikethrough markers for.
-   * Defaults to `'strict-commonmark'`, which writes a character reference
-   * where a marker beside punctuation would otherwise not open or close
-   * (`**你好。**&#x4E16;界`), so that every CommonMark, GFM and CJK-friendly
-   * reader reads it the same way, but for a variation selector before a
-   * closing `~~`, which `micromark-extension-cjk-friendly-gfm-strikethrough`
-   * leaves open, and a run of three markers that a pair uses only part of
-   * (`***a*b*c***`), which commonmark.js and markdown-it read differently
-   * from micromark, and a selector after whitespace other than a
-   * space (`**。\v︎**`), which `markdown-it-cjk-friendly` leaves literal, and
-   * a vertical tab beside a marker (`p\v**.**\vq`), which cmark and cmark-gfm
-   * don't read as whitespace and no reference can stand for.
-   * `'cjk-friendly'` writes such CJK text as
-   * typed (`**你好。**世界`), for readers that follow the CJK-friendly
-   * amendment, such as a CJK-friendly import.
+   * Defaults to `'strict-commonmark'`, which writes a character reference where
+   * a marker beside punctuation would otherwise not open or close
+   * (`**你好。**&#x4E16;界`), so that every CommonMark, GFM and CJK-friendly reader
+   * reads it the same way, but for a run of three markers that a pair uses only
+   * part of (`***a*b*c***`), which commonmark.js and markdown-it read
+   * differently from micromark, and a selector after whitespace other than a
+   * space (`**。\v︎**`), which `markdown-it-cjk-friendly` leaves literal, and a
+   * vertical tab beside a marker (`p\v**.**\vq`), which cmark and cmark-gfm
+   * don't read as whitespace and no reference can stand for. `'cjk-friendly'`
+   * writes such CJK text as typed (`**你好。**世界`), for readers that follow the
+   * CJK-friendly amendment, such as a CJK-friendly import.
    */
   readonly exportPunctuation?: MdastPunctuationMode;
 }

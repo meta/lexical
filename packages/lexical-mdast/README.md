@@ -208,7 +208,8 @@ written:
   variation selector before a marker reads as the character it follows,
   before a closing `~` or `~~` too, as `markdown-it-cjk-friendly` reads it:
   `x ~~Done ✔︎~~ y` closes, where
-  `micromark-extension-cjk-friendly-gfm-strikethrough` leaves it open.
+  `micromark-extension-cjk-friendly-gfm-strikethrough` leaves it open, so
+  export writes such a selector as a reference (`x ~~Done ✔&#xFE0E;~~ y`).
 - `'strict-commonmark'` follows CommonMark and GFM.
 
 Import defaults to `'cjk-friendly'`, which accepts what CJK writers type and,
@@ -222,19 +223,16 @@ reading.
 Export defaults to `'strict-commonmark'`: it writes a character reference
 where a marker would not open or close otherwise (`**你好。**&#x4E16;界`),
 which every CommonMark, GFM and CJK-friendly reader reads the same way, with
-four exceptions. A variation selector before a closing `~~` (`~~Done ✔︎~~`)
-stays open in `micromark-extension-cjk-friendly-gfm-strikethrough`. A run of
-three markers that a pair uses only part of (`***a*b*c***`, as on earlier
-versions, or `**“***!。**」!a***`) is read differently by micromark and by
-commonmark.js and markdown-it, which apply the rule of 3 to the whole run. A selector after whitespace other than a space (`**。\v︎**`)
-reads with literal markers in `markdown-it-cjk-friendly`.
+three exceptions. A run of three markers that a pair uses only part of
+(`***a*b*c***`, as on earlier versions, or `**“***!。**」!a***`) is read
+differently by micromark and by commonmark.js and markdown-it, which apply the
+rule of 3 to the whole run. A selector after whitespace other than a space
+(`**。\v︎**`) reads with literal markers in `markdown-it-cjk-friendly`.
 A vertical tab beside a marker (`p\v**.**\vq`) reads as whitespace in
 commonmark.js, markdown-it and micromark, but not in cmark and cmark-gfm
 (GitHub's renderer), which follow CommonMark's definition of whitespace, and
-no reference can stand for it.
-Export
-`'cjk-friendly'` writes such CJK text as typed (`**你好。**世界`) for readers that follow the
-amendment:
+no reference can stand for it. Export `'cjk-friendly'` writes such CJK text as
+typed (`**你好。**世界`) for readers that follow the amendment:
 
 ```ts
 configExtension(MdastExtension, {exportPunctuation: 'cjk-friendly'});

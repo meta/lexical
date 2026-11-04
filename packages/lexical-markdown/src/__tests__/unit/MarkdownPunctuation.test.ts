@@ -333,6 +333,18 @@ describe('Markdown punctuation modes', () => {
       'p\v**.**\vq',
       'p\v**.**\vq',
     ],
+    // A selector before a closing `~~` goes out as a reference, which
+    // micromark-extension-cjk-friendly-gfm-strikethrough reads as other
+    // readers do.
+    [
+      [
+        ['x ', 0],
+        ['Done \u2714\ufe0e', strikethrough],
+        ['next', 0],
+      ],
+      'x ~~Done \u2714&#65038;~~&#110;ext',
+      'x ~~Done \u2714&#65038;~~&#110;ext',
+    ],
   ])('exports %j', (runs, strict, cjkFriendly) => {
     expect(exportRuns(runs)).toBe(strict);
     expect(exportRuns(runs, 'strict-commonmark')).toBe(strict);

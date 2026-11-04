@@ -598,6 +598,7 @@ const ATTENTION_MARKER = /[*_~]/;
 const STOOD_IN =
   /(?![\0-\uffff])[\p{P}\p{S}]|[\ufe00-\ufe0e]|[\u2028\u2029\ufeff]/gu;
 const MICROMARK_ONLY_WHITESPACE = /^[\u2028\u2029\ufeff]$/;
+const VARIATION_SELECTOR = /^[\ufe00-\ufe0e]$/;
 
 /**
  * The backslashes before the last character of `value`, as their index and
@@ -994,6 +995,27 @@ function restoreStoodIn(
       nears.every(near => flanking(near, far) === expected),
     );
   };
+  // Whether a `~` run right after `index` closes, as it does for the
+  // stand-in there, which is punctuation.
+  const closesAfter = (index: number): boolean => {
+    let end = index + 1;
+    while (markdown[end] === '~') {
+      end++;
+    }
+    const beyond = markdown.charCodeAt(end);
+    return (
+      end > index + 1 &&
+      getRunFlanking(
+        126,
+        PUNCTUATION,
+        Number.isNaN(beyond)
+          ? WHITESPACE
+          : characters.has(markdown[end])
+            ? PUNCTUATION
+            : classifyUnit(beyond),
+      )[1]
+    );
+  };
   // `mdast-util-to-markdown` writes a reference only for whitespace or a
   // letter, so never for a stand-in.
   return markdown.replace(pattern, (standIn, i: number) => {
@@ -1007,7 +1029,12 @@ function restoreStoodIn(
     }
     return (!isCjkFriendly || character.length === 1) &&
       ((ATTENTION_MARKER.test(markdown[i - 1]) && !isPortable(i, -1)) ||
-        (ATTENTION_MARKER.test(markdown[i + 1]) && !isPortable(i, 1)))
+        (ATTENTION_MARKER.test(markdown[i + 1]) && !isPortable(i, 1)) ||
+        // micromark-extension-cjk-friendly-gfm-strikethrough reads a
+        // selector before `~` as a letter, not as what it varies, and so
+        // never closes the run there, but reads its reference as every
+        // reader does.
+        (VARIATION_SELECTOR.test(character) && closesAfter(i)))
       ? // A backslash before the reference would escape its `&`.
         `${isEscaped(i) ? '\\' : ''}&#x${character
           .codePointAt(0)!

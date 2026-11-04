@@ -1220,8 +1220,15 @@ function decideReferences(
     if (kinds[i] === TEXT) {
       if (
         isMarker(kinds[i + 1]) &&
-        value[value.length - 1] === values[i + 1][0] &&
-        !isEscaped(value, value.length - 1)
+        ((value[value.length - 1] === values[i + 1][0] &&
+          !isEscaped(value, value.length - 1)) ||
+          // micromark-extension-cjk-friendly-gfm-strikethrough reads a
+          // selector before `~` as a letter, not as what it varies, and so
+          // never closes the run there, but reads its reference as every
+          // reader does.
+          (kinds[i + 1] === CLOSER &&
+            values[i + 1][0] === '~' &&
+            isVariationSelector(value[value.length - 1])))
       ) {
         encodeEnd[i] = 1;
       }
