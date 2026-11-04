@@ -2600,6 +2600,7 @@ function $applyInsertedTextMarkIDs(
       const fromComparedText =
         source !== undefined &&
         compared.has(source) &&
+        !(absorbedNew && normalized.has(source)) &&
         $isTextNode(previousSource) &&
         recorded !== undefined &&
         recorded.offset >= previousSource.__text.length &&

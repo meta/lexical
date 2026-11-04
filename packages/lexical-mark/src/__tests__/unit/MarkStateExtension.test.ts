@@ -1098,7 +1098,7 @@ describe('MarkStateExtension', () => {
         ),
       );
       update(editor, () => {
-        const node = $paragraph().getFirstChildOrThrow<TextNode>();
+        const node = $paragraph().getFirstChildOrThrow() as TextNode;
         expect(node.isComposing()).toBe(true);
         node.setTextContent('see #first #see');
         node.selectEnd();
@@ -1120,7 +1120,7 @@ describe('MarkStateExtension', () => {
       mark(editor, 0, 3, 'c1');
       update(editor, () => $select(3));
       update(editor, () => {
-        const source = $paragraph().getFirstChildOrThrow<TextNode>();
+        const source = $paragraph().getFirstChildOrThrow() as TextNode;
         source.setTextContent('see appended');
         const [, piece] = source.splitText(3);
         piece.setTextContent(' changed').toggleFormat('bold');
@@ -1153,7 +1153,7 @@ describe('MarkStateExtension', () => {
       });
       update(editor, () => $paragraph().selectEnd());
       update(editor, () => {
-        const source = $paragraph(1).getFirstChildOrThrow<TextNode>();
+        const source = $paragraph(1).getFirstChildOrThrow() as TextNode;
         const [, piece] = source.splitText(3);
         piece.toggleFormat('bold');
         $paragraph().append(piece);
@@ -1162,6 +1162,29 @@ describe('MarkStateExtension', () => {
       expect(tree(editor)).toBe(
         'paragraph("here" " bar"[c1]) / paragraph("foo"[c1])',
       );
+    });
+
+    test('copied ids survive normalization and a later hashtag split', () => {
+      const editor = buildEditorFromExtensions(
+        defineExtension({
+          dependencies: [
+            RichTextExtension,
+            HashtagExtension,
+            MarkStateExtension,
+          ],
+          name: '[copied-normalized-split]',
+        }),
+      );
+      update(editor, () => $init('see'));
+      mark(editor, 0, 3, 'c1');
+      update(editor, () => {
+        const source = $paragraph().getFirstChildOrThrow() as TextNode;
+        const node = $createTextNode(' x #y z');
+        node.updateFromJSON({...node.exportJSON(), $: source.exportJSON().$});
+        source.selectEnd();
+        $insertNodes([node]);
+      });
+      expect(tree(editor)).toBe('paragraph("see x "[c1] "#y" " z"[c1])');
     });
 
     test('copied ids remain owned by plain text inserted after a marked plain node', () => {
