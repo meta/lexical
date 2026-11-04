@@ -232,7 +232,12 @@ export function describeYRoom(
   let pristine = true;
   for (const name of [...roots].sort()) {
     const root = existingRoot(doc, name);
-    if (root === null || (root._start === null && root._map.size === 0)) {
+    // Live content only, as the runner reads a root: a root whose items and
+    // attributes were all deleted holds nothing to serve.
+    if (
+      root === null ||
+      (root.length === 0 && Object.keys(root.getAttrs()).length === 0)
+    ) {
       continue;
     }
     pristine = false;
