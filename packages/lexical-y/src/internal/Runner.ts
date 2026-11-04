@@ -80,6 +80,12 @@ function createYDoc(state?: Uint8Array | null, options?: YDocOptions): YDoc {
  * `revision`.
  */
 export interface YLayoutMigration {
+  /**
+   * The execution contract the step is written against: 1, the methods
+   * below as this runner calls them. A runner refuses a step of a version
+   * it does not run before calling anything (`'invalid-steps'`).
+   */
+  readonly v: 1;
   /** `lexical-y/layout/<from>to<to>`. */
   readonly id: string;
   /** From 1; bumped on any change to what the step writes (hashed into the client). */
@@ -91,13 +97,14 @@ export interface YLayoutMigration {
   /**
    * Migrate one container's own sequence, inside the runner's transaction
    * on an observer-free copy (the runner records the layout before the
-   * first container and the epoch after the last). Returns what it wrote
-   * and deleted (informational; the receipt counts the transaction).
+   * first container and the epoch after the last). Returns nothing, or
+   * what it wrote and deleted (informational and ignored: the receipt
+   * counts the transaction).
    */
   migrateContainer(
     tr: Transaction,
     container: YNode,
-  ): {readonly written: number; readonly deleted: number};
+  ): {readonly written: number; readonly deleted: number} | void;
   /**
    * Frozen read of layout `from`: one normalized string per live countable
    * unit of the container's own sequence, in order (each UTF-16 code unit
@@ -131,8 +138,8 @@ export type YKnownMigrationErrorCode =
   | 'missing-step'
   /**
    * The steps are ill-formed: duplicate ids, two steps from one layout, a
-   * step that is not N to N + 1, misnamed, without a positive revision, or
-   * not a step.
+   * step that is not N to N + 1, misnamed, without a positive revision, of
+   * a step contract (`v`) this runner does not run, or not a step.
    */
   | 'invalid-steps'
   /** A root has content and no layout record. */
@@ -151,9 +158,7 @@ export type YKnownMigrationErrorCode =
  * throws (YKnownMigrationErrorCode) or one a later version adds. Open on
  * purpose: handle the codes you know and keep a fallback.
  */
-export type YMigrationErrorCode =
-  | YKnownMigrationErrorCode
-  | (string & {});
+export type YMigrationErrorCode = YKnownMigrationErrorCode | (string & {});
 
 /**
  * @experimental A migration refused or failed. Nothing was written: the
@@ -394,6 +399,11 @@ function stepProblems(steps: readonly unknown[]): string[] {
     if (!isStep(step)) {
       problems.push('not a layout migration step');
       continue;
+    }
+    if (step.v !== 1) {
+      problems.push(
+        `${step.id} is written for step contract ${String(step.v)}, this runner runs 1`,
+      );
     }
     if (step.from < 1 || step.to !== step.from + 1) {
       problems.push(`${step.id} links ${step.from} to ${step.to}`);

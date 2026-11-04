@@ -30,12 +30,8 @@ const step1to2: YLayoutMigration = {
   },
   from: 1,
   id: 'lexical-y/layout/1to2',
-  migrateContainer(
-    _tr: Transaction,
-    _container: YNode,
-  ): {written: number; deleted: number} {
+  migrateContainer(_tr: Transaction, _container: YNode): void {
     // Nothing: the runner records layout 2 and the epoch.
-    return {deleted: 0, written: 0};
   },
   readAfter: readLayout12,
   readBefore: readLayout12,
@@ -44,6 +40,7 @@ const step1to2: YLayoutMigration = {
     return false;
   },
   to: 2,
+  v: 1,
 };
 
 export default step1to2;

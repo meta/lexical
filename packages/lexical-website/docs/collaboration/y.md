@@ -1626,6 +1626,10 @@ runner is `@lexical/y/migrate`:
 - `loadYMigrationSteps(loaders, from, to)`: loads only the steps a document
   needs.
 
+A step names the execution contract it is written against (`v: 1`); a
+runner refuses a step of a contract it does not run before calling any of
+it (`'invalid-steps'`).
+
 Each step runs on a copy of the document, in one transaction under a client
 id hashed from its inputs (two servers that migrate the same bytes write the
 same update), and the runner checks the result before it returns or applies

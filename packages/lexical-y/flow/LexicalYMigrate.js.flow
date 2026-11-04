@@ -16,7 +16,10 @@ import type {ClientIDRange, YMigrationEpoch} from '@lexical/y';
 
 export type {YMigrationEpoch};
 
+// `v`: the execution contract (1); a runner refuses another before calling
+// anything.
 export type YLayoutMigration = {
+  readonly v: 1,
   readonly id: string,
   readonly revision: number,
   readonly from: number,
@@ -24,7 +27,7 @@ export type YLayoutMigration = {
   migrateContainer(
     tr: unknown,
     container: YNode,
-  ): {readonly written: number, readonly deleted: number},
+  ): {readonly written: number, readonly deleted: number} | void,
   readBefore(container: YNode): ReadonlyArray<string>,
   readAfter(container: YNode): ReadonlyArray<string>,
   checkAfter(container: YNode): ReadonlyArray<string>,

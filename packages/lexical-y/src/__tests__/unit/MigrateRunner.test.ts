@@ -377,6 +377,49 @@ describe.each([false, true])('migration runner, gc %s', gc => {
       });
     });
 
+    test('a step of another contract version (v) is refused before the runner calls anything; a migrateContainer may return nothing', async () => {
+      const calls: string[] = [];
+      const later = {
+        ...stamp(SEED, {
+          checkAfter: () => {
+            calls.push('checkAfter');
+            return [];
+          },
+          migrateContainer: () => {
+            calls.push('migrateContainer');
+          },
+          readAfter: c => {
+            calls.push('readAfter');
+            return readItems(c);
+          },
+          readBefore: c => {
+            calls.push('readBefore');
+            return readItems(c);
+          },
+          rewrites: () => {
+            calls.push('rewrites');
+            return false;
+          },
+        }),
+        v: 2,
+      } as unknown as YLayoutMigration;
+      const state = stateOf(RSEED);
+      expectRefused(
+        () => migrateYState(state, [later], {gc, ...TO2}),
+        'invalid-steps',
+        'step contract 2',
+      );
+      await expect(
+        loadYMigrationSteps({[SEED]: async () => later}, SEED, SEED + 1),
+      ).rejects.toMatchObject({code: 'invalid-steps'});
+      expect(calls).toEqual([]);
+      // Returning nothing (void) is a step's ordinary shape.
+      const quiet = stamp(SEED, {migrateContainer: () => undefined});
+      const out = migrateYState(state, [quiet], {gc, ...TO2});
+      expect(out.receipt.changed).toBe(true);
+      expect(recordedLayout(docOf(out.state))).toBe(SEED + 1);
+    });
+
     test('loadYMigrationSteps loads only the links a root needs', async () => {
       const first = vi.fn(async () => ({default: STAMP}));
       const second = vi.fn(async () => REWRITE);

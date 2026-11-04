@@ -113,6 +113,7 @@ export function stamp(
     revision: 1,
     rewrites: () => false,
     to: from + 1,
+    v: 1,
     ...extra,
   };
 }

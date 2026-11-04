@@ -335,7 +335,7 @@ describe('@lexical/y/migrate/1to2 golden fixtures', () => {
       {
         "fixtures": "755a1c4d0e8163ad153a37d60330cbabb36ed039f78d93664450e4b3d052caeb",
         "read": "87e4170109df818d96e500100fd09f0e15d7292bb2c0128d9417adfdb768a3ac",
-        "step": "00936211b610a4dfc6ee69cd9e36756c52f3f18f722456cd268ebd481eb86098",
+        "step": "3114b0954b08c676af1d4c5487efaac7a6eedd1922d6b57356fab4ce5a7314cb",
       }
     `);
     expect(step1to2).toMatchObject({

@@ -33,13 +33,17 @@ const handmade: YLayoutMigration = {
   checkAfter: (c: Node) => [],
   from: 1,
   id: 'handmade',
-  migrateContainer: (tr: unknown, c: Node) => ({deleted: 0, written: 0}),
+  // Returning nothing is a step's ordinary shape.
+  migrateContainer: (tr: unknown, c: Node) => {},
   readAfter: (c: Node) => [],
   readBefore: (c: Node) => [],
   revision: 1,
   rewrites: (key: string) => false,
   to: 2,
+  v: 1,
 };
+// $FlowExpectedError[incompatible-type] a step names its contract version
+const unversioned: YLayoutMigration = {...handmade, v: undefined};
 const problems: ReadonlyArray<string> = handmade.checkAfter(container);
 const frozenProblems: ReadonlyArray<string> = step1to2.checkAfter(container);
 // $FlowExpectedError[incompatible-type] a step without checkAfter is not a step
@@ -52,6 +56,7 @@ const incomplete: YLayoutMigration = {
   revision: 1,
   rewrites: (key: string) => false,
   to: 2,
+  v: 1,
 };
 
 const steps: ReadonlyArray<YLayoutMigration> = [step1to2];
