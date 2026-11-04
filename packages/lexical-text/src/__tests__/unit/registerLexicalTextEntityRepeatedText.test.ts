@@ -201,3 +201,49 @@ test.each([' #tag', ' #first #tag'])(
     });
   },
 );
+
+test.each([5, 8, 12])(
+  'an edit before existing text keeps its state with the caret at %i',
+  caret => {
+    const editor = createEditor({
+      nodes: [HashtagNode],
+      onError: error => {
+        throw error;
+      },
+    });
+    registerLexicalTextEntity(
+      editor,
+      HashtagExtension.config!.getHashtagMatch,
+      HashtagNode,
+      node => $createHashtagNode(node.getTextContent()),
+    );
+    editor.update(
+      () => {
+        $getRoot().append(
+          $createParagraphNode().append(
+            $setState($createTextNode('see foo bar'), note, 'c1'),
+          ),
+        );
+      },
+      {discrete: true},
+    );
+    editor.update(
+      () => {
+        const node = $getRoot().getAllTextNodes()[0];
+        node.spliceText(4, 0, '#');
+        node.select(caret, caret);
+      },
+      {discrete: true},
+    );
+    editor.read(() => {
+      const nodes = $getRoot().getAllTextNodes();
+      expect(nodes.map(node => node.getTextContent()).join('')).toBe(
+        'see #foo bar',
+      );
+      const hashtag = nodes.find(node => node.getType() === 'hashtag');
+      expect(hashtag).toBeDefined();
+      expect(hashtag!.getTextContent()).toBe('#foo');
+      expect($getState(hashtag!, note)).toBe('c1');
+    });
+  },
+);

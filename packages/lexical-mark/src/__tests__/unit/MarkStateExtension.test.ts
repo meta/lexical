@@ -1076,6 +1076,120 @@ describe('MarkStateExtension', () => {
       }
     });
 
+    test('composed repeated hashtags stay outside the preceding comment', () => {
+      const editor = buildEditorFromExtensions(
+        defineExtension({
+          dependencies: [
+            RichTextExtension,
+            HashtagExtension,
+            MarkExtension,
+            MarkStateExtension,
+          ],
+          name: '[composed-hashtags]',
+        }),
+      );
+      update(editor, () => $init('see more'));
+      mark(editor, 0, 3, 'c1');
+      update(editor, () => $select(3));
+      update(editor, () =>
+        editor.dispatchCommand(
+          COMPOSITION_START_COMMAND,
+          new CompositionEvent('compositionstart', {data: ''}),
+        ),
+      );
+      update(editor, () => {
+        const node = $paragraph().getFirstChildOrThrow<TextNode>();
+        expect(node.isComposing()).toBe(true);
+        node.setTextContent('see #first #see');
+        node.selectEnd();
+      });
+      update(editor, () => $setCompositionKey(null));
+      expect(tree(editor)).toBe(
+        'paragraph("see"[c1] " " "#first" " " "#see" " more")',
+      );
+    });
+
+    test('changing a split piece does not clear its ids using the old text slice', () => {
+      const editor = buildEditorFromExtensions(
+        defineExtension({
+          dependencies: [RichTextExtension, MarkStateExtension],
+          name: '[changed-split-piece]',
+        }),
+      );
+      update(editor, () => $init('see'));
+      mark(editor, 0, 3, 'c1');
+      update(editor, () => $select(3));
+      update(editor, () => {
+        const source = $paragraph().getFirstChildOrThrow<TextNode>();
+        source.setTextContent('see appended');
+        const [, piece] = source.splitText(3);
+        piece.setTextContent(' changed').toggleFormat('bold');
+        piece.selectEnd();
+      });
+      expect(tree(editor)).toBe('paragraph("see"[c1] " changed"[c1])');
+    });
+
+    test('a marked split piece moved from another block keeps its own ids', () => {
+      const editor = buildEditorFromExtensions(
+        defineExtension({
+          dependencies: [
+            RichTextExtension,
+            HashtagExtension,
+            MarkExtension,
+            MarkStateExtension,
+          ],
+          name: '[moved-split]',
+        }),
+      );
+      update(editor, () => {
+        const source = $createTextNode('foo bar');
+        $getRoot()
+          .clear()
+          .append(
+            $createParagraphNode().append($createTextNode('here')),
+            $createParagraphNode().append(source),
+          );
+        $addMarkID('c1', source.select(0, 7));
+      });
+      update(editor, () => $paragraph().selectEnd());
+      update(editor, () => {
+        const source = $paragraph(1).getFirstChildOrThrow<TextNode>();
+        const [, piece] = source.splitText(3);
+        piece.toggleFormat('bold');
+        $paragraph().append(piece);
+        piece.selectEnd();
+      });
+      expect(tree(editor)).toBe(
+        'paragraph("here" " bar"[c1]) / paragraph("foo"[c1])',
+      );
+    });
+
+    test('copied ids remain owned by plain text inserted after a marked plain node', () => {
+      const editor = buildEditorFromExtensions(
+        defineExtension({
+          dependencies: [
+            RichTextExtension,
+            HashtagExtension,
+            MarkExtension,
+            MarkStateExtension,
+          ],
+          name: '[root]',
+        }),
+      );
+      update(editor, () => $init('see foo bar'));
+      mark(editor, 4, 7, 'c1');
+      update(editor, () => {
+        const [, source] = $paragraph().getAllTextNodes();
+        const node = $createTextNode(' more').toggleFormat('bold');
+        node.updateFromJSON({...node.exportJSON(), $: source.exportJSON().$});
+        source.selectEnd();
+        $insertNodes([node]);
+      });
+      expect(tree(editor)).toBe(
+        'paragraph("see " "foo"[c1] " more"[c1] " bar")',
+      );
+    });
+
     test('text dropped from another editor after a marked hashtag keeps its ids, like MarkNode', () => {
       for (const withMarkNode of [false, true]) {
         const editor = buildEditorFromExtensions(
@@ -3885,3 +3999,22 @@ function $getNodeMarkIDsOfText(text: string): string[] {
   }
   return $getNodeMarkIDs(node);
 }
+
+test('MarkState split tracking is released without changing full edit recording', () => {
+  for (const recordEdits of [false, true]) {
+    const editor = buildEditorFromExtensions(
+      defineExtension({
+        dependencies: [RichTextExtension, MarkStateExtension],
+        name: '[split-tracking-lifecycle]',
+      }),
+    );
+    expect(editor._recordTextSplits).toBe(1);
+    expect(editor._recordTextEdits).toBe(false);
+    editor._recordTextEdits = recordEdits;
+    editor.dispose();
+    expect(editor._recordTextSplits).toBe(0);
+    expect(editor._recordTextEdits).toBe(recordEdits);
+    editor.dispose();
+    expect(editor._recordTextSplits).toBe(0);
+  }
+});

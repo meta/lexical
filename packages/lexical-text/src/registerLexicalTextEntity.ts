@@ -274,13 +274,15 @@ function $isInsertedText(
   while (prefix < max && prevText[prefix] === text[prefix]) {
     prefix++;
   }
-  // The caret disambiguates repeated text when the unchanged suffix still
-  // follows it. Capture it before the transform splits or replaces any text.
-  if (caret >= 0 && prevText.endsWith(text.slice(caret))) {
-    const startOfInsertion = Math.min(
-      prefix,
-      caret - (text.length - prevText.length),
-    );
+  // The caret disambiguates repeated text only when both sides agree that
+  // the insertion ends there. Code can edit earlier text and leave the caret
+  // elsewhere. Capture it before the transform splits or replaces any text.
+  const startOfInsertion = caret - (text.length - prevText.length);
+  if (
+    caret >= 0 &&
+    prefix >= startOfInsertion &&
+    prevText.endsWith(text.slice(caret))
+  ) {
     return start >= startOfInsertion && end <= caret && end > start;
   }
   let suffix = 0;
