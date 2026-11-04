@@ -124,9 +124,10 @@ follows. Export defaults to `'strict-commonmark'`, whose references every
 CommonMark, GFM and CJK-friendly reader reads the same way
 (`**你好。**&#19990;界`), with four exceptions. A variation selector before a
 closing `~~` (`~~Done ✔︎~~`) stays open in
-`micromark-extension-cjk-friendly-gfm-strikethrough`. A `***` run that both
-closes and opens (`**“***!。**」!a***`) is read differently by micromark and
-by commonmark.js and markdown-it, which apply the rule of 3 to the whole run.
+`micromark-extension-cjk-friendly-gfm-strikethrough`. A run of three
+markers that a pair uses only part of (`***a*b*c***`, as on earlier versions,
+or `**“***!。**」!a***`) is read differently by micromark and by commonmark.js
+and markdown-it, which apply the rule of 3 to the whole run.
 A selector after whitespace other than a space (`**。\v︎**`) reads with
 literal markers in `markdown-it-cjk-friendly`.
 A vertical tab beside a marker (`p\v**.**\vq`) reads as whitespace in
