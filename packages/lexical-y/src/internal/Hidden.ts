@@ -92,6 +92,19 @@ export class Hidden {
   constructor(public ownerKey: NodeKey) {}
 
   /**
+   * The text node the composition runs in, as the binding last saw it after
+   * a commit (see YBinding's update listener); null until then.
+   */
+  composedKey: NodeKey | null = null;
+  /**
+   * Lexical moved the composition to another node in a way the binding did
+   * not foresee (see YBinding#foreseeNextUpdate and YBinding#noteComposed),
+   * or foresaw: the hold ends at once (see YBinding#$holds), so that the
+   * editor shows what is stored.
+   */
+  missed = false;
+
+  /**
    * Format items a held change deleted, which the editor still shows (see
    * `keeps`), with whether the hold set their Item.keep (so that the
    * deleting transaction's garbage collection left their key and value
