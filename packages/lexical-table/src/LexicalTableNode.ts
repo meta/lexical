@@ -671,9 +671,6 @@ export class TableNode extends ElementNode {
         >();
         for (const mapRow of tableMap) {
           for (const mapValue of mapRow) {
-            if (mapValue === undefined) {
-              continue; // no cell here in a ragged table
-            }
             const key = mapValue.cell.getKey();
             if (!cellValues.has(key)) {
               cellValues.set(key, {
@@ -704,7 +701,7 @@ export class TableNode extends ElementNode {
           }
         }
 
-        // A ragged table (issue #9453) can reach this point when its rows were never
+        // A ragged table (#9453) can reach this point when its rows were never
         // padded in the model, e.g. after a collaboration update or in an
         // editor without the table transform. Pad the export so that the HTML
         // is a rectangle either way. Only a whole-table export is padded: when
@@ -988,7 +985,6 @@ function $padExportedTableRows(
   ) {
     return;
   }
-  const colWidths = tableNode.getColWidths();
   const theme = editor._config.theme;
   const doc = $getDocument();
   rowLengths.forEach((rowLength, i) => {
@@ -1006,12 +1002,11 @@ function $padExportedTableRows(
         theme.tableCell,
         isHeaderRow && theme.tableCellHeader,
       );
-      // The same inline styles TableCellNode.exportDOM writes for a cell
-      // with default settings, so the padding matches its neighbours.
+      // The inline styles TableCellNode.exportDOM writes for a new cell, as
+      // $padTableRows would create: no width of its own (COLUMN_WIDTH), and
+      // the default header background in a header row.
       cellElement.style.border = '1px solid black';
-      cellElement.style.width = `${
-        (colWidths && colWidths[column]) || COLUMN_WIDTH
-      }px`;
+      cellElement.style.width = `${COLUMN_WIDTH}px`;
       cellElement.style.verticalAlign = 'top';
       cellElement.style.textAlign = 'start';
       if (isHeaderRow) {
