@@ -22,13 +22,10 @@ import {
   withSeeding,
   writesPairedRuns,
 } from '../../../internal/Ident';
-import {setFormatIdentityWrites} from '../../utils/noSwitch';
 
 test('seeding one document leaves paired writes on in another', () => {
   const seeded = createYDoc();
   const other = createYDoc();
-  setFormatIdentityWrites(seeded, true);
-  setFormatIdentityWrites(other, true);
   const seededRoot = seeded.get('lexical-y');
   const otherRoot = other.get('lexical-y');
   expect(writesPairedRuns(seeded, seededRoot)).toBe(true);

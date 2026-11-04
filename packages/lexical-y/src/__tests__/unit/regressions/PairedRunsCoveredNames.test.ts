@@ -14,7 +14,7 @@
 // runs in a layout 3 document.
 
 import {$getRoot, $setSelection} from 'lexical';
-import {afterEach, expect, test} from 'vitest';
+import {expect, test} from 'vitest';
 
 import {covered} from '../../../internal/Ident';
 import {
@@ -24,11 +24,6 @@ import {
   freshReader,
   setup,
 } from '../../utils/harness';
-import {setFormatIdentityWritesDefault} from '../../utils/noSwitch';
-
-afterEach(() => {
-  setFormatIdentityWritesDefault(false);
-});
 
 test('covered names are the frozen list', () => {
   for (const key of [
@@ -60,7 +55,6 @@ test('covered names are the frozen list', () => {
 
 for (const gc of [false, true]) {
   test(`a raw writer's own key in a layout 3 document keeps the plain fold (gc ${gc ? 'on' : 'off'})`, async () => {
-    setFormatIdentityWritesDefault(true);
     const t = await setup(() => $getRoot().append($p('abc')), {gc});
     t.a.update(() => {
       $selectIn([0], 2, 3).formatText('bold');

@@ -30,7 +30,7 @@ import {
   type TextFormatType,
   type TextNode,
 } from 'lexical';
-import {afterEach, expect, test} from 'vitest';
+import {expect, test} from 'vitest';
 
 import {
   expectConverged,
@@ -38,11 +38,6 @@ import {
   type Peer,
   setup,
 } from '../../utils/harness';
-import {setFormatIdentityWritesDefault} from '../../utils/noSwitch';
-
-afterEach(() => {
-  setFormatIdentityWritesDefault(false);
-});
 
 const WORDS: [string, TextFormatType[]][] = [
   ['abc', ['bold', 'italic', 'strikethrough']],
@@ -86,7 +81,6 @@ for (const gc of [false, true]) {
     [2, 1],
   ]) {
     test(`text typed before plain text another client typed past seeded closers stays plain after that client's undo (ids ${ids}, gc ${gc ? 'on' : 'off'})`, async () => {
-      setFormatIdentityWritesDefault(true);
       const t = await setup(
         () => {
           const p = $createParagraphNode();

@@ -16,19 +16,13 @@
 // document's one binding per peer).
 
 import {$createParagraphNode, $createTextNode, $getRoot} from 'lexical';
-import {afterEach, expect, test} from 'vitest';
+import {expect, test} from 'vitest';
 
 import {indexedOpeners} from '../../../internal/Ident';
 import {$selectIn, expectConverged, setup} from '../../utils/harness';
-import {setFormatIdentityWritesDefault} from '../../utils/noSwitch';
-
-afterEach(() => {
-  setFormatIdentityWritesDefault(false);
-});
 
 for (const gc of [false, true]) {
   test(`1,000 toggles of one word keep the index of ends bounded (gc ${gc ? 'on' : 'off'})`, async () => {
-    setFormatIdentityWritesDefault(true);
     const t = await setup(
       () =>
         $getRoot().append(

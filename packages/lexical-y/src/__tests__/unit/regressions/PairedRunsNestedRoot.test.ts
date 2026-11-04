@@ -29,7 +29,6 @@ import {
 import {afterEach, expect, test} from 'vitest';
 
 import {createYDoc, YBinding} from '../../..';
-import {setFormatIdentityWrites} from '../../utils/noSwitch';
 
 const NODES = [HeadingNode, QuoteNode, ListNode, ListItemNode];
 
@@ -81,7 +80,6 @@ for (const gc of [false, true]) {
     const c = client(doc, root, 'ab');
     bindings.push(c.binding);
     c.binding.initialize();
-    setFormatIdentityWrites(doc, true);
     c.editor.update(
       () => {
         const text = $getRoot().getAllTextNodes()[0];

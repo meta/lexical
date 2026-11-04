@@ -15,14 +15,11 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
-import {afterEach, expect, test} from 'vitest';
+import {expect, test} from 'vitest';
 
 import {runScript, type Script} from '../../utils/fuzz';
-import {setFormatIdentityWritesDefault} from '../../utils/noSwitch';
 
 const DIR = path.join(__dirname, '..', '..', 'fuzz');
-
-afterEach(() => setFormatIdentityWritesDefault(false));
 
 for (const file of [
   'diverge-format-span-after-moved-line-s5887.json',
@@ -31,7 +28,6 @@ for (const file of [
 ]) {
   for (const gc of ['', '1']) {
     test(`${file}, paired runs, gc ${gc === '1' ? 'on' : 'off'}`, () => {
-      setFormatIdentityWritesDefault(true);
       const script: Script = JSON.parse(
         fs.readFileSync(path.join(DIR, file), 'utf8'),
       );

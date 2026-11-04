@@ -35,7 +35,7 @@ import {
   type LexicalEditor,
   type TextNode,
 } from 'lexical';
-import {afterEach, beforeEach, describe, expect, test} from 'vitest';
+import {describe, expect, test} from 'vitest';
 
 import {createYDoc, YBinding} from '../../..';
 import {
@@ -46,18 +46,9 @@ import {
   type Peer,
   setup,
 } from '../../utils/harness';
-import {
-  setFormatIdentityWrites,
-  setFormatIdentityWritesDefault,
-} from '../../utils/noSwitch';
 
 // The shapes need writes off until each turns them on (the suite may run
 // with paired writes forced on).
-beforeEach(() => {
-  setFormatIdentityWritesDefault(false);
-});
-
-afterEach(() => setFormatIdentityWritesDefault(false));
 
 const ONE = Object.freeze([1]);
 const TWO = Object.freeze([2]);
@@ -133,7 +124,6 @@ for (const gc of [false, true]) {
           }
         });
         await t.sync();
-        for (const p of t.peers) setFormatIdentityWrites(p.doc, true);
         // B's first paired write records layout 3 (on "c"); its second gives "a" its own value (a paired run over "a")
         b.update(() => {
           $selectIn([sameKeyOnly ? 1 : 2], 0, 1).formatText('bold');
@@ -178,7 +168,6 @@ for (const gc of [false, true]) {
     test('a nested root with its layout 1 record undone (layout 3 kept), no binding: app delete + undo of the pair around X', async () => {
       const doc = createYDoc(null, {gc});
       doc.clientID = 7;
-      setFormatIdentityWrites(doc, true);
       const child = new Y.Node('editor');
       doc.transact(() => doc.get('app').setAttr('editor', child));
       const editor = createEditor({

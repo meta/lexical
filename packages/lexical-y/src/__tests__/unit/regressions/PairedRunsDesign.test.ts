@@ -23,7 +23,7 @@ import {
   $setCompositionKey,
   $setSelection,
 } from 'lexical';
-import {afterEach, beforeEach, describe, expect, test} from 'vitest';
+import {afterEach, describe, expect, test} from 'vitest';
 
 import {setOwnRunsOnly} from '../../../internal/Ident';
 import {
@@ -37,32 +37,17 @@ import {
   type Peer,
   setup,
 } from '../../utils/harness';
-import {
-  setFormatIdentityWrites,
-  setFormatIdentityWritesDefault,
-} from '../../utils/noSwitch';
 
 const LAYOUT_3 = 'lexical-y:3';
 
-// Every cell starts with the switch off (legacy histories), whatever the
-// run's setting; cells that need it on say so.
-beforeEach(() => {
-  setFormatIdentityWritesDefault(false);
-});
+// Every cell starts with format changes free to delete any client's runs
+// (setOwnRunsOnly off).
 afterEach(() => {
-  setFormatIdentityWritesDefault(false);
   setOwnRunsOnly(false);
 });
 
 const $line = (...nodes: ReturnType<typeof $createTextNode>[]) =>
   $getRoot().append($createParagraphNode().append(...nodes));
-
-/** Start writing paired runs on every peer of `t`. */
-function pairAll(peers: Peer[]): void {
-  for (const peer of peers) {
-    setFormatIdentityWrites(peer.doc, true);
-  }
-}
 
 /** The root of a peer's document (the binding's default root). */
 const rootOf = (peer: Peer) => peer.doc.get('lexical-y');
@@ -91,7 +76,6 @@ for (const gc of [false, true]) {
         bold(t.a, [0], 1, 3);
         await t.sync();
         await expectConverged(t.peers, 'paragraph("a" "bc"{1} "d")');
-        pairAll(t.peers);
         // B removes bold from "ab": A's opener is inside B's range.
         bold(t.b, [0], 0, 2, 0);
         await t.sync();
@@ -109,7 +93,6 @@ for (const gc of [false, true]) {
             gc,
             ids,
           });
-          pairAll(t.peers);
           bold(t.b, [0], 1, 2);
           await t.sync();
           bold(t.a, [0], 0, 3);
@@ -121,7 +104,6 @@ for (const gc of [false, true]) {
 
       test('an empty paired run strictly inside a range is deleted, opener and first end (spec 3.2)', async () => {
         const t = await setup(() => $line($createTextNode('abcd')), {gc, ids});
-        pairAll(t.peers);
         bold(t.b, [0], 2, 3);
         await t.sync();
         t.a.update(() => {
@@ -152,7 +134,6 @@ for (const gc of [false, true]) {
 
       test("a tab written next to another client's tab owns its type: that client's undo leaves it a tab", async () => {
         const t = await setup(() => $line($createTextNode('ab')), {gc, ids});
-        pairAll(t.peers);
         t.a.update(() => {
           $selectIn([0], 1, 1).insertNodes([$createTabNode()]);
           $setSelection(null);
@@ -181,7 +162,6 @@ for (const gc of [false, true]) {
             $line($createTextNode('ab').setFormat(1), $createTextNode('tail')),
           {gc, ids},
         );
-        pairAll(t.peers);
         // A types plain "1" between "a" and "b": A's own [] run.
         t.a.update(() => {
           const s = $selectIn([0], 1, 1);
@@ -213,7 +193,6 @@ for (const gc of [false, true]) {
           gc,
           ids,
         });
-        pairAll(t.peers);
         const app = new Y.UndoManager(t.a.doc, {
           captureTimeout: 0,
           deleteFilter: item =>
@@ -241,7 +220,6 @@ for (const gc of [false, true]) {
 
       test("a write inside an app's transaction: undoing that transaction cannot remove the layout record", async () => {
         const t = await setup(() => $line($createTextNode('abcd')), {gc, ids});
-        pairAll(t.peers);
         const appOrigin = {app: true};
         const app = new Y.UndoManager(t.a.doc, {
           captureTimeout: 0,
@@ -315,7 +293,6 @@ function rawItem(
 
 for (const gc of [false, true]) {
   test(`an end that arrives after its opener re-reads from the opener's line (gc ${gc ? 'on' : 'off'})`, async () => {
-    setFormatIdentityWritesDefault(true);
     const t = await setup(
       () => {
         $line($createTextNode('one two'));
@@ -355,7 +332,6 @@ for (const gc of [false, true]) {
       () => $line($createTextNode('abcd'), $createTextNode('efgh')),
       {gc},
     );
-    pairAll(t.peers);
     const appOrigin = {app: true};
     const app = new Y.UndoManager(t.a.doc, {
       captureTimeout: 0,
@@ -397,7 +373,6 @@ for (const gc of [false, true]) {
 for (const gc of [false, true]) {
   test(`an app UndoManager that undoes a client's first paired write leaves the record live at every step (gc ${gc ? 'on' : 'off'})`, async () => {
     const t = await setup(() => $line($createTextNode('abcd')), {gc});
-    pairAll(t.peers);
     const app = new Y.UndoManager(t.a.doc, {
       captureTimeout: 0,
       trackedOrigins: new Set<unknown>([t.a.binding, Object, null]),
@@ -438,7 +413,6 @@ function liveFormats(peer: Peer): number {
 
 for (const gc of [false, true]) {
   test(`shrinking prefixes by two writers grow the runs linearly, not geometrically (gc ${gc ? 'on' : 'off'})`, async () => {
-    setFormatIdentityWritesDefault(true);
     const t = await setup(
       () =>
         $line(
@@ -476,7 +450,6 @@ for (const gc of [false, true]) {
       });
       bold(t.a, [0], 1, 3); // a legacy run over "bc"
       await t.sync();
-      pairAll(t.peers);
       t.offline();
       bold(t.b, [0], 0, 2, 0);
       t.a.update(() => {
@@ -498,7 +471,6 @@ for (const gc of [false, true]) {
       () => $line($createTextNode('abcd'), $createTextNode('efgh')),
       {gc},
     );
-    pairAll(t.peers);
     const appOrigin = {app: true};
     const app = new Y.UndoManager(t.a.doc, {
       captureTimeout: 0,
@@ -532,7 +504,6 @@ for (const gc of [false, true]) {
       [2, 1],
     ]) {
       const t = await setup(() => $line($createTextNode('abc')), {gc, ids});
-      pairAll(t.peers);
       // A's format change is queued (not discrete); B's plain "X" after "a"
       // reaches A's document before A's write commits.
       t.a.editor.update(() => {
@@ -563,7 +534,6 @@ for (const gc of [false, true]) {
       },
       {gc},
     );
-    pairAll(t.peers);
     // Plain "1234" typed inside the legacy bold run: A's own [] run.
     t.a.update(() => {
       const s = $selectIn([0, 0], 1, 1);
@@ -609,7 +579,6 @@ for (const gc of [false, true]) {
 
 for (const gc of [false, true]) {
   test(`a run with two ends: a change deletes its opener and its first end, and the later end keeps clearing what it cleared (gc ${gc ? 'on' : 'off'})`, async () => {
-    setFormatIdentityWritesDefault(true);
     const t = await setup(() => $line($createTextNode('ab')), {gc});
     upgrade(t.a);
     await t.sync();
@@ -642,7 +611,6 @@ for (const gc of [false, true]) {
       },
       {gc},
     );
-    pairAll(t.peers);
     for (const at of [0, 1]) {
       t.a.update(() => {
         const s = $selectIn([at, 0], 1, 1);
@@ -731,7 +699,6 @@ for (const gc of [false, true]) {
       const t = await setup(() => $line($createTextNode('abcdefghijklmnop')), {
         gc,
       });
-      pairAll(t.peers);
       if (control) {
         bold(t.a, [0], 4, 6);
       } else {
@@ -754,7 +721,7 @@ for (const gc of [false, true]) {
 
   test(`deleted text between boundaries an undo restores after a later format takes that format (${g})`, async () => {
     const t = await setup(() => $line($createTextNode('Xaab')), {gc});
-    // A legacy history (switch off) leaving X, null, [space], true, null, b.
+    // A legacy history leaving X, null, [space], true, null, b.
     bold(t.a, [0], 1, 3);
     t.a.update(() => {
       const s = $selectIn([0], 2, 2);
@@ -775,7 +742,6 @@ for (const gc of [false, true]) {
     });
     await t.sync();
     await expectConverged(t.peers, 'paragraph("Xb")');
-    pairAll(t.peers);
     bold(t.b, [0], 0, 2);
     await t.sync();
     await expectConverged(t.peers, 'paragraph("Xb"{1})');
@@ -791,7 +757,6 @@ for (const gc of [false, true]) {
   });
 
   test(`an empty run whose interval holds an unpaired item stays: "c" keeps its bold (${g})`, async () => {
-    setFormatIdentityWritesDefault(true);
     const t = await setup(() => $line($createTextNode('alrbcd')), {gc});
     upgrade(t.a);
     await t.sync();
@@ -819,7 +784,6 @@ for (const gc of [false, true]) {
 
   test(`an empty run inside a range: its text an undo restores shows the change's value (${g})`, async () => {
     const t = await setup(() => $line($createTextNode('abcdef')), {gc});
-    pairAll(t.peers);
     color(t.a, 2, 4, 'red');
     t.a.update(() => {
       $selectIn([0], 2, 4).removeText();
@@ -836,7 +800,6 @@ for (const gc of [false, true]) {
 
   test(`empty runs at both edges of a range stay (${g})`, async () => {
     const t = await setup(() => $line($createTextNode('xabcdey')), {gc});
-    pairAll(t.peers);
     color(t.a, 1, 3, 'red');
     color(t.a, 5, 6, 'red');
     t.a.update(() => {
@@ -861,7 +824,6 @@ for (const gc of [false, true]) {
 
   test(`a hot spot with many empty runs: one segment, not one per run (${g})`, async () => {
     const t = await setup(() => $line($createTextNode('abcd')), {gc});
-    pairAll(t.peers);
     for (let i = 0; i < 8; i++) {
       t.a.update(() => {
         const s = $selectIn([0], 2, 2);
@@ -887,7 +849,6 @@ for (const gc of [false, true]) {
   const g = `gc ${gc ? 'on' : 'off'}`;
 
   test(`v4: a deleted unpaired value buried below a retained paired run that ends past the range is restored after that run (${g})`, async () => {
-    setFormatIdentityWritesDefault(true);
     const t = await setup(() => $line($createTextNode('abcde')), {gc});
     upgrade(t.a);
     await t.sync();
@@ -906,7 +867,6 @@ for (const gc of [false, true]) {
   });
 
   test(`v4: a deleted invalid end that cleared an outside unpaired value: the clearing is restored after the range (${g})`, async () => {
-    setFormatIdentityWritesDefault(true);
     const t = await setup(() => $line($createTextNode('abc')), {gc});
     upgrade(t.a);
     await t.sync();
@@ -936,7 +896,6 @@ for (const gc of [false, true]) {
       bold(l, [0], 1, 3);
       await t.sync();
       await expectConverged(t.peers, 'paragraph("a" "bc"{1} "TAIL")');
-      pairAll([w]);
       t.offline();
       // W removes bold from "ab" (Lexical reports only "b" changed).
       bold(w, [0], 0, 2, 0);
@@ -958,7 +917,6 @@ for (const gc of [false, true]) {
       [1, 2],
       [2, 1],
     ]) {
-      setFormatIdentityWritesDefault(true);
       const t = await setup(() => $line($createTextNode('xabcde')), {
         gc,
         ids,
@@ -1019,7 +977,6 @@ for (const gc of [false, true]) {
           ids,
         },
       );
-      pairAll(t.peers);
       t.offline();
       bold(t.a, [0], 0, 3, 0);
       t.b.update(() => {
@@ -1042,7 +999,6 @@ for (const gc of [false, true]) {
           ids,
         },
       );
-      pairAll(t.peers);
       t.offline();
       bold(t.a, [0], 3, 5, 0);
       t.b.update(() => {
@@ -1069,7 +1025,6 @@ for (const gc of [false, true]) {
           ),
         {gc, ids},
       );
-      pairAll(t.peers);
       t.offline();
       bold(t.a, [0], 0, 3, 0);
       t.b.update(() => {
@@ -1098,7 +1053,6 @@ for (const gc of [false, true]) {
       // L (legacy) bolds "hello": its null after "o" is the departure item.
       bold(t.c, [0], 0, 5);
       await t.sync();
-      pairAll([t.a, t.b]);
       bold(t.a, [0], 0, 3, 0);
       await t.sync();
       await expectConverged(t.peers, 'paragraph("hel" "lo"{1} " world")');
@@ -1123,7 +1077,6 @@ for (const gc of [false, true]) {
 
   test(`a run whose interval holds a clearer is kept: the clearer's reach is unchanged (${g})`, async () => {
     for (const ids of orders) {
-      setFormatIdentityWritesDefault(true);
       const t = await setup(() => $line($createTextNode('xabc')), {gc, ids});
       upgrade(t.a);
       await t.sync();
@@ -1159,7 +1112,6 @@ for (const gc of [false, true]) {
 
   test(`a run whose interval holds a held item is kept: after the release "c" keeps its value (${g})`, async () => {
     for (const ids of orders) {
-      setFormatIdentityWritesDefault(true);
       const t = await setup(() => $line($createTextNode('xabcdZ')), {
         gc,
         ids,
@@ -1215,7 +1167,6 @@ for (const gc of [false, true]) {
       // x U(red) b N(null) c d, as a legacy client writes it.
       color(l, 1, 2, 'red');
       await t.sync();
-      pairAll([w, c]);
       t.offline();
       color(w, 1, 2, 'green');
       color(c, 2, 3, 'blue');
@@ -1232,7 +1183,6 @@ for (const gc of [false, true]) {
 
   test(`a retained paired end inside the last segment does not cut the change short: "b" takes its value, as on main (${g})`, async () => {
     for (const ids of orders) {
-      setFormatIdentityWritesDefault(true);
       const t = await setup(() => $line($createTextNode('xabc')), {gc, ids});
       upgrade(t.a);
       await t.sync();
@@ -1269,7 +1219,6 @@ for (const gc of [false, true]) {
       await t.sync();
       color(l, 3, 4, 'red');
       await t.sync();
-      pairAll(t.peers);
       color(a, 1, 3, 'red');
       await t.sync();
       color(b, 2, 4, 'blue');
@@ -1300,7 +1249,6 @@ for (const gc of [false, true]) {
       const [l, w, c] = t.peers;
       color(l, 0, 5, 'blue');
       await t.sync();
-      pairAll([w, c]);
       // A legacy client colors "c" green while an identity client colors
       // "abc" violet.
       t.offline();
@@ -1329,7 +1277,6 @@ for (const gc of [false, true]) {
   test(`(documented outcome) text deleted from a run the change wholly formats comes back plain after its undo, as on main (${g})`, async () => {
     for (const ids of orders) {
       const t = await setup(() => $line($createTextNode('xabc')), {gc, ids});
-      pairAll(t.peers);
       const [r, d, w] = t.peers;
       bold(r, [0], 1, 3);
       await t.sync();
@@ -1352,7 +1299,6 @@ for (const gc of [false, true]) {
   test(`redo (documented outcome): text typed with the run's value, undone, then redone after a change that formats the rest of the run: as above (${g})`, async () => {
     for (const ids of orders) {
       const t = await setup(() => $line($createTextNode('xbc')), {gc, ids});
-      pairAll(t.peers);
       const [r, d, w] = t.peers;
       bold(r, [0], 1, 2);
       await t.sync();
@@ -1383,7 +1329,6 @@ for (const gc of [false, true]) {
       const [l, w, c] = t.peers;
       bold(l, [0], 1, 2);
       await t.sync();
-      pairAll([w, c]);
       t.offline();
       bold(w, [0], 1, 2, 0);
       bold(c, [0], 2, 3);

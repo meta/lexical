@@ -7,13 +7,12 @@
  */
 
 /**
- * A random-operations fuzzer on an earlier identity revision (paired writes on, legacy-seeded documents): runs
- * wrong only with identity (main right at every sync): 124 of 400,000 runs, 116 of them right with paired
- * seeding, so they come from legacy-seeded words. 6 random ones reduced keeping
- * "identity bad, main right" (gc off). Shape (7171768:12, 6 ops): B removes a format from a range of a seeded word and
- * types Z inside it; sync; A types plain "1" next to Z; B undoes twice. Expected (main): "1" plain; that revision: "1" takes
- * the seeded word's format back. With the held typed-plain-runs switch on, 119 of the 124 pass.
- * Oracle: letters keep their formats, digits plain, no Z left, peers converge.
+ * Undo of a format removed from part of a seeded word: B removes a format from
+ * a range of a seeded word and types Z inside it; sync; A types a plain "1"
+ * next to Z; B undoes twice. Expected (as on main): "1" stays plain. Six
+ * reduced random-operation runs, gc off, from documents whose words carry the
+ * seed's own format runs. Oracle: letters keep their formats, digits stay
+ * plain, no Z is left, the peers converge.
  */
 
 // @vitest-environment node
@@ -41,7 +40,6 @@ import {expect, test} from 'vitest';
 
 import {createYCollabConfig, createYDoc, YCollabExtension} from '../../..';
 import {seedYState} from '../../../headless';
-import {setFormatIdentityWrites} from '../../utils/noSwitch';
 
 const CONFIG = {extensions: [RichTextExtension], schemaVersion: 1};
 const KEYS = ['b', 'i', 's'] as const;
@@ -165,7 +163,6 @@ function run(spec: any, gcOn: boolean) {
     const doc = createYDoc(seeded, {gc: gcOn});
     doc.clientID = id;
     // Paired writes on (legacy-seeded document: its first edit upgrades it).
-    setFormatIdentityWrites(doc, true);
     const editor = buildEditorFromExtensions(
       defineExtension({
         dependencies: [
