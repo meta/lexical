@@ -988,5 +988,55 @@ describe.each([false, true])(
       await t.sync();
       await expectConverged(t.peers);
     });
+
+    test('two remote inserts before the caret in a committing update', async () => {
+      const t = await setup(
+        () =>
+          $getRoot().append(
+            $createParagraphNode().append($createTextNode('one two three')),
+          ),
+        {gc},
+      );
+      t.offline();
+      const deltas: Uint8Array[] = [];
+      for (const text of ['AAA', 'BB', 'C']) {
+        const seen = Y.encodeStateVector(t.b.doc);
+        t.b.update(() =>
+          $getRoot().getAllTextNodes()[0].select(0, 0).insertText(text),
+        );
+        deltas.push(Y.encodeStateAsUpdate(t.b.doc, seen));
+      }
+      const commits: string[] = [];
+      t.a.editor.registerUpdateListener(({editorState, tags}) => {
+        if (tags.has(COLLABORATION_TAG)) {
+          commits.push(editorState.read(() => $getRoot().getTextContent()));
+        }
+      });
+      t.a.update(() => {
+        $getRoot().getAllTextNodes()[0].select(7, 7).insertText('X');
+        for (const d of deltas) {
+          Y.applyUpdate(t.a.doc, d, 'provider');
+        }
+      });
+      await new Promise(r => setTimeout(r, 0));
+      // One change per remote commit.
+      expect(commits).toEqual([
+        'AAAone twoX three',
+        'BBAAAone twoX three',
+        'CBBAAAone twoX three',
+      ]);
+      // The next keystroke lands right after the local "X".
+      t.a.update(() => {
+        const selection = $getSelection();
+        if ($isRangeSelection(selection)) {
+          selection.insertText('Z');
+        }
+      });
+      expect(t.a.read(() => $getRoot().getTextContent())).toBe(
+        'CBBAAAone twoXZ three',
+      );
+      await t.sync();
+      await expectConverged(t.peers);
+    });
   },
 );

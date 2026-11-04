@@ -3528,7 +3528,10 @@ export class YBinding {
           readState = editor._pendingEditorState;
           this.readsNow++;
           try {
-            read.$read();
+            // Nested, Lexical runs this once the work that queued it has
+            // returned (see guard): on this binding's view still, which
+            // hides the changes still deferred (see deferChange).
+            seenBy(this.seer, () => read.$read());
           } catch (error) {
             failure = {error};
             // It is recovered from right after (see read.recover): a
