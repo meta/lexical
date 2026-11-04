@@ -952,8 +952,9 @@ of being admitted or refused.
   base lacks, a draft marked `differs`, or a missing dependency (a record
   that requires a feature always counts). Prompt users only for those; keep every record listable
   for the quarantine window, and keep a record that requires a feature you
-  do not know as it is (store and export it; never read it as one you
-  know). A record (and a capture's `material()`) holds copies of
+  do not know, or whose `kind` you do not know (kinds are open strings:
+  `'handoff'`, `'capture'` and `'pending'` today), as it is: store and export
+  it, never read, replay or judge it as one you know. A record (and a capture's `material()`) holds copies of
   the bytes and arrays it was given, so a payload never changes under its
   hash. Append-only means a new record or a separately stored append (a
   capture's later deltas), never a change to an acknowledged one; derive

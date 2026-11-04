@@ -57,6 +57,7 @@ export type YPrepareRoomOptions = {
   readonly to?: number,
   readonly clientIDRange?: ClientIDRange,
   readonly clientID?: (input: YMigrationStepInput) => number,
+  ...
 };
 
 export type YPreparedRoom = {
@@ -66,6 +67,7 @@ export type YPreparedRoom = {
   readonly base: {readonly generation: string, readonly state: Uint8Array} | null,
   readonly pending: Uint8Array | null,
   readonly receipt: YMigrationReceipt,
+  ...
 };
 
 declare export function prepareYRoom(
@@ -82,6 +84,7 @@ export type YSessionHandshake = {
   readonly layouts: [number, number],
   readonly seed: number,
   readonly features?: ReadonlyArray<string>,
+  ...
 };
 
 export type YRoomDescription = {
@@ -94,6 +97,7 @@ export type YRoomDescription = {
   readonly seedContract: number,
   readonly requires: ReadonlyArray<string>,
   readonly hasMigration: boolean,
+  ...
 };
 
 declare export function describeYRoom(
@@ -111,15 +115,17 @@ export type YSessionVerdict =
       readonly verdict: 'admit',
       readonly initialize: boolean,
       readonly reason?: string,
+      ...
     }
   | {
       readonly verdict: 'bootstrap',
       readonly initialize: boolean,
       readonly reason?: string,
+      ...
     }
-  | {readonly verdict: 'stale', readonly reason?: string}
-  | {readonly verdict: 'refuse-layout', readonly reason?: string}
-  | {readonly verdict: 'legacy', readonly reason?: string};
+  | {readonly verdict: 'stale', readonly reason?: string, ...}
+  | {readonly verdict: 'refuse-layout', readonly reason?: string, ...}
+  | {readonly verdict: 'legacy', readonly reason?: string, ...};
 
 declare export function checkYSession(
   room: YRoomDescription,
@@ -132,6 +138,7 @@ export type YLegacySignal = {
   readonly clock: number,
   readonly root: string,
   readonly key: string,
+  ...
 };
 
 export type YSessionCapture = {
@@ -146,6 +153,7 @@ export type YSessionCapture = {
     deltas: Array<Uint8Array>,
     signals: Array<YLegacySignal>,
   },
+  ...
 };
 
 declare export function createYSessionCapture(
@@ -156,15 +164,20 @@ declare export function createYSessionCapture(
   } | null,
 ): YSessionCapture;
 
+// Open: any other string is a kind from a later release (preservation
+// only).
+export type YQuarantineRecordKind = string;
+
 export type YRecordSource = {
   readonly incarnation: string | null,
   readonly generation: string | null,
   readonly layouts: [number, number] | null,
   readonly schemaVersion: number | null,
   readonly renderer: string | null,
+  ...
 };
 
-export type YDraft = {readonly json: unknown, readonly differs: boolean};
+export type YDraft = {readonly json: unknown, readonly differs: boolean, ...};
 
 export type YQuarantineRecord = {
   readonly v: 1,
@@ -172,7 +185,7 @@ export type YQuarantineRecord = {
   readonly id: string,
   readonly session: string | null,
   readonly replica: string | null,
-  readonly kind: 'handoff' | 'capture' | 'pending',
+  readonly kind: YQuarantineRecordKind,
   readonly peers: boolean,
   readonly clients: ReadonlyArray<number>,
   readonly source: YRecordSource,
@@ -188,6 +201,7 @@ export type YQuarantineRecord = {
   readonly hash: string,
   readonly complete: boolean,
   readonly actionable: boolean,
+  ...
 };
 
 export type YRecordAcknowledgement = {
@@ -197,13 +211,14 @@ export type YRecordAcknowledgement = {
   readonly sourceGeneration: string,
   readonly record: string,
   readonly hash: string,
+  ...
 };
 
 export type YQuarantineRecordInput = {
   readonly id?: string,
   readonly session?: string | null,
   readonly replica?: string | null,
-  readonly kind: 'handoff' | 'capture' | 'pending',
+  readonly kind: YQuarantineRecordKind,
   readonly peers?: boolean,
   readonly clients?: ReadonlyArray<number>,
   readonly source: YRecordSource,
@@ -214,6 +229,7 @@ export type YQuarantineRecordInput = {
   readonly signals?: ReadonlyArray<YLegacySignal>,
   readonly requires?: ReadonlyArray<string>,
   readonly receivedAt: number,
+  ...
 };
 
 declare export function sourceView(record: {
@@ -230,6 +246,7 @@ export type YPendingRecordInput = {
   readonly pending: Uint8Array,
   readonly source: YRecordSource,
   readonly receivedAt: number,
+  ...
 };
 
 declare export function createYQuarantineRecord(

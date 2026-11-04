@@ -39,6 +39,7 @@ import {
   sourceView,
   UNKNOWN_GENERATION,
   type YLegacySignal,
+  type YQuarantineRecordKind,
   type YRecordAcknowledgement,
   type YRoomDescription,
   type YSessionHandshake,
@@ -1257,6 +1258,28 @@ describe.each([false, true])('@lexical/y/server, gc %s', gc => {
       material.deltas.push(new Uint8Array([0]));
       expect([...capture.material().snapshot!]).toEqual(kept);
       expect(capture.material().deltas).toHaveLength(0);
+    });
+
+    test('record kinds are open: a kind from a later release is kept as it is, preservation only', () => {
+      const kind: YQuarantineRecordKind = 'a-later-kind';
+      const input = {
+        kind,
+        receivedAt: 1,
+        snapshot: replica(() => {}),
+        source: SOURCE,
+      };
+      const later = createYQuarantineRecord(input, {
+        generation: G0,
+        state: base(),
+      });
+      // Never judged as a known kind: it cannot be shown to hold nothing.
+      expect(later).toMatchObject({actionable: true, kind: 'a-later-kind'});
+      const known = createYQuarantineRecord(
+        {...input, kind: 'handoff'},
+        {generation: G0, state: base()},
+      );
+      expect(known.actionable).toBe(false);
+      expect(later.hash).not.toBe(known.hash);
     });
 
     test('a record requiring a feature is kept as it is and counts as actionable', () => {

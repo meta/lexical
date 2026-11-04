@@ -784,6 +784,27 @@ export interface YDraft {
 }
 
 /**
+ * @experimental What a record holds: a stale replica's handoff, a legacy
+ * session's capture, or a migration's pending material. Open: a later
+ * release may add kinds; a record of a kind this release does not know is
+ * kept and exported as it is (preservation only), never read, replayed or
+ * judged as one it knows.
+ */
+export type YQuarantineRecordKind =
+  | 'handoff'
+  | 'capture'
+  | 'pending'
+  // Any other string: a kind from a later release (keeps completion).
+  | (string & {});
+
+/** The record kinds this release reads. */
+const KNOWN_KINDS: ReadonlySet<string> = new Set([
+  'handoff',
+  'capture',
+  'pending',
+]);
+
+/**
  * @experimental A per-document quarantine record (version 1; the room's
  * records are append-only).
  */
@@ -799,7 +820,7 @@ export interface YQuarantineRecord {
   readonly id: string;
   readonly session: string | null;
   readonly replica: string | null;
-  readonly kind: 'handoff' | 'capture' | 'pending';
+  readonly kind: YQuarantineRecordKind;
   /**
    * Whether any channel other than the authority could have delivered
    * updates to the replica since its last sync with the authority (a
@@ -1126,9 +1147,9 @@ function materialRecord(
     updateFormat: 'yjs-v1',
     v: 1,
   };
-  // A record whose material needs a feature this release does not know
-  // cannot be shown to hold nothing new.
-  return base === null || requires.length > 0
+  // A record whose material needs a feature this release does not know, or
+  // of a kind it does not know, cannot be shown to hold nothing new.
+  return base === null || requires.length > 0 || !KNOWN_KINDS.has(input.kind)
     ? record
     : {...record, actionable: hasNewYEdits(record, base.state)};
 }
