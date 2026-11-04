@@ -949,5 +949,44 @@ describe.each([false, true])(
       await t.sync();
       await expectConverged(t.peers);
     });
+
+    test('two remote changes in a committing update, the first with nothing to read, both read before update() returns', async () => {
+      const t = await setup(
+        () =>
+          $getRoot().append(
+            $createParagraphNode().append($createTextNode('one two')),
+          ),
+        {gc},
+      );
+      t.offline();
+      const deltas: Uint8Array[] = [];
+      const change = (fn: () => void) => {
+        const seen = Y.encodeStateVector(t.b.doc);
+        fn();
+        deltas.push(Y.encodeStateAsUpdate(t.b.doc, seen));
+      };
+      change(() =>
+        (
+          t.b.doc.get('side') as unknown as {
+            setAttr(k: string, v: unknown): void;
+          }
+        ).setAttr('k', true),
+      );
+      change(() =>
+        t.b.update(() =>
+          $getRoot().getAllTextNodes()[0].select(0, 0).insertText('AAA'),
+        ),
+      );
+      t.a.update(() => {
+        $appendX();
+        for (const d of deltas) {
+          Y.applyUpdate(t.a.doc, d, 'provider');
+        }
+      });
+      // Right after the update, in the same task.
+      expect(t.a.read(() => $getRoot().getTextContent())).toBe('AAAone twoX');
+      await t.sync();
+      await expectConverged(t.peers);
+    });
   },
 );
