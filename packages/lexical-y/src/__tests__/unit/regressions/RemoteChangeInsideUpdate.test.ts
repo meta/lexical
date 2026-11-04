@@ -13,6 +13,9 @@ import {
   $createTableCellNode,
   $createTableNode,
   $createTableRowNode,
+  $deleteTableColumnAtSelection,
+  $insertTableColumnAtSelection,
+  $insertTableRowAtSelection,
 } from '@lexical/table';
 import * as Y from '@y/y';
 import {
@@ -26,6 +29,7 @@ import {
   COLLABORATION_TAG,
   COMMAND_PRIORITY_EDITOR,
   createCommand,
+  type ElementNode,
   type LexicalEditor,
   TextNode,
 } from 'lexical';
@@ -1035,6 +1039,74 @@ describe.each([false, true])(
       expect(t.a.read(() => $getRoot().getTextContent())).toBe(
         'CBBAAAone twoXZ three',
       );
+      await t.sync();
+      await expectConverged(t.peers);
+    });
+
+    test('a later deferred change removes the table column holding the caret', async () => {
+      const t = await setup(
+        () =>
+          $getRoot().append(
+            $createTableNode().append(
+              ...[0, 1, 2].map(r =>
+                $createTableRowNode().append(
+                  ...[0, 1, 2].map(c =>
+                    $createTableCellNode().append(
+                      $createParagraphNode().append(
+                        $createTextNode(`c${r}${c}`),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        {gc},
+      );
+      const $cell = (r: number, c: number) => {
+        const table = $getRoot().getFirstChildOrThrow() as ElementNode;
+        return (table.getChildAtIndex(r) as ElementNode).getChildAtIndex(
+          c,
+        ) as ElementNode;
+      };
+      t.offline();
+      const deltas: Uint8Array[] = [];
+      const change = (fn: () => void) => {
+        const seen = Y.encodeStateVector(t.b.doc);
+        t.b.update(fn);
+        deltas.push(Y.encodeStateAsUpdate(t.b.doc, seen));
+      };
+      change(() => {
+        ($cell(0, 0).getFirstChild() as ElementNode).selectEnd();
+        $insertTableColumnAtSelection(false);
+      });
+      change(() => {
+        ($cell(0, 0).getFirstChild() as ElementNode).selectEnd();
+        $insertTableRowAtSelection(false);
+      });
+      // The third column now: the first one's neighbour, where a's caret goes.
+      change(() => {
+        ($cell(0, 2).getFirstChild() as ElementNode).selectEnd();
+        $deleteTableColumnAtSelection();
+      });
+      t.a.update(() => {
+        ($cell(2, 0).getFirstChild() as ElementNode).selectEnd();
+        $deleteTableColumnAtSelection();
+        for (const d of deltas) {
+          Y.applyUpdate(t.a.doc, d, 'provider');
+        }
+      });
+      await new Promise(r => setTimeout(r, 0));
+      // The caret stays in the table: the next keystroke lands.
+      expect(t.a.read(() => $getSelection())).not.toBeNull();
+      const before = t.a.read(() => $getRoot().getTextContent());
+      t.a.update(() => {
+        const selection = $getSelection();
+        if ($isRangeSelection(selection)) {
+          selection.insertText('Z');
+        }
+      });
+      expect(t.a.read(() => $getRoot().getTextContent())).not.toBe(before);
       await t.sync();
       await expectConverged(t.peers);
     });

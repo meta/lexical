@@ -6496,8 +6496,30 @@ export class YBinding {
       return;
     }
     let selection: RangeSelection | null = current;
-    const anchor = this.$resolvePosition(cursor.anchor);
-    const focus = this.$resolvePosition(cursor.focus);
+    let anchor = this.$resolvePosition(cursor.anchor);
+    let focus = this.$resolvePosition(cursor.focus);
+    if (
+      this.unread !== null &&
+      !($isShownPoint(anchor) && $isShownPoint(focus))
+    ) {
+      // The binding's view (see Unread) places the selection in a node the
+      // editor no longer has: a read rebuilt its container from the
+      // document, where a change still deferred removed it. The selection
+      // the editor keeps, where it has one; else where the document as it
+      // is places it, as a read of all the changes at once would.
+      $clampSelection();
+      if ($getSelection() !== null) {
+        return;
+      }
+      [anchor, focus] = seenBy(
+        () => null,
+        () => [
+          this.$resolvePosition(cursor.anchor),
+          this.$resolvePosition(cursor.focus),
+        ],
+      );
+      selection = null;
+    }
     const widens =
       caret &&
       selection !== null &&
@@ -7191,6 +7213,15 @@ function $showsCaret(): boolean {
  * Why: Lexical keeps such a selection as it is, and every reader of it (a
  * table's own selection handler) would throw.
  */
+/** Whether `point` is in a node the editor shows. */
+function $isShownPoint(point: {key: NodeKey} | null): boolean {
+  if (point === null) {
+    return false;
+  }
+  const node = $getNodeByKey(point.key);
+  return node !== null && node.isAttached();
+}
+
 function $clampSelection(): void {
   const selection = $getSelection();
   if (selection === null) {
