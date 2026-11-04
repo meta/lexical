@@ -1437,6 +1437,15 @@ not merge as a user might expect:
   copy of Yjs and applies updates to your document after the binding
   started. The exact version is the peer dependency's to enforce: install
   the `@y/y` version `@lexical/y` names, once (`npm ls @y/y`).
+- **Text classes whose formats depend on their text.** A reader shows
+  adjacent text that differs only in format bits the node ignores (a bit
+  stored over part of a code highlight) as one node, assuming a text node's
+  shown format and exported fields depend only on its class, fields and
+  NodeState, as `TextNode.splitText` does. A class that keeps a format only
+  for some text (its length or content), only while attached, or only once
+  its editor is editable can then show that format over the whole node, or
+  read differently after its author types into it. No class in Lexical or
+  its playground does.
 - **NodeState key order.** Other clients (and any later reader) get a node's
   NodeState with its keys in sorted order, which every client builds the
   same way, not in the order the author's editor exported them (a Yjs map

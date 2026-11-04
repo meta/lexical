@@ -151,11 +151,13 @@ type Parsed = {
   start: Formats;
 };
 
-/**
- * Text pieces holding runs that $showSame read as one, with what the node
- * built from each piece's first run shows.
- */
-type Merged = Map<Piece, string>;
+/** What $showSame learned in one read. */
+type Shown = {
+  /** What the node built from a piece's (or run's) first run shows. */
+  first: Map<object, string | null>;
+  /** Whether a type replaced by `with` alone builds its own setFormat. */
+  owns: Map<string, boolean>;
+};
 
 type Piece = (
   | {
@@ -2354,8 +2356,7 @@ export class Reader {
     formats: Formats,
   ): Piece[] {
     const pieces: Piece[] = [];
-    // Pieces that hold runs read as one by $showSame (see there).
-    const merged: Merged = new Map();
+    const shown: Shown = {first: new Map(), owns: new Map()};
     const current = new Map(formats);
     let tattrs: Attrs | null = null;
     let tsig = '';
@@ -2414,14 +2415,14 @@ export class Reader {
               last.kind === 'text' &&
               !isTabText(run.tattrs) &&
               sameWrappers(last.wrappers, wrappers) &&
-              (last.tsig === run.tsig || this.$showSame(last, run, merged))
+              (last.tsig === run.tsig || this.$showSame(last, run, shown))
             ) {
               if (holds) {
                 last.caretAt = last.text.length + inRun;
               }
               last.text += run.text;
             } else {
-              pieces.push({
+              const piece: Piece = {
                 ...(holds ? {caretAt: inRun} : {}),
                 item: it,
                 kind: 'text',
@@ -2429,7 +2430,12 @@ export class Reader {
                 text: run.text,
                 tsig: run.tsig,
                 wrappers,
-              });
+              };
+              // The run was built to compare with the piece before it.
+              if (shown.first.has(run)) {
+                shown.first.set(piece, shown.first.get(run)!);
+              }
+              pieces.push(piece);
             }
           }
         });
@@ -2466,32 +2472,49 @@ export class Reader {
   private $showSame(
     a: Piece & {kind: 'text'},
     b: {tattrs: Attrs; text: string},
-    merged: Merged,
+    shown: Shown,
   ): boolean {
     const editor = this.state.editor;
     const type = decodeFormatValue(a.tattrs[TYPE_KEY] ?? null);
-    const info = editor._nodes.get(typeof type === 'string' ? type : 'text');
-    if (info === undefined) {
-      return false;
-    }
-    // Nodes are built as the replacement where it names its class; one
-    // that does not (`with` alone) may build any class.
-    const klass = info.replaceWithKlass || info.klass;
-    if (
-      ((klass.prototype as TextNode).setFormat ===
-        TextNode.prototype.setFormat &&
-        (info.replace === null || info.replaceWithKlass !== null)) ||
-      !sameButFormats(a.tattrs, b.tattrs)
-    ) {
+    const name = typeof type === 'string' ? type : 'text';
+    const info = editor._nodes.get(name);
+    if (info === undefined || !sameButFormats(a.tattrs, b.tattrs)) {
       return false;
     }
     try {
-      const shows = merged.get(a) ?? this.$builtShows(a.text, a.tattrs);
-      if (shows === null || shows !== this.$builtShows(b.text, b.tattrs)) {
+      // Nodes are built as the replacement where it names its class; one
+      // that does not (`with` alone) is asked once per read what it builds.
+      if (info.replace !== null && info.replaceWithKlass === null) {
+        let owns = shown.owns.get(name);
+        if (owns === undefined) {
+          const node = $parseSerializedNode(
+            joinSetMembersInJSON(
+              textJSONFromAttrs(a.text, a.tattrs),
+              editor,
+            ) as unknown as SerializedLexicalNode,
+          );
+          owns =
+            $isTextNode(node) &&
+            node.setFormat !== TextNode.prototype.setFormat;
+          shown.owns.set(name, owns);
+        }
+        if (!owns) {
+          return false;
+        }
+      } else if (
+        ((info.replaceWithKlass || info.klass).prototype as TextNode)
+          .setFormat === TextNode.prototype.setFormat
+      ) {
         return false;
       }
-      merged.set(a, shows);
-      return true;
+      let first = shown.first.get(a);
+      if (first === undefined) {
+        first = this.$builtShows(a.text, a.tattrs);
+        shown.first.set(a, first);
+      }
+      const next = this.$builtShows(b.text, b.tattrs);
+      shown.first.set(b, next);
+      return first !== null && first === next;
     } catch (_e) {
       return false;
     }
@@ -3407,7 +3430,6 @@ function tabRuns(
   );
 }
 
-/** Whether text read with `tattrs` is a tab's (one node per `\t`). */
 /** Whether `a` and `b` store the same attributes apart from format bits. */
 function sameButFormats(a: Attrs, b: Attrs): boolean {
   let count = 0;
@@ -3427,6 +3449,7 @@ function sameButFormats(a: Attrs, b: Attrs): boolean {
   return count === 0;
 }
 
+/** Whether text read with `tattrs` is a tab's (one node per `\t`). */
 const isTabText = (tattrs: Attrs): boolean =>
   decodeFormatValue(tattrs[TYPE_KEY]) === 'tab';
 

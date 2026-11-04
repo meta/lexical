@@ -21,11 +21,13 @@
 import {
   $create,
   $createParagraphNode,
+  $createTextNode,
   $getEditor,
   $getRoot,
   createEditor,
   type Klass,
   type LexicalEditor,
+  type LexicalNode,
   type NodeKey,
   TEXT_TYPE_TO_FORMAT,
   type TextFormatType,
@@ -253,6 +255,96 @@ for (const klass of CLASSES) {
   });
 }
 
+/** Replaces TextNode: a node that keeps no format bit. */
+class PlainDropAllNode extends TextNode {
+  $config() {
+    return this.config('test-plain-drop-all', {extends: TextNode});
+  }
+  setFormat(_format: TextFormatType | number): this {
+    return this;
+  }
+}
+/** Replaces TextNode, keeping TextNode's setter. */
+class PlainKeepNode extends TextNode {
+  $config() {
+    return this.config('test-plain-keep', {extends: TextNode});
+  }
+}
+
+const REPLACEMENTS: [string, unknown[], boolean][] = [
+  [
+    'a format-less replacement named by withKlass',
+    [
+      PlainDropAllNode,
+      {
+        replace: TextNode,
+        with: (n: TextNode) =>
+          $create(PlainDropAllNode).setTextContent(n.__text),
+        withKlass: PlainDropAllNode,
+      },
+    ],
+    false,
+  ],
+  [
+    'a format-less replacement by `with` alone',
+    [
+      PlainDropAllNode,
+      {
+        replace: TextNode,
+        with: (n: TextNode) =>
+          $create(PlainDropAllNode).setTextContent(n.__text),
+      },
+    ],
+    false,
+  ],
+  [
+    "a replacement by `with` alone that keeps TextNode's setter",
+    [
+      PlainKeepNode,
+      {
+        replace: TextNode,
+        with: (n: TextNode) => $create(PlainKeepNode).setTextContent(n.__text),
+      },
+    ],
+    true,
+  ],
+];
+
+for (const [title, extra, shows] of REPLACEMENTS) {
+  describe.each([false, true])(`${title}, gc %s`, gc => {
+    test('a stored bold over part of a text node reads as the node shows it', async () => {
+      const t = await setup(
+        () =>
+          $getRoot().append(
+            $createParagraphNode().append($createTextNode('alpha beta')),
+          ),
+        {gc, nodes: [...NODES, ...extra] as Klass<LexicalNode>[]},
+      );
+      formatRaw(t.a, 'beta', {'f:bold': true});
+      await t.sync();
+      expect(nodesOf(t.b)).toEqual(
+        shows
+          ? [
+              ['alpha ', 0],
+              ['beta', TEXT_TYPE_TO_FORMAT.bold],
+            ]
+          : [['alpha beta', 0]],
+      );
+      expect((await freshReader(t.b)).describe()).toBe(t.b.describe());
+      t.b.update(() => {
+        const node = $getRoot()
+          .getAllTextNodes()
+          .find(n => n.getTextContent().includes('beta'))!;
+        const i = node.getTextContent().indexOf('beta');
+        node.select(i, i).insertText('X');
+      });
+      await t.sync();
+      expect((await freshReader(t.b)).describe()).toBe(t.b.describe());
+      await expectConverged(t.peers);
+    });
+  });
+}
+
 /** Keeps formats only on text of 8 or more characters. */
 class LengthGatedNode extends TextNode {
   $config() {
@@ -275,7 +367,7 @@ describe.each([false, true])(
     // and mergeWithSibling). Apart, neither part shows the bold; merged, the
     // node would.
     test.fails(
-      'a stored bold over part of a node reads as on main',
+      'a stored bold over part of a node reads as on main (outside the contract, #9768)',
       async () => {
         const t = await setup(
           () =>
@@ -315,7 +407,7 @@ describe.each([false, true])(
     // and mergeWithSibling). Apart, neither "ab" (stored bold) nor "Xd" shows
     // a format; merged, the node holds an X and shows the bold.
     test.fails(
-      'a stored bold over part of a node reads as on main',
+      'a stored bold over part of a node reads as on main (outside the contract, #9768)',
       async () => {
         const t = await setup(
           () =>
@@ -357,7 +449,7 @@ describe.each([false, true])(
     // attached, so they show no format and the runs read as one, and the
     // attached node then shows the first run's bold over both.
     test.fails(
-      'a stored bold over part of a node reads where it is stored',
+      'a stored bold over part of a node reads where it is stored (outside the contract, #9768)',
       async () => {
         const t = await setup(
           () =>
@@ -404,7 +496,7 @@ describe.each([false, true])(
     // Outside the contract (see above): it shows no format while its editor
     // is not editable yet, as when a fresh reader builds and compares nodes.
     test.fails(
-      'a stored bold over part of a node reads where it is stored',
+      'a stored bold over part of a node reads where it is stored (outside the contract, #9768)',
       async () => {
         const t = await setup(
           () =>
