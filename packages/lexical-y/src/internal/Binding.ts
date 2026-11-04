@@ -3048,6 +3048,31 @@ export class YBinding {
   }
 
   /**
+   * D08's permission for what follows a permitted write (its pins and its
+   * recovery): the records it was admitted on plus this client's own schema
+   * record as recordSchema writes it, when the records are exactly that;
+   * null when anything else changed since the admission.
+   */
+  private ownSchemaGrace(grace: SchemaGrace): SchemaGrace | null {
+    const own = SCHEMA_PREFIX + this.options.schemaVersion;
+    const now = this.schemaRecords();
+    const expected: SchemaRecords = grace.records.filter(([k]) => k !== own);
+    const admittedOwn = grace.records.find(([k]) => k === own);
+    const nowOwn = now.find(([k]) => k === own);
+    if (nowOwn !== undefined) {
+      if (
+        nowOwn[1] !== true &&
+        !(admittedOwn !== undefined && Object.is(admittedOwn[1], nowOwn[1]))
+      ) {
+        return null;
+      }
+      expected.push(nowOwn);
+    }
+    expected.sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+    return sameSchemaRecords(now, expected) ? {records: now} : null;
+  }
+
+  /**
    * Whether the root's schema records, as they are now, keep this version
    * from writing (a newer or malformed one, see checkSchema).
    */
@@ -5084,9 +5109,10 @@ export class YBinding {
           recordSetMembersLayout(this._root, tr);
           // A write D08 permits may record this client's own schema version
           // (its first write at it): its pins and its recovery are admitted
-          // on the records as it left them.
+          // on the records it was admitted on plus exactly that record, and
+          // on nothing else (a peer's change during the write revokes it).
           if (grace !== null) {
-            after = {records: this.schemaRecords()};
+            after = this.ownSchemaGrace(grace);
           }
         }
       }, origin);

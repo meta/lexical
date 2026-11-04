@@ -22,6 +22,8 @@ import {
   $createParagraphNode,
   $createTextNode,
   $getRoot,
+  $setState,
+  createState,
   defineExtension,
   type LexicalEditor,
 } from 'lexical';
@@ -411,6 +413,76 @@ describe.each([false, true])('schema admission at write time, gc %s', gc => {
     t.editor.dispose();
     t.doc.destroy();
   });
+
+  // The permission carried to a D08 write's pins is the admitted records
+  // plus exactly the write's own schema record: a peer's change applied
+  // during the write (here from a NodeState serializer) revokes it, as one
+  // applied after the write's transaction does.
+  for (const phase of [
+    'unchanged',
+    'during-writer',
+    'after-transaction',
+  ] as const) {
+    test(`D08 pins at a client's first write at its version, a second peer change ${phase === 'unchanged' ? 'absent (control): pinned' : `${phase}: no pin`}`, async () => {
+      const doc = createYDoc(rawDoc(SEED), {gc});
+      const root = doc.get('lexical-y');
+      root.setAttr('lexical-y-schema:1', true);
+      const errors: Error[] = [];
+      const warnings: string[] = [];
+      const editor = editorOf(errors, warnings);
+      const binding = new YBinding(editor, doc, {schemaVersion: 2});
+      binding.start();
+      binding.initialize();
+      const peer = createYDoc(Y.encodeStateAsUpdate(doc), {gc});
+      peer.get('lexical-y').setAttr('lexical-y-schema:3', true);
+      const first = Y.encodeStateAsUpdate(peer, Y.encodeStateVector(doc));
+      const firstVector = Y.encodeStateVector(peer);
+      peer.get('lexical-y').setAttr('lexical-y-schema:4', true);
+      const second = Y.encodeStateAsUpdate(peer, firstVector);
+      let secondApplied = false;
+      const applySecond = () => {
+        if (!secondApplied) {
+          secondApplied = true;
+          Y.applyUpdate(doc, second, 'remote');
+        }
+      };
+      const field = createState('schema-at-write-field', {
+        parse: v => (typeof v === 'string' ? v : ''),
+        unparse: v => {
+          if (
+            phase === 'during-writer' &&
+            doc._transaction !== null &&
+            doc._transaction.origin === binding
+          ) {
+            applySecond();
+          }
+          return v;
+        },
+      });
+      doc.on('afterTransaction', tr => {
+        if (tr.origin === binding && phase === 'after-transaction') {
+          applySecond();
+        }
+      });
+      editor.update(() => {
+        const p = $createParagraphNode().append($createTextNode('mine'));
+        $setState(p, field, 'value');
+        $getRoot().append(p);
+        Y.applyUpdate(doc, first, 'remote');
+      });
+      await flush();
+      expect(secondApplied).toBe(phase !== 'unchanged');
+      expect(textOf(root)).toContain('mine');
+      expect(root.getAttr('k:paragraph') !== undefined).toBe(
+        phase === 'unchanged',
+      );
+      expect(binding.status).toBe('readonly');
+      peer.destroy();
+      binding.dispose();
+      editor.dispose();
+      doc.destroy();
+    });
+  }
 
   test('control: a schema record at or below the version, recorded by a listener, does not refuse the write', async () => {
     const doc = createYDoc(rawDoc(SEED), {gc});
