@@ -327,3 +327,69 @@ test('a decorator slot value moved into an element rendered before its old host 
   editor.setRootElement(null);
   root.remove();
 });
+
+describe('slot values swapped in one update', () => {
+  for (const shape of [
+    'between two slots of one host',
+    'between two hosts, the later host first in the update',
+    'between two hosts, the earlier host first in the update',
+  ] as const) {
+    test(shape, () => {
+      const {editor, errors, root} = mount();
+      const k: Record<string, NodeKey> = {};
+      editor.update(
+        () => {
+          const first = new Host().append($text('first'));
+          const second =
+            shape === 'between two slots of one host'
+              ? first
+              : new Host().append($text('second'));
+          const v = $text('v');
+          const w = $text('w');
+          $setSlot(first as never, 's0' as never, v);
+          $setSlot(second as never, 's1' as never, w);
+          if (second === first) {
+            $getRoot().clear().append(first, $text('tail'));
+          } else {
+            $getRoot().clear().append(first, second, $text('tail'));
+          }
+          k.first = first.getKey();
+          k.second = second.getKey();
+          k.v = v.getKey();
+          k.w = w.getKey();
+        },
+        {discrete: true},
+      );
+      const vDOM = editor.getElementByKey(k.v)!;
+      const wDOM = editor.getElementByKey(k.w)!;
+      editor.update(
+        () => {
+          const first = $getNodeByKey(k.first)!;
+          const second = $getNodeByKey(k.second)!;
+          const v = $getNodeByKey(k.v)!;
+          const w = $getNodeByKey(k.w)!;
+          if (
+            shape === 'between two hosts, the later host first in the update'
+          ) {
+            $removeSlot(second as never, 's1' as never);
+            $removeSlot(first as never, 's0' as never);
+          } else {
+            $removeSlot(first as never, 's0' as never);
+            $removeSlot(second as never, 's1' as never);
+          }
+          $setSlot(first as never, 's0' as never, w);
+          $setSlot(second as never, 's1' as never, v);
+        },
+        {discrete: true},
+      );
+      expect(errors).toEqual([]);
+      expect(editor.getElementByKey(k.v)).toBe(vDOM);
+      expect(editor.getElementByKey(k.w)).toBe(wDOM);
+      expect(root.contains(vDOM)).toBe(true);
+      expect(root.contains(wDOM)).toBe(true);
+      expect(root.innerHTML).toBe(freshHTML(editor.getEditorState()));
+      editor.setRootElement(null);
+      root.remove();
+    });
+  }
+});
