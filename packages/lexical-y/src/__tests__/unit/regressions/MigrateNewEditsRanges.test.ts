@@ -16,10 +16,10 @@
 import * as Y from '@y/y';
 import {describe, expect, test, vi} from 'vitest';
 
+import {hasNewYEdits} from '../../../internal/Server';
 import {
   createYDoc,
-  hasNewYEdits,
-  quarantineRecord,
+  createYQuarantineRecord,
   type YRecordSource,
 } from '../../../server';
 import {rawDoc} from '../../utils/migrateSteps';
@@ -60,7 +60,7 @@ describe.each([false, true])('hasNewYEdits by held ids, gc %s', gc => {
     const base = Y.encodeStateAsUpdate(authority);
     const snapshot = Y.encodeStateAsUpdate(replica);
     expect(hasNewYEdits(material(snapshot), base)).toBe(true);
-    const record = quarantineRecord(
+    const record = createYQuarantineRecord(
       {kind: 'handoff', receivedAt: 1, snapshot, source: SOURCE},
       {generation: 'i/-', state: base},
     );

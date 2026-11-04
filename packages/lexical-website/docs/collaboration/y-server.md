@@ -849,7 +849,8 @@ client's document with `createYDoc` from `@lexical/y`.
    `{state, generation}` of the result, the immutable base of the old
    generation (`base.state` under `base.generation`, never overwritten), and,
    when the result has pending material, its quarantine record:
-   `pendingYRecord({stored: state, pending, source, receivedAt})`. Pending
+   `createYQuarantineRecord({kind: 'pending', stored: state, pending, source,
+   receivedAt})`. Pending
    material can include text clients already saw: Yjs 14 integrates items
    past a gap, and the runner cuts them out with the rest. Its
    snapshot is the whole stored state the material was split from and its
@@ -927,14 +928,15 @@ and makes its root unreadable: no client is admitted to it. Other
 
 A room's **seed contract** is the `SEED_LAYOUT` its incarnation was issued
 under; store it with the incarnation. A server whose `SEED_LAYOUT` differs
-replaces a never-seeded room's incarnation before it admits anyone
-(`needsNewIncarnation(room, SEED_LAYOUT)`), so a replica that seeded under
+replaces a never-seeded room's incarnation before it admits anyone (when
+the room is `pristine` and its `seedContract` is not the server's
+`SEED_LAYOUT`), so a replica that seeded under
 the old contract and never reached storage hands off its material instead
 of being admitted or refused.
 
 ### Quarantine, capture and the handoff
 
-- **Records** (`quarantineRecord`, version 1: `v: 1`, `updateFormat:
+- **Records** (`createYQuarantineRecord`, version 1: `v: 1`, `updateFormat:
   'yjs-v1'`) keep, per room and append-only, what a stale or legacy session
   held: a standalone snapshot, later deltas, a queue of unsent updates, a
   draft, where it came from (`source`, with its incarnation and generation),
@@ -944,10 +946,11 @@ of being admitted or refused.
   could have delivered updates to the replica since its last sync with the
   server, persisted with the replica's storage; unknown is `true`) and
   `clients` (every client id the replica wrote under since that sync), which
-  replaying a record's changes needs. `hasNewYEdits(record, base)` says
-  whether it holds a struct or a deletion the base lacks, a draft marked
-  `differs`, or a missing dependency (a record that requires a feature
-  always counts). Prompt users only for those; keep every record listable
+  replaying a record's changes needs. Given the state of the base
+  generation (`createYQuarantineRecord(input, {generation, state})`), a
+  record's `actionable` says whether it holds a struct or a deletion the
+  base lacks, a draft marked `differs`, or a missing dependency (a record
+  that requires a feature always counts). Prompt users only for those; keep every record listable
   for the quarantine window, and keep a record that requires a feature you
   do not know as it is (store and export it; never read it as one you
   know).
@@ -962,7 +965,7 @@ of being admitted or refused.
   its length and each signal by `{client, clock, key, root, update}` (its
   update's length). The id, session, replica, times and what the server
   derives (`base`, `complete`, `actionable`, `collisions`) are not in it. A
-  draft that is not JSON is refused (`quarantineRecord` throws): keep the
+  draft that is not JSON is refused (`createYQuarantineRecord` throws): keep the
   material. Equal hashes are not proof of equal records: compare the exact
   payload before discarding either.
 - **Acknowledgement.** The server answers a stored record with a durable
@@ -973,18 +976,21 @@ of being admitted or refused.
   what it uploaded; a bare hash, or one from another room, replica or
   generation, acknowledges nothing, and one of an unknown version keeps the
   material.
-- **Legacy capture** (`captureYSession()`): answer the old client's sync
+- **Legacy capture** (`createYSessionCapture()`): answer the old client's sync
   step 1 with an empty sync step 2 and send a sync step 1 with an empty
   state vector (`messages`, framed for y-websocket), so its sync step 2 is
   its whole document: keep it, and its later updates, with `add`.
-  `signal(supportedSchema)` (or `legacySignal`) builds an update on that
+  `signal(supportedSchema)` builds an update on that
   snapshot, under a fresh random client id, that records a schema version
   above every one recorded or supported, so the old client turns read only
   with its "newer version" state; send it to that client only, never apply
   it to the room. Keep the signals with the record (`signals`): only an
   item matching one in id, parent, key and content is ignored. An item the
   client wrote at a signal's id (`collisions()`, a record's `collisions`)
-  is its own and kept: send another signal.
+  is its own and kept: send another signal. A server that keeps the
+  material between messages instead of the capture object (a hibernating
+  Durable Object) resumes it with `createYSessionCapture({snapshot, deltas,
+  signals})`.
 - **Handoff** (a client whose verdict is `stale`): stop its providers and
   persistence, `binding.quiesce()`, upload the snapshot, queue and draft as
   one record, wait for the server's durable acknowledgement of that record

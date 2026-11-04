@@ -9,11 +9,11 @@
 // @lexical/y/server: EXPERIMENTAL pieces of a server or relay that stores
 // `@lexical/y` documents (D102, y-server.md "Migrating stored documents"):
 // the load-time migration (prepareYRoom), the generation of a stored state
-// (getYGeneration), the handshake verdict (checkYSession), the legacy capture
-// (captureYSession, legacySignal), quarantine records (quarantineRecord,
-// sourceView, hasNewYEdits), and createYDoc for a relay's documents (Yjs
-// only: format cleanup off, nothing the binding adds to a client's). No
-// Lexical import.
+// (getYGeneration), the handshake verdict (describeYRoom, checkYSession),
+// the legacy capture (createYSessionCapture), quarantine records
+// (createYQuarantineRecord, sourceView) and createYDoc for a relay's
+// documents (Yjs only: format cleanup off, nothing the binding adds to a
+// client's). No Lexical import.
 
 // The layout constants a server needs, from the constants module alone:
 // a server never needs the core entry (which loads the binding).
@@ -24,20 +24,17 @@ import {
   type YDocOptions,
 } from './internal/RawYDoc';
 import {
-  captureYSession,
   checkYSession,
+  createYQuarantineRecord,
+  createYSessionCapture,
   describeYRoom,
   getYGeneration,
-  hasNewYEdits,
-  legacySignal,
-  needsNewIncarnation,
-  pendingYRecord,
   prepareYRoom,
-  quarantineRecord,
   sourceView,
   UNKNOWN_GENERATION,
   type YDraft,
   type YLegacySignal,
+  type YPendingRecordInput,
   type YPreparedRoom,
   type YPrepareRoomOptions,
   type YQuarantineRecord,
@@ -55,6 +52,7 @@ export type {
   YDocOptions,
   YDraft,
   YLegacySignal,
+  YPendingRecordInput,
   YPreparedRoom,
   YPrepareRoomOptions,
   YQuarantineRecord,
@@ -67,19 +65,15 @@ export type {
   YSessionVerdict,
 };
 export {
-  captureYSession,
   checkYSession,
   createYDoc,
+  createYQuarantineRecord,
+  createYSessionCapture,
   describeYRoom,
   getYGeneration,
-  hasNewYEdits,
   LAYOUT_VERSION,
-  legacySignal,
   MIN_LAYOUT,
-  needsNewIncarnation,
-  pendingYRecord,
   prepareYRoom,
-  quarantineRecord,
   SEED_LAYOUT,
   sourceView,
   UNKNOWN_GENERATION,

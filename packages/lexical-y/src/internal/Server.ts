@@ -323,7 +323,7 @@ export function describeYRoom(
 }
 
 /**
- * @experimental Whether an authority whose SEED_LAYOUT is `seedLayout` must
+ * @internal Whether an authority whose SEED_LAYOUT is `seedLayout` must
  * replace the room's incarnation (a new token, the new seed contract)
  * before it admits anyone: the room is pristine and was issued under
  * another seed contract. A replica that seeded under the old contract and
@@ -375,7 +375,7 @@ export type YSessionVerdict =
    * reload to another release.
    */
   | {readonly verdict: 'refuse-layout'; readonly reason?: string}
-  /** No handshake on a room it may not join: capture (captureYSession). */
+  /** No handshake on a room it may not join: capture (createYSessionCapture). */
   | {readonly verdict: 'legacy'; readonly reason?: string};
 
 /** Whether `value` is a well-formed YSessionHandshake (version 1). */
@@ -530,7 +530,7 @@ export interface YLegacySignal {
   readonly key: string;
 }
 
-/** @experimental What a legacy capture sends and keeps (see captureYSession). */
+/** @experimental What a legacy capture sends and keeps (see createYSessionCapture). */
 export interface YSessionCapture {
   /**
    * The answer to the client's sync step 1: an empty update (it receives
@@ -575,12 +575,23 @@ export interface YSessionCapture {
  * sync step 2 and sends its own sync step 1 with an empty state vector, so
  * the client's sync step 2 is its whole document, a standalone snapshot
  * never merged with anything the authority holds; later updates are kept
- * as deltas. Build a record from `material()` with quarantineRecord.
+ * as deltas. Build a record from `material()` with createYQuarantineRecord.
+ * `resume`: the material an earlier capture of the same session kept, for
+ * an authority that persists it between messages (a hibernating Durable
+ * Object); the capture continues from it (its signals included).
  */
-export function captureYSession(): YSessionCapture {
-  let snapshot: Uint8Array | null = null;
-  const deltas: Uint8Array[] = [];
-  const signals: YLegacySignal[] = [];
+export function createYSessionCapture(
+  resume: {
+    readonly snapshot: Uint8Array | null;
+    readonly deltas?: readonly Uint8Array[];
+    readonly signals?: readonly YLegacySignal[];
+  } | null = null,
+): YSessionCapture {
+  let snapshot: Uint8Array | null = resume === null ? null : resume.snapshot;
+  const deltas: Uint8Array[] =
+    resume === null ? [] : [...(resume.deltas ?? [])];
+  const signals: YLegacySignal[] =
+    resume === null ? [] : [...(resume.signals ?? [])];
   const material = () => ({
     deltas: [...deltas],
     signals: [...signals],
@@ -648,7 +659,7 @@ function randomClient(taken: (client: number) => boolean): number {
 }
 
 /**
- * @experimental The update that turns a client from before the fence read
+ * @internal The update that turns a client from before the fence read
  * only with its existing "newer version" state: built on that client's own
  * standalone `snapshot`, under a fresh random client id, it records
  * `lexical-y-schema:<n>` on `root`, `n` above the highest schema version the
@@ -826,7 +837,10 @@ export interface YQuarantineRecord {
   readonly actionable: boolean;
 }
 
-/** @experimental The input of quarantineRecord. */
+/**
+ * @experimental The input of createYQuarantineRecord: a record's material
+ * as a replica or a capture handed it over.
+ */
 export interface YQuarantineRecordInput {
   readonly id?: string;
   readonly session?: string | null;
@@ -844,6 +858,28 @@ export interface YQuarantineRecordInput {
   readonly signals?: readonly YLegacySignal[];
   /** Default none; kept once each, sorted. */
   readonly requires?: readonly string[];
+  readonly receivedAt: number;
+}
+
+/**
+ * @experimental The input of createYQuarantineRecord for a migration's
+ * `pending` material (prepareYRoom's or migrateYState's), stored atomically
+ * with the migrated state: the record's kind is `'pending'`, its snapshot
+ * the whole stored state the material was split from (which still holds
+ * every cut item and what they depend on) and its queue the split bytes, so
+ * its source view renders the cut material in place and a raw export
+ * carries both. The stored state may itself lack updates (a skipped range):
+ * the record is then incomplete until they arrive (append them as deltas).
+ * Its base is the migrated state, which lacks the cut items.
+ */
+export interface YPendingRecordInput {
+  readonly kind: 'pending';
+  readonly id?: string;
+  /** The stored state the material was split from. */
+  readonly stored: Uint8Array;
+  /** The split material (`pending`). */
+  readonly pending: Uint8Array;
+  readonly source: YRecordSource;
   readonly receivedAt: number;
 }
 
@@ -971,14 +1007,37 @@ export function sourceView(
 }
 
 /**
- * @experimental Build a quarantine record (version 1): its hash (of its
- * canonical payload, see YQuarantineRecord's `hash`), whether its source view
- * is complete, and, when `base` is given (the state of the base generation),
- * whether it holds anything new (hasNewYEdits; without a base, or when it
- * requires a feature, it counts as actionable). Throws a TypeError when the
- * draft is not JSON: keep the material and report it.
+ * @experimental Build a quarantine record (version 1), from a replica's or
+ * a capture's material (YQuarantineRecordInput) or from a migration's
+ * pending material (YPendingRecordInput): its hash (of its canonical
+ * payload, see YQuarantineRecord's `hash`), whether its source view is
+ * complete, and, when `base` is given (the state of the base generation),
+ * whether it holds anything new (a struct or a deletion the base lacks, a
+ * draft marked `differs`, or a missing dependency; without a base, or when
+ * it requires a feature, it counts as actionable). Throws a TypeError when
+ * the draft is not JSON: keep the material and report it.
  */
-export function quarantineRecord(
+export function createYQuarantineRecord(
+  input: YQuarantineRecordInput | YPendingRecordInput,
+  base: {readonly generation: string; readonly state: Uint8Array} | null = null,
+): YQuarantineRecord {
+  return 'stored' in input
+    ? materialRecord(
+        {
+          id: input.id,
+          kind: 'pending',
+          queue: [input.pending],
+          receivedAt: input.receivedAt,
+          snapshot: input.stored,
+          source: input.source,
+        },
+        base,
+      )
+    : materialRecord(input, base);
+}
+
+/** createYQuarantineRecord's material form. */
+function materialRecord(
   input: YQuarantineRecordInput,
   base: {readonly generation: string; readonly state: Uint8Array} | null = null,
 ): YQuarantineRecord {
@@ -1042,43 +1101,7 @@ export function quarantineRecord(
 }
 
 /**
- * @experimental The quarantine record of a migration's `pending` material
- * (prepareYRoom's or migrateYState's), stored atomically with the migrated
- * state: kind `'pending'`, its snapshot the whole stored state it was split
- * from (which still holds every cut item and what they depend on) and its
- * queue the split bytes, so its source view renders the cut material in
- * place, and a raw export of the record carries both. The stored state may
- * itself lack updates (a skipped range): the record is then incomplete
- * until they arrive (append them as deltas). `base`, as for
- * quarantineRecord: the migrated state, which lacks the cut items.
- */
-export function pendingYRecord(
-  input: {
-    readonly id?: string;
-    /** The stored state the material was split from. */
-    readonly stored: Uint8Array;
-    /** The split material (`pending`). */
-    readonly pending: Uint8Array;
-    readonly source: YRecordSource;
-    readonly receivedAt: number;
-  },
-  base: {readonly generation: string; readonly state: Uint8Array} | null = null,
-): YQuarantineRecord {
-  return quarantineRecord(
-    {
-      id: input.id,
-      kind: 'pending',
-      queue: [input.pending],
-      receivedAt: input.receivedAt,
-      snapshot: input.stored,
-      source: input.source,
-    },
-    base,
-  );
-}
-
-/**
- * @experimental Whether a quarantine record holds anything `base` (the
+ * @internal Whether a quarantine record holds anything `base` (the
  * state of the generation it was made against) lacks, read from its source
  * view (Yjs only, no Lexical): a struct the base lacks (not a legacy
  * signal's own item), a deletion of an item the base holds live, a draft the

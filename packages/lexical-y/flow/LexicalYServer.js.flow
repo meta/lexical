@@ -106,11 +106,6 @@ declare export function describeYRoom(
   },
 ): YRoomDescription;
 
-declare export function needsNewIncarnation(
-  room: YRoomDescription,
-  seedLayout: number,
-): boolean;
-
 export type YSessionVerdict =
   | {
       readonly verdict: 'admit',
@@ -153,13 +148,13 @@ export type YSessionCapture = {
   },
 };
 
-declare export function captureYSession(): YSessionCapture;
-
-declare export function legacySignal(
-  snapshot: Uint8Array,
-  supportedSchema: number,
-  root?: string,
-): YLegacySignal;
+declare export function createYSessionCapture(
+  resume?: {
+    readonly snapshot: Uint8Array | null,
+    readonly deltas?: ReadonlyArray<Uint8Array>,
+    readonly signals?: ReadonlyArray<YLegacySignal>,
+  } | null,
+): YSessionCapture;
 
 export type YRecordSource = {
   readonly incarnation: string | null,
@@ -228,33 +223,19 @@ declare export function sourceView(record: {
   ...
 }): {doc: Doc, complete: boolean};
 
-declare export function quarantineRecord(
-  input: YQuarantineRecordInput,
+export type YPendingRecordInput = {
+  readonly kind: 'pending',
+  readonly id?: string,
+  readonly stored: Uint8Array,
+  readonly pending: Uint8Array,
+  readonly source: YRecordSource,
+  readonly receivedAt: number,
+};
+
+declare export function createYQuarantineRecord(
+  input: YQuarantineRecordInput | YPendingRecordInput,
   base?: {readonly generation: string, readonly state: Uint8Array} | null,
 ): YQuarantineRecord;
-
-declare export function pendingYRecord(
-  input: {
-    readonly id?: string,
-    readonly stored: Uint8Array,
-    readonly pending: Uint8Array,
-    readonly source: YRecordSource,
-    readonly receivedAt: number,
-  },
-  base?: {readonly generation: string, readonly state: Uint8Array} | null,
-): YQuarantineRecord;
-
-declare export function hasNewYEdits(
-  record: {
-    readonly snapshot: Uint8Array | null,
-    readonly deltas: ReadonlyArray<Uint8Array>,
-    readonly queue: ReadonlyArray<Uint8Array>,
-    readonly signals: ReadonlyArray<YLegacySignal>,
-    readonly draft: YDraft | null,
-    ...
-  },
-  base: Uint8Array,
-): boolean;
 
 // The layout upgrade handle, the same as @lexical/y's.
 export type {YClientSession, YLayoutUpgradeHandle, YServerLayoutUpgradeOptions};

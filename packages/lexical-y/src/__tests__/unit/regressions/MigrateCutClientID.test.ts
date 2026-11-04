@@ -24,7 +24,7 @@ import {migrateYState} from '../../../migrate';
 import step1to2 from '../../../migrate/1to2';
 import {
   createYDoc,
-  quarantineRecord,
+  createYQuarantineRecord,
   type YRecordSource,
 } from '../../../server';
 import {rawDoc, SEED} from '../../utils/migrateSteps';
@@ -114,7 +114,7 @@ describe.skipIf(SEED !== 1)('cut client ids', () => {
       const input = Y.encodeStateAsUpdate(stored);
       const result = migrateYState(input, [step1to2], options);
       expect(firstClient(result)).not.toBe(oldClient);
-      const completed = quarantineRecord(
+      const completed = createYQuarantineRecord(
         {
           deltas: [updates[0]],
           kind: 'pending',

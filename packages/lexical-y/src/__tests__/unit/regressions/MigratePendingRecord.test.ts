@@ -10,7 +10,7 @@
 
 // A migration's pending material has a self-contained quarantine record
 // (code review round 1, S2): split bytes alone render nothing, so
-// pendingYRecord keeps the stored state they were split from as its
+// A pending record (createYQuarantineRecord's pending form) keeps the stored state they were split from as its
 // snapshot. The fixture is the review's right-origin split: G (client 333)
 // has its left origin in client 100 and its right origin in client 222's
 // suffix past a gap; S is a later item of 333 in another root.
@@ -18,7 +18,11 @@
 import {describe, expect, test} from 'vitest';
 
 import {migrateYState} from '../../../migrate';
-import {pendingYRecord, sourceView, type YRecordSource} from '../../../server';
+import {
+  createYQuarantineRecord,
+  sourceView,
+  type YRecordSource,
+} from '../../../server';
 import {stamp} from '../../utils/migrateSteps';
 import {rightOriginSplit, textOf} from '../../utils/splitFixtures';
 
@@ -40,8 +44,14 @@ describe.each([false, true])('pending records, gc %s', gc => {
     expect(textOf(alone.doc.get('lexical-y'))).toBe('');
     alone.doc.destroy();
 
-    const record = pendingYRecord(
-      {pending: result.pending!, receivedAt: 1, source: SOURCE, stored},
+    const record = createYQuarantineRecord(
+      {
+        kind: 'pending',
+        pending: result.pending!,
+        receivedAt: 1,
+        source: SOURCE,
+        stored,
+      },
       {generation: 'i/2', state: result.state},
     );
     expect(record.kind).toBe('pending');

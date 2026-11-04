@@ -22,18 +22,20 @@ import {describe, expect, test} from 'vitest';
 import {LAYOUT_VERSION, SEED_LAYOUT} from '../..';
 import {readYState} from '../../headless';
 import {migrateYDoc} from '../../internal/Runner';
-import {replayYRecovery} from '../../internal/Server';
-import {YMigrationError} from '../../migrate';
 import {
-  captureYSession,
-  checkYSession,
-  createYDoc,
-  describeYRoom,
-  getYGeneration,
   hasNewYEdits,
   needsNewIncarnation,
+  replayYRecovery,
+} from '../../internal/Server';
+import {YMigrationError} from '../../migrate';
+import {
+  checkYSession,
+  createYDoc,
+  createYQuarantineRecord,
+  createYSessionCapture,
+  describeYRoom,
+  getYGeneration,
   prepareYRoom,
-  quarantineRecord,
   sourceView,
   UNKNOWN_GENERATION,
   type YLegacySignal,
@@ -716,8 +718,8 @@ describe.each([false, true])('@lexical/y/server, gc %s', gc => {
     });
   });
 
-  test('captureYSession: an empty sync step 2, a sync step 1 with an empty state vector, the client document as a standalone snapshot', () => {
-    const capture = captureYSession();
+  test('createYSessionCapture: an empty sync step 2, a sync step 1 with an empty state vector, the client document as a standalone snapshot', () => {
+    const capture = createYSessionCapture();
     expect([...capture.syncStep2]).toEqual([0, 0]);
     expect([...capture.syncStep1]).toEqual([0]);
     expect(capture.messages.map(m => [...m])).toEqual([
@@ -751,6 +753,47 @@ describe.each([false, true])('@lexical/y/server, gc %s', gc => {
     ).toEqual(readYState(before, catalogHeadlessConfig(CFG), $snapshot));
     Y.applyUpdate(alone, deltas[0]);
     expect(Y.encodeStateVector(alone)).toEqual(Y.encodeStateVector(legacy));
+  });
+
+  test('createYSessionCapture resumes from persisted material: later deltas, its signals and their collisions continue', () => {
+    const legacy = docOf(LAYOUT1);
+    const node = textContainers(legacy.get('lexical-y'))[0];
+    node.insert(firstTextIndex(node), 'OFFLINE ');
+    const first = createYSessionCapture();
+    first.add(Y.encodeStateAsUpdate(legacy, first.syncStep1));
+    const signal = first.signal(SEED)!;
+    // Persisted, then the authority comes back without the object.
+    const persisted = first.material();
+    const resumed = createYSessionCapture(persisted);
+    expect(resumed.material()).toEqual(persisted);
+    expect([...resumed.syncStep1]).toEqual([0]);
+    // A later update is a delta, not a new snapshot.
+    const sv = Y.encodeStateVector(legacy);
+    node.insert(0, 'later ');
+    resumed.add(Y.encodeStateAsUpdate(legacy, sv));
+    expect(resumed.material().snapshot).toBe(persisted.snapshot);
+    expect(resumed.material().deltas).toHaveLength(1);
+    expect(resumed.material().signals).toEqual([signal]);
+    // The next signal is built on the snapshot and the delta (signals are
+    // never applied to the material): the same schema key, a fresh client.
+    const next = resumed.signal(SEED)!;
+    expect(next.key).toBe(signal.key);
+    expect(next.client).not.toBe(signal.client);
+    expect(resumed.material().signals).toEqual([signal, next]);
+    // A collision with a resumed signal is still found: the session wrote
+    // other content at its id.
+    const author = docOf(LAYOUT1);
+    author.clientID = signal.client;
+    author.get('lexical-y').setAttr('other', 1 as never);
+    const colliding = createYSessionCapture({
+      deltas: [Y.encodeStateAsUpdate(author)],
+      signals: [signal],
+      snapshot: persisted.snapshot,
+    });
+    expect(colliding.collisions()).toEqual([signal]);
+    // Resuming copies: the persisted arrays are not appended to.
+    expect(persisted.deltas).toHaveLength(0);
+    expect(persisted.signals).toHaveLength(1);
   });
 
   describe('quarantine records, the source view and hasNewYEdits', () => {
@@ -852,7 +895,7 @@ describe.each([false, true])('@lexical/y/server, gc %s', gc => {
     });
 
     test('a legacy signal: built on the snapshot, a fresh client, a schema key above recorded and supported, no deletion; the old client turns read only; its exact item is ignored', () => {
-      const capture = captureYSession();
+      const capture = createYSessionCapture();
       expect(capture.signal(1)).toBeNull();
       const legacy = docOf(LAYOUT1);
       remove(legacy.get('lexical-y'));
@@ -897,7 +940,7 @@ describe.each([false, true])('@lexical/y/server, gc %s', gc => {
       expect(hasNewYEdits(r, snapshot!)).toBe(false);
       expect(hasNewYEdits(r, base())).toBe(true);
       expect(
-        quarantineRecord({
+        createYQuarantineRecord({
           deltas: [signal.update],
           kind: 'capture',
           receivedAt: 0,
@@ -909,7 +952,7 @@ describe.each([false, true])('@lexical/y/server, gc %s', gc => {
     });
 
     test('a signal id the replica wrote other content at: kept, noted as a collision, and signalled again under another id', () => {
-      const capture = captureYSession();
+      const capture = createYSessionCapture();
       const legacy = docOf(LAYOUT1);
       capture.add(Y.encodeStateAsUpdate(legacy, capture.syncStep1));
       const signal = capture.signal(1)!;
@@ -923,7 +966,7 @@ describe.each([false, true])('@lexical/y/server, gc %s', gc => {
       capture.add(delta);
       expect(capture.collisions()).toEqual([signal]);
       const {snapshot, deltas, signals} = capture.material();
-      const r = quarantineRecord(
+      const r = createYQuarantineRecord(
         {
           deltas,
           kind: 'capture',
@@ -943,7 +986,7 @@ describe.each([false, true])('@lexical/y/server, gc %s', gc => {
       expect(capture.material().signals).toEqual([signal, again]);
     });
 
-    test('quarantineRecord: a stable hash of the material, the id, complete, and actionable against a base', () => {
+    test('createYQuarantineRecord: a stable hash of the material, the id, complete, and actionable against a base', () => {
       const input = {
         kind: 'handoff' as const,
         receivedAt: 1,
@@ -952,8 +995,8 @@ describe.each([false, true])('@lexical/y/server, gc %s', gc => {
         snapshot: replica(insert),
         source: SOURCE,
       };
-      const a = quarantineRecord(input);
-      const b = quarantineRecord({...input, receivedAt: 2});
+      const a = createYQuarantineRecord(input);
+      const b = createYQuarantineRecord({...input, receivedAt: 2});
       expect(a.hash).toMatch(/^yr1-sha256:[0-9a-f]{64}$/);
       expect(a).toMatchObject({requires: [], updateFormat: 'yjs-v1', v: 1});
       expect(b.hash).toBe(a.hash);
@@ -964,40 +1007,42 @@ describe.each([false, true])('@lexical/y/server, gc %s', gc => {
       expect(a.collisions).toEqual([]);
       expect(a.base).toBeNull();
       expect(
-        quarantineRecord({...input, snapshot: replica(remove)}).hash,
+        createYQuarantineRecord({...input, snapshot: replica(remove)}).hash,
       ).not.toBe(a.hash);
-      expect(quarantineRecord({...input, kind: 'capture'}).hash).not.toBe(
-        a.hash,
-      );
       expect(
-        quarantineRecord({...input, draft: {differs: false, json: {a: 1}}})
-          .hash,
+        createYQuarantineRecord({...input, kind: 'capture'}).hash,
       ).not.toBe(a.hash);
-      const withBase = quarantineRecord(input, {
+      expect(
+        createYQuarantineRecord({
+          ...input,
+          draft: {differs: false, json: {a: 1}},
+        }).hash,
+      ).not.toBe(a.hash);
+      const withBase = createYQuarantineRecord(input, {
         generation: 'inc-1/-',
         state: base(),
       });
       expect(withBase).toMatchObject({actionable: true, base: 'inc-1/-'});
-      const nothing = quarantineRecord(
+      const nothing = createYQuarantineRecord(
         {...input, snapshot: replica(() => {})},
         {generation: 'inc-1/-', state: base()},
       );
       expect(nothing.actionable).toBe(false);
     });
 
-    test('quarantineRecord: peers (default true, unknown provenance) and clients (default none) are kept, in the hash and the default id, and change nothing it reads', () => {
+    test('createYQuarantineRecord: peers (default true, unknown provenance) and clients (default none) are kept, in the hash and the default id, and change nothing it reads', () => {
       const input = {
         kind: 'handoff' as const,
         receivedAt: 1,
         snapshot: replica(insert),
         source: SOURCE,
       };
-      const plain = quarantineRecord(input, {
+      const plain = createYQuarantineRecord(input, {
         generation: 'inc-1/-',
         state: base(),
       });
       expect(plain).toMatchObject({clients: [], peers: true});
-      const declared = quarantineRecord(
+      const declared = createYQuarantineRecord(
         {...input, clients: [7, 9], peers: false},
         {generation: 'inc-1/-', state: base()},
       );
@@ -1006,20 +1051,20 @@ describe.each([false, true])('@lexical/y/server, gc %s', gc => {
       expect(declared.hash).not.toBe(plain.hash);
       expect(declared.id).not.toBe(plain.id);
       // Canonical: the same ids in another order or twice, the same record.
-      const again = quarantineRecord(
+      const again = createYQuarantineRecord(
         {...input, clients: [9, 7, 9], peers: false},
         {generation: 'inc-1/-', state: base()},
       );
       expect(again.clients).toEqual([7, 9]);
       expect(again.hash).toBe(declared.hash);
       expect(
-        quarantineRecord({...input, clients: [7, 9], peers: true}).hash,
+        createYQuarantineRecord({...input, clients: [7, 9], peers: true}).hash,
       ).not.toBe(declared.hash);
       expect(declared.actionable).toBe(plain.actionable);
       expect(declared.complete).toBe(plain.complete);
       const none = {...input, snapshot: replica(() => {})};
       expect(
-        quarantineRecord(
+        createYQuarantineRecord(
           {...none, clients: [1], peers: false},
           {generation: 'inc-1/-', state: base()},
         ).actionable,
@@ -1059,7 +1104,7 @@ describe.each([false, true])('@lexical/y/server, gc %s', gc => {
         snapshot: replica(insert),
         source: SOURCE,
       };
-      const built = quarantineRecord(input);
+      const built = createYQuarantineRecord(input);
       // An independent build of the payload the docs describe.
       const header = JSON.stringify({
         clients: [3, 9],
@@ -1112,7 +1157,7 @@ describe.each([false, true])('@lexical/y/server, gc %s', gc => {
         },
         {...input, requires: ['a', 'z']},
       ]) {
-        expect(quarantineRecord(same).hash).toBe(built.hash);
+        expect(createYQuarantineRecord(same).hash).toBe(built.hash);
       }
       // In it: the source (generation and incarnation), the signal
       // transcripts, the requirements, every byte part and its split.
@@ -1134,7 +1179,7 @@ describe.each([false, true])('@lexical/y/server, gc %s', gc => {
         {...input, draft: null},
         {...input, snapshot: null},
       ]) {
-        expect(quarantineRecord(other).hash).not.toBe(built.hash);
+        expect(createYQuarantineRecord(other).hash).not.toBe(built.hash);
       }
       // A draft that is not JSON is refused: keep the material.
       for (const json of [
@@ -1146,7 +1191,7 @@ describe.each([false, true])('@lexical/y/server, gc %s', gc => {
         [1, , 2],
       ]) {
         expect(() =>
-          quarantineRecord({...input, draft: {differs: true, json}}),
+          createYQuarantineRecord({...input, draft: {differs: true, json}}),
         ).toThrow(TypeError);
       }
     });
@@ -1158,9 +1203,12 @@ describe.each([false, true])('@lexical/y/server, gc %s', gc => {
         snapshot: replica(() => {}),
         source: SOURCE,
       };
-      const known = quarantineRecord(input, {generation: G0, state: base()});
+      const known = createYQuarantineRecord(input, {
+        generation: G0,
+        state: base(),
+      });
       expect(known.actionable).toBe(false);
-      const required = quarantineRecord(
+      const required = createYQuarantineRecord(
         {...input, requires: ['future']},
         {generation: G0, state: base()},
       );
@@ -1169,7 +1217,7 @@ describe.each([false, true])('@lexical/y/server, gc %s', gc => {
     });
 
     test('a durable acknowledgement names the room, the replica, the source generation, the record and its hash', () => {
-      const stored = quarantineRecord({
+      const stored = createYQuarantineRecord({
         kind: 'handoff',
         receivedAt: 1,
         replica: 'r1',
@@ -1198,7 +1246,7 @@ describe.each([false, true])('@lexical/y/server, gc %s', gc => {
   test('replayYRecovery (internal) is not implemented yet', () => {
     expect(() =>
       replayYRecovery(
-        quarantineRecord({
+        createYQuarantineRecord({
           kind: 'handoff',
           receivedAt: 0,
           source: {
