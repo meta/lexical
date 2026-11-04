@@ -913,10 +913,15 @@ export class YBinding {
   /** Whether an update that reads the deferred changes is queued. */
   private deferredQueued = false;
   /**
-   * The items each deferred change deleted that the binding keeps from
-   * garbage collection until it is read (see deferChange).
+   * The deferred changes whose deleted content Yjs does not collect until
+   * they are read (see deferChange), and the document's `gcFilter` the
+   * binding's own wraps (see holdDeleted).
    */
-  private readonly keptUnread = new Map<Transaction, Item[]>();
+  private readonly heldUnread = new Set<Transaction>();
+  private gcFilters: {
+    ours: (item: Item) => boolean;
+    prev: (item: Item) => boolean;
+  } | null = null;
   /** While a read of the binding's runs (see guardedRead). */
   private readsNow = 0;
   /** The stored formats one update's transforms looked up (see settleTextFields). */
@@ -1620,7 +1625,7 @@ export class YBinding {
     }
     this.state.clear();
     this.pending.clear();
-    for (const tr of [...this.keptUnread.keys()]) {
+    for (const tr of [...this.heldUnread]) {
       this.releaseUnread(tr);
     }
     this.deferred.length = 0;
@@ -2927,20 +2932,7 @@ export class YBinding {
   private deferChange(tr: Transaction): void {
     this.deferred.push(tr);
     if (this._doc.gc) {
-      // Yjs collects the content a change deleted right after this (in the
-      // change's transaction cleanup): kept until the change is read, the
-      // text the editor still shows stays there for the writes in between
-      // (see Unread), which would otherwise write it again.
-      const kept: Item[] = [];
-      iterateStructsByIdSet(tr, tr.deleteSet, s => {
-        if (s instanceof Item && s.deleted && !s.keep) {
-          s.keep = true;
-          kept.push(s);
-        }
-      });
-      if (kept.length > 0) {
-        this.keptUnread.set(tr, kept);
-      }
+      this.holdDeleted(tr);
     }
     if (this._editor._pendingEditorState === null) {
       // From a commit's listeners or callbacks: in an update of its own,
@@ -2992,16 +2984,50 @@ export class YBinding {
    * (see deferChange), as it would have when the change was applied.
    */
   private releaseUnread(tr: Transaction): void {
-    const kept = this.keptUnread.get(tr);
-    if (kept === undefined) {
+    if (!this.heldUnread.delete(tr)) {
       return;
     }
-    this.keptUnread.delete(tr);
-    for (const item of kept) {
-      item.keep = false;
+    const doc = this._doc;
+    // What no one else keeps (an UndoManager, the binding's own format
+    // items) and the app's filter lets go.
+    doc.transact(t => tryGc(t, tr.deleteSet, doc.gcFilter), this.scanOrigin);
+    const filters = this.gcFilters;
+    if (
+      this.heldUnread.size === 0 &&
+      filters !== null &&
+      doc.gcFilter === filters.ours
+    ) {
+      doc.gcFilter = filters.prev;
+      this.gcFilters = null;
+    }
+  }
+
+  /**
+   * Keep Yjs from collecting the content deferred change `tr` deleted, which
+   * it does right after this (in the change's transaction cleanup), until
+   * the change is read: the text the editor still shows stays there for the
+   * writes in between (see Unread), which would otherwise write it again.
+   * Through the document's `gcFilter`, which the binding wraps while it
+   * holds any: an item's `keep` is others' (an UndoManager's), which a
+   * release could not tell from its own.
+   */
+  private holdDeleted(tr: Transaction): void {
+    this.heldUnread.add(tr);
+    if (this.gcFilters !== null) {
+      return;
     }
     const doc = this._doc;
-    doc.transact(t => tryGc(t, tr.deleteSet, doc.gcFilter), this.scanOrigin);
+    const prev = doc.gcFilter;
+    const ours = (item: Item) => {
+      for (const held of this.heldUnread) {
+        if (held.deleteSet.hasId(item.id)) {
+          return false;
+        }
+      }
+      return prev(item);
+    };
+    this.gcFilters = {ours, prev};
+    doc.gcFilter = ours;
   }
 
   /** Read the remote changes deferred so far, in order (see deferChange). */

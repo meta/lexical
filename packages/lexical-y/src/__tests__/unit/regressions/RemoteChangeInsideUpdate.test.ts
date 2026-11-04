@@ -527,5 +527,43 @@ describe.each([false, true])(
       await expectConverged(t.peers);
       expect((await freshReader(t.a)).describe()).toBe(t.a.describe());
     });
+
+    test("an UndoManager of the app's keeps what a deferred change deleted", async () => {
+      const t = await setup(
+        () =>
+          $getRoot().append(
+            $createParagraphNode().append($createTextNode('aa bb cc')),
+          ),
+        {gc},
+      );
+      t.offline();
+      t.b.update(() =>
+        $getRoot().getAllTextNodes()[0].select(3, 5).removeText(),
+      );
+      const delta = Y.encodeStateAsUpdate(
+        t.b.doc,
+        Y.encodeStateVector(t.a.doc),
+      );
+      // Registered after the binding: it keeps the deleted items once the
+      // binding has deferred the change.
+      const undo = new Y.UndoManager(t.a.doc.get('lexical-y'), {
+        captureTimeout: 0,
+        trackedOrigins: new Set(['provider']),
+      });
+      try {
+        t.a.editor.update(() => Y.applyUpdate(t.a.doc, delta, 'provider'), {
+          discrete: true,
+        });
+        await new Promise(r => setTimeout(r, 0));
+        expect(t.a.read(() => $getRoot().getTextContent())).toBe('aa  cc');
+        expect(undo.undo()).not.toBeNull();
+        await new Promise(r => setTimeout(r, 0));
+        expect(t.a.read(() => $getRoot().getTextContent())).toBe('aa bb cc');
+        await t.sync();
+        await expectConverged(t.peers);
+      } finally {
+        undo.destroy();
+      }
+    });
   },
 );
