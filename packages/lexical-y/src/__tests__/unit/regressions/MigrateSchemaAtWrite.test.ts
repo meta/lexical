@@ -27,7 +27,12 @@ import {
 } from 'lexical';
 import {describe, expect, test, vi} from 'vitest';
 
-import {createYDoc, UNSUPPORTED_SCHEMA_WARNING, YBinding} from '../../..';
+import {
+  createYDoc,
+  RECOVERED_WRITE_WARNING,
+  UNSUPPORTED_SCHEMA_WARNING,
+  YBinding,
+} from '../../..';
 import {Writer} from '../../../internal/Write';
 import {catalogAppExtension} from '../../catalog/bind';
 import {rawDoc, SEED} from '../../utils/migrateSteps';
@@ -328,6 +333,84 @@ describe.each([false, true])('schema admission at write time, gc %s', gc => {
       doc.destroy();
     });
   }
+
+  // D08 at a client's first write at its schemaVersion: the document
+  // records schema 1 only, the binding writes at 2, and a peer's schema 3
+  // arrives while the local update runs. The write records schema 2; its
+  // pins and its recovery are admitted on the records as it left them.
+  function firstWriteAtNewVersion(failFirst: boolean) {
+    const doc = createYDoc(rawDoc(SEED), {gc});
+    const root = doc.get('lexical-y');
+    root.setAttr('lexical-y-schema:1', true);
+    const errors: Error[] = [];
+    const warnings: string[] = [];
+    const editor = editorOf(errors, warnings);
+    const binding = new YBinding(editor, doc, {schemaVersion: 2});
+    binding.start();
+    binding.initialize();
+    expect(
+      Object.keys(root.getAttrs()).filter(k =>
+        k.startsWith('lexical-y-schema:'),
+      ),
+    ).toEqual(['lexical-y-schema:1']);
+    expect(root.getAttr('k:paragraph')).toBeUndefined();
+    const peer = createYDoc(Y.encodeStateAsUpdate(doc), {gc});
+    peer.get('lexical-y').setAttr('lexical-y-schema:3', true);
+    const bump = Y.encodeStateAsUpdate(peer, Y.encodeStateVector(doc));
+    const original = Writer.prototype.$run;
+    let failed = !failFirst;
+    const spy = vi.spyOn(Writer.prototype, '$run').mockImplementation(function (
+      this: Writer,
+    ) {
+      if (!failed) {
+        // Fails having changed the root but before writing the paragraph,
+        // so the transaction records this client's schema version and only
+        // the recovery writes the text.
+        failed = true;
+        root.setAttr('lexical-y-test-partial', true);
+        throw new Error('the first attempt failed part way');
+      }
+      return original.call(this);
+    });
+    try {
+      editor.update(() => {
+        $getRoot().append(
+          $createParagraphNode().append($createTextNode('mine')),
+        );
+        Y.applyUpdate(doc, bump, 'remote');
+      });
+    } finally {
+      // Restored after the commit (discrete: false runs it in a microtask).
+      queueMicrotask(() => spy.mockRestore());
+    }
+    return {binding, doc, editor, peer, root, warnings};
+  }
+
+  test("D08 at a client's first write at its version: the write, its own schema record and its pin are stored", async () => {
+    const t = firstWriteAtNewVersion(false);
+    await flush();
+    expect(textOf(t.root)).toContain('mine');
+    expect(t.root.getAttr('lexical-y-schema:2')).toBe(true);
+    expect(t.root.getAttr('k:paragraph')).toBeDefined();
+    expect(t.binding.status).toBe('readonly');
+    t.peer.destroy();
+    t.binding.dispose();
+    t.editor.dispose();
+    t.doc.destroy();
+  });
+
+  test("D08 at a client's first write at its version: a write that fails part way is rewritten by its recovery", async () => {
+    const t = firstWriteAtNewVersion(true);
+    await flush();
+    expect(t.warnings).toContain(RECOVERED_WRITE_WARNING);
+    expect(textOf(t.root)).toContain('mine');
+    expect(t.root.getAttr('lexical-y-schema:2')).toBe(true);
+    expect(t.binding.status).toBe('readonly');
+    t.peer.destroy();
+    t.binding.dispose();
+    t.editor.dispose();
+    t.doc.destroy();
+  });
 
   test('control: a schema record at or below the version, recorded by a listener, does not refuse the write', async () => {
     const doc = createYDoc(rawDoc(SEED), {gc});

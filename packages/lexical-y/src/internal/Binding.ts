@@ -5053,8 +5053,10 @@ export class YBinding {
   ): Writer | null | 'refused' {
     let writer: Writer | null = null;
     let refused = false;
-    // Admitted once, for the whole write: its pins and its recovery too.
+    // Admitted once, for the whole write: its pins and its recovery too,
+    // which see the records as this write left them (`after`).
     const grace = this.writeGrace;
+    let after = grace;
     try {
       this._doc.transact(tr => {
         // Admitted inside the transaction, after every beforeTransaction
@@ -5082,6 +5084,12 @@ export class YBinding {
           // never get one without the version that tells them they cannot
           // read it.
           recordSetMembersLayout(this._root, tr);
+          // A write D08 permits may record this client's own schema version
+          // (its first write at it): its pins and its recovery are admitted
+          // on the records as it left them.
+          if (grace !== null) {
+            after = {records: this.schemaRecords()};
+          }
         }
       }, origin);
       if (refused) {
@@ -5092,7 +5100,7 @@ export class YBinding {
           // Admitted inside its own transaction too (see the write's): a
           // record that stopped admitting writes gets no pin, and is read
           // (see readChange).
-          if (!this.admitsIn(grace)) {
+          if (!this.admitsIn(after)) {
             return;
           }
           this.recordPins(this._root, editorState, [
@@ -5117,7 +5125,7 @@ export class YBinding {
       try {
         this._doc.transact(tr => {
           // Admitted inside its own transaction, as the write it recovers.
-          if (!this.admitsIn(grace)) {
+          if (!this.admitsIn(after)) {
             recoveryRefused = true;
             return;
           }
