@@ -12,12 +12,13 @@
 // link's first word) while B, one update behind, types after t5z inside the
 // old bold run. B's write closes that run again at its old end, in the same
 // spot where A's write extends it: two items of one format key at one spot
-// (#9626). For client ids 1,2, B's closer wins, and A's bold ends after t6z.
+// (#9626). On main, for client ids 1,2, B's closer wins, and A's bold ends after t6z.
 // The space after t6z loses it on main too. t7z keeps it on main only because
 // A's bold over the link also wrote the link's value again and opened bold
 // inside it. With a link's text fields no longer stored (#9597), the link
 // behaves like a mark there (a comment on t7z loses it on main the same
-// way), so t7z loses it too: expected failures naming #9626.
+// way), so t7z lost it too on main (#9626). Layout 3: B's end names B's own
+// opener, so A's bold keeps t7z in every order.
 
 import {$toggleLink} from '@lexical/link';
 import * as Y from '@y/y';

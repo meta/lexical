@@ -14,8 +14,9 @@
 // both client id orders. With A first linking t5z t6z (A's bold then crosses
 // the link's end), main kept t7z bold for client ids 2,1 only because A's
 // bold also wrote the link's value again; a link's text fields are no longer
-// stored (#9597), so the link behaves like a mark there and t7z ends plain
-// for both orders: expected failures naming #9626.
+// stored (#9597), so the link behaves like a mark there and t7z ended plain
+// for both orders on main (#9626). Layout 3: each bold's end names its own
+// opener, so t7z keeps A's bold in every order.
 
 import {$toggleLink} from '@lexical/link';
 import {
