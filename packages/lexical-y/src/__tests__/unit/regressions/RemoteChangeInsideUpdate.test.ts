@@ -13,6 +13,9 @@ import {
   $createParagraphNode,
   $createTextNode,
   $getRoot,
+  $getSelection,
+  $isRangeSelection,
+  $onUpdate,
   COLLABORATION_TAG,
   COMMAND_PRIORITY_EDITOR,
   createCommand,
@@ -242,6 +245,107 @@ describe.each([false, true])(
           text: 'one twoX bold',
         },
       ]);
+    });
+
+    for (const path of [
+      'edit queued, then the change applied',
+      'the change applied, then an edit queued',
+      'an edit queued and the change applied in an $onUpdate callback',
+    ] as const) {
+      test(`on a remote read's commit, ${path}`, async () => {
+        const {t, delta} = await twoPeers(gc);
+        const seen = Y.encodeStateVector(t.b.doc);
+        t.b.update(() =>
+          $getRoot().getAllTextNodes().at(-1)!.selectEnd().insertText('!'),
+        );
+        const second = Y.encodeStateAsUpdate(t.b.doc, seen);
+        const edit = () => t.a.editor.update($appendX, {discrete: true});
+        const apply = () => Y.applyUpdate(t.a.doc, second, 'provider');
+        let once = true;
+        t.a.editor.registerUpdateListener(({tags}) => {
+          if (once && tags.has(COLLABORATION_TAG)) {
+            once = false;
+            if (path === 'edit queued, then the change applied') {
+              edit();
+              apply();
+            } else if (path === 'the change applied, then an edit queued') {
+              apply();
+              edit();
+            } else {
+              t.a.editor.update(
+                () =>
+                  $onUpdate(() => {
+                    edit();
+                    apply();
+                  }),
+                {discrete: true},
+              );
+            }
+          }
+        });
+        t.a.editor.update(() => Y.applyUpdate(t.a.doc, delta, 'provider'), {
+          discrete: true,
+        });
+        await new Promise(r => setTimeout(r, 0));
+        await t.sync();
+        expect(t.a.read(() => $getRoot().getTextContent())).toMatch(
+          /^one two(X!|!X)$/,
+        );
+        expect(
+          t.a.read(() => $getRoot().getAllTextNodes()[0].hasFormat('bold')),
+        ).toBe(true);
+        await expectConverged(t.peers);
+        expect((await freshReader(t.a)).describe()).toBe(t.a.describe());
+      });
+    }
+
+    test('a remote change during a deferred read keeps what that read showed', async () => {
+      const {t, delta} = await twoPeers(gc);
+      const seen = Y.encodeStateVector(t.b.doc);
+      t.b.update(() =>
+        $getRoot().getAllTextNodes().at(-1)!.selectEnd().insertText('!'),
+      );
+      const second = Y.encodeStateAsUpdate(t.b.doc, seen);
+      let once = true;
+      t.a.editor.registerUpdateListener(({tags}) => {
+        if (once && tags.has(COLLABORATION_TAG)) {
+          once = false;
+          t.a.editor.update(() => $getRoot().selectEnd(), {discrete: true});
+          Y.applyUpdate(t.a.doc, second, 'provider');
+        }
+      });
+      // An update that changes nothing: the change is read once idle.
+      t.a.editor.update(() => Y.applyUpdate(t.a.doc, delta, 'provider'), {
+        discrete: true,
+      });
+      await new Promise(r => setTimeout(r, 0));
+      await t.sync();
+      expect(
+        t.a.read(() => $getRoot().getAllTextNodes()[0].hasFormat('bold')),
+      ).toBe(true);
+      await expectConverged(t.peers);
+      expect((await freshReader(t.a)).describe()).toBe(t.a.describe());
+    });
+
+    test('the caret the update set stays where it set it', async () => {
+      const {t, delta} = await twoPeers(gc);
+      t.a.update(() => {
+        Y.applyUpdate(t.a.doc, delta, 'provider');
+        $getRoot().getAllTextNodes()[0].select(2, 2);
+      });
+      await t.sync();
+      expect(
+        t.a.read(() => {
+          const selection = $getSelection();
+          return $isRangeSelection(selection)
+            ? [
+                selection.anchor.getNode().getTextContent(),
+                selection.anchor.offset,
+                selection.isCollapsed(),
+              ]
+            : null;
+        }),
+      ).toEqual(['one', 2, true]);
     });
   },
 );

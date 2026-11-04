@@ -908,7 +908,9 @@ export class YBinding {
    */
   private readonly deferred: Transaction[] = [];
   /** While the deferred changes are read (see readDeferred). */
-  private readingDeferred = false;
+  private drainingDeferred = false;
+  /** Whether an update that reads the deferred changes is queued. */
+  private deferredQueued = false;
   /** While a read of the binding's runs (see guardedRead). */
   private readsNow = 0;
   /** The stored formats one update's transforms looked up (see settleTextFields). */
@@ -918,7 +920,22 @@ export class YBinding {
     lines: Map<NodeKey, StoredLine>;
   } = {lines: new Map(), sequences: new Map(), state: null};
   /** This binding's view, for its work (see guard). */
-  private readonly seer = () => (this.reading ? null : this.unread);
+  private readonly seer = () => {
+    const view = this.unread;
+    if (!this.reading || view === null) {
+      return view;
+    }
+    // While a change is read: the document as it is, but for the changes
+    // still deferred (see deferChange), which the editor does not show yet.
+    return this.deferred.length === 0
+      ? null
+      : {
+          changes: view.changes.filter(c => this.deferred.includes(c)),
+          removed: view.removed,
+          root: view.root,
+          under: view.under,
+        };
+  };
   /**
    * The selection before the local change being written (see onUpdate), for
    * the undo step it starts (see stack-item-added in startInner).
@@ -1109,13 +1126,8 @@ export class YBinding {
           withPins(this._pins, () => this.onUpdate(payload));
           if (this.deferred.length > 0) {
             // The update the remote changes were applied in has committed,
-            // and is written (see deferChange): they are read now, in an
-            // update of their own ahead of those the app queued meanwhile.
-            this.queueFirst(() => this.readDeferred(), {
-              discrete: true,
-              skipTransforms: true,
-              tag: REMOTE_TAGS,
-            });
+            // and is written (see deferChange).
+            this.scheduleDeferred();
           }
           const hidden = this.state.hidden;
           if (
@@ -2810,10 +2822,15 @@ export class YBinding {
       this.deferChange(tr);
       return;
     }
-    if (this.deferred.length > 0 && !this.readingDeferred) {
+    if (this.deferred.length > 0) {
       // Read in the order Yjs applied them.
       this.readDeferred();
     }
+    this.readNow(tr);
+  }
+
+  /** Read remote change `tr` now (see onAfterTransaction). */
+  private readNow(tr: Transaction): void {
     try {
       this.readChange(tr);
     } finally {
@@ -2823,6 +2840,8 @@ export class YBinding {
         this.schemaSeenIn = null;
       }
     }
+    // Deferred while it was read (see scheduleDeferred).
+    this.scheduleDeferred();
   }
 
   /**
@@ -2834,12 +2853,7 @@ export class YBinding {
    */
   private defersChange(tr: Transaction): boolean {
     const editor = this._editor;
-    if (
-      this.readingDeferred ||
-      this.readsNow > 0 ||
-      !editor._updating ||
-      editor._pendingEditorState === null
-    ) {
+    if (this.readsNow > 0 || !editor._updating) {
       return false;
     }
     if (this.deferred.length > 0) {
@@ -2872,29 +2886,70 @@ export class YBinding {
    */
   private deferChange(tr: Transaction): void {
     this.deferred.push(tr);
+    if (this._editor._pendingEditorState === null) {
+      // From a commit's listeners or callbacks: in an update of its own,
+      // ahead of the updates the app queued there, which commit, and are
+      // written, after it.
+      this.scheduleDeferred();
+    }
     if (this.deferred.length === 1) {
       queueMicrotask(() =>
-        this.guard(() =>
-          withPins(this._pins, () => {
-            if (this.deferred.length > 0 && this.isIdle()) {
-              this.readDeferred();
-            }
-          }),
-        ),
+        this.guard(() => withPins(this._pins, () => this.scheduleDeferred())),
+      );
+    }
+  }
+
+  /**
+   * Read the deferred remote changes (see deferChange) where nothing keeps
+   * them waiting: now where the editor is idle, else in an update of their
+   * own ahead of those the app queued (from a commit's listeners). Not while
+   * another change is being read further up (an update the app makes from
+   * its listeners, on that read's commit): that read reads them when it
+   * ends (see readNow). Why: read in it, the change being read would still
+   * count as unread, and the read would not show it.
+   */
+  private scheduleDeferred(): void {
+    const view = this.unread;
+    if (
+      this.deferred.length === 0 ||
+      this.drainingDeferred ||
+      (view !== null && view.changes.some(c => !this.deferred.includes(c)))
+    ) {
+      return;
+    }
+    if (this.isIdle()) {
+      this.readDeferred();
+    } else if (this._editor._updating && !this.deferredQueued) {
+      this.deferredQueued = true;
+      this.queueFirst(
+        () => {
+          this.deferredQueued = false;
+          this.readDeferred();
+        },
+        {discrete: true, skipTransforms: true, tag: REMOTE_TAGS},
       );
     }
   }
 
   /** Read the remote changes deferred so far, in order (see deferChange). */
   private readDeferred(): void {
-    const list = this.deferred.splice(0);
-    this.readingDeferred = true;
+    // One at a time: those still deferred stay unread while each is read.
+    this.drainingDeferred = true;
     try {
-      for (const tr of list) {
-        this.onAfterTransaction(tr);
+      for (
+        let tr = this.deferred.shift();
+        tr !== undefined;
+        tr = this.deferred.shift()
+      ) {
+        // The selection to keep is the editor's now, on the document as it
+        // was before the change (see Unread), not the one before the update
+        // the change was applied in.
+        this.pendingCursor =
+          this._status === 'pending' ? null : this.getCursor();
+        this.readNow(tr);
       }
     } finally {
-      this.readingDeferred = false;
+      this.drainingDeferred = false;
     }
   }
 
@@ -3037,6 +3092,11 @@ export class YBinding {
           },
           tr,
         );
+        // The editor shows the change from here on: what the app does on
+        // this read's commit (an update of its listeners, a remote change it
+        // applies) sees it as read, not as still unread.
+        this.reading = false;
+        this.dropChange(tr);
       },
       after: () => {
         // Also where `before` gated already (a no-op then).
@@ -5769,11 +5829,20 @@ export class YBinding {
         try {
           this.guard(() => withPins(this._pins, fn));
           if (later.length > 0) {
-            $onUpdate(() => {
-              for (const [f, o] of later) {
-                editor.update(f, o);
+            // After the commit; where there is none (`fn` changed nothing,
+            // and Lexical drops such an update with its callbacks), once
+            // the editor is idle.
+            let handed = false;
+            const handBack = () => {
+              if (!handed) {
+                handed = true;
+                for (const [f, o] of later) {
+                  editor.update(f, o);
+                }
               }
-            });
+            };
+            $onUpdate(handBack);
+            queueMicrotask(handBack);
           }
           done = true;
         } finally {
