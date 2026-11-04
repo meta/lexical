@@ -1291,9 +1291,13 @@ export function $computeTableCellRectSpans(
   let bottomSpan = 1;
   const topRow = map[minRow];
   const bottomRow = map[maxRow];
+  // The rows a cell covers in the map: a row span can reach past the last
+  // row, where the map (and the rectangle) stop.
+  const rowsCovered = (value: TableMapValueType) =>
+    Math.min(value.cell.__rowSpan, map.length - value.startRow);
   for (let col = minColumn; col <= maxColumn; col++) {
-    topSpan = Math.max(topSpan, topRow[col].cell.__rowSpan);
-    bottomSpan = Math.max(bottomSpan, bottomRow[col].cell.__rowSpan);
+    topSpan = Math.max(topSpan, rowsCovered(topRow[col]));
+    bottomSpan = Math.max(bottomSpan, rowsCovered(bottomRow[col]));
   }
   for (let row = minRow; row <= maxRow; row++) {
     leftSpan = Math.max(leftSpan, map[row][minColumn].cell.__colSpan);
@@ -1318,9 +1322,16 @@ export function $computeTableCellRectBoundary(
     cellAMap.startColumn + cellAMap.cell.__colSpan - 1,
     cellBMap.startColumn + cellBMap.cell.__colSpan - 1,
   );
-  let maxRow = Math.max(
-    cellAMap.startRow + cellAMap.cell.__rowSpan - 1,
-    cellBMap.startRow + cellBMap.cell.__rowSpan - 1,
+  // A row span can reach past the last row (a remote update or imported JSON
+  // can leave one); the map stops at the last row, and so does the
+  // rectangle.
+  const lastRow = map.length - 1;
+  let maxRow = Math.min(
+    lastRow,
+    Math.max(
+      cellAMap.startRow + cellAMap.cell.__rowSpan - 1,
+      cellBMap.startRow + cellBMap.cell.__rowSpan - 1,
+    ),
   );
 
   // Keep expanding until we have a complete rectangle
@@ -1352,7 +1363,7 @@ export function $computeTableCellRectBoundary(
           const newMinColumn = Math.min(minColumn, cell.startColumn);
           const newMaxColumn = Math.max(maxColumn, cellEndCol);
           const newMinRow = Math.min(minRow, cell.startRow);
-          const newMaxRow = Math.max(maxRow, cellEndRow);
+          const newMaxRow = Math.min(lastRow, Math.max(maxRow, cellEndRow));
 
           // Check if boundaries changed
           if (
