@@ -36,7 +36,7 @@ import {pushAll} from './Arrays';
 import {$withoutLevelId, innerBlockIds, NO_IDS} from './BlockIds';
 import {Cursor, equalFormatValue, type Formats, isLiveContent} from './Cursor';
 import {groupKeySig, groupSig} from './Groups';
-import {isShadowKey, stepFormat} from './Ident';
+import {isShadowKey, stepFormat, withHeldView} from './Ident';
 import {
   $pushInline,
   Atoms,
@@ -111,6 +111,7 @@ import {
   isGone,
   isHeld,
   isShownEnd,
+  isStored,
   noteFolded,
   prevLiveEnd,
   setAttr,
@@ -2198,8 +2199,9 @@ export class Writer {
 
   /**
    * Set every unit's start formats (the formats in effect where it starts)
-   * from the shared items: deletes and inserts start from them, and a stale
-   * value would leave a format open or close one early. A locally split
+   * from the shared items as they are stored (a held insertion counts, a
+   * kept deletion does not, see isStored): deletes and inserts start from
+   * them, and a stale value would leave a format open or close one early. A locally split
    * unit still covered by a hold keeps its shown start until release, with
    * the stored start recorded separately (see Hidden#starts).
    */
@@ -2220,7 +2222,7 @@ export class Writer {
         break;
       }
       for (; it !== null; it = it.right) {
-        if (!isGone(it) && it.content instanceof ContentFormat) {
+        if (isStored(it, hidden) && it.content instanceof ContentFormat) {
           stepFormat(formats, it);
         }
         if (it === u.end) {
@@ -2232,7 +2234,10 @@ export class Writer {
     }
   }
 
-  /** After a line's own write, the start formats of the units after it. */
+  /**
+   * After a line's own write, the start formats of the units after it, folded
+   * from the items as they are stored (see isStored).
+   */
   private $fixStartsAfter(u: Unit): void {
     let unit: Unit | undefined = u;
     // Stops where the next unit's start already agrees (usually at once).
@@ -2280,7 +2285,7 @@ export class Writer {
         }
         if (
           folded === null &&
-          !isGone(it) &&
+          isStored(it, this.state.hidden) &&
           it.content instanceof ContentFormat
         ) {
           stepFormat(formats, it);
@@ -2742,9 +2747,14 @@ export class Writer {
           if (folded !== null) {
             continue;
           }
-          applyFormat(current, it);
+          // Stored (a held insertion counts, a kept deletion does not) and
+          // shown (the reverse): the halves of the held line show the
+          // shown lane, what they hand on is stored (see isStored).
+          if (isStored(it, hidden)) {
+            applyFormat(current, it);
+          }
           if (!isHeld(it, hidden)) {
-            applyFormat(shown, it);
+            withHeldView(hidden, () => applyFormat(shown, it));
           }
           continue;
         }
@@ -2784,7 +2794,7 @@ export class Writer {
         }
         if (
           folded === null &&
-          !isGone(it) &&
+          isStored(it, this.state.hidden) &&
           it.content instanceof ContentFormat
         ) {
           applyFormat(formats, it);

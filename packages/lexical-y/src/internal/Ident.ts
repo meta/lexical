@@ -263,6 +263,34 @@ const __DEV__ = process.env.NODE_ENV !== 'production';
  */
 const goneIn = isGone;
 
+/**
+ * The hold whose view a fold reads in (see withHeldView), or null: an end
+ * it holds back pairs nothing there.
+ */
+let heldView: {hides(item: Item): boolean} | null = null;
+
+/**
+ * Run `fn` folding as the line being composed shows (see Hidden): an end
+ * the hold holds back pairs no opener there, as it is not there for the
+ * editor. What the line hands on is folded without (see Seen.isStored).
+ */
+export function withHeldView<T>(
+  hidden: {hides(item: Item): boolean} | null,
+  fn: () => T,
+): T {
+  const was = heldView;
+  heldView = hidden;
+  try {
+    return fn();
+  } finally {
+    heldView = was;
+  }
+}
+
+/** Whether end `end` pairs nothing: gone, or held back (see heldView). */
+const endGone = (end: Item): boolean =>
+  goneIn(end) || (heldView !== null && heldView.hides(end));
+
 /** Test harnesses: check the whole run stack on every push (see Rule 4). */
 let fullStackChecks = false;
 export function setFullStackChecks(on: boolean): void {
@@ -813,7 +841,7 @@ function liveEndOf(item: Item): Item | null {
   // under a gone view: what is gone there differs), and openers no end in
   // the index names (a seeded item in main's bytes), per end epoch.
   const cached = (item as Cached)[LIVE_END];
-  if (cached !== undefined && !goneIn(cached)) {
+  if (cached !== undefined && !endGone(cached)) {
     return cached;
   }
   const index = indexOf(doc);
@@ -826,7 +854,7 @@ function liveEndOf(item: Item): Item | null {
     return null;
   }
   for (const end of list) {
-    if (!goneIn(end)) {
+    if (!endGone(end)) {
       (item as Cached)[LIVE_END] = end;
       return end;
     }
@@ -1420,7 +1448,7 @@ function entryPaired(doc: Doc, e: Entry): boolean {
     return false;
   }
   const known = e.end;
-  if (known !== null && !goneIn(known)) {
+  if (known !== null && !endGone(known)) {
     return true;
   }
   if (!mayPair(doc)) {

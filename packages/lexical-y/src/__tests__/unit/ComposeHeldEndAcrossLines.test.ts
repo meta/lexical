@@ -8,13 +8,13 @@
 
 // @vitest-environment node
 
-// A hold that keeps a run's end whose run reaches past the composed line:
-// a canonical color run over "one" and "tw" with a raw unpaired red
-// restore inside it; A composes at the start of "two" while a remote change
-// deletes the run's end and italicizes "o". When the hold ends, the lines
-// after the composed one are read again, so every peer converges, reads as
-// a fresh reader does, and no self-check warns (gc off and on, both id
-// orders).
+// A run whose end is in the composed line and reaches past it: a canonical
+// color run over "one" and "tw" with a raw unpaired red restore inside it;
+// A composes at the start of "two" while a remote change deletes the run's
+// end and italicizes "o". The hold keeps no half of a run that reaches past
+// the composed line, so the line reads the end's removal at once; when the
+// hold ends, every peer converges, reads as a fresh reader does, and no
+// self-check warns (gc off and on, both id orders).
 
 import * as Y from '@y/y';
 import {

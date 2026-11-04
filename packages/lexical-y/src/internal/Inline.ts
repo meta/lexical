@@ -21,7 +21,7 @@ import {
 } from 'lexical';
 
 import {type Formats, isLiveContent} from './Cursor';
-import {attrsOf, stepFormat} from './Ident';
+import {attrsOf, stepFormat, withHeldView} from './Ident';
 import {
   $foreignFlatKeys,
   $isWrapper,
@@ -327,7 +327,7 @@ export function readAtoms(
       }
       step(current, it);
       if (shown !== current && !hidden!.hides(it)) {
-        step(shown, it);
+        withHeldView(hidden, () => step(shown, it));
       }
       attrs = null;
       continue;
