@@ -1407,16 +1407,38 @@ function $beginUpdate(
       const pendingNodeMap = pendingEditorState._nodeMap;
       const anchorKey = pendingSelection.anchor.key;
       const focusKey = pendingSelection.focus.key;
+      const anchorNode = pendingNodeMap.get(anchorKey);
+      const focusNode = pendingNodeMap.get(focusKey);
 
       if (
-        pendingNodeMap.get(anchorKey) === undefined ||
-        pendingNodeMap.get(focusKey) === undefined
+        anchorNode === undefined ||
+        focusNode === undefined
       ) {
         invariant(
           false,
           'updateEditor: selection has been lost because the previously selected nodes have been removed and ' +
             "selection wasn't moved to another node. Ensure selection changes after removing/replacing a selected node.",
         );
+      }
+
+      const anchor = pendingSelection.anchor;
+      if (anchor.type === 'text' && $isTextNode(anchorNode)) {
+        const size = anchorNode.getTextContentSize();
+        if (anchor.offset > size) {
+          anchor.set(anchorKey, size, 'text');
+        } else if (anchor.offset < 0) {
+          anchor.set(anchorKey, 0, 'text');
+        }
+      }
+
+      const focus = pendingSelection.focus;
+      if (focus.type === 'text' && $isTextNode(focusNode)) {
+        const size = focusNode.getTextContentSize();
+        if (focus.offset > size) {
+          focus.set(focusKey, size, 'text');
+        } else if (focus.offset < 0) {
+          focus.set(focusKey, 0, 'text');
+        }
       }
     } else if ($isNodeSelection(pendingSelection)) {
       // TODO: we should also validate node selection?
