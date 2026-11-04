@@ -15,6 +15,7 @@ import {
   $convertToMarkdownString,
   $generateNodesFromMarkdownString,
   type MarkdownImportOptions,
+  type MultilineElementTransformer,
   type PunctuationMode,
   TRANSFORMERS,
 } from '@lexical/markdown';
@@ -23,7 +24,12 @@ import {
   MdastExtension,
   MdastGfmExtension,
 } from '@lexical/mdast';
-import {RichTextExtension} from '@lexical/rich-text';
+import {
+  $createQuoteNode,
+  $isQuoteNode,
+  QuoteNode,
+  RichTextExtension,
+} from '@lexical/rich-text';
 import {
   $createParagraphNode,
   $createTextNode,
@@ -241,6 +247,74 @@ describe('Markdown punctuation modes', () => {
     };
     expect(formats('cjk-friendly')).toEqual([bold, 0]);
     expect(formats('strict-commonmark')).toEqual([0]);
+  });
+
+  it('converts nested content in the mode of the outer conversion', () => {
+    // A transformer that converts its content as one written before the
+    // options object would, with the positional flag.
+    const NESTED: MultilineElementTransformer = {
+      dependencies: [QuoteNode],
+      export: node =>
+        $isQuoteNode(node)
+          ? `:::\n${$convertToMarkdownString(TRANSFORMERS, node, false)}\n:::`
+          : null,
+      regExpEnd: /^:::$/,
+      regExpStart: /^:::$/,
+      replace: (rootNode, _children, _start, _end, lines) => {
+        const quote = $createQuoteNode();
+        quote.append(
+          ...$generateNodesFromMarkdownString(
+            (lines || []).join('\n'),
+            TRANSFORMERS,
+            false,
+          ),
+        );
+        rootNode.append(quote);
+      },
+      type: 'multiline-element',
+    };
+    const transformers = [NESTED, ...TRANSFORMERS];
+    const editor = createEditor();
+    const importNested = (punctuation: PunctuationMode) => {
+      editor.update(
+        () =>
+          $convertFromMarkdownString(
+            ':::\n**你好。**世界\n:::',
+            transformers,
+            undefined,
+            {punctuation},
+          ),
+        {discrete: true},
+      );
+      return editor.read('latest', $runs);
+    };
+    expect(importNested('cjk-friendly')).toEqual([
+      ['你好。', bold],
+      ['世界', 0],
+    ]);
+    expect(importNested('strict-commonmark')).toEqual([['**你好。**世界', 0]]);
+    editor.update(
+      () =>
+        $getRoot()
+          .clear()
+          .append(
+            $createQuoteNode().append(
+              $createParagraphNode().append(
+                $createTextNode('你好。').setFormat(bold),
+                $createTextNode('世界'),
+              ),
+            ),
+          ),
+      {discrete: true},
+    );
+    const exportNested = (punctuation: PunctuationMode) =>
+      editor.read('latest', () =>
+        $convertToMarkdownString(transformers, undefined, {punctuation}),
+      );
+    expect(exportNested('cjk-friendly')).toBe(':::\n**你好。**世界\n:::');
+    expect(exportNested('strict-commonmark')).toBe(
+      ':::\n**你好。**&#19990;界\n:::',
+    );
   });
 
   // runs, export for strict readers, export for CJK-friendly readers.

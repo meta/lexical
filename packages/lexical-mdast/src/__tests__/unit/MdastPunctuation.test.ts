@@ -253,6 +253,17 @@ describe('Mdast punctuation modes', () => {
       '**a\\\\&#xFE0E;**&#x62;',
       '**a\\\\&#xFE0E;**&#x62;',
     ],
+    // Other backslashes go out as typed.
+    [[['C:\\dir\\x', 0]], 'C:\\dir\\x', 'C:\\dir\\x'],
+    [
+      [
+        ['C:\\dir\\x', 0],
+        ['y', bold],
+      ],
+      'C:\\dir\\x**y**',
+      'C:\\dir\\x**y**',
+    ],
+    [[['Use \\n', bold]], '**Use \\n**', '**Use \\n**'],
     // micromark reads U+FEFF as whitespace, CommonMark as a letter.
     [
       [

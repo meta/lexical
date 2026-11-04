@@ -603,8 +603,8 @@ const VARIATION_SELECTOR = /^[\ufe00-\ufe0e]$/;
 /**
  * The backslashes before the last character of `value`, as their index and
  * count. A reference that the text handler writes for that character would
- * come out escaped by the last of them, so each stands in, and goes out
- * escaped.
+ * come out escaped by the last of them, so where a marker follows, each
+ * stands in, and goes out escaped when a reference follows.
  */
 function getTrailingBackslashes(value: string): [number, number] {
   // Scanned back from the last character, which a regex search from the
@@ -638,28 +638,44 @@ function collectUsed(value: string, used: Set<number>): void {
   }
 }
 
+const ATTENTION_TYPES = new Set(['delete', 'emphasis', 'strong']);
+
 /**
  * How often each character of {@link STOOD_IN} occurs in the text of
- * `tree`; when there is any, adds what the strings of its nodes (not their
- * `data`) hold of the stand-in range to `used`.
+ * `tree`, and the backslashes of {@link getTrailingBackslashes} in a text
+ * that a marker follows, which go in `beforeMarker`; when there is any, adds
+ * what the strings of its nodes (not their `data`) hold of the stand-in range
+ * to `used`.
  */
-function countStoodIn(tree: Root, used: Set<number>): Map<string, number> {
+function countStoodIn(
+  tree: Root,
+  used: Set<number>,
+  beforeMarker: Set<Nodes>,
+): Map<string, number> {
   const counts = new Map<string, number>();
-  const visit = (node: Nodes) => {
+  // `isClosed`: whether a marker closes what holds `node`.
+  const visit = (node: Nodes, next: Nodes | undefined, isClosed: boolean) => {
     if (node.type === 'text') {
       for (const [character] of node.value.matchAll(STOOD_IN)) {
         counts.set(character, (counts.get(character) || 0) + 1);
       }
-      const [, backslashes] = getTrailingBackslashes(node.value);
-      if (backslashes > 0) {
-        counts.set('\\', (counts.get('\\') || 0) + backslashes);
+      if (next ? ATTENTION_TYPES.has(next.type) : isClosed) {
+        const [, backslashes] = getTrailingBackslashes(node.value);
+        if (backslashes > 0) {
+          beforeMarker.add(node);
+          counts.set('\\', (counts.get('\\') || 0) + backslashes);
+        }
       }
     }
     if ('children' in node) {
-      node.children.forEach(visit);
+      const {children} = node;
+      const isAttention = ATTENTION_TYPES.has(node.type);
+      children.forEach((child, i) =>
+        visit(child, children[i + 1], isAttention),
+      );
     }
   };
-  visit(tree);
+  visit(tree, undefined, false);
   // Most documents have none, and skip this second walk.
   if (counts.size > 0) {
     const collect = (node: Nodes) => {
@@ -724,6 +740,7 @@ function standInText(
   handlers: Record<string, Handle>,
   standIns: Map<string, string>,
   written: Map<string, number>,
+  beforeMarker: Set<Nodes>,
 ): ToMarkdownExtension {
   const handle = handlers.text;
   const lookAhead = (handle as Handle & {peek?: Handle}).peek || handle;
@@ -771,7 +788,9 @@ function standInText(
       }
       return found;
     };
-    const [backslash, backslashes] = getTrailingBackslashes(value);
+    const [backslash, backslashes] = beforeMarker.has(node)
+      ? getTrailingBackslashes(value)
+      : [-1, 0];
     // Set on the node itself, which the handler finds among its siblings.
     (node as Text).value = (
       backslash < 0
@@ -857,7 +876,8 @@ function toMarkdownWithStandIns(
   // micromark would not read as one, in code, measures short.
   const measure = isCjkFriendly ? rewriteCjkReferences : undefined;
   const used = new Set<number>();
-  const counts = countStoodIn(tree, used);
+  const beforeMarker = new Set<Nodes>();
+  const counts = countStoodIn(tree, used, beforeMarker);
   if (counts.size > 0) {
     const handlers = getHandlers(extensions);
     // A handler that writes a stand-in of its own, or that writes some text
@@ -877,7 +897,7 @@ function toMarkdownWithStandIns(
           toMarkdown(tree, {
             extensions: [
               ...extensions,
-              standInText(handlers, standIns, written),
+              standInText(handlers, standIns, written, beforeMarker),
             ],
           }),
       );
@@ -1016,25 +1036,41 @@ function restoreStoodIn(
       )[1]
     );
   };
+  // Whether the stand-in at `index`, for `character`, goes out as a
+  // reference.
+  const isReferenced = (index: number, character: string): boolean =>
+    // micromark drops a byte order mark that starts the document.
+    (isDocument && index === 0 && character === '\ufeff') ||
+    ((!isCjkFriendly || character.length === 1) &&
+      ((ATTENTION_MARKER.test(markdown[index - 1]) && !isPortable(index, -1)) ||
+        (ATTENTION_MARKER.test(markdown[index + 1]) && !isPortable(index, 1)) ||
+        // micromark-extension-cjk-friendly-gfm-strikethrough reads a
+        // selector before `~` as a letter, not as what it varies, and so
+        // never closes the run there, but reads its reference as every
+        // reader does.
+        (VARIATION_SELECTOR.test(character) && closesAfter(index))));
+  // Where the run of backslashes being restored ends, and whether a
+  // reference follows it, which would come out escaped by the last of them.
+  let runEnd = -1;
+  let isBeforeReference = false;
   // `mdast-util-to-markdown` writes a reference only for whitespace or a
   // letter, so never for a stand-in.
   return markdown.replace(pattern, (standIn, i: number) => {
     const character = characters.get(standIn)!;
     if (character === '\\') {
-      return '\\\\';
+      if (i >= runEnd) {
+        runEnd = i;
+        while (characters.get(markdown[runEnd]) === '\\') {
+          runEnd++;
+        }
+        const next = characters.get(markdown[runEnd]);
+        isBeforeReference =
+          markdown[runEnd] === '&' ||
+          (next !== undefined && isReferenced(runEnd, next));
+      }
+      return isBeforeReference ? '\\\\' : '\\';
     }
-    // micromark drops a byte order mark that starts the document.
-    if (isDocument && i === 0 && character === '\ufeff') {
-      return '&#xFEFF;';
-    }
-    return (!isCjkFriendly || character.length === 1) &&
-      ((ATTENTION_MARKER.test(markdown[i - 1]) && !isPortable(i, -1)) ||
-        (ATTENTION_MARKER.test(markdown[i + 1]) && !isPortable(i, 1)) ||
-        // micromark-extension-cjk-friendly-gfm-strikethrough reads a
-        // selector before `~` as a letter, not as what it varies, and so
-        // never closes the run there, but reads its reference as every
-        // reader does.
-        (VARIATION_SELECTOR.test(character) && closesAfter(i)))
+    return isReferenced(i, character)
       ? // A backslash before the reference would escape its `&`.
         `${isEscaped(i) ? '\\' : ''}&#x${character
           .codePointAt(0)!
