@@ -90,8 +90,9 @@ function client(doc: YDoc, text: string | null, root?: Y.Node) {
 
 /**
  * The id a layout 3 client derives for a pristine root seeded with 'Same
- * seed' (main 0823b74 derived 4267184775731454; its seed recorded layout 1
- * only, and a main client opens a layout 3 document read only anyway).
+ * seed' (the release before layout 3 derived 4267184775731454; its seed
+ * recorded layout 1 only, and an older client opens a layout 3 document read
+ * only anyway).
  */
 const PRISTINE_SEED_ID = 144324623100807;
 
