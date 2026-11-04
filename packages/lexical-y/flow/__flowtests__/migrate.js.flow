@@ -27,7 +27,7 @@ import step1to2 from '@lexical/y/migrate/1to2';
 import {
   checkYSession,
   createYDoc,
-  generationOf,
+  getYGeneration,
   prepareYRoom,
   SEED_LAYOUT as SERVER_SEED_LAYOUT,
 } from '@lexical/y/server';
@@ -76,7 +76,7 @@ const error = new YMigrationError('missing-step', 'no step');
 // $FlowExpectedError[incompatible-type] codes are a closed set
 const bad = new YMigrationError('other', 'no');
 const doc = createYDoc(stored);
-const generation: string = generationOf(doc, 'incarnation');
+const generation: string = getYGeneration(doc, 'incarnation');
 const room = prepareYRoom(stored, {incarnation: 'i', steps});
 const verdict: YSessionVerdict = checkYSession(
   {

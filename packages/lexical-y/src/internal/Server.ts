@@ -51,34 +51,40 @@ function createYDoc(state?: Uint8Array | null, options?: YDocOptions): YDoc {
 // Lexical: a relay or Durable Object imports it with its steps.
 
 /**
- * @experimental The generation of a document's state, over the roots an
- * authority serves: `` `${incarnation}/${epochs}` `` where `epochs` lists,
- * in root-name order, `encodeURIComponent(root)=layout.client.clock` for
- * each root with an epoch (`=?` for a malformed one), joined by `,`, or `-`
- * when none has one. Opaque: only equality matters. `incarnation` is the
- * room's (a new one on every recreation, restore and fresh-document
+ * @experimental The generation of a document's state over the roots an
+ * authority serves, by version 1 of the algorithm (frozen):
+ * `'g1:' + JSON.stringify([incarnation, entries])`, where `entries` has one
+ * `[root, transition]` pair per served root (every one, sorted by code units,
+ * each once): `transition` is the `[client, clock]` of the root's epoch (the
+ * identity of the transition that last migrated it), or null when it has
+ * none. The epoch's layout and other fields are not part of it. A served
+ * root whose epoch is malformed has no generation: the result is then
+ * UNKNOWN_GENERATION, which never matches (fail closed). `incarnation` is
+ * the room's (a new one on every recreation, restore and fresh-document
  * migration), so a copy from an earlier incarnation never matches.
+ * Opaque: compare and persist it; never parse it (carry the incarnation
+ * explicitly where it is needed).
  */
-export function generationOf(
+export function getYGeneration(
   doc: Doc,
   incarnation: string,
   roots: readonly string[] = [DEFAULT_ROOT_NAME],
 ): string {
-  const parts: string[] = [];
+  const entries: [string, [number, number] | null][] = [];
   for (const name of [...new Set(roots)].sort()) {
     const root = existingRoot(doc, name);
-    if (root === null) {
-      continue;
+    const record = root === null ? null : epochRecordOf(root);
+    if (record !== null && record.kind === 'malformed') {
+      return UNKNOWN_GENERATION;
     }
-    const record = epochRecordOf(root);
-    if (record.kind === 'epoch') {
-      const {layout, client, clock} = record.epoch;
-      parts.push(`${encodeURIComponent(name)}=${layout}.${client}.${clock}`);
-    } else if (record.kind === 'malformed') {
-      parts.push(`${encodeURIComponent(name)}=?`);
-    }
+    entries.push([
+      name,
+      record !== null && record.kind === 'epoch'
+        ? [record.epoch.client, record.epoch.clock]
+        : null,
+    ]);
   }
-  return `${incarnation}/${parts.length === 0 ? '-' : parts.join(',')}`;
+  return `g1:${JSON.stringify([incarnation, entries])}`;
 }
 
 /** @experimental Options of prepareYRoom. */
@@ -88,7 +94,7 @@ export interface YPrepareRoomOptions {
    * statically imported with the server entry).
    */
   readonly steps?: readonly YLayoutMigration[];
-  /** The room's incarnation (see generationOf). */
+  /** The room's incarnation (see getYGeneration). */
   readonly incarnation: string;
   /** The roots it serves (default `['lexical-y']`). */
   readonly roots?: readonly string[];
@@ -111,7 +117,7 @@ export interface YPreparedRoom {
   readonly changed: boolean;
   /** The state to serve: the stored bytes themselves when nothing changed. */
   readonly state: Uint8Array;
-  /** Its generation (see generationOf). */
+  /** Its generation (see getYGeneration). */
   readonly generation: string;
   /**
    * When changed: the stored state and its generation, to keep as the
@@ -151,7 +157,7 @@ export function prepareYRoom(
   const generation = (state: Uint8Array) => {
     const doc = createYDoc(state, {gc});
     try {
-      return generationOf(doc, options.incarnation, roots);
+      return getYGeneration(doc, options.incarnation, roots);
     } finally {
       doc.destroy();
     }
@@ -176,7 +182,11 @@ export function prepareYRoom(
   };
 }
 
-/** @experimental A generation a replica cannot name (material from before the fence). */
+/**
+ * @experimental A generation that never matches: a replica's material with
+ * no recorded generation (from before the fence), or a state whose served
+ * root has a malformed epoch (see getYGeneration).
+ */
 export const UNKNOWN_GENERATION = 'unknown';
 
 /**
@@ -299,7 +309,7 @@ export function describeYRoom(
     }
   }
   return {
-    generation: generationOf(doc, options.incarnation, roots),
+    generation: getYGeneration(doc, options.incarnation, roots),
     hasMigration,
     incarnation: options.incarnation,
     inherited: options.inherited,

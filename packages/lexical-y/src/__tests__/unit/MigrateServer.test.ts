@@ -28,7 +28,7 @@ import {
   checkYSession,
   createYDoc,
   describeYRoom,
-  generationOf,
+  getYGeneration,
   hasNewYEdits,
   needsNewIncarnation,
   prepareYRoom,
@@ -48,6 +48,8 @@ const CFG = {blockIds: 'absent'} as const;
 /** A seeded document (at SEED_LAYOUT). */
 const LAYOUT1 = seedShapes([NODE_SHAPES[0], shapesWith('table')[0]], CFG);
 const INC = 'inc-1';
+/** The generation of INC's room before any migration. */
+const G0 = 'g1:["inc-1",[["lexical-y",null]]]';
 
 /** Every live text under `node`, in document order. */
 function text(node: Y.Node): string {
@@ -106,28 +108,69 @@ function firstTextIndex(node: Y.Node): number {
 describe.each([false, true])('@lexical/y/server, gc %s', gc => {
   const docOf = (state: Uint8Array) => createYDoc(state, {gc});
 
-  test('generationOf: the incarnation, then each served root epoch in name order', () => {
+  test('getYGeneration (g1): the incarnation and every served root, in code-unit order, with its epoch transition identity or null', () => {
     const doc = docOf(LAYOUT1);
-    expect(generationOf(doc, INC)).toBe('inc-1/-');
-    expect(generationOf(doc, 'inc-2')).toBe('inc-2/-');
+    expect(getYGeneration(doc, INC)).toBe('g1:["inc-1",[["lexical-y",null]]]');
+    expect(getYGeneration(doc, 'inc-2')).toBe(
+      'g1:["inc-2",[["lexical-y",null]]]',
+    );
+    // The incarnation is JSON: any string, never confused with the roots.
+    expect(getYGeneration(doc, 'a"/b')).toBe(
+      'g1:["a\\"/b",[["lexical-y",null]]]',
+    );
     const receipt = migrateYDoc(doc, [STAMP], {to: SEED + 1});
     const {client, clock} = receipt.roots[0].epoch!;
-    expect(generationOf(doc, INC)).toBe(
-      `inc-1/lexical-y=${SEED + 1}.${client}.${clock}`,
+    expect(getYGeneration(doc, INC)).toBe(
+      `g1:["inc-1",[["lexical-y",[${client},${clock}]]]]`,
     );
-    // Roots in name order, names encoded, roots without an epoch left out.
-    doc.get('a b').setAttr('lexical-y-epoch', {
-      client: 7,
-      clock: 0,
-      layout: 2,
+    // Every served root, each once, sorted by code units (an absent root and
+    // one without an epoch are null); names are JSON strings, not encoded.
+    const epoch = (c: number, layout: number) => ({
+      client: c,
+      clock: 3,
+      layout,
       revision: 1,
-      step: 'lexical-y/layout/1to2',
+      step: `lexical-y/layout/${layout - 1}to${layout}`,
       v: 1,
-    } as never);
-    doc.get('z').setAttr('lexical-y-epoch', 'broken');
-    expect(generationOf(doc, INC, ['z', 'lexical-y', 'a b', 'none'])).toBe(
-      `inc-1/a%20b=2.7.0,lexical-y=${SEED + 1}.${client}.${clock},z=?`,
+    });
+    doc.get('a b').setAttr('lexical-y-epoch', epoch(7, 2) as never);
+    doc.get('Z|z').setAttr('lexical-y-epoch', epoch(9, 2) as never);
+    doc.get('\u00e9').insert(0, 'x');
+    expect(
+      getYGeneration(doc, INC, [
+        'none',
+        'lexical-y',
+        'a b',
+        'Z|z',
+        '\u00e9',
+        'a b',
+      ]),
+    ).toBe(
+      `g1:["inc-1",[["Z|z",[9,3]],["a b",[7,3]],["lexical-y",[${client},${clock}]],["none",null],["\u00e9",null]]]`,
     );
+    // The transition identity, not the layout: another layout at the same
+    // item is the same generation; another item is another.
+    const at = (layout: number, c: number) => {
+      const d = docOf(LAYOUT1);
+      d.get('lexical-y').setAttr('lexical-y-epoch', epoch(c, layout) as never);
+      return getYGeneration(d, INC);
+    };
+    expect(at(2, 5)).toBe(at(3, 5));
+    expect(at(2, 5)).not.toBe(at(2, 6));
+    // A malformed epoch on a served root fails closed: no generation.
+    for (const bad of [
+      'broken',
+      {...epoch(5, 2), v: 2},
+      {...epoch(5, 2), client: 0},
+    ]) {
+      const d = docOf(LAYOUT1);
+      d.get('lexical-y').setAttr('lexical-y-epoch', bad as never);
+      expect(getYGeneration(d, INC)).toBe(UNKNOWN_GENERATION);
+      // Not served: ignored.
+      expect(getYGeneration(d, INC, ['other'])).toBe(
+        'g1:["inc-1",[["other",null]]]',
+      );
+    }
   });
 
   test('prepareYRoom: a root below the target migrates (state, generation, base, receipt); otherwise nothing', () => {
@@ -139,7 +182,7 @@ describe.each([false, true])('@lexical/y/server, gc %s', gc => {
     expect(none.changed).toBe(false);
     expect(none.state).toBe(LAYOUT1);
     expect(none.base).toBeNull();
-    expect(none.generation).toBe('inc-1/-');
+    expect(none.generation).toBe(G0);
     const room = prepareYRoom(LAYOUT1, {
       gc,
       incarnation: INC,
@@ -147,9 +190,9 @@ describe.each([false, true])('@lexical/y/server, gc %s', gc => {
       to: SEED + 1,
     });
     expect(room.changed).toBe(true);
-    expect(room.base).toEqual({generation: 'inc-1/-', state: LAYOUT1});
-    expect(room.generation).toBe(generationOf(docOf(room.state), INC));
-    expect(room.generation).not.toBe('inc-1/-');
+    expect(room.base).toEqual({generation: G0, state: LAYOUT1});
+    expect(room.generation).toBe(getYGeneration(docOf(room.state), INC));
+    expect(room.generation).not.toBe(G0);
     expect(room.receipt.roots[0]).toMatchObject({from: SEED, to: SEED + 1});
     expect(room.pending).toBeNull();
     if (SEED + 1 <= LAYOUT_VERSION) {
@@ -583,7 +626,7 @@ describe.each([false, true])('@lexical/y/server, gc %s', gc => {
           seedContract: SEED_LAYOUT,
         }),
       ).toEqual({
-        generation: 'inc-1/-',
+        generation: G0,
         hasMigration: false,
         incarnation: INC,
         inherited: true,
@@ -600,7 +643,7 @@ describe.each([false, true])('@lexical/y/server, gc %s', gc => {
           seedContract: SEED_LAYOUT,
         }),
       ).toEqual({
-        generation: 'inc-1/-',
+        generation: G0,
         hasMigration: false,
         incarnation: INC,
         inherited: false,

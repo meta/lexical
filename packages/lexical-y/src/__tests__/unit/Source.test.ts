@@ -202,7 +202,7 @@ test('public entries', () => {
     'createYDoc',
     'createYServerLayoutUpgrade',
     'describeYRoom',
-    'generationOf',
+    'getYGeneration',
     'hasNewYEdits',
     'isYLayoutUpgradeHandle',
     'legacySignal',

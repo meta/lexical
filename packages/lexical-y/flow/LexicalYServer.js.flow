@@ -42,7 +42,7 @@ declare export function createYDoc(
   options?: YDocOptions,
 ): YDoc;
 
-declare export function generationOf(
+declare export function getYGeneration(
   doc: Doc,
   incarnation: string,
   roots?: ReadonlyArray<string>,

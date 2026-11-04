@@ -221,8 +221,9 @@ of set-valued NodeState; layout 3 (planned, #9449) adds move records.
   not know and leave them in place. It is outside the `lexical-y:`
   namespace, so older releases ignore it; this release opens a document
   whose epoch has another `v`, or a known field that is not well formed,
-  read only (an absent epoch is fine). Each migration replaces it. Servers derive a document's generation from it
-  (`generationOf` in `@lexical/y/server`); a client never adopts a
+  read only (an absent epoch is fine). Each migration replaces it. Servers derive a document's
+  generation from its `(client, clock)` (`getYGeneration` in
+  `@lexical/y/server`, a versioned algorithm); a client never adopts a
   generation from it.
 - **Feature requirements.** Root attributes `lexical-y-require:<feature>` =
   `true`, grow-only, the feature id an opaque string, written before (or

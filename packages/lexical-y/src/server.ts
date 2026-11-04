@@ -9,7 +9,7 @@
 // @lexical/y/server: EXPERIMENTAL pieces of a server or relay that stores
 // `@lexical/y` documents (D102, y-server.md "Migrating stored documents"):
 // the load-time migration (prepareYRoom), the generation of a stored state
-// (generationOf), the handshake verdict (checkYSession), the legacy capture
+// (getYGeneration), the handshake verdict (checkYSession), the legacy capture
 // (captureYSession, legacySignal), quarantine records (quarantineRecord,
 // sourceView, hasNewYEdits), and createYDoc for a relay's documents (Yjs
 // only: format cleanup off, nothing the binding adds to a client's). No
@@ -27,7 +27,7 @@ import {
   captureYSession,
   checkYSession,
   describeYRoom,
-  generationOf,
+  getYGeneration,
   hasNewYEdits,
   legacySignal,
   needsNewIncarnation,
@@ -69,7 +69,7 @@ export {
   checkYSession,
   createYDoc,
   describeYRoom,
-  generationOf,
+  getYGeneration,
   hasNewYEdits,
   LAYOUT_VERSION,
   legacySignal,

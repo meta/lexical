@@ -866,10 +866,17 @@ was stored, so a discarded result is never seen.
 
 ### Generations and the handshake
 
-A room's **generation** (`generationOf(doc, incarnation, roots)`) is its
+A room's **generation** (`getYGeneration(doc, incarnation, roots)`) is its
 incarnation (a token you create with the room and replace whenever it is
-recreated, restored from a backup or moved to a new document) plus the
-epochs a migration recorded. A client keeps, beside its cached state and
+recreated, restored from a backup or moved to a new document) plus, for
+every served root, the identity of the transition that last migrated it
+(its epoch's item, or none). The algorithm is versioned and frozen:
+`'g1:' + JSON.stringify([incarnation, [[root, null | [client, clock]], ...]])`,
+over every served root sorted by code units. A served root with a malformed
+epoch has no generation: the result is `UNKNOWN_GENERATION` (`'unknown'`),
+which never matches. Treat a generation as opaque: compare and store it,
+never parse it; carry the incarnation explicitly (records do, in their
+`source`). A client keeps, beside its cached state and
 unsent edits, the generation they were made against, adopted only from the
 server's acknowledgement of a full sync or from bootstrapping a new
 document. Before any sync message it sends the version 1 handshake its
