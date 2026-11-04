@@ -19,6 +19,7 @@ import {
   COLLABORATION_TAG,
   COMMAND_PRIORITY_EDITOR,
   createCommand,
+  type LexicalEditor,
   TextNode,
 } from 'lexical';
 import {describe, expect, test} from 'vitest';
@@ -27,13 +28,16 @@ import {expectConverged, freshReader, setup} from '../../utils/harness';
 
 const APPLY = createCommand<Uint8Array>('APPLY_REMOTE');
 
-async function twoPeers(gc: boolean) {
+async function twoPeers(
+  gc: boolean,
+  prepare?: (editor: LexicalEditor) => void,
+) {
   const t = await setup(
     () =>
       $getRoot().append(
         $createParagraphNode().append($createTextNode('one two')),
       ),
-    {gc},
+    {gc, prepare},
   );
   t.offline();
   // A remote change: b bolds "one".
@@ -346,6 +350,63 @@ describe.each([false, true])(
             : null;
         }),
       ).toEqual(['one', 2, true]);
+    });
+
+    for (const registered of ['after', 'before'] as const) {
+      test(`an edit a listener makes on the local commit, registered ${registered} the binding`, async () => {
+        let armed = false;
+        let replied = false;
+        const reply = (editor: LexicalEditor) =>
+          editor.registerUpdateListener(({tags}) => {
+            if (armed && !replied && !tags.has(COLLABORATION_TAG)) {
+              replied = true;
+              editor.update(() =>
+                $getRoot()
+                  .getAllTextNodes()
+                  .at(-1)!
+                  .selectEnd()
+                  .insertText('Y'),
+              );
+            }
+          });
+        const {t, delta} = await twoPeers(gc, editor => {
+          if (registered === 'before') {
+            reply(editor);
+          }
+        });
+        if (registered === 'after') {
+          reply(t.a.editor);
+        }
+        armed = true;
+        t.a.update(() => {
+          $appendX();
+          Y.applyUpdate(t.a.doc, delta, 'provider');
+        });
+        await t.sync();
+        expect(t.a.read(() => $getRoot().getTextContent())).toBe('one twoXY');
+        await expectConverged(t.peers);
+        expect((await freshReader(t.a)).describe()).toBe(t.a.describe());
+      });
+    }
+
+    test('the caret stays after the local edit', async () => {
+      const {t, delta} = await twoPeers(gc);
+      t.a.update(() => {
+        $appendX();
+        Y.applyUpdate(t.a.doc, delta, 'provider');
+      });
+      await t.sync();
+      expect(
+        t.a.read(() => {
+          const selection = $getSelection();
+          return $isRangeSelection(selection)
+            ? [
+                selection.anchor.getNode().getTextContent(),
+                selection.anchor.offset,
+              ]
+            : null;
+        }),
+      ).toEqual([' twoX', 5]);
     });
   },
 );

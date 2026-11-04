@@ -2822,8 +2822,10 @@ export class YBinding {
       this.deferChange(tr);
       return;
     }
-    if (this.deferred.length > 0) {
-      // Read in the order Yjs applied them.
+    if (this.deferred.length > 0 && !this._editor._updating) {
+      // Read in the order Yjs applied them. (While the editor updates, a
+      // remote change is deferred behind them, and the binding's own writes
+      // read nothing: see scheduleDeferred.)
       this.readDeferred();
     }
     this.readNow(tr);
@@ -2853,21 +2855,21 @@ export class YBinding {
    */
   private defersChange(tr: Transaction): boolean {
     const editor = this._editor;
-    if (this.readsNow > 0 || !editor._updating) {
+    if (
+      this.readsNow > 0 ||
+      !editor._updating ||
+      tr.origin === this ||
+      tr.origin === this.initOrigin ||
+      tr.origin === this.followUpOrigin ||
+      tr.origin === this.scanOrigin ||
+      tr.origin === this.runEndOrigin ||
+      (this._undoManager !== null && tr.origin === this._undoManager)
+    ) {
       return false;
     }
-    if (this.deferred.length > 0) {
-      return true;
-    }
     return (
-      this._status !== 'pending' &&
-      this.readsChanges() &&
-      tr.origin !== this &&
-      tr.origin !== this.initOrigin &&
-      tr.origin !== this.followUpOrigin &&
-      tr.origin !== this.scanOrigin &&
-      tr.origin !== this.runEndOrigin &&
-      (this._undoManager === null || tr.origin !== this._undoManager)
+      this.deferred.length > 0 ||
+      (this._status !== 'pending' && this.readsChanges())
     );
   }
 
