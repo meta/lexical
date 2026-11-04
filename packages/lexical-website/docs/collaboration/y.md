@@ -1610,8 +1610,10 @@ never hold one stay readable and editable by layout 1 clients.
   adds the new version to a room's record only when it first writes
   something that needs it, in the same transaction; from then on, older
   clients open that room read only. Upgrade every client of a room together.
-- **Changes that raise `MIN_LAYOUT`:** the release stops reading older
-  layouts, and their rooms must be migrated (below).
+- **Changes that raise `MIN_LAYOUT`:** only the one-time break to layout 3,
+  whose release stops reading older layouts (their rooms are migrated,
+  below). After it, `MIN_LAYOUT` stays 3 and layouts are only added: see
+  [Layout upgrades](#layout-upgrades).
 - **Changing your own node types:** bump `schemaVersion` (see
   [Versioning your schema](#versioning-your-schema)), so that clients still
   on the older version open the rooms a newer one edited read only instead
@@ -1653,6 +1655,19 @@ only, and `UNSUPPORTED_LAYOUT_WARNING` `'older'` says which was declared
 `configExtension(YCollabExtension, ...)` directly) falls back to read only
 below the floor and also reports `UNSUPPORTED_CONFIG_WARNING`
 `'missing-layout-upgrade'`.
+
+**The policy: never drop a reader.** After the one-time break to layout 3:
+
+- Layouts are only added. A new layout is a new `LAYOUT_VERSION`; every
+  release keeps reading and writing every layout from 3 up.
+- The package never removes a reader or a step of a layout from 3 on:
+  `MIN_LAYOUT` stays 3, and published steps (`@lexical/y/migrate/<n>to<n+1>`)
+  stay published.
+- An app may raise its own floor. Its server migrates its rooms to layout
+  N + 1 and stops admitting clients that cannot read N + 1 (the handshake's
+  `layouts` says what a client reads); the package's floor does not move.
+- A step's default revision never changes what it writes (see Migration
+  identity below).
 
 ### Migrating stored documents
 

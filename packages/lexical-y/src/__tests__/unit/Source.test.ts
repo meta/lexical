@@ -291,6 +291,16 @@ test('policy: the floor never rises past layout 3, and the runner targets it by 
   // clients that cannot read the next layout).
   expect(mainEntry.MIN_LAYOUT).toBeLessThanOrEqual(3);
   expect(serverEntry.MIN_LAYOUT).toBe(mainEntry.MIN_LAYOUT);
+  // Published steps stay published: this list only grows (add a step here
+  // when you publish it; removing one fails).
+  const everPublished = ['1to2'];
+  const manifest = JSON.parse(
+    fs.readFileSync(
+      path.resolve(__dirname, '../../migrate/manifest.json'),
+      'utf8',
+    ),
+  ) as string[];
+  expect(manifest).toEqual(expect.arrayContaining(everPublished));
 });
 
 test('one manifest of published steps: the files, the exports, the lazy loaders and the static table all follow it', () => {
