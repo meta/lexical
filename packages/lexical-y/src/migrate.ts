@@ -24,6 +24,7 @@ import {
   loadYMigrationSteps,
   migrateYState,
   recordedLayout,
+  type YKnownMigrationErrorCode,
   type YLayoutMigration,
   type YMigrateOptions,
   type YMigrateStateOptions,
@@ -38,6 +39,7 @@ import {
 } from './internal/Runner';
 
 export type {
+  YKnownMigrationErrorCode,
   YLayoutMigration,
   YMigrateOptions,
   YMigrateStateOptions,

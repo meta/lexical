@@ -373,9 +373,14 @@ provider.awareness.destroy();
 
 The binding reports to the editor's `onWarn` (set it on your root
 extension, see [Errors and warnings](/docs/extensions/defining-extensions#errors-and-warnings)).
-Each warning is a `LexicalWarning` with a stable `code` and typed `data`;
-`isYWarning(error)` narrows it to the `YWarning` union, where `code` decides
-the type of `data`, and `data.reason` says which case it is. The `message` is
+Each warning is a `LexicalWarning` with a stable `code` and typed `data`.
+`isYWarning(error, code)` narrows it to `YWarning<code>`, whose `data` is
+that code's, and `data.reason` says which case it is; `isYWarning(error)`
+alone narrows it to the open `YWarning` (any code, `data` unknown). Every
+code's `data` may also be `{reason: 'other', detailCode, details?}`: a
+condition a later version reports under an existing code. Handle it, and
+keep a fallback for codes you do not know (`YWarningCode` is open;
+`YKnownWarningCode` lists this version's). The `message` is
 for developers (what happened and what to do): render your own text from
 `code` and `data`.
 
@@ -406,19 +411,25 @@ import {
 import {defineExtension} from 'lexical';
 
 function banner(warning: YWarning): string | null {
-  switch (warning.code) {
-    case UNSUPPORTED_SCHEMA_WARNING:
-      return warning.data.reason === 'newer'
-        ? t('doc.reloadForNewerVersion')
-        : t('doc.cannotOpen');
-    case UNSUPPORTED_LAYOUT_WARNING:
-      return warning.data.reason === 'newer'
-        ? t('doc.needsNewerApp')
-        : t('doc.cannotOpen');
-    // ...
-    default:
-      return null;
+  if (isYWarning(warning, UNSUPPORTED_SCHEMA_WARNING)) {
+    return warning.data.reason === 'newer'
+      ? t('doc.reloadForNewerVersion')
+      : t('doc.cannotOpen');
   }
+  if (isYWarning(warning, UNSUPPORTED_LAYOUT_WARNING)) {
+    switch (warning.data.reason) {
+      case 'newer':
+      case 'requires':
+        return t('doc.needsNewerApp');
+      case 'older':
+        return t('doc.beingUpgraded');
+      default:
+        // 'malformed', 'missing', 'removed', 'legacy-roots', 'other'
+        return t('doc.cannotOpen');
+    }
+  }
+  // ...
+  return null;
 }
 
 defineExtension({
@@ -441,9 +452,10 @@ defineExtension({
 - Without a handler, Lexical's default `onWarn` applies: it throws in
   development (each warning shows up as an uncaught error) and calls
   `console.warn` in production.
-- Codes are never renamed or reused; new ones may be added. A `default`
-  that assigns the warning to `never` makes the compiler point at a code
-  your `switch` does not handle.
+- Codes are never renamed or reused; new ones may be added, and a new
+  condition under an existing code arrives as `reason: 'other'` with its
+  `detailCode`. So a handler keeps a fallback for both; a `switch` over a
+  code's `reason` that handles `'other'` stays exhaustive across releases.
 
 ## Versioning your schema
 

@@ -31,7 +31,7 @@ export type YLayoutMigration = {
   rewrites(key: string): boolean,
 };
 
-export type YMigrationErrorCode =
+export type YKnownMigrationErrorCode =
   | 'missing-step'
   | 'invalid-steps'
   | 'missing'
@@ -39,6 +39,8 @@ export type YMigrationErrorCode =
   | 'pending'
   | 'post-condition'
   | 'in-transaction';
+// Open: a later version may add codes; keep a fallback.
+export type YMigrationErrorCode = string;
 
 declare export class YMigrationError extends Error {
   readonly code: YMigrationErrorCode;

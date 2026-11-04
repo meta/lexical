@@ -42,6 +42,7 @@ import {runInNewContext} from 'node:vm';
 import {afterEach, describe, expect, test, vi} from 'vitest';
 
 import {
+  isYWarning,
   LAYOUT_VERSION,
   UNSUPPORTED_LAYOUT_WARNING,
   YBinding,
@@ -877,10 +878,11 @@ describe('@lexical/y/headless', () => {
           },
         ],
       ]);
-      // Narrowing on `code`, then on `data.reason`, types the fields.
+      // Narrowing on `code` (isYWarning with it), then on `data.reason`,
+      // types the fields.
       const [warning] = error.warnings;
       expect(
-        warning.code === UNSUPPORTED_LAYOUT_WARNING &&
+        isYWarning(warning, UNSUPPORTED_LAYOUT_WARNING) &&
           warning.data.reason === 'newer'
           ? `${warning.data.found} > ${warning.data.supported}`
           : null,

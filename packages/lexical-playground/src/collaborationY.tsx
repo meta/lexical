@@ -104,11 +104,18 @@ const READ_ONLY_WARNING_CODES: ReadonlySet<string> = new Set([
  */
 function needsNewerApp(warning: YWarning | null): boolean {
   return (
-    warning !== null &&
-    (warning.code === UNSUPPORTED_SCHEMA_WARNING ||
-      warning.code === UNSUPPORTED_LAYOUT_WARNING) &&
+    (isYWarning(warning, UNSUPPORTED_SCHEMA_WARNING) ||
+      isYWarning(warning, UNSUPPORTED_LAYOUT_WARNING)) &&
     warning.data.reason === 'newer'
   );
+}
+
+/** The `reason` of a warning's data (each one the notice shows has one). */
+function reasonOf(warning: YWarning): string | undefined {
+  const data: unknown = warning.data;
+  return typeof data === 'object' && data !== null && 'reason' in data
+    ? String(data.reason)
+    : undefined;
 }
 
 let session: CollabYSession | null = null;
@@ -293,7 +300,7 @@ export function CollabYPlugin({
       className="collab-y-notice"
       role="status"
       data-code={warning === null ? undefined : warning.code}
-      data-reason={warning === null ? undefined : warning.data.reason}>
+      data-reason={warning === null ? undefined : reasonOf(warning)}>
       {text}
     </div>
   );

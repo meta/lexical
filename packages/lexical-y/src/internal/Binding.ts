@@ -165,12 +165,12 @@ import {
   UNSUPPORTED_LAYOUT_WARNING,
   UNSUPPORTED_SCHEMA_WARNING,
   UNSUPPORTED_SLOTS_WARNING,
+  type YEmittedWarningData,
+  type YKnownWarningCode,
   type YRecoveredReadData,
   type YStorageMismatchData,
   type YUnsupportedConfigData,
   type YUnsupportedSchemaData,
-  type YWarningCode,
-  type YWarningData,
 } from './Warnings';
 import {$holdsLines, type WritePlan, Writer} from './Write';
 import {createYDoc, type YDoc} from './YDoc';
@@ -3069,10 +3069,10 @@ export class YBinding {
    * never inside a Yjs observer or transaction, and never half way through
    * a read or a write (see flushWarnings).
    */
-  private warn<C extends YWarningCode>(
+  private warn<C extends YKnownWarningCode>(
     code: C,
     message: string,
-    data: YWarningData<C>,
+    data: YEmittedWarningData<C>,
   ): void {
     this.pendingWarnings.push(new LexicalWarning(code, message, data));
   }

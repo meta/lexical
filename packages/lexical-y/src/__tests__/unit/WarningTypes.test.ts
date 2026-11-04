@@ -6,6 +6,8 @@
  *
  */
 
+import type {YMigrationErrorCode} from '../../migrate';
+
 import {LexicalWarning} from 'lexical';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
@@ -26,78 +28,128 @@ import {
   UNSUPPORTED_SCHEMA_WARNING,
   UNSUPPORTED_SLOTS_WARNING,
   UNSYNCED_VALUE_WARNING,
+  type YKnownWarning,
+  type YKnownWarningCode,
   type YWarning,
   type YWarningCode,
 } from '../..';
 
-// An app's own read-only banner, from the warning's fields alone: every code
-// handled, so a code added in a later release fails to type-check here.
-function banner(warning: YWarning): string {
-  switch (warning.code) {
-    case UNSUPPORTED_LAYOUT_WARNING:
-      switch (warning.data.reason) {
-        case 'newer':
-          return `newer:${warning.data.found}>${warning.data.supported}`;
-        case 'malformed':
-          return `malformed:${warning.data.key}`;
-        case 'legacy-roots':
-          return `legacy:${warning.data.roots.join(',')}`;
-        case 'missing':
-        case 'removed':
-          return warning.data.reason;
+// An app's own read-only banner, from the warning's fields alone. The base
+// YWarning is open (any code, `data` unknown), so the app narrows with
+// isYWarning(value, code); every reason switch handles the permanent
+// 'other' fallback, and a code the app does not know falls through to the
+// last line: a later release (new codes, new conditions under 'other')
+// keeps this compiling and working.
+function banner(value: unknown): string {
+  if (isYWarning(value, UNSUPPORTED_LAYOUT_WARNING)) {
+    const data = value.data;
+    switch (data.reason) {
+      case 'newer':
+        return `newer:${data.found}>${data.supported}`;
+      case 'older':
+        return `older:${data.found}<${data.min}`;
+      case 'requires':
+        return `requires:${data.features.join(',')}`;
+      case 'malformed':
+        return `malformed:${data.key}`;
+      case 'legacy-roots':
+        return `legacy:${data.roots.join(',')}`;
+      case 'missing':
+      case 'removed':
+        return data.reason;
+      case 'other':
+        return `other:${data.detailCode}`;
+      default: {
+        const unreachable: never = data;
+        return unreachable;
       }
-      break;
-    case UNSUPPORTED_SCHEMA_WARNING:
-      return warning.data.reason === 'newer'
-        ? `schema:${warning.data.found}>${warning.data.supported}`
-        : `schema-malformed:${warning.data.key}`;
-    case STORAGE_MISMATCH_WARNING:
-      return warning.data.reason === 'malformed'
-        ? `malformed:${warning.data.key}`
-        : `${warning.data.stored.kind}->${warning.data.declared.kind}`;
-    case UNKNOWN_NODE_TYPES_WARNING:
-    case UNSUPPORTED_SLOTS_WARNING:
-      return `${warning.data.reason}:${warning.data.types.join(',')}`;
-    case UNSUPPORTED_CONFIG_WARNING:
-      return warning.data.reason === 'repair-transforms'
-        ? warning.data.options.join(',')
-        : warning.data.reason;
-    case UNSUPPORTED_EDIT_WARNING:
-      return warning.data.reason;
-    case SELF_CHECK_WARNING:
-      return `${warning.data.reason}:${warning.data.problems.length}`;
-    case RECOVERED_READ_WARNING:
-    case RECOVERED_WRITE_WARNING:
-      return warning.data.reason;
-    case NESTED_FALLBACK_WARNING:
-      return warning.data.reason === 'merge-override'
-        ? warning.data.method
-        : warning.data.type;
-    case UNSYNCED_VALUE_WARNING:
-      return warning.data.property;
-    default: {
-      const unreachable: never = warning;
-      return unreachable;
     }
   }
-  return '';
+  if (isYWarning(value, UNSUPPORTED_SCHEMA_WARNING)) {
+    const data = value.data;
+    return data.reason === 'newer'
+      ? `schema:${data.found}>${data.supported}`
+      : data.reason === 'other'
+        ? `other:${data.detailCode}`
+        : `schema-malformed:${data.key}`;
+  }
+  if (isYWarning(value, STORAGE_MISMATCH_WARNING)) {
+    const data = value.data;
+    return data.reason === 'malformed'
+      ? `malformed:${data.key}`
+      : data.reason === 'other'
+        ? `other:${data.detailCode}`
+        : `${data.stored.kind}->${data.declared.kind}`;
+  }
+  if (
+    isYWarning(value, UNKNOWN_NODE_TYPES_WARNING) ||
+    isYWarning(value, UNSUPPORTED_SLOTS_WARNING)
+  ) {
+    const data = value.data;
+    return data.reason === 'other'
+      ? `other:${data.detailCode}`
+      : `${data.reason}:${data.types.join(',')}`;
+  }
+  if (isYWarning(value, UNSUPPORTED_CONFIG_WARNING)) {
+    const data = value.data;
+    return data.reason === 'repair-transforms'
+      ? data.options.join(',')
+      : data.reason;
+  }
+  if (isYWarning(value, SELF_CHECK_WARNING)) {
+    const data = value.data;
+    return data.reason === 'other'
+      ? `other:${data.detailCode}`
+      : `${data.reason}:${data.problems.length}`;
+  }
+  if (isYWarning(value, NESTED_FALLBACK_WARNING)) {
+    const data = value.data;
+    return data.reason === 'merge-override'
+      ? data.method
+      : data.reason === 'other'
+        ? `other:${data.detailCode}`
+        : data.type;
+  }
+  if (isYWarning(value, UNSYNCED_VALUE_WARNING)) {
+    const data = value.data;
+    return data.reason === 'other' ? `other:${data.detailCode}` : data.property;
+  }
+  if (
+    isYWarning(value, UNSUPPORTED_EDIT_WARNING) ||
+    isYWarning(value, RECOVERED_READ_WARNING) ||
+    isYWarning(value, RECOVERED_WRITE_WARNING)
+  ) {
+    return value.data.reason;
+  }
+  // A code this app does not know (a later release's): its code only.
+  return isYWarning(value) ? value.code : '';
 }
 
-// A switch that leaves codes out does not type-check as exhaustive.
-export function partial(warning: YWarning): string {
+// The open base: `data` is unknown until the code narrows it; codes are any
+// string (a later release's included), and so are the runner's error codes.
+export function open(warning: YWarning): string {
+  // @ts-expect-error the open warning's data is unknown
+  void warning.data.reason;
+  const later: YWarningCode = '@lexical/y/a-later-code';
+  const errorCode: YMigrationErrorCode = 'a-later-code';
+  // @ts-expect-error a known code list stays closed (editor completion)
+  const notKnown: YKnownWarningCode = '@lexical/y/a-later-code';
+  return `${later}${errorCode}${String(notKnown)}`;
+}
+
+// The known warnings, one member per code: a switch over `code` narrows
+// `data`, and keeps a default for codes a later release adds.
+export function knownSwitch(warning: YKnownWarning): string {
   switch (warning.code) {
     case UNSUPPORTED_LAYOUT_WARNING:
       return warning.data.reason;
-    default: {
-      // @ts-expect-error not every code is handled
-      const unreachable: never = warning;
-      return String(unreachable);
-    }
+    default:
+      return warning.code;
   }
 }
 
 // Each reason carries its own fields.
-export function fields(warning: YWarning): void {
+export function fields(warning: YKnownWarning): void {
   if (warning.code === UNSUPPORTED_LAYOUT_WARNING) {
     if (warning.data.reason === 'missing') {
       // @ts-expect-error a missing record has no value found
@@ -130,7 +182,7 @@ export function fields(warning: YWarning): void {
 
 describe('typed warnings', () => {
   test('isYWarning accepts the binding codes only', () => {
-    const codes: YWarningCode[] = [
+    const codes: YKnownWarningCode[] = [
       UNSUPPORTED_LAYOUT_WARNING,
       UNKNOWN_NODE_TYPES_WARNING,
       STORAGE_MISMATCH_WARNING,
@@ -146,7 +198,21 @@ describe('typed warnings', () => {
     ];
     for (const code of codes) {
       expect(isYWarning(new LexicalWarning(code, 'm', {}))).toBe(true);
+      expect(isYWarning(new LexicalWarning(code, 'm', {}), code)).toBe(true);
     }
+    // With a code: only that code.
+    expect(
+      isYWarning(
+        new LexicalWarning(UNSUPPORTED_EDIT_WARNING, 'm', {}),
+        UNSUPPORTED_LAYOUT_WARNING,
+      ),
+    ).toBe(false);
+    // As an array predicate (the index is no code).
+    expect(
+      [new LexicalWarning(UNSUPPORTED_EDIT_WARNING, 'm', {})].filter(
+        isYWarning,
+      ),
+    ).toHaveLength(1);
     expect(isYWarning(new LexicalWarning('@example/pkg/x', 'm'))).toBe(false);
     expect(isYWarning(new Error('m'))).toBe(false);
     expect(isYWarning(null)).toBe(false);
@@ -158,15 +224,22 @@ describe('typed warnings', () => {
       'layout 9 is newer',
       {found: 9, reason: 'newer', supported: LAYOUT_VERSION},
     );
-    expect(isYWarning(warning) ? banner(warning) : '').toBe(
-      `newer:9>${LAYOUT_VERSION}`,
-    );
+    expect(banner(warning)).toBe(`newer:9>${LAYOUT_VERSION}`);
     const schema = new LexicalWarning(
       UNSUPPORTED_SCHEMA_WARNING,
       `schema 3 is newer than 2. A newer version of your app (a higher schemaVersion) wrote this document, so this editor is read only: load the newer app version to edit it`,
       {found: 3, reason: 'newer', supported: 2},
     );
-    expect(isYWarning(schema) ? banner(schema) : '').toBe('schema:3>2');
+    expect(banner(schema)).toBe('schema:3>2');
+    // The permanent fallback, under a known code.
+    expect(
+      banner(
+        new LexicalWarning(UNSUPPORTED_LAYOUT_WARNING, 'm', {
+          detailCode: 'a-later-condition',
+          reason: 'other',
+        }),
+      ),
+    ).toBe('other:a-later-condition');
   });
 
   test('messages name no package', () => {

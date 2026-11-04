@@ -80,11 +80,12 @@ export const UNSUPPORTED_EDIT_WARNING = '@lexical/y/unsupported-edit';
 export const UNSUPPORTED_SCHEMA_WARNING = '@lexical/y/unsupported-schema';
 
 /**
- * @experimental The codes of the `LexicalWarning`s the binding passes to the
- * editor's `onWarn`. Codes are public API: a code is never renamed, and never
- * reused for another condition; new codes may be added in any release.
+ * @experimental The codes of the `LexicalWarning`s this version of the
+ * binding passes to the editor's `onWarn`. Codes are public API: a code is
+ * never renamed, and never reused for another condition; new codes may be
+ * added in any release (see YWarningCode).
  */
-export type YWarningCode =
+export type YKnownWarningCode =
   | typeof UNSUPPORTED_LAYOUT_WARNING
   | typeof UNKNOWN_NODE_TYPES_WARNING
   | typeof STORAGE_MISMATCH_WARNING
@@ -97,6 +98,25 @@ export type YWarningCode =
   | typeof UNSUPPORTED_CONFIG_WARNING
   | typeof UNSUPPORTED_EDIT_WARNING
   | typeof UNSUPPORTED_SCHEMA_WARNING;
+
+/**
+ * @experimental A warning code: one this version knows (YKnownWarningCode,
+ * which an editor completes) or one a later version adds. Open on purpose:
+ * handle the codes you know and keep a fallback for the others.
+ */
+export type YWarningCode = YKnownWarningCode | (string & {});
+
+/**
+ * @experimental The `data` every code may carry besides its own variants: a
+ * condition a later version reports under an existing code, `detailCode`
+ * naming it (with optional `details`). Permanent: a switch over a code's
+ * `reason` handles `'other'`, so a new condition never breaks it.
+ */
+export interface YOtherWarningData {
+  readonly reason: 'other';
+  readonly detailCode: string;
+  readonly details?: unknown;
+}
 
 /**
  * @experimental `data` of an `UNSUPPORTED_LAYOUT_WARNING` (the binding is read
@@ -366,22 +386,40 @@ interface YWarningDataByCode {
   [UNSUPPORTED_SCHEMA_WARNING]: YUnsupportedSchemaData;
 }
 
-/** @experimental The `data` of the warnings with code `C`. */
-export type YWarningData<C extends YWarningCode> = YWarningDataByCode[C];
+/**
+ * @experimental The `data` of the warnings with code `C`: its variants (and
+ * YOtherWarningData) for a code this version knows, `unknown` for another.
+ */
+export type YWarningData<C extends string> = C extends YKnownWarningCode
+  ? YWarningDataByCode[C] | YOtherWarningData
+  : unknown;
+
+/** The `data` this version emits under code `C` (never `'other'`). */
+export type YEmittedWarningData<C extends YKnownWarningCode> =
+  YWarningDataByCode[C];
 
 /**
  * @experimental A warning the binding passes to the editor's `onWarn`: a
- * `LexicalWarning` whose `code` decides the type of its `data` (narrow it
- * with isYWarning, then switch over `code`, and over `data.reason`).
+ * `LexicalWarning` whose `code` decides the type of its `data`.
+ * `YWarning` (any code) is open: its `data` is `unknown` until narrowed.
+ * Narrow it with `isYWarning(value, code)`, which gives `YWarning<code>`,
+ * then switch over `data.reason`, `'other'` included.
  */
-export type YWarning = {
-  [C in YWarningCode]: LexicalWarning & {
-    readonly code: C;
-    readonly data: YWarningData<C>;
-  };
-}[YWarningCode];
+export type YWarning<C extends string = YWarningCode> = LexicalWarning & {
+  readonly code: C;
+  readonly data: YWarningData<C>;
+};
 
-const CODES: ReadonlySet<string> = new Set<YWarningCode>([
+/**
+ * @experimental The warnings this version knows, one member per code (a
+ * switch over `code` narrows `data`). A later version may add members:
+ * keep a `default` branch.
+ */
+export type YKnownWarning = {
+  [C in YKnownWarningCode]: YWarning<C>;
+}[YKnownWarningCode];
+
+const CODES: ReadonlySet<string> = new Set<YKnownWarningCode>([
   UNSUPPORTED_LAYOUT_WARNING,
   UNKNOWN_NODE_TYPES_WARNING,
   STORAGE_MISMATCH_WARNING,
@@ -397,21 +435,31 @@ const CODES: ReadonlySet<string> = new Set<YWarningCode>([
 ]);
 
 /**
- * @experimental Whether `error` (what the editor's `onWarn` receives) is a
- * warning of the binding's, typed by its code.
+ * @experimental Whether `value` (what the editor's `onWarn` receives) is a
+ * warning of the binding's: with `code`, one with that code, its `data`
+ * typed by it; without, any of its codes (an open YWarning).
  */
-export function isYWarning(error: unknown): error is YWarning {
-  return error instanceof LexicalWarning && CODES.has(error.code);
+export function isYWarning<C extends YKnownWarningCode>(
+  value: unknown,
+  code: C,
+): value is YWarning<C>;
+export function isYWarning(value: unknown): value is YWarning;
+export function isYWarning(value: unknown, code?: unknown): boolean {
+  if (!(value instanceof LexicalWarning) || !CODES.has(value.code)) {
+    return false;
+  }
+  // A code that is not a string (an array method's index) is no code.
+  return typeof code !== 'string' || value.code === code;
 }
 
 /** A warning found outside a binding's own state (class derivation, values). */
 type WarningNote = {
-  [C in YWarningCode]: {
+  [C in YKnownWarningCode]: {
     readonly code: C;
     readonly message: string;
-    readonly data: YWarningData<C>;
+    readonly data: YEmittedWarningData<C>;
   };
-}[YWarningCode];
+}[YKnownWarningCode];
 
 const noted = new Set<string>();
 const notes: WarningNote[] = [];
@@ -421,10 +469,10 @@ const notes: WarningNote[] = [];
  * (what is found about a class is cached with it, so it is found once): every
  * binding reports it once (see `notesSince`).
  */
-export function noteOnce<C extends YWarningCode>(
+export function noteOnce<C extends YKnownWarningCode>(
   code: C,
   message: string,
-  data: YWarningData<C>,
+  data: YEmittedWarningData<C>,
 ): void {
   if (!noted.has(message)) {
     noted.add(message);

@@ -42,7 +42,9 @@ declare export var UNSUPPORTED_SLOTS_WARNING: '@lexical/y/unsupported-slots';
 declare export var UNSUPPORTED_CONFIG_WARNING: '@lexical/y/unsupported-config';
 declare export var UNSUPPORTED_EDIT_WARNING: '@lexical/y/unsupported-edit';
 declare export var UNSUPPORTED_SCHEMA_WARNING: '@lexical/y/unsupported-schema';
-export type YWarningCode =
+// The codes this version reports; YWarningCode is open (a later version may
+// add codes: keep a fallback).
+export type YKnownWarningCode =
   | typeof UNSUPPORTED_LAYOUT_WARNING
   | typeof UNKNOWN_NODE_TYPES_WARNING
   | typeof STORAGE_MISMATCH_WARNING
@@ -55,6 +57,13 @@ export type YWarningCode =
   | typeof UNSUPPORTED_CONFIG_WARNING
   | typeof UNSUPPORTED_EDIT_WARNING
   | typeof UNSUPPORTED_SCHEMA_WARNING;
+export type YWarningCode = string;
+// What any code may carry besides its own variants (permanent fallback).
+export type YOtherWarningData = {
+  readonly reason: 'other',
+  readonly detailCode: string,
+  readonly details?: unknown,
+};
 
 export type YUnsupportedLayoutData =
   | {readonly reason: 'newer', readonly found: number, readonly supported: number}
@@ -136,46 +145,94 @@ export type YNestedFallbackData =
     };
 export type YUnsyncedValueData = {readonly reason: 'not-json', readonly property: string};
 
-declare export class YWarningOf<out C extends YWarningCode, out D>
+declare export class YWarningOf<out C extends string, out D>
   extends LexicalWarning
 {
   readonly code: C;
   readonly data: D;
 }
-export type YWarning =
-  | YWarningOf<typeof UNSUPPORTED_LAYOUT_WARNING, YUnsupportedLayoutData>
-  | YWarningOf<
-      typeof UNKNOWN_NODE_TYPES_WARNING,
-      YUnknownNodeTypesData | YUnreadableContentData,
-    >
-  | YWarningOf<typeof STORAGE_MISMATCH_WARNING, YStorageMismatchData>
-  | YWarningOf<typeof SELF_CHECK_WARNING, YSelfCheckData>
-  | YWarningOf<typeof RECOVERED_READ_WARNING, YRecoveredReadData>
-  | YWarningOf<typeof RECOVERED_WRITE_WARNING, YRecoveredWriteData>
-  | YWarningOf<typeof NESTED_FALLBACK_WARNING, YNestedFallbackData>
-  | YWarningOf<typeof UNSYNCED_VALUE_WARNING, YUnsyncedValueData>
-  | YWarningOf<typeof UNSUPPORTED_SLOTS_WARNING, YUnsupportedSlotsData>
-  | YWarningOf<typeof UNSUPPORTED_CONFIG_WARNING, YUnsupportedConfigData>
-  | YWarningOf<typeof UNSUPPORTED_EDIT_WARNING, YUnsupportedEditData>
-  | YWarningOf<typeof UNSUPPORTED_SCHEMA_WARNING, YUnsupportedSchemaData>;
-// The `data` of each code.
+// Open: any code, `data` unknown until narrowed with isYWarning(value, code).
+export type YWarning = YWarningOf<string, unknown>;
+// The `data` of each known code.
 type YWarningDataByCode = {
-  '@lexical/y/unsupported-layout': YUnsupportedLayoutData,
-  '@lexical/y/unknown-node-types': YUnknownNodeTypesData | YUnreadableContentData,
-  '@lexical/y/storage-mismatch': YStorageMismatchData,
-  '@lexical/y/self-check': YSelfCheckData,
-  '@lexical/y/recovered-read': YRecoveredReadData,
-  '@lexical/y/recovered-write': YRecoveredWriteData,
-  '@lexical/y/nested-fallback': YNestedFallbackData,
-  '@lexical/y/unsynced-value': YUnsyncedValueData,
-  '@lexical/y/unsupported-slots': YUnsupportedSlotsData,
-  '@lexical/y/unsupported-config': YUnsupportedConfigData,
-  '@lexical/y/unsupported-edit': YUnsupportedEditData,
-  '@lexical/y/unsupported-schema': YUnsupportedSchemaData,
+  '@lexical/y/unsupported-layout': YUnsupportedLayoutData | YOtherWarningData,
+  '@lexical/y/unknown-node-types': YUnknownNodeTypesData | YUnreadableContentData | YOtherWarningData,
+  '@lexical/y/storage-mismatch': YStorageMismatchData | YOtherWarningData,
+  '@lexical/y/self-check': YSelfCheckData | YOtherWarningData,
+  '@lexical/y/recovered-read': YRecoveredReadData | YOtherWarningData,
+  '@lexical/y/recovered-write': YRecoveredWriteData | YOtherWarningData,
+  '@lexical/y/nested-fallback': YNestedFallbackData | YOtherWarningData,
+  '@lexical/y/unsynced-value': YUnsyncedValueData | YOtherWarningData,
+  '@lexical/y/unsupported-slots': YUnsupportedSlotsData | YOtherWarningData,
+  '@lexical/y/unsupported-config': YUnsupportedConfigData | YOtherWarningData,
+  '@lexical/y/unsupported-edit': YUnsupportedEditData | YOtherWarningData,
+  '@lexical/y/unsupported-schema': YUnsupportedSchemaData | YOtherWarningData,
 };
-// The `data` of a warning whose `code` is `C`.
-export type YWarningData<C extends YWarningCode> = YWarningDataByCode[C];
-declare export function isYWarning(error: unknown): error is YWarning;
+// The `data` of a warning whose (known) `code` is `C`.
+export type YWarningData<C extends YKnownWarningCode> = YWarningDataByCode[C];
+// The warnings this version knows, one member per code (keep a default).
+export type YKnownWarning =
+  | YWarningOf<typeof UNSUPPORTED_LAYOUT_WARNING, YWarningData<typeof UNSUPPORTED_LAYOUT_WARNING>>
+  | YWarningOf<typeof UNKNOWN_NODE_TYPES_WARNING, YWarningData<typeof UNKNOWN_NODE_TYPES_WARNING>>
+  | YWarningOf<typeof STORAGE_MISMATCH_WARNING, YWarningData<typeof STORAGE_MISMATCH_WARNING>>
+  | YWarningOf<typeof SELF_CHECK_WARNING, YWarningData<typeof SELF_CHECK_WARNING>>
+  | YWarningOf<typeof RECOVERED_READ_WARNING, YWarningData<typeof RECOVERED_READ_WARNING>>
+  | YWarningOf<typeof RECOVERED_WRITE_WARNING, YWarningData<typeof RECOVERED_WRITE_WARNING>>
+  | YWarningOf<typeof NESTED_FALLBACK_WARNING, YWarningData<typeof NESTED_FALLBACK_WARNING>>
+  | YWarningOf<typeof UNSYNCED_VALUE_WARNING, YWarningData<typeof UNSYNCED_VALUE_WARNING>>
+  | YWarningOf<typeof UNSUPPORTED_SLOTS_WARNING, YWarningData<typeof UNSUPPORTED_SLOTS_WARNING>>
+  | YWarningOf<typeof UNSUPPORTED_CONFIG_WARNING, YWarningData<typeof UNSUPPORTED_CONFIG_WARNING>>
+  | YWarningOf<typeof UNSUPPORTED_EDIT_WARNING, YWarningData<typeof UNSUPPORTED_EDIT_WARNING>>
+  | YWarningOf<typeof UNSUPPORTED_SCHEMA_WARNING, YWarningData<typeof UNSUPPORTED_SCHEMA_WARNING>>;
+declare export function isYWarning(
+  value: unknown,
+  code: typeof UNSUPPORTED_LAYOUT_WARNING,
+): value is YWarningOf<typeof UNSUPPORTED_LAYOUT_WARNING, YWarningData<typeof UNSUPPORTED_LAYOUT_WARNING>>;
+declare export function isYWarning(
+  value: unknown,
+  code: typeof UNKNOWN_NODE_TYPES_WARNING,
+): value is YWarningOf<typeof UNKNOWN_NODE_TYPES_WARNING, YWarningData<typeof UNKNOWN_NODE_TYPES_WARNING>>;
+declare export function isYWarning(
+  value: unknown,
+  code: typeof STORAGE_MISMATCH_WARNING,
+): value is YWarningOf<typeof STORAGE_MISMATCH_WARNING, YWarningData<typeof STORAGE_MISMATCH_WARNING>>;
+declare export function isYWarning(
+  value: unknown,
+  code: typeof SELF_CHECK_WARNING,
+): value is YWarningOf<typeof SELF_CHECK_WARNING, YWarningData<typeof SELF_CHECK_WARNING>>;
+declare export function isYWarning(
+  value: unknown,
+  code: typeof RECOVERED_READ_WARNING,
+): value is YWarningOf<typeof RECOVERED_READ_WARNING, YWarningData<typeof RECOVERED_READ_WARNING>>;
+declare export function isYWarning(
+  value: unknown,
+  code: typeof RECOVERED_WRITE_WARNING,
+): value is YWarningOf<typeof RECOVERED_WRITE_WARNING, YWarningData<typeof RECOVERED_WRITE_WARNING>>;
+declare export function isYWarning(
+  value: unknown,
+  code: typeof NESTED_FALLBACK_WARNING,
+): value is YWarningOf<typeof NESTED_FALLBACK_WARNING, YWarningData<typeof NESTED_FALLBACK_WARNING>>;
+declare export function isYWarning(
+  value: unknown,
+  code: typeof UNSYNCED_VALUE_WARNING,
+): value is YWarningOf<typeof UNSYNCED_VALUE_WARNING, YWarningData<typeof UNSYNCED_VALUE_WARNING>>;
+declare export function isYWarning(
+  value: unknown,
+  code: typeof UNSUPPORTED_SLOTS_WARNING,
+): value is YWarningOf<typeof UNSUPPORTED_SLOTS_WARNING, YWarningData<typeof UNSUPPORTED_SLOTS_WARNING>>;
+declare export function isYWarning(
+  value: unknown,
+  code: typeof UNSUPPORTED_CONFIG_WARNING,
+): value is YWarningOf<typeof UNSUPPORTED_CONFIG_WARNING, YWarningData<typeof UNSUPPORTED_CONFIG_WARNING>>;
+declare export function isYWarning(
+  value: unknown,
+  code: typeof UNSUPPORTED_EDIT_WARNING,
+): value is YWarningOf<typeof UNSUPPORTED_EDIT_WARNING, YWarningData<typeof UNSUPPORTED_EDIT_WARNING>>;
+declare export function isYWarning(
+  value: unknown,
+  code: typeof UNSUPPORTED_SCHEMA_WARNING,
+): value is YWarningOf<typeof UNSUPPORTED_SCHEMA_WARNING, YWarningData<typeof UNSUPPORTED_SCHEMA_WARNING>>;
+declare export function isYWarning(value: unknown): value is YWarning;
 
 export type YBindingOptions = {
   // Required: the version of the app's document schema, an integer from 1.

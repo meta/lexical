@@ -121,8 +121,12 @@ export interface YLayoutMigration {
   rewrites(key: string): boolean;
 }
 
-/** @experimental The codes of {@link YMigrationError}. */
-export type YMigrationErrorCode =
+/**
+ * @experimental The codes of {@link YMigrationError} this version throws.
+ * Codes are never renamed or reused; a later version may add codes (see
+ * YMigrationErrorCode).
+ */
+export type YKnownMigrationErrorCode =
   /** No step links two layouts of the chain (or no loader gives it). */
   | 'missing-step'
   /**
@@ -141,6 +145,15 @@ export type YMigrationErrorCode =
   | 'post-condition'
   /** migrateYDoc was called inside a transaction of the document. */
   | 'in-transaction';
+
+/**
+ * @experimental The code of a {@link YMigrationError}: one this version
+ * throws (YKnownMigrationErrorCode) or one a later version adds. Open on
+ * purpose: handle the codes you know and keep a fallback.
+ */
+export type YMigrationErrorCode =
+  | YKnownMigrationErrorCode
+  | (string & {});
 
 /**
  * @experimental A migration refused or failed. Nothing was written: the
