@@ -11,15 +11,17 @@
 // `$patchStyle` parses a style with `getStyleObjectFromCSS`, changes the
 // object, and writes it back with `getCSSFromStyleObject`. Property test,
 // with fast-check, over styles of up to three declarations whose values are
-// built from pieces that are easy to get wrong (quotes, parentheses, `;`,
-// `:`, backslashes), well formed or not:
+// built from pieces that are easy to get wrong (quotes, parentheses,
+// comments, `;`, `:`, backslashes), well formed or not:
 //
 // - parsing what was written gives back what was parsed;
 // - a patched property reads back with its new value, and the others keep
 //   theirs;
 // - patching again with the same value writes the same string.
 //
-// The default run is small. Set STYLE_ROUND_TRIP_RUNS to run more.
+// The default run is small. Set STYLE_ROUND_TRIP_RUNS to run more; a comment
+// between `/` and `*` (see setDOMStyle.test.ts) turns up in fewer than one
+// style in a thousand.
 
 import {buildEditorFromExtensions} from '@lexical/extension';
 import {$patchStyleText, getCSSFromStyleObject} from '@lexical/selection';
@@ -51,6 +53,11 @@ const VALUE_PIECES = [
   ':',
   ' ',
   '\\',
+  '/*c*/',
+  '/*',
+  '*/',
+  '/',
+  '*',
 ];
 
 const declarationArbitrary = fc

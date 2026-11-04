@@ -99,6 +99,23 @@ describe('setDOMStyle', () => {
       color: 'red',
       margin: '0',
     });
+    // A comment between `/` and `*` leaves a space, so that they don't form
+    // a new comment when the value is written back.
+    expect(getStyleObjectFromCSS('a: x//**/*y')).toEqual({a: 'x/ *y'});
+    expect(getStyleObjectFromCSS('a: x//* c1 *//* c2 */*y')).toEqual({
+      a: 'x/ *y',
+    });
+    expect(getStyleObjectFromCSS('a//**/*b: c')).toEqual({'a/ *b': 'c'});
+    // Anywhere else the text around a comment is still joined.
+    expect(getStyleObjectFromCSS('a: x/**/*y; b: x//**/y')).toEqual({
+      a: 'x*y',
+      b: 'x/y',
+    });
+    expect(getStyleObjectFromCSS('a: x//**/y/**/*z')).toEqual({a: 'x/y*z'});
+    // The `/` that closes a comment is not kept text.
+    expect(getStyleObjectFromCSS('a: x/* c1 *//* c2 */*y')).toEqual({
+      a: 'x*y',
+    });
     // Consecutive comments in a property name are also removed.
     expect(getStyleObjectFromCSS('a/* c1 *//* c2 */b: c')).toEqual({ab: 'c'});
     // Escaped quotes, ';' and ':' inside a quoted value are preserved.
