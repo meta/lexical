@@ -245,16 +245,29 @@ const readMicromarkCjkFriendly: Reader = character =>
 // Each list leaves out the micromark CJK-friendly reader, which reads as the
 // other CJK-friendly one does but for MICROMARK_ONLY_WHITESPACE.
 const CJK_FRIENDLY_READERS: Reader[] = [readCjkFriendly];
+const readStrict: Reader = character => classify(character, false);
+const readMicromarkStrict: Reader = character =>
+  classify(
+    character !== undefined && character.length > 1
+      ? 'a'
+      : asMicromarkReads(character),
+    false,
+  );
 const STRICT_READERS: Reader[] = [
-  character => classify(character, false),
-  character =>
-    classify(
-      character !== undefined && character.length > 1
-        ? 'a'
-        : asMicromarkReads(character),
-      false,
-    ),
+  readStrict,
+  readMicromarkStrict,
   readCjkFriendly,
+];
+// Each list with the micromark CJK-friendly reader.
+const CJK_FRIENDLY_AND_MICROMARK_READERS: Reader[] = [
+  readCjkFriendly,
+  readMicromarkCjkFriendly,
+];
+const STRICT_AND_MICROMARK_READERS: Reader[] = [
+  readStrict,
+  readMicromarkStrict,
+  readCjkFriendly,
+  readMicromarkCjkFriendly,
 ];
 
 let exportReaders = STRICT_READERS;
@@ -263,7 +276,9 @@ let exportReaders = STRICT_READERS;
 function getReaders(a: string | undefined, b?: string): Reader[] {
   return (a !== undefined && MICROMARK_ONLY_WHITESPACE.test(a)) ||
     (b !== undefined && MICROMARK_ONLY_WHITESPACE.test(b))
-    ? exportReaders.concat(readMicromarkCjkFriendly)
+    ? exportReaders === CJK_FRIENDLY_READERS
+      ? CJK_FRIENDLY_AND_MICROMARK_READERS
+      : STRICT_AND_MICROMARK_READERS
     : exportReaders;
 }
 
