@@ -41,7 +41,7 @@ import {
   KEY_DELETE_COMMAND,
   type LexicalEditor,
 } from 'lexical';
-import {describe, expect, test} from 'vitest';
+import {describe, expect, onTestFinished, test} from 'vitest';
 
 // A cell whose row span reaches past the table's last row (#9759): the table
 // commands keep spans within the table, but a remote update or imported JSON
@@ -66,6 +66,7 @@ function build(): {editor: LexicalEditor; errors: string[]} {
       },
     }),
   );
+  onTestFinished(() => editor.dispose());
   // Four rows; the first cell spans two columns and five rows. Built without
   // transforms, as a remote update applies it.
   editor.update(
