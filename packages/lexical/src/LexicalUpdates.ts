@@ -1410,10 +1410,7 @@ function $beginUpdate(
       const anchorNode = pendingNodeMap.get(anchorKey);
       const focusNode = pendingNodeMap.get(focusKey);
 
-      if (
-        anchorNode === undefined ||
-        focusNode === undefined
-      ) {
+      if (anchorNode === undefined || focusNode === undefined) {
         invariant(
           false,
           'updateEditor: selection has been lost because the previously selected nodes have been removed and ' +

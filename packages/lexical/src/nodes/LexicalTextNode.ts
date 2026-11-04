@@ -1396,6 +1396,8 @@ export class TextNode extends LexicalNode implements InlineFormattableNode {
         endTextPoint = endPoint;
       }
     }
+    const originalStartOffset = startTextPoint ? startTextPoint.offset : null;
+    const originalEndOffset = endTextPoint ? endTextPoint.offset : null;
 
     if (self.isSegmented()) {
       // Create a new TextNode
@@ -1444,8 +1446,6 @@ export class TextNode extends LexicalNode implements InlineFormattableNode {
     // generally left biased unless the end point would land on a
     // later node in the split in which case it will prefer the start
     // of that node so they will tend to be on the same node.
-    const originalStartOffset = startTextPoint ? startTextPoint.offset : null;
-    const originalEndOffset = endTextPoint ? endTextPoint.offset : null;
     let startOffset = 0;
     for (const node of splitNodes) {
       if (!(startTextPoint || endTextPoint)) {
