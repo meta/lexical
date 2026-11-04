@@ -204,6 +204,7 @@ describe.each([false, true])('@lexical/y/server, gc %s', gc => {
       inherited: false,
       layouts: [2, 2],
       pristine: false,
+      requires: [],
       seedContract: 1,
       unreadable: [],
       ...over,
@@ -466,6 +467,7 @@ describe.each([false, true])('@lexical/y/server, gc %s', gc => {
         inherited: true,
         layouts: [SEED, SEED],
         pristine: false,
+        requires: [],
         seedContract: SEED_LAYOUT,
         unreadable: [],
       });
@@ -481,8 +483,63 @@ describe.each([false, true])('@lexical/y/server, gc %s', gc => {
         inherited: false,
         layouts: null,
         pristine: true,
+        requires: [],
         seedContract: SEED_LAYOUT,
         unreadable: [],
+      });
+    });
+
+    test('describeYRoom reads requirements: every well-formed feature once, in code-unit order; a malformed one makes its root unreadable', () => {
+      const describeRoom = (doc: Y.Doc, roots?: string[]) =>
+        describeYRoom(doc, {
+          incarnation: INC,
+          inherited: false,
+          roots,
+          seedContract: SEED_LAYOUT,
+        });
+      const doc = docOf(LAYOUT1);
+      const root = doc.get('lexical-y');
+      root.setAttr('lexical-y-require:zeta', true);
+      root.setAttr('lexical-y-require:Beta', true);
+      root.setAttr('lexical-y-require:a/b c', true);
+      // Other lexical-y-* keys are not requirements.
+      root.setAttr('lexical-y-requirement', 'x' as never);
+      root.setAttr('lexical-y-other', 1 as never);
+      const other = doc.get('other');
+      other.setAttr('lexical-y:1', true);
+      other.setAttr('lexical-y-require:zeta', true);
+      other.setAttr('lexical-y-require:\u00e9', true);
+      expect(describeRoom(doc)).toMatchObject({
+        requires: ['Beta', 'a/b c', 'zeta'],
+        unreadable: [],
+      });
+      expect(describeRoom(doc, ['other', 'lexical-y'])).toMatchObject({
+        layouts: [SEED, SEED],
+        requires: ['Beta', 'a/b c', 'zeta', '\u00e9'],
+        unreadable: [],
+      });
+      // Malformed: a value other than true, or an empty feature.
+      for (const [key, value] of [
+        ['lexical-y-require:zeta', false],
+        ['lexical-y-require:zeta', 'true'],
+        ['lexical-y-require:zeta', 1],
+        ['lexical-y-require:zeta', null],
+        ['lexical-y-require:', true],
+      ] as [string, unknown][]) {
+        const bad = docOf(LAYOUT1);
+        bad.get('lexical-y').setAttr(key, value as never);
+        const described = describeRoom(bad);
+        expect(described.unreadable).toEqual(['lexical-y']);
+        expect(described.layouts).toBeNull();
+        expect(described.requires).toEqual([]);
+      }
+      // A requirement alone is content: the room is not pristine.
+      const only = createYDoc(null, {gc});
+      only.get('lexical-y').setAttr('lexical-y-require:x', true);
+      expect(describeRoom(only)).toMatchObject({
+        pristine: false,
+        requires: ['x'],
+        unreadable: ['lexical-y'],
       });
     });
 

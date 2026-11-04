@@ -85,6 +85,7 @@ const verdict: YSessionVerdict = checkYSession(
     inherited: false,
     layouts: [1, 1],
     pristine: false,
+    requires: [],
     seedContract: SEED_LAYOUT,
     unreadable: [],
   },

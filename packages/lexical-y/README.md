@@ -232,6 +232,9 @@ of set-valued NodeState; layout 3 (planned, #9449) adds move records.
   shows it, keeps it and never rewrites it (`UNSUPPORTED_LAYOUT_WARNING`,
   `'requires'` or `'malformed'`). This release supports no feature. Any
   other `lexical-y-*` attribute a reader does not know is kept and ignored.
+  A server lists every required feature in `describeYRoom`'s `requires` and
+  admits no session that does not present them all; a malformed requirement
+  makes its root unreadable.
 - **Children of a container** (the root and every node stored as its own
   `Y.Node`), in order:
   - text (`Y` strings) with formats;

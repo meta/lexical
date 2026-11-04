@@ -901,6 +901,14 @@ that is not well formed (it comes from the network) gets `refuse-layout`. The ro
 `layouts` are the lowest and highest layouts its served roots record: a
 client must read every served root.
 
+A root can also **require features**: `lexical-y-require:<feature>` set to
+`true`, written before any content that needs the feature and never removed.
+Feature ids are exact, opaque strings. `describeYRoom` lists every feature
+the served roots require in `requires` (sorted by code units, each once). A
+key under that prefix with another value or an empty feature is malformed,
+and makes its root unreadable: no client is admitted to it. Other
+`lexical-y-*` keys are not requirements and are kept as they are.
+
 A room's **seed contract** is the `SEED_LAYOUT` its incarnation was issued
 under; store it with the incarnation. A server whose `SEED_LAYOUT` differs
 replaces a never-seeded room's incarnation before it admits anyone

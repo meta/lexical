@@ -25,7 +25,12 @@ import {
 } from '../migrate';
 import {type ClientIDRange} from './ClientID';
 import {DEFAULT_ROOT_NAME, MIN_LAYOUT, SCHEMA_PREFIX} from './constants';
-import {epochRecordOf, existingRoot, layoutRecordOf} from './Layouts';
+import {
+  epochRecordOf,
+  existingRoot,
+  layoutRecordOf,
+  readRequirements,
+} from './Layouts';
 import {createRawYDoc, type YDoc, type YDocOptions} from './RawYDoc';
 import {PUBLISHED_STEPS} from './StepTable';
 import {assertSupportedMigrationYjs} from './YjsMigrationContract';
@@ -208,7 +213,8 @@ export interface YRoomDescription {
   readonly layouts: readonly [number, number] | null;
   /**
    * Served roots with content but no well-formed layout record (missing or
-   * malformed) or with a malformed epoch: no client reads them.
+   * malformed), with a malformed epoch or with a malformed requirement: no
+   * client reads them.
    */
   readonly unreadable: readonly string[];
   /**
@@ -217,6 +223,13 @@ export interface YRoomDescription {
    * room's incarnation before it admits anyone (see needsNewIncarnation).
    */
   readonly seedContract: number;
+  /**
+   * The features the served roots require (`lexical-y-require:<feature>`
+   * set to true), sorted by code units, each once. A client must present
+   * every one of them (see checkYSession). A malformed requirement makes
+   * its root unreadable instead.
+   */
+  readonly requires: readonly string[];
 }
 
 /** @experimental Describe a room's document for checkYSession. */
@@ -233,6 +246,7 @@ export function describeYRoom(
   const roots = options.roots ?? [DEFAULT_ROOT_NAME];
   let layouts: [number, number] | null = null;
   const unreadable: string[] = [];
+  const requires = new Set<string>();
   let pristine = true;
   for (const name of [...roots].sort()) {
     const root = existingRoot(doc, name);
@@ -246,7 +260,17 @@ export function describeYRoom(
     }
     pristine = false;
     const record = layoutRecordOf(root);
-    if (record.kind === 'layout' && epochRecordOf(root).kind !== 'malformed') {
+    // Every well-formed requirement, whether this server supports the
+    // feature or not: a session must present it (checkYSession).
+    const requirements = readRequirements(root);
+    for (const feature of requirements.required) {
+      requires.add(feature);
+    }
+    if (
+      record.kind === 'layout' &&
+      epochRecordOf(root).kind !== 'malformed' &&
+      requirements.malformed.length === 0
+    ) {
       layouts =
         layouts === null
           ? [record.layout, record.layout]
@@ -264,6 +288,7 @@ export function describeYRoom(
     inherited: options.inherited,
     layouts,
     pristine,
+    requires: [...requires].sort(),
     seedContract: options.seedContract,
     unreadable,
   };

@@ -90,6 +90,7 @@ export type YRoomDescription = {
   readonly layouts: [number, number] | null,
   readonly unreadable: ReadonlyArray<string>,
   readonly seedContract: number,
+  readonly requires: ReadonlyArray<string>,
 };
 
 declare export function describeYRoom(
