@@ -10,6 +10,7 @@ import type {
   Code,
   Construct,
   Extension,
+  Point,
   State,
   TokenizeContext,
 } from 'micromark-util-types';
@@ -78,15 +79,28 @@ export function isCjkClass(characterClass: number): boolean {
   return (characterClass & CJK) !== 0;
 }
 
-// readBefore and classifyAfter slice the text around the tokenizer with
-// points built from micromark's private `Point._index` (the chunk) and
-// `_bufferIndex` (the position in a string chunk), as micromark 4.0 lays its
-// chunks out: a string per run of text, and codes of their own for a tab
-// (with the virtual spaces after it), a line ending and the U+FFFD that
-// stands for a NUL. These fields have no semver guarantee, so check both on
-// any micromark update. The tests of a selector after a NUL, a tab, a CRLF
-// and a LF cover readBefore's read across chunks, which changes the result
-// only after a NUL; tests of an emoji after a marker cover classifyAfter.
+/** The text between two points, or '' where micromark cannot read it. */
+function slice(context: TokenizeContext, start: Point, end: Point): string {
+  try {
+    return context.sliceSerialize({end, start});
+  } catch {
+    return '';
+  }
+}
+
+// readBefore and classifyAfter slice the text around the tokenizer with points
+// built from micromark's private `Point._index` (the chunk) and `_bufferIndex`
+// (the position in a string chunk), as micromark 4.0 lays its chunks out: a
+// string per run of text, and codes of their own for a tab (with the virtual
+// spaces after it), a line ending and the U+FFFD that stands for a NUL, so a
+// pair is always within one string chunk, and only a selector that starts its
+// chunk has the text before it in the chunk before. These fields have no semver
+// guarantee, so check both on any micromark update. The tests of a selector
+// after a NUL, a tab, a CRLF and a LF cover readBefore's read across chunks,
+// which changes the result only after a NUL, and tests of an emoji beside a
+// marker and of a selector after an astral ideograph cover the reads of a pair
+// within a chunk. Where a read throws or does not hold the code it was read
+// for, as under another layout, both read that code alone, as micromark does.
 /**
  * The code before the tokenizer's position and the class the amendment
  * reads for it: for a variation selector, that of the character it varies,
@@ -102,33 +116,30 @@ function readBefore(context: TokenizeContext): [Code, number] {
     return [previous, classifyCode(previous)];
   }
   const now = context.now();
-  // Enough of the current chunk for a selector after a pair.
-  const text = context.sliceSerialize({
-    end: now,
-    start: {...now, _bufferIndex: Math.max(0, now._bufferIndex - 3)},
-  });
+  // Enough for a selector after a pair, or for a selector that starts its
+  // chunk, the code of its own before it as well.
+  const text = slice(
+    context,
+    now._index > 0 && now._bufferIndex === 1 && isSelector(previous)
+      ? {...now, _bufferIndex: -1, _index: now._index - 1}
+      : {...now, _bufferIndex: Math.max(0, now._bufferIndex - 3)},
+    now,
+  );
+  if (text.charCodeAt(text.length - 1) !== previous) {
+    return [previous, classifyCode(previous)];
+  }
   const last = text.codePointAt(text.length - 2);
   if (last !== undefined && last > 0xffff) {
     previous = last;
   }
   const before = classifyCode(previous);
-  if (before !== VARIATION_SELECTOR) {
-    return [previous, before];
-  }
-  // A selector that starts its chunk follows a code of its own, such as the
-  // U+FFFD micromark reads for a NUL. After that U+FFFD it reads as the
-  // symbol it varies, as markdown-it-cjk-friendly and @lexical/markdown read
-  // it, where micromark-extension-cjk-friendly reads the selector itself.
-  const rest =
-    text.length > 1 || now._index === 0
-      ? text.slice(0, -1)
-      : context
-          .sliceSerialize({
-            end: now,
-            start: {...now, _bufferIndex: -1, _index: now._index - 1},
-          })
-          .slice(0, -1);
-  if (rest === '') {
+  // The text before a selector. After the U+FFFD micromark reads for a NUL,
+  // a code of its own before a selector that starts its chunk, the selector
+  // reads as the symbol it varies, as markdown-it-cjk-friendly and
+  // @lexical/markdown read it, where micromark-extension-cjk-friendly reads
+  // the selector itself.
+  const rest = text.slice(0, -1);
+  if (before !== VARIATION_SELECTOR || rest === '') {
     return [previous, before];
   }
   const two =
@@ -150,12 +161,13 @@ function readBefore(context: TokenizeContext): [Code, number] {
 function classifyAfter(context: TokenizeContext, code: Code): number {
   if (code !== null && code >= 0xd800 && code <= 0xdbff) {
     const now = context.now();
-    code = context
-      .sliceSerialize({
-        end: {...now, _bufferIndex: now._bufferIndex + 2},
-        start: now,
-      })
-      .codePointAt(0)!;
+    const pair = slice(context, now, {
+      ...now,
+      _bufferIndex: now._bufferIndex + 2,
+    });
+    if (pair.charCodeAt(0) === code) {
+      code = pair.codePointAt(0)!;
+    }
   }
   return classifyCode(code);
 }

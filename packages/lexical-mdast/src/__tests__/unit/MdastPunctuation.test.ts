@@ -82,15 +82,19 @@ function roundTrip(
   const editor = createEditor(exportPunctuation, importPunctuation);
   editor.update(() => $appendRuns(runs), {discrete: true});
   const markdown = editor.read('latest', () => $convertToMarkdownString());
+  return [markdown, importRuns(editor, markdown)];
+}
+
+function $getRuns(): Runs {
+  return $getRoot()
+    .getAllTextNodes()
+    .map(node => [node.getTextContent(), node.getFormat()]);
+}
+
+/** The runs `markdown` imports to in `editor`. */
+function importRuns(editor: LexicalEditor, markdown: string): Runs {
   editor.update(() => $convertFromMarkdownString(markdown), {discrete: true});
-  return [
-    markdown,
-    editor.read('latest', () =>
-      $getRoot()
-        .getAllTextNodes()
-        .map(node => [node.getTextContent(), node.getFormat()]),
-    ),
-  ];
+  return editor.read('latest', $getRuns);
 }
 
 describe('Mdast punctuation modes', () => {
@@ -333,18 +337,48 @@ describe('Mdast punctuation modes', () => {
     expect(roundTrip(runs, 'cjk-friendly')).toEqual([cjkFriendly, runs]);
   });
 
+  it('reads an emoji beside a marker as the punctuation it is', () => {
+    const editor = createEditor(undefined, 'cjk-friendly');
+    const read = (markdown: string) => importRuns(editor, markdown);
+    // As markdown-it-cjk-friendly and micromark-extension-cjk-friendly read
+    // them: a run between a letter and punctuation does not open, and one
+    // between punctuation and a letter does not close.
+    expect(read('Hello**🎉 launch**')).toEqual([['Hello**🎉 launch**', 0]]);
+    expect(read('a~~🎉 x~~')).toEqual([['a~~🎉 x~~', 0]]);
+    expect(read('**🎉**b')).toEqual([['**🎉**b', 0]]);
+    expect(read('~~🎉~~b')).toEqual([['~~🎉~~b', 0]]);
+  });
+
+  it('reads a selector as the character it varies', () => {
+    const editor = createEditor(undefined, 'cjk-friendly');
+    const read = (markdown: string) => importRuns(editor, markdown);
+    // As markdown-it-cjk-friendly and micromark-extension-cjk-friendly read
+    // them: a selector after an astral ideograph reads as that ideograph, and
+    // U+FE01 shows a quotation mark full width, as CJK punctuation.
+    expect(read('a\u{20000}\ufe0e**“x”** b')).toEqual([
+      ['a\u{20000}\ufe0e', 0],
+      ['“x”', bold],
+      [' b', 0],
+    ]);
+    expect(read('**x“\ufe01**a')).toEqual([
+      ['x“\ufe01', bold],
+      ['a', 0],
+    ]);
+    expect(read('**x“**a')).toEqual([['**x“**a', 0]]);
+    // An ideographic variation selector reads as CJK, and a selector after
+    // one reads as neither, as a character that is not CJK.
+    expect(read('葛\u{e0100}**(a)**')).toEqual([
+      ['葛\u{e0100}', 0],
+      ['(a)', bold],
+    ]);
+    expect(read('中\u{e0100}\ufe0e**“x”** b')).toEqual([
+      ['中\u{e0100}\ufe0e**“x”** b', 0],
+    ]);
+  });
+
   it('reads a selector after a code of its own in a chunk of its own', () => {
     const editor = createEditor(undefined, 'cjk-friendly');
-    const read = (markdown: string) => {
-      editor.update(() => $convertFromMarkdownString(markdown), {
-        discrete: true,
-      });
-      return editor.read('latest', () =>
-        $getRoot()
-          .getAllTextNodes()
-          .map(node => [node.getTextContent(), node.getFormat()]),
-      );
-    };
+    const read = (markdown: string) => importRuns(editor, markdown);
     // As markdown-it-cjk-friendly and @lexical/markdown read them, where
     // micromark-extension-cjk-friendly reads the selector itself.
     expect(read('a\0\ufe0e**“x”** b')).toEqual([
@@ -423,15 +457,10 @@ describe('Mdast punctuation modes', () => {
       'strict-commonmark',
       'cjk-friendly',
     ] as const) {
-      const editor = createEditor(undefined, importPunctuation);
-      editor.update(() => $convertFromMarkdownString('foo**_bar_**baz'), {
-        discrete: true,
-      });
       expect(
-        editor.read('latest', () =>
-          $getRoot()
-            .getAllTextNodes()
-            .map(node => [node.getTextContent(), node.getFormat()]),
+        importRuns(
+          createEditor(undefined, importPunctuation),
+          'foo**_bar_**baz',
         ),
       ).toEqual([
         ['foo**', 0],
