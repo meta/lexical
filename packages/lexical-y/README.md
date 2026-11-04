@@ -188,13 +188,15 @@ of set-valued NodeState; layout 3 (planned, #9449) adds move records.
   reads, until a migration (`@lexical/y/migrate`) moves it up.
 - **Epoch.** The root attribute `lexical-y-epoch` = `{v: 1, kind, layout,
   client, clock, step, revision, schema?}`, written by a migration in the
-  same transaction as what it changes: `kind` is the family (`'layout'`, the
-  only one this release writes; a missing kind reads as `'layout'`),
-  `layout` the root's layout after it (from 1), `(client, clock)` the id of
-  the transition's first newly written item (for a layout migration, its
-  layout record), `step` and `revision` the step that ran (an opaque,
-  namespaced id such as `lexical-y/layout/<n>to<n+1>`), and `schema`, when
-  present, `{id, version}` of an app schema. Readers accept fields they do
+  same transaction as what it changes. `layout` is the destination (the
+  root's layout after it, from 1); `step` and `revision` are the receipt
+  (which frozen step, at which immutable revision, wrote it: an opaque,
+  namespaced id such as `lexical-y/layout/<n>to<n+1>`); `(client, clock)`
+  is the id of the transition's first newly written item (for a layout
+  migration, its layout record), the transition identity the generation
+  uses; `kind` is the family (`'layout'`, the only one this release
+  writes; a missing kind reads as `'layout'`); and `schema`, when present,
+  is `{id, version}` of an app schema. Readers accept fields they do
   not know and leave them in place. It is outside the `lexical-y:`
   namespace, so older releases ignore it; this release opens a document
   whose epoch has another `v`, or a known field that is not well formed,

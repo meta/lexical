@@ -21,17 +21,24 @@ import {
 
 /**
  * @experimental What a migration records under `lexical-y-epoch` (see
- * @lexical/y/migrate): the transition that last changed the root. `kind`
- * names the family (`'layout'` for a layout migration, the only one this
- * release writes; a missing kind reads as `'layout'`, and readers keep any
- * other as a label), `layout` the root's layout after it (from 1),
- * (`client`, `clock`) the id of the transition's first newly written item,
- * `step` the step's id (an opaque, namespaced string such as
- * `lexical-y/layout/1to2`: readers never parse it) and `revision` its
- * revision. `schema`, when present, names an app schema and its version.
- * Readers accept fields they do not know and keep them in the document;
- * an epoch of another format version (`v`), or one whose known fields are
- * not well formed, closes writes (read only), as a malformed layout record
+ * @lexical/y/migrate): the transition that last changed the root. Each
+ * field has one job:
+ *
+ * - `layout` is the destination: the layout the document is in after the
+ *   migration (from 1).
+ * - `step` plus `revision` is the receipt: which frozen step, at which
+ *   immutable revision, wrote it (`step` is an opaque, namespaced id such
+ *   as `lexical-y/layout/1to2`: readers never parse it).
+ * - `client` and `clock` identify the migration's first written item: the
+ *   transition identity the generation (`generationOf`) uses.
+ * - `kind` names the family: `'layout'` for a layout migration, the only
+ *   one this release writes. A missing kind reads as `'layout'`; readers
+ *   keep any other as a label.
+ * - `schema`, when present, names an app schema and its version.
+ *
+ * Readers accept fields they do not know and keep them in the document; an
+ * epoch of another format version (`v`), or one whose known fields are not
+ * well formed, closes writes (read only), as a malformed layout record
  * does.
  */
 export interface YMigrationEpoch {

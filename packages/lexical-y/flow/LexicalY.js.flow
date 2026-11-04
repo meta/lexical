@@ -249,7 +249,11 @@ export type YBindingOptions = {
 };
 
 // What a migration records under `lexical-y-epoch` (inexact: readers keep
-// fields they do not know). kind: `layout` today; step ids are opaque.
+// fields they do not know). `layout`: the destination (the layout after the
+// migration). `step` + `revision`: the receipt (which frozen step, at which
+// immutable revision, wrote it; step ids are opaque). `client` + `clock`:
+// the migration's first written item, the transition identity the
+// generation uses. `kind`: `layout` today.
 export type YMigrationEpoch = {
   readonly v: 1,
   readonly kind: string,
