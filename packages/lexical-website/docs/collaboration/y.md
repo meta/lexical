@@ -1563,7 +1563,13 @@ not merge as a user might expect:
     anyway writes plain items, not paired runs, and in a layout 3 room they
     can change the formatting of other text (about 3.0% of randomized
     sessions with one such writer); text is never affected. Stored format
-    names starting with U+0002 are not read.
+    names starting with U+0002 are not read, and an array such code stores
+    as a format's value, other than layout 3's own `[]`, `[d]` and
+    `[client, clock]`, is never shown as a value: those shapes are reserved
+    for ends a later layout may add.
+  - An object such code stores as a format's value reads as that value, as
+    before layout 3, also one keyed by array indices or a typed array (a
+    binary update keeps a typed array's bytes, not its other properties).
   - Text typed at the very end of a code highlight token while another
     client re-segments the token can read, in one client id order, as two
     highlight tokens of the same type on every peer. It renders the same;

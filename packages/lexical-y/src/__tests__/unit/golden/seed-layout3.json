@@ -260,5 +260,39 @@
       }
     ],
     "name": "a tab and a line break"
+  },
+  {
+    "bytes": "ARCx9Kiwh+r/DAAoAQlsZXhpY2FsLXkLbGV4aWNhbC15OjEBeCgBCWxleGljYWwteQtsZXhpY2FsLXk6MwF4KAEJbGV4aWNhbC15EmxleGljYWwteS1zY2hlbWE6MQF4KAEJbGV4aWNhbC15C2s6cGFyYWdyYXBoAXcEbGluZSgBCWxleGljYWwteRdrOm51bWVyaWNfZmllbGRfd3JhcHBlcgF3CGZvcm1hdHwwBAEJbGV4aWNhbC15B2JlZm9yZSCGsfSosIfq/wwLF3c6bnVtZXJpY19maWVsZF93cmFwcGVyB3siMCI6M32EsfSosIfq/wwMAmFihrH0qLCH6v8MDhd3Om51bWVyaWNfZmllbGRfd3JhcHBlcgNbM12GsfSosIfq/wwPBmY6Ym9sZAR0cnVlhrH0qLCH6v8MEBd3Om51bWVyaWNfZmllbGRfd3JhcHBlcgd7IjAiOjN9hLH0qLCH6v8MEQFjhrH0qLCH6v8MEgZmOmJvbGQDWzNdhrH0qLCH6v8MExd3Om51bWVyaWNfZmllbGRfd3JhcHBlcgNbM12EsfSosIfq/wwUBiBhZnRlcoex9Kiwh+r/DBoDAsK2AA==",
+    "input": [
+      {
+        "type": "paragraph",
+        "children": [
+          {
+            "type": "text",
+            "text": "before "
+          },
+          {
+            "0": 3,
+            "type": "numeric_field_wrapper",
+            "children": [
+              {
+                "type": "text",
+                "text": "ab"
+              },
+              {
+                "type": "text",
+                "format": 1,
+                "text": "c"
+              }
+            ]
+          },
+          {
+            "type": "text",
+            "text": " after"
+          }
+        ]
+      }
+    ],
+    "name": "a wrapper with a numeric field name"
   }
 ]

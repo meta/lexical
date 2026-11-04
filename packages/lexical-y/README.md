@@ -398,9 +398,16 @@ layout 1) rewrites its format runs, in place, keeping every content id.
   it; the paired runs above it stay. An end whose run is not open (it names
   an item that is not an opener of its name in its container, or one after
   it) removes the unpaired runs above the topmost paired run, as a `null`
-  would. The top run's value is the one shown. A container without ends
-  reads exactly as with plain values. Format names whose first character
-  is U+0002 are not read.
+  would. So does an array of any other shape, which names nothing: every
+  array but `[]`, `[d]` and `[client, clock]` (another length, an element
+  that is not such an integer, a nested array). These shapes are reserved:
+  a raw writer's array, or an end a later layout adds, is never shown as a
+  value, and the binding never rewrites, re-points or deletes one. Every
+  value that is not an array is a value, an object keyed by array indices
+  (a wrapper whose class declares a field named `0` stores one) and a typed
+  array included. The top run's value is the one shown. A container
+  without ends reads exactly as with plain values. Format names whose first
+  character is U+0002 are not read.
 - **Whole containers.** A migration step and seeding write each container
   in one canonical form: the countable units split into maximal stretches
   whose covered values are all equal; each stretch gets an opener for each
@@ -416,4 +423,5 @@ layout 1) rewrites its format runs, in place, keeping every content id.
   a stored end. In documents made by `createYDoc`, such a copy is given
   its own value, naming the opener the original named (or that opener's own
   restored copy), before the transaction's update is encoded, so every peer
-  receives a correct end.
+  receives a correct end. A copy of an end of a reserved shape (see Reading)
+  keeps its value as it is.

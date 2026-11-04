@@ -440,9 +440,16 @@ export const isShadowKey = (k: string): boolean => k.charCodeAt(0) === 2;
 
 /**
  * Whether a covered item's value is an end, valid or not: any array but
- * `[]` (a raw array on a covered name of a layout 3 document reads as one).
- * Well formed only as `[d]` (a positive safe integer) or `[client, clock]`
- * (non-negative safe integers); see storedTarget.
+ * `[]`. Well formed only as `[d]` (a positive safe integer) or
+ * `[client, clock]` (non-negative safe integers); see storedTarget. Every
+ * other array is reserved (a raw writer's, or an end of a later layout this
+ * release does not read): it names no run, so it reads as an end whose run
+ * is not open (a clearer, see stepPaired), and no write of the binding
+ * rewrites, re-points or deletes it (see repairCopies,
+ * Cursor#formatCovered). Every value that is not an array is a value, an
+ * object keyed by array indices and a typed array included. Layout 3
+ * stores no raw array as a value (a whole-container write stores one as
+ * `{json}`, see Layout3's storedValue).
  */
 export const isEndValue = (v: unknown): v is unknown[] =>
   Array.isArray(v) && v.length > 0;
