@@ -27,6 +27,7 @@ import {type ClientIDRange} from './ClientID';
 import {DEFAULT_ROOT_NAME, MIN_LAYOUT, SCHEMA_PREFIX} from './constants';
 import {epochRecordOf, existingRoot, layoutRecordOf} from './Layouts';
 import {createRawYDoc, type YDoc, type YDocOptions} from './RawYDoc';
+import {PUBLISHED_STEPS} from './StepTable';
 import {assertSupportedMigrationYjs} from './YjsMigrationContract';
 
 /**
@@ -77,8 +78,11 @@ export function generationOf(
 
 /** @experimental Options of prepareYRoom. */
 export interface YPrepareRoomOptions {
-  /** The steps the authority ships (statically imported). */
-  readonly steps: readonly YLayoutMigration[];
+  /**
+   * The steps the authority runs (default: every published step,
+   * statically imported with the server entry).
+   */
+  readonly steps?: readonly YLayoutMigration[];
   /** The room's incarnation (see generationOf). */
   readonly incarnation: string;
   /** The roots it serves (default `['lexical-y']`). */
@@ -132,7 +136,7 @@ export function prepareYRoom(
 ): YPreparedRoom {
   const roots = options.roots ?? [DEFAULT_ROOT_NAME];
   const gc = options.gc ?? true;
-  const result = migrateYState(stored, options.steps, {
+  const result = migrateYState(stored, options.steps ?? PUBLISHED_STEPS, {
     clientID: options.clientID,
     clientIDRange: options.clientIDRange,
     gc,

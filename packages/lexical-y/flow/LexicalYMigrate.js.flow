@@ -122,9 +122,9 @@ declare export function migrateYState(
 ): YMigrationResult;
 
 declare export function loadYMigrationSteps(
-  loaders: YMigrationLoaders,
   from: number,
   to?: number,
+  options?: {readonly loaders?: YMigrationLoaders},
 ): Promise<Array<YLayoutMigration>>;
 
 // The layout state of a root; later versions may add fields, never statuses.

@@ -18,10 +18,11 @@
 // or relay that owns its storage, with every session evicted, or a reseed
 // tool). The binding never imports this entry or a step.
 
+import {MIN_LAYOUT} from './internal/constants';
 import {type YMigrationEpoch} from './internal/Layouts';
 import {
   getYLayoutInfo,
-  loadYMigrationSteps,
+  loadStepsWith,
   migrateYState,
   type YKnownMigrationErrorCode,
   type YLayoutInfo,
@@ -37,6 +38,23 @@ import {
   type YMigrationStepInput,
   type YMigrationStepReceipt,
 } from './internal/Runner';
+import {STEP_LOADERS} from './internal/StepLoaders';
+
+/**
+ * @experimental Load the steps a root at layout `from` needs to reach `to`
+ * (default MIN_LAYOUT), only those, in parallel: by default the published
+ * steps (`@lexical/y/migrate/<n>to<n+1>`, each its own chunk), or
+ * `loaders` (one per layout, `() => import(...)`). Rejects with a
+ * 'missing-step' YMigrationError when a link has no loader, 'invalid-steps'
+ * when a loader gives something else than the step from that layout.
+ */
+export function loadYMigrationSteps(
+  from: number,
+  to: number = MIN_LAYOUT,
+  {loaders = STEP_LOADERS}: {readonly loaders?: YMigrationLoaders} = {},
+): Promise<YLayoutMigration[]> {
+  return loadStepsWith(loaders, from, to);
+}
 
 export type {
   YKnownMigrationErrorCode,
@@ -53,4 +71,4 @@ export type {
   YMigrationStepInput,
   YMigrationStepReceipt,
 };
-export {getYLayoutInfo, loadYMigrationSteps, migrateYState, YMigrationError};
+export {getYLayoutInfo, migrateYState, YMigrationError};

@@ -802,12 +802,11 @@ one-time break to layout 3; it never rises after that, see
 [Changing the layout and migrating](./y.md#migrating-stored-documents)),
 rooms stored at an older layout open read only in it until they are
 migrated. The server that stores a room migrates it when it loads it, before
-it serves it, with the steps imported statically (clients that have a
-server carry no migration code). `@lexical/y/server` has the pieces (no
-Lexical import):
+it serves it, with the published steps, which `@lexical/y/server` imports
+statically (clients that have a server carry no migration code).
+`@lexical/y/server` has the pieces (no Lexical import):
 
 ```ts
-import step1to2 from '@lexical/y/migrate/1to2';
 import {
   checkYSession,
   createYDoc,
@@ -815,8 +814,6 @@ import {
   prepareYRoom,
   SEED_LAYOUT,
 } from '@lexical/y/server';
-
-const steps = [step1to2];
 ```
 
 `@lexical/y/server` also exports `MIN_LAYOUT`, `LAYOUT_VERSION` and
@@ -837,7 +834,9 @@ client's document with `createYDoc` from `@lexical/y`.
    into the document.
 2. **Seal and read** the stored `{state, incarnation, generation, version}`,
    after persisting what step 1 applied.
-3. **Migrate a copy:** `prepareYRoom(state, {steps, incarnation, roots})`.
+3. **Migrate a copy:** `prepareYRoom(state, {incarnation, roots})` (it runs
+   every published step, imported statically with `@lexical/y/server`; pass
+   `steps` to run your own list).
    When no served root is below `MIN_LAYOUT` (the default target) it
    returns `changed: false` and the stored bytes: store nothing. A root at
    or above the target needs no step, even one above this release's

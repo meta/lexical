@@ -42,7 +42,8 @@ declare export function generationOf(
 ): string;
 
 export type YPrepareRoomOptions = {
-  readonly steps: ReadonlyArray<YLayoutMigration>,
+  // Default: every published step.
+  readonly steps?: ReadonlyArray<YLayoutMigration>,
   readonly incarnation: string,
   readonly roots?: ReadonlyArray<string>,
   readonly gc?: boolean,

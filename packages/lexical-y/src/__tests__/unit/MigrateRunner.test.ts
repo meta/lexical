@@ -17,7 +17,7 @@
 import * as Y from '@y/y';
 import {describe, expect, test, vi} from 'vitest';
 
-import {createYDoc, LAYOUT_VERSION} from '../..';
+import {createYDoc, LAYOUT_VERSION, MIN_LAYOUT} from '../..';
 import {createYWriter, editYState, seedYState} from '../../headless';
 import {
   layoutEpoch,
@@ -33,6 +33,7 @@ import {
   YMigrationError,
   type YMigrationErrorCode,
 } from '../../migrate';
+import step1to2 from '../../migrate/1to2';
 import {catalogHeadlessConfig, seedShapes} from '../catalog/bind';
 import {$appendShapes, NODE_SHAPES, shapesWith} from '../catalog/nodes';
 import {CORE_OPS} from '../catalog/ops';
@@ -410,7 +411,9 @@ describe.each([false, true])('migration runner, gc %s', gc => {
         'step contract 2',
       );
       await expect(
-        loadYMigrationSteps({[SEED]: async () => later}, SEED, SEED + 1),
+        loadYMigrationSteps(SEED, SEED + 1, {
+          loaders: {[SEED]: async () => later},
+        }),
       ).rejects.toMatchObject({code: 'invalid-steps'});
       expect(calls).toEqual([]);
       // Returning nothing (void) is a step's ordinary shape.
@@ -428,36 +431,36 @@ describe.each([false, true])('migration runner, gc %s', gc => {
         [SEED + 1]: second,
         runner: async () => ({}),
       };
-      expect(await loadYMigrationSteps(loaders, SEED + 1, SEED + 2)).toEqual([
-        REWRITE,
-      ]);
-      expect(first).not.toHaveBeenCalled();
-      expect(await loadYMigrationSteps(loaders, SEED, SEED + 2)).toEqual([
-        STAMP,
-        REWRITE,
-      ]);
-      expect(await loadYMigrationSteps(loaders, SEED + 1, SEED + 1)).toEqual(
-        [],
-      );
-      // Default target: this build's LAYOUT_VERSION.
       expect(
-        await loadYMigrationSteps(
-          {[LAYOUT_VERSION - 1]: async () => stamp(LAYOUT_VERSION - 1)},
-          LAYOUT_VERSION - 1,
-        ),
-      ).toHaveLength(1);
+        await loadYMigrationSteps(SEED + 1, SEED + 2, {loaders: loaders}),
+      ).toEqual([REWRITE]);
+      expect(first).not.toHaveBeenCalled();
+      expect(
+        await loadYMigrationSteps(SEED, SEED + 2, {loaders: loaders}),
+      ).toEqual([STAMP, REWRITE]);
+      expect(
+        await loadYMigrationSteps(SEED + 1, SEED + 1, {loaders: loaders}),
+      ).toEqual([]);
+      // Default target: MIN_LAYOUT (nothing to load from the floor).
+      expect(
+        await loadYMigrationSteps(MIN_LAYOUT, undefined, {
+          loaders: {[MIN_LAYOUT]: second},
+        }),
+      ).toEqual([]);
+      // Default loaders: the published steps, each its own entry.
+      expect(await loadYMigrationSteps(1, 2)).toEqual([step1to2]);
       await expect(
-        loadYMigrationSteps({[SEED + 1]: second}, SEED, SEED + 2),
+        loadYMigrationSteps(SEED, SEED + 2, {loaders: {[SEED + 1]: second}}),
       ).rejects.toMatchObject({code: 'missing-step'});
       await expect(
-        loadYMigrationSteps({[SEED]: async () => REWRITE}, SEED, SEED + 1),
+        loadYMigrationSteps(SEED, SEED + 1, {
+          loaders: {[SEED]: async () => REWRITE},
+        }),
       ).rejects.toMatchObject({code: 'invalid-steps'});
       await expect(
-        loadYMigrationSteps(
-          {[SEED]: async () => ({default: {}})},
-          SEED,
-          SEED + 1,
-        ),
+        loadYMigrationSteps(SEED, SEED + 1, {
+          loaders: {[SEED]: async () => ({default: {}})},
+        }),
       ).rejects.toMatchObject({code: 'invalid-steps'});
     });
   });

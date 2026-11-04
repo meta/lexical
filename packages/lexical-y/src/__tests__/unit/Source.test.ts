@@ -15,6 +15,8 @@ import {expect, test} from 'vitest';
 
 import * as mainEntry from '../..';
 import * as headlessEntry from '../../headless';
+import {STEP_LOADERS} from '../../internal/StepLoaders';
+import {PUBLISHED_STEPS} from '../../internal/StepTable';
 import * as migrateEntry from '../../migrate';
 import * as step1to2Entry from '../../migrate/1to2';
 import * as serverEntry from '../../server';
@@ -285,6 +287,36 @@ test('policy: the floor never rises past layout 3, and the runner targets it by 
   expect(serverEntry.MIN_LAYOUT).toBe(mainEntry.MIN_LAYOUT);
 });
 
+test('one manifest of published steps: the files, the exports, the lazy loaders and the static table all follow it', () => {
+  const pkgDir = path.resolve(__dirname, '../../..');
+  const manifest = JSON.parse(
+    fs.readFileSync(path.join(pkgDir, 'src/migrate/manifest.json'), 'utf8'),
+  ) as string[];
+  const files = fs
+    .readdirSync(path.join(pkgDir, 'src/migrate'))
+    .filter(f => /^[^.]+\.ts$/.test(f))
+    .map(f => f.replace(/\.ts$/, ''))
+    .sort();
+  expect([...manifest].sort()).toEqual(files);
+  const exportsOf = Object.keys(
+    JSON.parse(fs.readFileSync(path.join(pkgDir, 'package.json'), 'utf8'))
+      .exports as Record<string, unknown>,
+  );
+  expect(
+    exportsOf
+      .filter(k => /^\.\/migrate\/[^.]+$/.test(k))
+      .map(k => k.slice('./migrate/'.length))
+      .sort(),
+  ).toEqual([...manifest].sort());
+  const fromOf = (name: string) => Number(name.replace(/to.*$/, ''));
+  expect(Object.keys(STEP_LOADERS).map(Number).sort()).toEqual(
+    manifest.map(fromOf).sort(),
+  );
+  expect(PUBLISHED_STEPS.map(s => s.id).sort()).toEqual(
+    manifest.map(n => `lexical-y/layout/${n}`).sort(),
+  );
+});
+
 test('YBinding does not offer flushPending', () => {
   type Offered = 'flushPending' extends keyof mainEntry.YBinding ? true : false;
   const offered: Offered = false;
@@ -347,6 +379,8 @@ test('the core, the runner, the steps and the server entry stay apart', () => {
   const migrationCode = (f: string) =>
     f === 'internal/Runner.ts' ||
     f === 'internal/Server.ts' ||
+    f === 'internal/StepLoaders.ts' ||
+    f === 'internal/StepTable.ts' ||
     f === 'internal/YjsMigrationContract.ts' ||
     f.startsWith('migrate/');
   for (const entry of ['index.ts', 'headless.ts']) {
@@ -354,7 +388,11 @@ test('the core, the runner, the steps and the server entry stay apart', () => {
   }
   for (const entry of ['migrate.ts', 'migrate/1to2.ts', 'server.ts']) {
     const {files, bare} = graph(entry);
-    expect([...bare].sort()).toEqual(['@y/y']);
+    // The server's static step table imports the published steps by their
+    // own entries (never inlined); the runner loads them on demand.
+    expect([...bare].sort()).toEqual(
+      entry === 'server.ts' ? ['@lexical/y/migrate/1to2', '@y/y'] : ['@y/y'],
+    );
     expect(files.has('internal/Binding.ts')).toBe(false);
     // Their documents come from the Yjs-only factory (RawYDoc), never from
     // a client's createYDoc (YDoc.ts), which may add what the binding needs.

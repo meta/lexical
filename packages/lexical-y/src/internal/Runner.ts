@@ -467,15 +467,17 @@ function chainOf(
 }
 
 /**
- * @experimental Load the steps a root at layout `from` needs to reach `to`
- * (default LAYOUT_VERSION), only those, in parallel. Rejects with a
- * 'missing-step' YMigrationError when a link has no loader or a loader gives
- * something else than the step from that layout.
+ * Load the steps a root at layout `from` needs to reach `to` from
+ * `loaders`, only those, in parallel (see loadYMigrationSteps in
+ * @lexical/y/migrate, which supplies the published steps' loaders).
+ * Rejects with a 'missing-step' YMigrationError when a link has no loader,
+ * 'invalid-steps' when a loader gives something else than the step from
+ * that layout.
  */
-export async function loadYMigrationSteps(
+export async function loadStepsWith(
   loaders: YMigrationLoaders,
   from: number,
-  to: number = LAYOUT_VERSION,
+  to: number,
 ): Promise<YLayoutMigration[]> {
   const wanted: number[] = [];
   for (let n = from; n < to; n++) {

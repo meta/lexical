@@ -1623,8 +1623,9 @@ runner is `@lexical/y/migrate`:
   with `update: null` when no root is below the target (`to`, default
   `MIN_LAYOUT`). Pending updates and skipped ranges come back apart, in
   `pending`, never in `state`.
-- `loadYMigrationSteps(loaders, from, to)`: loads only the steps a document
-  needs.
+- `loadYMigrationSteps(from, to = MIN_LAYOUT, {loaders?})`: loads only the
+  steps a document needs, by default the published ones (each its own
+  chunk), or from your own `loaders` (one `() => import(...)` per layout).
 - `getYLayoutInfo(doc, root?)`: what a root records, as a status:
   `'ready'` (`layout`, `epoch`), `'missing'` (no record; `empty`),
   `'invalid'` (a malformed record, epoch or requirement: `key`, `found`) or
