@@ -1,5 +1,4 @@
 ---
-'@lexical/internal': minor
 '@lexical/markdown': minor
 '@lexical/mdast': minor
 ---
