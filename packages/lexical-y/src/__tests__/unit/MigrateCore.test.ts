@@ -10,8 +10,8 @@
 
 // The binding's side of layout migrations (D102): a root below MIN_LAYOUT
 // binds read only with the 'older' warning (headless reads and edits
-// refuse it), migrateLocally migrates a local-only document with the app's
-// loaders and clears only that cause, a migration clears the undo history
+// refuse it), a migration of the bound document clears only that cause, a
+// migration clears the undo history
 // after its capture (the binding's, and an app's through onLayoutEpoch),
 // and quiesce() writes what the editor holds and turns read only for good.
 // The tests use a floor (FLOOR: MIN_LAYOUT, or 2 raised with the internal
@@ -19,10 +19,7 @@
 // which a synthetic step migrates; the build's constants decide the
 // layouts.
 
-import {
-  buildEditorFromExtensions,
-  getExtensionDependencyFromEditor,
-} from '@lexical/extension';
+import {buildEditorFromExtensions} from '@lexical/extension';
 import * as Y from '@y/y';
 import {
   $createParagraphNode,
@@ -34,7 +31,7 @@ import {
   defineExtension,
   type LexicalEditor,
 } from 'lexical';
-import {afterEach, describe, expect, test, vi} from 'vitest';
+import {afterEach, describe, expect, test} from 'vitest';
 
 import {
   createYDoc,
@@ -48,7 +45,6 @@ import {
   type YBindingOptions,
   YCollabExtension,
   type YDoc,
-  type YMigrateLocally,
 } from '../..';
 import {editYState, readYState, YHeadlessError} from '../../headless';
 import {setMinLayoutForTests} from '../../internal/Binding';
@@ -64,10 +60,6 @@ import {FLOOR, rawDoc, STAMP, stamp} from '../utils/migrateSteps';
 
 const CFG = {blockIds: 'absent'} as const;
 const BELOW = FLOOR - 1;
-const LOADERS: YMigrateLocally = {
-  [BELOW]: async () => ({default: stamp(BELOW)}),
-  runner: () => import('../../migrate'),
-};
 /** A raw document below the floor, and the same content at the floor. */
 const OLD = rawDoc(BELOW);
 const AT_FLOOR = rawDoc(FLOOR);
@@ -210,21 +202,18 @@ describe.each([false, true])('the binding and layout migrations, gc %s', gc => {
     c.dispose();
   });
 
-  test('migrateLocally: loads the chain, migrates in place, reads again and becomes editable', async () => {
+  test('a migration of the bound document: it reads again and becomes editable', async () => {
     setMinLayoutForTests(FLOOR);
     const unbound = bind(AT_FLOOR, gc);
     const shown = json(unbound.editor);
     unbound.dispose();
-    const runner = vi.fn(LOADERS.runner);
-    const step = vi.fn(LOADERS[BELOW]);
-    const b = bind(OLD, gc, {migrateLocally: {[BELOW]: step, runner}});
+    const b = bind(OLD, gc, {onOlderLayout: () => {}});
     expect(b.binding.status).toBe('readonly');
-    // Handled by migrateLocally: no warning.
+    // Handled by onOlderLayout: no warning.
     expect(olderWarnings(b.warnings)).toEqual([]);
+    migrateYDoc(b.doc, [stamp(BELOW)], {to: FLOOR});
     await until(() => b.binding.status === 'active');
     expect(b.binding.status).toBe('active');
-    expect(runner).toHaveBeenCalledTimes(1);
-    expect(step).toHaveBeenCalledTimes(1);
     expect(recordedLayout(b.doc)).toBe(FLOOR);
     expect(json(b.editor)).toBe(shown);
     expect(b.editor.isEditable()).toBe(true);
@@ -246,120 +235,12 @@ describe.each([false, true])('the binding and layout migrations, gc %s', gc => {
     b.dispose();
   });
 
-  test('migrateLocally through YCollabExtension', async () => {
-    setMinLayoutForTests(FLOOR);
-    const doc = createYDoc(OLD, {gc});
-    const editor = buildEditorFromExtensions(
-      defineExtension({
-        dependencies: [
-          catalogAppExtension(CFG),
-          configExtension(YCollabExtension, {
-            doc,
-            migrateLocally: LOADERS,
-            schemaVersion: 1,
-            synced: true,
-          }),
-        ],
-        name: 'migrate-core-ext',
-        onWarn: () => {},
-      }),
-    );
-    const {binding} = getExtensionDependencyFromEditor(
-      editor,
-      YCollabExtension,
-    ).output;
-    expect(binding.status).toBe('readonly');
-    await until(() => binding.status === 'active');
-    expect(binding.status).toBe('active');
-    expect(recordedLayout(doc)).toBe(FLOOR);
-    editor.dispose();
-  });
-
-  test('migrateLocally that fails stays read only, the document untouched, the error to onError', async () => {
-    setMinLayoutForTests(FLOOR);
-    const failing: YMigrateLocally[] = [
-      {
-        [BELOW]: async () => {
-          throw new Error('offline');
-        },
-        runner: LOADERS.runner,
-      },
-      {runner: LOADERS.runner},
-      {[BELOW]: LOADERS[BELOW], runner: async () => ({})},
-    ];
-    for (const loaders of failing) {
-      const b = bind(OLD, gc, {migrateLocally: loaders});
-      const before = Y.encodeStateAsUpdate(b.doc);
-      await until(() => b.errors.length > 0);
-      expect(b.errors).toHaveLength(1);
-      expect(b.binding.status).toBe('readonly');
-      expect(recordedLayout(b.doc)).toBe(BELOW);
-      expect(Buffer.from(Y.encodeStateAsUpdate(b.doc))).toEqual(
-        Buffer.from(before),
-      );
-      b.dispose();
-    }
-  });
-
-  test('migrateLocally on a root inside another shared type: read only, untouched, the reason to onError once', async () => {
-    setMinLayoutForTests(FLOOR);
-    const doc = createYDoc(null, {gc});
-    const holder = doc.get('app');
-    const root = new Y.Node('editor-root');
-    holder.setAttr('editor', root);
-    const old = createYDoc(OLD, {gc});
-    // The old document's records and content, under the nested root.
-    doc.transact(() => {
-      for (const [k, v] of Object.entries(old.get('lexical-y').getAttrs())) {
-        root.setAttr(k, v as never);
-      }
-    });
-    old.destroy();
-    const errors: Error[] = [];
-    const warnings: Warning[] = [];
-    const editor = buildEditorFromExtensions(
-      defineExtension({
-        dependencies: [catalogAppExtension(CFG)],
-        name: 'migrate-nested',
-        onError: (e: Error) => {
-          errors.push(e);
-        },
-        onWarn: (w: Error) => {
-          const {code, data} = w as unknown as Warning;
-          warnings.push({code, data});
-        },
-      }),
-    );
-    const binding = new YBinding(editor, doc, {
-      migrateLocally: LOADERS,
-      root,
-      schemaVersion: 1,
-    });
-    binding.start();
-    binding.initialize();
-    const before = Y.encodeStateAsUpdate(doc);
-    await until(() => errors.length > 0);
-    await until(() => false, 3);
-    expect(binding.status).toBe('readonly');
-    expect(errors).toHaveLength(1);
-    expect(errors[0].message).toMatch(/top-level roots only/);
-    // The advice names a path that works for a nested root.
-    expect(errors[0].message).toMatch(/reseed it into a top-level root/);
-    expect(errors[0].message).not.toMatch(/migrateYDoc/);
-    expect(Buffer.from(Y.encodeStateAsUpdate(doc))).toEqual(
-      Buffer.from(before),
-    );
-    binding.dispose();
-    editor.dispose();
-    doc.destroy();
-  });
-
-  test("a successful local migration clears only the 'older' cause: a newer schema keeps it read only", async () => {
+  test("a migration clears only the 'older' cause: a newer schema keeps it read only", async () => {
     setMinLayoutForTests(FLOOR);
     const doc = createYDoc(OLD, {gc});
     doc.get('lexical-y').setAttr('lexical-y-schema:5', true);
-    const b = bind(Y.encodeStateAsUpdate(doc), gc, {migrateLocally: LOADERS});
-    await until(() => recordedLayout(b.doc) === FLOOR);
+    const b = bind(Y.encodeStateAsUpdate(doc), gc, {onOlderLayout: () => {}});
+    migrateYDoc(b.doc, [stamp(BELOW)], {to: FLOOR});
     await until(() => false, 5);
     expect(recordedLayout(b.doc)).toBe(FLOOR);
     expect(b.binding.status).toBe('readonly');
@@ -372,18 +253,6 @@ describe.each([false, true])('the binding and layout migrations, gc %s', gc => {
     const configs: [string, Partial<YBindingOptions>, number][] = [
       ['neither', {}, 1],
       ['onOlderLayout', {onOlderLayout: () => {}}, 0],
-      [
-        'migrateLocally',
-        {
-          migrateLocally: {
-            [BELOW]: async () => {
-              throw new Error('offline');
-            },
-            runner: LOADERS.runner,
-          },
-        },
-        0,
-      ],
     ];
     for (const [, options, warnings] of configs) {
       const b = bind(OLD, gc, options);
@@ -445,9 +314,10 @@ describe.each([false, true])('the binding and layout migrations, gc %s', gc => {
     b.dispose();
     // Another binding's period, ended by a migration: once.
     const c = bind(OLD, gc, {
-      migrateLocally: LOADERS,
       onOlderLayout: (found, min) => calls.push([found, min]),
     });
+    await Promise.resolve();
+    migrateYDoc(c.doc, [stamp(BELOW)], {to: FLOOR});
     await until(() => c.binding.status === 'active');
     expect(calls).toEqual([
       [BELOW, FLOOR],

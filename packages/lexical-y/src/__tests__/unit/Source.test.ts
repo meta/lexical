@@ -262,8 +262,7 @@ test('YBinding does not offer flushPending', () => {
   expect(offered).toBe(false);
 });
 
-// The core never loads the migration runner or a step (they reach a client
-// only through its own loaders, YCollabConfig.migrateLocally), and the
+// The core never loads the migration runner or a step, and the
 // runner, the steps and the server entry never load Lexical or the
 // binding: their module graphs, followed through relative imports, stay
 // apart.

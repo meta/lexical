@@ -52,8 +52,8 @@ function createYDoc(state?: Uint8Array | null, options?: YDocOptions): YDoc {
 }
 
 // The layout migration runner (see @lexical/y/migrate). Never imported by
-// the binding: a server imports it with its steps; a client loads both
-// through its own loaders (YCollabConfig.migrateLocally).
+// the binding: a server imports it with its steps (or loads only those it
+// needs, see loadYMigrationSteps).
 //
 // Invariant: nothing is written to the caller's document or returned as a
 // migrated state unless every step of every root ran and passed every check

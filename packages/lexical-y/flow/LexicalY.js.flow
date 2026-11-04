@@ -186,15 +186,7 @@ export type YBindingOptions = {
   selfCheckSample?: number,
   convert?: boolean,
   clientIDRange?: ClientIDRange,
-  migrateLocally?: YMigrateLocally,
   onOlderLayout?: (found: number, min: number) => void,
-};
-
-// Loaders for YBindingOptions.migrateLocally: one per layout a step
-// migrates from, and the runner (@lexical/y/migrate).
-export type YMigrateLocally = {
-  readonly [from: number]: () => Promise<unknown>,
-  readonly runner: () => Promise<unknown>,
 };
 
 // What a layout migration records under `lexical-y-epoch`.
@@ -311,7 +303,6 @@ export type YCollabConfig = {
   selfCheck: boolean | null,
   selfCheckSample: number | null,
   convert: boolean,
-  migrateLocally: YMigrateLocally | null,
   onOlderLayout: ((found: number, min: number) => void) | null,
 };
 

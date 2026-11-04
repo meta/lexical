@@ -14,7 +14,6 @@ import {
   type YBindingOptions,
   type YBindingStatus,
   type YCursor,
-  type YMigrateLocally,
 } from './internal/Binding';
 import {type ClientIDRange} from './internal/ClientID';
 import {
@@ -79,7 +78,6 @@ export type {
   YDoc,
   YDocOptions,
   YLayoutEpoch,
-  YMigrateLocally,
   YNestedFallbackData,
   YNestedFallbackReason,
   YRecoveredReadData,

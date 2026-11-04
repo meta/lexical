@@ -125,9 +125,8 @@ export type YUnsupportedLayoutData =
   /**
    * The root records layout `found`, older than `min`, the oldest this
    * version reads (MIN_LAYOUT): migrate the document (see
-   * @lexical/y/migrate; YCollabConfig.migrateLocally for a document only
-   * this client writes). Sent only when the binding has neither
-   * `onOlderLayout` nor `migrateLocally`, which report it instead.
+   * @lexical/y/migrate). Sent only when the binding has no
+   * `onOlderLayout`, which reports it instead.
    */
   | {
       readonly reason: 'older';

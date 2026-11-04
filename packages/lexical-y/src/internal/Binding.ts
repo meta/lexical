@@ -646,53 +646,15 @@ export interface YBindingOptions {
    */
   clientIDRange?: ClientIDRange;
   /**
-   * EXPERIMENTAL. For a document no other client or server writes (local
-   * storage only): loaders of the migration steps by the layout they
-   * migrate from, and of the runner, e.g. `{1: () =>
-   * import('@lexical/y/migrate/1to2'), runner: () =>
-   * import('@lexical/y/migrate')}`. When the root's layout is below
-   * MIN_LAYOUT, the binding stays read only (the `'older'` warning), loads
-   * the chain, migrates the document in place between transactions
-   * (`migrateYDoc`), reads it again and becomes editable. A failed load or
-   * check leaves it read only, the document untouched, and goes to the
-   * editor's `onError`. Bind after the app's storage has loaded the
-   * document. Only a top-level root migrates. Never for a shared document:
-   * its server migrates it (see @lexical/y/migrate).
-   */
-  migrateLocally?: YMigrateLocally;
-  /**
    * EXPERIMENTAL. Called once per read-only period that a layout below
    * MIN_LAYOUT starts, in a microtask, with the layout found and
    * MIN_LAYOUT: ask the document's server to migrate it, or show a banner.
-   * With it (or migrateLocally), such a document is an expected state:
+   * With it, such a document is an expected state:
    * UNSUPPORTED_LAYOUT_WARNING's `'older'` variant is not sent to the
    * editor's `onWarn` (whose default throws in development).
    */
   onOlderLayout?: (found: number, min: number) => void;
 }
-
-/**
- * @experimental Loaders for YBindingOptions.migrateLocally: one per layout
- * a step migrates from, and the runner (`@lexical/y/migrate`).
- */
-export interface YMigrateLocally {
-  readonly [from: number]: () => Promise<unknown>;
-  readonly runner: () => Promise<unknown>;
-}
-
-/** What migrateLocally needs of the runner module (@lexical/y/migrate). */
-type LocalRunner = {
-  loadYMigrationSteps: (
-    loaders: YMigrateLocally,
-    from: number,
-    to: number,
-  ) => Promise<unknown[]>;
-  migrateYDoc: (
-    doc: YDoc,
-    steps: unknown[],
-    options: {roots: string[]; to: number; clientIDRange: ClientIDRange},
-  ) => unknown;
-};
 
 /**
  * @experimental A selection as Yjs relative positions, from
@@ -1203,16 +1165,12 @@ export class YBinding {
   private quiesced = false;
   /** The D08 permission of the commit being written (see admitsIn). */
   private writeGrace: SchemaGrace | null = null;
-  /** migrateLocally reported a nested root it cannot migrate. */
-  private nestedMigrationReported = false;
   /** Local commits refused so far (see quiesce). */
   private refusals = 0;
   /** A write was refused inside its transaction (see $writeCommit). */
   private layoutChangedInWrite = false;
   /** An evaluation is queued (see evaluateSoon). */
   private evaluateQueued = false;
-  /** The local migration under way (see migrateLocally), null: none. */
-  private migrating: Promise<void> | null = null;
 
   /** The bound editor. */
   get editor(): LexicalEditor {
@@ -1952,82 +1910,6 @@ export class YBinding {
     });
   }
 
-  /**
-   * Migrate the document in place with the app's loaders (see
-   * YBindingOptions.migrateLocally), one migration at a time. The binding
-   * is read only meanwhile (`'older'`); the migration's transaction changes
-   * the layout record, which has the document read again (see evaluate),
-   * and only the `'older'` cause goes.
-   */
-  private migrateLocally(found: number): void {
-    const loaders = this.options.migrateLocally;
-    // A quiesced binding writes nothing again, a migration included.
-    if (loaders === undefined || this.migrating !== null || this.quiesced) {
-      return;
-    }
-    let name: string | null = null;
-    if (this._root._item === null) {
-      this._doc.share.forEach((type, key) => {
-        if (type === this._root) {
-          name = key;
-        }
-      });
-    }
-    if (name === null) {
-      // A root inside another shared type: the runner migrates top-level
-      // roots only. It stays read only, and the app is told why (y.md,
-      // Limits).
-      // Once per binding, after the work in progress (onError may throw).
-      if (!this.nestedMigrationReported) {
-        this.nestedMigrationReported = true;
-        queueMicrotask(() => {
-          if (this.started) {
-            this._editor._onError(
-              new Error(
-                "@lexical/y: migrateLocally migrates top-level roots only, and this binding's root is inside another shared type, so the document stays read only (the migration runner migrates top-level roots only too). Export its content and reseed it into a top-level root with a release that reads its layout, or keep a release that reads the stored layout",
-              ),
-            );
-          }
-        });
-      }
-      return;
-    }
-    const root: string = name;
-    const to = minLayout();
-    const run = async () => {
-      const runner = (await loaders.runner()) as Partial<LocalRunner>;
-      if (
-        typeof runner.loadYMigrationSteps !== 'function' ||
-        typeof runner.migrateYDoc !== 'function'
-      ) {
-        throw new Error(
-          '@lexical/y: migrateLocally.runner must load @lexical/y/migrate',
-        );
-      }
-      const steps = await runner.loadYMigrationSteps(loaders, found, to);
-      // Checked again right before writing: quiesce() or dispose() may
-      // have run while the steps loaded.
-      if (this.started && !this.quiesced) {
-        runner.migrateYDoc(this._doc, steps, {
-          clientIDRange: this.clientIDRange(),
-          roots: [root],
-          to,
-        });
-      }
-    };
-    this.migrating = run()
-      .catch(error => {
-        if (this.started) {
-          this._editor._onError(
-            error instanceof Error ? error : new Error(String(error)),
-          );
-        }
-      })
-      .finally(() => {
-        this.migrating = null;
-      });
-  }
-
   /** Disconnect from the document and the editor (`start` returns this). */
   dispose(): void {
     this.started = false;
@@ -2548,16 +2430,13 @@ export class YBinding {
       );
       this.setStatus('readonly');
     } else if (version < minLayout()) {
-      // An expected state for an app that handles it (onOlderLayout,
-      // migrateLocally): reported through those only. Otherwise a warning,
-      // as for the other read-only causes.
-      if (
-        this.options.onOlderLayout === undefined &&
-        this.options.migrateLocally === undefined
-      ) {
+      // An expected state for an app that handles it (onOlderLayout):
+      // reported through it only. Otherwise a warning, as for the other
+      // read-only causes.
+      if (this.options.onOlderLayout === undefined) {
         this.warn(
           UNSUPPORTED_LAYOUT_WARNING,
-          `layout ${version} is older than ${minLayout()}, the oldest this version reads, so this editor is read only: migrate the document (a server migrates it on load with migrateYState; a document only this client writes can pass migrateLocally)`,
+          `layout ${version} is older than ${minLayout()}, the oldest this version reads, so this editor is read only: migrate the document (its server migrates it on load with migrateYState)`,
           {
             found: version,
             min: minLayout(),
@@ -2568,7 +2447,6 @@ export class YBinding {
       }
       this.setStatus('readonly');
       this.notifyOlder(version, minLayout());
-      this.migrateLocally(version);
     } else if (newerSchema) {
       this.setStatus('readonly');
     } else if (this._status === 'active' || this.staysReadOnly()) {

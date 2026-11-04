@@ -16,9 +16,7 @@
 // epoch (`lexical-y-epoch`); it checks every result before anything is
 // stored or applied. Only an authority migrates a shared document (a server
 // or relay that owns its storage, with every session evicted, or a reseed
-// tool); a document only one client writes may migrate in that client
-// (YCollabConfig.migrateLocally). The binding never imports this entry or a
-// step.
+// tool). The binding never imports this entry or a step.
 
 import {type YLayoutEpoch} from './internal/Layouts';
 import {
