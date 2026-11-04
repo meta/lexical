@@ -42,6 +42,11 @@ export function isSelector(code: number): boolean {
   return code >= 0xfe00 && code <= 0xfe0e;
 }
 
+const SPACE = /\s/;
+const UNICODE_PUNCTUATION = /[\p{P}\p{S}]/u;
+// The quotation marks that U+FE01 shows full width.
+const FULL_WIDTH_QUOTES = [0x2018, 0x2019, 0x201c, 0x201d];
+
 /**
  * The class of `code`, a code point or one of micromark's codes, which reads
  * the end of the input and its whitespace codes as whitespace.
@@ -56,9 +61,9 @@ export function classifyCode(code: Code): number {
     return VARIATION_SELECTOR;
   }
   const character = String.fromCodePoint(code);
-  return /\s/.test(character)
+  return SPACE.test(character)
     ? WHITESPACE
-    : (/[\p{P}\p{S}]/u.test(character) ? PUNCTUATION : 0) |
+    : (UNICODE_PUNCTUATION.test(character) ? PUNCTUATION : 0) |
         (code < 0x1100
           ? 0
           : isCjkCharacter(character)
@@ -124,7 +129,7 @@ function readBefore(context: TokenizeContext): [Code, number] {
     previous,
     twoBefore & WHITESPACE
       ? before
-      : previous === 0xfe01 && [0x2018, 0x2019, 0x201c, 0x201d].includes(two)
+      : previous === 0xfe01 && FULL_WIDTH_QUOTES.includes(two)
         ? CJK | PUNCTUATION
         : twoBefore & ~IVS,
   ];

@@ -354,6 +354,27 @@ describe('Mdast punctuation modes', () => {
     expect(read('a**x\0\ufe0e**b')).toEqual([['a**x\ufffd\ufe0e**b', 0]]);
   });
 
+  it('writes no reference beside `~` without strikethrough', () => {
+    const editor = buildEditorFromExtensions(
+      defineExtension({dependencies: [MdastExtension], name: '[root]'}),
+    );
+    onTestFinished(() => editor.dispose());
+    editor.update(
+      () =>
+        $getRoot()
+          .clear()
+          .append(
+            $createParagraphNode().append(
+              $createTextNode('\u{1f389}~a ok \u2714\ufe0e~~b'),
+            ),
+          ),
+      {discrete: true},
+    );
+    expect(editor.read('latest', () => $convertToMarkdownString())).toBe(
+      '\u{1f389}~a ok \u2714\ufe0e~~b',
+    );
+  });
+
   it('reads a `*` run beside a `_` run alike in both import modes', () => {
     for (const importPunctuation of [
       'strict-commonmark',

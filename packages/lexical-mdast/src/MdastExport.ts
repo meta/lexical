@@ -589,7 +589,9 @@ function createNodeExporter(
   return {exportChildren: context.exportChildren};
 }
 
-const ATTENTION_MARKER = /[*_~]/;
+// The markers of attention, with `~` where strikethrough is written.
+const ATTENTION_MARKERS = /[*_]/;
+const ATTENTION_AND_STRIKETHROUGH_MARKERS = /[*_~]/;
 // What export serializes with a stand-in: a character outside the Basic
 // Multilingual Plane that CommonMark reads as punctuation, such as an emoji,
 // and a general-use variation selector other than the emoji one, which the
@@ -888,7 +890,13 @@ function toMarkdownWithStandIns(
         characters.set(standIn, character);
       }
       const written = new Map<string, number>();
-      const restore = getRestore(characters, isCjkFriendly);
+      const restore = getRestore(
+        characters,
+        isCjkFriendly,
+        'delete' in handlers
+          ? ATTENTION_AND_STRIKETHROUGH_MARKERS
+          : ATTENTION_MARKERS,
+      );
       const out = measuring(
         measure ? value => measure(restore(value)) : value => restore(value),
         () =>
@@ -954,10 +962,18 @@ function measuring(
 function getRestore(
   characters: Map<string, string>,
   isCjkFriendly: boolean,
+  markers: RegExp,
 ): (markdown: string, isDocument?: boolean) => string {
   const pattern = new RegExp(`[${[...characters.keys()].join('')}]`, 'g');
   return (markdown, isDocument = false) =>
-    restoreStoodIn(markdown, characters, pattern, isCjkFriendly, isDocument);
+    restoreStoodIn(
+      markdown,
+      characters,
+      pattern,
+      isCjkFriendly,
+      markers,
+      isDocument,
+    );
 }
 
 function restoreStoodIn(
@@ -965,6 +981,7 @@ function restoreStoodIn(
   characters: Map<string, string>,
   pattern: RegExp,
   isCjkFriendly: boolean,
+  markers: RegExp,
   isDocument: boolean,
 ): string {
   pattern.lastIndex = 0;
@@ -1040,13 +1057,15 @@ function restoreStoodIn(
     // micromark drops a byte order mark that starts the document.
     (isDocument && index === 0 && character === '\ufeff') ||
     ((!isCjkFriendly || character.length === 1) &&
-      ((ATTENTION_MARKER.test(markdown[index - 1]) && !isPortable(index, -1)) ||
-        (ATTENTION_MARKER.test(markdown[index + 1]) && !isPortable(index, 1)) ||
+      ((markers.test(markdown[index - 1]) && !isPortable(index, -1)) ||
+        (markers.test(markdown[index + 1]) && !isPortable(index, 1)) ||
         // micromark-extension-cjk-friendly-gfm-strikethrough reads a
         // selector before `~` as a letter, not as what it varies, and so
         // never closes the run there, but reads its reference as every
         // reader does.
-        (isSelector(character.charCodeAt(0)) && closesAfter(index))));
+        (markers === ATTENTION_AND_STRIKETHROUGH_MARKERS &&
+          isSelector(character.charCodeAt(0)) &&
+          closesAfter(index))));
   // Where the run of backslashes being restored ends, and whether a
   // reference follows it, which would come out escaped by the last of them.
   let runEnd = -1;
@@ -1132,7 +1151,8 @@ function getCjkReference(
   offset: number,
 ): number {
   const code = decimal ? parseInt(decimal, 10) : parseInt(hex!, 16);
-  const before = markdown[backslashes ? offset + 1 : offset - 1];
+  // A backslash before it is no marker.
+  const before = backslashes ? '' : markdown[offset - 1];
   const after = markdown[offset + match.length];
   return (ATTENTION_RUN.test(before) || ATTENTION_RUN.test(after)) &&
     before !== '_' &&
