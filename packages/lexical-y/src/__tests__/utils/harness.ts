@@ -461,6 +461,7 @@ export async function freshReader(
     nodes || from.nodes,
     from.prepare,
     from.withBlockIds,
+    from.gc,
   );
   Y.applyUpdate(peer.doc, Y.encodeStateAsUpdate(from.doc), 'load');
   peer.binding.initialize();
