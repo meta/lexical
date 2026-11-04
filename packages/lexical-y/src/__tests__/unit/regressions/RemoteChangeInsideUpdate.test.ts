@@ -1231,5 +1231,69 @@ describe.each([false, true])(
       await t.sync();
       await expectConverged(t.peers);
     });
+
+    test('the cursor an app takes from every transaction while a deferred change with deletions is read', async () => {
+      const t = await setup(
+        () =>
+          $getRoot().append(
+            $createParagraphNode().append($createTextNode('base')),
+          ),
+        {gc, ids: [2, 1]},
+      );
+      t.b.update(() =>
+        $getRoot().getAllTextNodes()[0].selectEnd().insertText('[seen]'),
+      );
+      await t.sync();
+      t.offline();
+      const seen = Y.encodeStateVector(t.b.doc);
+      t.b.update(() => {
+        const text = $getRoot().getAllTextNodes()[0];
+        text.select(1, 2).removeText();
+        $getRoot().getAllTextNodes()[0].selectEnd().insertText('[hidden]');
+      });
+      const delta = Y.encodeStateAsUpdate(t.b.doc, seen);
+      t.a.update(() =>
+        $getRoot().getAllTextNodes()[0].selectEnd().insertText('[own]'),
+      );
+      const published: unknown[] = [];
+      const publish = () => published.push(t.a.binding.getCursor());
+      for (const event of [
+        'beforeTransaction',
+        'afterTransaction',
+        'afterAllTransactions',
+      ] as const) {
+        t.a.doc.on(event, publish);
+      }
+      try {
+        t.a.update(() => {
+          $getRoot().getAllTextNodes()[0].selectEnd();
+          Y.applyUpdate(t.a.doc, delta, 'provider');
+        });
+        await new Promise(r => setTimeout(r, 0));
+      } finally {
+        for (const event of [
+          'beforeTransaction',
+          'afterTransaction',
+          'afterAllTransactions',
+        ] as const) {
+          t.a.doc.off(event, publish);
+        }
+      }
+      // Every cursor published names the editor's own caret, after "[own]",
+      // never a character of the collaborator's unread text.
+      for (const cursor of published) {
+        if (cursor === null) {
+          continue;
+        }
+        const anchor = (cursor as {anchor: {item: {client: number}}}).anchor;
+        expect(anchor.item.client).toBe(t.a.doc.clientID);
+      }
+      expect(published.length).toBeGreaterThan(0);
+      expect(t.a.read(() => $getRoot().getTextContent())).toBe(
+        'bse[seen][hidden][own]',
+      );
+      await t.sync();
+      await expectConverged(t.peers);
+    });
   },
 );

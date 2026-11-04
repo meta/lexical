@@ -3285,10 +3285,13 @@ export class YBinding {
         // applies) sees it as read, not as still unread.
         this.reading = false;
         this.dropChange(tr);
-        // Read: what it deleted is the editor's no more (see holdDeleted).
-        this.releaseUnread(tr);
       },
       after: () => {
+        // Read and committed: what it deleted is the editor's no more (see
+        // holdDeleted). Not before the commit: the collection is a
+        // transaction, whose observers (an app's awareness cursor) would
+        // take the cursor on the editor state before the read.
+        this.releaseUnread(tr);
         // Also where `before` gated already (a no-op then).
         if (schemaChanged) {
           this.gateSchema();
@@ -6301,15 +6304,6 @@ export class YBinding {
     }
     const doc = this._doc;
     const state = this._editor.getEditorState();
-    if (
-      this.takingCursor ||
-      doc._transactionCleanups.some(t => t.origin === this.scanOrigin)
-    ) {
-      const taken = this.takenCursor;
-      return taken !== null && taken.state === state
-        ? taken.cursor
-        : seenBy(this.seer, () => this.readCursor());
-    }
     const take = (tr: Transaction) => {
       this.splitAtUnread(tr);
       const cursor = seenBy(this.seer, () => this.readCursor());
@@ -6319,6 +6313,15 @@ export class YBinding {
     const running = doc._transaction;
     if (running !== null) {
       return take(running);
+    }
+    if (
+      this.takingCursor ||
+      doc._transactionCleanups.some(t => t.origin === this.scanOrigin)
+    ) {
+      const taken = this.takenCursor;
+      return taken !== null && taken.state === state
+        ? taken.cursor
+        : seenBy(this.seer, () => this.readCursor());
     }
     let cursor: YCursor | null = null;
     this.takingCursor = true;
