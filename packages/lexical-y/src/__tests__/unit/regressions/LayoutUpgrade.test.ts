@@ -214,6 +214,31 @@ describe('the handle', () => {
         handle.handshake({generation: null, material: false}),
       ),
     ).toMatchObject({verdict: 'bootstrap'});
+    // It is a version 1 handshake with this release's features: a room that
+    // requires a feature this release does not support turns it away (its
+    // material handed off first).
+    const built = handle.handshake({generation: null, material: false});
+    expect(built).toMatchObject({features: [], v: 1});
+    const requiring = serverEntry.createYDoc(rawDoc(SEED_LAYOUT));
+    requiring.get('lexical-y').setAttr('lexical-y-require:future', true);
+    const fenced = serverEntry.describeYRoom(requiring, {
+      incarnation: 'inc',
+      inherited: false,
+      seedContract: SEED_LAYOUT,
+    });
+    expect(fenced.requires).toEqual(['future']);
+    expect(
+      serverEntry.checkYSession(
+        fenced,
+        handle.handshake({generation: fenced.generation, material: true}),
+      ),
+    ).toMatchObject({reason: 'requires', verdict: 'stale'});
+    expect(
+      serverEntry.checkYSession(
+        fenced,
+        handle.handshake({generation: null, material: false}),
+      ),
+    ).toMatchObject({reason: 'requires', verdict: 'refuse-layout'});
   });
 
   test('a target outside [MIN_LAYOUT, LAYOUT_VERSION] is refused; a handle that is not one is refused by the factory and the extension', () => {

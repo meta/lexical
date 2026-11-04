@@ -70,12 +70,11 @@ export interface YServerLayoutUpgradeOptions {
 
 /**
  * @experimental The handshake a client of this release sends (see
- * checkYSession): format 1, the layouts it reads, the layout its seed
- * records and the features it supports.
+ * checkYSession): a version 1 YSessionHandshake with the layouts it reads,
+ * the layout its seed records and every feature it supports (always
+ * present, sorted), with the session's generation and material.
  */
-export function clientHandshake(
-  session: YClientSession,
-): YSessionHandshake & {readonly v: 1; readonly features: readonly string[]} {
+export function clientHandshake(session: YClientSession): YSessionHandshake {
   return {
     features: [...SUPPORTED_FEATURES].sort(),
     generation: session.generation,
