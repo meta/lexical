@@ -467,12 +467,17 @@ class Session {
    *
    * @param {string} name
    * @param {{
-   *   status?: string,
+   *   status?: string | null,
    *   timeout?: number,
    *   beforeLoad?: (context: import('@playwright/test').BrowserContext) => Promise<void>,
-   * }} [options]
+   *   params?: Record<string, string>,
+   * }} [options] `params`: more playground URL parameters; `status` null:
+   * do not wait for the binding.
    */
-  async open(name, {status = 'active', timeout, beforeLoad} = {}) {
+  async open(
+    name,
+    {status = 'active', timeout, beforeLoad, params: more} = {},
+  ) {
     const context = await this.browser.newContext();
     // Keep the pages off the network: third-party scripts (analytics) that
     // fail to load fire window errors, which are not what these specs check.
@@ -509,16 +514,19 @@ class Session {
       selectBlock: 'false',
       showTreeView: 'false',
       useCollabY: 'true',
+      ...more,
     });
     await page.goto(`http://localhost:${E2E_PORT}/?${params}`);
-    await client.waitReady(status, timeout);
-    // Without the binding's self-check, a write it does not read back the
-    // same would not be reported, and no spec could fail on it. The
-    // playground turns it on in every build but a production one (see
-    // src/collaborationY.tsx).
-    expect(await client.selfCheck(), 'the binding runs its self-check').toBe(
-      true,
-    );
+    if (status !== null) {
+      await client.waitReady(status, timeout);
+      // Without the binding's self-check, a write it does not read back the
+      // same would not be reported, and no spec could fail on it. The
+      // playground turns it on in every build but a production one (see
+      // src/collaborationY.tsx).
+      expect(await client.selfCheck(), 'the binding runs its self-check').toBe(
+        true,
+      );
+    }
     client.mod = (await page.evaluate(() =>
       /Mac|iPhone|iPad/.test(navigator.platform),
     ))

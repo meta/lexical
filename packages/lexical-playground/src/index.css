@@ -96,6 +96,17 @@ header h1 {
   font-size: 14px;
 }
 
+.collab-y-recovery {
+  margin: 12px auto 0;
+  max-width: 1128px;
+  font-size: 14px;
+  color: #444;
+}
+
+.collab-y-recovery li {
+  margin: 4px 0;
+}
+
 .editor-shell {
   margin: 20px auto;
   border-radius: 2px;

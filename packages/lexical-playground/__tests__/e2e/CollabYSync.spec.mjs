@@ -318,19 +318,26 @@ test.describe('Collab Y: version gate', () => {
       await expect(c.editor).toHaveAttribute('contenteditable', 'false');
       await expectNewerLayoutNotice(c);
     }
-    // ...and so does a client that loads the document afterwards.
-    const late = await session.open('L', {status: 'readonly'});
+    // A client that loads the document afterwards presents the layouts it
+    // reads in its handshake, and the fenced relay refuses it before any
+    // sync (docs/collaboration/y-server.md, `refuse-layout`).
+    const late = await session.open('L', {status: null});
+    await expect(
+      late.page.locator('.collab-y-notice[data-verdict="refuse-layout"]'),
+    ).toBeVisible({timeout: 20000});
     await expect(late.editor).toHaveAttribute('contenteditable', 'false');
-    await expectNewerLayoutNotice(late);
-    expect(await late.blocks()).toEqual(['paragraph:g1z']);
+    const lateBlocks = await late.blocks();
     // Typing changes nothing.
     await b.editor.click({force: true});
     await b.type('kb1z');
     await late.editor.click({force: true});
     await late.type('kl1z');
     await b.page.waitForTimeout(300);
-    for (const c of [a, b, late]) {
+    for (const c of [a, b]) {
       expect(await c.blocks()).toEqual(['paragraph:g1z']);
+    }
+    expect(await late.blocks()).toEqual(lateBlocks);
+    for (const c of [a, b, late]) {
       expect(c.problems).toEqual([]);
     }
     // The toolbar's read-only toggle is off, and nothing else can make the
@@ -343,9 +350,10 @@ test.describe('Collab Y: version gate', () => {
       await c.type('kt1z');
     }
     await b.page.waitForTimeout(300);
-    for (const c of [a, b, late]) {
+    for (const c of [a, b]) {
       expect(await c.blocks()).toEqual(['paragraph:g1z']);
     }
+    expect(await late.blocks()).toEqual(lateBlocks);
   });
 
   test('a client older than a version that wrote the document is read only', async ({

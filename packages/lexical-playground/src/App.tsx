@@ -453,19 +453,17 @@ function CollabY({children}: {children: ReactNode}) {
   const {CollabYPlugin, getCollabYSession} = use(
     (collabYModule ??= import('./collaborationY')),
   );
-  const {editor, provider, readOnlyWarning} = getCollabYSession(
-    COLLAB_DOC_ID,
-    () =>
-      buildExtensionFromSettings({
-        emptyEditor: true,
-        isCollab: true,
-        isCollabY: true,
-        isRichText: true,
-      }),
+  const collabY = getCollabYSession(COLLAB_DOC_ID, () =>
+    buildExtensionFromSettings({
+      emptyEditor: true,
+      isCollab: true,
+      isCollabY: true,
+      isRichText: true,
+    }),
   );
   return (
-    <LexicalExtensionEditorComposer initialEditor={editor}>
-      <CollabYPlugin provider={provider} readOnlyWarning={readOnlyWarning} />
+    <LexicalExtensionEditorComposer initialEditor={collabY.editor}>
+      <CollabYPlugin session={collabY} />
       {children}
     </LexicalExtensionEditorComposer>
   );
