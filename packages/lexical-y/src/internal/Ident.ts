@@ -776,15 +776,6 @@ export function isValidEnd(end: Item): boolean {
   );
 }
 
-/**
- * Test-only (measurements): a format change deletes only runs whose opener
- * this client wrote (see Cursor#formatCovered).
- */
-export let ownRunsOnly = false;
-export function setOwnRunsOnly(on: boolean): void {
-  ownRunsOnly = on;
-}
-
 /** Every end (live or deleted) the index holds that names opener `item`. */
 export function endsOf(item: Item): Item[] {
   const doc = (item.parent as unknown as {doc: Doc | null}).doc;
