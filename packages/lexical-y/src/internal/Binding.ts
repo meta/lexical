@@ -2268,9 +2268,10 @@ export class YBinding {
     if (!check) {
       return;
     }
-    if (this.deferred.length > 0) {
-      // Changes are still deferred (see deferChange): the document holds
-      // them, the editor does not yet. Checked with the last one's read.
+    if (this.deferred.length > 0 || this.unread !== null) {
+      // Changes are still deferred (see deferChange) or unread: the
+      // document holds them, the editor does not yet. Checked with the last
+      // one's read.
       for (const cs of read) {
         this.checkLater.add(cs);
       }
@@ -3105,7 +3106,11 @@ export class YBinding {
       // Where the last change had nothing to read (no read, no self-check
       // of what the earlier ones read: see checkRead), once it committed.
       const flush = () => {
-        if (this.deferred.length === 0 && this.checkLater.size > 0) {
+        if (
+          this.deferred.length === 0 &&
+          this.unread === null &&
+          this.checkLater.size > 0
+        ) {
           this.guard(() => this.checkRead(new Set()));
         }
       };

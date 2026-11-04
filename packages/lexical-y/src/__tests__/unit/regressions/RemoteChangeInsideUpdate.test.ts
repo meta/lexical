@@ -854,5 +854,85 @@ describe.each([false, true])(
         expect((await freshReader(t.a)).describe()).toBe(t.a.describe());
       });
     }
+
+    test('a remote change a provider applies from a document observer, removing what a deferred read rebuilt', async () => {
+      const t = await setup(
+        () =>
+          $getRoot().append(
+            $createTableNode().append(
+              $createTableRowNode().append(
+                $createTableCellNode().append(
+                  $createParagraphNode().append($createTextNode('LEFT')),
+                ),
+                $createTableCellNode().append(
+                  $createParagraphNode().append($createTextNode('RIGHT')),
+                ),
+              ),
+            ),
+          ),
+        {gc},
+      );
+      t.offline();
+      const deltas: Uint8Array[] = [];
+      const change = (fn: () => void) => {
+        const seen = Y.encodeStateVector(t.b.doc);
+        fn();
+        deltas.push(Y.encodeStateAsUpdate(t.b.doc, seen));
+      };
+      const side = t.b.doc.get('side') as unknown as {
+        setAttr(k: string, v: unknown): void;
+      };
+      change(() =>
+        t.b.update(() =>
+          $getRoot()
+            .getAllTextNodes()[0]
+            .getParentOrThrow()
+            .getParentOrThrow()
+            .append($createParagraphNode().append($createTextNode('NEW'))),
+        ),
+      );
+      change(() => side.setAttr('k1', true));
+      change(() => side.setAttr('k2', true));
+      change(() =>
+        t.b.update(() => $getRoot().getFirstChildOrThrow().remove()),
+      );
+      const removal = deltas.pop()!;
+      // A provider sending the next update from any transaction's end, once
+      // the editor shows the first change.
+      let sent = false;
+      const observer = () => {
+        if (
+          !sent &&
+          t.a.editor
+            .getEditorState()
+            .read(() => $getRoot().getTextContent())
+            .includes('NEW')
+        ) {
+          sent = true;
+          Y.applyUpdate(t.a.doc, removal, 'provider');
+        }
+      };
+      t.a.doc.on('afterTransaction', observer);
+      try {
+        t.a.editor.update(
+          () => {
+            for (const d of deltas) {
+              Y.applyUpdate(t.a.doc, d, 'provider');
+            }
+          },
+          {discrete: true},
+        );
+        for (let i = 0; i < 4; i++) {
+          await new Promise(r => setTimeout(r, 0));
+        }
+      } finally {
+        t.a.doc.off('afterTransaction', observer);
+      }
+      expect(sent).toBe(true);
+      expect(t.a.warnings.filter(w => w.includes('self-check'))).toEqual([]);
+      expect((await freshReader(t.a)).describe()).toBe(t.a.describe());
+      await t.sync();
+      await expectConverged(t.peers);
+    });
   },
 );
