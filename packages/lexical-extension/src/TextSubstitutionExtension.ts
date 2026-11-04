@@ -16,6 +16,7 @@ import {
   defineExtension,
   DELETE_CHARACTER_COMMAND,
   HISTORIC_TAG,
+  HISTORY_MERGE_TAG,
   HISTORY_PUSH_TAG,
   type LexicalEditor,
   mergeRegister,
@@ -177,33 +178,80 @@ function registerTextSubstitution(
               lastSubstitution.replacement + typedChar
           ) {
             const record = lastSubstitution;
-            editor.update(() => {
-              const currentSelection = $getSelection();
-              if (!$isRangeSelection(currentSelection)) {
-                return;
-              }
-              const target = currentSelection.anchor.getNode();
-              if (!$isTextNode(target) || !$isSubstitutableNode(target)) {
-                return;
-              }
-              target.spliceText(
-                record.start,
-                record.replacement.length + 1,
-                extendedReplacement,
-              );
-              target.select(
-                record.start + extendedReplacement.length,
-                record.start + extendedReplacement.length,
-              );
-              $addUpdateTag(HISTORY_PUSH_TAG);
-              $addUpdateTag(TEXT_SUBSTITUTION_TAG);
-              lastSubstitution = {
-                alias: extendedAlias,
-                nodeKey: target.getKey(),
-                replacement: extendedReplacement,
-                start: record.start,
-              };
-            });
+            // Undo for a chained alias works in one step by splitting
+            // the rewrite in two. First, rewrite the intermediate text
+            // (e.g. '—>') back to the full alias ('-->') in an update
+            // tagged HISTORY_MERGE_TAG (and NOT HISTORY_PUSH_TAG, which
+            // would defeat the merge): history folds it into the
+            // keystroke entry that typed the final character, so that
+            // entry now ends at '-->' instead of '—>'. Then, from that
+            // update's onUpdate, apply the longer replacement in its
+            // own HISTORY_PUSH_TAG update. One Ctrl+Z therefore
+            // restores '-->', and a second undo reverts the keystroke
+            // that produced it — instead of the old '—>' residue.
+            editor.update(
+              () => {
+                const currentSelection = $getSelection();
+                if (!$isRangeSelection(currentSelection)) {
+                  return;
+                }
+                const target = currentSelection.anchor.getNode();
+                if (!$isTextNode(target) || !$isSubstitutableNode(target)) {
+                  return;
+                }
+                target.spliceText(
+                  record.start,
+                  record.replacement.length + 1,
+                  extendedAlias,
+                );
+                target.select(
+                  record.start + extendedAlias.length,
+                  record.start + extendedAlias.length,
+                );
+                $addUpdateTag(HISTORY_MERGE_TAG);
+                $addUpdateTag(TEXT_SUBSTITUTION_TAG);
+              },
+              {
+                onUpdate: () => {
+                  editor.update(() => {
+                    const currentSelection = $getSelection();
+                    if (!$isRangeSelection(currentSelection)) {
+                      return;
+                    }
+                    const target = currentSelection.anchor.getNode();
+                    if (!$isTextNode(target) || !$isSubstitutableNode(target)) {
+                      return;
+                    }
+                    const current = target.getTextContent();
+                    if (
+                      current.slice(
+                        record.start,
+                        record.start + extendedAlias.length,
+                      ) !== extendedAlias
+                    ) {
+                      return;
+                    }
+                    target.spliceText(
+                      record.start,
+                      extendedAlias.length,
+                      extendedReplacement,
+                    );
+                    target.select(
+                      record.start + extendedReplacement.length,
+                      record.start + extendedReplacement.length,
+                    );
+                    $addUpdateTag(HISTORY_PUSH_TAG);
+                    $addUpdateTag(TEXT_SUBSTITUTION_TAG);
+                    lastSubstitution = {
+                      alias: extendedAlias,
+                      nodeKey: target.getKey(),
+                      replacement: extendedReplacement,
+                      start: record.start,
+                    };
+                  });
+                },
+              },
+            );
             return;
           }
         }
@@ -320,13 +368,15 @@ function registerTextSubstitution(
  *
  * Known interactions: typing `---` cannot trigger a horizontal-rule
  * markdown shortcut alongside this extension, because `--` is replaced
- * with `—` before the third `-` is typed. The chained substitution
- * (`--` then `>` producing `→`) is a second history entry, so one
- * Ctrl+Z after `-->` restores `—>`, not `-->`; a second Ctrl+Z restores
- * `-->`'s alias chain fully. In collaborative editors, undo ignores the
+ * with `—` before the third `-` is typed. A chained substitution
+ * (`--` then `>` producing `→`) is arranged so that one Ctrl+Z
+ * restores the full alias (`-->`), and a second Ctrl+Z reverts the
+ * keystroke that produced it. In collaborative editors, undo ignores the
  * history-push boundary. On Android Chrome, Backspace is handled
  * natively by the browser, so the Backspace-restore behaviour may not
- * apply there.
+ * apply there. IME input may also skip substitution: when an IME
+ * composition commits the alias's final character, the composition-end
+ * update is not treated as typed input, so the alias is left as typed.
  */
 export const TextSubstitutionExtension = defineExtension({
   build(editor, config, state) {

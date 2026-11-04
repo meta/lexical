@@ -249,6 +249,30 @@ describe('TextSubstitutionExtension', () => {
     expect(getText(editor)).toBe('hello--');
   });
 
+  test('a single undo after a chained substitution restores the full alias', async () => {
+    using editor = setUpEditor({withHistory: true});
+    await typeText(editor, 'hello-->');
+    expect(getText(editor)).toBe('hello→');
+    // The chained rewrite is split across a merge-tagged update and
+    // its onUpdate; let both commit before undoing.
+    await tick();
+    await tick();
+    editor.dispatchCommand(UNDO_COMMAND);
+    expect(getText(editor)).toBe('hello-->');
+    editor.dispatchCommand(UNDO_COMMAND);
+    expect(getText(editor)).toBe('hello—');
+  });
+
+  test('a single undo after a chained <-- substitution restores the full alias', async () => {
+    using editor = setUpEditor({withHistory: true});
+    await typeText(editor, 'hello<--');
+    expect(getText(editor)).toBe('hello←');
+    await tick();
+    await tick();
+    editor.dispatchCommand(UNDO_COMMAND);
+    expect(getText(editor)).toBe('hello<--');
+  });
+
   test('Backspace immediately after a substitution restores the alias (RichText)', async () => {
     using editor = setUpEditor({withRichText: true});
     await typeText(editor, 'hello--');
