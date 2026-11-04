@@ -118,22 +118,23 @@ rely on an inferred type argument, and quotes the error TypeScript reports.
 'lexical': minor
 ---
 
-[breaking] `getFirstChild` returns `LexicalNode` unless a type argument is written
+[breaking] `getFirstChildOrThrow` returns `LexicalNode` unless a type argument is written
 
-Detect: calls to `getFirstChild()` without a type argument whose result goes
-straight to a narrower node type, such as
-`const p: ParagraphNode | null = node.getFirstChild()` or
-`$styleList(root.getFirstChild())` where `$styleList` is a function of yours
-that takes a `ListNode`.
-TypeScript reports `Type 'LexicalNode' is not assignable to type ...`.
+Detect: calls to `getFirstChildOrThrow()` without a type argument whose
+result goes straight to a narrower node type, such as
+`const p: ParagraphNode = node.getFirstChildOrThrow()` or
+`$styleList(root.getFirstChildOrThrow())` where `$styleList` is a function of
+yours that takes a `ListNode`. TypeScript reports `Argument of type
+'LexicalNode' is not assignable to parameter of type 'ListNode'` (TS2345) or
+a TS2322/TS2740 error for the assignment.
 
 Migration: call it without a type argument and narrow with a node guard.
 
 ```ts
 // Before
-$styleList(root.getFirstChild());
+$styleList(root.getFirstChildOrThrow());
 // After
-const first = root.getFirstChild();
+const first = root.getFirstChildOrThrow();
 if ($isListNode(first)) {
   $styleList(first);
 }

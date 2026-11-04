@@ -979,22 +979,23 @@ This file also ships in the `lexical` package as
 
 ### Behavior changes
 
-- **@lexical/list**: Backspace at the start of a list item outdents it or turns it into a paragraph ([#8829](https://github.com/meta/lexical/pull/8829))
+- **@lexical/list**: Backspace at the start of a top-level list item turns it into a paragraph ([#8829](https://github.com/meta/lexical/pull/8829))
 
   `registerList` (used by `ListExtension` and `ListPlugin`) now handles
   `KEY_BACKSPACE_COMMAND` at `COMMAND_PRIORITY_BEFORE_EDITOR`, before the
-  `@lexical/rich-text` handler. With a collapsed caret at the start of a list
-  item, Backspace outdents a nested item one level, and turns a top-level item
-  into a paragraph, splitting the list around it when items follow. Before,
-  Backspace at the start of any item after the first joined it to the end of
-  the item above; for a top-level item that now takes a second Backspace.
+  `@lexical/rich-text` handler. With a collapsed caret at the start of a
+  top-level list item, Backspace turns the item into a paragraph, splitting
+  the list around it when items follow. Before, Backspace at the start of a
+  top-level item joined it to the end of the block above (the previous item,
+  or a paragraph before the list); that now takes a second Backspace. Nested
+  items were already outdented.
   `ListItemNode.collapseAtStart` changed to match and now returns `boolean`
   instead of `true`. That widened return type is filed here rather than as
   breaking because callers only test the result, and overrides that return
   `true` still type check.
 
-  Verify: Backspace at the start of top-level and nested list items, including
-  tests that expect the item to join the one above, and any
+  Verify: Backspace at the start of top-level list items, including tests that
+  expect the item to join the block above, and any
   `KEY_BACKSPACE_COMMAND` handler of your own at `COMMAND_PRIORITY_EDITOR` or
   lower that expects to see this keystroke in a list item.
 
@@ -1140,9 +1141,12 @@ This file also ships in the `lexical` package as
   argument (`$styleList(root.getFirstChildOrThrow())`, where `$styleList` is
   a function of yours whose parameter is a `ListNode`), the return value of a function declared to return a node
   subclass, or a property or array of a subclass type
-  (`const items: ListItemNode[] = list.getChildren()`). TypeScript reports
-  `Type 'LexicalNode' is not assignable to type ...` (TS2322 or TS2345) after
-  upgrading. Calls that pass a type argument (`getFirstChild<ParagraphNode>()`)
+  (`const items: ListItemNode[] = list.getChildren()`). After upgrading,
+  TypeScript reports TS2322 (`Type 'LexicalNode | null' is not assignable to
+  type ...` or `Type 'LexicalNode[]' is not assignable to type ...`), TS2345
+  (`Argument of type 'LexicalNode' is not assignable to parameter of type
+  ...`), or, for a return value, TS2740 (`Type 'LexicalNode' is missing the
+  following properties from type ...`). Calls that pass a type argument (`getFirstChild<ParagraphNode>()`)
   still compile until v0.53.0, which removes that overload.
 
   Migration: call the method without a type argument and narrow the result
