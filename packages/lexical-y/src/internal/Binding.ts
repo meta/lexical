@@ -1044,7 +1044,7 @@ export class YBinding {
         tr.origin !== this &&
         tr.origin !== this.initOrigin &&
         tr.origin !== this.followUpOrigin
-          ? this.getCursor()
+          ? this.takeCursor()
           : null;
       this.noteChange(tr);
     };
@@ -2895,10 +2895,16 @@ export class YBinding {
       return;
     }
     if (this.deferred.length > 0 && !this._editor._updating) {
-      // Read in the order Yjs applied them. (While the editor updates, a
-      // remote change is deferred behind them, and the binding's own writes
-      // read nothing: see scheduleDeferred.)
+      // Read after those, in the order Yjs applied them, and like them
+      // (unread while they are read, its caret taken once they are). (While
+      // the editor updates, a remote change is deferred behind them, and the
+      // binding's own writes read nothing: see scheduleDeferred.)
+      this.deferred.push(tr);
+      if (this._doc.gc) {
+        this.holdDeleted(tr);
+      }
       this.readDeferred();
+      return;
     }
     this.readNow(tr);
   }
@@ -3099,7 +3105,7 @@ export class YBinding {
         // was before the change (see Unread), not the one before the update
         // the change was applied in.
         this.pendingCursor =
-          this._status === 'pending' ? null : this.getCursor();
+          this._status === 'pending' ? null : this.takeCursor();
         this.readNow(tr);
         if (this._editor._updating && this.deferred.length > 0) {
           // Nested, that read is only queued (see guardedRead), and the
@@ -3297,7 +3303,7 @@ export class YBinding {
         // The selection the read keeps is the one those updates left, on the
         // document they were made on.
         if (this._editor.getEditorState() !== committed) {
-          this.pendingCursor = this.getCursor();
+          this.pendingCursor = this.takeCursor();
         }
         // The read sees the document as it is: this change, and those
         // applied since, which are read after it (see Reader).
@@ -3686,7 +3692,7 @@ export class YBinding {
     if (this.state.hidden === null) {
       return;
     }
-    const cursor = this.getCursor();
+    const cursor = this.takeCursor();
     let rebuilt: ReadonlySet<CS> = new Set();
     // The release clears the hold before its read, which shows what it held
     // (see $release); a read that throws reads the whole document again
@@ -6266,15 +6272,27 @@ export class YBinding {
   // -------------------------------------------------------------------------
   // Cursors
 
-  /** The local selection as relative positions (JSON), or null. */
+  /**
+   * The local selection as relative positions (JSON), or null. A read of
+   * the document only: an app may call it from its own document observers
+   * (an awareness cursor refreshed on every transaction).
+   */
   getCursor(): YCursor | null {
+    // On the document as this binding's editor shows it (see guard).
+    return seenBy(this.seer, () => this.readCursor());
+  }
+
+  /**
+   * getCursor, for the binding's own work: with changes not read yet, in a
+   * transaction that splits the items at their bounds (see splitAtUnread),
+   * as a write does, since Yjs merges a change's items with neighbouring
+   * items of the same client. The positions are ids, which stay valid once
+   * Yjs merges the items again.
+   */
+  private takeCursor(): YCursor | null {
     if (this.unread === null) {
-      // On the document as this binding's editor shows it (see guard).
-      return seenBy(this.seer, () => this.readCursor());
+      return this.getCursor();
     }
-    // With changes not read yet: in a transaction that splits the items at
-    // their bounds (see splitAtUnread), as a write does. The positions are
-    // ids, which stay valid once Yjs merges the items again.
     let cursor: YCursor | null = null;
     this._doc.transact(tr => {
       this.splitAtUnread(tr);
@@ -7206,13 +7224,6 @@ function $showsCaret(): boolean {
   return $isRangeSelection(selection) && selection.isCollapsed();
 }
 
-/**
- * Keep the selection's points inside their nodes after a remote read.
- * Invariant: no selection names a node a read removed: a selection of
- * another kind (a table's cells, a node selection) that does is dropped.
- * Why: Lexical keeps such a selection as it is, and every reader of it (a
- * table's own selection handler) would throw.
- */
 /** Whether `point` is in a node the editor shows. */
 function $isShownPoint(point: {key: NodeKey} | null): boolean {
   if (point === null) {
@@ -7222,6 +7233,13 @@ function $isShownPoint(point: {key: NodeKey} | null): boolean {
   return node !== null && node.isAttached();
 }
 
+/**
+ * Keep the selection's points inside their nodes after a remote read.
+ * Invariant: no selection names a node a read removed: a selection of
+ * another kind (a table's cells, a node selection) that does is dropped.
+ * Why: Lexical keeps such a selection as it is, and every reader of it (a
+ * table's own selection handler) would throw.
+ */
 function $clampSelection(): void {
   const selection = $getSelection();
   if (selection === null) {

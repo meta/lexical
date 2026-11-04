@@ -1110,5 +1110,83 @@ describe.each([false, true])(
       await t.sync();
       await expectConverged(t.peers);
     });
+
+    test('a remote change applied outside an update while an earlier one waits', async () => {
+      const t = await setup(
+        () =>
+          $getRoot().append(
+            $createParagraphNode().append($createTextNode('one two three')),
+            $createParagraphNode().append($createTextNode('alpha beta')),
+          ),
+        {gc},
+      );
+      t.offline();
+      const deltas: Uint8Array[] = [];
+      const change = (fn: () => void) => {
+        const seen = Y.encodeStateVector(t.b.doc);
+        t.b.update(fn);
+        deltas.push(Y.encodeStateAsUpdate(t.b.doc, seen));
+      };
+      change(() =>
+        $getRoot().getAllTextNodes()[1].select(0, 5).formatText('bold'),
+      );
+      change(() =>
+        $getRoot().getAllTextNodes()[0].select(0, 0).insertText('AAA'),
+      );
+      t.a.update(() => {
+        $getRoot().getAllTextNodes()[0].select(7, 7);
+      });
+      // Deferred: an update that changes nothing (read in a microtask).
+      t.a.editor.update(() => Y.applyUpdate(t.a.doc, deltas[0], 'provider'), {
+        discrete: true,
+      });
+      // In the same task, outside any update.
+      Y.applyUpdate(t.a.doc, deltas[1], 'provider');
+      await new Promise(r => setTimeout(r, 0));
+      expect(
+        t.a.read(() => {
+          const selection = $getSelection();
+          if (!$isRangeSelection(selection)) {
+            return null;
+          }
+          const {anchor} = selection;
+          const line = anchor.getNode().getTopLevelElementOrThrow();
+          let before = '';
+          for (const n of line.getAllTextNodes()) {
+            if (n.getKey() === anchor.key) {
+              return before + n.getTextContent().slice(0, anchor.offset);
+            }
+            before += n.getTextContent();
+          }
+          return null;
+        }),
+      ).toBe('AAAone two');
+      await t.sync();
+      await expectConverged(t.peers);
+    });
+
+    test("an app's document observer that takes the cursor while a change waits", async () => {
+      const {t, delta} = await twoPeers(gc);
+      let cursors = 0;
+      const observer = () => {
+        if (t.a.binding.getCursor() !== null) {
+          cursors++;
+        }
+      };
+      t.a.doc.on('afterTransaction', observer);
+      try {
+        t.a.update(() => {
+          $appendX();
+          Y.applyUpdate(t.a.doc, delta, 'provider');
+        });
+        await new Promise(r => setTimeout(r, 0));
+      } finally {
+        t.a.doc.off('afterTransaction', observer);
+      }
+      expect(cursors).toBeGreaterThan(0);
+      expect(t.a.read(() => $getRoot().getTextContent())).toBe('one twoX');
+      await t.sync();
+      await expectConverged(t.peers);
+    });
   },
 );
