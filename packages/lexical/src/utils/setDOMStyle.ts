@@ -148,11 +148,23 @@ export function getStyleObjectFromCSS(css: string): Record<string, string> {
   }
 
   if (chunkStart !== -1) {
+    // A backslash at the very end escapes nothing, so a string ending there
+    // drops it, as CSS does.
+    const end = isEscaped ? length - 1 : length;
     if (isParsingValue) {
-      currentValue += css.slice(chunkStart, length);
+      currentValue += css.slice(chunkStart, end);
     } else {
-      currentProperty += css.slice(chunkStart, length);
+      currentProperty += css.slice(chunkStart, end);
     }
+  }
+  // CSS closes a string or parentheses still open at the end of the input.
+  // Close them here too, so that serializing the value and appending another
+  // declaration doesn't put that declaration inside them.
+  if (isParsingValue) {
+    if (currentQuote !== null) {
+      currentValue += currentQuote;
+    }
+    currentValue += ')'.repeat(parenthesisDepth);
   }
 
   const property = currentProperty.trim();

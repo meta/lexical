@@ -110,4 +110,30 @@ describe('setDOMStyle', () => {
       background: 'url(http://x/a;b)',
     });
   });
+
+  it('closes a string or parentheses left open at the end, as CSS does', () => {
+    expect(getStyleObjectFromCSS('font-family: "Arial')).toEqual({
+      'font-family': '"Arial"',
+    });
+    expect(getStyleObjectFromCSS("color: red; font-family: 'Arial")).toEqual({
+      color: 'red',
+      'font-family': "'Arial'",
+    });
+    expect(getStyleObjectFromCSS('background-image: url(a.png')).toEqual({
+      'background-image': 'url(a.png)',
+    });
+    expect(getStyleObjectFromCSS('background-image: url("a.png')).toEqual({
+      'background-image': 'url("a.png")',
+    });
+    // An unterminated comment runs to the end; the parentheses still close.
+    expect(getStyleObjectFromCSS('background-image: url(a.png/* x')).toEqual({
+      'background-image': 'url(a.png)',
+    });
+    // A trailing backslash inside the string escapes nothing and is dropped.
+    expect(getStyleObjectFromCSS('font-family: "Arial\\')).toEqual({
+      'font-family': '"Arial"',
+    });
+    // Outside a string it is kept.
+    expect(getStyleObjectFromCSS('color: red\\')).toEqual({color: 'red\\'});
+  });
 });
