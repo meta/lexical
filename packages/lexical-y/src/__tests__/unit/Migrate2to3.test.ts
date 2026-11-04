@@ -356,21 +356,25 @@ describe('@lexical/y/migrate/2to3 golden fixtures', () => {
     expect(theirs).toBe(h.digest('hex'));
   });
 
-  test('the frozen layout 3 writer is the live module byte for byte', () => {
+  test('the frozen layout 3 writer is pinned by its hash, not by the live module', () => {
     const frozen = fs.readFileSync(
       path.join(SRC, 'migrate', '2to3', 'frozen', 'layout3.ts'),
       'utf8',
     );
+    // The whole file, its header included: a change to it is a new
+    // revision of the step. The live module (internal/Layout3.ts) may
+    // change after the freeze; the step keeps this copy.
+    expect(sha(frozen)).toBe(
+      'c1f901ac7069145291d97c6506021837ea7bd21e404e6752b22e7cec109a4d8b',
+    );
+    // Its body is the live module as of the freeze: the hash its header
+    // names.
     const body = frozen.replace(
       /\/\/ FROZEN-COPY-BEGIN\n(?:.*\n)*?\/\/ FROZEN-COPY-END\n/,
       '',
     );
     const pinned = /sha256 ([0-9a-f]{64})/.exec(frozen)?.[1];
     expect(sha(body)).toBe(pinned);
-    // While the live module has not changed since the freeze.
-    expect(body).toBe(
-      fs.readFileSync(path.join(SRC, 'internal', 'Layout3.ts'), 'utf8'),
-    );
   });
 
   test('golden files are pinned per revision: each runs against its own revision, and the default export is revision 1', () => {
