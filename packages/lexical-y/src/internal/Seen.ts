@@ -318,10 +318,6 @@ export function shownAttrs(end: Item, hidden: Hidden | null): Attrs {
 }
 
 /**
- * The end item before `it` in its container that the editor shows (see
- * isShownEnd), or null.
- */
-/**
  * Where each start formats map was folded up to (that item and everything
  * before it): every fold that makes a unit start notes it (noteFolded), and
  * a copy shares nothing (a map passed on as it is keeps it).
@@ -565,6 +561,10 @@ export function unitLeftEnd(
   return fast;
 }
 
+/**
+ * The end item before `it` in its container that the editor shows (see
+ * isShownEnd), or null.
+ */
 export function prevLiveEnd(
   it: Item | null,
   hidden: Hidden | null,

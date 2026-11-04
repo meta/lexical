@@ -787,14 +787,6 @@ export class Reader {
   // Block containers
 
   /**
-   * The unit `item` is in: the unit of the first end item after it that
-   * the editor shows as one (a held-back end item is not, see Hidden).
-   * `flags.structural` is set when units change: the walk passes an end
-   * item that ends no unit and is live (inserted by this change), or
-   * reaches a unit whose end was deleted; the deleted end item of an
-   * earlier join ends nothing and is passed.
-   */
-  /**
    * The opener in the same container that end item `it` names, in a
    * document read as paired runs; null otherwise.
    */
@@ -815,6 +807,14 @@ export class Reader {
     return opener !== null && opener.parent === it.parent ? opener : null;
   }
 
+  /**
+   * The unit `item` is in: the unit of the first end item after it that
+   * the editor shows as one (a held-back end item is not, see Hidden).
+   * `flags.structural` is set when units change: the walk passes an end
+   * item that ends no unit and is live (inserted by this change), or
+   * reaches a unit whose end was deleted; the deleted end item of an
+   * earlier join ends nothing and is passed.
+   */
   private $unitOf(
     cs: CS,
     item: Item,

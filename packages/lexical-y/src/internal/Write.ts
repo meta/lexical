@@ -4089,11 +4089,10 @@ export class Writer {
       while (rb < actual.runs.length && actual.runs[rb].end <= start) {
         rb++;
       }
-      const wanted =
+      const want =
         ra < atoms.runs.length && atoms.runs[ra].start <= start
           ? atoms.runs[ra].attrs
           : {};
-      const want = wanted;
       const have =
         rb < actual.runs.length && actual.runs[rb].start <= start
           ? actual.runs[rb].attrs
