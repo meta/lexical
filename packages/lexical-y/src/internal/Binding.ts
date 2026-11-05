@@ -191,7 +191,7 @@ import {
   typeOf,
   type Unit,
 } from './State';
-import {currentView, emptyView, seenBy, type Unread} from './Unread';
+import {emptyView, seenBy, type Unread} from './Unread';
 import {
   NESTED_FALLBACK_WARNING,
   notesSince,
@@ -2028,40 +2028,48 @@ export class YBinding {
     // change of it. Runs on the element the change marks dirty: a stored
     // element inside wrappers (see $unstoredWrapperTextFields), or the
     // wrapper itself (its value is the one stored at its first atom).
+    // In this binding's view, as its other entry points (see guard): an
+    // update app code makes during another binding's work runs its
+    // transforms too.
     const settleTextFields = (node: LexicalNode) =>
-      withPins(this._pins, () => {
-        const state = this.state;
-        const stored = state.yByKey.has(node.getKey());
-        if (
-          this._status !== 'active' ||
-          this.unread !== null ||
-          state.hidden !== null ||
-          !(
-            stored ||
-            ($isElementNode(node) && node.isInline() && $isWrapper(node))
-          ) ||
-          $hasUpdateTag(COLLABORATION_TAG)
-        ) {
-          return;
-        }
-        const editor = this._editor;
-        // The stored formats are looked up once per update (the document
-        // does not change during its transforms).
-        const memo = this.storedFormats;
-        if (memo.state !== editor._pendingEditorState) {
-          memo.state = editor._pendingEditorState;
-          memo.sequences = new Map();
-          memo.lines = new Map();
-        }
-        const fieldsOf = (type: string) => wrapperFieldsOf(editor, type);
-        // The wrappers around the stored element (see
-        // $unstoredWrapperTextFields), or the wrapper itself when its own
-        // text changed (a delete of the text directly in a link); its value
-        // is the one stored at its first atom before the update.
-        const found: (readonly [ElementNode, Attrs | null, number, string])[] =
-          stored
+      seenBy(this.seer, () =>
+        withPins(this._pins, () => {
+          const state = this.state;
+          const stored = state.yByKey.has(node.getKey());
+          if (
+            this._status !== 'active' ||
+            this.unread !== null ||
+            state.hidden !== null ||
+            !(
+              stored ||
+              ($isElementNode(node) && node.isInline() && $isWrapper(node))
+            ) ||
+            $hasUpdateTag(COLLABORATION_TAG)
+          ) {
+            return;
+          }
+          const editor = this._editor;
+          // The stored formats are looked up once per update (the document
+          // does not change during its transforms).
+          const memo = this.storedFormats;
+          if (memo.state !== editor._pendingEditorState) {
+            memo.state = editor._pendingEditorState;
+            memo.sequences = new Map();
+            memo.lines = new Map();
+          }
+          const fieldsOf = (type: string) => wrapperFieldsOf(editor, type);
+          // The wrappers around the stored element (see
+          // $unstoredWrapperTextFields), or the wrapper itself when its own
+          // text changed (a delete of the text directly in a link); its value
+          // is the one stored at its first atom before the update.
+          const found: (readonly [
+            ElementNode,
+            Attrs | null,
+            number,
+            string,
+          ])[] = stored
             ? $unstoredWrapperTextFields(
-                currentView(),
+                this.seer(),
                 state,
                 [node.getKey()],
                 fieldsOf,
@@ -2087,42 +2095,43 @@ export class YBinding {
                   ] as const,
                 ]
               : [];
-        if (found.length === 0) {
-          return;
-        }
-        // Only a wrapper this update left without text, with the text fields
-        // it had before the update: ones this update set (on a wrapper
-        // without text, or in a transform) are stored by the write.
-        const stale = editor.read('latest', () =>
-          found.flatMap(([wrapper, json, format, style]) => {
-            const was = $getNodeByKey(wrapper.getKey());
-            if (
-              !$isElementNode(was) ||
-              was.shouldSerializeTextStyles() ||
-              was.getTextFormat() !== format ||
-              was.getTextStyle() !== style
-            ) {
-              return [];
-            }
-            if (json !== null) {
-              return [[wrapper, json] as const];
-            }
-            const value = this.$storedWrapperValue(was, memo.lines);
-            return value === null ? [] : [[wrapper, value] as const];
-          }),
-        );
-        for (const [wrapper, json] of stale) {
-          const {textFormat, textStyle} = json;
-          if (
-            wrapper.getTextFormat() !==
-              (typeof textFormat === 'number' ? textFormat : 0) ||
-            wrapper.getTextStyle() !==
-              (typeof textStyle === 'string' ? textStyle : '')
-          ) {
-            $setTextFields(wrapper, json);
+          if (found.length === 0) {
+            return;
           }
-        }
-      });
+          // Only a wrapper this update left without text, with the text fields
+          // it had before the update: ones this update set (on a wrapper
+          // without text, or in a transform) are stored by the write.
+          const stale = editor.read('latest', () =>
+            found.flatMap(([wrapper, json, format, style]) => {
+              const was = $getNodeByKey(wrapper.getKey());
+              if (
+                !$isElementNode(was) ||
+                was.shouldSerializeTextStyles() ||
+                was.getTextFormat() !== format ||
+                was.getTextStyle() !== style
+              ) {
+                return [];
+              }
+              if (json !== null) {
+                return [[wrapper, json] as const];
+              }
+              const value = this.$storedWrapperValue(was, memo.lines);
+              return value === null ? [] : [[wrapper, value] as const];
+            }),
+          );
+          for (const [wrapper, json] of stale) {
+            const {textFormat, textStyle} = json;
+            if (
+              wrapper.getTextFormat() !==
+                (typeof textFormat === 'number' ? textFormat : 0) ||
+              wrapper.getTextStyle() !==
+                (typeof textStyle === 'string' ? textStyle : '')
+            ) {
+              $setTextFields(wrapper, json);
+            }
+          }
+        }),
+      );
     for (const {klass} of this._editor._nodes.values()) {
       if (klass.prototype instanceof ElementNode) {
         this.disposers.push(
@@ -2500,13 +2509,20 @@ export class YBinding {
       editorState.read(() => {
         const roles = new Roles(state);
         const cs = state.newCS(root, 'root', 'b');
-        const writer = new Writer(state, roles, tr, editorState, {
-          attrs: new Set(),
-          inline: new Set(),
-          lines: new Set(),
-          removedText: new Map(),
-          structural: new Set(['root']),
-        });
+        const writer = new Writer(
+          state,
+          roles,
+          tr,
+          editorState,
+          {
+            attrs: new Set(),
+            inline: new Set(),
+            lines: new Set(),
+            removedText: new Map(),
+            structural: new Set(['root']),
+          },
+          this.seer,
+        );
         writer.$writeContainer(cs, $getRoot());
       });
       // The seed's runs still open at their container's end (see
@@ -3156,7 +3172,7 @@ export class YBinding {
       $read: () => {
         const cursor = this.$cursorBeforeRead();
         const caret = $showsCaret();
-        const reader = new Reader(this.state);
+        const reader = new Reader(this.state, this.seer);
         reader.$reading(() => {
           for (const cs of list) {
             const el = cs.y === this._root ? $getRoot() : $getNodeByKey(cs.key);
@@ -3724,7 +3740,7 @@ export class YBinding {
     kept: SelectionState | null,
     deep: boolean,
   ): void {
-    const reader = new Reader(this.state);
+    const reader = new Reader(this.state, this.seer);
     let cs = this.state.containers.get(this._root);
     if (cs === undefined) {
       cs = this.state.newCS(this._root, 'root', 'b');
@@ -4330,7 +4346,7 @@ export class YBinding {
     // The composition's node, text and caret before the read (see below).
     const composed = this.$composedCaret();
     const composing = this._editor._compositionKey;
-    const reader = new Reader(state);
+    const reader = new Reader(state, this.seer);
     setRebuilt(reader.rebuilt);
     // What a composition held back whose hold has ended (see $holds) shows
     // first, before this change is read with the composition now going on.
@@ -4484,7 +4500,7 @@ export class YBinding {
           $setCompositionKey(key);
         }
         const caret = $showsCaret();
-        const reader = new Reader(state);
+        const reader = new Reader(state, this.seer);
         rebuilt = reader.rebuilt;
         reader.composedAt = this.$composedCharacter(cursor);
         this.$release(state, reader);
@@ -5231,7 +5247,7 @@ export class YBinding {
     this.state = this.state.configuredLike(this._doc, this._root);
     const root = $getRoot();
     root.clear();
-    const reader = new Reader(this.state);
+    const reader = new Reader(this.state, this.seer);
     const cs = this.state.newCS(this._root, 'root', 'b');
     reader.$readFull(cs, root);
     $setSelection(null);
@@ -5283,7 +5299,7 @@ export class YBinding {
           return;
         }
         const caret = $showsCaret();
-        const reader = new Reader(state);
+        const reader = new Reader(state, this.seer);
         rebuilt = reader.rebuilt;
         reader.composedAt = this.$composedCharacter(cursor);
         this.$release(state, reader);
@@ -6367,7 +6383,14 @@ export class YBinding {
         }
         this.splitAtUnread(tr);
         try {
-          writer = new Writer(state, roles, tr, prevEditorState, plan);
+          writer = new Writer(
+            state,
+            roles,
+            tr,
+            prevEditorState,
+            plan,
+            this.seer,
+          );
           writer.followUp = commit.followUp;
           writer.$run();
         } finally {
@@ -6460,6 +6483,7 @@ export class YBinding {
               tr,
               prevEditorState,
               all,
+              this.seer,
             );
             rewriter.rewriteAll = true;
             rewriter.followUp = commit.followUp;
@@ -6802,15 +6826,10 @@ export class YBinding {
     // seedFrontier).
     let folded: Item | null = null;
     if (unit !== undefined && unit.end !== null) {
-      const left = unitLeftEnd(
-        currentView(),
-        unit.cs.units,
-        unit,
-        state.hidden,
-      );
+      const left = unitLeftEnd(this.seer(), unit.cs.units, unit, state.hidden);
       start = left === null ? unit.cs.y._start : left.right;
       // (Before the copy: a stale start is folded again, see frontierOf.)
-      folded = frontierOf(currentView(), unit.start, left, unit.cs.y);
+      folded = frontierOf(this.seer(), unit.start, left, unit.cs.y);
       formats = new Map(unit.start || []);
     } else if (unit !== undefined && unit.kind === 'implicit') {
       const units = unit.cs.units;
@@ -6818,11 +6837,11 @@ export class YBinding {
       const prevEnd = idx > 0 ? units[idx - 1].end : null;
       let left = prevEnd;
       while (left !== null && !isShownEnd(left, state.hidden)) {
-        left = prevLiveEnd(currentView(), left, state.hidden);
+        left = prevLiveEnd(this.seer(), left, state.hidden);
       }
       start = left === null ? unit.cs.y._start : left.right;
       // (Before the copy: a stale start is folded again, see frontierOf.)
-      folded = frontierOf(currentView(), unit.start, left, unit.cs.y);
+      folded = frontierOf(this.seer(), unit.start, left, unit.cs.y);
       formats = new Map(unit.start || []);
     } else {
       const cs = state.csByKey.get(owner.getKey());
@@ -7375,7 +7394,7 @@ export class YBinding {
     }
     const cursor = this.$cursorBeforeRead();
     const caret = $showsCaret();
-    const reader = new Reader(this.state);
+    const reader = new Reader(this.state, this.seer);
     reader.$reading(() => {
       for (const cs of list) {
         const el = cs.y === this._root ? $getRoot() : $getNodeByKey(cs.key);
@@ -8585,12 +8604,7 @@ export class YBinding {
     const implicit = unit !== undefined && unit.kind === 'implicit';
     let start: Item | null;
     if (unit !== undefined && unit.end !== null) {
-      const left = unitLeftEnd(
-        currentView(),
-        unit.cs.units,
-        unit,
-        state.hidden,
-      );
+      const left = unitLeftEnd(this.seer(), unit.cs.units, unit, state.hidden);
       start = left === null ? unit.cs.y._start : left.right;
     } else if (unit !== undefined && implicit) {
       // Its content starts right after the unit before it, the end of the
@@ -8599,7 +8613,7 @@ export class YBinding {
       const idx = units.indexOf(unit);
       let left = idx > 0 ? units[idx - 1].end : null;
       while (left !== null && !isShownEnd(left, state.hidden)) {
-        left = prevLiveEnd(currentView(), left, state.hidden);
+        left = prevLiveEnd(this.seer(), left, state.hidden);
       }
       start = left === null ? unit.cs.y._start : left.right;
     } else {
@@ -8822,7 +8836,7 @@ export class YBinding {
     ) {
       // Captured in an empty line (see emptyLinePositions): the start of
       // that line, before what was typed into it since.
-      const left = prevLiveEnd(currentView(), found, hidden);
+      const left = prevLiveEnd(this.seer(), found, hidden);
       item = left === null ? (found.parent as YNode)._start : left.right;
       diff = 0;
     } else if (rel.assoc < 0) {
@@ -8855,7 +8869,7 @@ export class YBinding {
           ? null
           : implicitUnitAt(cs, undefined);
       if (implicit !== null) {
-        const left = prevLiveEnd(currentView(), found, hidden);
+        const left = prevLiveEnd(this.seer(), found, hidden);
         return this.$pointInLine(
           implicit.key!,
           left === null ? (found.parent as YNode)._start : left.right,
@@ -8882,8 +8896,8 @@ export class YBinding {
       ownerKey = unit.key;
       const left =
         unit.end === end
-          ? unitLeftEnd(currentView(), unit.cs.units, unit, hidden)
-          : prevLiveEnd(currentView(), end, hidden);
+          ? unitLeftEnd(this.seer(), unit.cs.units, unit, hidden)
+          : prevLiveEnd(this.seer(), end, hidden);
       start = left === null ? parentY._start : left.right;
     } else {
       const cs = this.state.containers.get(parentY);
@@ -8895,8 +8909,8 @@ export class YBinding {
       if (implicit !== null) {
         const left =
           end === null
-            ? prevLiveEnd(currentView(), item, hidden)
-            : prevLiveEnd(currentView(), end, hidden);
+            ? prevLiveEnd(this.seer(), item, hidden)
+            : prevLiveEnd(this.seer(), end, hidden);
         return this.$pointInLine(
           implicit.key!,
           left === null ? parentY._start : left.right,
