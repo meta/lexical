@@ -1200,12 +1200,11 @@ const followed = (doc: Doc): boolean => installs.has(doc);
  */
 class Entry {
   /**
-   * The opener (null for a run folded before paired reading): a private
-   * field, so formats maps stay plain values for the code that compares and
-   * prints them by value (an Item would pull its whole document into those
-   * walks).
+   * The opener: a private field, so formats maps stay plain values for the
+   * code that compares and prints them by value (an Item would pull its
+   * whole document into those walks).
    */
-  readonly #opener: Item | null;
+  readonly #opener: Item;
   /**
    * A live end that named the opener when last asked (see entryPaired): an
    * end in the index always names its opener, so while it stays live the run
@@ -1217,12 +1216,12 @@ class Entry {
     readonly client: number,
     readonly clock: number,
     readonly value: unknown,
-    opener: Item | null,
+    opener: Item,
   ) {
     stats.entries++;
     this.#opener = opener;
   }
-  get opener(): Item | null {
+  get opener(): Item {
     return this.#opener;
   }
   get end(): Item | null {
@@ -1442,8 +1441,7 @@ function setStack(
 /**
  * Whether two stack tops (the shadow values of one key in two formats maps)
  * hold the same runs: the same entry objects, or entries naming the same
- * openers down both chains (runs folded without a stack, which name none,
- * by value). Never walks values as JSON.
+ * openers down both chains. Never walks values as JSON.
  */
 export function equalStacks(a: unknown, b: unknown): boolean {
   if (a instanceof Dormant || b instanceof Dormant) {
@@ -1461,12 +1459,6 @@ export function equalStacks(a: unknown, b: unknown): boolean {
     if (x.client !== y.client || x.clock !== y.clock) {
       return false;
     }
-    if (x.client < 0 && x.value !== y.value) {
-      return (
-        JSON.stringify(x.value) === JSON.stringify(y.value) &&
-        equalStacks(x.below, y.below)
-      );
-    }
     x = x.below;
     y = y.below;
   }
@@ -1476,7 +1468,7 @@ export function equalStacks(a: unknown, b: unknown): boolean {
 /** Whether the opener of stack entry `e` is paired (looked up on demand). */
 function entryPaired(doc: Doc, e: Entry, f: FoldIn): boolean {
   const item = e.opener;
-  if (item === null || goneIn(f, item)) {
+  if (goneIn(f, item)) {
     return false;
   }
   const known = e.end;
@@ -1496,17 +1488,6 @@ function entryPaired(doc: Doc, e: Entry, f: FoldIn): boolean {
 
 function entry(below: Entry | null, opener: Item, value: unknown): Entry {
   return new Entry(below, opener.id.client, opener.id.clock, value, opener);
-}
-
-/**
- * A run the formats map gives `key` without a stack (folded before the
- * document read paired runs, see pairedReadingIn): there every item was
- * unpaired, so its stack was the one run of the last item, whose id no end
- * can name.
- */
-function plainRun(formats: Map<string, unknown>, key: string): Entry | null {
-  const value = formats.get(key);
-  return value === undefined ? null : new Entry(null, -1, -1, value, null);
 }
 
 /**
@@ -1550,7 +1531,7 @@ export function stepPaired(
     return;
   }
   const shadow = info.shadow;
-  const top = topOf(formats, info, key) ?? plainRun(formats, key);
+  const top = topOf(formats, info, key) ?? null;
   const doc = (it.parent as unknown as {doc: Doc}).doc;
   if (isEndValue(value)) {
     // Rule 2: any end, valid or not, removes the unpaired runs above the
@@ -1656,8 +1637,7 @@ function rebuildOnto(
   for (let i = above.length - 1; i >= 0; i--) {
     const e = above[i];
     if (entryPaired(doc, e, f)) {
-      // paired, so it has its opener
-      out = entry(out, e.opener!, e.value);
+      out = entry(out, e.opener, e.value);
     }
   }
   return out;
