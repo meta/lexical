@@ -354,9 +354,9 @@ export type WritePlan = {
 };
 
 export class Writer {
-  /** What the write sees of the document now (see viewOf). */
+  /** What the write sees of the document now (see liveView). */
   get view(): View | null {
-    return this.viewOf();
+    return this.liveView();
   }
   /** The last format pass's fold (see $fixStartsAfter). */
   private passFold: {clock: number; deletions: number; fold: PassFold} | null =
@@ -477,9 +477,9 @@ export class Writer {
     readonly plan: WritePlan,
     /**
      * The binding's view (see View), read at each step, as the reader's
-     * (see Reader#viewOf).
+     * (see Reader#liveView).
      */
-    private readonly viewOf: () => View | null = currentView,
+    private readonly liveView: () => View | null = currentView,
   ) {
     const editor = state.editor;
     this.wrapperFields = type => wrapperFieldsOf(editor, type);

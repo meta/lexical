@@ -472,8 +472,8 @@ export class BlockIdSettler {
   private readonly inlineRuns = new Set<NodeKey>();
   constructor(
     readonly state: State,
-    /** The binding's view, read at each step (see Reader#viewOf). */
-    private readonly viewOf: () => View | null = currentView,
+    /** The binding's view, read at each step (see Reader#liveView). */
+    private readonly liveView: () => View | null = currentView,
   ) {}
 
   /**
@@ -1240,7 +1240,7 @@ export class BlockIdSettler {
       holder = $getNodeByKey(cs.key);
     } else {
       for (let it = item.right; it !== null; it = it.right) {
-        if (isShownEndIn(this.viewOf(), it, state.hidden)) {
+        if (isShownEndIn(this.liveView(), it, state.hidden)) {
           const u = state.unitByEnd.get(it);
           holder =
             u === undefined || u.key === null ? null : $getNodeByKey(u.key);
