@@ -155,11 +155,11 @@ import {
   type Unit,
 } from './State';
 import {
-  deleted as deletedByUnread,
   emptyView,
   endsNewUnit,
   inserted as insertedBy,
   seenBy,
+  touchesAny,
   type Unread,
 } from './Unread';
 import {
@@ -4345,7 +4345,7 @@ export class YBinding {
     const newEnds = new Map<Item, boolean>();
     const shows = (it: Item): boolean =>
       !(hidden !== null && hidden.hides(it)) &&
-      !(unread !== null && insertedBy(unread, it));
+      !(unread !== null && touchesAny(unread, it, 'insertSet'));
     // Whether `it` or anything below it is content the editor does not show,
     // or content a change not read yet deleted that the editor still shows:
     // a unit rewritten from the editor would bring it back (D108).
@@ -4353,7 +4353,7 @@ export class YBinding {
       if (it.deleted) {
         return (
           unread !== null &&
-          deletedByUnread(unread, it) &&
+          touchesAny(unread, it, 'deleteSet') &&
           !insertedBy(unread, it)
         );
       }
@@ -4373,7 +4373,7 @@ export class YBinding {
         for (const c of type._map.values()) {
           if (
             unread !== null &&
-            (c.deleted ? deletedByUnread(unread, c) : insertedBy(unread, c))
+            touchesAny(unread, c, c.deleted ? 'deleteSet' : 'insertSet')
           ) {
             return true;
           }

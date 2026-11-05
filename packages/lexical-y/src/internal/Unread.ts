@@ -89,6 +89,27 @@ export function deleted(view: Unread, item: Item): boolean {
 }
 
 /**
+ * Whether one of the changes of `view` inserted, or deleted, any part of
+ * `item` (Yjs merges an item with the one before it from the same client,
+ * so a part other than its first id can be the change's).
+ */
+export function touchesAny(
+  view: Unread,
+  item: Item,
+  set: 'insertSet' | 'deleteSet',
+): boolean {
+  const {client, clock} = item.id;
+  for (const change of view.changes) {
+    for (let i = 0; i < item.length; i++) {
+      if (change[set].hasId({client, clock: clock + i})) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+/**
  * Whether `end`, the end item of a unit one of the changes of `view`
  * inserted, ends a unit that is wholly new (a paragraph the change inserted),
  * rather than splitting a unit the document had: no content the editor shows

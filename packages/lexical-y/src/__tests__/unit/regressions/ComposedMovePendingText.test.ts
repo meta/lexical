@@ -1326,6 +1326,59 @@ describe('held back, moved to another container with an inline node inserted: wr
   }
 });
 
+// The same, where the collaborator's deletion is right after an earlier one
+// of theirs: Yjs merges the two deleted items, and the merged item's first
+// id is the earlier deletion's. The passed line still counts as holding the
+// change, and nothing it deleted comes back.
+describe('a change not read yet deletes text next to an earlier deletion in a line a moved line passes', () => {
+  for (const gc of GC) {
+    test(`gc ${gc}`, async () => {
+      const t = await setup(() => {}, {gc, ids: [1, 2, 3]});
+      const {a, b} = t;
+      b.update(() => {
+        $getRoot()
+          .clear()
+          .append(
+            ...['aa', 'bbb', 'tail'].map(text =>
+              $createParagraphNode().append($text(text)),
+            ),
+          );
+      });
+      await t.sync();
+      const $bbb = () =>
+        $getRoot()
+          .getAllTextNodes()
+          .find(n => /^b+$/.test(n.getTextContent()))!;
+      b.update(() => {
+        $bbb().spliceText(0, 1, '');
+        $setSelection(null);
+      });
+      await t.sync();
+      t.offline();
+      const seen = Y.encodeStateVector(b.doc);
+      b.update(() => {
+        $bbb().spliceText(0, 1, '');
+        $getRoot()
+          .getAllTextNodes()
+          .find(n => n.getTextContent() === 'aa')!
+          .spliceText(1, 0, 'X');
+        $setSelection(null);
+      });
+      const delta = Y.encodeStateAsUpdate(b.doc, seen);
+      a.update(() => {
+        Y.applyUpdate(a.doc, delta, 'provider');
+        $getRoot().append($getRoot().getFirstChildOrThrow());
+      });
+      await t.sync();
+      for (const p of t.peers) {
+        expect(p.read(() => $getRoot().getTextContent())).not.toContain('bb');
+      }
+      expect(a.describe()).toBe((await freshReader(a)).describe());
+      await expectConverged(t.peers);
+    });
+  }
+});
+
 // #9788: an app's edit in the update of a remote change's read (a selection
 // transform) is written as a local commit is, over the state the read made:
 // the same keep and the same refusal.

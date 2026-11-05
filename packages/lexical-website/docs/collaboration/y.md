@@ -399,7 +399,7 @@ for developers (what happened and what to do): render your own text from
 | `UNSUPPORTED_CONFIG_WARNING` | `BlockIdExtension` with `repairTransforms: true`, or a document with Yjs's format cleanup on (not from `createYDoc`), see [Set up an editor](#set-up-an-editor). Nothing is written; read only. | `'repair-transforms'`: `options`; `'cleanup-formatting'` |
 | `NESTED_FALLBACK_WARNING` | A class that declares a line, format or group is stored as a node of its own (see [How content is stored](#how-content-is-stored)). Once per binding, class and reason. | `'merge-override'`: `type`, `method`; `'undeclared-properties'`: `type`, `properties`; `'inline-slots'`, `'inline-incomplete-schema'`, `'type-name'`, `'merge-incomplete-schema'`, `'merge-slots'`, `'group-children'`, `'group-state-merge'`, `'group-incomplete-schema'`: `type` |
 | `UNSYNCED_VALUE_WARNING` | A property or NodeState value is not plain JSON, so it is not synchronized. Once per binding and property. | `'not-json'`: `property` |
-| `UNSUPPORTED_EDIT_WARNING` | A local update changed the editor while the binding is read only (reported once each time it goes read only), or moved the line being composed with an input method, or a block or inline element holding it, to another container (or replaced such an element with a new one) while a collaborator's change to that line waits for the composition to end, or reordered two lines that each hold a collaborator's change not shown yet (reported for each such update that adds no characters, also for an app's edit in the update of a remote change's read; an update that adds characters, or is made while a change applied during it is not shown yet, is stored). Not written; what it changed is read again, or, once the document cannot be read, the editor shows again the last state it showed before the update. | `'read-only'`, `'composing-move'` |
+| `UNSUPPORTED_EDIT_WARNING` | A local update changed the editor while the binding is read only (reported once each time it goes read only), or moved the line being composed with an input method, or a block or inline element holding it, to another container (or replaced such an element with a new one) while a collaborator's change to that line waits for the composition to end, or reordered two lines that each hold a collaborator's change not shown yet (reported for each such update that adds no characters or other content, also for an app's edit in the update of a remote change's read; an update that adds characters, or is made while a change applied during it is not shown yet, is stored). Not written; what it changed is read again, or, once the document cannot be read, the editor shows again the last state it showed before the update. | `'read-only'`, `'composing-move'` |
 | `SELF_CHECK_WARNING` | The self-check (`selfCheck`) found the editor and the document disagree. | `'local'`, `'remote'`: `problems` |
 | `RECOVERED_READ_WARNING` | A change could not be read; the editor was rebuilt from the document. | `'remote-change'`, `'reread'`: `error` |
 | `RECOVERED_WRITE_WARNING` | A local change could not be written; the document was rewritten. | `'local-change'`: `error` |
@@ -1104,8 +1104,9 @@ not merge as a user might expect:
   such blocks in one container, an update that changes their order is not
   stored, with a warning (`UNSUPPORTED_EDIT_WARNING`, `'composing-move'`):
   only one of them could keep its change (also when one of them moves to
-  another container). An update that adds characters, or that a change
-  applied during it and not shown yet takes part in, is stored instead,
+  another container). An update that adds characters or other content (a
+  decorator, a line break), or that a change applied during it and not
+  shown yet takes part in, is stored instead,
   keeping no block, as if nothing waited (see Input method composition). A change
   applied during an update that moves its block to another container
   (into or out of a table cell or a box) is not kept that way: its text is
