@@ -149,7 +149,13 @@ import {
   typeOf,
   type Unit,
 } from './State';
-import {emptyView, inserted as insertedBy, seenBy, type Unread} from './Unread';
+import {
+  emptyView,
+  endsNewUnit,
+  inserted as insertedBy,
+  seenBy,
+  type Unread,
+} from './Unread';
 import {
   NESTED_FALLBACK_WARNING,
   notesSince,
@@ -4376,7 +4382,8 @@ export class YBinding {
           it !== u.end &&
           isEndItem(it) &&
           unread !== null &&
-          insertedBy(unread, it)
+          insertedBy(unread, it) &&
+          endsNewUnit(unread, it, e => state.unitByEnd.has(e))
         ) {
           // The end of a unit the editor does not show yet (a paragraph a
           // change not read yet inserted): what came before it is that

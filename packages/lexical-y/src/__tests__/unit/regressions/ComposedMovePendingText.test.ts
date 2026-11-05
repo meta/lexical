@@ -32,6 +32,7 @@ import {
   $createTextNode,
   $getEditor,
   $getRoot,
+  $getSelection,
   $hasUpdateTag,
   $setCompositionKey,
   $setSelection,
@@ -41,6 +42,7 @@ import {
   type LexicalEditor,
   type LexicalNode,
   ParagraphNode,
+  type RangeSelection,
   TextNode,
 } from 'lexical';
 import {describe, expect, test} from 'vitest';
@@ -795,6 +797,47 @@ describe('a paragraph and text inserted by a change not read yet, a line moved p
         await expectConverged(t.peers);
       });
     }
+  }
+});
+
+// A change not read yet that splits a line the document had: the line still
+// holds it (the editor shows it whole) and is kept when it moves.
+describe('a line a change not read yet types into and splits, moved', () => {
+  for (const gc of GC) {
+    test(`gc ${gc}`, async () => {
+      const t = await setup(
+        () =>
+          $getRoot().append(
+            ...['aabb', 'mid', 'tail'].map(text =>
+              $createParagraphNode().append($text(text)),
+            ),
+          ),
+        {gc, ids: [1, 2, 3]},
+      );
+      const {a, b} = t;
+      t.offline();
+      const seen = Y.encodeStateVector(b.doc);
+      b.update(() => {
+        const text = $getRoot()
+          .getAllTextNodes()
+          .find(n => n.getTextContent() === 'aabb')!;
+        text.spliceText(1, 0, 'X');
+        text.select(3, 3);
+        ($getSelection() as RangeSelection).insertParagraph();
+        $setSelection(null);
+      });
+      const delta = Y.encodeStateAsUpdate(b.doc, seen);
+      a.update(() => {
+        Y.applyUpdate(a.doc, delta, 'provider');
+        $getRoot().append($getRoot().getFirstChildOrThrow());
+      });
+      await t.sync();
+      expect(a.warnings.filter(w => w.includes('composing'))).toEqual([]);
+      const text = a.read(() => $getRoot().getTextContent());
+      expect(text.replace(/\n+/g, '|')).toBe('mid|tail|aXa|bb');
+      expect(a.describe()).toBe((await freshReader(a)).describe());
+      await expectConverged(t.peers);
+    });
   }
 });
 

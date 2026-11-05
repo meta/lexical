@@ -7,6 +7,7 @@
  */
 
 import {
+  ContentFormat,
   createIdSet,
   type IdSet,
   type Item,
@@ -84,6 +85,30 @@ export function deleted(view: Unread, item: Item): boolean {
     }
   }
   return false;
+}
+
+/**
+ * Whether `end`, the end item of a unit one of the changes of `view`
+ * inserted, ends a unit that is wholly new (a paragraph the change inserted),
+ * rather than splitting a unit the document had: no content the editor shows
+ * lies between it and the end before it (`isEnd`: the ends the binding
+ * knows). Formats are not content.
+ */
+export function endsNewUnit(
+  view: Unread,
+  end: Item,
+  isEnd: (item: Item) => boolean,
+): boolean {
+  for (let it = end.left; it !== null && !isEnd(it); it = it.left) {
+    if (
+      !(it.content instanceof ContentFormat) &&
+      !inserted(view, it) &&
+      (!it.deleted || deleted(view, it))
+    ) {
+      return false;
+    }
+  }
+  return true;
 }
 
 /**
