@@ -68,8 +68,45 @@ export interface Unread {
   readonly dropKept: ((item: Item) => void) | null;
 }
 
+/**
+ * What one binding's work sees of the shared document, passed to the
+ * helpers that read or write it (see Seen): today the changes the binding
+ * has not read yet and the hold's kept items, as Unread. Null: Yjs as it
+ * is.
+ */
+export type View = Unread;
+
 /** The view of the binding whose work is running (see seenBy). */
 let seer: (() => Unread | null) | null = null;
+
+/**
+ * The view the running work runs on (see seenBy): what an explicit view is
+ * checked against while the helpers move to explicit views (scopedView).
+ */
+export function currentView(): View | null {
+  return seer === null ? null : seer();
+}
+
+const __DEV__ = process.env.NODE_ENV !== 'production';
+
+/**
+ * The part of `view` that applies to the items of `type` (see viewFor), as
+ * the helpers that read or write them use it (see Seen). Development
+ * builds check it against the part of the running work's view that applies
+ * there, while both exist: a transition aid while the helpers move to
+ * explicit views, removed with the running work's view. (It sees only the
+ * helpers that scope a view, and not the hold a fold steps in, see
+ * Ident.FoldIn.)
+ */
+export function scopedView(view: View | null, type: YNode): View | null {
+  const scoped = viewFor(view, type);
+  if (__DEV__ && scoped !== viewFor(currentView(), type)) {
+    throw new Error(
+      "@lexical/y: an explicit view differs from the running work's",
+    );
+  }
+  return scoped;
+}
 
 /** The document under `root` as it was before any change. */
 export function emptyView(
@@ -128,7 +165,14 @@ export function seenBy<T>(view: () => Unread | null, fn: () => T): T {
  * which answers what the running work sees through it).
  */
 export function viewOf(type: YNode): Unread | null {
-  const view = seer === null ? null : seer();
+  return viewFor(currentView(), type);
+}
+
+/**
+ * `view` for the items of `type`: `view` itself where `type` is under its
+ * root, else null (Yjs as it is: another binding's root, or none).
+ */
+export function viewFor(view: View | null, type: YNode): View | null {
   if (view === null) {
     return null;
   }

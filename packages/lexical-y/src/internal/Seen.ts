@@ -25,7 +25,14 @@ import {
 
 import {pairedReadingIn, stepFormat, withHeldView} from './Ident';
 import {EMPTY_FORMATS, isEndItem, typeOf} from './State';
-import {deleted, inserted, type Unread, viewOf} from './Unread';
+import {
+  currentView,
+  deleted,
+  inserted,
+  scopedView,
+  type Unread,
+  type View,
+} from './Unread';
 
 /*
  * What a binding's editor shows of the document, in one place: Yjs minus
@@ -61,14 +68,29 @@ export function isHeld(item: Item, hidden: Hidden | null): boolean {
  * insertion included, a kept deletion not.
  */
 export function isStored(item: Item, hidden: Hidden | null): boolean {
+  return isStoredIn(currentView(), item, hidden);
+}
+
+/** isStored, in `view`. */
+export function isStoredIn(
+  root: View | null,
+  item: Item,
+  hidden: Hidden | null,
+): boolean {
   return (
-    !isGone(item) && !(item.deleted && hidden !== null && hidden.keeps(item))
+    !isGoneIn(root, item) &&
+    !(item.deleted && hidden !== null && hidden.keeps(item))
   );
 }
 
 /** Whether `item` is deleted, in the document the write sees. */
 export function isGone(item: Item): boolean {
-  const view = viewOf(item.parent as YNode);
+  return isGoneIn(currentView(), item);
+}
+
+/** isGone, in `view` (see viewFor). */
+export function isGoneIn(root: View | null, item: Item): boolean {
+  const view = scopedView(root, item.parent as YNode);
   if (view === null) {
     return item.deleted;
   }
@@ -108,9 +130,18 @@ export function deletedBy(item: Item, tr: Transaction): boolean {
 /** Bumped by every deleteItem (a fold reused only while nothing was deleted). */
 export let deletions = 0;
 export function deleteItem(item: Item, tr: Transaction): void {
+  deleteItemIn(currentView(), item, tr);
+}
+
+/** deleteItem, in `view`. */
+export function deleteItemIn(
+  root: View | null,
+  item: Item,
+  tr: Transaction,
+): void {
+  const view = scopedView(root, item.parent as YNode);
   deletions++;
   if (item.deleted) {
-    const view = viewOf(item.parent as YNode);
     if (view !== null) {
       view.removed.add(item.id.client, item.id.clock, item.length);
       // A format item a hold showed, deleted by this write too: the editor
@@ -144,12 +175,17 @@ function attrItem(y: YNode, view: Unread, key: string): Item | null {
 
 /** The value of attribute `key` of `y`, in the document the write sees. */
 export function attrOf(y: YNode, key: string): unknown {
-  const view = viewOf(y);
+  return attrOfIn(currentView(), y, key);
+}
+
+/** attrOf, in `view`. */
+export function attrOfIn(root: View | null, y: YNode, key: string): unknown {
+  const view = scopedView(root, y);
   if (view === null) {
     return y.getAttr(key);
   }
   const v = attrItem(y, view, key);
-  if (v === null || isGone(v)) {
+  if (v === null || isGoneIn(root, v)) {
     return undefined;
   }
   const content = v.content.getContent();
@@ -158,12 +194,20 @@ export function attrOf(y: YNode, key: string): unknown {
 
 /** The attributes of `y`, in the document the write sees. */
 export function attrsOf(y: YNode): Record<string, unknown> {
-  if (viewOf(y) === null) {
+  return attrsOfIn(currentView(), y);
+}
+
+/** attrsOf, in `view`. */
+export function attrsOfIn(
+  root: View | null,
+  y: YNode,
+): Record<string, unknown> {
+  if (scopedView(root, y) === null) {
     return y.getAttrs() as Record<string, unknown>;
   }
   const out: Record<string, unknown> = {};
   y._map.forEach((_item, key) => {
-    const value = attrOf(y, key);
+    const value = attrOfIn(root, y, key);
     if (value !== undefined) {
       out[key] = value;
     }
@@ -183,7 +227,16 @@ export function attrsBefore(
   y: YNode,
   tr: Transaction,
 ): Record<string, unknown> {
-  const view = viewOf(y);
+  return attrsBeforeIn(currentView(), y, tr);
+}
+
+/** attrsBefore, in `view`. */
+export function attrsBeforeIn(
+  root: View | null,
+  y: YNode,
+  tr: Transaction,
+): Record<string, unknown> {
+  const view = scopedView(root, y);
   const out: Record<string, unknown> = {};
   y._map.forEach((latest, key) => {
     let v: Item | null = latest;
@@ -199,7 +252,7 @@ export function attrsBefore(
     const noted = notedIn.get(tr);
     if (
       v !== null &&
-      (!isGone(v) ||
+      (!isGoneIn(root, v) ||
         tr.deleteSet.hasId(v.id) ||
         (noted !== undefined && noted.hasId(v.id)))
     ) {
@@ -217,7 +270,18 @@ export function setAttr(
   value: unknown,
   tr: Transaction,
 ): void {
-  const view = viewOf(y);
+  setAttrIn(currentView(), y, key, value, tr);
+}
+
+/** setAttr, in `view`. */
+export function setAttrIn(
+  root: View | null,
+  y: YNode,
+  key: string,
+  value: unknown,
+  tr: Transaction,
+): void {
+  const view = scopedView(root, y);
   const left = view === null ? null : attrItem(y, view, key);
   if (view === null || left === (y._map.get(key) ?? null)) {
     y.setAttr(key, value as never);
@@ -245,14 +309,24 @@ export function setAttr(
 
 /** Delete attribute `key` of `y`: its value in the document seen. */
 export function deleteAttr(y: YNode, key: string, tr: Transaction): void {
-  const view = viewOf(y);
+  deleteAttrIn(currentView(), y, key, tr);
+}
+
+/** deleteAttr, in `view`. */
+export function deleteAttrIn(
+  root: View | null,
+  y: YNode,
+  key: string,
+  tr: Transaction,
+): void {
+  const view = scopedView(root, y);
   if (view === null) {
     y.deleteAttr(key);
     return;
   }
   const v = attrItem(y, view, key);
-  if (v !== null && !isGone(v)) {
-    deleteItem(v, tr);
+  if (v !== null && !isGoneIn(root, v)) {
+    deleteItemIn(root, v, tr);
   }
 }
 
@@ -266,7 +340,16 @@ export function unheldLength(item: Item, hidden: Hidden | null): number {
 
 /** The length of an item the editor shows (live content only). */
 export function shownLength(item: Item, hidden: Hidden | null): number {
-  if (!item.countable || isGone(item)) {
+  return shownLengthIn(currentView(), item, hidden);
+}
+
+/** shownLength, in `view`. */
+export function shownLengthIn(
+  root: View | null,
+  item: Item,
+  hidden: Hidden | null,
+): number {
+  if (!item.countable || isGoneIn(root, item)) {
     return 0;
   }
   return unheldLength(item, hidden);
@@ -277,8 +360,17 @@ export function shownLength(item: Item, hidden: Hidden | null): number {
  * keeps, see Hidden#keeps), and not held back.
  */
 export function isShown(item: Item, hidden: Hidden | null): boolean {
+  return isShownIn(currentView(), item, hidden);
+}
+
+/** isShown, in `view`. */
+export function isShownIn(
+  root: View | null,
+  item: Item,
+  hidden: Hidden | null,
+): boolean {
   return (
-    (!isGone(item) || (hidden !== null && hidden.keeps(item))) &&
+    (!isGoneIn(root, item) || (hidden !== null && hidden.keeps(item))) &&
     !isHeld(item, hidden)
   );
 }
@@ -308,6 +400,15 @@ export function isShownEnd(it: Item, hidden: Hidden | null): boolean {
   // The cheap type test first: walks over a line's items (most of them text
   // and format items) then look up the write's view only for its ends.
   return isEndItem(it) && !isGone(it) && !isHeld(it, hidden);
+}
+
+/** isShownEnd, in `view`. */
+export function isShownEndIn(
+  root: View | null,
+  it: Item,
+  hidden: Hidden | null,
+): boolean {
+  return isEndItem(it) && !isGoneIn(root, it) && !isHeld(it, hidden);
 }
 
 /**
