@@ -681,7 +681,7 @@ function styles(peer: Peer): string[] {
 for (const gc of [false, true]) {
   const g = `gc ${gc ? 'on' : 'off'}`;
 
-  test(`growth3: recolors around a deleted colored spot keep one color run (${g})`, async () => {
+  test(`recolors around a deleted colored spot keep one color run (${g})`, async () => {
     for (const control of [false, true]) {
       const t = await setup(() => $line($createTextNode('abcdefghijklmnop')), {
         gc,

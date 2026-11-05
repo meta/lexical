@@ -10,19 +10,19 @@
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 /**
- * Rebind generator. Bindings that stop and restart on the same Y.Doc while a remote
- * peer writes are an input dimension; caches tied to binding lifetime need it.
+ * Bindings that stop, and new ones that start on the same document while a
+ * raw peer writes: caches tied to a binding's lifetime must not outlive it.
  *
- * Per seed: one Y.Doc (createYDoc), a bound editor that writes random local edits, then STOPS (no binding attached);
- * a raw remote peer (plain @y/y Y.Doc, no @lexical/y code; its own clientID) applies random structural and format
- * changes to the layout root (deletes that may cross line ends, text inserts with or without formats, covered and
- * uncovered format writes) and the update is applied to the unbound doc; then a NEW binding starts on the same Y.Doc
- * and edits. After every author op (and right after each rebind): author editor JSON == a fresh reader of the
- * encoded doc and no error (a divergence ends the seed); a self-check warning with author == fresh is recorded
- * (scFirst) and the seed continues. Identity writes follow the build (LEXICAL_Y_PAIRED_WRITES=1 or the
- * flipped constant); gc from LEXICAL_Y_GC.
- * Env: RB_FROM (first seed), RB_SEEDS, RB_CYCLES (default 8), RB_OPS (author ops per bound phase, default 5),
- * RB_OUT (jsonl: one line per seed: {seed, ok, first:{cycle, phase, op, author, fresh} | null, warns, errors, ops}).
+ * Per session: one document (createYDoc) and a bound editor that makes
+ * random local edits, then stops. A raw remote peer (plain @y/y, no
+ * @lexical/y code, its own client id) makes random structural and format
+ * changes to the layout root (deletes that may cross line ends, text
+ * inserts with or without formats, covered and uncovered format writes),
+ * applied to the unbound document; then a new binding starts on it and
+ * edits. After every author edit, and right after each rebind, the author's
+ * editor equals a fresh reader of the encoded document and nothing threw.
+ * gc from LEXICAL_Y_GC; RB_CYCLES (default 8) and RB_OPS (author edits per
+ * bound phase, default 5) size a session.
  */
 import * as Y from '@y/y';
 import {
@@ -43,13 +43,13 @@ import {expect, test} from 'vitest';
 import {createYDoc, type YDoc} from '../../..';
 import {createBoundEditor, NODES} from '../../utils/harness';
 
-// Sessions of the rebind generator that an earlier identity revision got
-// wrong with gc off and on: text
-// twice, or typed text in another paragraph, after a binding stopped while
-// a raw peer wrote and a new binding started on the same document. The
-// cause was a per-item memo of prevLiveEnd that outlived the
-// binding; it is removed. Main and this branch: none wrong.
-const SEEDS_WRONG_ON_HEAD_9 = [
+// Sessions of the rebind generator that an earlier revision of layout 3 got
+// wrong with gc off and on (text shown twice, or typed text in another
+// paragraph) after a binding stopped while a raw peer wrote and a new
+// binding started on the same document. The cause was a per-item memo of
+// prevLiveEnd that outlived the binding; it is removed. Main and layout 3:
+// none wrong.
+const SESSIONS = [
   100014, 100017, 100035, 100044, 100059, 100080, 100081, 100093,
 ];
 const CYCLES = Number(process.env.RB_CYCLES ?? 8);
@@ -231,7 +231,7 @@ function remoteOps(doc: YDoc, r: () => number, client: number): string[] {
   return log;
 }
 
-for (const seed of SEEDS_WRONG_ON_HEAD_9) {
+for (const seed of SESSIONS) {
   test(
     `rebind session ${seed}: the author equals a fresh reader after every op and rebind`,
     {timeout: 60_000},
