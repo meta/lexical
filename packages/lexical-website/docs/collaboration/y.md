@@ -1063,10 +1063,12 @@ document's content and the server needs no check to keep them out.
 To seed, edit or read documents on the server, see
 [Server-side editing](./y-server.md).
 
-A server or relay that loads a document into a Yjs `Doc` and stores its
-state must turn off Yjs's format cleanup on that document before it applies
-updates, as the clients do. `createYDoc` (from `@lexical/y`, or
-`@lexical/y/headless`) makes such a document, with the stored state applied:
+A server or relay that holds a document in a Yjs `Doc` (to apply clients'
+updates to it, store, compact or merge it) creates it with `createYDoc`
+(from `@lexical/y`, or `@lexical/y/headless`): it makes the document as the
+clients make theirs, with Yjs's format cleanup turned off and the stored
+state applied. `@lexical/y` ships no relay helper; `createYDoc` is the way to
+hold its documents:
 
 ```ts
 import {createYDoc} from '@lexical/y/headless';
@@ -1074,12 +1076,16 @@ import {createYDoc} from '@lexical/y/headless';
 const doc = createYDoc(stored);
 ```
 
-A relay that cannot import it sets the flag on a new document itself
-(`doc.cleanupFormatting = false`).
+A relay that cannot import it turns the cleanup off on a new document
+itself (`doc.cleanupFormatting = false`) before it applies anything.
 
 Otherwise, when Yjs applies an update there it deletes format items that
 it finds redundant but the clients keep, and the state the server stores
-reads differently from what the clients show.
+reads differently from what the clients show. The cleanup also costs time
+on layout 3: loading a stored layout-3 document (one `Y.applyUpdate` of its
+state into a new `Doc`) takes about 150 ms for 20,000 words with the cleanup
+on, against about 19 ms with it off, and about 60 ms against 8 ms for 5,000
+words. With the cleanup off, a load costs what it costs on main's layout.
 
 **A relay for `@y/websocket` clients.** The published
 `@y/websocket-server` does not fit: its latest version, 0.1.5, depends on

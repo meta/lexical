@@ -103,12 +103,15 @@ binding.initialize();
 
 ## Servers
 
-A server or relay that loads a document into a plain Yjs `Doc` and stores
-its state must set `doc.cleanupFormatting = false` before it applies
-updates (`createYDoc(state)`, from `@lexical/y` or `@lexical/y/headless`,
-makes such a document, as the clients do). Otherwise Yjs's format cleanup
-deletes format items the clients keep, and the stored state reads
-differently from what the clients show. See
+A server or relay that holds a document in a Yjs `Doc` (to apply updates
+to it, store, compact or merge it) creates it with `createYDoc(state)`, from
+`@lexical/y` or `@lexical/y/headless`, as the clients do; the package ships
+no relay helper. A relay that cannot import it sets
+`doc.cleanupFormatting = false` on a new `Doc` before it applies updates.
+Otherwise Yjs's format cleanup deletes format items the clients keep, and
+the stored state reads differently from what the clients show. It is also
+slow on layout 3: loading a 20,000-word document takes about 150 ms with the
+cleanup on, against 19 ms with it off. See
 [Servers](https://lexical.dev/docs/collaboration/y#servers) for the other
 requirements (yrs versions, 32-bit client ids).
 
