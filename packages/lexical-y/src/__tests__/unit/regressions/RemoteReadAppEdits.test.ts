@@ -256,10 +256,14 @@ type Kind =
   | 'slot text host format'
   | 'text the read changed'
   | 'slot the read changed'
-  | 'list item at the start';
+  | 'list item at the start'
+  | 'update the app queues';
+
+/** The kinds, and one the document cannot store. */
+type Edit = Kind | 'unstorable slot';
 
 /** One edit of `kind`, once per editor. */
-function $editOnce(done: WeakSet<LexicalEditor>, kind: Kind): void {
+function $editOnce(done: WeakSet<LexicalEditor>, kind: Edit): void {
   const editor = $getEditor();
   if (done.has(editor)) {
     return;
@@ -291,6 +295,21 @@ function $editOnce(done: WeakSet<LexicalEditor>, kind: Kind): void {
   } else if (kind === 'decorator line format') {
     // A line holding only a decorator has no text to take a format from.
     (lines[6] as ParagraphNode).setTextFormat(2);
+  } else if (kind === 'unstorable slot') {
+    // A plain paragraph is stored as a line, which has no slots.
+    $setSlot(
+      tail as unknown as CaptionedNode,
+      'title',
+      $createParagraphNode().append($createTextNode('nowhere')),
+    );
+  } else if (kind === 'update the app queues') {
+    // Lexical runs it in the read's update, behind the read.
+    editor.update(() => {
+      const text = (
+        $getRoot().getChildAtIndex(2) as ParagraphNode
+      ).getFirstChildOrThrow() as TextNode;
+      text.setTextContent(text.getTextContent() + '+');
+    });
   } else if (kind === 'slot the read changed') {
     // The read set this slot on the host; the app sets it again.
     $setSlot(
@@ -363,7 +382,7 @@ class CaptionedNode extends ParagraphNode {
   }
 }
 
-const kinds = new WeakMap<LexicalEditor, Kind>();
+const kinds = new WeakMap<LexicalEditor, Edit>();
 const kindsDone = new WeakSet<LexicalEditor>();
 
 /** Makes its editor's kind of edit from its selectionTransform once its line is shut. */
@@ -479,6 +498,7 @@ async function runKind(kind: Kind, gc: boolean): Promise<void> {
         '"textFormat":2,"textStyle":"","type":"read_edit_captioned"',
       'slot the read changed': '"text":"app caption"',
       'text the read changed': '"text":"three 3#"',
+      'update the app queues': '"text":"tail+"',
     }[kind],
   );
   if (kind === 'move') {
@@ -503,6 +523,7 @@ describe('every kind of app edit made in the update of a remote read is stored',
     'text the read changed',
     'slot the read changed',
     'list item at the start',
+    'update the app queues',
   ] as const) {
     for (const gc of [false, true]) {
       test(`${kind}, gc ${gc}`, () => runKind(kind, gc));
@@ -726,5 +747,101 @@ describe('a selection an app sets in a remote read is notified after the read, w
         await expectConverged(t.peers);
       });
     }
+  }
+});
+
+describe('an app edit in a remote read the binding does not write', () => {
+  for (const gc of [false, true]) {
+    test(`read only: read again, gc ${gc}`, async () => {
+      const t = await setup(
+        () =>
+          $getRoot().append(
+            $create(Line).append(
+              $createTextNode('one '),
+              $create(EditingText).setTextContent('two'),
+            ),
+            $createParagraphNode().append($createTextNode('three')),
+            $createParagraphNode().append($createTextNode('tail')),
+          ),
+        {gc, ids: [1, 2, 3], nodes: [...NODES, Line, EditingText]},
+      );
+      const {a, b, c} = t;
+      const host = document.createElement('div');
+      host.contentEditable = 'true';
+      document.body.append(host);
+      a.editor.setRootElement(host);
+      host.focus();
+      onTestFinished(() => {
+        a.editor.setRootElement(null);
+        host.remove();
+        t.peers.forEach(p => p.stop());
+      });
+      a.update(() => {
+        $getRoot().getAllTextNodes()[1].select(1, 1);
+      });
+      await t.sync();
+      c.update(() => {
+        $setState($getRoot().getFirstChildOrThrow(), shut, true);
+        $setSelection(null);
+      });
+      await t.sync();
+      // A schema this binding does not know: it reads, and writes nothing.
+      a.doc.get('lexical-y').setAttr('lexical-y-schema:2', true);
+      expect(a.binding.status).toBe('readonly');
+      b.update(() => {
+        $getRoot().getAllTextNodes()[2].setTextContent('three 3');
+        $setSelection(null);
+      });
+      await t.sync();
+      expect(a.describe()).toBe((await freshReader(a)).describe());
+      expect(a.describe()).not.toMatch(/tail!/);
+    });
+
+    test(`a slot the document cannot store: read only, gc ${gc}`, async () => {
+      const t = await setup(
+        () =>
+          $getRoot().append(
+            $create(Line).append(
+              $createTextNode('one '),
+              $create(KindText).setTextContent('two'),
+            ),
+            $createParagraphNode().append($createTextNode('three')),
+            $createParagraphNode().append($createTextNode('tail')),
+          ),
+        {gc, ids: [1, 2, 3], nodes: [...NODES, Line, KindText]},
+      );
+      const {a, b, c} = t;
+      const host = document.createElement('div');
+      host.contentEditable = 'true';
+      document.body.append(host);
+      a.editor.setRootElement(host);
+      host.focus();
+      onTestFinished(() => {
+        a.editor.setRootElement(null);
+        host.remove();
+        t.peers.forEach(p => p.stop());
+      });
+      kinds.set(a.editor, 'unstorable slot');
+      a.update(() => {
+        $getRoot().getAllTextNodes()[1].select(1, 1);
+      });
+      await t.sync();
+      c.update(() => {
+        $setState($getRoot().getFirstChildOrThrow(), shut, true);
+        $setSelection(null);
+      });
+      await t.sync();
+      b.update(() => {
+        $getRoot().getAllTextNodes()[2].setTextContent('three 3');
+        $setSelection(null);
+      });
+      await t.sync();
+      // As for the same edit in a local update: warned, and read only.
+      expect(kindsDone.has(a.editor)).toBe(true);
+      expect(a.binding.status).toBe('readonly');
+      expect(a.warnings.some(w => w.includes('slots on nodes stored'))).toBe(
+        true,
+      );
+    });
   }
 });

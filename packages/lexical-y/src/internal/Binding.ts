@@ -3905,6 +3905,11 @@ export class YBinding {
       this.$refuseChanged(dirtyElements, dirtyLeaves, editorState, readState);
       return;
     }
+    // As for a local commit (see onUpdate): fail closed on slots the
+    // document cannot store.
+    if (this.refuseUnstorableSlots(editorState, dirtyElements.keys())) {
+      return;
+    }
     const commit: Commit = {
       followUp: false,
       naming: false,
