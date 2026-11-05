@@ -627,6 +627,13 @@ type Commit = {
   readonly followUp: boolean;
   /** A user's own edit: in the undo history, normalized by its author. */
   readonly userEdit: boolean;
+  /**
+   * An edit by this client's code that is out of the undo history (an app
+   * edit made while a remote change is read, see $writeReadEdits): written
+   * with the follow-up origin, but it carries this client's schema version
+   * as a local edit does (D08).
+   */
+  readonly recordOwnSchema?: true;
   /** Whether the groups it changed are refreshed (see $groupsToRefresh). */
   readonly scansGroups: boolean;
 };
@@ -4593,6 +4600,10 @@ export class YBinding {
       followUp: false,
       naming: false,
       normalize: false,
+      // This client's code made the edit (not every client, as a follow-up
+      // is): it carries this client's schema version (D08), though out of
+      // the undo history (D111).
+      recordOwnSchema: true,
       refresh: false,
       registration: false,
       remote: false,
@@ -5887,8 +5898,9 @@ export class YBinding {
           writer.$run();
         } finally {
           // A local edit (not a follow-up, which is no one's edit) carries
-          // this client's schema version.
-          if (origin === this) {
+          // this client's schema version, and so does an app edit written
+          // out of the undo history (recordOwnSchema).
+          if (origin === this || commit.recordOwnSchema) {
             recordSchema(this._root, this.options.schemaVersion, tr, t =>
               this.isUnderRoot(t),
             );
@@ -5978,7 +5990,7 @@ export class YBinding {
             rewriter.$run();
             this.noteRefused(rewriter, commit.naming);
           } finally {
-            if (origin === this) {
+            if (origin === this || commit.recordOwnSchema) {
               recordSchema(this._root, this.options.schemaVersion, tr, t =>
                 this.isUnderRoot(t),
               );
