@@ -340,7 +340,7 @@ provider shares. While a remote change is not read yet (one applied inside an
 update, or one an app's own document observers see before the binding has
 read it), it takes the positions in a Yjs
 transaction that changes nothing and emits no `update` (the document's
-`beforeTransaction` and `afterTransaction` observers see it); called again from
+transaction observers, `afterAllTransactions` included, see it); called again from
 those observers, it returns the same positions without opening another:
 
 ```ts
