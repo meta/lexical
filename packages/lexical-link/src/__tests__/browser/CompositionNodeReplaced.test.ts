@@ -155,27 +155,24 @@ describe.runIf(server.browser === 'chromium')(
       });
     }
 
-    test.fails(
-      'the first key after the browser ended the composition reaches its command',
-      async () => {
-        // No commit in between: the key's own keydown ends the editor's
-        // composition (Enter, arrows, Tab, Escape dispatch from keydown).
-        const {editor} = await composeThenChange('unwrap the link');
-        let enters = 0;
-        editor.registerCommand(
-          KEY_ENTER_COMMAND,
-          () => {
-            enters++;
-            return false;
-          },
-          COMMAND_PRIORITY_CRITICAL,
-        );
-        await userEvent.keyboard('{Enter}');
-        await wait(50);
-        expect(enters).toBe(1);
-        expect(editor._compositionKey).toBe(null);
-      },
-    );
+    test('the first key after the browser ended the composition reaches its command', async () => {
+      // No commit in between: the key's own keydown ends the editor's
+      // composition (Enter, arrows, Tab, Escape dispatch from keydown).
+      const {editor} = await composeThenChange('unwrap the link');
+      let enters = 0;
+      editor.registerCommand(
+        KEY_ENTER_COMMAND,
+        () => {
+          enters++;
+          return false;
+        },
+        COMMAND_PRIORITY_CRITICAL,
+      );
+      await userEvent.keyboard('{Enter}');
+      await wait(50);
+      expect(enters).toBe(1);
+      expect(editor._compositionKey).toBe(null);
+    });
 
     test('a selection made after the browser ended the composition is deleted as made', async () => {
       const {contentEditable, editor} =
