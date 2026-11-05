@@ -161,8 +161,9 @@ export type YUnsupportedLayoutData =
       readonly supported: number;
     }
   /**
-   * The root has content but no layout record (`'missing'`), or the record
-   * was removed while the binding was writing (`'removed'`).
+   * The root has content, or records such as an epoch, but no layout
+   * record (`'missing'`), or the record was removed while the binding was
+   * writing (`'removed'`).
    */
   | {readonly reason: 'missing' | 'removed'; readonly supported: number}
   /**

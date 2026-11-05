@@ -2529,17 +2529,24 @@ export class YBinding {
     }
     const version = recordedLayout(this._root);
     if (version === null) {
-      if (this._root.length > 0 || this._status === 'active') {
+      // An empty root holding a gate record but no layout record (an epoch
+      // alone): not pristine, so initialize() seeds nothing, and no layout
+      // is known. Missing, as the runner and describeYRoom see it.
+      const recordsOnly = this._root.length === 0 && !this.rootPristine();
+      if (this._root.length > 0 || recordsOnly || this._status === 'active') {
         // Content without a layout record, or a record removed from a
         // document this binding was writing (an outside writer deleted it;
         // no client of this layout deletes one): no layout is known, so
         // nothing is written.
-        const reason = this._root.length > 0 ? 'missing' : 'removed';
+        const reason =
+          this._root.length > 0 || recordsOnly ? 'missing' : 'removed';
         this.warn(
           UNSUPPORTED_LAYOUT_WARNING,
-          reason === 'missing'
+          this._root.length > 0
             ? 'the root has content and no layout record, so this editor is read only: the record was deleted, or something other than this binding wrote the root. Bind a root only this binding writes (the root option), and reseed the content into a new room with seedYState'
-            : 'the layout record was removed, so this editor is read only: something other than this binding wrote the root; reseed the content into a new room with seedYState',
+            : recordsOnly
+              ? "the root holds records (such as an epoch) but no layout record, so this editor is read only and seeds nothing: something other than this binding wrote the root's records; reseed the content into a new room with seedYState"
+              : 'the layout record was removed, so this editor is read only: something other than this binding wrote the root; reseed the content into a new room with seedYState',
           {reason, supported: LAYOUT_VERSION},
         );
         this.setStatus('readonly');
