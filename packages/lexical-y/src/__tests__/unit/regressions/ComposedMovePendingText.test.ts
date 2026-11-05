@@ -377,6 +377,39 @@ describe('held back, moved to another container: not written', () => {
   }
 });
 
+// The same moves in a commit that also types: what is typed is never
+// dropped, so the commit is written (as it would be without the hold: the
+// held text is lost where the write cannot keep it), with no warning.
+describe('held back, moved to another container with typing: written', () => {
+  for (const gc of GC) {
+    test(`the line, into a block node (gc ${gc})`, async () => {
+      const t = await setup(
+        () =>
+          $getRoot().append(
+            $createParagraphNode().append($text('abc')),
+            $createParagraphNode().append($text('mid')),
+            $createBoxNode().append(
+              $createParagraphNode().append($text('tail')),
+            ),
+          ),
+        {gc, ids: [1, 2, 3]},
+      );
+      await composeAndMove(t, 'text', () => {
+        const text = $abc();
+        text.spliceText(1, 0, 'x');
+        ($getRoot().getLastChildOrThrow() as ElementNode).append(
+          text.getParentOrThrow(),
+        );
+      });
+      expect(refusals(t.a)).toEqual([]);
+      const shown = t.a.describe();
+      expect(shown).toContain('axbc');
+      expect(shown).toBe((await freshReader(t.a)).describe());
+      await expectConverged(t.peers);
+    });
+  }
+});
+
 // #9784: a change applied during a local update is read after it; the
 // update was written on the document without it (see Unread).
 describe('inserted by a change not read yet, the list item holding it moved', () => {

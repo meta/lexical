@@ -4262,7 +4262,10 @@ export class YBinding {
    * $movesHeld): nothing of it is written, what it changed is read again at
    * once (the editor shows the document, where the held content still is),
    * and it is reported (UNSUPPORTED_EDIT_WARNING, `'composing-move'`), once
-   * per refused commit. Returns whether it refused. `prevEditorState`: the
+   * per refused commit. Not a commit that adds characters (see
+   * addsCharacters): what is typed is never dropped, and such a commit is
+   * written as any other (the held content is then lost where the write
+   * cannot keep it). Returns whether it refused. `prevEditorState`: the
    * state the commit is written over.
    */
   private refusesHeldMove(
@@ -4279,7 +4282,8 @@ export class YBinding {
         () =>
           (hidden !== null && this.$movesHeld(hidden)) ||
           this.$reordersHeld(hidden, unread),
-      )
+      ) ||
+      addsCharacters(dirtyLeaves, editorState, prevEditorState)
     ) {
       return false;
     }
@@ -8758,4 +8762,49 @@ function $splitLineBreaks(node: TextNode): void {
       }
     }
   }
+}
+
+/**
+ * Whether a commit adds characters: a text node it changed whose text is not
+ * a subsequence (by code point) of the text it had, or a new text node that
+ * is not empty. Only a commit that adds none is refused (see
+ * YBinding#refusesHeldMove): a refusal reads the document again, and would
+ * drop what was typed.
+ */
+function addsCharacters(
+  dirtyLeaves: Set<NodeKey>,
+  editorState: EditorState,
+  prevEditorState: EditorState,
+): boolean {
+  const nodes = editorState._nodeMap;
+  const prevNodes = prevEditorState._nodeMap;
+  for (const key of dirtyLeaves) {
+    const node = nodes.get(key);
+    if (!$isTextNode(node)) {
+      continue;
+    }
+    const text = node.__text;
+    const prev = prevNodes.get(key);
+    if (!$isTextNode(prev)) {
+      if (text !== '') {
+        return true;
+      }
+      continue;
+    }
+    if (!isSubsequence(Array.from(text), Array.from(prev.__text))) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/** Whether `part` is a subsequence of `whole`. */
+function isSubsequence(part: string[], whole: string[]): boolean {
+  let at = 0;
+  for (const c of whole) {
+    if (at < part.length && part[at] === c) {
+      at++;
+    }
+  }
+  return at === part.length;
 }
