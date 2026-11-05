@@ -503,7 +503,11 @@ class ReplacingText extends TextNode {
 }
 
 describe('the selection change an app makes in a remote read is notified once', () => {
-  for (const shape of ['moved', 'replaced'] as const) {
+  for (const shape of [
+    'moved',
+    'replaced',
+    'replaced after the read moved it',
+  ] as const) {
     for (const gc of [false, true]) {
       test(`${shape}, gc ${gc}`, async () => {
         const t = await setup(
@@ -555,7 +559,12 @@ describe('the selection change an app makes in a remote read is notified once', 
           ),
         );
         b.update(() => {
-          $getRoot().getAllTextNodes()[2].setTextContent('three 3');
+          if (shape === 'replaced after the read moved it') {
+            // Text before A's caret, in its own node: the read moves it.
+            $getRoot().getAllTextNodes()[1].spliceText(0, 0, 'X');
+          } else {
+            $getRoot().getAllTextNodes()[2].setTextContent('three 3');
+          }
           $setSelection(null);
         });
         await t.sync();

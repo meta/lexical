@@ -3667,9 +3667,15 @@ export class YBinding {
       return false;
     }
     editor.update(() => {}, {skipTransforms: true});
+    // What Lexical counts as notified now; once another notification
+    // replaces it (the one $quietSelection holds where the read itself
+    // moved the selection), this one is not needed.
+    const notified = editor._lastNotifiedSelection;
     $onUpdate(() => {
       editor.update(() => {
-        editor.dispatchCommand(SELECTION_CHANGE_COMMAND, undefined);
+        if (editor._lastNotifiedSelection === notified) {
+          editor.dispatchCommand(SELECTION_CHANGE_COMMAND, undefined);
+        }
       });
     });
     return true;
