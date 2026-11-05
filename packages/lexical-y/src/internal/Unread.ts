@@ -99,9 +99,14 @@ export function touchesAny(
   set: 'insertSet' | 'deleteSet',
 ): boolean {
   const {client, clock} = item.id;
+  const end = clock + item.length;
   for (const change of view.changes) {
-    for (let i = 0; i < item.length; i++) {
-      if (change[set].hasId({client, clock: clock + i})) {
+    const ranges = change[set].clients.get(client);
+    if (ranges === undefined) {
+      continue;
+    }
+    for (const r of ranges.getIds()) {
+      if (r.clock < end && clock < r.clock + r.len) {
         return true;
       }
     }
