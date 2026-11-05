@@ -231,7 +231,12 @@ content with random values" in [Limits](#limits)).
   integrated before them, and they are written after it, on the document as
   it was before that change, which they were made on: their edits land
   where they were made, and the change is read after them (providers that
-  apply changes from network or channel events never do this).
+  apply changes from network or channel events never do this). A remote
+  change applied inside an update (in `editor.update()`, a command, a
+  transform or a listener) is read after that update has committed and been
+  written, in a commit of its own tagged `COLLABORATION_TAG`; where the
+  update commits nothing or throws, a microtask after `editor.update()`
+  returns.
 - To seed or convert a document on a server, use `seedYState` (see
   [Server-side editing](./y-server.md)).
 
@@ -331,7 +336,12 @@ right after that update commits, in an update of its own.
 to and from Yjs relative positions for an awareness-based cursor UI; the
 binding does not render remote cursors itself.
 `getCursor()` returns plain JSON, so it can go in the awareness state the
-provider shares:
+provider shares. While a remote change is not read yet (one applied inside an
+update, or one an app's own document observers see before the binding has
+read it), it takes the positions in a Yjs
+transaction that changes nothing and emits no `update` (the document's
+transaction observers, `afterAllTransactions` included, see it); called again from
+those observers, it returns the same positions without opening another:
 
 ```ts
 // Share this client's selection.
@@ -875,7 +885,16 @@ person's:
   refresh of derived list fields (numbering), also on open. So the tag
   tells apart users' own edits, which a listener may act on, from
   everything else. (Lexical's update that runs a newly registered transform
-  over the document keeps Lexical's tags; it writes nothing.)
+  over the document keeps Lexical's tags; it writes nothing.) An edit an
+  app's code makes in the update of a remote change's read, after the read
+  (a `TextNode#selectionTransform`, an update queued behind the read), is
+  written as that client's change, out of the undo history, once per client
+  that reads the change; it runs under `COLLABORATION_TAG` too, so code can
+  skip it. It is written as made: the read's update runs no node transforms
+  (code appended to a code block there is not highlighted). A
+  `SELECTION_CHANGE_COMMAND` a read causes arrives after the read
+  has committed, in an untagged update of its own, whose edits are the
+  user's.
 - **Check what an edit names, then apply it to the current state.** An
   edit planned from an older read (a model's answer arrives seconds later)
   can be wrong once the document has changed, and merging it from that read
@@ -1273,7 +1292,9 @@ not merge as a user might expect:
   they can store shapes the binding handles less well; prefer updates that
   run transforms. A Lexical
   command used on such a shape before the normalization arrives can fail
-  (Shift+Enter in a list item that holds only a block decorator throws).
+  (Shift+Enter in a list item that holds only a block decorator throws). An edit an app's code makes in the update of a remote change's read
+  (see Skip remote changes in listeners that edit) is written as made, and
+  not normalized after: the read's update runs no node transforms.
 - **A line without a marker.** Text typed into the last block of a
   container while a collaborator removes that block is kept, as a line
   without its marker (shown as a paragraph). Other edits in that container
