@@ -674,6 +674,11 @@ export class Folder {
     return true;
   }
 
+  /** The frontier while the fold has not passed it yet, else null. */
+  get pending(): Item | null {
+    return this.frontier;
+  }
+
   /** Note that `formats` were folded up to `to`, in this fold's lane. */
   note(formats: object | null, to: Item | null): void {
     noteFolded(formats, to, this.lane, this.hidden);
