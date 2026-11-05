@@ -85,7 +85,7 @@ export type YUnsupportedSlotsData = {
 export type YUnsupportedConfigData =
   | {readonly reason: 'repair-transforms', readonly options: ReadonlyArray<string>}
   | {readonly reason: 'cleanup-formatting'};
-export type YUnsupportedEditData = {readonly reason: 'read-only'};
+export type YUnsupportedEditData = {readonly reason: 'read-only' | 'composing-move'};
 export type YSelfCheckData = {
   readonly reason: 'local' | 'remote',
   readonly problems: ReadonlyArray<string>,

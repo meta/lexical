@@ -66,6 +66,15 @@ export function isGone(item: Item): boolean {
   return !deleted(view, item) || view.removed.hasId(item.id);
 }
 
+/**
+ * Whether a change the binding has not read yet inserted live `item` (see
+ * Unread): gone in the document the write sees, there in Yjs.
+ */
+export function isUnreadInsert(item: Item): boolean {
+  const view = viewOf(item.parent as YNode);
+  return view !== null && !item.deleted && inserted(view, item);
+}
+
 /** What each write only noted as deleted (see deleteItem), by transaction. */
 const notedIn = new WeakMap<Transaction, IdSet>();
 

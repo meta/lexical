@@ -65,11 +65,15 @@ export const UNSUPPORTED_SLOTS_WARNING = '@lexical/y/unsupported-slots';
  */
 export const UNSUPPORTED_CONFIG_WARNING = '@lexical/y/unsupported-config';
 /**
- * @experimental A local update changed the editor while the binding is read
- * only: nothing is written, and what it changed is read again (once the
- * document cannot be read, the editor shows what it showed before the update
- * again), so the editor keeps showing the document. Reported once each time
- * the binding goes read only. `data`: YUnsupportedEditData.
+ * @experimental A local update changed the editor in a way the binding does
+ * not write: nothing of it is written, and what it changed is read again, so
+ * the editor keeps showing the document. Either the binding is read only
+ * (`'read-only'`, reported once each time the binding goes read only; once
+ * the document cannot be read, the editor shows what it showed before the
+ * update again), or the update moved the line being composed, or a node
+ * holding it, to another container while a collaborator's change to that
+ * line waits for the composition to end (`'composing-move'`, reported for
+ * each such update). `data`: YUnsupportedEditData.
  */
 export const UNSUPPORTED_EDIT_WARNING = '@lexical/y/unsupported-edit';
 /**
@@ -235,10 +239,16 @@ export type YUnsupportedConfigData =
 /**
  * @experimental `data` of an `UNSUPPORTED_EDIT_WARNING`: a local update
  * (code that edits the editor, which is not editable) changed content while
- * the binding is read only (`'read-only'`).
+ * the binding is read only (`'read-only'`); or a local update (or an app's
+ * edit in the update of a remote change's read) moved the line being
+ * composed with an input method, or a block or inline element holding it, to
+ * another container (into or out of a table cell or a block container, an
+ * inline element to another line) while a collaborator's change to that line
+ * waits for the composition to end (`'composing-move'`): the move is not
+ * written and the editor shows the document again, with that change.
  */
 export interface YUnsupportedEditData {
-  readonly reason: 'read-only';
+  readonly reason: 'read-only' | 'composing-move';
 }
 
 /**

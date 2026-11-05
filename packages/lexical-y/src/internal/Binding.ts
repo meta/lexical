@@ -3906,8 +3906,14 @@ export class YBinding {
       return;
     }
     // As for a local commit (see onUpdate): fail closed on slots the
-    // document cannot store.
+    // document cannot store, and refuse a move of held content to another
+    // container.
     if (this.refuseUnstorableSlots(editorState, dirtyElements.keys())) {
+      return;
+    }
+    if (
+      this.refusesHeldMove(dirtyElements, dirtyLeaves, editorState, readState)
+    ) {
       return;
     }
     const commit: Commit = {
@@ -4242,6 +4248,125 @@ export class YBinding {
       (unit !== undefined &&
         [...hidden.marker.ends].every(end => end === unit.end || isGone(end)))
     );
+  }
+
+  /**
+   * Refuse a commit (a local one, or an app's edit after a read, see
+   * $writeReadEdits) that moves held content to another container (see
+   * $movesHeld): nothing of it is written, what it changed is read again at
+   * once (the editor shows the document, where the held content still is),
+   * and it is reported (UNSUPPORTED_EDIT_WARNING, `'composing-move'`), once
+   * per refused commit. Returns whether it refused. `prevEditorState`: the
+   * state the commit is written over.
+   */
+  private refusesHeldMove(
+    dirtyElements: Map<NodeKey, boolean>,
+    dirtyLeaves: Set<NodeKey>,
+    editorState: EditorState,
+    prevEditorState: EditorState,
+  ): boolean {
+    const hidden = this.state.hidden;
+    if (hidden === null || !editorState.read(() => this.$movesHeld(hidden))) {
+      return false;
+    }
+    this.$refuseChanged(
+      dirtyElements,
+      dirtyLeaves,
+      editorState,
+      prevEditorState,
+    );
+    this.warn(
+      UNSUPPORTED_EDIT_WARNING,
+      "a change that moves the line being composed, or a node holding it, to another container is not written while a collaborator's change to that line waits for the composition to end: what it changed is read again",
+      {reason: 'composing-move'},
+    );
+    return true;
+  }
+
+  /**
+   * Whether a local commit moved what holds content a composition holds
+   * back (see Hidden) to another container: a line holding held items, a
+   * block node holding such a line (each still in the editor, in another
+   * container than the one storing it), or an inline container holding
+   * them to another line. A write keeps the units that hold such content
+   * where they stay in their container (see Writer#$heldKeys), but a unit
+   * moved to another container is deleted and written again from the
+   * editor, which does not show it.
+   * Invariant: such a commit is not written; what it changed is read again
+   * (the hold goes on where it still holds, or ends, see $holds).
+   * Why: written, held text in a line stayed at the old place (and showed in
+   * the line after it once the hold ended), and held content in a shared
+   * node moved with it (a block node, an inline container) was deleted with
+   * that node, on every client.
+   */
+  private $movesHeld(hidden: Hidden): boolean {
+    const state = this.state;
+    const roles = new Roles(state);
+    const csOf = (key: NodeKey): CS | undefined =>
+      key === 'root'
+        ? state.containers.get(this._root)
+        : state.csByKey.get(key);
+    // Whether `key`, where the editor still has it, is below `above`.
+    const inside = (key: NodeKey, above: NodeKey): boolean => {
+      const node = $getNodeByKey(key);
+      return (
+        node === null ||
+        !node.isAttached() ||
+        node.getParents().some(p => p.getKey() === above)
+      );
+    };
+    // Whether the editor moved stored unit `u` to another container.
+    const moves = (u: Unit): boolean => {
+      const node = u.key === null ? null : $getNodeByKey(u.key);
+      return (
+        node !== null &&
+        node.isAttached() &&
+        csOf(roles.$containerOf(node).getKey()) !== u.cs
+      );
+    };
+    const unitOf = (it: Item, cs: CS): Unit | undefined => {
+      let end: Item | null = it;
+      while (end !== null && !state.unitByEnd.has(end)) {
+        end = end.right;
+      }
+      return end === null
+        ? cs.units.find(u => u.end === null)
+        : state.unitByEnd.get(end);
+    };
+    for (const items of this.hiddenItems(hidden).values()) {
+      for (const item of items) {
+        if (isGone(item) || item.parentSub !== null) {
+          continue;
+        }
+        let below: NodeKey | null = null;
+        for (let it: Item | null = item; it !== null; ) {
+          const parent = it.parent as YNode;
+          const cs =
+            it.parentSub === null ? state.containers.get(parent) : undefined;
+          if (cs !== undefined) {
+            const u = cs.kind === 'b' ? unitOf(it, cs) : undefined;
+            const key = u === undefined ? cs.key : u.key;
+            if (
+              (u !== undefined && moves(u)) ||
+              (below !== null && key !== null && !inside(below, key))
+            ) {
+              return true;
+            }
+            below = key ?? below;
+          }
+          it = parent._item;
+        }
+      }
+    }
+    if (hidden.marker !== null) {
+      for (const end of hidden.marker.ends) {
+        const u = state.unitByEnd.get(end);
+        if (u !== undefined && moves(u)) {
+          return true;
+        }
+      }
+    }
+    return false;
   }
 
   /**
@@ -4638,6 +4763,16 @@ export class YBinding {
       return;
     }
     if (this.refuseUnstorableSlots(editorState, dirtyElements.keys())) {
+      return;
+    }
+    if (
+      this.refusesHeldMove(
+        dirtyElements,
+        dirtyLeaves,
+        editorState,
+        prevEditorState,
+      )
+    ) {
       return;
     }
     const untransformed =

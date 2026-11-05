@@ -13,6 +13,7 @@ import {
   ContentFormat,
   ContentString,
   ContentType,
+  findIndexSS,
   Item,
   iterateStructsByIdSet,
   Node as YNode,
@@ -124,6 +125,7 @@ import {
 } from './State';
 import {$isHeldInline} from './Structure';
 import {type Segment, type TextEditLog, TextReplay} from './TextEdits';
+import {viewOf} from './Unread';
 
 /** storedTypeOf, in the document the write sees (see Unread). */
 const storedType = (y: YNode): string =>
@@ -415,6 +417,13 @@ export class Writer {
   private localRemoved: [string, string][] = [];
   /** See $someLineHoldsLines. */
   private someHoldsLines: boolean | null = null;
+  /**
+   * Whether the segment being written only inserts units, where the editor
+   * shows a unit boundary (see Cursor#heldBoundary).
+   */
+  private atBoundary = false;
+  /** See $heldKeys: computed on first use. */
+  private heldKeys: Set<NodeKey> | null = null;
   /** Containers where a group item's marker attributes were written. */
   readonly groupWrites = new Set<CS>();
   /**
@@ -2046,12 +2055,22 @@ export class Writer {
     matches.forEach(([di], k) =>
       weightOf.set(di, big / groupSize.get(desired[di].first)! + costs[k]),
     );
+    // A unit holding what a composition holds back (see Hidden, $heldKeys)
+    // keeps its items: the units it passed are written again instead.
+    const held = this.$heldKeys(cs.y);
+    const heldWeight = 4 * big * (matches.length + 1);
+    for (const [di] of matches) {
+      if (held.has(desired[di].key!)) {
+        weightOf.set(di, heldWeight);
+      }
+    }
     const weight = ([di]: [number, number]) => weightOf.get(di)!;
     const moved = this.plan.moved ?? null;
     const unmoved: [number, number][] = [];
     const movedMatches: [number, number][] = [];
     for (const m of matches) {
       if (
+        !held.has(desired[m[0]].key!) &&
         moved !== null &&
         moved.size > 0 &&
         $movedUnit(desired[m[0]], container, moved)
@@ -2186,6 +2205,110 @@ export class Writer {
     }
     cs.units = newUnits;
     this.$recomputeStarts(cs);
+  }
+
+  /**
+   * The keys of the units (lines and block nodes) and inline containers that
+   * hold content the editor does not show, with every element above them:
+   * what a composition holds back (see Hidden: the line or inline container
+   * composed in, the lines a local split of it made that keep a held start
+   * or marker attribute, and wherever held items are), and what the changes
+   * the binding has not read yet inserted (see Unread).
+   * Invariant: a container write keeps such a unit's items where it matches
+   * one (see $writeStructure). Why: a unit that is not kept is deleted and
+   * written again from the editor, which does not show that content: text
+   * in a line stayed at the old place (and showed in the line after it once
+   * read), and content in a shared node (an inline container, a block node
+   * holding the line) was deleted with it, on every client.
+   */
+  private $heldKeys(y: YNode): ReadonlySet<NodeKey> {
+    if (this.heldKeys !== null) {
+      return this.heldKeys;
+    }
+    const keys = new Set<NodeKey>();
+    this.heldKeys = keys;
+    const state = this.state;
+    const add = (key: NodeKey | null) => {
+      for (
+        let n = key === null ? null : $getNodeByKey(key);
+        n !== null && !keys.has(n.getKey());
+        n = n.getParent()
+      ) {
+        keys.add(n.getKey());
+      }
+    };
+    // The unit or inline container holding `item` (content: an attribute
+    // is written where it is, see attrsBefore), and those above it.
+    const addItem = (item: Item) => {
+      if (item.parentSub !== null) {
+        return;
+      }
+      for (let it: Item | null = item; it !== null; ) {
+        const parent: unknown = it.parent;
+        if (!(parent instanceof YNode)) {
+          return;
+        }
+        const cs =
+          it.parentSub === null ? state.containers.get(parent) : undefined;
+        if (cs !== undefined && cs.kind === 'i') {
+          add(cs.key);
+        } else if (cs !== undefined) {
+          let end: Item | null = it;
+          while (end !== null && !state.unitByEnd.has(end)) {
+            end = end.right;
+          }
+          const unit =
+            end === null
+              ? cs.units.find(u => u.end === null)
+              : state.unitByEnd.get(end);
+          if (unit !== undefined) {
+            add(unit.key);
+          }
+        }
+        it = parent._item;
+      }
+    };
+    const hidden = state.hidden;
+    if (hidden !== null) {
+      add(hidden.ownerKey);
+      for (const u of hidden.starts.keys()) {
+        add(u.key);
+      }
+      if (hidden.marker !== null) {
+        for (const end of hidden.marker.ends) {
+          const u = state.unitByEnd.get(end);
+          add(u === undefined ? null : u.key);
+        }
+      }
+      const store = this.tr.doc.store;
+      hidden.forEachRange((client, clock, stop) => {
+        const structs = store.clients.get(client);
+        if (structs === undefined) {
+          return;
+        }
+        for (
+          let i = findIndexSS(structs, clock);
+          i < structs.length && structs[i].id.clock < stop;
+          i++
+        ) {
+          const s = structs[i];
+          if (s instanceof Item && !s.deleted) {
+            addItem(s);
+          }
+        }
+      });
+    }
+    const view = viewOf(y);
+    if (view !== null) {
+      for (const change of view.changes) {
+        iterateStructsByIdSet(this.tr, change.insertSet, s => {
+          if (s instanceof Item && !s.deleted) {
+            addItem(s);
+          }
+        });
+      }
+    }
+    return keys;
   }
 
   /**
@@ -2581,15 +2704,23 @@ export class Writer {
       if (ctx.flattened === true || ctx.unpaired === true) {
         this.refused.add(cs);
       }
-      const items = this.$writeSeq(
-        cs.y,
-        left,
-        startFormats,
-        oldStop,
-        atoms,
-        ctx.cursorAt,
-        oldOrigins,
-      );
+      // A unit kept for held content (see $heldKeys) has the units it passed
+      // written next to it: not inside a held run that opens it.
+      this.atBoundary = remaining.length === 0;
+      let items: Map<number, Item>;
+      try {
+        items = this.$writeSeq(
+          cs.y,
+          left,
+          startFormats,
+          oldStop,
+          atoms,
+          ctx.cursorAt,
+          oldOrigins,
+        );
+      } finally {
+        this.atBoundary = false;
+      }
       if (openTail) {
         const c = this.cursor(cs.y, left, startFormats);
         c.advance(atoms.length);
@@ -2748,6 +2879,7 @@ export class Writer {
   private cursor(y: YNode, left: Item | null, formats: Formats): Cursor {
     const c = new Cursor(this.tr, y, left, new Map(formats));
     c.hidden = this.state.hidden;
+    c.heldBoundary = this.atBoundary;
     return c;
   }
 

@@ -29,7 +29,7 @@ import {
   TYPE_KEY,
   WRAPPER_PREFIX,
 } from './Schema';
-import {deletedBy, deleteItem, isGone} from './Seen';
+import {deletedBy, deleteItem, isGone, isUnreadInsert} from './Seen';
 
 /*
  * Anchored editing of a Y.Node's children.
@@ -344,6 +344,13 @@ export class Cursor {
    */
   hidden: Hidden | null = null;
   /**
+   * Whether the cursor writes whole units where the editor shows a unit
+   * boundary (see Writer#$writeSegment): a held format that sets a value (it
+   * opens a held run over the unit after it) is not stepped over, so the
+   * units written are not inside that run once the hold ends.
+   */
+  heldBoundary = false;
+  /**
    * The live format item that gave each key its value at the cursor, for
    * the keys whose format items the cursor passed.
    */
@@ -372,6 +379,22 @@ export class Cursor {
   /** Whether `item` is a format the editor holds back (see hidden). */
   private isHeldFormat(item: Item): boolean {
     return this.hidden !== null && isFormat(item) && this.hidden.hides(item);
+  }
+
+  /**
+   * Whether `item`, right of the cursor, is a format the editor does not show
+   * (held back, see Hidden, or inserted by a change not read yet, see Unread)
+   * that sets a value, where the cursor writes whole units at a unit
+   * boundary (see heldBoundary): it opens a run over the unit after it, and
+   * the units written go before it.
+   */
+  private opensAhead(item: Item): boolean {
+    return (
+      this.heldBoundary &&
+      isFormat(item) &&
+      valueOf(item) !== null &&
+      (this.isHeldFormat(item) || isUnreadInsert(item))
+    );
   }
 
   /** Step over `right`, tracking formats. */
@@ -508,6 +531,9 @@ export class Cursor {
   private minimizeFormatChanges(formats: Record<string, unknown>): void {
     while (this.right !== null) {
       const r = this.right;
+      if (this.opensAhead(r)) {
+        break;
+      }
       if (isGone(r) || this.isHeldFormat(r)) {
         // a deleted item has no length, and a held format is not there:
         // step over it
@@ -698,6 +724,9 @@ export class Cursor {
     const reusedEnds: string[] = [];
     while (this.right !== null) {
       const r = this.right;
+      if (this.opensAhead(r)) {
+        break;
+      }
       if (!isGone(r) && !this.isHeldFormat(r)) {
         if (
           !isFormat(r) ||
