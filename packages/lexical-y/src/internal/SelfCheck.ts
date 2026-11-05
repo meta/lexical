@@ -16,6 +16,7 @@ import {
   $getSlot,
   $getSlotNames,
   $isElementNode,
+  $isTextNode,
   $parseSerializedNode,
   createEditor,
   type EditorState,
@@ -292,18 +293,45 @@ export function $checkWrite(writer: Writer): string[] {
 const CHANGED = '\u0000changed';
 
 /**
+ * Whether an element has a text node among its children, or theirs (not in
+ * named slots, which the reconciler captures apart): the text it takes its
+ * text format and style from as it renders.
+ */
+function $hasChildText(node: LexicalNode): boolean {
+  if (!$isElementNode(node)) {
+    return false;
+  }
+  for (const child of node.getChildren()) {
+    if ($isTextNode(child) || $hasChildText(child)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
  * A node's JSON with its children and named slots, as exportJSON gives it.
  * Adjacent text nodes that differ only in their text are compared as one
  * (Lexical keeps them apart while one of them is being composed). `unstored`
  * are nodes whose NodeState is left out (see $runNodes); `changed`, elements
- * marked CHANGED (see stripFollowUpText).
+ * marked CHANGED (see stripFollowUpText). With `shown`, as the binding
+ * compares what an editor shows (see YBinding#$readEditsShow): only the
+ * text nodes Lexical merges as it normalizes (TextNode#isSimpleText: class
+ * `text`, mode normal) are compared as one, and an element with text in it
+ * leaves out its text format and style, which the reconciler takes from its
+ * first text.
  */
-function $deepJSON(
+export function $deepJSON(
   node: LexicalNode,
   unstored: ReadonlySet<NodeKey> | null = null,
   changed: ReadonlySet<NodeKey> | null = null,
+  shown = false,
 ): Attrs {
   const json = node.exportJSON() as unknown as Attrs;
+  if (shown && $hasChildText(node)) {
+    delete json.textFormat;
+    delete json.textStyle;
+  }
   if (unstored !== null && unstored.has(node.getKey())) {
     delete json.$;
   }
@@ -313,12 +341,14 @@ function $deepJSON(
     }
     const children: Attrs[] = [];
     for (const child of node.getChildren()) {
-      const c = $deepJSON(child, unstored, changed);
+      const c = $deepJSON(child, unstored, changed, shown);
       const prev = children[children.length - 1];
+      const simple = (j: Attrs) => j.type === 'text' && j.mode === 'normal';
       if (
         prev !== undefined &&
         typeof prev.text === 'string' &&
         typeof c.text === 'string' &&
+        (!shown || (simple(prev) && simple(c))) &&
         stableStringify({...prev, text: ''}) ===
           stableStringify({...c, text: ''})
       ) {
@@ -335,7 +365,7 @@ function $deepJSON(
     for (const name of names) {
       const slot = $getSlot(node, name);
       if (slot !== null) {
-        slots[name] = $deepJSON(slot, unstored, changed);
+        slots[name] = $deepJSON(slot, unstored, changed, shown);
       }
     }
     json.$slots = slots;
