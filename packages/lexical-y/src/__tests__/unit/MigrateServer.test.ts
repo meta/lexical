@@ -1269,6 +1269,50 @@ describe.each([false, true])('@lexical/y/server, gc %s', gc => {
       expect(capture.material().deltas).toHaveLength(0);
     });
 
+    test('a source with fields this release does not know is deep-copied, and collisions() hands out copies', () => {
+      const extension = {nested: {list: [1, 2]}, note: 'x'};
+      const source = {...SOURCE, extension};
+      const built = createYQuarantineRecord({
+        kind: 'handoff',
+        receivedAt: 1,
+        snapshot: replica(insert),
+        source,
+      });
+      const before = JSON.stringify(built.source);
+      extension.nested.list.push(3);
+      extension.note = 'changed';
+      expect(JSON.stringify(built.source)).toBe(before);
+      expect(built.source).toMatchObject({
+        extension: {nested: {list: [1, 2]}, note: 'x'},
+      });
+      // A source that is not JSON is refused, as the hash refuses it.
+      expect(() =>
+        createYQuarantineRecord({
+          kind: 'handoff',
+          receivedAt: 1,
+          source: {...SOURCE, extension: new Date(0)} as never,
+        }),
+      ).toThrow(TypeError);
+      // collisions(): copies, like material().
+      const legacy = docOf(LAYOUT1);
+      const capture = createYSessionCapture();
+      capture.add(Y.encodeStateAsUpdate(legacy, capture.syncStep1));
+      const signal = capture.signal(SEED)!;
+      legacy.clientID = signal.client;
+      legacy.get('lexical-y').setAttr('other', 1 as never);
+      capture.add(
+        Y.encodeStateAsUpdate(
+          legacy,
+          Y.encodeStateVector(docOf(capture.material().snapshot!)),
+        ),
+      );
+      const found = capture.collisions();
+      expect(found).toEqual([signal]);
+      found[0].update[0] ^= 0xff;
+      (found as YLegacySignal[]).push(signal);
+      expect(capture.collisions()).toEqual([signal]);
+    });
+
     test('record kinds are open: a kind from a later release is kept as it is, preservation only', () => {
       const kind: YQuarantineRecordKind = 'a-later-kind';
       const input = {

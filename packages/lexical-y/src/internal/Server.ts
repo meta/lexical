@@ -635,7 +635,9 @@ export function createYSessionCapture(
     collisions(): YLegacySignal[] {
       const view = assembleV1({deltas, queue: [], snapshot});
       try {
-        return signals.filter(sg => signalAt(view.doc, sg) === 'collision');
+        return signals
+          .filter(sg => signalAt(view.doc, sg) === 'collision')
+          .map(copySignal);
       } finally {
         view.doc.destroy();
       }
@@ -678,13 +680,11 @@ function copySignal(sg: YLegacySignal): YLegacySignal {
   };
 }
 
-/** A copy of a record's source (fields it does not know kept as they are). */
+/** A deep copy of a record's source (fields it does not know included). */
 function copySource(source: YRecordSource): YRecordSource {
-  return {
-    ...source,
-    layouts:
-      source.layouts === null ? null : [source.layouts[0], source.layouts[1]],
-  };
+  // A deep copy, fields this release does not know included (a source is
+  // JSON; canonical JSON refuses anything else, as the hash does).
+  return JSON.parse(canonicalJSON(source)) as YRecordSource;
 }
 
 /** A random client id (32 bits, from 1) that `taken` does not hold. */
