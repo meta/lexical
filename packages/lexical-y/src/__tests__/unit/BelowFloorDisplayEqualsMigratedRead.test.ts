@@ -16,10 +16,13 @@
 // it cannot write: `readYState` throws a `'read-only'` YHeadlessError
 // there, pinned too.)
 //
-// Inputs: every layout 1 and 2 state of the 2to3 golden fixtures; and,
-// where BELOW_FLOOR_CORPORA lists corpus directories (the stored corpora of
-// Migrate2to3Corpora), every BELOW_FLOOR_EVERY-th entry (default 10, by
-// sorted file name) that records a layout below 3.
+// Inputs: every layout 1 and 2 state of the 2to3 golden fixtures, and of
+// the 1to2 golden fixtures (their inputs, and the layout 2 states 1to2 makes
+// of them, gc off and on); and, where BELOW_FLOOR_CORPORA lists corpus
+// directories (the stored corpora of Migrate2to3Corpora), of their entries
+// that record a layout below 3: BELOW_FLOOR_SAMPLE of them chosen by seed
+// BELOW_FLOOR_SEED (default 1), or else every BELOW_FLOOR_EVERY-th (default
+// 10, by sorted file name).
 
 import {buildEditorFromExtensions} from '@lexical/extension';
 import * as fs from 'node:fs';
@@ -49,6 +52,17 @@ const KNOWN: Readonly<Record<string, string>> = {
   'l2-comment-raw': 'a raw array under a covered name',
 };
 const GOLDEN = path.join(__dirname, 'golden', 'migrate-2to3-r1.json');
+const GOLDEN_1TO2 = path.join(__dirname, 'golden', 'migrate-1to2-r1.json');
+/**
+ * The catalog configuration each 1to2 fixture was seeded with (see
+ * Migrate1to2.test.ts): block ids absent but where named here.
+ */
+const CONFIG_1TO2: Readonly<
+  Record<string, Parameters<typeof catalogHeadlessConfig>[0]>
+> = {
+  'block-ids': {blockIds: 'enabled'},
+  'layout-2-marks': {blockIds: 'absent', marks: 'mark-state'},
+};
 
 type Input = {
   name: string;
@@ -145,6 +159,48 @@ function goldenInputs(): Input[] {
     }));
 }
 
+type Golden1to2 = {
+  name: string;
+  layout: number;
+  input: string;
+  output: {gcOff: string; gcOn: string};
+};
+
+/**
+ * The 1to2 golden fixtures: each input (layout 1, one at layout 2), gc off
+ * and on, and the layout 2 state 1to2 writes for it with gc off and with gc
+ * on, each read with that setting.
+ */
+function goldenInputs1to2(): Input[] {
+  const fixtures = JSON.parse(
+    fs.readFileSync(GOLDEN_1TO2, 'utf8'),
+  ) as Golden1to2[];
+  const state = (b64: string) => new Uint8Array(Buffer.from(b64, 'base64'));
+  return fixtures.flatMap(f => {
+    const config = catalogHeadlessConfig(
+      CONFIG_1TO2[f.name] ?? {blockIds: 'absent'},
+    );
+    const at = (
+      name: string,
+      layout: number,
+      b64: string,
+      gcs: readonly boolean[],
+    ): Input => ({
+      config,
+      gcs,
+      layout,
+      name,
+      root: 'lexical-y',
+      state: state(b64),
+    });
+    return [
+      at(`1to2/${f.name}`, f.layout, f.input, [false, true]),
+      at(`1to2/${f.name} (layout 2, gc off)`, 2, f.output.gcOff, [false]),
+      at(`1to2/${f.name} (layout 2, gc on)`, 2, f.output.gcOn, [true]),
+    ];
+  });
+}
+
 type Entry = {
   name: string;
   cfg: CorpusConfig;
@@ -157,35 +213,60 @@ const DIRS = (process.env.BELOW_FLOOR_CORPORA ?? '')
   .split(',')
   .filter(d => d !== '');
 const EVERY = Number(process.env.BELOW_FLOOR_EVERY ?? 10);
+const SAMPLE =
+  process.env.BELOW_FLOOR_SAMPLE === undefined
+    ? null
+    : Number(process.env.BELOW_FLOOR_SAMPLE);
+const SEED = Number(process.env.BELOW_FLOOR_SEED ?? 1);
+
+/** FNV-1a of `s` (32 bits): the seeded order of a sample. */
+function fnv1a(s: string): number {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);
+  }
+  return h >>> 0;
+}
 
 function corpusInputs(): Input[] {
-  const out: Input[] = [];
+  const below: {dir: string; entry: Entry; file: string}[] = [];
   for (const dir of DIRS) {
     const files = fs
       .readdirSync(dir)
       .filter(f => f.endsWith('.main.json'))
       .sort();
-    for (let i = 0; i < files.length; i += EVERY) {
+    for (let i = 0; i < files.length; i += SAMPLE === null ? EVERY : 1) {
       const file = files[i];
       const entry = JSON.parse(
         fs.readFileSync(path.join(dir, file), 'utf8'),
       ) as Entry;
-      if (entry.layout === null || entry.layout >= 3) {
-        continue;
+      if (entry.layout !== null && entry.layout < 3) {
+        below.push({dir, entry, file});
       }
-      out.push({
-        config: corpusConfig(entry.cfg),
-        gcs: entry.gc === null ? [false, true] : [entry.gc],
-        layout: entry.layout,
-        name: `${path.basename(dir)}/${entry.name}`,
-        root: entry.root ?? 'lexical-y',
-        state: new Uint8Array(
-          fs.readFileSync(
-            path.join(dir, file.replace(/\.main\.json$/, '.bin')),
-          ),
-        ),
-      });
     }
+  }
+  const rank = (x: {dir: string; file: string}) =>
+    fnv1a(`${SEED}\u0000${path.basename(x.dir)}/${x.file}`);
+  const chosen =
+    SAMPLE === null
+      ? below
+      : below
+          .slice()
+          .sort((a, b) => rank(a) - rank(b))
+          .slice(0, SAMPLE);
+  const out: Input[] = [];
+  for (const {dir, entry, file} of chosen) {
+    out.push({
+      config: corpusConfig(entry.cfg),
+      gcs: entry.gc === null ? [false, true] : [entry.gc],
+      layout: entry.layout,
+      name: `${path.basename(dir)}/${entry.name}`,
+      root: entry.root ?? 'lexical-y',
+      state: new Uint8Array(
+        fs.readFileSync(path.join(dir, file.replace(/\.main\.json$/, '.bin'))),
+      ),
+    });
   }
   return out;
 }
@@ -262,6 +343,13 @@ describe('a document below the floor shows what 2to3 would make of it', () => {
     });
   });
 
+  test('the 1to2 golden fixtures and the layout 2 states 1to2 makes of them', async () => {
+    const inputs = goldenInputs1to2();
+    expect(inputs.length).toBe(21);
+    const {n, failures} = await run(inputs);
+    expect({failures, n}).toEqual({failures: [], n: 28});
+  });
+
   test.skipIf(DIRS.length === 0)(
     'a sample of the stored corpora',
     {timeout: 3_600_000},
@@ -271,7 +359,12 @@ describe('a document below the floor shows what 2to3 would make of it', () => {
       if (process.env.BELOW_FLOOR_REPORT !== undefined) {
         fs.writeFileSync(
           process.env.BELOW_FLOOR_REPORT,
-          JSON.stringify({failures, inputs: inputs.length, n}) + '\n',
+          JSON.stringify({
+            failures,
+            inputs: inputs.length,
+            n,
+            names: inputs.map(i => i.name),
+          }) + '\n',
         );
       }
       expect({failures: failures.slice(0, 20), n}).toEqual({failures: [], n});
