@@ -72,8 +72,10 @@ export const UNSUPPORTED_CONFIG_WARNING = '@lexical/y/unsupported-config';
  * the document cannot be read, the editor shows what it showed before the
  * update again), or the update moved the line being composed, or a node
  * holding it, to another container while a collaborator's change to that
- * line waits for the composition to end (`'composing-move'`, reported for
- * each such update). `data`: YUnsupportedEditData.
+ * line waits for the composition to end, replaced an inline element or
+ * block node holding it with a new one, or reordered two lines that each
+ * hold a collaborator's change not shown yet (`'composing-move'`, reported
+ * for each such update). `data`: YUnsupportedEditData.
  */
 export const UNSUPPORTED_EDIT_WARNING = '@lexical/y/unsupported-edit';
 /**
@@ -244,8 +246,11 @@ export type YUnsupportedConfigData =
  * composed with an input method, or a block or inline element holding it, to
  * another container (into or out of a table cell or a block container, an
  * inline element to another line) while a collaborator's change to that line
- * waits for the composition to end (`'composing-move'`): the move is not
- * written and the editor shows the document again, with that change.
+ * waits for the composition to end, replaced such an element with a new
+ * one that takes its children, or reordered, in one container, two lines
+ * that each hold a collaborator's change not shown yet (`'composing-move'`):
+ * the move is not written and the editor shows the document again, with
+ * that change.
  */
 export interface YUnsupportedEditData {
   readonly reason: 'read-only' | 'composing-move';

@@ -2230,11 +2230,14 @@ export class Writer {
     const state = this.state;
     const add = (key: NodeKey | null) => {
       for (
-        let n = key === null ? null : $getNodeByKey(key);
+        let n: LexicalNode | null = key === null ? null : $getNodeByKey(key);
         n !== null && !keys.has(n.getKey());
-        n = n.getParent()
       ) {
         keys.add(n.getKey());
+        // Its parent, or the host of the slot it fills.
+        const parent: NodeKey | null =
+          n.__parent ?? (n as {__slotHost?: null | NodeKey}).__slotHost ?? null;
+        n = parent === null ? null : $getNodeByKey(parent);
       }
     };
     // The unit or inline container holding `item` (content: an attribute

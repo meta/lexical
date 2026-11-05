@@ -24,6 +24,7 @@
 import type {ListNode} from '@lexical/list';
 
 import {$createListItemNode, $createListNode} from '@lexical/list';
+import {$createHeadingNode} from '@lexical/rich-text';
 import * as Y from '@y/y';
 import {
   $create,
@@ -34,10 +35,12 @@ import {
   $hasUpdateTag,
   $setCompositionKey,
   $setSelection,
+  $setSlot,
   COLLABORATION_TAG,
   ElementNode,
   type LexicalEditor,
   type LexicalNode,
+  ParagraphNode,
   TextNode,
 } from 'lexical';
 import {describe, expect, test} from 'vitest';
@@ -411,6 +414,189 @@ describe('inserted by a change not read yet, the list item holding it moved', ()
               span ? 'test_composed_span("aRbc"{1})' : '"aRbc"{1}',
             ),
           );
+        });
+      }
+    }
+  }
+});
+
+// The node holding the text being composed replaced by a new one that takes
+// its children: a line's block type changed keeps the held content (a line's
+// content is its container's); an inline container's children moved into a
+// new one would delete the held content with the old one, so that is not
+// written.
+describe('held back, the node holding the composed text replaced', () => {
+  for (const gc of GC) {
+    for (const holder of [
+      'a line made a heading',
+      'an inline container',
+    ] as const) {
+      test(`${holder} (gc ${gc})`, async () => {
+        const span = holder === 'an inline container';
+        const t = await setup(
+          () =>
+            $getRoot().append(
+              $createParagraphNode().append(
+                span ? $create(SpanNode).append($text('abc')) : $text('abc'),
+              ),
+              $createParagraphNode().append($text('tail')),
+            ),
+          {gc, ids: [1, 2, 3], nodes: [...NODES, SpanNode]},
+        );
+        await composeAndMove(t, 'text', () => {
+          const text = $abc();
+          const old = text.getParentOrThrow();
+          const next = span ? $create(SpanNode) : $createHeadingNode('h1');
+          old.insertBefore(next);
+          next.append(...old.getChildren());
+          old.remove();
+        });
+        const shown = t.a.describe();
+        expect(shown).toBe((await freshReader(t.a)).describe());
+        expect(shown).toContain('aRbc');
+        expect(refusals(t.a)).toHaveLength(span ? 1 : 0);
+        await expectConverged(t.peers);
+      });
+    }
+  }
+});
+
+/** A paragraph with a named slot next to its children (a card's title). */
+class TitledNode extends ParagraphNode {
+  $config() {
+    return this.config('test_composed_titled', {
+      extends: ParagraphNode,
+      slots: ['title'],
+    });
+  }
+}
+
+// Composing in a line in a named slot: a slot's value has no parent, its host
+// is found through the slot. Nothing moves to another container here.
+describe('held back in a slot, an edit that moves nothing out', () => {
+  for (const gc of GC) {
+    for (const edit of [
+      'a keystroke in the composed text',
+      'an edit elsewhere',
+      'the host moved in its container',
+    ] as const) {
+      test(`${edit} (gc ${gc})`, async () => {
+        const t = await setup(
+          () =>
+            $getRoot().append(
+              $setSlot(
+                $create(TitledNode),
+                'title',
+                $createParagraphNode().append($text('abc')),
+              ),
+              $createParagraphNode().append($text('other')),
+            ),
+          {gc, ids: [1, 2, 3], nodes: [...NODES, TitledNode]},
+        );
+        await composeAndMove(t, 'text', () => {
+          if (edit === 'a keystroke in the composed text') {
+            const text = $abc();
+            text.spliceText(1, 0, 'x');
+          } else if (edit === 'an edit elsewhere') {
+            const other = $getRoot()
+              .getAllTextNodes()
+              .find(n => n.getTextContent() === 'other')!;
+            other.setTextContent('other OWN');
+          } else {
+            $getRoot().append($getRoot().getFirstChildOrThrow());
+          }
+        });
+        expect(refusals(t.a)).toEqual([]);
+        const shown = t.a.describe();
+        expect(shown).toBe((await freshReader(t.a)).describe());
+        // Slot text included.
+        const $all = () =>
+          $getRoot()
+            .getAllTextNodes()
+            .map(n => n.getTextContent())
+            .join('|');
+        expect(t.a.read($all)).toContain(
+          edit === 'a keystroke in the composed text' ? 'axRbc' : 'aRbc',
+        );
+        for (const p of t.peers) {
+          expect(p.read($all)).toBe(t.a.read($all));
+        }
+        if (edit === 'an edit elsewhere') {
+          expect(shown).toContain('other OWN');
+        }
+        if (edit === 'the host moved in its container') {
+          expect(shown).toMatch(/paragraph\("other"\).*test_composed_titled/);
+        }
+        await expectConverged(t.peers);
+      });
+    }
+  }
+});
+
+// Two lines in one container that each hold a change not read yet, whose
+// order a commit changes: a write keeps only one of them, so the commit is
+// not written (one line alone is kept, as above).
+describe('inserted by a change not read yet in two lines, reordered', () => {
+  for (const gc of GC) {
+    for (const shape of ['paragraphs', 'list', 'inline containers'] as const) {
+      for (const lines of [1, 2]) {
+        test(`${shape}, ${lines} line(s) (gc ${gc})`, async () => {
+          const $line = (text: string) =>
+            shape === 'paragraphs'
+              ? $createParagraphNode().append($text(text))
+              : $createListItemNode().append(
+                  shape === 'inline containers'
+                    ? $create(SpanNode).append($text(text))
+                    : $text(text),
+                );
+          const t = await setup(
+            () => {
+              const all = [$line('aa'), $line('bb'), $line('tail')];
+              if (shape === 'paragraphs') {
+                $getRoot().append(...all);
+              } else {
+                $getRoot().append($createListNode('number').append(...all));
+              }
+            },
+            {gc, ids: [1, 2, 3], nodes: [...NODES, SpanNode]},
+          );
+          const {a, b} = t;
+          t.offline();
+          const seen = Y.encodeStateVector(b.doc);
+          b.update(() => {
+            const texts = $getRoot().getAllTextNodes();
+            texts[0].spliceText(1, 0, 'X');
+            if (lines === 2) {
+              texts[1].spliceText(1, 0, 'Y');
+            }
+            $setSelection(null);
+          });
+          const delta = Y.encodeStateAsUpdate(b.doc, seen);
+          a.update(() => {
+            Y.applyUpdate(a.doc, delta, 'provider');
+            const container =
+              shape === 'paragraphs'
+                ? $getRoot()
+                : ($getRoot().getFirstChildOrThrow() as ListNode);
+            // The first line to the end.
+            container.append(container.getFirstChildOrThrow());
+          });
+          await t.sync();
+          const fresh = await freshReader(a);
+          const text = a.read(() => $getRoot().getTextContent());
+          expect(text).toBe(fresh.read(() => $getRoot().getTextContent()));
+          if (lines === 1) {
+            // Kept: the moved line holds the change.
+            expect(text.replace(/\n+/g, '|')).toBe('bb|tail|aXa');
+            expect(a.warnings).toEqual([]);
+          } else {
+            // Not written, read again: as before the move.
+            expect(text.replace(/\n+/g, '|')).toBe('aXa|bYb|tail');
+            expect(
+              a.warnings.filter(w => w.includes('reorders lines')),
+            ).toHaveLength(1);
+          }
+          await expectConverged(t.peers);
         });
       }
     }

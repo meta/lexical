@@ -149,7 +149,7 @@ import {
   typeOf,
   type Unit,
 } from './State';
-import {emptyView, seenBy, type Unread} from './Unread';
+import {emptyView, inserted as insertedBy, seenBy, type Unread} from './Unread';
 import {
   NESTED_FALLBACK_WARNING,
   notesSince,
@@ -4266,7 +4266,15 @@ export class YBinding {
     prevEditorState: EditorState,
   ): boolean {
     const hidden = this.state.hidden;
-    if (hidden === null || !editorState.read(() => this.$movesHeld(hidden))) {
+    const unread = this.unread;
+    if (
+      (hidden === null && unread === null) ||
+      !editorState.read(
+        () =>
+          (hidden !== null && this.$movesHeld(hidden)) ||
+          this.$reordersHeld(hidden, unread),
+      )
+    ) {
       return false;
     }
     this.$refuseChanged(
@@ -4277,10 +4285,86 @@ export class YBinding {
     );
     this.warn(
       UNSUPPORTED_EDIT_WARNING,
-      "a change that moves the line being composed, or a node holding it, to another container is not written while a collaborator's change to that line waits for the composition to end: what it changed is read again",
+      "a change that moves the line being composed, or a node holding it, to another container, or that reorders lines holding a collaborator's change not shown yet, is not written while that change waits: what it changed is read again",
       {reason: 'composing-move'},
     );
     return true;
+  }
+
+  /**
+   * Whether a commit reorders, within a container, two units (lines, block
+   * nodes) that hold content the editor does not show (held back by a
+   * composition, see Hidden, or inserted by a change not read yet, see
+   * Unread). A write keeps such a unit's items (see Writer#$heldKeys), but
+   * of two whose order changed it can keep only one: the other is deleted
+   * and written again from the editor, which does not show that content.
+   * Units moved to another container are left to $movesHeld (held) or the
+   * concurrent move limits (not read yet).
+   * Invariant: such a commit is not written (see refusesHeldMove).
+   */
+  private $reordersHeld(hidden: Hidden | null, unread: Unread | null): boolean {
+    const state = this.state;
+    const shows = (it: Item): boolean =>
+      !(hidden !== null && hidden.hides(it)) &&
+      !(unread !== null && insertedBy(unread, it));
+    // Whether `it` or anything below it is content the editor does not show.
+    const holds = (it: Item): boolean => {
+      if (it.deleted && !(unread !== null && insertedBy(unread, it))) {
+        return false;
+      }
+      if (it.parentSub === null && !shows(it)) {
+        return true;
+      }
+      const content = it.content;
+      if (content instanceof ContentType) {
+        const type = content.type as YNode;
+        for (let c: Item | null = type._start; c !== null; c = c.right) {
+          if (holds(c)) {
+            return true;
+          }
+        }
+      }
+      return false;
+    };
+    const root = state.containers.get(this._root);
+    for (const cs of [
+      ...(root === undefined ? [] : [root]),
+      ...state.csByKey.values(),
+    ]) {
+      if (cs.kind !== 'b' || cs.units.length < 2) {
+        continue;
+      }
+      // The units holding such content, in the order the document has them.
+      const held: Unit[] = [];
+      let unit = 0;
+      for (let it: Item | null = cs.y._start; it !== null; it = it.right) {
+        const u = cs.units[unit];
+        if (u === undefined) {
+          break;
+        }
+        if (held[held.length - 1] !== u && holds(it)) {
+          held.push(u);
+        }
+        if (it === u.end) {
+          unit++;
+        }
+      }
+      if (held.length < 2) {
+        continue;
+      }
+      let prev: LexicalNode | null = null;
+      for (const u of held) {
+        const node = u.key === null ? null : $getNodeByKey(u.key);
+        if (node === null || !node.isAttached()) {
+          continue;
+        }
+        if (prev !== null && !prev.isBefore(node)) {
+          return true;
+        }
+        prev = node;
+      }
+    }
+    return false;
   }
 
   /**
@@ -4309,11 +4393,21 @@ export class YBinding {
     // Whether `key`, where the editor still has it, is below `above`.
     const inside = (key: NodeKey, above: NodeKey): boolean => {
       const node = $getNodeByKey(key);
-      return (
-        node === null ||
-        !node.isAttached() ||
-        node.getParents().some(p => p.getKey() === above)
-      );
+      if (node === null || !node.isAttached()) {
+        return true;
+      }
+      // Its parents, and the hosts of the slots on the way.
+      for (let at: LexicalNode | null = node; at !== null; ) {
+        const parent: NodeKey | null =
+          at.__parent ??
+          (at as {__slotHost?: null | NodeKey}).__slotHost ??
+          null;
+        if (parent === above) {
+          return true;
+        }
+        at = parent === null ? null : $getNodeByKey(parent);
+      }
+      return false;
     };
     // Whether the editor moved stored unit `u` to another container.
     const moves = (u: Unit): boolean => {
@@ -4333,6 +4427,23 @@ export class YBinding {
         ? cs.units.find(u => u.end === null)
         : state.unitByEnd.get(end);
     };
+    // The text being composed, where the editor still has it: a node stored
+    // as a shared node of its own (an inline container, a block node, a
+    // slot's value) that holds held content and that the editor removed
+    // while that text stays (its children moved into a new node, a slot's
+    // value replaced) took the text out of it, and would be deleted with
+    // the held content. A line in a container is not: its content is the
+    // container's, and stays.
+    const composing = this._editor._compositionKey;
+    const composed = composing === null ? null : $getNodeByKey(composing);
+    const composedStays = composed !== null && composed.isAttached();
+    const removed = (key: NodeKey | null): boolean => {
+      if (key === null || key === 'root') {
+        return false;
+      }
+      const node = $getNodeByKey(key);
+      return node === null || !node.isAttached();
+    };
     for (const items of this.hiddenItems(hidden).values()) {
       for (const item of items) {
         if (isGone(item) || item.parentSub !== null) {
@@ -4348,7 +4459,8 @@ export class YBinding {
             const key = u === undefined ? cs.key : u.key;
             if (
               (u !== undefined && moves(u)) ||
-              (below !== null && key !== null && !inside(below, key))
+              (below !== null && key !== null && !inside(below, key)) ||
+              (composedStays && removed(cs.key))
             ) {
               return true;
             }
