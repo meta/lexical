@@ -637,6 +637,16 @@ describe('the selection change an app makes in a remote read is notified once', 
             COMMAND_PRIORITY_LOW,
           ),
         );
+        // What A writes itself in B's read: the app only moves the caret,
+        // which is no edit.
+        let written = 0;
+        const count = (_update: Uint8Array, origin: unknown) => {
+          if (origin !== a.net) {
+            written++;
+          }
+        };
+        a.doc.on('update', count);
+        onTestFinished(() => a.doc.off('update', count));
         b.update(() => {
           if (shape === 'replaced after the read moved it') {
             // Text before A's caret, in its own node: the read moves it.
@@ -648,6 +658,7 @@ describe('the selection change an app makes in a remote read is notified once', 
         });
         await t.sync();
         expect(notified).toBe(1);
+        expect(written).toBe(0);
         expect(
           a.read(() => {
             const selection = $getSelection();
