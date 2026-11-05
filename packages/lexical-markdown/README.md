@@ -125,7 +125,11 @@ characters and punctuation, where markers open and close as their writer
 meant, and a variation selector before a marker reads as the character it
 follows, but after whitespace as itself, as `micromark-extension-cjk-friendly`
 reads it, and after a U+0000 as the U+FFFD that readers put in its place, as
-`markdown-it-cjk-friendly` reads it. Export defaults to `'strict-commonmark'`,
+`markdown-it-cjk-friendly` reads it. So Markdown with a text variation
+selector at the inner edge of a run beside a letter (`**©︎**2024`), which
+earlier versions read as bold, reads with literal markers; import it with
+`punctuation: 'strict-commonmark'` to read it as bold, as strict CommonMark
+readers do. Export defaults to `'strict-commonmark'`,
 whose references every CommonMark, GFM and CJK-friendly reader reads the same
 way (`**你好。**&#19990;界`), with three exceptions. A run of three or more
 markers that a pair uses only part of (`***a*b*c***` or `***x****y*`, as on
