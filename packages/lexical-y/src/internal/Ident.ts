@@ -49,7 +49,8 @@ import {
 } from './constants';
 import {runBoundary, type StoredUnit} from './Layout3';
 import {markBindingWrite} from './RawWrites';
-import {isGone} from './Seen';
+import {isGoneIn} from './Seen';
+import {currentView, type View} from './Unread';
 
 /**
  * Whether writes into `doc` store covered keys as paired runs: always, but
@@ -258,10 +259,17 @@ export function recordsIdentityLayout(root: {
 const __DEV__ = process.env.NODE_ENV !== 'production';
 
 /**
- * The view pairing is judged in (isPaired, liveEndsOf, isValidEnd, stack
- * entries): the running write's own view (Seen.isGone).
+ * What a fold reads the document in: the binding's view (see View; pairing
+ * is judged there: isPaired, liveEndsOf, isValidEnd, stack entries), and the
+ * hold whose held-back ends pair nothing (see withHeldView), or null.
  */
-const goneIn = isGone;
+export interface FoldIn {
+  readonly view: View | null;
+  readonly held: {hides(item: Item): boolean} | null;
+}
+
+/** Whether `item` is gone in fold `f`'s view (Seen.isGoneIn). */
+const goneIn = (f: FoldIn, item: Item): boolean => isGoneIn(f.view, item);
 
 /**
  * The hold whose view a fold reads in (see withHeldView), or null: an end
@@ -287,9 +295,22 @@ export function withHeldView<T>(
   }
 }
 
-/** Whether end `end` pairs nothing: gone, or held back (see heldView). */
-const endGone = (end: Item): boolean =>
-  goneIn(end) || (heldView !== null && heldView.hides(end));
+/** Whether end `end` pairs nothing: gone, or held back (see FoldIn). */
+const endGone = (f: FoldIn, end: Item): boolean =>
+  goneIn(f, end) || (f.held !== null && f.held.hides(end));
+
+let ambient: FoldIn = {held: null, view: null};
+/**
+ * The fold of the running work: its view and withHeldView's hold, while
+ * folds move to an explicit FoldIn.
+ */
+export function ambientFold(): FoldIn {
+  const view = currentView();
+  if (ambient.view !== view || ambient.held !== heldView) {
+    ambient = {held: heldView, view};
+  }
+  return ambient;
+}
 
 /** Test harnesses: check the whole run stack on every push (see Rule 4). */
 let fullStackChecks = false;
@@ -793,7 +814,7 @@ function mayPair(doc: Doc): boolean {
  * container, that is not an end (structural validity: it does not prove the
  * end was written for that opener; raw writers must not copy relative ends).
  */
-export function isValidEnd(end: Item): boolean {
+export function isValidEnd(end: Item, f: FoldIn = ambientFold()): boolean {
   const doc = (end.parent as unknown as {doc: Doc | null}).doc;
   const id = endTarget(end);
   if (doc === null || doc === undefined || id === null) {
@@ -802,7 +823,7 @@ export function isValidEnd(end: Item): boolean {
   const target = itemAt(doc, id);
   return (
     target !== null &&
-    !goneIn(target) &&
+    !goneIn(f, target) &&
     target.parent === end.parent &&
     target.content instanceof ContentFormat &&
     target.content.key === (end.content as ContentFormat).key &&
@@ -821,25 +842,25 @@ export function endsOf(item: Item): Item[] {
 }
 
 /** The live ends that name opener `item`. */
-export function liveEndsOf(item: Item): Item[] {
+export function liveEndsOf(item: Item, f: FoldIn = ambientFold()): Item[] {
   const doc = (item.parent as unknown as {doc: Doc | null}).doc;
   if (doc === null || doc === undefined) {
     return [];
   }
   const list = indexOf(doc).ends.get(item);
-  return list === undefined ? [] : list.filter(e => !goneIn(e));
+  return list === undefined ? [] : list.filter(e => !goneIn(f, e));
 }
 
 /** Whether a live end names live opener `item`. */
-export function isPaired(item: Item): boolean {
+export function isPaired(item: Item, f: FoldIn = ambientFold()): boolean {
   if (pendingCount > 0 && pendingPaired.has(item)) {
     return true;
   }
-  return liveEndOf(item) !== null;
+  return liveEndOf(item, f) !== null;
 }
 
 /** The first live end in the index that names opener `item`, or null. */
-function liveEndOf(item: Item): Item | null {
+function liveEndOf(item: Item, f: FoldIn): Item | null {
   const doc = (item.parent as unknown as {doc: Doc | null}).doc;
   if (doc === null || doc === undefined) {
     return null;
@@ -848,7 +869,7 @@ function liveEndOf(item: Item): Item | null {
   // under a gone view: what is gone there differs), and openers no end in
   // the index names (a seeded item in main's bytes), per end epoch.
   const cached = (item as Cached)[LIVE_END];
-  if (cached !== undefined && !endGone(cached)) {
+  if (cached !== undefined && !endGone(f, cached)) {
     return cached;
   }
   const index = indexOf(doc);
@@ -861,7 +882,7 @@ function liveEndOf(item: Item): Item | null {
     return null;
   }
   for (const end of list) {
-    if (!endGone(end)) {
+    if (!endGone(f, end)) {
       (item as Cached)[LIVE_END] = end;
       return end;
     }
@@ -1453,13 +1474,13 @@ export function equalStacks(a: unknown, b: unknown): boolean {
 }
 
 /** Whether the opener of stack entry `e` is paired (looked up on demand). */
-function entryPaired(doc: Doc, e: Entry): boolean {
+function entryPaired(doc: Doc, e: Entry, f: FoldIn): boolean {
   const item = e.opener;
-  if (item === null || goneIn(item)) {
+  if (item === null || goneIn(f, item)) {
     return false;
   }
   const known = e.end;
-  if (known !== null && !endGone(known)) {
+  if (known !== null && !endGone(f, known)) {
     return true;
   }
   if (!mayPair(doc)) {
@@ -1468,7 +1489,7 @@ function entryPaired(doc: Doc, e: Entry): boolean {
   if (pendingCount > 0 && pendingPaired.has(item)) {
     return true;
   }
-  const end = liveEndOf(item);
+  const end = liveEndOf(item, f);
   e.end = end;
   return end !== null;
 }
@@ -1492,14 +1513,22 @@ function plainRun(formats: Map<string, unknown>, key: string): Entry | null {
  * Step `formats` over format item `it` (see the header): every fold site
  * calls this. Uncovered keys fold as plain values.
  */
-export function stepFormat(formats: Map<string, unknown>, it: Item): void {
-  stepPaired(formats, it);
+export function stepFormat(
+  formats: Map<string, unknown>,
+  it: Item,
+  f: FoldIn = ambientFold(),
+): void {
+  stepPaired(formats, it, f);
 }
 
 /**
  * The fold: run stacks for covered keys, plain values for every other key.
  */
-export function stepPaired(formats: Map<string, unknown>, it: Item): void {
+export function stepPaired(
+  formats: Map<string, unknown>,
+  it: Item,
+  f: FoldIn = ambientFold(),
+): void {
   const content = it.content as ContentFormat;
   const key = content.key;
   // The fold's own slots (a key's run stack, the dormant runs) live under
@@ -1542,7 +1571,7 @@ export function stepPaired(formats: Map<string, unknown>, it: Item): void {
       return;
     }
     let firstPaired: Entry | null = top;
-    while (firstPaired !== null && !entryPaired(doc, firstPaired)) {
+    while (firstPaired !== null && !entryPaired(doc, firstPaired, f)) {
       firstPaired = firstPaired.below;
     }
     let own: Entry | null = target === null ? null : firstPaired;
@@ -1564,7 +1593,7 @@ export function stepPaired(formats: Map<string, unknown>, it: Item): void {
       formats,
       key,
       shadow,
-      rebuildOnto(firstPaired!, own, own.below, doc),
+      rebuildOnto(firstPaired!, own, own.below, doc, f),
     );
     return;
   }
@@ -1599,10 +1628,10 @@ export function stepPaired(formats: Map<string, unknown>, it: Item): void {
   const paired =
     value !== null &&
     ((pendingCount > 0 && pendingPaired.has(it)) ||
-      (mayPair(doc) && (end = liveEndOf(it)) !== null));
+      (mayPair(doc) && (end = liveEndOf(it, f)) !== null));
   if (!paired) {
     stats.unpairedPushes++;
-    while (base !== null && !entryPaired(doc, base)) {
+    while (base !== null && !entryPaired(doc, base, f)) {
       base = base.below;
     }
   }
@@ -1617,6 +1646,7 @@ function rebuildOnto(
   own: Entry,
   base: Entry | null,
   doc: Doc,
+  f: FoldIn,
 ): Entry | null {
   const above: Entry[] = [];
   for (let e: Entry | null = top; e !== own && e !== null; e = e.below) {
@@ -1625,7 +1655,7 @@ function rebuildOnto(
   let out = base;
   for (let i = above.length - 1; i >= 0; i--) {
     const e = above[i];
-    if (entryPaired(doc, e)) {
+    if (entryPaired(doc, e, f)) {
       // paired, so it has its opener
       out = entry(out, e.opener!, e.value);
     }

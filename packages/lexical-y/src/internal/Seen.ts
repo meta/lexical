@@ -23,7 +23,7 @@ import {
   type Transaction,
 } from '@y/y';
 
-import {pairedReadingIn, stepFormat, withHeldView} from './Ident';
+import {ambientFold, pairedReadingIn, stepFormat} from './Ident';
 import {EMPTY_FORMATS, isEndItem, typeOf} from './State';
 import {
   currentView,
@@ -636,18 +636,20 @@ export function refoldUpTo(
   if (left === null) {
     return;
   }
-  const step = (it: Item) => stepFormat(start, it);
+  // The shown lane folds as the hold shows the line; the others in the
+  // running work's fold (see Ident.ambientFold).
+  const fold = {
+    held: lane === 'shown' && hidden !== null ? hidden : ambientFold().held,
+    view,
+  };
+  const step = (it: Item) => stepFormat(start, it, fold);
   for (
     let it: Item | null = (parent as {_start: Item | null})._start;
     it !== null;
     it = it.right
   ) {
     if (it.content instanceof ContentFormat && inLane(view, it, lane, hidden)) {
-      if (lane === 'shown' && hidden !== null) {
-        withHeldView(hidden, () => step(it));
-      } else {
-        step(it);
-      }
+      step(it);
     }
     if (it === left) {
       break;

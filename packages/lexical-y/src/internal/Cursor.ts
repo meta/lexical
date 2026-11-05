@@ -27,6 +27,7 @@ import {
   endTarget,
   endValue,
   ensureIdentityRecord,
+  type FoldIn,
   isEndValue,
   isIdentityValue,
   isOnStack,
@@ -44,7 +45,6 @@ import {
   seedRunsOf,
   stepPaired,
   unmarkPending,
-  withHeldView,
   writesPairedRuns,
 } from './Ident';
 import {runBoundary, type StoredUnit, storedUnit} from './Layout3';
@@ -425,15 +425,35 @@ export class Cursor {
   }
 
   /** The fold of this cursor's steps (see stepperFor). */
-  private step: ((formats: Formats, it: Item) => void) | null = null;
+  private step: ((formats: Formats, it: Item, f: FoldIn) => void) | null = null;
   /**
    * Whether opener `it` is paired as the editor shows it: an end the hold
    * holds back pairs nothing (see Ident.withHeldView).
    */
   private pairedShown(it: Item): boolean {
-    return this.hidden === null
-      ? isPaired(it)
-      : withHeldView(this.hidden, () => isPaired(it));
+    return isPaired(it, this.shownFold());
+  }
+
+  /** The fold of what the editor shows: this view, this hold (see FoldIn). */
+  private shown: FoldIn | null = null;
+  private shownFold(): FoldIn {
+    if (
+      this.shown === null ||
+      this.shown.held !== this.hidden ||
+      this.shown.view !== this.view
+    ) {
+      this.shown = {held: this.hidden, view: this.view};
+    }
+    return this.shown;
+  }
+
+  /** The fold of what is stored: this view, no hold (see FoldIn). */
+  private storedFold: FoldIn | null = null;
+  private stored(): FoldIn {
+    if (this.storedFold === null || this.storedFold.view !== this.view) {
+      this.storedFold = {held: null, view: this.view};
+    }
+    return this.storedFold;
   }
 
   /**
@@ -443,11 +463,7 @@ export class Cursor {
    */
   private stepShown(formats: Formats, it: Item): void {
     const step = (this.step ??= stepPaired);
-    if (this.hidden === null) {
-      step(formats, it);
-    } else {
-      withHeldView(this.hidden, () => step(formats, it));
-    }
+    step(formats, it, this.shownFold());
   }
 
   /** Before this write's first paired item (see ensureIdentityRecord). */
@@ -1645,7 +1661,7 @@ export class Cursor {
     const isBoundary = (x: Item): boolean => {
       const v = valueOf(x);
       if (isEndValue(v)) {
-        return !isValidEnd(x);
+        return !isValidEnd(x, this.stored());
       }
       return v === null || !this.pairedShown(x);
     };
@@ -1670,7 +1686,7 @@ export class Cursor {
           continue;
         }
         if (isEndValue(valueOf(x))) {
-          const target = isValidEnd(x) ? endTarget(x) : null;
+          const target = isValidEnd(x, this.stored()) ? endTarget(x) : null;
           if (
             target === null ||
             !isOnStack(sim, key, target.client, target.clock)
@@ -1702,7 +1718,8 @@ export class Cursor {
       this.isHeldFormat(x);
     /** A clearer, or an invalid end (which names no open run either). */
     const isClearer = (x: Item): boolean =>
-      clearers.has(x) || (isEndValue(valueOf(x)) && !isValidEnd(x));
+      clearers.has(x) ||
+      (isEndValue(valueOf(x)) && !isValidEnd(x, this.stored()));
     /**
      * Whether the interval of the run `opener` opened, up to its end `end`,
      * holds a clearer, a held item, or an unpaired item of `key` this change
@@ -1743,7 +1760,7 @@ export class Cursor {
         // all its ends in the document (one left behind would name nothing).
         // The plan never takes a run whose interval or end the hold holds
         // (see wholeRunEnd, emptyRunEnd and shields).
-        const ends = liveEndsOf(s);
+        const ends = liveEndsOf(s, this.stored());
         const end =
           this.wholeRunEnd(s, ends, contentSet) ??
           (si > firstAt
@@ -1984,7 +2001,7 @@ export class Cursor {
         // a held item of the key, or a clearer (step 1)
         if (
           this.isHeldFormat(x) ||
-          (isEndValue(valueOf(x)) && !isValidEnd(x))
+          (isEndValue(valueOf(x)) && !isValidEnd(x, this.stored()))
         ) {
           return null;
         }
@@ -2037,7 +2054,10 @@ export class Cursor {
     right: Item | null,
   ): Item {
     const doc = this.tr.doc;
-    if (__DEV__ && liveEndsOf(opener).some(e => isValidEnd(e))) {
+    if (
+      __DEV__ &&
+      liveEndsOf(opener, this.stored()).some(e => isValidEnd(e, this.stored()))
+    ) {
       throw new Error(
         `@lexical/y: a second end for format item ${opener.id.client}:${opener.id.clock}`,
       );
