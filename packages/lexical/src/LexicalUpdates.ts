@@ -1305,21 +1305,16 @@ function $discardPendingUpdate(
 }
 
 function $clampPointToNode(point: PointType, node: LexicalNode): boolean {
-  let maxOffset: number;
   if (point.type === 'text' && $isTextNode(node)) {
-    maxOffset = node.getTextContentSize();
-  } else if (point.type === 'element' && $isElementNode(node)) {
-    maxOffset = node.getChildrenSize();
-  } else {
-    return false;
-  }
-  const originalOffset = point.offset;
-  if (originalOffset > maxOffset) {
-    point.offset = maxOffset;
-    return true;
-  } else if (originalOffset < 0) {
-    point.offset = 0;
-    return true;
+    const maxOffset = node.getTextContentSize();
+    const originalOffset = point.offset;
+    if (originalOffset > maxOffset) {
+      point.set(point.key, maxOffset, 'text');
+      return true;
+    } else if (originalOffset < 0) {
+      point.set(point.key, 0, 'text');
+      return true;
+    }
   }
   return false;
 }
