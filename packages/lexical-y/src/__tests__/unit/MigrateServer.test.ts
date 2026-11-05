@@ -17,7 +17,7 @@
 
 import * as Y from '@y/y';
 import {createHash} from 'node:crypto';
-import {describe, expect, test} from 'vitest';
+import {describe, expect, test, vi} from 'vitest';
 
 import {LAYOUT_VERSION, SEED_LAYOUT} from '../..';
 import {readYState} from '../../headless';
@@ -841,6 +841,34 @@ describe.each([false, true])('@lexical/y/server, gc %s', gc => {
       renderer: 'r1',
       schemaVersion: 1,
     };
+
+    test("a base that does not decode throws, and the record's scratch document is destroyed all the same", () => {
+      const destroyed: Y.Doc[] = [];
+      const realDestroy = Y.Doc.prototype.destroy;
+      const spy = vi
+        .spyOn(Y.Doc.prototype, 'destroy')
+        .mockImplementation(function (this: Y.Doc) {
+          destroyed.push(this);
+          realDestroy.call(this);
+        });
+      try {
+        expect(() =>
+          hasNewYEdits(
+            record(replica(insert)),
+            new Uint8Array([0xff, 0xff, 0xff, 0xff]),
+          ),
+        ).toThrow();
+        // The record's scratch copy (it holds the replica's items) was
+        // destroyed, not leaked by the failed decode of the base.
+        expect(
+          destroyed.some(
+            d => d.share.has('lexical-y') && d.store.clients.size > 0,
+          ),
+        ).toBe(true);
+      } finally {
+        spy.mockRestore();
+      }
+    });
 
     test('struct only, deletion only, both, none', () => {
       const b = base();

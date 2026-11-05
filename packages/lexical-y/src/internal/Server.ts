@@ -1383,8 +1383,11 @@ export function hasNewYEdits(
     return true;
   }
   const view = assembleV1(record);
-  const was = createYDoc(base, {gc: false});
+  // Inside the try: a base that does not decode throws, and the record's
+  // scratch document is destroyed all the same.
+  let was: YDoc | null = null;
   try {
+    was = createYDoc(base, {gc: false});
     if (!view.complete) {
       return true;
     }
@@ -1428,7 +1431,9 @@ export function hasNewYEdits(
     }
     return false;
   } finally {
-    was.destroy();
+    if (was !== null) {
+      was.destroy();
+    }
     view.doc.destroy();
   }
 }
