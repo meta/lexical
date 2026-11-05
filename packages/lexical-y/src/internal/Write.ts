@@ -2338,19 +2338,18 @@ export class Writer {
    * from the items as they are stored (see isStoredIn).
    */
   private $fixStartsAfter(u: Unit): void {
+    // The binding's view, once: these folds write nothing.
+    const view = this.view;
     let unit: Unit | undefined = u;
     // Stops where the next unit's start already agrees (usually at once).
     while (unit !== undefined) {
-      if (unit.end === null || isGoneIn(this.view, unit.end)) {
+      if (unit.end === null || isGoneIn(view, unit.end)) {
         return;
       }
       // The next unit first: without one, the fold below would
       // set nothing.
       let next: Item | null = unit.end.right;
-      while (
-        next !== null &&
-        !isShownEndIn(this.view, next, this.state.hidden)
-      ) {
+      while (next !== null && !isShownEndIn(view, next, this.state.hidden)) {
         next = next.right;
       }
       const nextUnit: Unit | undefined =
@@ -2358,12 +2357,12 @@ export class Writer {
       if (nextUnit === undefined) {
         return;
       }
-      const left = prevLiveEnd(this.view, unit.end, this.state.hidden);
+      const left = prevLiveEnd(view, unit.end, this.state.hidden);
       // From the unit's stored start (a split half of the line being
       // composed shows another, see Hidden#starts). (Before the copy: a
       // stale start is folded again, see frontierOf.)
       const start = this.storedStart(unit);
-      let folded = frontierOf(this.view, start, left, unit.cs.y, null);
+      let folded = frontierOf(view, start, left, unit.cs.y, null);
       let formats = new Map(start || EMPTY_FORMATS);
       let from: Item | null = left === null ? unit.cs.y._start : left.right;
       // The format pass's fold of this line, where nothing was written since:
@@ -2386,7 +2385,7 @@ export class Writer {
       }
       const folder = new Folder(
         formats,
-        this.view,
+        view,
         'stored',
         this.state.hidden,
         null,
@@ -2853,6 +2852,8 @@ export class Writer {
       }
       after = end;
     }
+    // The binding's view, once for the folds below: they write nothing.
+    const view = this.view;
     // Formats in effect at each unit start (a format can span a marker).
     // New halves of the held line inherit the shown lane, not evidence that
     // they already rendered a held opener in an earlier half.
@@ -2876,20 +2877,13 @@ export class Writer {
       // lane, what they hand on is stored (see isStoredIn).
       const stored = new Folder(
         current,
-        this.view,
+        view,
         'stored',
         hidden,
         null,
         frontier,
       );
-      const showing = new Folder(
-        shown,
-        this.view,
-        'shown',
-        hidden,
-        null,
-        frontier,
-      );
+      const showing = new Folder(shown, view, 'shown', hidden, null, frontier);
       for (
         let it = startItem;
         it !== null && k < segUnits.length;
@@ -2897,7 +2891,7 @@ export class Writer {
       ) {
         stored.step(it);
         showing.step(it);
-        if (isGoneIn(this.view, it) || it.content instanceof ContentFormat) {
+        if (isGoneIn(view, it) || it.content instanceof ContentFormat) {
           continue;
         }
         const u = byEnd.get(it);
@@ -2935,7 +2929,7 @@ export class Writer {
     if (after !== left) {
       const folder = new Folder(
         formats,
-        this.view,
+        view,
         'stored',
         this.state.hidden,
         null,
@@ -2950,7 +2944,7 @@ export class Writer {
       }
     }
     for (; it !== null; it = it.right) {
-      if (isShownEndIn(this.view, it, this.state.hidden)) {
+      if (isShownEndIn(view, it, this.state.hidden)) {
         const next = this.state.unitByEnd.get(it);
         if (
           next !== undefined &&

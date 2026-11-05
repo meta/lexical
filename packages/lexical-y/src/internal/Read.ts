@@ -800,7 +800,8 @@ export class Reader {
       return;
     }
     let end: Item | null = item;
-    while (end !== null && !isShownEndIn(this.view, end, this.state.hidden)) {
+    const view = this.view;
+    while (end !== null && !isShownEndIn(view, end, this.state.hidden)) {
       end = end.right;
     }
     const unit = end === null ? undefined : this.state.unitByEnd.get(end);
@@ -1204,6 +1205,7 @@ export class Reader {
    */
   private runInLine(it: Item): boolean {
     const hidden = this.state.hidden;
+    const view = this.view;
     const content = it.content as ContentFormat;
     if (isEndValue(content.value)) {
       const opener = this.openerOf(it);
@@ -1214,7 +1216,7 @@ export class Reader {
         if (p === opener) {
           return true;
         }
-        if (isShownEndIn(this.view, p, hidden)) {
+        if (isShownEndIn(view, p, hidden)) {
           return false;
         }
       }
@@ -1246,7 +1248,7 @@ export class Reader {
         }
         continue;
       }
-      if (isShownEndIn(this.view, p, hidden)) {
+      if (isShownEndIn(view, p, hidden)) {
         return false;
       }
     }
@@ -1323,14 +1325,15 @@ export class Reader {
    */
   private $linesBefore(unit: Unit, items: ReadonlySet<Item>): Set<Item> | null {
     const hidden = this.state.hidden;
+    const view = this.view;
     const start =
-      unit.end === null ? null : prevLiveEnd(this.view, unit.end, hidden);
+      unit.end === null ? null : prevLiveEnd(view, unit.end, hidden);
     if (start === null || !items.has(start) || start.deleted) {
       return null;
     }
     let p: Item | null = start.left;
     for (; p !== null; p = p.left) {
-      if (items.has(p) || !isShownIn(this.view, p, hidden)) {
+      if (items.has(p) || !isShownIn(view, p, hidden)) {
         continue;
       }
       if (isEndItem(p)) {
@@ -1653,7 +1656,8 @@ export class Reader {
             storedStartOf(u, hidden.starts) || EMPTY_FORMATS,
           );
     let nextEnd: Item | null = u.end.right;
-    while (nextEnd !== null && !isShownEndIn(this.view, nextEnd, hidden)) {
+    const view = this.view;
+    while (nextEnd !== null && !isShownEndIn(view, nextEnd, hidden)) {
       nextEnd = nextEnd.right;
     }
     const next =
@@ -2683,9 +2687,12 @@ export class Reader {
     };
     // As the editor shows it: without what is held back (see Hidden).
     const hidden = this.state.hidden;
-    const fold: FoldIn = {held: this.held, view: this.view};
+    // The binding's view, once: this read of the items changes nothing it
+    // depends on.
+    const view = this.view;
+    const fold: FoldIn = {held: this.held, view};
     for (let it = start; it !== null && it !== stop; it = it.right) {
-      if (!isShownIn(this.view, it, hidden)) {
+      if (!isShownIn(view, it, hidden)) {
         continue;
       }
       const content = it.content;
@@ -4361,6 +4368,8 @@ function attrsAtItems(
     set.add(item);
   }
   const out = new Map<Item, Attrs>();
+  // The fold of what is stored, one for every step (a fold only reads it).
+  const fold: FoldIn = {held: heldView, view};
   for (const [parent, wanted] of bySequence) {
     let known = memo === undefined ? undefined : memo.get(parent);
     if (memo !== undefined && known === undefined) {
@@ -4375,7 +4384,7 @@ function attrsAtItems(
         if (it.content instanceof ContentType) {
           known.set(it, attrsOf(formats) as Attrs);
         } else if (!isGoneIn(view, it) && it.content instanceof ContentFormat) {
-          stepFormat(formats, it, {held: heldView, view});
+          stepFormat(formats, it, fold);
         }
       }
     }
@@ -4405,7 +4414,7 @@ function attrsAtItems(
         left--;
       }
       if (!isGoneIn(view, it) && it.content instanceof ContentFormat) {
-        stepFormat(formats, it, {held: heldView, view});
+        stepFormat(formats, it, fold);
       }
     }
   }
@@ -4415,6 +4424,7 @@ function attrsAtItems(
   // with none).
   const hidden = held === null ? null : held.hidden;
   if (held !== null && hidden !== null) {
+    const shownFold: FoldIn = {held: hidden, view};
     for (const item of items) {
       const container = held.containers.get(item.parent as YNode);
       let start: Formats | null = null;
@@ -4453,7 +4463,7 @@ function attrsAtItems(
           it.content instanceof ContentFormat &&
           isShownIn(view, it, hidden)
         ) {
-          stepFormat(formats, it, {held: hidden, view});
+          stepFormat(formats, it, shownFold);
         }
       }
       out.set(item, attrsOf(formats) as Attrs);

@@ -1259,8 +1259,9 @@ export class BlockIdSettler {
     if (cs.kind === 'i') {
       holder = $getNodeByKey(cs.key);
     } else {
+      const view = this.liveView();
       for (let it = item.right; it !== null; it = it.right) {
-        if (isShownEndIn(this.liveView(), it, state.hidden)) {
+        if (isShownEndIn(view, it, state.hidden)) {
           const u = state.unitByEnd.get(it);
           holder =
             u === undefined || u.key === null ? null : $getNodeByKey(u.key);

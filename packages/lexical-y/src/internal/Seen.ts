@@ -39,7 +39,7 @@ import {deleted, inserted, scopedView, type Unread, type View} from './Unread';
  *   before. isGoneIn, attrOfIn, attrsOfIn and attrsBeforeIn read through
  *   them; setAttrIn, deleteAttrIn and deleteItemIn write through them. Each
  *   takes the view it works in: the binding's (YBinding#seer), or null.
- *   Where no view applies to an item's type (see viewFor), they are Yjs's
+ *   Where no view applies to an item's type (see scopedView), they are Yjs's
  *   own `deleted`, getAttr and getAttrs.
  * - The items held back while the local editor composes (see Hidden):
  *   isHeld and unheldLength.
@@ -72,7 +72,7 @@ export function isStoredIn(
 }
 
 /**
- * Whether `item` is gone in `view` (see viewFor): Yjs's `deleted`, with
+ * Whether `item` is gone in `view` (see scopedView): Yjs's `deleted`, with
  * what the view's unread changes inserted gone and what they deleted not.
  */
 export function isGoneIn(view: View | null, item: Item): boolean {
@@ -282,7 +282,7 @@ function attrItem(y: YNode, view: Unread, key: string): Item | null {
   return v;
 }
 
-/** The value of attribute `key` of `y` in `view` (see viewFor). */
+/** The value of attribute `key` of `y` in `view` (see scopedView). */
 export function attrOfIn(view: View | null, y: YNode, key: string): unknown {
   const scoped = scopedView(view, y);
   if (scoped === null) {

@@ -62,7 +62,7 @@ export interface Unread {
   readonly root: YNode;
   /** What the changes deleted that the writes since deleted too. */
   readonly removed: IdSet;
-  /** Whether each type is under the root (see viewFor). */
+  /** Whether each type is under the root (see scopedView). */
   readonly under: Map<YNode, boolean>;
   /**
    * Whether a deleted item is one the editor still shows: a format item a
@@ -90,20 +90,28 @@ export interface Unread {
  */
 export type View = Unread;
 
-/** viewFor, and none for a hold's view that keeps nothing (see lapsed). */
-function liveViewFor(view: View | null, type: YNode): View | null {
-  const scoped = viewFor(view, type);
-  return scoped !== null && scoped.lapsed !== null && scoped.lapsed()
-    ? null
-    : scoped;
-}
-
 /**
- * The part of `view` that applies to the items of `type` (see viewFor), as
- * the helpers that read or write them use it (see Seen).
+ * The part of `view` that applies to the items of `type`, as the helpers
+ * that read or write them use it (see Seen): `view` itself where `type` is
+ * under its root, else null (Yjs as it is: another binding's root, or
+ * none); none either for a hold's view that keeps nothing (see lapsed).
  */
 export function scopedView(view: View | null, type: YNode): View | null {
-  return liveViewFor(view, type);
+  if (view === null) {
+    return null;
+  }
+  let under = view.under.get(type);
+  if (under === undefined) {
+    under = false;
+    for (let t: YNode | null = type; t !== null; t = t.parent) {
+      if (t === view.root) {
+        under = true;
+        break;
+      }
+    }
+    view.under.set(type, under);
+  }
+  return under && (view.lapsed === null || !view.lapsed()) ? view : null;
 }
 
 /** The document under `root` as it was before any change. */
@@ -142,26 +150,4 @@ export function deleted(view: Unread, item: Item): boolean {
     }
   }
   return false;
-}
-
-/**
- * `view` for the items of `type`: `view` itself where `type` is under its
- * root, else null (Yjs as it is: another binding's root, or none).
- */
-export function viewFor(view: View | null, type: YNode): View | null {
-  if (view === null) {
-    return null;
-  }
-  let under = view.under.get(type);
-  if (under === undefined) {
-    under = false;
-    for (let t: YNode | null = type; t !== null; t = t.parent) {
-      if (t === view.root) {
-        under = true;
-        break;
-      }
-    }
-    view.under.set(type, under);
-  }
-  return under ? view : null;
 }

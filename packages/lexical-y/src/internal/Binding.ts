@@ -5620,9 +5620,11 @@ export class YBinding {
     const y = cs === undefined ? null : cs.y;
     // Items known to be in the line: each item is walked once.
     const inLine = new Set<Item>();
+    // The binding's view, once: this check changes nothing it depends on.
+    const view = this.seer();
     for (const [parent, items] of this.hiddenItems(hidden)) {
       for (const it of items) {
-        if (isGoneIn(this.seer(), it)) {
+        if (isGoneIn(view, it)) {
           continue;
         }
         if (parent !== y) {
@@ -5636,7 +5638,7 @@ export class YBinding {
         while (
           end !== null &&
           !inLine.has(end) &&
-          !isShownEndIn(this.seer(), end, hidden)
+          !isShownEndIn(view, end, hidden)
         ) {
           path.push(end);
           end = end.right;
@@ -5657,7 +5659,7 @@ export class YBinding {
       hidden.marker === null ||
       (unit !== undefined &&
         [...hidden.marker.ends].every(
-          end => end === unit.end || isGoneIn(this.seer(), end),
+          end => end === unit.end || isGoneIn(view, end),
         ))
     );
   }
@@ -7469,23 +7471,25 @@ export class YBinding {
     // Where unit.start was folded up to, when past the walk's start (see
     // seedFrontier).
     let folded: Item | null = null;
+    // The binding's view, once: this read changes nothing it depends on.
+    const view = this.seer();
     if (unit !== undefined && unit.end !== null) {
-      const left = unitLeftEnd(this.seer(), unit.cs.units, unit, state.hidden);
+      const left = unitLeftEnd(view, unit.cs.units, unit, state.hidden);
       start = left === null ? unit.cs.y._start : left.right;
       // (Before the copy: a stale start is folded again, see frontierOf.)
-      folded = frontierOf(this.seer(), unit.start, left, unit.cs.y, null);
+      folded = frontierOf(view, unit.start, left, unit.cs.y, null);
       formats = new Map(unit.start || []);
     } else if (unit !== undefined && unit.kind === 'implicit') {
       const units = unit.cs.units;
       const idx = units.indexOf(unit);
       const prevEnd = idx > 0 ? units[idx - 1].end : null;
       let left = prevEnd;
-      while (left !== null && !isShownEndIn(this.seer(), left, state.hidden)) {
-        left = prevLiveEnd(this.seer(), left, state.hidden);
+      while (left !== null && !isShownEndIn(view, left, state.hidden)) {
+        left = prevLiveEnd(view, left, state.hidden);
       }
       start = left === null ? unit.cs.y._start : left.right;
       // (Before the copy: a stale start is folded again, see frontierOf.)
-      folded = frontierOf(this.seer(), unit.start, left, unit.cs.y, null);
+      folded = frontierOf(view, unit.start, left, unit.cs.y, null);
       formats = new Map(unit.start || []);
     } else {
       const cs = state.csByKey.get(owner.getKey());
@@ -7497,15 +7501,15 @@ export class YBinding {
     }
     const out: [number, number, Attrs][] = [];
     let offset = 0;
-    const folder = new Folder(formats, this.seer(), 'raw', null, null, folded);
+    const folder = new Folder(formats, view, 'raw', null, null, folded);
     for (let it = start; it !== null; it = it.right) {
       folder.step(it);
       if (!it.deleted && it.content instanceof ContentFormat) {
         continue;
       }
-      const len = shownLengthIn(this.seer(), it, state.hidden);
+      const len = shownLengthIn(view, it, state.hidden);
       if (len === 0) {
-        if (isShownEndIn(this.seer(), it, state.hidden)) {
+        if (isShownEndIn(view, it, state.hidden)) {
           break;
         }
         continue;
@@ -9299,9 +9303,11 @@ export class YBinding {
     // A line without a marker (see Unit) ends where its container does, or
     // at the block node after it.
     const implicit = unit !== undefined && unit.kind === 'implicit';
+    // The binding's view, once: this read changes nothing it depends on.
+    const view = this.seer();
     let start: Item | null;
     if (unit !== undefined && unit.end !== null) {
-      const left = unitLeftEnd(this.seer(), unit.cs.units, unit, state.hidden);
+      const left = unitLeftEnd(view, unit.cs.units, unit, state.hidden);
       start = left === null ? unit.cs.y._start : left.right;
     } else if (unit !== undefined && implicit) {
       // Its content starts right after the unit before it, the end of the
@@ -9309,8 +9315,8 @@ export class YBinding {
       const units = unit.cs.units;
       const idx = units.indexOf(unit);
       let left = idx > 0 ? units[idx - 1].end : null;
-      while (left !== null && !isShownEndIn(this.seer(), left, state.hidden)) {
-        left = prevLiveEnd(this.seer(), left, state.hidden);
+      while (left !== null && !isShownEndIn(view, left, state.hidden)) {
+        left = prevLiveEnd(view, left, state.hidden);
       }
       start = left === null ? unit.cs.y._start : left.right;
     } else {
@@ -9336,9 +9342,9 @@ export class YBinding {
     let lastLive: Item | null = null;
     let lastLen = 0;
     for (let it = start; it !== null; it = it.right) {
-      const len = shownLengthIn(this.seer(), it, hidden);
+      const len = shownLengthIn(view, it, hidden);
       if (len === 0) {
-        if (isShownEndIn(this.seer(), it, hidden)) {
+        if (isShownEndIn(view, it, hidden)) {
           break;
         }
         continue;
@@ -9355,7 +9361,7 @@ export class YBinding {
       offset -= len;
       lastLive = it;
       lastLen = len;
-      if (isShownEndIn(this.seer(), it, hidden)) {
+      if (isShownEndIn(view, it, hidden)) {
         return null;
       }
     }
@@ -9379,6 +9385,8 @@ export class YBinding {
     item: Item,
   ): {key: NodeKey; offset: number; type: 'text' | 'element'} | null {
     const state = this.state;
+    // The binding's view, once: this read changes nothing it depends on.
+    const view = this.seer();
     const shown = (key: NodeKey): LexicalNode | null => {
       const node = $getNodeByKey(key);
       return node !== null && node.isAttached() ? node : null;
@@ -9417,7 +9425,7 @@ export class YBinding {
       last: boolean,
       inside: boolean,
     ): LexicalNode | null => {
-      if (!isShownEndIn(this.seer(), it, state.hidden)) {
+      if (!isShownEndIn(view, it, state.hidden)) {
         return null;
       }
       const unit = state.unitByEnd.get(it);
@@ -9458,11 +9466,13 @@ export class YBinding {
     diff: number,
   ): {key: NodeKey; offset: number; type: 'text' | 'element'} | null {
     const hidden = this.state.hidden;
-    const liveEnd = (x: Item) => isShownEndIn(this.seer(), x, hidden);
+    // The binding's view, once: this read changes nothing it depends on.
+    const view = this.seer();
+    const liveEnd = (x: Item) => isShownEndIn(view, x, hidden);
     let offset = 0;
     let it = start;
     for (; it !== null && it !== item && !liveEnd(it); it = it.right) {
-      offset += shownLengthIn(this.seer(), it, hidden);
+      offset += shownLengthIn(view, it, hidden);
     }
     if (it === item && item !== null && !liveEnd(item)) {
       offset += hidden === null ? diff : hidden.shownBefore(item, diff);
