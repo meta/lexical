@@ -2866,7 +2866,14 @@ export class Writer {
 
   /** A write cursor after `left` that skips content the editor hides. */
   private cursor(y: YNode, left: Item | null, formats: Formats): Cursor {
-    const c = new Cursor(this.tr, y, left, new Map(formats), this.frontier);
+    const c = new Cursor(
+      this.tr,
+      y,
+      left,
+      new Map(formats),
+      this.frontier,
+      currentView(),
+    );
     c.hidden = this.state.hidden;
     return c;
   }
@@ -5161,7 +5168,7 @@ function readAtomsLimited(
   let stop: Item | null = start;
   let n = 0;
   while (stop !== null && n < limit) {
-    if (isLiveContent(stop)) {
+    if (isLiveContent(currentView(), stop)) {
       n += unheldLength(stop, hidden);
     }
     stop = stop.right;

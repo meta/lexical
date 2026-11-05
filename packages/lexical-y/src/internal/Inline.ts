@@ -7,7 +7,6 @@
  */
 
 import type {Hidden} from './Hidden';
-import type {View} from './Unread';
 import type {Item} from '@y/y';
 
 import {ContentFormat, ContentString, ContentType} from '@y/y';
@@ -40,6 +39,7 @@ import {
   WRAPPER_PREFIX,
 } from './Schema';
 import {isGoneIn, isStoredIn, noteFolded, unheldLength} from './Seen';
+import {currentView, type View} from './Unread';
 
 // Inline content as atoms, the form both the editor's side ($pushInline)
 // and the shared side (readAtoms) are compared in: one atom per content unit
@@ -423,7 +423,7 @@ export function countLive(
 ): number {
   let n = 0;
   for (let it = start; it !== null && it !== stop; it = it.right) {
-    if (isLiveContent(it)) {
+    if (isLiveContent(currentView(), it)) {
       n += unheldLength(it, hidden);
     }
   }
