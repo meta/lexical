@@ -841,8 +841,13 @@ client's document with `createYDoc` from `@lexical/y`.
    returns `changed: false` and the stored bytes: store nothing. A root at
    or above the target needs no step, even one above this release's
    `LAYOUT_VERSION` (a rollback from a newer release, or a server upgraded
-   after its clients): it stays as it is. Only a root below the target with
-   no chain of steps is refused (`'missing-step'`). On a `YMigrationError` (the class
+   after its clients): it stays as it is. A root below the target is
+   refused when it has no chain of steps (`'missing-step'`), when it
+   requires a feature this release does not support
+   (`lexical-y-require:<feature>`, `'unsupported-feature'`: the server never
+   rewrites content it cannot interpret), or when its layout record, epoch
+   or a feature requirement is malformed (`'malformed'`); every root is
+   checked before any root runs. On a `YMigrationError` (the class
    `@lexical/y/migrate` exports, which `@lexical/y/server` uses), store
    nothing, keep the room stuck (it applies nothing), and alert.
 4. **Commit atomically**, compare-and-set on the version read:
