@@ -6147,6 +6147,12 @@ export class YBinding {
     // changes no more once the read has committed.
     editor._lastNotifiedSelection = selection;
     $onUpdate(() => {
+      // Lexical notified it itself as it committed: an app's
+      // selectionTransform that set a selection of its own (not this one)
+      // makes it extend the read's commit with the command.
+      if (editor._lastNotifiedSelection !== selection) {
+        return;
+      }
       // Where the read left the selection as it was, notified only if the
       // app's code moved it in the read's update.
       if (!changed) {

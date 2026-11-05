@@ -22,11 +22,14 @@
 import {
   $create,
   $createParagraphNode,
+  $createRangeSelection,
   $createTextNode,
   $getEditor,
   $getRoot,
+  $getSelection,
   $getState,
   $isElementNode,
+  $isRangeSelection,
   $isTextNode,
   $setSelection,
   $setState,
@@ -354,6 +357,103 @@ describe('every kind of app edit made in the update of a remote read is stored',
   ] as const) {
     for (const gc of [false, true]) {
       test(`${kind}, gc ${gc}`, () => runKind(kind, gc));
+    }
+  }
+});
+
+/**
+ * Sets a selection of its own at the end of the text before it, once its
+ * line is shut (Lexical then extends the read's commit with the selection
+ * change command itself).
+ */
+class ReplacingText extends TextNode {
+  $config() {
+    return this.config('read_edit_replacing', {extends: TextNode});
+  }
+  selectionTransform(_prev: BaseSelection | null, next: RangeSelection) {
+    const previous = this.getPreviousSibling();
+    if (
+      !$shutNowAndBefore() ||
+      !next.isCollapsed() ||
+      next.anchor.key !== this.getKey() ||
+      !$isTextNode(previous)
+    ) {
+      return;
+    }
+    const size = previous.getTextContentSize();
+    const selection = $createRangeSelection();
+    selection.anchor.set(previous.getKey(), size, 'text');
+    selection.focus.set(previous.getKey(), size, 'text');
+    $setSelection(selection);
+  }
+}
+
+describe('the selection change an app makes in a remote read is notified once', () => {
+  for (const shape of ['moved', 'replaced'] as const) {
+    for (const gc of [false, true]) {
+      test(`${shape}, gc ${gc}`, async () => {
+        const t = await setup(
+          () =>
+            $getRoot().append(
+              $create(Line).append(
+                $createTextNode('one '),
+                shape === 'moved'
+                  ? $create(LeaningText).setTextContent('two')
+                  : $create(ReplacingText).setTextContent('two'),
+              ),
+              $createParagraphNode().append($createTextNode('three')),
+            ),
+          {
+            gc,
+            ids: [1, 2, 3],
+            nodes: [...NODES, Line, LeaningText, ReplacingText],
+          },
+        );
+        const {a, b, c} = t;
+        const host = document.createElement('div');
+        host.contentEditable = 'true';
+        document.body.append(host);
+        a.editor.setRootElement(host);
+        host.focus();
+        onTestFinished(() => {
+          a.editor.setRootElement(null);
+          host.remove();
+          t.peers.forEach(p => p.stop());
+        });
+        a.update(() => {
+          $getRoot().getAllTextNodes()[1].select(1, 1);
+        });
+        await t.sync();
+        c.update(() => {
+          $setState($getRoot().getFirstChildOrThrow(), shut, true);
+          $setSelection(null);
+        });
+        await t.sync();
+        let notified = 0;
+        onTestFinished(
+          a.editor.registerCommand(
+            SELECTION_CHANGE_COMMAND,
+            () => {
+              notified++;
+              return false;
+            },
+            COMMAND_PRIORITY_LOW,
+          ),
+        );
+        b.update(() => {
+          $getRoot().getAllTextNodes()[2].setTextContent('three 3');
+          $setSelection(null);
+        });
+        await t.sync();
+        expect(notified).toBe(1);
+        expect(
+          a.read(() => {
+            const selection = $getSelection();
+            return $isRangeSelection(selection) ? selection.anchor.offset : -1;
+          }),
+        ).toBe(4);
+        await expectConverged(t.peers);
+      });
     }
   }
 });
