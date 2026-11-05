@@ -9,10 +9,9 @@
 // An app's update during an IME composition that moves or recreates the DOM
 // of the composing text (unwrapping the link it is in, moving its paragraph)
 // makes Chromium end the composition without a compositionend event; the
-// commit then arrives as plain input. The editor still believes a
-// composition is open (`_compositionKey` stays set), so it dispatches no key
-// commands and does not start the next composition:
-// https://github.com/meta/lexical/issues/9801
+// commit then arrives as plain input. The editor ends its composition too
+// (it kept `_compositionKey` set:
+// https://github.com/meta/lexical/issues/9801).
 
 import {
   buildEditorFromExtensions,
@@ -124,39 +123,36 @@ describe.runIf(server.browser === 'chromium')(
       'unwrap the link',
       'move the paragraph',
     ] as const) {
-      (change === 'none' ? test : test.fails)(
-        `${change}: the editor's composition ends with the browser's`,
-        async () => {
-          const {contentEditable, editor, session} =
-            await composeThenChange(change);
-          await session.send('Input.insertText', {text: '漢'});
-          await wait(100);
-          expect(editor._compositionKey).toBe(null);
-          expect(
-            getExtensionDependencyFromEditor(editor, IMEExtension).output
-              .compositionKey.value,
-          ).toBe(null);
-          expect(editor.read(() => $blocks().join('|'))).toBe(
-            contentEditable.innerText.replace(/\n+/g, '|'),
-          );
-          if (change === 'none') {
-            expect(contentEditable.innerText).toContain('Me漢ta');
-          }
-          // Key commands dispatch again.
-          let enters = 0;
-          editor.registerCommand(
-            KEY_ENTER_COMMAND,
-            () => {
-              enters++;
-              return false;
-            },
-            COMMAND_PRIORITY_CRITICAL,
-          );
-          await userEvent.keyboard('{Enter}');
-          await wait(50);
-          expect(enters).toBe(1);
-        },
-      );
+      test(`${change}: the editor's composition ends with the browser's`, async () => {
+        const {contentEditable, editor, session} =
+          await composeThenChange(change);
+        await session.send('Input.insertText', {text: '漢'});
+        await wait(100);
+        expect(editor._compositionKey).toBe(null);
+        expect(
+          getExtensionDependencyFromEditor(editor, IMEExtension).output
+            .compositionKey.value,
+        ).toBe(null);
+        expect(editor.read(() => $blocks().join('|'))).toBe(
+          contentEditable.innerText.replace(/\n+/g, '|'),
+        );
+        if (change === 'none') {
+          expect(contentEditable.innerText).toContain('Me漢ta');
+        }
+        // Key commands dispatch again.
+        let enters = 0;
+        editor.registerCommand(
+          KEY_ENTER_COMMAND,
+          () => {
+            enters++;
+            return false;
+          },
+          COMMAND_PRIORITY_CRITICAL,
+        );
+        await userEvent.keyboard('{Enter}');
+        await wait(50);
+        expect(enters).toBe(1);
+      });
     }
 
     test.fails(
@@ -195,35 +191,32 @@ describe.runIf(server.browser === 'chromium')(
       expect(editor.read(() => $blocks())).toEqual(['Befhe Meかta wiki.']);
     });
 
-    test.fails(
-      'a new composition after the browser ended one is composed',
-      async () => {
-        const {editor, session} = await composeThenChange('unwrap the link');
-        // The new composition starts as one: the ended one is not open then.
-        let openAtStart: string | null | undefined;
-        editor.registerCommand(
-          COMPOSITION_START_COMMAND,
-          () => {
-            openAtStart = editor._compositionKey;
-            return false;
-          },
-          COMMAND_PRIORITY_CRITICAL,
-        );
-        await session.send('Input.imeSetComposition', {
-          selectionEnd: 1,
-          selectionStart: 1,
-          text: 'さ',
-        });
-        await wait(100);
-        expect(openAtStart).toBe(null);
-        expect(editor._compositionKey).not.toBe(null);
-        await session.send('Input.insertText', {text: '佐'});
-        await wait(100);
-        expect(editor._compositionKey).toBe(null);
-        const text = editor.read(() => $blocks().join('|'));
-        expect(text.split('佐')).toHaveLength(2);
-        expect(text).not.toContain('さ');
-      },
-    );
+    test('a new composition after the browser ended one is composed', async () => {
+      const {editor, session} = await composeThenChange('unwrap the link');
+      // The new composition starts as one: the ended one is not open then.
+      let openAtStart: string | null | undefined;
+      editor.registerCommand(
+        COMPOSITION_START_COMMAND,
+        () => {
+          openAtStart = editor._compositionKey;
+          return false;
+        },
+        COMMAND_PRIORITY_CRITICAL,
+      );
+      await session.send('Input.imeSetComposition', {
+        selectionEnd: 1,
+        selectionStart: 1,
+        text: 'さ',
+      });
+      await wait(100);
+      expect(openAtStart).toBe(null);
+      expect(editor._compositionKey).not.toBe(null);
+      await session.send('Input.insertText', {text: '佐'});
+      await wait(100);
+      expect(editor._compositionKey).toBe(null);
+      const text = editor.read(() => $blocks().join('|'));
+      expect(text.split('佐')).toHaveLength(2);
+      expect(text).not.toContain('さ');
+    });
   },
 );

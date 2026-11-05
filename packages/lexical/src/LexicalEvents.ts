@@ -81,6 +81,7 @@ import {
 } from '.';
 import {
   CAN_USE_BEFORE_INPUT,
+  IS_ANDROID,
   IS_ANDROID_CHROME,
   IS_APPLE,
   IS_APPLE_WEBKIT,
@@ -1224,8 +1225,53 @@ function $isInputEventTargetingCapturedSelection(
   );
 }
 
+/**
+ * Chromium ends a composition without a compositionend event when an update
+ * moves or recreates the DOM the composition is in (an app's update that
+ * unwraps the composing text's link, or moves its paragraph): the commit then
+ * arrives as plain input. An input or key event that is not part of a
+ * composition means the editor's composition is over too; without this the
+ * editor kept its composition key, so it dispatched no key commands and kept
+ * treating that node as composing. Desktop Chromium only (Android, Firefox and
+ * WebKit report compositions differently), and only for trusted events (an
+ * event an app or a test dispatches does not carry isComposing).
+ */
+function endCompositionTheBrowserEnded(
+  event: InputEvent | KeyboardEvent,
+  editor: LexicalEditor,
+): void {
+  if (
+    editor._compositionKey === null ||
+    event.isComposing ||
+    // Only the browser's own events say whether a composition goes on.
+    !event.isTrusted ||
+    !IS_CHROME ||
+    IS_ANDROID ||
+    IS_IOS ||
+    IS_SAFARI ||
+    IS_APPLE_WEBKIT ||
+    IS_FIREFOX
+  ) {
+    return;
+  }
+  if (
+    'inputType' in event
+      ? event.inputType === 'insertCompositionText' ||
+        event.inputType === 'deleteCompositionText'
+      : event.keyCode === 229
+  ) {
+    return;
+  }
+  updateEditorSync(editor, () => {
+    editor._inputState.compositionPhase = 'idle';
+    $onCompositionEndImpl(editor);
+    $addUpdateTag(COMPOSITION_END_TAG);
+  });
+}
+
 function onBeforeInput(event: InputEvent, editor: LexicalEditor): void {
   const inputType = event.inputType;
+  endCompositionTheBrowserEnded(event, editor);
 
   // We let the browser do its own thing for composition.
   if (
@@ -2054,6 +2100,7 @@ function onKeyDown(event: KeyboardEvent, editor: LexicalEditor): void {
   if (event.key !== 'Backspace') {
     clearHandledSelectionCommandInsertText(inputState);
   }
+  endCompositionTheBrowserEnded(event, editor);
   if (
     editor.isComposing() ||
     (!IS_IOS && (IS_SAFARI || IS_APPLE_WEBKIT) && event.keyCode === 229)
