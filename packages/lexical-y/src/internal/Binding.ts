@@ -1019,6 +1019,42 @@ function recordSetMembersLayout(root: YNode, tr: Transaction): void {
 }
 
 /**
+ * Whether `fn` is a method that does nothing (plain parameters and an empty
+ * body, or a bare `return`), as TextNode's own selectionTransform is (an
+ * app may have patched it before this module loaded).
+ *
+ * @__NO_SIDE_EFFECTS__
+ */
+export function doesNothing(fn: unknown): boolean {
+  // Its own source (not an overridable toString): a name, plain parameter
+  // names (no default or destructuring, which run code) and an empty body.
+  return (
+    typeof fn === 'function' &&
+    /^(?:function\s*)?[\w$]*\s*\(\s*(?:[\w$]+\s*(?:,\s*[\w$]+\s*)*)?\)\s*\{\s*(?:return;?)?\s*\}$/.test(
+      Function.prototype.toString.call(fn),
+    )
+  );
+}
+
+/**
+ * TextNode's own selectionTransform as this module found it, and whether it
+ * does nothing (an app may have patched it before this module loaded). A
+ * text class's override, or an app's patch of TextNode's own (which every
+ * text class then runs), is anything else (see markReadEnd).
+ *
+ * @__NO_SIDE_EFFECTS__
+ */
+function baseSelectionTransform(): {
+  readonly doesNothing: boolean;
+  readonly fn: unknown;
+} {
+  const fn = TextNode.prototype.selectionTransform;
+  return {doesNothing: doesNothing(fn), fn};
+}
+
+const BASE_SELECTION_TRANSFORM = baseSelectionTransform();
+
+/**
  * The origin of a binding's initialization transaction, and of its
  * follow-up writes and pin records (one instance each): an instance of a
  * class nothing outside this module holds, so no UndoManager tracks it, an
@@ -4975,7 +5011,8 @@ export class YBinding {
       return (
         point.type === 'text' &&
         $isTextNode(node) &&
-        node.selectionTransform !== TextNode.prototype.selectionTransform
+        (node.selectionTransform !== BASE_SELECTION_TRANSFORM.fn ||
+          !BASE_SELECTION_TRANSFORM.doesNothing)
       );
     };
     if (
