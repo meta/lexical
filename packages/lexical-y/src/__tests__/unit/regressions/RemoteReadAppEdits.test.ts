@@ -27,6 +27,11 @@ import {
   type ListNode,
 } from '@lexical/list';
 import {
+  $createTableCellNode,
+  $createTableNode,
+  $createTableRowNode,
+} from '@lexical/table';
+import {
   $create,
   $createLineBreakNode,
   $createParagraphNode,
@@ -257,7 +262,8 @@ type Kind =
   | 'text the read changed'
   | 'slot the read changed'
   | 'list item at the start'
-  | 'update the app queues';
+  | 'update the app queues'
+  | 'text right in a table cell';
 
 /** The kinds, and one the document cannot store. */
 type Edit = Kind | 'unstorable slot';
@@ -302,6 +308,14 @@ function $editOnce(done: WeakSet<LexicalEditor>, kind: Edit): void {
       'title',
       $createParagraphNode().append($createTextNode('nowhere')),
     );
+  } else if (kind === 'text right in a table cell') {
+    // A shape Lexical's table cell transform wraps in a paragraph, which
+    // the read's update does not run.
+    const cell = (lines[9] as ElementNode)
+      .getFirstDescendant()!
+      .getParentOrThrow()
+      .getParentOrThrow() as ElementNode;
+    cell.append($createTextNode('loose'));
   } else if (kind === 'update the app queues') {
     // Lexical runs it in the read's update, behind the read.
     editor.update(() => {
@@ -439,6 +453,13 @@ async function runKind(kind: Kind, gc: boolean): Promise<void> {
           $createListItemNode().append($createTextNode('second')),
           $createListItemNode().append($createTextNode('third')),
         ),
+        $createTableNode().append(
+          $createTableRowNode().append(
+            $createTableCellNode().append(
+              $createParagraphNode().append($createTextNode('cell')),
+            ),
+          ),
+        ),
       ),
     {
       gc,
@@ -497,6 +518,7 @@ async function runKind(kind: Kind, gc: boolean): Promise<void> {
       'slot text host format':
         '"textFormat":2,"textStyle":"","type":"read_edit_captioned"',
       'slot the read changed': '"text":"app caption"',
+      'text right in a table cell': '"text":"loose"',
       'text the read changed': '"text":"three 3#"',
       'update the app queues': '"text":"tail+"',
     }[kind],
@@ -524,6 +546,7 @@ describe('every kind of app edit made in the update of a remote read is stored',
     'slot the read changed',
     'list item at the start',
     'update the app queues',
+    'text right in a table cell',
   ] as const) {
     for (const gc of [false, true]) {
       test(`${kind}, gc ${gc}`, () => runKind(kind, gc));

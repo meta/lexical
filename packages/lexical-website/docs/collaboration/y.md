@@ -1292,7 +1292,9 @@ not merge as a user might expect:
   they can store shapes the binding handles less well; prefer updates that
   run transforms. A Lexical
   command used on such a shape before the normalization arrives can fail
-  (Shift+Enter in a list item that holds only a block decorator throws).
+  (Shift+Enter in a list item that holds only a block decorator throws). An edit an app's code makes in the update of a remote change's read
+  (see Skip remote changes in listeners that edit) is written as made, and
+  not normalized after: the read's update runs no node transforms.
 - **A line without a marker.** Text typed into the last block of a
   container while a collaborator removes that block is kept, as a line
   without its marker (shown as a paragraph). Other edits in that container

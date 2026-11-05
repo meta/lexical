@@ -3968,9 +3968,21 @@ export class YBinding {
               out.add('root');
               continue;
             }
-            const top = node.isAttached() ? node.getTopLevelElement() : null;
-            if (top !== null) {
-              out.add(top.getKey());
+            // The root's child it is in, by its parents (or slot hosts): the
+            // read's update runs no transforms, so it can leave a shape
+            // getTopLevelElement throws on (inline content right under a
+            // shadow root).
+            let at: LexicalNode | null = node;
+            while (at !== null) {
+              const parent: NodeKey | null =
+                at.__parent ??
+                (at as {__slotHost?: null | NodeKey}).__slotHost ??
+                null;
+              if (parent === 'root') {
+                out.add(at.getKey());
+                break;
+              }
+              at = parent === null ? null : $getNodeByKey(parent);
             }
           }
           return out;
