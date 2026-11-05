@@ -410,6 +410,68 @@ describe('held back, moved to another container with typing: written', () => {
   }
 });
 
+// The editor can still show a character a change not read yet deleted
+// (D108): typed again in the same commit, it looks like one the text had, but
+// is typed. Such a commit is written, with what was typed.
+describe('held back, moved to another container retyping a character a change not read yet deleted', () => {
+  for (const gc of GC) {
+    test(`gc ${gc}`, async () => {
+      const t = await setup(
+        () =>
+          $getRoot().append(
+            $createParagraphNode().append($text('abc')),
+            $createParagraphNode().append($text('mid')),
+            $createBoxNode().append(
+              $createParagraphNode().append($text('tail')),
+            ),
+          ),
+        {gc, ids: [1, 2, 3]},
+      );
+      const {a, b} = t;
+      a.update(() => {
+        const node = $abc();
+        node.select(1, 1);
+        $setCompositionKey(node.getKey());
+      });
+      b.update(() => $remote('text'));
+      await t.sync();
+      expect(
+        (a.binding as unknown as {state: {hidden: unknown}}).state.hidden,
+      ).not.toBeNull();
+      t.offline();
+      const seen = Y.encodeStateVector(b.doc);
+      b.update(() => {
+        $getRoot()
+          .getAllTextNodes()
+          .find(n => n.getTextContent() === 'aRbc')!
+          .spliceText(2, 1, '');
+        $setSelection(null);
+      });
+      const delta = Y.encodeStateAsUpdate(b.doc, seen);
+      a.update(() => {
+        Y.applyUpdate(a.doc, delta, 'provider');
+        // The composition replaces the whole text with what was typed.
+        const text = $abc();
+        text.setTextContent('b');
+        ($getRoot().getLastChildOrThrow() as ElementNode).append(
+          text.getParentOrThrow(),
+        );
+      });
+      await t.sync();
+      a.update(() => $setCompositionKey(null));
+      await t.sync();
+      expect(refusals(t.a)).toEqual([]);
+      for (const p of t.peers) {
+        expect(
+          p.read(() => $getRoot().getTextContent()).replace(/\n+/g, '|'),
+        ).toContain('|b');
+      }
+      expect(a.describe()).toBe((await freshReader(a)).describe());
+      await expectConverged(t.peers);
+    });
+  }
+});
+
 // #9784: a change applied during a local update is read after it; the
 // update was written on the document without it (see Unread).
 describe('inserted by a change not read yet, the list item holding it moved', () => {

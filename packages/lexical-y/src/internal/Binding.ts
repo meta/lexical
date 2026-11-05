@@ -4295,7 +4295,15 @@ export class YBinding {
     ) {
       return false;
     }
-    if (addsCharacters(dirtyLeaves, editorState, prevEditorState)) {
+    if (
+      addsCharacters(dirtyLeaves, editorState, prevEditorState) ||
+      // What the editor showed may hold characters a change not read yet
+      // deleted (D108): a character typed again looks like one it had, and
+      // a refusal would drop it. Any text changed then counts as typed.
+      (unread !== null &&
+        unread.changes.some(change => change.deleteSet.clients.size > 0) &&
+        changesText(dirtyLeaves, editorState, prevEditorState))
+    ) {
       // Written as without the hold: the write keeps no unit for it (see
       // Writer#pins), which would rewrite what it passes from the editor.
       this.pinsOff = true;
@@ -8824,6 +8832,25 @@ function addsCharacters(
       continue;
     }
     if (!isSubsequence(Array.from(text), Array.from(prev.__text))) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/** Whether a commit changed the text of a text node, or made a new one. */
+function changesText(
+  dirtyLeaves: Set<NodeKey>,
+  editorState: EditorState,
+  prevEditorState: EditorState,
+): boolean {
+  for (const key of dirtyLeaves) {
+    const node = editorState._nodeMap.get(key);
+    const prev = prevEditorState._nodeMap.get(key);
+    if (
+      $isTextNode(node) &&
+      (!$isTextNode(prev) || prev.__text !== node.__text)
+    ) {
       return true;
     }
   }
