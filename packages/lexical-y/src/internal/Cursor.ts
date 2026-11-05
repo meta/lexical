@@ -629,13 +629,6 @@ export class Cursor {
     this.right = item.right;
   }
 
-  /** Step over format items and deleted items (never over live content). */
-  skipNonContent(): void {
-    while (this.right !== null && !isLiveContent(this.view, this.right)) {
-      this.forward();
-    }
-  }
-
   /**
    * Whether `item` (live content) counts: split it so that it is all hidden
    * or all shown, and answer whether it is shown.
