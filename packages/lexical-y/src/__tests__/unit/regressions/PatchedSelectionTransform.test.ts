@@ -32,6 +32,7 @@ import {
 } from 'lexical';
 import {describe, expect, onTestFinished, test} from 'vitest';
 
+import {doesNothing} from '../../../internal/Binding';
 import {expectConverged, freshReader, setup} from '../../utils/harness';
 
 /** Patch TextNode's own selectionTransform to run `reaction` once on `editor`. */
@@ -103,4 +104,20 @@ describe('an edit in a patched TextNode selectionTransform, in a remote read', (
       });
     }
   }
+});
+
+// TextNode's untouched selectionTransform does nothing, so a read with the
+// caret in text keeps no copies (and holds no notification) in an editor no
+// app patched; a method that runs code does not.
+test("TextNode's own selectionTransform counts as doing nothing", () => {
+  expect(doesNothing(TextNode.prototype.selectionTransform)).toBe(true);
+  expect(
+    doesNothing(function selectionTransform(a: unknown, b: unknown) {}),
+  ).toBe(true);
+  expect(doesNothing(function (a: unknown, b = String(a)) {})).toBe(false);
+  expect(
+    doesNothing(function (a: unknown) {
+      String(a);
+    }),
+  ).toBe(false);
 });

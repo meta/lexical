@@ -691,7 +691,7 @@ function recordSetMembersLayout(root: YNode, tr: Transaction): void {
  *
  * @__NO_SIDE_EFFECTS__
  */
-function doesNothing(fn: unknown): boolean {
+export function doesNothing(fn: unknown): boolean {
   // Its own source (not an overridable toString): a name, plain parameter
   // names (no default or destructuring, which run code) and an empty body.
   return (
