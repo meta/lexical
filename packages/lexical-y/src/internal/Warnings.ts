@@ -316,7 +316,8 @@ export type YUnsupportedConfigData =
  * (code that edits the editor, which is not editable) changed content while
  * the binding is read only (`'read-only'`), or, while it is active, when the
  * document's layout record did not admit writes as the change was written
- * (inside an app's transaction that changed the record); not retried.
+ * (the record changed in the same transaction: an app's, or a remote update
+ * a provider applied while the editor was updating); not retried.
  */
 export interface YUnsupportedEditData {
   readonly reason: 'read-only';

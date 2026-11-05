@@ -3012,16 +3012,17 @@ export class YBinding {
 
   /**
    * A local change refused because the root's layout record, as it was when
-   * the change was written (inside an app's transaction, or after one of
-   * its beforeTransaction listeners), or its schema record, was missing,
-   * malformed or one this
-   * version does not write, while the binding was active. Not retried: a
-   * retry would write outside the app's atomic change.
+   * the change was written, or its schema record, was missing, malformed or
+   * one this version does not write, while the binding was active. The
+   * record changed in the transaction the change was written in: an app's
+   * (inside its `doc.transact`, or in one of its beforeTransaction
+   * listeners), or a remote update a provider applied while the editor was
+   * updating. Not retried: a retry would write outside that transaction.
    */
   private warnRefusedAtWrite(): void {
     this.warn(
       UNSUPPORTED_EDIT_WARNING,
-      "a local change was not written: when it was written (inside an app's transaction) the document's layout or schema record was missing, malformed or one this version does not write. It is not retried, since a retry would write outside that transaction: edit again (see binding.status)",
+      "a local change was not written: when it was written, the document's layout or schema record (changed in the same transaction, by the app or by an update a provider applied) was missing, malformed or one this version does not write. It is not retried, since a retry would write outside that transaction: edit again (see binding.status)",
       {reason: 'read-only'},
     );
   }

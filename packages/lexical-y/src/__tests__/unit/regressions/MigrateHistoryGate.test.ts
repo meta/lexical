@@ -344,7 +344,7 @@ describe.each([false, true])('writes are admitted at write time, gc %s', gc => {
       expect(t.warnings.filter(w => w !== 'raw-write')).toEqual(['read-only']);
       expect(t.warnings).toContain('raw-write');
       expect(t.messages.join('\n')).toMatch(
-        /not written: when it was written \(inside an app's transaction\) the document's layout or schema record was missing, malformed or one this version does not write\. It is not retried/,
+        /not written: when it was written, the document's layout or schema record \(changed in the same transaction, by the app or by an update a provider applied\) was missing, malformed or one this version does not write\. It is not retried/,
       );
       expect(t.messages.join('\n')).not.toMatch(/an earlier warning/);
       t.binding.dispose();
