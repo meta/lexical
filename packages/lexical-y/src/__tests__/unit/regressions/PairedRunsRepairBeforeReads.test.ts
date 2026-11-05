@@ -27,13 +27,16 @@ import {
 } from 'lexical';
 import {afterEach, expect, test} from 'vitest';
 
-import {createYDoc, YBinding} from '../../..';
+import {createYDoc, RAW_YJS_WRITE_WARNING, YBinding} from '../../..';
 
 const bindings: YBinding[] = [];
+/** The codes of the warnings the test's editors were given, in order. */
+const warnings: string[] = [];
 afterEach(() => {
   for (const b of bindings.splice(0)) {
     b.dispose();
   }
+  warnings.length = 0;
 });
 
 function bind(
@@ -43,6 +46,9 @@ function bind(
   const editor = createEditor({
     onError: e => {
       throw e;
+    },
+    onWarn: w => {
+      warnings.push(String((w as {code?: string}).code));
     },
   });
   if (init !== undefined) {
@@ -110,6 +116,10 @@ for (const gc of [false, true]) {
         ['X', 0],
         ['b', 1],
       ]);
+      // The redo inside the app's outer transaction (origin null) writes the
+      // format items raw under the root, on purpose: reported in development
+      // to each editor bound then, the first and the one started inside it.
+      expect(warnings).toEqual([RAW_YJS_WRITE_WARNING, RAW_YJS_WRITE_WARNING]);
     } finally {
       um.destroy();
     }
