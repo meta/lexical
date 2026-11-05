@@ -785,16 +785,25 @@ describe('an app edit in a remote read the binding does not write', () => {
         $setSelection(null);
       });
       await t.sync();
-      // A schema this binding does not know: it reads, and writes nothing.
-      a.doc.get('lexical-y').setAttr('lexical-y-schema:2', true);
+      // A alone goes read only (as it does on a schema it does not know,
+      // but without telling the other clients), and reads on.
+      (a.binding as unknown as {setStatus(s: string): void}).setStatus(
+        'readonly',
+      );
       expect(a.binding.status).toBe('readonly');
+      expect(b.binding.status).toBe('active');
       b.update(() => {
         $getRoot().getAllTextNodes()[2].setTextContent('three 3');
         $setSelection(null);
       });
       await t.sync();
-      expect(a.describe()).toBe((await freshReader(a)).describe());
-      expect(a.describe()).not.toMatch(/tail!/);
+      // The app's edit is made in A's read, and read again: A shows what
+      // the document has.
+      expect(hooked.has(a.editor)).toBe(true);
+      const $tail = () => $getRoot().getLastChildOrThrow().getTextContent();
+      expect(a.read($tail)).toBe('tail');
+      expect((await freshReader(a)).read($tail)).toBe('tail');
+      expect(b.read($tail)).toBe('tail');
     });
 
     test(`a slot the document cannot store: read only, gc ${gc}`, async () => {

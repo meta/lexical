@@ -890,7 +890,9 @@ person's:
   (a `TextNode#selectionTransform`, an update queued behind the read), is
   written as that client's change, out of the undo history, once per client
   that reads the change; it runs under `COLLABORATION_TAG` too, so code can
-  skip it. A `SELECTION_CHANGE_COMMAND` a read causes arrives after the read
+  skip it. It is written as made: the read's update runs no node transforms
+  (code appended to a code block there is not highlighted). A
+  `SELECTION_CHANGE_COMMAND` a read causes arrives after the read
   has committed, in an untagged update of its own, whose edits are the
   user's.
 - **Check what an edit names, then apply it to the current state.** An
