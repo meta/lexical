@@ -1156,6 +1156,21 @@ export class TextNode extends LexicalNode implements InlineFormattableNode {
     const self = this.getWritable();
     $recordTextContent(self, text);
     self.__text = text;
+    const selection = $getSelection();
+    if ($isRangeSelection(selection)) {
+      const key = self.__key;
+      let pointMutated = false;
+      for (const pt of [selection.anchor, selection.focus]) {
+        if (pt.type === 'text' && pt.key === key && pt.offset > text.length) {
+          pt.offset = text.length;
+          pointMutated = true;
+        }
+      }
+      if (pointMutated) {
+        selection._cachedNodes = null;
+        selection._cachedIsBackward = null;
+      }
+    }
     return self;
   }
 
@@ -1257,6 +1272,25 @@ export class TextNode extends LexicalNode implements InlineFormattableNode {
 
     const updatedText =
       text.slice(0, index) + newText + text.slice(index + delCount);
+
+    if (!moveSelection && $isRangeSelection(selection)) {
+      const key = writableSelf.__key;
+      let pointMutated = false;
+      for (const pt of [selection.anchor, selection.focus]) {
+        if (
+          pt.type === 'text' &&
+          pt.key === key &&
+          pt.offset > updatedText.length
+        ) {
+          pt.offset = updatedText.length;
+          pointMutated = true;
+        }
+      }
+      if (pointMutated) {
+        selection._cachedNodes = null;
+        selection._cachedIsBackward = null;
+      }
+    }
 
     const editor = getActiveEditor();
     if (editor._recordTextEdits) {
