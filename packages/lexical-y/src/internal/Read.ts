@@ -146,6 +146,7 @@ import {
   type Unit,
   type UnitKind,
 } from './State';
+import {currentView} from './Unread';
 
 // Reader: Yjs to the editor. It reads whole containers ($readFull) and the
 // changes of remote transactions ($apply) into Lexical nodes, reusing the
@@ -1303,7 +1304,8 @@ export class Reader {
    */
   private $linesBefore(unit: Unit, items: ReadonlySet<Item>): Set<Item> | null {
     const hidden = this.state.hidden;
-    const start = unit.end === null ? null : prevLiveEnd(unit.end, hidden);
+    const start =
+      unit.end === null ? null : prevLiveEnd(currentView(), unit.end, hidden);
     if (start === null || !items.has(start) || start.deleted) {
       return null;
     }
@@ -1600,7 +1602,7 @@ export class Reader {
       this.$derivedFor(u.cs, group),
       this.attrChanged.has(u),
     );
-    const left = prevLiveEnd(u.end, hidden);
+    const left = prevLiveEnd(currentView(), u.end, hidden);
     const first = left === null ? u.cs.y._start : left.right;
     // The line being composed reads as it shows (see withHeldView); every
     // other line, and what this one hands on (below), as stored.
@@ -3880,7 +3882,7 @@ function recomputeUnitStarts(
   // with the formats folded up to its own item (see the loop): the items
   // before it are in its start already (see Seen.frontierOf).
   // Items up to where units[first].start was folded are in it already.
-  let folded: Item | null = frontierOf(firstStart, left, cs.y);
+  let folded: Item | null = frontierOf(currentView(), firstStart, left, cs.y);
   // A stale start is folded again in place (see frontierOf): copy it again.
   if (folded === null && firstStart !== null) {
     formats.clear();
@@ -3958,7 +3960,7 @@ function formatsAfterUnit(
     }
   }
   // Items up to where u.start was folded are in it already.
-  let folded: Item | null = frontierOf(start, left, u.cs.y);
+  let folded: Item | null = frontierOf(currentView(), start, left, u.cs.y);
   // A stale start is folded again in place (see frontierOf): copy it again.
   if (folded === null && start !== null) {
     formats.clear();
@@ -4407,9 +4409,9 @@ function attrsAtItems(
         ) {
           continue;
         }
-        const left = prevLiveEnd(unit.end!, hidden);
+        const left = prevLiveEnd(currentView(), unit.end!, hidden);
         start = unit.start;
-        folded = frontierOf(unit.start, left, unit.cs.y);
+        folded = frontierOf(currentView(), unit.start, left, unit.cs.y);
         from = left === null ? unit.cs.y._start : left.right;
       }
       const formats = new Map(start || EMPTY_FORMATS);

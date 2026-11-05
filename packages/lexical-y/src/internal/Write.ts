@@ -130,6 +130,7 @@ import {
 } from './State';
 import {$isHeldInline} from './Structure';
 import {type Segment, type TextEditLog, TextReplay} from './TextEdits';
+import {currentView} from './Unread';
 
 /** storedTypeOf, in the document the write sees (see Unread). */
 const storedType = (y: YNode): string =>
@@ -2256,12 +2257,12 @@ export class Writer {
       if (nextUnit === undefined) {
         return;
       }
-      const left = prevLiveEnd(unit.end, this.state.hidden);
+      const left = prevLiveEnd(currentView(), unit.end, this.state.hidden);
       // From the unit's stored start (a split half of the line being
       // composed shows another, see Hidden#starts). (Before the copy: a
       // stale start is folded again, see frontierOf.)
       const start = this.storedStart(unit);
-      let folded = frontierOf(start, left, unit.cs.y);
+      let folded = frontierOf(currentView(), start, left, unit.cs.y);
       let formats = new Map(start || EMPTY_FORMATS);
       let from: Item | null = left === null ? unit.cs.y._start : left.right;
       // The format pass's fold of this line, where nothing was written since:
@@ -2539,7 +2540,7 @@ export class Writer {
       const left = unitLeft(old, idx, this.state.hidden);
       const stop = unitStop(old, idx);
       const startItem = left === null ? u.cs.y._start : left.right;
-      this.frontier = frontierOf(u.start, left, u.cs.y);
+      this.frontier = frontierOf(currentView(), u.start, left, u.cs.y);
       const cursor = this.cursor(u.cs.y, left, u.start || EMPTY_FORMATS);
       this.frontier = null;
       // Its own content starts at its first item, right after the end item
@@ -2614,8 +2615,8 @@ export class Writer {
     // Seen.frontierOf): node units this write deleted before the first
     // remaining one, or a gone or held end before it.
     const frontier =
-      frontierOf(storedStartFormats, left, cs.y) ??
-      frontierOf(startFormats, left, cs.y);
+      frontierOf(currentView(), storedStartFormats, left, cs.y) ??
+      frontierOf(currentView(), startFormats, left, cs.y);
     const lineItems = new Map<number, Item>();
     if (remaining.length > 0 || lines.length > 0) {
       const oldStop =
@@ -2876,19 +2877,25 @@ export class Writer {
       return EMPTY_FORMATS;
     }
     const unit = this.state.unitByEnd.get(item);
-    const start = prevLiveEnd(item, this.state.hidden);
+    const start = prevLiveEnd(currentView(), item, this.state.hidden);
     const atoms = new Atoms();
     // The stored formats after it (see readAtoms), from the unit's stored
     // start (see storedStart).
     const stored = unit === undefined ? null : this.storedStart(unit);
     return readAtoms(
+      currentView(),
       start === null ? (item.parent as YNode)._start : start.right,
       item.right,
       unit !== undefined && unit.start !== null ? unit.start : EMPTY_FORMATS,
       atoms,
       this.state.hidden,
-      frontierOf(stored, start, item.parent) ??
-        frontierOf(unit !== undefined ? unit.start : null, start, item.parent),
+      frontierOf(currentView(), stored, start, item.parent) ??
+        frontierOf(
+          currentView(),
+          unit !== undefined ? unit.start : null,
+          start,
+          item.parent,
+        ),
       null,
       stored || EMPTY_FORMATS,
     );
@@ -3095,14 +3102,14 @@ export class Writer {
     let stop: Item | null;
     let frontier: Item | null;
     if (u.end !== null) {
-      left = prevLiveEnd(u.end, this.state.hidden);
+      left = prevLiveEnd(currentView(), u.end, this.state.hidden);
       stop = u.end.right;
-      frontier = frontierOf(u.start, left, u.cs.y);
+      frontier = frontierOf(currentView(), u.start, left, u.cs.y);
     } else {
       const idx = old.indexOf(u);
       left = unitLeft(old, idx, this.state.hidden);
       stop = unitStop(old, idx);
-      frontier = frontierOf(u.start, left, u.cs.y);
+      frontier = frontierOf(currentView(), u.start, left, u.cs.y);
     }
     const atoms = new Atoms();
     const oldOrigins = this.oldOrigins([u]);
@@ -3261,8 +3268,8 @@ export class Writer {
       }
     }
     if (writes.length > 0) {
-      const left = prevLiveEnd(u.end!, this.state.hidden);
-      this.frontier = frontierOf(u.start, left, u.cs.y);
+      const left = prevLiveEnd(currentView(), u.end!, this.state.hidden);
+      this.frontier = frontierOf(currentView(), u.start, left, u.cs.y);
       const c = this.cursor(u.cs.y, left, u.start || EMPTY_FORMATS);
       this.frontier = null;
       // Where the cursor stands, in atoms of the line as written so far,
@@ -3443,6 +3450,7 @@ export class Writer {
     const startItem = left === null ? y._start : left.right;
     const old = new Atoms();
     readAtoms(
+      currentView(),
       startItem,
       oldStop,
       startFormats,
@@ -5120,11 +5128,11 @@ function unitLeft(
 ): Item | null {
   const u = units[idx];
   if (u.end !== null) {
-    return prevLiveEnd(u.end, hidden);
+    return prevLiveEnd(currentView(), u.end, hidden);
   }
   let e = idx > 0 ? units[idx - 1].end : null;
   while (e !== null && isGone(e)) {
-    e = prevLiveEnd(e, hidden);
+    e = prevLiveEnd(currentView(), e, hidden);
   }
   return e;
 }
@@ -5159,7 +5167,16 @@ function readAtomsLimited(
     stop = stop.right;
   }
   const end = {folded: frontier};
-  const after = readAtoms(start, stop, formats, out, hidden, frontier, end);
+  const after = readAtoms(
+    currentView(),
+    start,
+    stop,
+    formats,
+    out,
+    hidden,
+    frontier,
+    end,
+  );
   return {
     after,
     folded: end.folded,

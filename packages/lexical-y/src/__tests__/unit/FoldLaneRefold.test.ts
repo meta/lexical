@@ -23,7 +23,7 @@ import {Hidden} from '../../internal/Hidden';
 import {stepFormat, withHeldView} from '../../internal/Ident';
 import {writeLayout3Formats} from '../../internal/Layout3';
 import {type FoldLane, frontierOf, noteFolded} from '../../internal/Seen';
-import {emptyView, seenBy} from '../../internal/Unread';
+import {currentView, emptyView, seenBy} from '../../internal/Unread';
 
 const SEEDS = Number(process.env.FL_SEEDS ?? 200);
 
@@ -156,7 +156,7 @@ for (let seed = 1; seed <= SEEDS; seed++) {
               to.delete(tr);
             }
           });
-          const frontier = frontierOf(copy, left, root);
+          const frontier = frontierOf(currentView(), copy, left, root);
           expect(frontier).toBeNull();
           const fresh =
             left === null ? new Map() : foldFresh(root, left, lane, hidden);
