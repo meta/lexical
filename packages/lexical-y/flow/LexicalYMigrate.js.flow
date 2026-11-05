@@ -34,7 +34,7 @@ export type YLayoutMigration = {
   rewrites(key: string): boolean,
 };
 
-export type YKnownMigrationErrorCode =
+type YKnownMigrationErrorCode =
   | 'missing-step'
   | 'invalid-steps'
   | 'missing'
@@ -127,7 +127,9 @@ declare export function loadYMigrationSteps(
   options?: {readonly loaders?: YMigrationLoaders},
 ): Promise<Array<YLayoutMigration>>;
 
-// The layout state of a root; later versions may add fields, never statuses.
+// The layout state of a root. Its statuses and 'unsupported' reasons are
+// fixed (exhaustive switches stay valid); later detail goes into additive
+// fields.
 export type YLayoutInfo =
   | {
       readonly status: 'ready',

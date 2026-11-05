@@ -24,7 +24,6 @@ import {
   getYLayoutInfo,
   loadStepsWith,
   migrateYState,
-  type YKnownMigrationErrorCode,
   type YLayoutInfo,
   type YLayoutMigration,
   type YMigrateOptions,
@@ -57,7 +56,6 @@ export function loadYMigrationSteps(
 }
 
 export type {
-  YKnownMigrationErrorCode,
   YLayoutInfo,
   YLayoutMigration,
   YMigrateOptions,

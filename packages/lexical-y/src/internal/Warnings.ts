@@ -90,10 +90,12 @@ export const UNSUPPORTED_SCHEMA_WARNING = '@lexical/y/unsupported-schema';
 export const RAW_YJS_WRITE_WARNING = '@lexical/y/raw-yjs-write';
 
 /**
- * @experimental The codes of the `LexicalWarning`s this version of the
- * binding passes to the editor's `onWarn`. Codes are public API: a code is
- * never renamed, and never reused for another condition; new codes may be
- * added in any release (see YWarningCode).
+ * Internal (not exported from the package): the codes of the
+ * `LexicalWarning`s this version of the binding passes to the editor's
+ * `onWarn`. It grows when a code is added, so it is not public: a public
+ * closed union would break an exhaustive switch over it. Each code is
+ * public (its constant); a code is never renamed, and never reused for
+ * another condition.
  */
 export type YKnownWarningCode =
   | typeof UNSUPPORTED_LAYOUT_WARNING
@@ -111,9 +113,10 @@ export type YKnownWarningCode =
   | typeof RAW_YJS_WRITE_WARNING;
 
 /**
- * @experimental A warning code: one this version knows (YKnownWarningCode,
- * which an editor completes) or one a later version adds. Open on purpose:
- * handle the codes you know and keep a fallback for the others.
+ * @experimental A warning code: one this version reports (an editor
+ * completes them) or one a later version adds. Open on purpose: handle the
+ * codes you know, with `isYWarning(value, code)`, and keep a fallback for
+ * the others.
  */
 export type YWarningCode = YKnownWarningCode | (string & {});
 
@@ -455,9 +458,8 @@ export type YWarning<C extends string = YWarningCode> = LexicalWarning & {
 };
 
 /**
- * @experimental The warnings this version knows, one member per code (a
- * switch over `code` narrows `data`). A later version may add members:
- * keep a `default` branch.
+ * Internal (not exported, for the same reason as YKnownWarningCode): the
+ * warnings this version reports, one member per code.
  */
 export type YKnownWarning = {
   [C in YKnownWarningCode]: YWarning<C>;

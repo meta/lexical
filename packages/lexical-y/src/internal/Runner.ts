@@ -130,9 +130,9 @@ export interface YLayoutMigration {
 }
 
 /**
- * @experimental The codes of {@link YMigrationError} this version throws.
- * Codes are never renamed or reused; a later version may add codes (see
- * YMigrationErrorCode).
+ * Internal (not exported from @lexical/y/migrate): the codes of
+ * {@link YMigrationError} this version throws. It grows when a code is
+ * added, so it is not public. Codes are never renamed or reused.
  */
 export type YKnownMigrationErrorCode =
   /** No step links two layouts of the chain (or no loader gives it). */
@@ -156,8 +156,8 @@ export type YKnownMigrationErrorCode =
 
 /**
  * @experimental The code of a {@link YMigrationError}: one this version
- * throws (YKnownMigrationErrorCode) or one a later version adds. Open on
- * purpose: handle the codes you know and keep a fallback.
+ * throws (see each code's documentation) or one a later version adds. Open
+ * on purpose: handle the codes you know and keep a fallback.
  */
 export type YMigrationErrorCode = YKnownMigrationErrorCode | (string & {});
 
@@ -1624,7 +1624,10 @@ export function migrateYDoc(
  *   `'requires'` (`features` this version lacks). `layout` is null when the
  *   root records none.
  *
- * Later versions may add fields, never statuses.
+ * The statuses and the `'unsupported'` reasons are fixed: a later version
+ * never adds one (code may switch over them exhaustively). Later detail
+ * (a schema, a feature, a new category) goes into additive fields, or
+ * another helper.
  */
 export type YLayoutInfo =
   | {

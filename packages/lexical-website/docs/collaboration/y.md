@@ -396,8 +396,9 @@ that code's, and `data.reason` says which case it is; `isYWarning(error)`
 alone narrows it to the open `YWarning` (any code, `data` unknown). Every
 code's `data` may also be `{reason: 'other', detailCode, details?}`: a
 condition a later version reports under an existing code. Handle it, and
-keep a fallback for codes you do not know (`YWarningCode` is open;
-`YKnownWarningCode` lists this version's). The `message` is
+keep a fallback for codes you do not know (`YWarningCode` is open: the
+package exports no closed list of codes, so a switch over them always
+needs a fallback). The `message` is
 for developers (what happened and what to do): render your own text from
 `code` and `data`.
 

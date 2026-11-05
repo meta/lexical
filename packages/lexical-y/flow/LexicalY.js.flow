@@ -50,7 +50,7 @@ declare export var UNSUPPORTED_SCHEMA_WARNING: '@lexical/y/unsupported-schema';
 declare export var RAW_YJS_WRITE_WARNING: '@lexical/y/raw-yjs-write';
 // The codes this version reports; YWarningCode is open (a later version may
 // add codes: keep a fallback).
-export type YKnownWarningCode =
+type YKnownWarningCode =
   | typeof UNSUPPORTED_LAYOUT_WARNING
   | typeof UNKNOWN_NODE_TYPES_WARNING
   | typeof STORAGE_MISMATCH_WARNING
@@ -187,7 +187,7 @@ type YWarningDataByCode = {
 // The `data` of a warning whose (known) `code` is `C`.
 export type YWarningData<C extends YKnownWarningCode> = YWarningDataByCode[C];
 // The warnings this version knows, one member per code (keep a default).
-export type YKnownWarning =
+type YKnownWarning =
   | YWarningOf<typeof UNSUPPORTED_LAYOUT_WARNING, YWarningData<typeof UNSUPPORTED_LAYOUT_WARNING>>
   | YWarningOf<typeof UNKNOWN_NODE_TYPES_WARNING, YWarningData<typeof UNKNOWN_NODE_TYPES_WARNING>>
   | YWarningOf<typeof STORAGE_MISMATCH_WARNING, YWarningData<typeof STORAGE_MISMATCH_WARNING>>

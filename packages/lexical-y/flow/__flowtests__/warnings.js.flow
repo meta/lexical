@@ -10,7 +10,6 @@
 // Checked by `pnpm run flow` (not shipped): typed warnings narrow by code.
 
 import type {
-  YKnownMigrationErrorCode,
   YMigrationErrorCode,
 } from '@lexical/y/migrate';
 import {
@@ -51,7 +50,6 @@ function reasonOf(error: unknown): string {
 
 // The migration error codes are open.
 const code: YMigrationErrorCode = 'a-later-code';
-const known: YKnownMigrationErrorCode = 'missing-step';
 
 // A code's data, by its code.
 function foundOf(

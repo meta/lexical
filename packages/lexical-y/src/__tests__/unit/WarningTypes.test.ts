@@ -6,6 +6,9 @@
  *
  */
 
+import type * as PublicCore from '../..';
+import type {YKnownWarning, YKnownWarningCode} from '../../internal/Warnings';
+import type * as PublicMigrate from '../../migrate';
 import type {YMigrationErrorCode} from '../../migrate';
 
 import {LexicalWarning} from 'lexical';
@@ -29,8 +32,6 @@ import {
   UNSUPPORTED_SCHEMA_WARNING,
   UNSUPPORTED_SLOTS_WARNING,
   UNSYNCED_VALUE_WARNING,
-  type YKnownWarning,
-  type YKnownWarningCode,
   type YWarning,
   type YWarningCode,
 } from '../..';
@@ -144,8 +145,19 @@ export function open(warning: YWarning): string {
   return `${later}${errorCode}${String(notKnown)}`;
 }
 
-// The known warnings, one member per code: a switch over `code` narrows
-// `data`, and keeps a default for codes a later release adds.
+// N1: the closed lists of codes are internal. A public closed union would
+// break an exhaustive switch over it the day a code is added.
+export type Unexported = [
+  // @ts-expect-error not exported from the package
+  PublicCore.YKnownWarningCode,
+  // @ts-expect-error not exported from the package
+  PublicCore.YKnownWarning,
+  // @ts-expect-error not exported from @lexical/y/migrate
+  PublicMigrate.YKnownMigrationErrorCode,
+];
+
+// Internally, the known warnings, one member per code: a switch over `code`
+// narrows `data`.
 export function knownSwitch(warning: YKnownWarning): string {
   switch (warning.code) {
     case UNSUPPORTED_LAYOUT_WARNING:
