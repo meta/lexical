@@ -11,7 +11,12 @@
 // document createYDoc made.
 
 import type {LexicalEditor} from 'lexical';
-import type {YCollabConfig, YCollabInput, YDoc} from '@lexical/y';
+import type {
+  YCollabConfig,
+  YCollabInput,
+  YDoc,
+  YLayoutUpgradeHandle,
+} from '@lexical/y';
 
 import {Doc} from '@y/y';
 import {
@@ -91,3 +96,15 @@ const handshake = createYServerLayoutUpgrade().handshake({
   material: false,
 });
 const seed: number = handshake.seed;
+
+// N2: the collab input and the upgrade options accept a field this release
+// does not know (a later option, set through a variable).
+declare const inputWithExtra: {
+  doc: YDoc,
+  layoutUpgrade: YLayoutUpgradeHandle | null,
+  schemaVersion: number,
+  laterOption: boolean,
+};
+const extended: YCollabInput = inputWithExtra;
+declare const upgradeOptions: {readonly target: number, readonly laterOption: number};
+const extendedUpgrade = createYServerLayoutUpgrade(upgradeOptions);

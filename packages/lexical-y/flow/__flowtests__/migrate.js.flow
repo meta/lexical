@@ -12,7 +12,11 @@
 import type {
   YLayoutInfo,
   YLayoutMigration,
+  YLoadYMigrationStepsOptions,
+  YMigrateStateOptions,
+  YMigrationReceipt,
   YMigrationResult,
+  YMigrationRootReceipt,
 } from '@lexical/y/migrate';
 import type {YSessionVerdict} from '@lexical/y/server';
 import type {Doc, Node} from '@y/y';
@@ -121,3 +125,43 @@ function layoutOf(doc: Doc): number | null {
       return null;
   }
 }
+
+// N2: extensible objects are inexact: a value carrying a field this release
+// does not know still passes as the older shape.
+declare const newerReceipt: {
+  readonly v: 1,
+  readonly roots: ReadonlyArray<YMigrationRootReceipt>,
+  readonly changed: boolean,
+  readonly bytesBefore: number,
+  readonly bytesAfter: number,
+  readonly ms: number,
+  readonly signature: string,
+};
+const olderReceipt: YMigrationReceipt = newerReceipt;
+declare const newerResult: {
+  readonly state: Uint8Array,
+  readonly update: Uint8Array | null,
+  readonly pending: Uint8Array | null,
+  readonly receipt: YMigrationReceipt,
+  readonly timings: unknown,
+};
+const olderResult: YMigrationResult = newerResult;
+declare const newerOptions: {
+  readonly gc: boolean,
+  readonly to: number,
+  readonly note: string,
+};
+const options: YMigrateStateOptions = newerOptions;
+declare const newerInfo: {
+  readonly status: 'ready',
+  readonly root: string,
+  readonly layout: number,
+  readonly epoch: null,
+  readonly schema: string,
+};
+const info: YLayoutInfo = newerInfo;
+declare const newerLoaderOptions: {
+  readonly loaders: {readonly [from: number]: () => Promise<unknown>},
+  readonly cache: boolean,
+};
+const loaderOptions: YLoadYMigrationStepsOptions = newerLoaderOptions;

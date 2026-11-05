@@ -39,6 +39,12 @@ import {
 } from './internal/Runner';
 import {STEP_LOADERS} from './internal/StepLoaders';
 
+/** @experimental Options of loadYMigrationSteps (a later version may add some). */
+export interface YLoadYMigrationStepsOptions {
+  /** One loader per layout (`() => import(...)`); default: the published steps. */
+  readonly loaders?: YMigrationLoaders;
+}
+
 /**
  * @experimental Load the steps a root at layout `from` needs to reach `to`
  * (default MIN_LAYOUT), only those, in parallel: by default the published
@@ -50,7 +56,7 @@ import {STEP_LOADERS} from './internal/StepLoaders';
 export function loadYMigrationSteps(
   from: number,
   to: number = MIN_LAYOUT,
-  {loaders = STEP_LOADERS}: {readonly loaders?: YMigrationLoaders} = {},
+  {loaders = STEP_LOADERS}: YLoadYMigrationStepsOptions = {},
 ): Promise<YLayoutMigration[]> {
   return loadStepsWith(loaders, from, to);
 }

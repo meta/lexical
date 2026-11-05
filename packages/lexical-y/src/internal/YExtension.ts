@@ -52,27 +52,27 @@ import {
  */
 export interface YCollabInput {
   /** See YCollabConfig.doc. */
-  doc: YDoc;
+  readonly doc: YDoc;
   /**
    * Required: how documents below MIN_LAYOUT are upgraded (see y.md
    * "Layout upgrades"). `createYServerLayoutUpgrade()`: the document's
    * server migrates them on load; `null`: they stay read only. The editor
    * opens such a document read only either way.
    */
-  layoutUpgrade: YLayoutUpgradeHandle | null;
+  readonly layoutUpgrade: YLayoutUpgradeHandle | null;
   /**
    * The version of your editor's nodes: registered node classes, their
    * fields and NodeState. Bump it when you add, remove or change one, not on
    * every release. An integer from 1 (see YCollabConfig.schemaVersion).
    */
-  schemaVersion: number;
-  root?: YNode | null;
-  synced?: boolean;
-  captureTimeout?: number | null;
-  clientIDRange?: ClientIDRange;
-  selfCheck?: boolean | null;
-  selfCheckSample?: number | null;
-  convert?: boolean;
+  readonly schemaVersion: number;
+  readonly root?: YNode | null;
+  readonly synced?: boolean;
+  readonly captureTimeout?: number | null;
+  readonly clientIDRange?: ClientIDRange;
+  readonly selfCheck?: boolean | null;
+  readonly selfCheckSample?: number | null;
+  readonly convert?: boolean;
 }
 
 /**

@@ -72,6 +72,9 @@ export type YOtherWarningData = {
   readonly details?: unknown,
 };
 
+// Warning data variants are exact on purpose: each is a fixed v1 shape.
+// A new condition under an existing code arrives as YOtherWarningData
+// (reason 'other'), never as a new field or variant here.
 export type YUnsupportedLayoutData =
   | {readonly reason: 'newer', readonly found: number, readonly supported: number}
   | {readonly reason: 'malformed', readonly key: string, readonly found: unknown, readonly supported: number}
@@ -376,6 +379,7 @@ declare export class YBinding {
 export type YQuiescedState = {
   readonly state: Uint8Array,
   readonly draft: {readonly json: SerializedEditorState, readonly differs: boolean},
+  ...
 };
 
 export type StorageKind = 'line' | 'format' | 'group' | 'nested';
@@ -391,21 +395,22 @@ declare export function describeStorage(
 // What an app writes: doc and schemaVersion required, every option with a
 // default optional (later options are additive). Type configs with it.
 export type YCollabInput = {
-  doc: YDoc,
+  readonly doc: YDoc,
   // Required: how documents below MIN_LAYOUT are upgraded (see y.md "Layout
   // upgrades"): createYServerLayoutUpgrade(), or null (read only).
-  layoutUpgrade: YLayoutUpgradeHandle | null,
+  readonly layoutUpgrade: YLayoutUpgradeHandle | null,
   // The version of your editor's nodes: registered node classes, their
   // fields and NodeState. Bump it when you add, remove or change one, not on
   // every release.
-  schemaVersion: number,
-  root?: YNode | null,
-  synced?: boolean,
-  captureTimeout?: number | null,
-  clientIDRange?: ClientIDRange,
-  selfCheck?: boolean | null,
-  selfCheckSample?: number | null,
-  convert?: boolean,
+  readonly schemaVersion: number,
+  readonly root?: YNode | null,
+  readonly synced?: boolean,
+  readonly captureTimeout?: number | null,
+  readonly clientIDRange?: ClientIDRange,
+  readonly selfCheck?: boolean | null,
+  readonly selfCheckSample?: number | null,
+  readonly convert?: boolean,
+  ...
 };
 
 // The extension's resolved configuration (grows with each option).
@@ -436,6 +441,7 @@ declare export var YCollabExtension: LexicalExtension<
 export type YClientSession = {
   readonly generation: string | null,
   readonly material: boolean,
+  ...
 };
 // How documents below MIN_LAYOUT are upgraded (branded at runtime with a
 // registered symbol; open: later releases may add kinds and fields).
@@ -445,7 +451,7 @@ export type YLayoutUpgradeHandle = {
   handshake(session: YClientSession): YSessionHandshake,
   ...
 };
-export type YServerLayoutUpgradeOptions = {readonly target?: number};
+export type YServerLayoutUpgradeOptions = {readonly target?: number, ...};
 declare export function createYServerLayoutUpgrade(
   options?: YServerLayoutUpgradeOptions,
 ): YLayoutUpgradeHandle;

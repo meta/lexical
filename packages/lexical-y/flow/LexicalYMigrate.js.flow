@@ -32,6 +32,8 @@ export type YLayoutMigration = {
   readAfter(container: YNode): ReadonlyArray<string>,
   checkAfter(container: YNode): ReadonlyArray<string>,
   rewrites(key: string): boolean,
+  // Inexact: a step module may carry fields of its own.
+  ...
 };
 
 type YKnownMigrationErrorCode =
@@ -63,6 +65,7 @@ export type YMigrationStepReceipt = {
   readonly client: number,
   readonly written: number,
   readonly deleted: number,
+  ...
 };
 
 export type YMigrationRootReceipt = {
@@ -72,10 +75,13 @@ export type YMigrationRootReceipt = {
   readonly changed: boolean,
   readonly steps: ReadonlyArray<YMigrationStepReceipt>,
   readonly epoch: YMigrationEpoch | null,
+  ...
 };
 
 // Format version `v` (1); its root and step receipts are of the same
-// version. Counts and ms are diagnostics.
+// version. Counts and ms are diagnostics. Receipts, results and options are
+// inexact: a later version adds fields, and readers keep ones they do not
+// know.
 export type YMigrationReceipt = {
   readonly v: 1,
   readonly roots: ReadonlyArray<YMigrationRootReceipt>,
@@ -83,6 +89,7 @@ export type YMigrationReceipt = {
   readonly bytesBefore: number,
   readonly bytesAfter: number,
   readonly ms: number,
+  ...
 };
 
 export type YMigrationStepInput = {
@@ -90,6 +97,7 @@ export type YMigrationStepInput = {
   readonly step: string,
   readonly revision: number,
   readonly to: number,
+  ...
 };
 
 export type YMigrateOptions = {
@@ -97,11 +105,16 @@ export type YMigrateOptions = {
   readonly to?: number,
   readonly clientIDRange?: ClientIDRange,
   readonly clientID?: (input: YMigrationStepInput) => number,
+  ...
 };
 
 export type YMigrateStateOptions = {
-  ...YMigrateOptions,
+  readonly roots?: ReadonlyArray<string>,
+  readonly to?: number,
+  readonly clientIDRange?: ClientIDRange,
+  readonly clientID?: (input: YMigrationStepInput) => number,
   readonly gc?: boolean,
+  ...
 };
 
 export type YMigrationResult = {
@@ -109,6 +122,7 @@ export type YMigrationResult = {
   readonly update: Uint8Array | null,
   readonly pending: Uint8Array | null,
   readonly receipt: YMigrationReceipt,
+  ...
 };
 
 export type YMigrationLoaders = {
@@ -121,10 +135,15 @@ declare export function migrateYState(
   options?: YMigrateStateOptions,
 ): YMigrationResult;
 
+export type YLoadYMigrationStepsOptions = {
+  readonly loaders?: YMigrationLoaders,
+  ...
+};
+
 declare export function loadYMigrationSteps(
   from: number,
   to?: number,
-  options?: {readonly loaders?: YMigrationLoaders},
+  options?: YLoadYMigrationStepsOptions,
 ): Promise<Array<YLayoutMigration>>;
 
 // The layout state of a root. Its statuses and 'unsupported' reasons are
@@ -136,13 +155,20 @@ export type YLayoutInfo =
       readonly root: string,
       readonly layout: number,
       readonly epoch: YMigrationEpoch | null,
+      ...
     }
-  | {readonly status: 'missing', readonly root: string, readonly empty: boolean}
+  | {
+      readonly status: 'missing',
+      readonly root: string,
+      readonly empty: boolean,
+      ...
+    }
   | {
       readonly status: 'invalid',
       readonly root: string,
       readonly key: string,
       readonly found: unknown,
+      ...
     }
   | {
       readonly status: 'unsupported',
@@ -153,6 +179,7 @@ export type YLayoutInfo =
       readonly min: number,
       readonly supported: number,
       readonly features: ReadonlyArray<string>,
+      ...
     };
 
 declare export function getYLayoutInfo(doc: Doc, root?: string): YLayoutInfo;
