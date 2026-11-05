@@ -29,19 +29,25 @@ import {
 } from 'lexical';
 import {afterEach, expect, test} from 'vitest';
 
-import {createYDoc, YBinding} from '../../..';
+import {createYDoc, RAW_YJS_WRITE_WARNING, YBinding} from '../../..';
 
 const bindings: YBinding[] = [];
+/** The codes of the warnings the test's editors were given, in order. */
+const warnings: string[] = [];
 afterEach(() => {
   for (const b of bindings.splice(0)) {
     b.dispose();
   }
+  warnings.length = 0;
 });
 
 function bind(doc: Y.Doc, root: Y.Node, init?: () => void): LexicalEditor {
   const editor = createEditor({
     onError: e => {
       throw e;
+    },
+    onWarn: w => {
+      warnings.push(String((w as {code?: string}).code));
     },
   });
   if (init !== undefined) {
@@ -151,6 +157,10 @@ for (const gc of [false, true])
         ];
         expect(formats(same)).toEqual(want);
         expect(formats(again)).toEqual(want);
+        // The layout 1 record deleted in a transaction of no binding is a
+        // raw write under the first binding's root, on purpose (it stands in
+        // for an app's undo): reported to that editor in development.
+        expect(warnings).toEqual(withoutLayout1 ? [RAW_YJS_WRITE_WARNING] : []);
       } finally {
         um.destroy();
       }
