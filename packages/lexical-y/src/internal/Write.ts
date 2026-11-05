@@ -5466,12 +5466,29 @@ function readAtomsLimited(
   };
 }
 
-/** Whether `end` is `from` or lies after it, walking right. */
-function reaches(from: Item, end: Item): boolean {
-  for (let it: Item | null = from; it !== null; it = it.right) {
-    if (it === end) {
+/**
+ * Whether `end` is `from` or lies after it, walking right. Walks right from
+ * both items in step: where `from` lies after `end`, the walk from `end`
+ * meets it, so the answer costs about twice the distance between them, not
+ * a walk to the end of the container (a document's root holds every deleted
+ * item a long history left between its lines). Never more than twice the
+ * items the walk from `from` alone reads. Exported for its tests.
+ */
+export function reaches(from: Item, end: Item): boolean {
+  let a: Item | null = from;
+  let b: Item | null = end;
+  while (a !== null) {
+    if (a === end) {
       return true;
     }
+    if (b !== null) {
+      // `from` lies after `end`: the walk from `from` never meets it.
+      if (b === from) {
+        return false;
+      }
+      b = b.right;
+    }
+    a = a.right;
   }
   return false;
 }
