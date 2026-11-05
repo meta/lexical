@@ -46,10 +46,13 @@ async function run(gc: boolean, variant: Variant) {
   document.body.append(host);
   a.editor.setRootElement(host);
   let made = 0;
+  // 'burst': the listener edits only while the three transactions are read.
+  let armed = variant !== 'burst';
+  const limit = variant === 'burst' ? 3 : 4;
   a.editor.registerMutationListener(
     TextNode,
     mutations => {
-      if (made < 4 && mutations.size > 0) {
+      if (armed && made < limit && mutations.size > 0) {
         made++;
         a.editor.update(
           () => {
@@ -88,6 +91,7 @@ async function run(gc: boolean, variant: Variant) {
   await Promise.resolve();
   await t.sync();
   if (variant === 'burst') {
+    armed = true;
     for (const [from, to] of [
       [2, 3],
       [0, 1],
@@ -108,10 +112,10 @@ async function run(gc: boolean, variant: Variant) {
     });
   }
   await t.sync();
-  expect(made).toBe(4);
+  expect(made).toBe(limit);
   // Each listener edit is stored once, as the editor shows it.
   const text = a.read(() => $getRoot().getTextContent());
-  expect(text.endsWith('\n\ntwo####')).toBe(true);
+  expect(text.endsWith('\n\ntwo' + '#'.repeat(limit))).toBe(true);
   expect(a.describe()).toBe((await freshReader(a)).describe());
   expect(b.describe()).toBe(a.describe());
   host.remove();
