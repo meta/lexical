@@ -612,24 +612,26 @@ export function createYSessionCapture(
   }
   // The capture keeps copies of what it is given and hands out copies.
   let snapshot: Uint8Array | null =
-    resume == null || resume.snapshot === null ? null : resume.snapshot.slice();
+    resume == null || resume.snapshot === null
+      ? null
+      : copyBytes(resume.snapshot);
   const deltas: Uint8Array[] =
-    resume == null ? [] : (resume.deltas ?? []).map(d => d.slice());
+    resume == null ? [] : (resume.deltas ?? []).map(copyBytes);
   const signals: YLegacySignal[] =
     resume == null ? [] : (resume.signals ?? []).map(copySignal);
   const material = (): YSessionCaptureMaterial => ({
-    deltas: deltas.map(d => d.slice()),
+    deltas: deltas.map(copyBytes),
     signals: signals.map(copySignal),
-    snapshot: snapshot === null ? null : snapshot.slice(),
+    snapshot: snapshot === null ? null : copyBytes(snapshot),
     updateFormat: 'yjs-v1',
     v: 1,
   });
   return {
     add(update: Uint8Array): void {
       if (snapshot === null) {
-        snapshot = update.slice();
+        snapshot = copyBytes(update);
       } else {
-        deltas.push(update.slice());
+        deltas.push(copyBytes(update));
       }
     },
     collisions(): YLegacySignal[] {
@@ -669,6 +671,15 @@ export function createYSessionCapture(
   };
 }
 
+/**
+ * A copy of `bytes` in fresh storage. Not `.slice()`: a Node `Buffer`'s
+ * slice shares its storage, so a later write to the caller's Buffer would
+ * reach the copy.
+ */
+function copyBytes(bytes: Uint8Array): Uint8Array {
+  return new Uint8Array(bytes);
+}
+
 /** A copy of a legacy signal (its update's bytes included). */
 function copySignal(sg: YLegacySignal): YLegacySignal {
   return {
@@ -676,7 +687,7 @@ function copySignal(sg: YLegacySignal): YLegacySignal {
     clock: sg.clock,
     key: sg.key,
     root: sg.root,
-    update: sg.update.slice(),
+    update: copyBytes(sg.update),
   };
 }
 
@@ -1269,9 +1280,9 @@ function materialRecord(
   checkRecordHeader(input);
   // Copies of everything the caller handed over (bytes and arrays): an
   // acknowledged payload never changes under its hash.
-  const snapshot = input.snapshot == null ? null : input.snapshot.slice();
-  const deltas = (input.deltas ?? []).map(d => d.slice());
-  const queue = (input.queue ?? []).map(q => q.slice());
+  const snapshot = input.snapshot == null ? null : copyBytes(input.snapshot);
+  const deltas = (input.deltas ?? []).map(copyBytes);
+  const queue = (input.queue ?? []).map(copyBytes);
   const draft =
     input.draft == null
       ? null
