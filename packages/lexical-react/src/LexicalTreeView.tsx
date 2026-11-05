@@ -14,7 +14,7 @@ import {
 } from '@lexical/devtools-core';
 import {type EditorState, type LexicalEditor, mergeRegister} from 'lexical';
 import * as React from 'react';
-import {type JSX, useEffect, useState} from 'react';
+import {type JSX, useEffect, useRef, useState} from 'react';
 
 import useLayoutEffect from './shared/useLayoutEffect';
 
@@ -102,18 +102,28 @@ export function TreeView({
     }
   }, [editor, treeElementRef]);
 
+  const editableBeforeTimeTravel = useRef(true);
+
   /**
    * Handles toggling the readonly state of the editor.
+   *
+   * The editable state belongs to the editor: the surface renders its
+   * `contentEditable` from {@link LexicalEditor.isEditable}, which is also what
+   * gates input events, `aria-readonly` and `tabIndex`. Writing the attribute
+   * directly leaves the editor believing it is editable and lets the surface
+   * re-derive the attribute from that state on its next mount, unfreezing a
+   * historical editor state. Exiting therefore restores the state captured on
+   * entry rather than assuming editable.
    *
    * @param {boolean} isReadonly - Whether the editor should be set to readonly.
    */
   const handleEditorReadOnly = (isReadonly: boolean) => {
-    const rootElement = editor.getRootElement();
-    if (rootElement == null) {
+    if (isReadonly) {
+      editableBeforeTimeTravel.current = editor.isEditable();
+      editor.setEditable(false);
       return;
     }
-
-    rootElement.contentEditable = isReadonly ? 'false' : 'true';
+    editor.setEditable(editableBeforeTimeTravel.current);
   };
 
   return (
