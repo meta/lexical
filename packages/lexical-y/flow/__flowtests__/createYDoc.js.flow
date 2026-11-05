@@ -108,3 +108,14 @@ declare const inputWithExtra: {
 const extended: YCollabInput = inputWithExtra;
 declare const upgradeOptions: {readonly target: number, readonly laterOption: number};
 const extendedUpgrade = createYServerLayoutUpgrade(upgradeOptions);
+
+// N3: the handle is opaque: only the factory makes one; its fields read.
+const realHandle: YLayoutUpgradeHandle = createYServerLayoutUpgrade();
+const handleKind: string = realHandle.kind;
+const handleTarget: number = realHandle.target;
+// $FlowExpectedError[incompatible-type] a structural look-alike is not a handle
+const fakeHandle: YLayoutUpgradeHandle = {
+  handshake: realHandle.handshake,
+  kind: 'server',
+  target: 1,
+};

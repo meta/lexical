@@ -59,3 +59,15 @@ function foundOf(
 }
 // $FlowExpectedError[incompatible-type] an edit warning's reason is 'read-only'
 const edit: YWarningData<typeof UNSUPPORTED_EDIT_WARNING> = {reason: 'newer'};
+
+// N3: YWarning is generic and YWarningData falls back to unknown for a code
+// this version does not report, as in TypeScript.
+declare const later: YWarning<'@lexical/y/a-later-code'>;
+const laterData: unknown = later.data;
+// $FlowExpectedError[incompatible-use] a later code's data is unknown
+void later.data.reason;
+const anyLaterData: YWarningData<'@lexical/y/a-later-code'> = {any: true};
+declare const layoutWarning: YWarning<typeof UNSUPPORTED_LAYOUT_WARNING>;
+const layoutReason: string = layoutWarning.data.reason;
+// $FlowExpectedError[incompatible-type] a known code's data is typed
+const notLayoutData: YWarningData<typeof UNSUPPORTED_LAYOUT_WARNING> = {any: true};

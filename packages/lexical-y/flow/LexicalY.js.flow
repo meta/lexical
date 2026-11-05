@@ -163,14 +163,20 @@ export type YRawYjsWriteData = {
 };
 export type YUnsyncedValueData = {readonly reason: 'not-json', readonly property: string};
 
-declare export class YWarningOf<out C extends string, out D>
+// A warning the binding passes to `onWarn`: a LexicalWarning whose `code`
+// decides its `data`. Open: `YWarning` (any code) has `data` unknown until
+// isYWarning(value, code) narrows it to `YWarning<code>`.
+// Not exported (no such runtime value): the typing of a binding warning.
+declare class YWarningInstance<out C extends string, out D>
   extends LexicalWarning
 {
   readonly code: C;
   readonly data: D;
 }
-// Open: any code, `data` unknown until narrowed with isYWarning(value, code).
-export type YWarning = YWarningOf<string, unknown>;
+export type YWarning<C extends string = string> = YWarningInstance<
+  C,
+  YWarningData<C>,
+>;
 // The `data` of each known code.
 type YWarningDataByCode = {
   '@lexical/y/unsupported-layout': YUnsupportedLayoutData | YOtherWarningData,
@@ -187,76 +193,15 @@ type YWarningDataByCode = {
   '@lexical/y/unsupported-schema': YUnsupportedSchemaData | YOtherWarningData,
   '@lexical/y/raw-yjs-write': YRawYjsWriteData | YOtherWarningData,
 };
-// The `data` of a warning whose (known) `code` is `C`.
-export type YWarningData<C extends YKnownWarningCode> = YWarningDataByCode[C];
-// The warnings this version knows, one member per code (keep a default).
-type YKnownWarning =
-  | YWarningOf<typeof UNSUPPORTED_LAYOUT_WARNING, YWarningData<typeof UNSUPPORTED_LAYOUT_WARNING>>
-  | YWarningOf<typeof UNKNOWN_NODE_TYPES_WARNING, YWarningData<typeof UNKNOWN_NODE_TYPES_WARNING>>
-  | YWarningOf<typeof STORAGE_MISMATCH_WARNING, YWarningData<typeof STORAGE_MISMATCH_WARNING>>
-  | YWarningOf<typeof SELF_CHECK_WARNING, YWarningData<typeof SELF_CHECK_WARNING>>
-  | YWarningOf<typeof RECOVERED_READ_WARNING, YWarningData<typeof RECOVERED_READ_WARNING>>
-  | YWarningOf<typeof RECOVERED_WRITE_WARNING, YWarningData<typeof RECOVERED_WRITE_WARNING>>
-  | YWarningOf<typeof NESTED_FALLBACK_WARNING, YWarningData<typeof NESTED_FALLBACK_WARNING>>
-  | YWarningOf<typeof UNSYNCED_VALUE_WARNING, YWarningData<typeof UNSYNCED_VALUE_WARNING>>
-  | YWarningOf<typeof UNSUPPORTED_SLOTS_WARNING, YWarningData<typeof UNSUPPORTED_SLOTS_WARNING>>
-  | YWarningOf<typeof UNSUPPORTED_CONFIG_WARNING, YWarningData<typeof UNSUPPORTED_CONFIG_WARNING>>
-  | YWarningOf<typeof UNSUPPORTED_EDIT_WARNING, YWarningData<typeof UNSUPPORTED_EDIT_WARNING>>
-  | YWarningOf<typeof UNSUPPORTED_SCHEMA_WARNING, YWarningData<typeof UNSUPPORTED_SCHEMA_WARNING>>
-  | YWarningOf<typeof RAW_YJS_WRITE_WARNING, YWarningData<typeof RAW_YJS_WRITE_WARNING>>;
-declare export function isYWarning(
+// The `data` of a warning whose `code` is `C`: its variants (and
+// YOtherWarningData) for a code this version reports, unknown for another.
+export type YWarningData<C extends string = string> =
+  C extends YKnownWarningCode ? YWarningDataByCode[C] : unknown;
+declare export function isYWarning<C extends YKnownWarningCode>(
   value: unknown,
-  code: typeof UNSUPPORTED_LAYOUT_WARNING,
-): value is YWarningOf<typeof UNSUPPORTED_LAYOUT_WARNING, YWarningData<typeof UNSUPPORTED_LAYOUT_WARNING>>;
-declare export function isYWarning(
-  value: unknown,
-  code: typeof UNKNOWN_NODE_TYPES_WARNING,
-): value is YWarningOf<typeof UNKNOWN_NODE_TYPES_WARNING, YWarningData<typeof UNKNOWN_NODE_TYPES_WARNING>>;
-declare export function isYWarning(
-  value: unknown,
-  code: typeof STORAGE_MISMATCH_WARNING,
-): value is YWarningOf<typeof STORAGE_MISMATCH_WARNING, YWarningData<typeof STORAGE_MISMATCH_WARNING>>;
-declare export function isYWarning(
-  value: unknown,
-  code: typeof SELF_CHECK_WARNING,
-): value is YWarningOf<typeof SELF_CHECK_WARNING, YWarningData<typeof SELF_CHECK_WARNING>>;
-declare export function isYWarning(
-  value: unknown,
-  code: typeof RECOVERED_READ_WARNING,
-): value is YWarningOf<typeof RECOVERED_READ_WARNING, YWarningData<typeof RECOVERED_READ_WARNING>>;
-declare export function isYWarning(
-  value: unknown,
-  code: typeof RECOVERED_WRITE_WARNING,
-): value is YWarningOf<typeof RECOVERED_WRITE_WARNING, YWarningData<typeof RECOVERED_WRITE_WARNING>>;
-declare export function isYWarning(
-  value: unknown,
-  code: typeof NESTED_FALLBACK_WARNING,
-): value is YWarningOf<typeof NESTED_FALLBACK_WARNING, YWarningData<typeof NESTED_FALLBACK_WARNING>>;
-declare export function isYWarning(
-  value: unknown,
-  code: typeof UNSYNCED_VALUE_WARNING,
-): value is YWarningOf<typeof UNSYNCED_VALUE_WARNING, YWarningData<typeof UNSYNCED_VALUE_WARNING>>;
-declare export function isYWarning(
-  value: unknown,
-  code: typeof UNSUPPORTED_SLOTS_WARNING,
-): value is YWarningOf<typeof UNSUPPORTED_SLOTS_WARNING, YWarningData<typeof UNSUPPORTED_SLOTS_WARNING>>;
-declare export function isYWarning(
-  value: unknown,
-  code: typeof UNSUPPORTED_CONFIG_WARNING,
-): value is YWarningOf<typeof UNSUPPORTED_CONFIG_WARNING, YWarningData<typeof UNSUPPORTED_CONFIG_WARNING>>;
-declare export function isYWarning(
-  value: unknown,
-  code: typeof UNSUPPORTED_EDIT_WARNING,
-): value is YWarningOf<typeof UNSUPPORTED_EDIT_WARNING, YWarningData<typeof UNSUPPORTED_EDIT_WARNING>>;
-declare export function isYWarning(
-  value: unknown,
-  code: typeof UNSUPPORTED_SCHEMA_WARNING,
-): value is YWarningOf<typeof UNSUPPORTED_SCHEMA_WARNING, YWarningData<typeof UNSUPPORTED_SCHEMA_WARNING>>;
-declare export function isYWarning(
-  value: unknown,
-  code: typeof RAW_YJS_WRITE_WARNING,
-): value is YWarningOf<typeof RAW_YJS_WRITE_WARNING, YWarningData<typeof RAW_YJS_WRITE_WARNING>>;
-declare export function isYWarning(value: unknown): value is YWarning;
+  code: C,
+): value is YWarning<C>;
+declare export function isYWarning(value: unknown): value is YWarning<>;
 
 export type YBindingOptions = {
   // Required: the version of your editor's nodes (registered node classes,
@@ -443,9 +388,11 @@ export type YClientSession = {
   readonly material: boolean,
   ...
 };
-// How documents below MIN_LAYOUT are upgraded (branded at runtime with a
-// registered symbol; open: later releases may add kinds and fields).
-export type YLayoutUpgradeHandle = {
+// How documents below MIN_LAYOUT are upgraded. Opaque: only
+// createYServerLayoutUpgrade makes one (the runtime brands it with a
+// registered symbol); its public fields are readable, and later releases
+// may add kinds and fields.
+declare export opaque type YLayoutUpgradeHandle: {
   readonly kind: string,
   readonly target: number,
   handshake(session: YClientSession): YSessionHandshake,

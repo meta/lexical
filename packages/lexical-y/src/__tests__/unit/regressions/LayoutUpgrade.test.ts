@@ -59,6 +59,18 @@ export function typeCells(doc: YCollabInput['doc']): unknown[] {
   ];
 }
 
+// Only the factory makes a handle: a structural look-alike does not type.
+export function handleCells(): YLayoutUpgradeHandle[] {
+  const real = createYServerLayoutUpgrade();
+  // @ts-expect-error a look-alike lacks the brand
+  const fake: YLayoutUpgradeHandle = {
+    handshake: real.handshake,
+    kind: 'server',
+    target: 1,
+  };
+  return [real, fake];
+}
+
 function editorWith(
   dependency: ReturnType<typeof createYCollabConfig>,
   warnings: Warning[],
