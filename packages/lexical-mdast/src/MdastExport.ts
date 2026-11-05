@@ -52,13 +52,13 @@ import {
 } from 'lexical';
 import {defaultHandlers, toMarkdown} from 'mdast-util-to-markdown';
 import {toString as mdastToString} from 'mdast-util-to-string';
-import {parse, postprocess, preprocess} from 'micromark';
 
 import {
   classifyCode,
   getRunFlanking,
   isCjkClass,
   isSelector,
+  parseEvents,
   PUNCTUATION,
   WHITESPACE,
 } from './cjkFriendly';
@@ -1130,11 +1130,7 @@ function toCjkFriendly(markdown: string, compiled: CompiledMdast): string {
   // Only references that micromark reads as such: not escaped ones, nor
   // those in code. Its events are enough, without building a tree.
   const begins = new Set<number>();
-  const events = postprocess(
-    parse({extensions: compiled.micromarkExtensions})
-      .document()
-      .write(preprocess()(markdown, undefined, true)),
-  );
+  const events = parseEvents(markdown, compiled.micromarkExtensions);
   for (const [kind, token] of events) {
     if (kind === 'enter' && token.type === 'characterReferenceValue') {
       begins.add(markdown.lastIndexOf('&', token.start.offset));

@@ -9,6 +9,7 @@
 import type {
   Code,
   Construct,
+  Event,
   Extension,
   Point,
   State,
@@ -16,7 +17,10 @@ import type {
 } from 'micromark-util-types';
 
 import isCjkCharacter from '@lexical/internal/isCjkCharacter';
+import warnOnlyOnce from '@lexical/internal/warnOnlyOnce';
+import {parse, postprocess, preprocess} from 'micromark';
 import {attention} from 'micromark-core-commonmark';
+import {gfmStrikethrough} from 'micromark-extension-gfm-strikethrough';
 
 // How the CommonMark CJK-friendly amendment
 // (https://github.com/tats-u/markdown-cjk-friendly) reads the characters
@@ -79,6 +83,85 @@ export function isCjkClass(characterClass: number): boolean {
   return (characterClass & CJK) !== 0;
 }
 
+const __DEV__ = process.env.NODE_ENV !== 'production';
+
+const warnOfLayout = warnOnlyOnce(
+  '@lexical/mdast: micromark does not read the text beside a marker as the CJK-friendly import expects (its private chunk or token fields may have changed), so emphasis and strikethrough beside a variation selector, or beside a character outside the Basic Multilingual Plane such as an emoji, may be read differently. Please report the micromark version in use at https://github.com/meta/lexical/issues.',
+);
+
+let probedLayout = false;
+
+/**
+ * The events micromark reads `markdown` as with `extensions`, without
+ * building a tree.
+ *
+ * @internal
+ */
+export function parseEvents(
+  markdown: string,
+  extensions: Extension[],
+): Event[] {
+  return postprocess(
+    parse({extensions})
+      .document()
+      .write(preprocess()(markdown, undefined, true)),
+  );
+}
+
+/**
+ * Checks, once in development, that micromark reads the text beside a marker
+ * as readBefore and classifyAfter expect, with the CJK-friendly emphasis and
+ * strikethrough alone: a case for each read they make that the reading of the
+ * code alone would read differently, and one for the strikethrough.
+ *
+ * @internal
+ */
+export function probeLayout(): void {
+  if (!__DEV__ || probedLayout) {
+    return;
+  }
+  probedLayout = true;
+  // Each case, and the strong emphasis it holds.
+  const cases: [string, number][] = [
+    ['Hello**🎉 launch**', 0],
+    ['**🎉**b', 0],
+    ['a~~🎉 x~~', 0],
+    ['a\0\ufe0e**“x”** b', 1],
+    ['a\u{20000}\ufe0e**“x”** b', 1],
+  ];
+  // The strong emphasis each paragraph holds, or NaN for other emphasis.
+  const read: number[] = [];
+  for (const [kind, {type}] of parseEvents(
+    cases.map(([text]) => text).join('\n\n'),
+    [cjkFriendlyEmphasis(), cjkFriendlyStrikethrough(gfmStrikethrough())],
+  )) {
+    if (kind === 'enter') {
+      if (type === 'paragraph') {
+        read.push(0);
+      } else if (type === 'strong') {
+        read[read.length - 1]++;
+      } else if (type === 'emphasis' || type === 'strikethrough') {
+        read[read.length - 1] = NaN;
+      }
+    }
+  }
+  if (
+    read.length !== cases.length ||
+    cases.some(([, strong], i) => read[i] !== strong)
+  ) {
+    warnOfLayout();
+  }
+}
+
+/**
+ * The class of `code` read alone, as micromark reads it, where micromark's
+ * chunks are not laid out as readBefore and classifyAfter expect.
+ */
+function classifyAlone(code: Code): number {
+  warnOfLayout();
+  return classifyCode(code);
+}
+
 /** The text between two points, or '' where micromark cannot read it. */
 function slice(context: TokenizeContext, start: Point, end: Point): string {
   try {
@@ -100,7 +183,9 @@ function slice(context: TokenizeContext, start: Point, end: Point): string {
 // which changes the result only after a NUL, and tests of an emoji beside a
 // marker and of a selector after an astral ideograph cover the reads of a pair
 // within a chunk. Where a read throws or does not hold the code it was read
-// for, as under another layout, both read that code alone, as micromark does.
+// for, as under another layout, both read that code alone, as micromark does,
+// and warn once in development, where probeLayout also checks these reads with
+// cases of its own, which change along with them.
 /**
  * The code before the tokenizer's position and the class the amendment
  * reads for it: for a variation selector, that of the character it varies,
@@ -126,7 +211,7 @@ function readBefore(context: TokenizeContext): [Code, number] {
     now,
   );
   if (text.charCodeAt(text.length - 1) !== previous) {
-    return [previous, classifyCode(previous)];
+    return [previous, classifyAlone(previous)];
   }
   const last = text.codePointAt(text.length - 2);
   if (last !== undefined && last > 0xffff) {
@@ -165,9 +250,10 @@ function classifyAfter(context: TokenizeContext, code: Code): number {
       ...now,
       _bufferIndex: now._bufferIndex + 2,
     });
-    if (pair.charCodeAt(0) === code) {
-      code = pair.codePointAt(0)!;
+    if (pair.charCodeAt(0) !== code) {
+      return classifyAlone(code);
     }
+    code = pair.codePointAt(0)!;
   }
   return classifyCode(code);
 }

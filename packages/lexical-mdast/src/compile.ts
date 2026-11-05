@@ -15,7 +15,11 @@ import invariant from '@lexical/internal/invariant';
 import {getStaticNodeConfig, iterStaticNodeConfigChain} from 'lexical';
 import {gfmStrikethrough} from 'micromark-extension-gfm-strikethrough';
 
-import {cjkFriendlyEmphasis, cjkFriendlyStrikethrough} from './cjkFriendly';
+import {
+  cjkFriendlyEmphasis,
+  cjkFriendlyStrikethrough,
+  probeLayout,
+} from './cjkFriendly';
 
 // The key under which a micromark extension holds the factory of the one a
 // CJK-friendly import uses in its place. Not enumerable, so micromark does
@@ -116,6 +120,14 @@ export function compileMdast(
     }
   }
 
+  // Reads CJK-friendly by default, and any other mode strictly, as in
+  // @lexical/markdown.
+  const cjkFriendly =
+    config.importPunctuation === undefined ||
+    config.importPunctuation === 'cjk-friendly';
+  if (cjkFriendly) {
+    probeLayout();
+  }
   return {
     exportHandlers,
     exportPunctuation: config.exportPunctuation,
@@ -126,16 +138,12 @@ export function compileMdast(
     // micromark tries the constructs of later extensions first, so the
     // CJK-friendly emphasis goes first, before the extensions of the config,
     // which may handle markers of their own.
-    micromarkExtensions:
-      // Reads CJK-friendly by default, and any other mode strictly, as in
-      // @lexical/markdown.
-      config.importPunctuation !== undefined &&
-      config.importPunctuation !== 'cjk-friendly'
-        ? [...config.micromarkExtensions]
-        : [
-            cjkFriendlyEmphasis(),
-            ...config.micromarkExtensions.map(toCjkFriendlyVariant),
-          ],
+    micromarkExtensions: cjkFriendly
+      ? [
+          cjkFriendlyEmphasis(),
+          ...config.micromarkExtensions.map(toCjkFriendlyVariant),
+        ]
+      : [...config.micromarkExtensions],
     toMarkdownExtensions: [...config.toMarkdownExtensions],
   };
 }
