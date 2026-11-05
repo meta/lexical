@@ -1095,7 +1095,8 @@ not merge as a user might expect:
   applied during the update that moves it) is never the one rewritten: it
   keeps that change, and the blocks it passes are written again (a block
   the same change inserted between two of those ends up next to the kept
-  block). Of two
+  block, and so does what a collaborator types at the same time in a block
+  it passes, as with any rewritten block). Of two
   such blocks in one container, an update that changes their order is not
   stored, with a warning (`UNSUPPORTED_EDIT_WARNING`, `'composing-move'`):
   only one of them could keep its change (also when one of them moves to

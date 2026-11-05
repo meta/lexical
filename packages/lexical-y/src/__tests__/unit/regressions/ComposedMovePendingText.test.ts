@@ -21,7 +21,7 @@
 // units it passed again; a move to another container is not written and is
 // read again.
 
-import type {ListNode} from '@lexical/list';
+import type {ListItemNode, ListNode} from '@lexical/list';
 
 import {$createListItemNode, $createListNode} from '@lexical/list';
 import {$createHeadingNode} from '@lexical/rich-text';
@@ -1003,6 +1003,131 @@ describe('a paragraph inserted before a line a change not read yet formats, that
       expect(a.describe()).toBe((await freshReader(a)).describe());
       await expectConverged(t.peers);
     });
+  }
+});
+
+// A change not read yet that types into a line and deletes, or changes, a
+// line that line passes when it moves: the passed line would be written
+// again from the editor, which still shows what the change deleted, so the
+// move is refused (with typing, it is written as without the hold).
+describe('a change not read yet types into a line and changes a line it passes, the line moved', () => {
+  const changes: {name: string; init: () => void; $change: () => void}[] = [
+    {
+      $change: () =>
+        $getRoot()
+          .getAllTextNodes()
+          .find(n => n.getTextContent() === 'bbb')!
+          .spliceText(0, 1, ''),
+      init: () =>
+        $getRoot().append(
+          ...['aa', 'bbb', 'cc'].map(text =>
+            $createParagraphNode().append($text(text)),
+          ),
+        ),
+      name: 'deletes text in it',
+    },
+    {
+      $change: () => $getRoot().getChildAtIndex(1)!.remove(),
+      init: () =>
+        $getRoot().append(
+          ...['aa', 'bb', 'cc'].map(text =>
+            $createParagraphNode().append($text(text)),
+          ),
+        ),
+      name: 'removes it',
+    },
+    {
+      $change: () => {
+        const bb = $getRoot().getChildAtIndex(1)! as ElementNode;
+        const heading = $createHeadingNode('h1');
+        bb.insertBefore(heading);
+        heading.append(...bb.getChildren());
+        bb.remove();
+      },
+      init: () =>
+        $getRoot().append(
+          ...['aa', 'bb', 'cc'].map(text =>
+            $createParagraphNode().append($text(text)),
+          ),
+        ),
+      name: 'makes it a heading',
+    },
+    {
+      $change: () =>
+        (
+          ($getRoot().getFirstChildOrThrow() as ListNode).getChildAtIndex(
+            1,
+          ) as ListItemNode
+        ).setChecked(true),
+      init: () =>
+        $getRoot().append(
+          $createListNode('check').append(
+            ...['aa', 'bb', 'cc'].map(text =>
+              $createListItemNode().append($text(text)),
+            ),
+          ),
+        ),
+      name: 'checks it',
+    },
+  ];
+  for (const gc of GC) {
+    for (const {name, init, $change} of changes) {
+      for (const typing of [false, true]) {
+        test(`${name}${typing ? ', the update typing' : ''} (gc ${gc})`, async () => {
+          const t = await setup(init, {gc, ids: [1, 2, 3]});
+          const {a, b} = t;
+          t.offline();
+          const seen = Y.encodeStateVector(b.doc);
+          b.update(() => {
+            $getRoot()
+              .getAllTextNodes()
+              .find(n => n.getTextContent() === 'aa')!
+              .spliceText(1, 0, 'X');
+            $change();
+            $setSelection(null);
+          });
+          const delta = Y.encodeStateAsUpdate(b.doc, seen);
+          a.update(() => {
+            Y.applyUpdate(a.doc, delta, 'provider');
+            const aa = $getRoot()
+              .getAllTextNodes()
+              .find(n => n.getTextContent() === 'aa')!;
+            if (typing) {
+              aa.spliceText(2, 0, 'T');
+            }
+            const line = aa.getParentOrThrow();
+            line.getParentOrThrow().append(line);
+          });
+          await t.sync();
+          const fresh = await freshReader(a);
+          expect(a.describe()).toBe(fresh.describe());
+          fresh.stop();
+          await expectConverged(t.peers);
+          if (!typing) {
+            // Refused: the editor shows B's document, nothing brought back.
+            expect(a.describe()).toBe(b.describe());
+            expect(
+              a.warnings.filter(w => w.includes('reorders lines')),
+            ).toHaveLength(1);
+          } else {
+            // Written as without the hold: the typing is kept and nothing B
+            // deleted or changed comes back.
+            expect(a.read(() => $getRoot().getTextContent())).toContain('T');
+            expect(a.warnings.filter(w => w.includes('composing'))).toEqual([]);
+            if (name === 'deletes text in it') {
+              expect(a.read(() => $getRoot().getTextContent())).not.toContain(
+                'bbb',
+              );
+            }
+            if (name === 'removes it') {
+              expect(a.read(() => $getRoot().getTextContent())).not.toContain(
+                'bb',
+              );
+            }
+          }
+        });
+      }
+    }
   }
 });
 

@@ -425,6 +425,13 @@ export class Writer {
   private atBoundary = false;
   /** See $heldKeys: computed on first use. */
   private heldKeys: Set<NodeKey> | null = null;
+  /**
+   * Whether the write keeps the units holding content the editor does not
+   * show (see $heldKeys, Cursor#heldBoundary). Off for a commit that moves or
+   * reorders them in a way the write cannot keep, which is written as without
+   * the hold (see YBinding#refusesHeldMove).
+   */
+  pins = true;
   /** Containers where a group item's marker attributes were written. */
   readonly groupWrites = new Set<CS>();
   /**
@@ -2226,6 +2233,10 @@ export class Writer {
     if (this.heldKeys !== null) {
       return this.heldKeys;
     }
+    if (!this.pins) {
+      this.heldKeys = new Set();
+      return this.heldKeys;
+    }
     const keys = new Set<NodeKey>();
     this.heldKeys = keys;
     // See endsNewUnit.
@@ -2911,7 +2922,7 @@ export class Writer {
   private cursor(y: YNode, left: Item | null, formats: Formats): Cursor {
     const c = new Cursor(this.tr, y, left, new Map(formats));
     c.hidden = this.state.hidden;
-    c.heldBoundary = this.atBoundary;
+    c.heldBoundary = this.atBoundary && this.pins;
     return c;
   }
 

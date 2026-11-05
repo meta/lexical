@@ -150,6 +150,7 @@ import {
   type Unit,
 } from './State';
 import {
+  deleted as deletedByUnread,
   emptyView,
   endsNewUnit,
   inserted as insertedBy,
@@ -773,6 +774,13 @@ export class YBinding {
    * read again once it ends (see onUpdate).
    */
   private readonly refusedComposing = new Set<CS>();
+  /**
+   * Whether the commit being written moves or reorders what holds content
+   * the editor does not show, but is not refused because it adds characters
+   * (see refusesHeldMove): it is written without keeping those units (see
+   * Writer#pins).
+   */
+  private pinsOff = false;
   /**
    * Whether the binding went read only to keep a local change it cannot
    * store (see refuseUnstorableSlots): the editor shows that change, and
@@ -4276,15 +4284,21 @@ export class YBinding {
   ): boolean {
     const hidden = this.state.hidden;
     const unread = this.unread;
+    this.pinsOff = false;
     if (
       (hidden === null && unread === null) ||
       !editorState.read(
         () =>
           (hidden !== null && this.$movesHeld(hidden)) ||
           this.$reordersHeld(hidden, unread),
-      ) ||
-      addsCharacters(dirtyLeaves, editorState, prevEditorState)
+      )
     ) {
+      return false;
+    }
+    if (addsCharacters(dirtyLeaves, editorState, prevEditorState)) {
+      // Written as without the hold: the write keeps no unit for it (see
+      // Writer#pins), which would rewrite what it passes from the editor.
+      this.pinsOff = true;
       return false;
     }
     this.$refuseChanged(
@@ -4319,10 +4333,16 @@ export class YBinding {
     const shows = (it: Item): boolean =>
       !(hidden !== null && hidden.hides(it)) &&
       !(unread !== null && insertedBy(unread, it));
-    // Whether `it` or anything below it is content the editor does not show.
+    // Whether `it` or anything below it is content the editor does not show,
+    // or content a change not read yet deleted that the editor still shows:
+    // a unit rewritten from the editor would bring it back (D108).
     const holds = (it: Item): boolean => {
-      if (it.deleted && !(unread !== null && insertedBy(unread, it))) {
-        return false;
+      if (it.deleted) {
+        return (
+          unread !== null &&
+          deletedByUnread(unread, it) &&
+          !insertedBy(unread, it)
+        );
       }
       if (it.parentSub === null && !shows(it)) {
         return true;
@@ -4335,8 +4355,15 @@ export class YBinding {
             return true;
           }
         }
-        // Its attributes: a slot's value is a shared node stored there.
+        // Its attributes: one a change not read yet set or removed, and a
+        // slot's value, a shared node stored there.
         for (const c of type._map.values()) {
+          if (
+            unread !== null &&
+            (c.deleted ? deletedByUnread(unread, c) : insertedBy(unread, c))
+          ) {
+            return true;
+          }
           if (c.content instanceof ContentType && holds(c)) {
             return true;
           }
@@ -5463,11 +5490,15 @@ export class YBinding {
     dirtyLeaves: Set<NodeKey>,
   ): Writer | null {
     let writer: Writer | null = null;
+    // For this write only (see pinsOff).
+    const pins = !this.pinsOff;
+    this.pinsOff = false;
     try {
       this._doc.transact(tr => {
         this.splitAtUnread(tr);
         try {
           writer = new Writer(state, roles, tr, prevEditorState, plan);
+          writer.pins = pins;
           writer.followUp = commit.followUp;
           writer.$run();
         } finally {
@@ -5527,6 +5558,7 @@ export class YBinding {
               all,
             );
             rewriter.rewriteAll = true;
+            rewriter.pins = pins;
             rewriter.followUp = commit.followUp;
             rewriter.$run();
             this.noteRefused(rewriter, commit.naming);
