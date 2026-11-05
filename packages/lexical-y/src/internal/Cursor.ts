@@ -801,16 +801,13 @@ export class Cursor {
    * run's author's undo leaves the content as it was typed (as main, which
    * writes no end there). Never past another node's opener, nor past this
    * client's own end where it already gives the key's value (see
-   * minimizeFormatChanges).
+   * minimizeFormatChanges). (A seed, the one write that stores no paired
+   * runs, appends to an empty container: it never places among items.)
    */
   private stepsToGivingPosition(
     formats: Record<string, unknown>,
     allowOwn = false,
   ): number {
-    // A writer of paired runs only (a plain writer places as main does).
-    if (!this.writesPaired()) {
-      return 0;
-    }
     const sim = new Map(this.formats);
     let n = 0;
     // Only a position past a pre-upgrade closer (a plain null, which the
