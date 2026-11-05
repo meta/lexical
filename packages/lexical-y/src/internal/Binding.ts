@@ -359,34 +359,6 @@ function isDerivedField(
   );
 }
 
-/**
- * A node's JSON (see $deepJSON) without the text format and style of each
- * element with text in it (see isDerivedField). Returns whether there is
- * text in it.
- */
-function stripDerived(json: Record<string, unknown>): boolean {
-  let hasText = typeof json.text === 'string';
-  const children = json.children;
-  if (Array.isArray(children)) {
-    for (const child of children) {
-      if (stripDerived(child as Record<string, unknown>)) {
-        hasText = true;
-      }
-    }
-    if (hasText) {
-      delete json.textFormat;
-      delete json.textStyle;
-    }
-  }
-  const slots = json.$slots;
-  if (slots !== undefined && slots !== null && typeof slots === 'object') {
-    for (const slot of Object.values(slots)) {
-      stripDerived(slot as Record<string, unknown>);
-    }
-  }
-  return hasText;
-}
-
 /** What an update listener gets for a commit (see YBinding#onUpdate). */
 type UpdatePayload = {
   dirtyElements: Map<NodeKey, boolean>;
@@ -3985,9 +3957,7 @@ export class YBinding {
           if ($isRootNode(node)) {
             return JSON.stringify(node.getChildrenKeys());
           }
-          const json = $deepJSON(node, null, null, true);
-          stripDerived(json);
-          return JSON.stringify(json);
+          return JSON.stringify($deepJSON(node, null, null, true));
         },
         {editor},
       );

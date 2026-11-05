@@ -27,6 +27,7 @@ import {
   $createParagraphNode,
   $createRangeSelection,
   $createTextNode,
+  $getDocument,
   $getEditor,
   $getRoot,
   $getSelection,
@@ -37,17 +38,23 @@ import {
   $isTextNode,
   $setSelection,
   $setState,
+  arrayValue,
   type BaseSelection,
   COLLABORATION_TAG,
   COMMAND_PRIORITY_CRITICAL,
   COMMAND_PRIORITY_LOW,
   createState,
+  DecoratorNode,
   type ElementNode,
   type LexicalEditor,
+  nodeSchema,
+  numberValue,
   ParagraphNode,
   type RangeSelection,
   SELECTION_CHANGE_COMMAND,
+  stringValue,
   TextNode,
+  withField,
 } from 'lexical';
 import {describe, expect, onTestFinished, test} from 'vitest';
 
@@ -237,7 +244,9 @@ type Kind =
   | 'empty line style'
   | 'merged tokens'
   | 'NodeState shaped like a node'
-  | 'line break line style';
+  | 'line break line style'
+  | 'decorator JSON shaped like text'
+  | 'decorator line format';
 
 /** One edit of `kind`, once per editor. */
 function $editOnce(done: WeakSet<LexicalEditor>, kind: Kind): void {
@@ -265,12 +274,50 @@ function $editOnce(done: WeakSet<LexicalEditor>, kind: Kind): void {
   } else if (kind === 'line break line style') {
     // An element with no text in it keeps the style set on it.
     (lines[5] as ParagraphNode).setTextStyle('color: blue');
+  } else if (kind === 'decorator JSON shaped like text') {
+    // Its JSON has `text`, `textFormat` and `children`: none is derived.
+    const data = (lines[6] as ParagraphNode).getFirstChildOrThrow() as DataNode;
+    data.getWritable().__formatData = 2;
+  } else if (kind === 'decorator line format') {
+    // A line holding only a decorator has no text to take a format from.
+    (lines[6] as ParagraphNode).setTextFormat(2);
   } else if (kind === 'merged tokens') {
     // Two token nodes, which Lexical does not merge itself.
     const [first, second] = (lines[4] as ParagraphNode).getAllTextNodes();
     first.mergeWithSibling(second);
   } else {
     (lines[3] as ParagraphNode).setTextStyle('color: red');
+  }
+}
+
+const dataSchema = nodeSchema<DataNode>()({
+  children: withField(arrayValue(stringValue()), {field: '__jsonChildren'}),
+  text: withField(stringValue(), {field: '__caption'}),
+  textFormat: withField(numberValue(), {field: '__formatData'}),
+});
+
+/** A decorator whose JSON has the keys a text node's and an element's have. */
+class DataNode extends DecoratorNode<null> {
+  __caption: string = 'opaque';
+  __formatData: number = 0;
+  __jsonChildren: string[] = [];
+  $config() {
+    return this.config('read_edit_data', {
+      extends: DecoratorNode,
+      json: dataSchema,
+    });
+  }
+  isInline(): true {
+    return true;
+  }
+  createDOM(): HTMLElement {
+    return $getDocument().createElement('span');
+  }
+  updateDOM(): false {
+    return false;
+  }
+  decorate(): null {
+    return null;
   }
 }
 
@@ -321,8 +368,9 @@ async function runKind(kind: Kind, gc: boolean): Promise<void> {
           $createTextNode('ken').setMode('token'),
         ),
         $createParagraphNode().append($createLineBreakNode()),
+        $createParagraphNode().append($create(DataNode)),
       ),
-    {gc, ids: [1, 2, 3], nodes: [...NODES, Line, KindText]},
+    {gc, ids: [1, 2, 3], nodes: [...NODES, Line, KindText, DataNode]},
   );
   const {a, b, c} = t;
   const host = document.createElement('div');
@@ -357,6 +405,9 @@ async function runKind(kind: Kind, gc: boolean): Promise<void> {
       'NodeState shaped like a node':
         '"read_edit_payload":{"children":["x"],"textStyle":"NEW"}',
       'appended text': '"text":"tail!"',
+      'decorator JSON shaped like text': '"text":"opaque","textFormat":2',
+      'decorator line format':
+        '"textFormat":2,"textStyle":"","type":"paragraph"',
       'empty line style': '"textStyle":"color: red"',
       'line break line style': '"textStyle":"color: blue"',
       'merged tokens': '"text":"token"',
@@ -379,6 +430,8 @@ describe('every kind of app edit made in the update of a remote read is stored',
     'merged tokens',
     'NodeState shaped like a node',
     'line break line style',
+    'decorator JSON shaped like text',
+    'decorator line format',
   ] as const) {
     for (const gc of [false, true]) {
       test(`${kind}, gc ${gc}`, () => runKind(kind, gc));
