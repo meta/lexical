@@ -75,12 +75,29 @@ describe.each(Object.entries(shrink))('%s', (name, $shrink) => {
     editor.update($shrink, {discrete: true});
     const out = editor.getEditorState().read(() => {
       const s = $getSelection();
+      const a = $first();
+      const t = $text();
       return s && $isRangeSelection(s)
-        ? {focus: s.focus.offset, size: $text().getTextContentSize()}
+        ? {
+            anchorKey: s.anchor.key,
+            anchorOffset: s.anchor.offset,
+            focusKey: s.focus.key,
+            focusOffset: s.focus.offset,
+            firstKey: a.getKey(),
+            textKey: t.getKey(),
+            size: t.getTextContentSize(),
+          }
         : null;
     });
     expect(out).not.toBeNull();
-    expect(out!.focus).toBe(out!.size);
+    if (name.includes('moveSelection')) {
+      expect(out!.anchorKey).toBe(out!.textKey);
+    } else {
+      expect(out!.anchorKey).toBe(out!.firstKey);
+    }
+    expect(out!.anchorOffset).toBe(1);
+    expect(out!.focusKey).toBe(out!.textKey);
+    expect(out!.focusOffset).toBe(out!.size);
   });
 
   test('a later splitText on the node does not throw', () => {
