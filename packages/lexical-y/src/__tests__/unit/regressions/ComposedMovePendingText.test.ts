@@ -377,9 +377,6 @@ describe('held back, moved to another container: not written', () => {
   }
 });
 
-// The same moves in a commit that also types: what is typed is never
-// dropped, so the commit is written (as it would be without the hold: the
-// held text is lost where the write cannot keep it), with no warning.
 // An inline container composed in, unwrapped: its text moves into the line
 // and Lexical merges it into the text before it. That adds no character
 // (the merged text is the old texts, in order), so the commit is refused
@@ -414,6 +411,9 @@ describe('held back in an inline container, unwrapped into the text before it', 
   }
 });
 
+// The same moves in a commit that also types: what is typed is never
+// dropped, so the commit is written (as it would be without the hold: the
+// held text is lost where the write cannot keep it), with no warning.
 describe('held back, moved to another container with typing: written', () => {
   for (const gc of GC) {
     test(`the line, into a block node (gc ${gc})`, async () => {
@@ -1211,6 +1211,86 @@ describe('a change not read yet types into a line and changes a line it passes, 
         });
       }
     }
+  }
+});
+
+// A line kept for what it holds passes a block node (a box): the block node
+// would be copied whole, losing what a collaborator types in it at the same
+// time, so the move is written as without the hold.
+describe('held back, the line moved past a block node a collaborator edits', () => {
+  for (const gc of GC) {
+    test(`gc ${gc}`, async () => {
+      const t = await setup(
+        () =>
+          $getRoot().append(
+            $createParagraphNode().append($text('abc')),
+            $createBoxNode().append(
+              $createParagraphNode().append($text('inbox')),
+            ),
+            $createParagraphNode().append($text('tail')),
+          ),
+        {gc, ids: [1, 2, 3]},
+      );
+      const {a, b, c} = t;
+      a.update(() => {
+        const node = $abc();
+        node.select(1, 1);
+        $setCompositionKey(node.getKey());
+      });
+      b.update(() => $remote('text'));
+      await t.sync();
+      expect(
+        (a.binding as unknown as {state: {hidden: unknown}}).state.hidden,
+      ).not.toBeNull();
+      t.offline();
+      c.update(() => {
+        $getRoot()
+          .getAllTextNodes()
+          .find(n => n.getTextContent() === 'inbox')!
+          .spliceText(2, 0, 'Z');
+        $setSelection(null);
+      });
+      a.update(() => {
+        $getRoot().append($abc().getParentOrThrow());
+      });
+      await t.sync();
+      a.update(() => $setCompositionKey(null));
+      await t.sync();
+      for (const p of t.peers) {
+        expect(p.read(() => $getRoot().getTextContent())).toContain('inZbox');
+      }
+      expect(a.describe()).toBe((await freshReader(a)).describe());
+      await expectConverged(t.peers);
+    });
+  }
+});
+
+// An update that inserts a node that is content but not text (an inline
+// equation) and moves the line to another container is not refused: the
+// node would be dropped.
+describe('held back, moved to another container with an inline node inserted: written', () => {
+  for (const gc of GC) {
+    test(`gc ${gc}`, async () => {
+      const t = await setup(
+        () =>
+          $getRoot().append(
+            $createParagraphNode().append($text('abc')),
+            $createBoxNode().append(
+              $createParagraphNode().append($text('tail')),
+            ),
+          ),
+        {gc, ids: [1, 2, 3]},
+      );
+      await composeAndMove(t, 'text', () => {
+        const line = $abc().getParentOrThrow();
+        line.append($createEquation('E'));
+        ($getRoot().getLastChildOrThrow() as ElementNode).append(line);
+      });
+      expect(refusals(t.a)).toEqual([]);
+      expect(t.a.describe()).toContain('eq[E]');
+      expect(t.a.describe()).toBe((await freshReader(t.a)).describe());
+      await expectConverged(t.peers);
+    });
   }
 });
 

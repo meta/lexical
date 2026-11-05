@@ -1095,8 +1095,10 @@ not merge as a user might expect:
   applied during the update that moves it) is never the one rewritten: it
   keeps that change, and the blocks it passes are written again (a block
   the same change inserted between two of those ends up next to the kept
-  block, and so does what a collaborator types at the same time in a block
-  it passes, as with any rewritten block). Of two
+  block, and so does what a collaborator types at the same time in a line
+  it passes, as with any rewritten line). Where it would pass a block node
+  (a box, a table), which is copied whole, the update is written as if
+  nothing waited, so that a collaborator's edit inside that block is kept. Of two
   such blocks in one container, an update that changes their order is not
   stored, with a warning (`UNSUPPORTED_EDIT_WARNING`, `'composing-move'`):
   only one of them could keep its change (also when one of them moves to
@@ -1180,9 +1182,11 @@ not merge as a user might expect:
   shows the document again, without the move, with a warning
   (`UNSUPPORTED_EDIT_WARNING`, `'composing-move'`); so is one that replaces
   an inline element or block node holding the line with a new one that
-  takes its children (a line's block type change is stored), or reorders,
-  in one container, two lines that each hold what waits. An update that
-  adds characters is never refused (what is typed is not dropped), nor one
+  takes its children, or unwraps it (a line's block type change is
+  stored), or reorders, in one container, two lines that each hold what
+  waits. An update that adds characters, or another node that is content (a
+  decorator, a line break), is never refused (nothing typed or inserted is
+  dropped), nor one
   made while a collaborator's change applied during it is not shown yet:
   it is stored as any other, and what waits is lost where it cannot be
   kept. An edit an app's code

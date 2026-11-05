@@ -50,7 +50,9 @@ import {
   $getSlot,
   $getSlotNames,
   $hasUpdateTag,
+  $isDecoratorNode,
   $isElementNode,
+  $isLineBreakNode,
   $isNodeSelection,
   $isRangeSelection,
   $isRootNode,
@@ -4302,7 +4304,7 @@ export class YBinding {
       // While a change is not read yet (D108), the editor may still show a
       // character it deleted, which a commit can type again, and a re-read
       // would read that change twice: such a commit is written as without
-      // the hold, as the identity binding does.
+      // the hold.
       (unread !== null && unread.changes.length > 0) ||
       addsCharacters(editorState, prevEditorState)
     ) {
@@ -4334,7 +4336,8 @@ export class YBinding {
    * and written again from the editor, which does not show that content.
    * Units moved to another container are left to $movesHeld (held) or the
    * concurrent move limits (not read yet).
-   * Invariant: such a commit is not written (see refusesHeldMove).
+   * Invariant: such a commit is not written, unless refusesHeldMove admits it
+   * (it adds characters, or a change is not read yet).
    */
   private $reordersHeld(hidden: Hidden | null, unread: Unread | null): boolean {
     const state = this.state;
@@ -8807,9 +8810,9 @@ function $splitLineBreaks(node: TextNode): void {
 }
 
 /**
- * Whether a commit adds characters (see insertionFree, shared with the
- * identity binding: an update that only deletes, moves or re-keys text adds
- * none). Only a commit that adds none is refused (see
+ * Whether a commit adds characters (see insertionFree: an update that only
+ * deletes, moves or re-keys text adds none), or another node that is content
+ * (a decorator, a line break). Only a commit that adds none is refused (see
  * YBinding#refusesHeldMove): a refusal reads the document again, and would
  * drop what was typed. The texts are what the editor showed and shows,
  * which is what storage has but for what a composition holds back (its
@@ -8820,6 +8823,17 @@ function addsCharacters(
   editorState: EditorState,
   prevEditorState: EditorState,
 ): boolean {
+  // A node that is not text the update made (an inline decorator, a line
+  // break) is content too: a refusal would drop it.
+  const prevNodes = prevEditorState._nodeMap;
+  for (const [key, node] of editorState._nodeMap) {
+    if (
+      !prevNodes.has(key) &&
+      ($isDecoratorNode(node) || $isLineBreakNode(node))
+    ) {
+      return true;
+    }
+  }
   const texts = (state: EditorState) => {
     const out = new Map<string, string>();
     for (const [key, node] of state._nodeMap) {

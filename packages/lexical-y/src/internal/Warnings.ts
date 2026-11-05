@@ -73,7 +73,7 @@ export const UNSUPPORTED_CONFIG_WARNING = '@lexical/y/unsupported-config';
  * update again), or the update moved the line being composed, or a node
  * holding it, to another container while a collaborator's change to that
  * line waits for the composition to end, replaced an inline element or
- * block node holding it with a new one, or reordered two lines that each
+ * block node holding it with a new one or unwrapped it, or reordered two lines that each
  * hold a collaborator's change not shown yet (`'composing-move'`, reported
  * for each such update that adds no characters and is made while no change
  * applied during it waits to be read; any other is written). `data`:
@@ -249,7 +249,7 @@ export type YUnsupportedConfigData =
  * another container (into or out of a table cell or a block container, an
  * inline element to another line) while a collaborator's change to that line
  * waits for the composition to end, replaced such an element with a new
- * one that takes its children, or reordered, in one container, two lines
+ * one that takes its children or unwrapped it, or reordered, in one container, two lines
  * that each hold a collaborator's change not shown yet (`'composing-move'`):
  * the move is not written and the editor shows the document again, with
  * that change (only where the update adds no characters: one that adds

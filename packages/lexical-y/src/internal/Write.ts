@@ -2063,36 +2063,52 @@ export class Writer {
     matches.forEach(([di], k) =>
       weightOf.set(di, big / groupSize.get(desired[di].first)! + costs[k]),
     );
-    // A unit holding what a composition holds back (see Hidden, $heldKeys)
-    // keeps its items: the units it passed are written again instead.
-    const held = this.$heldKeys(cs.y);
-    const heldWeight = 4 * big * (matches.length + 1);
-    for (const [di] of matches) {
-      if (held.has(desired[di].key!)) {
-        weightOf.set(di, heldWeight);
-      }
-    }
-    const weight = ([di]: [number, number]) => weightOf.get(di)!;
+    const plainWeight = new Map(weightOf);
     const moved = this.plan.moved ?? null;
-    const unmoved: [number, number][] = [];
-    const movedMatches: [number, number][] = [];
-    for (const m of matches) {
-      if (
-        !held.has(desired[m[0]].key!) &&
-        moved !== null &&
-        moved.size > 0 &&
-        $movedUnit(desired[m[0]], container, moved)
-      ) {
-        movedMatches.push(m);
-      } else {
-        unmoved.push(m);
+    // The units kept in place, where `keep` units are kept whatever they
+    // pass.
+    const anchorsFor = (keep: ReadonlySet<NodeKey>): [number, number][] => {
+      const weights = new Map(plainWeight);
+      const heldWeight = 4 * big * (matches.length + 1);
+      for (const [di] of matches) {
+        if (keep.has(desired[di].key!)) {
+          weights.set(di, heldWeight);
+        }
+      }
+      const weight = ([di]: [number, number]) => weights.get(di)!;
+      const unmoved: [number, number][] = [];
+      const movedMatches: [number, number][] = [];
+      for (const m of matches) {
+        if (
+          !keep.has(desired[m[0]].key!) &&
+          moved !== null &&
+          moved.size > 0 &&
+          $movedUnit(desired[m[0]], container, moved)
+        ) {
+          movedMatches.push(m);
+        } else {
+          unmoved.push(m);
+        }
+      }
+      return addInOrder(
+        longestIncreasing(unmoved, weight),
+        movedMatches,
+        weight,
+      );
+    };
+    // A unit holding what a composition holds back (see Hidden, $heldKeys)
+    // keeps its items: the units it passed are written again instead. Not
+    // where that would write a block node again: it is copied whole, and a
+    // collaborator's concurrent edit inside it would be lost.
+    const held = this.$heldKeys(cs.y);
+    let anchors = anchorsFor(held);
+    if (held.size > 0) {
+      const plain = anchorsFor(new Set());
+      const kept = new Set(anchors.map(([di]) => di));
+      if (plain.some(([di]) => !kept.has(di) && desired[di].kind === 'node')) {
+        anchors = plain;
       }
     }
-    const anchors = addInOrder(
-      longestIncreasing(unmoved, weight),
-      movedMatches,
-      weight,
-    );
     const n = anchors.length;
     // Changed line anchors join a neighbouring gap (the following one first)
     // so that a split or join diffs their characters with it.

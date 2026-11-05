@@ -112,27 +112,39 @@ export function insertionFree(
   // Per run: NONE, LEFT, RIGHT, or the index of the made node it goes to.
   const choice: number[] = runs.map(() => NONE);
   const used = new Set<number>();
-  const fits = (): boolean => {
-    for (const key of changed) {
-      const i = keptAt.get(key)!;
-      let before = '';
-      let after = '';
-      runs.forEach((r, k) => {
-        if (choice[k] === RIGHT && r.right === i) {
-          before += r.text;
-        } else if (choice[k] === LEFT && r.left === i) {
-          after += r.text;
-        }
-      });
-      if (!isSubsequence(next.get(key)!, before + prev.get(key)! + after)) {
-        return false;
-      }
+  // Per changed text node: the run right before it and right after it (at
+  // most one each), and whether its new text fits each of the four ways
+  // they can be given to it (bit 1: the run before, bit 2: the run after),
+  // checked once, so a full assignment is checked in time linear in the
+  // changed nodes.
+  const sides = changed.map(key => {
+    const i = keptAt.get(key)!;
+    const before = runs.findIndex(r => r.right === i);
+    const after = runs.findIndex(r => r.left === i);
+    const fit: boolean[] = [];
+    for (let b = 0; b < 4; b++) {
+      fit.push(
+        isSubsequence(
+          next.get(key)!,
+          (b & 1 && before >= 0 ? runs[before].text : '') +
+            prev.get(key)! +
+            (b & 2 && after >= 0 ? runs[after].text : ''),
+        ),
+      );
     }
-    return made.every((text, m) => {
-      const k = choice.indexOf(m);
-      return k !== -1 && isSubsequence(text, runs[k].text);
-    });
-  };
+    return {after, before, fit};
+  });
+  if (sides.some(({fit}) => !fit.includes(true))) {
+    return {free: false, reason: 'a changed text node no run gives'};
+  }
+  const fits = (): boolean =>
+    sides.every(
+      ({before, after, fit}) =>
+        fit[
+          (before >= 0 && choice[before] === RIGHT ? 1 : 0) |
+            (after >= 0 && choice[after] === LEFT ? 2 : 0)
+        ],
+    ) && made.every((_t, m) => choice.includes(m));
   // A made node can take only a run its text is a subsequence of.
   const takes = runs.map(r => made.map(text => isSubsequence(text, r.text)));
   // Every made node needs a run; the search stops after MAX_STEPS
