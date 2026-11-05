@@ -951,50 +951,6 @@ export class Cursor {
   }
 
   /**
-   * The keys content with `formats` writes items of its own for even where
-   * the cursor already has their values: a tab's type, where the cursor is
-   * inside another segment's run (a node Lexical keeps apart from an equal
-   * neighbour, see SEGMENT_KEY) whose own write opened that type, and the
-   * content starts a segment of its own. Why: that run is its author's,
-   * opened and closed by the items of one write; a tab inside it that writes
-   * only its segment key reads its type from that write, and the author's
-   * undo deletes it (a tab written right after another client's tab, which
-   * that client undid, read as a "\t" in the text before it). Nothing else
-   * is owned: a format or link of the text around would come back where a
-   * peer removed it at the same time, and other types and modes follow the
-   * runs they are written in, where a concurrent change of the line (a code
-   * line made a paragraph, which makes its highlighter's tokens plain text)
-   * must reach them. Null when there are none.
-   */
-  private ownSegmentKeys(formats: Record<string, unknown>): Set<string> | null {
-    const segment = formats[SEGMENT_KEY] ?? null;
-    const current = this.formats.get(SEGMENT_KEY) ?? null;
-    if (
-      segment === null ||
-      current === null ||
-      equalFormatValue(current, segment)
-    ) {
-      return null;
-    }
-    const opener = this.valueSource(SEGMENT_KEY);
-    // A run this client wrote needs none: its own undo removes its later
-    // write first.
-    if (opener === null || opener.id.client === this.tr.doc.clientID) {
-      return null;
-    }
-    if (
-      decodeFormatValue(formats[TYPE_KEY] ?? null) !== 'tab' ||
-      !equalFormatValue(this.formats.get(TYPE_KEY) ?? null, formats[TYPE_KEY])
-    ) {
-      return null;
-    }
-    const source = this.valueSource(TYPE_KEY);
-    return source !== null && this.oneWrite(opener, source)
-      ? new Set([TYPE_KEY])
-      : null;
-  }
-
-  /**
    * Paired runs: the node keys content with `formats` writes as a run of its
    * own even where the cursor already shows their values: its type `t` and
    * segment `k` wherever its segment differs from the one shown (a node
@@ -1015,59 +971,6 @@ export class Cursor {
     return TYPE_KEY in formats
       ? new Set([TYPE_KEY, SEGMENT_KEY])
       : new Set([SEGMENT_KEY]);
-  }
-
-  /**
-   * The live format item that gives `key` its value at the cursor: the last
-   * one the cursor passed, or the nearest one before where it started.
-   */
-  private valueSource(key: string): Item | null {
-    const passed = this.sources.get(key);
-    if (passed !== undefined) {
-      return passed;
-    }
-    let steps = 0;
-    for (let it = this.left; it !== null && steps < 4096; it = it.left) {
-      steps++;
-      if (
-        isFormat(it) &&
-        !isGoneIn(this.view, it) &&
-        !this.isHeldFormat(it) &&
-        keyOf(it) === key
-      ) {
-        return it;
-      }
-    }
-    return null;
-  }
-
-  /**
-   * Whether format items `a` and `b` are of one write: one client wrote
-   * them with only format items between them.
-   */
-  private oneWrite(a: Item, b: Item): boolean {
-    if (a === b) {
-      return true;
-    }
-    if (a.id.client !== b.id.client) {
-      return false;
-    }
-    // Every item between them is one of that client's format items: the
-    // walk stops at the first other item, so it costs at most the items
-    // of one write (a write may open many keys, a comment's ids each one).
-    const [first, last] = a.id.clock < b.id.clock ? [a, b] : [b, a];
-    const store = this.tr.doc.store;
-    for (let clock = first.id.clock + first.length; clock < last.id.clock; ) {
-      const struct = store.getItem(createID(first.id.client, clock));
-      if (
-        !(struct instanceof Item) ||
-        !(struct.content instanceof ContentFormat)
-      ) {
-        return false;
-      }
-      clock = struct.id.clock + struct.length;
-    }
-    return true;
   }
 
   private insertFormats(
@@ -1363,9 +1266,12 @@ export class Cursor {
       }
     });
     this.minimizeFormatChanges(f);
+    // (Seeding, which writes no paired runs, owns no node keys: it writes
+    // into an empty container, where the content's covered values are the
+    // cursor's, see insert.)
     const negated = this.insertFormats(
       f,
-      this.pairs(SEGMENT_KEY) ? this.ownNodeKeys(f) : this.ownSegmentKeys(f),
+      this.pairs(SEGMENT_KEY) ? this.ownNodeKeys(f) : null,
     );
     const item = this.newItem(content);
     this.right = item;
