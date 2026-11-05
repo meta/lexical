@@ -41,13 +41,13 @@ test('a fold point that is gone is no frontier', () => {
   const start = new Map<string, unknown>([['f:bold', true]]);
   noteFolded(start, to);
   // While the fold point is live and after the walk's left: skipped up to it.
-  expect(frontierOf(null, start, left, root)).toBe(to);
+  expect(frontierOf(null, start, left, root, null)).toBe(to);
   // Once it is gone (a fresh note: the answer is kept per note and left).
   root.delete(3, 1);
   const again = new Map(start);
   noteFolded(again, to);
   expect(to.deleted).toBe(true);
-  expect(frontierOf(null, again, left, root)).toBeNull();
+  expect(frontierOf(null, again, left, root, null)).toBeNull();
 });
 
 test('a start folded again once is a fresh fold: no refold per later walk', () => {
@@ -75,10 +75,10 @@ test('a start folded again once is a fresh fold: no refold per later walk', () =
   // and folds it up to `left`); 1,000 more walks from the same left
   // (keystrokes in that line) take it as folded up to `left`.
   const refolds = vi.spyOn(start, 'clear');
-  expect(frontierOf(null, start, left, root)).toBeNull();
+  expect(frontierOf(null, start, left, root, null)).toBeNull();
   expect(refolds).toHaveBeenCalledTimes(1);
   for (let i = 0; i < 1000; i++) {
-    expect(frontierOf(null, start, left, root)).toBeNull();
+    expect(frontierOf(null, start, left, root, null)).toBeNull();
   }
   expect(refolds).toHaveBeenCalledTimes(1);
 });

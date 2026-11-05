@@ -65,9 +65,9 @@ for (const gc of [false, true]) {
       () => view,
       () => {
         expect(formats.every(it => !isStored(it, hidden))).toBe(true);
-        frontierOf(currentView(), rawControl, left, root);
+        frontierOf(currentView(), rawControl, left, root, null);
         expect(rawControl.get('f:bold')).toBeUndefined();
-        frontierOf(currentView(), stored, left, root);
+        frontierOf(currentView(), stored, left, root, null);
         expect(stored.get('f:bold')).toBeUndefined();
       },
     );

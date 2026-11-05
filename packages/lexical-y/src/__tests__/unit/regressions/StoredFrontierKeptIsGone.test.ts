@@ -65,9 +65,9 @@ for (const gc of [false, true]) {
         expect(isStored(to, hidden)).toBe(false);
         const raw = new Map<string, unknown>(start);
         noteFolded(raw, to, 'raw');
-        frontierOf(currentView(), raw, left, root);
+        frontierOf(currentView(), raw, left, root, null);
         expect(raw.get('f:bold')).toBeUndefined();
-        frontierOf(currentView(), start, left, root);
+        frontierOf(currentView(), start, left, root, null);
         expect(start.get('f:bold')).toBeUndefined();
       },
     );

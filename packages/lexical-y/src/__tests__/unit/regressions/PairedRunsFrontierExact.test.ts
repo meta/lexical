@@ -54,10 +54,10 @@ for (const gc of [false, true]) {
     expect(items.includes(b!)).toBe(false);
     const merged = items[1];
     expect((merged.content as unknown as {str: string}).str).toBe('ab');
-    expect(frontierOf(null, start, items[0], root)).toBe(merged);
-    expect(frontierOf(null, start, null, root)).toBe(merged);
+    expect(frontierOf(null, start, items[0], root, null)).toBe(merged);
+    expect(frontierOf(null, start, null, root, null)).toBe(merged);
     // The merged item is the walk's left: no frontier.
-    expect(frontierOf(null, start, merged, root)).toBeNull();
+    expect(frontierOf(null, start, merged, root, null)).toBeNull();
   });
 }
 
@@ -74,14 +74,14 @@ test('the order test is exact both ways, per left asked', () => {
   const start = new Map<string, unknown>();
   noteFolded(start, to);
   // More than 4,096 items between left and the fold point: still found.
-  expect(frontierOf(null, start, items[10], root)).toBe(to);
-  expect(frontierOf(null, start, null, root)).toBe(to);
-  expect(frontierOf(null, start, to, root)).toBeNull();
+  expect(frontierOf(null, start, items[10], root, null)).toBe(to);
+  expect(frontierOf(null, start, null, root, null)).toBe(to);
+  expect(frontierOf(null, start, to, root, null)).toBeNull();
   // Lefts after it: no frontier; alternating lefts keep their answers.
   for (let k = 0; k < 3; k++) {
-    expect(frontierOf(null, start, items[5001], root)).toBeNull();
-    expect(frontierOf(null, start, items[10], root)).toBe(to);
-    expect(frontierOf(null, start, items[5999], root)).toBeNull();
+    expect(frontierOf(null, start, items[5001], root, null)).toBeNull();
+    expect(frontierOf(null, start, items[10], root, null)).toBe(to);
+    expect(frontierOf(null, start, items[5999], root, null)).toBeNull();
   }
 });
 
@@ -99,7 +99,7 @@ test('a fold point at the container start answers a later left at once', () => {
   for (let i = 0; i < 2000; i++) {
     const start = new Map<string, unknown>();
     noteFolded(start, items[0]);
-    expect(frontierOf(null, start, items[50_000 + i], root)).toBeNull();
+    expect(frontierOf(null, start, items[50_000 + i], root, null)).toBeNull();
   }
   expect(performance.now() - t0).toBeLessThan(500);
 }, 30_000);

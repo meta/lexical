@@ -280,6 +280,19 @@ const goneIn = (f: FoldIn, item: Item): boolean => isGoneIn(f.view, item);
  */
 let heldView: {hides(item: Item): boolean} | null = null;
 
+/** A hold a fold reads in (see FoldIn), or null. */
+export type HeldView = {hides(item: Item): boolean} | null;
+
+/**
+ * Development builds, while folds move to an explicit hold: the hold a fold
+ * is given is the one withHeldView set.
+ */
+export function checkHeld(held: HeldView): void {
+  if (held !== heldView) {
+    throw new Error('lexical-y: a fold was given another hold than the read');
+  }
+}
+
 /**
  * Run `fn` folding as the line being composed shows (see Hidden): an end
  * the hold holds back pairs no opener there, as it is not there for the

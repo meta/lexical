@@ -315,9 +315,11 @@ export function readAtoms(
   let attrs: Attrs | null = null;
   // Format items up to `frontier` are in `formats` already (see
   // seedFrontier). What is handed on is stored; what the atoms show, held.
-  const stored = new Folder(current, view, 'stored', hidden, frontier);
+  const stored = new Folder(current, view, 'stored', hidden, null, frontier);
   const showing =
-    hidden === null ? null : new Folder(shown, view, 'shown', hidden, frontier);
+    hidden === null
+      ? null
+      : new Folder(shown, view, 'shown', hidden, null, frontier);
   for (let it = start; it !== null && it !== stop; it = it.right) {
     stored.step(it);
     if (showing !== null) {

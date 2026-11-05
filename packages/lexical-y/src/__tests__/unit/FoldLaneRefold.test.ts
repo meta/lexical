@@ -156,7 +156,7 @@ for (let seed = 1; seed <= SEEDS; seed++) {
               to.delete(tr);
             }
           });
-          const frontier = frontierOf(currentView(), copy, left, root);
+          const frontier = frontierOf(currentView(), copy, left, root, null);
           expect(frontier).toBeNull();
           const fresh =
             left === null ? new Map() : foldFresh(root, left, lane, hidden);

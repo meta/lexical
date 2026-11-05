@@ -2301,7 +2301,13 @@ export class Writer {
    */
   private $recomputeStarts(cs: CS): void {
     const formats = new Map<string, unknown>();
-    const folder = new Folder(formats, this.view, 'stored', this.state.hidden);
+    const folder = new Folder(
+      formats,
+      this.view,
+      'stored',
+      this.state.hidden,
+      null,
+    );
     let it: Item | null = cs.y._start;
     let after: Item | null = null;
     for (const u of cs.units) {
@@ -2357,7 +2363,7 @@ export class Writer {
       // composed shows another, see Hidden#starts). (Before the copy: a
       // stale start is folded again, see frontierOf.)
       const start = this.storedStart(unit);
-      let folded = frontierOf(this.view, start, left, unit.cs.y);
+      let folded = frontierOf(this.view, start, left, unit.cs.y, null);
       let formats = new Map(start || EMPTY_FORMATS);
       let from: Item | null = left === null ? unit.cs.y._start : left.right;
       // The format pass's fold of this line, where nothing was written since:
@@ -2383,6 +2389,7 @@ export class Writer {
         this.view,
         'stored',
         this.state.hidden,
+        null,
         folded,
       );
       for (let it: Item | null = from; it !== null; it = it.right) {
@@ -2633,7 +2640,7 @@ export class Writer {
       const left = unitLeft(this.view, old, idx, this.state.hidden);
       const stop = unitStop(old, idx);
       const startItem = left === null ? u.cs.y._start : left.right;
-      this.frontier = frontierOf(this.view, u.start, left, u.cs.y);
+      this.frontier = frontierOf(this.view, u.start, left, u.cs.y, null);
       const cursor = this.cursor(u.cs.y, left, u.start || EMPTY_FORMATS);
       this.frontier = null;
       // Its own content starts at its first item, right after the end item
@@ -2710,8 +2717,8 @@ export class Writer {
     // Seen.frontierOf): node units this write deleted before the first
     // remaining one, or a gone or held end before it.
     const frontier =
-      frontierOf(this.view, storedStartFormats, left, cs.y) ??
-      frontierOf(this.view, startFormats, left, cs.y);
+      frontierOf(this.view, storedStartFormats, left, cs.y, null) ??
+      frontierOf(this.view, startFormats, left, cs.y, null);
     const lineItems = new Map<number, Item>();
     if (remaining.length > 0 || lines.length > 0) {
       const oldStop =
@@ -2867,8 +2874,22 @@ export class Writer {
       // Stored (a held insertion counts, a kept deletion does not) and
       // shown (the reverse): the halves of the held line show the shown
       // lane, what they hand on is stored (see isStored).
-      const stored = new Folder(current, this.view, 'stored', hidden, frontier);
-      const showing = new Folder(shown, this.view, 'shown', hidden, frontier);
+      const stored = new Folder(
+        current,
+        this.view,
+        'stored',
+        hidden,
+        null,
+        frontier,
+      );
+      const showing = new Folder(
+        shown,
+        this.view,
+        'shown',
+        hidden,
+        null,
+        frontier,
+      );
       for (
         let it = startItem;
         it !== null && k < segUnits.length;
@@ -2917,6 +2938,7 @@ export class Writer {
         this.view,
         'stored',
         this.state.hidden,
+        null,
         frontier,
       );
       for (; it !== null; it = it.right) {
@@ -2983,12 +3005,13 @@ export class Writer {
       unit !== undefined && unit.start !== null ? unit.start : EMPTY_FORMATS,
       atoms,
       this.state.hidden,
-      frontierOf(this.view, stored, start, item.parent) ??
+      frontierOf(this.view, stored, start, item.parent, null) ??
         frontierOf(
           this.view,
           unit !== undefined ? unit.start : null,
           start,
           item.parent,
+          null,
         ),
       null,
       stored || EMPTY_FORMATS,
@@ -3198,12 +3221,12 @@ export class Writer {
     if (u.end !== null) {
       left = prevLiveEnd(this.view, u.end, this.state.hidden);
       stop = u.end.right;
-      frontier = frontierOf(this.view, u.start, left, u.cs.y);
+      frontier = frontierOf(this.view, u.start, left, u.cs.y, null);
     } else {
       const idx = old.indexOf(u);
       left = unitLeft(this.view, old, idx, this.state.hidden);
       stop = unitStop(old, idx);
-      frontier = frontierOf(this.view, u.start, left, u.cs.y);
+      frontier = frontierOf(this.view, u.start, left, u.cs.y, null);
     }
     const atoms = new Atoms();
     const oldOrigins = this.oldOrigins([u]);
@@ -3363,7 +3386,7 @@ export class Writer {
     }
     if (writes.length > 0) {
       const left = prevLiveEnd(this.view, u.end!, this.state.hidden);
-      this.frontier = frontierOf(this.view, u.start, left, u.cs.y);
+      this.frontier = frontierOf(this.view, u.start, left, u.cs.y, null);
       const c = this.cursor(u.cs.y, left, u.start || EMPTY_FORMATS);
       this.frontier = null;
       // Where the cursor stands, in atoms of the line as written so far,

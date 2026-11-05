@@ -183,7 +183,7 @@ export function $checkWrite(writer: Writer): string[] {
       unit.start || EMPTY_FORMATS,
       have,
       writer.state.hidden,
-      frontierOf(writer.view, unit.start, left, unit.cs.y),
+      frontierOf(writer.view, unit.start, left, unit.cs.y, null),
     );
     if (want.text !== have.text && want.text !== $shownText(writer, have)) {
       problems.push(
@@ -887,7 +887,7 @@ export function $followUpDifference(
         // The formats in effect at the start of each range (ranges are in
         // document order).
         const formats: Formats = new Map();
-        const folder = new Folder(formats, view, 'raw', null);
+        const folder = new Folder(formats, view, 'raw', null, null);
         let scanned: Item | null = cs.y._start;
         const formatsAt = (item: Item | null): Formats => {
           for (

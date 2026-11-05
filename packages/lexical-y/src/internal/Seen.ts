@@ -23,7 +23,7 @@ import {
   type Transaction,
 } from '@y/y';
 
-import {ambientFold, type FoldIn, stepFormat} from './Ident';
+import {checkHeld, type FoldIn, type HeldView, stepFormat} from './Ident';
 import {owned} from './Owned';
 import {EMPTY_FORMATS, isEndItem, typeOf} from './State';
 import {
@@ -642,6 +642,7 @@ export function frontierOf(
   start: object | null,
   left: Item | null,
   parent: unknown,
+  heldView: HeldView,
 ): Item | null {
   if (start === null) {
     return null;
@@ -687,6 +688,7 @@ export function frontierOf(
         parent,
         note.lane,
         note.hidden,
+        heldView,
       );
       note.to = left;
       note.after = null;
@@ -772,13 +774,20 @@ export class Folder {
     readonly view: View | null,
     readonly lane: FoldLane,
     readonly hidden: Hidden | null,
+    /**
+     * The hold the read of the line being composed folds in (see
+     * Reader#held), or null: an end it holds back pairs nothing, in every
+     * lane. The shown lane folds in `hidden` anyway.
+     */
+    held: HeldView,
     frontier: Item | null = null,
   ) {
     this.frontier = frontier;
-    // The shown lane folds as the hold shows the line; the others in the
-    // running work's fold (see Ident.ambientFold).
+    if (__DEV__) {
+      checkHeld(held);
+    }
     this.fold = {
-      held: lane === 'shown' && hidden !== null ? hidden : ambientFold().held,
+      held: lane === 'shown' && hidden !== null ? hidden : held,
       view,
     };
   }
@@ -826,13 +835,14 @@ export function refoldUpTo(
   left: Item | null,
   parent: unknown,
   lane: FoldLane,
-  hidden: Hidden | null = null,
+  hidden: Hidden | null,
+  held: HeldView,
 ): void {
   start.clear();
   if (left === null) {
     return;
   }
-  const folder = new Folder(start, view, lane, hidden);
+  const folder = new Folder(start, view, lane, hidden, held);
   for (
     let it: Item | null = (parent as {_start: Item | null})._start;
     it !== null;

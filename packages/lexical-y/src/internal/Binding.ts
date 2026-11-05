@@ -2173,6 +2173,7 @@ export class YBinding {
                 state,
                 [node.getKey()],
                 fieldsOf,
+                null,
                 memo.sequences,
               ).map(
                 ([wrapper, json]) =>
@@ -7441,7 +7442,7 @@ export class YBinding {
       const left = unitLeftEnd(this.seer(), unit.cs.units, unit, state.hidden);
       start = left === null ? unit.cs.y._start : left.right;
       // (Before the copy: a stale start is folded again, see frontierOf.)
-      folded = frontierOf(this.seer(), unit.start, left, unit.cs.y);
+      folded = frontierOf(this.seer(), unit.start, left, unit.cs.y, null);
       formats = new Map(unit.start || []);
     } else if (unit !== undefined && unit.kind === 'implicit') {
       const units = unit.cs.units;
@@ -7453,7 +7454,7 @@ export class YBinding {
       }
       start = left === null ? unit.cs.y._start : left.right;
       // (Before the copy: a stale start is folded again, see frontierOf.)
-      folded = frontierOf(this.seer(), unit.start, left, unit.cs.y);
+      folded = frontierOf(this.seer(), unit.start, left, unit.cs.y, null);
       formats = new Map(unit.start || []);
     } else {
       const cs = state.csByKey.get(owner.getKey());
@@ -7465,7 +7466,7 @@ export class YBinding {
     }
     const out: [number, number, Attrs][] = [];
     let offset = 0;
-    const folder = new Folder(formats, this.seer(), 'raw', null, folded);
+    const folder = new Folder(formats, this.seer(), 'raw', null, null, folded);
     for (let it = start; it !== null; it = it.right) {
       folder.step(it);
       if (!it.deleted && it.content instanceof ContentFormat) {

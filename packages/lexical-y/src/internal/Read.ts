@@ -47,12 +47,14 @@ import {type Formats} from './Cursor';
 import {groupKeySig, groupSig} from './Groups';
 import {Hidden} from './Hidden';
 import {
-  ambientFold,
   attrsOf,
+  checkHeld,
   covered as coveredKey,
   endsOf,
   endTarget,
   equalStacks,
+  type FoldIn,
+  type HeldView,
   isEndValue,
   isOnStack,
   isShadowKey,
@@ -244,7 +246,7 @@ function parseRange(
 ): {parsed: Parsed[]; after: Formats} {
   const parsed: Parsed[] = [];
   const current = new Map(formats);
-  const folder = new Folder(current, view, 'raw', null);
+  const folder = new Folder(current, view, 'raw', null, null);
   let unitStart = start;
   let unitFormats = new Map(current);
   folder.note(unitFormats, start === null ? null : start.left);
@@ -315,6 +317,8 @@ function parseRange(
 }
 
 /** Whether UTF-16 code unit `c` is the second half of a surrogate pair. */
+const __DEV__ = process.env.NODE_ENV !== 'production';
+
 const isLowSurrogate = (c: number): boolean => c >= 0xdc00 && c <= 0xdfff;
 
 /** Whether `it` is a format item of `key`. */
@@ -396,6 +400,12 @@ export class Reader {
   /** The block ids this read shows (see BlockIdSettler). */
   readonly settler: BlockIdSettler;
   /** What the read sees of the document now (see liveView). */
+  /**
+   * The hold the line being read folds in (see $readInlineAs): the hold
+   * itself in the line being composed, else null.
+   */
+  private held: HeldView = null;
+
   get view(): View | null {
     return this.liveView();
   }
@@ -2677,14 +2687,17 @@ export class Reader {
     };
     // As the editor shows it: without what is held back (see Hidden).
     const hidden = this.state.hidden;
-    const step = stepFormat;
+    const fold: FoldIn = {held: this.held, view: this.view};
+    if (__DEV__) {
+      checkHeld(fold.held);
+    }
     for (let it = start; it !== null && it !== stop; it = it.right) {
       if (!isShownIn(this.view, it, hidden)) {
         continue;
       }
       const content = it.content;
       if (content instanceof ContentFormat) {
-        step(current, it);
+        stepFormat(current, it, fold);
         tattrs = null;
         continue;
       }
@@ -2889,10 +2902,14 @@ export class Reader {
     ...args: Parameters<Reader['$readInline']>
   ): LexicalNode[] {
     const hidden = this.state.hidden;
-    return withHeldView(
-      hidden !== null && this.showsHeld(key) ? hidden : null,
-      () => this.$readInline(...args),
-    );
+    const held = hidden !== null && this.showsHeld(key) ? hidden : null;
+    const was = this.held;
+    this.held = held;
+    try {
+      return withHeldView(held, () => this.$readInline(...args));
+    } finally {
+      this.held = was;
+    }
   }
 
   /**
@@ -3400,6 +3417,7 @@ export class Reader {
       this.state,
       this.childrenSet,
       this.wrapperFields,
+      this.held,
     )) {
       this.$updateStored(wrapper, () =>
         $setTextFields(wrapper.getLatest(), json),
@@ -3828,7 +3846,7 @@ function formatsAfter(
   formats: Formats,
 ): Formats {
   const out = new Map(formats);
-  const folder = new Folder(out, view, 'raw', null);
+  const folder = new Folder(out, view, 'raw', null, null);
   let last: Item | null = start === null ? null : start.left;
   for (let it = start; it !== null && it !== stop; it = it.right) {
     last = it;
@@ -3901,7 +3919,7 @@ function recomputeUnitStarts(
   // with the formats folded up to its own item (see the loop): the items
   // before it are in its start already (see Seen.frontierOf).
   // Items up to where units[first].start was folded are in it already.
-  const folded: Item | null = frontierOf(view, firstStart, left, cs.y);
+  const folded: Item | null = frontierOf(view, firstStart, left, cs.y, null);
   // A stale start is folded again in place (see frontierOf): copy it again.
   if (folded === null && firstStart !== null) {
     formats.clear();
@@ -3909,7 +3927,7 @@ function recomputeUnitStarts(
       formats.set(key, v);
     }
   }
-  folder = new Folder(formats, view, 'raw', null, folded);
+  folder = new Folder(formats, view, 'raw', null, null, folded);
   for (
     let it = left === null ? cs.y._start : left.right;
     it !== null && k < units.length;
@@ -3976,7 +3994,7 @@ function formatsAfterUnit(
     }
   }
   // Items up to where u.start was folded are in it already.
-  const folded: Item | null = frontierOf(view, start, left, u.cs.y);
+  const folded: Item | null = frontierOf(view, start, left, u.cs.y, null);
   // A stale start is folded again in place (see frontierOf): copy it again.
   if (folded === null && start !== null) {
     formats.clear();
@@ -3984,7 +4002,7 @@ function formatsAfterUnit(
       formats.set(key, v);
     }
   }
-  const folder = new Folder(formats, view, 'raw', null, folded);
+  const folder = new Folder(formats, view, 'raw', null, null, folded);
   for (
     let it: Item | null = left === null ? u.cs.y._start : left.right;
     it !== null;
@@ -4251,6 +4269,7 @@ export function $unstoredWrapperTextFields(
   state: State,
   keys: Iterable<NodeKey>,
   wrapperFields: (type: string) => OwnedFields | null,
+  held: HeldView,
   memo?: StoredFormatsMemo,
 ): [ElementNode, Attrs][] {
   const candidates: [ElementNode, Item][] = [];
@@ -4297,6 +4316,7 @@ export function $unstoredWrapperTextFields(
   const attrs = attrsAtItems(
     view,
     candidates.map(([, item]) => item),
+    held,
     memo,
     state.hidden === null ? null : state,
   );
@@ -4334,9 +4354,13 @@ export type StoredFormatsMemo = Map<unknown, Map<Item, Attrs>>;
 function attrsAtItems(
   view: View | null,
   items: Item[],
+  heldView: HeldView,
   memo?: StoredFormatsMemo,
   held: State | null = null,
 ): Map<Item, Attrs> {
+  if (__DEV__) {
+    checkHeld(heldView);
+  }
   const bySequence = new Map<unknown, Set<Item>>();
   for (const item of items) {
     let set = bySequence.get(item.parent);
@@ -4361,7 +4385,7 @@ function attrsAtItems(
         if (it.content instanceof ContentType) {
           known.set(it, attrsOf(formats) as Attrs);
         } else if (!isGoneIn(view, it) && it.content instanceof ContentFormat) {
-          stepFormat(formats, it, {held: ambientFold().held, view});
+          stepFormat(formats, it, {held: heldView, view});
         }
       }
     }
@@ -4391,7 +4415,7 @@ function attrsAtItems(
         left--;
       }
       if (!isGoneIn(view, it) && it.content instanceof ContentFormat) {
-        stepFormat(formats, it, {held: ambientFold().held, view});
+        stepFormat(formats, it, {held: heldView, view});
       }
     }
   }
@@ -4426,7 +4450,7 @@ function attrsAtItems(
         }
         const left = prevLiveEnd(view, unit.end!, hidden);
         start = unit.start;
-        folded = frontierOf(view, unit.start, left, unit.cs.y);
+        folded = frontierOf(view, unit.start, left, unit.cs.y, null);
         from = left === null ? unit.cs.y._start : left.right;
       }
       const formats = new Map(start || EMPTY_FORMATS);
