@@ -151,3 +151,40 @@ describe('insertionFree', () => {
     ).toBe(true);
   });
 });
+
+describe('insertionFree cost', () => {
+  test('eight runs no assignment fits end within the step budget, as inserting', () => {
+    // 8 removed runs `ab` between kept `x` nodes, and 8 made `ba` nodes: a
+    // permutation, which no assignment gives.
+    const before: [string, string][] = [];
+    const after: [string, string][] = [];
+    for (let i = 0; i < 8; i++) {
+      before.push([`r${i}`, 'ab'], [`k${i}`, 'x']);
+      after.push([`k${i}`, 'x'], [`m${i}`, 'ba']);
+    }
+    const started = performance.now();
+    expect(check(before, after)).toBe(false);
+    expect(performance.now() - started).toBeLessThan(1000);
+  });
+  test('eight runs whose made nodes fit but a kept node never does stop at the budget', () => {
+    const before: [string, string][] = [];
+    const after: [string, string][] = [];
+    for (let i = 0; i < 8; i++) {
+      before.push([`r${i}`, 'ab'], [`k${i}`, 'x']);
+      after.push([`k${i}`, i === 7 ? 'xz' : 'x'], [`m${i}`, 'a']);
+    }
+    before.push(['z', 'z']);
+    const started = performance.now();
+    expect(check(before, after)).toBe(false);
+    expect(performance.now() - started).toBeLessThan(1000);
+  });
+  test('eight runs each moved into a made node of its own is found', () => {
+    const before: [string, string][] = [];
+    const after: [string, string][] = [];
+    for (let i = 0; i < 8; i++) {
+      before.push([`r${i}`, `a${i}`], [`k${i}`, 'x']);
+      after.push([`k${i}`, 'x'], [`m${i}`, `a${i}`]);
+    }
+    expect(check(before, after)).toBe(true);
+  });
+});

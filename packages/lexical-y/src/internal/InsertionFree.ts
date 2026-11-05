@@ -133,15 +133,36 @@ export function insertionFree(
       return k !== -1 && isSubsequence(text, runs[k].text);
     });
   };
+  // A made node can take only a run its text is a subsequence of.
+  const takes = runs.map(r => made.map(text => isSubsequence(text, r.text)));
+  // Every made node needs a run; the search stops after MAX_STEPS
+  // assignments tried, counting the update as inserting (never refused for
+  // a character it may have typed).
+  if (made.some((_t, m) => !takes.some(row => row[m]))) {
+    return {free: false, reason: 'a made text node no removed run gives'};
+  }
+  let steps = 0;
+  let exhausted = false;
   const search = (k: number): boolean => {
+    if (++steps > MAX_STEPS) {
+      exhausted = true;
+      return false;
+    }
     if (k === runs.length) {
       return fits();
     }
-    for (const o of [NONE, LEFT, RIGHT, ...made.map((_t, m) => m)]) {
+    // Every made node still needs a run of its own.
+    if (runs.length - k < made.length - used.size) {
+      return false;
+    }
+    for (const o of [...made.map((_t, m) => m), NONE, LEFT, RIGHT]) {
+      if (exhausted) {
+        return false;
+      }
       if (
         (o === LEFT && runs[k].left < 0) ||
         (o === RIGHT && runs[k].right < 0) ||
-        (o >= 0 && used.has(o))
+        (o >= 0 && (used.has(o) || !takes[k][o]))
       ) {
         continue;
       }
@@ -159,13 +180,19 @@ export function insertionFree(
     choice[k] = NONE;
     return false;
   };
-  return search(0)
-    ? {free: true, reason: 'every character from an old one, in order'}
+  if (search(0)) {
+    return {free: true, reason: 'every character from an old one, in order'};
+  }
+  return exhausted
+    ? {free: false, reason: `more than ${MAX_STEPS} assignments tried`}
     : {free: false, reason: 'no assignment of the removed text fits'};
 }
 
 /** The most runs of removed text the search tries (see insertionFree). */
 export const MAX_RUNS = 8;
+
+/** The most assignments the search tries (see insertionFree). */
+export const MAX_STEPS = 20000;
 
 const NONE = -1;
 const LEFT = -2;

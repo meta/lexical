@@ -668,8 +668,9 @@ describe('held back in a slot, an edit that moves nothing out', () => {
 });
 
 // Two lines in one container that each hold a change not read yet, whose
-// order a commit changes: a write keeps only one of them, so the commit is
-// not written (one line alone is kept, as above).
+// order a commit changes: a write keeps only one of them, and a refusal
+// would read the change twice, so the commit is written as without the
+// change (as `main` writes it, see D112); one line alone is kept, as above.
 describe('inserted by a change not read yet in two lines, reordered', () => {
   for (const gc of GC) {
     for (const shape of ['paragraphs', 'list', 'inline containers'] as const) {
@@ -719,16 +720,10 @@ describe('inserted by a change not read yet in two lines, reordered', () => {
           const fresh = await freshReader(a);
           const text = a.read(() => $getRoot().getTextContent());
           expect(text).toBe(fresh.read(() => $getRoot().getTextContent()));
+          expect(a.warnings.filter(w => w.includes('composing'))).toEqual([]);
           if (lines === 1) {
             // Kept: the moved line holds the change.
             expect(text.replace(/\n+/g, '|')).toBe('bb|tail|aXa');
-            expect(a.warnings).toEqual([]);
-          } else {
-            // Not written, read again: as before the move.
-            expect(text.replace(/\n+/g, '|')).toBe('aXa|bYb|tail');
-            expect(
-              a.warnings.filter(w => w.includes('reorders lines')),
-            ).toHaveLength(1);
           }
           await expectConverged(t.peers);
         });
@@ -780,11 +775,8 @@ describe('inserted by a change not read yet in two slots, their hosts reordered'
           .getAllTextNodes()
           .map(n => n.getTextContent())
           .join('|');
-      // Not written, read again: as before the move.
-      expect(a.read($all)).toBe('aXa|bYb|tail');
-      expect(a.warnings.filter(w => w.includes('reorders lines'))).toHaveLength(
-        1,
-      );
+      // Written as without the change (see above): no refusal.
+      expect(a.warnings.filter(w => w.includes('composing'))).toEqual([]);
       for (const p of t.peers) {
         expect(p.read($all)).toBe(a.read($all));
       }
@@ -1103,9 +1095,9 @@ describe('a paragraph inserted before a line a change not read yet formats, that
 });
 
 // A change not read yet that types into a line and deletes, or changes, a
-// line that line passes when it moves: the passed line would be written
-// again from the editor, which still shows what the change deleted, so the
-// move is refused (with typing, it is written as without the hold).
+// line that line passes when it moves: keeping the line would write the
+// passed line again from the editor, which still shows what the change
+// deleted. Such a commit is written as without the change, keeping no unit.
 describe('a change not read yet types into a line and changes a line it passes, the line moved', () => {
   const changes: {name: string; init: () => void; $change: () => void}[] = [
     {
@@ -1199,27 +1191,22 @@ describe('a change not read yet types into a line and changes a line it passes, 
           expect(a.describe()).toBe(fresh.describe());
           fresh.stop();
           await expectConverged(t.peers);
-          if (!typing) {
-            // Refused: the editor shows B's document, nothing brought back.
-            expect(a.describe()).toBe(b.describe());
-            expect(
-              a.warnings.filter(w => w.includes('reorders lines')),
-            ).toHaveLength(1);
-          } else {
-            // Written as without the hold: the typing is kept and nothing B
-            // deleted or changed comes back.
+          // Written as without the change, with no unit kept (as `main`
+          // writes it): what the change deleted or changed does not come
+          // back.
+          expect(a.warnings.filter(w => w.includes('composing'))).toEqual([]);
+          if (typing) {
             expect(a.read(() => $getRoot().getTextContent())).toContain('T');
-            expect(a.warnings.filter(w => w.includes('composing'))).toEqual([]);
-            if (name === 'deletes text in it') {
-              expect(a.read(() => $getRoot().getTextContent())).not.toContain(
-                'bbb',
-              );
-            }
-            if (name === 'removes it') {
-              expect(a.read(() => $getRoot().getTextContent())).not.toContain(
-                'bb',
-              );
-            }
+          }
+          const text = a.read(() => $getRoot().getTextContent());
+          if (name === 'deletes text in it') {
+            expect(text).not.toContain('bbb');
+          }
+          if (name === 'removes it') {
+            expect(text).not.toContain('bb');
+          }
+          if (name === 'makes it a heading') {
+            expect(a.describe()).toContain('heading');
           }
         });
       }

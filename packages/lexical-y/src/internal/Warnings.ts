@@ -75,8 +75,9 @@ export const UNSUPPORTED_CONFIG_WARNING = '@lexical/y/unsupported-config';
  * line waits for the composition to end, replaced an inline element or
  * block node holding it with a new one, or reordered two lines that each
  * hold a collaborator's change not shown yet (`'composing-move'`, reported
- * for each such update that adds no characters: one that adds characters is
- * written). `data`: YUnsupportedEditData.
+ * for each such update that adds no characters and is made while no change
+ * applied during it waits to be read; any other is written). `data`:
+ * YUnsupportedEditData.
  */
 export const UNSUPPORTED_EDIT_WARNING = '@lexical/y/unsupported-edit';
 /**
