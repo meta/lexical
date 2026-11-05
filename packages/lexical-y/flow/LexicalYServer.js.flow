@@ -64,7 +64,11 @@ export type YPreparedRoom = {
   readonly changed: boolean,
   readonly state: Uint8Array,
   readonly generation: string,
-  readonly base: {readonly generation: string, readonly state: Uint8Array} | null,
+  readonly base: {
+    readonly generation: string,
+    readonly state: Uint8Array,
+    ...
+  } | null,
   readonly pending: Uint8Array | null,
   readonly receipt: YMigrationReceipt,
   ...
@@ -81,7 +85,7 @@ export type YSessionHandshake = {
   readonly v: 1,
   readonly generation: string | null,
   readonly material: boolean,
-  readonly layouts: [number, number],
+  readonly layouts: Readonly<[number, number]>,
   readonly seed: number,
   readonly features?: ReadonlyArray<string>,
   ...
@@ -92,7 +96,7 @@ export type YRoomDescription = {
   readonly incarnation: string,
   readonly inherited: boolean,
   readonly pristine: boolean,
-  readonly layouts: [number, number] | null,
+  readonly layouts: Readonly<[number, number]> | null,
   readonly unreadable: ReadonlyArray<string>,
   readonly seedContract: number,
   readonly requires: ReadonlyArray<string>,
@@ -107,6 +111,7 @@ declare export function describeYRoom(
     readonly inherited: boolean,
     readonly seedContract: number,
     readonly roots?: ReadonlyArray<string>,
+    ...
   },
 ): YRoomDescription;
 
@@ -172,7 +177,7 @@ export type YQuarantineRecordKind = string;
 export type YRecordSource = {
   readonly incarnation: string | null,
   readonly generation: string | null,
-  readonly layouts: [number, number] | null,
+  readonly layouts: Readonly<[number, number]> | null,
   readonly schemaVersion: number | null,
   readonly renderer: string | null,
   ...
@@ -244,7 +249,7 @@ declare export function sourceView(record: {
   readonly deltas: ReadonlyArray<Uint8Array>,
   readonly queue: ReadonlyArray<Uint8Array>,
   ...
-}): {doc: Doc, complete: boolean};
+}): {doc: Doc, complete: boolean, ...};
 
 export type YPendingRecordInput = {
   readonly kind: 'pending',
@@ -258,10 +263,11 @@ export type YPendingRecordInput = {
 
 declare export function createYQuarantineRecord(
   input: YQuarantineRecordInput | YPendingRecordInput,
-  base?: {readonly generation: string, readonly state: Uint8Array} | null,
+  base?: {readonly generation: string, readonly state: Uint8Array, ...} | null,
 ): YQuarantineRecord;
 
-// The layout upgrade handle, the same as @lexical/y's.
+// The layout upgrade handle: @lexical/y's own declaration (opaque there),
+// imported and re-exported, never restated.
 export type {YClientSession, YLayoutUpgradeHandle, YServerLayoutUpgradeOptions};
 declare export function createYServerLayoutUpgrade(
   options?: YServerLayoutUpgradeOptions,

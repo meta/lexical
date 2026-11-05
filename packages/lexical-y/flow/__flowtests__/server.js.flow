@@ -119,3 +119,26 @@ createYSessionCapture({deltas: [], signals: [], snapshot: stored});
 const view = sourceView(record);
 // $FlowExpectedError[incompatible-type] bare material has no header
 sourceView({deltas: [], queue: [], snapshot: stored});
+
+// Extensible objects accept a variable carrying a field this release does
+// not know (inexact), not only literals.
+const roomOptions = {
+  incarnation: 'inc',
+  inherited: false,
+  laterOption: true,
+  seedContract: 1,
+};
+describeYRoom(doc, roomOptions);
+const laterMaterial = {...capture.material(), laterField: 1};
+createYSessionCapture(laterMaterial);
+const laterHandshake = {...handshake, laterField: 'x'};
+checkYSession(room, laterHandshake);
+const laterRecord = {...record, laterField: null};
+sourceView(laterRecord);
+const laterBase = {generation: 'g', laterField: 0, state: stored};
+createYQuarantineRecord({kind: 'capture', receivedAt: 0, source}, laterBase);
+
+// Capability ranges are read only.
+const range: Readonly<[number, number]> = handshake.layouts;
+// $FlowExpectedError[cannot-write] a capability range is read only
+handshake.layouts[0] = 1;
