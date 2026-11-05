@@ -850,7 +850,10 @@ client's document with `createYDoc` from `@lexical/y`.
    generation (`base.state` under `base.generation`, never overwritten), and,
    when the result has pending material, its quarantine record:
    `createYQuarantineRecord({kind: 'pending', stored: state, pending, source,
-   receivedAt})`. Pending
+   receivedAt})` (`stored` and `pending` are reserved for this form: it is
+   taken only for kind `'pending'` with both present as bytes, and a record
+   of any other kind keeps its kind and material whatever keys it carries).
+   Pending
    material can include text clients already saw: Yjs 14 integrates items
    past a gap, and the runner cuts them out with the rest. Its
    snapshot is the whole stored state the material was split from and its

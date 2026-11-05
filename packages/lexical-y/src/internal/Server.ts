@@ -906,7 +906,9 @@ export interface YQuarantineRecordInput {
 
 /**
  * @experimental The input of createYQuarantineRecord for a migration's
- * `pending` material (prepareYRoom's or migrateYState's), stored atomically
+ * `pending` material (`stored` and `pending` are reserved for this form: it
+ * is taken only for kind `'pending'` with both present as bytes; any other
+ * kind ignores them) (prepareYRoom's or migrateYState's), stored atomically
  * with the migrated state: the record's kind is `'pending'`, its snapshot
  * the whole stored state the material was split from (which still holds
  * every cut item and what they depend on) and its queue the split bytes, so
@@ -1064,19 +1066,55 @@ export function createYQuarantineRecord(
   input: YQuarantineRecordInput | YPendingRecordInput,
   base: {readonly generation: string; readonly state: Uint8Array} | null = null,
 ): YQuarantineRecord {
-  return 'stored' in input
-    ? materialRecord(
+  const pending = pendingForm(input);
+  return pending === null
+    ? materialRecord(input as YQuarantineRecordInput, base)
+    : materialRecord(
         {
-          id: input.id,
+          id: pending.id,
           kind: 'pending',
-          queue: [input.pending],
-          receivedAt: input.receivedAt,
-          snapshot: input.stored,
-          source: input.source,
+          queue: [pending.pending],
+          receivedAt: pending.receivedAt,
+          snapshot: pending.stored,
+          source: pending.source,
         },
         base,
-      )
-    : materialRecord(input, base);
+      );
+}
+
+/**
+ * The pending form of `input`, or null for the material form. The pending
+ * form is chosen only for kind `'pending'` with both `stored` and `pending`
+ * bytes: those two keys are reserved for it, so a record of any other kind
+ * keeps its kind and material whatever extra keys it carries. A `'pending'`
+ * input with only one of them, a value that is not bytes, or material
+ * fields beside them is ambiguous: a TypeError.
+ */
+function pendingForm(
+  input: YQuarantineRecordInput | YPendingRecordInput,
+): YPendingRecordInput | null {
+  if (input.kind !== 'pending') {
+    return null;
+  }
+  const raw = input as unknown as Record<string, unknown>;
+  const has = (key: string) => raw[key] !== undefined;
+  if (!has('stored') && !has('pending')) {
+    return null;
+  }
+  if (
+    !(raw.stored instanceof Uint8Array) ||
+    !(raw.pending instanceof Uint8Array)
+  ) {
+    throw new TypeError(
+      '@lexical/y: a pending record input needs both `stored` and `pending` bytes',
+    );
+  }
+  if (has('snapshot') || has('deltas') || has('queue')) {
+    throw new TypeError(
+      '@lexical/y: a pending record input takes `stored` and `pending`, not material fields beside them',
+    );
+  }
+  return input as YPendingRecordInput;
 }
 
 /** createYQuarantineRecord's material form. */
