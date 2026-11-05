@@ -395,9 +395,9 @@ export class Reader {
   readonly rebuilt = new Set<CS>();
   /** The block ids this read shows (see BlockIdSettler). */
   readonly settler: BlockIdSettler;
-  /** What the read sees of the document now (see viewOf). */
+  /** What the read sees of the document now (see liveView). */
   get view(): View | null {
-    return this.viewOf();
+    return this.liveView();
   }
   constructor(
     readonly state: State,
@@ -405,9 +405,9 @@ export class Reader {
      * The binding's view (see View), read at each step: a read can start or
      * end a composition's hold, and so change the view, while it runs.
      */
-    private readonly viewOf: () => View | null = currentView,
+    private readonly liveView: () => View | null = currentView,
   ) {
-    this.settler = new BlockIdSettler(state, viewOf);
+    this.settler = new BlockIdSettler(state, liveView);
     const editor = state.editor;
     this.wrapperFields = type => {
       if (!editor._nodes.has(type)) {

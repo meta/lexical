@@ -73,12 +73,12 @@ export function isStored(item: Item, hidden: Hidden | null): boolean {
 
 /** isStored, in `view`. */
 export function isStoredIn(
-  root: View | null,
+  view: View | null,
   item: Item,
   hidden: Hidden | null,
 ): boolean {
   return (
-    !isGoneIn(root, item) &&
+    !isGoneIn(view, item) &&
     !(item.deleted && hidden !== null && hidden.keeps(item))
   );
 }
@@ -89,23 +89,25 @@ export function isGone(item: Item): boolean {
 }
 
 /** isGone, in `view` (see viewFor). */
-export function isGoneIn(root: View | null, item: Item): boolean {
-  const view = scopedView(root, item.parent as YNode);
-  if (view === null) {
+export function isGoneIn(view: View | null, item: Item): boolean {
+  const scoped = scopedView(view, item.parent as YNode);
+  if (scoped === null) {
     return item.deleted;
   }
-  if (inserted(view, item)) {
+  if (inserted(scoped, item)) {
     return true;
   }
   if (!item.deleted) {
     return false;
   }
-  if (view.removed.hasId(item.id)) {
+  if (scoped.removed.hasId(item.id)) {
     return true;
   }
   // Deleted by an unread change, or by a held change that the line being
   // composed still shows (a format item, see Hidden#keeps).
-  return !deleted(view, item) && (view.keeps === null || !view.keeps(item));
+  return (
+    !deleted(scoped, item) && (scoped.keeps === null || !scoped.keeps(item))
+  );
 }
 
 /** What each write only noted as deleted (see deleteItem), by transaction. */
@@ -135,19 +137,19 @@ export function deleteItem(item: Item, tr: Transaction): void {
 
 /** deleteItem, in `view`. */
 export function deleteItemIn(
-  root: View | null,
+  view: View | null,
   item: Item,
   tr: Transaction,
 ): void {
-  const view = scopedView(root, item.parent as YNode);
+  const scoped = scopedView(view, item.parent as YNode);
   deletions++;
   if (item.deleted) {
-    if (view !== null) {
-      view.removed.add(item.id.client, item.id.clock, item.length);
+    if (scoped !== null) {
+      scoped.removed.add(item.id.client, item.id.clock, item.length);
       // A format item a hold showed, deleted by this write too: the editor
       // no longer shows it (see Hidden#drop).
-      if (view.dropKept !== null) {
-        view.dropKept(item);
+      if (scoped.dropKept !== null) {
+        scoped.dropKept(item);
       }
       let noted = notedIn.get(tr);
       if (noted === undefined) {
@@ -179,13 +181,13 @@ export function attrOf(y: YNode, key: string): unknown {
 }
 
 /** attrOf, in `view`. */
-export function attrOfIn(root: View | null, y: YNode, key: string): unknown {
-  const view = scopedView(root, y);
-  if (view === null) {
+export function attrOfIn(view: View | null, y: YNode, key: string): unknown {
+  const scoped = scopedView(view, y);
+  if (scoped === null) {
     return y.getAttr(key);
   }
-  const v = attrItem(y, view, key);
-  if (v === null || isGoneIn(root, v)) {
+  const v = attrItem(y, scoped, key);
+  if (v === null || isGoneIn(view, v)) {
     return undefined;
   }
   const content = v.content.getContent();
@@ -199,15 +201,15 @@ export function attrsOf(y: YNode): Record<string, unknown> {
 
 /** attrsOf, in `view`. */
 export function attrsOfIn(
-  root: View | null,
+  view: View | null,
   y: YNode,
 ): Record<string, unknown> {
-  if (scopedView(root, y) === null) {
+  if (scopedView(view, y) === null) {
     return y.getAttrs() as Record<string, unknown>;
   }
   const out: Record<string, unknown> = {};
   y._map.forEach((_item, key) => {
-    const value = attrOfIn(root, y, key);
+    const value = attrOfIn(view, y, key);
     if (value !== undefined) {
       out[key] = value;
     }
@@ -232,17 +234,17 @@ export function attrsBefore(
 
 /** attrsBefore, in `view`. */
 export function attrsBeforeIn(
-  root: View | null,
+  view: View | null,
   y: YNode,
   tr: Transaction,
 ): Record<string, unknown> {
-  const view = scopedView(root, y);
+  const scoped = scopedView(view, y);
   const out: Record<string, unknown> = {};
   y._map.forEach((latest, key) => {
     let v: Item | null = latest;
     while (
       v !== null &&
-      (tr.insertSet.hasId(v.id) || (view !== null && inserted(view, v)))
+      (tr.insertSet.hasId(v.id) || (scoped !== null && inserted(scoped, v)))
     ) {
       v = v.left;
     }
@@ -252,7 +254,7 @@ export function attrsBeforeIn(
     const noted = notedIn.get(tr);
     if (
       v !== null &&
-      (!isGoneIn(root, v) ||
+      (!isGoneIn(view, v) ||
         tr.deleteSet.hasId(v.id) ||
         (noted !== undefined && noted.hasId(v.id)))
     ) {
@@ -275,15 +277,15 @@ export function setAttr(
 
 /** setAttr, in `view`. */
 export function setAttrIn(
-  root: View | null,
+  view: View | null,
   y: YNode,
   key: string,
   value: unknown,
   tr: Transaction,
 ): void {
-  const view = scopedView(root, y);
-  const left = view === null ? null : attrItem(y, view, key);
-  if (view === null || left === (y._map.get(key) ?? null)) {
+  const scoped = scopedView(view, y);
+  const left = scoped === null ? null : attrItem(y, scoped, key);
+  if (scoped === null || left === (y._map.get(key) ?? null)) {
     y.setAttr(key, value as never);
     return;
   }
@@ -314,19 +316,19 @@ export function deleteAttr(y: YNode, key: string, tr: Transaction): void {
 
 /** deleteAttr, in `view`. */
 export function deleteAttrIn(
-  root: View | null,
+  view: View | null,
   y: YNode,
   key: string,
   tr: Transaction,
 ): void {
-  const view = scopedView(root, y);
-  if (view === null) {
+  const scoped = scopedView(view, y);
+  if (scoped === null) {
     y.deleteAttr(key);
     return;
   }
-  const v = attrItem(y, view, key);
-  if (v !== null && !isGoneIn(root, v)) {
-    deleteItemIn(root, v, tr);
+  const v = attrItem(y, scoped, key);
+  if (v !== null && !isGoneIn(view, v)) {
+    deleteItemIn(view, v, tr);
   }
 }
 
@@ -345,11 +347,11 @@ export function shownLength(item: Item, hidden: Hidden | null): number {
 
 /** shownLength, in `view`. */
 export function shownLengthIn(
-  root: View | null,
+  view: View | null,
   item: Item,
   hidden: Hidden | null,
 ): number {
-  if (!item.countable || isGoneIn(root, item)) {
+  if (!item.countable || isGoneIn(view, item)) {
     return 0;
   }
   return unheldLength(item, hidden);
@@ -365,12 +367,12 @@ export function isShown(item: Item, hidden: Hidden | null): boolean {
 
 /** isShown, in `view`. */
 export function isShownIn(
-  root: View | null,
+  view: View | null,
   item: Item,
   hidden: Hidden | null,
 ): boolean {
   return (
-    (!isGoneIn(root, item) || (hidden !== null && hidden.keeps(item))) &&
+    (!isGoneIn(view, item) || (hidden !== null && hidden.keeps(item))) &&
     !isHeld(item, hidden)
   );
 }
@@ -404,11 +406,11 @@ export function isShownEnd(it: Item, hidden: Hidden | null): boolean {
 
 /** isShownEnd, in `view`. */
 export function isShownEndIn(
-  root: View | null,
+  view: View | null,
   it: Item,
   hidden: Hidden | null,
 ): boolean {
-  return isEndItem(it) && !isGoneIn(root, it) && !isHeld(it, hidden);
+  return isEndItem(it) && !isGoneIn(view, it) && !isHeld(it, hidden);
 }
 
 /**
