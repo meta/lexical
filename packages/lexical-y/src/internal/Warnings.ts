@@ -488,7 +488,11 @@ export type YEmittedWarningData<C extends YKnownWarningCode> =
  * `LexicalWarning` whose `code` decides the type of its `data`.
  * `YWarning` (any code) is open: its `data` is `unknown` until narrowed.
  * Narrow it with `isYWarning(value, code)`, which gives `YWarning<code>`,
- * then switch over `data.reason`, `'other'` included.
+ * then switch over `data.reason`, `'other'` included. Comparing the code
+ * alone does not narrow `data`: after `isYWarning(value)`,
+ * `value.code === SELF_CHECK_WARNING` leaves `value.data` unknown, since
+ * the code is open and TypeScript narrows `data` by `code` only in a closed
+ * union. Write `isYWarning(value, SELF_CHECK_WARNING)` instead.
  */
 export type YWarning<C extends string = YWarningCode> = LexicalWarning & {
   readonly code: C;
@@ -522,7 +526,8 @@ const CODES: ReadonlySet<string> = new Set<YKnownWarningCode>([
 /**
  * @experimental Whether `value` (what the editor's `onWarn` receives) is a
  * warning of the binding's: with `code`, one with that code, its `data`
- * typed by it; without, any of its codes (an open YWarning).
+ * typed by it; without, any of its codes (an open YWarning, whose `data` a
+ * later comparison of its `code` does not narrow: pass the code here).
  */
 export function isYWarning<C extends YKnownWarningCode>(
   value: unknown,

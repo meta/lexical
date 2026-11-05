@@ -411,7 +411,11 @@ extension, see [Errors and warnings](/docs/extensions/defining-extensions#errors
 Each warning is a `LexicalWarning` with a stable `code` and typed `data`.
 `isYWarning(error, code)` narrows it to `YWarning<code>`, whose `data` is
 that code's, and `data.reason` says which case it is; `isYWarning(error)`
-alone narrows it to the open `YWarning` (any code, `data` unknown). Every
+alone narrows it to the open `YWarning` (any code, `data` unknown).
+Comparing the code afterwards does not narrow `data`, because the code is
+open and TypeScript narrows `data` by `code` only in a closed union: write
+`isYWarning(error, SELF_CHECK_WARNING)`, not
+`isYWarning(error) && error.code === SELF_CHECK_WARNING`. Every
 code's `data` may also be `{reason: 'other', detailCode, details?}`: a
 condition a later version reports under an existing code. Handle it, and
 keep a fallback for codes you do not know (`YWarningCode` is open: the
