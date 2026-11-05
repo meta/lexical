@@ -21,6 +21,10 @@
 //   changeEnd).
 // - #9623: an undo that restores another client's value ends the copy's run
 //   where the original's run ended (YBinding#closeRestoredRuns, opensRun).
+// And the rest of those rules' cases, each by what it does to the text (the
+// second describe), and the one case where main's undo rule shows a value on
+// text nobody gave it, kept for flat keys and pinned as a known failure (the
+// third).
 
 import {
   $createParagraphNode,
@@ -244,6 +248,187 @@ describe('a flat NodeState value keeps main format rules', () => {
           expect((await freshReader(a)).describe()).toBe(a.describe());
         });
       }
+    }
+  }
+});
+
+describe("a flat NodeState value: the rest of main's format rules", () => {
+  for (const gc of GC) {
+    for (const ids of TRIPLES) {
+      // "aaa bbb ccc": B and C, offline, tone "bbb" x and y; then A tones
+      // "aaa bbb" x. Where B's item comes first, C's shadows it, so "bbb"
+      // shows y and the range covers it: B's item, inside the range with
+      // the range's value, is removed with C's, and the range is one run.
+      test(`a range over another client's item of the range's own value, shadowed by a third client's, removes both (gc ${gc ? 'on' : 'off'}, ids ${ids})`, async () => {
+        const t = await setup(() => $getRoot().append($p('aaa bbb ccc')), {
+          gc,
+          ids,
+        });
+        const [a, b, c] = t.peers;
+        t.offline();
+        b.update(() => $tone(0, 4, 7, 'x'));
+        c.update(() => $tone(0, 4, 7, 'y'));
+        await t.sync();
+        a.update(() => $tone(0, 0, 7, 'x'));
+        await t.sync();
+        await expectConverged(t.peers);
+        expect(a.read(() => $show(0))).toBe('aaa bbb:x| ccc');
+        expect((await freshReader(a)).describe()).toBe(a.describe());
+      });
+      // A, B and C, offline, tone "bbb" y, x and z: three openers of the
+      // key before its first character. A then tones "bbb" x: each opener
+      // there is removed by the next, B's with the range's value too, and
+      // the last is kept (rules 1 and 2).
+      test(`a range that starts at three openers of the key keeps only the last (gc ${gc ? 'on' : 'off'}, ids ${ids})`, async () => {
+        const t = await setup(() => $getRoot().append($p('aaa bbb ccc')), {
+          gc,
+          ids,
+        });
+        const [a, b, c] = t.peers;
+        t.offline();
+        a.update(() => $tone(0, 4, 7, 'y'));
+        b.update(() => $tone(0, 4, 7, 'x'));
+        c.update(() => $tone(0, 4, 7, 'z'));
+        await t.sync();
+        a.update(() => $tone(0, 4, 7, 'x'));
+        await t.sync();
+        await expectConverged(t.peers);
+        expect(a.read(() => $show(0))).toBe('aaa |bbb:x| ccc');
+        expect((await freshReader(a)).describe()).toBe(a.describe());
+      });
+      // B tones "bbb" y; C clears "bb"; A tones "bb" x. A's range ends at
+      // B's change end, which A reuses as its closer, writing a null of its
+      // own right after it (rule 5): when B undoes, x stays on "bb" and does
+      // not reach " ccc".
+      test(`a range that ends at another client's change end ends its own value there too (gc ${gc ? 'on' : 'off'}, ids ${ids})`, async () => {
+        const t = await setup(() => $getRoot().append($p('aaa bbb ccc')), {
+          gc,
+          ids,
+        });
+        const [a, b, c] = t.peers;
+        b.update(() => $tone(0, 4, 7, 'y'));
+        await t.sync();
+        c.update(() => $tone(0, 5, 7, ''));
+        await t.sync();
+        a.update(() => $tone(0, 5, 7, 'x'));
+        await t.sync();
+        expect(a.read(() => $show(0))).toBe('aaa |b:y|bb:x| ccc');
+        b.undo();
+        await t.sync();
+        await expectConverged(t.peers);
+        expect(a.read(() => $show(0))).toBe('aaa b|bb:x| ccc');
+        expect((await freshReader(a)).describe()).toBe(a.describe());
+      });
+    }
+    for (const ids of PAIRS) {
+      // A tones "two two" c while B, offline, tones its second "two" c too:
+      // B's opener is inside A's run, of its value. A clears the line and
+      // undoes: both openers come back, and B's opens no run of its own.
+      test(`an undo that restores two concurrent openers of one value ends only the outer run (gc ${gc ? 'on' : 'off'}, ids ${ids})`, async () => {
+        const t = await setup(() => $getRoot().append($p('two two two')), {
+          gc,
+          ids,
+        });
+        const [a, b] = t.peers;
+        t.offline();
+        a.update(() => $tone(0, 0, 7, 'c'));
+        b.update(() => $tone(0, 4, 7, 'c'));
+        await t.sync();
+        a.update(() => $tone(0, 0, 11, ''));
+        await t.sync();
+        a.undo();
+        await t.sync();
+        await expectConverged(t.peers);
+        expect(a.read(() => $show(0))).toBe('two two:c| two');
+        expect((await freshReader(a)).describe()).toBe(a.describe());
+      });
+      // "two two two", toned q; B tones its last two words c2; A clears the
+      // line; B undoes (its end of the run goes, its opener A removed
+      // stays removed); A undoes: B's value comes back on its own range at
+      // most, never past it.
+      test(`an undo that restores a value its author has undone brings it back on that value's range at most (gc ${gc ? 'on' : 'off'}, ids ${ids})`, async () => {
+        const t = await setup(
+          () => {
+            const text = $createTextNode('two two two');
+            $setState(text, tone, 'q');
+            $getRoot().append($createParagraphNode().append(text));
+          },
+          {gc, ids},
+        );
+        const [a, b] = t.peers;
+        b.update(() => $tone(0, 4, 11, 'c2'));
+        await t.sync();
+        a.update(() => $tone(0, 0, 11, ''));
+        await t.sync();
+        b.undo();
+        await t.sync();
+        expect(a.read(() => $show(0))).toBe('two two two');
+        a.undo();
+        await t.sync();
+        await expectConverged(t.peers);
+        expect(['two :q|two two:c2', 'two two two:q']).toContain(
+          a.read(() => $show(0)),
+        );
+        expect((await freshReader(a)).describe()).toBe(a.describe());
+      });
+    }
+  }
+});
+
+describe("a flat NodeState value keeps main's undo of a value whose text its author removed", () => {
+  const $typeToned = () => {
+    const xy = $createTextNode('XY');
+    $setState(xy, tone, 'x');
+    $selectIn([0], 4, 4).insertNodes([xy]);
+    $setSelection(null);
+  };
+  for (const gc of GC) {
+    for (const ids of PAIRS) {
+      // B types "XY" toned x into "two two two"; A clears XY's tone; B undoes
+      // its typing; A undoes its clear. A's undo restores B's opener, but the
+      // end of B's run left with B's undo and no text of the run is left, so
+      // no null ends it (YBinding#closeRestoredRuns): the tone runs on over
+      // "two two", which nobody toned. Main does this for every format;
+      // paired runs (text formats, styles, links, comments) end at their own
+      // ends, so only a flat key keeps it.
+      test.fails(
+        `an undo that restores a value whose text its author's undo removed leaves the text after alone (fails: main's rule for flat keys) (gc ${gc ? 'on' : 'off'}, ids ${ids})`,
+        async () => {
+          const t = await setup(() => $getRoot().append($p('two two two')), {
+            gc,
+            ids,
+          });
+          const [a, b] = t.peers;
+          b.update($typeToned);
+          await t.sync();
+          a.update(() => $tone(0, 4, 6, ''));
+          await t.sync();
+          b.undo();
+          await t.sync();
+          a.undo();
+          await t.sync();
+          await expectConverged(t.peers);
+          expect(a.read(() => $show(0))).toBe('two two two');
+        },
+      );
+      // The control: without B's undo, A's undo brings the tone back on "XY"
+      // only.
+      test(`an undo that restores a value whose text stays brings it back on that text only (gc ${gc ? 'on' : 'off'}, ids ${ids})`, async () => {
+        const t = await setup(() => $getRoot().append($p('two two two')), {
+          gc,
+          ids,
+        });
+        const [a, b] = t.peers;
+        b.update($typeToned);
+        await t.sync();
+        a.update(() => $tone(0, 4, 6, ''));
+        await t.sync();
+        a.undo();
+        await t.sync();
+        await expectConverged(t.peers);
+        expect(a.read(() => $show(0))).toBe('two |XY:x|two two');
+        expect((await freshReader(a)).describe()).toBe(a.describe());
+      });
     }
   }
 });
