@@ -407,7 +407,7 @@ export class Reader {
      */
     private readonly viewOf: () => View | null = currentView,
   ) {
-    this.settler = new BlockIdSettler(state);
+    this.settler = new BlockIdSettler(state, viewOf);
     const editor = state.editor;
     this.wrapperFields = type => {
       if (!editor._nodes.has(type)) {
@@ -3395,6 +3395,7 @@ export class Reader {
    */
   private $settleWrapperTextFields(): void {
     for (const [wrapper, json] of $unstoredWrapperTextFields(
+      this.view,
       this.state,
       this.childrenSet,
       this.wrapperFields,
@@ -4254,6 +4255,7 @@ function isDeleted(y: YNode): boolean {
  * element, in that one's.
  */
 export function $unstoredWrapperTextFields(
+  view: View | null,
   state: State,
   keys: Iterable<NodeKey>,
   wrapperFields: (type: string) => OwnedFields | null,
@@ -4301,7 +4303,7 @@ export function $unstoredWrapperTextFields(
     return [];
   }
   const attrs = attrsAtItems(
-    currentView(),
+    view,
     candidates.map(([, item]) => item),
     memo,
     state.hidden === null ? null : state,
