@@ -38,6 +38,7 @@ import {
   defineExtension,
   ElementNode,
   type LexicalNode,
+  type TextFormatType,
 } from 'lexical';
 import {assert, describe, expect, it} from 'vitest';
 
@@ -108,6 +109,12 @@ const TestInlineExtension = defineExtension({
   nodes: [TestInlineNode],
 });
 
+function $exportText(text: string) {
+  $getRoot()
+    .clear()
+    .append($createParagraphNode().append($createTextNode(text)));
+}
+
 const LITERALS = [
   ['<b>text</b>', '&#60;b>text&#60;/b>'],
   ['<https://example.com>', '&#60;https://example.com>'],
@@ -143,6 +150,51 @@ describe('literal Markdown text', () => {
       });
       expect(editor.read(() => $getRoot().getTextContent())).toBe(text);
     }
+  });
+
+  it.each([
+    '<3',
+    '1<2',
+    'I <3 you',
+    'x <- y',
+    'a <= b',
+    '<<',
+    '<3@x',
+    'Tom &',
+    'R&D',
+    '&#',
+    '&#x',
+    '&#12 no semicolon',
+    'emoji <:) and & done',
+  ])('keeps %j as typed, since it cannot start markup', text => {
+    using editor = buildEditorFromExtensions([MarkdownTestExtension]);
+    editor.update(() => $exportText(text), {discrete: true});
+    const written = editor.read(() => $convertToMarkdownString());
+    expect(written).toBe(text);
+    editor.update(() => $convertFromMarkdownString(written), {
+      discrete: true,
+    });
+    expect(editor.read(() => $getRoot().getTextContent())).toBe(text);
+  });
+
+  it.each([
+    ['<a', '&#60;a'],
+    ['</b>', '&#60;/b>'],
+    ['<!-- c -->', '&#60;!-- c -->'],
+    ['<?php', '&#60;?php'],
+    ['<!DOCTYPE html>', '&#60;!DOCTYPE html>'],
+    ['<3@x.co>', '&#60;3@x.co>'],
+    ['&#12;', '&#38;#12;'],
+    ['&#x1F600;', '&#38;#x1F600;'],
+  ])('escapes %j, which would start markup', (text, expected) => {
+    using editor = buildEditorFromExtensions([MarkdownTestExtension]);
+    editor.update(() => $exportText(text), {discrete: true});
+    const written = editor.read(() => $convertToMarkdownString());
+    expect(written).toBe(expected);
+    editor.update(() => $convertFromMarkdownString(written), {
+      discrete: true,
+    });
+    expect(editor.read(() => $getRoot().getTextContent())).toBe(text);
   });
 
   it.each(['AT&T', 'a < b', '&nbsp;', '&copy;'])(
@@ -217,10 +269,17 @@ describe('literal Markdown text', () => {
 
   it.each([
     [['&', '#65;'], '&#38;#65;'],
-    [['&', 'copy;'], '&#38;copy;'],
+    [['&', 'copy;'], '&copy;'],
+    [['&#', '65;'], '&#38;#65;'],
+    [['&#6', '5;'], '&#38;#65;'],
+    [['&#x', '41;'], '&#38;#x41;'],
+    [['&#1234567', '8;'], '&#12345678;'],
+    [['&#x', ';'], '&#x;'],
     [['<', 'b>text</b>'], '&#60;b>text&#60;/b>'],
-    [['AT&', 'T'], 'AT&#38;T'],
-    [['a <', ' b'], 'a &#60; b'],
+    [['AT&', 'T'], 'AT&T'],
+    [['a <', ' b'], 'a < b'],
+    [['1<', '2'], '1<2'],
+    [['<', '3 you'], '<3 you'],
   ] as const)('guards ambiguous node boundaries: %j', (pieces, expected) => {
     using editor = buildEditorFromExtensions([MarkdownTestExtension]);
     editor.update(
@@ -239,6 +298,127 @@ describe('literal Markdown text', () => {
       {discrete: true},
     );
     expect(editor.read(() => $convertToMarkdownString())).toBe(expected);
+  });
+
+  it.each([
+    [['<', '@x.co>'], 1, '&#60;**@x.co>**', 'bold'],
+    [['<', '@x.co>'], 0, '**&#60;**@x.co>', 'bold'],
+    [
+      ['Mail <', '@team.example> today'],
+      1,
+      'Mail &#60;**@team.example> today**',
+      'bold',
+    ],
+    [['<', '@x.co>'], 1, '&#60;*@x.co>*', 'italic'],
+    [['<', '@x.co>'], 1, '&#60;~~@x.co>~~', 'strikethrough'],
+    [['<', '@x.co>'], 1, '&#60;==@x.co>==', 'highlight'],
+    [['<', '3 you'], 1, '<**3 you**', 'bold'],
+  ] as const)(
+    'escapes a < whose email autolink format markers would complete: %j',
+    (pieces, formatted, expected, format: TextFormatType) => {
+      using editor = buildEditorFromExtensions([MarkdownTestExtension]);
+      editor.update(
+        () =>
+          $getRoot()
+            .clear()
+            .append(
+              $createParagraphNode().append(
+                ...pieces.map((text, index) => {
+                  const node = $createTextNode(text);
+                  return index === formatted ? node.toggleFormat(format) : node;
+                }),
+              ),
+            ),
+        {discrete: true},
+      );
+      expect(editor.read(() => $convertToMarkdownString())).toBe(expected);
+    },
+  );
+
+  it('reads on past many unspaced styled nodes after a <', () => {
+    using editor = buildEditorFromExtensions([MarkdownTestExtension]);
+    editor.update(
+      () =>
+        $getRoot()
+          .clear()
+          .append(
+            $createParagraphNode().append(
+              $createTextNode('<').setStyle('color: red'),
+              ...Array.from({length: 20000}, (_, index) =>
+                $createTextNode('1').setStyle(`color: #${index % 2}00`),
+              ),
+              $createTextNode('@x.co>'),
+            ),
+          ),
+      {discrete: true},
+    );
+    expect(editor.read(() => $convertToMarkdownString())).toBe(
+      '&#60;' + '1'.repeat(20000) + '@x.co>',
+    );
+  });
+
+  it('keeps an & before a decorator as typed', () => {
+    using editor = buildEditorFromExtensions(
+      MarkdownTestExtension,
+      TestDecoratorExtension,
+    );
+    editor.update(
+      () =>
+        $getRoot()
+          .clear()
+          .append(
+            $createParagraphNode().append(
+              $createTextNode('Q&A with AT&T and '),
+              $create(TestDecoratorNode),
+            ),
+          ),
+      {discrete: true},
+    );
+    expect(editor.read(() => $convertToMarkdownString())).toBe(
+      'Q&A with AT&T and foo',
+    );
+  });
+
+  it('reads on from an & only where a reference could continue', () => {
+    using editor = buildEditorFromExtensions([MarkdownTestExtension]);
+    const text = 'a&'.repeat(200000);
+    editor.update(
+      () =>
+        $getRoot()
+          .clear()
+          .append(
+            $createParagraphNode().append(
+              $createTextNode(text),
+              $createTextNode('x').toggleFormat('bold'),
+            ),
+          ),
+      {discrete: true},
+    );
+    // Every `&` but the last is followed by a letter in its own node, so only
+    // the last one reads on into the next node.
+    expect(editor.read(() => $convertToMarkdownString())).toBe(text + '**x**');
+  });
+
+  it('reads on past a long email local part split across nodes', () => {
+    using editor = buildEditorFromExtensions([MarkdownTestExtension]);
+    const half = '1'.repeat(200);
+    editor.update(
+      () =>
+        $getRoot()
+          .clear()
+          .append(
+            $createParagraphNode().append(
+              $createTextNode('<').setStyle('color: red'),
+              $createTextNode(half).setStyle('color: blue'),
+              $createTextNode(half).setStyle('color: green'),
+              $createTextNode('@x.co>').setStyle('color: red'),
+            ),
+          ),
+      {discrete: true},
+    );
+    expect(editor.read(() => $convertToMarkdownString())).toBe(
+      `&#60;${half}${half}@x.co>`,
+    );
   });
 
   it.each([
