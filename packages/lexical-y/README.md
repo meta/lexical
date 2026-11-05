@@ -104,9 +104,9 @@ binding.initialize();
 ## Servers
 
 A server or relay that holds a document in a Yjs `Doc` (to apply updates
-to it, store, compact or merge it) creates it with `createYDoc(state)`, from
-`@lexical/y` or `@lexical/y/headless`, as the clients do; the package ships
-no relay helper. A relay that cannot import it sets
+to it, store, compact or merge it) creates it with `createYDoc(state)` from
+`@lexical/y/server` (Yjs only, no Lexical import); the package has no relay
+of its own. A relay that cannot import it sets
 `doc.cleanupFormatting = false` on a new `Doc` before it applies updates.
 Otherwise Yjs's format cleanup deletes format items the clients keep, and
 the stored state reads differently from what the clients show. It is also

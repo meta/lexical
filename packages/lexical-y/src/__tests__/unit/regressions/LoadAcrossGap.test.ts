@@ -299,6 +299,7 @@ describe.each([false, true])('loading across a clock gap, gc %s', gc => {
         applies: 1,
         exhausted: 0,
         failedCuts: 0,
+        keptBytes: 0,
         repairs: 0,
       });
       const t = gapScenario(gc);
@@ -506,6 +507,81 @@ describe.each([false, true])(
 describe.each([false, true])(
   'a round that throws drops no pending struct, gc %s',
   gc => {
+    for (const fault of ['decodeUpdateV2', 'mergeUpdatesV2'] as const) {
+      test(`an observer's pending update survives a ${fault} that throws while it is kept`, () => {
+        // Two integrable stretches behind a blocked run of writer 1000. On
+        // the repair's first suffix, an observer applies writer 900's second
+        // update (pending without the first). Taking that pending set then
+        // decodes it (is it in P?) and merges it into what is kept: a throw
+        // there must not lose it.
+        const z = plainDoc(gc);
+        z.clientID = 1;
+        z.get('t').insert(0, 'ABCD');
+        const base = Y.encodeStateAsUpdate(z);
+        const w = writerDoc(gc, 1000, base);
+        const root = w.d.get('t');
+        w.d.transact(() => root.insert(0, 'L')); // lost
+        for (let i = 0; i < 2; i++) {
+          w.d.transact(() => root.insert(1, 'b'));
+          w.d.transact(() => root.insert(root.length - 1 - i, 'e'));
+        }
+        const source = plainDoc(gc, base);
+        for (const u of w.ups.slice(1)) {
+          Y.applyUpdate(source, u);
+        }
+        const state = Y.encodeStateAsUpdate(source);
+        const q = writerDoc(gc, 900, base);
+        q.d.transact(() => q.d.get('t').insert(0, 'U'));
+        q.d.transact(() => q.d.get('t').insert(1, 'V'));
+        const doc = plainDoc(gc, state);
+        const control = plainDoc(gc, state);
+        const origin = {};
+        let fed = false;
+        const feed = (tr: Y.Transaction) => {
+          if (tr.origin === origin && !fed) {
+            fed = true;
+            Y.applyUpdate(doc, q.ups[1], 'provider');
+          }
+        };
+        doc.on('afterTransaction', feed);
+        let decodes = 0;
+        let merges = 0;
+        const y: GapRepairYjs = {
+          Skip: Y.Skip,
+          applyUpdateV2: Y.applyUpdateV2,
+          decodeUpdateV2: u => {
+            if (fault === 'decodeUpdateV2' && ++decodes === 2) {
+              throw new Error('injected');
+            }
+            return Y.decodeUpdateV2(u);
+          },
+          diffUpdateV2: Y.diffUpdateV2,
+          mergeUpdatesV2: us => {
+            if (fault === 'mergeUpdatesV2' && ++merges === 1) {
+              throw new Error('injected');
+            }
+            return Y.mergeUpdatesV2(us);
+          },
+        };
+        integrateHeldBehindGapsWith(y, doc, origin, false);
+        doc.off('afterTransaction', feed);
+        expect(fed).toBe(true);
+        Y.applyUpdate(control, q.ups[1]);
+        for (const d of [doc, control]) {
+          for (const u of [...w.ups, q.ups[0]]) {
+            Y.applyUpdate(d, u);
+          }
+        }
+        expect(plainText(doc)).toBe(plainText(control));
+        expect(plainText(doc)).toContain('UV');
+        expect(Buffer.from(Y.encodeStateAsUpdate(doc))).toEqual(
+          Buffer.from(Y.encodeStateAsUpdate(control)),
+        );
+        for (const d of [z, w.d, source, q.d, doc, control]) {
+          d.destroy();
+        }
+      });
+    }
     for (const rethrow of [true, false]) {
       test(`${rethrow ? 'development: restored, then rethrown' : 'production: restored, and the load goes on'}`, () => {
         // Each apply of the round in turn throws: at the first (nothing is
@@ -811,7 +887,7 @@ describe.each([false, true])(
       ['a 2,000-node paste behind a lost node', pasteBehindLostNode, 2000],
       ['8,000 edits scattered behind a lost run', scatteredBehindLostRun, 8000],
     ] as const) {
-      test(`${name}: no suffix apply, the kept update once, converged once healed`, () => {
+      test(`${name}: no suffix apply and no re-apply, converged once healed`, () => {
         const t = make(gc, count);
         let t0 = performance.now();
         const plain = plainDoc(gc, t.state);
@@ -821,14 +897,14 @@ describe.each([false, true])(
         t0 = performance.now();
         const result = integrateHeldBehindGapsWith(countingYjs(counts), doc);
         const repairMs = performance.now() - t0;
-        // Nothing is integrable: no suffix is applied, only the kept pending
-        // update, whole.
+        // Nothing is integrable: no suffix is applied, and the pending
+        // structs, never cleared, are left as they are.
         expect(result).toEqual({
           exhausted: false,
           failedCuts: 0,
           suffixApplies: 0,
         });
-        expect(counts.applies).toBe(1);
+        expect(counts.applies).toBe(0);
         expect(doc.store.pendingStructs).not.toBeNull();
         if (process.env.LEXICAL_Y_LOAD_STATS) {
           console.warn(
@@ -873,6 +949,56 @@ describe.each([false, true])(
       expect(result.suffixApplies).toBe(1);
       expect(counts.applies).toBe(2);
       for (const d of [z, a.d, b, doc]) {
+        d.destroy();
+      }
+    });
+
+    test("1,000 blocked stretches: the pending updates it holds stay about P's size (not one per suffix), all integrate, and it converges once healed", () => {
+      const z = plainDoc(gc);
+      z.clientID = 1;
+      z.get('t').insert(0, 'x'.repeat(4000));
+      const base = Y.encodeStateAsUpdate(z);
+      const a = writerDoc(gc, 1000, base);
+      const root = a.d.get('t');
+      a.d.transact(() => root.insert(0, 'L')); // lost
+      // 1,000 stretches: an edit after L (blocked without it), then one in
+      // Z's text (integrable).
+      for (let i = 0; i < 1000; i++) {
+        a.d.transact(() => root.insert(1, 'b'));
+        a.d.transact(() => root.insert(root.length - 1 - i * 3, 'e'));
+      }
+      const b = plainDoc(gc, base);
+      for (const u of a.ups.slice(1)) {
+        Y.applyUpdate(b, u);
+      }
+      const state = Y.encodeStateAsUpdate(b);
+      const count = (d: Y.Doc) => plainText(d).split('e').length - 1;
+      const doc = plainDoc(gc, state);
+      const pending = doc.store.pendingStructs;
+      expect(pending).not.toBeNull();
+      const pendingBytes = pending === null ? 0 : pending.update.length;
+      LOAD_COUNTERS.keptBytes = 0;
+      const result = integrateHeldBehindGapsWith(
+        countingYjs({applies: 0}),
+        doc,
+      );
+      expect(result).toEqual({
+        exhausted: false,
+        failedCuts: 0,
+        suffixApplies: 1000,
+      });
+      expect(count(doc)).toBe(1000);
+      // The peak of what it held: P alone. Keeping every cleared update, as
+      // before, held the sum of 1,000 shrinking suffixes of P.
+      expect(LOAD_COUNTERS.keptBytes).toBe(pendingBytes);
+      const plain = plainDoc(gc, state);
+      for (const d of [doc, plain]) {
+        for (const u of a.ups) {
+          Y.applyUpdate(d, u);
+        }
+      }
+      expect(Y.encodeStateAsUpdate(doc)).toEqual(Y.encodeStateAsUpdate(plain));
+      for (const d of [z, a.d, b, doc, plain]) {
         d.destroy();
       }
     });

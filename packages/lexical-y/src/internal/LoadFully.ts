@@ -73,6 +73,8 @@ export const LOAD_COUNTERS = {
   applies: 0,
   exhausted: 0,
   failedCuts: 0,
+  /** The most bytes of pending updates one repair held at a time. */
+  keptBytes: 0,
   repairs: 0,
 };
 
@@ -171,19 +173,35 @@ export function integrateHeldBehindGapsWith(
   }
   LOAD_COUNTERS.repairs++;
   const update = first.update;
-  const kept: PendingStructs[] = [];
+  // P, plus whatever else was pending when the repair cleared it: a pending
+  // update a suffix leaves is part of P (dropped), anything outside P (an
+  // observer's update) is merged in. So it stays about P's size however many
+  // suffixes run, and never loses material.
+  let kept: PendingStructs | null = null;
+  let held: Map<number, [number, number][]> | null = null;
   const takePending = () => {
     const pending = doc.store.pendingStructs;
-    if (pending !== null) {
-      kept.push(pending);
-      doc.store.pendingStructs = null;
+    if (pending === null) {
+      return;
     }
+    // Kept before the slot is cleared, so a throw here loses nothing.
+    if (kept === null) {
+      kept = pending;
+    } else if (held === null || !heldBy(y, pending.update, held)) {
+      kept = unionPending(y, kept, pending);
+    }
+    doc.store.pendingStructs = null;
+    LOAD_COUNTERS.keptBytes = Math.max(
+      LOAD_COUNTERS.keptBytes,
+      kept.update.length,
+    );
   };
   let suffixApplies = 0;
   let failedCuts = 0;
   let exhausted = false;
   try {
     const runs = clientRuns(y, update);
+    held = heldRanges(runs);
     const failed = new Set<Struct>();
     let progress = true;
     passes: while (progress) {
@@ -225,10 +243,18 @@ export function integrateHeldBehindGapsWith(
         }
       }
     }
-    // Everything cleared, back whole: what is still blocked is pending again.
-    takePending();
-    LOAD_COUNTERS.applies++;
-    y.applyUpdateV2(doc, y.mergeUpdatesV2(kept.map(p => p.update)), origin);
+    // No cut: nothing was cleared, and what is pending is P as it was.
+    if (suffixApplies > 0) {
+      // Everything cleared, back whole: what is still blocked is pending
+      // again.
+      takePending();
+      // Read through a cast: TypeScript does not see the closure assign it.
+      const all = kept as PendingStructs | null;
+      if (all !== null) {
+        LOAD_COUNTERS.applies++;
+        y.applyUpdateV2(doc, all.update, origin);
+      }
+    }
   } catch (error) {
     restorePending(y, doc, kept, origin);
     if (rethrow) {
@@ -252,40 +278,103 @@ export function integrateHeldBehindGapsWith(
 function restorePending(
   y: GapRepairYjs,
   doc: Doc,
-  kept: PendingStructs[],
+  kept: PendingStructs | null,
   origin: unknown,
 ): void {
+  let all = kept;
   const take = () => {
     const pending = doc.store.pendingStructs;
     if (pending !== null) {
-      kept.push(pending);
+      all = all === null ? pending : unionPending(y, all, pending);
       doc.store.pendingStructs = null;
     }
   };
   take();
-  if (kept.length === 0) {
+  if (all === null) {
     return;
   }
+  const union: PendingStructs = all;
   try {
     LOAD_COUNTERS.applies++;
-    y.applyUpdateV2(doc, y.mergeUpdatesV2(kept.map(p => p.update)), origin);
+    y.applyUpdateV2(doc, union.update, origin);
   } catch {
     take();
-    const missing = new Map<number, number>();
-    for (const p of kept) {
-      p.missing.forEach((clock, client) => {
-        const known = missing.get(client);
-        missing.set(
-          client,
-          known === undefined ? clock : Math.min(known, clock),
-        );
-      });
-    }
-    doc.store.pendingStructs = {
-      missing,
-      update: y.mergeUpdatesV2(kept.map(p => p.update)),
-    };
+    doc.store.pendingStructs = all;
   }
+}
+
+/** Two pending sets as one: their updates merged, each client's least
+ * missing clock. */
+function unionPending(
+  y: GapRepairYjs,
+  a: PendingStructs,
+  b: PendingStructs,
+): PendingStructs {
+  const missing = new Map<number, number>(a.missing);
+  b.missing.forEach((clock, client) => {
+    const known = missing.get(client);
+    missing.set(client, known === undefined ? clock : Math.min(known, clock));
+  });
+  return {missing, update: y.mergeUpdatesV2([a.update, b.update])};
+}
+
+/** Each client's clock ranges in P, sorted and merged. */
+function heldRanges(
+  runs: Map<number, {structs: Struct[]; end: number}>,
+): Map<number, [number, number][]> {
+  const held = new Map<number, [number, number][]>();
+  for (const [client, run] of runs) {
+    const ranges: [number, number][] = [];
+    for (const struct of run.structs) {
+      const start = struct.id.clock;
+      const end = start + struct.length;
+      const last = ranges[ranges.length - 1];
+      if (last !== undefined && start <= last[1]) {
+        last[1] = Math.max(last[1], end);
+      } else {
+        ranges.push([start, end]);
+      }
+    }
+    held.set(client, ranges);
+  }
+  return held;
+}
+
+/** Whether every struct of `update` (format V2) lies in P's ranges. */
+function heldBy(
+  y: GapRepairYjs,
+  update: Uint8Array,
+  held: Map<number, [number, number][]>,
+): boolean {
+  for (const struct of y.decodeUpdateV2(update).structs) {
+    if (struct instanceof y.Skip) {
+      continue;
+    }
+    const ranges = held.get(struct.id.client);
+    if (ranges === undefined) {
+      return false;
+    }
+    const start = struct.id.clock;
+    const end = start + struct.length;
+    let lo = 0;
+    let hi = ranges.length - 1;
+    let inside = false;
+    while (lo <= hi) {
+      const mid = (lo + hi) >> 1;
+      if (start < ranges[mid][0]) {
+        hi = mid - 1;
+      } else if (start >= ranges[mid][1]) {
+        lo = mid + 1;
+      } else {
+        inside = end <= ranges[mid][1];
+        break;
+      }
+    }
+    if (!inside) {
+      return false;
+    }
+  }
+  return true;
 }
 
 /**

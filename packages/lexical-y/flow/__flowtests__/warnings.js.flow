@@ -43,6 +43,10 @@ function reasonOf(error: unknown): string {
     const code: string = warning.code;
     // $FlowExpectedError[incompatible-use] the open warning's data is unknown
     void warning.data.reason;
+    if (error.code === UNSUPPORTED_LAYOUT_WARNING) {
+      // $FlowExpectedError[incompatible-use] comparing the code does not narrow data
+      void error.data.reason;
+    }
     return code;
   }
   return '';
