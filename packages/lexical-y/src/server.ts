@@ -44,6 +44,7 @@ import {
   type YRecordSource,
   type YRoomDescription,
   type YSessionCapture,
+  type YSessionCaptureMaterial,
   type YSessionHandshake,
   type YSessionVerdict,
 } from './internal/Server';
@@ -63,6 +64,7 @@ export type {
   YRecordSource,
   YRoomDescription,
   YSessionCapture,
+  YSessionCaptureMaterial,
   YSessionHandshake,
   YSessionVerdict,
 };

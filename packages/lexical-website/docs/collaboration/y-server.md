@@ -944,25 +944,43 @@ of being admitted or refused.
   held: a standalone snapshot, later deltas, a queue of unsent updates, a
   draft, where it came from (`source`, with its incarnation and generation),
   the features its material needs (`requires`, none by default) and a hash.
-  `sourceView(record)` applies its material into one scratch document. A
-  record also declares `peers` (whether any channel other than the server
+  A record also declares `peers` (whether any channel other than the server
   could have delivered updates to the replica since its last sync with the
-  server, persisted with the replica's storage; unknown is `true`) and
-  `clients` (every client id the replica wrote under since that sync), which
-  replaying a record's changes needs. Given the state of the base
-  generation (`createYQuarantineRecord(input, {generation, state})`), a
-  record's `actionable` says whether it holds a struct or a deletion the
-  base lacks, a draft marked `differs`, or a missing dependency (a record
-  that requires a feature always counts). Prompt users only for those; keep every record listable
-  for the quarantine window, and keep a record that requires a feature you
-  do not know, or whose `kind` you do not know (kinds are open strings:
-  `'handoff'`, `'capture'` and `'pending'` today), as it is: store and export
-  it, never read, replay or judge it as one you know. A record (and a capture's `material()`) holds copies of
-  the bytes and arrays it was given, so a payload never changes under its
-  hash. Append-only means a new record or a separately stored append (a
-  capture's later deltas), never a change to an acknowledged one; derive
-  `complete` and `actionable` again from the assembled material rather than
-  trusting a stored `actionable: false` as leave to delete anything.
+  server, persisted with the replica's storage) and `clients` (every client
+  id the replica wrote under since that sync), which replaying a record's
+  changes needs. Given the state of the base generation
+  (`createYQuarantineRecord(input, {generation, state})`), a record's
+  `actionable` says whether it holds a struct or a deletion the base lacks,
+  a draft marked `differs`, or a missing dependency. Prompt users only for
+  those, and keep every record listable for the quarantine window.
+  - **Defaults.** `receivedAt` is Unix time in milliseconds. Absent material
+    is `null` (`snapshot`, `draft`) or an empty array (`deltas`, `queue`,
+    `signals`, `clients`, `requires`). `peers` defaults to `true` (unknown
+    provenance). A source without a generation (`source.generation` null)
+    is acknowledged with `UNKNOWN_GENERATION` as its `sourceGeneration`.
+  - **Records this release does not read.** This release reads a record of
+    version 1, update format `'yjs-v1'`, a kind it knows (`'handoff'`,
+    `'capture'`, `'pending'`; kinds are open strings) and no feature it does
+    not support. Keep any other record (another `v`, another
+    `updateFormat`, an unknown `kind`, an unsupported `requires`) as it is:
+    store it and export it raw, never decode, render, replay or judge it as
+    a record you read. `createYQuarantineRecord` derives nothing from the
+    bytes of a record of an unknown kind or with an unsupported requirement
+    (`complete: false`, `actionable: true`, no `collisions`), and refuses
+    material that carries another `v` or `updateFormat`. Neither `complete`
+    nor `actionable` ever justifies deleting a record: derive them again
+    from the assembled material, and never treat a stored
+    `actionable: false` as leave to delete anything.
+  - **The source view.** `sourceView(record)` applies a record's material
+    into one scratch document, for rendering, a readable export or replay.
+    It takes the record (or its header and material: `v`, `updateFormat`,
+    `kind`, `requires`, `snapshot`, `deltas`, `queue`) and refuses, with a
+    TypeError and before applying any bytes, a record this release does not
+    read.
+  - **Immutable.** A record (and a capture's `material()`) holds copies of
+    the bytes and arrays it was given, so a payload never changes under its
+    hash. Append-only means a new record or a separately stored append (a
+    capture's later deltas), never a change to an acknowledged one.
 - **The record hash** (its default `id`) is `'yr1-sha256:'` and the
   lowercase hex SHA-256 of the record's canonical payload, version 1:
   `'lexical-y-record:1\n'`, the header's UTF-8 length (4 bytes, big
@@ -996,10 +1014,15 @@ of being admitted or refused.
   it to the room. Keep the signals with the record (`signals`): only an
   item matching one in id, parent, key and content is ignored. An item the
   client wrote at a signal's id (`collisions()`, a record's `collisions`)
-  is its own and kept: send another signal. A server that keeps the
-  material between messages instead of the capture object (a hibernating
-  Durable Object) resumes it with `createYSessionCapture({snapshot, deltas,
-  signals})`.
+  is its own and kept: send another signal. `material()` is versioned:
+  `{v: 1, updateFormat: 'yjs-v1', snapshot, deltas, signals}`. A server that
+  keeps the material between messages instead of the capture object (a
+  hibernating Durable Object) persists it whole and resumes with
+  `createYSessionCapture(material)`; material of another version or format
+  is refused with a TypeError before any of it is read, and left as it is.
+  Build the session's record from the same material
+  (`createYQuarantineRecord({...material, kind: 'capture', source,
+  receivedAt})`).
 - **Handoff** (a client whose verdict is `stale`): stop its providers and
   persistence, `binding.quiesce()`, upload the snapshot, queue and draft as
   one record, wait for the server's durable acknowledgement of that record

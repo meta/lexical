@@ -14,6 +14,7 @@ import type {
   YQuarantineRecord,
   YRecordAcknowledgement,
   YRoomDescription,
+  YSessionCaptureMaterial,
   YSessionHandshake,
   YSessionVerdict,
 } from '@lexical/y/server';
@@ -25,6 +26,7 @@ import {
   createYSessionCapture,
   describeYRoom,
   getYGeneration,
+  sourceView,
   UNKNOWN_GENERATION,
 } from '@lexical/y/server';
 
@@ -95,10 +97,25 @@ const ack: YRecordAcknowledgement = {
   v: 1,
 };
 
-// A capture resumed from persisted material.
+// A capture resumed from persisted, versioned material.
 const capture = createYSessionCapture({
   deltas: [],
   signals: [],
   snapshot: stored,
+  updateFormat: 'yjs-v1',
+  v: 1,
 });
-const material = capture.material();
+const material: YSessionCaptureMaterial = capture.material();
+const fromCapture: YQuarantineRecord = createYQuarantineRecord({
+  ...material,
+  kind: 'capture',
+  receivedAt: 0,
+  source,
+});
+// $FlowExpectedError[incompatible-type] unversioned material is not resumed
+createYSessionCapture({deltas: [], signals: [], snapshot: stored});
+
+// The source view reads a record (its header and material).
+const view = sourceView(record);
+// $FlowExpectedError[incompatible-type] bare material has no header
+sourceView({deltas: [], queue: [], snapshot: stored});

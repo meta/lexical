@@ -39,7 +39,15 @@ describe.each([false, true])('pending records, gc %s', gc => {
     const {stored, missing, docs} = rightOriginSplit(gc);
     const result = migrateYState(stored, [stamp(2)], {gc, to: 3});
     expect(result.pending).not.toBeNull();
-    const alone = sourceView({deltas: [], queue: [], snapshot: result.pending});
+    const alone = sourceView({
+      deltas: [],
+      kind: 'pending',
+      queue: [],
+      requires: [],
+      snapshot: result.pending,
+      updateFormat: 'yjs-v1',
+      v: 1,
+    });
     expect(alone.complete).toBe(false);
     expect(textOf(alone.doc.get('lexical-y'))).toBe('');
     alone.doc.destroy();

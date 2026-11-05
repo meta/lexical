@@ -790,6 +790,8 @@ describe.each([false, true])('@lexical/y/server, gc %s', gc => {
       deltas: [Y.encodeStateAsUpdate(author)],
       signals: [signal],
       snapshot: persisted.snapshot,
+      updateFormat: 'yjs-v1',
+      v: 1,
     });
     expect(colliding.collisions()).toEqual([signal]);
     // Resuming copies: the persisted arrays are not appended to.
@@ -824,9 +826,13 @@ describe.each([false, true])('@lexical/y/server, gc %s', gc => {
     ) => ({
       deltas: more.deltas ?? [],
       draft: more.draft ?? null,
+      kind: 'handoff',
       queue: more.queue ?? [],
+      requires: [] as string[],
       signals: more.signals ?? [],
       snapshot,
+      updateFormat: 'yjs-v1' as const,
+      v: 1 as const,
     });
     const SOURCE = {
       generation: 'inc-1/-',
@@ -937,7 +943,10 @@ describe.each([false, true])('@lexical/y/server, gc %s', gc => {
       const {snapshot, deltas, signals} = capture.material();
       expect(signals).toEqual([signal]);
       expect(capture.collisions()).toEqual([]);
-      const r = record(snapshot, {deltas: [...deltas, signal.update], signals});
+      const r = record(snapshot, {
+        deltas: [...deltas, signal.update],
+        signals: [...signals],
+      });
       expect(hasNewYEdits(r, snapshot!)).toBe(false);
       expect(hasNewYEdits(r, base())).toBe(true);
       expect(
@@ -1255,7 +1264,7 @@ describe.each([false, true])('@lexical/y/server, gc %s', gc => {
       const material = capture.material();
       expect([...material.snapshot!]).toEqual(kept);
       material.snapshot![0] ^= 0xff;
-      material.deltas.push(new Uint8Array([0]));
+      (material.deltas as Uint8Array[]).push(new Uint8Array([0]));
       expect([...capture.material().snapshot!]).toEqual(kept);
       expect(capture.material().deltas).toHaveLength(0);
     });

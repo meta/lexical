@@ -30,6 +30,7 @@ import {
   existingRoot,
   layoutRecordOf,
   readRequirements,
+  SUPPORTED_FEATURES,
 } from './Layouts';
 import {createRawYDoc, type YDoc, type YDocOptions} from './RawYDoc';
 import {canonicalJSON, Sha256} from './RecordHash';
@@ -561,12 +562,27 @@ export interface YSessionCapture {
    * had the same id): each was not a signal; send another.
    */
   collisions(): YLegacySignal[];
-  /** The snapshot, deltas and signals kept so far. */
-  material(): {
-    snapshot: Uint8Array | null;
-    deltas: Uint8Array[];
-    signals: YLegacySignal[];
-  };
+  /**
+   * The material kept so far (version 1, copies): persist it as it is to
+   * resume the capture later (createYSessionCapture's `resume`), or build
+   * the session's record from it (createYQuarantineRecord).
+   */
+  material(): YSessionCaptureMaterial;
+}
+
+/**
+ * @experimental A legacy capture's material, version 1: the session's
+ * standalone snapshot (null until its sync step 2 arrives), its later
+ * updates and the signals sent to it, all Yjs update format V1. Persist it
+ * whole, `v` and `updateFormat` included: a capture resumes only material
+ * of a version and format it reads, and leaves any other untouched.
+ */
+export interface YSessionCaptureMaterial {
+  readonly v: 1;
+  readonly updateFormat: 'yjs-v1';
+  readonly snapshot: Uint8Array | null;
+  readonly deltas: readonly Uint8Array[];
+  readonly signals: readonly YLegacySignal[];
 }
 
 /**
@@ -576,17 +592,24 @@ export interface YSessionCapture {
  * the client's sync step 2 is its whole document, a standalone snapshot
  * never merged with anything the authority holds; later updates are kept
  * as deltas. Build a record from `material()` with createYQuarantineRecord.
- * `resume`: the material an earlier capture of the same session kept, for
- * an authority that persists it between messages (a hibernating Durable
- * Object); the capture continues from it (its signals included).
+ * `resume`: the material (`material()`) an earlier capture of the same
+ * session kept, for an authority that persists it between messages (a
+ * hibernating Durable Object); the capture continues from it (its signals
+ * included). Material of another version or update format is refused with
+ * a TypeError before any of it is read, and left as it is (keep it, export
+ * it raw).
  */
 export function createYSessionCapture(
-  resume: {
-    readonly snapshot: Uint8Array | null;
-    readonly deltas?: readonly Uint8Array[];
-    readonly signals?: readonly YLegacySignal[];
-  } | null = null,
+  resume: YSessionCaptureMaterial | null = null,
 ): YSessionCapture {
+  if (resume != null) {
+    const r = resume as unknown as Record<string, unknown>;
+    if (r.v !== 1 || r.updateFormat !== 'yjs-v1') {
+      throw new TypeError(
+        `@lexical/y: cannot resume capture material of version ${String(r.v)}, update format ${String(r.updateFormat)} (this release reads version 1, 'yjs-v1')`,
+      );
+    }
+  }
   // The capture keeps copies of what it is given and hands out copies.
   let snapshot: Uint8Array | null =
     resume == null || resume.snapshot === null ? null : resume.snapshot.slice();
@@ -594,10 +617,12 @@ export function createYSessionCapture(
     resume == null ? [] : (resume.deltas ?? []).map(d => d.slice());
   const signals: YLegacySignal[] =
     resume == null ? [] : (resume.signals ?? []).map(copySignal);
-  const material = () => ({
+  const material = (): YSessionCaptureMaterial => ({
     deltas: deltas.map(d => d.slice()),
     signals: signals.map(copySignal),
     snapshot: snapshot === null ? null : snapshot.slice(),
+    updateFormat: 'yjs-v1',
+    v: 1,
   });
   return {
     add(update: Uint8Array): void {
@@ -608,7 +633,7 @@ export function createYSessionCapture(
       }
     },
     collisions(): YLegacySignal[] {
-      const view = sourceView({deltas, queue: [], snapshot});
+      const view = assembleV1({deltas, queue: [], snapshot});
       try {
         return signals.filter(sg => signalAt(view.doc, sg) === 'collision');
       } finally {
@@ -624,7 +649,7 @@ export function createYSessionCapture(
       if (snapshot === null) {
         return null;
       }
-      const view = sourceView({deltas, queue: [], snapshot});
+      const view = assembleV1({deltas, queue: [], snapshot});
       try {
         const signal = legacySignal(
           encodeStateAsUpdate(view.doc),
@@ -885,6 +910,13 @@ export interface YQuarantineRecord {
  * as a replica or a capture handed it over.
  */
 export interface YQuarantineRecordInput {
+  /**
+   * The material's version and update format, when it carries them (a
+   * capture's material does): only version 1, `'yjs-v1'`, is accepted, so
+   * material of another format is never stamped as version 1.
+   */
+  readonly v?: 1;
+  readonly updateFormat?: 'yjs-v1';
   readonly id?: string;
   readonly session?: string | null;
   readonly replica?: string | null;
@@ -1024,20 +1056,42 @@ type RecordMaterial = Pick<
 >;
 
 /**
- * @experimental A record's source view: its snapshot, deltas and queue
- * applied, idempotently, into one scratch document (never stored, sent or
- * merged; destroy it when done). `complete`: no update in it lacks a
- * dependency (no pending material, no skipped range). What actionability,
- * rendering, export and replay read.
+ * Whether this release reads a record with this header: version 1, update
+ * format `'yjs-v1'`, a kind it knows (`'handoff'`, `'capture'`, `'pending'`)
+ * and only features it supports. Any other record is kept and exported as
+ * it is, never decoded or replayed as one it reads.
  */
-export function sourceView(
-  record: Pick<YQuarantineRecord, 'snapshot' | 'deltas' | 'queue'>,
-): {doc: Doc; complete: boolean} {
+function isSupportedRecord(header: {
+  readonly v: unknown;
+  readonly updateFormat: unknown;
+  readonly kind: unknown;
+  readonly requires: readonly unknown[];
+}): boolean {
+  return (
+    header.v === 1 &&
+    header.updateFormat === 'yjs-v1' &&
+    typeof header.kind === 'string' &&
+    KNOWN_KINDS.has(header.kind) &&
+    header.requires.every(
+      f => typeof f === 'string' && SUPPORTED_FEATURES.has(f),
+    )
+  );
+}
+
+/**
+ * Version 1 material (Yjs update format V1) applied, idempotently, into one
+ * scratch document. Callers have checked the version and format.
+ */
+function assembleV1(material: {
+  readonly snapshot: Uint8Array | null;
+  readonly deltas: readonly Uint8Array[];
+  readonly queue: readonly Uint8Array[];
+}): {doc: Doc; complete: boolean} {
   const doc = createYDoc(null, {gc: false});
   for (const part of [
-    ...(record.snapshot === null ? [] : [record.snapshot]),
-    ...record.deltas,
-    ...record.queue,
+    ...(material.snapshot === null ? [] : [material.snapshot]),
+    ...material.deltas,
+    ...material.queue,
   ]) {
     applyUpdate(doc, part);
   }
@@ -1049,6 +1103,41 @@ export function sourceView(
       store.skips.isEmpty(),
     doc,
   };
+}
+
+/**
+ * @experimental A record's source view: its snapshot, deltas and queue
+ * applied, idempotently, into one scratch document (never stored, sent or
+ * merged; destroy it when done). `complete`: no update in it lacks a
+ * dependency (no pending material, no skipped range). What rendering,
+ * export of a readable form and replay read. It takes the record (or its
+ * header and material: `v`, `updateFormat`, `kind`, `requires`) and reads
+ * only a record this release reads: version 1, update format `'yjs-v1'`,
+ * a kind it knows and no feature it does not support. Any other record is
+ * refused with a TypeError before any of its bytes are applied: keep it
+ * and export it raw.
+ */
+export function sourceView(
+  record: Pick<
+    YQuarantineRecord,
+    'v' | 'updateFormat' | 'kind' | 'requires' | 'snapshot' | 'deltas' | 'queue'
+  >,
+): {doc: Doc; complete: boolean} {
+  const r = record as unknown as Record<string, unknown>;
+  if (
+    !Array.isArray(r.requires) ||
+    !isSupportedRecord({
+      kind: r.kind,
+      requires: r.requires,
+      updateFormat: r.updateFormat,
+      v: r.v,
+    })
+  ) {
+    throw new TypeError(
+      `@lexical/y: cannot read a record of version ${String(r.v)}, update format ${String(r.updateFormat)}, kind ${String(r.kind)}, requiring ${JSON.stringify(r.requires)}: keep it and export it raw`,
+    );
+  }
+  return assembleV1(record);
 }
 
 /**
@@ -1122,6 +1211,15 @@ function materialRecord(
   input: YQuarantineRecordInput,
   base: {readonly generation: string; readonly state: Uint8Array} | null = null,
 ): YQuarantineRecord {
+  const header = input as unknown as Record<string, unknown>;
+  if (
+    (header.v !== undefined && header.v !== 1) ||
+    (header.updateFormat !== undefined && header.updateFormat !== 'yjs-v1')
+  ) {
+    throw new TypeError(
+      `@lexical/y: cannot build a version 1 record from material of version ${String(header.v)}, update format ${String(header.updateFormat)}: keep it as it is`,
+    );
+  }
   // Copies of everything the caller handed over (bytes and arrays): an
   // acknowledged payload never changes under its hash.
   const snapshot = input.snapshot == null ? null : input.snapshot.slice();
@@ -1157,17 +1255,28 @@ function materialRecord(
     snapshot,
     source,
   });
-  const view = sourceView({deltas, queue, snapshot});
-  const collisions = signals.filter(
-    sg => signalAt(view.doc, sg) === 'collision',
-  );
-  view.doc.destroy();
+  // A record of a kind or with a requirement this release does not know is
+  // kept as it is and never decoded: nothing is derived from its bytes.
+  const supported = isSupportedRecord({
+    kind: input.kind,
+    requires,
+    updateFormat: 'yjs-v1',
+    v: 1,
+  });
+  let collisions: YLegacySignal[] = [];
+  let complete = false;
+  if (supported) {
+    const view = assembleV1({deltas, queue, snapshot});
+    collisions = signals.filter(sg => signalAt(view.doc, sg) === 'collision');
+    complete = view.complete;
+    view.doc.destroy();
+  }
   const record: YQuarantineRecord = {
     actionable: true,
     base: base === null ? null : base.generation,
     clients,
     collisions,
-    complete: view.complete,
+    complete,
     deltas,
     draft,
     hash,
@@ -1185,9 +1294,9 @@ function materialRecord(
     updateFormat: 'yjs-v1',
     v: 1,
   };
-  // A record whose material needs a feature this release does not know, or
-  // of a kind it does not know, cannot be shown to hold nothing new.
-  return base === null || requires.length > 0 || !KNOWN_KINDS.has(input.kind)
+  // A record this release does not read cannot be shown to hold nothing
+  // new.
+  return base === null || !supported
     ? record
     : {...record, actionable: hasNewYEdits(record, base.state)};
 }
@@ -1208,7 +1317,7 @@ export function hasNewYEdits(
   if (record.draft !== null && record.draft.differs) {
     return true;
   }
-  const view = sourceView(record);
+  const view = assembleV1(record);
   const was = createYDoc(base, {gc: false});
   try {
     if (!view.complete) {

@@ -148,20 +148,21 @@ export type YSessionCapture = {
   add(update: Uint8Array): void,
   signal(supportedSchema: number, root?: string): YLegacySignal | null,
   collisions(): Array<YLegacySignal>,
-  material(): {
-    snapshot: Uint8Array | null,
-    deltas: Array<Uint8Array>,
-    signals: Array<YLegacySignal>,
-  },
+  material(): YSessionCaptureMaterial,
+  ...
+};
+
+export type YSessionCaptureMaterial = {
+  readonly v: 1,
+  readonly updateFormat: 'yjs-v1',
+  readonly snapshot: Uint8Array | null,
+  readonly deltas: ReadonlyArray<Uint8Array>,
+  readonly signals: ReadonlyArray<YLegacySignal>,
   ...
 };
 
 declare export function createYSessionCapture(
-  resume?: {
-    readonly snapshot: Uint8Array | null,
-    readonly deltas?: ReadonlyArray<Uint8Array>,
-    readonly signals?: ReadonlyArray<YLegacySignal>,
-  } | null,
+  resume?: YSessionCaptureMaterial | null,
 ): YSessionCapture;
 
 // Open: any other string is a kind from a later release (preservation
@@ -215,6 +216,8 @@ export type YRecordAcknowledgement = {
 };
 
 export type YQuarantineRecordInput = {
+  readonly v?: 1,
+  readonly updateFormat?: 'yjs-v1',
   readonly id?: string,
   readonly session?: string | null,
   readonly replica?: string | null,
@@ -233,6 +236,10 @@ export type YQuarantineRecordInput = {
 };
 
 declare export function sourceView(record: {
+  readonly v: 1,
+  readonly updateFormat: 'yjs-v1',
+  readonly kind: YQuarantineRecordKind,
+  readonly requires: ReadonlyArray<string>,
   readonly snapshot: Uint8Array | null,
   readonly deltas: ReadonlyArray<Uint8Array>,
   readonly queue: ReadonlyArray<Uint8Array>,
