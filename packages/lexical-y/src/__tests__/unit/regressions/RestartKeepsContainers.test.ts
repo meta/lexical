@@ -19,6 +19,7 @@
 // those maps too.
 
 import {$createLinkNode} from '@lexical/link';
+import * as Y from '@y/y';
 import {
   $createParagraphNode,
   $createTextNode,
@@ -83,3 +84,37 @@ describe.each([false, true])('a binding started again, gc %s', gc => {
     });
   }
 });
+
+// What a read could not read (a node type the editor lacks) is found anew by
+// the read a binding started again makes: gone from the document meanwhile,
+// it no longer keeps the binding read only.
+describe.each([false, true])(
+  'a binding started again after an unknown node is removed, gc %s',
+  gc => {
+    test('is active again', async () => {
+      const t = await setup(
+        () =>
+          $getRoot().append(
+            $createParagraphNode().append($createTextNode('body')),
+          ),
+        {gc, ids: [1, 2]},
+      );
+      const {a, b} = t;
+      const root = b.doc.get('lexical-y');
+      const foreign = new Y.Node('b:not_registered_here');
+      foreign.insert(0, 'foreign');
+      root.insert(0, [foreign]);
+      await t.sync();
+      expect(a.binding.status).toBe('readonly');
+      a.binding.dispose();
+      root.delete(0, 1);
+      await t.sync();
+      a.binding.start();
+      await t.sync();
+      expect(a.binding.status).toBe('active');
+      const fresh = await freshReader(a);
+      expect(fresh.describe()).toBe(a.describe());
+      fresh.stop();
+    });
+  },
+);

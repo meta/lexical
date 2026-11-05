@@ -390,6 +390,11 @@ export class State {
   clear(): void {
     this.containers = new WeakMap();
     this.keyByY = new WeakMap();
+    // What a read found it could not read: the read a binding started
+    // again makes finds it anew (read only again where it is still there).
+    this.unknownTypes.clear();
+    this.unreadable.clear();
+    this.malformedSlots.clear();
     this.csByKey.clear();
     this.unitByEnd.clear();
     this.unitByKey.clear();
