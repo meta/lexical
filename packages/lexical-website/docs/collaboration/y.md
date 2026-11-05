@@ -885,7 +885,14 @@ person's:
   refresh of derived list fields (numbering), also on open. So the tag
   tells apart users' own edits, which a listener may act on, from
   everything else. (Lexical's update that runs a newly registered transform
-  over the document keeps Lexical's tags; it writes nothing.)
+  over the document keeps Lexical's tags; it writes nothing.) An edit an
+  app's code makes in the update of a remote change's read, after the read
+  (a `TextNode#selectionTransform`, an update queued behind the read), is
+  written as that client's change, out of the undo history, once per client
+  that reads the change; it runs under `COLLABORATION_TAG` too, so code can
+  skip it. A `SELECTION_CHANGE_COMMAND` a read causes arrives after the read
+  has committed, in an untagged update of its own, whose edits are the
+  user's.
 - **Check what an edit names, then apply it to the current state.** An
   edit planned from an older read (a model's answer arrives seconds later)
   can be wrong once the document has changed, and merging it from that read

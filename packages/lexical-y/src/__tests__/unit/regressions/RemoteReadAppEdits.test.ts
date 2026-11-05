@@ -22,6 +22,11 @@
 import {$createCodeNode} from '@lexical/code';
 import {registerCodeHighlighting} from '@lexical/code-prism';
 import {
+  $createListItemNode,
+  $createListNode,
+  type ListNode,
+} from '@lexical/list';
+import {
   $create,
   $createLineBreakNode,
   $createParagraphNode,
@@ -249,7 +254,9 @@ type Kind =
   | 'decorator JSON shaped like text'
   | 'decorator line format'
   | 'slot text host format'
-  | 'text the read changed';
+  | 'text the read changed'
+  | 'slot the read changed'
+  | 'list item at the start';
 
 /** One edit of `kind`, once per editor. */
 function $editOnce(done: WeakSet<LexicalEditor>, kind: Kind): void {
@@ -284,6 +291,19 @@ function $editOnce(done: WeakSet<LexicalEditor>, kind: Kind): void {
   } else if (kind === 'decorator line format') {
     // A line holding only a decorator has no text to take a format from.
     (lines[6] as ParagraphNode).setTextFormat(2);
+  } else if (kind === 'slot the read changed') {
+    // The read set this slot on the host; the app sets it again.
+    $setSlot(
+      lines[7] as CaptionedNode,
+      'title',
+      $createParagraphNode().append($createTextNode('app caption')),
+    );
+  } else if (kind === 'list item at the start') {
+    // Every item after it takes a new value.
+    const list = lines[8] as ListNode;
+    list
+      .getFirstChildOrThrow()
+      .insertBefore($createListItemNode().append($createTextNode('first')));
   } else if (kind === 'text the read changed') {
     // The read's own node, which Lexical changes in place from then on.
     const three = (
@@ -396,6 +416,10 @@ async function runKind(kind: Kind, gc: boolean): Promise<void> {
           'title',
           $createParagraphNode().append($createTextNode('caption')),
         ),
+        $createListNode('number').append(
+          $createListItemNode().append($createTextNode('second')),
+          $createListItemNode().append($createTextNode('third')),
+        ),
       ),
     {
       gc,
@@ -425,6 +449,13 @@ async function runKind(kind: Kind, gc: boolean): Promise<void> {
   });
   b.update(() => {
     $getRoot().getAllTextNodes()[2].setTextContent('three 3');
+    if (kind === 'slot the read changed') {
+      $setSlot(
+        $getRoot().getChildAtIndex(7) as CaptionedNode,
+        'title',
+        $createParagraphNode().append($createTextNode('remote caption')),
+      );
+    }
     $setSelection(null);
   });
   await t.sync();
@@ -441,10 +472,12 @@ async function runKind(kind: Kind, gc: boolean): Promise<void> {
         '"textFormat":2,"textStyle":"","type":"paragraph"',
       'empty line style': '"textStyle":"color: red"',
       'line break line style': '"textStyle":"color: blue"',
+      'list item at the start': '"text":"first"',
       'merged tokens': '"text":"token"',
       move: '"text":"tail"',
       'slot text host format':
         '"textFormat":2,"textStyle":"","type":"read_edit_captioned"',
+      'slot the read changed': '"text":"app caption"',
       'text the read changed': '"text":"three 3#"',
     }[kind],
   );
@@ -468,6 +501,8 @@ describe('every kind of app edit made in the update of a remote read is stored',
     'decorator line format',
     'slot text host format',
     'text the read changed',
+    'slot the read changed',
+    'list item at the start',
   ] as const) {
     for (const gc of [false, true]) {
       test(`${kind}, gc ${gc}`, () => runKind(kind, gc));

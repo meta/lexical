@@ -3728,6 +3728,12 @@ export class YBinding {
       if (copy.__state !== undefined) {
         copy.__state = copy.__state.getWritable(copy);
       }
+      // $setSlot changes the slot map of a node already copied in the update
+      // in place.
+      const slotted = copy as {__slots?: null | Map<string, NodeKey>};
+      if (slotted.__slots !== undefined && slotted.__slots !== null) {
+        slotted.__slots = new Map(slotted.__slots);
+      }
       nodes.set(key, copy);
     };
     for (const key of editor._dirtyLeaves) {
@@ -3768,6 +3774,11 @@ export class YBinding {
     const before = prevEditorState._nodeMap;
     const read = (key: NodeKey) =>
       readEnd.nodes.has(key) ? readEnd.nodes.get(key) : before.get(key);
+    // A node's parent, or the host of the named slot it fills.
+    const parentOf = (node: LexicalNode): NodeKey | null =>
+      node.__parent ??
+      (node as {__slotHost?: null | NodeKey}).__slotHost ??
+      null;
     // Attached as the read left it (a node it removed is collected by
     // Lexical as it commits: no change).
     const attached = (node: LexicalNode | undefined): boolean => {
@@ -3775,7 +3786,7 @@ export class YBinding {
         if (at.__key === 'root') {
           return true;
         }
-        const parent = at.__parent;
+        const parent = parentOf(at);
         at = parent === null ? undefined : read(parent);
       }
       return false;
@@ -3812,11 +3823,13 @@ export class YBinding {
           get: (k: NodeKey) => LexicalNode | undefined,
         ) => {
           const hasText = textIn(n, get);
+          const slots = (n as {__slots?: null | Map<string, NodeKey>}).__slots;
           return JSON.stringify([
             JSON.stringify(n, (k, v) =>
               isDerivedField(n, k, hasText) ? undefined : v,
             ),
             n.__state === undefined ? null : n.__state.toJSON(),
+            slots === undefined || slots === null ? null : [...slots],
           ]);
         };
         return all(x, k => now.get(k)) === all(y, read);
@@ -3857,7 +3870,7 @@ export class YBinding {
     // the parent's own fields.
     for (const key of [...dirtyElements.keys(), ...dirtyLeaves]) {
       for (const node of [now.get(key), read(key)]) {
-        const parent = node === undefined ? null : node.__parent;
+        const parent = node === undefined ? null : parentOf(node);
         if (parent !== null && now.has(parent)) {
           dirtyElements.set(parent, true);
         }
@@ -3904,6 +3917,15 @@ export class YBinding {
       userEdit: false,
     };
     const state = this.state;
+    // The groups whose derived fields the edit changes (list item values),
+    // refreshed as after a local commit (see $groupsToRefresh): the read's
+    // update ran no transforms.
+    const localKeys = this.$groupsToRefresh(
+      editorState,
+      readState,
+      dirtyElements,
+      transformed,
+    );
     editorState.read(() =>
       this.$writeCommit(
         state,
@@ -3913,10 +3935,11 @@ export class YBinding {
         dirtyElements,
         dirtyLeaves,
         transformed,
-        new Set(),
+        localKeys,
         merged,
       ),
     );
+    this.queueCommitFollowUps(state, commit, localKeys, false);
   }
 
   /** See $writeReadEdits. */
