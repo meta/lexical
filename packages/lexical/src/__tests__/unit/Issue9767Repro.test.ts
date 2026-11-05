@@ -75,12 +75,12 @@ describe.each(Object.entries(shrink))('%s', (name, $shrink) => {
     editor.update($shrink, {discrete: true});
     const out = editor.getEditorState().read(() => {
       const s = $getSelection();
-      return $isRangeSelection(s)
+      return s && $isRangeSelection(s)
         ? {focus: s.focus.offset, size: $text().getTextContentSize()}
         : null;
     });
     expect(out).not.toBeNull();
-    expect(out!.focus).toBeLessThanOrEqual(out!.size);
+    expect(out!.focus).toBe(out!.size);
   });
 
   test('a later splitText on the node does not throw', () => {

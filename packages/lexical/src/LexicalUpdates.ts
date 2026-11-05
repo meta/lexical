@@ -1418,7 +1418,6 @@ function $beginUpdate(
         );
       }
 
-      let selectionMutated = false;
       for (const [point, node] of [
         [pendingSelection.anchor, anchorNode],
         [pendingSelection.focus, focusNode],
@@ -1426,26 +1425,11 @@ function $beginUpdate(
         if (point.type === 'text' && $isTextNode(node)) {
           const size = node.getTextContentSize();
           if (point.offset > size) {
-            point.offset = size;
-            selectionMutated = true;
+            point.set(point.key, size, 'text');
           } else if (point.offset < 0) {
-            point.offset = 0;
-            selectionMutated = true;
-          }
-        } else if (point.type === 'element' && $isElementNode(node)) {
-          const size = node.getChildrenSize();
-          if (point.offset > size) {
-            point.offset = size;
-            selectionMutated = true;
-          } else if (point.offset < 0) {
-            point.offset = 0;
-            selectionMutated = true;
+            point.set(point.key, 0, 'text');
           }
         }
-      }
-      if (selectionMutated) {
-        pendingSelection._cachedNodes = null;
-        pendingSelection._cachedIsBackward = null;
       }
     } else if ($isNodeSelection(pendingSelection)) {
       // TODO: we should also validate node selection?
