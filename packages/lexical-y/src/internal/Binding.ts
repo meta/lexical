@@ -460,6 +460,54 @@ const isReadOnlyCause = (w: LexicalWarning): boolean =>
   w.code === UNSUPPORTED_SCHEMA_WARNING;
 
 /**
+ * quiesce()'s kept result (see YBinding#quiesce): the state's bytes and the
+ * draft as JSON text, never handed out. Every call, the first included,
+ * returns fresh copies (see quiescedResult): the bytes copied, the draft
+ * parsed again, so no result shares anything with another, with the binding
+ * or with a node serializer that reuses its output objects.
+ */
+type QuiescedKept = {
+  readonly state: Uint8Array;
+  readonly draftText: string;
+  readonly differs: boolean;
+};
+
+function quiescedResult(kept: QuiescedKept): YQuiescedState {
+  return {
+    draft: {
+      differs: kept.differs,
+      json: JSON.parse(kept.draftText) as SerializedEditorState,
+    },
+    state: kept.state.slice(),
+  };
+}
+
+/**
+ * An editor state's JSON as text (the draft's domain: what a quarantine
+ * record stores). Any failure, of `toJSON()` (a node's exportJSON) or of
+ * `JSON.stringify` (a BigInt, a cycle, a throwing getter), throws a
+ * TypeError, cause kept, whose message depends on the phase: at the
+ * preflight (before quiesce() drains) nothing has changed; at the final
+ * serialization (after the drain) local updates may already have been
+ * written, and nothing was cached.
+ */
+function draftText(
+  read: () => SerializedEditorState,
+  phase: 'preflight' | 'final',
+): string {
+  try {
+    return JSON.stringify(read());
+  } catch (e) {
+    throw new TypeError(
+      phase === 'preflight'
+        ? `@lexical/y: quiesce() could not serialize the editor state as JSON: ${e instanceof Error ? e.message : String(e)}. Nothing was changed. Store serializable state (not a BigInt NodeState value or a cycle, and node exportJSON methods that do not throw), then retry quiesce()`
+        : '@lexical/y: quiesce() could not serialize the drained editor state. Local updates may already have been written; no handoff result was cached. Store serializable state and retry quiesce().',
+      {cause: e},
+    );
+  }
+}
+
+/**
  * A write refused at write time (see YBinding#refusalIn): the family of the
  * record that refused it, captured inside its own transaction.
  */
@@ -1570,6 +1618,12 @@ export class YBinding {
   private readonly afterAllTransactions = (): void => this.flushWarnings();
   /** Whether quiesce() ran: read only for good. */
   private quiesced = false;
+  /**
+   * The first quiesce()'s result, never handed out: every call returns
+   * copies (a recomputed draft would miss a batched update the first call
+   * refused, since the refusal read the document back into the editor).
+   */
+  private quiescedState: QuiescedKept | null = null;
   /** The D08 permission of the commit being written (see admitsIn). */
   private writeGrace: SchemaGrace | null = null;
   /** Local commits refused so far (see quiesce). */
@@ -2316,11 +2370,32 @@ export class YBinding {
    * - A binding already read only (for any reason) ends the composition and
    *   drains the editor's pending work too, but writes nothing: what the
    *   editor held uncommitted is the draft, with `differs`.
-   * - Calling it again writes nothing and returns the document's state as
-   *   it is then (the same, when nothing else wrote to it) and the same
-   *   draft.
-   * - After `dispose()` it writes nothing either: it returns the document's
-   *   state and the editor's state as the draft.
+   * - Calling it again, before or after `dispose()`, writes nothing and
+   *   returns a copy of the first call's result: the same state and the
+   *   same draft, `differs` included (a batched update the first call could
+   *   not write stays in the draft, though the editor no longer shows it).
+   *   It recomputes nothing: what was written to the document since is not
+   *   in it.
+   * - Called first after `dispose()`, it writes nothing either: it returns
+   *   the document's state and the editor's state as the draft.
+   * - The draft is the editor state's JSON (what a quarantine record
+   *   stores), parsed from `JSON.stringify`'s text, so it holds only plain
+   *   JSON values, in every result: a Date NodeState value is its ISO
+   *   string, a number JSON cannot hold (NaN, Infinity) is null, a Map or
+   *   a Set is `{}`, and an undefined array entry is null. Before draining,
+   *   it checks that the state that will become the draft serializes as
+   *   JSON (the pending update's, or with none pending, the shown one): a
+   *   failure there (a BigInt NodeState value, a cycle) throws a TypeError
+   *   without draining or quiescing. If app code makes the state
+   *   unserializable during the drain (an update listener's update), the
+   *   final serialization throws a TypeError after local work may have
+   *   been written and the composition ended, and nothing is cached: fix
+   *   the state and call it again, and don't assume earlier edit
+   *   callbacks did not run.
+   * - Every result, the first included, is its own copy (the state's bytes,
+   *   the draft parsed again): changing one changes no other. A warning
+   *   handler or status listener that calls it during the first call gets
+   *   that call's result.
    */
   quiesce(): YQuiescedState {
     if (this._editor._updating) {
@@ -2328,59 +2403,85 @@ export class YBinding {
         '@lexical/y: quiesce() cannot run inside an editor update; call it after the update',
       );
     }
+    // The first call runs in one guard until its result is kept: the
+    // warnings it queues (a refusal's) and the status notification go out
+    // after that, so a handler that calls quiesce() again gets this result.
+    const kept = this.quiescedState ?? this.guard(() => this.quiesceFirst());
+    return quiescedResult(kept);
+  }
+
+  /** quiesce()'s first call: drain, take the result, keep it. */
+  private quiesceFirst(): QuiescedKept {
     const editor = this._editor;
     // What the editor holds and has not committed yet (a batched update),
     // taken first, whatever the status: the commit below may be refused (a
     // read-only binding, or a record that stopped admitting writes before
     // the status shows it, see recordAdmits), and a refusal reads the
-    // document back, which would erase it from the editor.
+    // document back, which would erase it from the editor. Taken as text,
+    // so a serializer that reuses its output objects cannot change it.
     const held = editor._pendingEditorState;
-    const heldJson = held !== null ? held.toJSON() : null;
+    const heldText =
+      held !== null ? draftText(() => held.toJSON(), 'preflight') : null;
+    // With nothing pending, the draft is what the editor shows (or the
+    // state the drain builds from it): before anything changes, it must be
+    // JSON too (a state that is not throws here, having changed nothing).
+    // With an update pending, the shown state never becomes the draft (the
+    // draft is the held state, or the state the drain builds on it), so it
+    // is not checked: a value the pending update replaces is no reason to
+    // refuse.
+    if (held === null) {
+      draftText(() => editor.getEditorState().toJSON(), 'preflight');
+    }
     const refusalsBefore = this.refusals;
     if (this.started) {
-      this.guard(() => {
-        // A composition ends (its text is written like any typing), and a
-        // batched update, which commits in a microtask, commits now: an
-        // active binding writes them; a read-only one refuses them (no
-        // Yjs write) and they stay in the draft.
-        if (
-          editor._compositionKey !== null ||
-          editor._pendingEditorState !== null ||
-          editor._updates.length > 0
-        ) {
-          editor.update(
-            () => {
-              $setCompositionKey(null);
-            },
-            {discrete: true},
-          );
-        }
-        if (
-          this._status === 'active' &&
-          this.pending.size > 0 &&
-          this.isIdle()
-        ) {
-          this.runPending();
-        }
-      });
+      // A composition ends (its text is written like any typing), and a
+      // batched update, which commits in a microtask, commits now: an
+      // active binding writes them; a read-only one refuses them (no Yjs
+      // write) and they stay in the draft.
+      if (
+        editor._compositionKey !== null ||
+        editor._pendingEditorState !== null ||
+        editor._updates.length > 0
+      ) {
+        editor.update(
+          () => {
+            $setCompositionKey(null);
+          },
+          {discrete: true},
+        );
+      }
+      if (this._status === 'active' && this.pending.size > 0 && this.isIdle()) {
+        this.runPending();
+      }
     }
     // Refused: the draft is what the editor held, not what it shows now.
     const refused = this.refusals !== refusalsBefore;
-    const json =
-      heldJson !== null && refused
-        ? heldJson
-        : editor.getEditorState().toJSON();
+    const text =
+      heldText !== null && refused
+        ? heldText
+        : // App code may have made the state unserializable during the
+          // drain (an update listener's update): this throws after local
+          // work was written, before anything is kept (see draftText).
+          draftText(() => editor.getEditorState().toJSON(), 'final');
     // What the editor shows and the document does not hold: local changes
     // the binding refused and has not read back yet, or keeps, or held
     // uncommitted when quiesce() began and could not write.
     const differs =
-      (heldJson !== null && refused) ||
+      (heldText !== null && refused) ||
       (this._status !== 'active' &&
         (this.keepsUnstored ||
           this.refused.size > 0 ||
           this.refusedComposing.size > 0 ||
           this.pending.has('reread') ||
           this.pending.has('restore')));
+    // Kept before the status changes (its listeners may call quiesce()
+    // again). Never handed out: every call returns copies of it.
+    const kept: QuiescedKept = {
+      differs,
+      draftText: text,
+      state: encodeStateAsUpdate(this._doc),
+    };
+    this.quiescedState = kept;
     this.quiesced = true;
     // After dispose() the editor is no longer the binding's: dispose gave
     // its editability back, and a status change would take it away again
@@ -2388,7 +2489,7 @@ export class YBinding {
     if (this.started) {
       this.setStatus('readonly');
     }
-    return {draft: {differs, json}, state: encodeStateAsUpdate(this._doc)};
+    return kept;
   }
 
   /** Disconnect from the document and the editor (`start` returns this). */

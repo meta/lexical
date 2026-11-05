@@ -1848,8 +1848,26 @@ migrated the room uploads that material before it replaces its document
   nothing.
 - On a binding that is already read only it writes nothing: what the
   editor held uncommitted is the draft, with `differs`.
-- Calling it again, or after `dispose()`, writes nothing and returns the
-  document's state and the draft again.
+- Calling it again, before or after `dispose()`, writes nothing and returns
+  a copy of the first call's result: the same state and the same draft,
+  `differs` included, so a retried handoff keeps text the first call could
+  not write. Called first after `dispose()`, it writes nothing and returns
+  the document's state and the editor's state as the draft.
+- The draft is the editor state's JSON, what a quarantine record stores: it
+  is parsed from `JSON.stringify`'s text, so every result holds only plain
+  JSON values. A `Date` NodeState value is its ISO string, a number JSON
+  cannot hold (`NaN`, `Infinity`) is `null`, a `Map` or `Set` is `{}`, and
+  an `undefined` array entry is `null`. Before draining, `quiesce()` checks
+  that the state that will become the draft serializes as JSON (the pending
+  update's, or, with none pending, the shown one); a failure at that
+  preflight (a `BigInt` NodeState value, a cycle) throws a `TypeError`
+  without draining or quiescing. If app code produces a non-serializable
+  state during the drain (an update listener's own update), the final
+  serialization may throw after local work has been written and the
+  composition has ended, with nothing cached: fix the state and call
+  `quiesce()` again, and don't assume earlier edit callbacks didn't run.
+- Every result, the first included, is its own copy, and a warning handler
+  that calls `quiesce()` during the first call gets that call's result.
 
 ### Reseeding a room
 
