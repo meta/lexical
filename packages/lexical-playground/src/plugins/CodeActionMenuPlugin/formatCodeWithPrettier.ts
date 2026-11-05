@@ -62,15 +62,31 @@ function getPrettierOptions(lang: string): Options {
   return options;
 }
 
+/**
+ * Whether opening tag `tag` has a `style` attribute that sets
+ * `white-space: pre` (or `pre-wrap`, `pre-line`): Prettier would reflow its
+ * text. Scans the attribute value instead of matching the whole tag with one
+ * regex, whose overlapping repetitions backtrack polynomially.
+ */
+function keepsWhiteSpace(tag: string): boolean {
+  const attr = /\bstyle\s*=\s*(["'])/i.exec(tag);
+  if (attr === null) {
+    return false;
+  }
+  const start = attr.index + attr[0].length;
+  const end = tag.indexOf(attr[1], start);
+  const value = tag.slice(start, end === -1 ? tag.length : end);
+  return /white-space\s*:\s*pre/i.test(value);
+}
+
 export async function formatCodeWithPrettier(content: string, lang: string) {
   const format = await loadPrettierFormat();
   const options = getPrettierOptions(lang);
   const prettierParsers = await loadPrettierParserByLang(lang);
   options.plugins = prettierParsers.map(parser => parser.default || parser);
   if (lang === 'html') {
-    content = content.replace(
-      /(<[a-z][^>]*\bstyle\s*=\s*["'][^"']*white-space\s*:\s*pre[^"']*["'][^>]*>)/gi,
-      '<!-- prettier-ignore -->$1',
+    content = content.replace(/<[a-z][^>]*>/gi, tag =>
+      keepsWhiteSpace(tag) ? `<!-- prettier-ignore -->${tag}` : tag,
     );
   }
   let formatted = await format(content, options);
