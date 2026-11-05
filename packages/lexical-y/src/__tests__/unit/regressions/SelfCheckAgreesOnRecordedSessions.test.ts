@@ -32,7 +32,7 @@ const SEEDS: [string, number, {moves: boolean; long: boolean}][] = [
 ];
 
 for (const [lane, seed, opts] of SEEDS) {
-  test(`golden ${lane} seed ${seed}: no self-check disagreement`, () => {
+  test(`recorded ${lane} session ${seed}: the self-check finds no disagreement`, () => {
     rng = mulberry32(seed * 31 + 7);
     const res = runScript(genScript(seed, opts));
     const sigs: string[] = res.failures.map(f => f.sig);
