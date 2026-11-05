@@ -3633,13 +3633,40 @@ export class Writer {
     // characters it says are kept between the edits (see islands).
     let kept: [number, number][] = [];
     const composing = this.state.editor._compositionKey !== null;
-    const anchors =
+    // Invariant: a shared node whose key is in the old atoms and the desired
+    // ones, in the same order among such nodes, is kept (its item stays),
+    // with or without a record of text edits. Why: without one (an app's
+    // edit inside a read, a recovered write, a follow-up) the range from the
+    // first change to the last was one rewrite, which deleted a shared node
+    // between two edits and made it again from what the editor shows:
+    // everything in it the editor does not show (a peer's concurrent edit,
+    // what a composition holds back) was lost.
+    const keyed = keyedIslands(
+      old,
+      atoms,
+      prefix,
+      suffix,
+      i => {
+        const a = old.specials.get(i);
+        return a !== undefined && a.kind === 'oldNode'
+          ? state.keyByY.get(typeOf(a.item))
+          : undefined;
+      },
+      matchSpecial,
+    );
+    const anchors = withKeyed(
       exact === null
         ? []
-        : islands(exact, old, atoms, prefix, suffix, matchSpecial);
+        : islands(exact, old, atoms, prefix, suffix, matchSpecial),
+      keyed,
+    );
     if (exact !== null && exactRange(exact, prefix, atoms.length - suffix)) {
       kept = anchors;
-    } else if (anchors.length > 0 && keeps !== null) {
+    } else if (anchors.length > 0) {
+      keeps ??= (i, j) =>
+        !old.specials.has(i) &&
+        !atoms.specials.has(j) &&
+        old.text.charCodeAt(i) === atoms.text.charCodeAt(j);
       // Where the record says which atoms some are and not others (a node
       // the record does not cover, text a node new in this update was made
       // with next to a removed node, see $exactAtoms), the atoms it says
@@ -5468,6 +5495,108 @@ function islands(
     ) {
       out.push([i, j]);
       last = i;
+    }
+  }
+  return out;
+}
+
+/**
+ * The shared nodes kept between `prefix` and the `suffix` by their key (see
+ * Writer#$writeSeq): pairs of an old atom whose shared node's key
+ * (`oldKey`) a desired inline atom has, as the same node (`matchSpecial`),
+ * in order; of those, the longest run in order in both (a node moved past
+ * another is not kept).
+ */
+function keyedIslands(
+  old: Atoms,
+  atoms: Atoms,
+  prefix: number,
+  suffix: number,
+  oldKey: (i: number) => NodeKey | undefined,
+  matchSpecial: (i: number, j: number) => boolean,
+): [number, number][] {
+  const oldAt = new Map<NodeKey, number>();
+  old.specials.forEach((_sp, i) => {
+    if (i >= prefix && i < old.length - suffix) {
+      const key = oldKey(i);
+      if (key !== undefined) {
+        oldAt.set(key, i);
+      }
+    }
+  });
+  if (oldAt.size === 0) {
+    return [];
+  }
+  const pairs: [number, number][] = [];
+  atoms.specials.forEach((sp, j) => {
+    if (j < prefix || j >= atoms.length - suffix || sp.kind !== 'inline') {
+      return;
+    }
+    const i = oldAt.get(sp.key);
+    if (i !== undefined && matchSpecial(i, j)) {
+      pairs.push([i, j]);
+    }
+  });
+  pairs.sort((x, y) => x[1] - y[1]);
+  return longestInOrder(pairs);
+}
+
+/** Of `pairs` (in order of their second), the longest run in order of both. */
+function longestInOrder(pairs: [number, number][]): [number, number][] {
+  const tails: number[] = [];
+  const back: number[] = [];
+  for (let k = 0; k < pairs.length; k++) {
+    let lo = 0;
+    let hi = tails.length;
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      if (pairs[tails[mid]][0] < pairs[k][0]) {
+        lo = mid + 1;
+      } else {
+        hi = mid;
+      }
+    }
+    back[k] = lo > 0 ? tails[lo - 1] : -1;
+    tails[lo] = k;
+  }
+  const out: [number, number][] = [];
+  for (
+    let k = tails.length > 0 ? tails[tails.length - 1] : -1;
+    k !== -1;
+    k = back[k]
+  ) {
+    out.push(pairs[k]);
+  }
+  return out.reverse();
+}
+
+/**
+ * The shared nodes kept by key (`keyed`), with the `anchors` the record
+ * keeps that fit between them in order of both. A shared node kept by key
+ * wins over an anchor of the record that does not fit: text that moved
+ * around a shared node (two text nodes beside it swapped) is written anew,
+ * never the shared node.
+ */
+function withKeyed(
+  anchors: [number, number][],
+  keyed: [number, number][],
+): [number, number][] {
+  if (keyed.length === 0) {
+    return anchors;
+  }
+  const out = [...keyed];
+  for (const [i, j] of anchors) {
+    let at = 0;
+    while (at < out.length && out[at][1] < j) {
+      at++;
+    }
+    const before = at > 0 ? out[at - 1] : null;
+    const after = at < out.length ? out[at] : null;
+    if (
+      (after === null || (after[1] > j && after[0] > i)) &&
+      (before === null || (before[0] < i && before[1] < j))
+    ) {
+      out.splice(at, 0, [i, j]);
     }
   }
   return out;
