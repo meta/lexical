@@ -21,7 +21,12 @@ import {
 } from 'lexical';
 import {describe, expect, test} from 'vitest';
 
-import {covered, isShadowKey, stepFormat} from '../../internal/Ident';
+import {
+  covered,
+  isShadowKey,
+  stepFormat,
+  STORED_FOLD,
+} from '../../internal/Ident';
 import {
   isCoveredKey,
   readLayout3Formats,
@@ -105,7 +110,7 @@ function coreRead(container: Y.Node): Record<string, unknown>[] {
       continue;
     }
     if (it.content instanceof Y.ContentFormat) {
-      stepFormat(formats, it);
+      stepFormat(formats, it, STORED_FOLD);
     } else if (it.countable) {
       const m = new Map<string, unknown>();
       for (const [k, v] of formats) {

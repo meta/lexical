@@ -18,7 +18,7 @@ import * as Y from '@y/y';
 import {expect, test} from 'vitest';
 
 import {createYDoc} from '../..';
-import {endsOf, isValidEnd} from '../../internal/Ident';
+import {endsOf, isValidEnd, STORED_FOLD} from '../../internal/Ident';
 
 for (const gc of [false, true]) {
   test(`the near end lookup agrees with structural validity (gc ${gc})`, () => {
@@ -74,7 +74,7 @@ for (const gc of [false, true]) {
             }
           }
         });
-        expect(isValidEnd(end!)).toBe(mode === 'valid');
+        expect(isValidEnd(end!, STORED_FOLD)).toBe(mode === 'valid');
         if (mode === 'valid') {
           expect(endsOf(open!)).toContain(end);
         }

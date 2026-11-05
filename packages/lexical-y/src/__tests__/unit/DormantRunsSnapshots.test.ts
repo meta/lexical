@@ -21,6 +21,7 @@ import {
   isShadowKey,
   keySlice,
   stepFormat,
+  STORED_FOLD,
 } from '../../internal/Ident';
 
 const A = 's:markIds\u001f1d2sq0r_mqva3i';
@@ -66,7 +67,7 @@ for (const gc of [false, true])
       const m = new Map<string, unknown>();
       for (let it = root._start; it; it = it.right)
         if (!it.deleted && it.content instanceof Y.ContentFormat)
-          stepFormat(m, it);
+          stepFormat(m, it, STORED_FOLD);
       return m;
     };
     const first = fold();
@@ -91,7 +92,7 @@ for (const gc of [false, true])
       ).toBe(true);
     }
     const positive = append(A, true);
-    stepFormat(first, positive);
+    stepFormat(first, positive, STORED_FOLD);
     expect(isOnStack(first, A, items[0].id.client, items[0].id.clock)).toBe(
       false,
     );
@@ -103,11 +104,11 @@ for (const gc of [false, true])
     );
     same(first, fold());
     const end = append(A, [items[0].id.client, items[0].id.clock]);
-    expect(isPaired(items[0])).toBe(true);
+    expect(isPaired(items[0], STORED_FOLD)).toBe(true);
     const sim = keySlice(copy, A);
-    stepFormat(sim, positive);
+    stepFormat(sim, positive, STORED_FOLD);
     expect(isOnStack(sim, A, items[0].id.client, items[0].id.clock)).toBe(true);
-    stepFormat(sim, end);
+    stepFormat(sim, end, STORED_FOLD);
     expect(isOnStack(sim, A, items[0].id.client, items[0].id.clock)).toBe(
       false,
     );

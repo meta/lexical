@@ -19,7 +19,7 @@ import * as Y from '@y/y';
 import {$getRoot, $setSelection} from 'lexical';
 import {expect, test} from 'vitest';
 
-import {isValidEnd, liveEndsOf} from '../../../internal/Ident';
+import {isValidEnd, liveEndsOf, STORED_FOLD} from '../../../internal/Ident';
 import {
   $p,
   $selectIn,
@@ -87,8 +87,8 @@ for (const gc of [false, true]) {
         }
       }
     }
-    expect(isValidEnd(end!)).toBe(false);
-    expect(liveEndsOf(o!)).toEqual([]);
+    expect(isValidEnd(end!, STORED_FOLD)).toBe(false);
+    expect(liveEndsOf(o!, STORED_FOLD)).toEqual([]);
     // "y" in O's unpaired run; the null after it replaces that run.
     const fresh = await freshReader(t.a);
     for (const peer of [fresh, t.a, t.b]) {

@@ -18,7 +18,7 @@ import * as Y from '@y/y';
 import {$getRoot, $setSelection} from 'lexical';
 import {expect, test} from 'vitest';
 
-import {endsOf, isValidEnd} from '../../../internal/Ident';
+import {endsOf, isValidEnd, STORED_FOLD} from '../../../internal/Ident';
 import {
   $p,
   $selectIn,
@@ -76,7 +76,7 @@ for (const gc of [false, true]) {
     expect(opener).not.toBeNull();
     expect(end).not.toBeNull();
     expect(between).toBeGreaterThan(16);
-    expect(isValidEnd(end!)).toBe(true);
+    expect(isValidEnd(end!, STORED_FOLD)).toBe(true);
     expect(endsOf(opener!)).toContain(end);
     expect(fresh.warnings.filter(w => /self-check/.test(w))).toEqual([]);
     fresh.binding.dispose();

@@ -18,7 +18,12 @@ import {expect, test} from 'vitest';
 
 import {createYDoc, YBinding} from '../..';
 import {editYState, readYState, seedYState} from '../../headless';
-import {covered, isShadowKey, stepFormat} from '../../internal/Ident';
+import {
+  covered,
+  isShadowKey,
+  stepFormat,
+  STORED_FOLD,
+} from '../../internal/Ident';
 import {readLayout3Formats} from '../../internal/Layout3';
 import {$p, NODES} from '../utils/harness';
 
@@ -230,7 +235,8 @@ for (const gc of [false, true]) {
       const expected: Record<string, unknown>[] = [];
       for (let it = root._start; it; it = it.right) {
         if (it.deleted) continue;
-        if (it.content instanceof Y.ContentFormat) stepFormat(m, it);
+        if (it.content instanceof Y.ContentFormat)
+          stepFormat(m, it, STORED_FOLD);
         else if (it.countable) {
           const v = Object.fromEntries(
             [...m].filter(([k]) => covered(k) && !isShadowKey(k)),

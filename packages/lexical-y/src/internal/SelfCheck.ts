@@ -575,7 +575,7 @@ export function checkContainer(
       () => {
         const freshState = new State(fresh, state.doc, state.root);
         freshState.blockIds = state.blockIds;
-        const reader = new Reader(freshState);
+        const reader = new Reader(freshState, () => null);
         let el: ElementNode;
         if (cs.y === state.root) {
           el = $getRoot();
@@ -908,7 +908,7 @@ export function $followUpDifference(
         for (const [start, stop] of parts) {
           const freshState = new State(editor, state.doc, state.root);
           freshState.blockIds = state.blockIds;
-          const reader = new Reader(freshState);
+          const reader = new Reader(freshState, () => null);
           let el: ElementNode;
           if (cs.y === state.root) {
             el = $getRoot();

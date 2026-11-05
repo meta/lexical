@@ -9,7 +9,7 @@
 // @vitest-environment node
 
 // A start formats map the writer folds as stored (a held insertion counts,
-// a deleted item the hold keeps showing does not, see Seen.isStored) is
+// a deleted item the hold keeps showing does not, see Seen.isStoredIn) is
 // noted with that lane: when its fold point goes stale and the map is
 // folded again (see Seen.frontierOf), the refold leaves the kept deletions
 // out as the first fold did. It refolded over what the write's view shows,
@@ -19,8 +19,8 @@ import {expect, test} from 'vitest';
 
 import {Hidden} from '../../../internal/Hidden';
 import {writeLayout3Formats} from '../../../internal/Layout3';
-import {frontierOf, isStored, noteFolded} from '../../../internal/Seen';
-import {currentView, emptyView, seenBy} from '../../../internal/Unread';
+import {frontierOf, isStoredIn, noteFolded} from '../../../internal/Seen';
+import {emptyView} from '../../../internal/Unread';
 
 for (const gc of [false, true]) {
   test(`a stored start folded again leaves the hold's kept deletions out (gc ${gc})`, () => {
@@ -61,16 +61,11 @@ for (const gc of [false, true]) {
     noteFolded(rawControl, to, 'raw');
     doc.transact(tr => to.delete(tr));
     const view = emptyView(root, it => hidden.keeps(it));
-    seenBy(
-      () => view,
-      () => {
-        expect(formats.every(it => !isStored(it, hidden))).toBe(true);
-        frontierOf(currentView(), rawControl, left, root, null);
-        expect(rawControl.get('f:bold')).toBeUndefined();
-        frontierOf(currentView(), stored, left, root, null);
-        expect(stored.get('f:bold')).toBeUndefined();
-      },
-    );
+    expect(formats.every(it => !isStoredIn(view, it, hidden))).toBe(true);
+    frontierOf(view, rawControl, left, root, null);
+    expect(rawControl.get('f:bold')).toBeUndefined();
+    frontierOf(view, stored, left, root, null);
+    expect(stored.get('f:bold')).toBeUndefined();
     hidden.releaseKeeps();
     doc.destroy();
   });

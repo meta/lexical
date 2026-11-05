@@ -47,11 +47,11 @@ import {type Item} from '@y/y';
  *   local split of it made while composing, see `starts`) differs from the
  *   stored document, and a remote change never replaces the composed node
  *   or its DOM text node. That display leaves held items out, shows kept
- *   ones, and folds as if a held end paired nothing (Ident.withHeldView),
+ *   ones, and folds as if a held end paired nothing (Reader#held),
  *   from the line's shown start.
  * - I2: every other line reads as a fresh read of the stored document. What
  *   the composed line hands on to the lines after it is folded from its
- *   stored items: held insertions in, kept deletions out (Seen.isStored).
+ *   stored items: held insertions in, kept deletions out (Seen.isStoredIn).
  *   Fold notes carry the lane they were folded in (Seen.FoldLane).
  * - I3: when the hold ends, the line reads what is stored.
  * - I4: the composer's own writes in the line are made, and self-checked,
@@ -114,7 +114,7 @@ export class Hidden {
 
   /**
    * Show deleted format item `item` until the hold ends: every reader and
-   * writer of the line sees it live (see Seen.isGone and isShown). It is
+   * writer of the line sees it live (see Seen.isGoneIn and isShownIn). It is
    * kept from the deleting transaction's garbage collection, which runs
    * after the change is read (Item.keep; a format item never merges with
    * its neighbours, so the flag changes nothing else).

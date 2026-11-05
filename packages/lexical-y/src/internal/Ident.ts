@@ -51,7 +51,7 @@ import {runBoundary, type StoredUnit} from './Layout3';
 import {owned} from './Owned';
 import {markBindingWrite} from './RawWrites';
 import {isGoneIn} from './Seen';
-import {currentView, type View} from './Unread';
+import {type View} from './Unread';
 
 /**
  * Whether writes into `doc` store covered keys as paired runs: always, but
@@ -264,69 +264,27 @@ const __DEV__ = process.env.NODE_ENV !== 'production';
 /**
  * What a fold reads the document in: the binding's view (see View; pairing
  * is judged there: isPaired, liveEndsOf, isValidEnd, stack entries), and the
- * hold whose held-back ends pair nothing (see withHeldView), or null.
+ * hold whose held-back ends pair nothing, or null: in a read of the line
+ * being composed, the composer's hold, so that the line folds as the editor
+ * shows it (see Reader#held).
  */
 export interface FoldIn {
   readonly view: View | null;
-  readonly held: {hides(item: Item): boolean} | null;
+  readonly held: HeldView;
 }
 
 /** Whether `item` is gone in fold `f`'s view (Seen.isGoneIn). */
 const goneIn = (f: FoldIn, item: Item): boolean => isGoneIn(f.view, item);
 
-/**
- * The hold whose view a fold reads in (see withHeldView), or null: an end
- * it holds back pairs nothing there.
- */
-let heldView: {hides(item: Item): boolean} | null = null;
-
 /** A hold a fold reads in (see FoldIn), or null. */
 export type HeldView = {hides(item: Item): boolean} | null;
-
-/**
- * Development builds, while folds move to an explicit hold: the hold a fold
- * is given is the one withHeldView set.
- */
-export function checkHeld(held: HeldView): void {
-  if (held !== heldView) {
-    throw new Error('lexical-y: a fold was given another hold than the read');
-  }
-}
-
-/**
- * Run `fn` folding as the line being composed shows (see Hidden): an end
- * the hold holds back pairs no opener there, as it is not there for the
- * editor. What the line hands on is folded without (see Seen.isStored).
- */
-export function withHeldView<T>(
-  hidden: {hides(item: Item): boolean} | null,
-  fn: () => T,
-): T {
-  const was = heldView;
-  heldView = hidden;
-  try {
-    return fn();
-  } finally {
-    heldView = was;
-  }
-}
 
 /** Whether end `end` pairs nothing: gone, or held back (see FoldIn). */
 const endGone = (f: FoldIn, end: Item): boolean =>
   goneIn(f, end) || (f.held !== null && f.held.hides(end));
 
-let ambient: FoldIn = {held: null, view: null};
-/**
- * The fold of the running work: its view and withHeldView's hold, while
- * folds move to an explicit FoldIn.
- */
-export function ambientFold(): FoldIn {
-  const view = currentView();
-  if (ambient.view !== view || ambient.held !== heldView) {
-    ambient = {held: heldView, view};
-  }
-  return ambient;
-}
+/** The fold of the document as Yjs has it: no view, no hold. */
+export const STORED_FOLD: FoldIn = {held: null, view: null};
 
 /** Test harnesses: check the whole run stack on every push (see Rule 4). */
 let fullStackChecks = false;
@@ -757,7 +715,7 @@ function scanNew(doc: Doc, index: Index): void {
       if (isCoveredEnd(s)) {
         noteHolder(s);
         // Deleted ends too: a write's view keeps an end an unread change
-        // deleted (see Seen.isGone), and its run is paired there (#9719).
+        // deleted (see Seen.isGoneIn), and its run is paired there (#9719).
         noteEnd(doc, s, positions);
       }
     }
@@ -821,7 +779,7 @@ function mayPair(doc: Doc): boolean {
  * container, that is not an end (structural validity: it does not prove the
  * end was written for that opener; raw writers must not copy relative ends).
  */
-export function isValidEnd(end: Item, f: FoldIn = ambientFold()): boolean {
+export function isValidEnd(end: Item, f: FoldIn): boolean {
   const doc = (end.parent as unknown as {doc: Doc | null}).doc;
   const id = endTarget(end);
   if (doc === null || doc === undefined || id === null) {
@@ -849,7 +807,7 @@ export function endsOf(item: Item): Item[] {
 }
 
 /** The live ends that name opener `item`. */
-export function liveEndsOf(item: Item, f: FoldIn = ambientFold()): Item[] {
+export function liveEndsOf(item: Item, f: FoldIn): Item[] {
   const doc = (item.parent as unknown as {doc: Doc | null}).doc;
   if (doc === null || doc === undefined) {
     return [];
@@ -859,7 +817,7 @@ export function liveEndsOf(item: Item, f: FoldIn = ambientFold()): Item[] {
 }
 
 /** Whether a live end names live opener `item`. */
-export function isPaired(item: Item, f: FoldIn = ambientFold()): boolean {
+export function isPaired(item: Item, f: FoldIn): boolean {
   if (pendingCount > 0 && pendingPaired.has(item)) {
     return true;
   }
@@ -1504,7 +1462,7 @@ function entry(below: Entry | null, opener: Item, value: unknown): Entry {
 export function stepFormat(
   formats: Map<string, unknown>,
   it: Item,
-  f: FoldIn = ambientFold(),
+  f: FoldIn,
 ): void {
   stepPaired(formats, it, f);
 }
@@ -1515,7 +1473,7 @@ export function stepFormat(
 export function stepPaired(
   formats: Map<string, unknown>,
   it: Item,
-  f: FoldIn = ambientFold(),
+  f: FoldIn,
 ): void {
   const content = it.content as ContentFormat;
   const key = content.key;

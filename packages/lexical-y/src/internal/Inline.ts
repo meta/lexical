@@ -294,7 +294,7 @@ export function $pushInline(
  * (exclusive, null = end), with the formats in effect at `start`, as the
  * editor shows them: without what is held back, with the deleted items the
  * hold keeps showing (see Hidden). Returns the formats stored at `stop`
- * (see Seen.isStored: held insertions in, kept deletions out), folded from
+ * (see Seen.isStoredIn: held insertions in, kept deletions out), folded from
  * `storedFormats`, the stored formats at `start` (where a write cursor
  * starts, see Cursor, and what a line hands on).
  */
@@ -310,7 +310,7 @@ export function readAtoms(
   storedFormats: Formats = formats,
 ): Formats {
   const current = new Map(storedFormats);
-  // The formats the editor shows (see Ident.withHeldView).
+  // The formats the editor shows (see Reader#held).
   const shown = hidden === null ? current : new Map(formats);
   let attrs: Attrs | null = null;
   // Format items up to `frontier` are in `formats` already (see

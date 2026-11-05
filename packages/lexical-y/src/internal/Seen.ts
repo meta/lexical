@@ -23,17 +23,10 @@ import {
   type Transaction,
 } from '@y/y';
 
-import {checkHeld, type FoldIn, type HeldView, stepFormat} from './Ident';
+import {type FoldIn, type HeldView, stepFormat} from './Ident';
 import {owned} from './Owned';
 import {EMPTY_FORMATS, isEndItem, typeOf} from './State';
-import {
-  currentView,
-  deleted,
-  inserted,
-  scopedView,
-  type Unread,
-  type View,
-} from './Unread';
+import {deleted, inserted, scopedView, type Unread, type View} from './Unread';
 
 /*
  * What a binding's editor shows of the document, in one place: Yjs minus
@@ -43,14 +36,15 @@ import {
  *   Yjs starts applying one until the binding reads it, the binding's work
  *   (its writes, and the selection it takes) sees what they inserted as not
  *   there, what they deleted as still there, and each attribute as it was
- *   before. isGone, attrOf, attrsOf and attrsBefore read through them;
- *   setAttr, deleteAttr and deleteItem write through them. Where no view
- *   applies to an item's type (see viewOf), they are Yjs's own `deleted`,
- *   getAttr and getAttrs.
+ *   before. isGoneIn, attrOfIn, attrsOfIn and attrsBeforeIn read through
+ *   them; setAttrIn, deleteAttrIn and deleteItemIn write through them. Each
+ *   takes the view it works in: the binding's (YBinding#seer), or null.
+ *   Where no view applies to an item's type (see viewFor), they are Yjs's
+ *   own `deleted`, getAttr and getAttrs.
  * - The items held back while the local editor composes (see Hidden):
  *   isHeld and unheldLength.
  *
- * isShown, isShownEnd, shownLength and prevLiveEnd combine the two;
+ * isShownIn, isShownEndIn, shownLengthIn and prevLiveEnd combine the two;
  * shownText and shownAttrs apply only the hold, to the text and attributes
  * Yjs stores now. Raw `item.deleted` and `getAttr(s)` read Yjs as it is:
  * right for the reader of remote changes and for scans of what each client
@@ -63,16 +57,9 @@ export function isHeld(item: Item, hidden: Hidden | null): boolean {
 }
 
 /**
- * Whether `item` is in the document the write sees as it is stored: not
- * gone, and not a deleted item the hold only shows (see Hidden#keeps). What
- * a line hands on to the lines after it is folded from these: a held
- * insertion included, a kept deletion not.
+ * Whether `item` is in the document as stored: not gone in `view`, and not
+ * a deleted item a hold keeps showing (see Hidden#keeps).
  */
-export function isStored(item: Item, hidden: Hidden | null): boolean {
-  return isStoredIn(currentView(), item, hidden);
-}
-
-/** isStored, in `view`. */
 export function isStoredIn(
   view: View | null,
   item: Item,
@@ -84,12 +71,10 @@ export function isStoredIn(
   );
 }
 
-/** Whether `item` is deleted, in the document the write sees. */
-export function isGone(item: Item): boolean {
-  return isGoneIn(currentView(), item);
-}
-
-/** isGone, in `view` (see viewFor). */
+/**
+ * Whether `item` is gone in `view` (see viewFor): Yjs's `deleted`, with
+ * what the view's unread changes inserted gone and what they deleted not.
+ */
 export function isGoneIn(view: View | null, item: Item): boolean {
   const scoped = scopedView(view, item.parent as YNode);
   if (scoped === null) {
@@ -111,7 +96,7 @@ export function isGoneIn(view: View | null, item: Item): boolean {
   );
 }
 
-/** What each write only noted as deleted (see deleteItem), by transaction. */
+/** What each write only noted as deleted (see deleteItemIn), by transaction. */
 const notedIn = new WeakMap<Transaction, IdSet>();
 
 /**
@@ -238,7 +223,7 @@ export class HeldDeletionError extends Error {
 
 /**
  * Whether transaction `tr` deleted `item`, or noted it as deleted (an item
- * an unread change deleted, see deleteItem).
+ * an unread change deleted, see deleteItemIn).
  */
 export function deletedBy(item: Item, tr: Transaction): boolean {
   if (tr.deleteSet.hasId(item.id)) {
@@ -248,17 +233,13 @@ export function deletedBy(item: Item, tr: Transaction): boolean {
   return noted !== undefined && noted.hasId(item.id);
 }
 
-/**
- * Delete `item` (not gone, see isGone): an item an unread change deleted is
- * only noted as deleted by this write.
- */
-/** Bumped by every deleteItem (a fold reused only while nothing was deleted). */
+/** Bumped by every deleteItemIn (a fold reused only while nothing was deleted). */
 export let deletions = 0;
-export function deleteItem(item: Item, tr: Transaction): void {
-  deleteItemIn(currentView(), item, tr);
-}
 
-/** deleteItem, in `view`. */
+/**
+ * Delete `item` (not gone in `view`, see isGoneIn): an item an unread
+ * change deleted is only noted as deleted by this write.
+ */
 export function deleteItemIn(
   view: View | null,
   item: Item,
@@ -301,12 +282,7 @@ function attrItem(y: YNode, view: Unread, key: string): Item | null {
   return v;
 }
 
-/** The value of attribute `key` of `y`, in the document the write sees. */
-export function attrOf(y: YNode, key: string): unknown {
-  return attrOfIn(currentView(), y, key);
-}
-
-/** attrOf, in `view`. */
+/** The value of attribute `key` of `y` in `view` (see viewFor). */
 export function attrOfIn(view: View | null, y: YNode, key: string): unknown {
   const scoped = scopedView(view, y);
   if (scoped === null) {
@@ -320,12 +296,7 @@ export function attrOfIn(view: View | null, y: YNode, key: string): unknown {
   return content[content.length - 1];
 }
 
-/** The attributes of `y`, in the document the write sees. */
-export function attrsOf(y: YNode): Record<string, unknown> {
-  return attrsOfIn(currentView(), y);
-}
-
-/** attrsOf, in `view`. */
+/** The attributes of `y` in `view` (see attrOfIn). */
 export function attrsOfIn(
   view: View | null,
   y: YNode,
@@ -344,21 +315,9 @@ export function attrsOfIn(
 }
 
 /**
- * The attributes `y` had before transaction `tr`, in the document the write
- * sees: of each name, the value of its latest item that neither `tr` nor an
- * unread change inserted, unless that item was gone before `tr`. Yjs keeps
- * the content of the items `tr` deletes until `tr` ends, so this also reads
- * a node `tr` deleted (a block it moved). With nothing unread, these are the
- * values every other client still has.
+ * The attributes of `y` before transaction `tr`, in `view`: each key's value
+ * as it was before `tr` and before the view's unread changes.
  */
-export function attrsBefore(
-  y: YNode,
-  tr: Transaction,
-): Record<string, unknown> {
-  return attrsBeforeIn(currentView(), y, tr);
-}
-
-/** attrsBefore, in `view`. */
 export function attrsBeforeIn(
   view: View | null,
   y: YNode,
@@ -375,7 +334,7 @@ export function attrsBeforeIn(
       v = v.left;
     }
     // Deleted by `tr`, or only noted as deleted by it where an unread change
-    // deleted it too (see deleteItem): there before `tr`. What an earlier
+    // deleted it too (see deleteItemIn): there before `tr`. What an earlier
     // write noted was gone before it.
     const noted = notedIn.get(tr);
     if (
@@ -391,17 +350,10 @@ export function attrsBeforeIn(
   return out;
 }
 
-/** Set attribute `key` of `y`, after its value in the document seen. */
-export function setAttr(
-  y: YNode,
-  key: string,
-  value: unknown,
-  tr: Transaction,
-): void {
-  setAttrIn(currentView(), y, key, value, tr);
-}
-
-/** setAttr, in `view`. */
+/**
+ * Set attribute `key` of `y` to `value` in `view`: where an unread change
+ * set it, after the value the view shows (as Y.Node#setAttr would).
+ */
 export function setAttrIn(
   view: View | null,
   y: YNode,
@@ -439,12 +391,10 @@ export function setAttrIn(
   owned(doc, () => item.integrate(tr, 0));
 }
 
-/** Delete attribute `key` of `y`: its value in the document seen. */
-export function deleteAttr(y: YNode, key: string, tr: Transaction): void {
-  deleteAttrIn(currentView(), y, key, tr);
-}
-
-/** deleteAttr, in `view`. */
+/**
+ * Delete attribute `key` of `y` in `view`: where an unread change set it,
+ * its value in the view is deleted (see deleteItemIn).
+ */
 export function deleteAttrIn(
   view: View | null,
   y: YNode,
@@ -465,18 +415,16 @@ export function deleteAttrIn(
 
 /**
  * The units of `item` that are not held back, whether or not it is live
- * (see shownLength for the length the editor shows).
+ * (see shownLengthIn for the length the editor shows).
  */
 export function unheldLength(item: Item, hidden: Hidden | null): number {
   return hidden === null ? item.length : hidden.shownLength(item);
 }
 
-/** The length of an item the editor shows (live content only). */
-export function shownLength(item: Item, hidden: Hidden | null): number {
-  return shownLengthIn(currentView(), item, hidden);
-}
-
-/** shownLength, in `view`. */
+/**
+ * The length of `item` the editor shows: none where it is not countable or
+ * gone in `view`, else the units `hidden` does not hold back.
+ */
 export function shownLengthIn(
   view: View | null,
   item: Item,
@@ -489,14 +437,9 @@ export function shownLengthIn(
 }
 
 /**
- * Whether the editor shows `item`: live (or a deleted format item a hold
- * keeps, see Hidden#keeps), and not held back.
+ * Whether the editor shows `item`: live in `view` (or a deleted item
+ * `hidden` keeps showing) and not held back.
  */
-export function isShown(item: Item, hidden: Hidden | null): boolean {
-  return isShownIn(currentView(), item, hidden);
-}
-
-/** isShown, in `view`. */
 export function isShownIn(
   view: View | null,
   item: Item,
@@ -526,21 +469,16 @@ export function shownText(str: string, item: Item, hidden: Hidden): string {
 }
 
 /**
- * Whether `it` ends a unit as the editor shows its container: a live end
- * item that is not held back (see Hidden).
+ * Whether `it` ends a unit as the editor shows its container: an end item
+ * live in `view` that is not held back (see Hidden).
  */
-export function isShownEnd(it: Item, hidden: Hidden | null): boolean {
-  // The cheap type test first: walks over a line's items (most of them text
-  // and format items) then look up the write's view only for its ends.
-  return isEndItem(it) && !isGone(it) && !isHeld(it, hidden);
-}
-
-/** isShownEnd, in `view`. */
 export function isShownEndIn(
   view: View | null,
   it: Item,
   hidden: Hidden | null,
 ): boolean {
+  // The cheap type test first: walks over a line's items (most of them text
+  // and format items) then look up the view only for its ends.
   return isEndItem(it) && !isGoneIn(view, it) && !isHeld(it, hidden);
 }
 
@@ -573,11 +511,11 @@ const FOLDED = Symbol('foldedTo');
  * Which items a start formats map was folded over, so that a refold keeps
  * it (see frontierOf):
  * - 'raw': every item not deleted (the reader's folds, and main's);
- * - 'stored': the document the write sees as it is stored (see isStored): a
+ * - 'stored': the document the write sees as it is stored (see isStoredIn): a
  *   held insertion counts, a deleted item a hold keeps showing does not;
- * - 'shown': what the write's view shows (see isGone), with what `hidden`
+ * - 'shown': what the write's view shows (see isGoneIn), with what `hidden`
  *   holds back left out and its held ends pairing nothing (see
- *   Ident.withHeldView): the display of the line being composed.
+ *   Reader#held): the display of the line being composed.
  */
 export type FoldLane = 'raw' | 'stored' | 'shown';
 type Folded = {
@@ -783,9 +721,6 @@ export class Folder {
     frontier: Item | null = null,
   ) {
     this.frontier = frontier;
-    if (__DEV__) {
-      checkHeld(held);
-    }
     this.fold = {
       held: lane === 'shown' && hidden !== null ? hidden : held,
       view,
@@ -907,7 +842,7 @@ export function unitLeftEnd(
 
 /**
  * The end item before `it` in its container that the editor shows (see
- * isShownEnd), or null.
+ * isShownEndIn), or null.
  */
 export function prevLiveEnd(
   view: View | null,

@@ -134,7 +134,7 @@ import {
 } from './State';
 import {$isHeldInline} from './Structure';
 import {type Segment, type TextEditLog, TextReplay} from './TextEdits';
-import {currentView, type View} from './Unread';
+import {type View} from './Unread';
 
 /** storedTypeOf, in the document the write sees (see Unread). */
 const storedType = (view: View | null, y: YNode): string =>
@@ -484,7 +484,7 @@ export class Writer {
      * The binding's view (see View), read at each step, as the reader's
      * (see Reader#liveView).
      */
-    private readonly liveView: () => View | null = currentView,
+    private readonly liveView: () => View | null,
   ) {
     const editor = state.editor;
     this.wrapperFields = type => wrapperFieldsOf(editor, type);
@@ -2294,7 +2294,7 @@ export class Writer {
   /**
    * Set every unit's start formats (the formats in effect where it starts)
    * from the shared items as they are stored (a held insertion counts, a
-   * kept deletion does not, see isStored): deletes and inserts start from
+   * kept deletion does not, see isStoredIn): deletes and inserts start from
    * them, and a stale value would leave a format open or close one early. A
    * locally split unit still covered by a hold keeps its shown start until
    * release, with the stored start recorded separately (see Hidden#starts).
@@ -2335,7 +2335,7 @@ export class Writer {
 
   /**
    * After a line's own write, the start formats of the units after it, folded
-   * from the items as they are stored (see isStored).
+   * from the items as they are stored (see isStoredIn).
    */
   private $fixStartsAfter(u: Unit): void {
     let unit: Unit | undefined = u;
@@ -2873,7 +2873,7 @@ export class Writer {
       let k = 0;
       // Stored (a held insertion counts, a kept deletion does not) and
       // shown (the reverse): the halves of the held line show the shown
-      // lane, what they hand on is stored (see isStored).
+      // lane, what they hand on is stored (see isStoredIn).
       const stored = new Folder(
         current,
         this.view,
@@ -4923,7 +4923,7 @@ export class Writer {
   /**
    * The attributes of the marker unit `key` (a line's, or a part's of line
    * `whole` that holds lines, see $pushLine) ended with before this write,
-   * as they were then (see attrsBefore): for a part that had none, the
+   * as they were then (see attrsBeforeIn): for a part that had none, the
    * marker of the whole line. Null where neither had one.
    */
   private $markerBefore(key: NodeKey, whole: NodeKey): Attrs | null {
@@ -4951,7 +4951,7 @@ export class Writer {
 
   /**
    * The type and attributes the shared node of node `key` had before this
-   * write, as they were then (see attrsBefore), or null where it had none:
+   * write, as they were then (see attrsBeforeIn), or null where it had none:
    * read the first time this write gives the node new storage (see
    * $fillNode), from the one it had then.
    */
@@ -5511,7 +5511,7 @@ function keysAt(
 
 /**
  * The type and attributes shared node `y` had before transaction `tr` (see
- * attrsBefore), or null where `tr` made it.
+ * attrsBeforeIn), or null where `tr` made it.
  */
 function nodeBeforeTransaction(
   view: View | null,

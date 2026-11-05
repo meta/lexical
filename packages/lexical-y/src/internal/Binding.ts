@@ -173,7 +173,7 @@ import {
   wrappersFromAttrs,
 } from './Schema';
 import {
-  attrsBefore,
+  attrsBeforeIn,
   Folder,
   frontierOf,
   HeldDeletionError,
@@ -204,7 +204,7 @@ import {
   typeOf,
   type Unit,
 } from './State';
-import {emptyView, seenBy, type Unread} from './Unread';
+import {emptyView, type Unread, type View} from './Unread';
 import {
   NESTED_FALLBACK_WARNING,
   notesSince,
@@ -2128,46 +2128,40 @@ export class YBinding {
     // change of it. Runs on the element the change marks dirty: a stored
     // element inside wrappers (see $unstoredWrapperTextFields), or the
     // wrapper itself (its value is the one stored at its first atom).
-    // In this binding's view, as its other entry points (see guard): an
-    // update app code makes during another binding's work runs its
-    // transforms too.
+    // Its helpers read in this binding's view (see seer): an update app code
+    // makes during another binding's work runs its transforms too.
     const settleTextFields = (node: LexicalNode) =>
-      seenBy(this.seer, () =>
-        withPins(this._pins, () => {
-          const state = this.state;
-          const stored = state.yByKey.has(node.getKey());
-          if (
-            this._status !== 'active' ||
-            this.unread !== null ||
-            state.hidden !== null ||
-            !(
-              stored ||
-              ($isElementNode(node) && node.isInline() && $isWrapper(node))
-            ) ||
-            $hasUpdateTag(COLLABORATION_TAG)
-          ) {
-            return;
-          }
-          const editor = this._editor;
-          // The stored formats are looked up once per update (the document
-          // does not change during its transforms).
-          const memo = this.storedFormats;
-          if (memo.state !== editor._pendingEditorState) {
-            memo.state = editor._pendingEditorState;
-            memo.sequences = new Map();
-            memo.lines = new Map();
-          }
-          const fieldsOf = (type: string) => wrapperFieldsOf(editor, type);
-          // The wrappers around the stored element (see
-          // $unstoredWrapperTextFields), or the wrapper itself when its own
-          // text changed (a delete of the text directly in a link); its value
-          // is the one stored at its first atom before the update.
-          const found: (readonly [
-            ElementNode,
-            Attrs | null,
-            number,
-            string,
-          ])[] = stored
+      withPins(this._pins, () => {
+        const state = this.state;
+        const stored = state.yByKey.has(node.getKey());
+        if (
+          this._status !== 'active' ||
+          this.unread !== null ||
+          state.hidden !== null ||
+          !(
+            stored ||
+            ($isElementNode(node) && node.isInline() && $isWrapper(node))
+          ) ||
+          $hasUpdateTag(COLLABORATION_TAG)
+        ) {
+          return;
+        }
+        const editor = this._editor;
+        // The stored formats are looked up once per update (the document
+        // does not change during its transforms).
+        const memo = this.storedFormats;
+        if (memo.state !== editor._pendingEditorState) {
+          memo.state = editor._pendingEditorState;
+          memo.sequences = new Map();
+          memo.lines = new Map();
+        }
+        const fieldsOf = (type: string) => wrapperFieldsOf(editor, type);
+        // The wrappers around the stored element (see
+        // $unstoredWrapperTextFields), or the wrapper itself when its own
+        // text changed (a delete of the text directly in a link); its value
+        // is the one stored at its first atom before the update.
+        const found: (readonly [ElementNode, Attrs | null, number, string])[] =
+          stored
             ? $unstoredWrapperTextFields(
                 this.seer(),
                 state,
@@ -2196,43 +2190,42 @@ export class YBinding {
                   ] as const,
                 ]
               : [];
-          if (found.length === 0) {
-            return;
-          }
-          // Only a wrapper this update left without text, with the text fields
-          // it had before the update: ones this update set (on a wrapper
-          // without text, or in a transform) are stored by the write.
-          const stale = editor.read('latest', () =>
-            found.flatMap(([wrapper, json, format, style]) => {
-              const was = $getNodeByKey(wrapper.getKey());
-              if (
-                !$isElementNode(was) ||
-                was.shouldSerializeTextStyles() ||
-                was.getTextFormat() !== format ||
-                was.getTextStyle() !== style
-              ) {
-                return [];
-              }
-              if (json !== null) {
-                return [[wrapper, json] as const];
-              }
-              const value = this.$storedWrapperValue(was, memo.lines);
-              return value === null ? [] : [[wrapper, value] as const];
-            }),
-          );
-          for (const [wrapper, json] of stale) {
-            const {textFormat, textStyle} = json;
+        if (found.length === 0) {
+          return;
+        }
+        // Only a wrapper this update left without text, with the text fields
+        // it had before the update: ones this update set (on a wrapper
+        // without text, or in a transform) are stored by the write.
+        const stale = editor.read('latest', () =>
+          found.flatMap(([wrapper, json, format, style]) => {
+            const was = $getNodeByKey(wrapper.getKey());
             if (
-              wrapper.getTextFormat() !==
-                (typeof textFormat === 'number' ? textFormat : 0) ||
-              wrapper.getTextStyle() !==
-                (typeof textStyle === 'string' ? textStyle : '')
+              !$isElementNode(was) ||
+              was.shouldSerializeTextStyles() ||
+              was.getTextFormat() !== format ||
+              was.getTextStyle() !== style
             ) {
-              $setTextFields(wrapper, json);
+              return [];
             }
+            if (json !== null) {
+              return [[wrapper, json] as const];
+            }
+            const value = this.$storedWrapperValue(was, memo.lines);
+            return value === null ? [] : [[wrapper, value] as const];
+          }),
+        );
+        for (const [wrapper, json] of stale) {
+          const {textFormat, textStyle} = json;
+          if (
+            wrapper.getTextFormat() !==
+              (typeof textFormat === 'number' ? textFormat : 0) ||
+            wrapper.getTextStyle() !==
+              (typeof textStyle === 'string' ? textStyle : '')
+          ) {
+            $setTextFields(wrapper, json);
           }
-        }),
-      );
+        }
+      });
     for (const {klass} of this._editor._nodes.values()) {
       if (klass.prototype instanceof ElementNode) {
         this.disposers.push(
@@ -3670,9 +3663,7 @@ export class YBinding {
   private guard<T>(fn: () => T): T {
     this.busy++;
     try {
-      // On the document as this binding's editor shows it (see unread),
-      // whatever another binding of the document shows.
-      return seenBy(this.seer, fn);
+      return fn();
     } finally {
       this.busy--;
       this.flushWarnings();
@@ -3876,7 +3867,7 @@ export class YBinding {
     }
     if (kept !== null) {
       $restoreSelectionState(this.state, kept, json =>
-        this.$resolvePosition(json),
+        this.$resolvePosition(json, this.seer()),
       );
     }
     this.$quietSelection();
@@ -4464,7 +4455,9 @@ export class YBinding {
     reader.composedAt = this.$composedCharacter(cursor);
     reader.change = tr;
     reader.attrsBefore = (y, keys) => {
-      const before = attrsBefore(y, tr);
+      // In the binding's view: the reader asks inside the read, where the
+      // view is the binding's (see seer).
+      const before = attrsBeforeIn(this.seer(), y, tr);
       return new Map([...keys].map(key => [key, before[key]]));
     };
     // A container that still shows a follow-up's change the binding did not
@@ -4857,11 +4850,12 @@ export class YBinding {
           this.readsNow++;
           try {
             // Nested, Lexical runs this once the work that queued it has
-            // returned (see guard): on this binding's view still, which
-            // hides the changes still deferred (see deferChange), and in
-            // which the deleted format items a composition's hold keeps
-            // read as live (or a kept opener reads without its kept end).
-            seenBy(this.seer, () => read.$read());
+            // returned (see guard). The read's helpers take this binding's
+            // view (see seer), which hides the changes still deferred (see
+            // deferChange), and in which the deleted format items a
+            // composition's hold keeps read as live (or a kept opener reads
+            // without its kept end).
+            read.$read();
             this.markReadEnd();
           } catch (error) {
             failure = {error};
@@ -8725,14 +8719,14 @@ export class YBinding {
    */
   private takeCursor(): YCursor | null {
     if (this.unread === null) {
-      // On the document as this binding's editor shows it (see guard).
-      return seenBy(this.seer, () => this.readCursor());
+      // On the document as this binding's editor shows it (see seer).
+      return this.readCursor();
     }
     const doc = this._doc;
     const state = this._editor.getEditorState();
     const take = (tr: Transaction) => {
       this.splitAtUnread(tr);
-      const cursor = seenBy(this.seer, () => this.readCursor());
+      const cursor = this.readCursor();
       this.takenCursor = {cursor, state};
       return cursor;
     };
@@ -8747,7 +8741,7 @@ export class YBinding {
       const taken = this.takenCursor;
       return taken !== null && taken.state === state
         ? taken.cursor
-        : seenBy(this.seer, () => this.readCursor());
+        : this.readCursor();
     }
     let cursor: YCursor | null = null;
     this.takingCursor = true;
@@ -8948,8 +8942,8 @@ export class YBinding {
   $resolveCursor(
     cursor: YCursor,
   ): {anchor: PointType; focus: PointType} | null {
-    const anchor = this.$resolvePosition(cursor.anchor);
-    const focus = this.$resolvePosition(cursor.focus);
+    const anchor = this.$resolvePosition(cursor.anchor, this.seer());
+    const focus = this.$resolvePosition(cursor.focus, this.seer());
     if (anchor === null || focus === null) {
       return null;
     }
@@ -8996,8 +8990,8 @@ export class YBinding {
       return;
     }
     let selection: RangeSelection | null = current;
-    let anchor = this.$resolvePosition(cursor.anchor);
-    let focus = this.$resolvePosition(cursor.focus);
+    let anchor = this.$resolvePosition(cursor.anchor, this.seer());
+    let focus = this.$resolvePosition(cursor.focus, this.seer());
     if (
       this.unread !== null &&
       !($isShownPoint(anchor) && $isShownPoint(focus))
@@ -9011,13 +9005,8 @@ export class YBinding {
       if ($getSelection() !== null) {
         return;
       }
-      [anchor, focus] = seenBy(
-        () => null,
-        () => [
-          this.$resolvePosition(cursor.anchor),
-          this.$resolvePosition(cursor.focus),
-        ],
-      );
+      anchor = this.$resolvePosition(cursor.anchor, null);
+      focus = this.$resolvePosition(cursor.focus, null);
       selection = null;
     }
     const widens =
@@ -9467,6 +9456,7 @@ export class YBinding {
 
   private $resolvePosition(
     json: unknown,
+    view: View | null,
   ): {key: NodeKey; offset: number; type: 'text' | 'element'} | null {
     const rel = createRelativePositionFromJSON(json);
     if (rel.item === null) {
@@ -9497,7 +9487,7 @@ export class YBinding {
     }
     let item: Item | null = found;
     const hidden = this.state.hidden;
-    const marked = isShownEndIn(this.seer(), found, hidden)
+    const marked = isShownEndIn(view, found, hidden)
       ? this.state.unitByEnd.get(found)
       : undefined;
     if (
@@ -9507,7 +9497,7 @@ export class YBinding {
     ) {
       // Captured in an empty line (see emptyLinePositions): the start of
       // that line, before what was typed into it since.
-      const left = prevLiveEnd(this.seer(), found, hidden);
+      const left = prevLiveEnd(view, found, hidden);
       item = left === null ? (found.parent as YNode)._start : left.right;
       diff = 0;
     } else if (rel.assoc < 0) {
@@ -9527,7 +9517,7 @@ export class YBinding {
         diff = 0;
       }
     }
-    while (item !== null && shownLengthIn(this.seer(), item, hidden) === 0) {
+    while (item !== null && shownLengthIn(view, item, hidden) === 0) {
       item = item.right;
       diff = 0;
     }
@@ -9540,7 +9530,7 @@ export class YBinding {
           ? null
           : implicitUnitAt(cs, undefined);
       if (implicit !== null) {
-        const left = prevLiveEnd(this.seer(), found, hidden);
+        const left = prevLiveEnd(view, found, hidden);
         return this.$pointInLine(
           implicit.key!,
           left === null ? (found.parent as YNode)._start : left.right,
@@ -9556,7 +9546,7 @@ export class YBinding {
     }
     // Walk to the unit end; count atoms from the unit start.
     let end: Item | null = item;
-    while (end !== null && !isShownEndIn(this.seer(), end, hidden)) {
+    while (end !== null && !isShownEndIn(view, end, hidden)) {
       end = end.right;
     }
     const parentY = item.parent as YNode;
@@ -9567,8 +9557,8 @@ export class YBinding {
       ownerKey = unit.key;
       const left =
         unit.end === end
-          ? unitLeftEnd(this.seer(), unit.cs.units, unit, hidden)
-          : prevLiveEnd(this.seer(), end, hidden);
+          ? unitLeftEnd(view, unit.cs.units, unit, hidden)
+          : prevLiveEnd(view, end, hidden);
       start = left === null ? parentY._start : left.right;
     } else {
       const cs = this.state.containers.get(parentY);
@@ -9580,8 +9570,8 @@ export class YBinding {
       if (implicit !== null) {
         const left =
           end === null
-            ? prevLiveEnd(this.seer(), item, hidden)
-            : prevLiveEnd(this.seer(), end, hidden);
+            ? prevLiveEnd(view, item, hidden)
+            : prevLiveEnd(view, end, hidden);
         return this.$pointInLine(
           implicit.key!,
           left === null ? parentY._start : left.right,
@@ -9602,7 +9592,7 @@ export class YBinding {
     }
     let offset = 0;
     for (let it = start; it !== null && it !== item; it = it.right) {
-      offset += shownLengthIn(this.seer(), it, hidden);
+      offset += shownLengthIn(view, it, hidden);
     }
     offset +=
       item === end

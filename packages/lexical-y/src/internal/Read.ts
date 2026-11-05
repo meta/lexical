@@ -48,7 +48,6 @@ import {groupKeySig, groupSig} from './Groups';
 import {Hidden} from './Hidden';
 import {
   attrsOf,
-  checkHeld,
   covered as coveredKey,
   endsOf,
   endTarget,
@@ -61,7 +60,6 @@ import {
   itemAtId,
   repairPendingCopies,
   stepFormat,
-  withHeldView,
 } from './Ident';
 import {
   $foreignFlatKeys,
@@ -148,7 +146,7 @@ import {
   type Unit,
   type UnitKind,
 } from './State';
-import {currentView, type View} from './Unread';
+import {type View} from './Unread';
 
 // Reader: Yjs to the editor. It reads whole containers ($readFull) and the
 // changes of remote transactions ($apply) into Lexical nodes, reusing the
@@ -317,8 +315,6 @@ function parseRange(
 }
 
 /** Whether UTF-16 code unit `c` is the second half of a surrogate pair. */
-const __DEV__ = process.env.NODE_ENV !== 'production';
-
 const isLowSurrogate = (c: number): boolean => c >= 0xdc00 && c <= 0xdfff;
 
 /** Whether `it` is a format item of `key`. */
@@ -415,7 +411,7 @@ export class Reader {
      * The binding's view (see View), read at each step: a read can start or
      * end a composition's hold, and so change the view, while it runs.
      */
-    private readonly liveView: () => View | null = currentView,
+    private readonly liveView: () => View | null,
   ) {
     this.settler = new BlockIdSettler(state, liveView);
     const editor = state.editor;
@@ -1629,7 +1625,7 @@ export class Reader {
     );
     const left = prevLiveEnd(this.view, u.end, hidden);
     const first = left === null ? u.cs.y._start : left.right;
-    // The line being composed reads as it shows (see withHeldView); every
+    // The line being composed reads as it shows (see Reader#held); every
     // other line, and what this one hands on (below), as stored.
     this.$setChildren(
       line,
@@ -2688,9 +2684,6 @@ export class Reader {
     // As the editor shows it: without what is held back (see Hidden).
     const hidden = this.state.hidden;
     const fold: FoldIn = {held: this.held, view: this.view};
-    if (__DEV__) {
-      checkHeld(fold.held);
-    }
     for (let it = start; it !== null && it !== stop; it = it.right) {
       if (!isShownIn(this.view, it, hidden)) {
         continue;
@@ -2895,7 +2888,7 @@ export class Reader {
    */
   /**
    * $readInline for line `key`: the line being composed reads as it shows
-   * (see withHeldView), every other line as stored.
+   * (see Reader#held), every other line as stored.
    */
   private $readInlineAs(
     key: NodeKey | null,
@@ -2906,7 +2899,7 @@ export class Reader {
     const was = this.held;
     this.held = held;
     try {
-      return withHeldView(held, () => this.$readInline(...args));
+      return this.$readInline(...args);
     } finally {
       this.held = was;
     }
@@ -2915,7 +2908,7 @@ export class Reader {
   /**
    * Whether line `key` is the line being composed, or a line a local split
    * of it made while composing (see Hidden#starts): it shows the held view
-   * (see withHeldView).
+   * (see Reader#held).
    */
   private showsHeld(key: NodeKey | null): boolean {
     const hidden = this.state.hidden;
@@ -4358,9 +4351,6 @@ function attrsAtItems(
   memo?: StoredFormatsMemo,
   held: State | null = null,
 ): Map<Item, Attrs> {
-  if (__DEV__) {
-    checkHeld(heldView);
-  }
   const bySequence = new Map<unknown, Set<Item>>();
   for (const item of items) {
     let set = bySequence.get(item.parent);
@@ -4421,7 +4411,7 @@ function attrsAtItems(
   }
   // In the line or inline container being composed (and the halves a
   // local split of the line made), the formats it shows (see
-  // Ident.withHeldView): from its shown start (an inline container starts
+  // Reader#held): from its shown start (an inline container starts
   // with none).
   const hidden = held === null ? null : held.hidden;
   if (held !== null && hidden !== null) {

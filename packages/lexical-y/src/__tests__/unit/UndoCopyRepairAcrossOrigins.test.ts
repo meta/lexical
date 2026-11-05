@@ -19,7 +19,7 @@ import * as Y from '@y/y';
 import {expect, test} from 'vitest';
 
 import {createYDoc} from '../..';
-import {isValidEnd} from '../../internal/Ident';
+import {isValidEnd, STORED_FOLD} from '../../internal/Ident';
 import {writeLayout3Formats} from '../../internal/Layout3';
 
 function root(d: Y.Doc): Y.Node {
@@ -86,7 +86,7 @@ for (const gc of [false, true]) {
     expect(um.canUndo()).toBe(true);
     um.undo();
     const loaded = createYDoc(Y.encodeStateAsUpdate(d), {gc});
-    expect(isValidEnd(end(loaded))).toBe(true);
+    expect(isValidEnd(end(loaded), STORED_FOLD)).toBe(true);
   });
 
   test(`an undo run inside an incoming update's beforeTransaction restores a valid end (gc ${gc})`, () => {
@@ -108,7 +108,7 @@ for (const gc of [false, true]) {
     d.on('beforeTransaction', before);
     Y.applyUpdate(d, activity(), 'remote');
     const loaded = createYDoc(Y.encodeStateAsUpdate(d), {gc});
-    expect(isValidEnd(end(loaded))).toBe(true);
+    expect(isValidEnd(end(loaded), STORED_FOLD)).toBe(true);
   });
 
   test(`an undo of a tracked remote deletion of a loaded end restores a valid end (gc ${gc})`, () => {
@@ -126,8 +126,8 @@ for (const gc of [false, true]) {
     um.undo();
     const copied = end(d);
     const loaded = createYDoc(Y.encodeStateAsUpdate(d), {gc});
-    expect(isValidEnd(copied)).toBe(true);
-    expect(isValidEnd(end(loaded))).toBe(true);
+    expect(isValidEnd(copied, STORED_FOLD)).toBe(true);
+    expect(isValidEnd(end(loaded), STORED_FOLD)).toBe(true);
     um.destroy();
     s.destroy();
     d.destroy();
@@ -155,7 +155,7 @@ for (const gc of [false, true]) {
         }
       }, 'outer');
       const loaded = createYDoc(Y.encodeStateAsUpdate(d), {gc});
-      expect(isValidEnd(end(loaded))).toBe(true);
+      expect(isValidEnd(end(loaded), STORED_FOLD)).toBe(true);
       um.destroy();
       s.destroy();
       d.destroy();

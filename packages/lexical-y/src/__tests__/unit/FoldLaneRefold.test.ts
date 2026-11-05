@@ -20,10 +20,10 @@ import * as Y from '@y/y';
 import {expect, test} from 'vitest';
 
 import {Hidden} from '../../internal/Hidden';
-import {stepFormat, withHeldView} from '../../internal/Ident';
+import {stepFormat} from '../../internal/Ident';
 import {writeLayout3Formats} from '../../internal/Layout3';
 import {type FoldLane, frontierOf, noteFolded} from '../../internal/Seen';
-import {currentView, emptyView, seenBy} from '../../internal/Unread';
+import {emptyView, type View} from '../../internal/Unread';
 
 const SEEDS = Number(process.env.FL_SEEDS ?? 200);
 
@@ -42,12 +42,13 @@ function rng(seed: number) {
   };
 }
 
-/** A fold of `lane` from scratch, up to and with `to`. */
+/** A fold of `lane` from scratch in `view`, up to and with `to`. */
 function foldFresh(
   root: Y.Node,
   to: Y.Item,
   lane: FoldLane,
   hidden: Hidden,
+  view: View,
 ): Map<string, unknown> {
   const out = new Map<string, unknown>();
   for (let it = root._start; it !== null; it = it.right as Y.Item | null) {
@@ -60,11 +61,8 @@ function foldFresh(
             ? !it.deleted
             : (!it.deleted || kept) && !hidden.hides(it);
       if (counts) {
-        if (lane === 'shown') {
-          withHeldView(hidden, () => stepFormat(out, it));
-        } else {
-          stepFormat(out, it);
-        }
+        // In the shown lane, the hold's held ends pair nothing.
+        stepFormat(out, it, {held: lane === 'shown' ? hidden : null, view});
       }
     }
     if (it === to) {
@@ -142,28 +140,23 @@ for (let seed = 1; seed <= SEEDS; seed++) {
     const to = items[items.length - 1];
     const left = items.length > 1 ? items[r.int(0, items.length - 2)] : null;
     const view = emptyView(root, it => hidden.keeps(it));
-    seenBy(
-      () => view,
-      () => {
-        for (const lane of ['raw', 'stored', 'shown'] as FoldLane[]) {
-          const start = foldFresh(root, to, lane, hidden);
-          noteFolded(start, to, lane, hidden);
-          const copy = new Map(start);
-          noteFolded(copy, to, lane, hidden);
-          // The fold point goes stale: deleted.
-          doc.transact(tr => {
-            if (!to.deleted) {
-              to.delete(tr);
-            }
-          });
-          const frontier = frontierOf(currentView(), copy, left, root, null);
-          expect(frontier).toBeNull();
-          const fresh =
-            left === null ? new Map() : foldFresh(root, left, lane, hidden);
-          expect(`${lane} ${show(copy)}`).toBe(`${lane} ${show(fresh)}`);
+    for (const lane of ['raw', 'stored', 'shown'] as FoldLane[]) {
+      const start = foldFresh(root, to, lane, hidden, view);
+      noteFolded(start, to, lane, hidden);
+      const copy = new Map(start);
+      noteFolded(copy, to, lane, hidden);
+      // The fold point goes stale: deleted.
+      doc.transact(tr => {
+        if (!to.deleted) {
+          to.delete(tr);
         }
-      },
-    );
+      });
+      const frontier = frontierOf(view, copy, left, root, null);
+      expect(frontier).toBeNull();
+      const fresh =
+        left === null ? new Map() : foldFresh(root, left, lane, hidden, view);
+      expect(`${lane} ${show(copy)}`).toBe(`${lane} ${show(fresh)}`);
+    }
     hidden.releaseKeeps();
     doc.destroy();
   });

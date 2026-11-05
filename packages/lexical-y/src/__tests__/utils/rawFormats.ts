@@ -23,7 +23,12 @@ import {
   type LexicalNode,
 } from 'lexical';
 
-import {covered, isShadowKey, stepFormat} from '../../internal/Ident';
+import {
+  covered,
+  isShadowKey,
+  stepFormat,
+  STORED_FOLD,
+} from '../../internal/Ident';
 import {readLayout3Formats} from '../../internal/Layout3';
 import {flush, Peer} from './harness';
 
@@ -190,7 +195,7 @@ export function coreRead(root: Y.Node): Record<string, unknown>[] {
       continue;
     }
     if (it.content instanceof Y.ContentFormat) {
-      stepFormat(formats, it);
+      stepFormat(formats, it, STORED_FOLD);
     } else if (it.countable) {
       const unit = Object.fromEntries(
         [...formats].filter(([k]) => covered(k) && !isShadowKey(k)),

@@ -12,7 +12,12 @@ import * as Y from '@y/y';
 import {describe, expect, test} from 'vitest';
 
 import {Cursor} from '../../internal/Cursor';
-import {isNullRunValue, isShadowKey, stepFormat} from '../../internal/Ident';
+import {
+  isNullRunValue,
+  isShadowKey,
+  stepFormat,
+  STORED_FOLD,
+} from '../../internal/Ident';
 
 // The binding's write cursor reimplements Yjs' text-position operations on
 // items (Yjs exports no way to start them from a known item). It must stay
@@ -114,7 +119,7 @@ function shownChars(doc: Y.Doc, paired: boolean): string[] {
     }
     if (it.content instanceof Y.ContentFormat) {
       if (paired) {
-        stepFormat(formats, it);
+        stepFormat(formats, it, STORED_FOLD);
       } else if (it.content.value === null) {
         formats.delete(it.content.key);
       } else {

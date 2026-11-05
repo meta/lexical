@@ -32,7 +32,12 @@ import {
 import {$assertNodeType} from 'lexical/src/__tests__/utils';
 import {describe, expect, test} from 'vitest';
 
-import {isNullRunValue, isShadowKey, stepFormat} from '../../internal/Ident';
+import {
+  isNullRunValue,
+  isShadowKey,
+  stepFormat,
+  STORED_FOLD,
+} from '../../internal/Ident';
 import {
   $block,
   expectConverged,
@@ -175,7 +180,7 @@ function stored(peer: Peer, onAll = true): string[] {
       continue;
     }
     if (it.content instanceof Y.ContentFormat) {
-      stepFormat(formats, it);
+      stepFormat(formats, it, STORED_FOLD);
     } else if (onAll || it.content instanceof Y.ContentString) {
       for (const [k, v] of formats) {
         if (!isShadowKey(k) && v !== null && !isNullRunValue(v)) {

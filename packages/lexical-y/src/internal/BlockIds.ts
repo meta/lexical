@@ -40,7 +40,7 @@ import {
 import {isShownEndIn, shownAttrs} from './Seen';
 import {$inNamedSlot} from './Slots';
 import {type CS, type State, typeOf, type Unit, type UnitKind} from './State';
-import {currentView, type View} from './Unread';
+import {type View} from './Unread';
 
 // Block ids (BlockIdExtension's), as the binding reads them: the grammar of
 // derived ids, the index of which blocks store which id, and the settlement
@@ -493,7 +493,7 @@ export class BlockIdSettler {
   constructor(
     readonly state: State,
     /** The binding's view, read at each step (see Reader#liveView). */
-    private readonly liveView: () => View | null = currentView,
+    private readonly liveView: () => View | null,
   ) {}
 
   /**
@@ -1686,7 +1686,8 @@ export function $unsettledAfterWrite(
     return null;
   }
   const touched = new Set(state.ids.touchedIds);
-  const settler = new BlockIdSettler(state);
+  // Yjs as it is: no binding's view applies where the check runs.
+  const settler = new BlockIdSettler(state, () => null);
   const unsettled = new Set(settler.$unsettled(changed));
   // Holders the check found removed (see BlockIdSettler#$storers).
   for (const id of state.ids.touchedIds) {

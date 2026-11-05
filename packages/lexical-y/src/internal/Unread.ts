@@ -36,26 +36,19 @@ import {
  *
  * A binding sees the document this way from the moment Yjs starts applying
  * a change until the binding has read it (see YBinding#noteChange), in all
- * its work (see seenBy): the writes and the selections it takes in between
+ * its work (the view it passes, see View): the writes and the selections it takes in between
  * are its editor's, which shows none of the changes it has not read, its
  * own writes excepted. Another binding of the document sees it as its own
  * editor shows it, and only items under a binding's root are seen through
  * its view.
  *
  * The helpers that read or write the document as a binding's editor shows it
- * (see Seen) take that view as a parameter (View): the binding hands its own
- * to its readers, writers and walks (`YBinding#seer`, read at each step, see
- * Reader#liveView). The running work's view (seenBy, currentView) still
- * supplies it where a caller is not explicit yet: the ambient Seen wrappers
- * (isGone and the others), a fold's default (Ident.ambientFold, and the
- * hold a read of the line being composed sets, Ident.withHeldView), and the
- * Reader, Writer and BlockIdSettler defaults (`liveView = currentView`).
- * Reader and Folder still take the running work's hold too
- * (`ambientFold().held`), so removing it needs an explicit fold and hold as
- * well as an explicit view. In development builds, the check compares views
- * when a helper scopes one for the items it reads (scopedView); the helpers'
- * shortcuts skip it (shownLengthIn of a noncountable item, isShownEndIn of an
- * item that is no end, frontierOf without a note, inLane's raw lane).
+ * (see Seen) take that view as a parameter (View), and a fold the view and
+ * the hold it reads in (Ident.FoldIn): the binding hands its own to its
+ * readers, writers and walks (`YBinding#seer`, read at each step, see
+ * Reader#liveView), the Reader the hold of the line being composed
+ * (Reader#held). There is no running work's view: a second binding of the
+ * same document passes its own.
  */
 
 /**
@@ -69,7 +62,7 @@ export interface Unread {
   readonly root: YNode;
   /** What the changes deleted that the writes since deleted too. */
   readonly removed: IdSet;
-  /** Whether each type is under the root (see viewOf). */
+  /** Whether each type is under the root (see viewFor). */
   readonly under: Map<YNode, boolean>;
   /**
    * Whether a deleted item is one the editor still shows: a format item a
@@ -97,19 +90,6 @@ export interface Unread {
  */
 export type View = Unread;
 
-/** The view of the binding whose work is running (see seenBy). */
-let seer: (() => Unread | null) | null = null;
-
-/**
- * The view the running work runs on (see seenBy): what an explicit view is
- * checked against while the helpers move to explicit views (scopedView).
- */
-export function currentView(): View | null {
-  return seer === null ? null : seer();
-}
-
-const __DEV__ = process.env.NODE_ENV !== 'production';
-
 /** viewFor, and none for a hold's view that keeps nothing (see lapsed). */
 function liveViewFor(view: View | null, type: YNode): View | null {
   const scoped = viewFor(view, type);
@@ -120,21 +100,10 @@ function liveViewFor(view: View | null, type: YNode): View | null {
 
 /**
  * The part of `view` that applies to the items of `type` (see viewFor), as
- * the helpers that read or write them use it (see Seen). Development
- * builds check it against the part of the running work's view that applies
- * there, while both exist: a transition aid while the helpers move to
- * explicit views, removed with the running work's view. (It sees only the
- * helpers that scope a view, and not the hold a fold steps in, see
- * Ident.FoldIn.)
+ * the helpers that read or write them use it (see Seen).
  */
 export function scopedView(view: View | null, type: YNode): View | null {
-  const scoped = liveViewFor(view, type);
-  if (__DEV__ && scoped !== liveViewFor(currentView(), type)) {
-    throw new Error(
-      "@lexical/y: an explicit view differs from the running work's",
-    );
-  }
-  return scoped;
+  return liveViewFor(view, type);
 }
 
 /** The document under `root` as it was before any change. */
@@ -173,30 +142,6 @@ export function deleted(view: Unread, item: Item): boolean {
     }
   }
   return false;
-}
-
-/**
- * Run `fn`, a binding's work, on the document as that binding's editor shows
- * it: `view()` is the changes it has not read yet, if any (it can change
- * while `fn` runs). Work of another binding nested in `fn` runs on that
- * binding's view.
- */
-export function seenBy<T>(view: () => Unread | null, fn: () => T): T {
-  const prev = seer;
-  seer = view;
-  try {
-    return fn();
-  } finally {
-    seer = prev;
-  }
-}
-
-/**
- * The view the running work sees the items of `type` in, if any (see Seen,
- * which answers what the running work sees through it).
- */
-export function viewOf(type: YNode): Unread | null {
-  return viewFor(currentView(), type);
 }
 
 /**

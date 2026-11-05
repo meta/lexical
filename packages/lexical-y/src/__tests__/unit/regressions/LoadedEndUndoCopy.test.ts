@@ -18,7 +18,7 @@ import {$getRoot, $setSelection} from 'lexical';
 import {expect, test} from 'vitest';
 
 import {createYDoc} from '../../..';
-import {isValidEnd} from '../../../internal/Ident';
+import {isValidEnd, STORED_FOLD} from '../../../internal/Ident';
 import {$p, $selectIn, setup} from '../../utils/harness';
 
 for (const gc of [false, true]) {
@@ -53,7 +53,7 @@ for (const gc of [false, true]) {
         }
       }
       expect(end).not.toBeNull();
-      expect(isValidEnd(end!)).toBe(true);
+      expect(isValidEnd(end!, STORED_FOLD)).toBe(true);
       // A local, tracked transaction deletes the end alone; its undo
       // restores it as a copy at a new clock, its opener untouched.
       const um = new Y.UndoManager(doc as never, {
@@ -72,7 +72,7 @@ for (const gc of [false, true]) {
       }
       expect(copy).not.toBeNull();
       expect(copy).not.toBe(end);
-      expect(isValidEnd(copy!)).toBe(true);
+      expect(isValidEnd(copy!, STORED_FOLD)).toBe(true);
       um.destroy();
       doc.destroy();
     });

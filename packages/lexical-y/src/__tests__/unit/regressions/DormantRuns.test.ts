@@ -17,7 +17,12 @@
 import * as Y from '@y/y';
 import {expect, test} from 'vitest';
 
-import {equalStacks, isOnStack, stepFormat} from '../../../internal/Ident';
+import {
+  equalStacks,
+  isOnStack,
+  stepFormat,
+  STORED_FOLD,
+} from '../../../internal/Ident';
 
 function fold(container: Y.Node): Map<string, unknown> {
   const formats = new Map<string, unknown>();
@@ -27,7 +32,7 @@ function fold(container: Y.Node): Map<string, unknown> {
     it = it.right as Y.Item | null
   ) {
     if (!it.deleted && it.content instanceof Y.ContentFormat) {
-      stepFormat(formats, it);
+      stepFormat(formats, it, STORED_FOLD);
     }
   }
   return formats;

@@ -18,7 +18,12 @@ import {$getRoot, $isTextNode, $setSelection} from 'lexical';
 import {expect, test} from 'vitest';
 
 import {Cursor} from '../../internal/Cursor';
-import {covered, isShadowKey, stepFormat} from '../../internal/Ident';
+import {
+  covered,
+  isShadowKey,
+  stepFormat,
+  STORED_FOLD,
+} from '../../internal/Ident';
 import {
   isCoveredKey,
   readLayout3Formats,
@@ -33,7 +38,7 @@ function coreRead(root: Y.Node) {
   const out: Record<string, unknown>[] = [];
   for (let it = root._start; it; it = it.right) {
     if (it.deleted) continue;
-    if (it.content instanceof Y.ContentFormat) stepFormat(m, it);
+    if (it.content instanceof Y.ContentFormat) stepFormat(m, it, STORED_FOLD);
     else if (it.countable) {
       const v = Object.fromEntries(
         [...m].filter(([k]) => covered(k) && !isShadowKey(k)),
