@@ -43,12 +43,10 @@ import {
 // exposes the binding's status as a signal.
 
 /**
- * @experimental What an app writes to configure {@link YCollabExtension}:
- * `doc` and `schemaVersion` are required, and every option that has a
- * default is optional, so a later release adds options without breaking
- * code typed with it. Type your config with this, not with
- * {@link YCollabConfig} (the extension's resolved configuration, which
- * names every option and grows with them).
+ * @experimental What an app writes to configure {@link YCollabExtension}
+ * through createYCollabConfig: `doc`, `layoutUpgrade` and `schemaVersion`
+ * are required, and every option that has a default is optional, so a later
+ * release adds options without breaking code typed with it.
  */
 export interface YCollabInput {
   /** See YCollabConfig.doc. */
@@ -76,10 +74,12 @@ export interface YCollabInput {
 }
 
 /**
- * @experimental The resolved configuration of {@link YCollabExtension}:
- * every option, defaults filled in. Later releases add options to it, so
- * write a config as {@link YCollabInput} (or a `Partial<YCollabConfig>`)
- * rather than spelling out a whole YCollabConfig.
+ * @experimental The configuration of {@link YCollabExtension} (what
+ * `configExtension` takes, partially, and what the extension reads). Its
+ * existing fields stay as they are, and every field a later release adds
+ * to it is optional, with its default resolved inside the extension: a
+ * complete YCollabConfig written today keeps compiling. New code configures
+ * the extension with createYCollabConfig and YCollabInput.
  */
 export interface YCollabConfig {
   /**

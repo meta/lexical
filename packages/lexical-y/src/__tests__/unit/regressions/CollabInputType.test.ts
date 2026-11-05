@@ -48,6 +48,34 @@ const everyOption: Record<keyof YCollabConfig, keyof YCollabInput> = {
   synced: 'synced',
 };
 
+// N7: YCollabConfig keeps the fields it had before this release, all
+// required; anything added to it is optional (its default resolved inside
+// the extension). A complete object written for the old type compiles.
+const configRequired: Record<RequiredKeys<YCollabConfig>, true> = {
+  captureTimeout: true,
+  clientIDRange: true,
+  convert: true,
+  doc: true,
+  root: true,
+  schemaVersion: true,
+  selfCheck: true,
+  selfCheckSample: true,
+  synced: true,
+};
+export function oldFullConfig(doc: YCollabInput['doc']): YCollabConfig {
+  return {
+    captureTimeout: 500,
+    clientIDRange: 'uint53',
+    convert: false,
+    doc,
+    root: null,
+    schemaVersion: 1,
+    selfCheck: null,
+    selfCheckSample: null,
+    synced: false,
+  };
+}
+
 export function invalidInputs(doc: YCollabInput['doc']): YCollabInput[] {
   return [
     // @ts-expect-error schemaVersion is required
@@ -66,6 +94,7 @@ test('a YCollabInput with only its required keys configures the extension; the i
     'schemaVersion',
   ]);
   expect(Object.keys(everyOption)).toHaveLength(10);
+  expect(Object.keys(configRequired)).toHaveLength(9);
   const input: YCollabInput = {
     doc: createYDoc(),
     layoutUpgrade: null,
@@ -79,4 +108,15 @@ test('a YCollabInput with only its required keys configures the extension; the i
   );
   expect(editor).toBeDefined();
   editor.dispose();
+  // The old complete config still configures the extension.
+  const old = buildEditorFromExtensions(
+    defineExtension({
+      dependencies: [
+        configExtension(YCollabExtension, oldFullConfig(createYDoc())),
+      ],
+      name: 'collab-old-full-config',
+    }),
+  );
+  expect(old).toBeDefined();
+  old.dispose();
 });

@@ -247,9 +247,9 @@ content with random values" in [Limits](#limits)).
 
 Configure the extension with `createYCollabConfig(input)`, whose input
 (`YCollabInput`) requires `doc`, `schemaVersion` and `layoutUpgrade`; every
-other option is optional, so options a later release adds never break it
-(`YCollabConfig` is the extension's resolved configuration, which names
-every option).
+other option is optional, so options a later release adds never break it.
+(`YCollabConfig`, what `configExtension(YCollabExtension, ...)` takes,
+keeps its fields; any field a later release adds to it is optional too.)
 
 | Option | Default | |
 | -- | -- | -- |

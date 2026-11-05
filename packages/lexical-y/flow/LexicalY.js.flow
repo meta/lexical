@@ -358,7 +358,9 @@ export type YCollabInput = {
   ...
 };
 
-// The extension's resolved configuration (grows with each option).
+// The extension's configuration (what configExtension takes, partially).
+// Its fields stay; a field a later release adds is optional, its default
+// resolved inside the extension, so a complete object keeps type-checking.
 export type YCollabConfig = {
   doc: YDoc | null,
   // The version of your editor's nodes: registered node classes, their
