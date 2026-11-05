@@ -885,7 +885,16 @@ person's:
   refresh of derived list fields (numbering), also on open. So the tag
   tells apart users' own edits, which a listener may act on, from
   everything else. (Lexical's update that runs a newly registered transform
-  over the document keeps Lexical's tags; it writes nothing.)
+  over the document keeps Lexical's tags; it writes nothing.) An edit an
+  app's code makes in the update of a remote change's read, after the read
+  (a `TextNode#selectionTransform`, an update queued behind the read), is
+  written as that client's change, out of the undo history, once per client
+  that reads the change; it runs under `COLLABORATION_TAG` too, so code can
+  skip it. It is written as made: the read's update runs no node transforms
+  (code appended to a code block there is not highlighted). A
+  `SELECTION_CHANGE_COMMAND` a read causes arrives after the read
+  has committed, in an untagged update of its own, whose edits are the
+  user's.
 - **Check what an edit names, then apply it to the current state.** An
   edit planned from an older read (a model's answer arrives seconds later)
   can be wrong once the document has changed, and merging it from that read
@@ -1283,7 +1292,9 @@ not merge as a user might expect:
   they can store shapes the binding handles less well; prefer updates that
   run transforms. A Lexical
   command used on such a shape before the normalization arrives can fail
-  (Shift+Enter in a list item that holds only a block decorator throws).
+  (Shift+Enter in a list item that holds only a block decorator throws). An edit an app's code makes in the update of a remote change's read
+  (see Skip remote changes in listeners that edit) is written as made, and
+  not normalized after: the read's update runs no node transforms.
 - **A line without a marker.** Text typed into the last block of a
   container while a collaborator removes that block is kept, as a line
   without its marker (shown as a paragraph). Other edits in that container
