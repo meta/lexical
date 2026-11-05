@@ -927,6 +927,52 @@ describe('a paragraph a change not read yet inserts between the lines a kept lin
   }
 });
 
+// A paragraph a change not read yet inserts before a line it formats, that
+// line moved: the lines written again go before the format, not inside it.
+describe('a paragraph inserted before a line a change not read yet formats, that line moved', () => {
+  for (const gc of GC) {
+    test(`gc ${gc}`, async () => {
+      const t = await setup(
+        () =>
+          $getRoot().append(
+            ...['aa', 'bb', 'cc'].map(text =>
+              $createParagraphNode().append($text(text)),
+            ),
+          ),
+        {gc, ids: [1, 2, 3]},
+      );
+      const {a, b} = t;
+      t.offline();
+      const seen = Y.encodeStateVector(b.doc);
+      b.update(() => {
+        const first = $getRoot().getFirstChildOrThrow();
+        first.insertBefore($createParagraphNode().append($text('new')));
+        $getRoot()
+          .getAllTextNodes()
+          .find(n => n.getTextContent() === 'aa')!
+          .setFormat('bold');
+        $setSelection(null);
+      });
+      const delta = Y.encodeStateAsUpdate(b.doc, seen);
+      a.update(() => {
+        Y.applyUpdate(a.doc, delta, 'provider');
+        // The editor does not show `new` yet: its first line is `aa`.
+        $getRoot().append($getRoot().getFirstChildOrThrow());
+      });
+      await t.sync();
+      const bold = a.read(() =>
+        $getRoot()
+          .getAllTextNodes()
+          .filter(n => n.hasFormat('bold'))
+          .map(n => n.getTextContent()),
+      );
+      expect(bold).toEqual(['aa']);
+      expect(a.describe()).toBe((await freshReader(a)).describe());
+      await expectConverged(t.peers);
+    });
+  }
+});
+
 // #9788: an app's edit in the update of a remote change's read (a selection
 // transform) is written as a local commit is, over the state the read made:
 // the same keep and the same refusal.

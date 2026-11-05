@@ -30,6 +30,7 @@ import {
   WRAPPER_PREFIX,
 } from './Schema';
 import {deletedBy, deleteItem, isGone, isUnreadInsert} from './Seen';
+import {isEndItem} from './State';
 
 /*
  * Anchored editing of a Y.Node's children.
@@ -552,7 +553,12 @@ export class Cursor {
       if (this.opensAhead(r, passed)) {
         break;
       }
-      passed = passed || this.passesUnseen(r);
+      // The end of a unit a change not read yet inserted closes that
+      // content: a format after it is at a boundary again.
+      passed =
+        isEndItem(r) && isUnreadInsert(r)
+          ? false
+          : passed || this.passesUnseen(r);
       if (isGone(r) || this.isHeldFormat(r)) {
         // a deleted item has no length, and a held format is not there:
         // step over it
@@ -747,7 +753,12 @@ export class Cursor {
       if (this.opensAhead(r, passed)) {
         break;
       }
-      passed = passed || this.passesUnseen(r);
+      // The end of a unit a change not read yet inserted closes that
+      // content: a format after it is at a boundary again.
+      passed =
+        isEndItem(r) && isUnreadInsert(r)
+          ? false
+          : passed || this.passesUnseen(r);
       if (!isGone(r) && !this.isHeldFormat(r)) {
         if (
           !isFormat(r) ||

@@ -2277,9 +2277,8 @@ export class Writer {
           let end: Item | null = it;
           let unit: Unit | undefined | null = null;
           while (end !== null && !state.unitByEnd.has(end) && !isNewEnd(end)) {
-            const at = unitAt.get(end);
-            if (at !== undefined) {
-              unit = at;
+            if (unitAt.has(end)) {
+              unit = unitAt.get(end);
               break;
             }
             passed.push(end);
