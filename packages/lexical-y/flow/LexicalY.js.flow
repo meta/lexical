@@ -219,6 +219,8 @@ export type YBindingOptions = {
   // only). Left out: read only, plus UNSUPPORTED_CONFIG_WARNING
   // 'missing-layout-upgrade' for such a document.
   layoutUpgrade?: YLayoutUpgradeHandle | null,
+  // Inexact: a later release may add options, each one optional.
+  ...
 };
 
 // What a migration records under `lexical-y-epoch` (inexact: readers keep
@@ -375,6 +377,8 @@ export type YCollabConfig = {
   selfCheckSample: number | null,
   convert: boolean,
   layoutUpgrade?: YLayoutUpgradeHandle | null,
+  // Inexact: a field a later release adds is optional (see above).
+  ...
 };
 
 declare export var YCollabExtension: LexicalExtension<

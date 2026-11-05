@@ -12,6 +12,7 @@
 
 import type {LexicalEditor} from 'lexical';
 import type {
+  YBindingOptions,
   YCollabConfig,
   YCollabInput,
   YDoc,
@@ -108,6 +109,41 @@ declare const inputWithExtra: {
 const extended: YCollabInput = inputWithExtra;
 declare const upgradeOptions: {readonly target: number, readonly laterOption: number};
 const extendedUpgrade = createYServerLayoutUpgrade(upgradeOptions);
+
+// F3: the binding options and the extension's configuration accept a field
+// a later release adds (every such field is optional), set through a
+// variable whose other fields have the same types.
+type B = YBindingOptions;
+declare const bindingOptionsWithExtra: {
+  schemaVersion: B['schemaVersion'],
+  root?: B['root'],
+  captureTimeout?: B['captureTimeout'],
+  onStatus?: B['onStatus'],
+  selfCheck?: B['selfCheck'],
+  selfCheckSample?: B['selfCheckSample'],
+  convert?: B['convert'],
+  clientIDRange?: B['clientIDRange'],
+  layoutUpgrade?: B['layoutUpgrade'],
+  laterOption: boolean,
+};
+const extendedBindingOptions: YBindingOptions = bindingOptionsWithExtra;
+type C = YCollabConfig;
+declare const configWithExtra: {
+  doc: C['doc'],
+  schemaVersion: C['schemaVersion'],
+  root: C['root'],
+  synced: C['synced'],
+  captureTimeout: C['captureTimeout'],
+  clientIDRange: C['clientIDRange'],
+  selfCheck: C['selfCheck'],
+  selfCheckSample: C['selfCheckSample'],
+  convert: C['convert'],
+  layoutUpgrade?: C['layoutUpgrade'],
+  laterOption: boolean,
+};
+const extendedConfig: YCollabConfig = configWithExtra;
+// An options literal with a later field, as a caller writes it.
+const literalOptions: YBindingOptions = {laterOption: true, schemaVersion: 1};
 
 // N3: the handle is opaque: only the factory makes one; its fields read.
 const realHandle: YLayoutUpgradeHandle = createYServerLayoutUpgrade();
