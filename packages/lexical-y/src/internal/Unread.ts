@@ -41,6 +41,21 @@ import {
  * own writes excepted. Another binding of the document sees it as its own
  * editor shows it, and only items under a binding's root are seen through
  * its view.
+ *
+ * The helpers that read or write the document as a binding's editor shows it
+ * (see Seen) take that view as a parameter (View): the binding hands its own
+ * to its readers, writers and walks (`YBinding#seer`, read at each step, see
+ * Reader#liveView). The running work's view (seenBy, currentView) still
+ * supplies it where a caller is not explicit yet: the ambient Seen wrappers
+ * (isGone and the others), a fold's default (Ident.ambientFold, and the
+ * hold a read of the line being composed sets, Ident.withHeldView), and the
+ * Reader, Writer and BlockIdSettler defaults (`liveView = currentView`).
+ * Reader and Folder still take the running work's hold too
+ * (`ambientFold().held`), so removing it needs an explicit fold and hold as
+ * well as an explicit view. In development builds, the check compares views
+ * when a helper scopes one for the items it reads (scopedView); the helpers'
+ * shortcuts skip it (shownLengthIn of a noncountable item, isShownEndIn of an
+ * item that is no end, frontierOf without a note, inLane's raw lane).
  */
 
 /**
