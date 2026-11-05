@@ -655,6 +655,17 @@ async function session(
    */
   const converge = async () => {
     await settle();
+    // A local change the binding refused because it would delete what a
+    // composition holds back (see Writer#$endangersHeld): the editor read
+    // the document again, so the peers must still converge; counted.
+    for (const p of t.peers) {
+      const refusal = (w: string) => w.includes(HELD_REFUSAL);
+      const n = p.warnings.filter(refusal).length;
+      if (n > 0) {
+        heldRefused += n;
+        p.warnings = p.warnings.filter(w => !refusal(w));
+      }
+    }
     try {
       await expectConverged(t.peers);
     } catch (error) {
@@ -1288,12 +1299,25 @@ async function run(
   shape: Shape = 'flat',
   plugins = false,
 ) {
+  heldRefused = 0;
   const {stats} = await session(seed, gc, replay, shape, plugins);
   if (process.env.CH_STATS) {
     // eslint-disable-next-line no-console
     console.log(`CHSTATS ${seed} ${gc} ${JSON.stringify(stats)}`);
+    if (heldRefused > 0) {
+      // eslint-disable-next-line no-console
+      console.log(`CHREFUSED ${seed} ${gc} ${heldRefused}`);
+    }
   }
 }
+
+/**
+ * The warning a local change refused for what a composition holds back
+ * carries (see Writer#$endangersHeld), and how many a session had.
+ */
+const HELD_REFUSAL =
+  'would delete or leave behind text a collaborator wrote in the line being composed';
+let heldRefused = 0;
 
 // Sessions that failed once (their recorded actions), run on every run:
 // - 558: the binding read the composed line again after A's own typing (a
@@ -1305,7 +1329,16 @@ async function run(
 //   in the hold's view: the next line showed it, the composed line handed on
 //   no such format, and A's next write warned `format s:markIds␟c1` and
 //   `format f:bold`.
-const FOUND: {seed: number; gc: boolean; ops: Op[]}[] = [
+// - 2435 (nested): A's Enter in an inline container in an inline container,
+//   while a hold keeps B's change of it back, takes a text node out of the
+//   container composed in: refused (the carry is exact only for the held
+//   text unchanged), the editor reads the document again and every peer
+//   holds the same content (main empties the container there). A's editor
+//   keeps the text format and style its line derives from its first text as
+//   it renders, which the stored line fields need not match, until A next
+//   writes the line (D111: a read writes no derived field); converge counts
+//   it in derivedStyle.
+const FOUND: {seed: number; gc: boolean; ops: Op[]; shape?: Shape}[] = [
   {
     gc: true,
     ops: [
@@ -1416,6 +1449,40 @@ const FOUND: {seed: number; gc: boolean; ops: Op[]}[] = [
     ],
     seed: 7799,
   },
+  {
+    gc: true,
+    ops: [
+      {k: 'fmt', range: [0, 6, 0, 6], value: 'c1', what: 'bold', who: 'B'},
+      {box: 'inner', k: 'del', key: 'f:bold', mode: 'key', pos: 5, who: 'C'},
+      {k: 'app undo', who: 'B'},
+      {k: 'fmt', range: [2, 6, 2, 11], value: 'red', what: 'color', who: 'B'},
+      {after: true, focusEnd: true, k: 'start', line: 1, off: 2},
+      {k: 'enter end'},
+      {k: 'sync'},
+      {k: 'online', on: false, who: 'B'},
+      {k: 'fmt', range: [1, 0, 1, 2], value: 'c1', what: 'bold', who: 'C'},
+      {at: 8, k: 'raw', n: 8, value: false, who: 'C'},
+      {k: 'fmt', range: [3, 0, 3, 2], value: 'c2', what: 'bold', who: 'B'},
+      {k: 'start', line: 0, off: 3},
+      {k: 'enter end'},
+      {focusEnd: true, k: 'start', line: 2, off: 0},
+      {k: 'undo', who: 'C'},
+      {k: 'undo', who: 'B'},
+      {k: 'fmt', range: [3, 9, 3, 11], value: 'c1', what: 'italic', who: 'B'},
+      {k: 'fmt', range: [1, 9, 2, 1], value: 'blue', what: 'color', who: 'C'},
+      {k: 'sync'},
+      {k: 'enter'},
+      {k: 'del', key: 'w:link', mode: 'one', pos: 18, who: 'B'},
+      {at: 16, k: 'raw', n: 12, value: true, who: 'B'},
+      {k: 'fmt', range: [1, 5, 1, 6], value: 'red', what: 'color', who: 'C'},
+      {k: 'fmt', range: [4, 3, 4, 5], value: 'c1', what: 'italic', who: 'B'},
+      {k: 'del', key: 'f:bold', mode: 'key', pos: 12, who: 'C'},
+      {k: 'end'},
+      {k: 'sync'},
+    ] as Op[],
+    seed: 2435,
+    shape: 'nested',
+  },
 ];
 
 if (process.env.CH_REPLAY_DIR) {
@@ -1456,9 +1523,9 @@ if (process.env.CH_REPLAY_DIR) {
     await run(seed, gc, ops, shape, plugins);
   });
 } else {
-  for (const {seed, gc, ops} of FOUND) {
+  for (const {seed, gc, ops, shape} of FOUND) {
     test(`composer's hold against remote formatting: found session ${seed} (gc ${gc})`, async () => {
-      await run(seed, gc, ops);
+      await run(seed, gc, ops, shape);
     });
   }
   for (const gc of GCS) {
