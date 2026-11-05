@@ -24,6 +24,7 @@ import {
 } from '@y/y';
 
 import {ambientFold, type FoldIn, stepFormat} from './Ident';
+import {owned} from './Owned';
 import {EMPTY_FORMATS, isEndItem, typeOf} from './State';
 import {
   currentView,
@@ -114,6 +115,128 @@ export function isGoneIn(view: View | null, item: Item): boolean {
 const notedIn = new WeakMap<Transaction, IdSet>();
 
 /**
+ * The shared nodes a running write must not delete or replace (see
+ * Writer#$run: those that hold what a composition holds back), or null.
+ */
+let protectedTypes: ReadonlySet<YNode> | null = null;
+/**
+ * Whether an item is one the hold keeps back (a collaborator's held
+ * insertion, text included), or null: no write deletes one (see
+ * guardDelete).
+ */
+let protectedItem: ((item: Item) => boolean) | null = null;
+/** Whether a protected delete is reported and made, not stopped. */
+let reportOnly = false;
+let skipProtected = false;
+
+/**
+ * Run `fn` (a write) with `types` protected: deleting one, or replacing a
+ * map value that is one, throws before it changes anything (see
+ * guardDelete), or, where `report` (a write that inserts characters, which
+ * is never stopped), is reported. The last line of defence behind
+ * Writer#$endangersHeld, which refuses such a write before it runs.
+ */
+export function withProtected<T>(
+  types: ReadonlySet<YNode> | null,
+  report: boolean | 'skip',
+  fn: () => T,
+  heldItem: ((item: Item) => boolean) | null = null,
+): T {
+  const before = protectedTypes;
+  const itemBefore = protectedItem;
+  const reportBefore = reportOnly;
+  const skipBefore = skipProtected;
+  protectedTypes = types;
+  protectedItem = heldItem;
+  reportOnly = report === true;
+  skipProtected = report === 'skip';
+  try {
+    return fn();
+  } finally {
+    skipProtected = skipBefore;
+    protectedTypes = before;
+    protectedItem = itemBefore;
+    reportOnly = reportBefore;
+  }
+}
+
+/** Throw where `item` (about to be deleted or replaced) is protected. */
+/**
+ * Whether `y` is a shared node the recovery of a stopped write leaves where
+ * it is (see withProtected's skip mode): never deleted, never written again
+ * elsewhere (a copy where the update moved it).
+ */
+export function skipsProtected(y: unknown): boolean {
+  return (
+    skipProtected &&
+    protectedTypes !== null &&
+    y instanceof YNode &&
+    protectedTypes.has(y)
+  );
+}
+
+function guardDelete(
+  item: Item | null | undefined,
+  canSkip: boolean = true,
+): boolean {
+  if (
+    protectedItem !== null &&
+    item != null &&
+    !item.deleted &&
+    item.parentSub === null &&
+    !(item.content instanceof ContentType) &&
+    protectedItem(item)
+  ) {
+    // An item the hold keeps back (a collaborator's held insertion, which
+    // the editor does not show) is never deleted: a write that would, and
+    // inserts no character, is stopped (and recovered, see Binding); one
+    // that inserts characters leaves it where it is stored, reported.
+    if (skipProtected) {
+      return true;
+    }
+    if (!reportOnly) {
+      throw new HeldDeletionError();
+    }
+    console.error(
+      '@lexical/y: a write would delete an item a composition holds back, which its check did not foresee; left where it is',
+    );
+    return true;
+  }
+  if (
+    protectedTypes !== null &&
+    item != null &&
+    !item.deleted &&
+    item.content instanceof ContentType &&
+    protectedTypes.has(item.content.type as YNode)
+  ) {
+    if (skipProtected && canSkip) {
+      // The recovery of a write the guard stopped part way: what the hold
+      // keeps stays where it is in storage, and the rest is written.
+      return true;
+    }
+    if (!reportOnly) {
+      throw new HeldDeletionError();
+    }
+    // An update that inserts characters is written as made (see
+    // $heldDecision): never stopped, so that no typed character is undone.
+    // That the preflight did not foresee this delete is a defect, reported.
+    console.error(
+      '@lexical/y: a write deleted a shared node holding content a composition holds back, which its check did not foresee',
+    );
+  }
+  return false;
+}
+
+/** A write would delete a shared node that holds held content. */
+export class HeldDeletionError extends Error {
+  constructor() {
+    super(
+      'a write would delete content a composition holds back (a shared node holding it)',
+    );
+  }
+}
+
+/**
  * Whether transaction `tr` deleted `item`, or noted it as deleted (an item
  * an unread change deleted, see deleteItem).
  */
@@ -141,6 +264,9 @@ export function deleteItemIn(
   item: Item,
   tr: Transaction,
 ): void {
+  if (guardDelete(item)) {
+    return;
+  }
   const scoped = scopedView(view, item.parent as YNode);
   deletions++;
   if (item.deleted) {
@@ -285,8 +411,11 @@ export function setAttrIn(
 ): void {
   const scoped = scopedView(view, y);
   const left = scoped === null ? null : attrItem(y, scoped, key);
+  // (A map value is replaced, never skipped: the new value would be left
+  // unattached, its content nowhere; stopped instead, see withProtected.)
+  guardDelete(scoped === null ? y._map.get(key) : left, false);
   if (scoped === null || left === (y._map.get(key) ?? null)) {
-    y.setAttr(key, value as never);
+    owned(tr.doc, () => y.setAttr(key, value as never));
     return;
   }
   // As Y.Node#setAttr, after the value the write sees.
@@ -297,7 +426,7 @@ export function setAttrIn(
       : value instanceof Uint8Array
         ? new ContentBinary(value)
         : new ContentAny([value]);
-  new Item(
+  const item = new Item(
     createID(doc.clientID, doc.store.getClock(doc.clientID)),
     left,
     left && left.lastId,
@@ -306,7 +435,8 @@ export function setAttrIn(
     y,
     key,
     content,
-  ).integrate(tr, 0);
+  );
+  owned(doc, () => item.integrate(tr, 0));
 }
 
 /** Delete attribute `key` of `y`: its value in the document seen. */
@@ -323,6 +453,7 @@ export function deleteAttrIn(
 ): void {
   const scoped = scopedView(view, y);
   if (scoped === null) {
+    guardDelete(y._map.get(key), false);
     y.deleteAttr(key);
     return;
   }

@@ -7,6 +7,7 @@
  */
 
 import type {Hidden} from './Hidden';
+import type {TextEditLog} from './TextEdits';
 
 import {
   type BlockIdExtension,
@@ -17,6 +18,7 @@ import invariant from '@lexical/internal/invariant';
 import {
   applyUpdate,
   ContentFormat,
+  ContentString,
   ContentType,
   createID,
   createRelativePositionFromJSON,
@@ -47,6 +49,8 @@ import {
   $getNodeByKey,
   $getRoot,
   $getSelection,
+  $getSlot,
+  $getSlotNames,
   $hasUpdateTag,
   $isElementNode,
   $isNodeSelection,
@@ -54,6 +58,7 @@ import {
   $isRootNode,
   $isTextNode,
   $onUpdate,
+  $removeSlot,
   $setCompositionKey,
   $setSelection,
   COLLABORATION_TAG,
@@ -103,6 +108,7 @@ import {
   markFormatCloser,
 } from './Cursor';
 import {$canonicalizeGroup, $switchesWrapper} from './Groups';
+import {$heldDecision} from './HoldGuard';
 import {
   attrsOf,
   covered,
@@ -131,6 +137,7 @@ import {
   type YRequirements,
 } from './Layouts';
 import {type YLayoutUpgradeHandle} from './LayoutUpgrade';
+import {collectOwned, isOwned, type OwnedRanges} from './Owned';
 import {
   markBindingWrite,
   noteRawWrite,
@@ -169,6 +176,7 @@ import {
   attrsBefore,
   Folder,
   frontierOf,
+  HeldDeletionError,
   isGoneIn,
   isShownEndIn,
   prevLiveEnd,
@@ -181,7 +189,12 @@ import {
   $followUpDifference,
   checkContainer,
 } from './SelfCheck';
-import {$unstorableSlotHosts, $wrapSlotShadowRootInline} from './Slots';
+import {
+  $readSlots,
+  $unstorableSlotHosts,
+  $wrapSlotShadowRootInline,
+  SLOT_PREFIX,
+} from './Slots';
 import {
   type CS,
   isEndItem,
@@ -1017,6 +1030,55 @@ class InitOrigin {
 }
 
 /**
+ * The roots the bindings of each document write in, with the bindings
+ * registered on each (see ownsUnderRoot): a binding is added when it is made
+ * and when it starts again, and removed, that instance only and once, when
+ * it stops.
+ */
+const boundRoots = new WeakMap<Doc, Map<YNode, Set<object>>>();
+
+function boundRootsOf(doc: Doc): Map<YNode, Set<object>> {
+  let roots = boundRoots.get(doc);
+  if (roots === undefined) {
+    roots = new Map();
+    boundRoots.set(doc, roots);
+  }
+  return roots;
+}
+
+/** Register `binding` as running on `root`; returns its removal (once). */
+function registerBoundRoot(doc: Doc, root: YNode, binding: object): () => void {
+  const roots = boundRootsOf(doc);
+  let on = roots.get(root);
+  if (on === undefined) {
+    on = new Set();
+    roots.set(root, on);
+  }
+  on.add(binding);
+  let removed = false;
+  return () => {
+    if (removed) {
+      return;
+    }
+    removed = true;
+    const now = roots.get(root);
+    if (now !== undefined) {
+      now.delete(binding);
+      if (now.size === 0) {
+        roots.delete(root);
+      }
+    }
+  };
+}
+
+/**
+ * Attempts at the recovery of a write that failed part way, inside its
+ * transaction (each from the state before the write, see Binding's
+ * $undoAttempt), before the recovery outside it takes over.
+ */
+export const MAX_RECOVERY_ATTEMPTS = 5;
+
+/**
  * @experimental A Yjs 14 binding for one editor and one shared root.
  *
  * Every container (the root, and every node stored as its own Y.Node) holds
@@ -1243,6 +1305,38 @@ export class YBinding {
    * this client no longer shows (a table it deleted) is still the binding's,
    * and Yjs must not clean up its formats either (see beforeObserverCalls).
    */
+  /** Removes this binding's registration on its root (see registerRoot). */
+  private unregisterRoot: (() => void) | null = null;
+
+  /**
+   * Register this binding on its root (see boundRootsOf), where it is not
+   * registered: when it is made, and when it starts again after it stopped.
+   */
+  private registerRoot(): void {
+    if (this.unregisterRoot === null) {
+      this.unregisterRoot = registerBoundRoot(this._doc, this._root, this);
+    }
+  }
+
+  /**
+   * Whether `type` is under this binding's root and not under the root of
+   * another registered binding stored inside it (see boundRootsOf).
+   */
+  private ownsUnderRoot(type: YNode): boolean {
+    const roots = boundRootsOf(this._doc);
+    for (let t: YNode | null = type; t !== null; t = t.parent) {
+      if (t === this._root) {
+        return true;
+      }
+      // Another binding's root, stored inside this one's.
+      const on = roots.get(t);
+      if (on !== undefined && on.size > (on.has(this) ? 1 : 0)) {
+        return false;
+      }
+    }
+    return false;
+  }
+
   private isUnderRoot(type: YNode): boolean {
     for (let t: YNode | null = type; t !== null; t = t.parent) {
       if (t === this._root) {
@@ -1267,6 +1361,8 @@ export class YBinding {
    * deferChange).
    */
   private readonly deferred: Transaction[] = [];
+  /** While an app's edit in a read is written: its update's text edits. */
+  private readEditLog: TextEditLog | null = null;
   /** While the deferred changes are read (see readDeferred). */
   private drainingDeferred = false;
   /** Whether an update that reads the deferred changes is queued. */
@@ -1536,6 +1632,7 @@ export class YBinding {
     this._doc = doc;
     this.options = options;
     this._root = options.root || doc.get(DEFAULT_ROOT_NAME);
+    this.registerRoot();
     noteBoundRoot(this._root);
     assertOwnYjsDoc(doc, this._root);
     this.state = new State(editor, doc, this._root);
@@ -1573,6 +1670,9 @@ export class YBinding {
   }
 
   private startInner(): () => void {
+    // This binding's root, registered again where it stopped before (see
+    // ownsUnderRoot).
+    this.registerRoot();
     // The copy fix-up and index of paired runs, while this binding runs
     // (see Ident.installIdentity).
     this.disposers.push(installIdentity(this._doc));
@@ -2264,6 +2364,11 @@ export class YBinding {
   /** Disconnect from the document and the editor (`start` returns this). */
   dispose(): void {
     this.started = false;
+    // This binding's own registration only, once (see registerRoot).
+    if (this.unregisterRoot !== null) {
+      this.unregisterRoot();
+      this.unregisterRoot = null;
+    }
     this.initializeOnStart = false;
     // A composition held when the binding stops: its hold ends here, so the
     // deleted format items it kept showing lose the Item.keep it set (see
@@ -4614,6 +4719,34 @@ export class YBinding {
    * failed read is part of where it is nested in one (see guardedRead): the
    * warning follows a rebuild that committed, never one only queued.
    */
+  /**
+   * After a write recovered from a failure while a hold is on: the editor
+   * reads the whole document again, so that it shows exactly what is stored
+   * (the failed write may have left content the editor does not know of,
+   * and the binding's maps part way); a read that fails is recovered once
+   * more before the binding fails closed (see recoverRead).
+   */
+  private rereadAfterRecovery(shown: EditorState, retries = 2): void {
+    this.guardedRead({
+      $read: () => {
+        // The hold ends here, once (its kept format items released, see
+        // $release): the whole document is read as it is stored.
+        this.$release(this.state, new Reader(this.state, this.seer));
+        this.$rebuild();
+      },
+      after: () => {
+        this.checkUnknownTypes();
+        this.flushRefresh(true);
+      },
+      before: () => this.startReading(),
+      recover: (readError, readShown) =>
+        retries > 0
+          ? this.rereadAfterRecovery(readShown, retries - 1)
+          : this.recoverRead(readError, readShown, 'reread'),
+      tag: REMOTE_TAGS,
+    });
+  }
+
   private recoverRead(
     error: unknown,
     shown: EditorState,
@@ -5048,6 +5181,35 @@ export class YBinding {
     ) => EditorState;
     const readState = new ReadState(map, null, prevEditorState._slotsUsed);
     readState._readOnly = true;
+    // While a composition's hold holds a collaborator's change, an edit
+    // that would delete or write anew a shared node around it is refused, as
+    // a local one is (see Writer#$endangersHeld), whether it shows or not: a
+    // node replaced by one with another key, say, which shows the same, is
+    // not where the hold's changes are read to when it ends.
+    const hidden = this.state.hidden;
+    // The text edits Lexical recorded in the read's update (the read's own
+    // and the app's): what they say was merged where is evidence for the
+    // hold's decision (see $insertsCharacters).
+    const heldLog =
+      editorState._textEdits === null
+        ? null
+        : (editorState._textEdits.get(prevEditorState._nodeMap) ?? null);
+    if (
+      hidden !== null &&
+      editorState.read(
+        () =>
+          $heldDecision(
+            this.state,
+            hidden,
+            readState,
+            this.remoteUnread(),
+            heldLog,
+          ).refuse,
+      )
+    ) {
+      this.$refuseHeld(dirtyElements, dirtyLeaves, editorState, readState);
+      return;
+    }
     // Whether the app's code changed what the editor shows: the content of
     // each top-level block a node it changed is in (its JSON with its
     // children, NodeState included, adjacent text that differs only in its
@@ -5092,20 +5254,89 @@ export class YBinding {
       dirtyElements,
       transformed,
     );
-    editorState.read(() =>
-      this.$writeCommit(
-        state,
-        commit,
-        editorState,
-        readState,
-        dirtyElements,
-        dirtyLeaves,
-        transformed,
-        localKeys,
-        merged,
-      ),
-    );
+    this.readEditLog = heldLog;
+    try {
+      editorState.read(() =>
+        this.$writeCommit(
+          state,
+          commit,
+          editorState,
+          readState,
+          dirtyElements,
+          dirtyLeaves,
+          transformed,
+          localKeys,
+          merged,
+        ),
+      );
+    } finally {
+      this.readEditLog = null;
+    }
     this.queueCommitFollowUps(state, commit, localKeys, false);
+  }
+
+  /**
+   * Refuse a change made while a composition's hold holds a collaborator's
+   * change, which would delete or write anew a shared node around it (see
+   * $changesHeldStructure): the editor reads the document again, the change
+   * undone, and the hold ends, so the editor shows the collaborator's text.
+   * The binding stays active.
+   */
+  private $refuseHeld(
+    dirtyElements: Map<NodeKey, boolean>,
+    dirtyLeaves: Set<NodeKey>,
+    editorState: EditorState,
+    prevEditorState: EditorState,
+  ): void {
+    this.warn(
+      UNSUPPORTED_EDIT_WARNING,
+      'a local change was not written: it would delete or leave behind text a collaborator wrote in the line being composed, which the composition holds back; the editor reads the document again',
+      {reason: 'held-composition'},
+    );
+    this.$refuseChanged(
+      dirtyElements,
+      dirtyLeaves,
+      editorState,
+      prevEditorState,
+    );
+    this.pending.add('reread');
+    if (this.state.hidden !== null) {
+      this.state.hidden.missed = true;
+    }
+  }
+
+  /**
+   * The shared nodes in which a remote change not read yet (unread, or
+   * deferred to after the running update, D108) deletes text: there what
+   * the editor showed is not what is stored (see $heldDecision).
+   */
+  private remoteUnread(): Set<YNode> {
+    const out = new Set<YNode>();
+    const changes = [
+      ...(this.unread === null ? [] : this.unread.changes),
+      ...this.deferred,
+    ];
+    for (const tr of changes) {
+      tr.deleteSet.clients.forEach((ranges, client) => {
+        const structs = this._doc.store.clients.get(client);
+        if (structs === undefined) {
+          return;
+        }
+        for (const {clock, len} of ranges.getIds()) {
+          for (
+            let i = findIndexSS(structs, clock);
+            i < structs.length && structs[i].id.clock < clock + len;
+            i++
+          ) {
+            const s = structs[i];
+            if (s instanceof Item && s.content instanceof ContentString) {
+              out.add(s.parent as YNode);
+            }
+          }
+        }
+      });
+    }
+    return out;
   }
 
   /** See $writeReadEdits. */
@@ -5471,6 +5702,34 @@ export class YBinding {
     reader.composingKey = null;
     reader.$apply(items, markers);
     reader.composingKey = composing;
+    // Where the node composed in, or the text node the composition ran in,
+    // is gone, however that came about, where the held changes were read to
+    // is not certain: every container that holds one is read again, whole
+    // (the root, where a container's node is gone too).
+    const gone = (key: NodeKey | null) => {
+      const node = key === null ? null : $getNodeByKey(key);
+      return key !== null && (node === null || !node.isAttached());
+    };
+    if (gone(hidden.ownerKey) || gone(hidden.composedKey)) {
+      const rootCs = state.containers.get(this._root);
+      reader.$reading(() => {
+        for (const y of items.keys()) {
+          const cs = state.containers.get(y);
+          const el =
+            cs === undefined
+              ? null
+              : y === this._root
+                ? $getRoot()
+                : $getNodeByKey(cs.key);
+          if (cs !== undefined && $isElementNode(el) && el.isAttached()) {
+            reader.$readFull(cs, el);
+          } else if (rootCs !== undefined) {
+            reader.$readFull(rootCs, $getRoot());
+            return;
+          }
+        }
+      });
+    }
   }
 
   /** The items of the binding's containers that `hidden` holds. */
@@ -6076,6 +6335,17 @@ export class YBinding {
       dirtyElements,
       dirtyLeaves,
     );
+    if (written === 'held') {
+      // Refused before it changed anything (see Writer#$endangersHeld).
+      this.writeCursor = null;
+      this.$refuseHeld(
+        dirtyElements,
+        dirtyLeaves,
+        editorState,
+        prevEditorState,
+      );
+      return;
+    }
     if (written instanceof Refusal) {
       // The layout record changed inside the write's own transaction: the
       // change is refused as on a read-only binding (read again once it can
@@ -6364,70 +6634,346 @@ export class YBinding {
     prevEditorState: EditorState,
     dirtyElements: Map<NodeKey, boolean>,
     dirtyLeaves: Set<NodeKey>,
-  ): Writer | null | Refusal {
+  ): Writer | null | Refusal | 'held' {
     let writer: Writer | null = null;
     // Inside an app's outer transaction that restored ends (an undo in it):
     // repair the copies before anything reads pairing (see Ident).
     repairPendingCopies(this._doc);
     let refused: 'layout' | 'schema' | null = null;
+    let heldRefused = false;
+    let stoppedPartWay = false;
     // Admitted once, for the whole write: its pins and its recovery too,
     // which see the records as this write left them (`after`).
     const grace = this.writeGrace;
     let after = grace;
+    // While a hold is on: each node's shared node before the write, and the
+    // first clock it would write at (see the recovery of a stopped write).
+    const heldSnapshot = state.hidden === null ? null : new Map(state.yByKey);
+    const heldContainers =
+      state.hidden === null ? null : new Map(state.csByKey);
+    // The first clock the write itself writes at: taken again inside its
+    // transaction, after every beforeTransaction listener ran (what they
+    // wrote, here or on another root, is not the write's).
+    let clockBefore = this._doc.store.getClock(this._doc.clientID);
+    // While a hold is on: the binding's maps before the write, so that a
+    // write that fails part way can be undone inside its transaction (see
+    // $undoAttempt).
+    const restoreMaps = state.hidden === null ? null : state.snapshotMaps();
+    // Undo, inside the running transaction, what a failed attempt did: what
+    // it inserted is deleted again (no peer ever sees it: a peer gets the
+    // transaction's net result), the maps are put back as they were before
+    // the write, and what the attempt deleted of what was stored before
+    // (a shared node, a line's marker) is forgotten by them, so that the
+    // next attempt writes it anew.
+    const $undoAttempt = (tr: Transaction): void => {
+      const client = this._doc.clientID;
+      const structs = this._doc.store.clients.get(client);
+      if (structs !== undefined) {
+        for (let i = structs.length - 1; i >= 0; i--) {
+          const struct = structs[i];
+          if (struct.id.clock < clockBefore) {
+            break;
+          }
+          // Exactly what the write inserted (its own mutations, bracketed
+          // where it makes them, see Owned.ts), and under this binding's root
+          // only: never what another binding, or an app joined to the
+          // transaction, wrote in it, nested in the write or before it.
+          if (
+            struct instanceof Item &&
+            !struct.deleted &&
+            isOwned(ownedRanges, struct.id.clock) &&
+            struct.parent instanceof YNode &&
+            this.ownsUnderRoot(struct.parent)
+          ) {
+            struct.delete(tr);
+          }
+        }
+      }
+      if (restoreMaps !== null) {
+        restoreMaps();
+      }
+      const deletedHere = (it: Item | null): boolean =>
+        it !== null && it.deleted && tr.deleteSet.hasId(it.id);
+      for (const y of [...state.yByKey.values()]) {
+        if (deletedHere(y._item)) {
+          state.unmapTree(y);
+        }
+      }
+      for (const cs of state.csByKey.values()) {
+        if (cs.units.some(u => deletedHere(u.end))) {
+          for (const u of cs.units) {
+            if (deletedHere(u.end)) {
+              state.dropUnit(u);
+            }
+          }
+          cs.units = cs.units.filter(u => !deletedHere(u.end));
+        }
+      }
+    };
+    // Whether `y` holds an item another client wrote (anywhere under it).
+    const holdsForeign = (y: YNode): boolean => {
+      const client = this._doc.clientID;
+      const visit = (it: Item | null): boolean => {
+        if (it === null) {
+          return false;
+        }
+        if (it.id.client !== client && !it.deleted) {
+          return true;
+        }
+        return (
+          it.content instanceof ContentType &&
+          holdsForeign(it.content.type as YNode)
+        );
+      };
+      for (let it = y._start; it !== null; it = it.right) {
+        if (visit(it)) {
+          return true;
+        }
+      }
+      let found = false;
+      y._map.forEach(it => {
+        found = found || visit(it);
+      });
+      return found;
+    };
+    const $dropStoppedCopies = (tr: Transaction): number => {
+      if (heldSnapshot === null) {
+        return 0;
+      }
+      // The write stopped part way may already have written a node anew
+      // elsewhere (a copy of a shared node holding held content), or
+      // unmapped one it had not deleted yet. First every such copy is
+      // deleted from storage (Yjs only, so that a fault in what follows
+      // leaves no copy for a peer to type into), then each node maps to its
+      // shared node again, which the recovery writes in place. Run again
+      // (a recovery of a recovery), it finishes what a fault left.
+      const restore: [NodeKey, YNode][] = [];
+      for (const [key, was] of heldSnapshot) {
+        const now = state.yByKey.get(key);
+        if (now === was || was._item === null || was._item.deleted) {
+          continue;
+        }
+        if (
+          now !== undefined &&
+          (now._item === null ||
+            now._item.id.client !== this._doc.clientID ||
+            now._item.id.clock < clockBefore)
+        ) {
+          continue;
+        }
+        if (now !== undefined && !now._item!.deleted) {
+          // A copy a peer already wrote into (published by an earlier
+          // transaction): kept, so that what the peer wrote is never lost.
+          if (holdsForeign(now)) {
+            continue;
+          }
+          now._item!.delete(tr);
+        }
+        restore.push([key, was]);
+      }
+      for (const [key, was] of restore) {
+        const now = state.yByKey.get(key);
+        if (now !== undefined && now !== was) {
+          state.unmapTree(now);
+        }
+        // Its container as it was, with its units (the stopped write may
+        // have dropped them when it wrote the copy).
+        const cs =
+          heldContainers === null ? undefined : heldContainers.get(key);
+        if (cs !== undefined && cs.y === was && !state.containers.has(was)) {
+          state.containers.set(was, cs);
+          for (const u of cs.units) {
+            state.setUnit(u);
+          }
+        }
+        if (state.yByKey.get(key) !== was) {
+          state.mapNode(key, was);
+        }
+      }
+      return restore.length;
+    };
+    // A write the guard stopped after it had changed something: finished in
+    // the same transaction, so that no peer ever sees what it left (a copy
+    // a peer could type into). Its copies of what the hold keeps are deleted,
+    // the rest of the change is written, what the hold keeps stays where it
+    // is stored, and the editor reads the document again.
+    let recovered: {error: unknown; reread: boolean} | null = null;
+    // The clock ranges this write's own mutations made (see Owned.ts).
+    const ownedRanges: OwnedRanges = [];
     try {
-      this._doc.transact(tr => {
-        // Admitted inside the transaction, after every beforeTransaction
-        // listener of the document ran (any may change the layout record or
-        // the schema record before anything is written): refused, nothing
-        // is written.
-        refused = this.refusalIn(grace);
-        if (refused !== null) {
-          return;
-        }
-        // Development builds: the binding's own write, even when it joined
-        // an app's transaction (see noteRawWrite).
-        if (__DEV__) {
-          markBindingWrite(tr);
-        }
-        this.splitAtUnread(tr);
-        try {
-          writer = new Writer(
-            state,
-            roles,
-            tr,
-            prevEditorState,
-            plan,
-            this.seer,
-          );
-          writer.followUp = commit.followUp;
-          writer.$run();
-        } finally {
-          // A local edit (not a follow-up, which is no one's edit) carries
-          // this client's schema version, and so does an app edit written
-          // out of the undo history (recordOwnSchema).
-          if (origin === this || commit.recordOwnSchema) {
-            recordSchema(this._root, this.options.schemaVersion, tr, t =>
-              this.isUnderRoot(t),
-            );
-          }
-          // In the same transaction as the first member entry of a set, even
-          // when the write throws part way: clients that only read layout 1
-          // never get one without the version that tells them they cannot
-          // read it.
-          recordSetMembersLayout(this._root, tr);
-          // A write D08 permits may record this client's own schema version
-          // (its first write at it): its pins and its recovery are admitted
-          // on the records it was admitted on plus exactly that record, and
-          // on nothing else (a peer's change during the write revokes it).
-          if (grace !== null) {
-            after = this.ownSchemaGrace(grace);
-          }
-        }
-      }, origin);
+      this._doc.transact(
+        tr =>
+          collectOwned(state, ownedRanges, () => {
+            clockBefore = this._doc.store.getClock(this._doc.clientID);
+            // Admitted inside the transaction, after every beforeTransaction
+            // listener of the document ran (any may change the layout record or
+            // the schema record before anything is written): refused, nothing
+            // is written.
+            refused = this.refusalIn(grace);
+            if (refused !== null) {
+              return;
+            }
+            // Development builds: the binding's own write, even when it joined
+            // an app's transaction (see noteRawWrite).
+            if (__DEV__) {
+              markBindingWrite(tr);
+            }
+            this.splitAtUnread(tr);
+            try {
+              writer = new Writer(
+                state,
+                roles,
+                tr,
+                prevEditorState,
+                plan,
+                this.seer,
+              );
+              writer.followUp = commit.followUp;
+              writer.remoteUnread = this.remoteUnread();
+              writer.heldLog = this.readEditLog ?? plan.textEdits ?? null;
+              // What a composition holds back is never deleted by a write in a
+              // shape the writer cannot carry it through (see
+              // Writer#$endangersHeld): such a write is refused before it
+              // changes anything.
+              if (writer.$endangersHeld()) {
+                heldRefused = true;
+                return;
+              }
+              writer.$run();
+            } catch (err) {
+              // While a hold is on, a write that throws part way (the guard's
+              // stop, or any fault) is finished in this transaction, so that no
+              // peer ever gets what it left (a copy of a node holding held
+              // content, which a peer could type into): its copies of those
+              // nodes are deleted, and the rest of A's change is written, a
+              // change that inserts no character in skip mode (what the hold
+              // keeps is neither copied nor deleted), one that inserts never
+              // stopped. Then the editor reads the whole document again.
+              const decided = writer === null ? null : writer.heldDecision;
+              const wrote =
+                tr.insertSet.clients.size > 0 || tr.deleteSet.clients.size > 0;
+              const stopped = err instanceof HeldDeletionError;
+              const freeOfInsertions = decided !== null && !decided.inserts;
+              // A change that inserts characters is recovered as on main (see
+              // the recovery outside this transaction): written as made, what the
+              // hold keeps included, never stopped.
+              if (
+                state.hidden === null ||
+                !freeOfInsertions ||
+                (stopped && !wrote) ||
+                commit.followUp
+              ) {
+                throw err;
+              }
+              stoppedPartWay = true;
+              // Attempts, all in this transaction, each from the state before
+              // the write (see $undoAttempt): a recovery that fails too is
+              // undone and tried again, up to MAX_RECOVERY_ATTEMPTS.
+              for (let attempt = 1; ; attempt++) {
+                try {
+                  $undoAttempt(tr);
+                  const all: WritePlan = {
+                    attrs: new Set(state.yByKey.keys()),
+                    inline: new Set(),
+                    lines: new Set(state.unitByKey.keys()),
+                    removedText: plan.removedText,
+                    structural: new Set(),
+                  };
+                  for (const [key, cs] of state.csByKey) {
+                    (cs.kind === 'b' ? all.structural : all.inline).add(key);
+                  }
+                  const rewriter = new Writer(
+                    state,
+                    new Roles(state),
+                    tr,
+                    prevEditorState,
+                    all,
+                    this.seer,
+                  );
+                  rewriter.rewriteAll = true;
+                  if (freeOfInsertions) {
+                    rewriter.decideAs(decided);
+                    rewriter.skipProtected = true;
+                  } else {
+                    rewriter.remoteUnread = true;
+                    rewriter.neverStop = true;
+                  }
+                  rewriter.followUp = commit.followUp;
+                  try {
+                    rewriter.$run();
+                  } catch (again) {
+                    // Stopped again (nothing the guard protects is deleted).
+                    if (!(again instanceof HeldDeletionError)) {
+                      throw again;
+                    }
+                  }
+                  this.noteRefused(rewriter, commit.naming);
+                  break;
+                } catch (again) {
+                  if (attempt >= MAX_RECOVERY_ATTEMPTS) {
+                    // Given up on here: the last attempt undone too (no attempt
+                    // is ever published), and the recovery outside this
+                    // transaction takes over.
+                    $undoAttempt(tr);
+                    throw again;
+                  }
+                }
+              }
+              // A change that inserts no character left what the hold keeps
+              // where storage keeps it: the editor reads the whole document
+              // again. One that inserts is written as the editor shows it.
+              recovered = {error: err, reread: true};
+              return;
+            } finally {
+              // A local edit (not a follow-up, which is no one's edit) carries
+              // this client's schema version, and so does an app edit written
+              // out of the undo history (recordOwnSchema); a write refused for
+              // what a composition holds back writes nothing.
+              if (!heldRefused && (origin === this || commit.recordOwnSchema)) {
+                recordSchema(this._root, this.options.schemaVersion, tr, t =>
+                  this.isUnderRoot(t),
+                );
+              }
+              // In the same transaction as the first member entry of a set, even
+              // when the write throws part way: clients that only read layout 1
+              // never get one without the version that tells them they cannot
+              // read it.
+              recordSetMembersLayout(this._root, tr);
+              // A write D08 permits may record this client's own schema version
+              // (its first write at it): its pins and its recovery are admitted
+              // on the records it was admitted on plus exactly that record, and
+              // on nothing else (a peer's change during the write revokes it).
+              if (grace !== null) {
+                after = this.ownSchemaGrace(grace);
+              }
+            }
+          }),
+        origin,
+      );
       // Set inside the callback (TypeScript does not see that assignment).
       const refusedBy = refused as 'layout' | 'schema' | null;
       if (refusedBy !== null) {
         return new Refusal(refusedBy);
+      }
+      if (heldRefused) {
+        return 'held';
+      }
+      const inline = recovered as {error: unknown; reread: boolean} | null;
+      if (inline !== null) {
+        this.warn(
+          RECOVERED_WRITE_WARNING,
+          'a local change could not be written: ' +
+            String(
+              inline.error instanceof Error
+                ? inline.error.message
+                : inline.error,
+            ),
+          {error: inline.error, reason: 'local-change'},
+        );
+        if (inline.reread) {
+          this.rereadAfterRecovery(prevEditorState);
+        }
+        return null;
       }
       if (!commit.followUp) {
         this._doc.transact(tr => {
@@ -6460,7 +7006,20 @@ export class YBinding {
           String(e instanceof Error ? e.message : e),
         {error: e, reason: 'local-change'},
       );
+      if (
+        state.hidden !== null &&
+        e instanceof HeldDeletionError &&
+        !stoppedPartWay
+      ) {
+        // A write the hold's guard stopped (it inserts no character, see
+        // withProtected) before it changed anything: refused, and read
+        // again, not rewritten from what the editor shows. Stopped after it
+        // changed something, it is rewritten whole below: a re-read of what
+        // it left would undo part of the change.
+        return 'held';
+      }
       let recoveryRefused: 'layout' | 'schema' | null = null;
+      const failed = writer as Writer | null;
       try {
         this._doc.transact(tr => {
           // Admitted inside its own transaction, as the write it recovers.
@@ -6474,6 +7033,17 @@ export class YBinding {
             markBindingWrite(tr);
           }
           this.splitAtUnread(tr);
+          // A change that inserts no character, while a hold is on: copies
+          // a failed write made of what the hold keeps, deleted first (see
+          // the recovery inside the write's transaction). One that inserts
+          // is recovered as on main.
+          const decidedFree =
+            failed !== null &&
+            failed.heldDecision !== null &&
+            !failed.heldDecision.inserts;
+          if (decidedFree) {
+            $dropStoppedCopies(tr);
+          }
           try {
             const all: WritePlan = {
               attrs: new Set(state.yByKey.keys()),
@@ -6494,6 +7064,22 @@ export class YBinding {
               this.seer,
             );
             rewriter.rewriteAll = true;
+            // After a write that failed part way, what the editor showed is
+            // not what is stored: the rewrite is decided as one that inserts
+            // a character (see $heldDecision), and never stopped; but an
+            // update decided as inserting none stays so: what the hold keeps
+            // is neither copied nor deleted (skip mode, as in the recovery
+            // inside the write's transaction), and the rest is written.
+            const decided = failed === null ? null : failed.heldDecision;
+            if (decided !== null && !decided.inserts) {
+              rewriter.decideAs(decided);
+              if (state.hidden !== null) {
+                rewriter.skipProtected = true;
+              }
+            } else {
+              rewriter.remoteUnread = true;
+              rewriter.neverStop = true;
+            }
             rewriter.followUp = commit.followUp;
             rewriter.$run();
             this.noteRefused(rewriter, commit.naming);
@@ -6507,9 +7093,42 @@ export class YBinding {
           }
         }, origin);
       } catch (e2) {
+        if (state.hidden !== null && e2 instanceof HeldDeletionError) {
+          // The rewrite of an update that inserts no character would delete
+          // what the hold keeps: refused, and read again.
+          return 'held';
+        }
+        const decidedFree =
+          failed !== null &&
+          failed.heldDecision !== null &&
+          !failed.heldDecision.inserts;
+        if (state.hidden !== null && decidedFree) {
+          // The recovery of a change that inserts no character failed too,
+          // while a hold is on: the editor reads the whole document again
+          // (its maps may be part way through the failed writes), so that it
+          // shows exactly what is stored. Nothing typed is read over.
+          this.rereadAfterRecovery(prevEditorState);
+          return null;
+        }
+        // A change that inserts characters (or with no hold): as on main, the
+        // editor keeps what was typed, never read over with what is stored
+        // (which lacks it).
         this._editor._onError(e2 instanceof Error ? e2 : new Error(String(e2)));
       }
       const recoveryRefusedBy = recoveryRefused as 'layout' | 'schema' | null;
+      if (
+        recoveryRefusedBy === null &&
+        state.hidden !== null &&
+        failed !== null &&
+        failed.heldDecision !== null &&
+        !failed.heldDecision.inserts
+      ) {
+        // A change that inserts no character, while a hold is on (what the
+        // hold keeps stayed where storage keeps it): the whole document read
+        // again.
+        this.rereadAfterRecovery(prevEditorState);
+        return null;
+      }
       return recoveryRefusedBy === null ? null : new Refusal(recoveryRefusedBy);
     }
   }
@@ -7400,9 +8019,71 @@ export class YBinding {
     const caret = $showsCaret();
     const reader = new Reader(this.state, this.seer);
     reader.$reading(() => {
+      // A node the refused change made (not stored) gives back what it took
+      // into its named slots, so that the read can place it again.
+      const unslot = (node: LexicalNode) => {
+        const names = $getSlotNames(node);
+        for (const name of names) {
+          const value = $getSlot(node as ElementNode, name);
+          if (value !== null) {
+            unslot(value);
+          }
+          if (!this.state.yByKey.has(node.getKey())) {
+            $removeSlot(node as ElementNode, name);
+          }
+        }
+        if ($isElementNode(node)) {
+          for (const child of node.getChildren()) {
+            unslot(child);
+          }
+        }
+      };
+      if (list.length > 0) {
+        unslot($getRoot());
+      }
+      // A host's named slots, and those of every stored slot host in them,
+      // a decorator's included (it has no container of its own, so it is in
+      // no refused list): a refused change can have removed a slot's value,
+      // moved it to another of its slots, or a child into a slot (taken out
+      // of the slot first, so that the child can be read back).
+      const $rereadSlots = (host: LexicalNode, y: YNode) => {
+        const attrs = y.getAttrs() as Record<string, unknown>;
+        for (const name of $getSlotNames(host)) {
+          if (!(SLOT_PREFIX + name in attrs)) {
+            $removeSlot(host as ElementNode, name);
+          }
+        }
+        $readSlots(reader, host, y);
+        for (const name of $getSlotNames(host)) {
+          const value = $getSlot(host as ElementNode, name);
+          const valueY =
+            value === null ? undefined : this.state.yByKey.get(value.getKey());
+          if (value !== null && valueY !== undefined) {
+            $rereadSlots(value, valueY);
+          }
+        }
+      };
       for (const cs of list) {
         const el = cs.y === this._root ? $getRoot() : $getNodeByKey(cs.key);
         if ($isElementNode(el) && el.isAttached()) {
+          reader.$readFull(cs, el);
+          if (cs.y !== this._root) {
+            $rereadSlots(el, cs.y);
+          }
+        }
+      }
+      // An inline container a later read placed again (a slot's value read
+      // with it, say) holds what its own read gave it: read once more.
+      for (const cs of list) {
+        const el = $getNodeByKey(cs.key);
+        if (
+          cs.kind === 'i' &&
+          cs.y !== this._root &&
+          $isElementNode(el) &&
+          el.isAttached() &&
+          el.getChildrenSize() === 0 &&
+          cs.y._start !== null
+        ) {
           reader.$readFull(cs, el);
         }
       }

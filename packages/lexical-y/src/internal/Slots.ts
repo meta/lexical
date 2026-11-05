@@ -30,7 +30,7 @@ import {
 } from 'lexical';
 
 import {type Attrs, BLOCK_PREFIX, isUnsafeKey} from './Schema';
-import {deleteAttrIn, setAttrIn} from './Seen';
+import {deleteAttrIn, setAttrIn, skipsProtected} from './Seen';
 
 /*
  * Named slots ($setSlot). A node stored as its own Y.Node (a `b:<type>` or
@@ -79,12 +79,31 @@ export function $writeSlots(
   const state = writer.state;
   const keep = new Set<string>();
   for (const name of names) {
+    if ($getSlot(node, name) !== null) {
+      keep.add(SLOT_PREFIX + name);
+    }
+  }
+  // Removed slots first: a removal that would delete what a composition
+  // holds back stops the write (see withProtected) before any slot is
+  // written anew, so a stopped write leaves no copy of a slot's value.
+  for (const attr in current) {
+    if (attr.startsWith(SLOT_PREFIX) && !keep.has(attr)) {
+      if (writer.followUp) {
+        warn('the slots of', node);
+        continue;
+      }
+      if (skipsProtected(current[attr])) {
+        continue;
+      }
+      deleteAttrIn(writer.view, y, attr, writer.tr);
+    }
+  }
+  for (const name of names) {
     const value = $getSlot(node, name);
     if (value === null) {
       continue;
     }
     const attr = SLOT_PREFIX + name;
-    keep.add(attr);
     const stored = current[attr];
     const key = value.getKey();
     if (
@@ -98,19 +117,18 @@ export function $writeSlots(
       warn('the slots of', node);
       continue;
     }
+    if (skipsProtected(stored)) {
+      // What the slot holds stays (see skipsProtected): not replaced.
+      continue;
+    }
+    if (skipsProtected(state.yByKey.get(key))) {
+      // Left where it is stored (see skipsProtected): no copy here.
+      continue;
+    }
     // Inserted before it is filled, as every stored node.
     const slotY = new YNode(BLOCK_PREFIX + value.getType());
     setAttrIn(writer.view, y, attr, slotY, writer.tr);
     writer.$fillNode(slotY, value);
-  }
-  for (const attr in current) {
-    if (attr.startsWith(SLOT_PREFIX) && !keep.has(attr)) {
-      if (writer.followUp) {
-        warn('the slots of', node);
-        continue;
-      }
-      deleteAttrIn(writer.view, y, attr, writer.tr);
-    }
   }
 }
 

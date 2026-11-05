@@ -13,6 +13,7 @@ import {
   ContentFormat,
   ContentString,
   ContentType,
+  findIndexSS,
   Item,
   iterateStructsByIdSet,
   Node as YNode,
@@ -36,6 +37,7 @@ import {pushAll} from './Arrays';
 import {$withoutLevelId, innerBlockIds, NO_IDS} from './BlockIds';
 import {Cursor, equalFormatValue, type Formats, isLiveContent} from './Cursor';
 import {groupKeySig, groupSig} from './Groups';
+import {$heldDecision, type HeldDecision, ownerTextKeys} from './HoldGuard';
 import {isShadowKey} from './Ident';
 import {
   $pushInline,
@@ -50,6 +52,7 @@ import {
   setTextStretches,
   snapToWords,
 } from './Inline';
+import {asOwner} from './Owned';
 import {
   $groupFields,
   $isInlineChild,
@@ -114,7 +117,9 @@ import {
   noteFolded,
   prevLiveEnd,
   setAttrIn,
+  skipsProtected,
   unheldLength,
+  withProtected,
 } from './Seen';
 import {$writeSlots} from './Slots';
 import {
@@ -681,6 +686,78 @@ export class Writer {
   }
 
   $run(): void {
+    const hidden = this.state.hidden;
+    let held: Set<YNode> | null = null;
+    if (hidden !== null) {
+      // Not decided before it runs (a recovered write): decided now.
+      this.heldDecided ??= $heldDecision(
+        this.state,
+        hidden,
+        this.prevState,
+        this.remoteUnread,
+      );
+      held = this.heldTypes(hidden);
+      for (const key of this.heldDecided.allow) {
+        const y = this.state.yByKey.get(key);
+        if (y !== undefined) {
+          held.delete(y);
+        }
+      }
+    }
+    asOwner(this.state, () =>
+      withProtected(
+        held,
+        this.skipProtected
+          ? 'skip'
+          : this.neverStop ||
+              (this.heldDecided !== null && this.heldDecided.inserts),
+        () => this.$runWrites(),
+        hidden === null ? null : item => hidden.overlaps(item),
+      ),
+    );
+  }
+
+  /**
+   * The shared nodes that hold what `hidden` holds back (its items' and its
+   * kept items' parents, up to the root): deleting or replacing one would
+   * delete what the composition holds back (see withProtected).
+   */
+  private heldTypes(hidden: Hidden): Set<YNode> {
+    const out = new Set<YNode>();
+    const root = this.state.root;
+    const note = (item: Item) => {
+      for (
+        let y: YNode | null = item.parent instanceof YNode ? item.parent : null;
+        y !== null && y !== root && !out.has(y);
+        y = y._item === null ? null : (y._item.parent as YNode)
+      ) {
+        out.add(y);
+      }
+    };
+    const doc = this.tr.doc;
+    hidden.forEachRange((client, start, end) => {
+      const structs = doc.store.clients.get(client);
+      if (structs === undefined) {
+        return;
+      }
+      for (
+        let i = findIndexSS(structs, start);
+        i < structs.length && structs[i].id.clock < end;
+        i++
+      ) {
+        const it = structs[i];
+        if (it instanceof Item) {
+          note(it);
+        }
+      }
+    });
+    for (const it of hidden.keptItems()) {
+      note(it);
+    }
+    return out;
+  }
+
+  private $runWrites(): void {
     const {state, plan} = this;
     // A line without a unit (it holds lines, see $pushLine, or is one of
     // them) is written with its container's structure.
@@ -809,6 +886,7 @@ export class Writer {
       }
     }
     this.unmapDeleted();
+    this.checkHeldKept();
   }
 
   /**
@@ -2717,6 +2795,13 @@ export class Writer {
     for (const di of newSeg) {
       const d = desired[di];
       let end: Item;
+      if (
+        d.kind === 'node' &&
+        skipsProtected(this.state.yByKey.get(d.node!.getKey()))
+      ) {
+        // Left where it is stored (see skipsProtected): no copy here.
+        continue;
+      }
       if (d.kind === 'node') {
         const cursor = this.cursor(cs.y, after, EMPTY_FORMATS);
         const y = new YNode(BLOCK_PREFIX + d.node!.getType());
@@ -4071,6 +4156,11 @@ export class Writer {
         if (special.kind === 'marker' || special.kind === 'runEnd') {
           const y = new YNode(special.kind === 'marker' ? MARKER : RUN_END);
           items.set(i, cursor.insertPlain(new ContentType(y)));
+        } else if (
+          special.kind === 'inline' &&
+          skipsProtected(this.state.yByKey.get(special.node.getKey()))
+        ) {
+          // Left where it is stored (see skipsProtected): no copy here.
         } else if (special.kind === 'inline') {
           const y = new YNode(INLINE_PREFIX + special.node.getType());
           cursor.insert(
@@ -4937,11 +5027,136 @@ export class Writer {
   }
 
   /**
+   * Before the write runs, while a composition's hold holds a collaborator's
+   * change: whether the update is refused, as one that would delete or
+   * write anew a shared node around it and changes no text (see
+   * $heldDecision). Such a write is refused before it changes anything (see
+   * YBinding#$runWriter): the editor reads the document again, the local
+   * change undone.
+   */
+  $endangersHeld(): boolean {
+    const hidden = this.state.hidden;
+    if (hidden === null) {
+      return false;
+    }
+    const decision = $heldDecision(
+      this.state,
+      hidden,
+      this.prevState,
+      this.remoteUnread,
+      this.heldLog,
+    );
+    this.heldDecided = decision;
+    return decision.refuse;
+  }
+
+  /**
+   * What the preflight decided for this write while a hold is on (see
+   * $heldDecision): the shared nodes it may delete or write anew though
+   * they hold what the hold keeps, and whether it inserts characters.
+   */
+  private heldDecided: HeldDecision | null = null;
+
+  /** The decision this write was taken under, if a hold was on. */
+  get heldDecision(): HeldDecision | null {
+    return this.heldDecided;
+  }
+
+  /**
+   * Decide as `decision` (the recovery of a write taken under it): an update
+   * that inserts no character stays one, whatever the failed write left.
+   */
+  decideAs(decision: HeldDecision): void {
+    this.heldDecided = decision;
+  }
+
+  /**
+   * Whether a remote change is not read yet as this write runs (deferred,
+   * or unread): what the editor showed before is then not what is stored
+   * (see $heldDecision).
+   */
+  remoteUnread: boolean | ReadonlySet<YNode> = false;
+
+  /**
+   * The recovery of a write that failed part way: never stopped by the
+   * hold's guard (see withProtected), which only reports, so that the
+   * change is written whole and nothing it made is lost to a re-read of
+   * what the failed write left.
+   */
+  neverStop = false;
+
+  /**
+   * The recovery of an update that inserts no character, after a write the
+   * guard stopped part way: what the hold keeps is skipped, never deleted
+   * (see withProtected), and the rest of the change written.
+   */
+  skipProtected = false;
+
+  /** The update's text edits, evidence for the hold's decision. */
+  heldLog: TextEditLog | null = null;
+
+  /**
    * Write a new stored node: attributes, and its container. Where the node
    * had a shared node before (a node moved, or written again), the fields
    * that one stored that this editor does not own (see ownsNodeAttr) go
    * into the new one.
    */
+
+  /**
+   * After the write, while a composition's hold is on: no item the hold hides
+   * was deleted by this write, but where it deleted the node composed in
+   * with its text (I4, see $endangersHeld). Where one
+   * was, the hold ends (the editor reads what is stored), and development
+   * builds warn: a collaborator's text was lost without the composer seeing
+   * it.
+   */
+  private checkHeldKept(): void {
+    const hidden = this.state.hidden;
+    if (hidden === null) {
+      return;
+    }
+    const doc = this.tr.doc;
+    let lost = false;
+    hidden.forEachRange((client, start, end) => {
+      const structs = doc.store.clients.get(client);
+      if (lost || structs === undefined) {
+        return;
+      }
+      for (
+        let i = findIndexSS(structs, start);
+        i < structs.length && structs[i].id.clock < end;
+        i++
+      ) {
+        const it = structs[i];
+        if (
+          it instanceof Item &&
+          it.deleted &&
+          this.tr.deleteSet.hasId(it.id)
+        ) {
+          lost = true;
+          return;
+        }
+      }
+    });
+    if (!lost) {
+      return;
+    }
+    // The node composed in deleted with its text: its held items go with it.
+    const owner = $getNodeByKey(hidden.ownerKey);
+    const textKept =
+      (owner !== null && owner.isAttached()) ||
+      ownerTextKeys(this.prevState, hidden.ownerKey).some(key => {
+        const text = $getNodeByKey(key);
+        return text !== null && text.isAttached();
+      });
+    hidden.missed = true;
+    if (__DEV__ && textKept) {
+      console.warn(
+        '@lexical/y: a write deleted text a collaborator wrote while a composition held it back; the hold ends.',
+      );
+    }
+  }
+
   $fillNode(y: YNode, node: LexicalNode): void {
     const key = node.getKey();
     const holes: string[] = [];

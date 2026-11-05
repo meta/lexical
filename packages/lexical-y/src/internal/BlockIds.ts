@@ -252,6 +252,26 @@ export class BlockIdIndex {
   readonly repeatedIds = new Set<string>();
   constructor(private readonly config: {readonly blockIds: unknown}) {}
 
+  /** What the index holds now, and a function that puts it back. */
+  snapshot(): () => void {
+    const storedIdOf = new Map(this.storedIdOf);
+    const holdersOf = new Map(
+      [...this.holdersOf].map(([id, set]) => [id, new Set(set)] as const),
+    );
+    const touchedIds = new Set(this.touchedIds);
+    const repeatedIds = new Set(this.repeatedIds);
+    return () => {
+      this.storedIdOf.clear();
+      storedIdOf.forEach((v, k) => this.storedIdOf.set(k, v));
+      this.holdersOf.clear();
+      holdersOf.forEach((v, k) => this.holdersOf.set(k, new Set(v)));
+      this.touchedIds.clear();
+      touchedIds.forEach(v => this.touchedIds.add(v));
+      this.repeatedIds.clear();
+      repeatedIds.forEach(v => this.repeatedIds.add(v));
+    };
+  }
+
   /** Note the block id a read found stored for a node (see storedIdOf). */
   noteStoredId(key: NodeKey, id: unknown): void {
     if (this.config.blockIds === null) {

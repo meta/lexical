@@ -47,6 +47,7 @@ import {
   writesPairedRuns,
 } from './Ident';
 import {runBoundary, type StoredUnit, storedUnit} from './Layout3';
+import {owned} from './Owned';
 import {
   decodeFormatValue,
   formatFamily,
@@ -703,7 +704,7 @@ export class Cursor {
       null,
       content,
     );
-    item.integrate(this.tr, 0);
+    owned(doc, () => item.integrate(this.tr, 0));
     return item;
   }
 
@@ -1149,7 +1150,7 @@ export class Cursor {
       null,
       content,
     );
-    item.integrate(this.tr, 0);
+    owned(doc, () => item.integrate(this.tr, 0));
     return item;
   }
 
@@ -1982,7 +1983,7 @@ export class Cursor {
       null,
       content,
     );
-    item.integrate(this.tr, 0);
+    owned(doc, () => item.integrate(this.tr, 0));
     return item;
   }
 

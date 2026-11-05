@@ -130,6 +130,9 @@ function banner(value: unknown): string {
       case 'refused-at-write':
         // Not a read-only state: the binding may still be active.
         return `refused:${data.record}`;
+      case 'held-composition':
+        // The binding stays active: no read-only banner.
+        return '';
       case 'other':
         return `other:${data.detailCode}`;
       default: {
@@ -274,6 +277,22 @@ describe('typed warnings', () => {
         }),
       ),
     ).toBe('refused:layout');
+    // A refusal while a composition holds a collaborator's text: the binding
+    // stays active, so no banner.
+    expect(
+      banner(
+        new LexicalWarning(UNSUPPORTED_EDIT_WARNING, 'm', {
+          reason: 'held-composition',
+        }),
+      ),
+    ).toBe('');
+    expect(
+      banner(
+        new LexicalWarning(UNSUPPORTED_EDIT_WARNING, 'm', {
+          reason: 'read-only',
+        }),
+      ),
+    ).toBe('read-only');
     // The permanent fallback, under a known code.
     expect(
       banner(

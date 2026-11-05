@@ -48,6 +48,7 @@ import {
   LAYOUT_VERSION,
 } from './constants';
 import {runBoundary, type StoredUnit} from './Layout3';
+import {owned} from './Owned';
 import {markBindingWrite} from './RawWrites';
 import {isGoneIn} from './Seen';
 import {currentView, type View} from './Unread';
@@ -151,7 +152,7 @@ export function finishSeedRuns(tr: Transaction): void {
         null,
         new ContentFormat(key, [clock - opener.id.clock] as unknown as object),
       );
-      end.integrate(tr, 0);
+      owned(tr.doc, () => end.integrate(tr, 0));
       left = end;
     }
   }
@@ -162,7 +163,9 @@ export function finishSeedRuns(tr: Transaction): void {
  * running transaction), even where it is present.
  */
 export function writeIdentityRecord(root: YNode): void {
-  root.setAttr(LAYOUT_PREFIX + IDENTITY_LAYOUT_VERSION, true);
+  owned(root.doc as Doc, () =>
+    root.setAttr(LAYOUT_PREFIX + IDENTITY_LAYOUT_VERSION, true),
+  );
 }
 
 /**

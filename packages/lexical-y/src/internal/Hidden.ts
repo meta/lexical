@@ -202,6 +202,22 @@ export class Hidden {
   }
 
   /** Whether all of `item` is held back. */
+  /** Whether any part of `item` is held (see hides). */
+  overlaps(item: Item): boolean {
+    const list = this.ranges.get(item.id.client);
+    if (list === undefined) {
+      return false;
+    }
+    const start = item.id.clock;
+    const end = start + item.length;
+    for (const [rs, re] of list) {
+      if (re > start) {
+        return rs < end;
+      }
+    }
+    return false;
+  }
+
   hides(item: Item): boolean {
     const list = this.ranges.get(item.id.client);
     if (list === undefined) {

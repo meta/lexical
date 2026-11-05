@@ -68,13 +68,16 @@ export const UNSUPPORTED_CONFIG_WARNING = '@lexical/y/unsupported-config';
  * @experimental A local change was not written; what it changed is read
  * again (once the document cannot be read, the editor shows what it showed
  * before the update again), so the editor keeps showing the document.
- * `data`: YUnsupportedEditData, with two reasons:
+ * `data`: YUnsupportedEditData, with three reasons:
  *
  * - `'read-only'`: the binding is read only (code edited the editor, which
  *   is not editable). Reported once each time the binding goes read only.
  * - `'refused-at-write'`: the binding is active, but the write's own
  *   transaction changed the layout or schema record (`record`). Reported for
  *   each such write; it promises nothing about the binding's later status.
+ * - `'held-composition'`: the binding is active, and the change would delete
+ *   or leave behind text a collaborator wrote in the line being composed,
+ *   which the composition holds back. Reported for each such change.
  */
 export const UNSUPPORTED_EDIT_WARNING = '@lexical/y/unsupported-edit';
 /**
@@ -336,7 +339,16 @@ export type YUnsupportedEditData =
   | {
       readonly reason: 'refused-at-write';
       readonly record: 'layout' | 'schema';
-    };
+    }
+  /**
+   * While the binding is active: a local change that would delete or leave
+   * behind text a collaborator wrote in the line being composed with an IME,
+   * which the composition holds back until it ends (it moves, replaces or
+   * removes what holds that text, or takes text out of the inline element
+   * composed in). Nothing is written, the editor reads the document again
+   * (the change is undone), and the composition goes on; edit again.
+   */
+  | {readonly reason: 'held-composition'};
 
 /**
  * @experimental `data` of a `SELF_CHECK_WARNING`: the self-check found the

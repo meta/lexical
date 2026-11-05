@@ -38,6 +38,8 @@ import {
   type Transaction,
 } from '@y/y';
 
+import {owned} from './Owned';
+
 /** Covered key → stored value for one countable unit. */
 export type StoredFormats = ReadonlyMap<string, unknown>;
 
@@ -256,7 +258,7 @@ export function writeLayout3Formats(
       null,
       new ContentFormat(key, value(clock) as object),
     );
-    item.integrate(tr, 0);
+    owned(doc, () => item.integrate(tr, 0));
     written++;
     return item;
   };
