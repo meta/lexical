@@ -40,7 +40,8 @@ import {effect, type Signal, signal} from './signals';
  *   i.e. the `selection.anchor.key` at the moment composition starts.
  *   This can be a non-TextNode key when composition begins on an
  *   element-anchor selection (e.g. empty paragraph). Cleared on
- *   `compositionend`.
+ *   `compositionend`, and when the editor ends a composition the browser
+ *   ended without one (an update tagged `COMPOSITION_END_TAG`).
  *
  * - `composingTextNode` is the resolved view — the actual TextNode
  *   being composed on, or `null` while there is no TextNode-level
@@ -104,13 +105,10 @@ export const IMEExtension = defineExtension({
     // upgrade the signal to the resolved node.
     const removeUpdateListener = editor.registerUpdateListener(
       ({tags, editorState}) => {
-        if (tags.has(COMPOSITION_END_TAG)) {
+        if (tags.has(COMPOSITION_END_TAG) && !editor.isComposing()) {
           // The editor ended a composition without a DOM compositionend
           // (Chromium can end one silently): keep the signal in step.
-          if (!editor.isComposing()) {
-            compositionKey.value = null;
-          }
-          return;
+          compositionKey.value = null;
         }
         if (!tags.has(COMPOSITION_START_TAG)) {
           return;
