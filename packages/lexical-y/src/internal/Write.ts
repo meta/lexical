@@ -36,7 +36,7 @@ import {pushAll} from './Arrays';
 import {$withoutLevelId, innerBlockIds, NO_IDS} from './BlockIds';
 import {Cursor, equalFormatValue, type Formats, isLiveContent} from './Cursor';
 import {groupKeySig, groupSig} from './Groups';
-import {isShadowKey, stepFormat, withHeldView} from './Ident';
+import {ambientFold, type FoldIn, isShadowKey, stepFormat} from './Ident';
 import {
   $pushInline,
   Atoms,
@@ -100,21 +100,21 @@ import {
   wrapperFieldsOf,
 } from './Schema';
 import {
-  attrOf,
-  attrsBefore,
-  attrsOf,
+  attrOfIn,
+  attrsBeforeIn,
+  attrsOfIn,
   copyStart,
-  deleteAttr,
-  deleteItem,
+  deleteAttrIn,
+  deleteItemIn,
   deletions,
   frontierOf,
-  isGone,
+  isGoneIn,
   isHeld,
-  isShownEnd,
-  isStored,
+  isShownEndIn,
+  isStoredIn,
   noteFolded,
   prevLiveEnd,
-  setAttr,
+  setAttrIn,
   unheldLength,
 } from './Seen';
 import {$writeSlots} from './Slots';
@@ -130,11 +130,14 @@ import {
 } from './State';
 import {$isHeldInline} from './Structure';
 import {type Segment, type TextEditLog, TextReplay} from './TextEdits';
-import {currentView} from './Unread';
+import {currentView, type View} from './Unread';
 
 /** storedTypeOf, in the document the write sees (see Unread). */
-const storedType = (y: YNode): string =>
-  storedTypeOf({getAttr: (key: string) => attrOf(y, key), name: y.name});
+const storedType = (view: View | null, y: YNode): string =>
+  storedTypeOf({
+    getAttr: (key: string) => attrOfIn(view, y, key),
+    name: y.name,
+  });
 
 // Writer: the editor to Yjs, for one commit. $plan finds what the commit
 // changed (structure, inline content, lines, attributes); $run writes it
@@ -352,6 +355,10 @@ export type WritePlan = {
 };
 
 export class Writer {
+  /** What the write sees of the document now (see viewOf). */
+  get view(): View | null {
+    return this.viewOf();
+  }
   /** The last format pass's fold (see $fixStartsAfter). */
   private passFold: {clock: number; deletions: number; fold: PassFold} | null =
     null;
@@ -469,6 +476,11 @@ export class Writer {
     readonly tr: Transaction,
     readonly prevState: EditorState,
     readonly plan: WritePlan,
+    /**
+     * The binding's view (see View), read at each step, as the reader's
+     * (see Reader#viewOf).
+     */
+    private readonly viewOf: () => View | null = currentView,
   ) {
     const editor = state.editor;
     this.wrapperFields = type => wrapperFieldsOf(editor, type);
@@ -719,7 +731,7 @@ export class Writer {
         unit === undefined ||
         !$isElementNode(node) ||
         this.written.has(unit.cs.key) ||
-        (unit.end !== null && isGone(unit.end))
+        (unit.end !== null && isGoneIn(this.view, unit.end))
       ) {
         continue;
       }
@@ -769,7 +781,11 @@ export class Writer {
     for (const key of plan.attrs) {
       const y = state.yByKey.get(key);
       const node = $getNodeByKey(key);
-      if (y === undefined || node === null || (y._item && isGone(y._item))) {
+      if (
+        y === undefined ||
+        node === null ||
+        (y._item && isGoneIn(this.view, y._item))
+      ) {
         continue;
       }
       this.$writeNodeAttrs(y, node);
@@ -2022,7 +2038,7 @@ export class Writer {
           o.kind === 'node' &&
           o.end !== null &&
           nameOf(o.end).startsWith(BLOCK_PREFIX) &&
-          storedType(typeOf(o.end)) === d.node!.getType())
+          storedType(this.view, typeOf(o.end)) === d.node!.getType())
       ) {
         matches.push([di, oi]);
       }
@@ -2223,7 +2239,10 @@ export class Writer {
         break;
       }
       for (; it !== null; it = it.right) {
-        if (isStored(it, hidden) && it.content instanceof ContentFormat) {
+        if (
+          isStoredIn(this.view, it, hidden) &&
+          it.content instanceof ContentFormat
+        ) {
           stepFormat(formats, it);
         }
         if (it === u.end) {
@@ -2243,13 +2262,16 @@ export class Writer {
     let unit: Unit | undefined = u;
     // Stops where the next unit's start already agrees (usually at once).
     while (unit !== undefined) {
-      if (unit.end === null || isGone(unit.end)) {
+      if (unit.end === null || isGoneIn(this.view, unit.end)) {
         return;
       }
       // The next unit first: without one, the fold below would
       // set nothing.
       let next: Item | null = unit.end.right;
-      while (next !== null && !isShownEnd(next, this.state.hidden)) {
+      while (
+        next !== null &&
+        !isShownEndIn(this.view, next, this.state.hidden)
+      ) {
         next = next.right;
       }
       const nextUnit: Unit | undefined =
@@ -2257,12 +2279,12 @@ export class Writer {
       if (nextUnit === undefined) {
         return;
       }
-      const left = prevLiveEnd(currentView(), unit.end, this.state.hidden);
+      const left = prevLiveEnd(this.view, unit.end, this.state.hidden);
       // From the unit's stored start (a split half of the line being
       // composed shows another, see Hidden#starts). (Before the copy: a
       // stale start is folded again, see frontierOf.)
       const start = this.storedStart(unit);
-      let folded = frontierOf(currentView(), start, left, unit.cs.y);
+      let folded = frontierOf(this.view, start, left, unit.cs.y);
       let formats = new Map(start || EMPTY_FORMATS);
       let from: Item | null = left === null ? unit.cs.y._start : left.right;
       // The format pass's fold of this line, where nothing was written since:
@@ -2289,7 +2311,7 @@ export class Writer {
         }
         if (
           folded === null &&
-          isStored(it, this.state.hidden) &&
+          isStoredIn(this.view, it, this.state.hidden) &&
           it.content instanceof ContentFormat
         ) {
           stepFormat(formats, it);
@@ -2533,14 +2555,14 @@ export class Writer {
   private $deleteUnit(old: Unit[], idx: number): void {
     const u = old[idx];
     if (u.kind === 'node') {
-      if (u.end !== null && !isGone(u.end)) {
-        deleteItem(u.end, this.tr);
+      if (u.end !== null && !isGoneIn(this.view, u.end)) {
+        deleteItemIn(this.view, u.end, this.tr);
       }
     } else {
-      const left = unitLeft(old, idx, this.state.hidden);
+      const left = unitLeft(this.view, old, idx, this.state.hidden);
       const stop = unitStop(old, idx);
       const startItem = left === null ? u.cs.y._start : left.right;
-      this.frontier = frontierOf(currentView(), u.start, left, u.cs.y);
+      this.frontier = frontierOf(this.view, u.start, left, u.cs.y);
       const cursor = this.cursor(u.cs.y, left, u.start || EMPTY_FORMATS);
       this.frontier = null;
       // Its own content starts at its first item, right after the end item
@@ -2615,8 +2637,8 @@ export class Writer {
     // Seen.frontierOf): node units this write deleted before the first
     // remaining one, or a gone or held end before it.
     const frontier =
-      frontierOf(currentView(), storedStartFormats, left, cs.y) ??
-      frontierOf(currentView(), startFormats, left, cs.y);
+      frontierOf(this.view, storedStartFormats, left, cs.y) ??
+      frontierOf(this.view, startFormats, left, cs.y);
     const lineItems = new Map<number, Item>();
     if (remaining.length > 0 || lines.length > 0) {
       const oldStop =
@@ -2771,7 +2793,7 @@ export class Writer {
         if (it === folded) {
           folded = null;
         }
-        if (isGone(it)) {
+        if (isGoneIn(this.view, it)) {
           continue;
         }
         if (it.content instanceof ContentFormat) {
@@ -2781,11 +2803,14 @@ export class Writer {
           // Stored (a held insertion counts, a kept deletion does not) and
           // shown (the reverse): the halves of the held line show the
           // shown lane, what they hand on is stored (see isStored).
-          if (isStored(it, hidden)) {
-            applyFormat(current, it);
+          if (isStoredIn(this.view, it, hidden)) {
+            applyFormat(current, it, {
+              held: ambientFold().held,
+              view: this.view,
+            });
           }
           if (!isHeld(it, hidden)) {
-            withHeldView(hidden, () => applyFormat(shown, it));
+            applyFormat(shown, it, {held: hidden, view: this.view});
           }
           continue;
         }
@@ -2829,10 +2854,10 @@ export class Writer {
         }
         if (
           folded === null &&
-          isStored(it, this.state.hidden) &&
+          isStoredIn(this.view, it, this.state.hidden) &&
           it.content instanceof ContentFormat
         ) {
-          applyFormat(formats, it);
+          applyFormat(formats, it, {held: ambientFold().held, view: this.view});
         }
         if (it === after) {
           it = it.right;
@@ -2841,7 +2866,7 @@ export class Writer {
       }
     }
     for (; it !== null; it = it.right) {
-      if (isShownEnd(it, this.state.hidden)) {
+      if (isShownEndIn(this.view, it, this.state.hidden)) {
         const next = this.state.unitByEnd.get(it);
         if (
           next !== undefined &&
@@ -2872,7 +2897,7 @@ export class Writer {
       left,
       new Map(formats),
       this.frontier,
-      currentView(),
+      this.view,
     );
     c.hidden = this.state.hidden;
     return c;
@@ -2884,21 +2909,21 @@ export class Writer {
       return EMPTY_FORMATS;
     }
     const unit = this.state.unitByEnd.get(item);
-    const start = prevLiveEnd(currentView(), item, this.state.hidden);
+    const start = prevLiveEnd(this.view, item, this.state.hidden);
     const atoms = new Atoms();
     // The stored formats after it (see readAtoms), from the unit's stored
     // start (see storedStart).
     const stored = unit === undefined ? null : this.storedStart(unit);
     return readAtoms(
-      currentView(),
+      this.view,
       start === null ? (item.parent as YNode)._start : start.right,
       item.right,
       unit !== undefined && unit.start !== null ? unit.start : EMPTY_FORMATS,
       atoms,
       this.state.hidden,
-      frontierOf(currentView(), stored, start, item.parent) ??
+      frontierOf(this.view, stored, start, item.parent) ??
         frontierOf(
-          currentView(),
+          this.view,
           unit !== undefined ? unit.start : null,
           start,
           item.parent,
@@ -2968,7 +2993,7 @@ export class Writer {
         }
         continue;
       }
-      if (isGone(unit.end)) {
+      if (isGoneIn(this.view, unit.end)) {
         continue;
       }
       if (this.$changed(d)) {
@@ -3077,7 +3102,7 @@ export class Writer {
         o.kind === 'node' &&
         o.end !== null &&
         nameOf(o.end).startsWith(BLOCK_PREFIX) &&
-        storedType(typeOf(o.end)) === d.node!.getType()
+        storedType(this.view, typeOf(o.end)) === d.node!.getType()
       );
     }
     // A run: the same inline children as before, unchanged.
@@ -3109,14 +3134,14 @@ export class Writer {
     let stop: Item | null;
     let frontier: Item | null;
     if (u.end !== null) {
-      left = prevLiveEnd(currentView(), u.end, this.state.hidden);
+      left = prevLiveEnd(this.view, u.end, this.state.hidden);
       stop = u.end.right;
-      frontier = frontierOf(currentView(), u.start, left, u.cs.y);
+      frontier = frontierOf(this.view, u.start, left, u.cs.y);
     } else {
       const idx = old.indexOf(u);
-      left = unitLeft(old, idx, this.state.hidden);
+      left = unitLeft(this.view, old, idx, this.state.hidden);
       stop = unitStop(old, idx);
-      frontier = frontierOf(currentView(), u.start, left, u.cs.y);
+      frontier = frontierOf(this.view, u.start, left, u.cs.y);
     }
     const atoms = new Atoms();
     const oldOrigins = this.oldOrigins([u]);
@@ -3194,7 +3219,7 @@ export class Writer {
     if (
       u.kind !== 'line' ||
       u.end === null ||
-      isGone(u.end) ||
+      isGoneIn(this.view, u.end) ||
       d.part !== undefined
     ) {
       return false;
@@ -3275,8 +3300,8 @@ export class Writer {
       }
     }
     if (writes.length > 0) {
-      const left = prevLiveEnd(currentView(), u.end!, this.state.hidden);
-      this.frontier = frontierOf(currentView(), u.start, left, u.cs.y);
+      const left = prevLiveEnd(this.view, u.end!, this.state.hidden);
+      this.frontier = frontierOf(this.view, u.start, left, u.cs.y);
       const c = this.cursor(u.cs.y, left, u.start || EMPTY_FORMATS);
       this.frontier = null;
       // Where the cursor stands, in atoms of the line as written so far,
@@ -3457,7 +3482,7 @@ export class Writer {
     const startItem = left === null ? y._start : left.right;
     const old = new Atoms();
     readAtoms(
-      currentView(),
+      this.view,
       startItem,
       oldStop,
       startFormats,
@@ -3489,7 +3514,7 @@ export class Writer {
         const oy = typeOf(a.item);
         const oldKey = state.keyByY.get(oy);
         if (oldKey === b.key) {
-          return storedType(oy) === b.node.getType();
+          return storedType(this.view, oy) === b.node.getType();
         }
         // A node Lexical replaced in place by a new one ($setBlocksType, a
         // split that recreates it): keep the shared node (and its content,
@@ -3501,15 +3526,17 @@ export class Writer {
         }
         const cs = state.containers.get(oy);
         if (
-          storedType(oy) !== b.node.getType() &&
-          newTypes.has(storedType(oy))
+          storedType(this.view, oy) !== b.node.getType() &&
+          newTypes.has(storedType(this.view, oy))
         ) {
           return false;
         }
         if ($isElementNode(b.node)) {
           return cs !== undefined && cs.kind === this.roles.$kind(b.node);
         }
-        return cs === undefined && storedType(oy) === b.node.getType();
+        return (
+          cs === undefined && storedType(this.view, oy) === b.node.getType()
+        );
       }
       return false;
     };
@@ -3833,7 +3860,8 @@ export class Writer {
     }
     const oy = typeOf(a.item);
     return (
-      this.state.keyByY.get(oy) === b.key && storedType(oy) === b.node.getType()
+      this.state.keyByY.get(oy) === b.key &&
+      storedType(this.view, oy) === b.node.getType()
     );
   }
 
@@ -4080,6 +4108,7 @@ export class Writer {
     const startItem = left === null ? y._start : left.right;
     const actual = new Atoms();
     const fold = readAtomsLimited(
+      this.view,
       this.frontier,
       startItem,
       startFormats,
@@ -4251,7 +4280,7 @@ export class Writer {
       }
     }
     const y = typeOf(item);
-    const current = attrsOf(y) as Attrs;
+    const current = attrsOfIn(this.view, y) as Attrs;
     const storedText = $isElementNode(line) && !$holdsText(line);
     // A marker this write made, or one another line had that a diff of their
     // container gave this line: where this line had a marker of its own,
@@ -4276,7 +4305,7 @@ export class Writer {
         !equalValue(current[k], want[k]) &&
         !this.keepsStored(k, current[k], want[k], storedText)
       ) {
-        setAttr(y, k, want[k], this.tr);
+        setAttrIn(this.view, y, k, want[k], this.tr);
         changed = true;
       }
     }
@@ -4286,7 +4315,7 @@ export class Writer {
         (taken || ownsMarkerAttr(k, owners.fields, owners.groupFields)) &&
         !this.keepsStored(k, current[k], undefined, storedText)
       ) {
-        deleteAttr(y, k, this.tr);
+        deleteAttrIn(this.view, y, k, this.tr);
         changed = true;
       }
     }
@@ -4794,7 +4823,7 @@ export class Writer {
         this.tr.insertSet.hasId(end.id) ||
         this.ownerBefore(end) !== key
           ? null
-          : attrsBefore(typeOf(end), this.tr);
+          : attrsBeforeIn(this.view, typeOf(end), this.tr);
       if (attrs === null && key !== whole) {
         attrs = this.$markerBefore(whole, whole);
       }
@@ -4813,7 +4842,8 @@ export class Writer {
     let found = this.nodesBefore.get(key);
     if (found === undefined) {
       const y = this.state.yByKey.get(key);
-      found = y === undefined ? null : nodeBeforeTransaction(y, this.tr);
+      found =
+        y === undefined ? null : nodeBeforeTransaction(this.view, y, this.tr);
       this.nodesBefore.set(key, found);
     }
     return found;
@@ -4827,12 +4857,16 @@ export class Writer {
   private storedItemAttrs(item: LexicalNode, gtype: unknown): Attrs | null {
     const unit = this.state.unitByKey.get(item.getKey());
     const end = unit === undefined ? null : unit.end;
-    if (end === null || isGone(end) || this.tr.insertSet.hasId(end.id)) {
+    if (
+      end === null ||
+      isGoneIn(this.view, end) ||
+      this.tr.insertSet.hasId(end.id)
+    ) {
       return null;
     }
     const marker = typeOf(end);
-    return attrOf(marker, GROUP_KEY) === gtype
-      ? (attrsOf(marker) as Attrs)
+    return attrOfIn(this.view, marker, GROUP_KEY) === gtype
+      ? (attrsOfIn(this.view, marker) as Attrs)
       : null;
   }
 
@@ -4842,19 +4876,19 @@ export class Writer {
     if (holes.length > 0) {
       this.holed.add(node.getKey());
     }
-    const current = attrsOf(y) as Attrs;
+    const current = attrsOfIn(this.view, y) as Attrs;
     // The fields this editor owns here (see ownsNodeAttr): its classes' of
     // the type stored and of the node's.
     const fields = ownedFields(
       this.state.editor,
-      storedType(y),
+      storedType(this.view, y),
       node.getType(),
       true,
     );
     if (String(y.name).slice(2) !== node.getType()) {
       desired[TYPE_KEY] = node.getType();
     } else if (TYPE_KEY in current) {
-      deleteAttr(y, TYPE_KEY, this.tr);
+      deleteAttrIn(this.view, y, TYPE_KEY, this.tr);
     }
     const storedText = $isElementNode(node) && !$holdsText(node);
     for (const k in desired) {
@@ -4862,7 +4896,7 @@ export class Writer {
         !equalValue(current[k], desired[k]) &&
         !this.keepsStored(k, current[k], desired[k], storedText)
       ) {
-        setAttr(y, k, desired[k], this.tr);
+        setAttrIn(this.view, y, k, desired[k], this.tr);
       }
     }
     for (const k in current) {
@@ -4871,7 +4905,7 @@ export class Writer {
         ownsNodeAttr(k, fields) &&
         !this.keepsStored(k, current[k], undefined, storedText)
       ) {
-        deleteAttr(y, k, this.tr);
+        deleteAttrIn(this.view, y, k, this.tr);
       }
     }
     $writeSlots(this, y, node, current, followUpWarning);
@@ -4926,12 +4960,12 @@ export class Writer {
       }
     }
     for (const k in attrs) {
-      setAttr(y, k, attrs[k], this.tr);
+      setAttrIn(this.view, y, k, attrs[k], this.tr);
     }
     this.state.mapNode(key, y);
     if ($isElementNode(node)) {
       const kind = this.roles.$kind(node);
-      setAttr(y, KIND_KEY, kind, this.tr);
+      setAttrIn(this.view, y, KIND_KEY, kind, this.tr);
       const cs = this.state.newCS(y, key, kind);
       this.written.add(key);
       if (kind === 'i') {
@@ -5129,17 +5163,18 @@ function wrapperOnly(attrs: Attrs): Attrs {
 
 /** The live end item before an old unit (after earlier deletions too). */
 function unitLeft(
+  view: View | null,
   units: Unit[],
   idx: number,
   hidden: Hidden | null,
 ): Item | null {
   const u = units[idx];
   if (u.end !== null) {
-    return prevLiveEnd(currentView(), u.end, hidden);
+    return prevLiveEnd(view, u.end, hidden);
   }
   let e = idx > 0 ? units[idx - 1].end : null;
-  while (e !== null && isGone(e)) {
-    e = prevLiveEnd(currentView(), e, hidden);
+  while (e !== null && isGoneIn(view, e)) {
+    e = prevLiveEnd(view, e, hidden);
   }
   return e;
 }
@@ -5158,6 +5193,7 @@ function unitStop(units: Unit[], idx: number): Item | null {
 
 /** Read exactly `limit` atoms from `start`. */
 function readAtomsLimited(
+  view: View | null,
   frontier: Item | null,
   start: Item | null,
   formats: Formats,
@@ -5168,14 +5204,14 @@ function readAtomsLimited(
   let stop: Item | null = start;
   let n = 0;
   while (stop !== null && n < limit) {
-    if (isLiveContent(currentView(), stop)) {
+    if (isLiveContent(view, stop)) {
       n += unheldLength(stop, hidden);
     }
     stop = stop.right;
   }
   const end = {folded: frontier};
   const after = readAtoms(
-    currentView(),
+    view,
     start,
     stop,
     formats,
@@ -5236,13 +5272,14 @@ function keysAt(
  * attrsBefore), or null where `tr` made it.
  */
 function nodeBeforeTransaction(
+  view: View | null,
   y: YNode,
   tr: Transaction,
 ): [string, Attrs] | null {
   if (y._item !== null && tr.insertSet.hasId(y._item.id)) {
     return null;
   }
-  const attrs = attrsBefore(y, tr);
+  const attrs = attrsBeforeIn(view, y, tr);
   return [storedTypeOf({getAttr: k => attrs[k], name: y.name}), attrs];
 }
 
@@ -5539,8 +5576,8 @@ function exactRange(
   return true;
 }
 
-function applyFormat(formats: Map<string, unknown>, it: Item): void {
-  stepFormat(formats, it);
+function applyFormat(formats: Map<string, unknown>, it: Item, f: FoldIn): void {
+  stepFormat(formats, it, f);
 }
 
 /**
