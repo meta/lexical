@@ -30,7 +30,6 @@ import {
   isYLayoutUpgradeHandle,
   type YClientSession,
   type YLayoutUpgradeHandle,
-  type YServerLayoutUpgradeOptions,
 } from './internal/LayoutUpgrade';
 import {type StorageKind} from './internal/Schema';
 import {SUPPORTED_YJS_VERSION} from './internal/SupportedYjs';
@@ -105,7 +104,6 @@ export type {
   YRecoveredReadData,
   YRecoveredWriteData,
   YSelfCheckData,
-  YServerLayoutUpgradeOptions,
   YStorageMismatchData,
   YStoredAs,
   YUnknownNodeTypesData,

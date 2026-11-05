@@ -14,7 +14,6 @@ import type {
   YDoc,
   YDocOptions,
   YLayoutUpgradeHandle,
-  YServerLayoutUpgradeOptions,
 } from '@lexical/y';
 import type {
   YLayoutMigration,
@@ -270,10 +269,8 @@ declare export function createYQuarantineRecord(
 
 // The layout upgrade handle: @lexical/y's own declaration (opaque there),
 // imported and re-exported, never restated.
-export type {YClientSession, YLayoutUpgradeHandle, YServerLayoutUpgradeOptions};
-declare export function createYServerLayoutUpgrade(
-  options?: YServerLayoutUpgradeOptions,
-): YLayoutUpgradeHandle;
+export type {YClientSession, YLayoutUpgradeHandle};
+declare export function createYServerLayoutUpgrade(): YLayoutUpgradeHandle;
 declare export function isYLayoutUpgradeHandle(
   value: unknown,
 ): value is YLayoutUpgradeHandle;

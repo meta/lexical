@@ -48,24 +48,12 @@ export interface YLayoutUpgradeHandle {
   readonly [LAYOUT_UPGRADE]: true;
   /** The strategy: `'server'`. */
   readonly kind: string;
-  /** The layout documents are upgraded to (MIN_LAYOUT by default). */
-  readonly target: number;
   /**
    * The complete handshake a client sends before any sync message
    * (checkYSession): this release's layouts, seed layout and features,
    * with the session's generation and material.
    */
   handshake(session: YClientSession): YSessionHandshake;
-}
-
-/** @experimental Options of createYServerLayoutUpgrade. */
-export interface YServerLayoutUpgradeOptions {
-  /**
-   * The layout the server migrates documents to (default MIN_LAYOUT, the
-   * runner's and prepareYRoom's default target): from MIN_LAYOUT to
-   * LAYOUT_VERSION.
-   */
-  readonly target?: number;
 }
 
 /**
@@ -91,31 +79,17 @@ export function clientHandshake(session: YClientSession): YSessionHandshake {
  * `layoutUpgrade`. Its `handshake()` builds the session handshake, so an
  * app never assembles one by hand.
  */
-export function createYServerLayoutUpgrade(
-  options: YServerLayoutUpgradeOptions = {},
-): YLayoutUpgradeHandle {
-  const target = options.target ?? MIN_LAYOUT;
-  if (
-    !Number.isSafeInteger(target) ||
-    target < MIN_LAYOUT ||
-    target > LAYOUT_VERSION
-  ) {
-    throw new RangeError(
-      `@lexical/y: a layout upgrade target is a layout from ${MIN_LAYOUT} to ${LAYOUT_VERSION} (got ${String(target)})`,
-    );
-  }
+export function createYServerLayoutUpgrade(): YLayoutUpgradeHandle {
   return Object.freeze({
     [LAYOUT_UPGRADE]: true as const,
     handshake: clientHandshake,
     kind: 'server',
-    target,
   });
 }
 
 /**
  * @experimental Whether `value` is a layout upgrade handle (any copy's):
- * the brand, a non-empty `kind`, an integer `target` from 1 and a
- * `handshake` function. A handle declares what the app expects and builds
+ * the brand, a non-empty `kind` and a `handshake` function. A handle declares what the app expects and builds
  * the handshake; it is not proof that a server is wired to migrate.
  */
 export function isYLayoutUpgradeHandle(
@@ -127,8 +101,6 @@ export function isYLayoutUpgradeHandle(
     (value as Record<symbol, unknown>)[LAYOUT_UPGRADE] === true &&
     typeof (value as {kind?: unknown}).kind === 'string' &&
     (value as {kind: string}).kind !== '' &&
-    Number.isSafeInteger((value as {target?: unknown}).target) &&
-    (value as {target: number}).target >= 1 &&
     typeof (value as {handshake?: unknown}).handshake === 'function'
   );
 }

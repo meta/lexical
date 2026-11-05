@@ -66,8 +66,11 @@ export function handleCells(): YLayoutUpgradeHandle[] {
   const fake: YLayoutUpgradeHandle = {
     handshake: real.handshake,
     kind: 'server',
-    target: 1,
   };
+  // @ts-expect-error a handle has no target (removed before v1)
+  void real.target;
+  // @ts-expect-error the factory takes no options
+  createYServerLayoutUpgrade({target: 1});
   return [real, fake];
 }
 
@@ -184,7 +187,8 @@ describe('the handle', () => {
   test('createYServerLayoutUpgrade: a branded, open handle that builds the complete handshake', () => {
     const handle: YLayoutUpgradeHandle = createYServerLayoutUpgrade();
     expect(handle.kind).toBe('server');
-    expect(handle.target).toBe(MIN_LAYOUT);
+    // Its fields: the brand, `kind` and `handshake`; no `target`.
+    expect(Object.keys(handle).sort()).toEqual(['handshake', 'kind']);
     expect(isYLayoutUpgradeHandle(handle)).toBe(true);
     expect(Object.isFrozen(handle)).toBe(true);
     expect(handle.handshake({generation: 'inc/-', material: true})).toEqual({
@@ -196,7 +200,7 @@ describe('the handle', () => {
       v: 1,
     });
     // Look-alikes are not handles, nor is a branded object without a valid
-    // target or kind.
+    // kind or handshake; a target is not looked at.
     expect(isYLayoutUpgradeHandle({handshake() {}, kind: 'server'})).toBe(
       false,
     );
@@ -205,14 +209,12 @@ describe('the handle', () => {
       [brand]: true,
       handshake: handle.handshake,
       kind: 'server',
-      target: MIN_LAYOUT,
       ...fields,
     });
     expect(isYLayoutUpgradeHandle(branded({}))).toBe(true);
-    expect(isYLayoutUpgradeHandle(branded({target: undefined}))).toBe(false);
-    expect(isYLayoutUpgradeHandle(branded({target: 0}))).toBe(false);
-    expect(isYLayoutUpgradeHandle(branded({target: 1.5}))).toBe(false);
+    expect(isYLayoutUpgradeHandle(branded({target: 0}))).toBe(true);
     expect(isYLayoutUpgradeHandle(branded({kind: ''}))).toBe(false);
+    expect(isYLayoutUpgradeHandle(branded({handshake: undefined}))).toBe(false);
     expect(isYLayoutUpgradeHandle(null)).toBe(false);
   });
 
@@ -267,11 +269,7 @@ describe('the handle', () => {
     ).toMatchObject({reason: 'requires', verdict: 'refuse-layout'});
   });
 
-  test('a target outside [MIN_LAYOUT, LAYOUT_VERSION] is refused; a handle that is not one is refused by the factory and the extension', () => {
-    expect(() =>
-      createYServerLayoutUpgrade({target: LAYOUT_VERSION + 1}),
-    ).toThrow(RangeError);
-    expect(() => createYServerLayoutUpgrade({target: 0})).toThrow(RangeError);
+  test('a handle that is not one is refused by the factory and the extension', () => {
     const doc = createYDoc();
     const fake = {handshake: () => null, kind: 'server'} as never;
     expect(() =>

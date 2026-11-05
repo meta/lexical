@@ -90,5 +90,4 @@ export {
   isYLayoutUpgradeHandle,
   type YClientSession,
   type YLayoutUpgradeHandle,
-  type YServerLayoutUpgradeOptions,
 } from './internal/LayoutUpgrade';

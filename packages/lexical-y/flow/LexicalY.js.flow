@@ -400,14 +400,10 @@ export type YClientSession = {
 // may add kinds and fields.
 declare export opaque type YLayoutUpgradeHandle: {
   readonly kind: string,
-  readonly target: number,
   handshake(session: YClientSession): YSessionHandshake,
   ...
 };
-export type YServerLayoutUpgradeOptions = {readonly target?: number, ...};
-declare export function createYServerLayoutUpgrade(
-  options?: YServerLayoutUpgradeOptions,
-): YLayoutUpgradeHandle;
+declare export function createYServerLayoutUpgrade(): YLayoutUpgradeHandle;
 declare export function isYLayoutUpgradeHandle(
   value: unknown,
 ): value is YLayoutUpgradeHandle;

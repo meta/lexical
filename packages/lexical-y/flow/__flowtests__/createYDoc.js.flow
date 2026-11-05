@@ -98,8 +98,8 @@ const handshake = createYServerLayoutUpgrade().handshake({
 });
 const seed: number = handshake.seed;
 
-// N2: the collab input and the upgrade options accept a field this release
-// does not know (a later option, set through a variable).
+// N2: the collab input accepts a field this release does not know (a later
+// option, set through a variable).
 declare const inputWithExtra: {
   doc: YDoc,
   layoutUpgrade: YLayoutUpgradeHandle | null,
@@ -107,8 +107,6 @@ declare const inputWithExtra: {
   laterOption: boolean,
 };
 const extended: YCollabInput = inputWithExtra;
-declare const upgradeOptions: {readonly target: number, readonly laterOption: number};
-const extendedUpgrade = createYServerLayoutUpgrade(upgradeOptions);
 
 // F3: the binding options and the extension's configuration accept a field
 // a later release adds (every such field is optional), set through a
@@ -148,10 +146,12 @@ const literalOptions: YBindingOptions = {laterOption: true, schemaVersion: 1};
 // N3: the handle is opaque: only the factory makes one; its fields read.
 const realHandle: YLayoutUpgradeHandle = createYServerLayoutUpgrade();
 const handleKind: string = realHandle.kind;
-const handleTarget: number = realHandle.target;
+// $FlowExpectedError[prop-missing] a handle has no target (removed before v1)
+void realHandle.target;
+// $FlowExpectedError[extra-arg] the factory takes no options
+createYServerLayoutUpgrade({target: 1});
 // $FlowExpectedError[incompatible-type] a structural look-alike is not a handle
 const fakeHandle: YLayoutUpgradeHandle = {
   handshake: realHandle.handshake,
   kind: 'server',
-  target: 1,
 };
