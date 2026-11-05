@@ -19,8 +19,11 @@
 // the command now runs once the read has committed, in an update of its
 // own, and the read runs no node transforms.
 
+import {$createCodeNode} from '@lexical/code';
+import {registerCodeHighlighting} from '@lexical/code-prism';
 import {
   $create,
+  $createLineBreakNode,
   $createParagraphNode,
   $createRangeSelection,
   $createTextNode,
@@ -28,14 +31,17 @@ import {
   $getRoot,
   $getSelection,
   $getState,
+  $hasUpdateTag,
   $isElementNode,
   $isRangeSelection,
   $isTextNode,
   $setSelection,
   $setState,
   type BaseSelection,
+  COLLABORATION_TAG,
   COMMAND_PRIORITY_LOW,
   createState,
+  type ElementNode,
   type LexicalEditor,
   ParagraphNode,
   type RangeSelection,
@@ -228,7 +234,9 @@ type Kind =
   | 'move'
   | 'appended text'
   | 'empty line style'
-  | 'merged tokens';
+  | 'merged tokens'
+  | 'NodeState shaped like a node'
+  | 'line break line style';
 
 /** One edit of `kind`, once per editor. */
 function $editOnce(done: WeakSet<LexicalEditor>, kind: Kind): void {
@@ -250,6 +258,12 @@ function $editOnce(done: WeakSet<LexicalEditor>, kind: Kind): void {
   } else if (kind === 'appended text') {
     // Lexical merges it into the text before it as it commits.
     tail.append($createTextNode('!'));
+  } else if (kind === 'NodeState shaped like a node') {
+    // Keys a node's JSON has too.
+    $setState(tail, payload, {children: ['x'], textStyle: 'NEW'});
+  } else if (kind === 'line break line style') {
+    // An element with no text in it keeps the style set on it.
+    (lines[5] as ParagraphNode).setTextStyle('color: blue');
   } else if (kind === 'merged tokens') {
     // Two token nodes, which Lexical does not merge itself.
     const [first, second] = (lines[4] as ParagraphNode).getAllTextNodes();
@@ -295,12 +309,17 @@ async function runKind(kind: Kind, gc: boolean): Promise<void> {
           $create(KindText).setTextContent('two'),
         ),
         $createParagraphNode().append($createTextNode('three')),
-        $createParagraphNode().append($createTextNode('tail')),
+        $setState(
+          $createParagraphNode().append($createTextNode('tail')),
+          payload,
+          {children: ['x'], textStyle: 'OLD'},
+        ),
         $createParagraphNode(),
         $createParagraphNode().append(
           $createTextNode('to').setMode('token'),
           $createTextNode('ken').setMode('token'),
         ),
+        $createParagraphNode().append($createLineBreakNode()),
       ),
     {gc, ids: [1, 2, 3], nodes: [...NODES, Line, KindText]},
   );
@@ -334,8 +353,11 @@ async function runKind(kind: Kind, gc: boolean): Promise<void> {
   expect(shown).toContain(
     {
       NodeState: '"read_edit_payload":{"deep":{"at":["x"]},"n":1}',
+      'NodeState shaped like a node':
+        '"read_edit_payload":{"children":["x"],"textStyle":"NEW"}',
       'appended text': '"text":"tail!"',
       'empty line style': '"textStyle":"color: red"',
+      'line break line style': '"textStyle":"color: blue"',
       'merged tokens': '"text":"token"',
       move: '"text":"tail"',
     }[kind],
@@ -354,6 +376,8 @@ describe('every kind of app edit made in the update of a remote read is stored',
     'appended text',
     'empty line style',
     'merged tokens',
+    'NodeState shaped like a node',
+    'line break line style',
   ] as const) {
     for (const gc of [false, true]) {
       test(`${kind}, gc ${gc}`, () => runKind(kind, gc));
@@ -455,5 +479,79 @@ describe('the selection change an app makes in a remote read is notified once', 
         await expectConverged(t.peers);
       });
     }
+  }
+});
+
+describe('a selection an app sets in a remote read is notified after the read, which runs no node transforms', () => {
+  for (const gc of [false, true]) {
+    test(`code highlighting, gc ${gc}`, async () => {
+      const t = await setup(
+        () =>
+          $getRoot().append(
+            $create(Line).append(
+              $createTextNode('one '),
+              $create(ReplacingText).setTextContent('two'),
+            ),
+            $createParagraphNode().append($createTextNode('three')),
+            $createCodeNode('javascript').append(
+              $createTextNode('const answer = 42;').toggleFormat('bold'),
+            ),
+          ),
+        {gc, ids: [1, 2, 3], nodes: [...NODES, Line, ReplacingText]},
+      );
+      const {a, b, c} = t;
+      const host = document.createElement('div');
+      host.contentEditable = 'true';
+      document.body.append(host);
+      a.editor.setRootElement(host);
+      host.focus();
+      onTestFinished(() => {
+        a.editor.setRootElement(null);
+        host.remove();
+        t.peers.forEach(p => p.stop());
+      });
+      onTestFinished(registerCodeHighlighting(a.editor));
+      a.update(() => {
+        $getRoot().getAllTextNodes()[1].select(1, 1);
+      });
+      await t.sync();
+      c.update(() => {
+        $setState($getRoot().getFirstChildOrThrow(), shut, true);
+        $setSelection(null);
+      });
+      await t.sync();
+      // The app's handler only touches the code block; Lexical's
+      // highlighter, a node transform, then rewrites it, in the handler's
+      // own update: a local one, as where the app touches it any other time.
+      let touched = false;
+      let inRead: boolean | null = null;
+      onTestFinished(
+        a.editor.registerCommand(
+          SELECTION_CHANGE_COMMAND,
+          () => {
+            if (!touched && $shutNowAndBefore()) {
+              touched = true;
+              inRead = $hasUpdateTag(COLLABORATION_TAG);
+              const code = $getRoot().getLastChildOrThrow() as ElementNode;
+              code.getWritable();
+              for (const text of code.getAllTextNodes()) {
+                text.getWritable();
+              }
+            }
+            return false;
+          },
+          COMMAND_PRIORITY_LOW,
+        ),
+      );
+      b.update(() => {
+        $getRoot().getAllTextNodes()[2].setTextContent('three 3');
+        $setSelection(null);
+      });
+      await t.sync();
+      expect(touched).toBe(true);
+      expect(inRead).toBe(false);
+      expect(a.describe()).toBe((await freshReader(a)).describe());
+      await expectConverged(t.peers);
+    });
   }
 });

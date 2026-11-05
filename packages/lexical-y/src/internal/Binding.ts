@@ -56,6 +56,7 @@ import {
   $onUpdate,
   $setSelection,
   COLLABORATION_TAG,
+  COMMAND_PRIORITY_CRITICAL,
   DEFER_COMPOSITION_MERGE_TAG,
   type EditorState,
   ElementNode,
@@ -340,18 +341,50 @@ const rekeptByOwner = new WeakMap<object, Set<Item>>();
 
 /**
  * Fields Lexical derives as it renders a commit (see $writeReadEdits): the
- * root's text, and the text format and style an element with children takes
- * from its text (LexicalReconciler's reconcileTextFormat), which depend on
- * what the editor rendered before. An empty element keeps the ones set on
- * it.
+ * root's text, and the text format and style an element takes from the
+ * first text in it (LexicalReconciler's reconcileTextFormat), which depend
+ * on what the editor rendered before. An element with no text in it keeps
+ * the ones set on it. `hasText`: whether there is text in the node.
  */
-function isDerivedField(node: LexicalNode, field: string): boolean {
+function isDerivedField(
+  node: LexicalNode,
+  field: string,
+  hasText: boolean,
+): boolean {
   return (
     field === '__cachedText' ||
     ((field === '__textFormat' || field === '__textStyle') &&
       $isElementNode(node) &&
-      node.__size > 0)
+      hasText)
   );
+}
+
+/**
+ * A node's JSON (see $deepJSON) without the text format and style of each
+ * element with text in it (see isDerivedField). Returns whether there is
+ * text in it.
+ */
+function stripDerived(json: Record<string, unknown>): boolean {
+  let hasText = typeof json.text === 'string';
+  const children = json.children;
+  if (Array.isArray(children)) {
+    for (const child of children) {
+      if (stripDerived(child as Record<string, unknown>)) {
+        hasText = true;
+      }
+    }
+    if (hasText) {
+      delete json.textFormat;
+      delete json.textStyle;
+    }
+  }
+  const slots = json.$slots;
+  if (slots !== undefined && slots !== null && typeof slots === 'object') {
+    for (const slot of Object.values(slots)) {
+      stripDerived(slot as Record<string, unknown>);
+    }
+  }
+  return hasText;
 }
 
 /** What an update listener gets for a commit (see YBinding#onUpdate). */
@@ -1171,6 +1204,36 @@ export class YBinding {
     this._doc.on('afterAllTransactions', this.afterAllTransactions);
     this.disposers.push(() =>
       this._doc.off('afterAllTransactions', this.afterAllTransactions),
+    );
+    // Lexical notifies a selection change in the update of a read of the
+    // binding's (see readEnd) where an app's selectionTransform set a
+    // selection of its own, and would run every node transform over what
+    // the read brought with it. The notification is held for an update of
+    // its own once the read has committed (see $quietSelection), and its
+    // update runs no transforms: a skipTransforms update nested in it makes
+    // Lexical normalize text only.
+    this.disposers.push(
+      this._editor.registerCommand(
+        SELECTION_CHANGE_COMMAND,
+        () => {
+          const editor = this._editor;
+          const readEnd = this.readEnd;
+          if (
+            readEnd === null ||
+            readEnd.state !== editor._pendingEditorState
+          ) {
+            return false;
+          }
+          editor.update(() => {}, {skipTransforms: true});
+          $onUpdate(() => {
+            editor.update(() => {
+              editor.dispatchCommand(SELECTION_CHANGE_COMMAND, undefined);
+            });
+          });
+          return true;
+        },
+        COMMAND_PRIORITY_CRITICAL,
+      ),
     );
     this.disposers.push(
       this._editor.registerUpdateListener(payload =>
@@ -3632,7 +3695,31 @@ export class YBinding {
   private markReadEnd(): void {
     const editor = this._editor;
     const pending = editor._pendingEditorState;
+    this.readEnd = null;
     if (pending === null) {
+      return;
+    }
+    // Nothing of the app's runs in the update after the read unless an
+    // update is queued behind it or the selection's text has a
+    // selectionTransform of its own (Lexical calls the anchor's and the
+    // focus's; the read runs no node transforms, see $quietSelection): no
+    // copies then.
+    const selection = pending._selection;
+    const transforms = (point: PointType) => {
+      const node = pending._nodeMap.get(point.key);
+      return (
+        point.type === 'text' &&
+        $isTextNode(node) &&
+        node.selectionTransform !== TextNode.prototype.selectionTransform
+      );
+    };
+    if (
+      editor._updates.length === 0 &&
+      !(
+        $isRangeSelection(selection) &&
+        (transforms(selection.anchor) || transforms(selection.focus))
+      )
+    ) {
       return;
     }
     const nodes = new Map<NodeKey, LexicalNode | undefined>();
@@ -3697,16 +3784,46 @@ export class YBinding {
       }
       return false;
     };
+    // Whether there is text in a node, by its children in `get`.
+    const textIn = (
+      node: LexicalNode,
+      get: (k: NodeKey) => LexicalNode | undefined,
+    ): boolean => {
+      if ($isTextNode(node)) {
+        return true;
+      }
+      if (!$isElementNode(node)) {
+        return false;
+      }
+      for (let key = node.__first; key !== null; ) {
+        const child = get(key);
+        if (child === undefined) {
+          return false;
+        }
+        if (textIn(child, get)) {
+          return true;
+        }
+        key = child.__next;
+      }
+      return false;
+    };
     // A node the read changed is compared with its copy (see markReadEnd),
     // NodeState included (a field JSON does not enumerate).
     const sameAll = (x: LexicalNode, y: LexicalNode): boolean => {
       try {
-        const all = (n: LexicalNode) =>
-          JSON.stringify([
-            JSON.stringify(n, (k, v) => (isDerivedField(n, k) ? undefined : v)),
+        const all = (
+          n: LexicalNode,
+          get: (k: NodeKey) => LexicalNode | undefined,
+        ) => {
+          const hasText = textIn(n, get);
+          return JSON.stringify([
+            JSON.stringify(n, (k, v) =>
+              isDerivedField(n, k, hasText) ? undefined : v,
+            ),
             n.__state === undefined ? null : n.__state.toJSON(),
           ]);
-        return all(x) === all(y);
+        };
+        return all(x, k => now.get(k)) === all(y, read);
       } catch (_e) {
         return false;
       }
@@ -3851,18 +3968,9 @@ export class YBinding {
           if ($isRootNode(node)) {
             return JSON.stringify(node.getChildrenKeys());
           }
-          return JSON.stringify(
-            $deepJSON(node, null, null, true),
-            function (this: Record<string, unknown>, k, v) {
-              // See isDerivedField: an element's text format and style, where it
-              // has children it takes them from.
-              return (k === 'textFormat' || k === 'textStyle') &&
-                Array.isArray(this.children) &&
-                this.children.length > 0
-                ? undefined
-                : v;
-            },
-          );
+          const json = $deepJSON(node, null, null, true);
+          stripDerived(json);
+          return JSON.stringify(json);
         },
         {editor},
       );
