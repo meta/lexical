@@ -31,7 +31,7 @@ import {
 } from 'lexical';
 import {afterAll, expect, test} from 'vitest';
 
-import {createYDoc, YCollabExtension} from '../..';
+import {createYDoc, RAW_YJS_WRITE_WARNING, YCollabExtension} from '../..';
 import {Reader} from '../../internal/Read';
 import {$createBoxNode, NODES} from '../utils/harness';
 
@@ -78,6 +78,13 @@ function peer(id: number, stored: Uint8Array | null = null) {
       nodes: NODES,
       onError: e => {
         throw e;
+      },
+      onWarn: w => {
+        // The repeated id is written raw on purpose (as a raw copy leaves
+        // it): reported as such in development; nothing else is expected.
+        if ((w as {code?: string}).code !== RAW_YJS_WRITE_WARNING) {
+          throw w;
+        }
       },
     }),
   );
