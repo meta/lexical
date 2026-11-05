@@ -36,7 +36,7 @@ import {pushAll} from './Arrays';
 import {$withoutLevelId, innerBlockIds, NO_IDS} from './BlockIds';
 import {Cursor, equalFormatValue, type Formats, isLiveContent} from './Cursor';
 import {groupKeySig, groupSig} from './Groups';
-import {ambientFold, type FoldIn, isShadowKey, stepFormat} from './Ident';
+import {isShadowKey} from './Ident';
 import {
   $pushInline,
   Atoms,
@@ -107,11 +107,10 @@ import {
   deleteAttrIn,
   deleteItemIn,
   deletions,
+  Folder,
   frontierOf,
   isGoneIn,
-  isHeld,
   isShownEndIn,
-  isStoredIn,
   noteFolded,
   prevLiveEnd,
   setAttrIn,
@@ -2224,12 +2223,13 @@ export class Writer {
    */
   private $recomputeStarts(cs: CS): void {
     const formats = new Map<string, unknown>();
+    const folder = new Folder(formats, this.view, 'stored', this.state.hidden);
     let it: Item | null = cs.y._start;
     let after: Item | null = null;
     for (const u of cs.units) {
       const hidden = this.state.hidden;
       u.start = formats.size > 0 ? new Map(formats) : null;
-      noteFolded(u.start, after, 'stored', hidden);
+      folder.note(u.start, after);
       const held = hidden === null ? undefined : hidden.starts.get(u);
       if (held !== undefined) {
         held.stored = u.start;
@@ -2239,12 +2239,7 @@ export class Writer {
         break;
       }
       for (; it !== null; it = it.right) {
-        if (
-          isStoredIn(this.view, it, hidden) &&
-          it.content instanceof ContentFormat
-        ) {
-          stepFormat(formats, it);
-        }
+        folder.step(it);
         if (it === u.end) {
           after = it;
           it = it.right;
@@ -2305,17 +2300,15 @@ export class Writer {
         folded = pf.fold.folded;
         from = pf.fold.stop;
       }
+      const folder = new Folder(
+        formats,
+        this.view,
+        'stored',
+        this.state.hidden,
+        folded,
+      );
       for (let it: Item | null = from; it !== null; it = it.right) {
-        if (it === folded) {
-          folded = null;
-        }
-        if (
-          folded === null &&
-          isStoredIn(this.view, it, this.state.hidden) &&
-          it.content instanceof ContentFormat
-        ) {
-          stepFormat(formats, it);
-        }
+        folder.step(it);
         if (it === unit.end) {
           break;
         }
@@ -2786,43 +2779,28 @@ export class Writer {
       // Where the pending starts were folded up to (see Seen.noteFolded).
       let pendingAt: Item | null = frontier ?? left;
       let k = 0;
-      let folded = frontier;
+      // Stored (a held insertion counts, a kept deletion does not) and
+      // shown (the reverse): the halves of the held line show the shown
+      // lane, what they hand on is stored (see isStored).
+      const stored = new Folder(current, this.view, 'stored', hidden, frontier);
+      const showing = new Folder(shown, this.view, 'shown', hidden, frontier);
       for (
         let it = startItem;
         it !== null && k < segUnits.length;
         it = it.right
       ) {
-        if (it === folded) {
-          folded = null;
-        }
-        if (isGoneIn(this.view, it)) {
-          continue;
-        }
-        if (it.content instanceof ContentFormat) {
-          if (folded !== null) {
-            continue;
-          }
-          // Stored (a held insertion counts, a kept deletion does not) and
-          // shown (the reverse): the halves of the held line show the
-          // shown lane, what they hand on is stored (see isStored).
-          if (isStoredIn(this.view, it, hidden)) {
-            applyFormat(current, it, {
-              held: ambientFold().held,
-              view: this.view,
-            });
-          }
-          if (!isHeld(it, hidden)) {
-            applyFormat(shown, it, {held: hidden, view: this.view});
-          }
+        stored.step(it);
+        showing.step(it);
+        if (isGoneIn(this.view, it) || it.content instanceof ContentFormat) {
           continue;
         }
         const u = byEnd.get(it);
         if (u !== undefined) {
           u.start = pendingStart.size > 0 ? pendingStart : null;
-          noteFolded(u.start, pendingAt, 'stored', hidden);
+          stored.note(u.start, pendingAt);
           if (heldSegment && !sameFormatMaps(pendingStart, pendingShown)) {
             const shownStart = pendingShown.size > 0 ? pendingShown : null;
-            noteFolded(shownStart, pendingAt, 'shown', hidden);
+            showing.note(shownStart, pendingAt);
             hidden!.starts.set(u, {
               shown: shownStart,
               stored: u.start,
@@ -2849,18 +2827,15 @@ export class Writer {
     const formats = new Map(storedStartFormats);
     let it: Item | null = startItem;
     if (after !== left) {
-      let folded = frontier;
+      const folder = new Folder(
+        formats,
+        this.view,
+        'stored',
+        this.state.hidden,
+        frontier,
+      );
       for (; it !== null; it = it.right) {
-        if (it === folded) {
-          folded = null;
-        }
-        if (
-          folded === null &&
-          isStoredIn(this.view, it, this.state.hidden) &&
-          it.content instanceof ContentFormat
-        ) {
-          applyFormat(formats, it, {held: ambientFold().held, view: this.view});
-        }
+        folder.step(it);
         if (it === after) {
           it = it.right;
           break;
@@ -5576,10 +5551,6 @@ function exactRange(
     }
   }
   return true;
-}
-
-function applyFormat(formats: Map<string, unknown>, it: Item, f: FoldIn): void {
-  stepFormat(formats, it, f);
 }
 
 /**
