@@ -1566,7 +1566,9 @@ not merge as a user might expect:
     names starting with U+0002 are not read, and an array such code stores
     as a format's value, other than layout 3's own `[]`, `[d]` and
     `[client, clock]`, is never shown as a value: those shapes are reserved
-    for ends a later layout may add.
+    for ends a later layout may add. In a layout 1 or 2 room, such an array
+    can show as a cleared format while the room is below the floor (read
+    only); the migration stores it as a value, and it reads as one after.
   - An object such code stores as a format's value reads as that value, as
     before layout 3, also one keyed by array indices or a typed array (a
     binary update keeps a typed array's bytes, not its other properties).
