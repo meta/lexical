@@ -33,6 +33,7 @@ import {
   RelativePosition,
   relativePositionToJSON,
   type Transaction,
+  tryGc,
   UndoManager,
 } from '@y/y';
 import {
@@ -1152,6 +1153,35 @@ export class YBinding {
   private unread: Unread | null = null;
   /** While a change is read: the document as it is (see readChange). */
   private reading = false;
+  /**
+   * Remote changes Yjs applied while the editor was making a local update,
+   * in order: read once that update has committed and been written (see
+   * deferChange).
+   */
+  private readonly deferred: Transaction[] = [];
+  /** While the deferred changes are read (see readDeferred). */
+  private drainingDeferred = false;
+  /** Whether an update that reads the deferred changes is queued. */
+  private deferredQueued = false;
+  /**
+   * The deferred changes whose deleted content Yjs does not collect until
+   * they are read (see deferChange), and the document's `gcFilter` the
+   * binding's own wraps (see holdDeleted).
+   */
+  private readonly heldUnread = new Set<Transaction>();
+  /** Containers read while changes were deferred, checked later (see checkRead). */
+  private readonly checkLater = new Set<CS>();
+  /** While takeCursor's transaction runs. */
+  private takingCursor = false;
+  /** The cursor takeCursor took last, and on which editor state. */
+  private takenCursor: {cursor: YCursor | null; state: EditorState} | null =
+    null;
+  private gcFilters: {
+    ours: (item: Item) => boolean;
+    prev: (item: Item) => boolean;
+  } | null = null;
+  /** While a read of the binding's runs (see guardedRead). */
+  private readsNow = 0;
   /** The stored formats one update's transforms looked up (see settleTextFields). */
   private storedFormats: {
     state: EditorState | null;
@@ -1159,7 +1189,22 @@ export class YBinding {
     lines: Map<NodeKey, StoredLine>;
   } = {lines: new Map(), sequences: new Map(), state: null};
   /** This binding's view, for its work (see guard). */
-  private readonly seer = () => (this.reading ? null : this.unread);
+  private readonly seer = () => {
+    const view = this.unread;
+    if (!this.reading || view === null) {
+      return view;
+    }
+    // While a change is read: the document as it is, but for the changes
+    // still deferred (see deferChange), which the editor does not show yet.
+    return this.deferred.length === 0
+      ? null
+      : {
+          changes: view.changes.filter(c => this.deferred.includes(c)),
+          removed: view.removed,
+          root: view.root,
+          under: view.under,
+        };
+  };
   /**
    * The selection before the local change being written (see onUpdate), for
    * the undo step it starts (see stack-item-added in startInner).
@@ -1264,12 +1309,17 @@ export class YBinding {
     this.afterTransaction = tr =>
       this.guard(() => withPins(this._pins, () => this.onAfterTransaction(tr)));
     this.beforeTransaction = tr => {
+      if (tr.origin === this.scanOrigin) {
+        // A scan changes nothing (see getCursor): the cursor stays.
+        this.noteChange(tr);
+        return;
+      }
       this.pendingCursor =
         this._status !== 'pending' &&
         tr.origin !== this &&
         tr.origin !== this.initOrigin &&
         tr.origin !== this.followUpOrigin
-          ? this.getCursor()
+          ? this.takeCursor()
           : null;
       this.noteChange(tr);
     };
@@ -1367,6 +1417,11 @@ export class YBinding {
             queueMicrotask(endOfTask(this.task));
           }
           withPins(this._pins, () => this.onUpdate(payload));
+          if (this.deferred.length > 0) {
+            // The update the remote changes were applied in has committed,
+            // and is written (see deferChange).
+            this.scheduleDeferred();
+          }
           const hidden = this.state.hidden;
           if (
             hidden !== null &&
@@ -1952,6 +2007,16 @@ export class YBinding {
     }
     this.state.clear();
     this.pending.clear();
+    for (const tr of [...this.heldUnread]) {
+      this.releaseUnread(tr);
+    }
+    // Never read: out of the unread view too, which a binding started
+    // again starts from (see scheduleDeferred).
+    for (const tr of this.deferred) {
+      this.dropChange(tr);
+    }
+    this.deferred.length = 0;
+    this.checkLater.clear();
     this.localRefresh.clear();
     this.refused.clear();
     this.refusedComposing.clear();
@@ -2676,12 +2741,34 @@ export class YBinding {
   }
 
   /** Self-check of containers a remote change rebuilt (see checkContainer). */
-  private checkRead(rebuilt: ReadonlySet<CS>): void {
+  private checkRead(read: ReadonlySet<CS>): void {
     const check = this.options.selfCheck === true;
+    if (!check) {
+      return;
+    }
+    if (this.deferred.length > 0 || this.unread !== null) {
+      // Changes are still deferred (see deferChange) or unread: the
+      // document holds them, the editor does not yet. Checked with the last
+      // one's read.
+      for (const cs of read) {
+        this.checkLater.add(cs);
+      }
+      return;
+    }
+    let rebuilt = read;
+    if (this.checkLater.size > 0) {
+      const all = new Set(read);
+      for (const cs of this.checkLater) {
+        if (this.state.containers.get(cs.y) === cs) {
+          all.add(cs);
+        }
+      }
+      this.checkLater.clear();
+      rebuilt = all;
+    }
     // Skipped while a re-read is pending (see refused): the editor then
     // shows a follow-up's change that is read again right after.
     if (
-      !check ||
       rebuilt.size === 0 ||
       this.refused.size > 0 ||
       Math.random() >= (this.options.selfCheckSample ?? 1)
@@ -3374,6 +3461,25 @@ export class YBinding {
     this.unread.changes.push(tr);
   }
 
+  /**
+   * In write transaction `tr`, split the items at the bounds of what the
+   * changes not read yet inserted and deleted (see Unread), which tells
+   * them apart by item. Yjs merges the items a change leaves next to items
+   * of the same client once the change's transaction ends: a change read
+   * later (see deferChange) would otherwise share an item with text the
+   * editor shows, and the write would take that text for unread.
+   */
+  private splitAtUnread(tr: Transaction): void {
+    const view = this.unread;
+    if (view === null) {
+      return;
+    }
+    for (const change of view.changes) {
+      iterateStructsByIdSet(tr, change.insertSet, () => {});
+      iterateStructsByIdSet(tr, change.deleteSet, () => {});
+    }
+  }
+
   /** The change `tr` is read, or has nothing to read (see noteChange). */
   private dropChange(tr: Transaction): void {
     const view = this.unread;
@@ -3402,6 +3508,37 @@ export class YBinding {
         (message, data) => this.warn(RAW_YJS_WRITE_WARNING, message, data),
       );
     }
+    if (tr.origin === this.scanOrigin) {
+      // Changes nothing (see scanStackItem, getCursor), unless an app's
+      // beforeTransaction listener changed the layout record in it: as for
+      // the binding's other transactions (see readChange), the record is
+      // read once this transaction's caller is done.
+      if (this._status === 'active' && this.changedRecord(tr)) {
+        this.evaluateSoon();
+      }
+      return;
+    }
+    if (this.defersChange(tr)) {
+      this.deferChange(tr);
+      return;
+    }
+    if (this.deferred.length > 0 && !this._editor._updating) {
+      // Read after those, in the order Yjs applied them, and like them
+      // (unread while they are read, its caret taken once they are). (While
+      // the editor updates, a remote change is deferred behind them, and the
+      // binding's own writes read nothing: see scheduleDeferred.)
+      this.deferred.push(tr);
+      if (this._doc.gc) {
+        this.holdDeleted(tr);
+      }
+      this.readDeferred();
+      return;
+    }
+    this.readNow(tr);
+  }
+
+  /** Read remote change `tr` now (see onAfterTransaction). */
+  private readNow(tr: Transaction): void {
     try {
       this.readChange(tr);
     } finally {
@@ -3409,6 +3546,220 @@ export class YBinding {
       this.dropChange(tr);
       if (this.schemaSeenIn === tr) {
         this.schemaSeenIn = null;
+      }
+      if (!this._editor._updating) {
+        this.releaseUnread(tr);
+      } else if (this.heldUnread.has(tr)) {
+        // Nested in an update, the read is only queued (see guardedRead),
+        // and releases what it holds once it ran; this covers a read that
+        // never runs.
+        queueMicrotask(() => this.releaseUnread(tr));
+      }
+    }
+    // Deferred while it was read (see scheduleDeferred).
+    this.scheduleDeferred();
+    this.flushCheckLater();
+  }
+
+  /**
+   * Self-check what earlier reads rebuilt while changes were deferred or
+   * unread (see checkRead), once none is and the editor is idle: where the
+   * last change had nothing to read, no read checks them.
+   */
+  private flushCheckLater(committed = false): void {
+    if (
+      this.checkLater.size > 0 &&
+      this.deferred.length === 0 &&
+      this.unread === null &&
+      (committed || !this._editor._updating)
+    ) {
+      this.guard(() => this.checkRead(new Set()));
+    }
+  }
+
+  /**
+   * Whether remote change `tr` is read after the local update the editor is
+   * making (a provider applying it from inside `editor.update`, a command or
+   * a transform of that update): see deferChange. Not a change of the
+   * binding's own, nor one Yjs applies inside a read or an undo the binding
+   * runs, which read it there.
+   */
+  private defersChange(tr: Transaction): boolean {
+    const editor = this._editor;
+    if (
+      this.readsNow > 0 ||
+      !editor._updating ||
+      tr.origin === this ||
+      tr.origin === this.initOrigin ||
+      tr.origin === this.followUpOrigin ||
+      tr.origin === this.scanOrigin ||
+      tr.origin === this.runEndOrigin ||
+      (this._undoManager !== null && tr.origin === this._undoManager)
+    ) {
+      return false;
+    }
+    return (
+      this.deferred.length > 0 ||
+      (this._status !== 'pending' && this.readsChanges())
+    );
+  }
+
+  /**
+   * Read remote change `tr` once the local update the editor is making has
+   * committed, and been written, instead of in it. Invariant: a local update
+   * is written before a remote change is read (see readChange). Why: read
+   * in it, the change would replace what the update changed in the lines it
+   * touches, and give its commit a collaborator's tags, so that nothing of
+   * it is written: the update's text would be lost, in the editor and in
+   * the document. Until it is read, the change stays unread (see Unread):
+   * the update is written on the document as it was before it, as one
+   * committed before a read is. It is read right after the update's commit
+   * (see the update listener), or, where the update did not commit (it
+   * threw), once the editor is idle.
+   */
+  private deferChange(tr: Transaction): void {
+    this.deferred.push(tr);
+    if (this._doc.gc) {
+      this.holdDeleted(tr);
+    }
+    if (this._editor._pendingEditorState === null) {
+      // From a commit's listeners or callbacks: in an update of its own,
+      // ahead of the updates the app queued there, which commit, and are
+      // written, after it.
+      this.scheduleDeferred();
+    }
+    if (this.deferred.length === 1) {
+      queueMicrotask(() =>
+        this.guard(() => withPins(this._pins, () => this.scheduleDeferred())),
+      );
+    }
+  }
+
+  /**
+   * Read the deferred remote changes (see deferChange) where nothing keeps
+   * them waiting: now where the editor is idle, else in an update of their
+   * own ahead of those the app queued (from a commit's listeners). Not while
+   * another change is being read further up (an update the app makes from
+   * its listeners, on that read's commit): that read reads them when it
+   * ends (see readNow). Why: read in it, the change being read would still
+   * count as unread, and the read would not show it.
+   */
+  private scheduleDeferred(): void {
+    const view = this.unread;
+    if (
+      this.deferred.length === 0 ||
+      this.drainingDeferred ||
+      (view !== null && view.changes.some(c => !this.deferred.includes(c)))
+    ) {
+      return;
+    }
+    if (this.isIdle()) {
+      this.readDeferred();
+    } else if (this._editor._updating && !this.deferredQueued) {
+      this.deferredQueued = true;
+      this.queueFirst(
+        () => {
+          this.deferredQueued = false;
+          this.readDeferred();
+        },
+        {discrete: true, skipTransforms: true, tag: REMOTE_TAGS},
+      );
+    }
+  }
+
+  /**
+   * Let Yjs collect what deferred change `tr` deleted, now that it is read
+   * (see deferChange), as it would have when the change was applied.
+   */
+  private releaseUnread(tr: Transaction): void {
+    if (!this.heldUnread.delete(tr)) {
+      return;
+    }
+    const doc = this._doc;
+    // What no one else keeps (an UndoManager, the binding's own format
+    // items) and the app's filter lets go.
+    doc.transact(t => tryGc(t, tr.deleteSet, doc.gcFilter), this.scanOrigin);
+    const filters = this.gcFilters;
+    if (this.heldUnread.size === 0 && filters !== null) {
+      // Unless something replaced or wrapped it since: the binding's holds
+      // nothing now, and the next hold wraps whatever the document has.
+      if (doc.gcFilter === filters.ours) {
+        doc.gcFilter = filters.prev;
+      }
+      this.gcFilters = null;
+    }
+  }
+
+  /**
+   * Keep Yjs from collecting the content deferred change `tr` deleted, which
+   * it does right after this (in the change's transaction cleanup), until
+   * the change is read: the text the editor still shows stays there for the
+   * writes in between (see Unread), which would otherwise write it again.
+   * Through the document's `gcFilter`, which the binding wraps while it
+   * holds any: an item's `keep` is others' (an UndoManager's), which a
+   * release could not tell from its own.
+   */
+  private holdDeleted(tr: Transaction): void {
+    this.heldUnread.add(tr);
+    const doc = this._doc;
+    if (this.gcFilters !== null && doc.gcFilter === this.gcFilters.ours) {
+      return;
+    }
+    // (Again if the app replaced the filter while the binding held some.)
+    const prev = doc.gcFilter;
+    const ours = (item: Item) => {
+      for (const held of this.heldUnread) {
+        if (held.deleteSet.hasId(item.id)) {
+          return false;
+        }
+      }
+      return prev(item);
+    };
+    this.gcFilters = {ours, prev};
+    doc.gcFilter = ours;
+  }
+
+  /** Read the remote changes deferred so far, in order (see deferChange). */
+  private readDeferred(): void {
+    // One at a time: those still deferred stay unread while each is read.
+    this.drainingDeferred = true;
+    try {
+      for (
+        let tr = this.deferred.shift();
+        tr !== undefined;
+        tr = this.deferred.shift()
+      ) {
+        // The selection to keep is the editor's now, on the document as it
+        // was before the change (see Unread), not the one before the update
+        // the change was applied in.
+        this.pendingCursor =
+          this._status === 'pending' ? null : this.takeCursor();
+        this.readNow(tr);
+        if (this._editor._updating && this.deferred.length > 0) {
+          // Nested, that read is only queued (see guardedRead), and the
+          // next caret (see getCursor) would be the committed state's,
+          // without it: read the rest once this update has committed (which
+          // the callback makes happen), or once the editor is idle where a
+          // commit listener throws before the callbacks run.
+          const rest = () =>
+            this.guard(() =>
+              withPins(this._pins, () => this.scheduleDeferred()),
+            );
+          $onUpdate(rest);
+          queueMicrotask(rest);
+          break;
+        }
+      }
+    } finally {
+      this.drainingDeferred = false;
+    }
+    if (this.deferred.length === 0 && this.checkLater.size > 0) {
+      // Where the last change had nothing to read (no read, no self-check
+      // of what the earlier ones read: see checkRead), once it committed.
+      if (this._editor._updating) {
+        $onUpdate(() => this.flushCheckLater(true));
+      } else {
+        this.flushCheckLater();
       }
     }
   }
@@ -3556,8 +3907,18 @@ export class YBinding {
           },
           tr,
         );
+        // The editor shows the change from here on: what the app does on
+        // this read's commit (an update of its listeners, a remote change it
+        // applies) sees it as read, not as still unread.
+        this.reading = false;
+        this.dropChange(tr);
       },
       after: () => {
+        // Read and committed: what it deleted is the editor's no more (see
+        // holdDeleted). Not before the commit: the collection is a
+        // transaction, whose observers (an app's awareness cursor) would
+        // take the cursor on the editor state before the read.
+        this.releaseUnread(tr);
         // Also where `before` gated already (a no-op then).
         if (schemaChanged) {
           this.gateSchema();
@@ -3577,7 +3938,7 @@ export class YBinding {
         // The selection the read keeps is the one those updates left, on the
         // document they were made on.
         if (this._editor.getEditorState() !== committed) {
-          this.pendingCursor = this.getCursor();
+          this.pendingCursor = this.takeCursor();
         }
         // The read sees the document as it is: this change, and those
         // applied since, which are read after it (see Reader).
@@ -3806,8 +4167,12 @@ export class YBinding {
             return;
           }
           readState = editor._pendingEditorState;
+          this.readsNow++;
           try {
-            read.$read();
+            // Nested, Lexical runs this once the work that queued it has
+            // returned (see guard): on this binding's view still, which
+            // hides the changes still deferred (see deferChange).
+            seenBy(this.seer, () => read.$read());
           } catch (error) {
             failure = {error};
             // It is recovered from right after (see read.recover): a
@@ -3815,6 +4180,8 @@ export class YBinding {
             // this update's commit too, which would drop an undo or redo the
             // read is part of.
             $setSelection(null);
+          } finally {
+            this.readsNow--;
           }
           if (nested) {
             $onUpdate(() => this.guard(() => withPins(this._pins, settle)));
@@ -3960,7 +4327,7 @@ export class YBinding {
     if (this.state.hidden === null) {
       return;
     }
-    const cursor = this.getCursor();
+    const cursor = this.takeCursor();
     let rebuilt: ReadonlySet<CS> = new Set();
     // The release clears the hold before its read, which shows what it held
     // (see $release); a read that throws reads the whole document again
@@ -4692,13 +5059,15 @@ export class YBinding {
     // (as relative positions on the content before it is written).
     this.writeCursor =
       origin === this && this._undoManager !== null
-        ? prevEditorState.read(() => {
-            try {
-              return this.$captureCursor();
-            } catch (_e) {
-              return null;
-            }
-          })
+        ? this.splitWhileUnread(() =>
+            prevEditorState.read(() => {
+              try {
+                return this.$captureCursor();
+              } catch (_e) {
+                return null;
+              }
+            }),
+          )
         : null;
     const written = this.$runWriter(
       state,
@@ -5015,6 +5384,7 @@ export class YBinding {
           refused = true;
           return;
         }
+        this.splitAtUnread(tr);
         try {
           writer = new Writer(state, roles, tr, prevEditorState, plan);
           writer.followUp = commit.followUp;
@@ -5078,6 +5448,7 @@ export class YBinding {
             recoveryRefused = true;
             return;
           }
+          this.splitAtUnread(tr);
           try {
             const all: WritePlan = {
               attrs: new Set(state.yByKey.keys()),
@@ -6366,11 +6737,21 @@ export class YBinding {
         try {
           this.guard(() => withPins(this._pins, fn));
           if (later.length > 0) {
-            $onUpdate(() => {
-              for (const [f, o] of later) {
-                editor.update(f, o);
+            // After the commit (which the callback itself makes happen,
+            // even when `fn` changed nothing); where a commit listener
+            // throws before Lexical runs the callbacks (see notifyApart),
+            // once the editor is idle.
+            let handed = false;
+            const handBack = () => {
+              if (!handed) {
+                handed = true;
+                for (const [f, o] of later) {
+                  editor.update(f, o);
+                }
               }
-            });
+            };
+            $onUpdate(handBack);
+            queueMicrotask(handBack);
           }
           done = true;
         } finally {
@@ -6609,10 +6990,87 @@ export class YBinding {
   // -------------------------------------------------------------------------
   // Cursors
 
-  /** The local selection as relative positions (JSON), or null. */
+  /**
+   * The local selection as relative positions (JSON), or null. While a
+   * remote change is not read yet, the positions are taken in a Yjs
+   * transaction that changes nothing (the document's transaction observers
+   * see it), or in the one running; called again from that transaction's
+   * observers, it returns the positions it just took.
+   */
   getCursor(): YCursor | null {
-    // On the document as this binding's editor shows it (see guard).
-    return seenBy(this.seer, () => this.readCursor());
+    return this.takeCursor();
+  }
+
+  /**
+   * See getCursor. With changes not read yet, the items are split at their
+   * bounds first (see splitAtUnread), as for a write, since Yjs merges a
+   * change's items with neighbouring items of the same client and the view
+   * tells them apart by item: in the transaction running, if any (its
+   * cleanup merges them back), else in a transaction of its own. The
+   * positions are ids, which stay valid once Yjs merges the items again.
+   * Taken again from that transaction's observers (an app's awareness
+   * cursor refreshed on every transaction), it is the one just taken, for
+   * the same editor state: no transaction opens from there, which would
+   * call those observers again.
+   */
+  private takeCursor(): YCursor | null {
+    if (this.unread === null) {
+      // On the document as this binding's editor shows it (see guard).
+      return seenBy(this.seer, () => this.readCursor());
+    }
+    const doc = this._doc;
+    const state = this._editor.getEditorState();
+    const take = (tr: Transaction) => {
+      this.splitAtUnread(tr);
+      const cursor = seenBy(this.seer, () => this.readCursor());
+      this.takenCursor = {cursor, state};
+      return cursor;
+    };
+    const running = doc._transaction;
+    if (running !== null) {
+      return take(running);
+    }
+    if (
+      this.takingCursor ||
+      doc._transactionCleanups.some(t => t.origin === this.scanOrigin)
+    ) {
+      const taken = this.takenCursor;
+      return taken !== null && taken.state === state
+        ? taken.cursor
+        : seenBy(this.seer, () => this.readCursor());
+    }
+    let cursor: YCursor | null = null;
+    this.takingCursor = true;
+    try {
+      doc.transact(tr => {
+        cursor = take(tr);
+      }, this.scanOrigin);
+    } finally {
+      this.takingCursor = false;
+    }
+    return cursor;
+  }
+
+  /**
+   * Run `fn`, which reads positions (see takeCursor), with the items split
+   * at the bounds of the changes not read yet: in the transaction running,
+   * if any, else in one of its own that changes nothing.
+   */
+  private splitWhileUnread<T>(fn: () => T): T {
+    if (this.unread === null) {
+      return fn();
+    }
+    const running = this._doc._transaction;
+    if (running !== null) {
+      this.splitAtUnread(running);
+      return fn();
+    }
+    let result: T | undefined;
+    this._doc.transact(tr => {
+      this.splitAtUnread(tr);
+      result = fn();
+    }, this.scanOrigin);
+    return result as T;
   }
 
   private readCursor(): YCursor | null {
@@ -6828,8 +7286,30 @@ export class YBinding {
       return;
     }
     let selection: RangeSelection | null = current;
-    const anchor = this.$resolvePosition(cursor.anchor);
-    const focus = this.$resolvePosition(cursor.focus);
+    let anchor = this.$resolvePosition(cursor.anchor);
+    let focus = this.$resolvePosition(cursor.focus);
+    if (
+      this.unread !== null &&
+      !($isShownPoint(anchor) && $isShownPoint(focus))
+    ) {
+      // The binding's view (see Unread) places the selection in a node the
+      // editor no longer has: a read rebuilt its container from the
+      // document, where a change still deferred removed it. The selection
+      // the editor keeps, where it has one; else where the document as it
+      // is places it, as a read of all the changes at once would.
+      $clampSelection();
+      if ($getSelection() !== null) {
+        return;
+      }
+      [anchor, focus] = seenBy(
+        () => null,
+        () => [
+          this.$resolvePosition(cursor.anchor),
+          this.$resolvePosition(cursor.focus),
+        ],
+      );
+      selection = null;
+    }
     const widens =
       caret &&
       selection !== null &&
@@ -7514,6 +7994,15 @@ function $shapeOf(node: ElementNode): string {
 function $showsCaret(): boolean {
   const selection = $getSelection();
   return $isRangeSelection(selection) && selection.isCollapsed();
+}
+
+/** Whether `point` is in a node the editor shows. */
+function $isShownPoint(point: {key: NodeKey} | null): boolean {
+  if (point === null) {
+    return false;
+  }
+  const node = $getNodeByKey(point.key);
+  return node !== null && node.isAttached();
 }
 
 /**

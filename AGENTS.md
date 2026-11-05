@@ -470,8 +470,13 @@ follow, not text to copy into the message.
   `[category] one-line summary` with category `breaking`, `deprecation`,
   `feature`, `fix`, `perf`, `docs` or `chore`, and no PR number. A
   `[breaking]` entry needs `Migration:` and `Detect:` (usually just the
-  affected symbol, import or CSS class; add `Codemod:` when useful); a
-  `[deprecation]` entry needs `Replacement:` and `Removal:` (`v0.NN`,
+  affected symbol, import or CSS class; add `Codemod:` when useful). A
+  type signature change that can make existing call sites stop compiling
+  (overloads, generics, branded or narrowed types, including calls that
+  relied on an inferred type argument) is `[breaking]` even when it only
+  deprecates something; its `Detect:` names those call shapes and its
+  `Migration:` the replacement (see "Type signature changes" in
+  `.changeset/README.md`). A `[deprecation]` entry needs `Replacement:` and `Removal:` (`v0.NN`,
   `no earlier than v0.NN`, or `not scheduled`). A non-breaking change that
   alters observable output or behavior gets a `Verify:` paragraph saying what
   to test (it renders under "Behavior changes"); add one when reviewing a fix

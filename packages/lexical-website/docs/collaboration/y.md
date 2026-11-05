@@ -247,7 +247,12 @@ content with random values" in [Limits](#limits)).
   integrated before them, and they are written after it, on the document as
   it was before that change, which they were made on: their edits land
   where they were made, and the change is read after them (providers that
-  apply changes from network or channel events never do this).
+  apply changes from network or channel events never do this). A remote
+  change applied inside an update (in `editor.update()`, a command, a
+  transform or a listener) is read after that update has committed and been
+  written, in a commit of its own tagged `COLLABORATION_TAG`; where the
+  update commits nothing or throws, a microtask after `editor.update()`
+  returns.
 - To seed or convert a document on a server, use `seedYState` (see
   [Server-side editing](./y-server.md)).
 
@@ -354,7 +359,12 @@ right after that update commits, in an update of its own.
 to and from Yjs relative positions for an awareness-based cursor UI; the
 binding does not render remote cursors itself.
 `getCursor()` returns plain JSON, so it can go in the awareness state the
-provider shares:
+provider shares. While a remote change is not read yet (one applied inside an
+update, or one an app's own document observers see before the binding has
+read it), it takes the positions in a Yjs
+transaction that changes nothing and emits no `update` (the document's
+transaction observers, `afterAllTransactions` included, see it); called again from
+those observers, it returns the same positions without opening another:
 
 ```ts
 // Share this client's selection.

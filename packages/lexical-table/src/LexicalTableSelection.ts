@@ -50,6 +50,7 @@ import {
   $computeTableMap,
   $getTableCellNodeRect,
   $insertTableIntoGrid,
+  $padTableRows,
 } from './LexicalTableUtils';
 
 const __DEV__ = process.env.NODE_ENV !== 'production';
@@ -246,8 +247,28 @@ export class TableSelection implements BaseSelection {
       }
       tableNode.append(rowNode);
     }
-    const {anchorCell} = $getCellNodes(this);
-    const rangeSelection = anchorCell.select(0, anchorCell.getChildrenSize());
+    const {anchorCell, anchorTable, focusCell} = $getCellNodes(this);
+    // A grid of values is laid over the selection's rectangle from its
+    // top-left cell, whichever corner the selection was made from (it can
+    // run right to left or upwards). A single value goes to the cell the
+    // selection was started from.
+    let startCell = anchorCell;
+    const isSingleValue = tsvGrid.length === 1 && tsvGrid[0].length === 1;
+    if (!anchorCell.is(focusCell) && !isSingleValue) {
+      $padTableRows(anchorTable);
+      const [map, anchorMap, focusMap] = $computeTableMap(
+        anchorTable,
+        anchorCell,
+        focusCell,
+      );
+      const {minRow, minColumn} = $computeTableCellRectBoundary(
+        map,
+        anchorMap,
+        focusMap,
+      );
+      startCell = map[minRow][minColumn].cell;
+    }
+    const rangeSelection = startCell.select(0, startCell.getChildrenSize());
     $insertTableIntoGrid(tableNode, rangeSelection);
   }
 
