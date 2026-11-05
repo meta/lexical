@@ -693,13 +693,18 @@ function recordSetMembersLayout(root: YNode, tr: Transaction): void {
 const BASE_SELECTION_TRANSFORM = TextNode.prototype.selectionTransform;
 
 /**
- * Whether `fn` is a method whose body does nothing (empty, or a bare
- * `return`), as TextNode's own selectionTransform is (an app may have
- * patched it before this module loaded).
+ * Whether `fn` is a method that does nothing (plain parameters and an empty
+ * body, or a bare `return`), as TextNode's own selectionTransform is (an
+ * app may have patched it before this module loaded).
  */
 function doesNothing(fn: unknown): boolean {
+  // Its own source (not an overridable toString): a name, plain parameter
+  // names (no default or destructuring, which run code) and an empty body.
   return (
-    typeof fn === 'function' && /\{\s*(?:return;?)?\s*\}\s*$/.test(String(fn))
+    typeof fn === 'function' &&
+    /^(?:function\s*)?[\w$]*\s*\(\s*(?:[\w$]+\s*(?:,\s*[\w$]+\s*)*)?\)\s*\{\s*(?:return;?)?\s*\}$/.test(
+      Function.prototype.toString.call(fn),
+    )
   );
 }
 
