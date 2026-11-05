@@ -245,7 +245,9 @@ content with random values" in [Limits](#limits)).
   so that a remote change the provider applies in the same task finds no
   local update waiting to be written; so does one made while the binding
   has updates of its own waiting. An update a mutation listener makes while
-  Lexical notifies a commit's listeners commits after them instead. A remote change a provider applies
+  Lexical notifies a commit's listeners commits after them instead; a
+  remote change applied in the same task meanwhile is read after it is
+  written. A remote change a provider applies
   synchronously in the same task as updates made before any commit is
   integrated before them, and they are written after it, on the document as
   it was before that change, which they were made on: their edits land

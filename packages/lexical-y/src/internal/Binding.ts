@@ -7892,7 +7892,12 @@ export class YBinding {
    * last commit waits for its registration pass (see isRegistrationPass).
    * Why: a merged commit cannot tell whose its changes are, and an update
    * written after a remote change is written at positions computed without
-   * it.
+   * it. Except an update made while Lexical notifies a commit's listeners (a
+   * mutation listener's): committed at once, it would commit inside that
+   * notification, before the rest of the outer commit's listeners, which
+   * the binding is one of. It commits after them; a remote change applied
+   * in the same task meanwhile finds it waiting, and is read after it is
+   * committed and written (see D108).
    */
   private commitsAtOnce(): boolean {
     if (this.task.committed || this.pending.size > 0 || this.pendingScheduled) {
