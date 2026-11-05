@@ -1098,7 +1098,9 @@ not merge as a user might expect:
   block, and so does what a collaborator types at the same time in a line
   it passes, as with any rewritten line). Where it would pass a block node
   (a box, a table), which is copied whole, the update is written as if
-  nothing waited, so that a collaborator's edit inside that block is kept. Of two
+  nothing waited, so that a collaborator's edit inside that block is kept;
+  the change that waits is then lost or left at the old place, as without
+  this keep. Of two
   such blocks in one container, an update that changes their order is not
   stored, with a warning (`UNSUPPORTED_EDIT_WARNING`, `'composing-move'`):
   only one of them could keep its change (also when one of them moves to

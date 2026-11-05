@@ -1265,6 +1265,38 @@ describe('held back, the line moved past a block node a collaborator edits', () 
   }
 });
 
+// A block node holding the composed line moved past another block node:
+// keeping it would copy the passed block node whole, so the move is written
+// as without the hold, and the held text is lost, as on `main` (a limit, see
+// D112).
+describe('held back in a block node moved past another block node', () => {
+  for (const gc of GC) {
+    test(`gc ${gc}`, async () => {
+      const t = await setup(
+        () =>
+          $getRoot().append(
+            $createBoxNode().append(
+              $createParagraphNode().append($text('abc')),
+            ),
+            $createBoxNode().append(
+              $createParagraphNode().append($text('other box')),
+            ),
+          ),
+        {gc, ids: [1, 2, 3]},
+      );
+      await composeAndMove(t, 'text', () => {
+        $getRoot().append($getRoot().getFirstChildOrThrow());
+      });
+      expect(refusals(t.a)).toEqual([]);
+      expect(t.a.describe()).toBe(
+        'test_box(paragraph("other box")) / test_box(paragraph("abc"))',
+      );
+      expect(t.a.describe()).toBe((await freshReader(t.a)).describe());
+      await expectConverged(t.peers);
+    });
+  }
+});
+
 // An update that inserts a node that is content but not text (an inline
 // equation) and moves the line to another container is not refused: the
 // node would be dropped.
