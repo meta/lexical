@@ -7,6 +7,7 @@
  */
 // @vitest-environment jsdom
 
+import * as Y from '@y/y';
 import {
   $createParagraphNode,
   $createTextNode,
@@ -28,7 +29,11 @@ import {$selectIn, freshReader, setup} from '../../utils/harness';
 // the last remote change as three transactions in one task (each read runs
 // the listener); 'queued' adds an app update listener that queues an update
 // in the same commit as the listener's.
-type Variant = 'plain' | 'discrete' | 'burst' | 'queued';
+// 'local': the listener edits after two local commits in one task, with no
+// remote change; 'inside': a provider applies a remote change inside a local
+// update made after an earlier commit in the task, whose commit runs the
+// listener.
+type Variant = 'plain' | 'discrete' | 'burst' | 'queued' | 'local' | 'inside';
 
 async function run(gc: boolean, variant: Variant) {
   const discrete = variant === 'discrete';
@@ -47,8 +52,14 @@ async function run(gc: boolean, variant: Variant) {
   a.editor.setRootElement(host);
   let made = 0;
   // 'burst': the listener edits only while the three transactions are read.
-  let armed = variant !== 'burst';
-  const limit = variant === 'burst' ? 3 : 4;
+  let armed =
+    variant !== 'burst' && variant !== 'local' && variant !== 'inside';
+  const limit =
+    variant === 'burst'
+      ? 3
+      : variant === 'local' || variant === 'inside'
+        ? 2
+        : 4;
   a.editor.registerMutationListener(
     TextNode,
     mutations => {
@@ -90,7 +101,34 @@ async function run(gc: boolean, variant: Variant) {
   });
   await Promise.resolve();
   await t.sync();
-  if (variant === 'burst') {
+  if (variant === 'local') {
+    armed = true;
+    a.update(() => {
+      $selectIn([0], 0, 1).formatText('underline');
+      $setSelection(null);
+    });
+    a.update(() => {
+      $selectIn([0], 2, 3).formatText('underline');
+      $setSelection(null);
+    });
+  } else if (variant === 'inside') {
+    t.offline();
+    b.update(() => {
+      $selectIn([0], 2, 3).formatText('italic');
+      $setSelection(null);
+    });
+    const remote = Y.encodeStateAsUpdate(b.doc, Y.encodeStateVector(a.doc));
+    a.update(() => {
+      $selectIn([0], 0, 1).formatText('underline');
+      $setSelection(null);
+    });
+    armed = true;
+    a.update(() => {
+      $selectIn([0], 3, 4).formatText('underline');
+      $setSelection(null);
+      Y.applyUpdate(a.doc, remote, 'provider');
+    });
+  } else if (variant === 'burst') {
     armed = true;
     for (const [from, to] of [
       [2, 3],
@@ -127,6 +165,10 @@ describe.each([false, true])('an edit a mutation listener makes, gc %s', gc => {
     run(gc, 'burst'));
   test('with an update an update listener queues: is stored as the editor shows it', () =>
     run(gc, 'queued'));
+  test('after two local commits in one task: is stored as the editor shows it', () =>
+    run(gc, 'local'));
+  test('with a remote change applied inside the local update: is stored as the editor shows it', () =>
+    run(gc, 'inside'));
   // An app's own discrete update commits inside Lexical's notification of
   // the commit that triggered the listener, without the binding forcing it:
   // https://github.com/meta/lexical/issues/9799

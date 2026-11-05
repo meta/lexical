@@ -4240,7 +4240,19 @@ export class YBinding {
     }
     if (this.isIdle()) {
       this.readDeferred();
-    } else if (this._editor._updating && !this.deferredQueued) {
+    } else if (
+      this._editor._updating &&
+      !this.deferredQueued &&
+      // An update made while Lexical notifies a commit's listeners (a
+      // mutation listener's) waits to commit after them (see the root
+      // transform): read into its pending state, the change would carry it
+      // under the read's tags, never written. That update's own commit
+      // schedules the read (see the update listener).
+      !(
+        this._editor._pendingEditorState !== null &&
+        isDispatchingCommitListeners(this._editor)
+      )
+    ) {
       this.deferredQueued = true;
       this.queueFirst(
         () => {
