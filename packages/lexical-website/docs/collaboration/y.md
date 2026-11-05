@@ -244,7 +244,8 @@ content with random values" in [Limits](#limits)).
   an update that changes content commits at once, as with `discrete: true`,
   so that a remote change the provider applies in the same task finds no
   local update waiting to be written; so does one made while the binding
-  has updates of its own waiting. A remote change a provider applies
+  has updates of its own waiting. An update a mutation listener makes while
+  Lexical notifies a commit's listeners commits after them instead. A remote change a provider applies
   synchronously in the same task as updates made before any commit is
   integrated before them, and they are written after it, on the document as
   it was before that change, which they were made on: their edits land
@@ -1676,6 +1677,11 @@ reproduces it:
 - Undoing plain text typed into a format run gives the run's format (or
   comment, or style) to plain text a collaborator typed right next to it:
   [#9681](https://github.com/meta/lexical/issues/9681).
+- An app's mutation listener that edits the document with its own
+  `{discrete: true}` update, in an editor with a DOM root, has that edit
+  stored over by the commit that triggered the listener (the editor and the
+  document then differ); without `discrete` it is stored:
+  [#9799](https://github.com/meta/lexical/issues/9799).
 
 For `MarkStateExtension` comments, see the
 [comments limitations](./comments.md#limitations).
