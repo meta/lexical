@@ -297,6 +297,9 @@ test.describe('Collab Y: version gate', () => {
     // The binding's warning, logged by the playground as `message (code)`:
     // tolerated by its code, and checked below by code and reason.
     session.expect(/\(@lexical\/y\/unsupported-layout\)$/);
+    // The test writes the layout record raw, standing in for a newer
+    // client's update (real ones arrive as remote updates, not reported).
+    session.expect(/\(@lexical\/y\/raw-yjs-write\)$/);
     await seed(clients, ['g1z']);
     // A newer client adds a newer layout version to the document's layout
     // record (the root's `lexical-y:<n>: true` attributes, a record that only
@@ -354,6 +357,9 @@ test.describe('Collab Y: version gate', () => {
     const {clients, session} = await openClients(browser);
     const [a, b] = clients;
     session.expect(/\(@lexical\/y\/unsupported-schema\)$/);
+    // The test writes the schema record raw, standing in for a newer
+    // client's update (real ones arrive as remote updates, not reported).
+    session.expect(/\(@lexical\/y\/raw-yjs-write\)$/);
     await seed(clients, ['v1z']);
     // A newer version of the app (`schemaVersion` 99) wrote to the document:
     // it records its version on the root (`lexical-y-schema:<n>: true`, a

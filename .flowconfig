@@ -165,6 +165,9 @@ module.name_mapper='^@lexical/text$' -> '<PROJECT_ROOT>/packages/lexical-text/fl
 module.name_mapper='^@lexical/utils$' -> '<PROJECT_ROOT>/packages/lexical-utils/flow/LexicalUtils.js.flow'
 module.name_mapper='^@lexical/y$' -> '<PROJECT_ROOT>/packages/lexical-y/flow/LexicalY.js.flow'
 module.name_mapper='^@lexical/y/headless$' -> '<PROJECT_ROOT>/packages/lexical-y/flow/LexicalYHeadless.js.flow'
+module.name_mapper='^@lexical/y/migrate$' -> '<PROJECT_ROOT>/packages/lexical-y/flow/LexicalYMigrate.js.flow'
+module.name_mapper='^@lexical/y/migrate/1to2$' -> '<PROJECT_ROOT>/packages/lexical-y/flow/LexicalYMigrate1to2.js.flow'
+module.name_mapper='^@lexical/y/server$' -> '<PROJECT_ROOT>/packages/lexical-y/flow/LexicalYServer.js.flow'
 module.name_mapper='^@lexical/yjs$' -> '<PROJECT_ROOT>/packages/lexical-yjs/flow/LexicalYjs.js.flow'
 ;; [generated-end update-flowconfig]
 

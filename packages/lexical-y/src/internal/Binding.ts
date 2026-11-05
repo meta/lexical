@@ -54,6 +54,7 @@ import {
   $isRootNode,
   $isTextNode,
   $onUpdate,
+  $setCompositionKey,
   $setSelection,
   COLLABORATION_TAG,
   COMMAND_PRIORITY_BEFORE_CRITICAL,
@@ -74,6 +75,7 @@ import {
   type PointType,
   type RangeSelection,
   SELECTION_CHANGE_COMMAND,
+  type SerializedEditorState,
   SKIP_COLLAB_TAG,
   SKIP_DOM_SELECTION_TAG,
   TextNode,
@@ -86,7 +88,9 @@ import {type ClientIDRange, constrainClientID} from './ClientID';
 import {
   BASE_LAYOUT_VERSION,
   DEFAULT_ROOT_NAME,
+  EPOCH_KEY,
   LEGACY_ROOTS,
+  MIN_LAYOUT,
   SCHEMA_PREFIX,
   SET_MEMBERS_LAYOUT_VERSION,
 } from './constants';
@@ -97,6 +101,21 @@ import {
   markFormatCloser,
 } from './Cursor';
 import {$canonicalizeGroup, $switchesWrapper} from './Groups';
+import {
+  epochRecordIn,
+  isGateKey,
+  onYMigrationEpoch,
+  readRequirements,
+  requirementsIn,
+  type RootAttrs,
+  type YRequirements,
+} from './Layouts';
+import {type YLayoutUpgradeHandle} from './LayoutUpgrade';
+import {
+  markBindingWrite,
+  noteRawWrite,
+  registerBindingOrigins,
+} from './RawWrites';
 import {
   $applyStoredAttrs,
   $unstoredWrapperTextFields,
@@ -153,6 +172,7 @@ import {emptyView, seenBy, type Unread} from './Unread';
 import {
   NESTED_FALLBACK_WARNING,
   notesSince,
+  RAW_YJS_WRITE_WARNING,
   RECOVERED_READ_WARNING,
   RECOVERED_WRITE_WARNING,
   SELF_CHECK_WARNING,
@@ -163,12 +183,12 @@ import {
   UNSUPPORTED_LAYOUT_WARNING,
   UNSUPPORTED_SCHEMA_WARNING,
   UNSUPPORTED_SLOTS_WARNING,
+  type YEmittedWarningData,
+  type YKnownWarningCode,
   type YRecoveredReadData,
   type YStorageMismatchData,
   type YUnsupportedConfigData,
   type YUnsupportedSchemaData,
-  type YWarningCode,
-  type YWarningData,
 } from './Warnings';
 import {$holdsLines, type WritePlan, Writer} from './Write';
 import {createYDoc, type YDoc} from './YDoc';
@@ -236,6 +256,222 @@ type GuardedRead = {
   /** The update's tags. */
   readonly tag?: string | string[];
 };
+
+/**
+ * The binding's UndoManager (YBinding#undoManager): a Yjs UndoManager whose
+ * undo() and redo() write nothing, and return null, while the binding does
+ * not admit writes (`admits`: its status and the root's layout record as it
+ * is then, see YBinding#recordAdmits). A subclass rather than a wrapper:
+ * the app keeps the same object, with its stacks, events and type, and code
+ * that holds a reference to it from before a change of the record is gated
+ * too.
+ */
+class BindingUndoManager extends UndoManager {
+  constructor(
+    scope: YNode,
+    admits: () => boolean,
+    options: ConstructorParameters<typeof UndoManager>[1],
+  ) {
+    super(scope, {
+      ...options,
+      // A refused undo's transaction (see gatedStep) is no one's step.
+      captureTransaction: tr => !refusedHistory.has(tr),
+    });
+    undoAdmits.set(this, admits);
+    undoSteps.set(this, {redo: () => super.redo(), undo: () => super.undo()});
+  }
+  undo(): ReturnType<UndoManager['undo']> {
+    return gatedStep(this, true);
+  }
+  redo(): ReturnType<UndoManager['redo']> {
+    return gatedStep(this, false);
+  }
+  /**
+   * Yjs emits `stack-item-popped` when its undo's transaction returns;
+   * inside gatedStep that transaction is joined to the wrapper's, which is
+   * still open: the event is held and emitted once the wrapper's
+   * transaction has ended (see gatedStep), as Yjs emits it.
+   */
+  emit(...args: Parameters<UndoManager['emit']>): void {
+    const held = heldPops.get(this);
+    if (held !== undefined && args[0] === 'stack-item-popped') {
+      held.push(args);
+      return;
+    }
+    super.emit(...args);
+  }
+}
+
+/**
+ * An undo or redo of `um` inside a transaction of its own (Yjs's undo joins
+ * it), admitted inside it: after every `beforeTransaction` listener of the
+ * document ran, any of which may change the layout record before anything
+ * is written. Refused, it writes nothing and returns null.
+ */
+function gatedStep(
+  um: BindingUndoManager,
+  undo: boolean,
+): ReturnType<UndoManager['undo']> {
+  const admission = undoAdmits.get(um)!;
+  if (!admission()) {
+    return null;
+  }
+  let result: ReturnType<UndoManager['undo']> = null;
+  // Restored, not cleared, afterwards: a step started from a listener of an
+  // earlier one (whose capture is still running) leaves that one's flags.
+  const {undoing, redoing, currStackItem} = um;
+  const outerHeld = heldPops.get(um);
+  const held: Parameters<UndoManager['emit']>[] = [];
+  heldPops.set(um, held);
+  try {
+    um.doc.transact(tr => {
+      if (!admission()) {
+        refusedHistory.add(tr);
+        return;
+      }
+      const steps = undoSteps.get(um)!;
+      let threw = true;
+      try {
+        result = undo ? steps.undo() : steps.redo();
+        threw = false;
+      } finally {
+        // Development builds: a step that wrote (it popped an item, or threw
+        // part way) is the binding's own write, even when it joined an app's
+        // transaction (see noteRawWrite). An empty stack writes nothing and
+        // leaves the transaction to be judged by its origin.
+        if (__DEV__ && (threw || result !== null)) {
+          markBindingWrite(tr);
+        }
+        // Yjs resets these when its own (joined) transaction returns (or a
+        // listener of its pop throws), but this one ends later: its capture
+        // must still see an undo or a redo, and a step a listener of that
+        // capture starts must still find this step under way (Yjs then pops
+        // nothing), as with Yjs's own transaction.
+        if (undo) {
+          um.undoing = true;
+        } else {
+          um.redoing = true;
+        }
+        um.currStackItem = result;
+      }
+    }, um);
+    // The transaction has ended (its capture included): the pop event now,
+    // with the step's flags set as Yjs has them while it emits.
+    if (outerHeld === undefined) {
+      heldPops.delete(um);
+    } else {
+      heldPops.set(um, outerHeld);
+    }
+    for (const args of held) {
+      um.emit(...args);
+    }
+  } finally {
+    if (outerHeld === undefined) {
+      heldPops.delete(um);
+    } else {
+      heldPops.set(um, outerHeld);
+    }
+    um.undoing = undoing;
+    um.redoing = redoing;
+    um.currStackItem = currStackItem;
+  }
+  return result;
+}
+
+/** Pop events held while a gated step's transaction is open. */
+const heldPops = new WeakMap<
+  BindingUndoManager,
+  Parameters<UndoManager['emit']>[]
+>();
+
+/**
+ * D08's permission for one local write (see Binding.admitsIn): the schema
+ * records (see Binding.schemaRecords) it was admitted on.
+ */
+type SchemaGrace = {records: SchemaRecords};
+
+/**
+ * The root's schema records as stored: [key, value] pairs in key order,
+ * the values themselves (see sameSchemaRecords).
+ */
+type SchemaRecords = [string, unknown][];
+
+/**
+ * Whether two captures of the schema records are the same records: the
+ * same keys, each value the same by Object.is. Exact without serializing:
+ * NaN, Infinity, -Infinity, -0 and 0 all differ, other primitives compare by
+ * value, and an object-valued record compares by reference, so any rewrite
+ * of one (a new item, a new value) reads as a change.
+ */
+function sameSchemaRecords(a: SchemaRecords, b: SchemaRecords): boolean {
+  return (
+    a.length === b.length &&
+    a.every(([k, v], i) => b[i][0] === k && Object.is(b[i][1], v))
+  );
+}
+
+/**
+ * Each BindingUndoManager's check (kept apart from the instance, which is
+ * Yjs's: no field of ours on it): whether its binding may write, asked
+ * before the step and again inside its transaction, a fresh request checked
+ * against the records as they are (see Binding.admitsIn).
+ */
+const undoAdmits = new WeakMap<BindingUndoManager, () => boolean>();
+
+/** A warning that says why the binding is read only. */
+const isReadOnlyCause = (w: LexicalWarning): boolean =>
+  w.code === UNSUPPORTED_LAYOUT_WARNING ||
+  w.code === UNSUPPORTED_SCHEMA_WARNING;
+
+/**
+ * A write refused at write time (see YBinding#refusalIn): the family of the
+ * record that refused it, captured inside its own transaction.
+ */
+class Refusal {
+  constructor(readonly record: 'layout' | 'schema') {}
+}
+
+/**
+ * The refusal of a local edit, while read only or at write time: when a
+ * read-only cause is reported with it, the cause goes first.
+ */
+const isReadOnlyRefusal = (w: LexicalWarning): boolean => {
+  const data = w.data as {reason?: unknown} | null | undefined;
+  return (
+    w.code === UNSUPPORTED_EDIT_WARNING &&
+    data !== null &&
+    data !== undefined &&
+    (data.reason === 'read-only' || data.reason === 'refused-at-write')
+  );
+};
+
+/** Each BindingUndoManager's own undo and redo (Yjs's). */
+const undoSteps = new WeakMap<
+  BindingUndoManager,
+  {
+    undo: () => ReturnType<UndoManager['undo']>;
+    redo: () => ReturnType<UndoManager['redo']>;
+  }
+>();
+
+/** Transactions of an undo or redo refused inside them: not captured. */
+const refusedHistory = new WeakSet<Transaction>();
+
+/** The floor a test set (see setMinLayoutForTests), null: MIN_LAYOUT. */
+let minLayoutForTests: number | null = null;
+
+/**
+ * @internal Test-only: the oldest layout bindings read (null: MIN_LAYOUT,
+ * 1 on this build, below which nothing is). Not exported by the package.
+ */
+export function setMinLayoutForTests(min: number | null): void {
+  minLayoutForTests = min;
+}
+
+/** The oldest layout a binding reads (see MIN_LAYOUT). */
+function minLayout(): number {
+  return minLayoutForTests ?? MIN_LAYOUT;
+}
 
 /**
  * Rethrow an app's error (an update or a listener of its own that threw on a
@@ -402,6 +638,13 @@ type Commit = {
   readonly followUp: boolean;
   /** A user's own edit: in the undo history, normalized by its author. */
   readonly userEdit: boolean;
+  /**
+   * An edit by this client's code that is out of the undo history (an app
+   * edit made while a remote change is read, see $writeReadEdits): written
+   * with the follow-up origin, but it carries this client's schema version
+   * as a local edit does (D08).
+   */
+  readonly recordOwnSchema?: true;
   /** Whether the groups it changed are refreshed (see $groupsToRefresh). */
   readonly scansGroups: boolean;
 };
@@ -423,12 +666,14 @@ export type YBindingStatus =
    */
   | 'readonly';
 
+const __DEV__ = process.env.NODE_ENV !== 'production';
+
 /** @experimental Options of {@link YBinding} (and `YCollabExtension`). */
 export interface YBindingOptions {
   /**
-   * The version of the app's document schema: its node types and the fields
-   * they store. Required: start at 1 and increase it whenever a node's
-   * stored fields or node types change. The document records the highest
+   * The version of your editor's nodes: registered node classes, their
+   * fields and NodeState. Bump it when you add, remove or change one, not on
+   * every release. Required: start at 1. The document records the highest
    * version that wrote to it; a binding whose version is lower opens it read
    * only (UNSUPPORTED_SCHEMA_WARNING). An integer from 1.
    */
@@ -467,11 +712,37 @@ export interface YBindingOptions {
    */
   convert?: boolean;
   /**
+   * How documents below MIN_LAYOUT are upgraded (see y.md "Layout
+   * upgrades"): a handle from createYServerLayoutUpgrade (the document's
+   * server migrates them on load) or null (they stay read only). The
+   * binding behaves the same with either: a document below the floor is
+   * read only until it is migrated, and the `'older'` warning says which
+   * was declared (`upgrade`). Left out (plain JavaScript, or a config
+   * written without createYCollabConfig), such a document also brings
+   * UNSUPPORTED_CONFIG_WARNING `'missing-layout-upgrade'`.
+   */
+  layoutUpgrade?: YLayoutUpgradeHandle | null;
+  /**
    * The range of the document's client ids: `'uint53'` (default, Yjs 14's
    * ids, left as they are) or `'uint32'` (kept in 32 bits, for servers on
    * yrs before 0.28; see {@link ClientIDRange}).
    */
   clientIDRange?: ClientIDRange;
+}
+
+/**
+ * @experimental What `YBinding.quiesce()` returns: the document's state
+ * (pending updates included), to hand to the server, and a draft, the
+ * editor's state as JSON taken before it turned read only, with `differs`
+ * when the editor shows something the document does not hold (a local
+ * change the binding could not write).
+ */
+export interface YQuiescedState {
+  readonly state: Uint8Array;
+  readonly draft: {
+    readonly json: SerializedEditorState;
+    readonly differs: boolean;
+  };
 }
 
 /**
@@ -595,16 +866,37 @@ function opensRun(item: Item): boolean {
 /**
  * The layout version `root` records: the highest of its `lexical-y:<n>`
  * attributes (see LAYOUT_PREFIX), null when it has none, and NaN when one is
- * not a version (an integer from 1, set to true), which opens the document
- * read only.
+ * not a version (an integer from 1, set to true), the epoch or a feature
+ * requirement is not well formed, or the root requires a feature this
+ * version does not support: each opens the document read only.
  */
 function recordedLayout(root: YNode): number | null {
-  return malformedLayout(root) !== null ? NaN : newestLayout(root);
+  // The root's attributes read once (getAttrs builds them afresh): this runs
+  // on the write path, in every binding-authored transaction.
+  const attrs = root.getAttrs() as RootAttrs;
+  const requirements = requirementsIn(attrs);
+  return malformedIn(attrs, requirements) !== null ||
+    requirements.unknown.length > 0
+    ? NaN
+    : newestIn(attrs);
 }
 
-/** The first `lexical-y:<n>` attribute of `root` that is not a version. */
+/**
+ * The first `lexical-y:<n>` attribute of `root` that is not a version, its
+ * epoch (EPOCH_KEY) when it is not well formed (see epochRecordOf; no epoch
+ * is fine: a document that never migrated), or its first feature
+ * requirement that is not well formed (see readRequirements).
+ */
 function malformedLayout(root: YNode): {key: string; found: unknown} | null {
-  const attrs = root.getAttrs() as Record<string, unknown>;
+  const attrs = root.getAttrs() as RootAttrs;
+  return malformedIn(attrs, requirementsIn(attrs));
+}
+
+/** malformedLayout, on attributes and requirements already read. */
+function malformedIn(
+  attrs: RootAttrs,
+  requirements: YRequirements,
+): {key: string; found: unknown} | null {
   for (const key in attrs) {
     if (key.startsWith(LAYOUT_PREFIX)) {
       const n = key.slice(LAYOUT_PREFIX.length);
@@ -613,13 +905,17 @@ function malformedLayout(root: YNode): {key: string; found: unknown} | null {
       }
     }
   }
-  return null;
+  const epoch = epochRecordIn(attrs);
+  if (epoch.kind === 'malformed') {
+    return {found: epoch.found, key: EPOCH_KEY};
+  }
+  const [requirement] = requirements.malformed;
+  return requirement === undefined ? null : requirement;
 }
 
-/** The highest version of `root`'s layout records, null when it has none. */
-function newestLayout(root: YNode): number | null {
+/** The highest version of the layout records in `attrs`, null when none. */
+function newestIn(attrs: RootAttrs): number | null {
   let version: number | null = null;
-  const attrs = root.getAttrs() as Record<string, unknown>;
   for (const k in attrs) {
     if (k.startsWith(LAYOUT_PREFIX)) {
       version = Math.max(version ?? 0, Number(k.slice(LAYOUT_PREFIX.length)));
@@ -1024,6 +1320,16 @@ export class YBinding {
   /** Whether initialize() was called before start(), which then runs it. */
   private initializeOnStart = false;
   private readonly afterAllTransactions = (): void => this.flushWarnings();
+  /** Whether quiesce() ran: read only for good. */
+  private quiesced = false;
+  /** The D08 permission of the commit being written (see admitsIn). */
+  private writeGrace: SchemaGrace | null = null;
+  /** Local commits refused so far (see quiesce). */
+  private refusals = 0;
+  /** A write was refused inside its transaction (see $writeCommit). */
+  private layoutChangedInWrite = false;
+  /** An evaluation is queued (see evaluateSoon). */
+  private evaluateQueued = false;
 
   /** The bound editor. */
   get editor(): LexicalEditor {
@@ -1074,6 +1380,15 @@ export class YBinding {
     this._root = options.root || doc.get(DEFAULT_ROOT_NAME);
     assertOwnYjsDoc(doc, this._root);
     this.state = new State(editor, doc, this._root);
+    if (__DEV__) {
+      registerBindingOrigins([
+        this,
+        this.initOrigin,
+        this.followUpOrigin,
+        this.scanOrigin,
+        this.runEndOrigin,
+      ]);
+    }
     this.afterTransaction = tr =>
       this.guard(() => withPins(this._pins, () => this.onAfterTransaction(tr)));
     this.beforeTransaction = tr => {
@@ -1223,12 +1538,30 @@ export class YBinding {
       ),
     );
     this.registerTransforms();
+    // A layout migration (a change of the root's epoch) replaced items the
+    // undo stacks name: clear them once every capture of its transaction has
+    // run (D102). Earlier, the migration's own capture would stay.
+    this.disposers.push(
+      onYMigrationEpoch(
+        this._doc,
+        () => {
+          if (this._undoManager !== null) {
+            this._undoManager.clear();
+          }
+        },
+        this._root,
+      ),
+    );
     if (this.options.captureTimeout !== null) {
-      const um = new UndoManager(this._root, {
-        captureTimeout: this.options.captureTimeout ?? 500,
-        deleteFilter: item => !this.isKeptByUndo(item),
-        trackedOrigins: new Set([this]),
-      });
+      const um = new BindingUndoManager(
+        this._root,
+        () => this.writesEdits() && this.admitsIn(null),
+        {
+          captureTimeout: this.options.captureTimeout ?? 500,
+          deleteFilter: item => !this.isKeptByUndo(item),
+          trackedOrigins: new Set([this]),
+        },
+      );
       this._undoManager = um;
       // Undo reads the format items of the changes on its stacks, and the
       // end each of them gave a run it deleted (see isKeptByUndo,
@@ -1656,6 +1989,98 @@ export class YBinding {
     }
   }
 
+  /**
+   * EXPERIMENTAL. Hand this replica off (D102, the recovery handoff before a
+   * client replaces a document its server migrated). Ends an IME
+   * composition and commits what the editor holds (an update not committed
+   * yet, the binding's own pending work) into the document as ordinary
+   * local writes, so it gets Yjs identities; then turns the binding read
+   * only for good, local and programmatic edits included (they are not
+   * written, and the editor shows the document again). Returns a
+   * YQuiescedState.
+   *
+   * - Stop the app's providers and persistence first: what they deliver
+   *   after the handoff is not in the returned state.
+   * - Call it outside an editor update (inside one it throws, and changes
+   *   nothing).
+   * - A binding already read only (for any reason) ends the composition and
+   *   drains the editor's pending work too, but writes nothing: what the
+   *   editor held uncommitted is the draft, with `differs`.
+   * - Calling it again writes nothing and returns the document's state as
+   *   it is then (the same, when nothing else wrote to it) and the same
+   *   draft.
+   * - After `dispose()` it writes nothing either: it returns the document's
+   *   state and the editor's state as the draft.
+   */
+  quiesce(): YQuiescedState {
+    if (this._editor._updating) {
+      throw new Error(
+        '@lexical/y: quiesce() cannot run inside an editor update; call it after the update',
+      );
+    }
+    const editor = this._editor;
+    // What the editor holds and has not committed yet (a batched update),
+    // taken first, whatever the status: the commit below may be refused (a
+    // read-only binding, or a record that stopped admitting writes before
+    // the status shows it, see recordAdmits), and a refusal reads the
+    // document back, which would erase it from the editor.
+    const held = editor._pendingEditorState;
+    const heldJson = held !== null ? held.toJSON() : null;
+    const refusalsBefore = this.refusals;
+    if (this.started) {
+      this.guard(() => {
+        // A composition ends (its text is written like any typing), and a
+        // batched update, which commits in a microtask, commits now: an
+        // active binding writes them; a read-only one refuses them (no
+        // Yjs write) and they stay in the draft.
+        if (
+          editor._compositionKey !== null ||
+          editor._pendingEditorState !== null ||
+          editor._updates.length > 0
+        ) {
+          editor.update(
+            () => {
+              $setCompositionKey(null);
+            },
+            {discrete: true},
+          );
+        }
+        if (
+          this._status === 'active' &&
+          this.pending.size > 0 &&
+          this.isIdle()
+        ) {
+          this.runPending();
+        }
+      });
+    }
+    // Refused: the draft is what the editor held, not what it shows now.
+    const refused = this.refusals !== refusalsBefore;
+    const json =
+      heldJson !== null && refused
+        ? heldJson
+        : editor.getEditorState().toJSON();
+    // What the editor shows and the document does not hold: local changes
+    // the binding refused and has not read back yet, or keeps, or held
+    // uncommitted when quiesce() began and could not write.
+    const differs =
+      (heldJson !== null && refused) ||
+      (this._status !== 'active' &&
+        (this.keepsUnstored ||
+          this.refused.size > 0 ||
+          this.refusedComposing.size > 0 ||
+          this.pending.has('reread') ||
+          this.pending.has('restore')));
+    this.quiesced = true;
+    // After dispose() the editor is no longer the binding's: dispose gave
+    // its editability back, and a status change would take it away again
+    // (a binding started later on the same editor would keep it).
+    if (this.started) {
+      this.setStatus('readonly');
+    }
+    return {draft: {differs, json}, state: encodeStateAsUpdate(this._doc)};
+  }
+
   /** Disconnect from the document and the editor (`start` returns this). */
   dispose(): void {
     this.started = false;
@@ -1780,12 +2205,36 @@ export class YBinding {
       const kept = editorState.read($selectionState);
       const selected = kept !== null && kept.kind === 'node' ? kept.keys : [];
       const seed = this.seedUpdate(editorState, selected);
+      // The root is checked again inside the seed's own transaction, after
+      // every beforeTransaction listener of the document ran (one may
+      // record a layout or an epoch, or write content): only a root still
+      // pristine, whose record the seed creates, is seeded. Otherwise
+      // nothing is written and the root is read.
+      let seeded = false;
+      const seedSchema = this.schemaRecords();
       if (seed !== null) {
         // The seed's exact bytes, under the id derived from them, the
         // binding's only items under another client id than the document's;
         // read back like any document's content, so the editor shows what
         // is stored (and the state maps it), with its selection kept.
-        applyUpdate(this._doc, seed.bytes, this.initOrigin);
+        this._doc.transact(tr => {
+          if (
+            this.rootPristine() &&
+            sameSchemaRecords(this.schemaRecords(), seedSchema)
+          ) {
+            // Development builds: the binding's own write, even when it
+            // joined an app's transaction (see noteRawWrite).
+            if (__DEV__) {
+              markBindingWrite(tr);
+            }
+            seeded = true;
+            applyUpdate(this._doc, seed.bytes, this.initOrigin);
+          }
+        }, this.initOrigin);
+        if (!seeded) {
+          this.evaluate();
+          return;
+        }
         if (kept !== null && kept.kind === 'node') {
           kept.items = seed.items;
         }
@@ -1793,8 +2242,23 @@ export class YBinding {
         return;
       }
       this._doc.transact(tr => {
-        this.$writeInitial(this.state, this._root, tr, editorState);
+        if (
+          this.rootPristine() &&
+          sameSchemaRecords(this.schemaRecords(), seedSchema)
+        ) {
+          // Development builds: the binding's own write, even when it joined
+          // an app's transaction (see noteRawWrite).
+          if (__DEV__) {
+            markBindingWrite(tr);
+          }
+          seeded = true;
+          this.$writeInitial(this.state, this._root, tr, editorState);
+        }
       }, this.initOrigin);
+      if (!seeded) {
+        this.evaluate();
+        return;
+      }
       if (kept !== null && kept.kind === 'node') {
         kept.items = editorState.read(() =>
           this.$selectedAnchors(this.state, selected),
@@ -2123,17 +2587,24 @@ export class YBinding {
     }
     const version = recordedLayout(this._root);
     if (version === null) {
-      if (this._root.length > 0 || this._status === 'active') {
+      // An empty root holding a gate record but no layout record (an epoch
+      // alone): not pristine, so initialize() seeds nothing, and no layout
+      // is known. Missing, as the runner and describeYRoom see it.
+      const recordsOnly = this._root.length === 0 && !this.rootPristine();
+      if (this._root.length > 0 || recordsOnly || this._status === 'active') {
         // Content without a layout record, or a record removed from a
         // document this binding was writing (an outside writer deleted it;
         // no client of this layout deletes one): no layout is known, so
         // nothing is written.
-        const reason = this._root.length > 0 ? 'missing' : 'removed';
+        const reason =
+          this._root.length > 0 || recordsOnly ? 'missing' : 'removed';
         this.warn(
           UNSUPPORTED_LAYOUT_WARNING,
-          reason === 'missing'
+          this._root.length > 0
             ? 'the root has content and no layout record, so this editor is read only: the record was deleted, or something other than this binding wrote the root. Bind a root only this binding writes (the root option), and reseed the content into a new room with seedYState'
-            : 'the layout record was removed, so this editor is read only: something other than this binding wrote the root; reseed the content into a new room with seedYState',
+            : recordsOnly
+              ? "the root holds records (such as an epoch) but no layout record, so this editor is read only and seeds nothing: something other than this binding wrote the root's records; reseed the content into a new room with seedYState"
+              : 'the layout record was removed, so this editor is read only: something other than this binding wrote the root; reseed the content into a new room with seedYState',
           {reason, supported: LAYOUT_VERSION},
         );
         this.setStatus('readonly');
@@ -2145,8 +2616,16 @@ export class YBinding {
     if (malformed !== null) {
       this.warn(
         UNSUPPORTED_LAYOUT_WARNING,
-        `the layout record ${malformed.key} is malformed, so this editor is read only: something other than this binding wrote the root's records; reseed the content into a new room with seedYState`,
+        `the layout record ${malformed.key} is malformed, so this editor is read only: something other than this binding (or a migration) wrote the root's records; reseed the content into a new room with seedYState`,
         {...malformed, reason: 'malformed', supported: LAYOUT_VERSION},
+      );
+      this.setStatus('readonly');
+    } else if (readRequirements(this._root).unknown.length > 0) {
+      const features = readRequirements(this._root).unknown;
+      this.warn(
+        UNSUPPORTED_LAYOUT_WARNING,
+        `the document requires ${features.join(', ')}, which this version does not support, so this editor is read only: upgrade the binding on every client of the document`,
+        {features, reason: 'requires', supported: LAYOUT_VERSION},
       );
       this.setStatus('readonly');
     } else if (version > LAYOUT_VERSION) {
@@ -2155,6 +2634,29 @@ export class YBinding {
         `layout ${version} is newer than ${LAYOUT_VERSION}. A newer version of the binding wrote this document, so this editor is read only: upgrade the binding on every client of the document`,
         {found: version, reason: 'newer', supported: LAYOUT_VERSION},
       );
+      this.setStatus('readonly');
+    } else if (version < minLayout()) {
+      const upgrade = this.options.layoutUpgrade;
+      this.warn(
+        UNSUPPORTED_LAYOUT_WARNING,
+        upgrade
+          ? `layout ${version} is older than ${minLayout()}, the oldest this version reads, so this editor is read only: the app declared that its server upgrades such documents, and this one was not migrated (its server migrates it on load with prepareYRoom)`
+          : `layout ${version} is older than ${minLayout()}, the oldest this version reads, so this editor is read only (the app declared no layout upgrade): migrate the document on its server with prepareYRoom`,
+        {
+          found: version,
+          min: minLayout(),
+          reason: 'older',
+          supported: LAYOUT_VERSION,
+          upgrade: upgrade ? upgrade.kind : 'read-only',
+        },
+      );
+      if (upgrade === undefined) {
+        this.warn(
+          UNSUPPORTED_CONFIG_WARNING,
+          'no layoutUpgrade was declared, so a document below the floor is read only: create the config with createYCollabConfig and pass layoutUpgrade (a handle from createYServerLayoutUpgrade, or null)',
+          {reason: 'missing-layout-upgrade'},
+        );
+      }
       this.setStatus('readonly');
     } else if (newerSchema) {
       this.setStatus('readonly');
@@ -2303,8 +2805,48 @@ export class YBinding {
     }
     const version = recordedLayout(this._root);
     return (
-      version !== null && !Number.isNaN(version) && version <= LAYOUT_VERSION
+      version !== null &&
+      !Number.isNaN(version) &&
+      version >= minLayout() &&
+      version <= LAYOUT_VERSION
     );
+  }
+
+  /** Whether `tr` changed the root's layout records or epoch. */
+  private changedRecord(tr: Transaction): boolean {
+    const keys = tr.changed.get(this._root);
+    if (keys === undefined) {
+      return false;
+    }
+    for (const k of keys) {
+      // A gate key that still admits is no reason to stop looking: a schema
+      // key later in the same change may refuse.
+      if (k !== null && isGateKey(k) && !this.readsRecordedLayout()) {
+        return true;
+      }
+      if (k !== null && k.startsWith(SCHEMA_PREFIX) && this.schemaRefuses()) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /** Evaluate the root in a microtask (once), while started. */
+  private evaluateSoon(): void {
+    if (this.evaluateQueued) {
+      return;
+    }
+    this.evaluateQueued = true;
+    queueMicrotask(() => {
+      this.evaluateQueued = false;
+      if (
+        this.started &&
+        this._status === 'active' &&
+        (!this.readsRecordedLayout() || this.schemaRefuses())
+      ) {
+        this.guard(() => this.evaluate());
+      }
+    });
   }
 
   /** Self-check of containers a remote change rebuilt (see checkContainer). */
@@ -2533,7 +3075,138 @@ export class YBinding {
    * YBindingStatus, and staysReadOnly for what keeps it read only).
    */
   private writesEdits(): boolean {
-    return this._status === 'active';
+    return this._status === 'active' && this.recordAdmits();
+  }
+
+  /**
+   * Whether the root is as initialization found it: no content, no layout
+   * record (well formed or not) and no epoch.
+   */
+  private rootPristine(): boolean {
+    if (this._root.length > 0) {
+      return false;
+    }
+    for (const key of Object.keys(this._root.getAttrs())) {
+      if (isGateKey(key)) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  /**
+   * A local change refused because the root's layout record, as it was when
+   * the change was written, or its schema record, was missing, malformed or
+   * one this version does not write, while the binding was active. The
+   * record changed in the transaction the change was written in: an app's
+   * (inside its `doc.transact`, or in one of its beforeTransaction
+   * listeners), or a remote update a provider applied while the editor was
+   * updating. Not retried: a retry would write outside that transaction.
+   */
+  private warnRefusedAtWrite(record: 'layout' | 'schema'): void {
+    this.warn(
+      UNSUPPORTED_EDIT_WARNING,
+      `a local change was not written: when it was written, the document's ${record} record (changed in the same transaction, by the app or by an update a provider applied) was missing, malformed or one this version does not write. It is not retried, since a retry would write outside that transaction: edit again (see binding.status)`,
+      {reason: 'refused-at-write', record},
+    );
+  }
+
+  /**
+   * Whether the root's layout record, as it is now, is one this binding
+   * writes: from the floor (MIN_LAYOUT) to LAYOUT_VERSION, well formed.
+   *
+   * Invariant: checked at every write (an editor update, an undo or redo,
+   * through the binding or its UndoManager), not only read from the status.
+   * Why: inside an app's transaction that changes the record, the binding
+   * has not read the change yet (it reads once the transaction ends), and
+   * a write made then would be written to a document it does not admit.
+   */
+  private recordAdmits(): boolean {
+    const version = recordedLayout(this._root);
+    return (
+      version !== null &&
+      !Number.isNaN(version) &&
+      version >= minLayout() &&
+      version <= LAYOUT_VERSION
+    );
+  }
+
+  /** The root's schema records as they are now (see admitsIn). */
+  private schemaRecords(): SchemaRecords {
+    const attrs = this._root.getAttrs() as Record<string, unknown>;
+    return Object.keys(attrs)
+      .filter(k => k.startsWith(SCHEMA_PREFIX))
+      .sort()
+      .map(k => [k, attrs[k]]);
+  }
+
+  /**
+   * The admission check inside a binding-authored write transaction
+   * (editor writes, initialization, the recovery rewrite, pins, undo and
+   * redo): the layout record and the epoch as they are now (recordAdmits),
+   * and the schema records as they are now (schemaRefuses), even while the
+   * status the binding last read is still active. One exception, D08's: a
+   * local update made before a schema record it did not see (see
+   * schemaGatesWrite and gateSchema) is written, and its whole write (the
+   * recovery rewrite and pins included) carries that permission as `grace`,
+   * for exactly the schema records it was admitted on.
+   */
+  private admitsIn(grace: SchemaGrace | null): boolean {
+    return this.refusalIn(grace) === null;
+  }
+
+  /**
+   * admitsIn's verdict as the family of the record that refused (`'layout'`
+   * is checked first), or null when the write is admitted. A refused write
+   * keeps it in a local of its own transaction and returns it with its
+   * result: a later admission (an app's afterTransaction listener's) cannot
+   * change what the refusal reports.
+   */
+  private refusalIn(grace: SchemaGrace | null): 'layout' | 'schema' | null {
+    if (!this.recordAdmits()) {
+      return 'layout';
+    }
+    return !this.schemaRefuses() ||
+      (grace !== null && sameSchemaRecords(this.schemaRecords(), grace.records))
+      ? null
+      : 'schema';
+  }
+
+  /**
+   * D08's permission for what follows a permitted write (its pins and its
+   * recovery): the records it was admitted on plus this client's own schema
+   * record as recordSchema writes it, when the records are exactly that;
+   * null when anything else changed since the admission.
+   */
+  private ownSchemaGrace(grace: SchemaGrace): SchemaGrace | null {
+    const own = SCHEMA_PREFIX + this.options.schemaVersion;
+    const now = this.schemaRecords();
+    const expected: SchemaRecords = grace.records.filter(([k]) => k !== own);
+    const admittedOwn = grace.records.find(([k]) => k === own);
+    const nowOwn = now.find(([k]) => k === own);
+    if (nowOwn !== undefined) {
+      if (
+        nowOwn[1] !== true &&
+        !(admittedOwn !== undefined && Object.is(admittedOwn[1], nowOwn[1]))
+      ) {
+        return null;
+      }
+      expected.push(nowOwn);
+    }
+    expected.sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+    return sameSchemaRecords(now, expected) ? {records: now} : null;
+  }
+
+  /**
+   * Whether the root's schema records, as they are now, keep this version
+   * from writing (a newer or malformed one, see checkSchema).
+   */
+  private schemaRefuses(): boolean {
+    const newest = newestSchema(this._root);
+    return (
+      malformedSchema(this._root) !== null ||
+      (newest !== null && newest > this.options.schemaVersion)
+    );
   }
 
   /**
@@ -2549,7 +3222,8 @@ export class YBinding {
       this.state.unknownTypes.size > 0 ||
       this.state.unreadable.size > 0 ||
       this.keepsUnstored ||
-      this.unreadable
+      this.unreadable ||
+      this.quiesced
     );
   }
 
@@ -2658,10 +3332,10 @@ export class YBinding {
    * never inside a Yjs observer or transaction, and never half way through
    * a read or a write (see flushWarnings).
    */
-  private warn<C extends YWarningCode>(
+  private warn<C extends YKnownWarningCode>(
     code: C,
     message: string,
-    data: YWarningData<C>,
+    data: YEmittedWarningData<C>,
   ): void {
     this.pendingWarnings.push(new LexicalWarning(code, message, data));
   }
@@ -2713,6 +3387,18 @@ export class YBinding {
       doc._transactionCleanups.length > 0
     ) {
       return;
+    }
+    // The refusal of an edit names an earlier warning as its cause: a write
+    // checks the layout record itself, so inside an app's transaction that
+    // changed it the refusal is queued before the binding reads the record
+    // and queues why. The cause goes first.
+    const causes = this.pendingWarnings.filter(isReadOnlyCause);
+    if (causes.length > 0) {
+      const refusals = this.pendingWarnings.filter(isReadOnlyRefusal);
+      if (refusals.length > 0) {
+        const rest = this.pendingWarnings.filter(w => !isReadOnlyRefusal(w));
+        this.pendingWarnings.splice(0, Infinity, ...rest, ...refusals);
+      }
     }
     this.flushingWarnings = true;
     try {
@@ -2931,8 +3617,26 @@ export class YBinding {
   }
 
   private onAfterTransaction(tr: Transaction): void {
+    if (__DEV__) {
+      // Development builds only (the whole check is left out of
+      // production ones): RAW_YJS_WRITE_WARNING.
+      noteRawWrite(
+        tr,
+        this,
+        this._doc,
+        this._root,
+        this._status === 'pending',
+        (message, data) => this.warn(RAW_YJS_WRITE_WARNING, message, data),
+      );
+    }
     if (tr.origin === this.scanOrigin) {
-      // Changes nothing (see scanStackItem, getCursor).
+      // Changes nothing (see scanStackItem, getCursor), unless an app's
+      // beforeTransaction listener changed the layout record in it: as for
+      // the binding's other transactions (see readChange), the record is
+      // read once this transaction's caller is done.
+      if (this._status === 'active' && this.changedRecord(tr)) {
+        this.evaluateSoon();
+      }
       return;
     }
     if (this.defersChange(tr)) {
@@ -3203,6 +3907,13 @@ export class YBinding {
       tr.origin === this.followUpOrigin ||
       tr.origin === this.scanOrigin
     ) {
+      // The binding's own transaction is not read, but an app's
+      // beforeTransaction listener may have changed the layout record in it
+      // (every write checks the record itself, see writesEdits): the record
+      // is read once this transaction's caller is done.
+      if (this._status === 'active' && this.changedRecord(tr)) {
+        this.evaluateSoon();
+      }
       return;
     }
     this.remoteSeq++;
@@ -3250,10 +3961,7 @@ export class YBinding {
         return;
       }
       if (type === this._root) {
-        if (
-          [...keys].some(k => k.startsWith(LAYOUT_PREFIX)) &&
-          !this.readsRecordedLayout()
-        ) {
+        if ([...keys].some(k => isGateKey(k)) && !this.readsRecordedLayout()) {
           this.evaluate();
           return;
         }
@@ -3914,6 +4622,10 @@ export class YBinding {
       followUp: false,
       naming: false,
       normalize: false,
+      // This client's code made the edit (not every client, as a follow-up
+      // is): it carries this client's schema version (D08), though out of
+      // the undo history (D111).
+      recordOwnSchema: true,
       refresh: false,
       registration: false,
       remote: false,
@@ -4526,15 +5238,17 @@ export class YBinding {
       this.state.refresh.clear();
       return;
     }
-    if (
-      this.writesEdits() &&
-      !commit.remote &&
-      !commit.skip &&
-      this.schemaGatesWrite(editorState)
-    ) {
-      // Made on a schema record a newer version wrote: read only first, so
-      // that it is refused below.
-      this.gateSchema();
+    let grace: SchemaGrace | null = null;
+    if (this.writesEdits() && !commit.remote && !commit.skip) {
+      if (this.schemaGatesWrite(editorState)) {
+        // Made on a schema record a newer version wrote: read only first, so
+        // that it is refused below.
+        this.gateSchema();
+      } else if (this.schemaRefuses()) {
+        // Made before a schema record it did not see (D08): written, on
+        // exactly these records (see admitsIn).
+        grace = {records: this.schemaRecords()};
+      }
     }
     if (
       !this.writesEdits() &&
@@ -4577,12 +5291,17 @@ export class YBinding {
         );
       }
       if (refused) {
+        this.refusals++;
         if (commit.naming) {
           this.refusedNaming = true;
         }
         if (commit.userEdit) {
           this.rereads = 0;
-          if (!this.warnedEdit) {
+          if (this._status === 'active') {
+            // Refused only by the record as it was when it wrote (see
+            // recordAdmits): no earlier warning names a cause.
+            this.warnRefusedAtWrite('layout');
+          } else if (!this.warnedEdit) {
             this.warnedEdit = true;
             this.warn(
               UNSUPPORTED_EDIT_WARNING,
@@ -4652,19 +5371,31 @@ export class YBinding {
     const state = this.state;
     // On the document as it was before a remote change not read yet, while
     // there is one (see Unread and guard).
-    editorState.read(() =>
-      this.$writeCommit(
-        state,
-        commit,
-        editorState,
-        prevEditorState,
-        dirtyElements,
-        dirtyLeaves,
-        transformed,
-        localKeys,
-        payload.normalizedNodes ?? null,
-      ),
-    );
+    this.writeGrace = grace;
+    try {
+      editorState.read(() =>
+        this.$writeCommit(
+          state,
+          commit,
+          editorState,
+          prevEditorState,
+          dirtyElements,
+          dirtyLeaves,
+          transformed,
+          localKeys,
+          payload.normalizedNodes ?? null,
+        ),
+      );
+    } finally {
+      this.writeGrace = null;
+    }
+    if (this.layoutChangedInWrite) {
+      // Refused inside its transaction (see $writeCommit): the binding's own
+      // transaction is not read as a change, so the record is read here.
+      this.layoutChangedInWrite = false;
+      this.evaluate();
+      return;
+    }
     this.queueCommitFollowUps(state, commit, localKeys, untransformed);
   }
 
@@ -4862,7 +5593,7 @@ export class YBinding {
             }),
           )
         : null;
-    const writer = this.$runWriter(
+    const written = this.$runWriter(
       state,
       commit,
       roles,
@@ -4873,6 +5604,28 @@ export class YBinding {
       dirtyElements,
       dirtyLeaves,
     );
+    if (written instanceof Refusal) {
+      // The layout record changed inside the write's own transaction: the
+      // change is refused as on a read-only binding (read again once it can
+      // be), and the record is read once the commit is done (see onUpdate).
+      this.writeCursor = null;
+      this.refusals++;
+      if (commit.userEdit) {
+        this.warnRefusedAtWrite(written.record);
+      }
+      this.$refuseChanged(
+        dirtyElements,
+        dirtyLeaves,
+        editorState,
+        prevEditorState,
+        this._editor._compositionKey !== null
+          ? this.refusedComposing
+          : this.refused,
+      );
+      this.layoutChangedInWrite = true;
+      return;
+    }
+    const writer = written;
     if (writer !== null) {
       this.noteWriteRefusals(
         state,
@@ -5138,10 +5891,28 @@ export class YBinding {
     prevEditorState: EditorState,
     dirtyElements: Map<NodeKey, boolean>,
     dirtyLeaves: Set<NodeKey>,
-  ): Writer | null {
+  ): Writer | null | Refusal {
     let writer: Writer | null = null;
+    let refused: 'layout' | 'schema' | null = null;
+    // Admitted once, for the whole write: its pins and its recovery too,
+    // which see the records as this write left them (`after`).
+    const grace = this.writeGrace;
+    let after = grace;
     try {
       this._doc.transact(tr => {
+        // Admitted inside the transaction, after every beforeTransaction
+        // listener of the document ran (any may change the layout record or
+        // the schema record before anything is written): refused, nothing
+        // is written.
+        refused = this.refusalIn(grace);
+        if (refused !== null) {
+          return;
+        }
+        // Development builds: the binding's own write, even when it joined
+        // an app's transaction (see noteRawWrite).
+        if (__DEV__) {
+          markBindingWrite(tr);
+        }
         this.splitAtUnread(tr);
         try {
           writer = new Writer(state, roles, tr, prevEditorState, plan);
@@ -5149,8 +5920,9 @@ export class YBinding {
           writer.$run();
         } finally {
           // A local edit (not a follow-up, which is no one's edit) carries
-          // this client's schema version.
-          if (origin === this) {
+          // this client's schema version, and so does an app edit written
+          // out of the undo history (recordOwnSchema).
+          if (origin === this || commit.recordOwnSchema) {
             recordSchema(this._root, this.options.schemaVersion, tr, t =>
               this.isUnderRoot(t),
             );
@@ -5160,10 +5932,33 @@ export class YBinding {
           // never get one without the version that tells them they cannot
           // read it.
           recordSetMembersLayout(this._root, tr);
+          // A write D08 permits may record this client's own schema version
+          // (its first write at it): its pins and its recovery are admitted
+          // on the records it was admitted on plus exactly that record, and
+          // on nothing else (a peer's change during the write revokes it).
+          if (grace !== null) {
+            after = this.ownSchemaGrace(grace);
+          }
         }
       }, origin);
+      // Set inside the callback (TypeScript does not see that assignment).
+      const refusedBy = refused as 'layout' | 'schema' | null;
+      if (refusedBy !== null) {
+        return new Refusal(refusedBy);
+      }
       if (!commit.followUp) {
-        this._doc.transact(() => {
+        this._doc.transact(tr => {
+          // Admitted inside its own transaction too (see the write's): a
+          // record that stopped admitting writes gets no pin, and is read
+          // (see readChange).
+          if (!this.admitsIn(after)) {
+            return;
+          }
+          // Development builds: the binding's own write, even when it joined
+          // an app's transaction (see noteRawWrite).
+          if (__DEV__) {
+            markBindingWrite(tr);
+          }
           this.recordPins(this._root, editorState, [
             ...dirtyElements.keys(),
             ...dirtyLeaves,
@@ -5182,8 +5977,19 @@ export class YBinding {
           String(e instanceof Error ? e.message : e),
         {error: e, reason: 'local-change'},
       );
+      let recoveryRefused: 'layout' | 'schema' | null = null;
       try {
         this._doc.transact(tr => {
+          // Admitted inside its own transaction, as the write it recovers.
+          recoveryRefused = this.refusalIn(after);
+          if (recoveryRefused !== null) {
+            return;
+          }
+          // Development builds: the binding's own write, even when it joined
+          // an app's transaction (see noteRawWrite).
+          if (__DEV__) {
+            markBindingWrite(tr);
+          }
           this.splitAtUnread(tr);
           try {
             const all: WritePlan = {
@@ -5208,7 +6014,7 @@ export class YBinding {
             rewriter.$run();
             this.noteRefused(rewriter, commit.naming);
           } finally {
-            if (origin === this) {
+            if (origin === this || commit.recordOwnSchema) {
               recordSchema(this._root, this.options.schemaVersion, tr, t =>
                 this.isUnderRoot(t),
               );
@@ -5219,7 +6025,8 @@ export class YBinding {
       } catch (e2) {
         this._editor._onError(e2 instanceof Error ? e2 : new Error(String(e2)));
       }
-      return null;
+      const recoveryRefusedBy = recoveryRefused as 'layout' | 'schema' | null;
+      return recoveryRefusedBy === null ? null : new Refusal(recoveryRefusedBy);
     }
   }
 
@@ -6436,6 +7243,11 @@ export class YBinding {
     this.stepCursor =
       top === undefined ? null : ((top.meta.get(this) as YCursor) ?? null);
     try {
+      // Queued undos run later: admitted then, as any write (see
+      // recordAdmits); the UndoManager checks the same (BindingUndoManager).
+      if (!this.writesEdits()) {
+        return false;
+      }
       const popped = undo ? um.undo() : um.redo();
       if (popped !== null) {
         this.carryCloserMarks(popped);
@@ -6604,6 +7416,11 @@ export class YBinding {
     }, this.scanOrigin);
     if (ends.length > 0) {
       doc.transact(tr => {
+        // Development builds: the binding's own write, even when it joined
+        // an app's transaction (see noteRawWrite).
+        if (__DEV__) {
+          markBindingWrite(tr);
+        }
         // The nulls this loop writes: two keys can need an end in the same
         // gap, and the second must not take the first's null for a change
         // of the gap.

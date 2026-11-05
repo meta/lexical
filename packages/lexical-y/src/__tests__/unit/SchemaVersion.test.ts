@@ -35,6 +35,7 @@ import {afterEach, describe, expect, test, vi} from 'vitest';
 
 import {
   createYDoc,
+  RAW_YJS_WRITE_WARNING,
   RECOVERED_READ_WARNING,
   UNSUPPORTED_EDIT_WARNING,
   UNSUPPORTED_SCHEMA_WARNING,
@@ -353,7 +354,12 @@ describe('schema version gate', () => {
     b.doc.get('lexical-y').setAttr(SCHEMA + 'two', true);
     b.binding.initialize();
     expect(b.binding.status).toBe('readonly');
-    expect(b.warnings.map(w => [w.code, w.data])).toEqual([
+    // The record was written raw (reported as such in development).
+    expect(
+      b.warnings
+        .filter(w => w.code !== RAW_YJS_WRITE_WARNING)
+        .map(w => [w.code, w.data]),
+    ).toEqual([
       [
         UNSUPPORTED_SCHEMA_WARNING,
         {found: true, key: SCHEMA + 'two', reason: 'malformed', supported: 5},

@@ -3,8 +3,14 @@
 **Experimental.** A collaboration binding for [Lexical](https://lexical.dev)
 on [Yjs 14](https://github.com/yjs/yjs) (`@y/y`). It is separate from
 `@lexical/yjs` (Yjs 13): the two use different Yjs libraries and document
-layouts, and a document uses one or the other. Every export is
-`@experimental`, and `@y/y` is a release candidate.
+layouts, and a document uses one or the other. Entries: `@lexical/y`,
+`@lexical/y/headless`, `@lexical/y/migrate` (with a step per layout,
+`@lexical/y/migrate/<n>to<n+1>`) and `@lexical/y/server`. Every export is
+`@experimental`, and `@y/y` is a release candidate. `@experimental` is not
+an exception to compatibility: once released, the public API, its types and
+the wire format below change only additively. No export is removed or
+renamed, no stored layout from 3 on stops being read, and no published
+migration step or revision is removed or changes what it writes.
 
 ## Install
 
@@ -44,8 +50,12 @@ import {
   getExtensionDependencyFromEditor,
 } from '@lexical/extension';
 import {RichTextExtension} from '@lexical/rich-text';
-import {createYDoc, YCollabExtension} from '@lexical/y';
-import {configExtension, defineExtension} from 'lexical';
+import {
+  createYCollabConfig,
+  createYDoc,
+  YCollabExtension,
+} from '@lexical/y';
+import {defineExtension} from 'lexical';
 
 // Yjs's format cleanup off (createYDoc(stored) for a stored state): the
 // binding takes no other document.
@@ -54,9 +64,17 @@ const editor = buildEditorFromExtensions(
   defineExtension({
     dependencies: [
       RichTextExtension,
-      // Required: your app's document schema version, bumped whenever a
-      // node's stored fields or node types change.
-      configExtension(YCollabExtension, {doc, schemaVersion: 1}),
+      // Required: the version of your editor's nodes (bump it when you add,
+      // remove or change one), and how documents below MIN_LAYOUT are
+      // upgraded. null: no server migrates this provider's stored
+      // documents, so one below the floor opens read only. An app whose
+      // server migrates passes createYServerLayoutUpgrade() and sends its
+      // handshake.
+      createYCollabConfig({
+        doc,
+        layoutUpgrade: null,
+        schemaVersion: 1,
+      }),
     ],
     name: 'app',
   }),
@@ -76,7 +94,11 @@ binding.initialize();
 - [Server-side editing](https://lexical.dev/docs/collaboration/y-server):
   `@lexical/y/headless` (`seedYState`, `editYState`, `readYState`,
   `createYWriter` for who the server's edits are by, and `createYDoc` for a
-  relay's copy of a document).
+  relay's copy of a document), and migrating stored documents
+  (`@lexical/y/server`).
+- Layout migrations (EXPERIMENTAL): `@lexical/y/migrate` (the runner) and
+  one frozen step per layout (`@lexical/y/migrate/1to2`); see
+  [Changing the layout and migrating](https://lexical.dev/docs/collaboration/y#changing-the-layout-and-migrating).
 - [API reference](https://lexical.dev/docs/api/modules/lexical_y)
 
 ## Servers
@@ -147,10 +169,21 @@ otherwise.
 
 ## Wire format: layout 1
 
+**Private: read it, never write it.** The Yjs content under the binding's
+root is the binding's private encoding: the root itself, its record keys
+(`lexical-y:<n>`, `lexical-y-schema:<n>`, `lexical-y-epoch`,
+`lexical-y-require:<feature>` and every other `lexical-y-*` key), and every
+node, marker, format and state key below it. It is specified here for
+readers (servers, tools that inspect stored documents), not for writers.
+Direct Yjs writes under the root are unsupported: change a document through
+the editor, `editYState` or a migration step. Development builds report a
+local transaction of another origin that changes it
+(`RAW_YJS_WRITE_WARNING`).
+
 Layout 1 is frozen: these names are stored in documents and do not change.
 A change to any of them is a new layout version, which older clients open
 read only. Layout 2 (below) keeps everything here and adds member entries
-of set-valued NodeState; layout 3 (planned, #9449) adds move records.
+of set-valued NodeState.
 
 - **Root:** the top-level type `lexical-y` (or the `root` option). Root
   attributes: `lexical-y:<n>` = `true` for each layout version `n` the
@@ -177,7 +210,45 @@ of set-valued NodeState; layout 3 (planned, #9449) adds move records.
   records version 1 before its content), so no client receives that content
   without the version. Two clients that upgrade a document at once both
   record theirs, and every reader takes the higher. Any change to how a
-  stored shape is read is a new version.
+  stored shape is read is a new version. A reader also opens the document
+  read only when the version is older than `MIN_LAYOUT`, the oldest it
+  reads, until a migration (`@lexical/y/migrate`) moves it up.
+- **Epoch.** The root attribute `lexical-y-epoch` = `{v: 1, kind, layout,
+  client, clock, step, revision, schema?}`, written by a migration in the
+  same transaction as what it changes. `layout` is the destination (the
+  root's layout after it, from 1); `step` and `revision` are the receipt
+  (which frozen step, at which immutable revision, wrote it: an opaque,
+  namespaced id such as `lexical-y/layout/<n>to<n+1>`); `(client, clock)`
+  is the id of the transition's first newly written item (for a layout
+  migration, its layout record), the transition identity the generation
+  uses; `kind` is the family (`'layout'`, the only one this release
+  writes; a missing kind reads as `'layout'`); and `schema`, when present,
+  is `{id, version}` of an app schema. Readers accept fields they do
+  not know and leave them in place. It is outside the `lexical-y:`
+  namespace, so older releases ignore it; this release opens a document
+  whose epoch has another `v`, or a known field that is not well formed,
+  read only (an absent epoch is fine). Each migration replaces it. Servers derive a document's
+  generation from its `(client, clock)` (`getYGeneration` in
+  `@lexical/y/server`, a versioned algorithm); a client never adopts a
+  generation from it.
+- **Feature requirements.** Root attributes `lexical-y-require:<feature>` =
+  `true`, grow-only, the feature id an opaque string, written before (or
+  with) the content that needs the feature. A reader that does not support
+  every required feature, or finds a requirement that is not well formed
+  (an empty id, a value other than `true`), opens the root read only: it
+  shows it, keeps it and never rewrites it (`UNSUPPORTED_LAYOUT_WARNING`,
+  `'requires'` or `'malformed'`). The migration runner refuses to migrate
+  such a root (`YMigrationError` `'unsupported-feature'` or `'malformed'`,
+  before any root runs); a root that needs no step passes through
+  unchanged. This release supports no feature. Any other `lexical-y-*`
+  attribute a reader does not know is kept and ignored. Releases before
+  this one read only `lexical-y:<n>` and ignore `lexical-y-require:*`, so
+  they would still edit such a root: a writer that adds a requirement also
+  raises the layout record (older releases then open the root read only),
+  or relies on its server's fence to keep those clients out.
+  A server lists every required feature in `describeYRoom`'s `requires` and
+  admits no session that does not present them all; a malformed requirement
+  makes its root unreadable.
 - **Children of a container** (the root and every node stored as its own
   `Y.Node`), in order:
   - text (`Y` strings) with formats;

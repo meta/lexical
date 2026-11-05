@@ -9,6 +9,9 @@
 
 // Checked by `pnpm run flow` (not shipped): typed warnings narrow by code.
 
+import type {
+  YMigrationErrorCode,
+} from '@lexical/y/migrate';
 import {
   type YWarning,
   type YWarningData,
@@ -21,18 +24,32 @@ import {
 } from '@lexical/y';
 
 const root: 'lexical-y' = DEFAULT_ROOT_NAME;
-const layout: 2 = LAYOUT_VERSION;
+// Typed number: a later release raises it.
+const layout: number = LAYOUT_VERSION;
+const raised: typeof LAYOUT_VERSION = 99;
 
 function reasonOf(error: unknown): string {
+  // A code narrows the data.
+  if (isYWarning(error, UNSUPPORTED_LAYOUT_WARNING)) {
+    const data = error.data;
+    if (data.reason === 'other') {
+      return data.detailCode;
+    }
+    return data.reason;
+  }
+  // Without one, the warning is open: any code, its data unknown.
   if (isYWarning(error)) {
     const warning: YWarning = error;
-    if (warning.code === UNSUPPORTED_LAYOUT_WARNING) {
-      return warning.data.reason;
-    }
-    return warning.code;
+    const code: string = warning.code;
+    // $FlowExpectedError[incompatible-use] the open warning's data is unknown
+    void warning.data.reason;
+    return code;
   }
   return '';
 }
+
+// The migration error codes are open.
+const code: YMigrationErrorCode = 'a-later-code';
 
 // A code's data, by its code.
 function foundOf(
@@ -40,5 +57,25 @@ function foundOf(
 ): number | null {
   return data.reason === 'newer' ? data.found : null;
 }
-// $FlowExpectedError[incompatible-type] an edit warning's reason is 'read-only'
+// $FlowExpectedError[incompatible-type] an edit warning's reason is 'read-only' or 'refused-at-write'
 const edit: YWarningData<typeof UNSUPPORTED_EDIT_WARNING> = {reason: 'newer'};
+const refusedAtWrite: YWarningData<typeof UNSUPPORTED_EDIT_WARNING> = {
+  reason: 'refused-at-write',
+  record: 'schema',
+};
+// $FlowExpectedError[incompatible-type] a refusal at write time names its record
+const unnamed: YWarningData<typeof UNSUPPORTED_EDIT_WARNING> = {
+  reason: 'refused-at-write',
+};
+
+// N3: YWarning is generic and YWarningData falls back to unknown for a code
+// this version does not report, as in TypeScript.
+declare const later: YWarning<'@lexical/y/a-later-code'>;
+const laterData: unknown = later.data;
+// $FlowExpectedError[incompatible-use] a later code's data is unknown
+void later.data.reason;
+const anyLaterData: YWarningData<'@lexical/y/a-later-code'> = {any: true};
+declare const layoutWarning: YWarning<typeof UNSUPPORTED_LAYOUT_WARNING>;
+const layoutReason: string = layoutWarning.data.reason;
+// $FlowExpectedError[incompatible-type] a known code's data is typed
+const notLayoutData: YWarningData<typeof UNSUPPORTED_LAYOUT_WARNING> = {any: true};

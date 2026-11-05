@@ -1,0 +1,186 @@
+/**
+ * Copyright (c) Meta Platforms, Inc. and affiliates.
+ *
+ * This source code is licensed under the MIT license found in the
+ * LICENSE file in the root directory of this source tree.
+ *
+ * @flow strict
+ */
+
+import type {Doc, Node as YNode} from '@y/y';
+import type {ClientIDRange, YMigrationEpoch} from '@lexical/y';
+
+/**
+ * @lexical/y/migrate: EXPERIMENTAL layout migrations of stored documents.
+ */
+
+export type {YMigrationEpoch};
+
+// `v`: the execution contract (1); a runner refuses another before calling
+// anything.
+export type YLayoutMigration = {
+  readonly v: 1,
+  readonly id: string,
+  readonly revision: number,
+  readonly from: number,
+  readonly to: number,
+  migrateContainer(
+    tr: unknown,
+    container: YNode,
+  ): {readonly written: number, readonly deleted: number} | void,
+  readBefore(container: YNode): ReadonlyArray<string>,
+  readAfter(container: YNode): ReadonlyArray<string>,
+  checkAfter(container: YNode): ReadonlyArray<string>,
+  rewrites(key: string): boolean,
+  // Inexact: a step module may carry fields of its own.
+  ...
+};
+
+type YKnownMigrationErrorCode =
+  | 'missing-step'
+  | 'invalid-steps'
+  | 'missing'
+  | 'malformed'
+  | 'pending'
+  | 'post-condition'
+  | 'in-transaction'
+  | 'unsupported-feature';
+// Open: a later version may add codes; keep a fallback.
+export type YMigrationErrorCode = string;
+
+declare export class YMigrationError extends Error {
+  readonly code: YMigrationErrorCode;
+  readonly problems: ReadonlyArray<string>;
+  readonly root: string | null;
+  constructor(
+    code: YMigrationErrorCode,
+    message: string,
+    problems?: ReadonlyArray<string>,
+    root?: string | null,
+  ): void;
+}
+
+export type YMigrationStepReceipt = {
+  readonly id: string,
+  readonly revision: number,
+  readonly client: number,
+  readonly written: number,
+  readonly deleted: number,
+  ...
+};
+
+export type YMigrationRootReceipt = {
+  readonly root: string,
+  readonly from: number | null,
+  readonly to: number | null,
+  readonly changed: boolean,
+  readonly steps: ReadonlyArray<YMigrationStepReceipt>,
+  readonly epoch: YMigrationEpoch | null,
+  ...
+};
+
+// Format version `v` (1); its root and step receipts are of the same
+// version. Counts and ms are diagnostics. Receipts, results and options are
+// inexact: a later version adds fields, and readers keep ones they do not
+// know.
+export type YMigrationReceipt = {
+  readonly v: 1,
+  readonly roots: ReadonlyArray<YMigrationRootReceipt>,
+  readonly changed: boolean,
+  readonly bytesBefore: number,
+  readonly bytesAfter: number,
+  readonly ms: number,
+  ...
+};
+
+export type YMigrationStepInput = {
+  readonly root: string,
+  readonly step: string,
+  readonly revision: number,
+  readonly to: number,
+  ...
+};
+
+export type YMigrateOptions = {
+  readonly roots?: ReadonlyArray<string>,
+  readonly to?: number,
+  readonly clientIDRange?: ClientIDRange,
+  readonly clientID?: (input: YMigrationStepInput) => number,
+  ...
+};
+
+export type YMigrateStateOptions = {
+  readonly roots?: ReadonlyArray<string>,
+  readonly to?: number,
+  readonly clientIDRange?: ClientIDRange,
+  readonly clientID?: (input: YMigrationStepInput) => number,
+  readonly gc?: boolean,
+  ...
+};
+
+export type YMigrationResult = {
+  readonly state: Uint8Array,
+  readonly update: Uint8Array | null,
+  readonly pending: Uint8Array | null,
+  readonly receipt: YMigrationReceipt,
+  ...
+};
+
+export type YMigrationLoaders = {
+  readonly [from: number]: () => Promise<unknown>,
+};
+
+declare export function migrateYState(
+  state: Uint8Array,
+  steps: ReadonlyArray<YLayoutMigration>,
+  options?: YMigrateStateOptions,
+): YMigrationResult;
+
+export type YLoadYMigrationStepsOptions = {
+  readonly loaders?: YMigrationLoaders,
+  ...
+};
+
+declare export function loadYMigrationSteps(
+  from: number,
+  to?: number,
+  options?: YLoadYMigrationStepsOptions,
+): Promise<Array<YLayoutMigration>>;
+
+// The layout state of a root. Its statuses and 'unsupported' reasons are
+// fixed (exhaustive switches stay valid); later detail goes into additive
+// fields.
+export type YLayoutInfo =
+  | {
+      readonly status: 'ready',
+      readonly root: string,
+      readonly layout: number,
+      readonly epoch: YMigrationEpoch | null,
+      ...
+    }
+  | {
+      readonly status: 'missing',
+      readonly root: string,
+      readonly empty: boolean,
+      ...
+    }
+  | {
+      readonly status: 'invalid',
+      readonly root: string,
+      readonly key: string,
+      readonly found: unknown,
+      ...
+    }
+  | {
+      readonly status: 'unsupported',
+      readonly root: string,
+      readonly reason: 'older' | 'newer' | 'requires',
+      readonly layout: number | null,
+      readonly epoch: YMigrationEpoch | null,
+      readonly min: number,
+      readonly supported: number,
+      readonly features: ReadonlyArray<string>,
+      ...
+    };
+
+declare export function getYLayoutInfo(doc: Doc, root?: string): YLayoutInfo;

@@ -112,13 +112,15 @@ interface StackItemEvent {
   origin: unknown;
 }
 
-const isFunction = (value: unknown): boolean => typeof value === 'function';
-const isObject = (value: unknown): boolean =>
+export const isFunction = (value: unknown): boolean =>
+  typeof value === 'function';
+export const isObject = (value: unknown): boolean =>
   typeof value === 'object' && value !== null;
 /** A field that may hold null (an empty pointer), never undefined. */
-const isSet = (value: unknown): boolean => value !== undefined;
-const isNumber = (value: unknown): boolean => typeof value === 'number';
-const isBoolean = (value: unknown): boolean => typeof value === 'boolean';
+export const isSet = (value: unknown): boolean => value !== undefined;
+export const isNumber = (value: unknown): boolean => typeof value === 'number';
+export const isBoolean = (value: unknown): boolean =>
+  typeof value === 'boolean';
 /** A Map from any realm (@y/y may run in another one, such as a VM's). */
 const isMap = (value: unknown): boolean => {
   try {
@@ -244,15 +246,22 @@ export function yjsMembers() {
       canRedo: (u: UndoManager) => isFunction(u.canRedo),
       canUndo: (u: UndoManager) => isFunction(u.canUndo),
       clear: (u: UndoManager) => isFunction(u.clear),
+      currStackItem: (u: UndoManager) => u.currStackItem === null,
       destroy: (u: UndoManager) => isFunction(u.destroy),
+      doc: (u: UndoManager) => isObject(u.doc),
+      emit: (u: UndoManager) => isFunction(u.emit),
       on: (u: UndoManager) => isFunction(u.on),
       redo: (u: UndoManager) => isFunction(u.redo),
       redoStack: (u: UndoManager) => Array.isArray(u.redoStack),
+      redoing: (u: UndoManager) => u.redoing === false,
       undo: (u: UndoManager) => isFunction(u.undo),
       undoStack: (u: UndoManager) => Array.isArray(u.undoStack),
+      undoing: (u: UndoManager) => u.undoing === false,
     },
     UndoManagerOptions: {
       captureTimeout: (u: UndoManager) => u.captureTimeout === 0,
+      captureTransaction: (u: UndoManager) =>
+        u.captureTransaction === PROBE_CAPTURE_TRANSACTION,
       deleteFilter: (u: UndoManager) => u.deleteFilter === PROBE_DELETE_FILTER,
       trackedOrigins: (u: UndoManager) => u.trackedOrigins.has(PROBE_ORIGIN),
     },
@@ -282,6 +291,7 @@ const PROBE_GUID = '@lexical/y/yjs-probe';
 /** The undo manager options the probe passes, checked on what it kept. */
 const PROBE_ORIGIN = {};
 const PROBE_DELETE_FILTER = () => true;
+const PROBE_CAPTURE_TRANSACTION = () => true;
 
 /** The events the binding listens to, by emitter. */
 export const YJS_EVENTS = {
@@ -488,6 +498,7 @@ function probeMembers(y: YjsExports, found: string[]): void {
     }
     const undoManager = new y.UndoManager(root, {
       captureTimeout: 0,
+      captureTransaction: PROBE_CAPTURE_TRANSACTION,
       deleteFilter: PROBE_DELETE_FILTER,
       trackedOrigins: new Set<unknown>([PROBE_ORIGIN]),
     });
