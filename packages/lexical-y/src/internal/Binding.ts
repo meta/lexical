@@ -685,6 +685,13 @@ function recordSetMembersLayout(root: YNode, tr: Transaction): void {
 }
 
 /**
+ * TextNode's own selectionTransform, which does nothing, as this module
+ * found it. A text class's override, or an app's patch of TextNode's own
+ * (which every text class then runs), is anything else (see markReadEnd).
+ */
+const BASE_SELECTION_TRANSFORM = TextNode.prototype.selectionTransform;
+
+/**
  * @experimental A Yjs 14 binding for one editor and one shared root.
  *
  * Every container (the root, and every node stored as its own Y.Node) holds
@@ -3705,7 +3712,7 @@ export class YBinding {
       return (
         point.type === 'text' &&
         $isTextNode(node) &&
-        node.selectionTransform !== TextNode.prototype.selectionTransform
+        node.selectionTransform !== BASE_SELECTION_TRANSFORM
       );
     };
     if (
