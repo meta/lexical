@@ -876,6 +876,7 @@ export function $followUpDifference(
   // A set-valued state first used after the editor was cached.
   shareSetStateConfigs(state.editor, editor);
   try {
+    // eslint-disable-next-line @lexical/no-nested-editor-updates -- This update uses the cached verification editor while the bound editor supplies the active context.
     editor.update(
       () => {
         // The formats in effect at the start of each range (ranges are in

@@ -493,7 +493,7 @@ export const noNestedEditorUpdates = {
       noNestedEditorUpdatesWithOptions:
         '{{context}} already provides an update context for this editor. Apply {{migrations}} in the current context, then remove the nested {{callee}} wrapper.',
       readOnlyUpdate:
-        '{{context}} is read-only. The nested {{callee}} is deferred until the read returns; move the update after the read callback instead of removing its wrapper.',
+        '{{context}} is read-only. Move {{callee}} after the read callback, preserving its update wrapper and options.',
     },
     schema: [
       {

@@ -121,6 +121,7 @@ describe('SELECTION_CHANGE_COMMAND', () => {
     editor.registerCommand(
       SELECTION_CHANGE_COMMAND,
       () => {
+        // eslint-disable-next-line @lexical/no-nested-editor-updates -- This test verifies the cascade budget for updates queued by explicit selection commands.
         editor.update(() => $getRoot().markDirty());
         return false;
       },
@@ -349,6 +350,7 @@ describe('SELECTION_CHANGE_COMMAND', () => {
           const text = $getRoot().getAllTextNodes()[0];
           text.setTextContent('transform failure');
           if (origin === 'nested update') {
+            // eslint-disable-next-line @lexical/no-nested-editor-updates -- This test verifies rollback when a nested update queued by a selection listener throws.
             editor.update(() => {
               text.remove();
               throw failure;

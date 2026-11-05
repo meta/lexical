@@ -58,6 +58,11 @@ updates to a different editor, such as `childEditor.update(...)`, are valid.
 The default presets enable the rule as a warning; set it to `error` or `off`
 in your flat configuration's `rules` object to change that severity.
 
+When removing an update wrapper from a node transform, check the transform's
+[preconditions](https://lexical.dev/docs/concepts/transforms#preconditions)
+so its mutations converge. Inline mutations participate in the current
+transform cycle and can trigger the transform again.
+
 Command listeners already provide an update context. Remove a nested
 `editor.update()` wrapper and perform the mutation directly:
 
@@ -104,7 +109,8 @@ By default, editor expressions must end in `editor`, ignoring case. This
 recognizes `editor`, `childEditor`, `props.editor`, `$getEditor()`, and
 `this.editor`. The last expression matches across arrow callbacks, where
 `this` is lexical, but not ordinary function callbacks. Inside $functions,
-only `editor` and `$getEditor()` are assumed to be the active editor.
+`editor`, `$getEditor()`, and receivers matching configured `isEditor`
+patterns are assumed to be the active editor.
 
 Use `isEditor` to add names or patterns, and `isDollarFunction` to extend
 the default `/^\$[a-z_]/` function-name matcher:
@@ -121,8 +127,9 @@ const rules = {
 };
 ```
 
-Repeated configured zero-argument accessors such as `getMyEditor()` match as
-the same editor expression. The analysis does not follow callbacks passed by
+Repeated zero-argument accessors matching the default naming convention or
+configured `isEditor` patterns, such as `getNestedEditor()`, match as the
+same editor expression. The analysis does not follow callbacks passed by
 reference, aliases between differently named editor variables, or another
 nested callback such as `setTimeout(() => editor.update(...))`. There is no
 autofix.
