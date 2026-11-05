@@ -2061,6 +2061,7 @@ export class YBinding {
         const found: (readonly [ElementNode, Attrs | null, number, string])[] =
           stored
             ? $unstoredWrapperTextFields(
+                currentView(),
                 state,
                 [node.getKey()],
                 fieldsOf,

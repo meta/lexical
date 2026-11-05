@@ -30,7 +30,7 @@ import {
 } from 'lexical';
 
 import {type Attrs, BLOCK_PREFIX, isUnsafeKey} from './Schema';
-import {deleteAttr, setAttr} from './Seen';
+import {deleteAttrIn, setAttrIn} from './Seen';
 
 /*
  * Named slots ($setSlot). A node stored as its own Y.Node (a `b:<type>` or
@@ -100,7 +100,7 @@ export function $writeSlots(
     }
     // Inserted before it is filled, as every stored node.
     const slotY = new YNode(BLOCK_PREFIX + value.getType());
-    setAttr(y, attr, slotY, writer.tr);
+    setAttrIn(writer.view, y, attr, slotY, writer.tr);
     writer.$fillNode(slotY, value);
   }
   for (const attr in current) {
@@ -109,7 +109,7 @@ export function $writeSlots(
         warn('the slots of', node);
         continue;
       }
-      deleteAttr(y, attr, writer.tr);
+      deleteAttrIn(writer.view, y, attr, writer.tr);
     }
   }
 }

@@ -37,9 +37,10 @@ import {
   TYPE_KEY,
   WRAPPER_FIELDS_KEY,
 } from './Schema';
-import {isShownEnd, shownAttrs} from './Seen';
+import {isShownEndIn, shownAttrs} from './Seen';
 import {$inNamedSlot} from './Slots';
 import {type CS, type State, typeOf, type Unit, type UnitKind} from './State';
+import {currentView, type View} from './Unread';
 
 // Block ids (BlockIdExtension's), as the binding reads them: the grammar of
 // derived ids, the index of which blocks store which id, and the settlement
@@ -469,7 +470,11 @@ export class BlockIdSettler {
    * once in place, if identified blocks (see $settleIds).
    */
   private readonly inlineRuns = new Set<NodeKey>();
-  constructor(readonly state: State) {}
+  constructor(
+    readonly state: State,
+    /** The binding's view, read at each step (see Reader#viewOf). */
+    private readonly viewOf: () => View | null = currentView,
+  ) {}
 
   /**
    * A unit a read placed (see Reader#$commitUnits): whether its block (a
@@ -1235,7 +1240,7 @@ export class BlockIdSettler {
       holder = $getNodeByKey(cs.key);
     } else {
       for (let it = item.right; it !== null; it = it.right) {
-        if (isShownEnd(it, state.hidden)) {
+        if (isShownEndIn(this.viewOf(), it, state.hidden)) {
           const u = state.unitByEnd.get(it);
           holder =
             u === undefined || u.key === null ? null : $getNodeByKey(u.key);

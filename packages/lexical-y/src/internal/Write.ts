@@ -2574,9 +2574,11 @@ export class Writer {
       const own = idx > 0 ? old[idx - 1].end : null;
       const from = own !== null && own !== left ? own.right : startItem;
       if (from !== startItem) {
-        cursor.advance(countLive(startItem, from, this.state.hidden));
+        cursor.advance(
+          countLive(this.view, startItem, from, this.state.hidden),
+        );
       }
-      cursor.delete(countLive(from, stop, this.state.hidden));
+      cursor.delete(countLive(this.view, from, stop, this.state.hidden));
     }
     if (idx + 1 < old.length) {
       old[idx + 1].start = copyStart(u.start);
