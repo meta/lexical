@@ -131,12 +131,7 @@ import {
 } from '@lexical/extension';
 import {ListExtension} from '@lexical/list';
 import {RichTextExtension} from '@lexical/rich-text';
-import {
-  createYCollabConfig,
-  createYDoc,
-  createYServerLayoutUpgrade,
-  YCollabExtension,
-} from '@lexical/y';
+import {createYCollabConfig, createYDoc, YCollabExtension} from '@lexical/y';
 import {WebsocketProvider} from '@y/websocket';
 import {defineExtension} from 'lexical';
 
@@ -148,10 +143,13 @@ const editor = buildEditorFromExtensions(
       RichTextExtension,
       ListExtension,
       // schemaVersion and layoutUpgrade are required: see "Versioning your
-      // schema" and "Layout upgrades".
+      // schema" and "Layout upgrades". null: no server migrates this
+      // provider's stored documents, so one below the floor opens read
+      // only. An app whose server migrates passes
+      // createYServerLayoutUpgrade() and sends its handshake.
       createYCollabConfig({
         doc,
-        layoutUpgrade: createYServerLayoutUpgrade(),
+        layoutUpgrade: null,
         schemaVersion: 1,
       }),
     ],
