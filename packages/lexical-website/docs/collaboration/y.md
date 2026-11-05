@@ -658,7 +658,10 @@ directly with Yjs is unsupported. Change a document through the editor,
 `editYState` (on a server) or a migration step. In development builds the
 binding reports a local transaction of another origin that changes the
 content under its root with `RAW_YJS_WRITE_WARNING` (once per origin;
-Y.UndoManager steps and remote updates are not reported).
+Y.UndoManager steps and remote updates are not reported). It is a
+diagnostic, not a complete detector: it judges a transaction by its origin
+and locality, and only once the binding has read its document (not while
+it is pending).
 
 The diagrams below use the stored names. The package README specifies them
 exactly:

@@ -112,7 +112,12 @@ export function createYServerLayoutUpgrade(
   });
 }
 
-/** @experimental Whether `value` is a layout upgrade handle (any copy's). */
+/**
+ * @experimental Whether `value` is a layout upgrade handle (any copy's):
+ * the brand, a non-empty `kind`, an integer `target` from 1 and a
+ * `handshake` function. A handle declares what the app expects and builds
+ * the handshake; it is not proof that a server is wired to migrate.
+ */
 export function isYLayoutUpgradeHandle(
   value: unknown,
 ): value is YLayoutUpgradeHandle {
@@ -121,6 +126,9 @@ export function isYLayoutUpgradeHandle(
     value !== null &&
     (value as Record<symbol, unknown>)[LAYOUT_UPGRADE] === true &&
     typeof (value as {kind?: unknown}).kind === 'string' &&
+    (value as {kind: string}).kind !== '' &&
+    Number.isSafeInteger((value as {target?: unknown}).target) &&
+    (value as {target: number}).target >= 1 &&
     typeof (value as {handshake?: unknown}).handshake === 'function'
   );
 }

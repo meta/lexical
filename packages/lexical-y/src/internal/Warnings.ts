@@ -79,12 +79,16 @@ export const UNSUPPORTED_EDIT_WARNING = '@lexical/y/unsupported-edit';
  */
 export const UNSUPPORTED_SCHEMA_WARNING = '@lexical/y/unsupported-schema';
 /**
- * @experimental Development builds only: a local transaction that is not the
- * binding's (nor a Y.UndoManager's) changed the Yjs content under the
- * binding's root. The encoding under the root is private to the binding and
- * unsupported for direct writes: change the document through the editor
- * (or editYState). Once per binding and origin; nothing else happens (the
- * binding reads the change as it reads a remote one). `data`:
+ * @experimental Development builds only: a local transaction that is not
+ * the binding's (nor a Y.UndoManager's, nor a migration's) changed the Yjs
+ * content under the binding's root. The encoding under the root is private
+ * to the binding and unsupported for direct writes: change the document
+ * through the editor (or editYState). Once per binding and origin; nothing
+ * else happens (the binding reads the change as it reads a remote one).
+ * A diagnostic, not a complete detector: it judges a transaction by its
+ * origin and locality, and only once the binding has read its document
+ * (not while it is pending), so a raw write made through a provider-like
+ * remote update, or before the binding reads, is not reported. `data`:
  * YRawYjsWriteData.
  */
 export const RAW_YJS_WRITE_WARNING = '@lexical/y/raw-yjs-write';

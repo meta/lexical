@@ -195,10 +195,24 @@ describe('the handle', () => {
       seed: SEED_LAYOUT,
       v: 1,
     });
-    // Look-alikes are not handles.
+    // Look-alikes are not handles, nor is a branded object without a valid
+    // target or kind.
     expect(isYLayoutUpgradeHandle({handshake() {}, kind: 'server'})).toBe(
       false,
     );
+    const brand = Symbol.for('@lexical/y/layout-upgrade');
+    const branded = (fields: Record<string, unknown>) => ({
+      [brand]: true,
+      handshake: handle.handshake,
+      kind: 'server',
+      target: MIN_LAYOUT,
+      ...fields,
+    });
+    expect(isYLayoutUpgradeHandle(branded({}))).toBe(true);
+    expect(isYLayoutUpgradeHandle(branded({target: undefined}))).toBe(false);
+    expect(isYLayoutUpgradeHandle(branded({target: 0}))).toBe(false);
+    expect(isYLayoutUpgradeHandle(branded({target: 1.5}))).toBe(false);
+    expect(isYLayoutUpgradeHandle(branded({kind: ''}))).toBe(false);
     expect(isYLayoutUpgradeHandle(null)).toBe(false);
   });
 
