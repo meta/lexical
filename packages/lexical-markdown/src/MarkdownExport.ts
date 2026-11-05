@@ -37,11 +37,13 @@ import {
 import {
   characterAt,
   characterBefore,
+  flankingBefore,
   getPortableEmphasisSides,
   isEmptyParagraph,
   isEscaped,
   isLetterForSomeReader,
   isPortablyFlankedBy,
+  isVariationSelector,
   toCharacterReference,
   transformersByType,
 } from './utils';
@@ -810,6 +812,15 @@ const UNREFERENCEABLE = /[\p{Cc}\p{Cs}\p{Noncharacter_Code_Point}]/u;
 
 /** Whether a character reference can stand in for `character` beside a marker. */
 function isReferenceable(character: string | undefined): boolean {
+  // Of a variation selector after the character it varies, the reference
+  // is to the selector.
+  if (
+    character !== undefined &&
+    character.length > 1 &&
+    isVariationSelector(character[character.length - 1])
+  ) {
+    character = character[character.length - 1];
+  }
   return (
     character !== undefined &&
     isLetterForSomeReader(character) &&
@@ -1102,8 +1113,22 @@ function decideReferences(
     }
   }
   const firstChar = (index: number) => characterAt(values[index], 0)!;
-  const lastChar = (index: number) =>
-    characterBefore(values[index], values[index].length)!;
+  const isLoneSelector = (index: number) =>
+    values[index].length === 1 && isVariationSelector(values[index]);
+  // A variation selector that starts a piece varies what ends the piece
+  // before it. Only the last character of that is read, which for a piece
+  // that is a selector too is the selector, so the lookup stops there rather
+  // than walk a chain of such pieces at every call.
+  const lastChar = (index: number): string =>
+    flankingBefore(
+      values[index],
+      values[index].length,
+      index > 0 && isLoneSelector(index)
+        ? isLoneSelector(index - 1) && !isEncoded(index - 1)
+          ? values[index - 1]
+          : endChar(index - 1)
+        : undefined,
+    )!;
   // A one-character piece written as a reference reads as punctuation at
   // both ends: `&#97;`.
   const isOneCharacter = (index: number) =>
@@ -1116,12 +1141,20 @@ function decideReferences(
       : encodeStart[index] || isEncoded(index)
         ? '&'
         : firstChar(index);
+  // A piece of a character and a variation selector whose first character
+  // goes out as a reference: the selector then varies the reference's `;`.
+  const isVariedByStart = (index: number) =>
+    encodeStart[index] === 1 &&
+    values[index].length === firstChar(index).length + 1 &&
+    isVariationSelector(values[index].slice(-1));
   const endChar = (index: number) =>
     index < 0
       ? undefined
       : encodeEnd[index] || isEncoded(index)
         ? ';'
-        : lastChar(index);
+        : isVariedByStart(index)
+          ? flankingBefore(values[index].slice(-1), 1, ';')!
+          : lastChar(index);
   // Whether the last (or first) character of the piece at `index` can go out
   // as a reference.
   const canReference = (index: number, atEnd: boolean): boolean =>
@@ -1166,6 +1199,7 @@ function decideReferences(
         isPortablyFlankedBy(
           leftward ? '&' : ';',
           leftward ? endChar(next) : startChar(next),
+          leftward,
         )
       ) {
         break;
@@ -1220,8 +1254,15 @@ function decideReferences(
     if (kinds[i] === TEXT) {
       if (
         isMarker(kinds[i + 1]) &&
-        value[value.length - 1] === values[i + 1][0] &&
-        !isEscaped(value, value.length - 1)
+        ((value[value.length - 1] === values[i + 1][0] &&
+          !isEscaped(value, value.length - 1)) ||
+          // micromark-extension-cjk-friendly-gfm-strikethrough reads a
+          // selector before `~` as a letter, not as what it varies, and so
+          // never closes the run there, but reads its reference as every
+          // reader does.
+          (kinds[i + 1] === CLOSER &&
+            values[i + 1][0] === '~' &&
+            isVariationSelector(value[value.length - 1])))
       ) {
         encodeEnd[i] = 1;
       }
@@ -1254,7 +1295,10 @@ function decideReferences(
       if (opens && afterFirst === undefined) {
         pending.push(index);
       }
-      if (isEncoded(after) && runAfter[after] !== -1) {
+      if (
+        (isEncoded(after) || isVariedByStart(after)) &&
+        runAfter[after] !== -1
+      ) {
         pending.push(runAfter[after]);
       }
     }

@@ -128,6 +128,15 @@ document-level serialization options, which can be configured by
 contributing `mdast-util-to-markdown` options through
 `toMarkdownExtensions`.
 
+Import reads emphasis and strikethrough as the
+[CommonMark CJK-friendly amendment](https://github.com/tats-u/markdown-cjk-friendly)
+does, so `**你好。**世界` comes in bold as its writer meant, while export
+writes a character reference where a strict CommonMark reader needs one
+(`**你好。**&#x4E16;界`). `MdastExtension`'s `importPunctuation` and
+`exportPunctuation` options (`'cjk-friendly'` or `'strict-commonmark'`)
+change either side; the `punctuation` option of `@lexical/markdown`'s
+import and export does the same there.
+
 GFM tables (`MdastTableExtension`) import a column's alignment as the
 element format of the paragraph in each of its cells, and write it from
 the content of the column's header cell (the format of the block holding

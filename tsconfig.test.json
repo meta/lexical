@@ -161,6 +161,9 @@
       "@lexical/internal/invariant": [
         "./packages/lexical-internal/src/invariant.ts"
       ],
+      "@lexical/internal/isCjkCharacter": [
+        "./packages/lexical-internal/src/isCjkCharacter.ts"
+      ],
       "@lexical/internal/version": [
         "./packages/lexical-internal/src/version.ts"
       ],

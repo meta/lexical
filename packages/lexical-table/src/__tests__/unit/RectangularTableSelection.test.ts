@@ -185,34 +185,71 @@ const RECTANGULAR: [string, Spec][] = [
   ],
 ];
 
-const EXPECTED: Record<string, string> = {
-  'column span': '447f760f',
-  plain: 'b62cb6f7',
-  // Main: 'b47ff14b'. It differs only in the copy and paste of A with G (both
-  // directions), checked below.
-  'row span': '33c3a3eb',
+// Each anchor's selections run as their own test, so that each stays fast.
+// Joined in order, their outputs give the fingerprints of the single test
+// they replace: plain b62cb6f7, column span 447f760f, row span 33c3a3eb.
+const EXPECTED: Record<string, Record<string, string>> = {
+  'column span': {
+    A: '39f16cf6',
+    C: 'd98c4395',
+    D: 'ee97e59f',
+    E: 'c6f94ac',
+    F: 'b2354392',
+    G: '6c1b16b3',
+    H: '5aa57a18',
+    I: 'f32fd53b',
+  },
+  plain: {
+    A: '5ab19be',
+    B: 'e7022808',
+    C: 'c701f8e8',
+    D: 'd94fee24',
+    E: 'd49b1ceb',
+    F: '33577522',
+    G: '8d6f2d7a',
+    H: '570c9f7a',
+    I: '57167d28',
+  },
+  // Main differs only in the copy and paste of A with G (both directions),
+  // checked below.
+  'row span': {
+    A: '468eba6e',
+    B: '1010e1a5',
+    C: '4c07bceb',
+    E: '17e03be8',
+    F: '634eba2a',
+    G: '420fb5b9',
+    H: '967da8f0',
+    I: '9fdba547',
+  },
 };
 
 for (const [label, rows] of RECTANGULAR) {
-  test(`copy, delete and paste of every selection are unchanged: ${label}`, () => {
-    const names = rows
-      .flat()
-      .map(spec => (typeof spec === 'string' ? spec : spec[0]));
-    const outputs: string[] = [];
-    for (const anchor of names) {
+  const names = rows
+    .flat()
+    .map(spec => (typeof spec === 'string' ? spec : spec[0]));
+  for (const anchor of names) {
+    test(`copy, delete and paste of every selection from ${anchor} are unchanged: ${label}`, () => {
+      const outputs: string[] = [];
+      // One source and one target, reset to their first state for each
+      // selection, which is much faster than building editors for each.
+      using source = build(rows);
+      using target = build([
+        ['T0', 'T1', 'T2'],
+        ['T3', 'T4', 'T5'],
+        ['T6', 'T7', 'T8'],
+      ]);
+      const sourceState = source.getEditorState();
+      const targetState = target.getEditorState();
       for (const focus of names) {
-        using source = build(rows);
+        source.setEditorState(sourceState);
         select(source, anchor, focus);
         const copied = source.read(() =>
           $getClipboardDataFromSelection($getSelection()!),
         );
         outputs.push(JSON.stringify(copied));
         for (const mime of ['application/x-lexical-editor', 'text/html']) {
-          using target = build([
-            ['T0', 'T1', 'T2'],
-            ['T3', 'T4', 'T5'],
-            ['T6', 'T7', 'T8'],
-          ]);
+          target.setEditorState(targetState);
           paste(source, target, anchor, focus, 'T0', undefined, mime);
           outputs.push(JSON.stringify(target.getEditorState().toJSON()));
         }
@@ -226,12 +263,9 @@ for (const [label, rows] of RECTANGULAR) {
         );
         outputs.push(JSON.stringify(source.getEditorState().toJSON()));
       }
-    }
-    const print = fingerprint(outputs.join('\n'));
-    expect(print).toBe(EXPECTED[label]);
-    // 81 selections, each copied, pasted twice and deleted: about 5 s on a
-    // loaded CI runner, past the 5 s default.
-  }, 30000);
+      expect(fingerprint(outputs.join('\n'))).toBe(EXPECTED[label][anchor]);
+    });
+  }
 }
 
 // The row-span table: the row under A is covered within a selection from A

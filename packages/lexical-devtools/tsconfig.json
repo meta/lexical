@@ -162,6 +162,9 @@
         "../lexical-internal/src/formatProdWarningMessage.ts"
       ],
       "@lexical/internal/invariant": ["../lexical-internal/src/invariant.ts"],
+      "@lexical/internal/isCjkCharacter": [
+        "../lexical-internal/src/isCjkCharacter.ts"
+      ],
       "@lexical/internal/version": ["../lexical-internal/src/version.ts"],
       "@lexical/internal/warnOnlyOnce": [
         "../lexical-internal/src/warnOnlyOnce.ts"

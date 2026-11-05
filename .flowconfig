@@ -86,6 +86,7 @@ module.name_mapper='^@lexical/internal/formatDevWarningMessage$' -> '<PROJECT_RO
 module.name_mapper='^@lexical/internal/formatProdErrorMessage$' -> '<PROJECT_ROOT>/packages/lexical-internal/flow/LexicalInternalFormatProdErrorMessage.js.flow'
 module.name_mapper='^@lexical/internal/formatProdWarningMessage$' -> '<PROJECT_ROOT>/packages/lexical-internal/flow/LexicalInternalFormatProdWarningMessage.js.flow'
 module.name_mapper='^@lexical/internal/invariant$' -> '<PROJECT_ROOT>/packages/lexical-internal/flow/LexicalInternalInvariant.js.flow'
+module.name_mapper='^@lexical/internal/isCjkCharacter$' -> '<PROJECT_ROOT>/packages/lexical-internal/flow/LexicalInternalIsCjkCharacter.js.flow'
 module.name_mapper='^@lexical/internal/version$' -> '<PROJECT_ROOT>/packages/lexical-internal/flow/LexicalInternalVersion.js.flow'
 module.name_mapper='^@lexical/internal/warnOnlyOnce$' -> '<PROJECT_ROOT>/packages/lexical-internal/flow/LexicalInternalWarnOnlyOnce.js.flow'
 module.name_mapper='^@lexical/link$' -> '<PROJECT_ROOT>/packages/lexical-link/flow/LexicalLink.js.flow'
