@@ -675,7 +675,10 @@ content under its root with `RAW_YJS_WRITE_WARNING` (once per origin;
 Y.UndoManager steps and remote updates are not reported). It is a
 diagnostic, not a complete detector: it judges a transaction by its origin
 and locality, and only once the binding has read its document (not while
-it is pending).
+it is pending). A transaction the binding also wrote in (an editor edit or
+`binding.undo()` inside your `doc.transact`, which joins it) is never
+reported, so a raw write of yours in that same transaction is not reported
+either: the check may miss a raw write, never flag the binding's own.
 
 The diagrams below use the stored names. The package README specifies them
 exactly:

@@ -37,6 +37,18 @@ const MIGRATION_ORIGIN_KEY = Symbol.for('@lexical/y/migration');
  */
 const BINDING_ORIGINS = new WeakSet<object>();
 
+/**
+ * The transactions a binding wrote in (its writes, seeds, pins, recoveries,
+ * undo and redo, follow-ups and run ends), even when they joined an app's
+ * transaction and carry its origin: never raw writes.
+ */
+const BINDING_WRITES = new WeakSet<Transaction>();
+
+/** Mark `tr` as one a binding writes in (at the start of its callback). */
+export function markBindingWrite(tr: Transaction): void {
+  BINDING_WRITES.add(tr);
+}
+
 /** The origins each binding has reported (once per binding and origin). */
 const REPORTED = new WeakMap<object, Set<unknown>>();
 
@@ -131,7 +143,12 @@ export function originName(origin: unknown): string {
 /**
  * Report `tr` through `warn` when it is a local transaction of another
  * origin (not a binding's, not a Y.UndoManager's, not a migration's) that
- * changed the content under `root`, once per `binding` and origin.
+ * changed the content under `root`, once per `binding` and origin. A
+ * transaction a binding also wrote in (markBindingWrite) is not checked,
+ * whatever its origin: an editor edit or a binding undo inside an app's
+ * `doc.transact` joins the app's transaction. So an app's raw write in that
+ * same transaction goes unreported: this diagnostic may miss a raw write,
+ * never report the binding's own.
  */
 export function noteRawWrite(
   tr: Transaction,
@@ -146,6 +163,7 @@ export function noteRawWrite(
   if (
     !tr.local ||
     pending ||
+    BINDING_WRITES.has(tr) ||
     BINDING_ORIGINS.has(origin as object) ||
     origin instanceof UndoManager ||
     origin === MIGRATION_ORIGIN_KEY ||

@@ -88,7 +88,12 @@ export const UNSUPPORTED_SCHEMA_WARNING = '@lexical/y/unsupported-schema';
  * A diagnostic, not a complete detector: it judges a transaction by its
  * origin and locality, and only once the binding has read its document
  * (not while it is pending), so a raw write made through a provider-like
- * remote update, or before the binding reads, is not reported. `data`:
+ * remote update, or before the binding reads, is not reported. A
+ * transaction the binding also wrote in (an editor edit, `initialize()` or
+ * `binding.undo()` inside an app's `doc.transact`, which joins it) is not
+ * checked either, so an app's raw write in that same transaction goes
+ * unreported: it may miss a raw write, never report the binding's own.
+ * `data`:
  * YRawYjsWriteData.
  */
 export const RAW_YJS_WRITE_WARNING = '@lexical/y/raw-yjs-write';

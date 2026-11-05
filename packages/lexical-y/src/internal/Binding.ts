@@ -106,7 +106,11 @@ import {
   readRequirements,
 } from './Layouts';
 import {type YLayoutUpgradeHandle} from './LayoutUpgrade';
-import {noteRawWrite, registerBindingOrigins} from './RawWrites';
+import {
+  markBindingWrite,
+  noteRawWrite,
+  registerBindingOrigins,
+} from './RawWrites';
 import {
   $applyStoredAttrs,
   $unstoredWrapperTextFields,
@@ -311,6 +315,11 @@ function gatedStep(
   heldPops.set(um, held);
   try {
     um.doc.transact(tr => {
+      // Development builds: the binding's own write, even when it joined
+      // an app's transaction (see noteRawWrite).
+      if (__DEV__) {
+        markBindingWrite(tr);
+      }
       if (!admission()) {
         refusedHistory.add(tr);
         return;
@@ -2127,7 +2136,12 @@ export class YBinding {
         // binding's only items under another client id than the document's;
         // read back like any document's content, so the editor shows what
         // is stored (and the state maps it), with its selection kept.
-        this._doc.transact(() => {
+        this._doc.transact(tr => {
+          // Development builds: the binding's own write, even when it joined
+          // an app's transaction (see noteRawWrite).
+          if (__DEV__) {
+            markBindingWrite(tr);
+          }
           if (
             this.rootPristine() &&
             sameSchemaRecords(this.schemaRecords(), seedSchema)
@@ -2147,6 +2161,11 @@ export class YBinding {
         return;
       }
       this._doc.transact(tr => {
+        // Development builds: the binding's own write, even when it joined
+        // an app's transaction (see noteRawWrite).
+        if (__DEV__) {
+          markBindingWrite(tr);
+        }
         if (
           this.rootPristine() &&
           sameSchemaRecords(this.schemaRecords(), seedSchema)
@@ -5378,6 +5397,11 @@ export class YBinding {
     let after = grace;
     try {
       this._doc.transact(tr => {
+        // Development builds: the binding's own write, even when it joined
+        // an app's transaction (see noteRawWrite).
+        if (__DEV__) {
+          markBindingWrite(tr);
+        }
         // Admitted inside the transaction, after every beforeTransaction
         // listener of the document ran (any may change the layout record or
         // the schema record before anything is written): refused, nothing
@@ -5417,7 +5441,12 @@ export class YBinding {
         return 'refused';
       }
       if (!commit.followUp) {
-        this._doc.transact(() => {
+        this._doc.transact(tr => {
+          // Development builds: the binding's own write, even when it joined
+          // an app's transaction (see noteRawWrite).
+          if (__DEV__) {
+            markBindingWrite(tr);
+          }
           // Admitted inside its own transaction too (see the write's): a
           // record that stopped admitting writes gets no pin, and is read
           // (see readChange).
@@ -5445,6 +5474,11 @@ export class YBinding {
       let recoveryRefused = false;
       try {
         this._doc.transact(tr => {
+          // Development builds: the binding's own write, even when it joined
+          // an app's transaction (see noteRawWrite).
+          if (__DEV__) {
+            markBindingWrite(tr);
+          }
           // Admitted inside its own transaction, as the write it recovers.
           if (!this.admitsIn(after)) {
             recoveryRefused = true;
@@ -6777,6 +6811,11 @@ export class YBinding {
   private carryCloserMarks(step: UndoManager['undoStack'][number]): void {
     const store = this._doc.store;
     this._doc.transact(tr => {
+      // Development builds: the binding's own write, even when it joined
+      // an app's transaction (see noteRawWrite).
+      if (__DEV__) {
+        markBindingWrite(tr);
+      }
       iterateStructsByIdSet(tr, step.deletes, s => {
         if (s instanceof Item && s.redone !== null && isFormatCloser(s)) {
           const copy = store.getItem(s.redone);
@@ -6875,6 +6914,11 @@ export class YBinding {
     }, this.scanOrigin);
     if (ends.length > 0) {
       doc.transact(tr => {
+        // Development builds: the binding's own write, even when it joined
+        // an app's transaction (see noteRawWrite).
+        if (__DEV__) {
+          markBindingWrite(tr);
+        }
         // The nulls this loop writes: two keys can need an end in the same
         // gap, and the second must not take the first's null for a change
         // of the gap.
