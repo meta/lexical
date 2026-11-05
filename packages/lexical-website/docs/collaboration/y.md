@@ -11,6 +11,12 @@ sidebar_position: 2
 document layout carries a version, so a client that meets a newer layout
 opens the document read only instead of misreading it.
 
+`@experimental` is not an exception to compatibility. Once released, the
+public API, its types and the stored format change only additively: no
+export is removed or renamed, no stored layout from 3 on stops being read
+(see [Layout upgrades](#layout-upgrades)), and no published migration step
+or revision is removed or changes what it writes.
+
 :::
 
 `@lexical/y` is a collaboration binding for Lexical on Yjs 14 (the `@y/y`
@@ -1608,10 +1614,13 @@ never hold one stay readable and editable by layout 1 clients.
 - **Changes that keep the layout:** additions older clients can ignore, such
   as a new optional attribute. Rooms keep working in old and new clients.
 - **Changes that bump `LAYOUT_VERSION`:** anything older clients would
-  misread. A newer `@lexical/y` reads every layout from `MIN_LAYOUT` up and
-  adds the new version to a room's record only when it first writes
-  something that needs it, in the same transaction; from then on, older
-  clients open that room read only. Upgrade every client of a room together.
+  misread. A newer `@lexical/y` reads every layout from `MIN_LAYOUT` up.
+  Layout 2 came in lazily (the historical 1 → 2 rule): a client adds it to
+  a room's record only when it first writes something that needs it, in
+  the same transaction, and older clients then open that room read only.
+  Layouts after 3 are not stamped that way: a room moves to one only
+  through an explicitly selected target, and the default seed and target
+  stay 3 (see [Layout upgrades](#layout-upgrades)).
 - **Changes that raise `MIN_LAYOUT`:** only the one-time break to layout 3,
   whose release stops reading older layouts (their rooms are migrated,
   below). After it, `MIN_LAYOUT` stays 3 and layouts are only added: see
@@ -1662,9 +1671,11 @@ below the floor and also reports `UNSUPPORTED_CONFIG_WARNING`
 
 - Layouts are only added. A new layout is a new `LAYOUT_VERSION`; every
   release keeps reading and writing every layout from 3 up.
-- The package never removes a reader or a step of a layout from 3 on:
-  `MIN_LAYOUT` stays 3, and published steps (`@lexical/y/migrate/<n>to<n+1>`)
-  stay published.
+- The package never removes a reader or a writer of a layout from 3 on
+  (`MIN_LAYOUT` stays 3), and every published step and revision stays,
+  `1to2` and `2to3` included (`@lexical/y/migrate/<n>to<n+1>`).
+- A later layout is reached only through an explicitly selected target:
+  the default seed and the runner's default target stay 3.
 - An app may raise its own floor. Its server migrates its rooms to layout
   N + 1 and stops admitting clients that cannot read N + 1 (the handshake's
   `layouts` says what a client reads); the package's floor does not move.
@@ -1731,16 +1742,22 @@ when it loads the room, with every session out: see
 [Migrating stored documents](./y-server.md#migrating-stored-documents) in
 the server guide (`@lexical/y/server`), which also covers clients that held
 edits from before the migration. Never migrate a shared room in a browser.
-This release has no client-side migration path: an app whose documents
-only one client writes (local storage, no server) migrates their stored
-bytes with `migrateYState` before it loads and binds them, or keeps them
-below the floor until a later release adds one.
+A binding-managed client-side migration path is deferred (a later release
+may add one). Manual single-writer migration remains usable: an app whose
+documents only one client writes (local storage, no server) migrates their
+stored bytes with `migrateYState` before it loads and binds them.
 
-**Undo.** A migration reaches a bound document as an update from its
-server; it clears the binding's undo history once that update's
-transaction has been captured. An app `UndoManager` should be cleared at
-the same point with `onYMigrationEpoch(doc, fn, root?)`: its stack names items
-the migration replaced.
+**Undo, and what a client of a migrated room does.** A migration is never
+synced into a replica of the old generation. A fenced client (its
+generation is not the room's) hands off its material (see
+`binding.quiesce()` below) and bootstraps a new document from the server;
+see the server guide. When the epoch of a bound document legitimately
+changes (for example a single writer that migrated its own state and
+loaded it again), the binding clears its undo history once that
+transaction has been captured, and an app `UndoManager` should be cleared
+at the same point with `onYMigrationEpoch(doc, fn, root?)`: its stack names
+items the migration replaced. The hook does not make it valid to apply a
+migration's update to an old-generation replica.
 
 **Handing a replica off.** `binding.quiesce()` ends a composition, commits
 what the editor holds into the document, and turns the binding read only

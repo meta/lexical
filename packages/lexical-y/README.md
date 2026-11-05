@@ -6,7 +6,11 @@ on [Yjs 14](https://github.com/yjs/yjs) (`@y/y`). It is separate from
 layouts, and a document uses one or the other. Entries: `@lexical/y`,
 `@lexical/y/headless`, `@lexical/y/migrate` (with a step per layout,
 `@lexical/y/migrate/<n>to<n+1>`) and `@lexical/y/server`. Every export is
-`@experimental`, and `@y/y` is a release candidate.
+`@experimental`, and `@y/y` is a release candidate. `@experimental` is not
+an exception to compatibility: once released, the public API, its types and
+the wire format below change only additively. No export is removed or
+renamed, no stored layout from 3 on stops being read, and no published
+migration step or revision is removed or changes what it writes.
 
 ## Install
 
@@ -177,7 +181,7 @@ local transaction of another origin that changes it
 Layout 1 is frozen: these names are stored in documents and do not change.
 A change to any of them is a new layout version, which older clients open
 read only. Layout 2 (below) keeps everything here and adds member entries
-of set-valued NodeState; layout 3 (planned, #9449) adds move records.
+of set-valued NodeState.
 
 - **Root:** the top-level type `lexical-y` (or the `root` option). Root
   attributes: `lexical-y:<n>` = `true` for each layout version `n` the
