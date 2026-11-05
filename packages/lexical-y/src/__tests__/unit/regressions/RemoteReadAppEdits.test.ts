@@ -248,7 +248,8 @@ type Kind =
   | 'line break line style'
   | 'decorator JSON shaped like text'
   | 'decorator line format'
-  | 'slot text host format';
+  | 'slot text host format'
+  | 'text the read changed';
 
 /** One edit of `kind`, once per editor. */
 function $editOnce(done: WeakSet<LexicalEditor>, kind: Kind): void {
@@ -283,6 +284,12 @@ function $editOnce(done: WeakSet<LexicalEditor>, kind: Kind): void {
   } else if (kind === 'decorator line format') {
     // A line holding only a decorator has no text to take a format from.
     (lines[6] as ParagraphNode).setTextFormat(2);
+  } else if (kind === 'text the read changed') {
+    // The read's own node, which Lexical changes in place from then on.
+    const three = (
+      lines[1] as ParagraphNode
+    ).getFirstChildOrThrow() as TextNode;
+    three.setTextContent(three.getTextContent() + '#');
   } else if (kind === 'slot text host format') {
     // Its only text is in a named slot, which the reconciler renders apart.
     (lines[7] as CaptionedNode).setTextFormat(2);
@@ -438,6 +445,7 @@ async function runKind(kind: Kind, gc: boolean): Promise<void> {
       move: '"text":"tail"',
       'slot text host format':
         '"textFormat":2,"textStyle":"","type":"read_edit_captioned"',
+      'text the read changed': '"text":"three 3#"',
     }[kind],
   );
   if (kind === 'move') {
@@ -459,6 +467,7 @@ describe('every kind of app edit made in the update of a remote read is stored',
     'decorator JSON shaped like text',
     'decorator line format',
     'slot text host format',
+    'text the read changed',
   ] as const) {
     for (const gc of [false, true]) {
       test(`${kind}, gc ${gc}`, () => runKind(kind, gc));

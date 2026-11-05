@@ -3632,14 +3632,15 @@ export class YBinding {
 
   /**
    * Lexical notifies a selection change in the update of a read of the
-   * binding's (see readEnd) where an app's selectionTransform set a
-   * selection of its own, and would run every node transform over what the
-   * read brought with it (see $quietSelection). The binding's handler, ahead
-   * of every other one, holds the notification for an update of its own
-   * once the read has committed, and makes its update run no transforms: a
-   * skipTransforms update nested in it makes Lexical normalize text only.
-   * Registered again ahead of the others for each read that can run an
-   * app's selectionTransform (see markReadEnd), where it is not first.
+   * binding's (see readEnd) where an app's selectionTransform moved the
+   * selection or set one of its own, and would run every node transform over
+   * what the read brought with it (see $quietSelection). The binding's
+   * handler, ahead of every other one, holds the notification for an update
+   * of its own once the read has committed, and makes its update run no
+   * transforms: a skipTransforms update nested in it makes Lexical normalize
+   * text only. Registered again ahead of the others for each read that can
+   * run an app's selectionTransform (see markReadEnd), where it is not
+   * first.
    */
   private frontSelectionChange(): void {
     const editor = this._editor;
@@ -3690,8 +3691,8 @@ export class YBinding {
     // Nothing of the app's runs in the update after the read unless an
     // update is queued behind it or the selection's text has a
     // selectionTransform of its own (Lexical calls the anchor's and the
-    // focus's; the read runs no node transforms, see $quietSelection): no
-    // copies then.
+    // focus's; the read runs no node transforms, see frontSelectionChange):
+    // no copies then.
     const selection = pending._selection;
     const transforms = (point: PointType) => {
       const node = pending._nodeMap.get(point.key);
@@ -3745,7 +3746,7 @@ export class YBinding {
    * only, read again, as a local change is (see onUpdate). Lexical's merge
    * of adjacent text nodes is no change, nor are the fields it derives as it
    * renders (see isDerivedField). The update runs no node transforms (see
-   * $quietSelection).
+   * frontSelectionChange).
    *
    * Invariant: the editor never shows a change that is neither stored nor
    * read again. Why: no other client has it, and the editor's next edit
@@ -6203,9 +6204,8 @@ export class YBinding {
   /**
    * At the end of a read: the read's selection counts as notified, and
    * SELECTION_CHANGE_COMMAND is dispatched once the read has committed, in an
-   * update of its own, where the read or an app's selectionTransform after
-   * it changed the selection (Lexical skips the notification itself where it
-   * would not run: headless, no root element).
+   * update of its own (Lexical skips the notification itself where it would
+   * not run: headless, no root element).
    *
    * Invariant: a read runs no node transforms. Why: when a read's selection
    * changes, Lexical extends the commit with the selection change command
@@ -6219,6 +6219,9 @@ export class YBinding {
     $clampSelection();
     const selection = $getSelection();
     const previous = editor._lastNotifiedSelection;
+    if (selection === null ? previous === null : selection.is(previous)) {
+      return;
+    }
     const root = editor._rootElement;
     if (
       (selection === null || $isRangeSelection(selection)) &&
@@ -6226,36 +6229,16 @@ export class YBinding {
     ) {
       return;
     }
-    const changed =
-      selection === null ? previous !== null : !selection.is(previous);
-    if (!changed && selection === null) {
-      return;
-    }
     // The selection itself, not a copy: Lexical's normalization at the end
-    // of the read's update (text nodes the read left side by side merge),
-    // and an app's TextNode#selectionTransform, which Lexical runs after the
-    // read in its update, move its points in place, and the commit compares
-    // what it ends as with what was notified. A copy would differ there, and
-    // Lexical would extend the read's commit with the selection change
-    // command, running every node transform over what the read brought.
-    // Lexical gives each later update a selection of its own, so this one
-    // changes no more once the read has committed.
+    // of the read's update (text nodes the read left side by side merge)
+    // moves its points in place, and the commit compares what it ends as
+    // with what was notified. A copy would differ there, and Lexical would
+    // extend the read's commit with the selection change command, running
+    // every node transform over what the read brought. Lexical gives each
+    // later update a selection of its own, so this one changes no more once
+    // the read has committed.
     editor._lastNotifiedSelection = selection;
     $onUpdate(() => {
-      // Lexical notified it itself as it committed: an app's
-      // selectionTransform that set a selection of its own (not this one)
-      // makes it extend the read's commit with the command.
-      if (editor._lastNotifiedSelection !== selection) {
-        return;
-      }
-      // Where the read left the selection as it was, notified only if the
-      // app's code moved it in the read's update.
-      if (!changed) {
-        const now = editor.getEditorState()._selection;
-        if (now === null || now.is(previous)) {
-          return;
-        }
-      }
       editor.update(() => {
         editor.dispatchCommand(SELECTION_CHANGE_COMMAND, undefined);
       });
