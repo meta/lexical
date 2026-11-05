@@ -685,11 +685,26 @@ function recordSetMembersLayout(root: YNode, tr: Transaction): void {
 }
 
 /**
- * TextNode's own selectionTransform, which does nothing, as this module
- * found it. A text class's override, or an app's patch of TextNode's own
- * (which every text class then runs), is anything else (see markReadEnd).
+ * TextNode's own selectionTransform as this module found it: the one that
+ * does nothing, unless an app patched it before (see doesNothing). A text
+ * class's override, or an app's patch of TextNode's own (which every text
+ * class then runs), is anything else (see markReadEnd).
  */
 const BASE_SELECTION_TRANSFORM = TextNode.prototype.selectionTransform;
+
+/**
+ * Whether `fn` is a method whose body does nothing (empty, or a bare
+ * `return`), as TextNode's own selectionTransform is (an app may have
+ * patched it before this module loaded).
+ */
+function doesNothing(fn: unknown): boolean {
+  return (
+    typeof fn === 'function' && /\{\s*(?:return;?)?\s*\}\s*$/.test(String(fn))
+  );
+}
+
+/** Whether BASE_SELECTION_TRANSFORM is TextNode's own, which does nothing. */
+const BASE_DOES_NOTHING = doesNothing(BASE_SELECTION_TRANSFORM);
 
 /**
  * @experimental A Yjs 14 binding for one editor and one shared root.
@@ -3712,7 +3727,8 @@ export class YBinding {
       return (
         point.type === 'text' &&
         $isTextNode(node) &&
-        node.selectionTransform !== BASE_SELECTION_TRANSFORM
+        (node.selectionTransform !== BASE_SELECTION_TRANSFORM ||
+          !BASE_DOES_NOTHING)
       );
     };
     if (
