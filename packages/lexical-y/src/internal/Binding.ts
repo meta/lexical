@@ -8093,7 +8093,15 @@ export class YBinding {
     if (
       !this.pending.has('reread') ||
       !editor._updating ||
-      editor._updates.some(([fn]) => fn === this.rereadUpdate)
+      editor._updates.some(([fn]) => fn === this.rereadUpdate) ||
+      // An update made while Lexical notifies a commit's listeners (a
+      // mutation listener's) waits to commit after them (see the root
+      // transform): the re-read, run inside its pending state, would carry
+      // its edits under the read's tags, never written. Its own commit
+      // queues the re-read (as before this wait, that update applies to the
+      // editor before the re-read).
+      (editor._pendingEditorState !== null &&
+        isDispatchingCommitListeners(editor))
     ) {
       return;
     }

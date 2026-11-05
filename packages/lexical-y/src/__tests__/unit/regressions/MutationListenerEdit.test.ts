@@ -34,8 +34,16 @@ import {$selectIn, freshReader, setup} from '../../utils/harness';
 // 'local': the listener edits after two local commits in one task, with no
 // remote change; 'inside': a provider applies a remote change inside a local
 // update made after an earlier commit in the task, whose commit runs the
-// listener.
-type Variant = 'plain' | 'discrete' | 'burst' | 'queued' | 'local' | 'inside';
+// listener; 'refused': the listener edits on the commit of a follow-up the
+// binding refuses and reads again, after an earlier commit in the task.
+type Variant =
+  | 'plain'
+  | 'discrete'
+  | 'burst'
+  | 'queued'
+  | 'local'
+  | 'inside'
+  | 'refused';
 
 async function run(gc: boolean, variant: Variant) {
   const discrete = variant === 'discrete';
@@ -103,7 +111,23 @@ async function run(gc: boolean, variant: Variant) {
   });
   await Promise.resolve();
   await t.sync();
-  if (variant === 'local') {
+  if (variant === 'refused') {
+    a.update(() => {
+      $selectIn([0], 0, 1).formatText('underline');
+      $setSelection(null);
+    });
+    armed = true;
+    // A follow-up (BlockIdExtension's naming) may only set attributes or
+    // delete: its text change is refused and read again.
+    a.update(() => {
+      const first = $getRoot().getFirstChild();
+      const text = $isElementNode(first) ? first.getLastDescendant() : null;
+      if ($isTextNode(text)) {
+        text.setTextContent(text.getTextContent() + 'X');
+      }
+      $setSelection(null);
+    }, 'block-id-repair');
+  } else if (variant === 'local') {
     armed = true;
     a.update(() => {
       $selectIn([0], 0, 1).formatText('underline');
@@ -171,6 +195,8 @@ describe.each([false, true])('an edit a mutation listener makes, gc %s', gc => {
     run(gc, 'local'));
   test('with a remote change applied inside the local update: is stored as the editor shows it', () =>
     run(gc, 'inside'));
+  test('on the commit of a refused follow-up: is stored as the editor shows it', () =>
+    run(gc, 'refused'));
   // An app's own discrete update commits inside Lexical's notification of
   // the commit that triggered the listener, without the binding forcing it:
   // https://github.com/meta/lexical/issues/9799

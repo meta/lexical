@@ -1,5 +1,6 @@
 ---
 '@lexical/y': patch
+'lexical': patch
 ---
 
 [fix] An edit an app's mutation listener makes is stored once, as the editor shows it
