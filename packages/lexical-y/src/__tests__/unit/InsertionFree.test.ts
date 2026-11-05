@@ -187,15 +187,30 @@ describe('insertionFree cost', () => {
     expect(check(before, after)).toBe(false);
   });
   test('a long changed text is checked once, not per assignment', () => {
+    // A 20,000-character kept text that gains an `a` on each side (which
+    // only both runs beside it can give), and six made `a` nodes that each
+    // fit any of the eight runs: the search, trying made nodes first,
+    // reaches the step budget before the one assignment that fits (counted
+    // as inserting, so never refused), and checks the long text once.
     const long = 'x'.repeat(20000);
     const before: [string, string][] = [];
     const after: [string, string][] = [];
     for (let i = 0; i < 8; i++) {
       before.push([`r${i}`, 'a'], [`k${i}`, i === 0 ? long : 'x']);
-      after.push([`k${i}`, i === 0 ? long + 'z' : 'x'], [`m${i}`, 'a']);
+      after.push([`k${i}`, i === 0 ? `a${long}a` : 'x']);
+      if (i < 6) {
+        after.push([`m${i}`, 'a']);
+      }
     }
     const started = performance.now();
-    expect(check(before, after)).toBe(false);
+    expect(
+      insertionFree(new Map(before), new Map(after), () =>
+        before.map(([k]) => k),
+      ),
+    ).toEqual({
+      free: false,
+      reason: `more than ${MAX_STEPS} assignments tried`,
+    });
     expect(performance.now() - started).toBeLessThan(1000);
   });
   test('eight runs each moved into a made node of its own is found', () => {
