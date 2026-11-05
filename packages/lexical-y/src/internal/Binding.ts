@@ -191,7 +191,7 @@ import {
   typeOf,
   type Unit,
 } from './State';
-import {emptyView, seenBy, type Unread} from './Unread';
+import {currentView, emptyView, seenBy, type Unread} from './Unread';
 import {
   NESTED_FALLBACK_WARNING,
   notesSince,
@@ -6786,10 +6786,15 @@ export class YBinding {
     // seedFrontier).
     let folded: Item | null = null;
     if (unit !== undefined && unit.end !== null) {
-      const left = unitLeftEnd(unit.cs.units, unit, state.hidden);
+      const left = unitLeftEnd(
+        currentView(),
+        unit.cs.units,
+        unit,
+        state.hidden,
+      );
       start = left === null ? unit.cs.y._start : left.right;
       // (Before the copy: a stale start is folded again, see frontierOf.)
-      folded = frontierOf(unit.start, left, unit.cs.y);
+      folded = frontierOf(currentView(), unit.start, left, unit.cs.y);
       formats = new Map(unit.start || []);
     } else if (unit !== undefined && unit.kind === 'implicit') {
       const units = unit.cs.units;
@@ -6797,11 +6802,11 @@ export class YBinding {
       const prevEnd = idx > 0 ? units[idx - 1].end : null;
       let left = prevEnd;
       while (left !== null && !isShownEnd(left, state.hidden)) {
-        left = prevLiveEnd(left, state.hidden);
+        left = prevLiveEnd(currentView(), left, state.hidden);
       }
       start = left === null ? unit.cs.y._start : left.right;
       // (Before the copy: a stale start is folded again, see frontierOf.)
-      folded = frontierOf(unit.start, left, unit.cs.y);
+      folded = frontierOf(currentView(), unit.start, left, unit.cs.y);
       formats = new Map(unit.start || []);
     } else {
       const cs = state.csByKey.get(owner.getKey());
@@ -8564,7 +8569,12 @@ export class YBinding {
     const implicit = unit !== undefined && unit.kind === 'implicit';
     let start: Item | null;
     if (unit !== undefined && unit.end !== null) {
-      const left = unitLeftEnd(unit.cs.units, unit, state.hidden);
+      const left = unitLeftEnd(
+        currentView(),
+        unit.cs.units,
+        unit,
+        state.hidden,
+      );
       start = left === null ? unit.cs.y._start : left.right;
     } else if (unit !== undefined && implicit) {
       // Its content starts right after the unit before it, the end of the
@@ -8573,7 +8583,7 @@ export class YBinding {
       const idx = units.indexOf(unit);
       let left = idx > 0 ? units[idx - 1].end : null;
       while (left !== null && !isShownEnd(left, state.hidden)) {
-        left = prevLiveEnd(left, state.hidden);
+        left = prevLiveEnd(currentView(), left, state.hidden);
       }
       start = left === null ? unit.cs.y._start : left.right;
     } else {
@@ -8796,7 +8806,7 @@ export class YBinding {
     ) {
       // Captured in an empty line (see emptyLinePositions): the start of
       // that line, before what was typed into it since.
-      const left = prevLiveEnd(found, hidden);
+      const left = prevLiveEnd(currentView(), found, hidden);
       item = left === null ? (found.parent as YNode)._start : left.right;
       diff = 0;
     } else if (rel.assoc < 0) {
@@ -8829,7 +8839,7 @@ export class YBinding {
           ? null
           : implicitUnitAt(cs, undefined);
       if (implicit !== null) {
-        const left = prevLiveEnd(found, hidden);
+        const left = prevLiveEnd(currentView(), found, hidden);
         return this.$pointInLine(
           implicit.key!,
           left === null ? (found.parent as YNode)._start : left.right,
@@ -8856,8 +8866,8 @@ export class YBinding {
       ownerKey = unit.key;
       const left =
         unit.end === end
-          ? unitLeftEnd(unit.cs.units, unit, hidden)
-          : prevLiveEnd(end, hidden);
+          ? unitLeftEnd(currentView(), unit.cs.units, unit, hidden)
+          : prevLiveEnd(currentView(), end, hidden);
       start = left === null ? parentY._start : left.right;
     } else {
       const cs = this.state.containers.get(parentY);
@@ -8868,7 +8878,9 @@ export class YBinding {
         cs !== undefined && cs.kind === 'b' ? implicitUnitAt(cs, unit) : null;
       if (implicit !== null) {
         const left =
-          end === null ? prevLiveEnd(item, hidden) : prevLiveEnd(end, hidden);
+          end === null
+            ? prevLiveEnd(currentView(), item, hidden)
+            : prevLiveEnd(currentView(), end, hidden);
         return this.$pointInLine(
           implicit.key!,
           left === null ? parentY._start : left.right,

@@ -324,7 +324,7 @@ describe('shown text next to held-back text under an open tab opener', () => {
         hidden.add(item.id.client, item.id.clock + 2, 1);
       }
       const atoms = new Atoms();
-      readAtoms(root._start, null, new Map(), atoms, hidden);
+      readAtoms(null, root._start, null, new Map(), atoms, hidden);
       return atoms;
     };
     const shown = read(true);

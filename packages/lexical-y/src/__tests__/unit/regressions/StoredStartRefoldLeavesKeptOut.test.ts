@@ -20,7 +20,7 @@ import {expect, test} from 'vitest';
 import {Hidden} from '../../../internal/Hidden';
 import {writeLayout3Formats} from '../../../internal/Layout3';
 import {frontierOf, isStored, noteFolded} from '../../../internal/Seen';
-import {emptyView, seenBy} from '../../../internal/Unread';
+import {currentView, emptyView, seenBy} from '../../../internal/Unread';
 
 for (const gc of [false, true]) {
   test(`a stored start folded again leaves the hold's kept deletions out (gc ${gc})`, () => {
@@ -65,9 +65,9 @@ for (const gc of [false, true]) {
       () => view,
       () => {
         expect(formats.every(it => !isStored(it, hidden))).toBe(true);
-        frontierOf(rawControl, left, root);
+        frontierOf(currentView(), rawControl, left, root);
         expect(rawControl.get('f:bold')).toBeUndefined();
-        frontierOf(stored, left, root);
+        frontierOf(currentView(), stored, left, root);
         expect(stored.get('f:bold')).toBeUndefined();
       },
     );

@@ -21,7 +21,7 @@ import {Hidden} from '../../../internal/Hidden';
 import {stepFormat} from '../../../internal/Ident';
 import {writeLayout3Formats} from '../../../internal/Layout3';
 import {frontierOf, isStored, noteFolded} from '../../../internal/Seen';
-import {emptyView, seenBy} from '../../../internal/Unread';
+import {currentView, emptyView, seenBy} from '../../../internal/Unread';
 
 for (const gc of [false, true]) {
   test(`a stored start's fold point that only the hold shows is folded again (gc ${gc})`, () => {
@@ -65,9 +65,9 @@ for (const gc of [false, true]) {
         expect(isStored(to, hidden)).toBe(false);
         const raw = new Map<string, unknown>(start);
         noteFolded(raw, to, 'raw');
-        frontierOf(raw, left, root);
+        frontierOf(currentView(), raw, left, root);
         expect(raw.get('f:bold')).toBeUndefined();
-        frontierOf(start, left, root);
+        frontierOf(currentView(), start, left, root);
         expect(start.get('f:bold')).toBeUndefined();
       },
     );

@@ -507,6 +507,7 @@ export function copyStart<T extends Map<string, unknown> | null>(start: T): T {
  * byte.
  */
 export function frontierOf(
+  view: View | null,
   start: object | null,
   left: Item | null,
   parent: unknown,
@@ -546,9 +547,10 @@ export function frontierOf(
   // names `left`), and the walk steps everything from `left`.
   // (In its lane: a deleted item a hold keeps showing is no fold point of
   // a stored start, see FoldLane.)
-  if (!inLane(to, note.lane, note.hidden)) {
+  if (!inLane(view, to, note.lane, note.hidden)) {
     if (liesAfter(to, left, parent)) {
       refoldUpTo(
+        view,
         start as Map<string, unknown>,
         left,
         parent,
@@ -606,6 +608,7 @@ function liesAfter(to: Item, left: Item | null, parent: unknown): boolean {
  * Whether format item `it` counts in a fold of lane `lane` (see FoldLane).
  */
 export function inLane(
+  view: View | null,
   it: Item,
   lane: FoldLane,
   hidden: Hidden | null,
@@ -613,8 +616,8 @@ export function inLane(
   return lane === 'raw'
     ? !it.deleted
     : lane === 'stored'
-      ? isStored(it, hidden)
-      : !isGone(it) && !isHeld(it, hidden);
+      ? isStoredIn(view, it, hidden)
+      : !isGoneIn(view, it) && !isHeld(it, hidden);
 }
 
 /**
@@ -622,6 +625,7 @@ export function inLane(
  * `parent`'s start to `left` the lane counts.
  */
 export function refoldUpTo(
+  view: View | null,
   start: Map<string, unknown>,
   left: Item | null,
   parent: unknown,
@@ -638,7 +642,7 @@ export function refoldUpTo(
     it !== null;
     it = it.right
   ) {
-    if (it.content instanceof ContentFormat && inLane(it, lane, hidden)) {
+    if (it.content instanceof ContentFormat && inLane(view, it, lane, hidden)) {
       if (lane === 'shown' && hidden !== null) {
         withHeldView(hidden, () => step(it));
       } else {
@@ -670,6 +674,7 @@ export function setUnitLeftChecks(on: boolean): void {
  * Walks where that end is not shown (held or gone).
  */
 export function unitLeftEnd(
+  view: View | null,
   units: readonly {end: Item | null}[],
   unit: {end: Item | null; at?: number},
   hidden: Hidden | null,
@@ -685,9 +690,11 @@ export function unitLeftEnd(
   // The first unit of its container: nothing is shown before it.
   const known = i === 0;
   const fast =
-    prev !== null && isShownEnd(prev, hidden) && prev !== end ? prev : null;
+    prev !== null && isShownEndIn(view, prev, hidden) && prev !== end
+      ? prev
+      : null;
   if ((fast === null && !known) || (__DEV__ && checkUnitLeft)) {
-    const walked = prevLiveEnd(end, hidden);
+    const walked = prevLiveEnd(view, end, hidden);
     if ((fast !== null || known) && walked !== fast) {
       throw new Error(
         '@lexical/y: the end before a unit is not the end of the unit before it',
@@ -703,11 +710,12 @@ export function unitLeftEnd(
  * isShownEnd), or null.
  */
 export function prevLiveEnd(
+  view: View | null,
   it: Item | null,
   hidden: Hidden | null,
 ): Item | null {
   for (let p = it === null ? null : it.left; p !== null; p = p.left) {
-    if (isShownEnd(p, hidden)) {
+    if (isShownEndIn(view, p, hidden)) {
       return p;
     }
   }

@@ -7,6 +7,7 @@
  */
 
 import type {Hidden} from './Hidden';
+import type {View} from './Unread';
 import type {Item} from '@y/y';
 
 import {ContentFormat, ContentString, ContentType} from '@y/y';
@@ -38,7 +39,7 @@ import {
   TYPE_KEY,
   WRAPPER_PREFIX,
 } from './Schema';
-import {isGone, isStored, noteFolded, unheldLength} from './Seen';
+import {isGoneIn, isStoredIn, noteFolded, unheldLength} from './Seen';
 
 // Inline content as atoms, the form both the editor's side ($pushInline)
 // and the shared side (readAtoms) are compared in: one atom per content unit
@@ -298,6 +299,7 @@ export function $pushInline(
  * starts, see Cursor, and what a line hands on).
  */
 export function readAtoms(
+  view: View | null,
   start: Item | null,
   stop: Item | null,
   formats: Formats,
@@ -319,7 +321,7 @@ export function readAtoms(
     if (it === folded) {
       folded = null;
     }
-    if (isGone(it) && (hidden === null || !hidden.keeps(it))) {
+    if (isGoneIn(view, it) && (hidden === null || !hidden.keeps(it))) {
       continue;
     }
     const content = it.content;
@@ -328,7 +330,7 @@ export function readAtoms(
         attrs = null;
         continue;
       }
-      if (shown === current || isStored(it, hidden)) {
+      if (shown === current || isStoredIn(view, it, hidden)) {
         step(current, it);
       }
       if (shown !== current && !hidden!.hides(it)) {

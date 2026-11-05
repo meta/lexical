@@ -56,6 +56,7 @@ import {
 } from './Schema';
 import {frontierOf, prevLiveEnd} from './Seen';
 import {type CS, EMPTY_FORMATS, State} from './State';
+import {currentView} from './Unread';
 
 // The opt-in self-check (YBindingOptions.selfCheck): the lines a local
 // write touched, read back from Yjs and compared with the editor
@@ -173,15 +174,16 @@ export function $checkWrite(writer: Writer): string[] {
       get: key => writer.state.segments.get(key),
     };
     $pushInline(want, nodes, ctx);
-    const left = prevLiveEnd(end, writer.state.hidden);
+    const left = prevLiveEnd(currentView(), end, writer.state.hidden);
     const have = new Atoms();
     readAtoms(
+      currentView(),
       left === null ? unit.cs.y._start : left.right,
       end,
       unit.start || EMPTY_FORMATS,
       have,
       writer.state.hidden,
-      frontierOf(unit.start, left, unit.cs.y),
+      frontierOf(currentView(), unit.start, left, unit.cs.y),
     );
     if (want.text !== have.text && want.text !== $shownText(writer, have)) {
       problems.push(
