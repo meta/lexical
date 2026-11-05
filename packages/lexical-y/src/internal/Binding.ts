@@ -424,6 +424,14 @@ const isReadOnlyCause = (w: LexicalWarning): boolean =>
   w.code === UNSUPPORTED_SCHEMA_WARNING;
 
 /**
+ * A write refused at write time (see YBinding#refusalIn): the family of the
+ * record that refused it, captured inside its own transaction.
+ */
+class Refusal {
+  constructor(readonly record: 'layout' | 'schema') {}
+}
+
+/**
  * The refusal of a local edit, while read only or at write time: when a
  * read-only cause is reported with it, the cause goes first.
  */
@@ -1316,8 +1324,6 @@ export class YBinding {
   private quiesced = false;
   /** The D08 permission of the commit being written (see admitsIn). */
   private writeGrace: SchemaGrace | null = null;
-  /** Which record the last refused admission found (see admitsIn). */
-  private refusedBy: 'layout' | 'schema' = 'layout';
   /** Local commits refused so far (see quiesce). */
   private refusals = 0;
   /** A write was refused inside its transaction (see $writeCommit). */
@@ -3146,18 +3152,24 @@ export class YBinding {
    * for exactly the schema records it was admitted on.
    */
   private admitsIn(grace: SchemaGrace | null): boolean {
+    return this.refusalIn(grace) === null;
+  }
+
+  /**
+   * admitsIn's verdict as the family of the record that refused (`'layout'`
+   * is checked first), or null when the write is admitted. A refused write
+   * keeps it in a local of its own transaction and returns it with its
+   * result: a later admission (an app's afterTransaction listener's) cannot
+   * change what the refusal reports.
+   */
+  private refusalIn(grace: SchemaGrace | null): 'layout' | 'schema' | null {
     if (!this.recordAdmits()) {
-      this.refusedBy = 'layout';
-      return false;
+      return 'layout';
     }
-    const admits =
-      !this.schemaRefuses() ||
-      (grace !== null &&
-        sameSchemaRecords(this.schemaRecords(), grace.records));
-    if (!admits) {
-      this.refusedBy = 'schema';
-    }
-    return admits;
+    return !this.schemaRefuses() ||
+      (grace !== null && sameSchemaRecords(this.schemaRecords(), grace.records))
+      ? null
+      : 'schema';
   }
 
   /**
@@ -5592,14 +5604,14 @@ export class YBinding {
       dirtyElements,
       dirtyLeaves,
     );
-    if (written === 'refused') {
+    if (written instanceof Refusal) {
       // The layout record changed inside the write's own transaction: the
       // change is refused as on a read-only binding (read again once it can
       // be), and the record is read once the commit is done (see onUpdate).
       this.writeCursor = null;
       this.refusals++;
       if (commit.userEdit) {
-        this.warnRefusedAtWrite(this.refusedBy);
+        this.warnRefusedAtWrite(written.record);
       }
       this.$refuseChanged(
         dirtyElements,
@@ -5879,9 +5891,9 @@ export class YBinding {
     prevEditorState: EditorState,
     dirtyElements: Map<NodeKey, boolean>,
     dirtyLeaves: Set<NodeKey>,
-  ): Writer | null | 'refused' {
+  ): Writer | null | Refusal {
     let writer: Writer | null = null;
-    let refused = false;
+    let refused: 'layout' | 'schema' | null = null;
     // Admitted once, for the whole write: its pins and its recovery too,
     // which see the records as this write left them (`after`).
     const grace = this.writeGrace;
@@ -5892,8 +5904,8 @@ export class YBinding {
         // listener of the document ran (any may change the layout record or
         // the schema record before anything is written): refused, nothing
         // is written.
-        if (!this.admitsIn(grace)) {
-          refused = true;
+        refused = this.refusalIn(grace);
+        if (refused !== null) {
           return;
         }
         // Development builds: the binding's own write, even when it joined
@@ -5929,8 +5941,10 @@ export class YBinding {
           }
         }
       }, origin);
-      if (refused) {
-        return 'refused';
+      // Set inside the callback (TypeScript does not see that assignment).
+      const refusedBy = refused as 'layout' | 'schema' | null;
+      if (refusedBy !== null) {
+        return new Refusal(refusedBy);
       }
       if (!commit.followUp) {
         this._doc.transact(tr => {
@@ -5963,12 +5977,12 @@ export class YBinding {
           String(e instanceof Error ? e.message : e),
         {error: e, reason: 'local-change'},
       );
-      let recoveryRefused = false;
+      let recoveryRefused: 'layout' | 'schema' | null = null;
       try {
         this._doc.transact(tr => {
           // Admitted inside its own transaction, as the write it recovers.
-          if (!this.admitsIn(after)) {
-            recoveryRefused = true;
+          recoveryRefused = this.refusalIn(after);
+          if (recoveryRefused !== null) {
             return;
           }
           // Development builds: the binding's own write, even when it joined
@@ -6011,7 +6025,8 @@ export class YBinding {
       } catch (e2) {
         this._editor._onError(e2 instanceof Error ? e2 : new Error(String(e2)));
       }
-      return recoveryRefused ? 'refused' : null;
+      const recoveryRefusedBy = recoveryRefused as 'layout' | 'schema' | null;
+      return recoveryRefusedBy === null ? null : new Refusal(recoveryRefusedBy);
     }
   }
 

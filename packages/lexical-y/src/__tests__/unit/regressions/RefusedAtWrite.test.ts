@@ -137,6 +137,56 @@ describe.each([false, true])('a write refused at write time, gc %s', gc => {
     t.dispose();
   });
 
+  test("a nested admission in an afterTransaction listener does not change the refusal's record", async () => {
+    const t = bind(gc);
+    t.append();
+    await flush();
+    const before = textOf(t.root);
+    t.warnings.length = 0;
+    let injected = false;
+    let nested = false;
+    // The write's own transaction finds a newer layout record (a listener
+    // writes it at its start): refused by the layout.
+    const inject = (tr: Y.Transaction) => {
+      if (!injected && tr.origin === t.binding) {
+        injected = true;
+        t.root.setAttr(`lexical-y:${LAYOUT_VERSION + 1}`, true);
+      }
+    };
+    // Before the refusal is reported, an app's listener restores the
+    // layout, installs a refusing schema record, calls the exposed undo
+    // manager (an admission the schema refuses) and restores it.
+    const after = (tr: Y.Transaction) => {
+      if (nested || !injected || tr.origin !== t.binding) {
+        return;
+      }
+      nested = true;
+      t.doc.transact(() => {
+        t.root.deleteAttr(`lexical-y:${LAYOUT_VERSION + 1}`);
+        t.root.setAttr('lexical-y-schema:9', true);
+        expect(t.binding.undoManager!.undo()).toBeNull();
+        t.root.deleteAttr('lexical-y-schema:9');
+      }, 'nested-app');
+    };
+    t.doc.on('beforeTransaction', inject);
+    t.doc.on('afterTransaction', after);
+    try {
+      t.append();
+    } finally {
+      t.doc.off('beforeTransaction', inject);
+      t.doc.off('afterTransaction', after);
+    }
+    await flush();
+    expect(injected).toBe(true);
+    expect(nested).toBe(true);
+    expect(textOf(t.root)).toBe(before);
+    expect(t.binding.status).toBe('active');
+    expect(
+      of(t.warnings).filter(([code]) => code === UNSUPPORTED_EDIT_WARNING),
+    ).toEqual([[UNSUPPORTED_EDIT_WARNING, 'refused-at-write', 'layout']]);
+    t.dispose();
+  });
+
   test("control: an edit while the binding is read only is still 'read-only'", async () => {
     const d = createYDoc(rawDoc(SEED), {gc});
     d.get('lexical-y').setAttr('lexical-y-schema:9', true);
