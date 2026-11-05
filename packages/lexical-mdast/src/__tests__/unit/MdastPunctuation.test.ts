@@ -10,6 +10,7 @@
 
 import type {MdastConfig, MdastPunctuationMode} from '../../index';
 import type {Paragraph} from 'mdast';
+import type {Extension as MicromarkExtension} from 'micromark-util-types';
 
 import {buildEditorFromExtensions} from '@lexical/extension';
 import {$createLinkNode} from '@lexical/link';
@@ -91,6 +92,26 @@ function $getRuns(): Runs {
     .map(node => [node.getTextContent(), node.getFormat()]);
 }
 
+/**
+ * How a CJK-friendly export writes `markdown`, written as raw HTML, which
+ * the export keeps as it is but for the references it rewrites.
+ */
+function exportRaw(markdown: string): string {
+  const editor = createEditor('cjk-friendly', undefined, {
+    exportRules: [
+      {
+        $export: node =>
+          $isTextNode(node)
+            ? {type: 'html', value: node.getTextContent()}
+            : null,
+        type: TextNode,
+      },
+    ],
+  });
+  editor.update(() => $appendRuns([[markdown, 0]]), {discrete: true});
+  return editor.read('latest', () => $convertToMarkdownString());
+}
+
 /** The runs `markdown` imports to in `editor`. */
 function importRuns(editor: LexicalEditor, markdown: string): Runs {
   editor.update(() => $convertFromMarkdownString(markdown), {discrete: true});
@@ -107,6 +128,98 @@ describe('Mdast punctuation modes', () => {
       ],
       '**你好。**&#x4E16;界',
       '**你好。**世界',
+    ],
+    // A CJK-friendly reader reads a run with a CJK character on one side as
+    // opening and closing beside any letter on the other.
+    [
+      [
+        ['你好。', bold],
+        ['abc', 0],
+      ],
+      '**你好。**&#x61;bc',
+      '**你好。**abc',
+    ],
+    // Or beside a reference to one, which is written as it too.
+    [
+      [
+        ['a', 0],
+        ['。', bold | italic],
+        ['世', italic],
+        ['b', 0],
+      ],
+      '&#x61;***。**&#x4E16;*&#x62;',
+      'a***。**世*b',
+    ],
+    // An escaped marker is no run.
+    [
+      [
+        ['x*a', 0],
+        ['。', bold],
+      ],
+      'x\\*&#x61;**。**',
+      'x\\*a**。**',
+    ],
+    [
+      [
+        ['abc', 0],
+        ['「强调」', bold],
+      ],
+      'ab&#x63;**「强调」**',
+      'abc**「强调」**',
+    ],
+    [
+      [
+        ['你好。', strikethrough],
+        ['abc', 0],
+      ],
+      '~~你好。~~&#x61;bc',
+      '~~你好。~~abc',
+    ],
+    [
+      [
+        ['a', 0],
+        ['\u{1f200}', bold],
+        ['b', 0],
+      ],
+      '&#x61;**&#x1F200;**&#x62;',
+      'a**\u{1f200}**b',
+    ],
+    // A backslash before the letter is no escape, so the one that escaped it
+    // goes with the reference.
+    [
+      [
+        ['a\\b', 0],
+        ['。', bold],
+      ],
+      'a\\\\&#x62;**。**',
+      'a\\b**。**',
+    ],
+    [
+      [
+        ['a\\\\b', 0],
+        ['「x」', bold],
+      ],
+      'a\\\\\\\\&#x62;**「x」**',
+      'a\\\\\\b**「x」**',
+    ],
+    // Not where a run beside the reference has none.
+    [
+      [
+        ['a.', bold],
+        ['b', 0],
+        ['你。', bold],
+      ],
+      '**a.**&#x62;**你。**',
+      '**a.**&#x62;**你。**',
+    ],
+    // The escape that keeps the text from reading as an autolink stays.
+    [
+      [
+        ['你好。', bold],
+        ['www.example.com', 0],
+      ],
+      '**你好。**&#x77;ww\\.example.com',
+      '**你好。**www\\.example.com',
     ],
     // Strikethrough writes references as emphasis does.
     [
@@ -196,6 +309,16 @@ describe('Mdast punctuation modes', () => {
       ],
       '&#x61;~~&#x1F44D;ok~~',
       '&#x61;~~\u{1f44d}ok~~',
+    ],
+    // The closing run of one attention and the opening run of the next are
+    // one run, which both opens and closes for some readers.
+    [
+      [
+        ['a\u{1f389}', italic],
+        ['“b”', bold],
+      ],
+      '*a&#x1F389;***“b”**',
+      '*a\u{1f389}***“b”**',
     ],
     // A CJK character beside the emoji needs one only for strict readers.
     [
@@ -504,6 +627,109 @@ describe('Mdast punctuation modes', () => {
     });
     expect(editor.read('latest', () => $convertToMarkdownString())).toBe(
       markdown,
+    );
+  });
+
+  it('writes no reference for a stand-in whose readings all flank alike', () => {
+    // The selector beyond the run goes out as a reference of its own.
+    expect(
+      roundTrip([
+        ['“\u{20000}\0', 0],
+        ['\ufe0e', bold],
+      ]),
+    ).toEqual([
+      '“\u{20000}\0**&#xFE0E;**',
+      [
+        ['“\u{20000}\ufffd', 0],
+        ['\ufe0e', bold],
+      ],
+    ]);
+  });
+
+  it.each<[string, MicromarkExtension]>([
+    ['declares', {attentionMarkers: {null: [61]}}],
+    [
+      'starts its syntax with',
+      {text: {61: {tokenize: (_effects, _ok, nok) => nok}}},
+    ],
+  ])('keeps a reference beside a marker an extension %s', (_, extension) => {
+    // As `_` does, a marker that a syntax extension adds may open or close
+    // beside the reference other than beside its character.
+    const editor = createEditor('cjk-friendly', undefined, {
+      micromarkExtensions: [extension],
+    });
+    editor.update(
+      () =>
+        $appendRuns([
+          ['你好。', bold],
+          ['世=', 0],
+        ]),
+      {discrete: true},
+    );
+    expect(editor.read('latest', () => $convertToMarkdownString())).toBe(
+      '**你好。**&#x4E16;=',
+    );
+  });
+
+  it.each([
+    // Written as its character, the run would close as well as open.
+    [
+      'a reference to a CJK character with a letter beyond the run',
+      '&#x4E16;**a**',
+    ],
+    // With `b` beyond its run, the reference to 世 stays, and so the one to
+    // `a` beyond the run on its other side does too.
+    [
+      'a letter reference beside a CJK reference that stays',
+      '*c **b**&#x4E16;*&#x61;**。**',
+    ],
+  ])('keeps %s', (_, markdown) => {
+    expect(exportRaw(markdown)).toBe(markdown);
+  });
+
+  it.each([
+    // A CJK character beside a run opens and closes it beside a reference
+    // that stays on the other side.
+    ['**。**&#x4E16;**&#x754C;**b', '**。**世**&#x754C;**b'],
+    // The backslash that stays is before 世, not after it.
+    ['&\\\\&#x4E16;**&#x61;', '&\\世**a'],
+  ])('rewrites the references of %j', (markdown, cjkFriendly) => {
+    expect(exportRaw(markdown)).toBe(cjkFriendly);
+  });
+
+  it('keeps a reference to a lone surrogate beside a CJK run', () => {
+    const editor = createEditor('cjk-friendly');
+    editor.update(
+      () =>
+        $appendRuns([
+          ['a\ud800', 0],
+          ['。', bold],
+        ]),
+      {discrete: true},
+    );
+    expect(editor.read('latest', () => $convertToMarkdownString())).toBe(
+      'a&#xD800;**。**',
+    );
+  });
+
+  // micromark reads each of these references as U+FFFD, as typed or not.
+  it.each([
+    ['\x01', '&#x1;'],
+    ['\x85', '&#x85;'],
+    ['\ufdd0', '&#xFDD0;'],
+    ['\u{1fffe}', '&#x1FFFE;'],
+  ])('keeps a reference to %j beside a CJK run', (character, reference) => {
+    const editor = createEditor('cjk-friendly');
+    editor.update(
+      () =>
+        $appendRuns([
+          [`a${character}`, 0],
+          ['。', bold],
+        ]),
+      {discrete: true},
+    );
+    expect(editor.read('latest', () => $convertToMarkdownString())).toBe(
+      `a${reference}**。**`,
     );
   });
 

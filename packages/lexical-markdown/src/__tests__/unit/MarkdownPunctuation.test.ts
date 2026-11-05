@@ -452,6 +452,34 @@ describe('Markdown punctuation modes', () => {
       'x ~~Done \u2714&#65038;~~&#110;ext',
       'x ~~Done \u2714&#65038;~~&#110;ext',
     ],
+    // A literal `<` or `&` before a selector stays: the selector continues
+    // no autolink's address and no character reference, and nor does the
+    // reference written for it, whose `;` no address holds before its `@` and
+    // whose `&` no character reference continues with.
+    [
+      [
+        ['a<\ufe0e', strikethrough],
+        ['@x.co>', 0],
+      ],
+      '~~a<&#65038;~~@x.co>',
+      '~~a<&#65038;~~@x.co>',
+    ],
+    [
+      [
+        ['a<\ufe0e', bold],
+        ['@x.co>', 0],
+      ],
+      '**a<\ufe0e**@x.co>',
+      '**a<\ufe0e**@x.co>',
+    ],
+    [
+      [
+        ['a&\ufe0e', strikethrough],
+        ['#65;', 0],
+      ],
+      '~~a&&#65038;~~#65;',
+      '~~a&&#65038;~~#65;',
+    ],
   ])('exports %j', (runs, strict, cjkFriendly) => {
     expect(exportRuns(runs)).toBe(strict);
     expect(exportRuns(runs, 'strict-commonmark')).toBe(strict);

@@ -603,28 +603,6 @@ const STOOD_IN =
   /(?![\0-\uffff])[\p{P}\p{S}]|[\ufe00-\ufe0e]|[\u2028\u2029\ufeff]|\0/gu;
 const MICROMARK_ONLY_WHITESPACE = /^[\u2028\u2029\ufeff]$/;
 
-/**
- * The backslashes before the last character of `value`, as their index and
- * count. A reference that the text handler writes for that character would
- * come out escaped by the last of them, so where a marker follows, each
- * stands in. The last goes out escaped only when a reference follows, and
- * the others always, as to-markdown escapes a backslash before another.
- */
-function getTrailingBackslashes(value: string): [number, number] {
-  // Scanned back from the last character, which a regex search from the
-  // start would do once for each backslash of a run elsewhere.
-  const last = value.codePointAt(value.length - 2);
-  const end = value.length - (last !== undefined && last > 0xffff ? 2 : 1);
-  if (end < 1 || /[\p{P}\p{S}\r\n]/u.test(value.slice(end))) {
-    return [-1, 0];
-  }
-  let start = end;
-  while (start > 0 && value.charCodeAt(start - 1) === 92) {
-    start--;
-  }
-  return start < end ? [start, end - start] : [-1, 0];
-}
-
 // Stand-ins come from Supplemental Punctuation (U+2E00 to U+2E7F) first,
 // then from the symbols from U+2600: characters a handler is unlikely to
 // write on its own.
@@ -642,44 +620,24 @@ function collectUsed(value: string, used: Set<number>): void {
   }
 }
 
-const ATTENTION_TYPES = new Set(['delete', 'emphasis', 'strong']);
-
 /**
  * How often each character of {@link STOOD_IN} occurs in the text of
- * `tree`, and the backslashes of {@link getTrailingBackslashes} in a text
- * that a marker follows, which go in `beforeMarker`; when there is any, adds
- * what the strings of its nodes (not their `data`) hold of the stand-in range
- * to `used`.
+ * `tree`; when there is any, adds what the strings of its nodes (not their
+ * `data`) hold of the stand-in range to `used`.
  */
-function countStoodIn(
-  tree: Root,
-  used: Set<number>,
-  beforeMarker: Set<Nodes>,
-): Map<string, number> {
+function countStoodIn(tree: Root, used: Set<number>): Map<string, number> {
   const counts = new Map<string, number>();
-  // `isClosed`: whether a marker closes what holds `node`.
-  const visit = (node: Nodes, next: Nodes | undefined, isClosed: boolean) => {
+  const visit = (node: Nodes) => {
     if (node.type === 'text') {
       for (const [character] of node.value.matchAll(STOOD_IN)) {
         counts.set(character, (counts.get(character) || 0) + 1);
       }
-      if (next ? ATTENTION_TYPES.has(next.type) : isClosed) {
-        const [, backslashes] = getTrailingBackslashes(node.value);
-        if (backslashes > 0) {
-          beforeMarker.add(node);
-          counts.set('\\', (counts.get('\\') || 0) + backslashes);
-        }
-      }
     }
     if ('children' in node) {
-      const {children} = node;
-      const isAttention = ATTENTION_TYPES.has(node.type);
-      children.forEach((child, i) =>
-        visit(child, children[i + 1], isAttention),
-      );
+      node.children.forEach(visit);
     }
   };
-  visit(tree, undefined, false);
+  visit(tree);
   // Most documents have none, and skip this second walk.
   if (counts.size > 0) {
     const collect = (node: Nodes) => {
@@ -744,7 +702,6 @@ function standInText(
   handlers: Record<string, Handle>,
   standIns: Map<string, string>,
   written: Map<string, number>,
-  beforeMarker: Set<Nodes>,
 ): ToMarkdownExtension {
   const handle = handlers.text;
   const lookAhead = (handle as Handle & {peek?: Handle}).peek || handle;
@@ -792,17 +749,8 @@ function standInText(
       }
       return found;
     };
-    const [backslash, backslashes] = beforeMarker.has(node)
-      ? getTrailingBackslashes(value)
-      : [-1, 0];
     // Set on the node itself, which the handler finds among its siblings.
-    (node as Text).value = (
-      backslash < 0
-        ? value
-        : value.slice(0, backslash) +
-          Array.from({length: backslashes}, () => standIn('\\')).join('') +
-          value.slice(backslash + backslashes)
-    ).replace(STOOD_IN, standIn);
+    (node as Text).value = value.replace(STOOD_IN, standIn);
     try {
       return own.call(self, node, parent, state, info);
     } finally {
@@ -839,17 +787,22 @@ function getHandlers(
   return handlers;
 }
 
-// How the export in progress puts its stand-ins back, for measuring.
-let measuredRestore: ((value: string) => string) | null = null;
+// How the export in progress puts its stand-ins back, for measuring. Any
+// serialization while it is written measures so, as the export puts back
+// what it embeds of that too.
+let measuredRestore: ((values: string[]) => string[]) | null = null;
 
 /**
- * The length of `value`, a part of the Markdown being exported, once its
- * stand-ins are put back: a table measures its cells with it to align them.
+ * The lengths of `values`, parts of the Markdown being exported that are
+ * each one line of inline content, once their stand-ins are put back: a
+ * table measures its cells with it to align them, all at once.
  *
  * @internal
  */
-export function getExportedLength(value: string): number {
-  return (measuredRestore ? measuredRestore(value) : value).length;
+export function getExportedLengths(values: string[]): number[] {
+  return (measuredRestore ? measuredRestore(values) : values).map(
+    value => value.length,
+  );
 }
 
 /**
@@ -865,7 +818,7 @@ export function getExportedLength(value: string): number {
  * punctuation character of the Basic Multilingual Plane that the tree does
  * not hold, and {@link restoreStoodIn} puts it back.
  *
- * `mdast-util-to-markdown` 2.2.2 serializes many touching runs of attention,
+ * `mdast-util-to-markdown` 2.2.2 and earlier serialize many touching runs of attention,
  * or attention without content, in quadratic time
  * (https://github.com/syntax-tree/mdast-util-to-markdown/issues/96). Check
  * again when its version changes, and vendor the fix if no release has it.
@@ -874,11 +827,10 @@ function toMarkdownWithStandIns(
   tree: Root,
   extensions: ToMarkdownExtension[],
   isCjkFriendly: boolean,
-  measure?: (value: string) => string,
+  measure?: (values: string[]) => string[],
 ): string {
   const used = new Set<number>();
-  const beforeMarker = new Set<Nodes>();
-  const counts = countStoodIn(tree, used, beforeMarker);
+  const counts = countStoodIn(tree, used);
   if (counts.size > 0) {
     const handlers = getHandlers(extensions);
     // A handler that writes a stand-in of its own, or that writes some text
@@ -899,12 +851,15 @@ function toMarkdownWithStandIns(
           : ATTENTION_MARKERS,
       );
       const out = measuring(
-        measure ? value => measure(restore(value)) : value => restore(value),
+        values => {
+          const restored = values.map(value => restore(value));
+          return measure ? measure(restored) : restored;
+        },
         () =>
           toMarkdown(tree, {
             extensions: [
               ...extensions,
-              standInText(handlers, standIns, written, beforeMarker),
+              standInText(handlers, standIns, written),
             ],
           }),
       );
@@ -932,9 +887,9 @@ function toMarkdownWithStandIns(
   return measuring(measure, () => toMarkdown(tree, {extensions}));
 }
 
-/** Runs `serialize` with `measure` as how {@link getExportedLength} measures. */
+/** Runs `serialize` with `measure` as how {@link getExportedLengths} measures. */
 function measuring(
-  measure: ((value: string) => string) | undefined,
+  measure: ((values: string[]) => string[]) | undefined,
   serialize: () => string,
 ): string {
   // A handler may export another document while this one is written.
@@ -1008,7 +963,9 @@ function restoreStoodIn(
         : [PUNCTUATION, LETTER];
   };
   // Whether the run beside `index`, toward `step`, flanks the same for every
-  // reading of the stand-in at `index`, and of one beyond the run.
+  // reading of the stand-in at `index`, whatever is read beyond the run. A
+  // stand-in there whose readings flank differently goes out as a reference
+  // itself, which every reader reads as punctuation.
   const isPortable = (index: number, step: 1 | -1): boolean => {
     const marker = markdown[index + step];
     let end = index + step;
@@ -1031,9 +988,8 @@ function restoreStoodIn(
       return Number(open) | (Number(close) << 1);
     };
     const nears = readings(markdown[index]);
-    const expected = flanking(PUNCTUATION, fars[0]);
     return fars.every(far =>
-      nears.every(near => flanking(near, far) === expected),
+      nears.every(near => flanking(near, far) === flanking(PUNCTUATION, far)),
     );
   };
   // Whether a `~` run right after `index` closes, as it does for the
@@ -1072,28 +1028,10 @@ function restoreStoodIn(
         (markers === ATTENTION_AND_STRIKETHROUGH_MARKERS &&
           isSelector(character.charCodeAt(0)) &&
           closesAfter(index))));
-  // Where the run of backslashes being restored ends, and whether a
-  // reference follows it, which would come out escaped by the last of them.
-  let runEnd = -1;
-  let isBeforeReference = false;
   // `mdast-util-to-markdown` writes a reference only for whitespace or a
   // letter, so never for a stand-in.
   return markdown.replace(pattern, (standIn, i: number) => {
     const character = characters.get(standIn)!;
-    if (character === '\\') {
-      if (i >= runEnd) {
-        runEnd = i;
-        while (characters.get(markdown[runEnd]) === '\\') {
-          runEnd++;
-        }
-        const next = characters.get(markdown[runEnd]);
-        isBeforeReference =
-          markdown[runEnd] === '&' ||
-          (next !== undefined && isReferenced(runEnd, next));
-      }
-      // Escaped before another backslash, as to-markdown would have.
-      return isBeforeReference || i + 1 < runEnd ? '\\\\' : '\\';
-    }
     return isReferenced(i, character)
       ? // A backslash before the reference would escape its `&`.
         `${isEscaped(i) ? '\\' : ''}&#x${character
@@ -1104,10 +1042,14 @@ function restoreStoodIn(
   });
 }
 
-// A marker of a run that a CJK-friendly reader reads beside a CJK character
-// as beside a reference.
-const ATTENTION_RUN = /^[*~]$/;
-// A character reference, which {@link rewriteCjkReferences} may write as its
+/**
+ * Whether `character` is a marker of a run that a CJK-friendly reader reads
+ * beside a CJK character as beside a reference.
+ */
+function isRunMarker(character: string | undefined): boolean {
+  return character === '*' || character === '~';
+}
+// A character reference, which {@link toCjkFriendly} may write as its
 // character, with the escaped backslash before it, which the character needs
 // no longer.
 const REFERENCE = /(\\\\)?&#(?:(\d+)|[xX]([\da-fA-F]+));/g;
@@ -1117,14 +1059,130 @@ const REFERENCE = /(\\\\)?&#(?:(\d+)|[xX]([\da-fA-F]+));/g;
  * character reference beside a `*` or `~` run where the run would not open or
  * close for strict readers, as in `**你好。**&#x4E16;界`: for a letter
  * outside a run whose inside is punctuation, or a reference to whitespace. A
- * CJK-friendly reader reads such a run beside a CJK character as it does
- * beside the `&` or `;` of the reference, so those references are written as
- * the characters they stand for. A run of `_` does not open or close between
- * two letters for any reader, so a reference beside one stays.
+ * CJK-friendly reader reads such a run beside a CJK character, or beside a
+ * letter where a CJK character is on its other side, as it does beside the
+ * `&` or `;` of the reference, so those references are written as the
+ * characters they stand for. A run of `_` does not open or close between two
+ * letters for any reader, so a reference beside one stays, as does one beside
+ * the markers that another syntax adds.
  */
 function toCjkFriendly(markdown: string, compiled: CompiledMdast): string {
   // Parse only when there is a reference to rewrite.
-  if (!markdown.includes('&#') || !hasCjkReference(markdown)) {
+  if (!markdown.includes('&#')) {
+    return markdown;
+  }
+  // Each reference to rewrite: where its match starts, the offset of its
+  // `&`, where its match ends, and what it becomes; for a letter, where the
+  // run before it ends (-1 for none), and then the `&` of each reference to
+  // a CJK character beyond a run beside it, which is rewritten too, or null
+  // where it is not to be rewritten. A backslash before a letter or a CJK
+  // character is not an escape, so the backslash that escaped it before the
+  // reference goes too.
+  const rewrites: [
+    start: number,
+    begin: number,
+    end: number,
+    rewrite: string,
+    before: number,
+    needs: number[] | null,
+  ][] = [];
+  // The `&` of each reference to a CJK character to rewrite, by its offset
+  // and by the offset of its `;`, where a run beside a letter may end.
+  const cjk = new Map<number, number>();
+  // The markers of other runs, such as `_`, which open and close beside the
+  // reference other than beside its character: those that a syntax
+  // extension adds, or the ASCII punctuation that starts its inline syntax.
+  const others = new Set(['_']);
+  for (const {attentionMarkers, text} of compiled.micromarkExtensions) {
+    for (const code of [
+      ...((attentionMarkers && attentionMarkers.null) || []),
+      ...Object.keys(text || {}).map(Number),
+    ]) {
+      const character = String.fromCharCode(Number(code));
+      if (/[!-/:-@[-`{-~]/.test(character)) {
+        others.add(character);
+      }
+    }
+  }
+  for (const {
+    0: match,
+    1: backslashes,
+    2: decimal,
+    3: hex,
+    index,
+  } of markdown.matchAll(REFERENCE)) {
+    const code = decimal ? parseInt(decimal, 10) : parseInt(hex!, 16);
+    // A backslash before it is no marker, and neither is an escaped one.
+    let escapes = 0;
+    while (markdown[index - 2 - escapes] === '\\') {
+      escapes++;
+    }
+    const before = backslashes || escapes % 2 ? '' : markdown[index - 1];
+    const end = index + match.length;
+    const after = markdown[end];
+    if (
+      !(isRunMarker(before) || isRunMarker(after)) ||
+      (others.has(before) && !isRunMarker(before)) ||
+      (others.has(after) && !isRunMarker(after))
+    ) {
+      continue;
+    }
+    // micromark reads references past the last code point too.
+    const characterClass = code <= 0x10ffff ? classifyCode(code) : WHITESPACE;
+    const isCjk = isCjkClass(characterClass);
+    // A letter, but not one whose reference micromark reads as U+FFFD: a
+    // control character, a lone surrogate or a noncharacter.
+    if (
+      isCjk ||
+      (characterClass === LETTER &&
+        code > 31 &&
+        (code < 127 || code > 159) &&
+        (code < 0xd800 || code > 0xdfff) &&
+        (code < 0xfdd0 || code > 0xfdef) &&
+        (code & 0xfffe) !== 0xfffe)
+    ) {
+      rewrites.push([
+        index,
+        backslashes ? index + 2 : index,
+        end,
+        (backslashes ? '\\' : '') + String.fromCodePoint(code),
+        before ? index - 1 : -1,
+        isCjk ? [] : null,
+      ]);
+      // Before a run, it is its character once rewritten; after one, only
+      // without the backslash that stays before it.
+      if (isCjk) {
+        cjk.set(end - 1, backslashes ? index + 2 : index);
+        if (!backslashes) {
+          cjk.set(index, index);
+        }
+      }
+    }
+  }
+  // A letter is written as such where a CJK character, or a reference to
+  // one that is rewritten, is beyond each run beside it, and a CJK character
+  // where no letter but a CJK one is: a run that a CJK character is on one
+  // side of opens and closes beside anything on the other but whitespace,
+  // and one between a letter and the reference's `&` or `;` might not.
+  let isAny = false;
+  for (const rewrite of rewrites) {
+    const needs: number[] = [];
+    const isLetter = rewrite[5] === null;
+    const fits = (beyond: number) =>
+      beyond < 0 ||
+      isCjkClass(beyond) ||
+      (!isLetter && (beyond === WHITESPACE || (beyond & PUNCTUATION) !== 0));
+    rewrite[5] =
+      (rewrite[4] < 0 ||
+        fits(classifyBeyond(markdown, rewrite[4], -1, cjk, needs))) &&
+      fits(classifyBeyond(markdown, rewrite[2], 1, cjk, needs))
+        ? isLetter
+          ? needs
+          : []
+        : null;
+    isAny ||= rewrite[5] !== null;
+  }
+  if (!isAny) {
     return markdown;
   }
   // Only references that micromark reads as such: not escaped ones, nor
@@ -1136,87 +1194,73 @@ function toCjkFriendly(markdown: string, compiled: CompiledMdast): string {
       begins.add(markdown.lastIndexOf('&', token.start.offset));
     }
   }
-  return rewriteCjkReferences(markdown, begin => begins.has(begin));
-}
-
-/**
- * The code point of the reference that {@link REFERENCE} matched in
- * `markdown` at `offset`, when it is a CJK character beside a `*` or `~` run
- * and not beside a `_` one; otherwise -1.
- */
-function getCjkReference(
-  markdown: string,
-  match: string,
-  backslashes: string | undefined,
-  decimal: string | undefined,
-  hex: string | undefined,
-  offset: number,
-): number {
-  const code = decimal ? parseInt(decimal, 10) : parseInt(hex!, 16);
-  // A backslash before it is no marker.
-  const before = backslashes ? '' : markdown[offset - 1];
-  const after = markdown[offset + match.length];
-  return (ATTENTION_RUN.test(before) || ATTENTION_RUN.test(after)) &&
-    before !== '_' &&
-    after !== '_' &&
-    // micromark reads references past the last code point too.
-    code <= 0x10ffff &&
-    isCjkClass(classifyCode(code))
-    ? code
-    : -1;
-}
-
-/** Whether `markdown` holds a reference {@link rewriteCjkReferences} may rewrite. */
-function hasCjkReference(markdown: string): boolean {
-  for (const match of markdown.matchAll(REFERENCE)) {
-    if (
-      getCjkReference(
-        markdown,
-        match[0],
-        match[1],
-        match[2],
-        match[3],
-        match.index,
-      ) >= 0
-    ) {
-      return true;
+  // The `&` of each reference that is rewritten, and of those that need
+  // each, which are not where it is not.
+  const rewritten = new Set<number>();
+  const dependents = new Map<number, number[]>();
+  for (const [, begin, , , , needs] of rewrites) {
+    if (needs && begins.has(begin)) {
+      rewritten.add(begin);
+      for (const need of needs) {
+        const list = dependents.get(need);
+        if (list) {
+          list.push(begin);
+        } else {
+          dependents.set(need, [begin]);
+        }
+      }
     }
   }
-  return false;
+  const withdrawn = [...dependents.keys()].filter(need => !rewritten.has(need));
+  for (let need = withdrawn.pop(); need !== undefined; need = withdrawn.pop()) {
+    for (const begin of dependents.get(need) || []) {
+      if (rewritten.delete(begin)) {
+        withdrawn.push(begin);
+      }
+    }
+  }
+  let out = '';
+  let last = 0;
+  for (const [start, begin, end, rewrite] of rewrites) {
+    if (rewritten.has(begin)) {
+      out += markdown.slice(last, start) + rewrite;
+      last = end;
+    }
+  }
+  return out + markdown.slice(last);
 }
 
 /**
- * Writes as its character each reference to a CJK character beside a `*` or
- * `~` run, and not beside a `_` one, in `markdown`, where `isRead` accepts
- * the offset of its `&`.
+ * The class of the character beyond the run of `*` or `~` that starts at
+ * `index` of `markdown`, toward `step`, or -1 where there is no such run. A
+ * reference to a CJK character in `cjk` counts as that character, and its
+ * `&` goes in `needs`, as it is rewritten too.
  */
-function rewriteCjkReferences(
+function classifyBeyond(
   markdown: string,
-  isRead: (begin: number) => boolean,
-): string {
-  return markdown.replace(
-    REFERENCE,
-    (
-      match: string,
-      backslashes: string | undefined,
-      decimal: string | undefined,
-      hex: string | undefined,
-      offset: number,
-    ) => {
-      const code = getCjkReference(
-        markdown,
-        match,
-        backslashes,
-        decimal,
-        hex,
-        offset,
-      );
-      // A backslash before a CJK character is not an escape, so the
-      // backslash that escaped it before the reference goes too.
-      return code >= 0 && isRead(backslashes ? offset + 2 : offset)
-        ? (backslashes ? '\\' : '') + String.fromCodePoint(code)
-        : match;
-    },
+  index: number,
+  step: 1 | -1,
+  cjk: Map<number, number>,
+  needs: number[],
+): number {
+  const marker = markdown[index];
+  if (!isRunMarker(marker)) {
+    return -1;
+  }
+  while (markdown[index] === marker) {
+    index += step;
+  }
+  const reference = cjk.get(index);
+  if (reference !== undefined) {
+    needs.push(reference);
+    // As a CJK character, which is all that is asked of it.
+    return classifyCode(0x4e16);
+  }
+  const pair = step === -1 ? markdown.codePointAt(index - 1) : undefined;
+  return classifyCode(
+    pair !== undefined && pair > 0xffff
+      ? pair
+      : (markdown.codePointAt(index) ?? null),
   );
 }
 
@@ -1329,11 +1373,20 @@ export function createMdastExport(compiled: CompiledMdast): {
       tree,
       extensions,
       isCjkFriendly,
-      // Measured behind a letter and a space, as it stands behind `| ` in
-      // its row, so that it reads as inline text there too and not as a
-      // block of its own, such as an HTML block.
+      // Measured in one parse, each as a paragraph of its own behind a
+      // letter and a space, as it stands behind `| ` in its row, so that it
+      // reads as inline text there too and not as a block of its own, such
+      // as an HTML block or a definition.
       isCjkFriendly
-        ? value => toCjkFriendly(`a ${value}`, compiled).slice(2)
+        ? values =>
+            values.some(value => value.includes('&#'))
+              ? toCjkFriendly(
+                  values.map(value => `a ${value}`).join('\n\n'),
+                  compiled,
+                )
+                  .split('\n\n')
+                  .map(value => value.slice(2))
+              : values
         : undefined,
     ).replace(/\n$/, '');
     return isCjkFriendly ? toCjkFriendly(markdown, compiled) : markdown;

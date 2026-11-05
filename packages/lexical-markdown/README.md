@@ -127,9 +127,9 @@ follows, but after whitespace as itself, as `micromark-extension-cjk-friendly`
 reads it, and after a U+0000 as the U+FFFD that readers put in its place, as
 `markdown-it-cjk-friendly` reads it. Export defaults to `'strict-commonmark'`,
 whose references every CommonMark, GFM and CJK-friendly reader reads the same
-way (`**你好。**&#19990;界`), with three exceptions. A run of three
-markers that a pair uses only part of (`***a*b*c***`, as on earlier versions,
-or `**“***!。**」!a***`) is read differently by micromark and by commonmark.js
+way (`**你好。**&#19990;界`), with three exceptions. A run of three or more
+markers that a pair uses only part of (`***a*b*c***` or `***x****y*`, as on
+earlier versions, or `**“***!。**」!a***`) is read differently by micromark and by commonmark.js
 and markdown-it, which apply the rule of 3 to the whole run.
 A selector after a tab, a line ending, a vertical tab or a form feed that ends
 a run (`**。\v︎**`) reads as that whitespace in `markdown-it-cjk-friendly`,

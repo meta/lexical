@@ -93,8 +93,8 @@ export interface MarkdownExportOptions {
    * `'strict-commonmark'`, which writes a character reference where a marker
    * beside punctuation would otherwise not open or close (`**你好。**&#19990;界`),
    * so that every CommonMark, GFM and CJK-friendly reader reads it the same
-   * way, but for a run of three markers that a pair uses only part of
-   * (`***a*b*c***`), which commonmark.js and markdown-it read differently from
+   * way, but for a run of three or more markers that a pair uses only part
+   * of (`***a*b*c***`, `***x****y*`), which commonmark.js and markdown-it read differently from
    * micromark, and a selector after a tab, a line ending, a vertical tab or a
    * form feed that ends a run (`**。\v︎**`), which `markdown-it-cjk-friendly`
    * reads as that whitespace, leaving those markers literal, and a vertical
@@ -146,29 +146,9 @@ function $importMarkdown(
 /**
  * Renders markdown from a string. The selection is moved to the start after the operation.
  *
- *  @param {boolean | MarkdownImportOptions} [shouldPreserveNewLines] By setting this to true, new lines will be preserved between conversions. {@link MarkdownImportOptions} can be passed here instead, in place of this and `shouldMergeAdjacentLines`.
+ *  @param {boolean | MarkdownImportOptions} [shouldPreserveNewLines] By setting this to true, new lines will be preserved between conversions. {@link MarkdownImportOptions} can be passed here instead, in place of this; lines are merged when either it or `shouldMergeAdjacentLines` asks for that.
  *  @param {boolean} [shouldMergeAdjacentLines] By setting this to true, adjacent non empty lines will be merged according to commonmark spec: https://spec.commonmark.org/0.24/#example-177. Not applicable if shouldPreserveNewLines = true.
  */
-function $convertFromMarkdownString(
-  markdown: string,
-  transformers?: Transformer[],
-  node?: ElementNode,
-  options?: MarkdownImportOptions,
-): void;
-function $convertFromMarkdownString(
-  markdown: string,
-  transformers?: Transformer[],
-  node?: ElementNode,
-  shouldPreserveNewLines?: boolean,
-  shouldMergeAdjacentLines?: boolean,
-): void;
-function $convertFromMarkdownString(
-  markdown: string,
-  transformers?: Transformer[],
-  node?: ElementNode,
-  shouldPreserveNewLines?: boolean | MarkdownImportOptions,
-  shouldMergeAdjacentLines?: boolean,
-): void;
 function $convertFromMarkdownString(
   markdown: string,
   transformers: Transformer[] = TRANSFORMERS,
@@ -194,26 +174,9 @@ function $convertFromMarkdownString(
  * without modifying the document tree or selection. The returned nodes can be
  * inserted at an arbitrary position via `selection.insertNodes()`.
  *
- *  @param {boolean | MarkdownImportOptions} [shouldPreserveNewLines] By setting this to true, new lines will be preserved between conversions. {@link MarkdownImportOptions} can be passed here instead, in place of this and `shouldMergeAdjacentLines`.
+ *  @param {boolean | MarkdownImportOptions} [shouldPreserveNewLines] By setting this to true, new lines will be preserved between conversions. {@link MarkdownImportOptions} can be passed here instead, in place of this; lines are merged when either it or `shouldMergeAdjacentLines` asks for that.
  *  @param {boolean} [shouldMergeAdjacentLines] By setting this to true, adjacent non empty lines will be merged according to commonmark spec: https://spec.commonmark.org/0.24/#example-177. Not applicable if shouldPreserveNewLines = true.
  */
-function $generateNodesFromMarkdownString(
-  markdown: string,
-  transformers?: Transformer[],
-  options?: MarkdownImportOptions,
-): LexicalNode[];
-function $generateNodesFromMarkdownString(
-  markdown: string,
-  transformers?: Transformer[],
-  shouldPreserveNewLines?: boolean,
-  shouldMergeAdjacentLines?: boolean,
-): LexicalNode[];
-function $generateNodesFromMarkdownString(
-  markdown: string,
-  transformers?: Transformer[],
-  shouldPreserveNewLines?: boolean | MarkdownImportOptions,
-  shouldMergeAdjacentLines?: boolean,
-): LexicalNode[];
 function $generateNodesFromMarkdownString(
   markdown: string,
   transformers: Transformer[] = TRANSFORMERS,

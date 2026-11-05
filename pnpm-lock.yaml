@@ -210,7 +210,7 @@ importers:
         specifier: ^11.3.4
         version: 11.3.4
       get-east-asian-width:
-        specifier: ^1.7.0
+        specifier: 1.7.0
         version: 1.7.0
       glob:
         specifier: ^13.0.6
