@@ -252,6 +252,8 @@ declare export function sourceView(record: {
 }): {doc: Doc, complete: boolean, ...};
 
 export type YPendingRecordInput = {
+  readonly v?: 1,
+  readonly updateFormat?: 'yjs-v1',
   readonly kind: 'pending',
   readonly id?: string,
   readonly stored: Uint8Array,

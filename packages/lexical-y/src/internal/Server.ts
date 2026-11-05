@@ -950,6 +950,9 @@ export interface YQuarantineRecordInput {
  * Its base is the migrated state, which lacks the cut items.
  */
 export interface YPendingRecordInput {
+  /** As YQuarantineRecordInput's: absent, or version 1, `'yjs-v1'`. */
+  readonly v?: 1;
+  readonly updateFormat?: 'yjs-v1';
   readonly kind: 'pending';
   readonly id?: string;
   /** The stored state the material was split from. */
@@ -1155,6 +1158,9 @@ export function createYQuarantineRecord(
   input: YQuarantineRecordInput | YPendingRecordInput,
   base: {readonly generation: string; readonly state: Uint8Array} | null = null,
 ): YQuarantineRecord {
+  // The header first, on the caller's own input, before either form reads
+  // anything: a supplied unsupported version or format is never restamped.
+  checkRecordHeader(input);
   const pending = pendingForm(input);
   return pending === null
     ? materialRecord(input as YQuarantineRecordInput, base)
@@ -1206,11 +1212,14 @@ function pendingForm(
   return input as YPendingRecordInput;
 }
 
-/** createYQuarantineRecord's material form. */
-function materialRecord(
-  input: YQuarantineRecordInput,
-  base: {readonly generation: string; readonly state: Uint8Array} | null = null,
-): YQuarantineRecord {
+/**
+ * A record input's optional `v` and `updateFormat`: absent is version 1,
+ * `'yjs-v1'` (the material this release makes); anything else supplied is
+ * refused, so material of another format is never stamped as version 1.
+ */
+function checkRecordHeader(
+  input: YQuarantineRecordInput | YPendingRecordInput,
+): void {
   const header = input as unknown as Record<string, unknown>;
   if (
     (header.v !== undefined && header.v !== 1) ||
@@ -1220,6 +1229,14 @@ function materialRecord(
       `@lexical/y: cannot build a version 1 record from material of version ${String(header.v)}, update format ${String(header.updateFormat)}: keep it as it is`,
     );
   }
+}
+
+/** createYQuarantineRecord's material form. */
+function materialRecord(
+  input: YQuarantineRecordInput,
+  base: {readonly generation: string; readonly state: Uint8Array} | null = null,
+): YQuarantineRecord {
+  checkRecordHeader(input);
   // Copies of everything the caller handed over (bytes and arrays): an
   // acknowledged payload never changes under its hash.
   const snapshot = input.snapshot == null ? null : input.snapshot.slice();

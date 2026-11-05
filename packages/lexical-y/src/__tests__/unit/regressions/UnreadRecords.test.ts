@@ -154,6 +154,39 @@ describe.each([false, true])(
           } as unknown as YQuarantineRecordInput),
         ).toThrow(TypeError);
       }
+      // The pending form too: its header is checked on the caller's input
+      // before the form is chosen, never dropped and restamped.
+      const [stored, cut] = [v1Update(gc), v1Update(gc)];
+      for (const header of [
+        {v: 2},
+        {updateFormat: 'yjs-v2'},
+        {updateFormat: 'yjs-v1', v: 2},
+        {updateFormat: 'yjs-v2', v: 2},
+      ]) {
+        expect(() =>
+          createYQuarantineRecord({
+            ...header,
+            kind: 'pending',
+            pending: cut,
+            receivedAt: 1,
+            source: SOURCE,
+            stored,
+          } as unknown as YQuarantineRecordInput),
+        ).toThrow(TypeError);
+      }
+      // Absent or version 1 tags are the local default.
+      for (const header of [{}, {updateFormat: 'yjs-v1', v: 1}]) {
+        expect(
+          createYQuarantineRecord({
+            ...header,
+            kind: 'pending',
+            pending: cut,
+            receivedAt: 1,
+            source: SOURCE,
+            stored,
+          } as unknown as YQuarantineRecordInput),
+        ).toMatchObject({kind: 'pending', updateFormat: 'yjs-v1', v: 1});
+      }
       // Version 1 material, as a capture hands it over, is accepted.
       const capture = createYSessionCapture();
       capture.add(v1Update(gc));
