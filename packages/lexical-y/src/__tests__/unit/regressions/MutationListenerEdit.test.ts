@@ -63,13 +63,18 @@ async function run(gc: boolean, variant: Variant) {
   let made = 0;
   // 'burst': the listener edits only while the three transactions are read.
   let armed =
-    variant !== 'burst' && variant !== 'local' && variant !== 'inside';
+    variant !== 'burst' &&
+    variant !== 'local' &&
+    variant !== 'inside' &&
+    variant !== 'refused';
   const limit =
     variant === 'burst'
       ? 3
-      : variant === 'local' || variant === 'inside'
-        ? 2
-        : 4;
+      : variant === 'refused'
+        ? 1
+        : variant === 'local' || variant === 'inside'
+          ? 2
+          : 4;
   a.editor.registerMutationListener(
     TextNode,
     mutations => {
