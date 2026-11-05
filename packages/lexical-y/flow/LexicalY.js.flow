@@ -324,8 +324,16 @@ declare export class YBinding {
   $resolveCursor(cursor: YCursor): {anchor: PointType, focus: PointType} | null;
 }
 
-// What YBinding.quiesce() returns (repeat calls and calls after dispose
-// write nothing).
+// What YBinding.quiesce() returns. Repeat calls (before or after dispose)
+// write nothing and return a copy of the first call's result, draft and
+// differs included; a first call after dispose writes nothing either. The
+// draft is the editor state's JSON, parsed from JSON.stringify's text (a
+// Date NodeState value is its ISO string, NaN is null, a Map is {}). A
+// state JSON cannot hold, found before the drain, makes quiesce() throw a
+// TypeError without draining or quiescing; one that app code produces
+// during the drain throws after local work may have been written, with
+// nothing cached (fix it and retry). Every result, the first included, is
+// its own copy.
 export type YQuiescedState = {
   readonly state: Uint8Array,
   readonly draft: {readonly json: SerializedEditorState, readonly differs: boolean},
