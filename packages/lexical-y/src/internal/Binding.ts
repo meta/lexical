@@ -685,17 +685,11 @@ function recordSetMembersLayout(root: YNode, tr: Transaction): void {
 }
 
 /**
- * TextNode's own selectionTransform as this module found it: the one that
- * does nothing, unless an app patched it before (see doesNothing). A text
- * class's override, or an app's patch of TextNode's own (which every text
- * class then runs), is anything else (see markReadEnd).
- */
-const BASE_SELECTION_TRANSFORM = TextNode.prototype.selectionTransform;
-
-/**
  * Whether `fn` is a method that does nothing (plain parameters and an empty
  * body, or a bare `return`), as TextNode's own selectionTransform is (an
  * app may have patched it before this module loaded).
+ *
+ * @__NO_SIDE_EFFECTS__
  */
 function doesNothing(fn: unknown): boolean {
   // Its own source (not an overridable toString): a name, plain parameter
@@ -708,8 +702,23 @@ function doesNothing(fn: unknown): boolean {
   );
 }
 
-/** Whether BASE_SELECTION_TRANSFORM is TextNode's own, which does nothing. */
-const BASE_DOES_NOTHING = doesNothing(BASE_SELECTION_TRANSFORM);
+/**
+ * TextNode's own selectionTransform as this module found it, and whether it
+ * does nothing (an app may have patched it before this module loaded). A
+ * text class's override, or an app's patch of TextNode's own (which every
+ * text class then runs), is anything else (see markReadEnd).
+ *
+ * @__NO_SIDE_EFFECTS__
+ */
+function baseSelectionTransform(): {
+  readonly doesNothing: boolean;
+  readonly fn: unknown;
+} {
+  const fn = TextNode.prototype.selectionTransform;
+  return {doesNothing: doesNothing(fn), fn};
+}
+
+const BASE_SELECTION_TRANSFORM = baseSelectionTransform();
 
 /**
  * @experimental A Yjs 14 binding for one editor and one shared root.
@@ -3732,8 +3741,8 @@ export class YBinding {
       return (
         point.type === 'text' &&
         $isTextNode(node) &&
-        (node.selectionTransform !== BASE_SELECTION_TRANSFORM ||
-          !BASE_DOES_NOTHING)
+        (node.selectionTransform !== BASE_SELECTION_TRANSFORM.fn ||
+          !BASE_SELECTION_TRANSFORM.doesNothing)
       );
     };
     if (
