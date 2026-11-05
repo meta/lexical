@@ -15,6 +15,8 @@ import {
   $isElementNode,
   $isTextNode,
   $setSelection,
+  COMMAND_PRIORITY_EDITOR,
+  createCommand,
   TextNode,
 } from 'lexical';
 import {describe, expect, test} from 'vitest';
@@ -176,3 +178,72 @@ describe.each([false, true])('an edit a mutation listener makes, gc %s', gc => {
     run(gc, 'discrete'),
   );
 });
+
+const APPEND_HASH = createCommand<void>('APPEND_HASH');
+
+// An app's update listener (registered after the binding) that dispatches a
+// command editing the document on the commit of a local update a provider
+// applied a remote change inside: the command's update begins at once, and
+// the deferred change's read, already queued, runs inside it, so its edit
+// commits under the read's tags and is never written (main too):
+// https://github.com/meta/lexical/issues/9805
+describe.each([false, true])(
+  'a command an update listener dispatches, gc %s',
+  gc => {
+    test.fails(
+      'with a remote change applied inside the local update: is stored as the editor shows it',
+      async () => {
+        const t = await setup(
+          () =>
+            $getRoot().append(
+              $createParagraphNode().append($createTextNode('zero')),
+              $createParagraphNode().append($createTextNode('two')),
+            ),
+          {gc, ids: [1, 2, 3]},
+        );
+        const {a, b} = t;
+        let armed = false;
+        let made = 0;
+        a.editor.registerCommand(
+          APPEND_HASH,
+          () => {
+            const last = $getRoot().getLastChild();
+            const text = $isElementNode(last) ? last.getLastDescendant() : null;
+            if ($isTextNode(text)) {
+              text.setTextContent(text.getTextContent() + '#');
+            }
+            return true;
+          },
+          COMMAND_PRIORITY_EDITOR,
+        );
+        a.editor.registerUpdateListener(({dirtyLeaves}) => {
+          if (armed && made < 1 && dirtyLeaves.size > 0) {
+            made++;
+            a.editor.dispatchCommand(APPEND_HASH, undefined);
+          }
+        });
+        t.offline();
+        b.update(() => {
+          $selectIn([0], 2, 3).formatText('italic');
+          $setSelection(null);
+        });
+        const remote = Y.encodeStateAsUpdate(b.doc, Y.encodeStateVector(a.doc));
+        a.update(() => {
+          $selectIn([0], 0, 1).formatText('underline');
+          $setSelection(null);
+        });
+        armed = true;
+        a.update(() => {
+          $selectIn([0], 3, 4).formatText('underline');
+          $setSelection(null);
+          Y.applyUpdate(a.doc, remote, 'provider');
+        });
+        await t.sync();
+        expect(made).toBe(1);
+        expect(a.read(() => $getRoot().getTextContent())).toBe('zero\n\ntwo#');
+        expect(a.describe()).toBe((await freshReader(a)).describe());
+        expect(b.describe()).toBe(a.describe());
+      },
+    );
+  },
+);
