@@ -1542,30 +1542,6 @@ export function $foreignFlatKeys(
 }
 
 /**
- * The NodeState value `node` holds for state key `key` (its stored name
- * without `s:`), as held: the object itself (see State.strayValues).
- */
-export function $heldStateValue(node: LexicalNode, key: string): unknown {
-  const state = node.getLatest().__state;
-  if (state === undefined) {
-    return undefined;
-  }
-  const unknown = state.unknownState;
-  if (
-    unknown !== undefined &&
-    Object.prototype.hasOwnProperty.call(unknown, key)
-  ) {
-    return unknown[key];
-  }
-  for (const [config, value] of state.getInternalState()[1]) {
-    if (config.key === key) {
-      return value;
-    }
-  }
-  return undefined;
-}
-
-/**
  * Formats of a text node's characters: its type (`t`, when not 'text'), one
  * key per format bit (`f:bold`), its other JSON fields (`p:style`, ...), its
  * NodeState (`s:<key>`), and for a node Lexical would not merge with an equal
