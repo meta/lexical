@@ -2014,7 +2014,12 @@ export class YBinding {
           this.pending.has('reread') ||
           this.pending.has('restore')));
     this.quiesced = true;
-    this.setStatus('readonly');
+    // After dispose() the editor is no longer the binding's: dispose gave
+    // its editability back, and a status change would take it away again
+    // (a binding started later on the same editor would keep it).
+    if (this.started) {
+      this.setStatus('readonly');
+    }
     return {draft: {differs, json}, state: encodeStateAsUpdate(this._doc)};
   }
 

@@ -513,6 +513,8 @@ describe.each([false, true])('the binding and layout migrations, gc %s', gc => {
     // After dispose: the document's state and the editor's draft, no write.
     b.binding.dispose();
     const disposed = b.binding.quiesce();
+    // It leaves the editor as dispose() gave it back: editable.
+    expect(b.editor.isEditable()).toBe(true);
     expect(Buffer.from(disposed.state)).toEqual(Buffer.from(first.state));
     expect(JSON.stringify(disposed.draft.json)).toContain('kept');
     expect(disposed.draft.differs).toBe(false);
