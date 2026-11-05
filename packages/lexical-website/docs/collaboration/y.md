@@ -1093,7 +1093,10 @@ not merge as a user might expect:
   collaborator's change the editor does not show yet (the line being
   composed with an input method, see Input method composition, or a change
   applied during the update that moves it) is never the one rewritten: it
-  keeps that change, and the blocks it passes are written again. A change
+  keeps that change, and the blocks it passes are written again. Of two
+  such blocks in one container, an update that changes their order is not
+  stored, with a warning (`UNSUPPORTED_EDIT_WARNING`, `'composing-move'`):
+  only one of them could keep its change. A change
   applied during an update that moves its block to another container
   (into or out of a table cell or a box) is not kept that way: its text is
   lost or lands at the old position, as a collaborator's typing in a block

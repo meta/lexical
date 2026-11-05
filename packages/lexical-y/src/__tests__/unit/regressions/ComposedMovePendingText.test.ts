@@ -48,6 +48,9 @@ import {describe, expect, test} from 'vitest';
 import {
   $createBoxNode,
   $createEquation,
+  ColContainerNode,
+  ColContentNode,
+  ColTitleNode,
   expectConverged,
   freshReader,
   NODES,
@@ -655,6 +658,92 @@ describe('inserted by a change not read yet in two slots, their hosts reordered'
         expect(p.read($all)).toBe(a.read($all));
       }
       expect(a.describe()).toBe((await freshReader(a)).describe());
+    });
+  }
+});
+
+// Composing in a block node that holds its text itself (a collapsible's
+// title): the same node is the inline container one level down and the unit
+// holding it one level up. Nothing moves to another container here.
+describe('held back in a collapsible title, an edit that moves nothing out', () => {
+  for (const gc of GC) {
+    for (const edit of [
+      'a keystroke in the composed text',
+      'the collapsible moved in its container',
+    ] as const) {
+      test(`${edit} (gc ${gc})`, async () => {
+        const t = await setup(
+          () =>
+            $getRoot().append(
+              $create(ColContainerNode).append(
+                $create(ColTitleNode).append($text('abc')),
+                $create(ColContentNode).append(
+                  $createParagraphNode().append($text('body')),
+                ),
+              ),
+              $createParagraphNode().append($text('other')),
+            ),
+          {gc, ids: [1, 2, 3]},
+        );
+        await composeAndMove(t, 'text', () => {
+          if (edit === 'a keystroke in the composed text') {
+            $abc().spliceText(1, 0, 'x');
+          } else {
+            $getRoot().append($getRoot().getFirstChildOrThrow());
+          }
+        });
+        expect(refusals(t.a)).toEqual([]);
+        const shown = t.a.describe();
+        expect(shown).toBe((await freshReader(t.a)).describe());
+        expect(shown).toContain(
+          edit === 'a keystroke in the composed text' ? '"axRbc"' : '"aRbc"',
+        );
+        if (edit === 'the collapsible moved in its container') {
+          expect(shown).toMatch(/^paragraph\("other"\) \/ test_col/);
+        }
+        await expectConverged(t.peers);
+      });
+    }
+  }
+});
+
+// A paragraph a change not read yet inserts holds content the editor does not
+// show, but is no line the document had: a line moved past it is stored.
+describe('a paragraph inserted by a change not read yet, another line moved', () => {
+  for (const gc of GC) {
+    test(`gc ${gc}`, async () => {
+      const t = await setup(
+        () =>
+          $getRoot().append(
+            ...['aa', 'bb', 'cc'].map(text =>
+              $createParagraphNode().append($text(text)),
+            ),
+          ),
+        {gc, ids: [1, 2, 3]},
+      );
+      const {a, b} = t;
+      t.offline();
+      const seen = Y.encodeStateVector(b.doc);
+      b.update(() => {
+        const [, bb] = $getRoot().getChildren();
+        bb.insertBefore($createParagraphNode().append($text('new')));
+        $getRoot()
+          .getAllTextNodes()
+          .find(n => n.getTextContent() === 'cc')!
+          .spliceText(1, 0, 'Y');
+        $setSelection(null);
+      });
+      const delta = Y.encodeStateAsUpdate(b.doc, seen);
+      a.update(() => {
+        Y.applyUpdate(a.doc, delta, 'provider');
+        $getRoot().append($getRoot().getChildAtIndex(1)!);
+      });
+      await t.sync();
+      expect(a.warnings.filter(w => w.includes('reorders lines'))).toEqual([]);
+      const text = a.read(() => $getRoot().getTextContent());
+      expect(text.replace(/\n+/g, '|')).toBe('aa|new|cYc|bb');
+      expect(a.describe()).toBe((await freshReader(a)).describe());
+      await expectConverged(t.peers);
     });
   }
 });

@@ -4332,26 +4332,61 @@ export class YBinding {
       }
       return false;
     };
-    const root = state.containers.get(this._root);
-    for (const cs of [
-      ...(root === undefined ? [] : [root]),
-      ...state.csByKey.values(),
-    ]) {
+    // The containers to look at: every one while a change is not read yet;
+    // while only a composition holds content back, those it holds in (the
+    // line composed in, and lines a local split of it made).
+    let containers: CS[];
+    if (unread !== null || hidden === null) {
+      const root = state.containers.get(this._root);
+      containers = [
+        ...(root === undefined ? [] : [root]),
+        ...state.csByKey.values(),
+      ];
+    } else {
+      const found = new Set<CS>();
+      for (const parent of this.hiddenItems(hidden).keys()) {
+        for (
+          let y: YNode | null = parent;
+          y !== null;
+          y = y._item === null ? null : (y._item.parent as YNode)
+        ) {
+          const cs = state.containers.get(y);
+          if (cs !== undefined) {
+            found.add(cs);
+          }
+        }
+      }
+      containers = [...found];
+    }
+    for (const cs of containers) {
       if (cs.kind !== 'b' || cs.units.length < 2) {
         continue;
       }
       // The units holding such content, in the order the document has them.
       const held: Unit[] = [];
       let unit = 0;
+      // Whether the unit being walked holds such content so far.
+      let holding = false;
       for (let it: Item | null = cs.y._start; it !== null; it = it.right) {
         const u = cs.units[unit];
         if (u === undefined) {
           break;
         }
-        if (held[held.length - 1] !== u && holds(it)) {
-          held.push(u);
+        if (it !== u.end && isEndItem(it) && !shows(it)) {
+          // The end of a unit the editor does not show yet (a paragraph a
+          // change not read yet inserted): what came before it is that
+          // unit's, not the next one's.
+          holding = false;
+          continue;
+        }
+        if (holds(it)) {
+          holding = true;
         }
         if (it === u.end) {
+          if (holding) {
+            held.push(u);
+          }
+          holding = false;
           unit++;
         }
       }
@@ -4399,7 +4434,7 @@ export class YBinding {
     // Whether `key`, where the editor still has it, is below `above`.
     const inside = (key: NodeKey, above: NodeKey): boolean => {
       const node = $getNodeByKey(key);
-      if (node === null || !node.isAttached()) {
+      if (node === null || !node.isAttached() || key === above) {
         return true;
       }
       // Its parents, and the hosts of the slots on the way.
