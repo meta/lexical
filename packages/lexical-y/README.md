@@ -53,7 +53,6 @@ import {RichTextExtension} from '@lexical/rich-text';
 import {
   createYCollabConfig,
   createYDoc,
-  createYServerLayoutUpgrade,
   YCollabExtension,
 } from '@lexical/y';
 import {defineExtension} from 'lexical';
@@ -67,10 +66,13 @@ const editor = buildEditorFromExtensions(
       RichTextExtension,
       // Required: the version of your editor's nodes (bump it when you add,
       // remove or change one), and how documents below MIN_LAYOUT are
-      // upgraded (your server migrates them, or null: read only).
+      // upgraded. null: no server migrates this provider's stored
+      // documents, so one below the floor opens read only. An app whose
+      // server migrates passes createYServerLayoutUpgrade() and sends its
+      // handshake.
       createYCollabConfig({
         doc,
-        layoutUpgrade: createYServerLayoutUpgrade(),
+        layoutUpgrade: null,
         schemaVersion: 1,
       }),
     ],
@@ -239,7 +241,11 @@ of set-valued NodeState.
   such a root (`YMigrationError` `'unsupported-feature'` or `'malformed'`,
   before any root runs); a root that needs no step passes through
   unchanged. This release supports no feature. Any other `lexical-y-*`
-  attribute a reader does not know is kept and ignored.
+  attribute a reader does not know is kept and ignored. Releases before
+  this one read only `lexical-y:<n>` and ignore `lexical-y-require:*`, so
+  they would still edit such a root: a writer that adds a requirement also
+  raises the layout record (older releases then open the root read only),
+  or relies on its server's fence to keep those clients out.
   A server lists every required feature in `describeYRoom`'s `requires` and
   admits no session that does not present them all; a malformed requirement
   makes its root unreadable.

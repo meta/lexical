@@ -692,7 +692,10 @@ holds blocks), and each of its named slots as an attribute `slot:<name>`
 whose value is the slot's `b:<type>` node. A root may also declare features
 its content needs (`lexical-y-require:<feature>`): a reader that does not
 support one opens the root read only and keeps it as it is, and the
-migration runner does not migrate it (`'unsupported-feature'`). The root also
+migration runner does not migrate it (`'unsupported-feature'`). Releases
+before this one ignore these attributes and would still edit such a root:
+a writer that adds a requirement also raises the layout record, or relies
+on its server's fence to keep those clients out. The root also
 records the layout versions the document needs
 (`lexical-y:1`, a record that only grows) and, per type, the storage kind its
 first write chose (`k:<type>`).
