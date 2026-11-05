@@ -38,13 +38,16 @@ const MIGRATION_ORIGIN_KEY = Symbol.for('@lexical/y/migration');
 const BINDING_ORIGINS = new WeakSet<object>();
 
 /**
- * The transactions a binding wrote in (its writes, seeds, pins, recoveries,
- * undo and redo, follow-ups and run ends), even when they joined an app's
- * transaction and carry its origin: never raw writes.
+ * The transactions a binding wrote in (its admitted writes and pins, a
+ * seed into a pristine root, a recovery, an undo or redo that popped an item
+ * or threw part way, and run ends), even when they joined an app's
+ * transaction and carry its origin: never raw writes. A binding call that
+ * writes nothing (refused, not pristine, an empty stack) marks nothing, so
+ * it never hides an app's raw write in the same transaction.
  */
 const BINDING_WRITES = new WeakSet<Transaction>();
 
-/** Mark `tr` as one a binding writes in (at the start of its callback). */
+/** Mark `tr` as one a binding writes in (once it is known to write). */
 export function markBindingWrite(tr: Transaction): void {
   BINDING_WRITES.add(tr);
 }

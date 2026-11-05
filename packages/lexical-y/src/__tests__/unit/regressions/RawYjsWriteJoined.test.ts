@@ -21,9 +21,10 @@ import {
   $getRoot,
   defineExtension,
 } from 'lexical';
-import {describe, expect, test} from 'vitest';
+import {describe, expect, test, vi} from 'vitest';
 
 import {createYDoc, RAW_YJS_WRITE_WARNING, YBinding} from '../../..';
+import * as RawWrites from '../../../internal/RawWrites';
 import {catalogAppExtension} from '../../catalog/bind';
 import {rawDoc, SEED} from '../../utils/migrateSteps';
 import {textOf} from '../../utils/splitFixtures';
@@ -133,6 +134,42 @@ describe.each([false, true])(
       expect(t.binding.status).toBe('active');
       expect(t.warnings).toEqual([]);
       t.dispose();
+    });
+
+    test('a binding call that writes nothing does not hide a raw write in the same app transaction: an empty undo, a refused redo', () => {
+      const t = bind(gc, rawDoc(SEED), false);
+      t.binding.initialize();
+      expect(t.binding.undoManager!.undoStack).toHaveLength(0);
+      t.doc.transact(() => {
+        t.root.insert(0, 'raw');
+        expect(t.binding.undo()).toBe(false);
+        expect(t.binding.redo()).toBe(false);
+      }, new AppOrigin());
+      expect(t.warnings).toHaveLength(1);
+      expect(t.warnings[0]).toMatchObject({
+        code: RAW_YJS_WRITE_WARNING,
+        data: {kind: 'content', origin: 'AppOrigin', reason: 'raw-write'},
+      });
+      t.dispose();
+    });
+
+    test('the closer carry of an undo (an internal flag, no write) marks no transaction', () => {
+      const t = bind(gc);
+      t.binding.initialize();
+      t.append('carry');
+      const spy = vi.spyOn(RawWrites, 'markBindingWrite');
+      try {
+        expect(t.binding.undo()).toBe(true);
+        const origins = spy.mock.calls.map(
+          ([tr]) => tr.origin as {scan?: boolean} | null,
+        );
+        expect(origins.some(o => o !== null && o.scan === true)).toBe(false);
+        // The undo itself (a step that popped an item) is marked.
+        expect(spy).toHaveBeenCalled();
+      } finally {
+        spy.mockRestore();
+        t.dispose();
+      }
     });
 
     test('control: a raw write by the app in its own transaction is still reported', () => {

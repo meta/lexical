@@ -315,19 +315,23 @@ function gatedStep(
   heldPops.set(um, held);
   try {
     um.doc.transact(tr => {
-      // Development builds: the binding's own write, even when it joined
-      // an app's transaction (see noteRawWrite).
-      if (__DEV__) {
-        markBindingWrite(tr);
-      }
       if (!admission()) {
         refusedHistory.add(tr);
         return;
       }
       const steps = undoSteps.get(um)!;
+      let threw = true;
       try {
         result = undo ? steps.undo() : steps.redo();
+        threw = false;
       } finally {
+        // Development builds: a step that wrote (it popped an item, or threw
+        // part way) is the binding's own write, even when it joined an app's
+        // transaction (see noteRawWrite). An empty stack writes nothing and
+        // leaves the transaction to be judged by its origin.
+        if (__DEV__ && (threw || result !== null)) {
+          markBindingWrite(tr);
+        }
         // Yjs resets these when its own (joined) transaction returns (or a
         // listener of its pop throws), but this one ends later: its capture
         // must still see an undo or a redo, and a step a listener of that
@@ -2137,15 +2141,15 @@ export class YBinding {
         // read back like any document's content, so the editor shows what
         // is stored (and the state maps it), with its selection kept.
         this._doc.transact(tr => {
-          // Development builds: the binding's own write, even when it joined
-          // an app's transaction (see noteRawWrite).
-          if (__DEV__) {
-            markBindingWrite(tr);
-          }
           if (
             this.rootPristine() &&
             sameSchemaRecords(this.schemaRecords(), seedSchema)
           ) {
+            // Development builds: the binding's own write, even when it
+            // joined an app's transaction (see noteRawWrite).
+            if (__DEV__) {
+              markBindingWrite(tr);
+            }
             seeded = true;
             applyUpdate(this._doc, seed.bytes, this.initOrigin);
           }
@@ -2161,15 +2165,15 @@ export class YBinding {
         return;
       }
       this._doc.transact(tr => {
-        // Development builds: the binding's own write, even when it joined
-        // an app's transaction (see noteRawWrite).
-        if (__DEV__) {
-          markBindingWrite(tr);
-        }
         if (
           this.rootPristine() &&
           sameSchemaRecords(this.schemaRecords(), seedSchema)
         ) {
+          // Development builds: the binding's own write, even when it joined
+          // an app's transaction (see noteRawWrite).
+          if (__DEV__) {
+            markBindingWrite(tr);
+          }
           seeded = true;
           this.$writeInitial(this.state, this._root, tr, editorState);
         }
@@ -5397,11 +5401,6 @@ export class YBinding {
     let after = grace;
     try {
       this._doc.transact(tr => {
-        // Development builds: the binding's own write, even when it joined
-        // an app's transaction (see noteRawWrite).
-        if (__DEV__) {
-          markBindingWrite(tr);
-        }
         // Admitted inside the transaction, after every beforeTransaction
         // listener of the document ran (any may change the layout record or
         // the schema record before anything is written): refused, nothing
@@ -5409,6 +5408,11 @@ export class YBinding {
         if (!this.admitsIn(grace)) {
           refused = true;
           return;
+        }
+        // Development builds: the binding's own write, even when it joined
+        // an app's transaction (see noteRawWrite).
+        if (__DEV__) {
+          markBindingWrite(tr);
         }
         this.splitAtUnread(tr);
         try {
@@ -5442,16 +5446,16 @@ export class YBinding {
       }
       if (!commit.followUp) {
         this._doc.transact(tr => {
-          // Development builds: the binding's own write, even when it joined
-          // an app's transaction (see noteRawWrite).
-          if (__DEV__) {
-            markBindingWrite(tr);
-          }
           // Admitted inside its own transaction too (see the write's): a
           // record that stopped admitting writes gets no pin, and is read
           // (see readChange).
           if (!this.admitsIn(after)) {
             return;
+          }
+          // Development builds: the binding's own write, even when it joined
+          // an app's transaction (see noteRawWrite).
+          if (__DEV__) {
+            markBindingWrite(tr);
           }
           this.recordPins(this._root, editorState, [
             ...dirtyElements.keys(),
@@ -5474,15 +5478,15 @@ export class YBinding {
       let recoveryRefused = false;
       try {
         this._doc.transact(tr => {
-          // Development builds: the binding's own write, even when it joined
-          // an app's transaction (see noteRawWrite).
-          if (__DEV__) {
-            markBindingWrite(tr);
-          }
           // Admitted inside its own transaction, as the write it recovers.
           if (!this.admitsIn(after)) {
             recoveryRefused = true;
             return;
+          }
+          // Development builds: the binding's own write, even when it joined
+          // an app's transaction (see noteRawWrite).
+          if (__DEV__) {
+            markBindingWrite(tr);
           }
           this.splitAtUnread(tr);
           try {
@@ -6811,11 +6815,6 @@ export class YBinding {
   private carryCloserMarks(step: UndoManager['undoStack'][number]): void {
     const store = this._doc.store;
     this._doc.transact(tr => {
-      // Development builds: the binding's own write, even when it joined
-      // an app's transaction (see noteRawWrite).
-      if (__DEV__) {
-        markBindingWrite(tr);
-      }
       iterateStructsByIdSet(tr, step.deletes, s => {
         if (s instanceof Item && s.redone !== null && isFormatCloser(s)) {
           const copy = store.getItem(s.redone);
