@@ -100,10 +100,13 @@ import {
 } from './Cursor';
 import {$canonicalizeGroup, $switchesWrapper} from './Groups';
 import {
-  epochRecordOf,
+  epochRecordIn,
   isGateKey,
   onYMigrationEpoch,
   readRequirements,
+  requirementsIn,
+  type RootAttrs,
+  type YRequirements,
 } from './Layouts';
 import {type YLayoutUpgradeHandle} from './LayoutUpgrade';
 import {
@@ -823,10 +826,14 @@ function opensRun(item: Item): boolean {
  * version does not support: each opens the document read only.
  */
 function recordedLayout(root: YNode): number | null {
-  return malformedLayout(root) !== null ||
-    readRequirements(root).unknown.length > 0
+  // The root's attributes read once (getAttrs builds them afresh): this runs
+  // on the write path, in every binding-authored transaction.
+  const attrs = root.getAttrs() as RootAttrs;
+  const requirements = requirementsIn(attrs);
+  return malformedIn(attrs, requirements) !== null ||
+    requirements.unknown.length > 0
     ? NaN
-    : newestLayout(root);
+    : newestIn(attrs);
 }
 
 /**
@@ -836,7 +843,15 @@ function recordedLayout(root: YNode): number | null {
  * requirement that is not well formed (see readRequirements).
  */
 function malformedLayout(root: YNode): {key: string; found: unknown} | null {
-  const attrs = root.getAttrs() as Record<string, unknown>;
+  const attrs = root.getAttrs() as RootAttrs;
+  return malformedIn(attrs, requirementsIn(attrs));
+}
+
+/** malformedLayout, on attributes and requirements already read. */
+function malformedIn(
+  attrs: RootAttrs,
+  requirements: YRequirements,
+): {key: string; found: unknown} | null {
   for (const key in attrs) {
     if (key.startsWith(LAYOUT_PREFIX)) {
       const n = key.slice(LAYOUT_PREFIX.length);
@@ -845,18 +860,17 @@ function malformedLayout(root: YNode): {key: string; found: unknown} | null {
       }
     }
   }
-  const epoch = epochRecordOf(root);
+  const epoch = epochRecordIn(attrs);
   if (epoch.kind === 'malformed') {
     return {found: epoch.found, key: EPOCH_KEY};
   }
-  const [requirement] = readRequirements(root).malformed;
+  const [requirement] = requirements.malformed;
   return requirement === undefined ? null : requirement;
 }
 
-/** The highest version of `root`'s layout records, null when it has none. */
-function newestLayout(root: YNode): number | null {
+/** The highest version of the layout records in `attrs`, null when none. */
+function newestIn(attrs: RootAttrs): number | null {
   let version: number | null = null;
-  const attrs = root.getAttrs() as Record<string, unknown>;
   for (const k in attrs) {
     if (k.startsWith(LAYOUT_PREFIX)) {
       version = Math.max(version ?? 0, Number(k.slice(LAYOUT_PREFIX.length)));

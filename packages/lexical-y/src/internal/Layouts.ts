@@ -92,7 +92,14 @@ export type EpochRecord =
  * it does not know are accepted (and left in the document).
  */
 export function epochRecordOf(root: YNode): EpochRecord {
-  const attrs = root.getAttrs() as Record<string, unknown>;
+  return epochRecordIn(root.getAttrs() as RootAttrs);
+}
+
+/** A root's attributes, as `getAttrs()` returns them (read once, passed on). */
+export type RootAttrs = Readonly<Record<string, unknown>>;
+
+/** epochRecordOf, on attributes already read (see RootAttrs). */
+export function epochRecordIn(attrs: RootAttrs): EpochRecord {
   if (!Object.prototype.hasOwnProperty.call(attrs, EPOCH_KEY)) {
     return {kind: 'none'};
   }
@@ -180,7 +187,14 @@ export function readRequirements(
   root: YNode,
   supported: ReadonlySet<string> = SUPPORTED_FEATURES,
 ): YRequirements {
-  const attrs = root.getAttrs() as Record<string, unknown>;
+  return requirementsIn(root.getAttrs() as RootAttrs, supported);
+}
+
+/** readRequirements, on attributes already read (see RootAttrs). */
+export function requirementsIn(
+  attrs: RootAttrs,
+  supported: ReadonlySet<string> = SUPPORTED_FEATURES,
+): YRequirements {
   const required: string[] = [];
   const malformed: {key: string; found: unknown}[] = [];
   for (const key of Object.keys(attrs).sort()) {
