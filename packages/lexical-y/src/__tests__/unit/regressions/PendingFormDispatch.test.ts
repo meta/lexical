@@ -94,6 +94,30 @@ describe.each([false, true])('the pending form, gc %s', gc => {
     expect(asMaterial.hash).toBe(record.hash);
   });
 
+  test('the pending form takes null for its nullable fields, and names what it refuses', () => {
+    const [stored, cut] = updates(gc);
+    const base = {kind: 'pending', receivedAt: 1, source: SOURCE};
+    expect(
+      createYQuarantineRecord({
+        ...base,
+        draft: null,
+        pending: cut,
+        replica: null,
+        session: null,
+        stored,
+      } as unknown as YQuarantineRecordInput),
+    ).toMatchObject({kind: 'pending', queue: [cut], snapshot: stored});
+    expect(() =>
+      createYQuarantineRecord({
+        ...base,
+        draft: {differs: false, json: null},
+        pending: cut,
+        requires: ['feature'],
+        stored,
+      } as unknown as YQuarantineRecordInput),
+    ).toThrow(/`draft`, `requires`.*material form/);
+  });
+
   test("an ambiguous 'pending' input is refused", () => {
     const [stored, cut] = updates(gc);
     const base = {kind: 'pending', receivedAt: 1, source: SOURCE};
@@ -104,6 +128,16 @@ describe.each([false, true])('the pending form, gc %s', gc => {
       {...base, pending: cut, stored: 'bytes'},
       {...base, pending: cut, snapshot: stored, stored},
       {...base, pending: cut, queue: [cut], stored},
+      // Exclusive: material-form fields are refused, never dropped.
+      {...base, pending: cut, requires: ['feature'], stored},
+      {...base, pending: cut, requires: [], stored},
+      {...base, draft: {differs: true, json: {a: 1}}, pending: cut, stored},
+      {...base, pending: cut, signals: [], stored},
+      {...base, peers: false, pending: cut, stored},
+      {...base, clients: [1], pending: cut, stored},
+      {...base, pending: cut, session: 's', stored},
+      {...base, pending: cut, replica: 'r', stored},
+      {...base, deltas: [], pending: cut, stored},
     ]) {
       expect(() =>
         createYQuarantineRecord(bad as unknown as YQuarantineRecordInput),

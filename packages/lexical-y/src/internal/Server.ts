@@ -940,7 +940,11 @@ export interface YQuarantineRecordInput {
  * @experimental The input of createYQuarantineRecord for a migration's
  * `pending` material (`stored` and `pending` are reserved for this form: it
  * is taken only for kind `'pending'` with both present as bytes; any other
- * kind ignores them) (prepareYRoom's or migrateYState's), stored atomically
+ * kind ignores them). The form is exclusive: beside them it takes only
+ * `id`, `source`, `receivedAt` and the header; any field of the material
+ * form (a draft, `requires`, signals, `peers`, `clients`, a session or
+ * replica, other material) is refused: give such a record in the material
+ * form (prepareYRoom's or migrateYState's), stored atomically
  * with the migrated state: the record's kind is `'pending'`, its snapshot
  * the whole stored state the material was split from (which still holds
  * every cut item and what they depend on) and its queue the split bytes, so
@@ -1178,12 +1182,32 @@ export function createYQuarantineRecord(
 }
 
 /**
+ * Fields of the material form (YQuarantineRecordInput) the pending form does
+ * not take: refused beside `stored` and `pending`. Those in NULLABLE count
+ * only when not null (null is their documented absent value).
+ */
+const MATERIAL_ONLY = [
+  'snapshot',
+  'deltas',
+  'queue',
+  'draft',
+  'signals',
+  'requires',
+  'peers',
+  'clients',
+  'session',
+  'replica',
+] as const;
+const NULLABLE: ReadonlySet<string> = new Set(['draft', 'session', 'replica']);
+
+/**
  * The pending form of `input`, or null for the material form. The pending
  * form is chosen only for kind `'pending'` with both `stored` and `pending`
  * bytes: those two keys are reserved for it, so a record of any other kind
  * keeps its kind and material whatever extra keys it carries. A `'pending'`
- * input with only one of them, a value that is not bytes, or material
- * fields beside them is ambiguous: a TypeError.
+ * input with only one of them, or a value that is not bytes, is ambiguous,
+ * and the form is exclusive: any material-form field beside them (see
+ * MATERIAL_ONLY) is refused rather than dropped. Each is a TypeError.
  */
 function pendingForm(
   input: YQuarantineRecordInput | YPendingRecordInput,
@@ -1204,9 +1228,15 @@ function pendingForm(
       '@lexical/y: a pending record input needs both `stored` and `pending` bytes',
     );
   }
-  if (has('snapshot') || has('deltas') || has('queue')) {
+  // Exclusive: beside `stored` and `pending` it takes only the id, source,
+  // receivedAt and the header. Anything the material form declares would
+  // be dropped, so it is refused rather than lost.
+  const extra = MATERIAL_ONLY.filter(key =>
+    NULLABLE.has(key) ? raw[key] != null : has(key),
+  );
+  if (extra.length > 0) {
     throw new TypeError(
-      '@lexical/y: a pending record input takes `stored` and `pending`, not material fields beside them',
+      `@lexical/y: a pending record input takes only \`stored\`, \`pending\`, \`id\`, \`source\` and \`receivedAt\` (got ${extra.map(k => `\`${k}\``).join(', ')}): give a pending record with them in the material form`,
     );
   }
   return input as YPendingRecordInput;

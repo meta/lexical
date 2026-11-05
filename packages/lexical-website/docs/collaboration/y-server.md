@@ -858,6 +858,10 @@ client's document with `createYDoc` from `@lexical/y`.
    receivedAt})` (`stored` and `pending` are reserved for this form: it is
    taken only for kind `'pending'` with both present as bytes, and a record
    of any other kind keeps its kind and material whatever keys it carries).
+   The form is exclusive: beside them it takes only `id`, `source` and
+   `receivedAt`, and refuses any field of the material form (a draft,
+   `requires`, signals, `peers`, `clients`, other material) rather than
+   drop it; give such a record in the material form.
    Pending
    material can include text clients already saw: Yjs 14 integrates items
    past a gap, and the runner cuts them out with the rest. Its
