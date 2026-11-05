@@ -89,7 +89,7 @@ import {
 
 import {ARGUMENTS_CHUNK, pushAll, spliceAll} from './Arrays';
 import {$unsettledAfterWrite} from './BlockIds';
-import {$nextUpdateSelection, $normalizedAtBoundaries} from './Boundary';
+import {$caretOnMovingBoundary, $foreseesMove, composedMoved} from './Boundary';
 import {type ClientIDRange, constrainClientID} from './ClientID';
 import {
   BASE_LAYOUT_VERSION,
@@ -4531,7 +4531,7 @@ export class YBinding {
     if (
       state.hidden !== null &&
       this.predicts &&
-      this.$caretOnMovingBoundary()
+      $caretOnMovingBoundary(this._editor)
     ) {
       const held = this.$cursorBeforeRead();
       this.$release(state, reader);
@@ -4586,8 +4586,7 @@ export class YBinding {
     ) {
       return;
     }
-    const next = editor.read(() => $nextUpdateSelection(editor));
-    if (next === null || next === undefined || next.composing === key) {
+    if (!editor.read(() => $foreseesMove(editor, key))) {
       return;
     }
     hidden.missed = true;
@@ -4628,7 +4627,8 @@ export class YBinding {
 
   /**
    * Whether the binding foresees what the editor's next update does to a
-   * composition under a hold: its check in the read ($caretOnMovingBoundary)
+   * composition under a hold: its check in the read (Boundary's
+   * $caretOnMovingBoundary)
    * and after it (foreseeNextUpdate). Tests turn it off to
    * show that a move neither saw still ends the hold, and the editor then
    * shows what is stored (see noteComposed).
@@ -4652,14 +4652,15 @@ export class YBinding {
     payload: {tags: Set<string>; editorState: EditorState},
   ): void {
     const key = this._editor._compositionKey;
-    const was = hidden.composedKey;
     if (
-      was !== null &&
-      key !== null &&
-      key !== was &&
-      (payload.tags.has(COLLABORATION_TAG) ||
-        payload.editorState.read(() => this.$composingOwner()) ===
-          hidden.ownerKey)
+      composedMoved(
+        hidden.composedKey,
+        key,
+        payload.tags.has(COLLABORATION_TAG),
+        () =>
+          payload.editorState.read(() => this.$composingOwner()) ===
+          hidden.ownerKey,
+      )
     ) {
       hidden.missed = true;
     }
@@ -4690,22 +4691,6 @@ export class YBinding {
     return $isTextNode(node) && node.isAttached()
       ? {key, offset: selection.anchor.offset, text: node.getTextContent()}
       : null;
-  }
-
-  /**
-   * Whether Lexical's selection normalization at the next update moves the
-   * composition to another node (see Boundary): a point of the selection in
-   * the composed node set on another one at a boundary.
-   */
-  private $caretOnMovingBoundary(): boolean {
-    const key = this._editor._compositionKey;
-    const selection = $getSelection();
-    return (
-      key !== null &&
-      $isRangeSelection(selection) &&
-      $normalizedAtBoundaries(selection.anchor, selection.focus, key)
-        .composing !== key
-    );
   }
 
   /**

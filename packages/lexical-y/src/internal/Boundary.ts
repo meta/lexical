@@ -35,6 +35,22 @@ import {
 } from 'lexical';
 
 /*
+ * What the editor's next update does to a composition the composer's hold
+ * holds a change back from (see Hidden), in three steps the binding runs:
+ *
+ * - in a remote read, before it commits: whether Lexical's normalization at
+ *   boundaries moves the composition off its node from the selection the
+ *   read made ($caretOnMovingBoundary);
+ * - after the read commits, the editor's DOM and DOM selection showing it:
+ *   whether the next update, from the selection it reads from the DOM, does
+ *   ($foreseesMove, $nextUpdateSelection);
+ * - after every commit, the safety net: whether the composition moved to
+ *   another node that neither step saw coming (composedMoved), an app's
+ *   selection transform for one.
+ *
+ * Where one says so, the hold ends (Hidden#missed) and the binding reads
+ * what it held (YBinding#$readRemote, foreseeNextUpdate, noteComposed).
+ *
  * Where Lexical's selection normalization at boundaries puts a selection's
  * points at the next update, and where the composition key goes with them:
  * a mirror, without side effects, of LexicalSelection's
@@ -460,3 +476,46 @@ const pointOf = (p: PointType): BoundaryPoint => ({
   offset: p.offset,
   type: p.type,
 });
+
+/**
+ * In a remote read's update: whether Lexical's selection normalization at
+ * the next update moves the composition to another node, a point of the
+ * selection in the composed node set on another one at a boundary.
+ */
+export function $caretOnMovingBoundary(editor: LexicalEditor): boolean {
+  const key = editor._compositionKey;
+  const selection = $getSelection();
+  return (
+    key !== null &&
+    $isRangeSelection(selection) &&
+    $normalizedAtBoundaries(selection.anchor, selection.focus, key)
+      .composing !== key
+  );
+}
+
+/**
+ * Once a read has committed: whether the editor's next update moves the
+ * composition off node `key` (see $nextUpdateSelection; what is not
+ * foreseen does not).
+ */
+export function $foreseesMove(editor: LexicalEditor, key: NodeKey): boolean {
+  const next = $nextUpdateSelection(editor);
+  return next !== null && next !== undefined && next.composing !== key;
+}
+
+/**
+ * The safety net, after a commit: whether the composition moved from node
+ * `was` to node `key` where the hold shows a boundary that what is stored
+ * need not have: in a remote read (`remote`: a read keeps the composed node
+ * under a hold, so any move is the selection put back across such a
+ * boundary), or within the line or inline container composed in
+ * (`sameOwner`, read only where it decides).
+ */
+export function composedMoved(
+  was: NodeKey | null,
+  key: NodeKey | null,
+  remote: boolean,
+  sameOwner: () => boolean,
+): boolean {
+  return was !== null && key !== null && key !== was && (remote || sameOwner());
+}
