@@ -6,10 +6,11 @@
  *
  */
 
+import type {View} from './Unread';
 import type {Writer} from './Write';
 
 import {buildEditorFromExtensions, LexicalBuilder} from '@lexical/extension';
-import {ContentFormat, ContentType, type Item, type Node as YNode} from '@y/y';
+import {ContentType, type Item, type Node as YNode} from '@y/y';
 import {
   $getNodeByKey,
   $getRoot,
@@ -31,7 +32,7 @@ import {
 
 import {forgiveRepeatedIds} from './BlockIds';
 import {equalFormatValue, type Formats} from './Cursor';
-import {repairPendingCopies, stepFormat} from './Ident';
+import {repairPendingCopies} from './Ident';
 import {$pushInline, Atoms, readAtoms} from './Inline';
 import {Reader} from './Read';
 import {
@@ -54,7 +55,7 @@ import {
   TYPE_KEY,
   WRAPPER_PREFIX,
 } from './Schema';
-import {frontierOf, prevLiveEnd} from './Seen';
+import {Folder, frontierOf, prevLiveEnd} from './Seen';
 import {type CS, EMPTY_FORMATS, State} from './State';
 
 // The opt-in self-check (YBindingOptions.selfCheck): the lines a local
@@ -825,6 +826,7 @@ const followUpEditors = new WeakMap<LexicalEditor, LexicalEditor>();
  * the first difference, or null.
  */
 export function $followUpDifference(
+  view: View | null,
   state: State,
   cs: CS,
   ranges: readonly [number, number][] | null,
@@ -885,6 +887,7 @@ export function $followUpDifference(
         // The formats in effect at the start of each range (ranges are in
         // document order).
         const formats: Formats = new Map();
+        const folder = new Folder(formats, view, 'raw', null);
         let scanned: Item | null = cs.y._start;
         const formatsAt = (item: Item | null): Formats => {
           for (
@@ -892,10 +895,7 @@ export function $followUpDifference(
             scanned !== null && scanned !== item;
             scanned = scanned.right
           ) {
-            const content = scanned.content;
-            if (!scanned.deleted && content instanceof ContentFormat) {
-              stepFormat(formats, scanned);
-            }
+            folder.step(scanned);
           }
           return new Map(formats);
         };
