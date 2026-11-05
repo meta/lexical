@@ -47,6 +47,7 @@ import {type Formats} from './Cursor';
 import {groupKeySig, groupSig} from './Groups';
 import {Hidden} from './Hidden';
 import {
+  ambientFold,
   attrsOf,
   covered as coveredKey,
   endsOf,
@@ -125,10 +126,10 @@ import {
 import {
   copyStart,
   frontierOf,
-  isGone,
+  isGoneIn,
   isHeld,
-  isShown,
-  isShownEnd,
+  isShownEndIn,
+  isShownIn,
   noteFolded,
   prevLiveEnd,
   shownAttrs,
@@ -146,7 +147,7 @@ import {
   type Unit,
   type UnitKind,
 } from './State';
-import {currentView} from './Unread';
+import {currentView, type View} from './Unread';
 
 // Reader: Yjs to the editor. It reads whole containers ($readFull) and the
 // changes of remote transactions ($apply) into Lexical nodes, reusing the
@@ -394,7 +395,18 @@ export class Reader {
   readonly rebuilt = new Set<CS>();
   /** The block ids this read shows (see BlockIdSettler). */
   readonly settler: BlockIdSettler;
-  constructor(readonly state: State) {
+  /** What the read sees of the document now (see viewOf). */
+  get view(): View | null {
+    return this.viewOf();
+  }
+  constructor(
+    readonly state: State,
+    /**
+     * The binding's view (see View), read at each step: a read can start or
+     * end a composition's hold, and so change the view, while it runs.
+     */
+    private readonly viewOf: () => View | null = currentView,
+  ) {
     this.settler = new BlockIdSettler(state);
     const editor = state.editor;
     this.wrapperFields = type => {
@@ -775,7 +787,7 @@ export class Reader {
       return;
     }
     let end: Item | null = item;
-    while (end !== null && !isShownEnd(end, this.state.hidden)) {
+    while (end !== null && !isShownEndIn(this.view, end, this.state.hidden)) {
       end = end.right;
     }
     const unit = end === null ? undefined : this.state.unitByEnd.get(end);
@@ -956,6 +968,7 @@ export class Reader {
     const startChanged =
       formatUnits.length > 0
         ? recomputeUnitStarts(
+            this.view,
             cs,
             formatUnits,
             this.state.hidden === null ? null : this.state.hidden.starts,
@@ -1195,7 +1208,7 @@ export class Reader {
         if (p === opener) {
           return true;
         }
-        if (isShownEnd(p, hidden)) {
+        if (isShownEndIn(this.view, p, hidden)) {
           return false;
         }
       }
@@ -1227,7 +1240,7 @@ export class Reader {
         }
         continue;
       }
-      if (isShownEnd(p, hidden)) {
+      if (isShownEndIn(this.view, p, hidden)) {
         return false;
       }
     }
@@ -1305,13 +1318,13 @@ export class Reader {
   private $linesBefore(unit: Unit, items: ReadonlySet<Item>): Set<Item> | null {
     const hidden = this.state.hidden;
     const start =
-      unit.end === null ? null : prevLiveEnd(currentView(), unit.end, hidden);
+      unit.end === null ? null : prevLiveEnd(this.view, unit.end, hidden);
     if (start === null || !items.has(start) || start.deleted) {
       return null;
     }
     let p: Item | null = start.left;
     for (; p !== null; p = p.left) {
-      if (items.has(p) || !isShown(p, hidden)) {
+      if (items.has(p) || !isShownIn(this.view, p, hidden)) {
         continue;
       }
       if (isEndItem(p)) {
@@ -1391,6 +1404,7 @@ export class Reader {
         i < len
           ? units[i].start || EMPTY_FORMATS
           : formatsAfterUnit(
+              this.view,
               units,
               i - 1,
               this.state.hidden === null ? null : this.state.hidden.starts,
@@ -1602,7 +1616,7 @@ export class Reader {
       this.$derivedFor(u.cs, group),
       this.attrChanged.has(u),
     );
-    const left = prevLiveEnd(currentView(), u.end, hidden);
+    const left = prevLiveEnd(this.view, u.end, hidden);
     const first = left === null ? u.cs.y._start : left.right;
     // The line being composed reads as it shows (see withHeldView); every
     // other line, and what this one hands on (below), as stored.
@@ -1626,12 +1640,13 @@ export class Reader {
       hidden === null
         ? this.lastFormats
         : formatsAfter(
+            this.view,
             first,
             u.end,
             storedStartOf(u, hidden.starts) || EMPTY_FORMATS,
           );
     let nextEnd: Item | null = u.end.right;
-    while (nextEnd !== null && !isShownEnd(nextEnd, hidden)) {
+    while (nextEnd !== null && !isShownEndIn(this.view, nextEnd, hidden)) {
       nextEnd = nextEnd.right;
     }
     const next =
@@ -2663,7 +2678,7 @@ export class Reader {
     const hidden = this.state.hidden;
     const step = stepFormat;
     for (let it = start; it !== null && it !== stop; it = it.right) {
-      if (!isShown(it, hidden)) {
+      if (!isShownIn(this.view, it, hidden)) {
         continue;
       }
       const content = it.content;
@@ -3805,16 +3820,18 @@ function keyFromFields(fields: Attrs): Attrs {
  * (exclusive), from `formats` in effect at `start`.
  */
 function formatsAfter(
+  view: View | null,
   start: Item | null,
   stop: Item | null,
   formats: Formats,
 ): Formats {
   const out = new Map(formats);
+  const fold = {held: ambientFold().held, view};
   let last: Item | null = start === null ? null : start.left;
   for (let it = start; it !== null && it !== stop; it = it.right) {
     last = it;
     if (!it.deleted && it.content instanceof ContentFormat) {
-      stepFormat(out, it);
+      stepFormat(out, it, fold);
     }
   }
   noteFolded(out, last);
@@ -3828,6 +3845,7 @@ function formatsAfter(
  */
 
 function recomputeUnitStarts(
+  view: View | null,
   cs: CS,
   from: Unit[],
   splits: Hidden['starts'] | null = null,
@@ -3882,7 +3900,7 @@ function recomputeUnitStarts(
   // with the formats folded up to its own item (see the loop): the items
   // before it are in its start already (see Seen.frontierOf).
   // Items up to where units[first].start was folded are in it already.
-  let folded: Item | null = frontierOf(currentView(), firstStart, left, cs.y);
+  let folded: Item | null = frontierOf(view, firstStart, left, cs.y);
   // A stale start is folded again in place (see frontierOf): copy it again.
   if (folded === null && firstStart !== null) {
     formats.clear();
@@ -3900,7 +3918,7 @@ function recomputeUnitStarts(
       folded = null;
     }
     if (folded === null && !it.deleted && it.content instanceof ContentFormat) {
-      stepFormat(formats, it);
+      stepFormat(formats, it, {held: ambientFold().held, view});
     }
     // Text without an end item ends where the next unit (a block node)
     // starts.
@@ -3939,6 +3957,7 @@ function storedStartOf(
 
 /** The formats in effect right after unit `k` (empty before the first). */
 function formatsAfterUnit(
+  view: View | null,
   units: Unit[],
   k: number,
   splits: Hidden['starts'] | null = null,
@@ -3960,7 +3979,7 @@ function formatsAfterUnit(
     }
   }
   // Items up to where u.start was folded are in it already.
-  let folded: Item | null = frontierOf(currentView(), start, left, u.cs.y);
+  let folded: Item | null = frontierOf(view, start, left, u.cs.y);
   // A stale start is folded again in place (see frontierOf): copy it again.
   if (folded === null && start !== null) {
     formats.clear();
@@ -3977,7 +3996,7 @@ function formatsAfterUnit(
       folded = null;
     }
     if (folded === null && !it.deleted && it.content instanceof ContentFormat) {
-      stepFormat(formats, it);
+      stepFormat(formats, it, {held: ambientFold().held, view});
     }
     if (it === u.end) {
       break;
@@ -4282,6 +4301,7 @@ export function $unstoredWrapperTextFields(
     return [];
   }
   const attrs = attrsAtItems(
+    currentView(),
     candidates.map(([, item]) => item),
     memo,
     state.hidden === null ? null : state,
@@ -4318,6 +4338,7 @@ export type StoredFormatsMemo = Map<unknown, Map<Item, Attrs>>;
  * along all of it once, noting them at every stored node).
  */
 function attrsAtItems(
+  view: View | null,
   items: Item[],
   memo?: StoredFormatsMemo,
   held: State | null = null,
@@ -4345,8 +4366,8 @@ function attrsAtItems(
       ) {
         if (it.content instanceof ContentType) {
           known.set(it, attrsOf(formats) as Attrs);
-        } else if (!isGone(it) && it.content instanceof ContentFormat) {
-          stepFormat(formats, it);
+        } else if (!isGoneIn(view, it) && it.content instanceof ContentFormat) {
+          stepFormat(formats, it, {held: ambientFold().held, view});
         }
       }
     }
@@ -4375,8 +4396,8 @@ function attrsAtItems(
         out.set(it, attrsOf(formats) as Attrs);
         left--;
       }
-      if (!isGone(it) && it.content instanceof ContentFormat) {
-        stepFormat(formats, it);
+      if (!isGoneIn(view, it) && it.content instanceof ContentFormat) {
+        stepFormat(formats, it, {held: ambientFold().held, view});
       }
     }
   }
@@ -4399,7 +4420,7 @@ function attrsAtItems(
         from = container.y._start;
       } else {
         let end: Item | null = item;
-        while (end !== null && !isShownEnd(end, hidden)) {
+        while (end !== null && !isShownEndIn(view, end, hidden)) {
           end = end.right;
         }
         const unit = end === null ? undefined : held.unitByEnd.get(end);
@@ -4409,9 +4430,9 @@ function attrsAtItems(
         ) {
           continue;
         }
-        const left = prevLiveEnd(currentView(), unit.end!, hidden);
+        const left = prevLiveEnd(view, unit.end!, hidden);
         start = unit.start;
-        folded = frontierOf(currentView(), unit.start, left, unit.cs.y);
+        folded = frontierOf(view, unit.start, left, unit.cs.y);
         from = left === null ? unit.cs.y._start : left.right;
       }
       const formats = new Map(start || EMPTY_FORMATS);
@@ -4422,9 +4443,9 @@ function attrsAtItems(
         if (
           folded === null &&
           it.content instanceof ContentFormat &&
-          isShown(it, hidden)
+          isShownIn(view, it, hidden)
         ) {
-          withHeldView(hidden, () => stepFormat(formats, it));
+          stepFormat(formats, it, {held: hidden, view});
         }
       }
       out.set(item, attrsOf(formats) as Attrs);
