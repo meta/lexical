@@ -81,11 +81,11 @@ describe.each(Object.entries(shrink))('%s', (name, $shrink) => {
         ? {
             anchorKey: s.anchor.key,
             anchorOffset: s.anchor.offset,
+            firstKey: a.getKey(),
             focusKey: s.focus.key,
             focusOffset: s.focus.offset,
-            firstKey: a.getKey(),
-            textKey: t.getKey(),
             size: t.getTextContentSize(),
+            textKey: t.getKey(),
           }
         : null;
     });
