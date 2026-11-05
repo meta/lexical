@@ -1132,11 +1132,26 @@ spread permanent, on every client
 
 Causal order includes each client's own order. With Yjs 14.0.0-rc.29, a client
 that receives an update past a gap in another client's clocks (a relay that
-reorders and batches updates) can show a character that a document loaded
-from that client's own `encodeStateAsUpdate` keeps pending, until the
-missing updates arrive: a reload from such a stored state, or a server that
-compares re-encoded states, can briefly differ from the live client. This
-is in Yjs, not the binding (which shows what its document holds).
+reorders and batches updates) can show a character, and anything typed after
+it, that a plain `Y.applyUpdate` of that client's own `encodeStateAsUpdate`
+keeps pending until the missing updates arrive. `@lexical/y`'s loaders
+(`createYDoc(stored)`, the `@lexical/y/headless` helpers, `migrateYState`,
+`prepareYRoom`, `sourceView` and `createYQuarantineRecord`) integrate every
+struct whose dependencies are present, as the client did, so load stored
+states through them rather than with `Y.applyUpdate`. A loaded document can
+then also show a struct the encoding client still held pending, when the
+bytes cannot tell the two apart; once the missing updates arrive, it ends
+byte-identical to a plain load. Such an extra can be a format's opener whose
+closer is still blocked: the format then runs on to the end of the
+paragraph until the gap heals, as on any peer that received the opener
+alone. The repair is bounded: it makes at most 1,024 suffix applies in one
+load (one can integrate many structs, so only pathological input reaches
+it), and past that budget the rest stays pending, never lost, and
+integrates when its missing updates arrive. The loaders repair stored bytes, not the
+live sync path: sync step 2 is the same batched
+`encodeStateAsUpdate(doc, stateVector)`, which a provider applies with
+`Y.applyUpdate`, so a peer syncing live from such a client still holds that
+text pending until the missing updates arrive.
 
 Also with Yjs 14.0.0-rc.29, a client's document can emit an update that
 cannot be decoded ([yjs/yjs#825](https://github.com/yjs/yjs/issues/825);

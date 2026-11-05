@@ -32,6 +32,7 @@ import {
   readRequirements,
   SUPPORTED_FEATURES,
 } from './Layouts';
+import {integrateHeldBehindGaps} from './LoadFully';
 import {createRawYDoc, type YDoc, type YDocOptions} from './RawYDoc';
 import {canonicalJSON, Sha256} from './RecordHash';
 import {PUBLISHED_STEPS} from './StepTable';
@@ -1114,6 +1115,11 @@ function assembleV1(material: {
     ]) {
       applyUpdate(doc, part);
     }
+    // What the parts hold pending behind a blocked struct and the replica
+    // that wrote them showed (see LoadFully): its source view, completeness
+    // and collisions see the repaired document. A struct still pending
+    // leaves the record incomplete.
+    integrateHeldBehindGaps(doc);
   } catch (e) {
     // Malformed material (truncated or not an update): no scratch document
     // is left behind.
