@@ -125,12 +125,12 @@ import {
 } from './Schema';
 import {
   copyStart,
+  Folder,
   frontierOf,
   isGoneIn,
   isHeld,
   isShownEndIn,
   isShownIn,
-  noteFolded,
   prevLiveEnd,
   shownAttrs,
   shownText,
@@ -237,6 +237,7 @@ type Pool = {
  * too (only the line being composed is held, by its reads, see $pieces).
  */
 function parseRange(
+  view: View | null,
   start: Item | null,
   stop: Item | null,
   formats: Formats,
@@ -244,12 +245,12 @@ function parseRange(
 ): {parsed: Parsed[]; after: Formats} {
   const parsed: Parsed[] = [];
   const current = new Map(formats);
+  const folder = new Folder(current, view, 'raw', null);
   let unitStart = start;
   let unitFormats = new Map(current);
-  noteFolded(unitFormats, start === null ? null : start.left);
+  folder.note(unitFormats, start === null ? null : start.left);
   let last: Item | null = start === null ? null : start.left;
   let pending = false;
-  const step = stepFormat;
   for (let it = start; it !== null && it !== stop; it = it.right) {
     last = it;
     if (it.deleted) {
@@ -257,7 +258,7 @@ function parseRange(
     }
     const content = it.content;
     if (content instanceof ContentFormat) {
-      step(current, it);
+      folder.step(it);
       continue;
     }
     if (!it.countable || isHeld(it, hidden)) {
@@ -295,7 +296,7 @@ function parseRange(
       }
       unitStart = it.right;
       unitFormats = new Map(current);
-      noteFolded(unitFormats, it);
+      folder.note(unitFormats, it);
       pending = false;
     } else {
       pending = true;
@@ -310,7 +311,7 @@ function parseRange(
       stop,
     });
   }
-  noteFolded(current, last);
+  folder.note(current, last);
   return {after: current, parsed};
 }
 
@@ -517,6 +518,7 @@ export class Reader {
       return;
     }
     const {parsed} = parseRange(
+      this.view,
       cs.y._start,
       null,
       EMPTY_FORMATS,
@@ -551,7 +553,13 @@ export class Reader {
     this.depth++;
     try {
       this.fresh.add(cs.y);
-      const {parsed} = parseRange(start, stop, formats, this.state.hidden);
+      const {parsed} = parseRange(
+        this.view,
+        start,
+        stop,
+        formats,
+        this.state.hidden,
+      );
       const {units, tops} = this.$materialize(cs, el, parsed, []);
       this.$setChildren(el, tops);
       this.$commitUnits(cs, 0, 0, units, []);
@@ -1410,6 +1418,7 @@ export class Reader {
               this.state.hidden === null ? null : this.state.hidden.starts,
             );
       const {parsed, after} = parseRange(
+        this.view,
         startItem,
         stop,
         startFormats,
@@ -3827,15 +3836,13 @@ function formatsAfter(
   formats: Formats,
 ): Formats {
   const out = new Map(formats);
-  const fold = {held: ambientFold().held, view};
+  const folder = new Folder(out, view, 'raw', null);
   let last: Item | null = start === null ? null : start.left;
   for (let it = start; it !== null && it !== stop; it = it.right) {
     last = it;
-    if (!it.deleted && it.content instanceof ContentFormat) {
-      stepFormat(out, it, fold);
-    }
+    folder.step(it);
   }
-  noteFolded(out, last);
+  folder.note(out, last);
   return out;
 }
 
@@ -3872,9 +3879,10 @@ function recomputeUnitStarts(
   const firstStart = storedStartOf(units[first], splits);
   const formats = new Map<string, unknown>(firstStart || EMPTY_FORMATS);
   let at: Item | null = null;
+  let folder: Folder | null = null;
   const set = (u: Unit): boolean => {
     const next = formats.size > 0 ? new Map(formats) : null;
-    noteFolded(next, at);
+    folder!.note(next, at);
     // A split successor of the line being composed keeps its shown start
     // (see Hidden#starts): its stored start is recorded for the release.
     const split = splits === null ? undefined : splits.get(u);
@@ -3901,7 +3909,7 @@ function recomputeUnitStarts(
   // with the formats folded up to its own item (see the loop): the items
   // before it are in its start already (see Seen.frontierOf).
   // Items up to where units[first].start was folded are in it already.
-  let folded: Item | null = frontierOf(view, firstStart, left, cs.y);
+  const folded: Item | null = frontierOf(view, firstStart, left, cs.y);
   // A stale start is folded again in place (see frontierOf): copy it again.
   if (folded === null && firstStart !== null) {
     formats.clear();
@@ -3909,18 +3917,14 @@ function recomputeUnitStarts(
       formats.set(key, v);
     }
   }
+  folder = new Folder(formats, view, 'raw', null, folded);
   for (
     let it = left === null ? cs.y._start : left.right;
     it !== null && k < units.length;
     it = it.right
   ) {
     at = it;
-    if (it === folded) {
-      folded = null;
-    }
-    if (folded === null && !it.deleted && it.content instanceof ContentFormat) {
-      stepFormat(formats, it, {held: ambientFold().held, view});
-    }
+    folder.step(it);
     // Text without an end item ends where the next unit (a block node)
     // starts.
     if (
@@ -3980,7 +3984,7 @@ function formatsAfterUnit(
     }
   }
   // Items up to where u.start was folded are in it already.
-  let folded: Item | null = frontierOf(view, start, left, u.cs.y);
+  const folded: Item | null = frontierOf(view, start, left, u.cs.y);
   // A stale start is folded again in place (see frontierOf): copy it again.
   if (folded === null && start !== null) {
     formats.clear();
@@ -3988,17 +3992,13 @@ function formatsAfterUnit(
       formats.set(key, v);
     }
   }
+  const folder = new Folder(formats, view, 'raw', null, folded);
   for (
     let it: Item | null = left === null ? u.cs.y._start : left.right;
     it !== null;
     it = it.right
   ) {
-    if (it === folded) {
-      folded = null;
-    }
-    if (folded === null && !it.deleted && it.content instanceof ContentFormat) {
-      stepFormat(formats, it, {held: ambientFold().held, view});
-    }
+    folder.step(it);
     if (it === u.end) {
       break;
     }
