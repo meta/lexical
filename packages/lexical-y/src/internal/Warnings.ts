@@ -441,9 +441,10 @@ interface YWarningDataByCode {
  * @experimental The `data` of the warnings with code `C`: its variants (and
  * YOtherWarningData) for a code this version knows, `unknown` for another.
  */
-export type YWarningData<C extends string> = C extends YKnownWarningCode
-  ? YWarningDataByCode[C] | YOtherWarningData
-  : unknown;
+export type YWarningData<C extends string = string> =
+  C extends YKnownWarningCode
+    ? YWarningDataByCode[C] | YOtherWarningData
+    : unknown;
 
 /** The `data` this version emits under code `C` (never `'other'`). */
 export type YEmittedWarningData<C extends YKnownWarningCode> =

@@ -28,7 +28,11 @@ import {describe, expect, test} from 'vitest';
 import {createYDoc, UNSUPPORTED_LAYOUT_WARNING, YBinding} from '../../..';
 import {editYState, YHeadlessError} from '../../../headless';
 import {readRequirements} from '../../../internal/Layouts';
-import {migrateYState, YMigrationError} from '../../../migrate';
+import {
+  migrateYState,
+  type YLayoutMigration,
+  YMigrationError,
+} from '../../../migrate';
 import {catalogAppExtension, catalogHeadlessConfig} from '../../catalog/bind';
 import {rawDoc, SEED, stamp} from '../../utils/migrateSteps';
 import {textOf} from '../../utils/splitFixtures';
@@ -219,6 +223,39 @@ describe.each([false, true])('feature requirements, gc %s', gc => {
     ).toThrow(
       expect.objectContaining({code: 'unsupported-feature', root: 'b'}),
     );
+  });
+
+  test('the requirement preflight covers every root before any step runs: a valid first root, a refused second root, and no step callback', () => {
+    const d = createYDoc(rawDoc(SEED), {gc});
+    d.get('a').setAttr(`lexical-y:${SEED}`, true);
+    d.get('b').setAttr(`lexical-y:${SEED}`, true);
+    d.get('b').setAttr('lexical-y-require:acme.y', true);
+    const state = Y.encodeStateAsUpdate(d);
+    d.destroy();
+    const base = stamp(SEED);
+    let calls = 0;
+    const wrapped: Record<string, unknown> = {...base};
+    for (const [key, value] of Object.entries(base)) {
+      if (typeof value === 'function') {
+        wrapped[key] = (...args: unknown[]) => {
+          calls++;
+          return (value as (...a: unknown[]) => unknown)(...args);
+        };
+      }
+    }
+    const counted = wrapped as unknown as YLayoutMigration;
+    expect(() =>
+      migrateYState(state, [counted], {gc, roots: ['a', 'b'], to: SEED + 1}),
+    ).toThrow(
+      expect.objectContaining({code: 'unsupported-feature', root: 'b'}),
+    );
+    expect(calls).toBe(0);
+    // Control: without the refused root, the same counted step runs on 'a'.
+    expect(
+      migrateYState(state, [counted], {gc, roots: ['a'], to: SEED + 1}).receipt
+        .changed,
+    ).toBe(true);
+    expect(calls).toBeGreaterThan(0);
   });
 
   test('readRequirements: required, unknown and malformed, against the supported features', () => {
