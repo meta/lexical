@@ -4323,6 +4323,12 @@ export class YBinding {
             return true;
           }
         }
+        // Its attributes: a slot's value is a shared node stored there.
+        for (const c of type._map.values()) {
+          if (c.content instanceof ContentType && holds(c)) {
+            return true;
+          }
+        }
       }
       return false;
     };

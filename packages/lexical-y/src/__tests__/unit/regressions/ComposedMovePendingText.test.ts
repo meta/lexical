@@ -603,6 +603,62 @@ describe('inserted by a change not read yet in two lines, reordered', () => {
   }
 });
 
+// The same, where what is not read yet is in the hosts' named slots.
+describe('inserted by a change not read yet in two slots, their hosts reordered', () => {
+  for (const gc of GC) {
+    test(`gc ${gc}`, async () => {
+      const t = await setup(
+        () =>
+          $getRoot().append(
+            $setSlot(
+              $create(TitledNode),
+              'title',
+              $createParagraphNode().append($text('aa')),
+            ),
+            $setSlot(
+              $create(TitledNode),
+              'title',
+              $createParagraphNode().append($text('bb')),
+            ),
+            $createParagraphNode().append($text('tail')),
+          ),
+        {gc, ids: [1, 2, 3], nodes: [...NODES, TitledNode]},
+      );
+      const {a, b} = t;
+      t.offline();
+      const seen = Y.encodeStateVector(b.doc);
+      b.update(() => {
+        const texts = $getRoot().getAllTextNodes();
+        texts.find(n => n.getTextContent() === 'aa')!.spliceText(1, 0, 'X');
+        texts.find(n => n.getTextContent() === 'bb')!.spliceText(1, 0, 'Y');
+        $setSelection(null);
+      });
+      const delta = Y.encodeStateAsUpdate(b.doc, seen);
+      a.update(() => {
+        Y.applyUpdate(a.doc, delta, 'provider');
+        $getRoot()
+          .getFirstChildOrThrow()
+          .insertBefore($getRoot().getChildAtIndex(1)!);
+      });
+      await t.sync();
+      const $all = () =>
+        $getRoot()
+          .getAllTextNodes()
+          .map(n => n.getTextContent())
+          .join('|');
+      // Not written, read again: as before the move.
+      expect(a.read($all)).toBe('aXa|bYb|tail');
+      expect(a.warnings.filter(w => w.includes('reorders lines'))).toHaveLength(
+        1,
+      );
+      for (const p of t.peers) {
+        expect(p.read($all)).toBe(a.read($all));
+      }
+      expect(a.describe()).toBe((await freshReader(a)).describe());
+    });
+  }
+});
+
 // #9788: an app's edit in the update of a remote change's read (a selection
 // transform) is written as a local commit is, over the state the read made:
 // the same keep and the same refusal.
