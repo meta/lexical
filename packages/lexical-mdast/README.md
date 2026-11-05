@@ -222,7 +222,7 @@ selector at the inner edge of a run beside a letter (`Hello**🎉 launch**`,
 `**©︎**2024`) now reads with literal markers, as the amendment reads it;
 strict CommonMark readers still read the selector case as bold, since a
 selector is not punctuation. Import `'strict-commonmark'` keeps the earlier
-reading.
+reading of those.
 Export defaults to `'strict-commonmark'`: it writes a character reference
 where a marker would not open or close otherwise (`**你好。**&#x4E16;界`),
 which every CommonMark, GFM and CJK-friendly reader reads the same way, with

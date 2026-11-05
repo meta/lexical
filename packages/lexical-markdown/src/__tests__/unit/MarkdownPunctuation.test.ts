@@ -12,6 +12,7 @@ import {buildEditorFromExtensions} from '@lexical/extension';
 import {$createLinkNode, LinkExtension, LinkNode} from '@lexical/link';
 import {
   $convertFromMarkdownString,
+  $convertSelectionToMarkdownString,
   $convertToMarkdownString,
   $generateNodesFromMarkdownString,
   type MarkdownImportOptions,
@@ -35,7 +36,9 @@ import {
   $createParagraphNode,
   $createTextNode,
   $getRoot,
+  $getSelection,
   $isParagraphNode,
+  $selectAll,
   configExtension,
   defineExtension,
   type LexicalEditor,
@@ -280,6 +283,32 @@ describe('Markdown punctuation modes', () => {
     };
     expect(formats('cjk-friendly')).toEqual([bold, 0]);
     expect(formats('strict-commonmark')).toEqual([0]);
+  });
+
+  it('takes the export options in $convertSelectionToMarkdownString', () => {
+    const editor = createEditor();
+    editor.update(
+      () => {
+        $getRoot()
+          .clear()
+          .append(
+            $createParagraphNode().append(
+              $createTextNode('你好。').setFormat(bold),
+              $createTextNode('世界'),
+            ),
+          );
+        $selectAll();
+      },
+      {discrete: true},
+    );
+    const exportSelection = (punctuation: PunctuationMode) =>
+      editor.read('latest', () =>
+        $convertSelectionToMarkdownString(TRANSFORMERS, $getSelection(), {
+          punctuation,
+        }),
+      );
+    expect(exportSelection('cjk-friendly')).toBe('**你好。**世界');
+    expect(exportSelection('strict-commonmark')).toBe('**你好。**&#19990;界');
   });
 
   it('converts nested content in the mode of the outer conversion', () => {

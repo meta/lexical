@@ -19,6 +19,7 @@ import {
   cjkFriendlyEmphasis,
   cjkFriendlyStrikethrough,
   probeLayout,
+  strictEmphasis,
 } from './cjkFriendly';
 
 // The key under which a micromark extension holds the factory of the one a
@@ -136,14 +137,14 @@ export function compileMdast(
     inlineShortcutTypes: new Set(config.inlineShortcutTypes),
     mdastExtensions: [...config.mdastExtensions],
     // micromark tries the constructs of later extensions first, so the
-    // CJK-friendly emphasis goes first, before the extensions of the config,
-    // which may handle markers of their own.
+    // emphasis goes first, before the extensions of the config, which may
+    // handle markers of their own.
     micromarkExtensions: cjkFriendly
       ? [
           cjkFriendlyEmphasis(),
           ...config.micromarkExtensions.map(toCjkFriendlyVariant),
         ]
-      : [...config.micromarkExtensions],
+      : [strictEmphasis(), ...config.micromarkExtensions],
     toMarkdownExtensions: [...config.toMarkdownExtensions],
   };
 }

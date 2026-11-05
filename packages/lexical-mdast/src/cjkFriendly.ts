@@ -308,6 +308,25 @@ export function getRunFlanking(
 }
 
 /**
+ * micromark's emphasis from this package's own `micromark-core-commonmark`,
+ * for the strict import: `micromark` may resolve an older copy, which reads a
+ * `*` run beside a `_` run, or after an escaped `*` or `_`, otherwise
+ * (`foo**_bar_**baz`, `*foo\**bar`).
+ *
+ * @internal
+ */
+export function strictEmphasis(): Extension {
+  return emphasis(attention);
+}
+
+function emphasis(construct: Construct): Extension {
+  return {
+    insideSpan: {null: [construct]},
+    text: {[ASTERISK]: construct, [UNDERSCORE]: construct},
+  };
+}
+
+/**
  * micromark's CJK-friendly emphasis, which reads `*` and `_` runs as the
  * amendment does.
  *
@@ -346,13 +365,7 @@ export function cjkFriendlyEmphasis(): Extension {
       };
     },
   };
-  return {
-    insideSpan: {null: [construct]},
-    text: {
-      [ASTERISK]: construct,
-      [UNDERSCORE]: construct,
-    },
-  };
+  return emphasis(construct);
 }
 
 /**
