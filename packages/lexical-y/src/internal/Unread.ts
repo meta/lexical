@@ -66,6 +66,12 @@ export interface Unread {
    * keeps): the editor no longer shows it (see Hidden#drop).
    */
   readonly dropKept: ((item: Item) => void) | null;
+  /**
+   * For a hold's view, which stays until the hold ends (see
+   * YBinding#heldView): whether it keeps nothing now, so that it reads and
+   * writes exactly as no view does (see scopedView). Null otherwise.
+   */
+  readonly lapsed: (() => boolean) | null;
 }
 
 /**
@@ -89,6 +95,14 @@ export function currentView(): View | null {
 
 const __DEV__ = process.env.NODE_ENV !== 'production';
 
+/** viewFor, and none for a hold's view that keeps nothing (see lapsed). */
+function liveViewFor(view: View | null, type: YNode): View | null {
+  const scoped = viewFor(view, type);
+  return scoped !== null && scoped.lapsed !== null && scoped.lapsed()
+    ? null
+    : scoped;
+}
+
 /**
  * The part of `view` that applies to the items of `type` (see viewFor), as
  * the helpers that read or write them use it (see Seen). Development
@@ -99,8 +113,8 @@ const __DEV__ = process.env.NODE_ENV !== 'production';
  * Ident.FoldIn.)
  */
 export function scopedView(view: View | null, type: YNode): View | null {
-  const scoped = viewFor(view, type);
-  if (__DEV__ && scoped !== viewFor(currentView(), type)) {
+  const scoped = liveViewFor(view, type);
+  if (__DEV__ && scoped !== liveViewFor(currentView(), type)) {
     throw new Error(
       "@lexical/y: an explicit view differs from the running work's",
     );
@@ -113,11 +127,13 @@ export function emptyView(
   root: YNode,
   keeps: ((item: Item) => boolean) | null = null,
   dropKept: ((item: Item) => void) | null = null,
+  lapsed: (() => boolean) | null = null,
 ): Unread {
   return {
     changes: [],
     dropKept,
     keeps,
+    lapsed,
     removed: createIdSet(),
     root,
     under: new Map(),

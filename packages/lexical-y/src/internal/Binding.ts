@@ -1331,13 +1331,28 @@ export class YBinding {
   private held: {hidden: Hidden; view: Unread} | null = null;
   private heldView(): Unread | null {
     const hidden = this.state.hidden;
-    if (hidden === null || !hidden.keepsAny()) {
+    if (hidden === null) {
+      return null;
+    }
+    // Once made for a hold, the view stays until the hold ends, also after
+    // a write dropped the last item it kept: an operation that took the
+    // view keeps seeing the one its work runs on (see View). Keeping
+    // nothing, it reads and writes as no view (see Unread#lapsed).
+    if (
+      !hidden.keepsAny() &&
+      (this.held === null || this.held.hidden !== hidden)
+    ) {
       return null;
     }
     if (this.held === null || this.held.hidden !== hidden) {
       this.held = {
         hidden,
-        view: emptyView(this._root, this.keepsShown, this.dropKept),
+        view: emptyView(
+          this._root,
+          this.keepsShown,
+          this.dropKept,
+          () => !hidden.keepsAny(),
+        ),
       };
     }
     return this.held.view;

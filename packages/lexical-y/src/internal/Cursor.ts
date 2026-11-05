@@ -7,6 +7,7 @@
  */
 
 import type {Hidden} from './Hidden';
+import type {View} from './Unread';
 
 import invariant from '@lexical/internal/invariant';
 import {
@@ -57,7 +58,7 @@ import {
   TYPE_KEY,
   WRAPPER_PREFIX,
 } from './Schema';
-import {deletedBy, deleteItem, isGone} from './Seen';
+import {deletedBy, deleteItemIn, isGoneIn} from './Seen';
 
 /*
  * Anchored editing of a Y.Node's children.
@@ -141,11 +142,14 @@ function continuesUnit(unit: Item[], prev: Item, item: Item): boolean {
  * they change the family's value there together. An item of a key that is
  * a family of its own is a unit of its own.
  */
-function unitFrom(item: Item): Item[] {
+function unitFrom(view: View | null, item: Item): Item[] {
   const unit = [item];
   for (
     let prev = item, it = item.right;
-    it !== null && !isGone(it) && isFormat(it) && continuesUnit(unit, prev, it);
+    it !== null &&
+    !isGoneIn(view, it) &&
+    isFormat(it) &&
+    continuesUnit(unit, prev, it);
     prev = it, it = it.right
   ) {
     unit.push(it);
@@ -323,8 +327,8 @@ export function runOpener(doc: Doc, item: Item): Item {
 }
 
 /** A live countable item: text, a child node, an embed. */
-export const isLiveContent = (item: Item): boolean =>
-  !isGone(item) && item.countable;
+export const isLiveContent = (view: View | null, item: Item): boolean =>
+  !isGoneIn(view, item) && item.countable;
 
 /** An opener of a node type key (`t`) or segment key (`k`). */
 function isNodeTypeOpener(content: ContentFormat): boolean {
@@ -489,6 +493,8 @@ export class Cursor {
     left: Item | null,
     formats: Formats,
     frontier: Item | null = null,
+    /** What the write sees of the document (see View). */
+    readonly view: View | null = null,
   ) {
     this.frontier = frontier;
     this.left = left;
@@ -517,7 +523,7 @@ export class Cursor {
    */
   private unitAt(item: Item): Item[] {
     if (!this.pairs(keyOf(item))) {
-      return unitFrom(item);
+      return unitFrom(this.view, item);
     }
     const family = formatFamily(keyOf(item));
     const unit = [item];
@@ -525,7 +531,7 @@ export class Cursor {
     for (
       let it = item.right;
       it !== null &&
-      !isGone(it) &&
+      !isGoneIn(this.view, it) &&
       isFormat(it) &&
       !this.isHeldFormat(it) &&
       formatFamily(keyOf(it)) === family &&
@@ -552,7 +558,7 @@ export class Cursor {
       return opensNodeRun(item);
     }
     for (let it: Item | null = item; it !== null; it = it.right) {
-      if (isGone(it)) {
+      if (isGoneIn(this.view, it)) {
         continue;
       }
       if (!isFormat(it) || this.isHeldFormat(it)) {
@@ -583,14 +589,14 @@ export class Cursor {
       return;
     }
     if (
-      !isLiveContent(item) &&
+      !isLiveContent(this.view, item) &&
       this.passed !== null &&
       isFormat(item) &&
       !this.tr.insertSet.hasId(item.id)
     ) {
       const of = `${keyOf(item)}\u0000${item.id.client}`;
       this.passed.add(
-        !isGone(item) || this.tr.deleteSet.hasId(item.id)
+        !isGoneIn(this.view, item) || this.tr.deleteSet.hasId(item.id)
           ? of
           : `${of}\u0000${JSON.stringify(valueOf(item))}`,
       );
@@ -598,7 +604,7 @@ export class Cursor {
     if (item === this.frontier) {
       this.frontier = null;
     }
-    if (!isGone(item) && isFormat(item)) {
+    if (!isGoneIn(this.view, item) && isFormat(item)) {
       this.sources.set(keyOf(item), item);
       if (
         this.frontier === null ||
@@ -614,7 +620,7 @@ export class Cursor {
 
   /** Step over format items and deleted items (never over live content). */
   skipNonContent(): void {
-    while (this.right !== null && !isLiveContent(this.right)) {
+    while (this.right !== null && !isLiveContent(this.view, this.right)) {
       this.forward();
     }
   }
@@ -624,7 +630,7 @@ export class Cursor {
    * or all shown, and answer whether it is shown.
    */
   private counts(item: Item): boolean {
-    if (!isLiveContent(item)) {
+    if (!isLiveContent(this.view, item)) {
       return false;
     }
     const hidden = this.hidden;
@@ -712,7 +718,7 @@ export class Cursor {
   private minimizeFormatChanges(formats: Record<string, unknown>): void {
     while (this.right !== null) {
       const r = this.right;
-      if (isGone(r) || this.isHeldFormat(r)) {
+      if (isGoneIn(this.view, r) || this.isHeldFormat(r)) {
         // a deleted item has no length, and a held format is not there:
         // step over it
       } else if (
@@ -797,7 +803,7 @@ export class Cursor {
     let unpaired = false;
     for (let x = this.right; x !== null; x = x.right) {
       n++;
-      if (isGone(x) || this.isHeldFormat(x)) {
+      if (isGoneIn(this.view, x) || this.isHeldFormat(x)) {
         continue;
       }
       if (!isFormat(x)) {
@@ -1009,7 +1015,7 @@ export class Cursor {
       steps++;
       if (
         isFormat(it) &&
-        !isGone(it) &&
+        !isGoneIn(this.view, it) &&
         !this.isHeldFormat(it) &&
         keyOf(it) === key
       ) {
@@ -1097,7 +1103,7 @@ export class Cursor {
     const reusedEnds: string[] = [];
     while (this.right !== null) {
       const r = this.right;
-      if (!isGone(r) && !this.isHeldFormat(r)) {
+      if (!isGoneIn(this.view, r) && !this.isHeldFormat(r)) {
         if (
           !isFormat(r) ||
           this.openers.has(keyOf(r)) ||
@@ -1197,7 +1203,7 @@ export class Cursor {
         isFormat(it) &&
         keyOf(it) === key &&
         !this.tr.insertSet.hasId(it.id) &&
-        (!isGone(it) || deletedBy(it, this.tr))
+        (!isGoneIn(this.view, it) || deletedBy(it, this.tr))
       ) {
         source = it;
         break;
@@ -1212,7 +1218,7 @@ export class Cursor {
     }
     for (let it = this.right; it !== null; it = it.right) {
       if (
-        isGone(it) ||
+        isGoneIn(this.view, it) ||
         !isFormat(it) ||
         keyOf(it) !== key ||
         equalFormatValue(valueOf(it), value)
@@ -1386,7 +1392,7 @@ export class Cursor {
           this.split(item, n);
         }
         n -= item.length;
-        deleteItem(item, this.tr);
+        deleteItemIn(this.view, item, this.tr);
       }
       this.forward();
     }
@@ -1621,7 +1627,7 @@ export class Cursor {
       return;
     }
     const contentSet = new Set(contents);
-    for (; it !== null && !isLiveContent(it); it = it.right) {
+    for (; it !== null && !isLiveContent(this.view, it); it = it.right) {
       span.push(it);
     }
     const keys = Object.keys(formats);
@@ -1631,7 +1637,10 @@ export class Cursor {
     span.forEach((x, i) => spanIndex.set(x, i));
     /** Whether `x` is a live item of `key`, as this write sees it. */
     const isKeyItem = (x: Item, key: string): boolean =>
-      !isGone(x) && isFormat(x) && keyOf(x) === key && !this.isHeldFormat(x);
+      !isGoneIn(this.view, x) &&
+      isFormat(x) &&
+      keyOf(x) === key &&
+      !this.isHeldFormat(x);
     /** An unpaired item or an invalid end of its key: a boundary. */
     const isBoundary = (x: Item): boolean => {
       const v = valueOf(x);
@@ -1653,7 +1662,7 @@ export class Cursor {
       const leaves = new Set<Item>();
       let pending: Item[] = [];
       for (const x of span) {
-        if (!isFormat(x) || keyOf(x) !== key || isGone(x)) {
+        if (!isFormat(x) || keyOf(x) !== key || isGoneIn(this.view, x)) {
           // Other keys never change this key's stack.
           continue;
         }
@@ -1687,7 +1696,10 @@ export class Cursor {
     }
     /** A held item of `key` the write's view still has. */
     const isHeldKeyItem = (x: Item, key: string): boolean =>
-      isFormat(x) && keyOf(x) === key && !isGone(x) && this.isHeldFormat(x);
+      isFormat(x) &&
+      keyOf(x) === key &&
+      !isGoneIn(this.view, x) &&
+      this.isHeldFormat(x);
     /** A clearer, or an invalid end (which names no open run either). */
     const isClearer = (x: Item): boolean =>
       clearers.has(x) || (isEndValue(valueOf(x)) && !isValidEnd(x));
@@ -1700,7 +1712,7 @@ export class Cursor {
     const shields = (opener: Item, end: Item, key: string): boolean => {
       const leaves = leaving.get(key)!;
       for (let x = opener.right; x !== null && x !== end; x = x.right) {
-        if (!isFormat(x) || keyOf(x) !== key || isGone(x)) {
+        if (!isFormat(x) || keyOf(x) !== key || isGoneIn(this.view, x)) {
           continue;
         }
         if (this.isHeldFormat(x)) {
@@ -1762,9 +1774,9 @@ export class Cursor {
     // range's last content: a new run of the key ends where they ended.
     const replacedEnds = new Map<string, Item[]>();
     for (const [key, s, ends] of plan) {
-      deleteItem(s, this.tr);
+      deleteItemIn(this.view, s, this.tr);
       for (const e of ends) {
-        deleteItem(e, this.tr);
+        deleteItemIn(this.view, e, this.tr);
         if ((spanIndex.get(e) ?? -1) > lastAt) {
           let list = replacedEnds.get(key);
           if (list === undefined) {
@@ -1782,7 +1794,11 @@ export class Cursor {
       let differs = false;
       for (const s of span) {
         if (isFormat(s)) {
-          if (keyOf(s) === key && !isGone(s) && !this.isHeldFormat(s)) {
+          if (
+            keyOf(s) === key &&
+            !isGoneIn(this.view, s) &&
+            !this.isHeldFormat(s)
+          ) {
             this.stepShown(sim, s);
           }
         } else if (
@@ -1829,7 +1845,7 @@ export class Cursor {
         }
         if (
           !extending &&
-          (isGone(x) || !isFormat(x) || !keys.includes(keyOf(x)))
+          (isGoneIn(this.view, x) || !isFormat(x) || !keys.includes(keyOf(x)))
         ) {
           break;
         }
@@ -1961,10 +1977,10 @@ export class Cursor {
       if (ends.includes(x)) {
         return this.isHeldFormat(x) ? null : x;
       }
-      if (x.countable && (!x.deleted || !isGone(x))) {
+      if (x.countable && (!x.deleted || !isGoneIn(this.view, x))) {
         return null;
       }
-      if (isFormat(x) && keyOf(x) === key && !isGone(x)) {
+      if (isFormat(x) && keyOf(x) === key && !isGoneIn(this.view, x)) {
         // a held item of the key, or a clearer (step 1)
         if (
           this.isHeldFormat(x) ||
@@ -1998,7 +2014,7 @@ export class Cursor {
       if (ends.includes(x)) {
         return holds && !this.isHeldFormat(x) ? x : null;
       }
-      if ((x.deleted && isGone(x)) || !x.countable) {
+      if ((x.deleted && isGoneIn(this.view, x)) || !x.countable) {
         continue;
       }
       if (!formatted.has(x)) {
@@ -2100,14 +2116,15 @@ export class Cursor {
     loop: while (
       this.right !== null &&
       (n > 0 ||
-        (negated.size > 0 && (isGone(this.right) || isFormat(this.right))))
+        (negated.size > 0 &&
+          (isGoneIn(this.view, this.right) || isFormat(this.right))))
     ) {
       const r = this.right;
       if (this.isHeldFormat(r)) {
         this.forward();
         continue;
       }
-      if (!isGone(r)) {
+      if (!isGoneIn(this.view, r)) {
         if (isFormat(r)) {
           const {key, value} = r.content as ContentFormat;
           const attr = formats[key];
@@ -2124,7 +2141,7 @@ export class Cursor {
               // and the range's value opened after it, before that content.
               const earlier = atStart.get(key);
               if (earlier !== undefined) {
-                deleteItem(earlier, this.tr);
+                deleteItemIn(this.view, earlier, this.tr);
               }
               atStart.set(key, r);
               if (equalFormatValue(attr, value)) {
@@ -2147,7 +2164,7 @@ export class Cursor {
               // text, which the range covers with the value before it:
               // removed, as Yjs' formatText does, so the run goes on over
               // the range and no one relies on it (#9671).
-              deleteItem(r, this.tr);
+              deleteItemIn(this.view, r, this.tr);
               negated.set(key, value);
               this.forward();
               continue;
@@ -2174,7 +2191,7 @@ export class Cursor {
                     // after its text, with the range's value: removed, as
                     // Yjs' formatText does, the runs joined (#9671).
                     negated.delete(key);
-                    deleteItem(r, this.tr);
+                    deleteItemIn(this.view, r, this.tr);
                     this.forward();
                     continue;
                   }
@@ -2194,7 +2211,7 @@ export class Cursor {
               }
               negated.set(key, value);
             }
-            deleteItem(r, this.tr);
+            deleteItemIn(this.view, r, this.tr);
           } else {
             if (inRange && n > 0) {
               // Rule 4. A boundary of another key of a family this write
@@ -2209,7 +2226,7 @@ export class Cursor {
               }
             }
           }
-        } else if (isLiveContent(r)) {
+        } else if (isLiveContent(this.view, r)) {
           if (!inRange) {
             inRange = true;
             // Rule 2. The range's value, opened right before its first
@@ -2262,10 +2279,10 @@ export class Cursor {
     const copiedEnds: Item[] = [];
     for (
       let it = this.right;
-      it !== null && !isLiveContent(it);
+      it !== null && !isLiveContent(this.view, it);
       it = it.right
     ) {
-      if (!isGone(it) && isFormat(it) && !ahead.has(keyOf(it))) {
+      if (!isGoneIn(this.view, it) && isFormat(it) && !ahead.has(keyOf(it))) {
         ahead.set(keyOf(it), it);
       }
     }
@@ -2298,7 +2315,11 @@ export class Cursor {
           // too, with a null of this write's own.
           if (value !== null && next.id.client !== this.tr.doc.clientID) {
             const end = changeEnd(this.tr.doc, next);
-            if (end !== null && !isGone(end) && valueOf(end) === null) {
+            if (
+              end !== null &&
+              !isGoneIn(this.view, end) &&
+              valueOf(end) === null
+            ) {
               copiedEnds.push(end);
             }
           }
