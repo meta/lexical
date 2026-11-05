@@ -2712,8 +2712,10 @@ export class YBinding {
       return false;
     }
     for (const k of keys) {
-      if (k !== null && isGateKey(k)) {
-        return !this.readsRecordedLayout();
+      // A gate key that still admits is no reason to stop looking: a schema
+      // key later in the same change may refuse.
+      if (k !== null && isGateKey(k) && !this.readsRecordedLayout()) {
+        return true;
       }
       if (k !== null && k.startsWith(SCHEMA_PREFIX) && this.schemaRefuses()) {
         return true;

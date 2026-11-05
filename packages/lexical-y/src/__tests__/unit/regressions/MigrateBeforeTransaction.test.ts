@@ -189,3 +189,52 @@ describe.each([false, true])('admission after beforeTransaction, gc %s', gc => {
     doc.destroy();
   });
 });
+
+// A binding undo or redo starts with a scan; an app's beforeTransaction
+// listener that changes records inside it must be noticed whatever order it
+// writes them in: a gate key that still admits (the recorded layout again)
+// does not hide a schema record that refuses (code review round 4).
+describe.each([false, true])(
+  "records changed inside a binding undo's scan, gc %s",
+  gc => {
+    for (const order of ['layout first', 'schema first'] as const) {
+      for (const method of ['binding undo', 'binding redo'] as const) {
+        test(`${method}, ${order}: refused, read only, not editable`, async () => {
+          const t = bind(gc);
+          append(t.editor, 'local');
+          await flush();
+          if (method === 'binding redo') {
+            expect(t.binding.undo()).toBe(true);
+            await flush();
+          }
+          const before = text(t.doc);
+          let done = false;
+          t.doc.on('beforeTransaction', () => {
+            if (done) {
+              return;
+            }
+            done = true;
+            const root = t.doc.get('lexical-y');
+            const layout = () => root.setAttr(`lexical-y:${FLOOR}`, true);
+            const schema = () => root.setAttr('lexical-y-schema:2', true);
+            if (order === 'layout first') {
+              layout();
+              schema();
+            } else {
+              schema();
+              layout();
+            }
+          });
+          const result =
+            method === 'binding undo' ? t.binding.undo() : t.binding.redo();
+          await flush();
+          expect(text(t.doc)).toBe(before);
+          expect(result === false || result === null).toBe(true);
+          expect(t.binding.status).toBe('readonly');
+          expect(t.editor.isEditable()).toBe(false);
+          t.dispose();
+        });
+      }
+    }
+  },
+);
