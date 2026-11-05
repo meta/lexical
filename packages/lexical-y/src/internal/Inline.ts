@@ -22,7 +22,7 @@ import {
 } from 'lexical';
 
 import {type Formats, isLiveContent} from './Cursor';
-import {ambientFold, attrsOf, stepFormat} from './Ident';
+import {attrsOf} from './Ident';
 import {
   $foreignFlatKeys,
   $isWrapper,
@@ -39,7 +39,7 @@ import {
   TYPE_KEY,
   WRAPPER_PREFIX,
 } from './Schema';
-import {isGoneIn, isStoredIn, noteFolded, unheldLength} from './Seen';
+import {Folder, isGoneIn, unheldLength} from './Seen';
 
 // Inline content as atoms, the form both the editor's side ($pushInline)
 // and the shared side (readAtoms) are compared in: one atom per content unit
@@ -314,28 +314,20 @@ export function readAtoms(
   const shown = hidden === null ? current : new Map(formats);
   let attrs: Attrs | null = null;
   // Format items up to `frontier` are in `formats` already (see
-  // seedFrontier).
-  let folded = frontier;
-  const step = stepFormat;
+  // seedFrontier). What is handed on is stored; what the atoms show, held.
+  const stored = new Folder(current, view, 'stored', hidden, frontier);
+  const showing =
+    hidden === null ? null : new Folder(shown, view, 'shown', hidden, frontier);
   for (let it = start; it !== null && it !== stop; it = it.right) {
-    if (it === folded) {
-      folded = null;
+    stored.step(it);
+    if (showing !== null) {
+      showing.step(it);
     }
     if (isGoneIn(view, it) && (hidden === null || !hidden.keeps(it))) {
       continue;
     }
     const content = it.content;
     if (content instanceof ContentFormat) {
-      if (folded !== null) {
-        attrs = null;
-        continue;
-      }
-      if (shown === current || isStoredIn(view, it, hidden)) {
-        step(current, it, {held: ambientFold().held, view});
-      }
-      if (shown !== current && !hidden!.hides(it)) {
-        step(shown, it, {held: hidden, view});
-      }
       attrs = null;
       continue;
     }
@@ -382,10 +374,10 @@ export function readAtoms(
     }
   }
   if (stop !== null) {
-    noteFolded(current, stop.left, 'stored', hidden);
+    stored.note(current, stop.left);
   }
   if (end !== null) {
-    end.folded = folded;
+    end.folded = stored.pending;
   }
   return current;
 }
