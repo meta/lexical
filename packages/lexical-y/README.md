@@ -167,7 +167,7 @@ type records its kind on the root (`k:<type>`); a later client whose class
 derives another kind uses the recorded one when it can, and opens read only
 otherwise.
 
-## Wire format: layout 1
+## Wire format
 
 **Private: read it, never write it.** The Yjs content under the binding's
 root is the binding's private encoding: the root itself, its record keys
@@ -180,11 +180,18 @@ the editor, `editYState` or a migration step. Development builds report a
 local transaction of another origin that changes it
 (`RAW_YJS_WRITE_WARNING`).
 
+Each layout adds to the one before and is frozen once released: layout 1
+is the base, layout 2 adds member entries of set-valued NodeState, and
+layout 3 stores format runs as paired runs. This release writes layout 3
+(`MIN_LAYOUT` and `LAYOUT_VERSION`); a document that records only an older
+layout opens read only until its migration (see
+[layout 3](#wire-format-layout-3)).
+
+### Wire format: layout 1
+
 Layout 1 is frozen: these names are stored in documents and do not change.
 A change to any of them is a new layout version, which older clients open
-read only. Layout 2 (below) keeps everything here and adds member entries
-of set-valued NodeState; layout 3 (below) stores format runs as paired runs.
-Move records (#9449) need a later layout.
+read only. Move records (#9449) need a later layout.
 
 - **Root:** the top-level type `lexical-y` (or the `root` option). Root
   attributes: `lexical-y:<n>` = `true` for each layout version `n` the
@@ -327,7 +334,7 @@ Move records (#9449) need a later layout.
   Every client of a document must therefore register classes with the same
   defaults.
 
-## Wire format: layout 2
+### Wire format: layout 2
 
 Layout 2 is layout 1 plus member entries of set-valued NodeState, and is
 frozen the same way.
@@ -363,7 +370,7 @@ clients keep editing them.
   value (an invariant in development; in production a warning, and the set
   is stored as one value).
 
-## Wire format: layout 3
+### Wire format: layout 3
 
 Layout 3 is layout 2 with paired format runs, and is frozen the same way.
 It is the only layout this release writes: `MIN_LAYOUT`, `LAYOUT_VERSION`
