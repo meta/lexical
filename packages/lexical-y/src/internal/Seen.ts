@@ -23,7 +23,7 @@ import {
   type Transaction,
 } from '@y/y';
 
-import {ambientFold, type FoldIn, pairedReadingIn, stepFormat} from './Ident';
+import {ambientFold, type FoldIn, stepFormat} from './Ident';
 import {EMPTY_FORMATS, isEndItem, typeOf} from './State';
 import {
   currentView,
@@ -502,9 +502,7 @@ export function copyStart<T extends Map<string, unknown> | null>(start: T): T {
  * The frontier of a walk from `left` (exclusive) seeded with `start`: the
  * item `start` was folded up to, when that lies after `left` (the walk
  * would step the items up to it a second time: a paired run must not nest
- * twice), else null. Only where runs are paired: below layout 3 stepping a
- * plain value again changes nothing, and main's walks are kept byte for
- * byte.
+ * twice), else null.
  */
 export function frontierOf(
   view: View | null,
@@ -520,7 +518,7 @@ export function frontierOf(
     return null;
   }
   let to = note.to;
-  if (to === null || to === left || !pairedReadingIn(parent)) {
+  if (to === null || to === left) {
     return null;
   }
   // By its stored id: Yjs can merge the noted item into the one before it

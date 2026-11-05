@@ -353,7 +353,7 @@ function holdsLayoutRecord(type: YNode): boolean {
   return false;
 }
 
-/** The shared root each type is under (see pairedReadingIn). */
+/** The shared root each type is under (see rootOf). */
 let rootOfType = new WeakMap<object, YNode>();
 /**
  * The root `type` is under: the nearest type holding a layout record (every
@@ -375,15 +375,6 @@ export function rootOf(type: YNode): YNode {
     rootOfType.set(type, root);
   }
   return root;
-}
-
-/**
- * Whether items in `type` read as paired runs: every Y.Node (layout 3 only).
- * A document written before layout 3 holds no ends, so it reads exactly as
- * with plain values (see the header); such a document binds read only.
- */
-export function pairedReadingIn(type: unknown): boolean {
-  return type instanceof YNode;
 }
 
 const SET_MEMBER_SEPARATOR = '\u001f';
