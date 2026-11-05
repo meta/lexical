@@ -122,8 +122,23 @@ function banner(value: unknown): string {
     const data = value.data;
     return data.reason === 'other' ? `other:${data.detailCode}` : data.property;
   }
+  if (isYWarning(value, UNSUPPORTED_EDIT_WARNING)) {
+    const data = value.data;
+    switch (data.reason) {
+      case 'read-only':
+        return 'read-only';
+      case 'refused-at-write':
+        // Not a read-only state: the binding may still be active.
+        return `refused:${data.record}`;
+      case 'other':
+        return `other:${data.detailCode}`;
+      default: {
+        const unreachable: never = data;
+        return unreachable;
+      }
+    }
+  }
   if (
-    isYWarning(value, UNSUPPORTED_EDIT_WARNING) ||
     isYWarning(value, RECOVERED_READ_WARNING) ||
     isYWarning(value, RECOVERED_WRITE_WARNING)
   ) {
@@ -251,6 +266,14 @@ describe('typed warnings', () => {
       {found: 3, reason: 'newer', supported: 2},
     );
     expect(banner(schema)).toBe('schema:3>2');
+    expect(
+      banner(
+        new LexicalWarning(UNSUPPORTED_EDIT_WARNING, 'm', {
+          reason: 'refused-at-write',
+          record: 'layout',
+        }),
+      ),
+    ).toBe('refused:layout');
     // The permanent fallback, under a known code.
     expect(
       banner(

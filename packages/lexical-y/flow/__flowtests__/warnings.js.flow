@@ -57,8 +57,16 @@ function foundOf(
 ): number | null {
   return data.reason === 'newer' ? data.found : null;
 }
-// $FlowExpectedError[incompatible-type] an edit warning's reason is 'read-only'
+// $FlowExpectedError[incompatible-type] an edit warning's reason is 'read-only' or 'refused-at-write'
 const edit: YWarningData<typeof UNSUPPORTED_EDIT_WARNING> = {reason: 'newer'};
+const refusedAtWrite: YWarningData<typeof UNSUPPORTED_EDIT_WARNING> = {
+  reason: 'refused-at-write',
+  record: 'schema',
+};
+// $FlowExpectedError[incompatible-type] a refusal at write time names its record
+const unnamed: YWarningData<typeof UNSUPPORTED_EDIT_WARNING> = {
+  reason: 'refused-at-write',
+};
 
 // N3: YWarning is generic and YWarningData falls back to unknown for a code
 // this version does not report, as in TypeScript.

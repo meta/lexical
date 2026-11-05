@@ -313,16 +313,25 @@ export type YUnsupportedConfigData =
   | {readonly reason: 'missing-layout-upgrade'};
 
 /**
- * @experimental `data` of an `UNSUPPORTED_EDIT_WARNING`: a local update
- * (code that edits the editor, which is not editable) changed content while
- * the binding is read only (`'read-only'`), or, while it is active, when the
- * document's layout record did not admit writes as the change was written
- * (the record changed in the same transaction: an app's, or a remote update
- * a provider applied while the editor was updating); not retried.
+ * @experimental `data` of an `UNSUPPORTED_EDIT_WARNING`, a local change that
+ * was not written:
+ *
+ * - `'read-only'`: the binding is read only (code edited the editor, which
+ *   is not editable); an earlier warning says why.
+ * - `'refused-at-write'`: the binding is active, but as the change was
+ *   written the root's `record` (`'layout'`: the layout record, or the
+ *   epoch or a feature requirement; `'schema'`: a schema record) did not
+ *   admit writes. It changed in the same transaction (an app's, or a
+ *   remote update a provider applied while the editor was updating). Not
+ *   retried; the binding may stay active (when the record is put back), so
+ *   this is not a read-only state.
  */
-export interface YUnsupportedEditData {
-  readonly reason: 'read-only';
-}
+export type YUnsupportedEditData =
+  | {readonly reason: 'read-only'}
+  | {
+      readonly reason: 'refused-at-write';
+      readonly record: 'layout' | 'schema';
+    };
 
 /**
  * @experimental `data` of a `SELF_CHECK_WARNING`: the self-check found the

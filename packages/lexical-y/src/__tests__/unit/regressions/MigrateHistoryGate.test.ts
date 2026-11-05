@@ -302,8 +302,10 @@ describe.each([false, true])('writes are admitted at write time, gc %s', gc => {
         );
       }, 'app');
       await flush();
-      const refusal = t.warnings.indexOf('read-only');
+      // Refused at write time (the binding was active), not as read only.
+      const refusal = t.warnings.indexOf('refused-at-write');
       expect(refusal).toBeGreaterThanOrEqual(0);
+      expect(t.warnings).not.toContain('read-only');
       // Unless a build put the record back itself (then nothing is read
       // only and there is no cause to report).
       if (!admitted(t.root)) {
@@ -341,10 +343,13 @@ describe.each([false, true])('writes are admitted at write time, gc %s', gc => {
       expect(t.binding.status).toBe('active');
       // The app's transaction wrote the record raw: reported as such in
       // development, besides the refusal.
-      expect(t.warnings.filter(w => w !== 'raw-write')).toEqual(['read-only']);
+      // A refusal at write time, not a read-only state: it stays active.
+      expect(t.warnings.filter(w => w !== 'raw-write')).toEqual([
+        'refused-at-write',
+      ]);
       expect(t.warnings).toContain('raw-write');
       expect(t.messages.join('\n')).toMatch(
-        /not written: when it was written, the document's layout or schema record \(changed in the same transaction, by the app or by an update a provider applied\) was missing, malformed or one this version does not write\. It is not retried/,
+        /not written: when it was written, the document's layout record \(changed in the same transaction, by the app or by an update a provider applied\) was missing, malformed or one this version does not write\. It is not retried/,
       );
       expect(t.messages.join('\n')).not.toMatch(/an earlier warning/);
       t.binding.dispose();
@@ -406,7 +411,9 @@ describe.each([false, true])('writes are admitted at write time, gc %s', gc => {
         w =>
           `${w.code}:${String((w.data as {reason?: unknown} | undefined)?.reason)}`,
       );
-      const refusal = codes.indexOf(`${UNSUPPORTED_EDIT_WARNING}:read-only`);
+      const refusal = codes.indexOf(
+        `${UNSUPPORTED_EDIT_WARNING}:refused-at-write`,
+      );
       const why = codes.findIndex(c =>
         c.startsWith(`${UNSUPPORTED_LAYOUT_WARNING}:`),
       );

@@ -114,7 +114,9 @@ export type YUnsupportedConfigData =
   | {readonly reason: 'repair-transforms', readonly options: ReadonlyArray<string>}
   | {readonly reason: 'cleanup-formatting'}
   | {readonly reason: 'missing-layout-upgrade'};
-export type YUnsupportedEditData = {readonly reason: 'read-only'};
+export type YUnsupportedEditData =
+  | {readonly reason: 'read-only'}
+  | {readonly reason: 'refused-at-write', readonly record: 'layout' | 'schema'};
 export type YSelfCheckData = {
   readonly reason: 'local' | 'remote',
   readonly problems: ReadonlyArray<string>,

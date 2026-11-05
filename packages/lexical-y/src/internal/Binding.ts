@@ -423,14 +423,17 @@ const isReadOnlyCause = (w: LexicalWarning): boolean =>
   w.code === UNSUPPORTED_LAYOUT_WARNING ||
   w.code === UNSUPPORTED_SCHEMA_WARNING;
 
-/** The refusal of a local edit while read only (it names its cause). */
+/**
+ * The refusal of a local edit, while read only or at write time: when a
+ * read-only cause is reported with it, the cause goes first.
+ */
 const isReadOnlyRefusal = (w: LexicalWarning): boolean => {
   const data = w.data as {reason?: unknown} | null | undefined;
   return (
     w.code === UNSUPPORTED_EDIT_WARNING &&
     data !== null &&
     data !== undefined &&
-    data.reason === 'read-only'
+    (data.reason === 'read-only' || data.reason === 'refused-at-write')
   );
 };
 
@@ -1313,6 +1316,8 @@ export class YBinding {
   private quiesced = false;
   /** The D08 permission of the commit being written (see admitsIn). */
   private writeGrace: SchemaGrace | null = null;
+  /** Which record the last refused admission found (see admitsIn). */
+  private refusedBy: 'layout' | 'schema' = 'layout';
   /** Local commits refused so far (see quiesce). */
   private refusals = 0;
   /** A write was refused inside its transaction (see $writeCommit). */
@@ -3092,11 +3097,11 @@ export class YBinding {
    * listeners), or a remote update a provider applied while the editor was
    * updating. Not retried: a retry would write outside that transaction.
    */
-  private warnRefusedAtWrite(): void {
+  private warnRefusedAtWrite(record: 'layout' | 'schema'): void {
     this.warn(
       UNSUPPORTED_EDIT_WARNING,
-      "a local change was not written: when it was written, the document's layout or schema record (changed in the same transaction, by the app or by an update a provider applied) was missing, malformed or one this version does not write. It is not retried, since a retry would write outside that transaction: edit again (see binding.status)",
-      {reason: 'read-only'},
+      `a local change was not written: when it was written, the document's ${record} record (changed in the same transaction, by the app or by an update a provider applied) was missing, malformed or one this version does not write. It is not retried, since a retry would write outside that transaction: edit again (see binding.status)`,
+      {reason: 'refused-at-write', record},
     );
   }
 
@@ -3142,12 +3147,17 @@ export class YBinding {
    */
   private admitsIn(grace: SchemaGrace | null): boolean {
     if (!this.recordAdmits()) {
+      this.refusedBy = 'layout';
       return false;
     }
-    return (
+    const admits =
       !this.schemaRefuses() ||
-      (grace !== null && sameSchemaRecords(this.schemaRecords(), grace.records))
-    );
+      (grace !== null &&
+        sameSchemaRecords(this.schemaRecords(), grace.records));
+    if (!admits) {
+      this.refusedBy = 'schema';
+    }
+    return admits;
   }
 
   /**
@@ -5278,7 +5288,7 @@ export class YBinding {
           if (this._status === 'active') {
             // Refused only by the record as it was when it wrote (see
             // recordAdmits): no earlier warning names a cause.
-            this.warnRefusedAtWrite();
+            this.warnRefusedAtWrite('layout');
           } else if (!this.warnedEdit) {
             this.warnedEdit = true;
             this.warn(
@@ -5589,7 +5599,7 @@ export class YBinding {
       this.writeCursor = null;
       this.refusals++;
       if (commit.userEdit) {
-        this.warnRefusedAtWrite();
+        this.warnRefusedAtWrite(this.refusedBy);
       }
       this.$refuseChanged(
         dirtyElements,
