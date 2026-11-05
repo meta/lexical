@@ -841,6 +841,92 @@ describe('a line a change not read yet types into and splits, moved', () => {
   }
 });
 
+// A paragraph with formatted text a change not read yet appends, and one
+// the update appends too: the update's paragraph is written after the whole
+// of the change's, not at a format inside it.
+describe('a formatted paragraph a change not read yet appends, and one the update appends', () => {
+  for (const gc of GC) {
+    test(`gc ${gc}`, async () => {
+      const t = await setup(
+        () =>
+          $getRoot().append(
+            ...['aa', 'bb'].map(text =>
+              $createParagraphNode().append($text(text)),
+            ),
+          ),
+        {gc, ids: [1, 2, 3]},
+      );
+      const {a, b} = t;
+      t.offline();
+      const seen = Y.encodeStateVector(b.doc);
+      b.update(() => {
+        $getRoot().append(
+          $createParagraphNode().append(
+            $text('[x]'),
+            $text('[y]').setFormat('bold'),
+            $text('[z]'),
+          ),
+        );
+        $setSelection(null);
+      });
+      const delta = Y.encodeStateAsUpdate(b.doc, seen);
+      a.update(() => {
+        Y.applyUpdate(a.doc, delta, 'provider');
+        $getRoot().append($createParagraphNode().append($text('[new]')));
+      });
+      await t.sync();
+      const text = a.read(() => $getRoot().getTextContent());
+      expect(text.replace(/\n+/g, '|')).toMatch(
+        /^aa\|bb\|(\[x\]\[y\]\[z\]\|\[new\]|\[new\]\|\[x\]\[y\]\[z\])$/,
+      );
+      expect(a.describe()).toBe((await freshReader(a)).describe());
+      await expectConverged(t.peers);
+    });
+  }
+});
+
+// The kept line's passed lines are written again; a paragraph the same
+// change inserted between two of them is not, and ends up next to the kept
+// line (a limit, see D112): nothing is lost.
+describe('a paragraph a change not read yet inserts between the lines a kept line passes', () => {
+  for (const gc of GC) {
+    test(`gc ${gc}`, async () => {
+      const t = await setup(
+        () =>
+          $getRoot().append(
+            ...['aa', 'bb', 'cc', 'dd'].map(text =>
+              $createParagraphNode().append($text(text)),
+            ),
+          ),
+        {gc, ids: [1, 2, 3]},
+      );
+      const {a, b} = t;
+      t.offline();
+      const seen = Y.encodeStateVector(b.doc);
+      b.update(() => {
+        $getRoot()
+          .getAllTextNodes()
+          .find(n => n.getTextContent() === 'aa')!
+          .spliceText(1, 0, 'X');
+        $getRoot()
+          .getChildAtIndex(2)!
+          .insertAfter($createParagraphNode().append($text('new')));
+        $setSelection(null);
+      });
+      const delta = Y.encodeStateAsUpdate(b.doc, seen);
+      a.update(() => {
+        Y.applyUpdate(a.doc, delta, 'provider');
+        $getRoot().append($getRoot().getFirstChildOrThrow());
+      });
+      await t.sync();
+      const text = a.read(() => $getRoot().getTextContent());
+      expect(text.replace(/\n+/g, '|')).toBe('bb|cc|dd|aXa|new');
+      expect(a.describe()).toBe((await freshReader(a)).describe());
+      await expectConverged(t.peers);
+    });
+  }
+});
+
 // #9788: an app's edit in the update of a remote change's read (a selection
 // transform) is written as a local commit is, over the state the read made:
 // the same keep and the same refusal.

@@ -4473,14 +4473,32 @@ export class YBinding {
         csOf(roles.$containerOf(node).getKey()) !== u.cs
       );
     };
+    // The unit holding each item a walk passed: items of one line are
+    // walked once.
+    const unitAt = new Map<Item, Unit | undefined>();
     const unitOf = (it: Item, cs: CS): Unit | undefined => {
+      const passed: Item[] = [];
       let end: Item | null = it;
+      let unit: Unit | undefined | null = null;
       while (end !== null && !state.unitByEnd.has(end)) {
+        const at = unitAt.get(end);
+        if (at !== undefined) {
+          unit = at;
+          break;
+        }
+        passed.push(end);
         end = end.right;
       }
-      return end === null
-        ? cs.units.find(u => u.end === null)
-        : state.unitByEnd.get(end);
+      if (unit === null) {
+        unit =
+          end === null
+            ? cs.units.find(u => u.end === null)
+            : state.unitByEnd.get(end);
+      }
+      for (const p of passed) {
+        unitAt.set(p, unit);
+      }
+      return unit;
     };
     // The text being composed, where the editor still has it: a node stored
     // as a shared node of its own (an inline container, a block node, a

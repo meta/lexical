@@ -1093,7 +1093,9 @@ not merge as a user might expect:
   collaborator's change the editor does not show yet (the line being
   composed with an input method, see Input method composition, or a change
   applied during the update that moves it) is never the one rewritten: it
-  keeps that change, and the blocks it passes are written again. Of two
+  keeps that change, and the blocks it passes are written again (a block
+  the same change inserted between two of those ends up next to the kept
+  block). Of two
   such blocks in one container, an update that changes their order is not
   stored, with a warning (`UNSUPPORTED_EDIT_WARNING`, `'composing-move'`):
   only one of them could keep its change (also when one of them moves to

@@ -2230,6 +2230,8 @@ export class Writer {
     this.heldKeys = keys;
     // See endsNewUnit.
     const newEnds = new Map<Item, boolean>();
+    // The unit holding each item a walk passed (undefined: none).
+    const unitAt = new Map<Item, Unit | undefined>();
     const state = this.state;
     const add = (key: NodeKey | null) => {
       for (
@@ -2269,14 +2271,29 @@ export class Writer {
             isEndItem(end) &&
             inserted(unseen, end) &&
             endsNewUnit(unseen, end, e => state.unitByEnd.has(e), newEnds);
+          // Every item a walk passes is in the unit it ends at: remembered,
+          // so items of one line are walked once.
+          const passed: Item[] = [];
           let end: Item | null = it;
+          let unit: Unit | undefined | null = null;
           while (end !== null && !state.unitByEnd.has(end) && !isNewEnd(end)) {
+            const at = unitAt.get(end);
+            if (at !== undefined) {
+              unit = at;
+              break;
+            }
+            passed.push(end);
             end = end.right;
           }
-          const unit =
-            end === null
-              ? cs.units.find(u => u.end === null)
-              : state.unitByEnd.get(end);
+          if (unit === null) {
+            unit =
+              end === null
+                ? cs.units.find(u => u.end === null)
+                : state.unitByEnd.get(end);
+          }
+          for (const p of passed) {
+            unitAt.set(p, unit);
+          }
           if (unit !== undefined) {
             add(unit.key);
           }

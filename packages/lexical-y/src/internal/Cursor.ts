@@ -386,14 +386,31 @@ export class Cursor {
    * (held back, see Hidden, or inserted by a change not read yet, see Unread)
    * that sets a value, where the cursor writes whole units at a unit
    * boundary (see heldBoundary): it opens a run over the unit after it, and
-   * the units written go before it.
+   * the units written go before it. Not once the cursor passed content the
+   * editor does not show (`passed`, see passesUnseen): such a format is
+   * inside that content (a paragraph a change not read yet inserted), not
+   * at the boundary.
    */
-  private opensAhead(item: Item): boolean {
+  private opensAhead(item: Item, passed: boolean): boolean {
     return (
+      !passed &&
       this.heldBoundary &&
       isFormat(item) &&
       valueOf(item) !== null &&
       (this.isHeldFormat(item) || isUnreadInsert(item))
+    );
+  }
+
+  /**
+   * Whether stepping over `item` passes content the editor does not show
+   * (not a format): held back (see Hidden) or inserted by a change not read
+   * yet (see Unread).
+   */
+  private passesUnseen(item: Item): boolean {
+    return (
+      !isFormat(item) &&
+      (isUnreadInsert(item) ||
+        (this.hidden !== null && this.hidden.hides(item)))
     );
   }
 
@@ -529,11 +546,13 @@ export class Cursor {
    * plain text came back on the next character).
    */
   private minimizeFormatChanges(formats: Record<string, unknown>): void {
+    let passed = false;
     while (this.right !== null) {
       const r = this.right;
-      if (this.opensAhead(r)) {
+      if (this.opensAhead(r, passed)) {
         break;
       }
+      passed = passed || this.passesUnseen(r);
       if (isGone(r) || this.isHeldFormat(r)) {
         // a deleted item has no length, and a held format is not there:
         // step over it
@@ -722,11 +741,13 @@ export class Cursor {
     // The keys whose run, which this write opens, ends at another client's
     // change end it reuses (see format, rule 5).
     const reusedEnds: string[] = [];
+    let passed = false;
     while (this.right !== null) {
       const r = this.right;
-      if (this.opensAhead(r)) {
+      if (this.opensAhead(r, passed)) {
         break;
       }
+      passed = passed || this.passesUnseen(r);
       if (!isGone(r) && !this.isHeldFormat(r)) {
         if (
           !isFormat(r) ||
