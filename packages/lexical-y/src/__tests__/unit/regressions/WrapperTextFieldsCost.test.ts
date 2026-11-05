@@ -41,6 +41,12 @@ vi.mock('../../../internal/Seen', async importOriginal => {
       }
       return original.isGone(...args);
     },
+    isGoneIn: (...args: Parameters<typeof original.isGoneIn>) => {
+      if (counter.on) {
+        counter.visits++;
+      }
+      return original.isGoneIn(...args);
+    },
   };
 });
 
