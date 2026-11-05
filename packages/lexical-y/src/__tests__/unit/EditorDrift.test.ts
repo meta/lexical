@@ -934,9 +934,13 @@ test.each(['a raw Yjs delete', 'a peer deleting its text'])(
     for (const peer of how === 'a raw Yjs delete' ? [t.a] : t.peers) {
       expect(peer.describe()).toBe('paragraph("prepost")');
       // The raw delete itself is reported (development builds); nothing
-      // else is.
+      // else is, and a peer's delete is not reported at all.
       expect(
-        peer.warnings.filter(w => !w.includes('unsupported for direct writes')),
+        how === 'a raw Yjs delete'
+          ? peer.warnings.filter(
+              w => !w.includes('unsupported for direct writes'),
+            )
+          : peer.warnings,
       ).toEqual([]);
     }
     for (const peer of t.peers) {

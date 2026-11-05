@@ -986,6 +986,12 @@ of being admitted or refused.
     `kind`, `requires`, `snapshot`, `deltas`, `queue`) and refuses, with a
     TypeError and before applying any bytes, a record this release does not
     read.
+  - **Malformed material.** Material that is not a well-formed Yjs update
+    (truncated or garbage bytes) makes `createYQuarantineRecord`,
+    `sourceView` and a capture's `signal()` and `collisions()` throw the
+    Yjs decoder's error, and a draft nested too deeply for JSON throws a
+    `RangeError`. Treat any throw from them as malformed input: keep the
+    raw upload, as for a record this release does not read.
   - **Immutable.** A record (and a capture's `material()`) holds copies of
     the bytes and arrays it was given, so a payload never changes under its
     hash. Append-only means a new record or a separately stored append (a

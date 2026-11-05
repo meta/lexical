@@ -1106,12 +1106,19 @@ function assembleV1(material: {
   readonly queue: readonly Uint8Array[];
 }): {doc: Doc; complete: boolean} {
   const doc = createYDoc(null, {gc: false});
-  for (const part of [
-    ...(material.snapshot === null ? [] : [material.snapshot]),
-    ...material.deltas,
-    ...material.queue,
-  ]) {
-    applyUpdate(doc, part);
+  try {
+    for (const part of [
+      ...(material.snapshot === null ? [] : [material.snapshot]),
+      ...material.deltas,
+      ...material.queue,
+    ]) {
+      applyUpdate(doc, part);
+    }
+  } catch (e) {
+    // Malformed material (truncated or not an update): no scratch document
+    // is left behind.
+    doc.destroy();
+    throw e;
   }
   const store = doc.store;
   return {

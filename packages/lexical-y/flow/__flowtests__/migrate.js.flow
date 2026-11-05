@@ -77,8 +77,10 @@ const update: Uint8Array | null = result.update;
 // $FlowExpectedError[incompatible-type] update is null when nothing ran
 const always: Uint8Array = result.update;
 const error = new YMigrationError('missing-step', 'no step');
-// $FlowExpectedError[incompatible-type] codes are a closed set
-const bad = new YMigrationError('other', 'no');
+// Codes are open: a later release may refuse with a code this one does not
+// name.
+const later = new YMigrationError('a-later-code', 'no');
+const laterCode: string = later.code;
 const doc = createYDoc(stored);
 const generation: string = getYGeneration(doc, 'incarnation');
 const room = prepareYRoom(stored, {incarnation: 'i', steps});

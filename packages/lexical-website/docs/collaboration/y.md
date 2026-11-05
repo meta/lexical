@@ -63,7 +63,11 @@ enforced by that peer dependency: `@y/y` exposes no version at run time, so
 Yjs it writes through: `createYDoc`, `YBinding` (and so `YCollabExtension`)
 and the headless helpers check, once per app, that the `@y/y` they loaded
 provides the exports, fields and events the binding uses, and throw a
-`YUnsupportedYjsError` before anything is written when it does not:
+`YUnsupportedYjsError` before anything is written when it does not (each
+entry, `@lexical/y/migrate` and `@lexical/y/server` included, throws its
+own copy of the class, so match it by its `code`,
+`'@lexical/y/unsupported-yjs'`, rather than with `instanceof` across
+entries):
 
 - `data.reason: 'changed-internals'`: the app runs a `@y/y` without
   something the binding uses (pnpm only warns about an unmet peer
@@ -1700,7 +1704,7 @@ below the floor and also reports `UNSUPPORTED_CONFIG_WARNING`
 These APIs are EXPERIMENTAL. A room whose layout is below `MIN_LAYOUT`
 binds read only: the editor shows it and nothing is written until it is
 migrated. The binding reports it once per such read-only period with
-`UNSUPPORTED_LAYOUT_WARNING` and `{reason: 'older', found, min, supported}`
+`UNSUPPORTED_LAYOUT_WARNING` and `{reason: 'older', found, min, supported, upgrade}`
 to the editor's `onWarn`, as it reports the other read-only causes (a
 newer, malformed or removed layout record). An app whose server migrates
 documents handles that reason in `onWarn` (ask the server to migrate, or

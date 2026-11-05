@@ -605,9 +605,9 @@ export type YBindingStatus =
    */
   | 'readonly';
 
-/** @experimental Options of {@link YBinding} (and `YCollabExtension`). */
 const __DEV__ = process.env.NODE_ENV !== 'production';
 
+/** @experimental Options of {@link YBinding} (and `YCollabExtension`). */
 export interface YBindingOptions {
   /**
    * The version of your editor's nodes: registered node classes, their
