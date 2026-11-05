@@ -231,8 +231,11 @@ of set-valued NodeState; layout 3 (planned, #9449) adds move records.
   every required feature, or finds a requirement that is not well formed
   (an empty id, a value other than `true`), opens the root read only: it
   shows it, keeps it and never rewrites it (`UNSUPPORTED_LAYOUT_WARNING`,
-  `'requires'` or `'malformed'`). This release supports no feature. Any
-  other `lexical-y-*` attribute a reader does not know is kept and ignored.
+  `'requires'` or `'malformed'`). The migration runner refuses to migrate
+  such a root (`YMigrationError` `'unsupported-feature'` or `'malformed'`,
+  before any root runs); a root that needs no step passes through
+  unchanged. This release supports no feature. Any other `lexical-y-*`
+  attribute a reader does not know is kept and ignored.
   A server lists every required feature in `describeYRoom`'s `requires` and
   admits no session that does not present them all; a malformed requirement
   makes its root unreadable.

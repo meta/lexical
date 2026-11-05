@@ -667,7 +667,8 @@ of its own is a `b:<type>` child that holds its own sequence (`c: b` when it
 holds blocks), and each of its named slots as an attribute `slot:<name>`
 whose value is the slot's `b:<type>` node. A root may also declare features
 its content needs (`lexical-y-require:<feature>`): a reader that does not
-support one opens the root read only and keeps it as it is. The root also
+support one opens the root read only and keeps it as it is, and the
+migration runner does not migrate it (`'unsupported-feature'`). The root also
 records the layout versions the document needs
 (`lexical-y:1`, a record that only grows) and, per type, the storage kind its
 first write chose (`k:<type>`).

@@ -43,7 +43,8 @@ type YKnownMigrationErrorCode =
   | 'malformed'
   | 'pending'
   | 'post-condition'
-  | 'in-transaction';
+  | 'in-transaction'
+  | 'unsupported-feature';
 // Open: a later version may add codes; keep a fallback.
 export type YMigrationErrorCode = string;
 

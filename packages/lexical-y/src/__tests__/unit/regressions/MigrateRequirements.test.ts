@@ -28,8 +28,9 @@ import {describe, expect, test} from 'vitest';
 import {createYDoc, UNSUPPORTED_LAYOUT_WARNING, YBinding} from '../../..';
 import {editYState, YHeadlessError} from '../../../headless';
 import {readRequirements} from '../../../internal/Layouts';
+import {migrateYState, YMigrationError} from '../../../migrate';
 import {catalogAppExtension, catalogHeadlessConfig} from '../../catalog/bind';
-import {rawDoc, SEED} from '../../utils/migrateSteps';
+import {rawDoc, SEED, stamp} from '../../utils/migrateSteps';
 import {textOf} from '../../utils/splitFixtures';
 
 const CFG = {blockIds: 'absent'} as const;
@@ -177,6 +178,47 @@ describe.each([false, true])('feature requirements, gc %s', gc => {
       any: 1,
     });
     t.dispose();
+  });
+
+  test('the runner refuses a root that would run a step and requires an unsupported feature, before running any root; a root needing no step passes through', () => {
+    const unsupported = withAttrs(gc, {'lexical-y-require:acme.x': true});
+    let error: unknown = null;
+    try {
+      migrateYState(unsupported, [stamp(SEED)], {gc, to: SEED + 1});
+    } catch (e) {
+      error = e;
+    }
+    expect(error).toBeInstanceOf(YMigrationError);
+    expect(error).toMatchObject({
+      code: 'unsupported-feature',
+      problems: ['lexical-y-require:acme.x'],
+      root: 'lexical-y',
+    });
+    const malformedState = withAttrs(gc, {'lexical-y-require:acme.x': 'yes'});
+    expect(() =>
+      migrateYState(malformedState, [stamp(SEED)], {gc, to: SEED + 1}),
+    ).toThrow(expect.objectContaining({code: 'malformed'}));
+    // At the target: no step runs, and the root is returned unchanged.
+    const through = migrateYState(unsupported, [stamp(SEED)], {gc, to: SEED});
+    expect(through.update).toBeNull();
+    expect(through.receipt.changed).toBe(false);
+    expect(Buffer.from(through.state)).toEqual(Buffer.from(unsupported));
+    // Two roots that would both run a step: the refusal comes before either
+    // runs (nothing is returned).
+    const d = createYDoc(rawDoc(SEED), {gc});
+    d.get('b').setAttr(`lexical-y:${SEED}`, true);
+    d.get('b').setAttr('lexical-y-require:acme.y', true);
+    const two = Y.encodeStateAsUpdate(d);
+    d.destroy();
+    expect(() =>
+      migrateYState(two, [stamp(SEED)], {
+        gc,
+        roots: ['b', 'lexical-y'],
+        to: SEED + 1,
+      }),
+    ).toThrow(
+      expect.objectContaining({code: 'unsupported-feature', root: 'b'}),
+    );
   });
 
   test('readRequirements: required, unknown and malformed, against the supported features', () => {

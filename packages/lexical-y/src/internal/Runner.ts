@@ -31,6 +31,7 @@ import {
   LAYOUT_PREFIX,
   LAYOUT_VERSION,
   MIN_LAYOUT,
+  REQUIRE_PREFIX,
 } from './constants';
 import {
   epochOf,
@@ -145,8 +146,16 @@ export type YKnownMigrationErrorCode =
   | 'invalid-steps'
   /** A root has content and no layout record. */
   | 'missing'
-  /** A root's layout record or epoch is malformed. */
+  /**
+   * A root's layout record or epoch is malformed, or a root that would run
+   * a step holds a malformed feature requirement.
+   */
   | 'malformed'
+  /**
+   * A root that would run a step requires a feature this version does not
+   * support (`lexical-y-require:<feature>`): it is not migrated.
+   */
+  | 'unsupported-feature'
   /** migrateYDoc on a document holding pending material or skipped ranges. */
   | 'pending'
   /** A step failed a check on the copy (or threw); nothing was written. */
@@ -588,11 +597,34 @@ function planOf(
     // rollback, or a server upgraded after its clients), a root needs no
     // step and stays as it is; only a root below it needs a chain.
     const from = record.layout;
-    return {
-      from,
-      root: name,
-      steps: from >= to ? [] : chainOf(steps, from, to, name),
-    };
+    if (from >= to) {
+      return {from, root: name, steps: []};
+    }
+    // A root that will run a step must declare no requirement this version
+    // does not support (or cannot read): a step must never rewrite content
+    // whose interpretation the runner does not know. Checked for every
+    // root before any root runs.
+    const requirements = readRequirements(root);
+    const [badRequirement] = requirements.malformed;
+    if (badRequirement !== undefined) {
+      throw new YMigrationError(
+        'malformed',
+        `@lexical/y: root ${name}'s feature requirement ${badRequirement.key} is malformed`,
+        requirements.malformed.map(
+          m => `${m.key} = ${JSON.stringify(m.found)}`,
+        ),
+        name,
+      );
+    }
+    if (requirements.unknown.length > 0) {
+      throw new YMigrationError(
+        'unsupported-feature',
+        `@lexical/y: root ${name} requires ${requirements.unknown.join(', ')}, which this version does not support, so it is not migrated`,
+        requirements.unknown.map(f => `${REQUIRE_PREFIX}${f}`),
+        name,
+      );
+    }
+    return {from, root: name, steps: chainOf(steps, from, to, name)};
   });
 }
 
