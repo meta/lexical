@@ -37,6 +37,7 @@ import {
   $isRangeSelection,
   $isTextNode,
   $setSelection,
+  $setSlot,
   $setState,
   arrayValue,
   type BaseSelection,
@@ -246,7 +247,8 @@ type Kind =
   | 'NodeState shaped like a node'
   | 'line break line style'
   | 'decorator JSON shaped like text'
-  | 'decorator line format';
+  | 'decorator line format'
+  | 'slot text host format';
 
 /** One edit of `kind`, once per editor. */
 function $editOnce(done: WeakSet<LexicalEditor>, kind: Kind): void {
@@ -281,6 +283,9 @@ function $editOnce(done: WeakSet<LexicalEditor>, kind: Kind): void {
   } else if (kind === 'decorator line format') {
     // A line holding only a decorator has no text to take a format from.
     (lines[6] as ParagraphNode).setTextFormat(2);
+  } else if (kind === 'slot text host format') {
+    // Its only text is in a named slot, which the reconciler renders apart.
+    (lines[7] as CaptionedNode).setTextFormat(2);
   } else if (kind === 'merged tokens') {
     // Two token nodes, which Lexical does not merge itself.
     const [first, second] = (lines[4] as ParagraphNode).getAllTextNodes();
@@ -318,6 +323,16 @@ class DataNode extends DecoratorNode<null> {
   }
   decorate(): null {
     return null;
+  }
+}
+
+/** A paragraph with a named slot next to its children (a card's title). */
+class CaptionedNode extends ParagraphNode {
+  $config() {
+    return this.config('read_edit_captioned', {
+      extends: ParagraphNode,
+      slots: ['title'],
+    });
   }
 }
 
@@ -369,8 +384,17 @@ async function runKind(kind: Kind, gc: boolean): Promise<void> {
         ),
         $createParagraphNode().append($createLineBreakNode()),
         $createParagraphNode().append($create(DataNode)),
+        $setSlot(
+          $create(CaptionedNode),
+          'title',
+          $createParagraphNode().append($createTextNode('caption')),
+        ),
       ),
-    {gc, ids: [1, 2, 3], nodes: [...NODES, Line, KindText, DataNode]},
+    {
+      gc,
+      ids: [1, 2, 3],
+      nodes: [...NODES, Line, KindText, DataNode, CaptionedNode],
+    },
   );
   const {a, b, c} = t;
   const host = document.createElement('div');
@@ -412,6 +436,8 @@ async function runKind(kind: Kind, gc: boolean): Promise<void> {
       'line break line style': '"textStyle":"color: blue"',
       'merged tokens': '"text":"token"',
       move: '"text":"tail"',
+      'slot text host format':
+        '"textFormat":2,"textStyle":"","type":"read_edit_captioned"',
     }[kind],
   );
   if (kind === 'move') {
@@ -432,6 +458,7 @@ describe('every kind of app edit made in the update of a remote read is stored',
     'line break line style',
     'decorator JSON shaped like text',
     'decorator line format',
+    'slot text host format',
   ] as const) {
     for (const gc of [false, true]) {
       test(`${kind}, gc ${gc}`, () => runKind(kind, gc));

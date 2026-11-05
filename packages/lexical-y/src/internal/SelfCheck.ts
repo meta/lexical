@@ -16,6 +16,7 @@ import {
   $getSlot,
   $getSlotNames,
   $isElementNode,
+  $isTextNode,
   $parseSerializedNode,
   createEditor,
   type EditorState,
@@ -292,6 +293,23 @@ export function $checkWrite(writer: Writer): string[] {
 const CHANGED = '\u0000changed';
 
 /**
+ * Whether an element has a text node among its children, or theirs (not in
+ * named slots, which the reconciler captures apart): the text it takes its
+ * text format and style from as it renders.
+ */
+function $hasChildText(node: LexicalNode): boolean {
+  if (!$isElementNode(node)) {
+    return false;
+  }
+  for (const child of node.getChildren()) {
+    if ($isTextNode(child) || $hasChildText(child)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
  * A node's JSON with its children and named slots, as exportJSON gives it.
  * Adjacent text nodes that differ only in their text are compared as one
  * (Lexical keeps them apart while one of them is being composed). `unstored`
@@ -310,7 +328,7 @@ export function $deepJSON(
   shown = false,
 ): Attrs {
   const json = node.exportJSON() as unknown as Attrs;
-  if (shown && $isElementNode(node) && node.getAllTextNodes().length > 0) {
+  if (shown && $hasChildText(node)) {
     delete json.textFormat;
     delete json.textStyle;
   }
