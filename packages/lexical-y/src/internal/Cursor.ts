@@ -40,7 +40,6 @@ import {
   noteEnd,
   noteHolder,
   NULL_RUN,
-  pairedReadingIn,
   rootOf,
   seedRunsOf,
   stepPaired,
@@ -622,11 +621,7 @@ export class Cursor {
     }
     if (!isGoneIn(this.view, item) && isFormat(item)) {
       this.sources.set(keyOf(item), item);
-      if (
-        this.frontier === null ||
-        !covered(keyOf(item)) ||
-        !pairedReadingIn(this.parent)
-      ) {
+      if (this.frontier === null || !covered(keyOf(item))) {
         this.stepShown(this.formats, item);
       }
     }

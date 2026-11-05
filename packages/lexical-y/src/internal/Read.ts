@@ -57,7 +57,6 @@ import {
   isOnStack,
   isShadowKey,
   itemAtId,
-  pairedReadingIn,
   repairPendingCopies,
   stepFormat,
   withHeldView,
@@ -815,16 +814,12 @@ export class Reader {
   // Block containers
 
   /**
-   * The opener in the same container that end item `it` names, in a
-   * document read as paired runs; null otherwise.
+   * The opener in the same container that end item `it` names; null
+   * otherwise.
    */
   private openerOf(it: Item): Item | null {
     const content = it.content as ContentFormat;
-    if (
-      !coveredKey(content.key) ||
-      !isEndValue(content.value) ||
-      !pairedReadingIn(it.parent)
-    ) {
+    if (!coveredKey(content.key) || !isEndValue(content.value)) {
       return null;
     }
     const id = endTarget(it);
@@ -1125,10 +1120,7 @@ export class Reader {
     const kept: Item[] = [];
     for (const it of items) {
       if (it.deleted && !isHeld(it, hidden)) {
-        if (
-          !(it.content instanceof ContentFormat) ||
-          !pairedReadingIn(it.parent)
-        ) {
+        if (!(it.content instanceof ContentFormat)) {
           return false;
         }
         if (this.change === null || !this.change.insertSet.hasId(it.id)) {

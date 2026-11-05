@@ -4143,7 +4143,8 @@ export class YBinding {
     if (tr.origin instanceof IdentityLayoutOrigin) {
       // The layout 3 record this client wrote again (see
       // keepIdentityRecord): nothing the editor shows changed, and reading
-      // does not depend on the record (see Ident.pairedReadingIn).
+      // does not depend on the record (every document reads as paired
+      // runs).
       return;
     }
     this.remoteSeq++;
