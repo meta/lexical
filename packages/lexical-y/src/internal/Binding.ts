@@ -56,7 +56,7 @@ import {
   $onUpdate,
   $setSelection,
   COLLABORATION_TAG,
-  COMMAND_PRIORITY_CRITICAL,
+  COMMAND_PRIORITY_BEFORE_CRITICAL,
   DEFER_COMPOSITION_MERGE_TAG,
   type EditorState,
   ElementNode,
@@ -1205,36 +1205,8 @@ export class YBinding {
     this.disposers.push(() =>
       this._doc.off('afterAllTransactions', this.afterAllTransactions),
     );
-    // Lexical notifies a selection change in the update of a read of the
-    // binding's (see readEnd) where an app's selectionTransform set a
-    // selection of its own, and would run every node transform over what
-    // the read brought with it. The notification is held for an update of
-    // its own once the read has committed (see $quietSelection), and its
-    // update runs no transforms: a skipTransforms update nested in it makes
-    // Lexical normalize text only.
-    this.disposers.push(
-      this._editor.registerCommand(
-        SELECTION_CHANGE_COMMAND,
-        () => {
-          const editor = this._editor;
-          const readEnd = this.readEnd;
-          if (
-            readEnd === null ||
-            readEnd.state !== editor._pendingEditorState
-          ) {
-            return false;
-          }
-          editor.update(() => {}, {skipTransforms: true});
-          $onUpdate(() => {
-            editor.update(() => {
-              editor.dispatchCommand(SELECTION_CHANGE_COMMAND, undefined);
-            });
-          });
-          return true;
-        },
-        COMMAND_PRIORITY_CRITICAL,
-      ),
-    );
+    this.frontSelectionChange();
+    this.disposers.push(() => this.offSelectionChange());
     this.disposers.push(
       this._editor.registerUpdateListener(payload =>
         this.guard(() => {
@@ -3687,6 +3659,50 @@ export class YBinding {
   }
 
   /**
+   * Lexical notifies a selection change in the update of a read of the
+   * binding's (see readEnd) where an app's selectionTransform set a
+   * selection of its own, and would run every node transform over what the
+   * read brought with it (see $quietSelection). The binding's handler, ahead
+   * of every other one, holds the notification for an update of its own
+   * once the read has committed, and makes its update run no transforms: a
+   * skipTransforms update nested in it makes Lexical normalize text only.
+   * Registered again ahead of the others for each read that can run an
+   * app's selectionTransform (see markReadEnd), where it is not first.
+   */
+  private frontSelectionChange(): void {
+    const editor = this._editor;
+    const listeners = editor._commands.get(SELECTION_CHANGE_COMMAND);
+    const first =
+      listeners === undefined ? undefined : listeners[4].toArray()[0];
+    if (first !== undefined && first === this.onSelectionChange) {
+      return;
+    }
+    this.offSelectionChange();
+    this.offSelectionChange = editor.registerCommand(
+      SELECTION_CHANGE_COMMAND,
+      this.onSelectionChange,
+      COMMAND_PRIORITY_BEFORE_CRITICAL,
+    );
+  }
+
+  private offSelectionChange: () => void = () => {};
+
+  private readonly onSelectionChange = (): boolean => {
+    const editor = this._editor;
+    const readEnd = this.readEnd;
+    if (readEnd === null || readEnd.state !== editor._pendingEditorState) {
+      return false;
+    }
+    editor.update(() => {}, {skipTransforms: true});
+    $onUpdate(() => {
+      editor.update(() => {
+        editor.dispatchCommand(SELECTION_CHANGE_COMMAND, undefined);
+      });
+    });
+    return true;
+  };
+
+  /**
    * Note what a read made, as its callback returns (see readEnd): a copy of
    * each node it changed (Lexical changes a node already copied in the
    * update in place, so a later change in the update would change the node
@@ -3742,6 +3758,7 @@ export class YBinding {
       note(key);
     }
     this.readEnd = {nodes, state: pending};
+    this.frontSelectionChange();
   }
 
   /**

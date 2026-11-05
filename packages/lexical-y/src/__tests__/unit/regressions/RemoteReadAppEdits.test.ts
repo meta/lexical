@@ -39,6 +39,7 @@ import {
   $setState,
   type BaseSelection,
   COLLABORATION_TAG,
+  COMMAND_PRIORITY_CRITICAL,
   COMMAND_PRIORITY_LOW,
   createState,
   type ElementNode,
@@ -484,74 +485,113 @@ describe('the selection change an app makes in a remote read is notified once', 
 
 describe('a selection an app sets in a remote read is notified after the read, which runs no node transforms', () => {
   for (const gc of [false, true]) {
-    test(`code highlighting, gc ${gc}`, async () => {
-      const t = await setup(
-        () =>
-          $getRoot().append(
-            $create(Line).append(
-              $createTextNode('one '),
-              $create(ReplacingText).setTextContent('two'),
+    for (const early of ['none', 'continuing', 'stopping'] as const) {
+      test(`code highlighting, ${early} handler ahead of the binding's, gc ${gc}`, async () => {
+        // The app's handler only touches the code block; Lexical's
+        // highlighter, a node transform, then rewrites it, in the handler's
+        // own update: a local one, as where the app touches it any other
+        // time.
+        let armed = false;
+        let touched = false;
+        let inRead: boolean | null = null;
+        let earlyCalls = 0;
+        const $touch = () => {
+          if (!armed || touched || !$shutNowAndBefore()) {
+            return;
+          }
+          touched = true;
+          inRead = $hasUpdateTag(COLLABORATION_TAG);
+          const code = $getRoot().getLastChildOrThrow() as ElementNode;
+          code.getWritable();
+          for (const text of code.getAllTextNodes()) {
+            text.getWritable();
+          }
+        };
+        const editors: LexicalEditor[] = [];
+        const t = await setup(
+          () =>
+            $getRoot().append(
+              $create(Line).append(
+                $createTextNode('one '),
+                $create(ReplacingText).setTextContent('two'),
+              ),
+              $createParagraphNode().append($createTextNode('three')),
+              $createCodeNode('javascript').append(
+                $createTextNode('const answer = 42;').toggleFormat('bold'),
+              ),
             ),
-            $createParagraphNode().append($createTextNode('three')),
-            $createCodeNode('javascript').append(
-              $createTextNode('const answer = 42;').toggleFormat('bold'),
-            ),
-          ),
-        {gc, ids: [1, 2, 3], nodes: [...NODES, Line, ReplacingText]},
-      );
-      const {a, b, c} = t;
-      const host = document.createElement('div');
-      host.contentEditable = 'true';
-      document.body.append(host);
-      a.editor.setRootElement(host);
-      host.focus();
-      onTestFinished(() => {
-        a.editor.setRootElement(null);
-        host.remove();
-        t.peers.forEach(p => p.stop());
-      });
-      onTestFinished(registerCodeHighlighting(a.editor));
-      a.update(() => {
-        $getRoot().getAllTextNodes()[1].select(1, 1);
-      });
-      await t.sync();
-      c.update(() => {
-        $setState($getRoot().getFirstChildOrThrow(), shut, true);
-        $setSelection(null);
-      });
-      await t.sync();
-      // The app's handler only touches the code block; Lexical's
-      // highlighter, a node transform, then rewrites it, in the handler's
-      // own update: a local one, as where the app touches it any other time.
-      let touched = false;
-      let inRead: boolean | null = null;
-      onTestFinished(
-        a.editor.registerCommand(
-          SELECTION_CHANGE_COMMAND,
-          () => {
-            if (!touched && $shutNowAndBefore()) {
-              touched = true;
-              inRead = $hasUpdateTag(COLLABORATION_TAG);
-              const code = $getRoot().getLastChildOrThrow() as ElementNode;
-              code.getWritable();
-              for (const text of code.getAllTextNodes()) {
-                text.getWritable();
+          {
+            gc,
+            ids: [1, 2, 3],
+            nodes: [...NODES, Line, ReplacingText],
+            // Registered before the binding's, at the highest priority.
+            prepare: editor => {
+              editors.push(editor);
+              if (early === 'none' || editors.length > 1) {
+                return;
               }
-            }
-            return false;
+              editor.registerCommand(
+                SELECTION_CHANGE_COMMAND,
+                () => {
+                  if (!armed) {
+                    return false;
+                  }
+                  earlyCalls++;
+                  if (early === 'stopping') {
+                    $touch();
+                    return true;
+                  }
+                  return false;
+                },
+                COMMAND_PRIORITY_CRITICAL,
+              );
+            },
           },
-          COMMAND_PRIORITY_LOW,
-        ),
-      );
-      b.update(() => {
-        $getRoot().getAllTextNodes()[2].setTextContent('three 3');
-        $setSelection(null);
+        );
+        const {a, b, c} = t;
+        expect(a.editor).toBe(editors[0]);
+        const host = document.createElement('div');
+        host.contentEditable = 'true';
+        document.body.append(host);
+        a.editor.setRootElement(host);
+        host.focus();
+        onTestFinished(() => {
+          a.editor.setRootElement(null);
+          host.remove();
+          t.peers.forEach(p => p.stop());
+        });
+        onTestFinished(registerCodeHighlighting(a.editor));
+        onTestFinished(
+          a.editor.registerCommand(
+            SELECTION_CHANGE_COMMAND,
+            () => {
+              $touch();
+              return false;
+            },
+            COMMAND_PRIORITY_LOW,
+          ),
+        );
+        a.update(() => {
+          $getRoot().getAllTextNodes()[1].select(1, 1);
+        });
+        await t.sync();
+        c.update(() => {
+          $setState($getRoot().getFirstChildOrThrow(), shut, true);
+          $setSelection(null);
+        });
+        await t.sync();
+        armed = true;
+        b.update(() => {
+          $getRoot().getAllTextNodes()[2].setTextContent('three 3');
+          $setSelection(null);
+        });
+        await t.sync();
+        expect(touched).toBe(true);
+        expect(inRead).toBe(false);
+        expect(earlyCalls).toBe(early === 'none' ? 0 : 1);
+        expect(a.describe()).toBe((await freshReader(a)).describe());
+        await expectConverged(t.peers);
       });
-      await t.sync();
-      expect(touched).toBe(true);
-      expect(inRead).toBe(false);
-      expect(a.describe()).toBe((await freshReader(a)).describe());
-      await expectConverged(t.peers);
-    });
+    }
   }
 });
