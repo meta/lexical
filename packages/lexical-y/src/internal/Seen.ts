@@ -23,7 +23,7 @@ import {
   type Transaction,
 } from '@y/y';
 
-import {ambientFold, pairedReadingIn, stepFormat} from './Ident';
+import {ambientFold, type FoldIn, pairedReadingIn, stepFormat} from './Ident';
 import {EMPTY_FORMATS, isEndItem, typeOf} from './State';
 import {
   currentView,
@@ -621,6 +621,66 @@ export function inLane(
 }
 
 /**
+ * One fold of a container's format items in one lane (see FoldLane), in one
+ * view: which items count, the fold they step in (see Ident.FoldIn) and the
+ * lane its notes carry, in one place. Every fold of a unit's start or of the
+ * formats after it goes through one, so no caller picks a lane, a view or a
+ * hold of its own.
+ */
+export class Folder {
+  /** The fold its items step in. */
+  readonly fold: FoldIn;
+  /**
+   * The last item the seed was folded up to (see frontierOf): the items
+   * before it are in the formats already.
+   */
+  private frontier: Item | null;
+  constructor(
+    /** The formats folded into. */
+    readonly formats: Map<string, unknown>,
+    readonly view: View | null,
+    readonly lane: FoldLane,
+    readonly hidden: Hidden | null,
+    frontier: Item | null = null,
+  ) {
+    this.frontier = frontier;
+    // The shown lane folds as the hold shows the line; the others in the
+    // running work's fold (see Ident.ambientFold).
+    this.fold = {
+      held: lane === 'shown' && hidden !== null ? hidden : ambientFold().held,
+      view,
+    };
+  }
+
+  /**
+   * Fold item `it` (the items of one container, in order): a format item
+   * the lane counts steps the formats, once past the frontier. Returns
+   * whether it did.
+   */
+  step(it: Item): boolean {
+    if (this.frontier !== null) {
+      if (it !== this.frontier) {
+        return false;
+      }
+      this.frontier = null;
+    }
+    if (
+      !(it.content instanceof ContentFormat) ||
+      !inLane(this.view, it, this.lane, this.hidden)
+    ) {
+      return false;
+    }
+    stepFormat(this.formats, it, this.fold);
+    return true;
+  }
+
+  /** Note that `formats` were folded up to `to`, in this fold's lane. */
+  note(formats: object | null, to: Item | null): void {
+    noteFolded(formats, to, this.lane, this.hidden);
+  }
+}
+
+/**
  * Fold `start` again in its lane (see FoldLane): every format item from
  * `parent`'s start to `left` the lane counts.
  */
@@ -636,21 +696,13 @@ export function refoldUpTo(
   if (left === null) {
     return;
   }
-  // The shown lane folds as the hold shows the line; the others in the
-  // running work's fold (see Ident.ambientFold).
-  const fold = {
-    held: lane === 'shown' && hidden !== null ? hidden : ambientFold().held,
-    view,
-  };
-  const step = (it: Item) => stepFormat(start, it, fold);
+  const folder = new Folder(start, view, lane, hidden);
   for (
     let it: Item | null = (parent as {_start: Item | null})._start;
     it !== null;
     it = it.right
   ) {
-    if (it.content instanceof ContentFormat && inLane(view, it, lane, hidden)) {
-      step(it);
-    }
+    folder.step(it);
     if (it === left) {
       break;
     }
