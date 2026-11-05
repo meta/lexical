@@ -522,6 +522,11 @@ export function openHeadlessYEditor(
     const bound = new YBinding(editor, doc, {
       captureTimeout: null,
       clientIDRange: options.clientIDRange,
+      // Headless never migrates: a document below MIN_LAYOUT is read only
+      // here (refused), and declared so, without the config warning a
+      // binding with no declaration adds (its advice, createYCollabConfig,
+      // has no headless counterpart).
+      layoutUpgrade: null,
       root: doc.get(options.root || DEFAULT_ROOT_NAME),
       schemaVersion: options.schemaVersion,
       selfCheck: options.selfCheck,

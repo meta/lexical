@@ -196,17 +196,27 @@ describe.each([false, true])('the binding and layout migrations, gc %s', gc => {
       }
       expect(error).toBeInstanceOf(YHeadlessError);
       expect((error as YHeadlessError).code).toBe('read-only');
+      // Exactly the 'older' warning: headless declares that it never
+      // migrates (layoutUpgrade null), so no 'missing-layout-upgrade'
+      // config warning, whose advice (createYCollabConfig) a server could
+      // not follow.
       expect(
-        (error as YHeadlessError).warnings.map(
-          w => (w as unknown as Warning).data,
-        ),
-      ).toContainEqual({
-        found: BELOW,
-        min: FLOOR,
-        reason: 'older',
-        supported: LAYOUT_VERSION,
-        upgrade: 'read-only',
-      });
+        (error as YHeadlessError).warnings.map(w => [
+          w.code,
+          (w as unknown as Warning).data,
+        ]),
+      ).toEqual([
+        [
+          UNSUPPORTED_LAYOUT_WARNING,
+          {
+            found: BELOW,
+            min: FLOOR,
+            reason: 'older',
+            supported: LAYOUT_VERSION,
+            upgrade: 'read-only',
+          },
+        ],
+      ]);
     }
     // At the floor: active.
     const c = bind(AT_FLOOR, gc);
