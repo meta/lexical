@@ -12,6 +12,7 @@ import {
   $isRangeSelection,
   $isTextNode,
   COMMAND_PRIORITY_BEFORE_EDITOR,
+  COMPOSITION_END_TAG,
   COMPOSITION_START_COMMAND,
   COMPOSITION_START_TAG,
   defineExtension,
@@ -103,6 +104,14 @@ export const IMEExtension = defineExtension({
     // upgrade the signal to the resolved node.
     const removeUpdateListener = editor.registerUpdateListener(
       ({tags, editorState}) => {
+        if (tags.has(COMPOSITION_END_TAG)) {
+          // The editor ended a composition without a DOM compositionend
+          // (Chromium can end one silently): keep the signal in step.
+          if (!editor.isComposing()) {
+            compositionKey.value = null;
+          }
+          return;
+        }
         if (!tags.has(COMPOSITION_START_TAG)) {
           return;
         }
