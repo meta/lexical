@@ -8,6 +8,7 @@
 
 import {
   ContentFormat,
+  ContentType,
   createIdSet,
   type IdSet,
   type Item,
@@ -91,24 +92,44 @@ export function deleted(view: Unread, item: Item): boolean {
  * Whether `end`, the end item of a unit one of the changes of `view`
  * inserted, ends a unit that is wholly new (a paragraph the change inserted),
  * rather than splitting a unit the document had: no content the editor shows
- * lies between it and the end before it (`isEnd`: the ends the binding
- * knows). Formats are not content.
+ * lies between it and the end before it that the binding knows (`isEnd`).
+ * Formats are not content. `known` caches the answer for the inserted ends a
+ * walk passes (it is theirs too), so a run of new paragraphs is walked once.
  */
 export function endsNewUnit(
   view: Unread,
   end: Item,
   isEnd: (item: Item) => boolean,
+  known: Map<Item, boolean>,
 ): boolean {
+  const cached = known.get(end);
+  if (cached !== undefined) {
+    return cached;
+  }
+  const passed: Item[] = [end];
+  let result = true;
   for (let it = end.left; it !== null && !isEnd(it); it = it.left) {
-    if (
-      !(it.content instanceof ContentFormat) &&
-      !inserted(view, it) &&
-      (!it.deleted || deleted(view, it))
-    ) {
-      return false;
+    const at = known.get(it);
+    if (at !== undefined) {
+      result = at;
+      break;
+    }
+    if (it.content instanceof ContentFormat) {
+      continue;
+    }
+    if (!inserted(view, it)) {
+      if (!it.deleted || deleted(view, it)) {
+        result = false;
+        break;
+      }
+    } else if (it.content instanceof ContentType) {
+      passed.push(it);
     }
   }
-  return true;
+  for (const it of passed) {
+    known.set(it, result);
+  }
+  return result;
 }
 
 /**

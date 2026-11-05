@@ -4310,6 +4310,8 @@ export class YBinding {
    */
   private $reordersHeld(hidden: Hidden | null, unread: Unread | null): boolean {
     const state = this.state;
+    // See endsNewUnit.
+    const newEnds = new Map<Item, boolean>();
     const shows = (it: Item): boolean =>
       !(hidden !== null && hidden.hides(it)) &&
       !(unread !== null && insertedBy(unread, it));
@@ -4383,7 +4385,7 @@ export class YBinding {
           isEndItem(it) &&
           unread !== null &&
           insertedBy(unread, it) &&
-          endsNewUnit(unread, it, e => state.unitByEnd.has(e))
+          endsNewUnit(unread, it, e => state.unitByEnd.has(e), newEnds)
         ) {
           // The end of a unit the editor does not show yet (a paragraph a
           // change not read yet inserted): what came before it is that

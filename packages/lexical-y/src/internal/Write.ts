@@ -2228,6 +2228,8 @@ export class Writer {
     }
     const keys = new Set<NodeKey>();
     this.heldKeys = keys;
+    // See endsNewUnit.
+    const newEnds = new Map<Item, boolean>();
     const state = this.state;
     const add = (key: NodeKey | null) => {
       for (
@@ -2266,7 +2268,7 @@ export class Writer {
             unseen !== null &&
             isEndItem(end) &&
             inserted(unseen, end) &&
-            endsNewUnit(unseen, end, e => state.unitByEnd.has(e));
+            endsNewUnit(unseen, end, e => state.unitByEnd.has(e), newEnds);
           let end: Item | null = it;
           while (end !== null && !state.unitByEnd.has(end) && !isNewEnd(end)) {
             end = end.right;
