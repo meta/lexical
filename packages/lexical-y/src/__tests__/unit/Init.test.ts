@@ -88,8 +88,13 @@ function client(doc: YDoc, text: string | null, root?: Y.Node) {
   return {binding, codes, editor, warnings};
 }
 
-/** The id main 0823b74 derives for a pristine root seeded with 'Same seed'. */
-const PRISTINE_SEED_ID = 4267184775731454;
+/**
+ * The id a layout 3 client derives for a pristine root seeded with 'Same
+ * seed' (the release before layout 3 derived 4267184775731454; its seed
+ * recorded layout 1 only, and an older client opens a layout 3 document read
+ * only anyway).
+ */
+const PRISTINE_SEED_ID = 144324623100807;
 
 const text = (editor: ReturnType<typeof createEditor>) =>
   editor.getEditorState().read(() => $getRoot().getTextContent());
@@ -248,7 +253,7 @@ describe('@lexical/y initialization', () => {
     });
   }
 
-  test('a pristine root is still written under the same id (older clients share it)', () => {
+  test('a pristine root is still written under the same id (every layout 3 client shares it)', () => {
     const doc = createYDoc();
     const c = client(doc, 'Same seed');
     c.binding.initialize();

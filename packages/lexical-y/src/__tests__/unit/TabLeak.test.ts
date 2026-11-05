@@ -324,7 +324,7 @@ describe('shown text next to held-back text under an open tab opener', () => {
         hidden.add(item.id.client, item.id.clock + 2, 1);
       }
       const atoms = new Atoms();
-      readAtoms(root._start, null, new Map(), atoms, hidden);
+      readAtoms(null, root._start, null, new Map(), atoms, hidden);
       return atoms;
     };
     const shown = read(true);
@@ -395,10 +395,15 @@ describe("a node kept apart written next to another client's", () => {
       }
       for (const side of ['after', 'before'] as const) {
         for (const op of ['undo', 'remove'] as const) {
-          // Only a tab keeps its type when it was written inside the run of a
-          // node its author then undoes (see Cursor#ownSegmentKeys): other
-          // types and modes still follow that run (#9586).
-          const known = op === 'undo' && side === 'after' && kind !== 'tab';
+          // Only a tab and a hashtag keep their type when written inside the
+          // run of a node their author then undoes (see Cursor#ownNodeKeys:
+          // each writes its type and segment as paired runs of its own):
+          // other types and modes still follow that run (#9586).
+          const known =
+            op === 'undo' &&
+            side === 'after' &&
+            kind !== 'tab' &&
+            kind !== 'hashtag';
           const check = known ? test.fails : test;
           for (const ids of [
             [1, 2],

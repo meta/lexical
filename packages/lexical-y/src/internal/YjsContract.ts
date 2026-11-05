@@ -178,6 +178,7 @@ export function yjsMembers() {
     },
     GC: {
       id: (g: GC) => isObject(g.id),
+      length: (g: GC) => isNumber(g.length),
     },
     ID: {
       client: (id: ID) => isNumber(id.client),
@@ -219,6 +220,7 @@ export function yjsMembers() {
     },
     Skip: {
       id: (k: Skip) => isObject(k.id),
+      length: (k: Skip) => isNumber(k.length),
     },
     StackItem: {
       deletes: (s: StackItem) => isObject(s.deletes),
@@ -518,7 +520,7 @@ function probeMembers(y: YjsExports, found: string[]): void {
       sample('Transaction', tr);
       root.insert(0, 'ab');
       root.insert(2, [new y.Node('probe')]);
-      root.format(0, 1, {probe: true});
+      root.format(0, 1, {probe: [1]});
       root.setAttr('probe', 1);
       // Bytes made by @y/y, which may run in another realm (it switches on
       // the value's constructor).
@@ -563,6 +565,7 @@ function probeMembers(y: YjsExports, found: string[]): void {
     sample('RelativePosition', new y.RelativePosition(null, null, null, 0));
     sample('Skip', new y.Skip(y.createID(1, 0), 1));
     sample('decodeUpdate', y.decodeUpdate(y.encodeStateAsUpdate(doc)));
+    probeCopies(y, doc, root, undoManager, PROBE_ORIGIN, found);
     undoManager.undo();
     undoManager.clear();
   } catch (error) {
@@ -597,6 +600,291 @@ function probeMembers(y: YjsExports, found: string[]): void {
         found.push(`${emitter}@${name}`);
       }
     }
+  }
+}
+
+/**
+ * What the copy fix-up of paired format runs relies on (see Ident's
+ * beforeObservers), checked on the probe's document: a format item restored
+ * by an undo is a copy whose content shares its original's value object and
+ * whose original's `redone` names it; and content a `beforeObserverCalls`
+ * listener puts into an item the transaction inserted is what the
+ * transaction's update carries. Each failure is named in `found`.
+ */
+export const YJS_BEHAVIOURS = {
+  copyRedone: "UndoManager: a restored item is the original's redone",
+  copyRedoneAtObservers:
+    "UndoManager: the original's redone names its copy when beforeObserverCalls runs",
+  copyRedoneWhenUndoReturns:
+    "UndoManager: the original's redone names its copy when the undo call returns, inside an app's transaction",
+  copySharesValue: 'ContentFormat#copy: a copy shares the value object',
+  fixBeforeCaptureAndGc:
+    'Doc@beforeObserverCalls: runs before the UndoManager captures and before gc',
+  fixBeforeEncoding:
+    'Doc@beforeObserverCalls: runs before the update is encoded',
+  freshDecodedValues: 'decodeUpdate: decoded format values are fresh objects',
+  freshEqualDecodedValues:
+    'decodeUpdate: equal format values decode to separate objects, every time',
+  originByConstructor:
+    'UndoManager: tracks an origin by its constructor, and only so',
+} as const;
+
+function probeCopies(
+  y: YjsExports,
+  doc: Doc,
+  root: YNode,
+  undoManager: UndoManager,
+  origin: object,
+  found: string[],
+): void {
+  // The format item the probe wrote over "a", with an array value.
+  let original: Item | null = null;
+  for (let it = root._start; it !== null; it = it.right) {
+    if (
+      !it.deleted &&
+      it.content instanceof y.ContentFormat &&
+      it.content.key === 'probe' &&
+      Array.isArray(it.content.value)
+    ) {
+      original = it;
+      break;
+    }
+  }
+  if (original === null) {
+    found.push(YJS_BEHAVIOURS.copySharesValue);
+    return;
+  }
+  const value = (original.content as ContentFormat).value;
+  doc.transact(() => root.format(0, 1, {probe: null}), origin);
+  // The fix-up runs in beforeObserverCalls and finds an undo's copy through
+  // its original's `redone`: that must name the copy by then. A read inside
+  // an app's transaction repairs pending copies first (Reader#$reading), so
+  // it must name the copy as soon as the undo call returns, too (in the
+  // transaction the undo joins). Nothing relies on it earlier: no code of
+  // the binding runs while Yjs integrates the copy.
+  const restored: Item = original;
+  let redoneAtObservers = false;
+  let redoneOnReturn = false;
+  const atObservers = (tr: Transaction) => {
+    const r = restored.redone;
+    redoneAtObservers = r !== null && tr.insertSet.hasId(r);
+  };
+  doc.on('beforeObserverCalls', atObservers);
+  try {
+    doc.transact(tr => {
+      undoManager.undo();
+      const r = restored.redone;
+      redoneOnReturn = r !== null && tr.insertSet.hasId(r);
+    });
+  } finally {
+    doc.off('beforeObserverCalls', atObservers);
+  }
+  if (!redoneAtObservers) {
+    found.push(YJS_BEHAVIOURS.copyRedoneAtObservers);
+  }
+  if (!redoneOnReturn) {
+    found.push(YJS_BEHAVIOURS.copyRedoneWhenUndoReturns);
+  }
+  const redone = original.redone;
+  const copy = redone === null ? null : doc.store.getItem(redone);
+  if (!(copy instanceof y.Item) || copy.deleted) {
+    found.push(YJS_BEHAVIOURS.copyRedone);
+  } else if (
+    !(copy.content instanceof y.ContentFormat) ||
+    copy.content.value !== value
+  ) {
+    found.push(YJS_BEHAVIOURS.copySharesValue);
+  }
+  // A listener's new content reaches the update.
+  let fixing = true;
+  let update: Uint8Array | null = null;
+  const fix = (tr: Transaction) => {
+    if (!fixing) {
+      return;
+    }
+    y.iterateStructsByIdSet(tr, tr.insertSet, s => {
+      if (
+        s instanceof y.Item &&
+        s.content instanceof y.ContentFormat &&
+        s.content.key === 'probeFix' &&
+        s.content.value !== null
+      ) {
+        s.content = new y.ContentFormat('probeFix', 'fixed');
+      }
+    });
+  };
+  const onUpdate = (u: Uint8Array) => {
+    if (fixing) {
+      update = u;
+    }
+  };
+  doc.on('beforeObserverCalls', fix);
+  doc.on('update', onUpdate);
+  try {
+    doc.transact(() => root.format(1, 1, {probeFix: 'raw'}), origin);
+  } finally {
+    fixing = false;
+    doc.off('beforeObserverCalls', fix);
+    doc.off('update', onUpdate);
+  }
+  let carried = false;
+  if (update !== null) {
+    for (const struct of y.decodeUpdate(update).structs) {
+      if (
+        struct instanceof y.Item &&
+        struct.content instanceof y.ContentFormat &&
+        struct.content.key === 'probeFix' &&
+        struct.content.value === 'fixed'
+      ) {
+        carried = true;
+      }
+    }
+  }
+  if (!carried) {
+    found.push(YJS_BEHAVIOURS.fixBeforeEncoding);
+  }
+  // A decoded end is a fresh array, never the sender's object (the fix-up
+  // tells an undo's copy from a received end by the shared value).
+  const decoded = y.decodeUpdate(y.encodeStateAsUpdate(doc)).structs;
+  for (const struct of decoded) {
+    if (
+      struct instanceof y.Item &&
+      struct.content instanceof y.ContentFormat &&
+      struct.content.value === value
+    ) {
+      found.push(YJS_BEHAVIOURS.freshDecodedValues);
+      break;
+    }
+  }
+  // Nor two equal decoded arrays one object (a decoder that interns values
+  // would make two received ends look like one end and its undo copy), in
+  // one update or across two decodes of it.
+  probeEqualDecodes(y, found);
+  probeObserverOrder(y, origin, found);
+  // The layout record's origin is an instance of a private class: an
+  // UndoManager tracks an origin by identity or by its constructor, so one
+  // that tracks plain objects does not capture it, and one that tracks the
+  // class does (the check that the matching rule is what it was).
+  class Private {}
+  const byObject = new y.UndoManager(root, {
+    captureTimeout: 0,
+    trackedOrigins: new Set<unknown>([Object]),
+  });
+  const byClass = new y.UndoManager(root, {
+    captureTimeout: 0,
+    trackedOrigins: new Set<unknown>([Private]),
+  });
+  try {
+    doc.transact(() => root.setAttr('probeOrigin', 1), new Private());
+    if (byObject.canUndo() || !byClass.canUndo()) {
+      found.push(YJS_BEHAVIOURS.originByConstructor);
+    }
+  } finally {
+    byObject.destroy();
+    byClass.destroy();
+  }
+}
+
+/** Format values of key `key` in a decoded update, in order. */
+function decodedValues(y: YjsExports, update: Uint8Array, key: string) {
+  const out: unknown[] = [];
+  for (const struct of y.decodeUpdate(update).structs) {
+    if (
+      struct instanceof y.Item &&
+      struct.content instanceof y.ContentFormat &&
+      struct.content.key === key
+    ) {
+      out.push(struct.content.value);
+    }
+  }
+  return out;
+}
+
+function probeEqualDecodes(y: YjsExports, found: string[]): void {
+  const doc = new y.Doc({gc: false, guid: PROBE_GUID});
+  try {
+    const root = doc.get('probe');
+    doc.transact(() => {
+      root.insert(0, 'abcd');
+      root.format(0, 1, {probeEq: [1]});
+      root.format(2, 1, {probeEq: [1]});
+    });
+    const update = y.encodeStateAsUpdate(doc);
+    const once = decodedValues(y, update, 'probeEq').filter(Array.isArray);
+    const twice = decodedValues(y, update, 'probeEq').filter(Array.isArray);
+    if (
+      once.length < 2 ||
+      once[0] === once[1] ||
+      twice.length !== once.length ||
+      twice.some((v, i) => v === once[i])
+    ) {
+      found.push(YJS_BEHAVIOURS.freshEqualDecodedValues);
+    }
+  } finally {
+    doc.destroy();
+  }
+}
+
+/**
+ * The fix-up must change an undo's copies before an UndoManager captures the
+ * transaction (it records what the transaction inserted, by id) and before
+ * gc replaces the content of what the transaction deleted: beforeObserverCalls
+ * runs first, with every deleted item's content still there.
+ */
+function probeObserverOrder(
+  y: YjsExports,
+  origin: object,
+  found: string[],
+): void {
+  const doc = new y.Doc({gc: true, guid: PROBE_GUID});
+  const root = doc.get('probe');
+  doc.transact(() => {
+    root.insert(0, 'ab');
+    root.format(0, 1, {probeGc: true});
+  });
+  let gone: Item | null = null;
+  for (let it = root._start; it !== null; it = it.right) {
+    if (it.content instanceof y.ContentFormat && it.content.key === 'probeGc') {
+      gone = it;
+    }
+  }
+  const undoManager = new y.UndoManager(root, {
+    captureTimeout: 0,
+    trackedOrigins: new Set<unknown>([origin]),
+  });
+  const order: string[] = [];
+  let contentAtFix = false;
+  const fix = () => {
+    order.push('fix');
+    contentAtFix =
+      gone !== null && gone.deleted && gone.content instanceof y.ContentFormat;
+  };
+  const capture = () => order.push('capture');
+  const cleanup = () => order.push('cleanup');
+  doc.on('beforeObserverCalls', fix);
+  doc.on('afterTransactionCleanup', cleanup);
+  undoManager.on('stack-item-added', capture);
+  try {
+    // The transaction deletes the format item (as a format change does).
+    doc.transact(tr => {
+      if (gone !== null) {
+        gone.delete(tr);
+      }
+    }, origin);
+  } finally {
+    doc.off('beforeObserverCalls', fix);
+    doc.off('afterTransactionCleanup', cleanup);
+    undoManager.off('stack-item-added', capture);
+    undoManager.destroy();
+    doc.destroy();
+  }
+  if (
+    !contentAtFix ||
+    order[0] !== 'fix' ||
+    order.indexOf('capture') < order.indexOf('fix') ||
+    order.indexOf('cleanup') < order.indexOf('fix')
+  ) {
+    found.push(YJS_BEHAVIOURS.fixBeforeCaptureAndGc);
   }
 }
 

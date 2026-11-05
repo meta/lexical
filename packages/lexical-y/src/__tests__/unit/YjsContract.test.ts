@@ -30,6 +30,7 @@ import {
 } from '../..';
 import {
   probeYjs,
+  YJS_BEHAVIOURS,
   YJS_EVENTS,
   YJS_EXPORTS,
   yjsMembers,
@@ -601,6 +602,139 @@ describe('the contract', () => {
 
   test('the installed @y/y passes the probe', () => {
     expect(probeYjs()).toEqual([]);
+  });
+
+  // The copy fix-up of paired format runs (Ident) re-points an undo's copy
+  // of an end before the update is encoded: it finds copies by the value
+  // object ContentFormat#copy shares and by the original's `redone`, and
+  // rewrites them in a beforeObserverCalls listener.
+  test('fails when a format copy stops sharing its value object', () => {
+    const copy = Y.ContentFormat.prototype.copy;
+    const spy = vi
+      .spyOn(Y.ContentFormat.prototype, 'copy')
+      .mockImplementation(function (this: Y.ContentFormat) {
+        const c = copy.call(this);
+        const v = c.value as unknown;
+        return Array.isArray(v)
+          ? new Y.ContentFormat(c.key, [...v] as unknown as object)
+          : c;
+      });
+    try {
+      expect(probeYjs()).toContain(YJS_BEHAVIOURS.copySharesValue);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  test('fails when beforeObserverCalls runs after the update is encoded', () => {
+    // Its listeners run when the update is emitted, from the bytes already
+    // encoded.
+    const on = Y.Doc.prototype.on;
+    const spy = vi.spyOn(Y.Doc.prototype, 'on').mockImplementation(function (
+      this: Y.Doc,
+      name: string,
+      f: (...args: unknown[]) => void,
+    ) {
+      return name === 'beforeObserverCalls'
+        ? on.call(this, 'update', (...args: unknown[]) => f(args[3]))
+        : on.call(this, name as 'update', f as () => void);
+    } as typeof on);
+    try {
+      expect(probeYjs()).toContain(YJS_BEHAVIOURS.fixBeforeEncoding);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  test('fails when equal format values decode to one object', () => {
+    // A decoder that interns equal values would make two received ends look
+    // like one end and an undo's copy of it.
+    const interned = new Map<string, unknown>();
+    const decodeUpdate = ((update: Uint8Array) => {
+      const decoded = Y.decodeUpdate(update);
+      for (const struct of decoded.structs) {
+        if (
+          struct instanceof Y.Item &&
+          struct.content instanceof Y.ContentFormat &&
+          Array.isArray(struct.content.value)
+        ) {
+          const k = JSON.stringify(struct.content.value);
+          if (!interned.has(k)) {
+            interned.set(k, struct.content.value);
+          }
+          struct.content.value = interned.get(k) as object;
+        }
+      }
+      return decoded;
+    }) as typeof Y.decodeUpdate;
+    expect(probeYjs({...Y, decodeUpdate})).toContain(
+      YJS_BEHAVIOURS.freshEqualDecodedValues,
+    );
+  });
+
+  test('fails when beforeObserverCalls runs after the capture and gc', () => {
+    const on = Y.Doc.prototype.on;
+    const spy = vi.spyOn(Y.Doc.prototype, 'on').mockImplementation(function (
+      this: Y.Doc,
+      name: string,
+      f: (...args: unknown[]) => void,
+    ) {
+      return on.call(
+        this,
+        (name === 'beforeObserverCalls'
+          ? 'afterTransactionCleanup'
+          : name) as 'update',
+        f as () => void,
+      );
+    } as typeof on);
+    try {
+      expect(probeYjs()).toContain(YJS_BEHAVIOURS.fixBeforeCaptureAndGc);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  test("fails when an undo's copy is not its original's redone by beforeObserverCalls", () => {
+    // Its listeners run before the transaction does anything.
+    const on = Y.Doc.prototype.on;
+    const spy = vi.spyOn(Y.Doc.prototype, 'on').mockImplementation(function (
+      this: Y.Doc,
+      name: string,
+      f: (...args: unknown[]) => void,
+    ) {
+      return on.call(
+        this,
+        (name === 'beforeObserverCalls'
+          ? 'beforeTransaction'
+          : name) as 'update',
+        f as () => void,
+      );
+    } as typeof on);
+    try {
+      expect(probeYjs()).toContain(YJS_BEHAVIOURS.copyRedoneAtObservers);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  test("fails when an undo's copy is not its original's redone once the undo call returns", () => {
+    // The undo is put off until the app's transaction ends.
+    const undo = Y.UndoManager.prototype.undo;
+    const spy = vi
+      .spyOn(Y.UndoManager.prototype, 'undo')
+      .mockImplementation(function (this: Y.UndoManager) {
+        const doc = this.doc;
+        if (doc._transaction === null) {
+          return undo.call(this);
+        }
+        doc.once('afterTransaction', () => undo.call(this));
+        return null;
+      });
+    try {
+      expect(probeYjs()).toContain(YJS_BEHAVIOURS.copyRedoneWhenUndoReturns);
+    } finally {
+      spy.mockRestore();
+    }
   });
 
   test('content classes are told apart by identity, not name', () => {

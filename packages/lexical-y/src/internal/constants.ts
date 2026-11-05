@@ -34,14 +34,20 @@ export const LAYOUT_PREFIX = 'lexical-y:';
  */
 // Typed `number`, not its literal: a later release raises it, and code that
 // names its type must not stop compiling (so do MIN_LAYOUT and SEED_LAYOUT).
-export const LAYOUT_VERSION: number = 2;
+export const LAYOUT_VERSION: number = 3;
 /**
- * @experimental The oldest layout version this binding reads and writes. A
- * root below it binds read only (UNSUPPORTED_LAYOUT_WARNING, `'older'`)
- * until it is migrated (see @lexical/y/migrate); the migration runner's
- * default target.
+ * The version of a document holding paired-run items (an
+ * end naming its opener, or a `[]` opener; see Ident).
  */
-export const MIN_LAYOUT: number = 1;
+export const IDENTITY_LAYOUT_VERSION = 3;
+/**
+ * @experimental The oldest layout version this binding reads and writes: layout
+ * 3 only (paired format runs). A root below it binds read only
+ * (UNSUPPORTED_LAYOUT_WARNING, `'older'`) until it is migrated (see
+ * @lexical/y/migrate, @lexical/y/migrate/2to3); the migration runner's default
+ * target.
+ */
+export const MIN_LAYOUT: number = 3;
 /** The version a new document records. */
 export const BASE_LAYOUT_VERSION = 1;
 /**
@@ -50,7 +56,7 @@ export const BASE_LAYOUT_VERSION = 1;
  * handshake of @lexical/y/server, so an authority admits a seeder of a
  * pristine room only at its own seed layout (D22).
  */
-export const SEED_LAYOUT: number = BASE_LAYOUT_VERSION;
+export const SEED_LAYOUT: number = IDENTITY_LAYOUT_VERSION;
 /**
  * The version of a document holding member entries of set-valued NodeState
  * (`s:<key>\u001f<member>` = true).

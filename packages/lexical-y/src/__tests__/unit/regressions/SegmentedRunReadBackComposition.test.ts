@@ -64,30 +64,28 @@ async function split(make: () => TextNode, at = 6, length = 4) {
 
 // A read must keep the text and key the browser is composing into.
 describe.each([0, 1])('composition in part %s', index => {
-  // Inherited (main too): https://github.com/meta/lexical/issues/9739
-  test.fails(
-    'a remote comment removal preserves the composed target',
-    async () => {
-      const t = await split(() =>
-        $createTextNode('alpha beta').setMode('segmented'),
-      );
-      try {
-        const key = t.b.read(() => $children()[index].getKey());
-        const text = t.b.read(() => $children()[index].getTextContent());
-        t.b.update(() => {
-          const node = $getNodeByKey(key) as TextNode;
-          node.select(1, 1);
-          $setCompositionKey(key);
-        });
-        t.a.update(() => $removeMarkID('c5'));
-        await t.sync();
-        expect(t.b.editor._compositionKey).toBe(key);
-        expect(t.b.read(() => $getNodeByKey(key)?.getTextContent())).toBe(text);
-      } finally {
-        stop(t.peers);
-      }
-    },
-  );
+  // Inherited on main (https://github.com/meta/lexical/issues/9739); passes
+  // with paired runs.
+  test('a remote comment removal preserves the composed target', async () => {
+    const t = await split(() =>
+      $createTextNode('alpha beta').setMode('segmented'),
+    );
+    try {
+      const key = t.b.read(() => $children()[index].getKey());
+      const text = t.b.read(() => $children()[index].getTextContent());
+      t.b.update(() => {
+        const node = $getNodeByKey(key) as TextNode;
+        node.select(1, 1);
+        $setCompositionKey(key);
+      });
+      t.a.update(() => $removeMarkID('c5'));
+      await t.sync();
+      expect(t.b.editor._compositionKey).toBe(key);
+      expect(t.b.read(() => $getNodeByKey(key)?.getTextContent())).toBe(text);
+    } finally {
+      stop(t.peers);
+    }
+  });
 });
 
 // Regression: reading the run back while another part is composed rewrote it

@@ -430,7 +430,7 @@ for developers (what happened and what to do): render your own text from
 | `UNSUPPORTED_CONFIG_WARNING` | `BlockIdExtension` with `repairTransforms: true`, or a document with Yjs's format cleanup on (not from `createYDoc`), see [Set up an editor](#set-up-an-editor); or a document below `MIN_LAYOUT` with no `layoutUpgrade` declared (`'missing-layout-upgrade'`, with the `'older'` layout warning, see [Layout upgrades](#layout-upgrades)). Nothing is written; read only. | `'repair-transforms'`: `options`; `'cleanup-formatting'`; `'missing-layout-upgrade'` |
 | `NESTED_FALLBACK_WARNING` | A class that declares a line, format or group is stored as a node of its own (see [How content is stored](#how-content-is-stored)). Once per binding, class and reason. | `'merge-override'`: `type`, `method`; `'undeclared-properties'`: `type`, `properties`; `'inline-slots'`, `'inline-incomplete-schema'`, `'type-name'`, `'merge-incomplete-schema'`, `'merge-slots'`, `'group-children'`, `'group-state-merge'`, `'group-incomplete-schema'`: `type` |
 | `UNSYNCED_VALUE_WARNING` | A property or NodeState value is not plain JSON, so it is not synchronized. Once per binding and property. | `'not-json'`: `property` |
-| `UNSUPPORTED_EDIT_WARNING` | A local update changed the editor while the binding is read only (`'read-only'`, reported once each time it goes read only), or, on an active binding, a write refused at write time because the layout or schema record changed inside its transaction (`'refused-at-write'`, each such write, not retried; the binding may stay active, so it is not a read-only state). Not written; what it changed is read again, or, once the document cannot be read, the editor shows again the last state it showed before the update. | `'read-only'`; `'refused-at-write'`: `record` (`'layout'` or `'schema'`, see below) |
+| `UNSUPPORTED_EDIT_WARNING` | A local update changed the editor while the binding is read only (`'read-only'`, reported once each time it goes read only), or, on an active binding, a write refused at write time because the layout or schema record changed inside its transaction (`'refused-at-write'`, each such write, not retried; the binding may stay active, so it is not a read-only state). Not written; what it changed is read again, or, once the document cannot be read, the editor shows again the last state it showed before the update. With `'held-composition'`, the binding stays active: a local change that inserts no character would have deleted or left behind text a collaborator wrote in the line being composed with an IME, which the composition holds back; it is not written and is read again (undone), and the composition goes on. A change that inserts a character is always written. | `'read-only'`; `'refused-at-write'`: `record` (`'layout'` or `'schema'`, see below); `'held-composition'` |
 | `SELF_CHECK_WARNING` | The self-check (`selfCheck`) found the editor and the document disagree. | `'local'`, `'remote'`: `problems` |
 | `RECOVERED_READ_WARNING` | A change could not be read; the editor was rebuilt from the document. | `'remote-change'`, `'reread'`: `error` |
 | `RAW_YJS_WRITE_WARNING` | Development builds only: a local transaction that is not the binding's (nor a Y.UndoManager's) changed the Yjs content under the binding's root, which is private and unsupported for direct writes (see [Wire format](#wire-format)). Once per binding and origin; nothing else happens. | `'raw-write'`: `root`, `kind` (`'format'`, `'attribute'`, `'content'`), `key`, `origin` (the origin's constructor name) |
@@ -726,6 +726,16 @@ block-beta
 
 _A heading, a paragraph with a link, a bold word and a NodeState value, and
 a custom container (`callout`) that holds a paragraph, in layout 1._
+
+**Layout 3** (what this release writes) stores format runs as pairs. A
+write's run of a text format, a link, a text field, a text node's type or a
+comment id is an opener (the value, or `[]` for "no value") and an end that
+names its opener by id, so a reader knows which write each end belongs to.
+Concurrent formats of one key nest instead of cutting each other short:
+when one collaborator's run ends, the run another collaborator opened
+around it shows again. Flat NodeState values (`s:<key>`) keep layout 1's
+plain values. The package README specifies it:
+[layout 3](https://github.com/meta/lexical/tree/main/packages/lexical-y#wire-format-layout-3).
 
 ## What changes when you turn on collaboration
 
@@ -1438,11 +1448,6 @@ not merge as a user might expect:
   collaborator moved out of the removed range at the same time shows twice
   (the original next to the moved copy), and when two
   collaborators remove the same text and both undo, it shows twice.
-  A client's own undo can remove a format from a word that none of its
-  undone steps touched: type plain text into a bold run, bold a range that
-  ends at that text, type plain text later on, and undo the three steps
-  ([#9690](https://github.com/meta/lexical/issues/9690); kept, because
-  the format rules behind it fix many more cases than they break).
   Undoing the replacement of a block with a new one (`replace` without
   `includeChildren`, written as a removal and a new block) after a
   collaborator edited the new block brings the old block's text back and
@@ -1450,14 +1455,15 @@ not merge as a user might expect:
   block they put in its place, shows after the old text (twice, where they
   put the same text back). `replace(node, true)`, which `$setBlocksType`
   uses, keeps the block's children, and undoing it keeps their text once.
-  Undoing a format change does not undo a collaborator's later change of
-  part of its range, nor the value that change restored after itself: color
-  `abc`, let a collaborator recolor `b`, then undo the color, and `c` keeps
-  the old color, up to the end of the range. The same holds for text a
-  collaborator types or pastes inside the range without that format,
-  whether you saw it before you undo or it arrives as you undo: bold
-  `one two`, let a collaborator type plain ` mid` after `one`, then undo
-  the bold, and ` two` stays bold. Undoing a link
+  Undoing a format change removes exactly its own run. It does not undo a
+  collaborator's later change of part of its range: color `abc`, let a
+  collaborator recolor `b`, then undo the color, and `b` stays blue while
+  `a` and `c` lose the color. Text a collaborator types or pastes inside
+  the range without that format stays without it, whether you saw it
+  before you undo or it arrives as you undo: bold `one two`, let a
+  collaborator type plain ` mid` after `one`, then undo the bold, and
+  nothing stays bold. Text a collaborator typed inside the run with its
+  format loses the format with your undo. Undoing a link
   while a collaborator formats text inside it removes the link on every
   client: a format writes no link while the link holds text. A link with no
   text (only an inline decorator or a line break) still stores its text
@@ -1471,16 +1477,7 @@ not merge as a user might expect:
   one shows a change, as with Yjs's `UndoManager` in any editor that uses it
   as it is. When you undo a format change
   while a collaborator removes that format and undoes the removal, the text
-  keeps the format: the collaborator's undo brings it back. A format a collaborator applies
-  starting right where a run of that format ends, or from inside the run
-  past its end, can be lost on their text after the run when a client
-  other than the one that formatted the run, at the same time, removes the
-  format from part of the run or types inside it without the format: with
-  `Kilo` bolded by one client, another unbolds `il` or types plain text
-  inside `Kilo` as the first or a third bolds ` bb` (or `lo bb`), and with
-  some client id orders ` bb` stays plain
-  ([#9589](https://github.com/meta/lexical/issues/9589)). No text is lost,
-  and when that client undoes its edit, ` bb` is bold again. A local change the binding
+  keeps the format: the collaborator's undo brings it back. A local change the binding
   could not write and recovered from (reported as
   `@lexical/y/recovered-write`) can land as two undo steps: what the failed
   write stored, and its rewrite, when the rewrite takes longer than the
@@ -1552,6 +1549,34 @@ not merge as a user might expect:
   `MIN_LAYOUT`. Export its content and reseed it into a top-level root with
   a release that reads its layout, or keep a release that reads the stored
   layout.
+- **Format runs (layout 3).** Each change only formats what it covers, and
+  concurrent formats of one key nest. A few outcomes are accepted:
+  - Text a collaborator types inside a range that another writer formats
+    at the same time takes the new format, as in Peritext and Automerge;
+    text typed exactly where a run starts or ends is ordered by client id,
+    as at a range's edge before layout 3.
+  - An edit that sets a value another author already set (a link over an
+    equal link) writes nothing of its own, so it follows that author's undo.
+  - Raw Yjs writes under the root are unsupported (see
+    [Wire format](#wire-format) and `RAW_YJS_WRITE_WARNING`): write through
+    an editor or `editYState`. Code that writes formats straight into Yjs
+    anyway writes plain items, not paired runs, and in a layout 3 room they
+    can change the formatting of other text (about 3.0% of randomized
+    sessions with one such writer); text is never affected. Stored format
+    names starting with U+0002 are not read, and an array such code stores
+    as a format's value, other than layout 3's own `[]`, `[d]` and
+    `[client, clock]`, is never shown as a value: those shapes are reserved
+    for ends a later layout may add. In a layout 1 or 2 room, such an array
+    can show as a cleared format while the room is below the floor (read
+    only); the migration stores it as a value, and it reads as one after.
+  - An object such code stores as a format's value reads as that value, as
+    before layout 3, also one keyed by array indices or a typed array (a
+    binary update keeps a typed array's bytes, not its other properties).
+  - Text typed at the very end of a code highlight token while another
+    client re-segments the token can read, in one client id order, as two
+    highlight tokens of the same type on every peer. It renders the same;
+    code that inspects the document sees two nodes, and an installed code
+    highlighter merges them on its next pass.
 - **Other races.** A split racing a change of the line's type gives the
   first half the splitter's type. A join (Backspace at the start of a line,
   or undoing a split) while a collaborator inserts or moves a block to the
@@ -1560,23 +1585,12 @@ not merge as a user might expect:
   into a code block that way becomes code), and the line after stays apart:
   after a Backspace it takes the type of the line before (a paragraph after
   a heading becomes a heading), after undoing a split it keeps its own.
-  Bold ‖ bold on adjacent ranges of one line
-  can leave part unformatted, and so can the same format (bold, the same
-  comment id, a link) applied by two collaborators to overlapping ranges at
-  once
-  ([#9626](https://github.com/meta/lexical/issues/9626)): a Yjs text gives
-  each place one value per key
-  ([yjs/yjs#382](https://github.com/yjs/yjs/issues/382)), so one writer's
-  end of its range can end the other's run there too. A link behaves
-  like a comment there: a range that crosses a link's edge can lose part
-  of its bold for either client id order, and a bold reaching into a
-  link's first word can lose it there when a collaborator one update
-  behind types inside the old bold range. A format removed from a range while a
-  collaborator types inside it without that format (unbolding a word as
-  they type into it, resolving a comment as they paste into it) comes back
-  on the part of the range after their text: their write restores the
-  format they saw there, which the removal could not see. It stops at the
-  end of the range. Text typed inside or at the edge of text a
+  Two collaborators applying the same format (bold, the same comment id, a
+  link) to adjacent or overlapping ranges at once both keep it: each run
+  ends at its own end, so the runs nest, also across a link's edge. A
+  format removed from a range while a collaborator types inside it without
+  that format (unbolding a word as they type into it, resolving a comment
+  as they paste into it) stays removed. Text typed inside or at the edge of text a
   collaborator deletes at the same time keeps the formats it was typed
   with. Text typed inside a range a collaborator formats at the same time
   takes that format (also when the range comes from an older read, as an
@@ -1634,9 +1648,6 @@ reproduces it:
 - Undoing plain text typed into a format run gives the run's format (or
   comment, or style) to plain text a collaborator typed right next to it:
   [#9681](https://github.com/meta/lexical/issues/9681).
-- With Yjs garbage collection on, undoing a format removal while a
-  collaborator applies the same format again can take it off the next
-  character: [#9683](https://github.com/meta/lexical/issues/9683).
 
 For `MarkStateExtension` comments, see the
 [comments limitations](./comments.md#limitations).
@@ -1648,10 +1659,32 @@ in the package README is the contract for what a room stores: the markers,
 attributes and records, and their names. Every room records the layout
 versions it needs (`lexical-y:<n>: true`, a record that only grows), and a
 client reads the highest. A client reads and writes the layouts from
-`MIN_LAYOUT` to `LAYOUT_VERSION` (currently 1 to 2). A new room records
-`SEED_LAYOUT` (currently 1); the first member of a set-valued NodeState
-stored per member (see the limits above) records layout 2, so rooms that
-never hold one stay readable and editable by layout 1 clients.
+`MIN_LAYOUT` to `LAYOUT_VERSION` (currently 3 to 3: paired format runs). A
+new room records `SEED_LAYOUT` (currently 3). A room that records only an
+older layout opens read only (`'older'`) until it is migrated (see
+[Migrating stored documents](#migrating-stored-documents)).
+
+**Moving to layout 3.** This release reads and writes layout 3 only. A room
+stored at layout 1 or 2 opens read only in it, showing its content, until it
+is migrated with `@lexical/y/migrate/2to3` (after `@lexical/y/migrate/1to2`
+for layout 1): the server that stores a room migrates it on load (see the
+[server guide](./y-server.md#migrating-stored-documents)). The step keeps every character, node and line marker with its Yjs
+id, and the document reads the same before and after. What clients see:
+
+- **Older clients** (`@lexical/y` releases before layout 3) open a layout 3
+  room read only (`UNSUPPORTED_LAYOUT_WARNING`, reason `'newer'`). A
+  server with the generation fence (see the server guide) never serves them
+  the migrated room; a relay without it can, and they then show it read
+  only, possibly with wrong formatting, text intact.
+- **Undo across the migration.** The binding clears its undo history at the
+  migration. Clear an app `UndoManager` there too, with
+  `onYMigrationEpoch(doc, fn, root?)`: one that is not cleared can restore
+  formatting the migration replaced.
+- **Rooms written by code.** Raw Yjs writes under the root are unsupported
+  (development builds report them with `RAW_YJS_WRITE_WARNING`): code that
+  writes formats straight into Yjs (`Y.Node#format`) writes plain items,
+  which a layout 3 room reads beside its paired runs. Write through an
+  editor or `editYState` instead (see "Format runs" in the limits).
 
 - **Changes that keep the layout:** additions older clients can ignore, such
   as a new optional attribute. Rooms keep working in old and new clients.
