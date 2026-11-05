@@ -116,7 +116,6 @@ import {
   pruneEnds,
   recordsIdentityLayout,
   repairPendingCopies,
-  stepFormat,
   takePairingChanges,
   withSeeding,
   writeIdentityRecord,
@@ -168,11 +167,12 @@ import {
 } from './Schema';
 import {
   attrsBefore,
+  Folder,
   frontierOf,
-  isGone,
-  isShownEnd,
+  isGoneIn,
+  isShownEndIn,
   prevLiveEnd,
-  shownLength,
+  shownLengthIn,
   unitLeftEnd,
 } from './Seen';
 import {
@@ -5373,7 +5373,7 @@ export class YBinding {
     const inLine = new Set<Item>();
     for (const [parent, items] of this.hiddenItems(hidden)) {
       for (const it of items) {
-        if (isGone(it)) {
+        if (isGoneIn(this.seer(), it)) {
           continue;
         }
         if (parent !== y) {
@@ -5384,7 +5384,11 @@ export class YBinding {
         }
         const path: Item[] = [];
         let end: Item | null = it;
-        while (end !== null && !inLine.has(end) && !isShownEnd(end, hidden)) {
+        while (
+          end !== null &&
+          !inLine.has(end) &&
+          !isShownEndIn(this.seer(), end, hidden)
+        ) {
           path.push(end);
           end = end.right;
         }
@@ -5403,7 +5407,9 @@ export class YBinding {
     return (
       hidden.marker === null ||
       (unit !== undefined &&
-        [...hidden.marker.ends].every(end => end === unit.end || isGone(end)))
+        [...hidden.marker.ends].every(
+          end => end === unit.end || isGoneIn(this.seer(), end),
+        ))
     );
   }
 
@@ -6255,6 +6261,7 @@ export class YBinding {
       // a repeated id in the same update kept the state, which no peer or
       // fresh reader showed.
       const difference = $followUpDifference(
+        this.seer(),
         state,
         cs,
         ranges,
@@ -6836,7 +6843,7 @@ export class YBinding {
       const idx = units.indexOf(unit);
       const prevEnd = idx > 0 ? units[idx - 1].end : null;
       let left = prevEnd;
-      while (left !== null && !isShownEnd(left, state.hidden)) {
+      while (left !== null && !isShownEndIn(this.seer(), left, state.hidden)) {
         left = prevLiveEnd(this.seer(), left, state.hidden);
       }
       start = left === null ? unit.cs.y._start : left.right;
@@ -6853,19 +6860,15 @@ export class YBinding {
     }
     const out: [number, number, Attrs][] = [];
     let offset = 0;
+    const folder = new Folder(formats, this.seer(), 'raw', null, folded);
     for (let it = start; it !== null; it = it.right) {
-      if (it === folded) {
-        folded = null;
-      }
+      folder.step(it);
       if (!it.deleted && it.content instanceof ContentFormat) {
-        if (folded === null) {
-          stepFormat(formats, it);
-        }
         continue;
       }
-      const len = shownLength(it, state.hidden);
+      const len = shownLengthIn(this.seer(), it, state.hidden);
       if (len === 0) {
-        if (isShownEnd(it, state.hidden)) {
+        if (isShownEndIn(this.seer(), it, state.hidden)) {
           break;
         }
         continue;
@@ -8612,7 +8615,7 @@ export class YBinding {
       const units = unit.cs.units;
       const idx = units.indexOf(unit);
       let left = idx > 0 ? units[idx - 1].end : null;
-      while (left !== null && !isShownEnd(left, state.hidden)) {
+      while (left !== null && !isShownEndIn(this.seer(), left, state.hidden)) {
         left = prevLiveEnd(this.seer(), left, state.hidden);
       }
       start = left === null ? unit.cs.y._start : left.right;
@@ -8639,9 +8642,9 @@ export class YBinding {
     let lastLive: Item | null = null;
     let lastLen = 0;
     for (let it = start; it !== null; it = it.right) {
-      const len = shownLength(it, hidden);
+      const len = shownLengthIn(this.seer(), it, hidden);
       if (len === 0) {
-        if (isShownEnd(it, hidden)) {
+        if (isShownEndIn(this.seer(), it, hidden)) {
           break;
         }
         continue;
@@ -8658,7 +8661,7 @@ export class YBinding {
       offset -= len;
       lastLive = it;
       lastLen = len;
-      if (isShownEnd(it, hidden)) {
+      if (isShownEndIn(this.seer(), it, hidden)) {
         return null;
       }
     }
@@ -8720,7 +8723,7 @@ export class YBinding {
       last: boolean,
       inside: boolean,
     ): LexicalNode | null => {
-      if (!isShownEnd(it, state.hidden)) {
+      if (!isShownEndIn(this.seer(), it, state.hidden)) {
         return null;
       }
       const unit = state.unitByEnd.get(it);
@@ -8761,11 +8764,11 @@ export class YBinding {
     diff: number,
   ): {key: NodeKey; offset: number; type: 'text' | 'element'} | null {
     const hidden = this.state.hidden;
-    const liveEnd = (x: Item) => isShownEnd(x, hidden);
+    const liveEnd = (x: Item) => isShownEndIn(this.seer(), x, hidden);
     let offset = 0;
     let it = start;
     for (; it !== null && it !== item && !liveEnd(it); it = it.right) {
-      offset += shownLength(it, hidden);
+      offset += shownLengthIn(this.seer(), it, hidden);
     }
     if (it === item && item !== null && !liveEnd(item)) {
       offset += hidden === null ? diff : hidden.shownBefore(item, diff);
@@ -8826,7 +8829,7 @@ export class YBinding {
     }
     let item: Item | null = found;
     const hidden = this.state.hidden;
-    const marked = isShownEnd(found, hidden)
+    const marked = isShownEndIn(this.seer(), found, hidden)
       ? this.state.unitByEnd.get(found)
       : undefined;
     if (
@@ -8856,7 +8859,7 @@ export class YBinding {
         diff = 0;
       }
     }
-    while (item !== null && shownLength(item, hidden) === 0) {
+    while (item !== null && shownLengthIn(this.seer(), item, hidden) === 0) {
       item = item.right;
       diff = 0;
     }
@@ -8885,7 +8888,7 @@ export class YBinding {
     }
     // Walk to the unit end; count atoms from the unit start.
     let end: Item | null = item;
-    while (end !== null && !isShownEnd(end, hidden)) {
+    while (end !== null && !isShownEndIn(this.seer(), end, hidden)) {
       end = end.right;
     }
     const parentY = item.parent as YNode;
@@ -8931,7 +8934,7 @@ export class YBinding {
     }
     let offset = 0;
     for (let it = start; it !== null && it !== item; it = it.right) {
-      offset += shownLength(it, hidden);
+      offset += shownLengthIn(this.seer(), it, hidden);
     }
     offset +=
       item === end
