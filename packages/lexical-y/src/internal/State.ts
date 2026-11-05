@@ -131,7 +131,12 @@ export function typeOf(it: Item): YNode {
 
 /** Mutable state shared by the read and write paths. */
 export class State {
-  readonly containers = new WeakMap<YNode, CS>();
+  /**
+   * The container of each shared node. A WeakMap, which cannot be cleared:
+   * clear() replaces it (and keyByY), so that a binding started again reads
+   * the document into new containers, mapped to the editor's nodes.
+   */
+  containers = new WeakMap<YNode, CS>();
   readonly csByKey = new Map<NodeKey, CS>();
   readonly unitByEnd = new Map<Item, Unit>();
   readonly unitByKey = new Map<NodeKey, Unit>();
@@ -142,7 +147,7 @@ export class State {
   readonly holders = new Set<NodeKey>();
   /** Stored nodes (b: and i:) by Lexical key, and back. */
   readonly yByKey = new Map<NodeKey, YNode>();
-  readonly keyByY = new WeakMap<YNode, NodeKey>();
+  keyByY = new WeakMap<YNode, NodeKey>();
   /** Segment keys of text nodes Lexical would not merge. */
   readonly segments = new Map<NodeKey, string>();
   private segmentCounter = 0;
@@ -383,6 +388,8 @@ export class State {
   }
 
   clear(): void {
+    this.containers = new WeakMap();
+    this.keyByY = new WeakMap();
     this.csByKey.clear();
     this.unitByEnd.clear();
     this.unitByKey.clear();

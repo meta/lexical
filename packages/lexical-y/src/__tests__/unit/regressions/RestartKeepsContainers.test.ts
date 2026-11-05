@@ -14,7 +14,9 @@
 // by the node itself, and dispose cleared only its other maps), which the
 // new read reused without mapping them back to the editor's nodes. Edits
 // inside such a container (a box's) were then not written: the editor showed
-// them, peers and a fresh reader did not. https://github.com/meta/lexical/issues/9809
+// them, peers and a fresh reader did not
+// (https://github.com/meta/lexical/issues/9809). dispose() now replaces
+// those maps too.
 
 import {$createLinkNode} from '@lexical/link';
 import {
@@ -33,7 +35,7 @@ import {
   setup,
 } from '../../utils/harness';
 
-// [what, content, fails on main]
+// [what, content, fails on main before the fix]
 const CONTAINERS: [string, () => LexicalNode, boolean][] = [
   [
     'a link',
@@ -55,32 +57,29 @@ const CONTAINERS: [string, () => LexicalNode, boolean][] = [
 ];
 
 describe.each([false, true])('a binding started again, gc %s', gc => {
-  for (const [what, $make, fails] of CONTAINERS) {
-    (fails ? test.fails : test)(
-      `writes an edit inside ${what} it had read`,
-      async () => {
-        const t = await setup(() => $getRoot().append($make()), {
-          gc,
-          ids: [1, 2],
-        });
-        const {a, b} = t;
-        a.binding.dispose();
-        a.binding.start();
-        a.update(() => {
-          const text = $getRoot()
-            .getAllTextNodes()
-            .find(n => n.getTextContent() === 'abc')!;
-          text.select(3, 3).insertText('X');
-          $setSelection(null);
-        });
-        await t.sync();
-        const fresh = await freshReader(a);
-        expect(a.read(() => $getRoot().getTextContent())).toContain('abcX');
-        expect(fresh.describe()).toBe(a.describe());
-        expect(b.describe()).toBe(a.describe());
-        fresh.stop();
-        await expectConverged(t.peers);
-      },
-    );
+  for (const [what, $make] of CONTAINERS) {
+    test(`writes an edit inside ${what} it had read`, async () => {
+      const t = await setup(() => $getRoot().append($make()), {
+        gc,
+        ids: [1, 2],
+      });
+      const {a, b} = t;
+      a.binding.dispose();
+      a.binding.start();
+      a.update(() => {
+        const text = $getRoot()
+          .getAllTextNodes()
+          .find(n => n.getTextContent() === 'abc')!;
+        text.select(3, 3).insertText('X');
+        $setSelection(null);
+      });
+      await t.sync();
+      const fresh = await freshReader(a);
+      expect(a.read(() => $getRoot().getTextContent())).toContain('abcX');
+      expect(fresh.describe()).toBe(a.describe());
+      expect(b.describe()).toBe(a.describe());
+      fresh.stop();
+      await expectConverged(t.peers);
+    });
   }
 });
