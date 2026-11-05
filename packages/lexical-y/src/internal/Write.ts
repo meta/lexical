@@ -116,6 +116,7 @@ import {$writeSlots} from './Slots';
 import {
   type CS,
   EMPTY_FORMATS,
+  isEndItem,
   isPartKey,
   nameOf,
   type Roles,
@@ -125,7 +126,7 @@ import {
 } from './State';
 import {$isHeldInline} from './Structure';
 import {type Segment, type TextEditLog, TextReplay} from './TextEdits';
-import {viewOf} from './Unread';
+import {inserted, viewOf} from './Unread';
 
 /** storedTypeOf, in the document the write sees (see Unread). */
 const storedType = (y: YNode): string =>
@@ -2256,8 +2257,14 @@ export class Writer {
         if (cs !== undefined && cs.kind === 'i') {
           add(cs.key);
         } else if (cs !== undefined) {
+          // The end of a unit a change not read yet inserted (a new
+          // paragraph) closes the content before it: that unit is none the
+          // document had, and holds no key to keep.
+          const unseen = viewOf(parent);
+          const isNewEnd = (end: Item) =>
+            unseen !== null && isEndItem(end) && inserted(unseen, end);
           let end: Item | null = it;
-          while (end !== null && !state.unitByEnd.has(end)) {
+          while (end !== null && !state.unitByEnd.has(end) && !isNewEnd(end)) {
             end = end.right;
           }
           const unit =

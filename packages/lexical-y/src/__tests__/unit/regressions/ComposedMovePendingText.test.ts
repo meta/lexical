@@ -748,6 +748,56 @@ describe('a paragraph inserted by a change not read yet, another line moved', ()
   }
 });
 
+// The same change also types into a line the document had (in an inline
+// container or not): that line keeps its change, and the paragraph inserted
+// after it is not counted as that line's, nor the next one's.
+describe('a paragraph and text inserted by a change not read yet, a line moved past them', () => {
+  for (const gc of GC) {
+    for (const span of [false, true]) {
+      test(`${span ? 'in an inline container' : 'in the line'} (gc ${gc})`, async () => {
+        const t = await setup(
+          () =>
+            $getRoot().append(
+              $createParagraphNode().append(
+                span ? $create(SpanNode).append($text('aa')) : $text('aa'),
+              ),
+              $createParagraphNode().append($text('bb')),
+              $createParagraphNode().append($text('tail')),
+            ),
+          {gc, ids: [1, 2, 3], nodes: [...NODES, SpanNode]},
+        );
+        const {a, b} = t;
+        t.offline();
+        const seen = Y.encodeStateVector(b.doc);
+        b.update(() => {
+          const [first] = $getRoot().getChildren();
+          $getRoot()
+            .getAllTextNodes()
+            .find(n => n.getTextContent() === 'aa')!
+            .spliceText(1, 0, 'X');
+          first.insertAfter($createParagraphNode().append($text('new')));
+          $setSelection(null);
+        });
+        const delta = Y.encodeStateAsUpdate(b.doc, seen);
+        a.update(() => {
+          Y.applyUpdate(a.doc, delta, 'provider');
+          $getRoot()
+            .getFirstChildOrThrow()
+            .insertBefore($getRoot().getChildAtIndex(1)!);
+        });
+        await t.sync();
+        expect(a.warnings.filter(w => w.includes('reorders lines'))).toEqual(
+          [],
+        );
+        const text = a.read(() => $getRoot().getTextContent());
+        expect(text.replace(/\n+/g, '|')).toBe('bb|aXa|new|tail');
+        expect(a.describe()).toBe((await freshReader(a)).describe());
+        await expectConverged(t.peers);
+      });
+    }
+  }
+});
+
 // #9788: an app's edit in the update of a remote change's read (a selection
 // transform) is written as a local commit is, over the state the read made:
 // the same keep and the same refusal.

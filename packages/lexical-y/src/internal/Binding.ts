@@ -4372,7 +4372,12 @@ export class YBinding {
         if (u === undefined) {
           break;
         }
-        if (it !== u.end && isEndItem(it) && !shows(it)) {
+        if (
+          it !== u.end &&
+          isEndItem(it) &&
+          unread !== null &&
+          insertedBy(unread, it)
+        ) {
           // The end of a unit the editor does not show yet (a paragraph a
           // change not read yet inserted): what came before it is that
           // unit's, not the next one's.
