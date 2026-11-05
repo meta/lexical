@@ -1295,5 +1295,56 @@ describe.each([false, true])(
       await t.sync();
       await expectConverged(t.peers);
     });
+
+    test('the caret an undo restores, where Yjs merged a deferred change into shown text', async () => {
+      const t = await setup(
+        () =>
+          $getRoot().append(
+            $createParagraphNode().append($createTextNode('base')),
+          ),
+        {gc, ids: [2, 1]},
+      );
+      t.b.update(() =>
+        $getRoot().getAllTextNodes()[0].selectEnd().insertText('[k2]'),
+      );
+      await t.sync();
+      t.offline();
+      const seen = Y.encodeStateVector(t.b.doc);
+      t.b.update(() =>
+        $getRoot().getAllTextNodes().at(-1)!.selectEnd().insertText('[k7]'),
+      );
+      const delta = Y.encodeStateAsUpdate(t.b.doc, seen);
+      t.a.update(() =>
+        $getRoot().getAllTextNodes().at(-1)!.selectEnd().insertText('[k4]'),
+      );
+      t.a.binding.undoManager?.stopCapturing();
+      t.a.update(() => {
+        $getRoot().getAllTextNodes()[0].select(0, 2).formatText('bold');
+        Y.applyUpdate(t.a.doc, delta, 'provider');
+      });
+      await new Promise(r => setTimeout(r, 0));
+      t.a.binding.undo();
+      await new Promise(r => setTimeout(r, 0));
+      // The bold is undone, and the caret is back after a's own "[k4]".
+      expect(
+        t.a.read(() => {
+          const selection = $getSelection();
+          if (!$isRangeSelection(selection)) {
+            return null;
+          }
+          const {anchor} = selection;
+          let before = '';
+          for (const n of $getRoot().getAllTextNodes()) {
+            if (n.getKey() === anchor.key) {
+              return before + n.getTextContent().slice(0, anchor.offset);
+            }
+            before += n.getTextContent();
+          }
+          return null;
+        }),
+      ).toMatch(/\[k4\]$/);
+      await t.sync();
+      await expectConverged(t.peers);
+    });
   },
 );

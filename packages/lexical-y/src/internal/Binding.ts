@@ -4413,13 +4413,15 @@ export class YBinding {
     // (as relative positions on the content before it is written).
     this.writeCursor =
       origin === this && this._undoManager !== null
-        ? prevEditorState.read(() => {
-            try {
-              return this.$captureCursor();
-            } catch (_e) {
-              return null;
-            }
-          })
+        ? this.splitWhileUnread(() =>
+            prevEditorState.read(() => {
+              try {
+                return this.$captureCursor();
+              } catch (_e) {
+                return null;
+              }
+            }),
+          )
         : null;
     const writer = this.$runWriter(
       state,
@@ -6280,7 +6282,13 @@ export class YBinding {
   // -------------------------------------------------------------------------
   // Cursors
 
-  /** The local selection as relative positions (JSON), or null. */
+  /**
+   * The local selection as relative positions (JSON), or null. While a
+   * remote change is not read yet, the positions are taken in a Yjs
+   * transaction that changes nothing (the document's transaction observers
+   * see it), or in the one running; called again from that transaction's
+   * observers, it returns the positions it just took.
+   */
   getCursor(): YCursor | null {
     return this.takeCursor();
   }
@@ -6333,6 +6341,28 @@ export class YBinding {
       this.takingCursor = false;
     }
     return cursor;
+  }
+
+  /**
+   * Run `fn`, which reads positions (see takeCursor), with the items split
+   * at the bounds of the changes not read yet: in the transaction running,
+   * if any, else in one of its own that changes nothing.
+   */
+  private splitWhileUnread<T>(fn: () => T): T {
+    if (this.unread === null) {
+      return fn();
+    }
+    const running = this._doc._transaction;
+    if (running !== null) {
+      this.splitAtUnread(running);
+      return fn();
+    }
+    let result: T | undefined;
+    this._doc.transact(tr => {
+      this.splitAtUnread(tr);
+      result = fn();
+    }, this.scanOrigin);
+    return result as T;
   }
 
   private readCursor(): YCursor | null {
