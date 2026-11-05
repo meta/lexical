@@ -146,8 +146,8 @@ function $importMarkdown(
 /**
  * Renders markdown from a string. The selection is moved to the start after the operation.
  *
- *  @param {boolean | MarkdownImportOptions} [shouldPreserveNewLines] By setting this to true, new lines will be preserved between conversions. {@link MarkdownImportOptions} can be passed here instead, in place of this; lines are merged when either it or `shouldMergeAdjacentLines` asks for that.
- *  @param {boolean} [shouldMergeAdjacentLines] By setting this to true, adjacent non empty lines will be merged according to commonmark spec: https://spec.commonmark.org/0.24/#example-177. Not applicable if shouldPreserveNewLines = true.
+ * @param shouldPreserveNewLines - By setting this to true, new lines will be preserved between conversions. {@link MarkdownImportOptions} can be passed here instead, in place of this; lines are merged when either it or `shouldMergeAdjacentLines` asks for that.
+ * @param shouldMergeAdjacentLines - By setting this to true, adjacent non empty lines will be merged according to commonmark spec: https://spec.commonmark.org/0.24/#example-177. Not applicable if shouldPreserveNewLines = true.
  */
 function $convertFromMarkdownString(
   markdown: string,
@@ -174,8 +174,8 @@ function $convertFromMarkdownString(
  * without modifying the document tree or selection. The returned nodes can be
  * inserted at an arbitrary position via `selection.insertNodes()`.
  *
- *  @param {boolean | MarkdownImportOptions} [shouldPreserveNewLines] By setting this to true, new lines will be preserved between conversions. {@link MarkdownImportOptions} can be passed here instead, in place of this; lines are merged when either it or `shouldMergeAdjacentLines` asks for that.
- *  @param {boolean} [shouldMergeAdjacentLines] By setting this to true, adjacent non empty lines will be merged according to commonmark spec: https://spec.commonmark.org/0.24/#example-177. Not applicable if shouldPreserveNewLines = true.
+ * @param shouldPreserveNewLines - By setting this to true, new lines will be preserved between conversions. {@link MarkdownImportOptions} can be passed here instead, in place of this; lines are merged when either it or `shouldMergeAdjacentLines` asks for that.
+ * @param shouldMergeAdjacentLines - By setting this to true, adjacent non empty lines will be merged according to commonmark spec: https://spec.commonmark.org/0.24/#example-177. Not applicable if shouldPreserveNewLines = true.
  */
 function $generateNodesFromMarkdownString(
   markdown: string,
@@ -204,7 +204,7 @@ function toExportOptions(
 /**
  * Renders string from markdown. The selection is moved to the start after the operation.
  *
- *  @param {boolean | MarkdownExportOptions} [shouldPreserveNewLines] By setting this to true, new lines will be preserved between conversions; or {@link MarkdownExportOptions}.
+ * @param shouldPreserveNewLines - By setting this to true, new lines will be preserved between conversions; or {@link MarkdownExportOptions}.
  */
 function $convertToMarkdownString(
   transformers: Transformer[] = TRANSFORMERS,
@@ -220,7 +220,7 @@ function $convertToMarkdownString(
 /**
  * Converts the selected content to a markdown string.
  *
- *  @param {boolean | MarkdownExportOptions} [shouldPreserveNewLines] By setting this to true, new lines will be preserved between conversions; or {@link MarkdownExportOptions}.
+ * @param shouldPreserveNewLines - By setting this to true, new lines will be preserved between conversions; or {@link MarkdownExportOptions}.
  */
 function $convertSelectionToMarkdownString(
   transformers: Transformer[] = TRANSFORMERS,

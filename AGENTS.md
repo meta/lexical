@@ -274,6 +274,8 @@ This codebase uses **both TypeScript and Flow**:
 
 When adding/modifying APIs, types must be maintained for both systems.
 
+Put types in TypeScript, not in JSDoc. Write `@param name - description` and `@returns description`, without a `{type}` or `[optional]` bracket: TypeScript already states the type and whether the parameter is optional, and a second copy in the comment drifts out of date.
+
 ## Backwards Compatibility
 
 **All changes MUST be backwards compatible.** Lexical is a widely-adopted OSS library, and breaking changes ripple out to every downstream consumer.
