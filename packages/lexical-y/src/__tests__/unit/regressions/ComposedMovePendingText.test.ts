@@ -380,6 +380,40 @@ describe('held back, moved to another container: not written', () => {
 // The same moves in a commit that also types: what is typed is never
 // dropped, so the commit is written (as it would be without the hold: the
 // held text is lost where the write cannot keep it), with no warning.
+// An inline container composed in, unwrapped: its text moves into the line
+// and Lexical merges it into the text before it. That adds no character
+// (the merged text is the old texts, in order), so the commit is refused
+// like any other move of held content out of its node.
+describe('held back in an inline container, unwrapped into the text before it', () => {
+  for (const gc of GC) {
+    test(`gc ${gc}`, async () => {
+      const t = await setup(
+        () =>
+          $getRoot().append(
+            $createParagraphNode().append(
+              $text('x'),
+              $create(SpanNode).append($text('abc')),
+            ),
+            $createParagraphNode().append($text('tail')),
+          ),
+        {gc, ids: [1, 2, 3], nodes: [...NODES, SpanNode]},
+      );
+      await composeAndMove(t, 'text', () => {
+        const span = $abc().getParentOrThrow();
+        for (const child of span.getChildren()) {
+          span.insertBefore(child);
+        }
+        span.remove();
+      });
+      expect(refusals(t.a)).toHaveLength(1);
+      const shown = t.a.describe();
+      expect(shown).toContain('aRbc');
+      expect(shown).toBe((await freshReader(t.a)).describe());
+      await expectConverged(t.peers);
+    });
+  }
+});
+
 describe('held back, moved to another container with typing: written', () => {
   for (const gc of GC) {
     test(`the line, into a block node (gc ${gc})`, async () => {

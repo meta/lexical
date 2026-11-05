@@ -47,6 +47,8 @@ import {
   $getNodeByKey,
   $getRoot,
   $getSelection,
+  $getSlot,
+  $getSlotNames,
   $hasUpdateTag,
   $isElementNode,
   $isNodeSelection,
@@ -97,6 +99,7 @@ import {
   markFormatCloser,
 } from './Cursor';
 import {$canonicalizeGroup, $switchesWrapper} from './Groups';
+import {insertionFree} from './InsertionFree';
 import {
   $applyStoredAttrs,
   $unstoredWrapperTextFields,
@@ -4296,7 +4299,7 @@ export class YBinding {
       return false;
     }
     if (
-      addsCharacters(dirtyLeaves, editorState, prevEditorState) ||
+      addsCharacters(editorState, prevEditorState) ||
       // What the editor showed may hold characters a change not read yet
       // deleted (D108): a character typed again looks like one it had, and
       // a refusal would drop it. Any text changed then counts as typed.
@@ -8805,37 +8808,50 @@ function $splitLineBreaks(node: TextNode): void {
 }
 
 /**
- * Whether a commit adds characters: a text node it changed whose text is not
- * a subsequence (by code point) of the text it had, or a new text node that
- * is not empty. Only a commit that adds none is refused (see
+ * Whether a commit adds characters (see insertionFree, shared with the
+ * identity binding: an update that only deletes, moves or re-keys text adds
+ * none). Only a commit that adds none is refused (see
  * YBinding#refusesHeldMove): a refusal reads the document again, and would
- * drop what was typed.
+ * drop what was typed. The texts are what the editor showed and shows,
+ * which is what storage has but for what a composition holds back (its
+ * insertions only) and for what a change not read yet deleted, which the
+ * caller admits separately.
  */
 function addsCharacters(
-  dirtyLeaves: Set<NodeKey>,
   editorState: EditorState,
   prevEditorState: EditorState,
 ): boolean {
-  const nodes = editorState._nodeMap;
-  const prevNodes = prevEditorState._nodeMap;
-  for (const key of dirtyLeaves) {
-    const node = nodes.get(key);
-    if (!$isTextNode(node)) {
-      continue;
-    }
-    const text = node.__text;
-    const prev = prevNodes.get(key);
-    if (!$isTextNode(prev)) {
-      if (text !== '') {
-        return true;
+  const texts = (state: EditorState) => {
+    const out = new Map<string, string>();
+    for (const [key, node] of state._nodeMap) {
+      if ($isTextNode(node)) {
+        out.set(key, node.__text);
       }
-      continue;
     }
-    if (!isSubsequence(Array.from(text), Array.from(prev.__text))) {
-      return true;
-    }
-  }
-  return false;
+    return out;
+  };
+  return !insertionFree(texts(prevEditorState), texts(editorState), () =>
+    prevEditorState.read(() => {
+      // The text nodes in document order, slots included.
+      const order: string[] = [];
+      const walk = (node: LexicalNode) => {
+        if ($isTextNode(node)) {
+          order.push(node.getKey());
+        }
+        if ($isElementNode(node)) {
+          node.getChildren().forEach(walk);
+        }
+        for (const name of $getSlotNames(node)) {
+          const value = $getSlot(node, name);
+          if (value) {
+            walk(value);
+          }
+        }
+      };
+      walk($getRoot());
+      return order;
+    }),
+  ).free;
 }
 
 /** Whether a commit changed the text of a text node, or made a new one. */
@@ -8855,15 +8871,4 @@ function changesText(
     }
   }
   return false;
-}
-
-/** Whether `part` is a subsequence of `whole`. */
-function isSubsequence(part: string[], whole: string[]): boolean {
-  let at = 0;
-  for (const c of whole) {
-    if (at < part.length && part[at] === c) {
-      at++;
-    }
-  }
-  return at === part.length;
 }
