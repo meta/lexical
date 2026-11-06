@@ -22,7 +22,7 @@ import {
   type TextNode,
 } from 'lexical';
 
-import {type Formats, isLiveContent} from './Cursor';
+import {type Formats, isShownContent, type LeftOut} from './Cursor';
 import {attrsOf} from './Ident';
 import {
   $foreignFlatKeys,
@@ -306,14 +306,10 @@ export function $pushInline(
 export function hasLiveContent(
   view: View | null,
   y: YNode,
-  leftOut: ((it: Item) => boolean) | null = null,
+  leftOut: LeftOut = null,
 ): boolean {
   for (let it = y._start; it !== null; it = it.right) {
-    if (
-      it.countable &&
-      !isGoneIn(view, it) &&
-      !(leftOut !== null && leftOut(it))
-    ) {
+    if (isShownContent(view, it, leftOut)) {
       return true;
     }
   }
@@ -329,16 +325,23 @@ export function hasLiveContent(
  * (its class or the instance allows it), and one the update removed, count.
  * The writer neither counts nor deletes one it leaves out. In an editor read
  * or update; `view`: the document the write sees; `prevMap`: the node map
- * before the update.
+ * before the update; `made`: items the write itself inserted, never left
+ * out. The one predicate for the rule: the writer (Writer#leftOut), its
+ * cursor, a delete's size and the self-check all read through it.
  */
 export function $isLeftOutInline(
   view: View | null,
   it: Item,
   keyByY: WeakMap<YNode, NodeKey>,
   prevMap: ReadonlyMap<NodeKey, LexicalNode>,
+  made: ((item: Item) => boolean) | null = null,
 ): boolean {
   const content = it.content;
-  if (isGoneIn(view, it) || !(content instanceof ContentType)) {
+  if (
+    isGoneIn(view, it) ||
+    !(content instanceof ContentType) ||
+    (made !== null && made(it))
+  ) {
     return false;
   }
   const y = content.type as YNode;
@@ -348,7 +351,7 @@ export function $isLeftOutInline(
   if (
     !name.startsWith(INLINE_PREFIX) ||
     hasLiveContent(view, y, child =>
-      $isLeftOutInline(view, child, keyByY, prevMap),
+      $isLeftOutInline(view, child, keyByY, prevMap, made),
     )
   ) {
     return false;
@@ -400,7 +403,7 @@ export function readAtoms(
   frontier: Item | null = null,
   end: {folded: Item | null} | null = null,
   storedFormats: Formats = formats,
-  leftOut: ((it: Item) => boolean) | null = null,
+  leftOut: LeftOut = null,
 ): Formats {
   const current = new Map(storedFormats);
   // The formats the editor shows (see Reader#held).
@@ -525,11 +528,11 @@ export function countLive(
   start: Item | null,
   stop: Item | null,
   hidden: Hidden | null = null,
-  leftOut: ((it: Item) => boolean) | null = null,
+  leftOut: LeftOut = null,
 ): number {
   let n = 0;
   for (let it = start; it !== null && it !== stop; it = it.right) {
-    if (isLiveContent(view, it) && !(leftOut !== null && leftOut(it))) {
+    if (isShownContent(view, it, leftOut)) {
       n += unheldLength(it, hidden);
     }
   }
