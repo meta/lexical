@@ -79,6 +79,8 @@ export type MdastExportRule = {
   readonly $export: MdastExportHandler,
 };
 
+export type MdastPunctuationMode = 'cjk-friendly' | 'strict-commonmark';
+
 export type MdastConfig = {
   readonly importRules: ReadonlyArray<MdastImportRule>,
   readonly exportRules: ReadonlyArray<MdastExportRule>,
@@ -87,6 +89,8 @@ export type MdastConfig = {
   readonly toMarkdownExtensions: ReadonlyArray<unknown>,
   readonly inlineShortcutTypes: ReadonlyArray<string>,
   readonly inlineShortcutTriggers: ReadonlyArray<string>,
+  readonly importPunctuation?: MdastPunctuationMode,
+  readonly exportPunctuation?: MdastPunctuationMode,
 };
 
 export type MdastShortcutsConfig = {

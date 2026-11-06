@@ -32,14 +32,57 @@ export const LAYOUT_PREFIX = 'lexical-y:';
  * NodeState written into a document also records 2 (clients that only read
  * version 1 then open it read only instead of missing the members).
  */
-export const LAYOUT_VERSION = 2;
+// Typed `number`, not its literal: a later release raises it, and code that
+// names its type must not stop compiling (so do MIN_LAYOUT and SEED_LAYOUT).
+export const LAYOUT_VERSION: number = 3;
+/**
+ * The version of a document holding paired-run items (an
+ * end naming its opener, or a `[]` opener; see Ident).
+ */
+export const IDENTITY_LAYOUT_VERSION = 3;
+/**
+ * @experimental The oldest layout version this binding reads and writes: layout
+ * 3 only (paired format runs). A root below it binds read only
+ * (UNSUPPORTED_LAYOUT_WARNING, `'older'`) until it is migrated (see
+ * @lexical/y/migrate, @lexical/y/migrate/2to3); the migration runner's default
+ * target.
+ */
+export const MIN_LAYOUT: number = 3;
 /** The version a new document records. */
 export const BASE_LAYOUT_VERSION = 1;
+/**
+ * @experimental The layout a new document's seed records (written by
+ * `initialize()` and `seedYState`): what a client sends as `seed` in the
+ * handshake of @lexical/y/server, so an authority admits a seeder of a
+ * pristine room only at its own seed layout (D22).
+ */
+export const SEED_LAYOUT: number = IDENTITY_LAYOUT_VERSION;
 /**
  * The version of a document holding member entries of set-valued NodeState
  * (`s:<key>\u001f<member>` = true).
  */
 export const SET_MEMBERS_LAYOUT_VERSION = 2;
+/**
+ * The root attribute a migration records (see @lexical/y/migrate and
+ * YMigrationEpoch): `{v: 1, kind: 'layout', layout, client, clock, step,
+ * revision}` (and an optional `schema`), where `(client, clock)` is the id
+ * of the transition's first newly written item. Outside the layout records'
+ * namespace (LAYOUT_PREFIX); each migration replaces it with its own, and
+ * nothing else writes it. Readers accept fields they do not know; another
+ * `v`, or a known field that is not well formed, opens the document read
+ * only, as a malformed layout record does.
+ */
+export const EPOCH_KEY = 'lexical-y-epoch';
+/**
+ * Prefix of the root attributes that declare a feature the root's content
+ * needs (`lexical-y-require:<feature> = true`, grow-only, the feature id an
+ * opaque string). A reader that does not support every required feature, or
+ * finds a requirement that is not well formed (an empty id, a value other
+ * than true), opens the root read only: it shows it, keeps it and never
+ * rewrites it. This release supports no feature. Any other `lexical-y-*`
+ * attribute it does not know is kept and ignored.
+ */
+export const REQUIRE_PREFIX = 'lexical-y-require:';
 /**
  * Prefix of the root attributes that record the versions of the app's own
  * schema (`schemaVersion`: its node types and their stored fields) that

@@ -88,9 +88,11 @@ And bundles of commonly used transformers:
 Transformers are explicitly passed to markdown API allowing application-specific subset of markdown or custom transformers.
 
 Default export protects numeric-reference, HTML and link syntax in text,
-including constructs split across text nodes. `AT&T` and `a < b` stay readable;
-named references keep their legacy import and export behavior. An ambiguous `<`
-or `&` at the end of a text node is escaped conservatively. Code and strings
+including constructs split across text nodes. A literal `<` is escaped only where
+it would start a tag, a comment, a declaration, a processing instruction or an
+autolink, and a literal `&` only where it would start a numeric reference, so
+`AT&T`, `a < b`, `<3`, `1<2` and `Tom &` export as typed; named references keep
+their legacy import and export behavior. Code and strings
 returned by custom transformers retain their existing serialization rules, as
 does the legacy source escaping of `shouldPreserveNewLines`. Import reads
 backslash escapes and decimal or hexadecimal references in one pass. A literal
@@ -110,6 +112,46 @@ or email that GFM readers would link holds such a reference, or would take in
 the markers or code span after it, export writes a character of its prefix as
 a reference too (`www&#46;x.co*a*b`), so that no reader links it and the
 formatting comes through.
+
+Import and export also take an options object in the position of the
+`shouldPreserveNewLines` argument, which still takes a boolean. Its
+`punctuation` option (`'cjk-friendly'` or `'strict-commonmark'`) chooses
+how markers beside punctuation are read and written. CommonMark doesn't let
+`**` open or close between a letter and punctuation, so `**你好。**世界` reads
+with literal asterisks. Import defaults to `'cjk-friendly'`, which follows the
+[CommonMark CJK-friendly amendment](https://github.com/tats-u/markdown-cjk-friendly):
+it reads Markdown as CommonMark does except beside Chinese, Japanese and Korean
+characters and punctuation, where markers open and close as their writer
+meant, and a variation selector before a marker reads as the character it
+follows, but after whitespace as itself, as `micromark-extension-cjk-friendly`
+reads it, and after a U+0000 as the U+FFFD that readers put in its place, as
+`markdown-it-cjk-friendly` reads it. So Markdown with a text variation
+selector at the inner edge of a run beside a letter (`**©︎**2024`), which
+earlier versions read as bold, reads with literal markers; import it with
+`punctuation: 'strict-commonmark'` to read it as bold, as strict CommonMark
+readers do. Export defaults to `'strict-commonmark'`,
+whose references every CommonMark, GFM and CJK-friendly reader reads the same
+way (`**你好。**&#19990;界`), with three exceptions. A run of three or more
+markers that a pair uses only part of (`***a*b*c***` or `***x****y*`, as on
+earlier versions, or `**“***!。**」!a***`) is read differently by micromark and by commonmark.js
+and markdown-it, which apply the rule of 3 to the whole run.
+A selector after a tab, a line ending, a vertical tab or a form feed that ends
+a run (`**。\v︎**`) reads as that whitespace in `markdown-it-cjk-friendly`,
+which leaves those markers literal.
+A vertical tab beside a marker (`p\v**.**\vq`) reads as whitespace in
+commonmark.js, markdown-it and micromark, but not in cmark and cmark-gfm
+(GitHub's renderer), which follow CommonMark's definition of whitespace, and
+no reference can stand for it.
+`'cjk-friendly'` writes such CJK text as typed
+(`**你好。**世界`) for readers that follow the amendment.
+
+```ts
+$convertFromMarkdownString(markdown, TRANSFORMERS, undefined, {
+  punctuation: 'strict-commonmark',
+  shouldPreserveNewLines: false,
+});
+$convertToMarkdownString(TRANSFORMERS, undefined, {punctuation: 'cjk-friendly'});
+```
 
 There're three types of transformers:
 

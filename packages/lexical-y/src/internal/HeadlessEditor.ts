@@ -14,7 +14,7 @@ import {
   buildEditorFromExtensions,
 } from '@lexical/extension';
 import invariant from '@lexical/internal/invariant';
-import {applyUpdate, type Doc} from '@y/y';
+import {type Doc} from '@y/y';
 import {
   type AnyLexicalExtensionArgument,
   type CreateEditorArgs,
@@ -34,6 +34,7 @@ import {
   type YWarning,
   type YWarningCode,
 } from '..';
+import {applyStoredState} from './LoadFully';
 import {
   leaseWriterClientID,
   type WRITER_NEW_CLIENT_ID_WARNING,
@@ -77,9 +78,10 @@ export type YHeadlessWarningCode =
  */
 export interface HeadlessYConfig {
   /**
-   * The version of the app's document schema, as on the clients
-   * (`YCollabExtension`'s `schemaVersion`): the version of the code that
-   * runs here. Required. A document a newer version wrote to is read only
+   * The version of your editor's nodes: registered node classes, their
+   * fields and NodeState. Bump it when you add, remove or change one, not on
+   * every release. As on the clients (`YCollabExtension`'s
+   * `schemaVersion`), for the code that runs here. Required. A document a newer version wrote to is read only
    * here: `editYState` and `readYState` refuse it (`'read-only'`, with an
    * `UNSUPPORTED_SCHEMA_WARNING`), and a seed or an edit records this
    * version.
@@ -500,7 +502,8 @@ export function openHeadlessYEditor(
   let lease: WriterLease | null = null;
   try {
     if (options.state) {
-      applyUpdate(doc, options.state);
+      // What the document that encoded the state showed (see LoadFully).
+      applyStoredState(doc, options.state);
     }
     if (writer !== null) {
       // After the state is loaded (Yjs draws a new client id when it loads
@@ -521,6 +524,11 @@ export function openHeadlessYEditor(
     const bound = new YBinding(editor, doc, {
       captureTimeout: null,
       clientIDRange: options.clientIDRange,
+      // Headless never migrates: a document below MIN_LAYOUT is read only
+      // here (refused), and declared so, without the config warning a
+      // binding with no declaration adds (its advice, createYCollabConfig,
+      // has no headless counterpart).
+      layoutUpgrade: null,
       root: doc.get(options.root || DEFAULT_ROOT_NAME),
       schemaVersion: options.schemaVersion,
       selfCheck: options.selfCheck,

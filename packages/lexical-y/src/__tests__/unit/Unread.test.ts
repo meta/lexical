@@ -9,13 +9,13 @@
 // @vitest-environment node
 
 // The document a write sees while a remote change waits to be read (see
-// Unread): what attrsBefore reads as there before a transaction.
+// Unread): what attrsBeforeIn reads as there before a transaction.
 
 import * as Y from '@y/y';
 import {expect, test} from 'vitest';
 
-import {attrsBefore, attrsOf, deleteAttr} from '../../internal/Seen';
-import {emptyView, seenBy} from '../../internal/Unread';
+import {attrsBeforeIn, attrsOfIn, deleteAttrIn} from '../../internal/Seen';
+import {emptyView} from '../../internal/Unread';
 
 test('N2: before a write, an attribute an earlier write removed is gone, one this write removed is not', () => {
   const doc = new Y.Doc({gc: false});
@@ -33,20 +33,15 @@ test('N2: before a write, an attribute an earlier write removed is gone, one thi
   Y.applyUpdate(doc, Y.encodeStateAsUpdate(other, Y.encodeStateVector(doc)));
   doc.off('afterTransaction', note);
   expect(view.changes).toHaveLength(1);
-  seenBy(
-    () => view,
-    () => {
-      // A write deletes the value its editor shows.
-      doc.transact(tr => {
-        expect(attrsOf(root)).toEqual({'p:future': 'keep'});
-        deleteAttr(root, 'p:future', tr);
-        expect(attrsOf(root)).toEqual({});
-        expect(attrsBefore(root, tr)).toEqual({'p:future': 'keep'});
-      });
-      // The next write finds it gone.
-      doc.transact(tr => {
-        expect(attrsBefore(root, tr)).toEqual({});
-      });
-    },
-  );
+  // A write deletes the value its editor shows.
+  doc.transact(tr => {
+    expect(attrsOfIn(view, root)).toEqual({'p:future': 'keep'});
+    deleteAttrIn(view, root, 'p:future', tr);
+    expect(attrsOfIn(view, root)).toEqual({});
+    expect(attrsBeforeIn(view, root, tr)).toEqual({'p:future': 'keep'});
+  });
+  // The next write finds it gone.
+  doc.transact(tr => {
+    expect(attrsBeforeIn(view, root, tr)).toEqual({});
+  });
 });

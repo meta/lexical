@@ -36,6 +36,7 @@ import {ReactExtension} from '@lexical/react/ReactExtension';
 import {ReactProviderExtension} from '@lexical/react/ReactProviderExtension';
 import {useSignalValue} from '@lexical/react/useExtensionSignalValue';
 import {
+  createYCollabConfig,
   createYDoc,
   isYWarning,
   STORAGE_MISMATCH_WARNING,
@@ -104,11 +105,18 @@ const READ_ONLY_WARNING_CODES: ReadonlySet<string> = new Set([
  */
 function needsNewerApp(warning: YWarning | null): boolean {
   return (
-    warning !== null &&
-    (warning.code === UNSUPPORTED_SCHEMA_WARNING ||
-      warning.code === UNSUPPORTED_LAYOUT_WARNING) &&
+    (isYWarning(warning, UNSUPPORTED_SCHEMA_WARNING) ||
+      isYWarning(warning, UNSUPPORTED_LAYOUT_WARNING)) &&
     warning.data.reason === 'newer'
   );
+}
+
+/** The `reason` of a warning's data (each one the notice shows has one). */
+function reasonOf(warning: YWarning): string | undefined {
+  const data: unknown = warning.data;
+  return typeof data === 'object' && data !== null && 'reason' in data
+    ? String(data.reason)
+    : undefined;
 }
 
 let session: CollabYSession | null = null;
@@ -154,8 +162,11 @@ export function getCollabYSession(
           // and not on `import.meta.env.DEV`, which Vite derives from
           // NODE_ENV: `vite build --mode development`, the build the e2e CI
           // job tests, has NODE_ENV production and DEV false.
-          configExtension(YCollabExtension, {
+          createYCollabConfig({
             doc,
+            // The playground's relay does not migrate stored documents:
+            // one below the floor stays read only.
+            layoutUpgrade: null,
             schemaVersion: SCHEMA_VERSION,
             selfCheck: import.meta.env?.MODE !== 'production',
           }),
@@ -293,7 +304,7 @@ export function CollabYPlugin({
       className="collab-y-notice"
       role="status"
       data-code={warning === null ? undefined : warning.code}
-      data-reason={warning === null ? undefined : warning.data.reason}>
+      data-reason={warning === null ? undefined : reasonOf(warning)}>
       {text}
     </div>
   );

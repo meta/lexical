@@ -866,18 +866,67 @@ This file also ships in the `lexical` package as
   instead of `importDOM`; extensions or `$transform` in `$config` instead of
   `transform`.
 
-- **lexical**: `LexicalCommand<T>` is invariant ([#8877](https://github.com/meta/lexical/pull/8877))
+- **lexical**: `LexicalCommand<T>` is invariant in its payload type ([#8877](https://github.com/meta/lexical/pull/8877))
 
-  Commands with different payload types are no longer
-  assignable to each other. `dispatchCommand`'s payload is optional for
-  `void` / `undefined` commands.
+  `LexicalCommand` used to ignore its payload type, so any command was
+  assignable to any other. It now carries a brand that makes the payload type
+  invariant (in Flow it is an opaque type), so a command is only assignable
+  to a `LexicalCommand` of exactly its own payload type. `registerCommand`
+  infers its payload type from both the command and the listener, which must
+  now agree exactly, narrower or wider. `dispatchCommand`'s payload is
+  optional for `void` / `undefined` commands. Runtime behavior is unchanged,
+  and no built-in command's payload type changed.
 
-  Detect: type errors involving `LexicalCommand<unknown>` or mismatched
-  explicit generics on `registerCommand`.
+  Detect: TypeScript errors such as `Argument of type
+  'LexicalCommand<KeyboardEvent | null>' is not assignable to parameter of
+  type 'LexicalCommand<KeyboardEvent>'` after upgrading, from:
 
-  Migration: use `AnyLexicalCommand` (or `LexicalCommand<any>`) for "any
-  command"; drop explicit generics on `registerCommand` and let TypeScript
-  infer them.
+  - `registerCommand` listeners whose parameter annotation differs from the
+    command's payload, such as
+    `editor.registerCommand(KEY_ENTER_COMMAND, (event: KeyboardEvent) => ...)`
+    (the payload of `KEY_ENTER_COMMAND` is `KeyboardEvent | null`), or a
+    shared handler declared as `(event: KeyboardEvent) => boolean` passed for
+    it;
+  - helpers, including test utilities, that take a command with a fixed
+    payload type, such as
+    `function press(command: LexicalCommand<KeyboardEvent>, event: KeyboardEvent)`
+    called with `KEY_ENTER_COMMAND`;
+  - `LexicalCommand<unknown>` used to mean "any command" (arrays, maps,
+    parameters);
+  - explicit type arguments on `registerCommand` that do not match the
+    command's payload;
+  - in Flow, command values written as object literals instead of created
+    with `createCommand`.
+
+  Migration: let TypeScript infer the listener's parameter, or annotate it
+  with the command's exact payload (`CommandPayloadType<typeof KEY_ENTER_COMMAND>`)
+  and handle every case it allows (for `KEY_ENTER_COMMAND`, `null`). Make
+  helpers generic over the payload, or give them the exact payload type. Use
+  `AnyLexicalCommand` for "any command", and drop explicit generics on
+  `registerCommand`.
+
+  ```ts
+  // Before
+  editor.registerCommand(
+    KEY_ENTER_COMMAND,
+    (event: KeyboardEvent) => onEnter(event),
+    COMMAND_PRIORITY_LOW,
+  );
+  function press(command: LexicalCommand<KeyboardEvent>, event: KeyboardEvent) {
+    editor.dispatchCommand(command, event);
+  }
+  // After
+  editor.registerCommand(
+    KEY_ENTER_COMMAND,
+    event => (event ? onEnter(event) : false),
+    COMMAND_PRIORITY_LOW,
+  );
+  function press<P>(command: LexicalCommand<P>, payload: P) {
+    editor.dispatchCommand(command, payload);
+  }
+  ```
+
+  Codemod: none.
 
 ### Deprecations
 
@@ -927,6 +976,28 @@ This file also ships in the `lexical` package as
 - v0.48.0 Lexical GitHub Actions Bot
 
 ## v0.48.0 (2026-07-16)
+
+### Behavior changes
+
+- **@lexical/list**: Backspace at the start of a top-level list item turns it into a paragraph ([#8829](https://github.com/meta/lexical/pull/8829))
+
+  `registerList` (used by `ListExtension` and `ListPlugin`) now handles
+  `KEY_BACKSPACE_COMMAND` at `COMMAND_PRIORITY_BEFORE_EDITOR`, before the
+  `@lexical/rich-text` handler. With a collapsed caret at the start of a
+  top-level list item, Backspace turns the item into a paragraph, splitting
+  the list around it when items follow. Before, Backspace at the start of a
+  top-level item joined it to the end of the block above (the previous item,
+  or a paragraph before the list); that now takes a second Backspace. Nested
+  items were already outdented.
+  `ListItemNode.collapseAtStart` changed to match and now returns `boolean`
+  instead of `true`. That widened return type is filed here rather than as
+  breaking because callers only test the result, and overrides that return
+  `true` still type check.
+
+  Verify: Backspace at the start of top-level list items, including tests that
+  expect the item to join the block above, and any
+  `KEY_BACKSPACE_COMMAND` handler of your own at `COMMAND_PRIORITY_EDITOR` or
+  lower that expects to see this keystroke in a list item.
 
 ### Deprecations
 
@@ -1049,30 +1120,56 @@ This file also ships in the `lexical` package as
 
 ### Breaking changes
 
-- **lexical**: Traversal methods return the base node type ([#8661](https://github.com/meta/lexical/pull/8661))
+- **lexical**: Traversal methods and `$getNodeByKey` return the base node type unless a type argument is written ([#8661](https://github.com/meta/lexical/pull/8661))
 
   `getParent`, `getChildren`, `getFirstChild`, `getLastChild`,
   `getNextSibling(s)`, `getPreviousSibling(s)`, `getChildAtIndex`,
   `getFirstDescendant`, `getLastDescendant`, `getDescendantByIndex` (and
-  their `OrThrow` forms) return the base type, so assigning the result to a
-  narrower type no longer type checks. Types only. (Passing a type argument
-  is deprecated at the same time; see Deprecations.)
+  their `OrThrow` forms), `$getNodeByKey` and `$getNodeByKeyOrThrow` gained
+  a first overload with no type parameter that returns `LexicalNode` (or
+  `ElementNode` for `getParent` and `getParentOrThrow`), in TypeScript and
+  Flow (where `getParents`, already non-generic in TypeScript, got the same
+  overload). The generic overload is kept but deprecated (see Deprecations), and
+  TypeScript only picks it when the type argument is written out. A call
+  without one used to infer the node type from where its result went; it now
+  returns the base type, so code that compiled before can fail to type check.
+  Runtime behavior is unchanged.
 
-  Detect: assignments such as
-  `const p: ParagraphNode | null = node.getFirstChild()` that now fail to type
-  check; `getFirstChild<T>()`-style calls.
+  Detect: calls to these methods without a type argument whose result goes
+  straight to a narrower node type: an annotated variable
+  (`const p: ParagraphNode | null = node.getFirstChild()`), a function
+  argument (`$styleList(root.getFirstChildOrThrow())`, where `$styleList` is
+  a function of yours whose parameter is a `ListNode`), the return value of a function declared to return a node
+  subclass, or a property or array of a subclass type
+  (`const items: ListItemNode[] = list.getChildren()`). After upgrading,
+  TypeScript reports TS2322 (`Type 'LexicalNode | null' is not assignable to
+  type ...` or `Type 'LexicalNode[]' is not assignable to type ...`), TS2345
+  (`Argument of type 'LexicalNode' is not assignable to parameter of type
+  ...`), or, for a return value, TS2740 (`Type 'LexicalNode' is missing the
+  following properties from type ...`). Calls that pass a type argument (`getFirstChild<ParagraphNode>()`)
+  still compile until v0.53.0, which removes that overload.
 
-  Migration:
+  Migration: call the method without a type argument and narrow the result
+  with a node guard (`$isListNode`, `$isParagraphNode`, ...) before passing
+  it on. Adding a type argument also compiles, but only until v0.53.0.
 
   ```ts
-  // Before
+  // $styleList is your own function: (list: ListNode) => void
+  // Before: T was inferred as ListNode from the parameter type
+  $styleList(root.getFirstChildOrThrow());
   const node: ParagraphNode | null = $getRoot().getFirstChild();
   // After
+  const first = root.getFirstChildOrThrow();
+  if ($isListNode(first)) {
+    $styleList(first);
+  }
   const node = $getRoot().getFirstChild();
   if ($isParagraphNode(node)) {
     // node: ParagraphNode
   }
   ```
+
+  Codemod: none; each call site needs a guard that fits its context.
 
 - **lexical**: `$getNearestNodeFromDOMNode(rootElement)` returns `RootNode` ([#8588](https://github.com/meta/lexical/pull/8588))
 
@@ -1154,9 +1251,11 @@ This file also ships in the `lexical` package as
 
 - **lexical**: Type arguments on node traversal methods deprecated ([#8661](https://github.com/meta/lexical/pull/8661))
 
-  Replacement: type guards such as `$isParagraphNode`. Applies to the traversal methods listed under Breaking changes and to `$getNodeByKey` / `$getNodeByKeyOrThrow`.
+  Replacement: call without a type argument and narrow with a type guard such as `$isParagraphNode`. Applies to the traversal methods listed under Breaking changes and to `$getNodeByKey` / `$getNodeByKeyOrThrow`. Calls that relied on an inferred type argument are already broken in this version; see the Breaking changes entry.
 
-  Removal: not scheduled.
+  Detect: explicit type arguments on these methods, such as `getParentOrThrow<ListItemNode>()`. Calls without one are covered by the Breaking changes entry.
+
+  Removal: v0.53.0 for TypeScript; [#9479](https://github.com/meta/lexical/pull/9479) removes the generic overloads. The Flow declarations keep them, still deprecated, after [#9529](https://github.com/meta/lexical/pull/9529).
 
 - **@lexical/html, @lexical/rich-text, @lexical/list, @lexical/link, @lexical/table, @lexical/code**: `RichTextImportExtension` and the other per-package DOM import extensions deprecated ([#8662](https://github.com/meta/lexical/pull/8662))
 

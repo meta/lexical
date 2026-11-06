@@ -15,11 +15,10 @@
 // paragraph's other words or the paragraphs after it. B's undo brings back
 // A's opener, and the end that closed it was A's own, deleted by A's undo;
 // the run the copy opens has to end there although nothing between the copy
-// and that end is shown. The cells marked `it.fails` spread the value over
-// the rest of the document (#9689): the restoring client cannot tell
+// and that end is shown. On main the cells marked `spreads` spread the value
+// over the rest of the document (#9689): the restoring client could not tell
 // the author's own end from the end of a later, separate write by the same
-// author (a fix that trusted `changeEnd` there was parked in #9687; see
-// UndoRestoredRunSharedEnd.test.ts for the case it got wrong).
+// author. Layout 3: an end names its opener, so none spreads.
 
 import {
   buildEditorFromExtensions,
@@ -182,7 +181,7 @@ type Shape = {
   /** B's removal. */
   remove: (B: Client) => void;
   twoSteps?: boolean;
-  /** Which of the two orders still spreads the value (#9689). */
+  /** Which of the two orders spread the value on main (#9689). */
   failsOn?: 'concurrent' | 'sequential';
 };
 
@@ -298,42 +297,39 @@ describe('undoing a removal brings back a value whose text and end the author un
         for (const concurrent of [true, false]) {
           const spreads =
             shape.failsOn === (concurrent ? 'concurrent' : 'sequential');
-          (spreads ? it.fails : it)(
-            `${shape.name}; A undoes ${concurrent ? 'while B removes' : 'after B removed'} (gc ${gc ? 'on' : 'off'}, ids ${ids})${spreads ? ' (#9689)' : ''}`,
-            () => {
-              const {A, B, sync} = clients(gc, ids);
-              if (shape.pre) {
-                shape.pre(A, B);
-                B.step();
-                sync();
-              }
-              shape.write(A);
-              A.step();
-              sync();
-              shape.remove(B);
+          it(`${shape.name}; A undoes ${concurrent ? 'while B removes' : 'after B removed'} (gc ${gc ? 'on' : 'off'}, ids ${ids})${spreads ? ' (#9689)' : ''}`, () => {
+            const {A, B, sync} = clients(gc, ids);
+            if (shape.pre) {
+              shape.pre(A, B);
               B.step();
-              if (!concurrent) {
-                sync();
-              }
+              sync();
+            }
+            shape.write(A);
+            A.step();
+            sync();
+            shape.remove(B);
+            B.step();
+            if (!concurrent) {
+              sync();
+            }
+            A.editor.dispatchCommand(UNDO_COMMAND, undefined);
+            if (shape.twoSteps) {
               A.editor.dispatchCommand(UNDO_COMMAND, undefined);
-              if (shape.twoSteps) {
-                A.editor.dispatchCommand(UNDO_COMMAND, undefined);
-              }
-              sync();
-              B.editor.dispatchCommand(UNDO_COMMAND, undefined);
-              sync();
-              const a = A.editor.getEditorState().read($show);
-              const b = B.editor.getEditorState().read($show);
-              const fresh = readYState(
-                Y.encodeStateAsUpdate(A.doc),
-                CONFIG,
-                $show,
-              );
-              expect(b).toEqual(a);
-              expect(fresh).toEqual(a);
-              expect(a).toEqual(shape.expected ?? PARAS);
-            },
-          );
+            }
+            sync();
+            B.editor.dispatchCommand(UNDO_COMMAND, undefined);
+            sync();
+            const a = A.editor.getEditorState().read($show);
+            const b = B.editor.getEditorState().read($show);
+            const fresh = readYState(
+              Y.encodeStateAsUpdate(A.doc),
+              CONFIG,
+              $show,
+            );
+            expect(b).toEqual(a);
+            expect(fresh).toEqual(a);
+            expect(a).toEqual(shape.expected ?? PARAS);
+          });
         }
       }
     }
@@ -348,56 +344,53 @@ describe('both clients comment the same text; A types at its start; B undoes its
     ] as [number, number][]) {
       // Fully sequential (synced after every step). The comment B removed
       // comes back over the paragraphs after it (#9689).
-      it.fails(
-        `no comment is left (gc ${gc ? 'on' : 'off'}, ids ${ids})`,
-        () => {
-          const {A, B, sync} = clients(gc, ids);
-          // "two" in "zero two two": the second text node after each comment
-          const second =
-            (f: (s: RangeSelection) => void, a: number, b: number) =>
-            (editor: LexicalEditor) =>
-              editor.update(
-                () => {
-                  const block = $getRoot().getChildAtIndex(2) as ReturnType<
-                    typeof $createParagraphNode
-                  >;
-                  const t = block.getChildAtIndex(1);
-                  if (!$isTextNode(t)) {
-                    throw new Error('no text');
-                  }
-                  const s = $createRangeSelection();
-                  s.anchor.set(t.getKey(), a, 'text');
-                  s.focus.set(t.getKey(), b, 'text');
-                  $setSelection(s);
-                  f(s);
-                  $setSelection(null);
-                },
-                {discrete: true},
-              );
-          onRange(A.editor, 4, 7, s => $addMarkID('c1', s));
-          A.step();
-          sync();
-          second(s => $addMarkID('c2', s), 0, 3)(B.editor);
-          B.step();
-          sync();
-          second(s => type(s, 'yy'), 0, 0)(A.editor);
-          A.step();
-          sync();
-          B.editor.dispatchCommand(UNDO_COMMAND, undefined);
-          sync();
-          B.editor.update(() => $removeMarkID('c2'), {discrete: true});
-          B.step();
-          sync();
-          A.editor.dispatchCommand(UNDO_COMMAND, undefined);
-          A.editor.dispatchCommand(UNDO_COMMAND, undefined);
-          sync();
-          B.editor.dispatchCommand(UNDO_COMMAND, undefined);
-          sync();
-          const a = A.editor.getEditorState().read($show);
-          expect(B.editor.getEditorState().read($show)).toEqual(a);
-          expect(a).toEqual(PARAS);
-        },
-      );
+      it(`no comment is left (gc ${gc ? 'on' : 'off'}, ids ${ids})`, () => {
+        const {A, B, sync} = clients(gc, ids);
+        // "two" in "zero two two": the second text node after each comment
+        const second =
+          (f: (s: RangeSelection) => void, a: number, b: number) =>
+          (editor: LexicalEditor) =>
+            editor.update(
+              () => {
+                const block = $getRoot().getChildAtIndex(2) as ReturnType<
+                  typeof $createParagraphNode
+                >;
+                const t = block.getChildAtIndex(1);
+                if (!$isTextNode(t)) {
+                  throw new Error('no text');
+                }
+                const s = $createRangeSelection();
+                s.anchor.set(t.getKey(), a, 'text');
+                s.focus.set(t.getKey(), b, 'text');
+                $setSelection(s);
+                f(s);
+                $setSelection(null);
+              },
+              {discrete: true},
+            );
+        onRange(A.editor, 4, 7, s => $addMarkID('c1', s));
+        A.step();
+        sync();
+        second(s => $addMarkID('c2', s), 0, 3)(B.editor);
+        B.step();
+        sync();
+        second(s => type(s, 'yy'), 0, 0)(A.editor);
+        A.step();
+        sync();
+        B.editor.dispatchCommand(UNDO_COMMAND, undefined);
+        sync();
+        B.editor.update(() => $removeMarkID('c2'), {discrete: true});
+        B.step();
+        sync();
+        A.editor.dispatchCommand(UNDO_COMMAND, undefined);
+        A.editor.dispatchCommand(UNDO_COMMAND, undefined);
+        sync();
+        B.editor.dispatchCommand(UNDO_COMMAND, undefined);
+        sync();
+        const a = A.editor.getEditorState().read($show);
+        expect(B.editor.getEditorState().read($show)).toEqual(a);
+        expect(a).toEqual(PARAS);
+      });
     }
   }
 });

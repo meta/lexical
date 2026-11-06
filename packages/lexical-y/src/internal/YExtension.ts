@@ -23,6 +23,7 @@ import {
   CAN_REDO_COMMAND,
   CAN_UNDO_COMMAND,
   COMMAND_PRIORITY_EDITOR,
+  configExtension,
   declarePeerDependency,
   defineExtension,
   mergeRegister,
@@ -32,12 +33,54 @@ import {
 } from 'lexical';
 
 import {isSchemaVersion, YBinding, type YBindingStatus} from './Binding';
+import {
+  isYLayoutUpgradeHandle,
+  type YLayoutUpgradeHandle,
+} from './LayoutUpgrade';
 
 // YCollabExtension: the binding as an extension. It builds a YBinding for
 // the editor, wires collaborative undo to UNDO_COMMAND and REDO_COMMAND, and
 // exposes the binding's status as a signal.
 
-/** @experimental The configuration of {@link YCollabExtension}. */
+/**
+ * @experimental What an app writes to configure {@link YCollabExtension}
+ * through createYCollabConfig: `doc`, `layoutUpgrade` and `schemaVersion`
+ * are required, and every option that has a default is optional, so a later
+ * release adds options without breaking code typed with it.
+ */
+export interface YCollabInput {
+  /** See YCollabConfig.doc. */
+  readonly doc: YDoc;
+  /**
+   * Required: how documents below MIN_LAYOUT are upgraded (see y.md
+   * "Layout upgrades"). `createYServerLayoutUpgrade()`: the document's
+   * server migrates them on load; `null`: they stay read only. The editor
+   * opens such a document read only either way.
+   */
+  readonly layoutUpgrade: YLayoutUpgradeHandle | null;
+  /**
+   * The version of your editor's nodes: registered node classes, their
+   * fields and NodeState. Bump it when you add, remove or change one, not on
+   * every release. An integer from 1 (see YCollabConfig.schemaVersion).
+   */
+  readonly schemaVersion: number;
+  readonly root?: YNode | null;
+  readonly synced?: boolean;
+  readonly captureTimeout?: number | null;
+  readonly clientIDRange?: ClientIDRange;
+  readonly selfCheck?: boolean | null;
+  readonly selfCheckSample?: number | null;
+  readonly convert?: boolean;
+}
+
+/**
+ * @experimental The configuration of {@link YCollabExtension} (what
+ * `configExtension` takes, partially, and what the extension reads). Its
+ * existing fields stay as they are, and every field a later release adds
+ * to it is optional, with its default resolved inside the extension: a
+ * complete YCollabConfig written today keeps compiling. New code configures
+ * the extension with createYCollabConfig and YCollabInput.
+ */
 export interface YCollabConfig {
   /**
    * The shared document, made by `createYDoc` (with a stored state:
@@ -45,9 +88,9 @@ export interface YCollabConfig {
    */
   doc: YDoc | null;
   /**
-   * The version of the app's document schema: its node types and the fields
-   * they store. Required: start at 1 and increase it whenever a node's
-   * stored fields or node types change. The document records the highest
+   * The version of your editor's nodes: registered node classes, their
+   * fields and NodeState. Bump it when you add, remove or change one, not on
+   * every release. Required: start at 1. The document records the highest
    * version that wrote to it, and a client whose version is lower opens it
    * read only (`UNSUPPORTED_SCHEMA_WARNING`), so an out-of-date client never
    * edits content it cannot read in full. An integer from 1; the extension
@@ -75,6 +118,29 @@ export interface YCollabConfig {
   selfCheckSample: number | null;
   /** See YBindingOptions.convert (default false). */
   convert: boolean;
+  /**
+   * See YCollabInput.layoutUpgrade. Left out (a config written without
+   * createYCollabConfig), a document below MIN_LAYOUT is read only and
+   * also brings UNSUPPORTED_CONFIG_WARNING `'missing-layout-upgrade'`.
+   */
+  layoutUpgrade?: YLayoutUpgradeHandle | null;
+}
+
+/**
+ * @experimental The configured YCollabExtension, for an editor's
+ * `dependencies`: `createYCollabConfig({doc, schemaVersion, layoutUpgrade})`.
+ * The way to configure the extension: its input type requires every
+ * decision the app must make (`layoutUpgrade` included), and options a
+ * later release adds are optional.
+ */
+export function createYCollabConfig(input: YCollabInput) {
+  invariant(
+    input.layoutUpgrade === undefined ||
+      input.layoutUpgrade === null ||
+      isYLayoutUpgradeHandle(input.layoutUpgrade),
+    '@lexical/y: layoutUpgrade is a handle from createYServerLayoutUpgrade(), or null',
+  );
+  return configExtension(YCollabExtension, input);
 }
 
 /**
@@ -106,12 +172,19 @@ export const YCollabExtension = defineExtension({
       // 0 is the default, which no app sets.
       config.schemaVersion === 0 ? 'none' : String(config.schemaVersion),
     );
+    invariant(
+      config.layoutUpgrade === undefined ||
+        config.layoutUpgrade === null ||
+        isYLayoutUpgradeHandle(config.layoutUpgrade),
+      '@lexical/y: layoutUpgrade is a handle from createYServerLayoutUpgrade(), or null',
+    );
     const status = signal<YBindingStatus>('pending');
     return {
       binding: new YBinding(editor, config.doc, {
         captureTimeout: config.captureTimeout,
         clientIDRange: config.clientIDRange,
         convert: config.convert,
+        layoutUpgrade: config.layoutUpgrade,
         onStatus: value => {
           status.value = value;
         },

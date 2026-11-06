@@ -21,7 +21,7 @@ import {
   type TextNode,
 } from 'lexical';
 
-import {importTextTransformers} from './importTextTransformers';
+import {$importTextTransformers} from './importTextTransformers';
 import {
   $createMarkdownLineBreakNode,
   type ElementTransformer,
@@ -245,7 +245,7 @@ function $importBlocks(
     }
   }
 
-  importTextTransformers(
+  $importTextTransformers(
     textNode,
     textFormatTransformersIndex,
     textMatchTransformers,

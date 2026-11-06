@@ -46,17 +46,20 @@ import {
   $isElementNode,
   $isLineBreakNode,
   $isNodeSelection,
+  $isParagraphNode,
   $isRangeSelection,
   $isTextNode,
   defineExtension,
   type ElementFormatType,
   type ElementNode,
   type LexicalNode,
+  mergeRegister,
 } from 'lexical';
 import {gfmTableFromMarkdown, gfmTableToMarkdown} from 'mdast-util-gfm-table';
 import {gfmTable} from 'micromark-extension-gfm-table';
 
 import {$append, $isBlockLevelNode, inlineMarker} from './handlers';
+import {getExportedLengths} from './MdastExport';
 import {MdastExtension} from './MdastExtension';
 
 /**
@@ -218,6 +221,35 @@ function $tableGrid(table: TableNode): {
     }
   });
   return {grid, rows};
+}
+
+/**
+ * Gives the paragraphs with no format in each new body cell of `table` the
+ * alignment of the cell's column, which export writes from the header cell.
+ * A cell that `@lexical/table` adds (in an inserted row, or split from a
+ * merged cell) comes with a plain paragraph, so it was drawn unaligned in a
+ * column the Markdown aligns. Cells that were there before, and paragraphs
+ * with a format of their own, are left as they are.
+ */
+function $alignNewCells(
+  table: TableNode,
+  isNew: (cell: TableCellNode) => boolean,
+): void {
+  const {grid} = $tableGrid(table);
+  for (const cells of grid.slice(1)) {
+    cells.forEach(({cell, origin}, column) => {
+      const header = grid[0][column];
+      const align =
+        origin && header && isNew(cell) && gfmAlign($cellFormat(header.cell));
+      if (align) {
+        for (const block of cell.getChildren()) {
+          if ($isParagraphNode(block) && block.getFormatType() === '') {
+            block.setFormat(align);
+          }
+        }
+      }
+    });
+  }
 }
 
 /** A line ending, as Markdown reads one. */
@@ -582,52 +614,60 @@ const cellLine = (value: string) =>
  * @__NO_SIDE_EFFECTS__
  */
 function gfmTableCellsToMarkdown(): ToMarkdownExtension {
-  const extension = gfmTableToMarkdown();
+  const extension = gfmTableToMarkdown({
+    stringLength: value => getExportedLengths([value])[0],
+  });
   const handlers = extension.handlers || {};
-  const handleTable = handlers.table as Handle;
   const table: Handle = (node: Table, parent, state, info) => {
     const exit = state.enter('phrasing');
+    const lines: string[] = [];
     const children = node.children.map(row => ({
       ...row,
       children: row.children.map(cell => {
-        const line = cellLine(
-          state
-            .containerPhrasing(
-              {
-                ...cell,
-                // A line ending in text is written as the space it reads
-                // as, before the text is escaped for where it is.
-                children: mapPhrasing(cell.children, child =>
-                  child.type === 'break'
-                    ? [cellLine('<br>')]
-                    : child.type === 'text' && /[\r\n]/.test(child.value)
-                      ? [
-                          {
-                            ...child,
-                            value: child.value.replace(LINE_ENDING, ' '),
-                          },
-                        ]
-                      : undefined,
-                ),
-              },
-              {...info, after: ' ', before: ' '},
-            )
-            .replace(LINE_ENDING, ' ')
-            .replace(/^[\t ]/, encodeSpace)
-            // A backslash before the last space would escape its `&`.
-            .replace(
-              /(\\*)([\t ])$/,
-              (_, slashes: string, space: string) =>
-                `${slashes}${slashes.length % 2 ? '\\' : ''}${encodeSpace(space)}`,
-            )
-            .replace(/(\\*)\|/g, (pipe, slashes: string) =>
-              slashes.length % 2 ? pipe : `${slashes}\\|`,
-            ),
-        );
-        return {...cell, children: [line]};
+        const line = state
+          .containerPhrasing(
+            {
+              ...cell,
+              // A line ending in text is written as the space it reads
+              // as, before the text is escaped for where it is.
+              children: mapPhrasing(cell.children, child =>
+                child.type === 'break'
+                  ? [cellLine('<br>')]
+                  : child.type === 'text' && /[\r\n]/.test(child.value)
+                    ? [
+                        {
+                          ...child,
+                          value: child.value.replace(LINE_ENDING, ' '),
+                        },
+                      ]
+                    : undefined,
+              ),
+            },
+            {...info, after: ' ', before: ' '},
+          )
+          .replace(LINE_ENDING, ' ')
+          .replace(/^[\t ]/, encodeSpace)
+          // A backslash before the last space would escape its `&`.
+          .replace(
+            /(\\*)([\t ])$/,
+            (_, slashes: string, space: string) =>
+              `${slashes}${slashes.length % 2 ? '\\' : ''}${encodeSpace(space)}`,
+          )
+          .replace(/(\\*)\|/g, (pipe, slashes: string) =>
+            slashes.length % 2 ? pipe : `${slashes}\\|`,
+          );
+        lines.push(line);
+        return {...cell, children: [cellLine(line)]};
       }),
     }));
     exit();
+    // Measured all at once, which is cheaper than one at a time.
+    const lengths = getExportedLengths(lines);
+    const cellLengths = new Map(lines.map((line, i) => [line, lengths[i]]));
+    const handleTable = gfmTableToMarkdown({
+      stringLength: value =>
+        cellLengths.get(value) ?? getExportedLengths([value])[0],
+    }).handlers!.table as Handle;
     return handleTable({...node, children}, parent, state, info);
   };
   return {
@@ -663,6 +703,9 @@ function gfmTableCellsToMarkdown(): ToMarkdownExtension {
  * cell, where blocks in a nested table count for nothing and start and end
  * are none; a merged header cell's for each column it spans), none for one
  * GFM can't express. The alignment of other cells has no form in GFM.
+ * A new body cell (in an inserted row, or split from a merged cell) gets its
+ * column's alignment on its paragraphs with no format, so it is drawn as the
+ * column is written.
  *
  * @example
  * ```ts
@@ -696,4 +739,27 @@ export const MdastTableExtension = defineExtension({
   ],
   name: '@lexical/mdast/Table',
   nodes: [TableNode, TableRowNode, TableCellNode],
+  register: editor => {
+    // A node that isn't in the last committed editor state is new.
+    const isNew = (node: LexicalNode) =>
+      !editor.getEditorState()._nodeMap.has(node.getKey());
+    return mergeRegister(
+      // Splitting a merged cell adds cells to rows without marking the table,
+      // so a new cell marks it.
+      editor.registerNodeTransform(TableCellNode, cell => {
+        const tableNode = isNew(cell) ? $findTableNode(cell) : null;
+        if (tableNode && !isNew(tableNode)) {
+          tableNode.markDirty();
+        }
+      }),
+      // A table that is new as a whole (imported, loaded or pasted) keeps the
+      // formats it came with. Loading a saved editor state marks every node
+      // dirty and gives it a new key, so all its cells count as new.
+      editor.registerNodeTransform(TableNode, tableNode => {
+        if (!isNew(tableNode)) {
+          $alignNewCells(tableNode, isNew);
+        }
+      }),
+    );
+  },
 });

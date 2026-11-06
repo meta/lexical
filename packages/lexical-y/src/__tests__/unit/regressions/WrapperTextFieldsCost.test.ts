@@ -13,7 +13,7 @@
 // one pass along the document, not one per wrapper from its start (see
 // $unstoredWrapperTextFields), whether a collaborator's delete is read or
 // the client deletes in one update of its own. Counted as the items checked
-// (isGone), which grow linearly with n.
+// (isGoneIn), which grow linearly with n.
 
 import {$createLinkNode} from '@lexical/link';
 import {$createMarkNode} from '@lexical/mark';
@@ -35,11 +35,11 @@ vi.mock('../../../internal/Seen', async importOriginal => {
     await importOriginal<typeof import('../../../internal/Seen')>();
   return {
     ...original,
-    isGone: (...args: Parameters<typeof original.isGone>) => {
+    isGoneIn: (...args: Parameters<typeof original.isGoneIn>) => {
       if (counter.on) {
         counter.visits++;
       }
-      return original.isGone(...args);
+      return original.isGoneIn(...args);
     },
   };
 });
