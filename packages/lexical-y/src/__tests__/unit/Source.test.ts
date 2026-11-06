@@ -296,7 +296,7 @@ test('policy: raising the floor is deliberate, and the runner targets it by defa
   expect(serverEntry.MIN_LAYOUT).toBe(mainEntry.MIN_LAYOUT);
   // Published steps stay published: this list only grows (add a step here
   // when you publish it; removing one fails).
-  const everPublished = ['1to2'];
+  const everPublished = ['1to2', '2to3'];
   const manifest = JSON.parse(
     fs.readFileSync(
       path.resolve(__dirname, '../../migrate/manifest.json'),

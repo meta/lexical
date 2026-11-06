@@ -11,8 +11,8 @@ sidebar_position: 2
 document layout carries a version, so a client that meets a newer layout
 opens the document read only instead of misreading it.
 
-`@experimental` is not an exception to compatibility. Once released, the
-public API and its types change only additively: no export is removed or
+`@experimental` is not an exception to API compatibility. Once released,
+the public API and its types change only additively: no export is removed or
 renamed, and no published migration step or revision is removed or changes
 what it writes. Stored layouts are the exception while the package is
 experimental: a release may stop reading an older one, and rooms stored in
@@ -1822,7 +1822,10 @@ the package is experimental, though, a release may stop reading an older
 layout (it raises `MIN_LAYOUT`), as layout 3's release did for layouts 1
 and 2. Rooms stored in that layout then open read only until their server
 migrates them with the published steps (`@lexical/y/migrate`, see
-[Migrating stored documents](#migrating-stored-documents)). If your app
+[Migrating stored documents](#migrating-stored-documents)). Such a release
+raises `SEED_LAYOUT` with it, so servers also issue new incarnations for
+rooms never seeded (the seed contract, see the
+[server guide](./y-server.md#generations-and-the-handshake)). If your app
 stores rooms, plan for a server-side migration when you take such an
 upgrade; its release notes and changelog say when one is needed.
 
