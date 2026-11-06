@@ -8,7 +8,7 @@
     "internal"
   ],
   "license": "MIT",
-  "version": "0.53.0",
+  "version": "0.53.1-nightly.20261106.0",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/meta/lexical.git",
