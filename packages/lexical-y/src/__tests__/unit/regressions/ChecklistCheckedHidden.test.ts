@@ -178,15 +178,12 @@ describe.each([false, true])(
   gc => {
     test('its editor and its document agree on checked', () => {
       const prevGc = process.env.FUZZ_GC;
-      const prevSeeded = process.env.FUZZ_SEEDED;
       process.env.FUZZ_GC = gc ? '1' : '';
-      process.env.FUZZ_SEEDED = '1';
       try {
         const result = runScript(SCRIPT);
         expect(result.failures.map(f => f.sig)).toEqual([]);
       } finally {
         process.env.FUZZ_GC = prevGc;
-        process.env.FUZZ_SEEDED = prevSeeded;
       }
     });
   },
