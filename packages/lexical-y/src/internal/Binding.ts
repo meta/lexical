@@ -7196,6 +7196,7 @@ export class YBinding {
                     attrs: new Set(state.yByKey.keys()),
                     inline: new Set(),
                     lines: new Set(state.unitByKey.keys()),
+                    merged: plan.merged,
                     removedText: plan.removedText,
                     structural: new Set(),
                   };
@@ -7369,6 +7370,7 @@ export class YBinding {
               attrs: new Set(state.yByKey.keys()),
               inline: new Set(),
               lines: new Set(state.unitByKey.keys()),
+              merged: plan.merged,
               removedText: plan.removedText,
               structural: new Set(),
             };
