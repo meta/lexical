@@ -9,6 +9,8 @@
 import {
   $isCodeHighlightNode,
   $isCodeNode,
+  $isSameCodeNodeState,
+  $keepCodeNodeState,
   $plainifyCodeContent,
   CodeExtension,
   CodeHighlightNode,
@@ -105,6 +107,24 @@ function $copyNodeState(from: LexicalNode, to: LexicalNode): void {
       }
     } else {
       state.updateFromUnknown(key, value);
+    }
+  }
+  // States the node knows by their StateConfig stay known on the copy (a
+  // StateConfig not registered for the copy's class would otherwise be
+  // read back as an unknown JSON value: a set-valued state, for one). As in
+  // the JSON: not a default value (the copy keeps what it has, such as state
+  // its replacement class sets), and the value of a key the copy's class
+  // has another StateConfig for stays parsed with that one (above).
+  if (from.__state) {
+    const {sharedConfigMap} = state.sharedNodeState;
+    for (const [config, value] of from.__state.getInternalState()[1]) {
+      if (config.isEqual(value, config.defaultValue)) {
+        continue;
+      }
+      const own = sharedConfigMap.get(config.key);
+      if (own === undefined || own === config) {
+        state.updateFromKnown(config, value);
+      }
     }
   }
 }
@@ -230,7 +250,13 @@ function $codeNodeTransform(
       lang && !isCodeLanguageLoaded(lang)
         ? $plainifyCodeContent(currentNode.getTextContent())
         : tokenizer.$tokenize(currentNode, lang ?? undefined);
-    const diffRange = getDiffRange(currentNode.getChildren(), highlightNodes);
+    // The NodeState of the block's children (comment ids, a suggestion)
+    // stays on their text.
+    const children = currentNode.getChildren();
+    const diffRange = getDiffRange(
+      children,
+      $keepCodeNodeState(children, highlightNodes),
+    );
     const {from, to, nodesForReplacement} = diffRange;
 
     if (from !== to || nodesForReplacement.length) {
@@ -384,7 +410,8 @@ function isEqual(nodeA: LexicalNode, nodeB: LexicalNode): boolean {
       $isCodeHighlightNode(nodeB) &&
       nodeA.__text === nodeB.__text &&
       nodeA.__highlightType === nodeB.__highlightType &&
-      nodeA.__style === nodeB.__style) ||
+      nodeA.__style === nodeB.__style &&
+      $isSameCodeNodeState(nodeA, nodeB)) ||
     ($isTabNode(nodeA) && $isTabNode(nodeB)) ||
     ($isLineBreakNode(nodeA) && $isLineBreakNode(nodeB))
   );

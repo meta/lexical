@@ -33,6 +33,8 @@ export {
   $getFirstCodeNodeOfLine,
   $getLastCodeNodeOfLine,
   $getStartOfCodeInLine,
+  $isSameCodeNodeState,
+  $keepCodeNodeState,
   $outdentLeadingSpaces,
   $plainifyCodeContent,
 } from './FlatStructureUtils';
