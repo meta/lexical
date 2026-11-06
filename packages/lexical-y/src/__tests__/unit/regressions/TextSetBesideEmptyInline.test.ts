@@ -158,13 +158,23 @@ async function runConcurrent(
     // where this editor does.
     a.update(() => {
       if (edit === 'unbold') {
-        $selectIn([1], 0, 3).formatText('bold');
+        (
+          (
+            $getRoot().getLastChildOrThrow() as ElementNode
+          ).getLastChildOrThrow() as TextNode
+        ).toggleFormat('bold');
       } else {
         $selectIn([1], 0, 2).formatText('bold');
         $selectIn([1], 2, 3).formatText('bold');
       }
       $setSelection(null);
     });
+    // The change was made (and written).
+    expect(a.describe()).toBe(
+      edit === 'unbold'
+        ? 'paragraph("one") / paragraph("丛东丝")'
+        : 'paragraph("one") / paragraph("丛东丝"{1})',
+    );
     await t.sync();
     const fresh = await freshReader(a);
     expect(fresh.describe()).toBe(a.describe());
@@ -322,6 +332,87 @@ describe.each([false, true])(
         loaded.stop();
       }
     });
+  },
+);
+
+// A line removed while it holds an element no editor shows: the element goes
+// with the line, as before (its text, arriving late or brought back by an
+// undo, does not reappear at the start of the next line).
+async function runLineRemoval(gc: boolean, how: 'late text' | 'undo') {
+  const t = await setup(
+    () =>
+      $getRoot().append(
+        $createParagraphNode().append($createTextNode('one')),
+        how === 'late text'
+          ? $createParagraphNode().append($createTextNode('业丛东丝'))
+          : $createParagraphNode().append(
+              $createMarkNode(['c1']).append($createTextNode('ab')),
+              $createTextNode('two'),
+            ),
+        $createParagraphNode().append($createTextNode('three')),
+      ),
+    {gc, ids: [1, 2, 3]},
+  );
+  const {a, b, c} = t;
+  t.offline();
+  if (how === 'late text') {
+    const before = Y.encodeStateVector(b.doc);
+    // B moves the line's first character into a comment; A receives the
+    // element but not the text inside it.
+    b.update(() => {
+      const selection = $selectIn([1], 0, 1);
+      $wrapSelectionInMarkNode(selection, selection.isBackward(), 'c1');
+      $setSelection(null);
+    });
+    const change = Y.encodeStateAsUpdate(b.doc, before);
+    const ids = Y.createContentIdsFromUpdate(change);
+    const inFlight = Y.createIdSet();
+    inFlight.add(b.doc.clientID, 3, 6);
+    Y.applyUpdate(
+      a.doc,
+      Y.intersectUpdateWithContentIds(change, {
+        deletes: ids.deletes,
+        inserts: Y.diffIdSet(ids.inserts, inFlight),
+      }),
+      'relay',
+    );
+  } else {
+    b.update(() => {
+      $selectIn([1], 0, 1).removeText();
+      $setSelection(null);
+    });
+    c!.update(() => {
+      $selectIn([1], 1, 2).removeText();
+      $setSelection(null);
+    });
+    await t.sync();
+    t.offline();
+  }
+  // A removes the middle line.
+  a.update(() => {
+    $getRoot().getChildAtIndex(1)!.remove();
+    $setSelection(null);
+  });
+  await t.sync();
+  if (how === 'undo') {
+    // B undoes its delete inside the comment.
+    b.undo();
+    await t.sync();
+  }
+  const fresh = await freshReader(a);
+  expect(fresh.describe()).toBe(a.describe());
+  fresh.stop();
+  expect(a.read(() => $getRoot().getTextContent())).toBe('one\n\nthree');
+  await expectConverged(t.peers);
+}
+
+describe.each([false, true])(
+  'a line removed with an inline element no editor shows, gc %s',
+  gc => {
+    test('its text arriving late does not reappear in the next line', () =>
+      runLineRemoval(gc, 'late text'));
+    test('its text brought back by an undo does not reappear in the next line', () =>
+      runLineRemoval(gc, 'undo'));
   },
 );
 
