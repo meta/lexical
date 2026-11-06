@@ -1509,6 +1509,13 @@ export class YBinding {
   private readonly checkLater = new Set<CS>();
   /** While takeCursor's transaction runs. */
   private takingCursor = false;
+  /**
+   * The transaction that changes nothing takeCursor or splitWhileUnread
+   * opened, while its `transact` call is on the stack (its observers,
+   * `afterAllTransactions` included, run there): called again from those,
+   * they split in it rather than open another, without end.
+   */
+  private splitting: Transaction | null = null;
   /** The cursor takeCursor took last, and on which editor state. */
   private takenCursor: {cursor: YCursor | null; state: EditorState} | null =
     null;
@@ -9261,11 +9268,20 @@ export class YBinding {
       return take(running);
     }
     const cleanups = doc._transactionCleanups;
-    if (this.takingCursor || cleanups.some(t => t.origin === this.scanOrigin)) {
+    const splitting = this.splitting;
+    if (
+      this.takingCursor ||
+      splitting !== null ||
+      cleanups.some(t => t.origin === this.scanOrigin)
+    ) {
       const taken = this.takenCursor;
       if (taken !== null && taken.state === state) {
         return taken.cursor;
       }
+    }
+    if (splitting !== null) {
+      // From the observers of the one opened (see splitting).
+      return take(splitting);
     }
     if (cleanups.length > 0) {
       // From the observers of a transaction being cleaned up: split in one
@@ -9276,10 +9292,12 @@ export class YBinding {
     this.takingCursor = true;
     try {
       doc.transact(tr => {
+        this.splitting = tr;
         cursor = take(tr);
       }, this.scanOrigin);
     } finally {
       this.takingCursor = false;
+      this.splitting = null;
     }
     return cursor;
   }
@@ -9298,6 +9316,11 @@ export class YBinding {
       this.splitAtUnread(running);
       return fn();
     }
+    if (this.splitting !== null) {
+      // From the observers of the one opened (see splitting).
+      this.splitAtUnread(this.splitting);
+      return fn();
+    }
     const cleanups = this._doc._transactionCleanups;
     if (cleanups.length > 0) {
       // From the observers of a transaction being cleaned up (an app's, on
@@ -9309,10 +9332,15 @@ export class YBinding {
       return fn();
     }
     let result: T | undefined;
-    this._doc.transact(tr => {
-      this.splitAtUnread(tr);
-      result = fn();
-    }, this.scanOrigin);
+    try {
+      this._doc.transact(tr => {
+        this.splitting = tr;
+        this.splitAtUnread(tr);
+        result = fn();
+      }, this.scanOrigin);
+    } finally {
+      this.splitting = null;
+    }
     return result as T;
   }
 

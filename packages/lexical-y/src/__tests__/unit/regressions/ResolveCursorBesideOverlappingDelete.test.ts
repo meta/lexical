@@ -164,7 +164,7 @@ describe.each([false, true])(
         if (tr.origin === a.binding) {
           written = true;
         }
-        if (calls > 50 || !written) {
+        if (calls > 1000 || !written) {
           return;
         }
         const cursor = a.binding.getCursor();
@@ -181,6 +181,16 @@ describe.each([false, true])(
           }),
         );
       };
+      const observeAll = (_doc: Y.Doc, trs: Y.Transaction[]) => {
+        for (const tr of trs) {
+          if (tr.origin === a.binding) {
+            written = true;
+          }
+        }
+        if (trs.length > 0) {
+          observe(trs[trs.length - 1]);
+        }
+      };
       try {
         t.offline();
         b.update(() => {
@@ -189,6 +199,7 @@ describe.each([false, true])(
         const remote = Y.encodeStateAsUpdate(b.doc, Y.encodeStateVector(a.doc));
         a.doc.on('afterTransaction', observe);
         a.doc.on('afterTransactionCleanup', observe);
+        a.doc.on('afterAllTransactions', observeAll);
         a.update(() => {
           $selectIn([1], 7, 11).removeText();
           Y.applyUpdate(a.doc, remote, 'provider');
@@ -198,7 +209,8 @@ describe.each([false, true])(
         await t.sync();
         a.doc.off('afterTransaction', observe);
         a.doc.off('afterTransactionCleanup', observe);
-        expect(calls).toBeLessThan(50);
+        a.doc.off('afterAllTransactions', observeAll);
+        expect(calls).toBeLessThan(200);
         // Where the editor shows A's delete, written, and the change is
         // unread, the cursor resolves where the editor shows it.
         const shown = seen.filter(([text]) => text.includes('eight nte'));
@@ -209,6 +221,7 @@ describe.each([false, true])(
       } finally {
         a.doc.off('afterTransaction', observe);
         a.doc.off('afterTransactionCleanup', observe);
+        a.doc.off('afterAllTransactions', observeAll);
         host.remove();
       }
     });
