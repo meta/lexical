@@ -88,6 +88,7 @@ import {
   type SiblingCaret,
 } from 'lexical';
 
+import {TAP_SLOP} from './constants';
 import {$isTableCellNode, type TableCellNode} from './LexicalTableCellNode';
 import {
   $getElementForTableNode,
@@ -115,6 +116,7 @@ import {
   $computeTableCellRectSpans,
   $computeTableMap,
   $getNodeTriplet,
+  $isCellEmpty,
   type TableCellRectBoundary,
 } from './LexicalTableUtils';
 
@@ -129,12 +131,6 @@ function $getTableNodeByKeyOrThrow(key: NodeKey): TableNode {
 const isPointerDownOnEvent = (event: PointerEvent) => {
   return (event.buttons & 1) === 1;
 };
-
-// How far (in CSS pixels) a pointer may travel from where it went down and
-// still count as a tap rather than a drag. Touch contacts jitter by a few
-// pixels while the finger is lifted, so a tap that lands near a cell border
-// is otherwise reported as a move into the neighbouring cell (#8538).
-const TAP_SLOP = 10;
 
 // Distance (px) from a scroll container edge at which drag auto-scroll kicks
 // in, and the maximum scroll delta applied per frame at AUTO_SCROLL_FPS.
@@ -1407,9 +1403,7 @@ function $fixRangeSelectionForSelectedTable(
       paragraph.isEmpty() &&
       $isTableCellNode(cell) &&
       cell.getKey() === tableObservers.touchTapCellKey &&
-      cell
-        .getChildren()
-        .every(child => $isElementNode(child) && child.isEmpty()) &&
+      $isCellEmpty(cell) &&
       (anchor.is(prevSelection.anchor) || focus.is(prevSelection.anchor))
     ) {
       $setSelection(prevSelection.clone());
