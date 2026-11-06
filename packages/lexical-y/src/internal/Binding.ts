@@ -9464,12 +9464,19 @@ export class YBinding {
     }
   }
 
-  /** Resolve a cursor to Lexical points (call inside a read or update). */
+  /**
+   * Resolve a cursor to Lexical points (call inside a read or update). While
+   * a remote change is not read yet, with the items split at the bounds the
+   * view tells apart (see splitAtUnread), as getCursor takes positions: in
+   * the transaction running, or in one that changes nothing.
+   */
   $resolveCursor(
     cursor: YCursor,
   ): {anchor: PointType; focus: PointType} | null {
-    const anchor = this.$resolvePosition(cursor.anchor, this.seer());
-    const focus = this.$resolvePosition(cursor.focus, this.seer());
+    const [anchor, focus] = this.splitWhileUnread(() => [
+      this.$resolvePosition(cursor.anchor, this.seer()),
+      this.$resolvePosition(cursor.focus, this.seer()),
+    ]);
     if (anchor === null || focus === null) {
       return null;
     }
