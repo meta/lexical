@@ -4201,12 +4201,135 @@ export class Writer {
         }
       }
       const attrs = run ? run.attrs : {};
+      // While a composition holds changes back: text of a node new in this
+      // update (see freshTextNode), written apart from the text around it.
+      let fresh = false;
+      if (this.state.hidden !== null) {
+        const nodes = atoms.textNodes;
+        let k = textNodeAfter(nodes, i);
+        if (k < nodes.length && nodes[k][0] <= i) {
+          // The node `i` is in: fresh text stops where it ends.
+          fresh = this.freshTextNode(atoms, k);
+          if (fresh) {
+            j = Math.min(j, nodes[k][1]);
+          }
+          k++;
+        }
+        // Then up to the first node after `i` that is not as fresh (only the
+        // nodes that start before `j`).
+        for (; k < nodes.length && nodes[k][0] < j; k++) {
+          if (this.freshTextNode(atoms, k) !== fresh) {
+            j = nodes[k][0];
+            break;
+          }
+        }
+      }
       cursor.insert(
         new ContentString(atoms.text.slice(i, j)),
         this.inheritUnknown(cursor, attrs),
+        fresh,
       );
       i = j;
     }
+  }
+
+  /**
+   * The characters of text this update removed or cut from text nodes that
+   * existed before it (see freshTextNode): the whole old text of each one it
+   * removed; of each one it kept, the ranges its record of text edits says
+   * were deleted, and its whole old text where that is not all of it (its
+   * old text no longer in it in order). Computed once per write, while a
+   * composition holds changes back only. Conservative by construction: what
+   * may have been removed is counted.
+   */
+  private removedChars: Set<string> | null = null;
+
+  private $removedChars(): Set<string> {
+    if (this.removedChars === null) {
+      const out = new Set<string>();
+      const add = (text: string) => {
+        for (const ch of text) {
+          out.add(ch);
+        }
+      };
+      for (const e of this.plan.textEdits ?? []) {
+        if (e[0] === 'splice' && e[3] > 0) {
+          add(e[5].slice(e[2], e[2] + e[3]));
+        } else if (e[0] === 'set' && e[2] !== '' && e[2] !== e[3]) {
+          add(e[2]);
+        } else if (e[0] === 'move') {
+          add(e[4].slice(0, e[3]));
+        }
+      }
+      for (const [key, prev] of this.prevState._nodeMap) {
+        if (!$isTextNode(prev) || prev.__text === '') {
+          continue;
+        }
+        const old = prev.__text;
+        const now = $getNodeByKey(key);
+        if (now === null || !now.isAttached() || !$isTextNode(now)) {
+          add(old);
+        } else if (!isSubsequence(old, now.getTextContent())) {
+          add(old);
+        }
+      }
+      this.removedChars = out;
+    }
+    return this.removedChars;
+  }
+
+  /**
+   * Whether text node `k` of desired atoms `atoms` (its entry in
+   * atoms.textNodes) is a node new in this update that carries no old text
+   * on: not a node that existed (merged into or not), not a part split off
+   * one, and sharing no character with text the update removed or cut (see
+   * removedChars), so a node replaced by one with a new key, a copy, a
+   * split's tail, text cut out into a node of its own, an app's re-keying in
+   * a read are never fresh, whatever text they add. When in doubt, not
+   * fresh: written as before.
+   */
+  private freshTextNode(atoms: Atoms, k: number): boolean {
+    const [a, b, key] = atoms.textNodes[k];
+    const splits = this.plan.splits;
+    if (
+      this.prevState._nodeMap.has(key) ||
+      (splits !== undefined && splits !== null && splits.has(key)) ||
+      this.splitPart(key)
+    ) {
+      return false;
+    }
+    const removed = this.$removedChars();
+    for (const ch of atoms.text.slice(a, b)) {
+      if (removed.has(ch)) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  /**
+   * The nodes the update's record of text edits says were split off (each
+   * part of a split but the node split), computed once per write, while a
+   * composition holds changes back only (see freshTextNode).
+   */
+  private splitParts: Set<NodeKey> | null = null;
+
+  /** Whether the update's record of text edits says `key` was split off. */
+  private splitPart(key: NodeKey): boolean {
+    if (this.splitParts === null) {
+      const out = new Set<NodeKey>();
+      for (const e of this.plan.textEdits ?? []) {
+        if (e[0] === 'split') {
+          for (const part of e[2]) {
+            if (part !== e[1]) {
+              out.add(part);
+            }
+          }
+        }
+      }
+      this.splitParts = out;
+    }
+    return this.splitParts.has(key);
   }
 
   /** Format the atoms after `left` whose owned formats differ. */
@@ -5943,4 +6066,37 @@ function followUpWarning(what: string, node: LexicalNode): void {
       `@lexical/y: a follow-up update changed ${what} a ${node.getType()} node; follow-ups (the binding's refresh, BlockIdExtension's naming, the update that runs a newly registered transform over the document) may only set attributes or delete, so this change is not written and the editor reads that content again.`,
     );
   }
+}
+
+/**
+ * The index of the first of the text nodes of desired atoms (in order and
+ * apart, see Atoms#textNodes) that ends after atom `i`: the node `i` is in,
+ * or else the first node after it.
+ */
+function textNodeAfter(
+  nodes: readonly (readonly [number, number, NodeKey])[],
+  i: number,
+): number {
+  let lo = 0;
+  let hi = nodes.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >>> 1;
+    if (nodes[mid][1] <= i) {
+      lo = mid + 1;
+    } else {
+      hi = mid;
+    }
+  }
+  return lo;
+}
+
+/** Whether `a`'s characters are in `b`, in order (not necessarily together). */
+function isSubsequence(a: string, b: string): boolean {
+  let j = 0;
+  for (let i = 0; i < b.length && j < a.length; i++) {
+    if (b[i] === a[j]) {
+      j++;
+    }
+  }
+  return j === a.length;
 }
