@@ -321,6 +321,63 @@ editor.registerUpdateListener(({editorState}) => {
 });
 ```
 
+## Common patterns for working with nodes
+
+### Reading the document tree
+
+Start from `$getRoot()` and use node methods inside a read to inspect the
+document. For example, this reads the latest committed editor state and
+returns a summary of each top-level block:
+
+```js
+import {$getRoot} from 'lexical';
+
+const blocks = editor.getEditorState().read(() =>
+  $getRoot()
+    .getChildren()
+    .map(node => ({
+      key: node.getKey(),
+      text: node.getTextContent(),
+      type: node.getType(),
+    })),
+);
+```
+
+`getChildren()` returns the immediate children of a node, rather than every
+descendant. For deeper traversals, including starting from a selection, see
+[Node Traversals with NodeCaret](./traversals.md).
+
+Return the data you need from the read callback. Accessing node methods
+outside a read or update is not supported.
+
+### Updating a node by key
+
+A node key identifies a node within the editor. Keep the key when you need to
+find that node in a later update, and resolve it with `$getNodeByKey()` inside
+that update. This helper updates a text node using a key captured earlier
+with `node.getKey()` inside a read or update:
+
+```js
+import {$getNodeByKey, $isTextNode} from 'lexical';
+
+function updateTextNode(nodeKey, textContent) {
+  editor.update(() => {
+    const node = $getNodeByKey(nodeKey);
+    if ($isTextNode(node)) {
+      node.setTextContent(textContent);
+    }
+  });
+}
+```
+
+The type check also handles a node that was removed before the update:
+`$getNodeByKey()` returns `null` when the key is no longer in the active
+state. Keys are specific to an editor and are not included in serialized
+editor state, so do not use them as persistent document identifiers.
+
+To insert nodes at the current selection instead, see
+[Inserting nodes](./selection.md#inserting-nodes).
+
 ## When are Listeners, Transforms, and Commands called?
 
 There are several types of callbacks that can be registered with the editor that are related to
