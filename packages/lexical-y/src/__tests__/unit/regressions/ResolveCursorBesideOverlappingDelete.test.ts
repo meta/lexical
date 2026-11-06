@@ -258,21 +258,7 @@ describe.each([false, true])(
       let written = false;
       let peer: ReturnType<typeof b.binding.getCursor> = null;
       const seen: [number | null, number | null][] = [];
-      const observeAll = (_doc: Y.Doc, trs: Y.Transaction[]) => {
-        if (trs.some(tr => tr.origin === a.binding)) {
-          written = true;
-        }
-        if (!written || seen.length > 40) {
-          return;
-        }
-        // A collaborator's cursor resolved (which may open a transaction,
-        // whose afterAllTransactions calls this again), then this client's
-        // taken.
-        a.editor.getEditorState().read(() => {
-          if (peer !== null) {
-            a.binding.$resolveCursor(peer);
-          }
-        });
+      const sample = () => {
         const cursor = a.binding.getCursor();
         seen.push(
           a.editor.getEditorState().read(() => {
@@ -286,7 +272,30 @@ describe.each([false, true])(
           }),
         );
       };
-      const observeOne = (tr: Y.Transaction) => observeAll(a.doc, [tr]);
+      // A collaborator's cursor resolved from afterAllTransactions (which
+      // may open a transaction), this client's taken from afterTransaction
+      // (that transaction's included) and from afterAllTransactions.
+      const observeAll = (_doc: Y.Doc, trs: Y.Transaction[]) => {
+        if (trs.some(tr => tr.origin === a.binding)) {
+          written = true;
+        }
+        if (!written || seen.length > 40) {
+          return;
+        }
+        a.editor.getEditorState().read(() => {
+          if (peer !== null) {
+            a.binding.$resolveCursor(peer);
+          }
+        });
+        sample();
+      };
+      const observeOne = (tr: Y.Transaction) => {
+        // Not from A's write itself, so that a cursor taken there does not
+        // stand in for one taken in a later transaction.
+        if (written && tr.origin !== a.binding && seen.length <= 40) {
+          sample();
+        }
+      };
       try {
         t.offline();
         b.update(() => {
