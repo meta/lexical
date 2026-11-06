@@ -10,7 +10,6 @@ import {initPegasusTransport} from '@webext-pegasus/transport/content-script';
 
 import {CHANNEL_NAMESPACE_PARAM} from '../../constants';
 import {isContentScriptPing} from '../../contentScriptPing';
-import {extensionStoreReady} from '../../store.ts';
 import injectScript from './injectScript';
 
 /**
@@ -48,14 +47,12 @@ export default defineContentScript({
       }
     });
 
-    // Init store for relay between injected script and the rest of the extension to work
-    extensionStoreReady()
-      .then(() => {
-        injectScript('/injected.js', {
-          [CHANNEL_NAMESPACE_PARAM]: namespace,
-        });
-      })
-      .catch(console.error);
+    // This relay carries the injected script's RPC to the background. The
+    // shared store is not connected here: nothing in a tab's content script
+    // or page needs it.
+    injectScript('/injected.js', {
+      [CHANNEL_NAMESPACE_PARAM]: namespace,
+    });
   },
   matches: ['<all_urls>'],
   registration: 'manifest',
