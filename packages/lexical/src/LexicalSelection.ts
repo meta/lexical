@@ -1241,7 +1241,11 @@ export class RangeSelection implements BaseSelection {
     // CASE 1: insert inside a code block
     if ($isElementNode(firstBlock) && '__language' in firstBlock) {
       if ('__language' in nodes[0]) {
-        this.insertText(nodes[0].getTextContent());
+        // A DOM import can produce several top-level nodes for one paste
+        // (for example, disjoint <pre> elements separated by a <br>). Keep
+        // every imported block instead of silently discarding everything
+        // after the first CodeNode (#9151).
+        this.insertText($getTextContentForCodePaste(nodes));
       } else {
         const [, index] = $removeTextAndSplitBlock(this);
         firstBlock.splice(index, 0, nodes);
@@ -4514,6 +4518,41 @@ function $isInlineRunNode(node: LexicalNode): boolean {
     $isTextNode(node) ||
     node.isParentRequired()
   );
+}
+
+function $getTextContentForCodePaste(nodes: LexicalNode[]): string {
+  const blocks: string[] = [];
+  let trailingLineBreaks = '';
+  for (let i = 0; i < nodes.length; i++) {
+    const node = nodes[i];
+    if (!$isInlineRunNode(node)) {
+      blocks.push(node.getTextContent());
+      continue;
+    }
+    const run: LexicalNode[] = [node];
+    while (i + 1 < nodes.length && $isInlineRunNode(nodes[i + 1])) {
+      run.push(nodes[++i]);
+    }
+    if (run.every($isLineBreakNode)) {
+      // The first break stands for an empty block; each additional break
+      // adds one newline, just as it does in a run containing text. At the
+      // end of the paste, the block boundary already supplies the first
+      // break, so keep only the additional explicit newlines there.
+      const text = '\n'.repeat(run.length - 1);
+      if (i === nodes.length - 1) {
+        trailingLineBreaks = text;
+      } else {
+        blocks.push(text);
+      }
+    } else {
+      blocks.push(
+        ...$wrapInlineNodes(run)
+          .getChildren()
+          .map(block => block.getTextContent()),
+      );
+    }
+  }
+  return blocks.join('\n') + trailingLineBreaks;
 }
 
 function $wrapInlineNodes(nodes: LexicalNode[]) {
