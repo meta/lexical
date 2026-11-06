@@ -1243,6 +1243,47 @@ describe("the gap repair's part of the contract (LoadFully)", () => {
     ]);
   });
 
+  test('a format item whose key reads otherwise is found (the format rule reads it)', () => {
+    expect(
+      gapFindings(
+        probeYjs({
+          ...installed(),
+          decodeUpdateV2: ((u: Uint8Array) => {
+            const decoded = Y.decodeUpdateV2(u);
+            for (const struct of decoded.structs) {
+              const content = (struct as {content?: unknown}).content;
+              if (content instanceof Y.ContentFormat) {
+                content.key = `${content.key}-${struct.id.clock}`;
+              }
+            }
+            return decoded;
+          }) as typeof Y.decodeUpdateV2,
+        }),
+      ),
+    ).toEqual(['gap repair: a format item read on a decoded struct changed']);
+  });
+
+  test('a @y/y that no longer integrates a struct past a clock gap is found (the plan relies on it)', () => {
+    expect(
+      gapFindings(
+        probeYjs({
+          ...installed(),
+          applyUpdateV2: (d: Y.Doc, u: Uint8Array, o?: unknown) => {
+            const [first] = Y.decodeUpdateV2(u).structs;
+            if (
+              first === undefined ||
+              first.id.clock <= d.store.getClock(first.id.client)
+            ) {
+              Y.applyUpdateV2(d, u, o);
+            }
+          },
+        }),
+      ),
+    ).toEqual([
+      'gap repair: a struct applied on its own is not integrated past a blocked one',
+    ]);
+  });
+
   test('a mergeUpdatesV2 that drops material is found', () => {
     expect(
       gapFindings(

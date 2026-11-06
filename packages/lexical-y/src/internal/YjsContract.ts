@@ -22,6 +22,7 @@ import {
   diffUpdateV2,
   Doc,
   encodeStateAsUpdate,
+  encodeStateAsUpdateV2,
   encodeStateVector,
   findIndexSS,
   findRootTypeKey,
@@ -104,6 +105,7 @@ export const YJS_EXPORTS = [
   'decodeUpdateV2',
   'diffUpdateV2',
   'encodeStateAsUpdate',
+  'encodeStateAsUpdateV2',
   'encodeStateVector',
   'findIndexSS',
   'findRootTypeKey',
@@ -182,6 +184,7 @@ export function yjsMembers() {
       gc: (d: Doc) => isBoolean(d.gc),
       gcFilter: (d: Doc) => isFunction(d.gcFilter),
       get: (d: Doc) => isFunction(d.get),
+      guid: (d: Doc) => typeof d.guid === 'string',
       isDestroyed: (d: Doc) => isBoolean(d.isDestroyed),
       off: (d: Doc) => isFunction(d.off),
       on: (d: Doc) => isFunction(d.on),
@@ -252,6 +255,7 @@ export function yjsMembers() {
       clients: (s: StructStore) => isMap(s.clients),
       getClock: (s: StructStore) => isFunction(s.getClock),
       getItem: (s: StructStore) => isFunction(s.getItem),
+      pendingDs: (s: StructStore) => isSet(s.pendingDs),
       pendingStructs: (s: StructStore) => isSet(s.pendingStructs),
     },
     // The gap repair (LoadFully) reads a pending update in format V2.
@@ -434,6 +438,7 @@ function yjsExports() {
     decodeUpdateV2,
     diffUpdateV2,
     encodeStateAsUpdate,
+    encodeStateAsUpdateV2,
     encodeStateVector,
     findIndexSS,
     findRootTypeKey,
@@ -643,7 +648,7 @@ function probeGapLoad(
     }
     // The repair itself: "z" and "w" are integrated past the blocked "y"
     // and "v", which are pending again.
-    integrateHeldBehindGapsWith(y, loaded);
+    const repaired = integrateHeldBehindGapsWith(y, loaded, undefined, false);
     const shown = text(loaded);
     if (
       !shown.includes('z') ||
@@ -655,6 +660,56 @@ function probeGapLoad(
         'gap repair: a struct applied on its own is not integrated past a blocked one',
       );
       return;
+    }
+    // The repair plans each suffix's run from the dependency rules it
+    // relies on; a run that integrates otherwise means they changed.
+    if (repaired.failedCuts !== 0) {
+      found.push('gap repair: @y/y no longer integrates as the plan predicts');
+      return;
+    }
+    // A format item: its key read on a decoded struct, and the format rule
+    // (an opener whose closer stays blocked is held back with it).
+    const formatBase = make(6);
+    formatBase.get('t').insert(0, 'abcd');
+    const formatter = make(7);
+    y.applyUpdate(formatter, y.encodeStateAsUpdate(formatBase));
+    const formatUpdates: Uint8Array<ArrayBuffer>[] = [];
+    formatter.on('update', (u: Uint8Array) =>
+      formatUpdates.push(new Uint8Array(u)),
+    );
+    const ft = formatter.get('t');
+    // Lost: "L" after "c". Then one update: "M" after "L" (blocked), and
+    // a format over "b".."L" (its opener after "a", integrable once "M" is
+    // passed; its closer after "L", blocked), held behind "M".
+    formatter.transact(() => ft.insert(3, 'L'));
+    formatter.transact(() => {
+      ft.insert(4, 'M');
+      ft.format(1, 3, {probe: true});
+    });
+    const formatted = make(8);
+    y.applyUpdate(formatted, y.encodeStateAsUpdate(formatBase));
+    y.applyUpdate(formatted, formatUpdates[1]);
+    const held = formatted.store.pendingStructs;
+    const keys =
+      held === null
+        ? []
+        : y
+            .decodeUpdateV2(held.update)
+            .structs.map(s => (s as {content?: unknown}).content)
+            .filter(c => c instanceof y.ContentFormat)
+            .map(c => (c as ContentFormat).key);
+    if (keys.join() !== 'probe,probe') {
+      found.push('gap repair: a format item read on a decoded struct changed');
+      return;
+    }
+    integrateHeldBehindGapsWith(y, formatted, undefined, false);
+    for (let it = formatted.get('t')._start; it !== null; it = it.right) {
+      if (it.content instanceof y.ContentFormat) {
+        found.push(
+          'gap repair: a format item was integrated while its closer stays blocked',
+        );
+        return;
+      }
     }
     // Once the missing updates arrive, it converges with a document that
     // got every update.
