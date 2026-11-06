@@ -313,11 +313,13 @@ export function hasLiveContent(
 /**
  * Whether live item `it` is a stored inline element the editor does not show:
  * one holding no content (an element left out itself is none) that the
- * editor did not hold before this update either (readers leave out an element that cannot be empty, as Lexical
- * would remove it: a mark whose text peers deleted concurrently, or whose
- * text has not arrived yet, see Reader). An empty element the editor shows
+ * editor did not hold before this update either (readers leave out an
+ * element that cannot be empty, as Lexical would remove it: a mark whose
+ * text peers deleted concurrently, or whose text has not arrived yet, see
+ * Reader). An empty element the editor shows
  * (its class or the instance allows it), and one the update removed, count.
- * The writer neither counts nor deletes one it leaves out. In an editor read
+ * The writer does not count one it leaves out, and deletes it only where a
+ * delete meets it before its last unit (see Cursor#delete). In an editor read
  * or update; `view`: the document the write sees; `prevMap`: the node map
  * before the update; `made`: items the write itself inserted, never left
  * out. The one predicate for the rule: the writer (Writer#leftOut), its
@@ -502,7 +504,7 @@ function pushStoredText(out: Atoms, text: string, attrs: Attrs): void {
 /**
  * Live content items from `start` up to `stop` (exclusive), less those
  * `leftOut` names (a stored element the editor does not show, which the
- * writer's cursor neither counts nor deletes).
+ * writer's cursor does not count; see Cursor#delete for when it deletes one).
  */
 export function countLive(
   view: View | null,

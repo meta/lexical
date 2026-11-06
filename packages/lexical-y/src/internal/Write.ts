@@ -2669,7 +2669,8 @@ export class Writer {
         );
       }
       // Sized as the cursor moves: without what readers leave out (see
-      // leftOut), which it neither counts nor deletes.
+      // leftOut), which it does not count (and deletes with the line, see
+      // Cursor#delete).
       cursor.delete(
         countLive(this.view, from, stop, this.state.hidden, this.leftOut),
       );
@@ -3002,7 +3003,9 @@ export class Writer {
   /**
    * Whether live item `it` is a stored inline element the editor does not
    * show (see $isLeftOutInline): one this write did not make. Invariant: the
-   * writer counts and keeps exactly what the reader leaves out. Why: text
+   * writer counts exactly what the reader counts: it does not count such an
+   * element, and deletes one only where a delete meets it before its last
+   * unit (see Cursor#delete). Why: text
    * written beside such an element was placed by positions that counted it
    * while the editor's did not. The self-check reads with it too (see
    * $shownText).
