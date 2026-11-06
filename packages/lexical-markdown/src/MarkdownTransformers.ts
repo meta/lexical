@@ -363,6 +363,37 @@ function hasNonWhitespaceContentOnLine(
   return false;
 }
 
+/**
+ * The hard line break, if any, at the end of each imported line, read from the
+ * line's Markdown and keyed by the last node the line produced. The text of
+ * the nodes can no longer tell: its escapes have been read, so `a\\` ends with
+ * a backslash just like `a\`, and inline code ends with its literal content.
+ */
+const lineEndHardLineBreaks = new WeakMap<
+  LexicalNode,
+  MarkdownHardLineBreak | null
+>();
+
+/**
+ * Record how the Markdown `line`, whose inline content has just been imported
+ * into `lineParent`, ends, for when the next line is appended to it.
+ *
+ * @internal
+ */
+export function $setLineEndHardLineBreak(
+  lineParent: ElementNode,
+  line: string,
+): void {
+  const lastChild = lineParent.getLastChild();
+  if (lastChild !== null) {
+    const hardLineBreak = parseMarkdownHardLineBreak(line);
+    lineEndHardLineBreaks.set(
+      lastChild,
+      hardLineBreak !== null ? hardLineBreak[1] : null,
+    );
+  }
+}
+
 function $extractMarkdownHardLineBreakMarker(
   previousNode: ElementNode,
 ): MarkdownHardLineBreak | null {
@@ -375,6 +406,21 @@ function $extractMarkdownHardLineBreakMarker(
   }
 
   const lastText = lastChild.getTextContent();
+
+  if (lineEndHardLineBreaks.has(lastChild)) {
+    const marker = lineEndHardLineBreaks.get(lastChild);
+    if (marker == null) {
+      return null;
+    }
+    // A backslash before the line ending escapes nothing, so it is still the
+    // last character of the text, unless a text match transformer took it.
+    if (marker === '\\' && lastText.endsWith('\\')) {
+      lastChild.setTextContent(lastText.slice(0, -1));
+      return marker;
+    }
+    // Trailing spaces stay in the text as written, so they are read below.
+  }
+
   const hardLineBreak = parseMarkdownHardLineBreak(lastText);
 
   if (hardLineBreak !== null) {
