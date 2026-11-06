@@ -189,7 +189,13 @@ export class ListItemNode extends ElementNode {
       $transform: (node: ListItemNode): void => {
         const parent = node.getParent();
         if ($isListNode(parent)) {
-          if (parent.getListType() !== 'check' && node.getChecked() != null) {
+          // The field, not getChecked(), which is undefined outside a check
+          // list: a value an update without transforms left there would
+          // otherwise show again once the list becomes a check list.
+          if (
+            parent.getListType() !== 'check' &&
+            node.getLatest().__checked != null
+          ) {
             node.setChecked(undefined);
           }
         } else if (parent) {
