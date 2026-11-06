@@ -801,11 +801,11 @@ upgrade every client of the document at the same time.
 
 ## Migrating stored documents
 
-These APIs are EXPERIMENTAL. When a release raises `MIN_LAYOUT` (the
-one-time break to layout 3; it never rises after that, see
-[Changing the layout and migrating](./y.md#migrating-stored-documents)),
-rooms stored at an older layout open read only in it until they are
-migrated. The server that stores a room migrates it when it loads it, before
+These APIs are EXPERIMENTAL. When a release raises `MIN_LAYOUT` (layout
+3's release did, and while `@lexical/y` is experimental a later one may,
+see [Layout upgrades](./y.md#layout-upgrades)), rooms stored at an older
+layout open read only in it until they are migrated. The server that
+stores a room migrates it when it loads it, before
 it serves it, with the published steps, which `@lexical/y/server` imports
 statically (clients that have a server carry no migration code).
 `@lexical/y/server` has the pieces (no Lexical import):
