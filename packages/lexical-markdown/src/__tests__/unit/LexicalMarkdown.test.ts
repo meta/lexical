@@ -410,6 +410,19 @@ describe('Markdown', () => {
       md: '- 1\\. foo',
     },
     {
+      // Bullet list item starting with number-parenthesis pattern should be escaped (#9402)
+      html: '<ul><li value="1"><span style="white-space: pre-wrap;">1) foo</span></li></ul>',
+      md: '- 1\\) foo',
+    },
+    {
+      // Ordered list with parenthesis marker (#9402). Import only for the
+      // parenthesis marker as it does not survive a trip through HTML, so export
+      // from HTML writes ".".
+      html: '<ol><li value="1"><span style="white-space: pre-wrap;">Hello</span></li><li value="2"><span style="white-space: pre-wrap;">world</span></li></ol>',
+      md: '1) Hello\n2) world',
+      mdAfterExport: '1. Hello\n2. world',
+    },
+    {
       html: '<ol><li value="1"><span style="white-space: pre-wrap;">Hello</span></li><li value="2"><span style="white-space: pre-wrap;">world</span></li></ol>',
       md: '1. Hello\n2. world',
     },
@@ -1995,6 +2008,81 @@ describe('Markdown', () => {
           true,
         );
         expect(markdownString).toBe('+ hello');
+      });
+    });
+
+    it('should remember parenthesis marker used on import', () => {
+      const editor = createTestEditor({
+        nodes: [ListNode, ListItemNode],
+      });
+      editor.update(
+        () =>
+          $convertFromMarkdownString(
+            '1) hello',
+            [...TRANSFORMERS],
+            undefined,
+            true,
+            false,
+          ),
+        {discrete: true},
+      );
+      editor.read('latest', () => {
+        const node = $getRoot().getFirstChild();
+        expect(node).toBeInstanceOf(ListNode);
+        const marker = node ? $getState(node, listMarkerState) : undefined;
+        expect(marker).toBe(')');
+      });
+    });
+
+    it('should remember parenthesis marker used on export', () => {
+      const editor = createTestEditor({
+        nodes: [ListNode, ListItemNode],
+      });
+      editor.update(
+        () => {
+          const listNode = $createListNode();
+          $setState(listNode, listMarkerState, ')');
+          const listItemNode = $createListItemNode();
+          listItemNode.append($createTextNode('hello'));
+          listNode.append(listItemNode);
+          listNode.setListType('number');
+          $getRoot().select();
+          $insertNodes([listNode]);
+        },
+        {discrete: true},
+      );
+      editor.read('latest', () => {
+        const markdownString = $convertToMarkdownString(
+          [...TRANSFORMERS],
+          undefined,
+          true,
+        );
+        expect(markdownString).toBe('1) hello');
+      });
+    });
+
+    it('should round-trip ordered list with parenthesis marker', () => {
+      const editor = createTestEditor({
+        nodes: [ListNode, ListItemNode],
+      });
+      editor.update(
+        () =>
+          $convertFromMarkdownString(
+            '1) Hello\n2) world',
+            [...TRANSFORMERS],
+            undefined,
+            true,
+            false,
+          ),
+        {discrete: true},
+      );
+      editor.read('latest', () => {
+        const markdownString = $convertToMarkdownString(
+          [...TRANSFORMERS],
+          undefined,
+          true,
+        );
+        expect(markdownString).toBe('1) Hello\n2) world');
       });
     });
   });
