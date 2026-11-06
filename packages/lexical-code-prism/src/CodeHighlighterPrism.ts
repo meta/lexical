@@ -35,6 +35,7 @@ import {
   mergeRegister,
   NODE_STATE_KEY,
   type NodeKey,
+  type PointType,
   safeCast,
   TextNode,
 } from 'lexical';
@@ -212,8 +213,62 @@ function $codeNodeTransform(
   });
 }
 
-// Wrapping update function into selection retainer, that tries to keep cursor at the same
-// position as before.
+// The text offset of a point in a code block: the text of everything before
+// it, plus its offset in its own text node, or null when the point is outside
+// the block. An element point (e.g. after a line break) is a child index,
+// which goes stale once an earlier line is split into more tokens, so it is
+// converted too.
+function $getCodeTextOffset(code: CodeNode, point: PointType): number | null {
+  const pointNode = point.getNode();
+  if (pointNode === code) {
+    return code
+      .getChildren()
+      .slice(0, point.offset)
+      .reduce((offset, child) => offset + child.getTextContentSize(), 0);
+  }
+  if (!code.isParentOf(pointNode)) {
+    return null;
+  }
+  return pointNode
+    .getPreviousSiblings()
+    .reduce(
+      (offset, sibling) => offset + sibling.getTextContentSize(),
+      point.offset,
+    );
+}
+
+// Moves a point to a text offset in a code block. A LineBreakNode consumes
+// one unit of the offset but can't host a text point, so when the offset
+// lands on one this uses an element point on the code node instead of letting
+// the offset go negative.
+function $setCodeTextOffset(
+  code: CodeNode,
+  point: PointType,
+  textOffset: number,
+): void {
+  const children = code.getChildren();
+  for (let index = 0; index < children.length; index++) {
+    const child = children[index];
+    if ($isTextNode(child)) {
+      const textContentSize = child.getTextContentSize();
+      if (textContentSize >= textOffset) {
+        point.set(child.getKey(), textOffset, 'text');
+        return;
+      }
+      textOffset -= textContentSize;
+    } else if ($isLineBreakNode(child)) {
+      if (textOffset === 0) {
+        point.set(code.getKey(), index, 'element');
+        return;
+      }
+      textOffset -= 1;
+    }
+  }
+  point.set(code.getKey(), children.length, 'element');
+}
+
+// Wrapping update function into selection retainer, that tries to keep the
+// caret at the same text position as before.
 function $updateAndRetainSelection(
   nodeKey: NodeKey,
   updateFn: () => boolean,
@@ -230,70 +285,26 @@ function $updateAndRetainSelection(
     return;
   }
 
-  const anchor = selection.anchor;
-  // The selection is restored by walking this code node's children, so it can
-  // only be retained when it actually points inside this code node. When the
-  // selection lives elsewhere there is nothing to retain and restoring would
-  // drag the caret into the code block instead of leaving it where the user
-  // put it.
-  const anchorNode = anchor.getNode();
-  if (anchorNode !== node && !node.isParentOf(anchorNode)) {
-    updateFn();
-    return;
-  }
-
-  const anchorOffset = anchor.offset;
-  const isNewLineAnchor =
-    anchor.type === 'element' &&
-    $isLineBreakNode(node.getChildAtIndex(anchor.offset - 1));
-  let textOffset = 0;
-
-  // Calculating previous text offset (all text node prior to anchor + anchor own text offset)
-  if (!isNewLineAnchor) {
-    textOffset =
-      anchorOffset +
-      anchorNode.getPreviousSiblings().reduce((offset, _node) => {
-        return offset + _node.getTextContentSize();
-      }, 0);
-  }
-
-  const hasChanges = updateFn();
-  if (!hasChanges) {
-    return;
-  }
-
-  // Non-text anchors only happen for line breaks, otherwise
-  // selection will be within text node (code highlight node)
-  if (isNewLineAnchor) {
-    anchor.getNode().select(anchorOffset, anchorOffset);
-    return;
-  }
-
-  // If it was non-element anchor then we walk through child nodes
-  // and looking for a position of original text offset. A LineBreakNode
-  // consumes one unit of the offset but can't host a text point, so when the
-  // offset lands on one we use an element point on the code node instead of
-  // letting the offset go negative and selecting the next text node at an
-  // out-of-range position.
-  const children = node.getChildren();
-  for (let index = 0; index < children.length; index++) {
-    const child = children[index];
-    if ($isTextNode(child)) {
-      const textContentSize = child.getTextContentSize();
-      if (textContentSize >= textOffset) {
-        child.select(textOffset, textOffset);
-        return;
-      }
-      textOffset -= textContentSize;
-    } else if ($isLineBreakNode(child)) {
-      if (textOffset === 0) {
-        node.select(index, index);
-        return;
-      }
-      textOffset -= 1;
+  // When the anchor is inside this code node, the selection is restored as a
+  // caret at the anchor: MarkStateExtension relies on that collapsed caret to
+  // carry comment ids onto the new tokens. A selection elsewhere is left where
+  // the user put it, rather than dragged into the code block.
+  const textOffset = $getCodeTextOffset(node, selection.anchor);
+  if (textOffset === null) {
+    // A range from outside into this code node keeps its anchor, and its
+    // focus moves back to the same text position.
+    const focusOffset = $getCodeTextOffset(node, selection.focus);
+    if (updateFn() && focusOffset !== null) {
+      $setCodeTextOffset(node, selection.focus, focusOffset);
     }
+    return;
   }
-  node.select(children.length, children.length);
+  if (!updateFn()) {
+    return;
+  }
+  const {anchor, focus} = selection;
+  $setCodeTextOffset(node, anchor, textOffset);
+  focus.set(anchor.key, anchor.offset, anchor.type);
 }
 
 // Finds minimal diff range between two nodes lists. It returns from/to range boundaries of prevNodes

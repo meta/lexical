@@ -38,6 +38,7 @@ export default function Settings(): JSX.Element {
       selectBlock,
       isCodeHighlighted,
       isCodeShiki,
+      isCodeLineNumbers,
       isShadowDOM,
     },
   } = useSettings();
@@ -222,6 +223,14 @@ export default function Settings(): JSX.Element {
             }}
             checked={isCodeShiki}
             text="Use Shiki for Code Highlighting"
+          />
+
+          <Switch
+            onClick={() => {
+              setOption('isCodeLineNumbers', !isCodeLineNumbers);
+            }}
+            checked={isCodeLineNumbers}
+            text="Per Line Numbers in All Code Blocks"
           />
 
           <Switch

@@ -10,6 +10,7 @@ import {
   $createCodeHighlightNode,
   $createCodeNode,
   $isCodeNode,
+  CodeLineNumbersExtension,
 } from '@lexical/code-core';
 import {CodePrismExtension} from '@lexical/code-prism';
 import {buildEditorFromExtensions} from '@lexical/extension';
@@ -18,9 +19,12 @@ import {
   $createLineBreakNode,
   $getRoot,
   $getSelection,
+  $isElementNode,
+  $isLineBreakNode,
   $isRangeSelection,
   $isTextNode,
   type AnyLexicalExtensionArgument,
+  configExtension,
   defineExtension,
   isDOMTextNode,
   isHTMLElement,
@@ -70,7 +74,9 @@ const LONG_LINE = Array.from(
   .join('')
   .slice(0, 655);
 const INDENTED_LINE = ' '.repeat(12) + LONG_LINE.slice(0, 400);
+const MEDIUM_LINE = LONG_LINE.slice(0, 200);
 const RTL_LINE = 'שלום '.repeat(130);
+const SHORT_RTL_LINE = 'שלום '.repeat(60);
 
 /** A way for the theme to draw line numbers next to a code block. */
 interface Gutter {
@@ -82,10 +88,15 @@ interface Gutter {
 }
 
 const DATA_GUTTER_FLOAT: Gutter = {
-  dependencies: [],
+  // The playground's default: line numbers only on blocks with word wrap on,
+  // so this block keeps the float.
+  dependencies: [
+    configExtension(CodeLineNumbersExtension, {onlyWordWrapped: true}),
+  ],
   // The highlighter lists the line numbers in data-gutter, and the theme
   // draws them with the code element's ::before, floated left and sticky.
   expectGutter(code, lineCount) {
+    expect(code.hasAttribute('data-lexical-code-line-numbers')).toBe(false);
     expect(code.getAttribute('data-gutter')).toBe(
       Array.from({length: lineCount}, (_, i) => i + 1).join('\n'),
     );
@@ -94,8 +105,27 @@ const DATA_GUTTER_FLOAT: Gutter = {
   name: 'the data-gutter float',
 };
 
+const PER_LINE_NUMBERS: Gutter = {
+  dependencies: [
+    configExtension(CodeLineNumbersExtension, {onlyWordWrapped: false}),
+  ],
+  // CodeLineNumbersExtension wraps the <br> of every line break in a span.
+  // The theme numbers line 1 with the code element's ::before and every
+  // other line with the ::after of its wrapper, sticky at the inline start.
+  expectGutter(code, lineCount) {
+    expect(code.getAttribute('data-lexical-code-line-numbers')).toBe('true');
+    expect(
+      code.querySelectorAll(':scope > [data-lexical-code-line-break]'),
+    ).toHaveLength(lineCount - 1);
+    const number = getComputedStyle(code, '::before');
+    expect(number.float).toBe('none');
+    expect(number.position).toBe('sticky');
+  },
+  name: 'per line numbers',
+};
+
 // Every scroll case below runs once for each of these gutters.
-const GUTTERS: Gutter[] = [DATA_GUTTER_FLOAT];
+const GUTTERS: Gutter[] = [DATA_GUTTER_FLOAT, PER_LINE_NUMBERS];
 
 // Makes the pseudo elements the theme draws line numbers with the only hit
 // targets inside a code block, so elementFromPoint tells whether a number is
@@ -244,10 +274,12 @@ function isEmptyRect(rect: DOMRect): boolean {
 
 /**
  * The rect the caret is drawn at. A collapsed range between two elements
- * has no rect, so that falls back to the element after the caret. WebKit
- * gives no rect for a caret at the logical end of right to left text
- * either, so that falls back to the character before the caret. The caret
- * is at one of its edges.
+ * has no rect, so that falls back to the element after the caret. For a
+ * line break wrapper that is its <br>, because the wrapper's own rect also
+ * covers the number drawn on the next line. WebKit gives no rect for a
+ * caret at the logical end of right to left text either, so that falls
+ * back to the character before the caret. The caret is at one of its
+ * edges.
  */
 function caretRect(): DOMRect {
   const selection = window.getSelection()!;
@@ -263,7 +295,13 @@ function caretRect(): DOMRect {
     range.setEnd(focusNode, focusOffset);
     return range.getBoundingClientRect();
   }
-  const child: Node | null = focusNode!.childNodes[focusOffset] || null;
+  let child: Node | null = focusNode!.childNodes[focusOffset] || null;
+  if (
+    isHTMLElement(child) &&
+    child.hasAttribute('data-lexical-code-line-break')
+  ) {
+    child = child.firstElementChild;
+  }
   if (!isHTMLElement(child)) {
     throw new Error('Expected an element after the caret');
   }
@@ -452,6 +490,49 @@ describe.each(GUTTERS)('caret scrolling in a code block with $name', gutter => {
     expectCaretVisible(code);
   });
 
+  test('insertLineBreak(true) at the end of a long line keeps the caret in view', async () => {
+    const {code, editor, rootElement} = setUpEditor(gutter, [
+      MEDIUM_LINE,
+      'abc',
+    ]);
+    await focus(rootElement);
+    await selectInLine(editor, 0, 'end');
+    expect(code.scrollLeft).toBeGreaterThan(0);
+
+    // Ctrl+O on macOS: a line break goes in after the caret, and the caret
+    // stays at the end of the line, just before it. With per line numbers
+    // the new <br> is wrapped in a span that draws the next line's number
+    // at the start of that line.
+    editor.update(
+      () => {
+        const selection = $getSelection();
+        if (!$isRangeSelection(selection)) {
+          throw new Error('Expected a range selection');
+        }
+        selection.insertLineBreak(true);
+      },
+      {discrete: true},
+    );
+    await settle();
+    expect(
+      editor.read(() => {
+        const selection = $getSelection();
+        if (!$isRangeSelection(selection) || !selection.isCollapsed()) {
+          return null;
+        }
+        const {anchor} = selection;
+        const node = anchor.getNode();
+        return $isElementNode(node) &&
+          $isLineBreakNode(node.getChildAtIndex(anchor.offset))
+          ? 'before the new line break'
+          : `${anchor.type} point`;
+      }),
+    ).toBe('before the new line break');
+    const m = measure(code);
+    expect(m.scrollLeft, JSON.stringify(m)).toBeGreaterThan(0);
+    expectCaretVisible(code);
+  });
+
   test('right to left lines scroll the other way and keep the caret visible', async () => {
     const {code, editor, rootElement} = setUpEditor(gutter, [RTL_LINE]);
     expect(getComputedStyle(code).direction).toBe('rtl');
@@ -460,10 +541,11 @@ describe.each(GUTTERS)('caret scrolling in a code block with $name', gutter => {
     await selectInLine(editor, 0, 'start');
     expect(code.scrollLeft).toBe(0);
 
-    // The gutter isn't always on the same side of the view here. The float
-    // is on the left, but as a sticky box it can't leave the code element's
-    // content box, so it scrolls out of view when the block scrolls toward
-    // the end of a line. WebKit draws it about 10px from the right edge
+    // The gutter isn't always on the same side of the view here. Per line
+    // numbers are at the inline start, on the right. The float is on the
+    // left, but as a sticky box it can't leave the code element's content
+    // box, so it scrolls out of view when the block scrolls toward the end
+    // of a line. WebKit draws the float about 10px from the right edge
     // instead, over the first characters of the line, and hit tests it there
     // too. So the checks look for a number drawn at the caret instead of at
     // a fixed side.
@@ -486,6 +568,32 @@ describe.each(GUTTERS)('caret scrolling in a code block with $name', gutter => {
       }),
     ).toBe(0);
     expect(code.scrollLeft).toBe(0);
+    expectCaretVisible(code);
+  });
+
+  test('moving back to the end of a shorter right to left line stops the caret clear of the gutter', async () => {
+    const {code, editor, rootElement} = setUpEditor(gutter, [
+      RTL_LINE,
+      SHORT_RTL_LINE,
+    ]);
+    expect(getComputedStyle(code).direction).toBe('rtl');
+    await focus(rootElement);
+    await selectInLine(editor, 0, 'start');
+    // The logical end of the long line, on the left.
+    await moveTo(editor, MOVE_TO_START);
+    const endScrollLeft = code.scrollLeft;
+    expect(endScrollLeft).toBeLessThan(0);
+
+    // The end of the shorter line is right of the view, but too far along
+    // the line to fit with the block scrolled all the way back. So the block
+    // only scrolls back part of the way, and the caret stops next to the
+    // side of the view that per line numbers are drawn on. The float has
+    // scrolled out of view by then in all three browsers, so for the float
+    // this only checks that the caret is in view.
+    await selectInLine(editor, 1, 'end');
+    const m = measure(code);
+    expect(m.scrollLeft, JSON.stringify(m)).toBeLessThan(0);
+    expect(m.scrollLeft, JSON.stringify(m)).toBeGreaterThan(endScrollLeft);
     expectCaretVisible(code);
   });
 });

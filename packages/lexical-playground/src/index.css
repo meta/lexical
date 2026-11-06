@@ -759,6 +759,11 @@ i.copy {
   mask-image: url(images/icons/copy.svg);
 }
 
+i.wrap {
+  -webkit-mask-image: url(images/icons/text-paragraph.svg);
+  mask-image: url(images/icons/text-paragraph.svg);
+}
+
 i.paste {
   -webkit-mask-image: url(images/icons/clipboard.svg);
   mask-image: url(images/icons/clipboard.svg);

@@ -21,6 +21,7 @@ Framework-agnostic accessibility extensions. See [Keyboard Accessibility](/docs/
 
 - [CodeExtension](/docs/api/modules/lexical_code#codeextension) - CodeNode (code blocks)
 - [CodeIndentExtension](/docs/api/modules/lexical_code#codeindentextension) - CodeNode tab key indentation (code blocks)
+- [CodeLineNumbersExtension](/docs/api/modules/lexical_code#codelinenumbersextension) - Marks each line of a CodeNode so a theme can number lines with a CSS counter that follows wrapped lines; set `onlyWordWrapped` to mark only code blocks with word wrap on (experimental)
 
 [@lexical/code-prism](/docs/api/modules/lexical_code-prism)
 

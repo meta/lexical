@@ -21,11 +21,8 @@ import {
   type LexicalNode,
 } from 'lexical';
 
-import {$createCodeNode} from './CodeNode';
+import {$createCodeNode, $createCodeNodeFromDOM} from './CodeNode';
 import {$plainifyCodeContent} from './FlatStructureUtils';
-
-const LANGUAGE_DATA_ATTRIBUTE = 'data-language';
-const THEME_DATA_ATTRIBUTE = 'data-theme';
 
 /**
  * Code editing expects flat CodeHighlightNode, TabNode and LineBreakNode
@@ -87,10 +84,11 @@ const GitHubCodeTableOverlayRules = defineOverlayRules([
 
 const PreRule = defineImportRule({
   $import: (ctx, el) => [
-    $createCodeNode(
-      el.getAttribute(LANGUAGE_DATA_ATTRIBUTE),
-      el.getAttribute(THEME_DATA_ATTRIBUTE),
-    ).splice(0, 0, $normalizeCodeChildren(ctx.$importChildren(el))),
+    $createCodeNodeFromDOM(el).splice(
+      0,
+      0,
+      $normalizeCodeChildren(ctx.$importChildren(el)),
+    ),
   ],
   match: sel.tag('pre'),
   name: '@lexical/code/pre',
@@ -110,10 +108,11 @@ const MultilineCodeRule = defineImportRule({
       return $next();
     }
     return [
-      $createCodeNode(
-        el.getAttribute(LANGUAGE_DATA_ATTRIBUTE),
-        el.getAttribute(THEME_DATA_ATTRIBUTE),
-      ).splice(0, 0, $normalizeCodeChildren(ctx.$importChildren(el))),
+      $createCodeNodeFromDOM(el).splice(
+        0,
+        0,
+        $normalizeCodeChildren(ctx.$importChildren(el)),
+      ),
     ];
   },
   match: sel.tag('code'),
