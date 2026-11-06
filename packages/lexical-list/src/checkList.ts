@@ -161,18 +161,26 @@ export function registerCheckList(
   // screen reader synthesizes on the focused item and which must not move
   // focus at all.
   let lastPress: 'checkMark' | 'content' | 'none' = 'none';
+  // The press of the gesture that the last primary pointerup ended, kept for
+  // the click that follows it: the pointerup consumes lastPress first. A
+  // press on the item's content that is released over the check mark (eg. a
+  // text selection dragged onto it) must not toggle the item (#4861).
+  let releasedPress: 'checkMark' | 'content' | 'none' = 'none';
   const configHandleSelectDefaults = (
     event: PointerEvent | MouseEvent | TouchEvent,
   ) => {
+    releasedPress = 'none';
     lastPress = handleSelectDefaults(event, peekDisableTakeFocusOnClick())
       ? 'checkMark'
       : 'content';
   };
   const returnFocusAfterPress = () => {
+    const press = lastPress === 'none' ? releasedPress : lastPress;
     if (lastPress === 'content') {
       returnFocusToRoot(editor);
     }
     lastPress = 'none';
+    return press;
   };
   return mergeRegister(
     editor.registerCommand(
@@ -303,12 +311,19 @@ export function registerCheckList(
             // pointerup also covers a gesture that never produces a click,
             // such as a right click opening the context menu.
             click: event => {
-              returnFocusAfterPress();
-              configHandleClick(event);
+              const press = returnFocusAfterPress();
+              releasedPress = 'none';
+              if (press !== 'content') {
+                configHandleClick(event);
+              }
             },
             pointerup: event => {
-              returnFocusAfterPress();
-              configHandlePointerUp(event);
+              const press = returnFocusAfterPress();
+              // A secondary button's release is followed by no click.
+              releasedPress = event.button === 0 ? press : 'none';
+              if (press !== 'content') {
+                configHandlePointerUp(event);
+              }
             },
           }),
           // Use capture so we run before other listeners that might move focus.
