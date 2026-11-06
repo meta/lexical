@@ -23,9 +23,11 @@ import {
   $getNodeByKey,
   $getSelection,
   $isElementNode,
+  $isLineBreakNode,
   $isParagraphNode,
   $isRangeSelection,
   $isTextNode,
+  type AnyStateConfig,
   type EditorState,
   type ElementNode,
   type LexicalNode,
@@ -45,12 +47,14 @@ import {
   countLive,
   type DesiredContext,
   diffAtoms,
+  diffStrings,
   hasLoneSurrogate,
   PENDING_LINE_BREAK,
   readAtoms,
   type Run,
   setTextStretches,
   snapToWords,
+  toWellFormed,
 } from './Inline';
 import {asOwner} from './Owned';
 import {
@@ -65,6 +69,7 @@ import {
   $textAttrs,
   type Attrs,
   BLOCK_PREFIX,
+  decodeFormatValue,
   eachOuterLevel,
   equalValue,
   FIELD_PREFIX,
@@ -77,6 +82,8 @@ import {
   type GroupSpec,
   INLINE_PREFIX,
   isMergeableText,
+  isSetStateConfig,
+  isStringArray,
   isTextFieldKey,
   isTextHoldingWrapperValue,
   KIND_KEY,
@@ -92,6 +99,8 @@ import {
   ownsMember,
   ownsNodeAttr,
   RUN_END,
+  SEGMENT_KEY,
+  SET_MEMBER_SEPARATOR,
   stableStringify,
   STATE_PREFIX,
   storedTypeOf,
@@ -356,6 +365,17 @@ export type WritePlan = {
    * holds paragraphs (stored nowhere).
    */
   unwritable?: Set<NodeKey>;
+  /**
+   * The author's normalization of the lines that hold characters of a line
+   * whose re-typing was not written, once its hold has ended (see
+   * Writer#heldResult): what the update that ended the composition would
+   * have written of those characters, and the lines holding them now. Only
+   * what agrees with it is written (see Writer#$writeAgreedLine).
+   */
+  release?: {
+    lines: ReadonlySet<NodeKey>;
+    record: ReadonlyMap<string, Attrs>;
+  } | null;
 };
 
 export class Writer {
@@ -696,6 +716,14 @@ export class Writer {
         this.prevState,
         this.remoteUnread,
       );
+      if (this.heldDecided.quiet) {
+        // The line composed in, which a transform re-typed (see
+        // $heldDecision), is not written as a line; the binding reads it
+        // again. What the update changed on its characters that kept their
+        // type is written (see $writeSkippedLine).
+        this.plan.lines.delete(hidden.ownerKey);
+        this.skippedLine = hidden.ownerKey;
+      }
       held = this.heldTypes(hidden);
       for (const key of this.heldDecided.allow) {
         const y = this.state.yByKey.get(key);
@@ -711,7 +739,21 @@ export class Writer {
           ? 'skip'
           : this.neverStop ||
               (this.heldDecided !== null && this.heldDecided.inserts),
-        () => this.$runWrites(),
+        () => {
+          const release = this.plan.release;
+          if (release !== undefined && release !== null) {
+            // Nothing but what agrees is written (the binding reads the rest
+            // of the update again).
+            for (const key of release.lines) {
+              this.$writeAgreedLine(key, release.record);
+            }
+            return;
+          }
+          this.$runWrites();
+          if (this.skippedLine !== null) {
+            this.$writeSkippedLine(this.skippedLine);
+          }
+        },
         hidden === null ? null : item => hidden.overlaps(item),
       ),
     );
@@ -3200,6 +3242,336 @@ export class Writer {
     return k === null;
   }
 
+  /**
+   * The line composed in, left out of the write because a transform re-typed
+   * its text (see skippedLine): of what the update changed there, only what
+   * it changed on the nodes it kept (and the parts split off one) is written,
+   * as formats of their characters: a NodeState value or a format the user or
+   * the app set on an existing token in the update that ends the composition.
+   * The characters in nodes the update made (the transform's tokens) keep
+   * what is stored, as do the line's marker and its text, which the update
+   * did not change. Nothing is written where the line's content does not
+   * match what is stored (its characters, inline nodes and line breaks, in
+   * order).
+   */
+  private $writeSkippedLine(key: NodeKey): void {
+    const unit = this.state.unitByKey.get(key);
+    const node = $getNodeByKey(key);
+    if (
+      unit === undefined ||
+      unit.end === null ||
+      isGoneIn(this.view, unit.end) ||
+      !$isElementNode(node) ||
+      !node.isAttached() ||
+      this.roles.$role(node) !== 'line'
+    ) {
+      return;
+    }
+    const atoms = new Atoms();
+    $pushInline(atoms, $lineChildren(this.$lineDesired(node)), this.$ctx(true));
+    const left = prevLiveEnd(this.view, unit.end, this.state.hidden);
+    const startFormats = unit.start || EMPTY_FORMATS;
+    const frontier = frontierOf(this.view, unit.start, left, unit.cs.y, null);
+    const old = new Atoms();
+    const ids: string[] = [];
+    old.ids = ids;
+    readAtoms(
+      this.view,
+      left === null ? unit.cs.y._start : left.right,
+      unit.end,
+      startFormats,
+      old,
+      this.state.hidden,
+      frontier,
+    );
+    if (old.text !== atoms.text) {
+      return;
+    }
+    // What the update changes on each character, as the editor shows it
+    // (see heldResult): what main writes of it.
+    let shownAt = 0;
+    for (const r of atoms.runs) {
+      for (let at = r.start; at < r.end; at++) {
+        if (atoms.specials.has(at) || old.specials.has(at)) {
+          continue;
+        }
+        while (shownAt < old.runs.length && old.runs[shownAt].end <= at) {
+          shownAt++;
+        }
+        const shown =
+          shownAt < old.runs.length && old.runs[shownAt].start <= at
+            ? old.runs[shownAt].attrs
+            : {};
+        const changed = changedAttrs(shown, r.attrs);
+        if (changed !== null) {
+          this.heldResult.set(ids[at], changed);
+        }
+      }
+    }
+    // The nodes holding the line's atoms that the update kept (or split off
+    // one it kept), with their type: what changed on them is the update's
+    // own. The transform's tokens are nodes it made.
+    const prevMap = this.prevState._nodeMap;
+    const splits = this.plan.splits;
+    const kept = (k: NodeKey): boolean => {
+      const now = $getNodeByKey(k);
+      const from =
+        prevMap.get(k) ??
+        (splits === undefined || splits === null
+          ? undefined
+          : (() => {
+              const split = splits.get(k);
+              return split === undefined ? undefined : prevMap.get(split[0]);
+            })());
+      return (
+        now !== null && from !== undefined && from.getType() === now.getType()
+      );
+    };
+    const ranges: [number, number, boolean][] = [];
+    for (const [a, b, k] of atoms.textNodes) {
+      ranges.push([a, b, kept(k)]);
+    }
+    for (const [at, k] of atoms.nodes) {
+      ranges.push([at, at + 1, kept(k)]);
+    }
+    ranges.sort((x, y) => x[0] - y[0]);
+    // How the class of the type of `attrs` stores a NodeState key: flat (at
+    // the top level of its JSON, stored as a field `p:<key>`, see
+    // $textAttrs; another field of the same name is an ordinary one), and
+    // with what StateConfig.
+    const nodes = this.state.editor._nodes;
+    const infoOf = (attrs: Attrs) => {
+      const type = attrs[TYPE_KEY];
+      return nodes.get(typeof type === 'string' ? type : 'text');
+    };
+    const layout: StateLayout = {
+      config: (attrs, k) => {
+        const info = infoOf(attrs);
+        return info === undefined
+          ? undefined
+          : info.sharedNodeState.sharedConfigMap.get(k);
+      },
+      flat: (attrs, k) => {
+        const info = infoOf(attrs);
+        return info !== undefined && info.sharedNodeState.flatKeys.has(k);
+      },
+    };
+    // The NodeState and formats of each character of the line in the editor
+    // before this update (the line held the same atoms then): on the nodes
+    // the transform made, a value that changed in this update is the
+    // update's own (a value the user or the app set, which a tokenizer
+    // carried onto its tokens), see keepMadeAsStored. In the atoms' terms
+    // (see $pushInline): a text node's text, a line break's newline, a
+    // wrapper's content, one atom for any other node (an inline decorator).
+    const before = this.prevState.read(() => {
+      const prev = $getNodeByKey(key);
+      if (!$isElementNode(prev)) {
+        return null;
+      }
+      const runs: Run[] = [];
+      let text = '';
+      const visit = (children: readonly LexicalNode[]) => {
+        for (const n of children) {
+          if ($isTextNode(n)) {
+            const shown = toWellFormed(n.getTextContent());
+            if (shown.length > 0) {
+              runs.push({
+                attrs: carriedState($textAttrs(n, null), layout),
+                end: text.length + shown.length,
+                start: text.length,
+              });
+              text += shown;
+            }
+          } else if ($isLineBreakNode(n)) {
+            text += '\n';
+          } else if ($isWrapper(n)) {
+            visit((n as ElementNode).getChildren());
+          } else {
+            text += '\ufffc';
+          }
+        }
+      };
+      visit(prev.getChildren());
+      return {runs, text};
+    });
+    atoms.runs = keepMadeAsStored(
+      atoms.runs,
+      old.runs,
+      ranges,
+      atoms.length,
+      before !== null && before.text === atoms.text ? before.runs : null,
+      layout,
+    );
+    this.frontier = frontier;
+    try {
+      this.$formatPass(unit.cs.y, left, startFormats, atoms);
+    } finally {
+      this.frontier = null;
+    }
+  }
+
+  /**
+   * A line that holds characters of a line whose re-typing was not written
+   * (see skippedLine), once the hold has ended and Lexical's transforms ran
+   * on it as stored (see YBinding#$normalize): of what they made, only what
+   * agrees with what the update that ended the composition would have
+   * written (see heldResult) is written, as formats of those characters,
+   * attribute by attribute (see agreedAttrs). Text is never written
+   * (characters whose text a transform changed keep what is stored), nor is
+   * any other character. Nothing is written where a transform restructured
+   * the line: replaced it, or moved a node holding one of its characters
+   * into another line (see $movedOut).
+   */
+  private $writeAgreedLine(
+    key: NodeKey,
+    record: ReadonlyMap<string, Attrs>,
+  ): void {
+    const unit = this.state.unitByKey.get(key);
+    const node = $getNodeByKey(key);
+    if (
+      unit === undefined ||
+      unit.end === null ||
+      isGoneIn(this.view, unit.end) ||
+      !$isElementNode(node) ||
+      !node.isAttached() ||
+      this.roles.$role(node) !== 'line'
+    ) {
+      return;
+    }
+    const atoms = new Atoms();
+    $pushInline(atoms, $lineChildren(this.$lineDesired(node)), this.$ctx());
+    const left = prevLiveEnd(this.view, unit.end, this.state.hidden);
+    const startFormats = unit.start || EMPTY_FORMATS;
+    const frontier = frontierOf(this.view, unit.start, left, unit.cs.y, null);
+    const old = new Atoms();
+    const ids: string[] = [];
+    old.ids = ids;
+    readAtoms(
+      this.view,
+      left === null ? unit.cs.y._start : left.right,
+      unit.end,
+      startFormats,
+      old,
+      this.state.hidden,
+      frontier,
+    );
+    // A transform that restructured the line (moved a node holding one of
+    // its characters into another line): nothing is written for it (an
+    // accepted limit, see DECISIONS.md D115).
+    if (this.$movedOut(key, node, ids, record)) {
+      return;
+    }
+    // The characters the transforms left where they are: the common prefix
+    // and suffix of the stored text and theirs.
+    const {prefix, suffix} = diffStrings(old.text, atoms.text, -1);
+    const delta = atoms.length - old.length;
+    const runs: Run[] = [];
+    let agrees = false;
+    let stored = 0;
+    let made = 0;
+    for (let at = 0; at < old.length; at++) {
+      while (stored < old.runs.length && old.runs[stored].end <= at) {
+        stored++;
+      }
+      let attrs: Attrs =
+        stored < old.runs.length && old.runs[stored].start <= at
+          ? old.runs[stored].attrs
+          : {};
+      const to = at < prefix ? at : at >= old.length - suffix ? at + delta : -1;
+      const held = record.get(ids[at]);
+      if (
+        held !== undefined &&
+        to >= 0 &&
+        !old.specials.has(at) &&
+        !atoms.specials.has(to)
+      ) {
+        while (made < atoms.runs.length && atoms.runs[made].end <= to) {
+          made++;
+        }
+        if (made < atoms.runs.length && atoms.runs[made].start <= to) {
+          const agreed = agreedAttrs(attrs, atoms.runs[made].attrs, held);
+          if (agreed !== attrs) {
+            attrs = agreed;
+            agrees = true;
+          }
+        }
+      }
+      const last = runs[runs.length - 1];
+      if (last !== undefined && last.end === at && last.attrs === attrs) {
+        last.end = at + 1;
+      } else {
+        runs.push({attrs, end: at + 1, start: at});
+      }
+    }
+    if (!agrees) {
+      return;
+    }
+    old.runs = runs;
+    this.frontier = frontier;
+    try {
+      this.$formatPass(unit.cs.y, left, startFormats, old);
+    } finally {
+      this.frontier = null;
+    }
+  }
+
+  /**
+   * Whether a text node that held one of the characters `record` names in
+   * line `key` before the transforms ran (the update's previous state, read
+   * as stored, so a collaborator's split or join is already there) is now in
+   * a line other than `line`. A node the transforms replaced in place (a
+   * hashtag made of the whole node) moved nowhere.
+   */
+  private $movedOut(
+    key: NodeKey,
+    line: ElementNode,
+    ids: readonly string[],
+    record: ReadonlyMap<string, Attrs>,
+  ): boolean {
+    const holders = this.prevState.read(() => {
+      const out: NodeKey[] = [];
+      const prev = $getNodeByKey(key);
+      if (!$isElementNode(prev)) {
+        return out;
+      }
+      let at = 0;
+      const visit = (children: readonly LexicalNode[]) => {
+        for (const n of children) {
+          if ($isTextNode(n)) {
+            const size = toWellFormed(n.getTextContent()).length;
+            for (let k = at; k < at + size; k++) {
+              if (record.has(ids[k])) {
+                out.push(n.getKey());
+                break;
+              }
+            }
+            at += size;
+          } else if ($isWrapper(n)) {
+            visit((n as ElementNode).getChildren());
+          } else {
+            // A line break or an inline node: one atom (see $pushInline).
+            at += 1;
+          }
+        }
+      };
+      visit(prev.getChildren());
+      return out;
+    });
+    for (const k of holders) {
+      const now = $getNodeByKey(k);
+      if (now !== null && now.isAttached()) {
+        let at = now.getParent();
+        while (at !== null && this.roles.$role(at) !== 'line') {
+          at = at.getParent();
+        }
+        if (at === null || at.getKey() !== line.getKey()) {
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
   /** Rewrite one line (its content and marker) on its own. */
   $writeLineAlone(u: Unit, d: Desired): void {
     // A rewrite after a failed write diffs the line against the document:
@@ -5203,6 +5575,26 @@ export class Writer {
   }
 
   /**
+   * The line composed in, where the hold shows it as a block its shared
+   * counterpart no longer is and the update only re-typed its text (see
+   * $heldDecision): not written, so that what a transform made of the shown
+   * line does not land on what is stored there. The binding reads it again,
+   * ends the hold, and runs its transforms again on what is stored (see
+   * heldResult).
+   */
+  skippedLine: NodeKey | null = null;
+
+  /**
+   * What the update would have written of each character of the skipped
+   * line (see skippedLine), by the character's stored id (see Atoms.ids):
+   * the attributes the update changes on it, as the editor shows it (what
+   * main writes of it). Once the hold ends, the line is
+   * read as stored and its transforms run again; of what they make, only
+   * what agrees with this is written (see $writeAgreedLine).
+   */
+  readonly heldResult = new Map<string, Attrs>();
+
+  /**
    * Decide as `decision` (the recovery of a write taken under it): an update
    * that inserts no character stays one, whatever the failed write left.
    */
@@ -5518,6 +5910,62 @@ function wrapperOnly(attrs: Attrs): Attrs {
     }
   }
   return out;
+}
+
+/**
+ * The attributes `want` changes of `shown` (a character's attributes as the
+ * editor shows it, and as an update makes it), each with its new value (null
+ * where the update takes it off), or null where it changes none: what the
+ * update writes of that character.
+ */
+function changedAttrs(shown: Attrs, want: Attrs): Attrs | null {
+  let out: Attrs | null = null;
+  for (const k of new Set([...Object.keys(shown), ...Object.keys(want)])) {
+    const value = want[k] ?? null;
+    if (!equalValue(shown[k] ?? null, value)) {
+      if (out === null) {
+        out = {};
+      }
+      out[k] = value;
+    }
+  }
+  return out;
+}
+
+/**
+ * A character's attributes as written by Writer#$writeAgreedLine: what is
+ * stored (`stored`), but for each attribute the update that ended the
+ * composition changed (`held`, see Writer#heldResult) to the value the
+ * transforms that ran on the stored line gave it too (`made`): that value.
+ * An attribute that update did not change (one the hold kept from showing,
+ * such as a collaborator's bold) is never written.
+ * The segment key (see SEGMENT_KEY), which tells a node apart from its
+ * neighbours, goes with the node's type. Returns `stored` itself where
+ * nothing is written.
+ */
+function agreedAttrs(stored: Attrs, made: Attrs, held: Attrs): Attrs {
+  const typed =
+    TYPE_KEY in held &&
+    !equalValue(stored[TYPE_KEY] ?? null, held[TYPE_KEY] ?? null) &&
+    equalValue(made[TYPE_KEY] ?? null, held[TYPE_KEY] ?? null);
+  let out: Attrs | null = null;
+  for (const k in held) {
+    const value = held[k] ?? null;
+    if (
+      (k === SEGMENT_KEY ? typed : equalValue(made[k] ?? null, value)) &&
+      !equalValue(stored[k] ?? null, value)
+    ) {
+      if (out === null) {
+        out = {...stored};
+      }
+      if (value === null) {
+        delete out[k];
+      } else {
+        out[k] = value;
+      }
+    }
+  }
+  return out ?? stored;
 }
 
 /** The live end item before an old unit (after earlier deletions too). */
@@ -6099,4 +6547,337 @@ function isSubsequence(a: string, b: string): boolean {
     }
   }
   return j === a.length;
+}
+
+/**
+ * Whether a character in `[from, to)` had value `value` for key `key` before
+ * the update (`before`: the runs of the characters' NodeState entries).
+ */
+function hadValue(
+  before: readonly Run[],
+  from: number,
+  to: number,
+  key: string,
+  value: unknown,
+): boolean {
+  // The first run that ends after `from` (the runs are in order).
+  let lo = 0;
+  let hi = before.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >>> 1;
+    if (before[mid].end <= from) {
+      lo = mid + 1;
+    } else {
+      hi = mid;
+    }
+  }
+  let covered = from;
+  for (let i = lo; i < before.length && before[i].start < to; i++) {
+    const run = before[i];
+    if (run.start > covered) {
+      // Characters no run holds (none here before): no value.
+      if (value === null || value === undefined) {
+        return true;
+      }
+    }
+    covered = Math.max(covered, run.end);
+    if (equalFormatValue(run.attrs[key] ?? null, value)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/** How text classes store NodeState keys (see scalarState). */
+interface StateLayout {
+  /** The StateConfig the class of the type of `attrs` has for `key`. */
+  config(attrs: Attrs, key: string): AnyStateConfig | undefined;
+  /** Whether the class of the type of `attrs` reads `key` flat (a field). */
+  flat(attrs: Attrs, key: string): boolean;
+}
+
+/**
+ * The scalar NodeState values of a text node's attributes (see $textAttrs),
+ * whatever the layout its class stores them in, as `s:<key>` = value: a key
+ * its class reads flat (`p:<key>`, see StateLayout) included, and a key
+ * whose name holds U+001F that is registered whole. A set-valued state (one
+ * entry per member, `s:<key>\u001f<member>`, see setMemberEntry, or an
+ * array) and an object are left out: they are not written onto a node the
+ * update made (see keepMadeAsStored). Its ordinary fields are not NodeState.
+ */
+function scalarState(attrs: Attrs, layout: StateLayout): Attrs {
+  const state: Attrs = {};
+  for (const k in attrs) {
+    let key: string;
+    if (k.startsWith(STATE_PREFIX)) {
+      key = k.slice(STATE_PREFIX.length);
+    } else if (
+      k.startsWith(FIELD_PREFIX) &&
+      layout.flat(attrs, k.slice(FIELD_PREFIX.length))
+    ) {
+      key = k.slice(FIELD_PREFIX.length);
+    } else {
+      continue;
+    }
+    const value = attrs[k];
+    if (k.startsWith(STATE_PREFIX) && isSetMember(attrs, key, layout)) {
+      continue;
+    }
+    const plain = decodeFormatValue(value);
+    if (typeof plain === 'object' && plain !== null) {
+      continue;
+    }
+    state[STATE_PREFIX + key] = value;
+  }
+  return state;
+}
+
+/**
+ * What of a text node's attributes (see $textAttrs) a node a transform made
+ * can carry onto what is stored (see keepMadeAsStored): its scalar NodeState
+ * values (see scalarState) and its format bits (`f:<name>` = true).
+ */
+function carriedState(attrs: Attrs, layout: StateLayout): Attrs {
+  const state = scalarState(attrs, layout);
+  for (const k in attrs) {
+    if (k.startsWith(TEXT_FORMAT_PREFIX) && attrs[k] === true) {
+      state[k] = true;
+    }
+  }
+  return state;
+}
+
+/**
+ * Whether nested entry `key` of `attrs` is a member of a set-valued state,
+ * read as joinSetMembers reads it (see namesSetMember).
+ */
+function isSetMember(attrs: Attrs, key: string, layout: StateLayout): boolean {
+  return (
+    attrs[STATE_PREFIX + key] === true && namesSetMember(attrs, key, layout)
+  );
+}
+
+/**
+ * Whether the class of the type of `attrs` reads `true` under nested name
+ * `key` as a member of a set-valued state, as joinSetMembers does: a name
+ * holding U+001F that no StateConfig of the class has whole, after the key of
+ * a set its class has (or, with no StateConfig for that key, one that is no
+ * other value).
+ */
+function namesSetMember(
+  attrs: Attrs,
+  key: string,
+  layout: StateLayout,
+): boolean {
+  const i = key.indexOf(SET_MEMBER_SEPARATOR);
+  if (i < 0 || layout.config(attrs, key) !== undefined) {
+    return false;
+  }
+  const base = key.slice(0, i);
+  const config = layout.config(attrs, base);
+  if (config !== undefined) {
+    return isSetStateConfig(config);
+  }
+  const whole = attrs[STATE_PREFIX + base];
+  return whole === undefined || isStringArray(decodeFormatValue(whole));
+}
+
+/**
+ * Whether the class of the stored type of `attrs` would read scalar `value`
+ * under NodeState `key` as part of a set-valued state instead: `key` is a set
+ * there, the entries stored under it include members it reads of a set no
+ * StateConfig of the class knows (see isSetMember: which a value of another
+ * kind would end), or `value` is `true` under a name it reads as a set's
+ * member (see namesSetMember). Such a value cannot be written there without
+ * changing the set, and stays as stored.
+ */
+function readsAsSet(
+  attrs: Attrs,
+  key: string,
+  value: unknown,
+  layout: StateLayout,
+): boolean {
+  const config = layout.config(attrs, key);
+  if (config !== undefined) {
+    return isSetStateConfig(config);
+  }
+  if (key.indexOf(SET_MEMBER_SEPARATOR) < 0) {
+    // A member's set is its name up to the first U+001F, so only a key
+    // without one holds members.
+    const prefix = STATE_PREFIX + key + SET_MEMBER_SEPARATOR;
+    for (const n in attrs) {
+      if (
+        n.startsWith(prefix) &&
+        isSetMember(attrs, n.slice(STATE_PREFIX.length), layout)
+      ) {
+        return true;
+      }
+    }
+  }
+  return value === true && namesSetMember(attrs, key, layout);
+}
+
+/**
+ * Write in `attrs` (a stored run's attributes, of its type's class) the
+ * scalar value `value` of NodeState `key`, which an update set on a node it
+ * made, as the stored type's class reads the key: a field where it reads
+ * the key flat, its nested entry removed; else the nested entry. A field of
+ * the same name the class does not read flat is an ordinary one, and stays.
+ */
+function putScalarAsStored(
+  attrs: Attrs,
+  key: string,
+  value: unknown,
+  layout: StateLayout,
+): void {
+  if (layout.flat(attrs, key)) {
+    attrs[FIELD_PREFIX + key] = value;
+    delete attrs[STATE_PREFIX + key];
+  } else {
+    attrs[STATE_PREFIX + key] = value;
+  }
+}
+
+/**
+ * Runs of desired atoms (`runs`) where the atoms of each node the update made
+ * (`ranges`: the atom range of each node holding the line's atoms, and
+ * whether the update kept it, see Writer#$writeSkippedLine) take the stored
+ * attributes instead (`stored`, the same atoms as stored): what a transform
+ * made of the line is left as stored, and what changed on the nodes the
+ * update kept is written. On a node the update made, a scalar NodeState
+ * value that is not a default and that none of its characters had before
+ * the update, and a format bit its characters did not have before it
+ * (`before`, their NodeState entries and format bits, or null where not
+ * known), are written too: what the user or the app set in this update,
+ * which the tokenizer carried onto its tokens; a format bit the node no
+ * longer has stays as stored. A value is compared
+ * whatever layout each class stores it in (see scalarState: flat or nested),
+ * and written as the stored type's class reads it (see putScalarAsStored). A
+ * set-valued or object value stays as stored there, as does a value the
+ * stored type's class would read as part of a set (see readsAsSet) and an
+ * ordinary field (a node's style, a property of its JSON), which is never
+ * taken for NodeState.
+ */
+function keepMadeAsStored(
+  runs: readonly Run[],
+  stored: readonly Run[],
+  ranges: readonly [number, number, boolean][],
+  length: number,
+  before: readonly Run[] | null,
+  layout: StateLayout,
+): Run[] {
+  const cuts = new Set<number>([0, length]);
+  for (const list of before === null
+    ? [runs, stored]
+    : [runs, stored, before]) {
+    for (const r of list) {
+      cuts.add(r.start);
+      cuts.add(r.end);
+    }
+  }
+  for (const [a, b] of ranges) {
+    cuts.add(a);
+    cuts.add(b);
+  }
+  const sorted = [...cuts].filter(c => c <= length).sort((x, y) => x - y);
+  const out: Run[] = [];
+  let a = 0;
+  let b = 0;
+  let r = 0;
+  let hadRange = -1;
+  const had = new Map<string, boolean>();
+  // What each run's attributes can carry, once (see carriedState).
+  const scalars = new Map<Attrs, Attrs>();
+  const scalarsOf = (of: Attrs): Attrs => {
+    let found = scalars.get(of);
+    if (found === undefined) {
+      found = carriedState(of, layout);
+      scalars.set(of, found);
+    }
+    return found;
+  };
+  for (let c = 0; c < sorted.length - 1; c++) {
+    const start = sorted[c];
+    const end = sorted[c + 1];
+    while (a < runs.length && runs[a].end <= start) {
+      a++;
+    }
+    while (b < stored.length && stored[b].end <= start) {
+      b++;
+    }
+    while (r < ranges.length && ranges[r][1] <= start) {
+      r++;
+    }
+    const run = a < runs.length && runs[a].start <= start ? runs[a] : null;
+    if (run === null) {
+      // No desired run (a special atom without attributes): none written.
+      continue;
+    }
+    const was =
+      b < stored.length && stored[b].start <= start ? stored[b] : null;
+    const made = r < ranges.length && ranges[r][0] <= start && !ranges[r][2];
+    let attrs = made && was !== null ? was.attrs : run.attrs;
+    if (made && was !== null && before !== null) {
+      // On a node the transform made: what is stored, but for each scalar
+      // NodeState value (not a default, which JSON leaves out) that no
+      // character of that node had before this update, and each format bit
+      // these characters did not have before it: set in this update, by the
+      // user or the app, and carried by the tokenizer. A value some of its
+      // characters had before may have been spread over the others by the
+      // transform (a token made of several nodes), and is left as stored, as
+      // is a set-valued or object value, and a format bit the node no longer
+      // has. The node's type and style stay as stored (the highlighter's).
+      const [ra, rb] = ranges[r];
+      // Once per node, entry and value: a node the transform made of many
+      // nodes is cut at each of their ends.
+      if (r !== hadRange) {
+        hadRange = r;
+        had.clear();
+      }
+      const desired = scalarsOf(run.attrs);
+      const kept = scalarsOf(was.attrs);
+      for (const name in desired) {
+        const value = desired[name];
+        if (name in kept && equalFormatValue(kept[name], value)) {
+          continue;
+        }
+        if (name.startsWith(TEXT_FORMAT_PREFIX)) {
+          // A format bit these characters did not have before this update:
+          // set in it, by the user or the app (a transform's token keeps the
+          // format of the text it replaces, or has none, as a code
+          // highlighter's does). Judged per character, as main writes it.
+          if (!hadValue(before, start, end, name, value)) {
+            if (attrs === was.attrs) {
+              attrs = {...was.attrs};
+            }
+            attrs[name] = true;
+          }
+          continue;
+        }
+        const id = name + '\u0000' + JSON.stringify(value);
+        let wasThere = had.get(id);
+        if (wasThere === undefined) {
+          wasThere = hadValue(before, ra, rb, name, value);
+          had.set(id, wasThere);
+        }
+        if (wasThere) {
+          continue;
+        }
+        const key = name.slice(STATE_PREFIX.length);
+        if (!readsAsSet(was.attrs, key, value, layout)) {
+          if (attrs === was.attrs) {
+            attrs = {...was.attrs};
+          }
+          putScalarAsStored(attrs, key, value, layout);
+        }
+      }
+    }
+    const last = out[out.length - 1];
+    if (last !== undefined && last.end === start && last.attrs === attrs) {
+      last.end = end;
+    } else {
+      out.push({attrs, end, start});
+    }
+  }
+  return out;
 }
