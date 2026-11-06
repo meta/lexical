@@ -52,13 +52,7 @@
 import {
   applyUpdate,
   applyUpdateV2,
-  ContentAny,
-  ContentBinary,
-  ContentDoc,
-  ContentEmbed,
   ContentFormat,
-  ContentJSON,
-  ContentString,
   ContentType,
   decodeUpdateV2,
   diffUpdateV2,
@@ -107,6 +101,8 @@ export const LOAD_PLAN_COUNTERS = {
   mispredicted: 0,
   /** Struct visits of the format rule's trials (see MAX_TRIAL_VISITS). */
   trialVisits: 0,
+  /** V built on the held result that differs from V on its own (tests). */
+  vMismatch: 0,
   wins: {held: 0, maximal: 0, plain: 0},
 };
 
@@ -219,7 +215,12 @@ export function integrateHeldBehindGapsWith(
     const maximal = simulate(y, doc, runs, budget, new Set());
     plan = maximal.plan;
     if (formatRule && plan.cuts.length > 0) {
-      const held = planHolding(y, doc, runs, budget, maximal, new Set());
+      // A plan the budget cut short takes no holds: a hold could free
+      // budget for cuts the maximal repair never applies, and the check's V
+      // is built on the held result.
+      const held = plan.exhausted
+        ? {hold: new Set<Struct>(), sim: maximal}
+        : planHolding(y, doc, runs, budget, maximal, new Set());
       LOAD_PLAN_COUNTERS.heldBack += held.hold.size;
       if (held.hold.size === 0 && !overwritesVisible(doc, runs, plan)) {
         // Nothing held back and no entry shown overwritten: the maximal
@@ -295,7 +296,12 @@ export const LOAD_TEST_HOOKS: {
   direct: ((wouldPass: () => boolean) => void) | null;
   /** Called inside the check (a test makes it throw). */
   check: (() => void) | null;
-} = {check: null, direct: null};
+  /**
+   * Whether the check also builds V on a copy of its own, and counts a V
+   * built on the held result that differs (`vMismatch`).
+   */
+  verifyV: boolean;
+} = {check: null, direct: null, verifyV: false};
 
 type Runs = Map<number, {structs: Struct[]; end: number}>;
 
@@ -433,14 +439,15 @@ interface Scope {
  * cannot be resolved has a dependency neither holds, so nothing integrates
  * it. Every other type keeps what it shows: integrating an item changes
  * only its parent's list and map, and the attributes of a unit come from
- * the format items of its own list.
+ * the format items of its own list. The walks are iterative and memoized:
+ * work linear in P's structs, whatever their dependency chains.
  */
 function scopeOf(doc: Doc, runs: Runs): Scope {
   const names = new Map<unknown, string>();
   doc.share.forEach((type, name) => names.set(type, name));
   const refs = new Map<string, TypeRef>();
   const rootKey = (name: string) => {
-    const key = `r:${canonical(name)}`;
+    const key = `r:${name.length}:${name}`;
     refs.set(key, {name});
     return key;
   };
@@ -457,49 +464,74 @@ function scopeOf(doc: Doc, runs: Runs): Scope {
     const name = names.get(type);
     return name === undefined ? null : rootKey(name);
   };
-  const resolved = new Map<Struct, string | null>();
-  const parentOfId = (id: StructId, depth: number): string | null => {
-    const item = itemAt(doc, id);
-    if (item !== null) {
-      return keyOfType(item.parent as never);
-    }
+  const inP = (id: StructId): Struct | null => {
     const run = runs.get(id.client);
     const i = run === undefined ? -1 : structAt(run.structs, id.clock);
-    return i === -1 ? null : parentOf(run!.structs[i], depth + 1);
+    return i === -1 ? null : run!.structs[i];
   };
-  const parentOf = (struct: Struct, depth: number): string | null => {
-    if (resolved.has(struct)) {
-      return resolved.get(struct)!;
-    }
-    let key: string | null = null;
+  // A struct's parent key, null when it cannot be resolved; `next` is the
+  // struct of P it takes its parent from, when that is one.
+  const resolved = new Map<Struct, string | null>();
+  const step = (struct: Struct): {key: string | null; next: Struct | null} => {
     const item = struct as {
       origin?: StructId | null;
       rightOrigin?: StructId | null;
       parent?: unknown;
     };
-    if (depth < 10_000) {
-      if (typeof item.parent === 'string') {
-        key = rootKey(item.parent);
-      } else if (isId(item.parent)) {
-        key = itemKey(item.parent);
-      } else if (item.origin) {
-        key = parentOfId(item.origin, depth);
-      } else if (item.rightOrigin) {
-        key = parentOfId(item.rightOrigin, depth);
+    if (typeof item.parent === 'string') {
+      return {key: rootKey(item.parent), next: null};
+    }
+    if (isId(item.parent)) {
+      return {key: itemKey(item.parent), next: null};
+    }
+    const via = item.origin || item.rightOrigin;
+    if (!via) {
+      return {key: null, next: null};
+    }
+    const neighbor = itemAt(doc, via);
+    if (neighbor !== null) {
+      return {key: keyOfType(neighbor.parent as never), next: null};
+    }
+    return {key: null, next: inP(via)};
+  };
+  const parentOf = (start: Struct): string | null => {
+    const chain: Struct[] = [];
+    const onChain = new Set<Struct>();
+    let current: Struct | null = start;
+    let key: string | null = null;
+    while (current !== null) {
+      if (resolved.has(current)) {
+        key = resolved.get(current)!;
+        break;
+      }
+      if (onChain.has(current)) {
+        key = null;
+        break;
+      }
+      onChain.add(current);
+      chain.push(current);
+      const next = step(current);
+      key = next.key;
+      current = next.next;
+      if (current === null) {
+        break;
       }
     }
-    resolved.set(struct, key);
+    for (const struct of chain) {
+      resolved.set(struct, key);
+    }
     return key;
   };
+  const targets = entryTargets(doc, runs);
   const types = new Map<string, TypeRef>();
   const deep = new Map<string, TypeRef>();
   for (const run of runs.values()) {
     for (const struct of run.structs) {
-      const key = parentOf(struct, 0);
+      const key = parentOf(struct);
       if (key !== null) {
         types.set(key, refs.get(key)!);
       }
-      const target = entryTarget(doc, runs, struct);
+      const target = targets(struct);
       if (target !== null) {
         const entry = target.type._map.get(target.key);
         if (
@@ -528,23 +560,24 @@ function isId(value: unknown): value is StructId {
 type MapType = {_map: Map<string, Item>};
 
 /**
- * The map and key a decoded struct is an entry of: its own parent and key,
- * or those of the item it overwrites (its origin, in the document or, in
- * turn, in P). Null for a struct of a list.
+ * The map and key each decoded struct is an entry of: its own parent and
+ * key, or those of the item it overwrites (its origin, in the document or,
+ * in turn, in P); null for a struct of a list. Iterative and memoized.
  */
-function entryTarget(
+function entryTargets(
   doc: Doc,
   runs: Runs,
-  struct: Struct,
-): {type: MapType; key: string} | null {
-  let current = struct as {
-    origin?: StructId | null;
-    parent?: unknown;
-    parentSub?: string | null;
-  };
-  for (let depth = 0; depth < 10_000; depth++) {
-    if (current.parentSub != null) {
-      const parent = current.parent;
+): (struct: Struct) => {type: MapType; key: string} | null {
+  type Target = {type: MapType; key: string} | null;
+  const memo = new Map<Struct, Target>();
+  const own = (struct: Struct): {target: Target; next: Struct | null} => {
+    const item = struct as {
+      origin?: StructId | null;
+      parent?: unknown;
+      parentSub?: string | null;
+    };
+    if (item.parentSub != null) {
+      const parent = item.parent;
       let type: unknown;
       if (typeof parent === 'string') {
         type = doc.share.get(parent);
@@ -557,28 +590,56 @@ function entryTarget(
       } else {
         type = parent;
       }
-      return type !== undefined && type !== null && '_map' in (type as object)
-        ? {key: current.parentSub, type: type as MapType}
-        : null;
+      return {
+        next: null,
+        target:
+          type !== undefined && type !== null && '_map' in (type as object)
+            ? {key: item.parentSub, type: type as MapType}
+            : null,
+      };
     }
-    if (!current.origin) {
-      return null;
+    if (!item.origin) {
+      return {next: null, target: null};
     }
-    const left = itemAt(doc, current.origin);
+    const left = itemAt(doc, item.origin);
     if (left !== null) {
-      return left.parentSub !== null
-        ? {key: left.parentSub, type: left.parent as unknown as MapType}
-        : null;
+      return {
+        next: null,
+        target:
+          left.parentSub !== null
+            ? {key: left.parentSub, type: left.parent as unknown as MapType}
+            : null,
+      };
     }
-    const run = runs.get(current.origin.client);
-    const i =
-      run === undefined ? -1 : structAt(run.structs, current.origin.clock);
-    if (i === -1) {
-      return null;
+    const run = runs.get(item.origin.client);
+    const i = run === undefined ? -1 : structAt(run.structs, item.origin.clock);
+    return {next: i === -1 ? null : run!.structs[i], target: null};
+  };
+  return start => {
+    const chain: Struct[] = [];
+    const onChain = new Set<Struct>();
+    let current: Struct | null = start;
+    let target: Target = null;
+    while (current !== null) {
+      if (memo.has(current)) {
+        target = memo.get(current)!;
+        break;
+      }
+      if (onChain.has(current)) {
+        target = null;
+        break;
+      }
+      onChain.add(current);
+      chain.push(current);
+      const next = own(current);
+      target = next.target;
+      current = next.next;
     }
-    current = run!.structs[i] as never;
-  }
-  return null;
+    for (const struct of chain) {
+      memo.set(struct, target);
+    }
+    return target;
+  };
 }
 
 /**
@@ -587,9 +648,10 @@ function entryTarget(
  * entry it overwrites, and what that entry holds).
  */
 function overwritesVisible(doc: Doc, runs: Runs, plan: Plan): boolean {
+  const targets = entryTargets(doc, runs);
   for (const cut of plan.cuts) {
     for (const struct of cut.run) {
-      const target = entryTarget(doc, runs, struct);
+      const target = targets(struct);
       if (target !== null) {
         const entry = target.type._map.get(target.key);
         if (entry !== undefined && !entry.deleted) {
@@ -626,13 +688,16 @@ function itemAt(doc: Doc, id: StructId): Item | null {
 }
 
 /**
- * What a document shows in a scope, at the Yjs level: `units`, by client,
- * the clock ranges of its countable items (a character, an embed, a type)
- * not deleted, each with its attributes (the format items before it in its
- * list, a null value removing the key), sorted and merged; and `entries`,
- * its map entries not deleted, by type key and key, with their values. A
+ * What a document shows in a scope, at the Yjs level, by the items that
+ * supply it: `units`, by client, the clock ranges of its countable items (a
+ * character, an embed, a type) not deleted, each with its attributes as the
+ * format items in effect (key and item id; a null value removes the key),
+ * sorted and merged; and `entries`, its map entries not deleted, by type key
+ * and key, as the id of the item that holds the value. The copies and the
+ * document share struct ids, so the same id means the same value; a
+ * different item with an equal value counts as different (stricter). A
  * scope's types count their own list and map; its deep types, their whole
- * subtree. Values are canonical (see canonical).
+ * subtree, walked iteratively.
  */
 interface View {
   readonly units: Map<number, [number, number, string][]>;
@@ -652,45 +717,51 @@ function viewOf(doc: Doc, scope: Scope): View {
       ? item.content.type
       : undefined;
   };
-  const walk = (
-    type: {_start: Item | null; _map?: Map<string, Item>},
-    key: string,
-    deep: boolean,
-  ) => {
+  type Walk = {
+    type: {_start: Item | null; _map?: Map<string, Item>};
+    key: string;
+    deep: boolean;
+  };
+  const pending: Walk[] = [];
+  const visit = ({type, key, deep}: Walk) => {
     if (seen.has(key)) {
       return;
     }
     seen.add(key);
     const attrs = new Map<string, string>();
-    let canon = '';
+    let supplied = '';
     for (let it = type._start; it !== null; it = it.right) {
       if (it.deleted) {
         continue;
       }
       const content = it.content;
+      const {client, clock} = it.id;
       if (content instanceof ContentFormat) {
         if (content.value === null) {
           attrs.delete(content.key);
         } else {
-          attrs.set(content.key, canonical(content.value));
+          attrs.set(content.key, `${client}:${clock}`);
         }
-        canon = [...attrs]
+        supplied = [...attrs]
           .sort((x, z) => (x[0] < z[0] ? -1 : 1))
-          .map(([k, v]) => `${canonical(k)}=${v}`)
+          .map(([k, id]) => `${k.length}:${k}=${id}`)
           .join(',');
         continue;
       }
-      const {client, clock} = it.id;
       if (it.countable) {
         let list = units.get(client);
         if (list === undefined) {
           list = [];
           units.set(client, list);
         }
-        list.push([clock, clock + it.length, canon]);
+        list.push([clock, clock + it.length, supplied]);
       }
       if (deep && content instanceof ContentType) {
-        walk(content.type as never, `i:${client}:${clock}`, true);
+        pending.push({
+          deep: true,
+          key: `i:${client}:${clock}`,
+          type: content.type as never,
+        });
       }
     }
     if (type._map !== undefined) {
@@ -699,10 +770,13 @@ function viewOf(doc: Doc, scope: Scope): View {
           return;
         }
         const {client, clock} = item.id;
-        const id = `i:${client}:${clock}`;
-        entries.set(`${key}|${canonical(name)}`, entryValue(item));
+        entries.set(`${key}|${name.length}:${name}`, `${client}:${clock}`);
         if (deep && item.content instanceof ContentType) {
-          walk(item.content.type as never, id, true);
+          pending.push({
+            deep: true,
+            key: `i:${client}:${clock}`,
+            type: item.content.type as never,
+          });
         }
       });
     }
@@ -710,13 +784,16 @@ function viewOf(doc: Doc, scope: Scope): View {
   for (const [key, ref] of scope.deep) {
     const type = typeOf(ref);
     if (type !== undefined) {
-      walk(type as never, key, true);
+      pending.push({deep: true, key, type: type as never});
+    }
+    while (pending.length > 0) {
+      visit(pending.pop()!);
     }
   }
   for (const [key, ref] of scope.types) {
     const type = typeOf(ref);
     if (type !== undefined) {
-      walk(type as never, key, false);
+      visit({deep: false, key, type: type as never});
     }
   }
   for (const list of units.values()) {
@@ -733,133 +810,6 @@ function viewOf(doc: Doc, scope: Scope): View {
     list.length = n;
   }
   return {entries, units};
-}
-
-/**
- * A value Yjs stores as `any` (lib0's: undefined, null, booleans, numbers
- * with NaN, infinities and -0, bigints, strings, bytes, arrays and plain
- * objects with any own keys, `_item`, `constructor` and `__proto__`
- * included) as a string that tells apart every two values that differ, by
- * structure only. Anything else (a class instance, a function, a property
- * that throws when read) gets a tag of its own that equals nothing else.
- * Never throws.
- */
-export function canonical(
-  value: unknown,
-  seen: Set<object> = new Set(),
-): string {
-  try {
-    switch (typeof value) {
-      case 'undefined':
-        return 'u';
-      case 'boolean':
-        return value ? 'b:1' : 'b:0';
-      case 'number':
-        return Object.is(value, -0) ? 'd:-0' : `d:${String(value)}`;
-      case 'bigint':
-        return `g:${value.toString()}`;
-      case 'string':
-        return `s:${value.length}:${value}`;
-      case 'object':
-        break;
-      default:
-        return opaque();
-    }
-    if (value === null) {
-      return 'n';
-    }
-    if (seen.has(value)) {
-      return opaque();
-    }
-    if (Object.prototype.toString.call(value) === '[object Uint8Array]') {
-      const bytes = value as Uint8Array;
-      let hex = '';
-      for (let i = 0; i < bytes.length; i++) {
-        hex += (bytes[i] < 16 ? '0' : '') + bytes[i].toString(16);
-      }
-      return `y:${hex}`;
-    }
-    const proto = Object.getPrototypeOf(value);
-    const isArray = Array.isArray(value);
-    if (!isArray && proto !== Object.prototype && proto !== null) {
-      return opaque();
-    }
-    seen.add(value);
-    try {
-      if (isArray) {
-        const array = value as unknown[];
-        const parts: string[] = [];
-        for (let i = 0; i < array.length; i++) {
-          const own = Object.getOwnPropertyDescriptor(array, i);
-          parts.push(
-            own === undefined
-              ? 'u'
-              : 'value' in own
-                ? canonical(own.value, seen)
-                : opaque(),
-          );
-        }
-        return `a:${parts.length}:[${parts.join(',')}]`;
-      }
-      const keys = Object.keys(value as object).sort();
-      const parts: string[] = [];
-      for (const key of keys) {
-        const own = Object.getOwnPropertyDescriptor(value, key);
-        parts.push(
-          `${canonical(key, seen)}=${
-            own !== undefined && 'value' in own
-              ? canonical(own.value, seen)
-              : opaque()
-          }`,
-        );
-      }
-      return `o:${parts.length}:{${parts.join(',')}}`;
-    } finally {
-      seen.delete(value);
-    }
-  } catch {
-    return opaque();
-  }
-}
-
-let opaques = 0;
-
-/** A tag no other value has. */
-function opaque(): string {
-  return `x:${++opaques}`;
-}
-
-/**
- * A map entry's value, by its content's class: a type by its item's id,
- * bytes, a document by its guid, a string, and stored values (any, JSON,
- * an embed, a format) by structure (see canonical); any other content gets
- * a tag of its own.
- */
-function entryValue(item: Item): string {
-  const content = item.content;
-  if (content instanceof ContentType) {
-    return `type:i:${item.id.client}:${item.id.clock}`;
-  }
-  const values = (content as Item['content']).getContent();
-  if (content instanceof ContentBinary) {
-    return `bin:${canonical(values[0])}`;
-  }
-  if (content instanceof ContentDoc) {
-    const doc = values[0] as {guid?: unknown} | undefined;
-    return `doc:${canonical(doc === undefined ? undefined : doc.guid)}`;
-  }
-  if (content instanceof ContentString) {
-    return `str:${canonical(values.join(''))}`;
-  }
-  if (
-    content instanceof ContentAny ||
-    content instanceof ContentJSON ||
-    content instanceof ContentEmbed ||
-    content instanceof ContentFormat
-  ) {
-    return `any:${canonical(values)}`;
-  }
-  return opaque();
 }
 
 function sameView(a: View, b: View): boolean {
@@ -1057,7 +1007,30 @@ function candidateViews(
       false,
       false,
     );
-    return {r, v: second.planHeld ? viewOf(copy, scope) : null};
+    const v = second.planHeld ? viewOf(copy, scope) : null;
+    if (LOAD_TEST_HOOKS.verifyV && v !== null) {
+      const own = exactCopy(doc, scope, p);
+      if (own !== null) {
+        try {
+          applyPlan(
+            Y,
+            own,
+            update,
+            runs,
+            maximal.plan.cuts,
+            undefined,
+            false,
+            false,
+          );
+          if (!sameView(viewOf(own, scope), v)) {
+            LOAD_PLAN_COUNTERS.vMismatch++;
+          }
+        } finally {
+          own.destroy();
+        }
+      }
+    }
+    return {r, v};
   } finally {
     copy.destroy();
   }
@@ -1496,7 +1469,10 @@ function simulate(
         let stop: Struct | null = null;
         for (let j = i; j < structs.length; j++) {
           const struct = structs[j];
-          visits++;
+          if (++visits > limit) {
+            aborted = true;
+            break passes;
+          }
           if (marks[j] || structIntegrated(y, doc, struct.id)) {
             continue;
           }

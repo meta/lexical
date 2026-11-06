@@ -27,13 +27,12 @@ import {
   type LexicalNode,
   type TextNode,
 } from 'lexical';
-import {describe, expect, test, vi} from 'vitest';
+import {afterEach, describe, expect, test, vi} from 'vitest';
 
 import {createYDoc, YBinding} from '../../..';
 import {editYState, readYState} from '../../../headless';
 import {
   applyStoredState,
-  canonical,
   type GapRepairYjs,
   integrateHeldBehindGapsWith,
   LOAD_COUNTERS,
@@ -56,6 +55,16 @@ import {rawDoc, SEED, STAMP} from '../../utils/migrateSteps';
 import {textOf} from '../../utils/splitFixtures';
 
 const CONFIG = catalogHeadlessConfig({blockIds: 'absent'});
+
+// A check that throws is a bug in bounded code: none, but where a test
+// forces one.
+let forcedCheckFailures = 0;
+const checkFailuresAtStart = LOAD_PLAN_COUNTERS.checkFailed;
+afterEach(() => {
+  expect(LOAD_PLAN_COUNTERS.checkFailed - checkFailuresAtStart).toBe(
+    forcedCheckFailures,
+  );
+});
 const SOURCE = {
   generation: 'inc-1/-',
   incarnation: 'inc-1',
@@ -1080,6 +1089,7 @@ describe.each([false, true])('stored values shaped like types, gc %s', gc => {
       ...LOAD_PLAN_COUNTERS,
       wins: {...LOAD_PLAN_COUNTERS.wins},
     };
+    forcedCheckFailures++;
     LOAD_TEST_HOOKS.check = () => {
       throw new Error('injected');
     };
@@ -1100,203 +1110,268 @@ describe.each([false, true])('stored values shaped like types, gc %s', gc => {
   });
 });
 
-describe('canonical values', () => {
-  test('values JSON writes alike stay apart', () => {
-    const pairs: [unknown, unknown][] = [
-      [new Uint8Array([1, 2]), [1, 2]],
-      [new Uint8Array([1, 2]), {0: 1, 1: 2}],
-      [undefined, null],
-      [NaN, null],
-      [-0, 0],
-      [Infinity, null],
-      [BigInt(1), 1],
-      [BigInt(1), '1'],
-      ['1', 1],
-      [{a: undefined}, {}],
-      [[undefined], [null]],
-      ['s:1:a', 'a'],
-    ];
-    for (const [a, b] of pairs) {
-      expect(canonical(a)).not.toBe(canonical(b));
-    }
-    expect(canonical({a: 2, b: 1})).toBe(canonical({a: 2, b: 1}));
-    // By structure only: a plain object shaped like a type is a plain
-    // object, and anything not a stored value equals nothing.
-    const shaped = ['P', 'R', 'V'].map(v => canonical({_item: null, v}));
-    expect(new Set(shaped).size).toBe(3);
-    expect(canonical({_item: null, v: 'P'})).toBe(shaped[0]);
-    expect(canonical({_item: {}, value: 1})).toBe(
-      canonical({_item: {}, value: 1}),
+/**
+ * A legal dependency chain across `n` clients (each lost clock 0, a blocked
+ * clock 1 and an independent clock 2 after the previous client's clock 2),
+ * and one concurrent map entry (the check runs): encoded with stock struct
+ * writers.
+ */
+function clientChain(gc: boolean, n: number): Uint8Array {
+  const source = new Y.Doc({gc});
+  source.clientID = 1;
+  source.cleanupFormatting = false;
+  const root = source.get('t');
+  root.insert(0, 'A');
+  root.setAttr('key', 'P');
+  const clients = source.store.clients as Map<number, unknown[]>;
+  const item = (
+    client: number,
+    clock: number,
+    origin: ReturnType<typeof Y.createID> | null,
+    sub: string | null,
+    content: Y.Item['content'],
+  ) =>
+    new Y.Item(
+      Y.createID(client, clock),
+      null,
+      origin,
+      null,
+      null,
+      root,
+      sub,
+      content,
     );
-    expect(canonical(JSON.parse('{"__proto__": 1}'))).not.toBe(canonical({}));
-    expect(canonical({constructor: 1})).not.toBe(canonical({}));
-    const doc = new Y.Doc();
-    expect(canonical(doc)).not.toBe(canonical(doc));
-    const throwing = {};
-    Object.defineProperty(throwing, 'x', {
-      enumerable: true,
-      get() {
-        throw new Error('read');
-      },
-    });
-    expect(() => canonical(throwing)).not.toThrow();
-    expect(canonical(throwing)).not.toBe(canonical(throwing));
-    doc.destroy();
-  });
+  for (let i = 0; i < n; i++) {
+    const client = 10000 + i;
+    const origin = i === 0 ? Y.createID(1, 0) : Y.createID(client - 1, 2);
+    clients.set(client, [
+      new Y.Skip(Y.createID(client, 0), 1),
+      item(client, 1, Y.createID(client, 0), null, new Y.ContentString('M')),
+      item(client, 2, origin, null, new Y.ContentString('Z')),
+    ]);
+  }
+  const client = 10000 + n + 50000;
+  clients.set(client, [
+    new Y.Skip(Y.createID(client, 0), 1),
+    item(client, 1, Y.createID(client, 0), null, new Y.ContentString('M')),
+    item(client, 2, null, 'key', new Y.ContentAny(['V'])),
+  ]);
+  const encoded = Y.encodeStateAsUpdateV2(source);
+  source.destroy();
+  return encoded;
+}
 
-  test('a fuzz with adversarial keys (_item, __proto__, constructor, toJSON, nested): two values encode alike exactly when an independent typed comparison finds them equal', () => {
-    const r = rng(4242);
-    const names = ['_item', '__proto__', 'constructor', 'toJSON', 'a'];
-    const value = (depth: number): unknown => {
-      const k = r();
-      if (depth > 2 || k < 0.5) {
-        return [null, undefined, 0, 1, '', 'x', true, BigInt(1)][
-          Math.floor(r() * 8)
-        ];
+describe('inputs as large or as deep as they are legal', () => {
+  for (const [n, gcs] of [
+    [8000, [false, true]],
+    [50000, [false]],
+  ] as const) {
+    for (const gc of gcs) {
+      // 50,000 clients take minutes (the maximal repair's 1,024 cuts over
+      // 100,000 pending structs, on the copy and then the document): run
+      // with LEXICAL_Y_HEAVY=1.
+      test.skipIf(n > 8000 && !process.env.LEXICAL_Y_HEAVY)(
+        `a ${n}-client dependency chain: no stack overflow, what the maximal repair shows, gc ${gc}`,
+        () => {
+          const input = clientChain(gc, n);
+          const load = (rule: boolean) => {
+            const d = new Y.Doc({gc});
+            d.cleanupFormatting = false;
+            Y.applyUpdateV2(d, input);
+            integrateHeldBehindGapsWith(
+              Y,
+              d,
+              undefined,
+              true,
+              MAX_SUFFIX_APPLIES,
+              rule,
+            );
+            return d;
+          };
+          const unruled = load(false);
+          const doc = load(true);
+          expect(textOf(doc.get('t')).length).toBeGreaterThanOrEqual(1024);
+          expect([...shownIds(doc)].sort()).toEqual(
+            [...shownIds(unruled)].sort(),
+          );
+          expect(doc.get('t').getAttr('key')).toBe(
+            unruled.get('t').getAttr('key'),
+          );
+          [doc, unruled].forEach(d => d.destroy());
+        },
+        600000,
+      );
+    }
+  }
+
+  test.each([false, true])(
+    'a node-valued entry 10,000 levels deep, overwritten concurrently: no stack overflow, the plain load (the text it shows stays), gc %s',
+    gc => {
+      const nest = (cell: Y.Node, text: string) => {
+        let node = cell;
+        for (let i = 0; i < 10000; i++) {
+          const child = new Y.Node('c');
+          node.insert(0, [child]);
+          node = child;
+        }
+        node.insert(0, text);
+      };
+      const z = plainDoc(gc);
+      z.clientID = 1;
+      z.transact(() => {
+        const p = new Y.Node('p');
+        z.get('t').insert(0, [p]);
+        const cell = new Y.Node('c');
+        p.setAttr('cell', cell);
+        nest(cell, 'old');
+      });
+      const base = Y.encodeStateAsUpdate(z);
+      const p = (d: Y.Doc) => {
+        for (let it = d.get('t')._start; it !== null; it = it.right) {
+          if (!it.deleted && it.content instanceof Y.ContentType) {
+            return it.content.type as Y.Node;
+          }
+        }
+        throw new Error('no node');
+      };
+      const b = writerDoc(gc, 2000, base);
+      b.d.transact(() => {
+        const cell = new Y.Node('c');
+        p(b.d).setAttr('cell', cell);
+        nest(cell, 't36z');
+      });
+      const a = writerDoc(gc, 3000, base);
+      a.d.transact(() => a.d.get('t').insert(0, 'L'));
+      a.d.transact(() => {
+        a.d.get('t').insert(1, 'M');
+        p(a.d).setAttr('cell', new Y.Node('c'));
+      });
+      const peer = plainDoc(gc, base);
+      Y.applyUpdate(peer, b.ups[0]);
+      Y.applyUpdate(peer, a.ups[1]);
+      const state = Y.encodeStateAsUpdate(peer);
+      const plain = plainDoc(gc, state);
+      const before = {
+        ...LOAD_PLAN_COUNTERS,
+        wins: {...LOAD_PLAN_COUNTERS.wins},
+      };
+      const doc = createRawYDoc(state, {gc});
+      expect(LOAD_PLAN_COUNTERS.checks).toBe(before.checks + 1);
+      expect(LOAD_PLAN_COUNTERS.wins.plain).toBe(before.wins.plain + 1);
+      expect(Buffer.from(Y.encodeStateAsUpdate(doc))).toEqual(
+        Buffer.from(Y.encodeStateAsUpdate(plain)),
+      );
+      [z, a.d, b.d, peer, plain, doc].forEach(d => d.destroy());
+    },
+    120000,
+  );
+
+  test.each([false, true])(
+    'a stored value nested 20,000 levels deep: loaded without reading it, gc %s',
+    gc => {
+      let value: unknown = 'leaf';
+      for (let i = 0; i < 20000; i++) {
+        value = i % 2 === 0 ? [value] : {_item: null, v: value};
       }
-      if (k < 0.7) {
-        return Array.from({length: Math.floor(r() * 3)}, () =>
-          value(depth + 1),
-        );
+      const t = balancingCloser(gc);
+      let state: Uint8Array | null = null;
+      try {
+        t.peer.get('lexical-y').setAttr('deep', value as never);
+        state = Y.encodeStateAsUpdate(t.peer);
+      } catch {
+        // Yjs itself cannot store a value this deep: nothing to load.
       }
-      const o: Record<string, unknown> = {};
-      for (let i = Math.floor(r() * 3); i > 0; i--) {
-        Object.defineProperty(o, names[Math.floor(r() * names.length)], {
-          configurable: true,
-          enumerable: true,
-          value: value(depth + 1),
-          writable: true,
+      if (state !== null) {
+        const doc = createYDoc(state, {gc});
+        expect(textOf(doc.get('lexical-y'))).toBe('aXbcdefgh');
+        expect(rawBold(doc)).toBe('Xb');
+        doc.destroy();
+      }
+      t.dispose();
+    },
+    60000,
+  );
+});
+
+describe.each([false, true])('a plan the budget cuts short, gc %s', gc => {
+  for (const budget of [1, MAX_SUFFIX_APPLIES]) {
+    test(`takes no holds (a hold would free budget for a map write the maximal repair never applies), budget ${budget}`, () => {
+      const mk = (id: number, state?: Uint8Array) => {
+        const d = new Y.Doc({gc});
+        d.clientID = id;
+        d.cleanupFormatting = false;
+        if (state !== undefined) {
+          Y.applyUpdateV2(d, state);
+        }
+        return d;
+      };
+      const docs: Y.Doc[] = [];
+      const writer = (id: number, state: Uint8Array) => {
+        const doc = mk(id, state);
+        docs.push(doc);
+        const updates: Uint8Array<ArrayBuffer>[] = [];
+        doc.on('updateV2', (u: Uint8Array) => updates.push(new Uint8Array(u)));
+        return {doc, updates};
+      };
+      const inner = (d: Y.Doc) => {
+        for (let it = d.get('t')._start; it !== null; it = it.right) {
+          if (!it.deleted && it.content instanceof Y.ContentType) {
+            return it.content.type as Y.Node;
+          }
+        }
+        throw new Error('no node');
+      };
+      const z = mk(1);
+      docs.push(z);
+      z.transact(() => {
+        const p = new Y.Node('p');
+        z.get('t').insert(0, [p]);
+        p.insert(0, 'abcd');
+      });
+      const base = Y.encodeStateAsUpdateV2(z);
+      // P: a value the plain load shows; a held format; R, a concurrent
+      // value behind "M" that only a cut past the budget integrates.
+      const p = writer(1000, base);
+      p.doc.transact(() => inner(p.doc).setAttr('s:value', 'P'));
+      const a = writer(3000, base);
+      a.doc.transact(() => inner(a.doc).insert(1, 'L'));
+      a.doc.transact(() => {
+        inner(a.doc).insert(2, 'M');
+        inner(a.doc).format(0, 2, {'f:bold': true});
+      });
+      const c = writer(2000, base);
+      c.doc.transact(() => c.doc.get('u').insert(0, 'L'));
+      c.doc.transact(() => {
+        c.doc.get('u').insert(1, 'M');
+        inner(c.doc).setAttr('s:value', 'R');
+      });
+      const pending = [a.updates[1], c.updates[1]];
+      for (let i = 0; i < budget - 1; i++) {
+        const w = writer(30000 + i, base);
+        w.doc.transact(() => w.doc.get('u').insert(0, 'L'));
+        w.doc.transact(() => {
+          w.doc.get('u').insert(1, 'M');
+          inner(w.doc).setAttr(`pad${i}`, false);
         });
+        pending.push(w.updates[1]);
       }
-      return o;
-    };
-    const equal = (a: unknown, b: unknown): boolean => {
-      if (typeof a !== typeof b) {
-        return false;
-      }
-      if (a === null || b === null || typeof a !== 'object') {
-        return a === b;
-      }
-      if (Array.isArray(a) || Array.isArray(b)) {
-        return (
-          Array.isArray(a) &&
-          Array.isArray(b) &&
-          a.length === b.length &&
-          a.every((x, i) => equal(x, b[i]))
-        );
-      }
-      const own = (o: object) => Object.getOwnPropertyNames(o).sort();
-      const ka = own(a as object);
-      const kb = own(b as object);
-      return (
-        ka.length === kb.length &&
-        ka.every(
-          (k, i) =>
-            k === kb[i] &&
-            equal(
-              Object.getOwnPropertyDescriptor(a, k)!.value,
-              Object.getOwnPropertyDescriptor(b, k)!.value,
-            ),
-        )
-      );
-    };
-    let same = 0;
-    for (let i = 0; i < 20000; i++) {
-      const a = value(0);
-      const b = r() < 0.3 ? a : value(0);
-      const alike = canonical(a) === canonical(b);
-      expect(alike).toBe(equal(a, b));
-      same += alike ? 1 : 0;
-    }
-    expect(same).toBeGreaterThan(1000);
-  });
-
-  test('a fuzz: two values encode alike exactly when an independent typed comparison finds them equal', () => {
-    const r = rng(9001);
-    const leaf = (): unknown => {
-      const k = Math.floor(r() * 12);
-      return [
-        undefined,
-        null,
-        true,
-        false,
-        0,
-        -0,
-        NaN,
-        Math.floor(r() * 3),
-        BigInt(Math.floor(r() * 3)),
-        ['a', 'b', '1', ''][Math.floor(r() * 4)],
-        new Uint8Array([Math.floor(r() * 2)]),
-        Infinity,
-      ][k];
-    };
-    const value = (depth: number): unknown => {
-      const k = r();
-      if (depth > 2 || k < 0.6) {
-        return leaf();
-      }
-      if (k < 0.8) {
-        return Array.from({length: Math.floor(r() * 3)}, () =>
-          value(depth + 1),
-        );
-      }
-      const o: Record<string, unknown> = {};
-      for (let i = Math.floor(r() * 3); i > 0; i--) {
-        o[['a', 'b', '0'][Math.floor(r() * 3)]] = value(depth + 1);
-      }
-      return o;
-    };
-    // Equal: the same kind and, recursively, the same parts.
-    const equal = (a: unknown, b: unknown): boolean => {
-      if (typeof a !== typeof b) {
-        return false;
-      }
-      if (typeof a === 'number') {
-        return Object.is(a, b);
-      }
-      if (a === null || b === null || typeof a !== 'object') {
-        return a === b;
-      }
-      if (a instanceof Uint8Array || b instanceof Uint8Array) {
-        return (
-          a instanceof Uint8Array &&
-          b instanceof Uint8Array &&
-          a.length === b.length &&
-          a.every((x, i) => x === b[i])
-        );
-      }
-      if (Array.isArray(a) || Array.isArray(b)) {
-        return (
-          Array.isArray(a) &&
-          Array.isArray(b) &&
-          a.length === b.length &&
-          a.every((x, i) => equal(x, b[i]))
-        );
-      }
-      const ka = Object.keys(a as object).sort();
-      const kb = Object.keys(b as object).sort();
-      return (
-        ka.length === kb.length &&
-        ka.every(
-          (k, i) =>
-            k === kb[i] &&
-            equal(
-              (a as Record<string, unknown>)[k],
-              (b as Record<string, unknown>)[k],
-            ),
-        )
-      );
-    };
-    let same = 0;
-    for (let i = 0; i < 20000; i++) {
-      const a = value(0);
-      const b = r() < 0.3 ? a : value(0);
-      const alike = canonical(a) === canonical(b);
-      expect(alike).toBe(equal(a, b));
-      same += alike ? 1 : 0;
-    }
-    expect(same).toBeGreaterThan(1000);
-  });
+      const peer = mk(4000, base);
+      docs.push(peer);
+      Y.applyUpdateV2(peer, p.updates[0]);
+      Y.applyUpdateV2(peer, Y.mergeUpdatesV2(pending));
+      const input = Y.encodeStateAsUpdateV2(peer);
+      const plain = mk(5000, input);
+      const maximal = mk(6000, input);
+      const repaired = mk(7000, input);
+      docs.push(plain, maximal, repaired);
+      integrateHeldBehindGapsWith(Y, maximal, undefined, true, budget, false);
+      integrateHeldBehindGapsWith(Y, repaired, undefined, true, budget, true);
+      expect(inner(plain).getAttr('s:value')).toBe('P');
+      expect(inner(maximal).getAttr('s:value')).toBe('P');
+      expect(inner(repaired).getAttr('s:value')).toBe('P');
+      docs.forEach(d => d.destroy());
+    }, 120000);
+  }
 });
 
 describe.each([false, true])('a plan that no longer holds, gc %s', gc => {
@@ -2533,6 +2608,9 @@ describe('a property: a load shows everything the encoding document showed', () 
         throw new Error('a load skipped the check that it would fail');
       }
     };
+    // Every check also builds V on a copy of its own: V built on the held
+    // result must equal it.
+    LOAD_TEST_HOOKS.verifyV = true;
     const seeds = Number(process.env.LEXICAL_Y_FORMAT_SEEDS || 500);
     for (let seed = 1; seed <= seeds; seed++) {
       const r = rng(seed * 7919);
@@ -2865,7 +2943,9 @@ describe('a property: a load shows everything the encoding document showed', () 
       stats.unruled.thirdOnRest,
     );
     LOAD_TEST_HOOKS.direct = null;
+    LOAD_TEST_HOOKS.verifyV = false;
     expect(direct).toBeGreaterThan(0);
+    expect(LOAD_PLAN_COUNTERS.vMismatch).toBe(startPlan.vMismatch);
     if (process.env.LEXICAL_Y_LOAD_STATS) {
       console.warn(
         `format stats ${JSON.stringify({...totals, direct, ...stats})}`,

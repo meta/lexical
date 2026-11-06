@@ -1157,13 +1157,17 @@ struct whose dependencies are present, as the client did, so load stored
 states through them rather than with `Y.applyUpdate`. A loaded document can
 then also show a struct the encoding client still held pending, when the
 bytes cannot tell the two apart; once the missing updates arrive, it ends
-byte-identical to a plain load. A repaired load shows every character a
-plain load shows, only characters a plain load or the repair without its
-rules shows, each with the formatting one of them gives it, and each node
-attribute as one of them has it. When nothing is held back and no entry the
-document shows is overwritten, that holds as it is; otherwise the load is
-checked on a copy of the document first, and a candidate that passes is
-applied, down to the plain load itself. A run of format items alone is held back while a format item
+byte-identical to a plain load. The repair is checked against the raw Yjs
+view, not the editor: the units of every list (characters, embeds, nodes)
+with the format attributes in effect, and the map entries (node attributes,
+NodeState). A repaired load shows every unit a plain load shows, only units
+a plain load or the repair without its rules shows, each with the format
+attributes one of them gives it, and each map entry as one of them has it.
+When nothing is held back and no entry the document shows is overwritten
+(the direct path), that holds as the repair applies, at the same cost as
+without the check; otherwise the load is checked on a copy of the document
+first, which costs about one more repair and a copy, and a candidate that
+passes is applied, down to the plain load itself. A run of format items alone is held back while a format item
 with the same key stays pending (a format's other end), unless content needs
 it, so a format is not opened or closed on its own over text the encoding
 client showed otherwise. A format of text the repair integrates can still be
