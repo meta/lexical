@@ -15,7 +15,7 @@ import {
   CheckListExtension,
 } from '@lexical/list';
 import {RichTextExtension} from '@lexical/rich-text';
-import {$getRoot} from 'lexical';
+import {$createParagraphNode, $createTextNode, $getRoot} from 'lexical';
 import {invariant} from 'lexical/src/__tests__/utils';
 import {
   afterAll,
@@ -244,5 +244,114 @@ describe('CheckListExtension mobile tap toggle', () => {
     tap(100);
 
     expect(readChecked(editor, 0)).toBe(true);
+  });
+});
+
+describe('CheckListExtension Space after a click on a check mark', () => {
+  // A click on a check mark focuses its item and leaves the caret where it
+  // was, here at the end of the paragraph above the list.
+  const extension = defineExtension({
+    $initialEditorState: () => {
+      $getRoot().append(
+        $createParagraphNode().append($createTextNode('Owners sign off')),
+        $createListNode('check').append(
+          $createListItemNode(false).append($createTextNode('Task')),
+        ),
+      );
+    },
+    dependencies: [CheckListExtension, RichTextExtension],
+    name: '[checklist-space-test]',
+  });
+
+  let rootElement: HTMLDivElement;
+  beforeEach(() => {
+    rootElement = document.createElement('div');
+    rootElement.contentEditable = 'true';
+    document.body.appendChild(rootElement);
+  });
+  afterEach(() => {
+    rootElement.remove();
+  });
+
+  function focusItemWithCaret(
+    editor: ReturnType<typeof buildEditorFromExtensions>,
+    $placeCaret: () => void,
+  ): HTMLLIElement {
+    editor.setRootElement(rootElement);
+    editor.update($placeCaret, {discrete: true});
+    const li = rootElement.querySelector('li');
+    invariant(li !== null, 'No <li>');
+    li.focus();
+    expect(document.activeElement).toBe(li);
+    return li;
+  }
+
+  function pressSpace(target: HTMLElement): KeyboardEvent {
+    const event = new KeyboardEvent('keydown', {
+      bubbles: true,
+      cancelable: true,
+      key: ' ',
+    });
+    target.dispatchEvent(event);
+    return event;
+  }
+
+  function isChecked(
+    editor: ReturnType<typeof buildEditorFromExtensions>,
+  ): boolean {
+    return editor.read(() => {
+      const list = $getRoot().getLastChildOrThrow();
+      invariant($isListNode(list), 'Expected a ListNode');
+      const item = list.getFirstChildOrThrow();
+      invariant($isListItemNode(item), 'Expected a ListItemNode');
+      return item.getChecked() === true;
+    });
+  }
+
+  it('leaves the item alone and gives the Space to a caret in another block', () => {
+    using editor = buildEditorFromExtensions(extension);
+    const li = focusItemWithCaret(editor, () => {
+      $getRoot().getFirstChildOrThrow().selectEnd();
+    });
+    const event = pressSpace(li);
+    expect(isChecked(editor)).toBe(false);
+    expect(event.defaultPrevented).toBe(false);
+    expect(document.activeElement).toBe(rootElement);
+  });
+
+  it.each([
+    ['from the paragraph into the item', false],
+    ['from the item into the paragraph', true],
+  ])('gives the Space to a selection that reaches %s', (_, isBackward) => {
+    using editor = buildEditorFromExtensions(extension);
+    const li = focusItemWithCaret(editor, () => {
+      const [paragraphText, itemText] = $getRoot().getAllTextNodes();
+      invariant(
+        paragraphText !== undefined && itemText !== undefined,
+        'Expected text in the paragraph and the item',
+      );
+      const inParagraph = [paragraphText.getKey(), 6] as const;
+      const inItem = [itemText.getKey(), 2] as const;
+      const [anchor, focus] = isBackward
+        ? [inItem, inParagraph]
+        : [inParagraph, inItem];
+      const selection = $getRoot().select();
+      selection.anchor.set(anchor[0], anchor[1], 'text');
+      selection.focus.set(focus[0], focus[1], 'text');
+    });
+    const event = pressSpace(li);
+    expect(isChecked(editor)).toBe(false);
+    expect(event.defaultPrevented).toBe(false);
+    expect(document.activeElement).toBe(rootElement);
+  });
+
+  it('toggles the item when the caret is in it', () => {
+    using editor = buildEditorFromExtensions(extension);
+    const li = focusItemWithCaret(editor, () => {
+      $getRoot().getLastChildOrThrow().selectStart();
+    });
+    const event = pressSpace(li);
+    expect(isChecked(editor)).toBe(true);
+    expect(event.defaultPrevented).toBe(true);
   });
 });
