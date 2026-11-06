@@ -108,7 +108,9 @@ import {
   changeEnd,
   equalFormatValue,
   isFormatCloser,
+  isRestatedRunEnd,
   markFormatCloser,
+  markRestatedRunEnd,
 } from './Cursor';
 import {$canonicalizeGroup, $switchesWrapper} from './Groups';
 import {$heldDecision} from './HoldGuard';
@@ -450,6 +452,11 @@ function foldFollowUps(
     item.inserts = mergeIdSets([item.inserts, later.inserts]);
     item.deletes = mergeIdSets([item.deletes, later.deletes]);
   }
+}
+
+/** A flat NodeState key: `s:<key>`, not a set member (see Ident.covered). */
+function isFlatStateKey(key: string): boolean {
+  return key.startsWith('s:') && !covered(key);
 }
 
 /** Pop events held while a gated step's transaction is open. */
@@ -8762,6 +8769,110 @@ export class YBinding {
   // -------------------------------------------------------------------------
   // Undo
 
+  /** See endsOwnFlatRun. */
+  private flatRunMemo: {
+    undoing: IdSet;
+    sourceByKey: Map<string, Map<Item, Item | null>>;
+    nextByKey: Map<string, Map<Item, Item | null>>;
+  } | null = null;
+
+  /**
+   * Whether `item`, a null of the change `undoing` inserted, ends a run of
+   * that change's own (the nearest item of its key before it, not counting
+   * those already gone, is one of the change's, with a value), with a value
+   * from before the change before that run (the first live item of the key
+   * before it that the change did not write has a value).
+   */
+  private endsOwnFlatRun(item: Item, undoing: IdSet): boolean {
+    const {key} = item.content as ContentFormat;
+    // Per item of the key, for this undo: the first live item of the key at
+    // or before it that the change did not write (null for none). Kept for
+    // the walk of the next null, so that an undo of a change with many runs
+    // (a value given to every line) walks each item once. The undo only
+    // deletes while it asks (it restores first), and may delete an item the
+    // change did not write (a copy a redo made of one of its items): an
+    // answer whose item has gone since is walked again.
+    let memo = this.flatRunMemo;
+    if (memo === null || memo.undoing !== undoing) {
+      memo = {nextByKey: new Map(), sourceByKey: new Map(), undoing};
+      this.flatRunMemo = memo;
+    }
+    let sources = memo.sourceByKey.get(key);
+    let nexts = memo.nextByKey.get(key);
+    if (sources === undefined || nexts === undefined) {
+      sources = new Map();
+      nexts = new Map();
+      memo.sourceByKey.set(key, sources);
+      memo.nextByKey.set(key, nexts);
+    }
+    let own = false;
+    const passed: Item[] = [];
+    let source: Item | null = null;
+    for (let it = item.left; it !== null; it = it.left) {
+      if (!(it.content instanceof ContentFormat) || it.content.key !== key) {
+        continue;
+      }
+      const ofChange = undoing.hasId(it.id);
+      if (!own) {
+        if (ofChange) {
+          if (it.content.value === null) {
+            return false;
+          }
+          own = true;
+        } else if (!it.deleted) {
+          return false;
+        }
+        continue;
+      }
+      const known = sources.get(it);
+      if (known !== undefined && (known === null || !known.deleted)) {
+        source = known;
+        break;
+      }
+      passed.push(it);
+      if (!ofChange && !it.deleted) {
+        source = it;
+        break;
+      }
+    }
+    for (const it of passed) {
+      sources.set(it, source);
+    }
+    if (source === null || (source.content as ContentFormat).value === null) {
+      return false;
+    }
+    // Not where the client whose value that is ended it further on itself
+    // (the first live item of the key after the null that the change did
+    // not write is a null of that client's): its run, given while this
+    // change was made, goes on to that end once the change is undone.
+    // (Kept per item as above, the other way.)
+    const ahead: Item[] = [];
+    let next: Item | null = null;
+    for (let it = item.right; it !== null; it = it.right) {
+      if (!(it.content instanceof ContentFormat) || it.content.key !== key) {
+        continue;
+      }
+      const known = nexts.get(it);
+      if (known !== undefined && (known === null || !known.deleted)) {
+        next = known;
+        break;
+      }
+      ahead.push(it);
+      if (!it.deleted && !undoing.hasId(it.id)) {
+        next = it;
+        break;
+      }
+    }
+    for (const it of ahead) {
+      nexts.set(it, next);
+    }
+    return !(
+      next !== null &&
+      (next.content as ContentFormat).value === null &&
+      next.id.client === source.id.client
+    );
+  }
+
   /**
    * Undo keeps a container a peer has put content in, whole: with its
    * fields and the undoing client's own content in it (deleting those would
@@ -8773,6 +8884,25 @@ export class YBinding {
     // of a collaborator's change that ended inside the range, closed with
     // the value this change gave), and where a collaborator removed this
     // change's own opener (an undo of that removal brings it back).
+    // Also, of a flat NodeState key, the null a restore of the change wrote
+    // right after another client's change end to end its run there (rule 5:
+    // its restore after text it typed inside that client's value, which this
+    // undo deletes), where a value from before the change would run on
+    // without it: the null stays, as an item every client already places,
+    // never one written anew. Not any other null of the change: an end it
+    // wrote after a value it gave, or a clear, goes with the undo, as on
+    // main.
+    if (
+      this.undoing !== null &&
+      item.content instanceof ContentFormat &&
+      item.content.value === null &&
+      isFlatStateKey(item.content.key) &&
+      isRestatedRunEnd(item) &&
+      this.undoing.hasId(item.id) &&
+      this.endsOwnFlatRun(item, this.undoing)
+    ) {
+      return true;
+    }
     if (isFormatCloser(item) && this.undoing !== null) {
       const {key} = item.content as ContentFormat;
       for (let it = item.left; it !== null; it = it.left) {
@@ -8941,6 +9071,7 @@ export class YBinding {
       this.restoring = null;
       this.removing = null;
       this.undoing = null;
+      this.flatRunMemo = null;
       this.stepCursor = null;
     }
   }
@@ -9002,10 +9133,19 @@ export class YBinding {
     const store = this._doc.store;
     this._doc.transact(tr => {
       iterateStructsByIdSet(tr, step.deletes, s => {
-        if (s instanceof Item && s.redone !== null && isFormatCloser(s)) {
+        if (
+          s instanceof Item &&
+          s.redone !== null &&
+          (isFormatCloser(s) || isRestatedRunEnd(s))
+        ) {
           const copy = store.getItem(s.redone);
           if (copy instanceof Item) {
-            markFormatCloser(copy);
+            if (isFormatCloser(s)) {
+              markFormatCloser(copy);
+            }
+            if (isRestatedRunEnd(s)) {
+              markRestatedRunEnd(copy);
+            }
           }
         }
       });
@@ -9188,6 +9328,7 @@ export class YBinding {
     this.restoring = null;
     this.removing = null;
     this.undoing = null;
+    this.flatRunMemo = null;
     if (top === undefined) {
       return;
     }

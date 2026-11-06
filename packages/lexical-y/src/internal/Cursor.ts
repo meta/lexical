@@ -177,6 +177,26 @@ export const markFormatCloser = (item: Item): void => {
 };
 
 /**
+ * The null items a restore wrote right after another client's change end to
+ * end its run there (see Cursor#format, rule 5): an undo of the change keeps
+ * one of a flat key where a value from before the change would run on
+ * without it (see YBinding#isKeptByUndo).
+ */
+const restatedRunEnds = new WeakSet<Item>();
+
+/** Whether `item` is one of the items in `restatedRunEnds`. */
+export const isRestatedRunEnd = (item: Item): boolean =>
+  restatedRunEnds.has(item);
+
+/**
+ * Add `item` to `restatedRunEnds`: the copy an undo or redo makes of an item
+ * in it, which ends the same run at the same place.
+ */
+export const markRestatedRunEnd = (item: Item): void => {
+  restatedRunEnds.add(item);
+};
+
+/**
  * Refuse to link a new item next to `left` and `right` unless both are in
  * `parent`, the type it is written to. An item whose neighbour sits in
  * another type is malformed: its own document links it into that type's list
@@ -296,6 +316,7 @@ export function runOpener(doc: Doc, item: Item): Item {
       return current;
     }
     let found = false;
+    let typed = false;
     let steps = 0;
     for (
       let it = current.left;
@@ -303,7 +324,9 @@ export function runOpener(doc: Doc, item: Item): Item {
       it = it.left, steps++
     ) {
       if (it === negation) {
-        found = true;
+        // (Not right after the null: a run its client wrote in segments,
+        // split where it left content out, reopens there, after no text.)
+        found = typed;
         break;
       }
       if (!it.deleted && isFormat(it) && keyOf(it) === key) {
@@ -315,6 +338,9 @@ export function runOpener(doc: Doc, item: Item): Item {
       // client's earlier end and later opener, #9599).
       if (!isFormat(it) && it.id.client !== current.id.client) {
         break;
+      }
+      if (!isFormat(it)) {
+        typed = true;
       }
     }
     const source = found ? liveItemBefore(negation, key) : null;
@@ -1077,9 +1103,11 @@ export class Cursor {
       this.forward();
     }
     for (const end of ends) {
-      this.insertAfter(
-        end,
-        new ContentFormat(keyOf(end), null as unknown as object),
+      restatedRunEnds.add(
+        this.insertAfter(
+          end,
+          new ContentFormat(keyOf(end), null as unknown as object),
+        ),
       );
     }
     this.openers.clear();
