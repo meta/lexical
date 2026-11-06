@@ -36,8 +36,12 @@ async function setupMultiContent(page) {
   await page.keyboard.insertText(', consectetur adipiscing elit.');
   await page.keyboard.press('Enter');
   await page.keyboard.insertText('Link text');
+  // $toggleLink ignores a collapsed caret (#5305), so select the text to link.
+  await selectCharacters(page, 'left', 'Link text'.length);
   await pressInsertLinkButton(page);
   await page.keyboard.press('Enter');
+  // Collapse the selection to the end of the link before the next Enter.
+  await page.keyboard.press('ArrowRight');
   await page.keyboard.press('Enter');
   await insertSampleImage(page);
   await page.keyboard.press('Enter');

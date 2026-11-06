@@ -882,6 +882,19 @@ export function $toggleLink(
     }
   }
 
+  if (
+    selection.isCollapsed() &&
+    $findMatchingParent(
+      selection.anchor.getNode(),
+      (parent): parent is LinkNode =>
+        !$isAutoLinkNode(parent) && $isLinkNode(parent),
+    ) === null
+  ) {
+    // A collapsed selection outside a link covers no text, so there is nothing
+    // to link. extract() would return the whole node around the caret (#5305).
+    return;
+  }
+
   // Handle RangeSelection
   const nodes = selection.extract();
 
