@@ -14,7 +14,7 @@
 // item that got there with a checked value an update without transforms
 // left (a collaborator's change read with skipTransforms, as @lexical/y
 // reads) kept it hidden, and showed it again once its list became a check
-// list: https://github.com/meta/lexical/issues/9820.
+// list: https://github.com/meta/lexical/issues/9820. It tests the field now.
 
 import {buildEditorFromExtensions} from '@lexical/extension';
 import {
@@ -47,45 +47,40 @@ function $item(): ListItemNode {
 
 describe('a list item outside a check list', () => {
   for (const listType of ['number', 'bullet'] as const) {
-    test.fails(
-      `in a ${listType} list loses a checked value once an update edits it`,
-      () => {
-        using editor = buildEditor();
-        // As a read without transforms leaves it.
-        editor.update(
-          () => {
-            $getRoot()
-              .clear()
-              .append(
-                $createListNode(listType).append(
-                  $createListItemNode(true).append($createTextNode('one')),
-                ),
-              );
-          },
-          {discrete: true, skipTransforms: true},
-        );
-        expect(editor.read(() => $item().getLatest().__checked)).toBe(true);
-        editor.update(
-          () => {
-            // An edit of the item itself (its alignment).
-            $item().setFormat('center');
-          },
-          {discrete: true},
-        );
-        expect(editor.read(() => $item().getLatest().__checked)).toBe(
-          undefined,
-        );
-        // And it does not show checked when its list becomes a check list.
-        editor.update(
-          () => {
-            const list = $getRoot().getFirstChild();
-            assert($isListNode(list), 'expected a ListNode');
-            list.setListType('check');
-          },
-          {discrete: true},
-        );
-        expect(editor.read(() => $item().getChecked())).toBe(false);
-      },
-    );
+    test(`in a ${listType} list loses a checked value once an update edits it`, () => {
+      using editor = buildEditor();
+      // As a read without transforms leaves it.
+      editor.update(
+        () => {
+          $getRoot()
+            .clear()
+            .append(
+              $createListNode(listType).append(
+                $createListItemNode(true).append($createTextNode('one')),
+              ),
+            );
+        },
+        {discrete: true, skipTransforms: true},
+      );
+      expect(editor.read(() => $item().getLatest().__checked)).toBe(true);
+      editor.update(
+        () => {
+          // An edit of the item itself (its alignment).
+          $item().setFormat('center');
+        },
+        {discrete: true},
+      );
+      expect(editor.read(() => $item().getLatest().__checked)).toBe(undefined);
+      // And it does not show checked when its list becomes a check list.
+      editor.update(
+        () => {
+          const list = $getRoot().getFirstChild();
+          assert($isListNode(list), 'expected a ListNode');
+          list.setListType('check');
+        },
+        {discrete: true},
+      );
+      expect(editor.read(() => $item().getChecked())).toBe(false);
+    });
   }
 });

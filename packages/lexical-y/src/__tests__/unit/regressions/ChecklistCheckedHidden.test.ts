@@ -16,7 +16,8 @@
 // item unchecked while still holding it checked; once the list was a check
 // list again, its editor showed the item checked and its document did not
 // (the remote self-check: "listitem checked: editor true != shared false").
-// delivered causally):
+// The transform now tests the field. Reduced from a fuzz session (3 peers,
+// every round delivered causally):
 //
 // round 0: C turns the list into a check list and checks the first item;
 //   B types in the second.
@@ -175,7 +176,7 @@ const SCRIPT: Script = {
 describe.each([false, true])(
   'a check-list item joined while the list became numbered, gc %s',
   gc => {
-    test.fails('its editor and its document agree on checked', () => {
+    test('its editor and its document agree on checked', () => {
       const prevGc = process.env.FUZZ_GC;
       const prevSeeded = process.env.FUZZ_SEEDED;
       process.env.FUZZ_GC = gc ? '1' : '';
