@@ -436,7 +436,7 @@ for developers (what happened and what to do): render your own text from
 | `UNSUPPORTED_CONFIG_WARNING` | `BlockIdExtension` with `repairTransforms: true`, or a document with Yjs's format cleanup on (not from `createYDoc`), see [Set up an editor](#set-up-an-editor); or a document below `MIN_LAYOUT` with no `layoutUpgrade` declared (`'missing-layout-upgrade'`, with the `'older'` layout warning, see [Layout upgrades](#layout-upgrades)). Nothing is written; read only. | `'repair-transforms'`: `options`; `'cleanup-formatting'`; `'missing-layout-upgrade'` |
 | `NESTED_FALLBACK_WARNING` | A class that declares a line, format or group is stored as a node of its own (see [How content is stored](#how-content-is-stored)). Once per binding, class and reason. | `'merge-override'`: `type`, `method`; `'undeclared-properties'`: `type`, `properties`; `'inline-slots'`, `'inline-incomplete-schema'`, `'type-name'`, `'merge-incomplete-schema'`, `'merge-slots'`, `'group-children'`, `'group-state-merge'`, `'group-incomplete-schema'`: `type` |
 | `UNSYNCED_VALUE_WARNING` | A property or NodeState value is not plain JSON, so it is not synchronized. Once per binding and property. | `'not-json'`: `property` |
-| `UNSUPPORTED_EDIT_WARNING` | A local update changed the editor while the binding is read only (`'read-only'`, reported once each time it goes read only), or, on an active binding, a write refused at write time because the layout or schema record changed inside its transaction (`'refused-at-write'`, each such write, not retried; the binding may stay active, so it is not a read-only state). Not written; what it changed is read again, or, once the document cannot be read, the editor shows again the last state it showed before the update. With `'held-composition'`, the binding stays active: a local change that inserts no character would have deleted or left behind text a collaborator wrote in the line being composed with an IME, which the composition holds back; it is not written and is read again (undone), and the composition goes on. A change that inserts a character is always written. | `'read-only'`; `'refused-at-write'`: `record` (`'layout'` or `'schema'`, see below); `'held-composition'` |
+| `UNSUPPORTED_EDIT_WARNING` | A local update changed the editor while the binding is read only (`'read-only'`, reported once each time it goes read only), or, on an active binding, a write refused at write time because the layout or schema record changed inside its transaction (`'refused-at-write'`, each such write, not retried; the binding may stay active, so it is not a read-only state). Not written; what it changed is read again, or, once the document cannot be read, the editor shows again the last state it showed before the update. With `'held-composition'`, the binding stays active: a local change that inserts no character would have deleted or left behind text a collaborator wrote in the line being composed with an IME, which the composition holds back; it is not written and is read again (undone), and the composition goes on. A change that inserts a character is always written. With `'unstorable'`, a written local update left an empty text node Lexical keeps (not mergeable simple text), which the document does not store (each such update): the update is written, and the container holding the empty node is read again. | `'read-only'`; `'refused-at-write'`: `record` (`'layout'` or `'schema'`, see below); `'held-composition'`; `'unstorable'` |
 | `SELF_CHECK_WARNING` | The self-check (`selfCheck`) found the editor and the document disagree. | `'local'`, `'remote'`: `problems` |
 | `RECOVERED_READ_WARNING` | A change could not be read; the editor was rebuilt from the document. | `'remote-change'`, `'reread'`: `error` |
 | `RAW_YJS_WRITE_WARNING` | Development builds only: a local transaction that is not the binding's (nor a Y.UndoManager's) changed the Yjs content under the binding's root, which is private and unsupported for direct writes (see [Wire format](#wire-format)). Once per binding and origin; nothing else happens. | `'raw-write'`: `root`, `kind` (`'format'`, `'attribute'`, `'content'`), `key`, `origin` (the origin's constructor name) |
@@ -1189,6 +1189,18 @@ needed.
 Every client converges to the same document, but some concurrent edits do
 not merge as a user might expect:
 
+- **What the document does not store.** An empty text node Lexical keeps
+  (a token, segmented, unmergeable or code highlight node, a `TextNode`
+  subclass: Lexical removes only empty mergeable simple text) is not stored: once a
+  local update is written, the editor reads its container back (removing
+  the node) and reports `UNSUPPORTED_EDIT_WARNING` (`'unstorable'`); while
+  the caret or a composition is in it, as during native input, it waits for
+  a later update. A slot set while the binding is read only, on a node that
+  cannot hold stored slots, is not written, and the re-read of what that
+  update changed removes it.
+- **NodeState on the root** is not stored and does not reach other clients:
+  it stays on the editor that set it. An app that keeps document metadata
+  there shares it itself.
 - **Moves.** Moving a block is a delete and a re-insert, so text a
   collaborator types into the moved block at the same time is lost or lands
   at its old position, a collaborator's caret in it stays at that position,
