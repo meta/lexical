@@ -190,7 +190,7 @@ describe('LexicalUtils tests', () => {
       expect(getTextDirection('\u200E')).toBe('ltr');
       expect(getTextDirection('\u2C00')).toBe('ltr');
       expect(getTextDirection('\uFB1C')).toBe('ltr');
-      expect(getTextDirection('\uFE00')).toBe('ltr');
+      expect(getTextDirection('\uFE10')).toBe('ltr');
       expect(getTextDirection('\uFE6F')).toBe('ltr');
       expect(getTextDirection('\uFEFD')).toBe('ltr');
       expect(getTextDirection('\uFFFF')).toBe('ltr');
@@ -200,6 +200,21 @@ describe('LexicalUtils tests', () => {
       expect(getTextDirection(`\uFDFD`)).toBe('rtl');
       expect(getTextDirection(`\uFE70`)).toBe('rtl');
       expect(getTextDirection(`\uFEFC`)).toBe('rtl');
+    });
+
+    test('getTextDirection() skips emoji: surrogate pairs and variation selectors (#5260)', () => {
+      expect(getTextDirection('😀')).toBe(null);
+      expect(getTextDirection('😀 שלום')).toBe('rtl');
+      expect(getTextDirection('😀 مرحبا')).toBe('rtl');
+      expect(getTextDirection('😀😀 שלום')).toBe('rtl');
+      expect(getTextDirection('😀 hello')).toBe('ltr');
+      expect(getTextDirection('❤️ שלום')).toBe('rtl');
+      expect(getTextDirection('1️⃣ שלום')).toBe('rtl');
+      expect(getTextDirection('✔️ مرحبا')).toBe('rtl');
+      expect(getTextDirection('\uFE0F')).toBe(null);
+      expect(getTextDirection('שלום 😀')).toBe('rtl');
+      expect(getTextDirection('\uD7FF')).toBe('ltr');
+      expect(getTextDirection('\uE000')).toBe('ltr');
     });
 
     test('isExactShortcutMatch() matches by event.key for single-letter', () => {
