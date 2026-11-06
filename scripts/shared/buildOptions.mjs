@@ -10,6 +10,34 @@ import {fileURLToPath} from 'node:url';
 
 import transformErrorMessages from '../error-codes/transform-error-messages.mjs';
 
+const EXTRACT_CODES_ON = new Set(['1', 'true', 'yes', 'on']);
+const EXTRACT_CODES_OFF = new Set(['', '0', 'false', 'no', 'off']);
+
+/**
+ * Whether a build assigns new production error codes, writing them to
+ * `scripts/error-codes/codes.json`. Builds do not by default, because a code
+ * is only stable once codes.json is committed: two builds of one commit
+ * could number a new message differently, so its message stays as full text
+ * in the production build instead. Extraction is opted into explicitly,
+ * with `--codes` (`pnpm run extract-codes`, which the `latest` version bump
+ * runs and commits) or `LEXICAL_EXTRACT_CODES=true` (or `1`, `yes`, `on`).
+ *
+ * @param {unknown} codesFlag the parsed `--codes` argument
+ * @param {Record<string, string | undefined>} [env]
+ * @returns {boolean}
+ */
+export function shouldExtractCodes(codesFlag, env = process.env) {
+  const value = (env.LEXICAL_EXTRACT_CODES ?? '').trim().toLowerCase();
+  if (!EXTRACT_CODES_ON.has(value) && !EXTRACT_CODES_OFF.has(value)) {
+    throw new Error(
+      `Unrecognized LEXICAL_EXTRACT_CODES=${JSON.stringify(
+        env.LEXICAL_EXTRACT_CODES,
+      )}: use true to also assign new error codes, or false`,
+    );
+  }
+  return Boolean(codesFlag) || EXTRACT_CODES_ON.has(value);
+}
+
 /**
  * Shared by package builds and source benchmarks. Resolve Browserslist from
  * the repository root even when invoked from another working directory.
