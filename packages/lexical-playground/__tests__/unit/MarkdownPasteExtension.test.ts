@@ -20,6 +20,7 @@ import {
   $createTextNode,
   $getRoot,
   $getSelection,
+  $isElementNode,
   $isRangeSelection,
   $isTextNode,
   configExtension,
@@ -32,7 +33,7 @@ import {
   PASTE_COMMAND,
   UNDO_COMMAND,
 } from 'lexical';
-import {describe, expect, onTestFinished, test} from 'vitest';
+import {assert, describe, expect, onTestFinished, test} from 'vitest';
 
 import {
   CONVERT_PASTED_MARKDOWN_COMMAND,
@@ -127,6 +128,12 @@ function describeRoot(editor: LexicalEditor): [string, string][] {
   return editor.read(() => $getRoot().getChildren().map(describeNode));
 }
 
+function $getBlock(index = 0): ElementNode {
+  const block = $getRoot().getChildAtIndex(index);
+  assert($isElementNode(block));
+  return block;
+}
+
 function setUp(editor: LexicalEditor, $fn: () => void): void {
   editor.update($fn, {discrete: true});
 }
@@ -194,7 +201,7 @@ describe('MarkdownPasteExtension', () => {
     expect(getOffer(editor).peek()).toBe(null);
     expect(describeRoot(editor)).toEqual(CONVERTED);
     editor.read(() => {
-      const paragraph = $getRoot().getChildAtIndex<ElementNode>(1)!;
+      const paragraph = $getBlock(1);
       const [, bold, , link] = paragraph.getChildren();
       expect($isTextNode(bold) && bold.hasFormat('bold')).toBe(true);
       expect(link.getType()).toBe('link');
@@ -250,7 +257,7 @@ describe('MarkdownPasteExtension', () => {
     const editor = createEditor();
     setUp(editor, () => {
       const text = $createTextNode('abcd');
-      $getRoot().getFirstChildOrThrow<ElementNode>().append(text);
+      $getBlock().append(text);
       text.select(2, 2);
     });
     paste(editor, {
@@ -302,7 +309,7 @@ describe('MarkdownPasteExtension', () => {
     const editor = createEditor();
     setUp(editor, () => {
       const text = $createTextNode('before  after');
-      $getRoot().getFirstChildOrThrow<ElementNode>().append(text);
+      $getBlock().append(text);
       text.select(7, 7);
     });
     paste(editor, {'text/plain': '**bold** and *italic*'});
@@ -314,9 +321,7 @@ describe('MarkdownPasteExtension', () => {
       ['paragraph', 'before bold and italic after'],
     ]);
     editor.read(() => {
-      const nodes = $getRoot()
-        .getFirstChildOrThrow<ElementNode>()
-        .getChildren();
+      const nodes = $getBlock().getChildren();
       const byText = (text: string) =>
         nodes.find(node => node.getTextContent() === text);
       const bold = byText('bold');
@@ -330,7 +335,7 @@ describe('MarkdownPasteExtension', () => {
     const editor = createEditor();
     setUp(editor, () => {
       const text = $createTextNode('after');
-      $getRoot().getFirstChildOrThrow<ElementNode>().append(text);
+      $getBlock().append(text);
       text.select(0, 0);
     });
     paste(editor, {'text/plain': '**bold** and *italic* '});
@@ -366,7 +371,7 @@ describe('MarkdownPasteExtension', () => {
     const editor = createEditor();
     setUp(editor, () => {
       const text = $createTextNode('keep REPLACE keep');
-      $getRoot().getFirstChildOrThrow<ElementNode>().append(text);
+      $getBlock().append(text);
       text.select(5, 12);
     });
     paste(editor, {'text/plain': '**bold** and `code`'});

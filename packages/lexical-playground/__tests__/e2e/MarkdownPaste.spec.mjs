@@ -10,6 +10,7 @@ import {expect} from '@playwright/test';
 
 import {undo} from '../keyboardShortcuts/index.mjs';
 import {
+  advanceHistoryClock,
   focusEditor,
   getPageOrFrame,
   initialize,
@@ -74,6 +75,9 @@ test.describe('Markdown paste', () => {
   test('Tab converts, and undo restores the paste', async ({page}) => {
     await pasteFromClipboard(page, {'text/plain': MARKDOWN});
     await expect(prompt(page)).toBeVisible();
+    // Collab's undo merges edits made in quick succession, and a person takes
+    // longer than this test to read the prompt.
+    await advanceHistoryClock(page);
     await page.keyboard.press('Tab');
     await expectConverted(page);
     await undo(page);
