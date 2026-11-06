@@ -913,6 +913,15 @@ export function $toggleLink(
     if (updatedNodes.has(linkNode.getKey())) {
       return;
     }
+    if ($isAutoLinkNode(linkNode)) {
+      // An autolink's URL follows its text (AutoLinkExtension sets it again
+      // on the next transform of its text): a URL set by the user makes it a
+      // link of its own, with the same children.
+      const replacement = $createLinkNode(url, {rel, target, title});
+      updatedNodes.add(replacement.getKey());
+      linkNode.replace(replacement, true);
+      return;
+    }
     updatedNodes.add(linkNode.getKey());
     linkNode.setURL(url);
     if (target !== undefined) {

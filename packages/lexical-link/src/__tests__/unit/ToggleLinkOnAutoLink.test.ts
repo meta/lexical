@@ -11,7 +11,8 @@
 // $toggleLink(url) inside an AutoLinkNode sets the autolink's URL in place
 // and leaves it an AutoLinkNode, whose URL AutoLinkExtension re-derives from
 // its text on the next transform of its text node: the URL the user set is
-// lost (https://github.com/meta/lexical/issues/9821).
+// lost (https://github.com/meta/lexical/issues/9821). It now makes the
+// autolink a LinkNode with the same children.
 
 import {buildEditorFromExtensions} from '@lexical/extension';
 import {
@@ -60,7 +61,7 @@ function $link(): LinkNode {
 }
 
 describe('$toggleLink inside an autolink', () => {
-  test.fails('keeps the URL it set after an edit of the text', () => {
+  test('keeps the URL it set after an edit of the text', () => {
     using editor = buildEditor();
     editor.update(
       () => {
@@ -83,6 +84,8 @@ describe('$toggleLink inside an autolink', () => {
       {discrete: true},
     );
     expect(editor.read(() => $link().getURL())).toBe('https://u1.test');
+    expect(editor.read(() => $isAutoLinkNode($link()))).toBe(false);
+    expect(editor.read(() => $link().getTextContent())).toBe('t30z');
     // The next transform of the link's text (an edit; a load).
     editor.update(
       () => {
@@ -91,5 +94,13 @@ describe('$toggleLink inside an autolink', () => {
       {discrete: true},
     );
     expect(editor.read(() => $link().getURL())).toBe('https://u1.test');
+    // And AutoLink does not make an autolink of its text again.
+    expect(
+      editor.read(() =>
+        $link()
+          .getChildren()
+          .every(n => $isTextNode(n)),
+      ),
+    ).toBe(true);
   });
 });
