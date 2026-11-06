@@ -439,7 +439,16 @@ export type YNestedFallbackData =
  * @experimental `data` of a `RAW_YJS_WRITE_WARNING` (development builds).
  */
 export interface YRawYjsWriteData {
-  readonly reason: 'raw-write';
+  /**
+   * `'raw-write'`: a transaction not the binding's changed the content under
+   * its root. `'remote-in-write'`: another client's insertions appeared
+   * inside one of the binding's own write transactions (`origin` is that
+   * client's id), which the binding does not read as a remote change.
+   * Development builds only, and not a complete detector: a remote deletion
+   * there, or a remote update applied inside an app's outer `transact` the
+   * write joins, is not reported.
+   */
+  readonly reason: 'raw-write' | 'remote-in-write';
   /** The binding's root, by its name in the document (`'lexical-y'`). */
   readonly root: string;
   /**
@@ -449,7 +458,10 @@ export interface YRawYjsWriteData {
    */
   readonly kind: 'format' | 'attribute' | 'content';
   readonly key: string | null;
-  /** The transaction origin's constructor name (`'null'` for none). */
+  /**
+   * `'raw-write'`: the transaction origin's constructor name (`'null'` for
+   * none). `'remote-in-write'`: the other client's id, as a string.
+   */
   readonly origin: string;
 }
 

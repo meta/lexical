@@ -442,7 +442,7 @@ for developers (what happened and what to do): render your own text from
 | `UNSUPPORTED_EDIT_WARNING` | A local update changed the editor while the binding is read only (`'read-only'`, reported once each time it goes read only), or, on an active binding, a write refused at write time because the layout or schema record changed inside its transaction (`'refused-at-write'`, each such write, not retried; the binding may stay active, so it is not a read-only state). Not written; what it changed is read again, or, once the document cannot be read, the editor shows again the last state it showed before the update. With `'held-composition'`, the binding stays active: a local change that inserts no character would have deleted or left behind text a collaborator wrote in the line being composed with an IME, which the composition holds back; it is not written and is read again (undone), and the composition goes on. A change that inserts a character is always written. With `'unstorable'`, a written local update left an empty text node Lexical keeps (not mergeable simple text), which the document does not store (each such update): the update is written, and the container holding the empty node is read again. | `'read-only'`; `'refused-at-write'`: `record` (`'layout'` or `'schema'`, see below); `'held-composition'`; `'unstorable'` |
 | `SELF_CHECK_WARNING` | The self-check (`selfCheck`) found the editor and the document disagree. | `'local'`, `'remote'`: `problems` |
 | `RECOVERED_READ_WARNING` | A change could not be read; the editor was rebuilt from the document. | `'remote-change'`, `'reread'`: `error` |
-| `RAW_YJS_WRITE_WARNING` | Development builds only: a local transaction that is not the binding's (nor a Y.UndoManager's) changed the Yjs content under the binding's root, which is private and unsupported for direct writes (see [Wire format](#wire-format)). Once per binding and origin; nothing else happens. | `'raw-write'`: `root`, `kind` (`'format'`, `'attribute'`, `'content'`), `key`, `origin` (the origin's constructor name) |
+| `RAW_YJS_WRITE_WARNING` | Development builds only: a local transaction that is not the binding's (nor a Y.UndoManager's) changed the Yjs content under the binding's root, which is private and unsupported for direct writes (see [Wire format](#wire-format)), or another client's insertions appeared inside one of the binding's own write transactions, which is unsupported (see [Wire format](#wire-format); remote deletions there, and updates applied inside an app's outer `doc.transact`, are not detected). Once per binding and origin (once per binding for the second); nothing else happens. | `'raw-write'`: `root`, `kind` (`'format'`, `'attribute'`, `'content'`), `key`, `origin` (the origin's constructor name); `'remote-in-write'`: `root`, `kind` `'content'`, `key` null, `origin` (the other client's id) |
 | `RECOVERED_WRITE_WARNING` | A local change could not be written; the document was rewritten. | `'local-change'`: `error` |
 
 `'refused-at-write'`'s `record` names the admission family that refused the
@@ -692,7 +692,17 @@ content under its root with `RAW_YJS_WRITE_WARNING` (once per origin;
 Y.UndoManager steps and remote updates are not reported). It is a
 diagnostic, not a complete detector: it judges a transaction by its origin
 and locality, and only once the binding has read its document (not while
-it is pending). A transaction the binding also wrote in (an editor edit or
+it is pending). Applying another client's update inside one of the binding's own
+write transactions (from a `beforeTransaction` handler, for example) is
+unsupported too: Yjs merges it into that transaction, which the binding does
+not read as a remote change, and the write can delete what it inserted and
+write it again as its own. Apply remote updates outside the binding's
+transactions, as providers do from `'update'` handlers and network messages.
+Development builds report another client's insertions inside the binding's
+own write transaction, once per binding (`RAW_YJS_WRITE_WARNING`,
+`'remote-in-write'`); a remote deletion there, and a remote update applied
+inside an app's outer `doc.transact` that the binding's write joins, are not
+detected. A transaction the binding also wrote in (an editor edit or
 `binding.undo()` inside your `doc.transact`, which joins it) is never
 reported, so a raw write of yours in that same transaction is not reported
 either: the check may miss a raw write, never flag the binding's own.
