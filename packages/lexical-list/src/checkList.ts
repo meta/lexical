@@ -122,8 +122,29 @@ export function registerCheckList(
     }
     handleClick(event, peekDisableTakeFocusOnClick());
   };
+  // Where each touch went down. Only a tap toggles: a finger that moves more
+  // than TAP_SLOP_PX along either axis before it lifts was a swipe, like
+  // scrolling through the list, even when it started on a check mark. This is
+  // the same test as core's tap detection. Touch pointers are captured by the
+  // item they went down on, so that pointerup still reaches it.
+  const TAP_SLOP_PX = 10;
+  const touchStarts = new Map<number, {x: number; y: number}>();
+  const recordTouchStart = (event: PointerEvent) => {
+    if (event.pointerType === 'touch') {
+      touchStarts.set(event.pointerId, {x: event.clientX, y: event.clientY});
+    }
+  };
   const configHandlePointerUp = (event: PointerEvent) => {
     if (event.pointerType !== 'touch') {
+      return;
+    }
+    const start = touchStarts.get(event.pointerId);
+    touchStarts.delete(event.pointerId);
+    if (
+      start !== undefined &&
+      (Math.abs(event.clientX - start.x) > TAP_SLOP_PX ||
+        Math.abs(event.clientY - start.y) > TAP_SLOP_PX)
+    ) {
       return;
     }
     if (isWithinDedupWindow(event)) {
@@ -329,7 +350,13 @@ export function registerCheckList(
                 }
               },
               mousedown: configHandleSelectDefaults,
-              pointerdown: configHandleSelectDefaults,
+              pointercancel: event => {
+                touchStarts.delete(event.pointerId);
+              },
+              pointerdown: event => {
+                recordTouchStart(event);
+                configHandleSelectDefaults(event);
+              },
             },
             {capture: true},
           ),

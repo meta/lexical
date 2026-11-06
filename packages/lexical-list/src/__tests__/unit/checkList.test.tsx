@@ -118,6 +118,44 @@ describe('CheckListExtension mobile tap toggle', () => {
     expect(readChecked(editor, 0)).toBe(true);
   });
 
+  // Touch pointers are captured by the element they went down on, so the
+  // pointerup of a swipe that starts on a check mark is still dispatched to
+  // its item, at the point where the finger lifted.
+  function touch(
+    target: HTMLLIElement,
+    type: 'pointerdown' | 'pointerup',
+    clientY: number,
+    clientX = 10,
+  ) {
+    target.dispatchEvent(
+      new PointerEvent(type, {
+        bubbles: true,
+        cancelable: true,
+        clientX,
+        clientY,
+        pointerId: 1,
+        pointerType: 'touch',
+      }),
+    );
+  }
+
+  it('a touch that moves before lifting does not toggle the item', () => {
+    using editor = buildEditor();
+    const li = getCheckListItem(0);
+    touch(li, 'pointerdown', 5);
+    touch(li, 'pointerup', 205);
+    expect(readChecked(editor, 0)).toBe(false);
+  });
+
+  it('a tap that moves a few pixels still toggles the item', () => {
+    using editor = buildEditor();
+    const li = getCheckListItem(0);
+    // 8px along each axis, as core's tap detection allows
+    touch(li, 'pointerdown', 5, 10);
+    touch(li, 'pointerup', 13, 18);
+    expect(readChecked(editor, 0)).toBe(true);
+  });
+
   it('mouse pointerup is ignored (click stays the desktop path)', () => {
     using editor = buildEditor();
     expect(readChecked(editor, 0)).toBe(false);
