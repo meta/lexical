@@ -34,6 +34,7 @@ import {
   createCommand,
   type DOMConversionOutput,
   type EditorConfig,
+  type EditorState,
   ElementNode,
   getDeclaredNodeStructure,
   INTERNAL_isNodeStructureEnforced,
@@ -787,19 +788,21 @@ function $splitLinkAtSelection(
 }
 
 /**
- * The autolinks `$toggleLink` made links in each editor, by key, until
- * AutoLinkAnnounceExtension sees them destroyed (see takeMadeLink): the text
- * is still a link, so there is nothing to announce.
+ * The autolinks `$toggleLink` made links, by key, for the editor state each
+ * update that did so commits (see takeMadeLink): AutoLinkAnnounceExtension
+ * leaves them out, as the text is still a link. Bound to that state, the
+ * record goes with it: an update that does not commit, or a later state
+ * (one an undo restores included), has none.
  */
-const madeLinks = new WeakMap<LexicalEditor, Set<NodeKey>>();
+const madeLinks = new WeakMap<EditorState, Set<NodeKey>>();
 
 /**
- * Whether `$toggleLink` made the autolink `key`, destroyed in `editor`, a
- * link (and forget it). @internal
+ * Whether `$toggleLink` made the autolink `key`, destroyed by the commit of
+ * `editor`'s current state, a link. @internal
  */
 export function takeMadeLink(editor: LexicalEditor, key: NodeKey): boolean {
-  const keys = madeLinks.get(editor);
-  return keys !== undefined && keys.delete(key);
+  const keys = madeLinks.get(editor.getEditorState());
+  return keys !== undefined && keys.has(key);
 }
 
 /**
@@ -824,13 +827,15 @@ function $replaceAutoLink(
   const selection = $getSelection();
   const selected =
     $isNodeSelection(selection) && selection.has(autoLink.getKey());
-  const editor = $getEditor();
-  let made = madeLinks.get(editor);
-  if (made === undefined) {
-    made = new Set();
-    madeLinks.set(editor, made);
+  const pending = $getEditor()._pendingEditorState;
+  if (pending !== null) {
+    let made = madeLinks.get(pending);
+    if (made === undefined) {
+      made = new Set();
+      madeLinks.set(pending, made);
+    }
+    made.add(autoLink.getKey());
   }
-  made.add(autoLink.getKey());
   autoLink.replace(replacement, true);
   if (selected) {
     // The node selection held the autolink itself: the same content stays

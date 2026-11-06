@@ -13,6 +13,7 @@ import {
   getExtensionDependencyFromEditor,
   type LexicalEditorWithDispose,
 } from '@lexical/extension';
+import {HistoryExtension} from '@lexical/history';
 import {
   $createAutoLinkNode,
   $createLinkNode,
@@ -31,6 +32,8 @@ import {
   $isTextNode,
   configExtension,
   type ElementNode,
+  HISTORY_PUSH_TAG,
+  UNDO_COMMAND,
 } from 'lexical';
 import {$assertNodeType} from 'lexical/src/__tests__/utils';
 import {afterEach, describe, expect, onTestFinished, test} from 'vitest';
@@ -289,6 +292,69 @@ describe('AutoLinkAnnounceExtension', () => {
       },
       {discrete: true},
     );
+
+    expect(readLiveRegion()).toBe('Link removed');
+  });
+
+  test('announces a link removed after an undo of $toggleLink brought it back', () => {
+    using editor = buildEditorFromExtensions(
+      defineExtension({
+        dependencies: [RichTextExtension, withMatchers, HistoryExtension],
+        name: '[root]',
+      }),
+    );
+    mountRoot(editor);
+    editor.update(
+      () => {
+        const url = 'https://example.com';
+        $getRoot().append(
+          $createParagraphNode().append(
+            $createAutoLinkNode(url).append($createTextNode(url)),
+          ),
+        );
+      },
+      {discrete: true, tag: HISTORY_PUSH_TAG},
+    );
+    editor.update(
+      () => {
+        $assertNodeType($onlyLink().getFirstChild(), $isTextNode).select(0, 5);
+        $toggleLink('https://u1.test');
+      },
+      {discrete: true, tag: HISTORY_PUSH_TAG},
+    );
+    editor.dispatchCommand(UNDO_COMMAND, undefined);
+    expect(editor.read(() => $isAutoLinkNode($onlyLink()))).toBe(true);
+    clearLiveRegion();
+
+    editor.update(() => void $onlyLink().remove(), {
+      discrete: true,
+      tag: HISTORY_PUSH_TAG,
+    });
+
+    expect(readLiveRegion()).toBe('Link removed');
+  });
+
+  test('announces a link removed after an update that made it a link threw', () => {
+    using editor = buildEditor();
+    addAutoLink(editor);
+    clearLiveRegion();
+
+    expect(() =>
+      editor.update(
+        () => {
+          $assertNodeType($onlyLink().getFirstChild(), $isTextNode).select(
+            0,
+            5,
+          );
+          $toggleLink('https://u1.test');
+          throw new Error('discarded');
+        },
+        {discrete: true},
+      ),
+    ).toThrow('discarded');
+    expect(editor.read(() => $isAutoLinkNode($onlyLink()))).toBe(true);
+
+    editor.update(() => void $onlyLink().remove(), {discrete: true});
 
     expect(readLiveRegion()).toBe('Link removed');
   });
