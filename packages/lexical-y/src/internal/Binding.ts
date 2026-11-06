@@ -4139,6 +4139,9 @@ export class YBinding {
         (message, data) => this.warn(RAW_YJS_WRITE_WARNING, message, data),
       );
     }
+    if (__DEV__ && (tr.origin === this || tr.origin === this.followUpOrigin)) {
+      this.noteRemoteInWrite(tr);
+    }
     if (tr.origin === this.scanOrigin) {
       // Changes nothing (see scanStackItem, getCursor), unless an app's
       // beforeTransaction listener changed the layout record in it: as for
@@ -4167,6 +4170,55 @@ export class YBinding {
     }
     this.readNow(tr);
   }
+
+  /**
+   * Development builds: another client's insertions inside a transaction
+   * whose origin is this binding's write (or its follow-up), which only a
+   * remote update applied from inside it makes (a `beforeTransaction`
+   * handler, for example): unsupported (see y.md), reported once per
+   * binding, as RAW_YJS_WRITE_WARNING `'remote-in-write'`. Such an update
+   * joins the write's transaction instead of being a change of its own,
+   * which the binding does not read as remote, and a write that does not
+   * show it can delete it. Not a complete detector: a remote deletion
+   * there inserts nothing, and a write that joins an app's outer `transact`
+   * runs under the app's origin, so neither is reported.
+   */
+  private noteRemoteInWrite(tr: Transaction): void {
+    if (this.reportedRemoteInWrite) {
+      return;
+    }
+    const own = this._doc.clientID;
+    let client: number | null = null;
+    tr.insertSet.clients.forEach((_ranges, c) => {
+      if (c !== own && client === null) {
+        client = c;
+      }
+    });
+    if (client === null) {
+      return;
+    }
+    this.reportedRemoteInWrite = true;
+    let root = '(a nested type)';
+    for (const [name, type] of this._doc.share) {
+      if ((type as unknown) === this._root) {
+        root = name;
+      }
+    }
+    this.warn(
+      RAW_YJS_WRITE_WARNING,
+      `client ${client}'s insertions were applied inside the binding's own write transaction (from a beforeTransaction handler, for example): unsupported, the binding does not read them as a remote change, and they can be lost or written again; apply remote updates outside the binding's transactions`,
+      {
+        key: null,
+        kind: 'content',
+        origin: String(client),
+        reason: 'remote-in-write',
+        root,
+      },
+    );
+  }
+
+  /** Whether noteRemoteInWrite reported (once per binding). */
+  private reportedRemoteInWrite = false;
 
   /** Read remote change `tr` now (see onAfterTransaction). */
   private readNow(tr: Transaction): void {
@@ -5458,6 +5510,12 @@ export class YBinding {
           transformed,
           localKeys,
           merged,
+          // The update's moves, keyed by the editor's state before the read
+          // (see $writeCommit). Not while a composition holds changes back:
+          // there the edit is written as before, rewriting what the cheaper
+          // rewrite picks, which is how the hold's decision about it (see
+          // $heldDecision) was made.
+          state.hidden === null ? prevEditorState : readState,
         ),
       );
     } finally {
@@ -6588,6 +6646,7 @@ export class YBinding {
     transformed: ReadonlySet<NodeKey>,
     localKeys: Set<NodeKey>,
     merged: ReadonlySet<NodeKey> | null,
+    movedBefore: EditorState = prevEditorState,
   ): void {
     const roles = new Roles(state);
     const plan = Writer.$plan(
@@ -6597,9 +6656,13 @@ export class YBinding {
       prevEditorState,
     );
     plan.merged = merged;
+    // Lexical's record of the nodes the update moved, keyed by the state it
+    // started from: for an app's edit in a read, the editor's state before
+    // the read, not the read's own state the edit is written on (see
+    // $writeReadEdits).
     const movedNodes = editorState._movedNodes;
     plan.moved =
-      movedNodes === null ? null : movedNodes.get(prevEditorState._nodeMap);
+      movedNodes === null ? null : movedNodes.get(movedBefore._nodeMap);
     const splitNodes = editorState._splitNodes;
     plan.splits =
       splitNodes === null ? null : splitNodes.get(prevEditorState._nodeMap);
