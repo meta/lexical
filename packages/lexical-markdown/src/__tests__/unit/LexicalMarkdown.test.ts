@@ -6553,3 +6553,37 @@ describe('decimal character references that name no character', () => {
     ).toEqual([{title: 't\uFFFD', url: 'https://example.com/\uFFFD'}]);
   });
 });
+
+describe('a paragraph line that starts like a block', () => {
+  // Reading a line that starts with `# `, `> `, `- `, `+ ` or `1. ` makes a
+  // heading, a quote or a list item, so a paragraph holding that text has to
+  // export it escaped to be read back as the paragraph it was (#9401).
+  it.each([
+    ['\\# Hours', '# Hours'],
+    ['\\> a', '> a'],
+    ['\\- a', '- a'],
+    ['\\+ a', '+ a'],
+    ['1\\. a', '1. a'],
+  ])('reads %j back as a paragraph', (md, text) => {
+    const importMarkdown = (source: string) => {
+      const editor = createTestEditor();
+      editor.update(() => $convertFromMarkdownString(source, TRANSFORMERS), {
+        discrete: true,
+      });
+      return editor;
+    };
+    const blocks = (editor: LexicalEditor) =>
+      editor.read('latest', () =>
+        $getRoot()
+          .getChildren()
+          .map(child => [child.getType(), child.getTextContent()]),
+      );
+
+    const exported = importMarkdown(md).read('latest', () =>
+      $convertToMarkdownString(TRANSFORMERS),
+    );
+
+    expect(blocks(importMarkdown(exported))).toEqual([['paragraph', text]]);
+    expect(exported).toBe(md);
+  });
+});
