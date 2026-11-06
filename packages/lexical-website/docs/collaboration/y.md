@@ -1166,7 +1166,8 @@ attributes one of them gives it, and each map entry as one of them has it.
 When nothing is held back and no entry the document shows is overwritten
 (the direct path), that holds as the repair applies, at the same cost as
 without the check; otherwise the load is checked on a copy of the document
-first, which costs about one more repair and a copy, and a candidate that
+first, which costs about one more repair and a copy (on long dependency
+chains at the apply budget, 1.6 to 2 times the repair), and a candidate that
 passes is applied, down to the plain load itself. A run of format items alone is held back while a format item
 with the same key stays pending (a format's other end), unless content needs
 it, so a format is not opened or closed on its own over text the encoding
