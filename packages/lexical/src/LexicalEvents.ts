@@ -81,6 +81,7 @@ import {
 } from '.';
 import {
   CAN_USE_BEFORE_INPUT,
+  IS_ANDROID,
   IS_ANDROID_CHROME,
   IS_APPLE,
   IS_APPLE_WEBKIT,
@@ -1224,8 +1225,80 @@ function $isInputEventTargetingCapturedSelection(
   );
 }
 
+/**
+ * Chromium ends a composition without a compositionend event when an update
+ * moves or recreates the DOM the composition is in (an app's update that
+ * unwraps the composing text's link, or moves its paragraph): the commit then
+ * arrives as plain input. An input, key or compositionstart event that is not
+ * part of that composition means the editor's composition is over too;
+ * without this the editor kept its composition key, so it dispatched no key
+ * commands, started no new composition and kept treating that node as
+ * composing. Desktop Chromium only (Android, Firefox and WebKit report
+ * compositions differently), and only for trusted events (an event an app or
+ * a test dispatches does not carry isComposing).
+ */
+function endsCompositionTheBrowserEnded(
+  event: InputEvent | KeyboardEvent | CompositionEvent,
+  editor: LexicalEditor,
+): boolean {
+  if (
+    editor._compositionKey === null ||
+    !event.isTrusted ||
+    !IS_CHROME ||
+    IS_ANDROID ||
+    IS_IOS ||
+    IS_SAFARI ||
+    IS_APPLE_WEBKIT ||
+    IS_FIREFOX
+  ) {
+    return false;
+  }
+  if (event.type === 'compositionstart') {
+    return true;
+  }
+  if ((event as InputEvent | KeyboardEvent).isComposing) {
+    return false;
+  }
+  return 'inputType' in event
+    ? event.inputType !== 'insertCompositionText' &&
+        event.inputType !== 'deleteCompositionText'
+    : (event as KeyboardEvent).keyCode !== 229;
+}
+
+/**
+ * End the editor's composition the browser ended (see
+ * endsCompositionTheBrowserEnded) without reading the DOM selection, which
+ * the user may have moved since: only the composed node is synced from its
+ * own DOM text.
+ */
+function endCompositionTheBrowserEnded(
+  event: InputEvent | KeyboardEvent | CompositionEvent,
+  editor: LexicalEditor,
+): void {
+  if (!endsCompositionTheBrowserEnded(event, editor)) {
+    return;
+  }
+  updateEditorSync(editor, () => {
+    editor._inputState.compositionPhase = 'idle';
+    const key = editor._compositionKey;
+    $setCompositionKey(null);
+    const node = key === null ? null : $getNodeByKey(key);
+    const dom = key === null ? null : editor.getElementByKey(key);
+    const text =
+      dom !== null && $isTextNode(node)
+        ? $getDOMTextNode(node, dom, editor)
+        : null;
+    if (text !== null && text.nodeValue !== null && $isTextNode(node)) {
+      $updateTextNodeFromDOMContent(node, text.nodeValue, null, null, true);
+    }
+    $cleanupComposedSubclass(key);
+    $addUpdateTag(COMPOSITION_END_TAG);
+  });
+}
+
 function onBeforeInput(event: InputEvent, editor: LexicalEditor): void {
   const inputType = event.inputType;
+  endCompositionTheBrowserEnded(event, editor);
 
   // We let the browser do its own thing for composition.
   if (
@@ -1839,6 +1912,7 @@ function onCompositionStart(
   event: CompositionEvent,
   editor: LexicalEditor,
 ): void {
+  endCompositionTheBrowserEnded(event, editor);
   dispatchCommand(editor, COMPOSITION_START_COMMAND, event);
 }
 
@@ -2054,6 +2128,7 @@ function onKeyDown(event: KeyboardEvent, editor: LexicalEditor): void {
   if (event.key !== 'Backspace') {
     clearHandledSelectionCommandInsertText(inputState);
   }
+  endCompositionTheBrowserEnded(event, editor);
   if (
     editor.isComposing() ||
     (!IS_IOS && (IS_SAFARI || IS_APPLE_WEBKIT) && event.keyCode === 229)
