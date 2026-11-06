@@ -53,6 +53,13 @@
   color: #fff;
 }
 
+.markdown-paste-prompt-convert kbd {
+  margin-left: 6px;
+  font: inherit;
+  font-size: 12px;
+  opacity: 0.85;
+}
+
 .markdown-paste-prompt-convert:hover {
   background-color: rgb(45, 112, 216);
 }

@@ -25,13 +25,14 @@ import {
   configExtension,
   defineExtension,
   type ElementNode,
+  KEY_DOWN_COMMAND,
   KEY_ESCAPE_COMMAND,
   type LexicalEditor,
   type LexicalNode,
   PASTE_COMMAND,
   UNDO_COMMAND,
 } from 'lexical';
-import {describe, expect, test} from 'vitest';
+import {describe, expect, onTestFinished, test} from 'vitest';
 
 import {
   CONVERT_PASTED_MARKDOWN_COMMAND,
@@ -138,6 +139,10 @@ describe('looksLikeMarkdown', () => {
     '1. one\n2. two',
     '```\ncode\n```',
     '| a | b |\n| --- | --- |\n| 1 | 2 |',
+    '| a | b |\n| --- | :--: |',
+    '| a | b |\n|-|-|',
+    '| a |\n| --- |',
+    '  | a | b |\n  | --- | --- |  ',
     '**bold** and *italic*',
     'see [docs](https://lexical.dev) and `code`',
     '~~old~~ __new__',
@@ -154,8 +159,27 @@ describe('looksLikeMarkdown', () => {
     'a snake_case_name and another_one',
     'one **bold** word',
     '```',
+    '| --- |',
+    '|-|-|',
+    '| a | b |\n||',
+    '| a | b |\n| |',
+    'not a table\n| --- | --- |',
   ])('%j does not look like Markdown', text => {
     expect(looksLikeMarkdown(text)).toBe(false);
+  });
+});
+
+describe('looksLikeMarkdown on long lines', () => {
+  test.each([
+    ['unclosed link text', '['.repeat(200_000)],
+    ['unclosed link destinations', '[a]('.repeat(50_000)],
+    ['spaces after a table row', `| --- | ---${' '.repeat(200_000)}x`],
+    ['a long delimiter row', `| a |\n|${'-'.repeat(200_000)}x`],
+  ])('%s stays linear', (_name, text) => {
+    const start = performance.now();
+    expect(looksLikeMarkdown(text)).toBe(false);
+    // A quadratic scan takes tens of seconds at this size.
+    expect(performance.now() - start).toBeLessThan(1000);
   });
 });
 
@@ -393,10 +417,22 @@ describe('MarkdownPasteExtension', () => {
     expect(getOffer(editor).peek()).toBe(null);
   });
 
-  test('an update that changes nothing keeps the offer', () => {
+  test('a commit that changes nothing keeps the offer', () => {
     const editor = createEditor();
     paste(editor, {'text/plain': '# Heading'});
-    setUp(editor, () => {});
+    let commits = 0;
+    const unregister = editor.registerUpdateListener(() => {
+      commits++;
+    });
+    onTestFinished(unregister);
+    // An empty update does not commit, but a dirty selection does.
+    setUp(editor, () => {
+      const selection = $getSelection();
+      if ($isRangeSelection(selection)) {
+        selection.dirty = true;
+      }
+    });
+    expect(commits).toBe(1);
     expect(getOffer(editor).peek()).not.toBe(null);
   });
 
@@ -423,6 +459,96 @@ describe('MarkdownPasteExtension', () => {
     editor.dispatchCommand(DISMISS_PASTED_MARKDOWN_COMMAND, undefined);
     expect(getOffer(editor).peek()).toBe(null);
     expect(describeRoot(editor)).toEqual([['paragraph', '# Heading# Heading']]);
+  });
+
+  test('Tab converts a pending offer', () => {
+    const editor = createEditor();
+    paste(editor, {'text/plain': '# Heading'});
+    const event = new KeyboardEvent('keydown', {
+      cancelable: true,
+      key: 'Tab',
+    });
+    expect(editor.dispatchCommand(KEY_DOWN_COMMAND, event)).toBe(true);
+    editor.read(() => {});
+    expect(event.defaultPrevented).toBe(true);
+    expect(describeRoot(editor)).toEqual([['heading', 'Heading']]);
+    expect(getOffer(editor).peek()).toBe(null);
+  });
+
+  test('Shift+Tab does not convert', () => {
+    const editor = createEditor();
+    paste(editor, {'text/plain': '# Heading'});
+    editor.dispatchCommand(
+      KEY_DOWN_COMMAND,
+      new KeyboardEvent('keydown', {
+        cancelable: true,
+        key: 'Tab',
+        shiftKey: true,
+      }),
+    );
+    editor.read(() => {});
+    expect(describeRoot(editor)).toEqual([['paragraph', '# Heading']]);
+  });
+
+  test('Tab is left to the editor without an offer', () => {
+    const pressTab = (editor: LexicalEditor) => {
+      setUp(editor, () => {
+        const selection = $getSelection();
+        if ($isRangeSelection(selection)) {
+          selection.insertText('text');
+        }
+      });
+      const event = new KeyboardEvent('keydown', {
+        cancelable: true,
+        key: 'Tab',
+      });
+      editor.dispatchCommand(KEY_DOWN_COMMAND, event);
+      editor.read(() => {});
+      return [describeRoot(editor), event.defaultPrevented];
+    };
+    expect(pressTab(createEditor())).toEqual(
+      pressTab(createEditor({disabled: true})),
+    );
+  });
+
+  test('announces the offer in a live region', () => {
+    const editor = createEditor();
+    const root = document.createElement('div');
+    root.contentEditable = 'true';
+    document.body.append(root);
+    onTestFinished(() => {
+      editor.setRootElement(null);
+      root.remove();
+    });
+    editor.setRootElement(root);
+    const announced = () =>
+      Array.from(document.querySelectorAll('[aria-live]'))
+        .map(region => region.textContent)
+        .join('');
+    paste(editor, {'text/plain': 'plain words'});
+    expect(announced()).toBe('');
+    paste(editor, {'text/plain': '\n# Heading'});
+    expect(getOffer(editor).peek()).not.toBe(null);
+    expect(announced()).toContain('looks like Markdown');
+  });
+
+  test('disabling the extension drops a pending offer', () => {
+    const editor = createEditor();
+    const {disabled, offer} = getExtensionDependencyFromEditor(
+      editor,
+      MarkdownPasteExtension,
+    ).output;
+    paste(editor, {'text/plain': '# Heading'});
+    expect(offer.peek()).not.toBe(null);
+    disabled.value = true;
+    expect(offer.peek()).toBe(null);
+    setUp(editor, () => $getRoot().selectEnd());
+    paste(editor, {'text/plain': '\n# Heading'});
+    expect(offer.peek()).toBe(null);
+    disabled.value = false;
+    setUp(editor, () => $getRoot().selectEnd());
+    paste(editor, {'text/plain': '\n# Heading'});
+    expect(offer.peek()).not.toBe(null);
   });
 
   test('does not offer when disabled', () => {

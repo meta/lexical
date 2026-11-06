@@ -23,6 +23,7 @@ import {createPortal} from 'react-dom';
 
 import {
   CONVERT_PASTED_MARKDOWN_COMMAND,
+  CONVERT_PASTED_MARKDOWN_SHORTCUT,
   DISMISS_PASTED_MARKDOWN_COMMAND,
   MarkdownPasteExtension,
   type MarkdownPasteOffer,
@@ -109,8 +110,8 @@ function MarkdownPastePrompt({
     <div
       ref={promptRef}
       className="markdown-paste-prompt"
-      role="status"
-      aria-live="polite">
+      role="group"
+      aria-label="Pasted Markdown">
       <i className="format markdown" aria-hidden="true" />
       <span className="markdown-paste-prompt-text">
         The pasted text looks like Markdown.
@@ -118,11 +119,12 @@ function MarkdownPastePrompt({
       <button
         type="button"
         className="markdown-paste-prompt-convert"
+        aria-keyshortcuts={CONVERT_PASTED_MARKDOWN_SHORTCUT}
         onMouseDown={keepEditorFocus}
         onClick={() =>
           editor.dispatchCommand(CONVERT_PASTED_MARKDOWN_COMMAND, undefined)
         }>
-        Convert
+        Convert <kbd>{CONVERT_PASTED_MARKDOWN_SHORTCUT}</kbd>
       </button>
       <button
         type="button"

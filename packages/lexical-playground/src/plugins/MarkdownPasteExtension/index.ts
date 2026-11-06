@@ -6,9 +6,11 @@
  *
  */
 
+import {AriaLiveRegionExtension} from '@lexical/a11y';
 import {$insertGeneratedNodes} from '@lexical/clipboard';
 import {$isCodeNode, type CodeNode} from '@lexical/code-core';
 import {
+  effect,
   namedSignals,
   type NamedSignalsOutput,
   type Signal,
@@ -16,6 +18,7 @@ import {
 } from '@lexical/extension';
 import {
   $generateNodesFromMarkdownString,
+  isTableRowDivider,
   type Transformer,
   TRANSFORMERS,
 } from '@lexical/markdown';
@@ -36,6 +39,8 @@ import {
   createCommand,
   defineExtension,
   type ElementNode,
+  isExactShortcutMatch,
+  KEY_DOWN_COMMAND,
   KEY_ESCAPE_COMMAND,
   type LexicalCommand,
   type LexicalEditor,
@@ -77,7 +82,10 @@ export interface MarkdownPasteOffer {
  * Configuration for {@link MarkdownPasteExtension}.
  */
 export interface MarkdownPasteConfig {
-  /** When `true`, pastes are never offered for conversion. */
+  /**
+   * When `true`, pastes are not offered for conversion, and turning it on
+   * drops a pending offer.
+   */
   disabled: boolean;
   /**
    * The transformers used to import the Markdown. Transformers whose node
@@ -129,12 +137,22 @@ export const CONVERT_PASTED_MARKDOWN_COMMAND: LexicalCommand<void> =
 export const DISMISS_PASTED_MARKDOWN_COMMAND: LexicalCommand<void> =
   createCommand('DISMISS_PASTED_MARKDOWN_COMMAND');
 
+/**
+ * The key that converts a pending offer, as a label for prompts and
+ * announcements. It is taken over only while an offer is pending; Escape
+ * dismisses the offer first when Tab is wanted for what it usually does.
+ */
+export const CONVERT_PASTED_MARKDOWN_SHORTCUT = 'Tab';
+
+const OFFER_ANNOUNCEMENT = `The pasted text looks like Markdown. Press ${CONVERT_PASTED_MARKDOWN_SHORTCUT} to convert it, or Escape to keep it as pasted.`;
+
 const FENCE = /^ {0,3}(?:`{3,}|~{3,})/;
 const HEADING = /^ {0,3}#{1,6}[ \t]+\S/;
 const QUOTE = /^ {0,3}>[ \t]?\S/;
 const LIST_ITEM = /^[ \t]*(?:[-*+]|\d{1,9}[.)])[ \t]+\S/;
-const TABLE_DIVIDER =
-  /^ {0,3}\|?[ \t]*:?-{3,}:?[ \t]*(?:\|[ \t]*:?-{3,}:?[ \t]*)+\|?[ \t]*$/;
+// These run synchronously on every paste, so each scan has to stop at the next
+// delimiter: a scan that could reach the end of the line from every occurrence
+// of its opening delimiter would be quadratic on a long line.
 const INLINE = [
   // **strong** and __strong__
   /\*\*[^\s*](?:[^*\n]*[^\s*])?\*\*/g,
@@ -147,8 +165,22 @@ const INLINE = [
   // `code`
   /`[^`\n]+`/g,
   // [link](url) and ![image](url)
-  /\[[^\]\n]+\]\([^)\s]+(?:[ \t]+"[^"\n]*")?\)/g,
+  /\[[^[\]\n]+\]\([^)\s[]+(?:[ \t]+"[^"\n]*")?\)/g,
 ];
+
+/**
+ * Whether `line` is the delimiter row of a table that the playground's `TABLE`
+ * transformer can import. {@link isTableRowDivider} also accepts rows with no
+ * hyphens like `||`, and a delimiter row has to follow a header row.
+ */
+function isTableDelimiter(line: string, previousLine: string): boolean {
+  const trimmed = line.trim();
+  return (
+    trimmed.includes('-') &&
+    previousLine.includes('|') &&
+    isTableRowDivider(trimmed)
+  );
+}
 
 /**
  * The default {@link MarkdownPasteConfig.isMarkdown} check. Text looks like
@@ -160,10 +192,16 @@ const INLINE = [
 export function looksLikeMarkdown(text: string): boolean {
   let listItems = 0;
   let fences = 0;
+  let previousLine = '';
   for (const line of text.split(/\r?\n/)) {
-    if (HEADING.test(line) || QUOTE.test(line) || TABLE_DIVIDER.test(line)) {
+    if (
+      HEADING.test(line) ||
+      QUOTE.test(line) ||
+      isTableDelimiter(line, previousLine)
+    ) {
       return true;
     }
+    previousLine = line;
     if (FENCE.test(line) && ++fences === 2) {
       return true;
     }
@@ -382,8 +420,9 @@ function $convertOffer(
 function registerMarkdownPaste(
   editor: LexicalEditor,
   output: MarkdownPasteOutput,
+  announce: (message: string) => void,
 ): () => void {
-  const {disabled, isMarkdown, offer} = output;
+  const {isMarkdown, offer} = output;
   // Recorded when a paste starts, and turned into an offer once the update
   // that inserts it has been committed.
   let pending: {markdown: string; start: MarkdownPastePoint} | null = null;
@@ -395,6 +434,10 @@ function registerMarkdownPaste(
     return true;
   };
   return mergeRegister(
+    () => {
+      pending = null;
+      offer.value = null;
+    },
     editor.registerCommand(
       PASTE_COMMAND,
       event => {
@@ -407,7 +450,6 @@ function registerMarkdownPaste(
           : '';
         const selection = $getSelection();
         if (
-          disabled.peek() ||
           !markdown ||
           !$isRangeSelection(selection) ||
           // Markdown means nothing inside a code block.
@@ -444,6 +486,9 @@ function registerMarkdownPaste(
             };
             return $getOfferRange(candidate) ? candidate : null;
           });
+          if (offer.peek() !== null) {
+            announce(OFFER_ANNOUNCEMENT);
+          }
           return;
         }
         if (offer.peek() === null) {
@@ -479,6 +524,23 @@ function registerMarkdownPaste(
       dismiss,
       COMMAND_PRIORITY_EDITOR,
     ),
+    // Ahead of the editor's own keydown handling, which would otherwise indent
+    // or insert a tab. preventDefault() keeps focus from leaving the editor.
+    editor.registerCommand(
+      KEY_DOWN_COMMAND,
+      event => {
+        if (
+          offer.peek() === null ||
+          !isExactShortcutMatch(event, CONVERT_PASTED_MARKDOWN_SHORTCUT, {})
+        ) {
+          return false;
+        }
+        event.preventDefault();
+        editor.dispatchCommand(CONVERT_PASTED_MARKDOWN_COMMAND, undefined);
+        return true;
+      },
+      COMMAND_PRIORITY_LOW,
+    ),
     // Ahead of rich text's Escape handler, which blurs the editor: the
     // first Escape only dismisses the offer.
     editor.registerCommand(KEY_ESCAPE_COMMAND, dismiss, COMMAND_PRIORITY_LOW),
@@ -497,7 +559,9 @@ function registerMarkdownPaste(
  * prompt that dispatches {@link CONVERT_PASTED_MARKDOWN_COMMAND}, which
  * replaces the pasted content with the imported Markdown as one undoable
  * update, or {@link DISMISS_PASTED_MARKDOWN_COMMAND}. The offer is dropped
- * by the next edit or selection change, or by Escape.
+ * by the next edit or selection change, or by Escape, and
+ * {@link CONVERT_PASTED_MARKDOWN_SHORTCUT} converts it from the keyboard. The
+ * offer is announced to screen readers through {@link AriaLiveRegionExtension}.
  *
  * The playground renders the prompt with `MarkdownPastePlugin`. This lives
  * in the playground while the interface settles; copy both to use it.
@@ -514,7 +578,15 @@ export const MarkdownPasteExtension = defineExtension({
     shouldPreserveNewLines: false,
     transformers: TRANSFORMERS,
   }),
+  dependencies: [AriaLiveRegionExtension],
   name: '@lexical/playground/MarkdownPaste',
-  register: (editor, _config, state) =>
-    registerMarkdownPaste(editor, state.getOutput()),
+  register: (editor, _config, state) => {
+    const output = state.getOutput();
+    const {announce} = state.getDependency(AriaLiveRegionExtension).output;
+    return effect(() =>
+      output.disabled.value
+        ? undefined
+        : registerMarkdownPaste(editor, output, announce),
+    );
+  },
 });
