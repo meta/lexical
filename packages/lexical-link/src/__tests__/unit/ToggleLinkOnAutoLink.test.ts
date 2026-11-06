@@ -16,6 +16,7 @@
 
 import {buildEditorFromExtensions} from '@lexical/extension';
 import {
+  $createLinkNode,
   $isAutoLinkNode,
   $isLinkNode,
   $toggleLink,
@@ -25,11 +26,15 @@ import {
   type LinkNode,
 } from '@lexical/link';
 import {
+  $createNodeSelection,
   $createParagraphNode,
   $createTextNode,
   $getRoot,
+  $getSelection,
   $isElementNode,
+  $isNodeSelection,
   $isTextNode,
+  $setSelection,
   configExtension,
   defineExtension,
 } from 'lexical';
@@ -167,5 +172,83 @@ describe('$toggleLink inside an autolink', () => {
         return [link.getURL(), link.getTarget(), link.getTitle()];
       }),
     ).toEqual(['https://u2.test', null, 'Mine']);
+  });
+
+  test('with the autolink itself selected, keeps what it holds selected', () => {
+    using editor = buildEditor();
+    editor.update(
+      () => {
+        $getRoot()
+          .clear()
+          .append(
+            $createParagraphNode().append($createTextNode('see t30z now')),
+          );
+      },
+      {discrete: true},
+    );
+    editor.update(
+      () => {
+        const selection = $createNodeSelection();
+        selection.add($link().getKey());
+        $setSelection(selection);
+        $toggleLink('https://u1.test');
+      },
+      {discrete: true},
+    );
+    expect(
+      editor.read(() => {
+        const link = $link();
+        const selection = $getSelection();
+        return [
+          $isAutoLinkNode(link),
+          link.getURL(),
+          $isNodeSelection(selection) ? selection.getTextContent() : null,
+        ];
+      }),
+    ).toEqual([false, 'https://u1.test', 't30z']);
+  });
+
+  test('with the autolink itself selected next to the same link, keeps its text selected', () => {
+    using editor = buildEditor();
+    editor.update(
+      () => {
+        $getRoot()
+          .clear()
+          .append(
+            $createParagraphNode().append(
+              $createLinkNode('https://u1.test').append(
+                $createTextNode('see '),
+              ),
+              $createTextNode('t30z now'),
+            ),
+          );
+      },
+      {discrete: true},
+    );
+    editor.update(
+      () => {
+        const paragraph = $getRoot().getFirstChild();
+        assert($isElementNode(paragraph), 'expected a paragraph');
+        const auto = paragraph.getChildren().find($isAutoLinkNode);
+        assert(auto !== undefined, 'expected an autolink');
+        const selection = $createNodeSelection();
+        selection.add(auto.getKey());
+        $setSelection(selection);
+        $toggleLink('https://u1.test');
+      },
+      {discrete: true},
+    );
+    expect(
+      editor.read(() => {
+        const paragraph = $getRoot().getFirstChild();
+        assert($isElementNode(paragraph), 'expected a paragraph');
+        const selection = $getSelection();
+        return [
+          paragraph.getChildren().some($isAutoLinkNode),
+          paragraph.getTextContent(),
+          $isNodeSelection(selection) ? selection.getTextContent() : null,
+        ];
+      }),
+    ).toEqual([false, 'see t30z now', 't30z']);
   });
 });

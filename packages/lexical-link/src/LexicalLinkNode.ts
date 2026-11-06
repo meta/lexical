@@ -802,7 +802,19 @@ function $replaceAutoLink(
     target: target !== undefined ? target : autoLink.getTarget(),
     title: title !== undefined ? title : autoLink.getTitle(),
   });
+  const selection = $getSelection();
+  const selected =
+    $isNodeSelection(selection) && selection.has(autoLink.getKey());
   autoLink.replace(replacement, true);
+  if (selected) {
+    // The node selection held the autolink itself: it holds what the link
+    // holds now (the link may still merge into a neighbouring one, whose
+    // key would replace its own; its children keep theirs).
+    selection.delete(autoLink.getKey());
+    for (const child of replacement.getChildren()) {
+      selection.add(child.getKey());
+    }
+  }
   return replacement.getKey();
 }
 
