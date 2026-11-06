@@ -124,6 +124,7 @@ import {
   isDOMNode,
   isDOMShadowRoot,
   isDOMTextNode,
+  isEditorFocusHost,
   isHTMLElement,
   isSelectionWithinEditor,
   removeDOMBlockCursorElement,
@@ -4261,8 +4262,10 @@ export function $updateDOMSelection(
     // restore / selection mutation above, which can become stale (e.g. when
     // setting the DOM selection focuses the contentEditable as a side effect).
     // Shallow is sufficient here for the same reason as the Firefox branch
-    // above: the equality check doesn't cross the shadow boundary.
-    rootElement === getActiveElement(rootElement)
+    // above: the containment check doesn't cross the shadow boundary. A caret
+    // in a named slot or another editable island focuses that island, not the
+    // root.
+    isEditorFocusHost(editor, rootElement, getActiveElement(rootElement))
   ) {
     const selectionTarget: null | Range | HTMLElement | Text =
       $isRangeSelection(nextSelection) &&
