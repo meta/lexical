@@ -15,7 +15,7 @@ import {
   $getNodeByKey,
   $getSelection,
   $isElementNode,
-  $isParagraphNode,
+  $isTextNode,
   $normalizeSelection__EXPERIMENTAL,
   type BaseSelection,
   type ElementNode,
@@ -278,24 +278,34 @@ export class TableSelection implements BaseSelection {
 
   /**
    * Returns whether the provided TextFormatType is present on the Selection.
-   * This will be true if any paragraph in table cells has the specified format.
+   * This will be true if any text in any of the selected cells' blocks carries
+   * the format, and if any block in them would type in that format.
    *
    * @param type the TextFormatType to check for.
    * @returns true if the provided format is currently toggled on the Selection, false otherwise.
    */
   hasFormat(type: TextFormatType): boolean {
-    let format = 0;
-
-    const cellNodes = this.getNodes().filter($isTableCellNode);
-    cellNodes.forEach((cellNode: TableCellNode) => {
-      const paragraph = cellNode.getFirstChild();
-      if ($isParagraphNode(paragraph)) {
-        format |= paragraph.getTextFormat();
-      }
-    });
-
     const formatFlag = TEXT_TYPE_TO_FORMAT[type];
-    return (format & formatFlag) !== 0;
+
+    const $cellHasFormat = (node: LexicalNode): boolean => {
+      if ($isTextNode(node)) {
+        return (node.getFormat() & formatFlag) !== 0;
+      }
+      if ($isElementNode(node)) {
+        // A block's own text format is the format new text in it would be typed
+        // in, which is the only thing this method reported before, and only for
+        // the cell's first child.
+        return (
+          (node.getTextFormat() & formatFlag) !== 0 ||
+          node.getChildren().some($cellHasFormat)
+        );
+      }
+      return false;
+    };
+
+    return this.getNodes().some(
+      node => $isTableCellNode(node) && $cellHasFormat(node),
+    );
   }
 
   insertNodes(nodes: LexicalNode[]) {
