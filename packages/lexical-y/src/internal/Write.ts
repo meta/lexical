@@ -2695,10 +2695,20 @@ export class Writer {
       const from = own !== null && own !== left ? own.right : startItem;
       if (from !== startItem) {
         cursor.advance(
-          countLive(this.view, startItem, from, this.state.hidden),
+          countLive(
+            this.view,
+            startItem,
+            from,
+            this.state.hidden,
+            this.leftOut,
+          ),
         );
       }
-      cursor.delete(countLive(this.view, from, stop, this.state.hidden));
+      // Sized as the cursor moves: without what readers leave out (see
+      // leftOut), which it neither counts nor deletes.
+      cursor.delete(
+        countLive(this.view, from, stop, this.state.hidden, this.leftOut),
+      );
     }
     if (idx + 1 < old.length) {
       old[idx + 1].start = copyStart(u.start);
@@ -3030,9 +3040,10 @@ export class Writer {
    * show (see $isLeftOutInline): one this write did not make. Invariant: the
    * writer counts and keeps exactly what the reader leaves out. Why: text
    * written beside such an element was placed by positions that counted it
-   * while the editor's did not.
+   * while the editor's did not. The self-check reads with it too (see
+   * $shownText).
    */
-  private readonly leftOut = (it: Item): boolean =>
+  readonly leftOut = (it: Item): boolean =>
     !this.tr.insertSet.hasId(it.id) &&
     $isLeftOutInline(this.view, it, this.state.keyByY, this.prevState._nodeMap);
 

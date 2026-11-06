@@ -300,11 +300,20 @@ export function $pushInline(
 /**
  * Whether shared node `y` holds content that is not deleted, in `view` (see
  * isGoneIn: in the document a write sees, content a change not read yet
- * inserted does not count).
+ * inserted does not count), less the items `leftOut` names (a nested
+ * element the editor does not show either, see $isLeftOutInline).
  */
-export function hasLiveContent(view: View | null, y: YNode): boolean {
+export function hasLiveContent(
+  view: View | null,
+  y: YNode,
+  leftOut: ((it: Item) => boolean) | null = null,
+): boolean {
   for (let it = y._start; it !== null; it = it.right) {
-    if (it.countable && !isGoneIn(view, it)) {
+    if (
+      it.countable &&
+      !isGoneIn(view, it) &&
+      !(leftOut !== null && leftOut(it))
+    ) {
       return true;
     }
   }
@@ -313,8 +322,8 @@ export function hasLiveContent(view: View | null, y: YNode): boolean {
 
 /**
  * Whether live item `it` is a stored inline element the editor does not show:
- * one holding no content that the editor did not hold before this update
- * either (readers leave out an element that cannot be empty, as Lexical
+ * one holding no content (an element left out itself is none) that the
+ * editor did not hold before this update either (readers leave out an element that cannot be empty, as Lexical
  * would remove it: a mark whose text peers deleted concurrently, or whose
  * text has not arrived yet, see Reader). An empty element the editor shows
  * (its class or the instance allows it), and one the update removed, count.
@@ -334,7 +343,14 @@ export function $isLeftOutInline(
   }
   const y = content.type as YNode;
   const name = typeof y.name === 'string' ? y.name : '';
-  if (!name.startsWith(INLINE_PREFIX) || hasLiveContent(view, y)) {
+  // Content counts unless it is an element left out itself (a comment
+  // inside a comment, both emptied): readers show neither.
+  if (
+    !name.startsWith(INLINE_PREFIX) ||
+    hasLiveContent(view, y, child =>
+      $isLeftOutInline(view, child, keyByY, prevMap),
+    )
+  ) {
     return false;
   }
   // The node a read made for it (see Reader); a shared node no read mapped
@@ -499,16 +515,21 @@ function pushStoredText(out: Atoms, text: string, attrs: Attrs): void {
   }
 }
 
-/** Live content items from `start` up to `stop` (exclusive). */
+/**
+ * Live content items from `start` up to `stop` (exclusive), less those
+ * `leftOut` names (a stored element the editor does not show, which the
+ * writer's cursor neither counts nor deletes).
+ */
 export function countLive(
   view: View | null,
   start: Item | null,
   stop: Item | null,
   hidden: Hidden | null = null,
+  leftOut: ((it: Item) => boolean) | null = null,
 ): number {
   let n = 0;
   for (let it = start; it !== null && it !== stop; it = it.right) {
-    if (isLiveContent(view, it)) {
+    if (isLiveContent(view, it) && !(leftOut !== null && leftOut(it))) {
       n += unheldLength(it, hidden);
     }
   }
