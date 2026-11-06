@@ -1272,6 +1272,83 @@ describe('inputs as large or as deep as they are legal', () => {
   );
 
   test.each([false, true])(
+    'a node-valued entry 10,000 levels deep, overwritten concurrently: the loader does what a plain load does (where @y/y itself overflows deleting the tree, both throw), gc %s',
+    gc => {
+      // At this depth @y/y's own recursion (Item#delete through nested
+      // types, also in a local overwrite and a plain apply) can overflow the
+      // stack, depending on the runtime. Whatever @y/y does, the loader must
+      // do the same as a plain load: the repair adds no recursion of its own.
+      const outcome = (fn: () => unknown) => {
+        try {
+          fn();
+          return 'ok';
+        } catch (e) {
+          return e instanceof RangeError ? 'RangeError' : String(e);
+        }
+      };
+      const nest = (cell: Y.Node, text: string) => {
+        let node = cell;
+        for (let i = 0; i < 10000; i++) {
+          const child = new Y.Node('c');
+          node.insert(0, [child]);
+          node = child;
+        }
+        node.insert(0, text);
+      };
+      const p = (d: Y.Doc) => {
+        for (let it = d.get('t')._start; it !== null; it = it.right) {
+          if (!it.deleted && it.content instanceof Y.ContentType) {
+            return it.content.type as Y.Node;
+          }
+        }
+        throw new Error('no node');
+      };
+      let state: Uint8Array | null = null;
+      const setup = outcome(() => {
+        const z = plainDoc(gc);
+        z.clientID = 1;
+        z.transact(() => {
+          const node = new Y.Node('p');
+          z.get('t').insert(0, [node]);
+          const cell = new Y.Node('c');
+          node.setAttr('cell', cell);
+          nest(cell, 'old');
+        });
+        const base = Y.encodeStateAsUpdate(z);
+        const b = writerDoc(gc, 2000, base);
+        b.d.transact(() => {
+          const cell = new Y.Node('c');
+          p(b.d).setAttr('cell', cell);
+          nest(cell, 't36z');
+        });
+        const a = writerDoc(gc, 3000, base);
+        a.d.transact(() => a.d.get('t').insert(0, 'L'));
+        a.d.transact(() => {
+          a.d.get('t').insert(1, 'M');
+          p(a.d).setAttr('cell', new Y.Node('c'));
+        });
+        const peer = plainDoc(gc, base);
+        Y.applyUpdate(peer, b.ups[0]);
+        Y.applyUpdate(peer, a.ups[1]);
+        state = Y.encodeStateAsUpdate(peer);
+      });
+      if (setup !== 'ok' || state === null) {
+        // @y/y overflowed building the input on this runtime.
+        expect(setup).toBe('RangeError');
+        return;
+      }
+      const stored: Uint8Array = state;
+      const before = LOAD_PLAN_COUNTERS.checkFailed;
+      const loaded = outcome(() => createRawYDoc(stored, {gc}));
+      // @y/y overflowing while the check applies a candidate on its copy falls
+      // back to the plain load and is counted: allowed here, and only here.
+      forcedCheckFailures += LOAD_PLAN_COUNTERS.checkFailed - before;
+      expect(loaded).toBe(outcome(() => plainDoc(gc, stored)));
+    },
+    120000,
+  );
+
+  test.each([false, true])(
     'a stored value nested 20,000 levels deep: loaded without reading it, gc %s',
     gc => {
       let value: unknown = 'leaf';
