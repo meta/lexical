@@ -18,8 +18,9 @@
 // only the remote change deleted (which the editor still shows) counted as
 // deleted again as a whole, the editor's text no longer matched the line it
 // wrote to, and the listener's edit was stored past the end of the line (a
-// paragraph of its own that the editor did not show). Found by a
-// property-based run of mutation-listener sessions.
+// paragraph of its own that the editor did not show). Writes now split items
+// at the bounds of what was deleted again too. Found by a property-based run
+// of mutation-listener sessions.
 
 import * as Y from '@y/y';
 import {
@@ -38,7 +39,7 @@ import {$selectIn, freshReader, setup} from '../../utils/harness';
 describe.each([false, true])(
   'a listener edit beside a local delete overlapping a remote one read later, gc %s',
   gc => {
-    test.fails('is stored as the editor shows it', async () => {
+    test('is stored as the editor shows it', async () => {
       const t = await setup(
         () =>
           $getRoot().append(

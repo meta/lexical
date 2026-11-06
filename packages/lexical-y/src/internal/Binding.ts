@@ -4109,6 +4109,10 @@ export class YBinding {
       iterateStructsByIdSet(tr, change.insertSet, () => {});
       iterateStructsByIdSet(tr, change.deleteSet, () => {});
     }
+    // And at the bounds of what the writes since deleted again (Yjs merges a
+    // write's deleted items with those next to them, a change's included):
+    // an item counts as deleted again by its first id (see isGoneIn).
+    iterateStructsByIdSet(tr, view.removed, () => {});
   }
 
   /** The change `tr` is read, or has nothing to read (see noteChange). */
