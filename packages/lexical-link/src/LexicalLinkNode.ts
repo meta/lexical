@@ -784,6 +784,29 @@ function $splitLinkAtSelection(
 }
 
 /**
+ * Replace `autoLink` with a LinkNode holding its children and `url` (the
+ * attributes given, or the autolink's own where not given): an autolink's URL
+ * follows its text (AutoLinkExtension sets it again on the next transform of
+ * its text), so a URL the user sets makes it a link of its own. Returns the
+ * new link's key.
+ */
+function $replaceAutoLink(
+  autoLink: AutoLinkNode,
+  url: string,
+  rel: null | string | undefined,
+  target: null | string | undefined,
+  title: null | string | undefined,
+): NodeKey {
+  const replacement = $createLinkNode(url, {
+    rel: rel !== undefined ? rel : autoLink.getRel(),
+    target: target !== undefined ? target : autoLink.getTarget(),
+    title: title !== undefined ? title : autoLink.getTitle(),
+  });
+  autoLink.replace(replacement, true);
+  return replacement.getKey();
+}
+
+/**
  * Generates or updates a LinkNode. It can also delete a LinkNode if the URL is null,
  * but saves any children and brings them up to the parent node.
  * @param urlOrAttributes - The URL the link directs to, or an attributes object with an url property
@@ -840,7 +863,12 @@ export function $toggleLink(
           (parent): parent is LinkNode =>
             !$isAutoLinkNode(parent) && $isLinkNode(parent),
         );
-        if (existingLink) {
+        const autoLink = existingLink
+          ? null
+          : $findMatchingParent(node, $isAutoLinkNode);
+        if (autoLink) {
+          $replaceAutoLink(autoLink, url, rel, target, title);
+        } else if (existingLink) {
           existingLink.setURL(url);
           if (target !== undefined) {
             existingLink.setTarget(target);
@@ -914,12 +942,7 @@ export function $toggleLink(
       return;
     }
     if ($isAutoLinkNode(linkNode)) {
-      // An autolink's URL follows its text (AutoLinkExtension sets it again
-      // on the next transform of its text): a URL set by the user makes it a
-      // link of its own, with the same children.
-      const replacement = $createLinkNode(url, {rel, target, title});
-      updatedNodes.add(replacement.getKey());
-      linkNode.replace(replacement, true);
+      updatedNodes.add($replaceAutoLink(linkNode, url, rel, target, title));
       return;
     }
     updatedNodes.add(linkNode.getKey());

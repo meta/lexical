@@ -103,4 +103,69 @@ describe('$toggleLink inside an autolink', () => {
       ),
     ).toBe(true);
   });
+
+  test('keeps the target and title of the autolink unless it sets them', () => {
+    const withAttrs = createLinkMatcherWithRegExp(
+      /t\d+z/,
+      text => `https://al.test/${text}`,
+    );
+    using editor = buildEditorFromExtensions(
+      defineExtension({
+        dependencies: [
+          LinkExtension,
+          configExtension(AutoLinkExtension, {
+            matchers: [
+              (text: string) => {
+                const match = withAttrs(text);
+                return match === null
+                  ? null
+                  : {...match, attributes: {target: '_blank', title: 'Match'}};
+              },
+            ],
+          }),
+        ],
+        name: 'toggle-link-on-autolink-attrs-host',
+      }),
+    );
+    editor.update(
+      () => {
+        $getRoot()
+          .clear()
+          .append(
+            $createParagraphNode().append($createTextNode('see t30z now')),
+          );
+      },
+      {discrete: true},
+    );
+    editor.update(
+      () => {
+        const text = $link().getFirstChild();
+        assert($isTextNode(text), 'expected a TextNode');
+        text.select(0, 4);
+        $toggleLink('https://u1.test');
+      },
+      {discrete: true},
+    );
+    expect(
+      editor.read(() => {
+        const link = $link();
+        return [link.getURL(), link.getTarget(), link.getTitle()];
+      }),
+    ).toEqual(['https://u1.test', '_blank', 'Match']);
+    editor.update(
+      () => {
+        const text = $link().getFirstChild();
+        assert($isTextNode(text), 'expected a TextNode');
+        text.select(0, 4);
+        $toggleLink('https://u2.test', {target: null, title: 'Mine'});
+      },
+      {discrete: true},
+    );
+    expect(
+      editor.read(() => {
+        const link = $link();
+        return [link.getURL(), link.getTarget(), link.getTitle()];
+      }),
+    ).toEqual(['https://u2.test', null, 'Mine']);
+  });
 });
