@@ -423,10 +423,6 @@ pre::-webkit-scrollbar-thumb {
   border-radius: 0px 0px 8px 8px;
 }
 
-.typeahead-popover li:hover {
-  background-color: #eee;
-}
-
 .typeahead-popover li .text {
   display: flex;
   line-height: 20px;

@@ -33,6 +33,7 @@ import {
 } from 'lexical';
 import {
   type JSX,
+  type MouseEvent as ReactMouseEvent,
   type ReactPortal,
   type RefObject,
   useCallback,
@@ -276,13 +277,13 @@ function MenuItem({
   index,
   isSelected,
   onClick,
-  onMouseEnter,
+  onMouseMove,
   option,
 }: {
   index: number;
   isSelected: boolean;
   onClick: () => void;
-  onMouseEnter: () => void;
+  onMouseMove: (event: ReactMouseEvent) => void;
   option: MenuOption;
 }) {
   let className = 'item';
@@ -298,7 +299,7 @@ function MenuItem({
       role="option"
       aria-selected={isSelected}
       id={'typeahead-item-' + index}
-      onMouseEnter={onMouseEnter}
+      onMouseMove={onMouseMove}
       onClick={onClick}>
       {option.icon}
       <span className="text">{option.title}</span>
@@ -342,6 +343,28 @@ export function LexicalMenu<TOption extends MenuOption>({
       : null;
 
   const matchingString = resolution.match && resolution.match.matchingString;
+
+  // Scrolling the list, as the arrow keys do, slides another option under a
+  // pointer that has not moved. Browsers report that as the pointer entering
+  // the option, and WebKit also dispatches a mousemove at the same position,
+  // so only a mousemove that changes the position may take over the highlight.
+  // If the arrow keys were used before any mousemove, there is no position to
+  // compare with yet, and the first mousemove only records it.
+  const lastPointerPositionRef = useRef<null | {x: number; y: number}>(null);
+  const usedArrowKeysRef = useRef(false);
+  const highlightOptionUnderPointer = useCallback(
+    (index: number, event: ReactMouseEvent) => {
+      const {clientX: x, clientY: y} = event;
+      const last = lastPointerPositionRef.current;
+      lastPointerPositionRef.current = {x, y};
+      const pointerMayBeStill =
+        last === null ? usedArrowKeysRef.current : last.x === x && last.y === y;
+      if (!pointerMayBeStill) {
+        setHighlightedIndex(index);
+      }
+    },
+    [],
+  );
 
   useEffect(() => {
     if (preselectFirstItem) {
@@ -396,8 +419,8 @@ export function LexicalMenu<TOption extends MenuOption>({
                     setHighlightedIndex(i);
                     selectOptionAndCleanUp(option);
                   }}
-                  onMouseEnter={() => {
-                    setHighlightedIndex(i);
+                  onMouseMove={event => {
+                    highlightOptionUnderPointer(i, event);
                   }}
                   key={option.key}
                   option={option}
@@ -410,6 +433,7 @@ export function LexicalMenu<TOption extends MenuOption>({
       : null;
   }, [
     anchorElementRef,
+    highlightOptionUnderPointer,
     options,
     selectedIndex,
     selectOptionAndCleanUp,
@@ -470,6 +494,7 @@ export function LexicalMenu<TOption extends MenuOption>({
             // whatever would otherwise move the caret.
             return false;
           }
+          usedArrowKeysRef.current = true;
           const newSelectedIndex =
             selectedIndex === null
               ? 0
@@ -507,6 +532,7 @@ export function LexicalMenu<TOption extends MenuOption>({
             // See KEY_ARROW_DOWN_COMMAND above.
             return false;
           }
+          usedArrowKeysRef.current = true;
           const newSelectedIndex =
             selectedIndex === null
               ? options.length - 1
