@@ -8,10 +8,11 @@
 
 import type {Hidden} from './Hidden';
 import type {View} from './Unread';
-import type {Item} from '@y/y';
+import type {Item, Node as YNode} from '@y/y';
 
 import {ContentFormat, ContentString, ContentType} from '@y/y';
 import {
+  $getNodeByKey,
   $isLineBreakNode,
   $isTabNode,
   $isTextNode,
@@ -21,7 +22,7 @@ import {
   type TextNode,
 } from 'lexical';
 
-import {type Formats, isLiveContent} from './Cursor';
+import {type Formats, isShownContent, type LeftOut} from './Cursor';
 import {attrsOf} from './Ident';
 import {
   $foreignFlatKeys,
@@ -31,6 +32,7 @@ import {
   $wrapperAttrs,
   type Attrs,
   decodeFormatValue,
+  INLINE_PREFIX,
   isMergeableText,
   MARKER,
   RUN_END,
@@ -290,6 +292,95 @@ export function $pushInline(
 // Old atoms from Yjs
 
 /**
+ * Whether shared node `y` holds content that is not deleted, in `view` (see
+ * isGoneIn: in the document a write sees, content a change not read yet
+ * inserted does not count), less the items `leftOut` names (a nested
+ * element the editor does not show either, see $isLeftOutInline).
+ */
+export function hasLiveContent(
+  view: View | null,
+  y: YNode,
+  leftOut: LeftOut = null,
+): boolean {
+  for (let it = y._start; it !== null; it = it.right) {
+    if (isShownContent(view, it, leftOut)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Whether live item `it` is a stored inline element the editor does not show:
+ * one holding no content (an element left out itself is none) that the
+ * editor did not hold before this update either (readers leave out an
+ * element that cannot be empty, as Lexical would remove it: a mark whose
+ * text peers deleted concurrently, or whose text has not arrived yet, see
+ * Reader). An empty element the editor shows
+ * (its class or the instance allows it), and one the update removed, count.
+ * The writer does not count one it leaves out, and deletes it only where a
+ * delete meets it before its last unit (see Cursor#delete). In an editor read
+ * or update; `view`: the document the write sees; `prevMap`: the node map
+ * before the update; `made`: items the write itself inserted, never left
+ * out. The one predicate for the rule: the writer (Writer#leftOut), its
+ * cursor, a delete's size and the self-check all read through it.
+ */
+export function $isLeftOutInline(
+  view: View | null,
+  it: Item,
+  keyByY: WeakMap<YNode, NodeKey>,
+  prevMap: ReadonlyMap<NodeKey, LexicalNode>,
+  made: ((item: Item) => boolean) | null = null,
+): boolean {
+  const content = it.content;
+  if (
+    isGoneIn(view, it) ||
+    !(content instanceof ContentType) ||
+    (made !== null && made(it))
+  ) {
+    return false;
+  }
+  const y = content.type as YNode;
+  const name = typeof y.name === 'string' ? y.name : '';
+  // Content counts unless it is an element left out itself (a comment
+  // inside a comment, both emptied): readers show neither.
+  if (
+    !name.startsWith(INLINE_PREFIX) ||
+    hasLiveContent(view, y, child =>
+      $isLeftOutInline(view, child, keyByY, prevMap, made),
+    )
+  ) {
+    return false;
+  }
+  // The node a read made for it (see Reader); a shared node no read mapped
+  // counts.
+  const key = keyByY.get(y);
+  if (key === undefined) {
+    return false;
+  }
+  const node = $getNodeByKey(key);
+  return (node === null || !node.isAttached()) && !attachedIn(prevMap, key);
+}
+
+/** Whether node `key` of `map` is attached to the root there. */
+function attachedIn(
+  map: ReadonlyMap<NodeKey, LexicalNode>,
+  key: NodeKey,
+): boolean {
+  for (let k: NodeKey | null = key; k !== null; ) {
+    if (k === 'root') {
+      return true;
+    }
+    const n = map.get(k);
+    if (n === undefined) {
+      return false;
+    }
+    k = n.__parent ?? (n as {__slotHost?: null | NodeKey}).__slotHost ?? null;
+  }
+  return false;
+}
+
+/**
  * Atoms of the shared items from `start` (inclusive) up to `stop`
  * (exclusive, null = end), with the formats in effect at `start`, as the
  * editor shows them: without what is held back, with the deleted items the
@@ -308,6 +399,7 @@ export function readAtoms(
   frontier: Item | null = null,
   end: {folded: Item | null} | null = null,
   storedFormats: Formats = formats,
+  leftOut: LeftOut = null,
 ): Formats {
   const current = new Map(storedFormats);
   // The formats the editor shows (see Reader#held).
@@ -333,7 +425,7 @@ export function readAtoms(
       attrs = null;
       continue;
     }
-    if (!it.countable) {
+    if (!it.countable || (leftOut !== null && leftOut(it))) {
       continue;
     }
     if (attrs === null) {
@@ -409,16 +501,21 @@ function pushStoredText(out: Atoms, text: string, attrs: Attrs): void {
   }
 }
 
-/** Live content items from `start` up to `stop` (exclusive). */
+/**
+ * Live content items from `start` up to `stop` (exclusive), less those
+ * `leftOut` names (a stored element the editor does not show, which the
+ * writer's cursor does not count; see Cursor#delete for when it deletes one).
+ */
 export function countLive(
   view: View | null,
   start: Item | null,
   stop: Item | null,
   hidden: Hidden | null = null,
+  leftOut: LeftOut = null,
 ): number {
   let n = 0;
   for (let it = start; it !== null && it !== stop; it = it.right) {
-    if (isLiveContent(view, it)) {
+    if (isShownContent(view, it, leftOut)) {
       n += unheldLength(it, hidden);
     }
   }
