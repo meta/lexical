@@ -24,9 +24,12 @@ export type {YDoc, YDocOptions};
  * (`cleanupFormatting = false`) before anything is applied to it: applying
  * an update to a document with it on deletes format items the binding keeps,
  * and the document then reads differently from its peers once someone types
- * there. `state`, a stored state, is applied when given; `options` are those
- * of `new Y.Doc(options)` (the default document is garbage collected, as
- * clients store one). Merging updates with `mergeUpdates` needs no document.
+ * there (on layout 3 the cleanup also makes loading a stored state several
+ * times slower). Servers and relays create their documents with it: the
+ * package ships no relay helper. `state`, a stored state, is applied when
+ * given; `options` are those of `new Y.Doc(options)` (the default document
+ * is garbage collected, as clients store one). Merging updates with
+ * `mergeUpdates` needs no document.
  * Throws a `YUnsupportedYjsError`, before the document is made, when the
  * `@y/y` the app loaded is not the one `@lexical/y` supports.
  */

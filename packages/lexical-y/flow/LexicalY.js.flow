@@ -168,7 +168,8 @@ export type YUnsyncedValueData = {readonly reason: 'not-json', readonly property
 
 // A warning the binding passes to `onWarn`: a LexicalWarning whose `code`
 // decides its `data`. Open: `YWarning` (any code) has `data` unknown until
-// isYWarning(value, code) narrows it to `YWarning<code>`.
+// isYWarning(value, code) narrows it to `YWarning<code>`. Comparing `code`
+// after isYWarning(value) does not narrow `data`: pass the code instead.
 // Not exported (no such runtime value): the typing of a binding warning.
 declare class YWarningInstance<out C extends string, out D>
   extends LexicalWarning
@@ -297,7 +298,8 @@ declare export class YUnsupportedYjsError extends Error {
 }
 
 // A Y.Doc for @lexical/y (a client's, a relay's or a server's), with Yjs's
-// format cleanup turned off before `state` is applied (when given).
+// format cleanup turned off before `state` is applied (when given). Servers
+// and relays create their documents with it (there is no relay helper).
 declare export function createYDoc(
   state?: Uint8Array | null,
   options?: YDocOptions,

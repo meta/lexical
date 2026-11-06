@@ -136,8 +136,11 @@ as the clients' documents do: it would delete format items that the
 clients keep, and the stored document would then read differently from
 theirs once someone types there. A relay or server that loads a stored
 state into a `Doc` of its own (to apply clients' updates to it, compact or
-merge it) creates it with `createYDoc(state)`, which does the same; merging
-updates with `mergeUpdates` needs no document:
+merge it) creates it with `createYDoc(state)`, which does the same; the
+package ships no relay helper, so that is the way to hold its documents.
+With the cleanup on (a plain `Doc`'s default), loading a layout-3 document
+is also several times slower: about 150 ms against 19 ms for 20,000 words.
+Merging updates with `mergeUpdates` needs no document:
 
 ```ts
 import {createYDoc} from '@lexical/y/headless';
