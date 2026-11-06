@@ -330,6 +330,25 @@ export function runOpener(doc: Doc, item: Item): Item {
 export const isLiveContent = (view: View | null, item: Item): boolean =>
   !isGoneIn(view, item) && item.countable;
 
+/**
+ * Names a stored element the editor does not show (see $isLeftOutInline),
+ * or null where none is left out.
+ */
+export type LeftOut = ((item: Item) => boolean) | null;
+
+/**
+ * Whether `item` is content the editor shows: live content (see
+ * isLiveContent) that `leftOut` does not name. The one rule the writer counts
+ * positions by: the cursor's moves and deletes, a removed line's delete (see
+ * countLive), the stored atoms a format pass compares (readAtomsLimited), and
+ * whether an element holds content (hasLiveContent).
+ */
+export const isShownContent = (
+  view: View | null,
+  item: Item,
+  leftOut: LeftOut,
+): boolean => isLiveContent(view, item) && !(leftOut !== null && leftOut(item));
+
 /** An opener of a node type key (`t`) or segment key (`k`). */
 function isNodeTypeOpener(content: ContentFormat): boolean {
   // An end or a `[]` opener of a paired run closes a type, as null does.
@@ -397,7 +416,7 @@ export class Cursor {
    * Live items the editor does not show (see $isLeftOutInline): not counted
    * or deleted, as held content is not.
    */
-  leftOut: ((item: Item) => boolean) | null = null;
+  leftOut: LeftOut = null;
   /**
    * The live format item that gave each key its value at the cursor, for
    * the keys whose format items the cursor passed.
@@ -640,10 +659,7 @@ export class Cursor {
    * or all shown, and answer whether it is shown.
    */
   private counts(item: Item): boolean {
-    if (!isLiveContent(this.view, item)) {
-      return false;
-    }
-    if (this.leftOut !== null && this.leftOut(item)) {
+    if (!isShownContent(this.view, item, this.leftOut)) {
       return false;
     }
     const hidden = this.hidden;

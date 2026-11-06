@@ -35,7 +35,13 @@ import {
 
 import {pushAll} from './Arrays';
 import {$withoutLevelId, innerBlockIds, NO_IDS} from './BlockIds';
-import {Cursor, equalFormatValue, type Formats, isLiveContent} from './Cursor';
+import {
+  Cursor,
+  equalFormatValue,
+  type Formats,
+  isShownContent,
+  type LeftOut,
+} from './Cursor';
 import {groupKeySig, groupSig} from './Groups';
 import {$heldDecision, type HeldDecision, ownerTextKeys} from './HoldGuard';
 import {isShadowKey} from './Ident';
@@ -3002,8 +3008,16 @@ export class Writer {
    * $shownText).
    */
   readonly leftOut = (it: Item): boolean =>
-    !this.tr.insertSet.hasId(it.id) &&
-    $isLeftOutInline(this.view, it, this.state.keyByY, this.prevState._nodeMap);
+    $isLeftOutInline(
+      this.view,
+      it,
+      this.state.keyByY,
+      this.prevState._nodeMap,
+      this.made,
+    );
+
+  /** Whether this write inserted `it` (never left out, see leftOut). */
+  private readonly made = (it: Item): boolean => this.tr.insertSet.hasId(it.id);
 
   /** Formats in effect right after `item` (an end item, or null). */
   private formatsAfter(item: Item | null): Formats {
@@ -5587,12 +5601,12 @@ function readAtomsLimited(
   limit: number,
   out: Atoms,
   hidden: Hidden | null,
-  leftOut: ((it: Item) => boolean) | null = null,
+  leftOut: LeftOut = null,
 ): PassFold {
   let stop: Item | null = start;
   let n = 0;
   while (stop !== null && n < limit) {
-    if (isLiveContent(view, stop) && !(leftOut !== null && leftOut(stop))) {
+    if (isShownContent(view, stop, leftOut)) {
       n += unheldLength(stop, hidden);
     }
     stop = stop.right;
