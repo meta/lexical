@@ -357,9 +357,9 @@ function gatedStep(
   // Restored, not cleared, afterwards: a step started from a listener of an
   // earlier one (whose capture is still running) leaves that one's flags.
   const {undoing, redoing, currStackItem} = um;
-  // The stack the step pushes its own item onto (see foldFollowUps).
-  const opposite = undo ? um.redoStack : um.undoStack;
-  const base = opposite.length;
+  // Where the step pushes its own item (see foldFollowUps).
+  const opposite = () => (undo ? um.redoStack : um.undoStack);
+  const base = opposite().length;
   const outerHeld = heldPops.get(um);
   const held: Parameters<UndoManager['emit']>[] = [];
   heldPops.set(um, held);
@@ -402,13 +402,17 @@ function gatedStep(
     } else {
       heldPops.set(um, outerHeld);
     }
+    // Before the pop event, whose listeners may throw.
+    if (result !== null) {
+      foldFollowUps(opposite(), base);
+    }
     for (const args of held) {
       um.emit(...args);
     }
-    if (result !== null) {
-      foldFollowUps(opposite, base);
-    }
   } finally {
+    if (result !== null) {
+      foldFollowUps(opposite(), base);
+    }
     if (outerHeld === undefined) {
       heldPops.delete(um);
     } else {
@@ -422,18 +426,23 @@ function gatedStep(
 }
 
 /**
- * Fold into the item an undo or redo pushed onto `stack` (at `base`) the
- * items pushed after it during the step: writes the binding made while
- * reading the step (a follow-up, see FollowUps), which Yjs captures while
- * it undoes or redoes, and never merges into the last item then. Why: as
- * items of their own, one redo after an undo redid only the follow-up, and
- * the undone change stayed undone (#9816).
+ * Fold into `item`, the item an undo or redo pushed onto `stack` (at `base`),
+ * the items pushed after it in reply to the step: what the binding wrote
+ * reading it (the editor's own update of what it read), which Yjs captures
+ * while it undoes or redoes and never merges into the last item then. Read
+ * inside the step, that write is folded here (see gatedStep); read in an
+ * update that commits after the step returns, in its commit (see stepFold).
+ * Why: as items of their own, one redo after an undo redid only that write,
+ * and the undone change stayed undone (#9816).
  */
-function foldFollowUps(stack: UndoManager['undoStack'], base: number): void {
-  if (stack.length <= base + 1) {
+function foldFollowUps(
+  stack: UndoManager['undoStack'],
+  base: number,
+  item: UndoManager['undoStack'][number] | undefined = stack[base],
+): void {
+  if (item === undefined || stack.length <= base + 1 || stack[base] !== item) {
     return;
   }
-  const item = stack[base];
   for (const later of stack.splice(base + 1)) {
     item.inserts = mergeIdSets([item.inserts, later.inserts]);
     item.deletes = mergeIdSets([item.deletes, later.deletes]);
@@ -2564,6 +2573,7 @@ export class YBinding {
     this.keepsUnstored = false;
     this.warnedEdit = false;
     this.restoreTo = null;
+    this.stepFold = null;
     // The app's updates still held (see notifyApart) are the editor's, which
     // outlives the binding: handed back, they commit as any update of an
     // editor no binding listens to any more.
@@ -6084,6 +6094,44 @@ export class YBinding {
   // Lexical -> Yjs
 
   private onUpdate(payload: UpdatePayload): void {
+    const fold = this.stepFold;
+    this.stepFold = null;
+    const um = this._undoManager;
+    if (
+      fold === null ||
+      um === null ||
+      (fold.state === null
+        ? !payload.tags.has(NORMALIZE_TAG)
+        : fold.state !== payload.editorState)
+    ) {
+      this.onUpdateInner(payload);
+      return;
+    }
+    const {undoing, redoing} = um;
+    if (fold.undo) {
+      um.undoing = true;
+    } else {
+      um.redoing = true;
+    }
+    try {
+      this.onUpdateInner(payload);
+    } finally {
+      um.undoing = undoing;
+      um.redoing = redoing;
+      foldFollowUps(
+        fold.undo ? um.redoStack : um.undoStack,
+        fold.base,
+        fold.item,
+      );
+    }
+    if (fold.state !== null && this.stepFold === null) {
+      // The author's normalization of what the step's read brought, once
+      // the editor is idle (see normalizeUntransformed), is part of it too.
+      this.stepFold = {...fold, state: null};
+    }
+  }
+
+  private onUpdateInner(payload: UpdatePayload): void {
     const {editorState, prevEditorState, tags} = payload;
     let {dirtyElements, dirtyLeaves} = payload;
     // The leaves Lexical marked dirty (see noteUntransformed).
@@ -8558,6 +8606,25 @@ export class YBinding {
     return true;
   }
 
+  /**
+   * An undo or redo read in an update that commits after the step returned
+   * (one run as the next update, see undoOrRedo): that update's state (null
+   * once it committed: the author's normalization that follows it, see
+   * NORMALIZE_TAG), and where the step pushed its item. What the binding
+   * writes in that commit and in that normalization (the editor's own
+   * update of what it read) is captured as part of the step, as when the
+   * step is read inside it: with the UndoManager's undoing (or redoing)
+   * flag set, so that it neither clears the redo stack nor becomes a step
+   * of its own, and folded into the step's item (see foldFollowUps). Any
+   * other commit first ends it.
+   */
+  private stepFold: {
+    base: number;
+    item: UndoManager['undoStack'][number];
+    state: EditorState | null;
+    undo: boolean;
+  } | null = null;
+
   private applyUndo(um: UndoManager, undo: boolean): boolean {
     const stack = undo ? um.undoStack : um.redoStack;
     this.undoCache = new WeakMap();
@@ -8571,10 +8638,26 @@ export class YBinding {
       if (!this.writesEdits()) {
         return false;
       }
+      const opposite = () => (undo ? um.redoStack : um.undoStack);
+      const base = opposite().length;
       const popped = undo ? um.undo() : um.redo();
       if (popped !== null) {
         this.carryCloserMarks(popped);
         this.closeRestoredRuns(popped);
+        // Read inside the running update (see undoOrRedo): what the
+        // binding writes of it, in that update's commit, is part of the
+        // step (see stepFold).
+        // Read inside the step, the author's normalization of it may still
+        // be to come, once the editor is idle (state null, see stepFold).
+        const item = opposite()[base];
+        if (item !== undefined) {
+          this.stepFold = {
+            base,
+            item,
+            state: this._editor._pendingEditorState,
+            undo,
+          };
+        }
       }
       return popped !== null;
     } finally {
