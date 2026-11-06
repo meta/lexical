@@ -394,6 +394,11 @@ export class Cursor {
    */
   hidden: Hidden | null = null;
   /**
+   * Live items the editor does not show (see $isLeftOutInline): not counted
+   * or deleted, as held content is not.
+   */
+  leftOut: ((item: Item) => boolean) | null = null;
+  /**
    * The live format item that gave each key its value at the cursor, for
    * the keys whose format items the cursor passed.
    */
@@ -636,6 +641,9 @@ export class Cursor {
    */
   private counts(item: Item): boolean {
     if (!isLiveContent(this.view, item)) {
+      return false;
+    }
+    if (this.leftOut !== null && this.leftOut(item)) {
       return false;
     }
     const hidden = this.hidden;
