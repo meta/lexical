@@ -114,3 +114,18 @@ declare export var HeadingAnnounceExtension: LexicalExtension<
   NamedSignalsOutput<HeadingAnnounceExtensionConfig>,
   void,
 >;
+
+export type QuoteAnnounceExtensionConfig = {
+  created: string,
+  destroyed: string,
+  destroyedInside: string,
+  entered: string,
+  exited: string,
+  disabled: boolean,
+};
+declare export var QuoteAnnounceExtension: LexicalExtension<
+  QuoteAnnounceExtensionConfig,
+  '@lexical/rich-text/QuoteAnnounce',
+  NamedSignalsOutput<QuoteAnnounceExtensionConfig>,
+  void,
+>;
