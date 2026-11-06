@@ -68,7 +68,8 @@ export const UNSUPPORTED_CONFIG_WARNING = '@lexical/y/unsupported-config';
  * @experimental A local change was not written; what it changed is read
  * again (once the document cannot be read, the editor shows what it showed
  * before the update again), so the editor keeps showing the document.
- * `data`: YUnsupportedEditData, with four reasons:
+ * `data`: YUnsupportedEditData, with four reasons, and one condition
+ * reported as `'other'` (YOtherWarningData):
  *
  * - `'read-only'`: the binding is read only (code edited the editor, which
  *   is not editable). Reported once each time the binding goes read only.
@@ -81,6 +82,14 @@ export const UNSUPPORTED_CONFIG_WARNING = '@lexical/y/unsupported-config';
  * - `'unstorable'`: a written local update left an empty text node Lexical
  *   keeps (not mergeable simple text), which the document does not store:
  *   the editor reads it back. Reported for each such update.
+ * - `'other'`, `detailCode` `'held-line-retokenize'`: the binding is active,
+ *   and a local update re-typed the line being composed (a transform's
+ *   tokens for it, such as a code highlighter's) while the composition's
+ *   hold shows that line as a block its shared counterpart no longer is (a
+ *   collaborator changed its type, or joined it into the line before it).
+ *   The re-typing is not written, the rest of the update is, and the line
+ *   is read again as stored and its transforms run on it again. Reported
+ *   once per composition.
  */
 export const UNSUPPORTED_EDIT_WARNING = '@lexical/y/unsupported-edit';
 /**
@@ -501,7 +510,10 @@ export type YWarningData<C extends string = string> =
     ? YWarningDataByCode[C] | YOtherWarningData
     : unknown;
 
-/** The `data` this version emits under code `C` (never `'other'`). */
+/**
+ * The `data` this version emits under code `C`, besides the conditions it
+ * reports as `'other'` (see UNSUPPORTED_EDIT_WARNING).
+ */
 export type YEmittedWarningData<C extends YKnownWarningCode> =
   YWarningDataByCode[C];
 

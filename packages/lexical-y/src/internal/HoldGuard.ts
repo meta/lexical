@@ -30,6 +30,8 @@ import {
 } from 'lexical';
 
 import {insertionFree, type Recipient} from './InsertionFree';
+import {TYPE_KEY} from './Schema';
+import {shownAttrs} from './Seen';
 import {Roles} from './State';
 
 /**
@@ -175,6 +177,14 @@ export type HeldDecision = {
   /** Refused before it changes anything. */
   refuse: boolean;
   /**
+   * The update re-types the text of the line composed in, which the hold
+   * shows as a block its shared counterpart no longer is (see
+   * $reshapesRestyledLine): that line is not written, and is read again as
+   * stored, where its transforms run again; the rest of the update is
+   * written (see Writer#skippedLine).
+   */
+  quiet: boolean;
+  /**
    * The shared nodes holding what the hold keeps that it may delete or
    * write anew: those an admitted update moves or removes (see
    * $heldDecision).
@@ -229,11 +239,187 @@ export function $heldDecision(
       return null;
     });
   const inserts = $insertsCharacters(prev, remoteUnread, moving, log, storedIn);
+  // The line composed in, re-typed by a transform, is left out of the write
+  // (its text is unchanged, so what endangers what the hold keeps there is
+  // not written, see Writer#skippedLine). The rest of the update is written:
+  // an edit elsewhere in it, typing included, is never refused for the
+  // re-typing. A re-tokenization merges text of several nodes into one,
+  // which $insertsCharacters takes for moved text: there the update inserts
+  // characters where the document's text gains any (another line typed in,
+  // a paragraph appended), as it does on main, so a write that fails part way
+  // is recovered as one that inserts (see YBinding#$runWriter).
+  const quiet = $reshapesRestyledLine(state, hidden, prev);
+  const insertsChars = inserts && (!quiet || $gainsText(prev, remoteUnread));
   return {
-    allow: inserts ? new Set(endangered) : new Set(),
-    inserts,
-    refuse: endangered.length > 0 && !inserts,
+    allow: insertsChars && !quiet ? new Set(endangered) : new Set(),
+    inserts: insertsChars,
+    quiet,
+    refuse: endangered.length > 0 && !insertsChars && !quiet,
   };
+}
+
+/**
+ * Whether the update from `prev` to the active editor state adds characters
+ * to the document's text (its text is not what is left of the text before
+ * after deleting some), or a remote change not read yet deletes text, where
+ * what the editor showed is not what is stored (see $insertsCharacters).
+ */
+function $gainsText(
+  prev: EditorState,
+  remoteUnread: boolean | ReadonlySet<YNode>,
+): boolean {
+  if (
+    remoteUnread === true ||
+    (remoteUnread !== false && remoteUnread.size > 0)
+  ) {
+    return true;
+  }
+  const before = prev.read(() => $getRoot().getTextContent());
+  const after = $getRoot().getTextContent();
+  let i = 0;
+  for (let j = 0; j < before.length && i < after.length; j++) {
+    if (before[j] === after[i]) {
+      i++;
+    }
+  }
+  return i < after.length;
+}
+
+/**
+ * Whether the editor shows line `owner` (as of `prev`) as a block its shared
+ * counterpart no longer is: its marker gone (the block joined into the line
+ * before it), or a shown node of another class than the stored type's (a
+ * code block made a list item, which the hold shows as it was; a node
+ * replacement's class extends the class it replaces, so it is the same
+ * block). A held change of its other attributes alone (alignment, indent,
+ * direction) is not one.
+ */
+function $showsRestyled(
+  state: State,
+  prev: EditorState,
+  owner: NodeKey,
+): boolean {
+  const unit = state.unitByKey.get(owner);
+  if (unit === undefined || unit.end === null) {
+    return false;
+  }
+  if (unit.end.deleted) {
+    return true;
+  }
+  const attr = shownAttrs(unit.end, null)[TYPE_KEY];
+  const info = state.editor._nodes.get(
+    typeof attr === 'string' ? attr : 'paragraph',
+  );
+  return prev.read(() => {
+    const node = $getNodeByKey(owner);
+    return (
+      node !== null && (info === undefined || !(node instanceof info.klass))
+    );
+  });
+}
+
+/**
+ * Whether the update from `prev` to the active editor state re-types the
+ * text of the line composed in, keeping that text, while the hold shows that
+ * line as a block its shared counterpart no longer is (see $showsRestyled: a
+ * code block a collaborator made a paragraph, or joined into the line before
+ * it): some of its characters are in a node of another type than before (a
+ * code highlighter tokenizing the shown code line again at the end of the
+ * composition makes the text nodes there code highlight nodes). What such a
+ * transform makes follows from what the editor shows, not from what is
+ * stored, and written, its nodes (code highlight tokens, which drop formats
+ * and join NodeState) would land on text that storage keeps outside that
+ * type. That line is not written: it is read again as stored and the hold
+ * ends, and Lexical's transforms then run on it again as stored, where they
+ * make what the stored block makes (a hashtag again in a heading; nothing
+ * of a code highlighter's in a paragraph); the rest of the update is
+ * written. An edit that keeps the type of
+ * every node holding the line's characters (a format applied to part of a
+ * word, which splits its node; a link around a word) is not one, nor is one
+ * that changes the line's text (typing, a composition, Enter, or the end of
+ * a composition that inserts its text in the same update, as Firefox's input
+ * and WebKit's insertFromComposition do: written as before).
+ */
+function $reshapesRestyledLine(
+  state: State,
+  hidden: Hidden,
+  prev: EditorState,
+): boolean {
+  const owner = hidden.ownerKey;
+  if (!$showsRestyled(state, prev, owner)) {
+    return false;
+  }
+  // Not where the update also moves the line or a container around it (a
+  // slot swapped, a container moved before another): its structural write
+  // is decided as before, refused for the hold where it endangers what the
+  // hold keeps.
+  const nextMap = INTERNAL_getActiveEditorState()!._nodeMap;
+  if (
+    placeOf(prev._nodeMap, owner) !== placeOf(nextMap, owner) ||
+    reordered(prev._nodeMap, nextMap, owner)
+  ) {
+    return false;
+  }
+  const shape = (node: LexicalNode | null) =>
+    $isElementNode(node)
+      ? {
+          keys: node.getChildrenKeys().join(','),
+          text: node.getTextContent(),
+        }
+      : null;
+  const was = prev.read(() => shape($getNodeByKey(owner)));
+  const now = shape($getNodeByKey(owner));
+  if (
+    was === null ||
+    now === null ||
+    was.text !== now.text ||
+    was.keys === now.keys
+  ) {
+    return false;
+  }
+  const types = (node: LexicalNode | null) =>
+    $isElementNode(node) ? leafTypeRuns(node) : '';
+  return (
+    prev.read(() => types($getNodeByKey(owner))) !== types($getNodeByKey(owner))
+  );
+}
+
+/**
+ * The type of the node each character of `element`'s text is in, as runs of
+ * one type (`type:size`, in order): equal for two versions of a line with the
+ * same text exactly when every character is in a node of the same type.
+ */
+function leafTypeRuns(element: ElementNode): string {
+  const runs: string[] = [];
+  let type = '';
+  let size = 0;
+  const visit = (node: LexicalNode) => {
+    if ($isElementNode(node)) {
+      for (const child of node.getChildren()) {
+        visit(child);
+      }
+      return;
+    }
+    const nodeSize = node.getTextContentSize();
+    if (nodeSize === 0) {
+      // Holds no character (an inline decorator node without text).
+      return;
+    }
+    const nodeType = node.getType();
+    if (nodeType !== type) {
+      if (size > 0) {
+        runs.push(`${type}:${size}`);
+      }
+      type = nodeType;
+      size = 0;
+    }
+    size += nodeSize;
+  };
+  visit(element);
+  if (size > 0) {
+    runs.push(`${type}:${size}`);
+  }
+  return runs.join(',');
 }
 
 /**
@@ -776,6 +962,58 @@ export function ownerTextKeys(prev: EditorState, key: NodeKey): NodeKey[] {
     }
     return out;
   });
+}
+
+/**
+ * Whether node `key`, or a node around it, changed its place among its
+ * siblings from `prevMap` to `nextMap` (placeOf compares only the parents):
+ * among the siblings it has in both, under the same parent, its index
+ * differs (a container moved before another). A sibling inserted or removed
+ * around it does not move it.
+ */
+function reordered(
+  prevMap: Map<NodeKey, LexicalNode>,
+  nextMap: Map<NodeKey, LexicalNode>,
+  key: NodeKey,
+): boolean {
+  // The keys of `parent`'s children in `map` that are its children in
+  // `other` too.
+  const kept = (
+    map: Map<NodeKey, LexicalNode>,
+    other: Map<NodeKey, LexicalNode>,
+    parent: NodeKey,
+  ): NodeKey[] => {
+    const out: NodeKey[] = [];
+    const node = map.get(parent) as {__first?: NodeKey | null} | undefined;
+    const first = node === undefined ? null : node.__first;
+    for (let k = first === undefined ? null : first; k !== null; ) {
+      const child = map.get(k);
+      if (child === undefined) {
+        break;
+      }
+      const there = other.get(k);
+      if (there !== undefined && there.__parent === parent) {
+        out.push(k);
+      }
+      k = child.__next;
+    }
+    return out;
+  };
+  for (let n = nextMap.get(key); n !== undefined && n.__parent !== null; ) {
+    const parent = n.__parent;
+    const was = prevMap.get(n.__key);
+    if (was === undefined || was.__parent !== parent) {
+      return true;
+    }
+    if (
+      kept(prevMap, nextMap, parent).indexOf(n.__key) !==
+      kept(nextMap, prevMap, parent).indexOf(n.__key)
+    ) {
+      return true;
+    }
+    n = nextMap.get(parent);
+  }
+  return false;
 }
 
 /**
