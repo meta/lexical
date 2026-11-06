@@ -1507,11 +1507,13 @@ export class YBinding {
   private readonly heldUnread = new Set<Transaction>();
   /** Containers read while changes were deferred, checked later (see checkRead). */
   private readonly checkLater = new Set<CS>();
-  /** While takeCursor's transaction runs. */
-  private takingCursor = false;
-  /** The cursor takeCursor took last, and on which editor state. */
-  private takenCursor: {cursor: YCursor | null; state: EditorState} | null =
-    null;
+  /**
+   * The transaction that changes nothing takeCursor or splitWhileUnread
+   * opened, while its `transact` call is on the stack (its observers,
+   * `afterAllTransactions` included, run there): called again from those,
+   * they split in it rather than open another, without end.
+   */
+  private splitting: Transaction | null = null;
   private gcFilters: {
     ours: (item: Item) => boolean;
     prev: (item: Item) => boolean;
@@ -4109,6 +4111,10 @@ export class YBinding {
       iterateStructsByIdSet(tr, change.insertSet, () => {});
       iterateStructsByIdSet(tr, change.deleteSet, () => {});
     }
+    // And at the bounds of what the writes since deleted again (Yjs merges a
+    // write's deleted items with those next to them, a change's included):
+    // an item counts as deleted again by its first id (see isGoneIn).
+    iterateStructsByIdSet(tr, view.removed, () => {});
   }
 
   /** The change `tr` is read, or has nothing to read (see noteChange). */
@@ -9221,7 +9227,7 @@ export class YBinding {
    * remote change is not read yet, the positions are taken in a Yjs
    * transaction that changes nothing (the document's transaction observers
    * see it), or in the one running; called again from that transaction's
-   * observers, it returns the positions it just took.
+   * observers, it takes them there, opening no other.
    */
   getCursor(): YCursor | null {
     return this.takeCursor();
@@ -9235,9 +9241,9 @@ export class YBinding {
    * cleanup merges them back), else in a transaction of its own. The
    * positions are ids, which stay valid once Yjs merges the items again.
    * Taken again from that transaction's observers (an app's awareness
-   * cursor refreshed on every transaction), it is the one just taken, for
-   * the same editor state: no transaction opens from there, which would
-   * call those observers again.
+   * cursor refreshed on every transaction), or those of any transaction
+   * being cleaned up, they are taken in that transaction: no transaction
+   * opens from there, which would call those observers again.
    */
   private takeCursor(): YCursor | null {
     if (this.unread === null) {
@@ -9245,34 +9251,33 @@ export class YBinding {
       return this.readCursor();
     }
     const doc = this._doc;
-    const state = this._editor.getEditorState();
     const take = (tr: Transaction) => {
       this.splitAtUnread(tr);
-      const cursor = this.readCursor();
-      this.takenCursor = {cursor, state};
-      return cursor;
+      return this.readCursor();
     };
     const running = doc._transaction;
     if (running !== null) {
       return take(running);
     }
-    if (
-      this.takingCursor ||
-      doc._transactionCleanups.some(t => t.origin === this.scanOrigin)
-    ) {
-      const taken = this.takenCursor;
-      return taken !== null && taken.state === state
-        ? taken.cursor
-        : this.readCursor();
+    const cleanups = doc._transactionCleanups;
+    const splitting = this.splitting;
+    if (splitting !== null) {
+      // From the observers of the one opened (see splitting).
+      return take(splitting);
+    }
+    if (cleanups.length > 0) {
+      // From the observers of a transaction being cleaned up: split in one
+      // of those (see splitWhileUnread), rather than open one more.
+      return take(cleanups[cleanups.length - 1]);
     }
     let cursor: YCursor | null = null;
-    this.takingCursor = true;
     try {
       doc.transact(tr => {
+        this.splitting = tr;
         cursor = take(tr);
       }, this.scanOrigin);
     } finally {
-      this.takingCursor = false;
+      this.splitting = null;
     }
     return cursor;
   }
@@ -9291,11 +9296,31 @@ export class YBinding {
       this.splitAtUnread(running);
       return fn();
     }
+    if (this.splitting !== null) {
+      // From the observers of the one opened (see splitting).
+      this.splitAtUnread(this.splitting);
+      return fn();
+    }
+    const cleanups = this._doc._transactionCleanups;
+    if (cleanups.length > 0) {
+      // From the observers of a transaction being cleaned up (an app's, on
+      // every transaction): split in one of those, whose merges may have run
+      // already, rather than open one more, whose observers would call this
+      // again, without end. Splits Yjs does not merge back stay split, which
+      // changes nothing.
+      this.splitAtUnread(cleanups[cleanups.length - 1]);
+      return fn();
+    }
     let result: T | undefined;
-    this._doc.transact(tr => {
-      this.splitAtUnread(tr);
-      result = fn();
-    }, this.scanOrigin);
+    try {
+      this._doc.transact(tr => {
+        this.splitting = tr;
+        this.splitAtUnread(tr);
+        result = fn();
+      }, this.scanOrigin);
+    } finally {
+      this.splitting = null;
+    }
     return result as T;
   }
 
@@ -9460,12 +9485,19 @@ export class YBinding {
     }
   }
 
-  /** Resolve a cursor to Lexical points (call inside a read or update). */
+  /**
+   * Resolve a cursor to Lexical points (call inside a read or update). While
+   * a remote change is not read yet, with the items split at the bounds the
+   * view tells apart (see splitAtUnread), as getCursor takes positions: in
+   * the transaction running, or in one that changes nothing.
+   */
   $resolveCursor(
     cursor: YCursor,
   ): {anchor: PointType; focus: PointType} | null {
-    const anchor = this.$resolvePosition(cursor.anchor, this.seer());
-    const focus = this.$resolvePosition(cursor.focus, this.seer());
+    const [anchor, focus] = this.splitWhileUnread(() => [
+      this.$resolvePosition(cursor.anchor, this.seer()),
+      this.$resolvePosition(cursor.focus, this.seer()),
+    ]);
     if (anchor === null || focus === null) {
       return null;
     }

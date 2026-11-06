@@ -366,10 +366,11 @@ binding does not render remote cursors itself.
 `getCursor()` returns plain JSON, so it can go in the awareness state the
 provider shares. While a remote change is not read yet (one applied inside an
 update, or one an app's own document observers see before the binding has
-read it), it takes the positions in a Yjs
-transaction that changes nothing and emits no `update` (the document's
-transaction observers, `afterAllTransactions` included, see it); called again from
-those observers, it returns the same positions without opening another:
+read it), `getCursor()` takes the positions, and `$resolveCursor()` resolves
+them, in a Yjs transaction that changes nothing and emits no `update` (the
+document's transaction observers, `afterAllTransactions` included, see it);
+called again from those observers, or from those of any transaction being
+cleaned up, they open no other:
 
 ```ts
 // Share this client's selection.
