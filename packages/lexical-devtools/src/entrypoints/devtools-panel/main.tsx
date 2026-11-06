@@ -6,24 +6,42 @@
  *
  */
 
+import type {IInjectedPegasusService} from '../injected/InjectedPegasusService';
+
 import {ChakraProvider, defaultSystem} from '@chakra-ui/react';
+import {getRPCService, registerRPCService} from '@webext-pegasus/rpc';
 import {initPegasusTransport} from '@webext-pegasus/transport/devtools';
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 
-import {extensionStoreReady, useExtensionStore} from '../../store.ts';
+import {extensionStoreReady} from '../../store.ts';
 import App from './App.tsx';
+import {createDevToolsPanelService} from './DevToolsPanelService.ts';
+import {usePanelStore} from './panelStore.ts';
 
 const tabID = browser.devtools.inspectedWindow.tabId;
 initPegasusTransport();
 
-extensionStoreReady().then(() => {
-  // Tell the injected script that the user is looking at this tab, so that it
-  // relays editor text unmasked.
-  useExtensionStore.getState().setIsPanelOpen(tabID, true);
+// Where this tab's editor state arrives. Registered before the page is told
+// the panel is open, so nothing is pushed into a service that is not there.
+registerRPCService(
+  'DevToolsPanelService',
+  createDevToolsPanelService(usePanelStore),
+);
 
-  const markClosed = () =>
-    useExtensionStore.getState().setIsPanelOpen(tabID, false);
+const injectedPegasusService = getRPCService<IInjectedPegasusService>(
+  'InjectedPegasusService',
+  {context: 'window', tabId: tabID},
+);
+
+extensionStoreReady().then(() => {
+  // The page only sends editor state while a panel is open for it.
+  injectedPegasusService.setPanelOpen(true).catch(console.error);
+
+  const markClosed = () => {
+    usePanelStore.getState().clear();
+    injectedPegasusService.setPanelOpen(false).catch(console.error);
+  };
   window.addEventListener('pagehide', markClosed);
   window.addEventListener('beforeunload', markClosed);
 
