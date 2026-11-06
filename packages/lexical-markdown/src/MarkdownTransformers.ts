@@ -222,7 +222,12 @@ const UNORDERED_LIST_REGEX = /^(\s*)[-*+]\s/;
 const CHECK_LIST_REGEX = /^(\s*)(?:[-*+]\s)?\s?(\[(\s|x)?\])\s/i;
 const HEADING_REGEX = /^(#{1,6})\s/;
 const QUOTE_REGEX = /^>\s/;
-const CODE_START_REGEX = /^([ \t]*`{3,})[ \t]*([\w-]+)?[ \t]?/;
+const CODE_START_REGEX = /^([ \t]*`{3,})([\w-]+)?[ \t]?/;
+// Import reads the whole opening line, so whitespace may come between the
+// fence and the language (``` js). The shortcut keeps CODE_START_REGEX: it
+// fires only when the match ends at the caret, which this one would run past
+// when ``` and a space are typed in front of existing text.
+const CODE_INFO_START_REGEX = /^([ \t]*`{3,})[ \t]*([\w-]+)?[ \t]?/;
 const CODE_END_REGEX = /^[ \t]*`{3,}$/;
 const CODE_SINGLE_LINE_REGEX =
   /^[ \t]*```[^`]+(?:(?:`{1,2}|`{4,})[^`]+)*```(?:[^`]|$)/;
@@ -884,11 +889,13 @@ export const CODE: MultilineElementTransformer = {
     lines,
     rootNode,
     startLineIndex,
-    startMatch,
+    startMatch: regExpStartMatch,
   }) => {
+    const currentLine = lines[startLineIndex];
+    const startMatch =
+      currentLine.match(CODE_INFO_START_REGEX) ?? regExpStartMatch;
     const fence = startMatch[1];
     const fenceLength = fence.trim().length;
-    const currentLine = lines[startLineIndex];
     const afterFenceIndex = startMatch.index! + fence.length;
     const afterFence = currentLine.slice(afterFenceIndex);
 
