@@ -12,6 +12,7 @@ import {buildEditorFromExtensions} from '@lexical/extension';
 import {
   $convertFromMarkdownString,
   $convertToMarkdownString,
+  type Transformer,
   TRANSFORMERS,
 } from '@lexical/markdown';
 import {
@@ -24,7 +25,10 @@ import {
 } from 'lexical';
 import {describe, expect, it} from 'vitest';
 
-import {hardLineBreakState} from '../../MarkdownTransformers';
+import {
+  hardLineBreakState,
+  type TextMatchTransformer,
+} from '../../MarkdownTransformers';
 import {MarkdownTestExtension} from '../utils';
 
 // Describes the inline content of the first block: text as it is, code as
@@ -44,12 +48,22 @@ function $describeNode(node: LexicalNode): string {
   return node.getTextContent();
 }
 
-function importFirstBlock(markdown: string): string {
+function importFirstBlock(
+  markdown: string,
+  shouldMergeAdjacentLines = false,
+  transformers: Transformer[] = TRANSFORMERS,
+): string {
   using editor = buildEditorFromExtensions([MarkdownTestExtension]);
   let result = '';
   editor.update(
     () => {
-      $convertFromMarkdownString(markdown, TRANSFORMERS);
+      $convertFromMarkdownString(
+        markdown,
+        transformers,
+        undefined,
+        false,
+        shouldMergeAdjacentLines,
+      );
       const first = $getRoot().getFirstChild();
       result = first ? $describeNode(first) : '';
     },
@@ -119,6 +133,39 @@ describe('hard line breaks are read from the Markdown (#9408)', () => {
     for (const markdown of ['a\\\nb', 'a  \nb', 'a\\\\\\\\\nb', '**a**\\\nb']) {
       expect(roundTrip(markdown)).toBe(markdown);
     }
+  });
+
+  it('keeps backslashes and spaces at the end of inline code in a quote or list', () => {
+    expect(importFirstBlock('> `a\\`\n> b')).toBe('code(a\\)<soft>b');
+    expect(importFirstBlock('- `a  `\n  b')).toBe('code(a  )<soft>  b');
+    expect(roundTrip('> `a\\`\n> b')).toBe('> `a\\`\n> b');
+    expect(roundTrip('- `a  `\n  b')).toBe('- `a  `\n  b');
+  });
+
+  it('reads the hard break the same way when adjacent lines are merged', () => {
+    expect(importFirstBlock('a\\\\\\\nb', true)).toBe('a\\<hard \\>b');
+    expect(importFirstBlock('a\\\\\nb', true)).toBe('a\\ b');
+  });
+
+  it('keeps the text of a node that a text match transformer took the backslash into', () => {
+    // The trailing `\` is part of the match, so the text of the line's last
+    // node no longer ends with it. Stripping a character anyway would turn
+    // `#foo` into `#fo`, so the text-based check decides, as it did before.
+    const HASHTAG_BACKSLASH: TextMatchTransformer = {
+      dependencies: [],
+      importRegExp: /#(\w+)\\$/,
+      regExp: /#(\w+)\\$/,
+      replace: (textNode, match) => {
+        textNode.setTextContent('#' + match[1]);
+      },
+      type: 'text-match',
+    };
+    expect(
+      importFirstBlock('x #foo\\\nb', false, [
+        HASHTAG_BACKSLASH,
+        ...TRANSFORMERS,
+      ]),
+    ).toBe('x #foo<soft>b');
   });
 
   it('keeps a backslash at the end of a block as text', () => {

@@ -412,9 +412,9 @@ function $extractMarkdownHardLineBreakMarker(
     if (marker == null) {
       return null;
     }
-    if (marker === '\\') {
-      // A backslash before the line ending escapes nothing, so it is still
-      // the last character of the text.
+    // A backslash before the line ending escapes nothing, so it is still the
+    // last character of the text, unless a text match transformer took it.
+    if (marker === '\\' && lastText.endsWith('\\')) {
       lastChild.setTextContent(lastText.slice(0, -1));
       return marker;
     }
