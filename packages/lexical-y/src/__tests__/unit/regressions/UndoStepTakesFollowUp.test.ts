@@ -26,7 +26,7 @@ import {
 import {describe, expect, test} from 'vitest';
 
 import {$composed, composing, held, HoldBox} from '../../utils/composeHold';
-import {expectConverged, freshReader} from '../../utils/harness';
+import {expectConverged, freshReader, setup} from '../../utils/harness';
 
 /** A TextNode subclass that merges like plain text (isSimpleText). */
 class MergingText extends TextNode {
@@ -121,5 +121,37 @@ describe.each([false, true])('an undo that writes a follow-up, gc %s', gc => {
         await expectConverged(t.peers);
       });
     }
+  }
+});
+
+// An undo with nothing to normalize leaves no step open: the next update,
+// tagged as the binding's normalization or not, is a step of its own.
+describe.each([false, true])('after an undo with no follow-up, gc %s', gc => {
+  for (const tag of [undefined, 'lexical-y-normalize'] as const) {
+    test(`the next update (tag ${String(tag)}) is a step of its own`, async () => {
+      const t = await setup(
+        () =>
+          $getRoot().append(
+            $createParagraphNode().append($createTextNode('abc')),
+          ),
+        {gc, ids: [1, 2]},
+      );
+      const {a} = t;
+      a.update(() => {
+        $getRoot().getAllTextNodes()[0].spliceText(3, 0, 'X');
+      });
+      await t.sync();
+      const um = a.binding.undoManager as unknown as Stacks;
+      a.update(() => {
+        a.binding.undo();
+      });
+      await t.sync();
+      expect([um.undoStack.length, um.redoStack.length]).toEqual([0, 1]);
+      a.update(() => {
+        $getRoot().getAllTextNodes()[0].spliceText(0, 0, 'N');
+      }, tag);
+      await t.sync();
+      expect([um.undoStack.length, um.redoStack.length]).toEqual([1, 0]);
+    });
   }
 });

@@ -6097,14 +6097,18 @@ export class YBinding {
     const fold = this.stepFold;
     this.stepFold = null;
     const um = this._undoManager;
-    if (
-      fold === null ||
-      um === null ||
-      (fold.state === null
-        ? !payload.tags.has(NORMALIZE_TAG)
-        : fold.state !== payload.editorState)
-    ) {
+    if (fold === null || um === null || fold.state !== payload.editorState) {
       this.onUpdateInner(payload);
+      if (
+        fold !== null &&
+        fold.state === null &&
+        this.stepFold === null &&
+        payload.tags.has(COLLABORATION_TAG)
+      ) {
+        // A collaborator's change read before the step's normalization ran
+        // writes no step of this client's: it waits on.
+        this.stepFold = fold;
+      }
       return;
     }
     const {undoing, redoing} = um;
@@ -8386,6 +8390,12 @@ export class YBinding {
     this.storedHoles.clear();
     $addUpdateTag(HISTORY_MERGE_TAG);
     $addUpdateTag(NORMALIZE_TAG);
+    const fold = this.stepFold;
+    if (fold !== null && fold.state === null) {
+      // The normalization of what an undo or redo read: part of the step
+      // (see stepFold).
+      fold.state = this._editor._pendingEditorState;
+    }
     for (const key of holed) {
       // What every reader parses from what was stored (see storedHoles).
       const node = $getNodeByKey(key);
@@ -8608,15 +8618,17 @@ export class YBinding {
 
   /**
    * An undo or redo read in an update that commits after the step returned
-   * (one run as the next update, see undoOrRedo): that update's state (null
-   * once it committed: the author's normalization that follows it, see
-   * NORMALIZE_TAG), and where the step pushed its item. What the binding
-   * writes in that commit and in that normalization (the editor's own
-   * update of what it read) is captured as part of the step, as when the
-   * step is read inside it: with the UndoManager's undoing (or redoing)
-   * flag set, so that it neither clears the redo stack nor becomes a step
-   * of its own, and folded into the step's item (see foldFollowUps). Any
-   * other commit first ends it.
+   * (one run as the next update, see undoOrRedo): that update's state, and
+   * where the step pushed its item. Once that update committed (or the step
+   * was read inside it), the state is null until the author's normalization
+   * of what the step read runs (see $normalize), which sets it to its own
+   * update's. What the binding writes in that commit and in that
+   * normalization (the editor's own update of what it read) is captured as
+   * part of the step, as when the step is read inside it: with the
+   * UndoManager's undoing (or redoing) flag set, so that it neither clears
+   * the redo stack nor becomes a step of its own, and folded into the
+   * step's item (see foldFollowUps). A commit of this client's first ends
+   * it; a collaborator's change read meanwhile does not.
    */
   private stepFold: {
     base: number;
