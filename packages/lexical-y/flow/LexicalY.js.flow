@@ -298,8 +298,8 @@ declare export class YUnsupportedYjsError extends Error {
 }
 
 // A Y.Doc for @lexical/y (a client's, a relay's or a server's), with Yjs's
-// format cleanup turned off before `state` is applied (when given). Servers
-// and relays create their documents with it (there is no relay helper).
+// format cleanup turned off before `state` is applied (when given). A relay
+// or server can use @lexical/y/server's createYDoc (Yjs alone).
 declare export function createYDoc(
   state?: Uint8Array | null,
   options?: YDocOptions,
