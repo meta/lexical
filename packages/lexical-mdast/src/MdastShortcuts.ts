@@ -109,6 +109,31 @@ function $placeBlock(container: ElementNode, block: LexicalNode): void {
 }
 
 /**
+ * Creates the quote for the `> ` shortcut with the registry's import
+ * handlers, so a typed quote is the same kind as a loaded one. With
+ * {@link MdastShadowRootQuoteExtension} that is a shadow root quote, which
+ * holds paragraphs. A rule may give the empty quote an empty paragraph for
+ * the caret (the mdast-editor example's alert rule does), so a shadow root
+ * quote that holds only empty paragraphs is kept too. Falls back to a plain
+ * QuoteNode when the import makes something else.
+ */
+function $createShortcutQuote(
+  scanner: MarkdownStreamScanner,
+  match: MdastBlockMatch & {kind: 'blockquote'},
+): QuoteNode {
+  const imported = scanner.importBlock(match.node);
+  const quote = imported.length === 1 ? imported[0] : null;
+  return $isQuoteNode(quote) &&
+    (quote.isEmpty() ||
+      (quote.isShadowRoot() &&
+        quote
+          .getChildren()
+          .every(child => $isParagraphNode(child) && child.isEmpty())))
+    ? quote
+    : $createQuoteNode();
+}
+
+/**
  * Replaces `container` with a horizontal rule, and puts the caret in a new
  * empty paragraph under it: the new line that the typed space or Enter asks
  * for. The marker must be the whole line. `--- text` is a paragraph in
@@ -157,7 +182,11 @@ function $applyThematicBreak(
  * a ParagraphNode, or an inline-content QuoteNode that adopts the new block
  * rather than being replaced by it.
  */
-function $applyBlock(paragraph: ElementNode, match: MdastBlockMatch): boolean {
+function $applyBlock(
+  paragraph: ElementNode,
+  match: MdastBlockMatch,
+  scanner: MarkdownStreamScanner,
+): boolean {
   if (match.kind === 'thematicBreak') {
     return $applyThematicBreak(paragraph, match.markerLength);
   }
@@ -194,9 +223,23 @@ function $applyBlock(paragraph: ElementNode, match: MdastBlockMatch): boolean {
     target = heading;
     selectInto = heading;
   } else if (match.kind === 'blockquote') {
-    const quote = $append($createQuoteNode(), remaining);
+    const quote = $createShortcutQuote(scanner, match);
+    if (quote.isShadowRoot()) {
+      // The typed text goes into the paragraph the import seeded, if any, so
+      // the quote holds one line, as the import of `> a` gives.
+      const [seeded, ...extra] = quote.getChildren();
+      extra.forEach(node => node.remove());
+      const line = $isParagraphNode(seeded) ? seeded : $createParagraphNode();
+      $append(line, remaining);
+      if (line !== seeded) {
+        $append(quote, [line]);
+      }
+      selectInto = line;
+    } else {
+      $append(quote, remaining);
+      selectInto = quote;
+    }
     target = quote;
-    selectInto = quote;
   } else {
     const listNode = match.node;
     const listType = $listTypeFromMdast(listNode);
@@ -518,7 +561,7 @@ export function registerMarkdownShortcuts(
                 match.kind !== 'code' &&
                 match.markerLength === anchorOffset
               ) {
-                transformed = $applyBlock(parent, match);
+                transformed = $applyBlock(parent, match, scanner);
               }
             }
           } else {
@@ -563,7 +606,7 @@ export function registerMarkdownShortcuts(
         if (
           match &&
           match.markerLength === anchorOffset &&
-          $applyBlock(parent, match)
+          $applyBlock(parent, match, scanner)
         ) {
           if (event !== null) {
             event.preventDefault();
