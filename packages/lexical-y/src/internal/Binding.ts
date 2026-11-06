@@ -1507,7 +1507,6 @@ export class YBinding {
   private readonly heldUnread = new Set<Transaction>();
   /** Containers read while changes were deferred, checked later (see checkRead). */
   private readonly checkLater = new Set<CS>();
-  /** While takeCursor's transaction runs. */
   /**
    * The transaction that changes nothing takeCursor or splitWhileUnread
    * opened, while its `transact` call is on the stack (its observers,
