@@ -756,25 +756,26 @@ export function markNodesWithTypesAsDirty(
   if (dirtyNodeMaps.length === 0) {
     return;
   }
-  editor.update(
-    () => {
-      for (const nodeMap of dirtyNodeMaps) {
-        for (const nodeKey of nodeMap.keys()) {
-          // We are only concerned with nodes that are still in the latest NodeMap,
-          // if they no longer exist then markDirty would raise an exception
-          const latest = $getNodeByKey(nodeKey);
-          if (latest) {
-            latest.markDirty();
-          }
+  const $markDirty = () => {
+    for (const nodeMap of dirtyNodeMaps) {
+      for (const nodeKey of nodeMap.keys()) {
+        // We are only concerned with nodes that are still in the latest NodeMap,
+        // if they no longer exist then markDirty would raise an exception
+        const latest = $getNodeByKey(nodeKey);
+        if (latest) {
+          latest.markDirty();
         }
       }
-    },
-    editor._pendingEditorState === null
-      ? {
-          tag: HISTORY_MERGE_TAG,
-        }
-      : undefined,
-  );
+    }
+  };
+  if (editor._pendingEditorState !== null) {
+    const unregister = editor.registerUpdateListener(() => {
+      unregister();
+      editor.update($markDirty, {tag: HISTORY_MERGE_TAG});
+    });
+  } else {
+    editor.update($markDirty, {tag: HISTORY_MERGE_TAG});
+  }
 }
 
 /** Returns the RootNode of the active EditorState. */
