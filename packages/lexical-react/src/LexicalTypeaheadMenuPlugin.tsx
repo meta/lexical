@@ -140,6 +140,18 @@ export type TypeaheadMenuPluginProps<TOption extends MenuOption> = {
   parent?: HTMLElement;
   preselectFirstItem?: boolean;
   ignoreEntityBoundary?: boolean;
+  /**
+   * Accessible label for the menu container.
+   * Screen readers will announce this when the menu opens.
+   * @default 'Typeahead menu'
+   */
+  menuAriaLabel?: string;
+  /**
+   * True while `options` for the current query are still being fetched.
+   * An empty menu then says "Loading" instead of "No results".
+   * @default false
+   */
+  loading?: boolean;
 };
 
 /**
@@ -164,6 +176,8 @@ export function LexicalTypeaheadMenuPlugin<TOption extends MenuOption>({
   parent,
   preselectFirstItem = true,
   ignoreEntityBoundary = false,
+  menuAriaLabel,
+  loading = false,
 }: TypeaheadMenuPluginProps<TOption>): JSX.Element | null {
   const [editor] = useLexicalComposerContext();
   const [resolution, setResolution] = useState<MenuResolution | null>(null);
@@ -227,6 +241,9 @@ export function LexicalTypeaheadMenuPlugin<TOption extends MenuOption>({
     setMenuResolution,
     anchorClassName,
     parent,
+    true,
+    menuAriaLabel,
+    menuRenderFn != null,
   );
 
   useEffect(() => {
@@ -316,11 +333,13 @@ export function LexicalTypeaheadMenuPlugin<TOption extends MenuOption>({
     editor === null ||
     anchorElementRef.current === null ? null : (
     <LexicalMenu
+      ariaLabel={menuAriaLabel}
       close={closeTypeahead}
       resolution={resolution}
       editor={editor}
       anchorElementRef={anchorElementRef}
       options={options}
+      loading={loading}
       menuRenderFn={menuRenderFn}
       shouldSplitNodeWithQuery={true}
       onSelectOption={onSelectOption}

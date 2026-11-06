@@ -26,6 +26,12 @@ export class MenuOption {
   ref?: RefObject<HTMLElement | null>;
   icon?: JSX.Element;
   title?: JSX.Element | string;
+  /**
+   * Spoken name for the option, when the visible content is not what should be
+   * read aloud. Set as `aria-label`, which replaces the element's contents for
+   * naming - so decorative glyphs and shorthand in `title` are not announced.
+   */
+  ariaLabel?: string;
 
   constructor(key: string) {
     this.key = key;

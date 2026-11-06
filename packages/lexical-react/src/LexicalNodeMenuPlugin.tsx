@@ -49,6 +49,12 @@ export type NodeMenuPluginProps<TOption extends MenuOption> = {
   anchorClassName?: string;
   commandPriority?: CommandListenerPriority;
   parent?: HTMLElement;
+  /**
+   * Accessible label for the menu.
+   * Screen readers will announce this when the menu opens.
+   * @default 'Typeahead menu'
+   */
+  menuAriaLabel?: string;
 };
 
 /**
@@ -70,6 +76,7 @@ export function LexicalNodeMenuPlugin<TOption extends MenuOption>({
   anchorClassName,
   commandPriority = COMMAND_PRIORITY_LOW,
   parent,
+  menuAriaLabel,
 }: NodeMenuPluginProps<TOption>): JSX.Element | null {
   const [editor] = useLexicalComposerContext();
   const [resolution, setResolution] = useState<MenuResolution | null>(null);
@@ -78,6 +85,9 @@ export function LexicalNodeMenuPlugin<TOption extends MenuOption>({
     setResolution,
     anchorClassName,
     parent,
+    true, // shouldIncludePageYOffset__EXPERIMENTAL
+    menuAriaLabel,
+    menuRenderFn != null,
   );
 
   const closeNodeMenu = useCallback(() => {
@@ -136,6 +146,7 @@ export function LexicalNodeMenuPlugin<TOption extends MenuOption>({
     resolution === null ||
     editor === null ? null : (
     <LexicalMenu
+      ariaLabel={menuAriaLabel}
       close={closeNodeMenu}
       resolution={resolution}
       editor={editor}

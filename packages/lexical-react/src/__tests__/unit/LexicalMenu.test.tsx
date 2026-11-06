@@ -8,7 +8,11 @@
 
 import * as ComposerContext from '@lexical/react/LexicalComposerContext';
 import {type LexicalComposerContextWithEditor} from '@lexical/react/LexicalComposerContext';
-import {KEY_ENTER_COMMAND, type LexicalEditor} from 'lexical';
+import {
+  KEY_ARROW_DOWN_COMMAND,
+  KEY_ENTER_COMMAND,
+  type LexicalEditor,
+} from 'lexical';
 import {createTestEditor} from 'lexical/src/__tests__/utils';
 import * as React from 'react';
 import {act} from 'react';
@@ -30,11 +34,20 @@ import {
   type MenuRenderFn,
   type MenuResolution,
   useDynamicPositioning,
+  useMenuAnchorRef,
 } from '../../shared/LexicalMenu';
 
 // Mock the composer context to provide a test editor
 vi.mock('@lexical/react/LexicalComposerContext', () => ({
   useLexicalComposerContext: () => [createTestEditor()],
+}));
+
+// The real hook reads AriaLiveRegionExtension off the editor, which a bare
+// test editor does not have. Standing in for it makes announcements
+// observable, including the ones that must not happen.
+const {announce} = vi.hoisted(() => ({announce: vi.fn()}));
+vi.mock('@lexical/react/useLexicalAriaLiveRegion', () => ({
+  useLexicalAriaLiveRegion: () => announce,
 }));
 
 class TestOption extends MenuOption {
@@ -553,5 +566,467 @@ describe('useDynamicPositioning Comment 8 regression', () => {
       ([eventName]) => eventName === 'scroll',
     );
     expect(scrollListenerCalls.length).toBeGreaterThan(0);
+  });
+});
+
+describe('LexicalMenu accessibility', () => {
+  let container: HTMLDivElement;
+  let reactRoot: Root;
+  let editor: LexicalEditor;
+  let anchorElement: HTMLDivElement;
+  let originalScrollIntoView: typeof Element.prototype.scrollIntoView;
+
+  function render(props: Record<string, unknown>) {
+    return act(async () => {
+      reactRoot.render(
+        <LexicalMenu<TestOption>
+          close={vi.fn()}
+          editor={editor}
+          anchorElementRef={{current: anchorElement}}
+          resolution={createTestResolution('test')}
+          onSelectOption={vi.fn()}
+          options={[]}
+          {...props}
+        />,
+      );
+    });
+  }
+
+  const listbox = () => anchorElement.querySelector('[role="listbox"]');
+  const items = () =>
+    Array.from(anchorElement.querySelectorAll('[role="option"]'));
+  const root = () => editor.getRootElement()!;
+
+  beforeEach(() => {
+    announce.mockClear();
+    announce.mockImplementation(() => {});
+    // jsdom has no layout, so it does not implement scrollIntoView. Arrowing
+    // through the menu scrolls the highlighted option into view.
+    originalScrollIntoView = Element.prototype.scrollIntoView;
+    Element.prototype.scrollIntoView = vi.fn();
+    container = document.createElement('div');
+    document.body.appendChild(container);
+    reactRoot = createRoot(container);
+    anchorElement = document.createElement('div');
+    anchorElement.id = 'typeahead-menu';
+    document.body.appendChild(anchorElement);
+    editor = createTestEditor();
+    const rootElement = document.createElement('div');
+    rootElement.contentEditable = 'true';
+    document.body.appendChild(rootElement);
+    editor.setRootElement(rootElement);
+  });
+
+  afterEach(() => {
+    Element.prototype.scrollIntoView = originalScrollIntoView;
+    container.remove();
+    anchorElement.remove();
+    const rootEl = editor.getRootElement();
+    if (rootEl) {
+      rootEl.remove();
+    }
+  });
+
+  describe('the listbox owns its options', () => {
+    it('renders the options as direct children of the listbox', async () => {
+      await render({options: [new TestOption('A'), new TestOption('B')]});
+
+      // The whole bug: anything sitting between the listbox and its options
+      // is announced as an extra list, and stops the position being worked
+      // out at all.
+      expect(listbox()).not.toBeNull();
+      expect(items()).toHaveLength(2);
+      for (const item of items()) {
+        expect(item.parentElement).toBe(listbox());
+      }
+    });
+
+    it('exposes exactly one list, not a list inside a list', async () => {
+      await render({options: [new TestOption('A'), new TestOption('B')]});
+
+      // Heard as "list, list": the container claimed to be a listbox and the
+      // <ul> inside it was a second list nobody asked for. A <ul> carries a
+      // list role whether or not one is set, so counting elements that expose
+      // one is the check that matters.
+      const lists = anchorElement.querySelectorAll(
+        '[role="listbox"], [role="list"], ul:not([role]), ol:not([role])',
+      );
+
+      expect(lists).toHaveLength(1);
+      expect(lists[0]).toBe(listbox());
+    });
+
+    it('names the listbox, and lets the caller override the name', async () => {
+      await render({options: [new TestOption('A')]});
+      expect(listbox()!.getAttribute('aria-label')).toBe('Typeahead menu');
+
+      await render({ariaLabel: 'Emojis', options: [new TestOption('A')]});
+      expect(listbox()!.getAttribute('aria-label')).toBe('Emojis');
+    });
+  });
+
+  describe('what each option says about itself', () => {
+    it('marks only the highlighted option as selected', async () => {
+      await render({
+        options: [
+          new TestOption('A'),
+          new TestOption('B'),
+          new TestOption('C'),
+        ],
+      });
+
+      // aria-selected="false" on the rest makes some screen readers say
+      // "not selected" after every arrow press.
+      expect(items().map(i => i.getAttribute('aria-selected'))).toEqual([
+        'true',
+        null,
+        null,
+      ]);
+    });
+
+    it('uses ariaLabel as the spoken name when the visible text differs', async () => {
+      const option = new TestOption('grinning glyph');
+      option.ariaLabel = 'grinning';
+      await render({options: [option]});
+
+      expect(items()[0].getAttribute('aria-label')).toBe('grinning');
+    });
+
+    it('leaves the name to the visible text when no ariaLabel is given', async () => {
+      await render({options: [new TestOption('A')]});
+
+      expect(items()[0].hasAttribute('aria-label')).toBe(false);
+    });
+  });
+
+  describe('what the editor points at', () => {
+    it('owns the listbox while there are options to point at', async () => {
+      await render({options: [new TestOption('A')]});
+
+      // The menu is rendered outside the editor, so the relationship has to
+      // be declared or the reference does not resolve.
+      expect(root().getAttribute('aria-owns')).toBe(listbox()!.id);
+      const active = root().getAttribute('aria-activedescendant');
+      expect(document.getElementById(active!)).not.toBeNull();
+    });
+
+    it('stops pointing when the options run out', async () => {
+      await render({options: [new TestOption('A')]});
+      await render({options: []});
+
+      expect(root().getAttribute('aria-owns')).toBeNull();
+      expect(root().getAttribute('aria-activedescendant')).toBeNull();
+    });
+
+    it('points at the highlighted option when options arrive late', async () => {
+      // A menu backed by a network lookup opens with nothing. The highlight
+      // is clamped while the list is empty and lands back on 0 when the
+      // results arrive, so it never "changes" - and anything written only on
+      // change is never written, leaving the editor pointing at nothing.
+      await render({options: []});
+      expect(root().getAttribute('aria-activedescendant')).toBeNull();
+
+      await render({options: [new TestOption('A'), new TestOption('B')]});
+
+      const active = root().getAttribute('aria-activedescendant');
+      expect(active).toBe(items()[0].id);
+      expect(document.getElementById(active!)).not.toBeNull();
+    });
+
+    it('never claims the editor is a combobox', async () => {
+      await render({options: [new TestOption('A')]});
+
+      // Changing the role of the focused element makes a screen reader
+      // re-introduce it. The editor is a text field, not a combobox.
+      expect(root().getAttribute('role')).not.toBe('combobox');
+      expect(root().hasAttribute('aria-expanded')).toBe(false);
+    });
+
+    it('lets go of the editor when the menu closes', async () => {
+      await render({options: [new TestOption('A')]});
+      await act(async () => {
+        reactRoot.unmount();
+      });
+
+      expect(root().getAttribute('aria-owns')).toBeNull();
+      expect(root().getAttribute('aria-activedescendant')).toBeNull();
+    });
+
+    it('does not own a list a custom menu never draws', async () => {
+      const customRenderFn: MenuRenderFn<TestOption> = (
+        anchorElementRef,
+        itemProps,
+      ) => {
+        return anchorElementRef.current
+          ? ReactDOM.createPortal(
+              <div className="custom-menu">
+                {itemProps.options.map((option, i) => (
+                  <div
+                    key={option.key}
+                    role="option"
+                    aria-selected={itemProps.selectedIndex === i}>
+                    {option.title}
+                  </div>
+                ))}
+              </div>,
+              anchorElementRef.current,
+            )
+          : null;
+      };
+
+      await render({
+        menuRenderFn: customRenderFn,
+        options: [new TestOption('A'), new TestOption('B')],
+      });
+
+      // The default listbox id is not in this menu. Owning it leaves the
+      // editor pointing at nothing. The menu's own box is on the page.
+      expect(document.getElementById('typeahead-listbox')).toBeNull();
+      expect(root().getAttribute('aria-owns')).toBe(anchorElement.id);
+      expect(document.getElementById(root().getAttribute('aria-owns')!)).toBe(
+        anchorElement,
+      );
+      // The choices have no typeahead-item-N id, so there is nothing to point
+      // at. A dangling id is the same break as the missing list.
+      expect(root().getAttribute('aria-activedescendant')).toBeNull();
+    });
+
+    it('points at a custom choice that carries the item id', async () => {
+      const customRenderFn: MenuRenderFn<TestOption> = (
+        anchorElementRef,
+        itemProps,
+      ) => {
+        return anchorElementRef.current
+          ? ReactDOM.createPortal(
+              <div>
+                {itemProps.options.map((option, i) => (
+                  <div
+                    id={'typeahead-item-' + i}
+                    key={option.key}
+                    role="option"
+                    aria-selected={itemProps.selectedIndex === i}>
+                    {option.title}
+                  </div>
+                ))}
+              </div>,
+              anchorElementRef.current,
+            )
+          : null;
+      };
+
+      await render({
+        menuRenderFn: customRenderFn,
+        options: [new TestOption('A')],
+      });
+
+      expect(root().getAttribute('aria-owns')).toBe('typeahead-menu');
+      expect(root().getAttribute('aria-activedescendant')).toBe(
+        'typeahead-item-0',
+      );
+      expect(document.getElementById('typeahead-item-0')).not.toBeNull();
+    });
+  });
+
+  describe('saying how many matches there are', () => {
+    beforeEach(() => {
+      vi.useFakeTimers();
+    });
+
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    // Async so React commits any pending effect before the clock moves.
+    // Advancing synchronously races the commit: the timer is set after time
+    // has already passed, so it survives to fire during a later step.
+    async function settle() {
+      await act(async () => {
+        vi.advanceTimersByTime(600);
+      });
+    }
+
+    it('says how many, once typing has settled', async () => {
+      await render({options: [new TestOption('A'), new TestOption('B')]});
+      await settle();
+
+      expect(announce).toHaveBeenCalledWith('2 suggestions available');
+    });
+
+    it('counts a single suggestion in the singular', async () => {
+      await render({options: [new TestOption('A')]});
+      await settle();
+
+      expect(announce).toHaveBeenCalledWith('1 suggestion available');
+    });
+
+    it('says so when nothing matches', async () => {
+      await render({options: []});
+      await settle();
+
+      // Nothing else can carry this: with no matches there is no list left
+      // to describe, so correct markup is silence.
+      expect(announce).toHaveBeenCalledWith('No results');
+    });
+
+    it('says Loading while the lookup is still running', async () => {
+      await render({loading: true, options: []});
+      await settle();
+
+      expect(announce).toHaveBeenCalledWith('Loading');
+      expect(announce).not.toHaveBeenCalledWith('No results');
+    });
+
+    it('says how many once that lookup arrives', async () => {
+      await render({loading: true, options: []});
+      await settle();
+      announce.mockClear();
+
+      await render({
+        loading: false,
+        options: [new TestOption('A'), new TestOption('B')],
+      });
+      await settle();
+
+      expect(announce).toHaveBeenCalledWith('2 suggestions available');
+      expect(announce).not.toHaveBeenCalledWith('No results');
+    });
+
+    it('says No results when the lookup finishes with nothing', async () => {
+      await render({loading: true, options: []});
+      await settle();
+      announce.mockClear();
+
+      await render({loading: false, options: []});
+      await settle();
+
+      expect(announce).toHaveBeenCalledWith('No results');
+    });
+
+    it('says nothing more while the highlight moves', async () => {
+      await render({
+        options: [
+          new TestOption('A'),
+          new TestOption('B'),
+          new TestOption('C'),
+        ],
+      });
+      // Drain everything already queued, so what follows can only be new.
+      await act(async () => {
+        vi.runAllTimers();
+      });
+      announce.mockClear();
+
+      await act(async () => {
+        editor.dispatchCommand(
+          KEY_ARROW_DOWN_COMMAND,
+          new KeyboardEvent('keydown', {key: 'ArrowDown'}),
+        );
+      });
+      await settle();
+
+      // Arrowing already announces the option itself. Repeating the count
+      // over the top of it is noise.
+      expect(announce).not.toHaveBeenCalled();
+    });
+
+    it('ends a burst of typing on the current count', async () => {
+      await render({options: [new TestOption('A')]});
+      await render({options: [new TestOption('A'), new TestOption('B')]});
+      await render({
+        options: [
+          new TestOption('A'),
+          new TestOption('B'),
+          new TestOption('C'),
+        ],
+      });
+      await settle();
+
+      // What a user is left with has to describe the list as it stands. The
+      // count is not asserted here: React's act() flushes the scheduler, and
+      // with fake timers that can run a queued debounce during the next
+      // render, before the effect cleanup cancels it - a property of the test
+      // harness, not of the editor.
+      const spoken = announce.mock.calls.map(([message]) => message);
+      expect(spoken[spoken.length - 1]).toBe('3 suggestions available');
+    });
+
+    it('still shows the menu when the editor cannot speak', async () => {
+      announce.mockImplementation(() => {
+        throw new Error('no aria live region in this editor');
+      });
+
+      await render({options: [new TestOption('A'), new TestOption('B')]});
+      await settle();
+
+      expect(items()).toHaveLength(2);
+      expect(listbox()).not.toBeNull();
+    });
+  });
+});
+
+describe('menu anchor role', () => {
+  let container: HTMLDivElement;
+  let reactRoot: Root;
+
+  beforeEach(() => {
+    container = document.createElement('div');
+    document.body.appendChild(container);
+    reactRoot = createRoot(container);
+  });
+
+  afterEach(async () => {
+    await act(async () => {
+      reactRoot.unmount();
+    });
+    container.remove();
+    document.querySelectorAll('.probe-menu-anchor').forEach(node => {
+      node.remove();
+    });
+  });
+
+  function AnchorProbe({listbox, label}: {listbox: boolean; label?: string}) {
+    useMenuAnchorRef(
+      null,
+      vi.fn(),
+      'probe-menu-anchor',
+      document.body,
+      true,
+      label,
+      listbox,
+    );
+    return null;
+  }
+
+  const probe = () =>
+    document.querySelector('.probe-menu-anchor') as HTMLElement | null;
+
+  it('stays a positioning box for the built-in menu, with no name of its own', async () => {
+    await act(async () => {
+      reactRoot.render(<AnchorProbe label="Emojis" listbox={false} />);
+    });
+
+    // The name belongs on the inner list. A label passed through must not
+    // land on this box, and the box must not claim to be a list.
+    expect(probe()).not.toBeNull();
+    expect(probe()!.getAttribute('role')).toBe('presentation');
+    expect(probe()!.hasAttribute('aria-label')).toBe(false);
+  });
+
+  it('is the named list when the caller draws the menu', async () => {
+    await act(async () => {
+      reactRoot.render(<AnchorProbe label="Slash commands" listbox={true} />);
+    });
+
+    expect(probe()!.getAttribute('role')).toBe('listbox');
+    expect(probe()!.getAttribute('aria-label')).toBe('Slash commands');
+  });
+
+  it('names that list "Typeahead menu" when the caller does not', async () => {
+    await act(async () => {
+      reactRoot.render(<AnchorProbe listbox={true} />);
+    });
+
+    expect(probe()!.getAttribute('role')).toBe('listbox');
+    expect(probe()!.getAttribute('aria-label')).toBe('Typeahead menu');
   });
 });
