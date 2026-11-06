@@ -29,6 +29,7 @@ import {
 } from 'lexical';
 import {describe, expect, test} from 'vitest';
 
+import {CATALOG_NODES, NODE_SHAPES} from '../../catalog';
 import {
   $createBoxNode,
   expectConverged,
@@ -36,8 +37,7 @@ import {
   setup,
 } from '../../utils/harness';
 
-// [what, content, fails on main before the fix]
-const CONTAINERS: [string, () => LexicalNode, boolean][] = [
+const CONTAINERS: [string, () => LexicalNode][] = [
   [
     'a link',
     () =>
@@ -45,7 +45,6 @@ const CONTAINERS: [string, () => LexicalNode, boolean][] = [
         $createTextNode('see '),
         $createLinkNode('https://example.com').append($createTextNode('abc')),
       ),
-    false,
   ],
   [
     'a box',
@@ -53,7 +52,6 @@ const CONTAINERS: [string, () => LexicalNode, boolean][] = [
       $createBoxNode().append(
         $createParagraphNode().append($createTextNode('abc')),
       ),
-    true,
   ],
 ];
 
@@ -118,3 +116,44 @@ describe.each([false, true])(
     });
   },
 );
+
+// Each container shape of the catalog, the editing peer or the reading peer
+// started again: an edit inside it reaches every peer and a fresh reader.
+const CATALOG_CONTAINERS = NODE_SHAPES.filter(s => s.kind === 'container');
+
+describe.each([false, true])('catalog containers, gc %s', gc => {
+  for (const s of CATALOG_CONTAINERS) {
+    for (const restarted of ['the editor', 'a reader'] as const) {
+      test(`${s.name}: ${restarted} started again`, async () => {
+        const t = await setup(() => $getRoot().append(s.$block()), {
+          gc,
+          ids: [1, 2],
+          nodes: [...CATALOG_NODES],
+        });
+        const {a, b} = t;
+        const peer = restarted === 'the editor' ? a : b;
+        peer.binding.dispose();
+        peer.binding.start();
+        let typed = false;
+        a.update(() => {
+          const text = $getRoot()
+            .getAllTextNodes()
+            .find(n => n.isSimpleText() && n.getTextContentSize() > 0);
+          if (text !== undefined) {
+            const end = text.getTextContentSize();
+            text.select(end, end).insertText('X');
+            $setSelection(null);
+            typed = true;
+          }
+        });
+        expect(typed).toBe(true);
+        await t.sync();
+        const fresh = await freshReader(a);
+        expect(fresh.describe()).toBe(a.describe());
+        expect(b.describe()).toBe(a.describe());
+        fresh.stop();
+        await expectConverged(t.peers);
+      });
+    }
+  }
+});
