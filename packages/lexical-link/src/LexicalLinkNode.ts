@@ -40,6 +40,7 @@ import {
   isHTMLAnchorElement,
   type Klass,
   type LexicalCommand,
+  type LexicalEditor,
   type LexicalNode,
   type LexicalParseJSON,
   type NodeKey,
@@ -786,6 +787,22 @@ function $splitLinkAtSelection(
 }
 
 /**
+ * The autolinks `$toggleLink` made links in each editor, by key, until
+ * AutoLinkAnnounceExtension sees them destroyed (see takeMadeLink): the text
+ * is still a link, so there is nothing to announce.
+ */
+const madeLinks = new WeakMap<LexicalEditor, Set<NodeKey>>();
+
+/**
+ * Whether `$toggleLink` made the autolink `key`, destroyed in `editor`, a
+ * link (and forget it). @internal
+ */
+export function takeMadeLink(editor: LexicalEditor, key: NodeKey): boolean {
+  const keys = madeLinks.get(editor);
+  return keys !== undefined && keys.delete(key);
+}
+
+/**
  * Replace `autoLink` with a LinkNode holding its children and `url` (the
  * attributes given, or the autolink's own where not given): an autolink's URL
  * follows its text (AutoLinkExtension sets it again on the next transform of
@@ -807,6 +824,13 @@ function $replaceAutoLink(
   const selection = $getSelection();
   const selected =
     $isNodeSelection(selection) && selection.has(autoLink.getKey());
+  const editor = $getEditor();
+  let made = madeLinks.get(editor);
+  if (made === undefined) {
+    made = new Set();
+    madeLinks.set(editor, made);
+  }
+  made.add(autoLink.getKey());
   autoLink.replace(replacement, true);
   if (selected) {
     // The node selection held the autolink itself: the same content stays

@@ -15,6 +15,7 @@ import {
 } from '@lexical/extension';
 import {
   $createAutoLinkNode,
+  $createLinkNode,
   $isAutoLinkNode,
   $toggleLink,
   AutoLinkAnnounceExtension,
@@ -201,6 +202,95 @@ describe('AutoLinkAnnounceExtension', () => {
 
     expect(editor.read(() => $isAutoLinkNode($onlyLink()))).toBe(false);
     expect(readLiveRegion()).toBe('');
+  });
+
+  test('stays silent when the link $toggleLink makes merges into its neighbour', () => {
+    using editor = buildEditor();
+    editor.update(
+      () => {
+        const url = 'https://example.com';
+        $getRoot().append(
+          $createParagraphNode().append(
+            // The attributes $toggleLink gives, so the links merge.
+            $createLinkNode('https://u1.test', {rel: 'noreferrer'}).append(
+              $createTextNode('see '),
+            ),
+            $createAutoLinkNode(url).append($createTextNode(url)),
+          ),
+        );
+      },
+      {discrete: true},
+    );
+    clearLiveRegion();
+
+    editor.update(
+      () => {
+        const paragraph = $assertNodeType(
+          $getRoot().getLastChild(),
+          $isElementNode,
+        );
+        const auto = $assertNodeType(paragraph.getLastChild(), $isAutoLinkNode);
+        $assertNodeType(auto.getFirstChild(), $isTextNode).select(0, 5);
+        $toggleLink('https://u1.test');
+      },
+      {discrete: true},
+    );
+
+    expect(
+      editor.read(() =>
+        $assertNodeType($getRoot().getLastChild(), $isElementNode)
+          .getChildren()
+          .map(n => n.getType()),
+      ),
+    ).toEqual(['link']);
+    expect(readLiveRegion()).toBe('');
+  });
+
+  test('counts only the links removed when $toggleLink makes another a link', () => {
+    using editor = buildEditor();
+    addAutoLink(editor, 'https://a.example');
+    addAutoLink(editor, 'https://b.example');
+    addAutoLink(editor, 'https://c.example');
+    clearLiveRegion();
+
+    editor.update(
+      () => {
+        const links = $getRoot()
+          .getChildren()
+          .map(paragraph =>
+            $assertNodeType(paragraph, $isElementNode).getFirstChild(),
+          )
+          .filter($isAutoLinkNode);
+        const [link, ...rest] = links;
+        for (const other of rest) {
+          other.getParentOrThrow().remove();
+        }
+        $assertNodeType(link.getFirstChild(), $isTextNode).select(0, 5);
+        $toggleLink('https://u1.test');
+      },
+      {discrete: true},
+    );
+
+    expect(readLiveRegion()).toBe('2 links removed');
+  });
+
+  test('still announces a link removed after its text moved into another link', () => {
+    using editor = buildEditor();
+    addAutoLink(editor);
+    clearLiveRegion();
+
+    editor.update(
+      () => {
+        const link = $onlyLink();
+        const manual = $createLinkNode('https://u1.test');
+        link.insertBefore(manual);
+        manual.append(...link.getChildren());
+        link.remove();
+      },
+      {discrete: true},
+    );
+
+    expect(readLiveRegion()).toBe('Link removed');
   });
 
   test('stays silent while typing inside a link', () => {

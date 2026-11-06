@@ -8,43 +8,9 @@
 
 import {AriaLiveRegionExtension} from '@lexical/a11y';
 import {effect, namedSignals} from '@lexical/extension';
-import {
-  $getNodeByKey,
-  $isElementNode,
-  defineExtension,
-  type EditorState,
-  type LexicalEditor,
-  type NodeKey,
-  safeCast,
-} from 'lexical';
+import {defineExtension, safeCast} from 'lexical';
 
-import {$isLinkNode, AutoLinkNode} from './LexicalLinkNode';
-
-/**
- * Whether the autolink `key` destroyed was made a link in its place (as
- * `$toggleLink` does when it sets a URL on one): one of its children is still
- * in the document, in a link. The text is still a link, so there is nothing
- * to report.
- */
-function madeLink(
-  editor: LexicalEditor,
-  prevEditorState: EditorState,
-  key: NodeKey,
-): boolean {
-  const children = prevEditorState.read(() => {
-    const node = $getNodeByKey(key);
-    return $isElementNode(node) ? node.getChildrenKeys() : [];
-  });
-  return (
-    children.length > 0 &&
-    editor.getEditorState().read(() =>
-      children.some(child => {
-        const node = $getNodeByKey(child);
-        return node !== null && $isLinkNode(node.getParent());
-      }),
-    )
-  );
-}
+import {AutoLinkNode, takeMadeLink} from './LexicalLinkNode';
 
 export interface AutoLinkAnnounceExtensionConfig {
   /** Announced when typing turns text into a link. */
@@ -105,7 +71,7 @@ export const AutoLinkAnnounceExtension = defineExtension({
         ? undefined
         : editor.registerMutationListener(
             AutoLinkNode,
-            (nodes, {prevEditorState}) => {
+            nodes => {
               let createdCount = 0;
               let destroyedCount = 0;
               for (const [key, mutation] of nodes) {
@@ -113,7 +79,8 @@ export const AutoLinkAnnounceExtension = defineExtension({
                   createdCount++;
                 } else if (
                   mutation === 'destroyed' &&
-                  !madeLink(editor, prevEditorState, key)
+                  // Made a link by $toggleLink: the text is still a link.
+                  !takeMadeLink(editor, key)
                 ) {
                   destroyedCount++;
                 }
