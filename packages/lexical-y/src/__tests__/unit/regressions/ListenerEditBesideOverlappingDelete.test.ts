@@ -106,5 +106,70 @@ describe.each([false, true])(
         host.remove();
       }
     });
+
+    test('stores a listener edit that moves lines as the editor shows it', async () => {
+      const t = await setup(
+        () =>
+          $getRoot().append(
+            $createParagraphNode().append($createTextNode('two three four')),
+            $createParagraphNode().append($createTextNode('eight nine ten')),
+          ),
+        {gc, ids: [1, 2, 3]},
+      );
+      const {a, b} = t;
+      const host = document.createElement('div');
+      host.contentEditable = 'true';
+      document.body.append(host);
+      a.editor.setRootElement(host);
+      // The listener moves the last line to the top and appends '#' to it,
+      // at most twice (a move, recorded by Lexical, and an edit beside the
+      // text only the unread change deleted).
+      let budget = 2;
+      a.editor.registerMutationListener(
+        TextNode,
+        mutations => {
+          if (budget > 0 && mutations.size > 0) {
+            budget--;
+            a.editor.update(() => {
+              const root = $getRoot();
+              const last = root.getLastChild();
+              const first = root.getFirstChild();
+              if ($isElementNode(last) && first !== null && !last.is(first)) {
+                first.insertBefore(last);
+              }
+              const top = root.getFirstChild();
+              const text = $isElementNode(top) ? top.getLastDescendant() : null;
+              if ($isTextNode(text)) {
+                text.setTextContent(text.getTextContent() + '#');
+              }
+            });
+          }
+        },
+        {skipInitialization: true},
+      );
+      try {
+        t.offline();
+        b.update(() => {
+          $selectIn([1], 8, 12).removeText();
+          $setSelection(null);
+        });
+        const remote = Y.encodeStateAsUpdate(b.doc, Y.encodeStateVector(a.doc));
+        a.update(() => {
+          $selectIn([1], 7, 11).removeText();
+          $setSelection(null);
+          Y.applyUpdate(a.doc, remote, 'provider');
+        });
+        await Promise.resolve();
+        await t.sync();
+        await t.sync();
+        const fresh = await freshReader(a);
+        const stored = fresh.describe();
+        fresh.stop();
+        expect(stored).toBe(a.describe());
+        await expectConverged([a, b, t.c]);
+      } finally {
+        host.remove();
+      }
+    });
   },
 );
