@@ -68,7 +68,7 @@ export const UNSUPPORTED_CONFIG_WARNING = '@lexical/y/unsupported-config';
  * @experimental A local change was not written; what it changed is read
  * again (once the document cannot be read, the editor shows what it showed
  * before the update again), so the editor keeps showing the document.
- * `data`: YUnsupportedEditData, with three reasons:
+ * `data`: YUnsupportedEditData, with four reasons:
  *
  * - `'read-only'`: the binding is read only (code edited the editor, which
  *   is not editable). Reported once each time the binding goes read only.
@@ -78,6 +78,9 @@ export const UNSUPPORTED_CONFIG_WARNING = '@lexical/y/unsupported-config';
  * - `'held-composition'`: the binding is active, and the change would delete
  *   or leave behind text a collaborator wrote in the line being composed,
  *   which the composition holds back. Reported for each such change.
+ * - `'unstorable'`: a written local update left an empty text node Lexical
+ *   keeps (not mergeable simple text), which the document does not store:
+ *   the editor reads it back. Reported for each such update.
  */
 export const UNSUPPORTED_EDIT_WARNING = '@lexical/y/unsupported-edit';
 /**
@@ -348,7 +351,14 @@ export type YUnsupportedEditData =
    * composed in). Nothing is written, the editor reads the document again
    * (the change is undone), and the composition goes on; edit again.
    */
-  | {readonly reason: 'held-composition'};
+  | {readonly reason: 'held-composition'}
+  /**
+   * A written local update (or an app's edit in the update of a remote
+   * change's read) left an empty text node Lexical keeps (not mergeable
+   * simple text), which the document does not store: the editor reads it
+   * back, as every peer and a fresh reader show it.
+   */
+  | {readonly reason: 'unstorable'};
 
 /**
  * @experimental `data` of a `SELF_CHECK_WARNING`: the self-check found the

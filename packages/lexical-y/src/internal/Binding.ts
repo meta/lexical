@@ -84,6 +84,7 @@ import {
   type SerializedEditorState,
   SKIP_COLLAB_TAG,
   SKIP_DOM_SELECTION_TAG,
+  type SlotHostNode,
   TextNode,
   type Transform,
 } from 'lexical';
@@ -160,6 +161,7 @@ import {
   deriveStorageKind,
   getGroupSpec,
   identityOf,
+  isMergeableText,
   isSetMemberEntryName,
   LAYOUT_PREFIX,
   LAYOUT_VERSION,
@@ -1246,6 +1248,16 @@ export class YBinding {
    * read again once it ends (see onUpdate).
    */
   private readonly refusedComposing = new Set<CS>();
+  /**
+   * Nodes holding slots the document cannot store that a local update made
+   * while read only: the next re-read removes those slots.
+   */
+  private readonly refusedSlotHosts = new Set<NodeKey>();
+  /**
+   * Empty text nodes Lexical keeps (not mergeable simple text), not read back yet because the
+   * caret or a composition is in them (see readBackUnstored).
+   */
+  private readonly emptyHeld = new Set<NodeKey>();
   /**
    * Whether the binding went read only to keep a local change it cannot
    * store (see refuseUnstorableSlots): the editor shows that change, and
@@ -2541,6 +2553,8 @@ export class YBinding {
     this.localRefresh.clear();
     this.refused.clear();
     this.refusedComposing.clear();
+    this.refusedSlotHosts.clear();
+    this.emptyHeld.clear();
     this.keepsUnstored = false;
     this.warnedEdit = false;
     this.restoreTo = null;
@@ -5358,6 +5372,11 @@ export class YBinding {
     }
     if (!this.writesEdits()) {
       this.$refuseChanged(dirtyElements, dirtyLeaves, editorState, readState);
+      this.$refuseUnstorableSlotHosts(
+        dirtyElements,
+        editorState,
+        this._editor._compositionKey !== null,
+      );
       return;
     }
     // As for a local commit (see onUpdate): fail closed on slots the
@@ -5409,6 +5428,7 @@ export class YBinding {
       this.readEditLog = null;
     }
     this.queueCommitFollowUps(state, commit, localKeys, false);
+    this.readBackUnstored(editorState, dirtyLeaves);
   }
 
   /**
@@ -6158,6 +6178,12 @@ export class YBinding {
           prevEditorState,
           composing ? this.refusedComposing : this.refused,
         );
+        refused =
+          this.$refuseUnstorableSlotHosts(
+            dirtyElements,
+            editorState,
+            composing,
+          ) || refused;
       }
       if (refused) {
         this.refusals++;
@@ -6188,6 +6214,16 @@ export class YBinding {
       commit.skip ||
       (dirtyElements.size === 0 && dirtyLeaves.size === 0)
     ) {
+      if (
+        this.emptyHeld.size > 0 &&
+        this.writesEdits() &&
+        !commit.remote &&
+        !commit.skip
+      ) {
+        // A commit that moves only the selection can take the caret out of
+        // an emptied node held for it (see readBackUnstored).
+        this.readBackUnstored(editorState, new Set());
+      }
       return;
     }
     // The groups this commit's refresh recomputes (see flushRefresh): not
@@ -6266,6 +6302,74 @@ export class YBinding {
       return;
     }
     this.queueCommitFollowUps(state, commit, localKeys, untransformed);
+    this.readBackUnstored(editorState, dirtyLeaves);
+  }
+
+  /**
+   * Read back what a written local commit left in the editor that the
+   * document does not store: an empty text node Lexical keeps (not mergeable simple text) (a
+   * token, segmented or code highlight node, a subclass; text is stored as
+   * characters, and Lexical removes only empty mergeable simple text). The containers
+   * holding such text nodes are read again, so that no client shows what the
+   * others and a fresh reader do not; reported (UNSUPPORTED_EDIT_WARNING,
+   * `'unstorable'`). A node the collapsed caret or the composition is in is
+   * held (emptyHeld) and checked again on each later local commit, a commit
+   * that only moves the selection included. NodeState on
+   * the root is not stored either, but is left as it is: apps keep document
+   * metadata there and share it themselves.
+   */
+  private readBackUnstored(
+    editorState: EditorState,
+    dirtyLeaves: Set<NodeKey>,
+  ): void {
+    const capped = this.rereads > MAX_REREADS;
+    const empty: NodeKey[] = [];
+    const composing = this._editor._compositionKey;
+    editorState.read(() => {
+      const selection = $getSelection();
+      const caret =
+        $isRangeSelection(selection) && selection.isCollapsed()
+          ? selection.anchor.key
+          : null;
+      for (const key of [...dirtyLeaves, ...this.emptyHeld]) {
+        const node = $getNodeByKey(key);
+        if (
+          !$isTextNode(node) ||
+          node.__text !== '' ||
+          isMergeableText(node) ||
+          !node.isAttached()
+        ) {
+          this.emptyHeld.delete(key);
+        } else if (key === composing || key === caret || capped) {
+          // Lexical keeps an emptied node the caret or a composition is in
+          // while native input goes on (and removes it itself, on some
+          // platforms a moment later): checked again on a later commit. So
+          // is one found once the last re-read in a row was made (see
+          // MAX_REREADS): an app's code that empties such a node again in
+          // each read's update is not read back again until a user's edit
+          // resets the count, so that it cannot loop.
+          this.emptyHeld.add(key);
+        } else {
+          this.emptyHeld.delete(key);
+          empty.push(key);
+        }
+      }
+    });
+    if (empty.length === 0) {
+      return;
+    }
+    const into = composing === null ? this.refused : this.refusedComposing;
+    for (const key of empty) {
+      this.addContainerOf(key, editorState._nodeMap, into);
+    }
+    if (into === this.refused) {
+      this.pending.add('reread');
+    }
+    this.warn(
+      UNSUPPORTED_EDIT_WARNING,
+      'a local update left an empty text node Lexical keeps (not mergeable simple text), which the document does not store: the editor reads it back',
+      {reason: 'unstorable'},
+    );
   }
 
   /**
@@ -7458,6 +7562,72 @@ export class YBinding {
   }
 
   /**
+   * While read only, note the nodes among `dirtyElements` that hold slots
+   * the document cannot store them on (see $unstorableSlotHosts): a re-read
+   * of their container does not remove them, the next re-read does (see
+   * $rereadRefused), queued unless a composition goes on. Not before the
+   * document is opened: its initial content is checked for such slots then
+   * (see refuseUnstorableSlots). Returns whether there is any.
+   */
+  private $refuseUnstorableSlotHosts(
+    dirtyElements: Map<NodeKey, boolean>,
+    editorState: EditorState,
+    composing: boolean,
+  ): boolean {
+    // A binding that went read only to keep showing what it cannot store
+    // leaves later updates as they are too (see keepsUnstored).
+    if (this._status !== 'readonly' || this.keepsUnstored) {
+      return false;
+    }
+    let found = false;
+    editorState.read(() => {
+      const roles = new Roles(this.state);
+      for (const key of dirtyElements.keys()) {
+        if (
+          $unstorableSlotHosts(roles, [key], editorState._nodeMap).length > 0
+        ) {
+          this.refusedSlotHosts.add(key);
+          found = true;
+        }
+      }
+    });
+    if (this.refusedSlotHosts.size > 0 && !composing) {
+      this.pending.add('reread');
+    }
+    return found;
+  }
+
+  /**
+   * Add to `into` the container that holds node `key` of `map` (the nearest
+   * ancestor with a container; a slot's value is held by its host). Returns
+   * whether there is one.
+   */
+  private addContainerOf(
+    key: NodeKey,
+    map: ReadonlyMap<NodeKey, LexicalNode>,
+    into: Set<CS>,
+  ): boolean {
+    const state = this.state;
+    for (let n = map.get(key); n !== undefined; ) {
+      const parent: NodeKey | null =
+        n.__parent ?? (n as {__slotHost?: null | NodeKey}).__slotHost ?? null;
+      if (parent === null) {
+        return false;
+      }
+      const cs =
+        parent === 'root'
+          ? state.containers.get(this._root)
+          : state.csByKey.get(parent);
+      if (cs !== undefined) {
+        into.add(cs);
+        return true;
+      }
+      n = map.get(parent);
+    }
+    return false;
+  }
+
+  /**
    * Queue the re-read of every container holding a node a commit changed
    * (its fields, NodeState, text or children), for a commit that is not
    * written (see onUpdate); in `into` (refusedComposing: not queued until
@@ -7490,34 +7660,14 @@ export class YBinding {
     const prevMap = prevEditorState._nodeMap;
     const nowMap = editorState._nodeMap;
     let found = false;
-    const containerOf = (key: NodeKey, map: Map<NodeKey, LexicalNode>) => {
-      for (let n = map.get(key); n !== undefined; ) {
-        // A slot's value is held by its host (its up-link), not a parent.
-        const parent: NodeKey | null =
-          n.__parent ?? (n as {__slotHost?: null | NodeKey}).__slotHost ?? null;
-        if (parent === null) {
-          return;
-        }
-        const cs =
-          parent === 'root'
-            ? state.containers.get(this._root)
-            : state.csByKey.get(parent);
-        if (cs !== undefined) {
-          into.add(cs);
-          found = true;
-          return;
-        }
-        n = map.get(parent);
-      }
-    };
     for (const key of changed) {
       const own = state.csByKey.get(key);
       if (own !== undefined) {
         into.add(own);
         found = true;
       }
-      containerOf(key, nowMap);
-      containerOf(key, prevMap);
+      found = this.addContainerOf(key, nowMap, into) || found;
+      found = this.addContainerOf(key, prevMap, into) || found;
     }
     if (into === this.refused && this.refused.size > 0) {
       this.pending.add('reread');
@@ -7998,6 +8148,8 @@ export class YBinding {
       this.remoteRefresh.clear();
       this.refused.clear();
       this.refusedComposing.clear();
+      this.refusedSlotHosts.clear();
+      this.emptyHeld.clear();
       this.restoreTo = null;
       this.replies.length = 0;
       this.toSettle.clear();
@@ -8151,12 +8303,23 @@ export class YBinding {
     );
     const naming = this.refusedNaming;
     const settle = [...this.toSettle];
+    const slotHosts = [...this.refusedSlotHosts];
+    this.refusedSlotHosts.clear();
     this.refused.clear();
     this.toSettle.clear();
     this.refusedNaming = false;
     this.pending.delete('reread');
-    if (list.length === 0 && settle.length === 0) {
+    if (list.length === 0 && settle.length === 0 && slotHosts.length === 0) {
       return null;
+    }
+    // Slots the document cannot store (see the read-only path of onUpdate).
+    for (const key of slotHosts) {
+      const host = $getNodeByKey(key);
+      if (host !== null && host.isAttached()) {
+        for (const name of $getSlotNames(host)) {
+          $removeSlot(host as LexicalNode & SlotHostNode, name);
+        }
+      }
     }
     const last = ++this.rereads > MAX_REREADS;
     for (const tag of REMOTE_TAGS) {
