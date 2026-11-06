@@ -1,0 +1,5 @@
+# This example is a standalone project rather than a member of the Lexical
+# monorepo workspace. Its own pnpm-workspace.yaml makes this directory the
+# workspace root for a `pnpm install` run here, so pnpm never climbs into the
+# monorepo above it, and it is where pnpm 11 reads the settings below from.
+packages: []

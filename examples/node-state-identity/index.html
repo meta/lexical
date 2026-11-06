@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Lexical NodeState identity example</title>
+  </head>
+  <body>
+    <main>
+      <h1>Application node identity</h1>
+      <p>
+        Paragraph IDs survive editing and save/load. New paragraphs get fresh
+        IDs on paste, including after a cut. Text runs have no IDs.
+      </p>
+      <div role="group" aria-label="Editor actions">
+        <button id="add">Add paragraph</button>
+        <button id="duplicate">Copy first paragraph (shallow)</button>
+        <button id="undo">Undo</button>
+        <button id="redo">Redo</button>
+        <button id="save">Save JSON</button>
+        <button id="load" disabled>Load saved JSON</button>
+      </div>
+      <div
+        id="editor"
+        contenteditable="true"
+        role="textbox"
+        aria-label="Document"
+        aria-multiline="true"></div>
+      <p id="status" role="status">No saved snapshot.</p>
+      <h2>Current document JSON</h2>
+      <pre id="json" aria-label="Current document JSON"></pre>
+    </main>
+    <script src="/src/main.ts" type="module"></script>
+  </body>
+</html>
