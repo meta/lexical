@@ -6553,3 +6553,41 @@ describe('decimal character references that name no character', () => {
     ).toEqual([{title: 't\uFFFD', url: 'https://example.com/\uFFFD'}]);
   });
 });
+
+describe('quote lines with optional space (#9442)', () => {
+  it('imports and exports quotes with blank quote lines without duplicating delimiters', () => {
+    const editor = createTestEditor();
+    const md = '> a\n>\n> b';
+    editor.update(() => $convertFromMarkdownString(md, TRANSFORMERS), {
+      discrete: true,
+    });
+    expect(
+      editor.read('latest', () => $convertToMarkdownString(TRANSFORMERS)),
+    ).toBe('> a\n>\n> b');
+  });
+
+  it('imports quote lines without space after > and exports with standard spacing', () => {
+    const editor = createTestEditor();
+    const md = '>a';
+    editor.update(() => $convertFromMarkdownString(md, TRANSFORMERS), {
+      discrete: true,
+    });
+    expect(
+      editor.read('latest', () => $isQuoteNode($getRoot().getFirstChild())),
+    ).toBe(true);
+    expect(
+      editor.read('latest', () => $convertToMarkdownString(TRANSFORMERS)),
+    ).toBe('> a');
+  });
+
+  it('imports multi-line quote with unspaced lines', () => {
+    const editor = createTestEditor();
+    const md = '> a\n>b';
+    editor.update(() => $convertFromMarkdownString(md, TRANSFORMERS), {
+      discrete: true,
+    });
+    expect(
+      editor.read('latest', () => $convertToMarkdownString(TRANSFORMERS)),
+    ).toBe('> a\n> b');
+  });
+});
