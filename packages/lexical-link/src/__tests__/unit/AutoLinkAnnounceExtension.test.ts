@@ -15,6 +15,8 @@ import {
 } from '@lexical/extension';
 import {
   $createAutoLinkNode,
+  $isAutoLinkNode,
+  $toggleLink,
   AutoLinkAnnounceExtension,
   AutoLinkExtension,
   autoLinkUrlMatcher,
@@ -25,6 +27,7 @@ import {
   $createTextNode,
   $getRoot,
   $isElementNode,
+  $isTextNode,
   configExtension,
   type ElementNode,
 } from 'lexical';
@@ -178,6 +181,25 @@ describe('AutoLinkAnnounceExtension', () => {
       {discrete: true},
     );
 
+    expect(readLiveRegion()).toBe('');
+  });
+
+  test('stays silent when $toggleLink makes the link a link of its own', () => {
+    using editor = buildEditor();
+    addAutoLink(editor);
+    clearLiveRegion();
+
+    // Setting a URL on an automatic link replaces it with a regular link
+    // holding the same text: the text is still a link.
+    editor.update(
+      () => {
+        $assertNodeType($onlyLink().getFirstChild(), $isTextNode).select(0, 5);
+        $toggleLink('https://u1.test');
+      },
+      {discrete: true},
+    );
+
+    expect(editor.read(() => $isAutoLinkNode($onlyLink()))).toBe(false);
     expect(readLiveRegion()).toBe('');
   });
 

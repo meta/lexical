@@ -28,6 +28,7 @@ import {
 import {
   $createNodeSelection,
   $createParagraphNode,
+  $createRangeSelection,
   $createTextNode,
   $getRoot,
   $getSelection,
@@ -205,6 +206,14 @@ describe('$toggleLink inside an autolink', () => {
         ];
       }),
     ).toEqual([false, 'https://u1.test', 't30z']);
+    // The link holds the text, not the autolink (a link around it).
+    expect(
+      editor.read(() =>
+        $link()
+          .getChildren()
+          .every(n => $isTextNode(n)),
+      ),
+    ).toBe(true);
   });
 
   test('with the autolink itself selected next to the same link, keeps its text selected', () => {
@@ -251,4 +260,69 @@ describe('$toggleLink inside an autolink', () => {
       }),
     ).toEqual([1, 'see t30z now', 't30z']);
   });
+
+  for (const [name, from, to, text] of [
+    ['from plain text into the autolink', 0, 6, 'see t30z'],
+    ['in part of the autolink', 5, 7, 't30z'],
+  ] as const) {
+    test(`with a selection ${name}, makes it a link and keeps the URL`, () => {
+      using editor = buildEditor();
+      editor.update(
+        () => {
+          $getRoot()
+            .clear()
+            .append(
+              $createParagraphNode().append($createTextNode('see t30z now')),
+            );
+        },
+        {discrete: true},
+      );
+      editor.update(
+        () => {
+          const paragraph = $getRoot().getFirstChild();
+          assert($isElementNode(paragraph), 'expected a paragraph');
+          const [plain, auto] = paragraph.getChildren();
+          assert($isTextNode(plain) && $isAutoLinkNode(auto), 'expected text');
+          const autoText = auto.getFirstChild();
+          assert($isTextNode(autoText), 'expected a TextNode');
+          const selection = $createRangeSelection();
+          if (from < 4) {
+            selection.anchor.set(plain.getKey(), from, 'text');
+          } else {
+            selection.anchor.set(autoText.getKey(), from - 4, 'text');
+          }
+          selection.focus.set(autoText.getKey(), to - 4, 'text');
+          $setSelection(selection);
+          $toggleLink('https://u1.test');
+        },
+        {discrete: true},
+      );
+      // The next transform of the text (an edit; a load).
+      editor.update(
+        () => {
+          for (const node of $getRoot().getAllTextNodes()) {
+            node.markDirty();
+          }
+        },
+        {discrete: true},
+      );
+      expect(
+        editor.read(() => {
+          const paragraph = $getRoot().getFirstChild();
+          assert($isElementNode(paragraph), 'expected a paragraph');
+          return paragraph
+            .getChildren()
+            .map(n =>
+              $isLinkNode(n)
+                ? `${$isAutoLinkNode(n) ? 'auto' : 'link'}<${n.getURL()}>(${n.getTextContent()})`
+                : JSON.stringify(n.getTextContent()),
+            );
+        }),
+      ).toEqual(
+        text === 't30z'
+          ? ['"see "', 'link<https://u1.test>(t30z)', '" now"']
+          : ['link<https://u1.test>(see t30z)', '" now"'],
+      );
+    });
+  }
 });
