@@ -99,6 +99,23 @@ describe('setDOMStyle', () => {
       color: 'red',
       margin: '0',
     });
+    // A comment between `/` and `*` leaves a space, so that they don't form
+    // a new comment when the value is written back.
+    expect(getStyleObjectFromCSS('a: x//**/*y')).toEqual({a: 'x/ *y'});
+    expect(getStyleObjectFromCSS('a: x//* c1 *//* c2 */*y')).toEqual({
+      a: 'x/ *y',
+    });
+    expect(getStyleObjectFromCSS('a//**/*b: c')).toEqual({'a/ *b': 'c'});
+    // Anywhere else the text around a comment is still joined.
+    expect(getStyleObjectFromCSS('a: x/**/*y; b: x//**/y')).toEqual({
+      a: 'x*y',
+      b: 'x/y',
+    });
+    expect(getStyleObjectFromCSS('a: x//**/y/**/*z')).toEqual({a: 'x/y*z'});
+    // The `/` that closes a comment is not kept text.
+    expect(getStyleObjectFromCSS('a: x/* c1 *//* c2 */*y')).toEqual({
+      a: 'x*y',
+    });
     // Consecutive comments in a property name are also removed.
     expect(getStyleObjectFromCSS('a/* c1 *//* c2 */b: c')).toEqual({ab: 'c'});
     // Escaped quotes, ';' and ':' inside a quoted value are preserved.
@@ -109,5 +126,31 @@ describe('setDOMStyle', () => {
     expect(getStyleObjectFromCSS('background: url(http://x/a;b);')).toEqual({
       background: 'url(http://x/a;b)',
     });
+  });
+
+  it('closes a string or parentheses left open at the end, as CSS does', () => {
+    expect(getStyleObjectFromCSS('font-family: "Arial')).toEqual({
+      'font-family': '"Arial"',
+    });
+    expect(getStyleObjectFromCSS("color: red; font-family: 'Arial")).toEqual({
+      color: 'red',
+      'font-family': "'Arial'",
+    });
+    expect(getStyleObjectFromCSS('background-image: url(a.png')).toEqual({
+      'background-image': 'url(a.png)',
+    });
+    expect(getStyleObjectFromCSS('background-image: url("a.png')).toEqual({
+      'background-image': 'url("a.png")',
+    });
+    // An unterminated comment runs to the end; the parentheses still close.
+    expect(getStyleObjectFromCSS('background-image: url(a.png/* x')).toEqual({
+      'background-image': 'url(a.png)',
+    });
+    // A trailing backslash inside the string escapes nothing and is dropped.
+    expect(getStyleObjectFromCSS('font-family: "Arial\\')).toEqual({
+      'font-family': '"Arial"',
+    });
+    // Outside a string it is kept.
+    expect(getStyleObjectFromCSS('color: red\\')).toEqual({color: 'red\\'});
   });
 });
