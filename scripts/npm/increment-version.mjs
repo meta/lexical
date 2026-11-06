@@ -9,7 +9,10 @@
  */
 
 import minimist from 'minimist';
+import path from 'node:path';
 
+import {breakingChangesets} from '../changesets/release.mjs';
+import {readPending, ROOT} from '../changesets/repo.mjs';
 import {spawn} from '../shared/childProcess.mjs';
 
 const argv = minimist(process.argv.slice(2));
@@ -32,6 +35,23 @@ if (
     `Invalid value for increment in ${channel} channel: ${increment}`,
   );
   process.exit(1);
+}
+
+// A pending [breaking] changeset can only ship in a minor release. Refuse a
+// latest patch release up front, before anything is bumped or pushed;
+// postversion's update-changelog repeats the check as a safety net.
+if (channel === 'latest' && increment === 'patch') {
+  const breaking = breakingChangesets(
+    readPending(path.join(ROOT, '.changeset'), ROOT),
+  );
+  if (breaking.length > 0) {
+    console.error(
+      `Refusing a patch release: ${breaking.length} pending [breaking] changeset(s) need a minor release:\n` +
+        breaking.map(c => `  - ${c.file}: ${c.entry.summary}`).join('\n') +
+        '\nRun the "Create New Release Branch" workflow with the "minor" increment.',
+    );
+    process.exit(1);
+  }
 }
 
 function incrementArgs() {

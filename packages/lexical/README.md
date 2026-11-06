@@ -12,40 +12,41 @@ editor implementations to be built on top. Lexical's engine provides three main 
 - a DOM reconciler that takes a set of editor states, diffs the changes, and updates the DOM according to their state.
 
 By design, the core of Lexical tries to be as minimal as possible.
-Lexical doesn't directly concern itself with things that monolithic editors tend to do – such as UI components, toolbars or rich-text features and markdown. Instead
-the logic for those features can be included via a plugin interface and used as and when they're needed. This ensures great extensibility and keeps code-sizes
-to a minimum – ensuring apps only pay the cost for what they actually import.
+Lexical doesn't directly concern itself with things that monolithic editors tend to do, such as UI components, toolbars, rich-text features or markdown. Instead,
+those features are added to an editor as [extensions](https://lexical.dev/docs/extensions/intro) from optional packages, which are used as and when they're needed. This ensures great extensibility and keeps code sizes
+to a minimum, so apps only pay the cost for what they actually import.
 
-For React apps, Lexical has tight integration with React 18+ via the optional `@lexical/react` package. This package provides
-production-ready utility functions, helpers and React hooks that make it seamless to create text editors within React.
+For React apps, the optional `@lexical/react` package provides React bindings, including `LexicalExtensionComposer`, which builds an editor from extensions and renders it.
 
 ## Usage
 
-The `lexical` package contains only the core Lexical engine and nodes. This package is intended to be used in conjunction with packages that wire Lexical up to applications, such as `@lexical/react`.
+The `lexical` package contains the core Lexical engine and nodes, and the extension system that the other packages build on. Most applications build an editor with `buildEditorFromExtensions()` from `@lexical/extension` (or with `@lexical/react`), and add features such as rich text and history with the extensions from other `@lexical/*` packages.
 
 ## Working with Lexical
 
-This section covers how to use Lexical, independently of any framework or library. For those intending to use Lexical in their React applications,
-it's advisable to [check out the source-code for the hooks that are shipped in `@lexical/react`](https://github.com/facebook/lexical/tree/main/packages/lexical-react/src).
+This section covers how to use Lexical independently of any framework or library. For React, see [Getting Started with React](https://lexical.dev/docs/getting-started/react).
 
 ### Creating an editor and using it
 
 When you work with Lexical, you normally work with a single editor instance. An editor instance can be thought of as the one responsible
-for wiring up an EditorState with the DOM. The editor is also the place where you can register custom nodes, add listeners, and transforms.
-
-An editor instance can be created from the `lexical` package and accepts an optional configuration object that allows for theming and other options:
+for wiring up an EditorState with the DOM. You build one from extensions: each extension bundles the nodes, configuration, commands and listeners for a feature, together with any extensions it depends on.
 
 ```js
-import {createEditor} from 'lexical';
+import {buildEditorFromExtensions} from '@lexical/extension';
+import {HistoryExtension} from '@lexical/history';
+import {RichTextExtension} from '@lexical/rich-text';
+import {defineExtension} from 'lexical';
 
-const config = {
-  namespace: 'MyEditor',
-  theme: {
-    ...
-  },
-};
-
-const editor = createEditor(config);
+const editor = buildEditorFromExtensions(
+  defineExtension({
+    dependencies: [RichTextExtension, HistoryExtension],
+    name: '@my-app/editor',
+    namespace: 'MyEditor',
+    theme: {
+      // ...
+    },
+  }),
+);
 ```
 
 Once you have an editor instance, when ready, you can associate the editor instance with a content editable `<div>` element in your document:
@@ -57,7 +58,9 @@ editor.setRootElement(contentEditableElement);
 ```
 
 If you want to clear the editor instance from the element, you can pass `null`. Alternatively, you can switch to another element if need be,
-just pass an alternative element reference to `setRootElement()`.
+just pass an alternative element reference to `setRootElement()`. When you are done with the editor, call `editor.dispose()`.
+
+An editor that never gets a root element does no DOM work at all, so the same code can run on a server or in tests.
 
 ### Understanding the Editor State
 
@@ -69,7 +72,7 @@ Editor states have two phases:
 
 - During an update they can be thought of as "mutable". See "Updating an editor" below to
   mutate an editor state.
-- After an update, the editor state is then locked and deemed immutable from there one. This
+- After an update, the editor state is then locked and deemed immutable from there on. This
   editor state can therefore be thought of as a "snapshot".
 
 Editor states contain two core things:
@@ -81,10 +84,13 @@ Editor states are serializable to JSON, and the editor instance provides a usefu
 to deserialize stringified editor states.
 
 ```js
-const stringifiedEditorState = JSON.stringify(editor.getEditorState().toJSON());
+const stringifiedEditorState = JSON.stringify(editor.getEditorState());
 
 const newEditorState = editor.parseEditorState(stringifiedEditorState);
+editor.setEditorState(newEditorState);
 ```
+
+To start an editor with some content, give its extension an `$initialEditorState`: a stringified editor state, or a function that builds the content inside an update.
 
 ### Updating an editor
 
@@ -103,7 +109,7 @@ called double-buffering during updates. There's an editor state to represent wha
 the screen, and another work-in-progress editor state that represents future changes.
 
 Creating an update is typically an async process that allows Lexical to batch multiple updates together in
-a single update – improving performance. When Lexical is ready to commit the update to
+a single update, improving performance. When Lexical is ready to commit the update to
 the DOM, the underlying mutations and changes in the update will form a new immutable
 editor state. Calling `editor.getEditorState()` will then return the latest editor state
 based on the changes from the update.
@@ -111,8 +117,7 @@ based on the changes from the update.
 Here's an example of how you can update an editor instance:
 
 ```js
-import {$getRoot, $getSelection} from 'lexical';
-import {$createParagraphNode} from 'lexical/PargraphNode';
+import {$createParagraphNode, $createTextNode, $getRoot} from 'lexical';
 
 // Inside the `editor.update` you can use special $ prefixed helper functions.
 // These functions cannot be used outside the closure, and will error if you try.
@@ -121,9 +126,6 @@ import {$createParagraphNode} from 'lexical/PargraphNode';
 editor.update(() => {
   // Get the RootNode from the EditorState
   const root = $getRoot();
-
-  // Get the selection from the EditorState
-  const selection = $getSelection();
 
   // Create a new ParagraphNode
   const paragraphNode = $createParagraphNode();
@@ -139,17 +141,37 @@ editor.update(() => {
 });
 ```
 
-If you want to know when the editor updates so you can react to the changes, you can add an update
-listener to the editor, as shown below:
+To read the editor state without changing it, use `editor.read()`, which also accepts the $ prefixed helper functions:
 
 ```js
-editor.registerUpdateListener(({editorState}) => {
-  // The latest EditorState can be found as `editorState`.
-  // To read the contents of the EditorState, use the following API:
+const text = editor.read(() => $getRoot().getTextContent());
+```
 
-  editorState.read(() => {
-    // Just like editor.update(), .read() expects a closure where you can use
-    // the $ prefixed helper functions.
-  });
+If you want to know when the editor updates so you can react to the changes, you can add an update
+listener. The usual place to register one is the `register` function of your own extension, which is
+called when the editor is built and cleans up when it is disposed:
+
+```js
+import {$getRoot, defineExtension} from 'lexical';
+
+const WordCountExtension = defineExtension({
+  name: '@my-app/WordCount',
+  register: (editor) =>
+    editor.registerUpdateListener(({editorState}) => {
+      // The latest EditorState can be found as `editorState`.
+      // To read its contents, pass `{editor}` so the $ prefixed helper
+      // functions can find the editor too.
+      editorState.read(
+        () => {
+          const words = $getRoot().getTextContent().split(/\s+/);
+          console.log(words.filter(Boolean).length);
+        },
+        {editor},
+      );
+    }),
 });
 ```
+
+Add `WordCountExtension` to your editor's `dependencies` alongside the extensions it already uses.
+
+To learn more, see the [Lexical documentation](https://lexical.dev/docs/intro).

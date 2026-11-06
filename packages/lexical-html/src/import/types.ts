@@ -5,12 +5,12 @@
  * LICENSE file in the root directory of this source tree.
  *
  */
-import type {DOMImportContextSymbol} from '../constants';
+import type {DOMImportContextSymbol} from '../internal/constants';
 import type {
   AnyContextConfigPairOrUpdater,
   ContextConfig,
   ContextRecord,
-} from '../types';
+} from '../internal/types';
 import type {CompiledOverlayRules} from './defineOverlayRules';
 import type {LexicalNode} from 'lexical';
 

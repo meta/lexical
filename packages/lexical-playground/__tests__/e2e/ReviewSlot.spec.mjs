@@ -127,8 +127,8 @@ async function clearDocument(page) {
 // slot (useLexicalSlotRef) and the getDOMSlot body children — which use the
 // same render-hidden-then-attach technique as the other slot demos.
 test.describe('Review React-chromed ElementNode', () => {
-  test.beforeEach(({isCollab, isPlainText, page}) => {
-    test.skip(isPlainText);
+  test.skip(({isPlainText}) => isPlainText, 'Requires rich text');
+  test.beforeEach(({isCollab, page}) => {
     return initialize({isCollab, page});
   });
 
@@ -301,50 +301,52 @@ test.describe('Review React-chromed ElementNode', () => {
     expect(await locate(page, STAR).count()).toBe(5);
   });
 
-  test('exports to HTML and re-imports through the DOMImportExtension rule', async ({
-    page,
-    isCollab,
-  }) => {
-    // Clipboard round-trips run once; collab adds nothing to the import path.
-    test.skip(isCollab);
-    await focusEditor(page);
-    await insertReview(page);
-    await waitForSelector(page, '.lexical-review-chrome');
+  test.describe(() => {
+    test.skip(({isCollab}) => isCollab);
+    test('exports to HTML and re-imports through the DOMImportExtension rule', async ({
+      page,
+    }) => {
+      // Clipboard round-trips run once; collab adds nothing to the import path.
 
-    // Set a rating and fill both editable regions.
-    await click(page, `${STAR}:nth-child(4)`);
-    await sleep(100);
-    await click(page, `${AUTHOR} p`);
-    await page.keyboard.type('Jane Doe');
-    await click(page, `${BODY} p`);
-    await page.keyboard.type('Loved it');
-    await sleep(120);
+      await focusEditor(page);
+      await insertReview(page);
+      await waitForSelector(page, '.lexical-review-chrome');
 
-    // Select the whole document from the trailing top-level paragraph (outside
-    // the Review's shadow root, so Cmd+A is document-scoped) and copy. The
-    // Review is the first block now that insertion seeds no leading paragraph,
-    // so start from the end rather than the beginning.
-    await moveToEditorEnd(page);
-    await selectAll(page);
-    const clipboard = await copyToClipboard(page);
-    // Export side: the author rides its named wrapper, and the rating — being
-    // NodeState rather than a child or slot — rides a data attribute.
-    expect(clipboard['text/html']).toContain('data-lexical-slot="author"');
-    expect(clipboard['text/html']).toContain('data-rating="4"');
+      // Set a rating and fill both editable regions.
+      await click(page, `${STAR}:nth-child(4)`);
+      await sleep(100);
+      await click(page, `${AUTHOR} p`);
+      await page.keyboard.type('Jane Doe');
+      await click(page, `${BODY} p`);
+      await page.keyboard.type('Loved it');
+      await sleep(120);
 
-    // Drop everything, then paste HTML-only so the import must go through the
-    // DOMImportExtension review rule (the clipboard's lexical JSON is dropped).
-    await clearDocument(page);
-    expect(await reviewCount(page)).toBe(0);
-    await pasteFromClipboard(page, {'text/html': clipboard['text/html']});
-    await sleep(200);
-    await waitForSelector(page, '.lexical-review-chrome');
+      // Select the whole document from the trailing top-level paragraph (outside
+      // the Review's shadow root, so Cmd+A is document-scoped) and copy. The
+      // Review is the first block now that insertion seeds no leading paragraph,
+      // so start from the end rather than the beginning.
+      await moveToEditorEnd(page);
+      await selectAll(page);
+      const clipboard = await copyToClipboard(page);
+      // Export side: the author rides its named wrapper, and the rating — being
+      // NodeState rather than a child or slot — rides a data attribute.
+      expect(clipboard['text/html']).toContain('data-lexical-slot="author"');
+      expect(clipboard['text/html']).toContain('data-rating="4"');
 
-    // Import side: the host, both regions, and the rating are reconstructed.
-    expect(await reviewCount(page)).toBe(1);
-    expect(await regionText(page, AUTHOR)).toBe('Jane Doe');
-    expect(await regionText(page, BODY)).toBe('Loved it');
-    expect(await ratingValue(page)).toBe(4);
+      // Drop everything, then paste HTML-only so the import must go through the
+      // DOMImportExtension review rule (the clipboard's lexical JSON is dropped).
+      await clearDocument(page);
+      expect(await reviewCount(page)).toBe(0);
+      await pasteFromClipboard(page, {'text/html': clipboard['text/html']});
+      await sleep(200);
+      await waitForSelector(page, '.lexical-review-chrome');
+
+      // Import side: the host, both regions, and the rating are reconstructed.
+      expect(await reviewCount(page)).toBe(1);
+      expect(await regionText(page, AUTHOR)).toBe('Jane Doe');
+      expect(await regionText(page, BODY)).toBe('Loved it');
+      expect(await ratingValue(page)).toBe(4);
+    });
   });
 
   // Backspace deletes a text-empty Review (like the Card) from the start of its
@@ -463,8 +465,8 @@ test.describe('Review React-chromed ElementNode', () => {
 });
 
 test.describe('Review empty-field placeholders', () => {
-  test.beforeEach(({isCollab, isPlainText, page}) => {
-    test.skip(isPlainText);
+  test.skip(({isPlainText}) => isPlainText, 'Requires rich text');
+  test.beforeEach(({isCollab, page}) => {
     return initialize({isCollab, page});
   });
 

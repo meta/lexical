@@ -12,12 +12,7 @@ import {
   getExtensionDependencyFromEditor,
   HorizontalRuleExtension,
 } from '@lexical/extension';
-import {
-  CoreImportExtension,
-  DOMImportExtension,
-  HorizontalRuleImportExtension,
-} from '@lexical/html';
-import {JSDOM} from 'jsdom';
+import {CoreImportExtension, DOMImportExtension} from '@lexical/html';
 import {
   $getEditor,
   $getRoot,
@@ -43,8 +38,11 @@ function buildEditor() {
 function $generate(html: string): LexicalNode[] {
   const editor = $getEditor();
   const dep = getExtensionDependencyFromEditor(editor, DOMImportExtension);
-  const dom = new JSDOM(`<!doctype html><html><body>${html}</body></html>`);
-  return dep.output.$generateNodesFromDOM(dom.window.document);
+  const dom = new DOMParser().parseFromString(
+    `<!doctype html><html><body>${html}</body></html>`,
+    'text/html',
+  );
+  return dep.output.$generateNodesFromDOM(dom);
 }
 
 function importInto(editor: LexicalEditor, html: string): void {
@@ -96,20 +94,6 @@ describe('HorizontalRuleImportExtension', () => {
       assert($isParagraphNode(children[1]), 'expected paragraph');
       expect(children[0].getTextContent()).toBe('before');
       expect(children[1].getTextContent()).toBe('after');
-    });
-  });
-
-  test('deprecated HorizontalRuleImportExtension alias still imports <hr>', () => {
-    using editor = buildEditorFromExtensions(
-      defineExtension({
-        dependencies: [HorizontalRuleImportExtension],
-        name: 'hr-alias-host',
-      }),
-    );
-    importInto(editor, '<hr>');
-    editor.read(() => {
-      const node = $getRoot().getFirstChild();
-      assert($isHorizontalRuleNode(node), 'expected HorizontalRuleNode');
     });
   });
 });

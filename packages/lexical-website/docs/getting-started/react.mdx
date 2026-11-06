@@ -1,0 +1,179 @@
+---
+sidebar_position: 2
+---
+
+import GettingStartedExample from '@site/src/components/GettingStartedExample';
+import CodeBlock from '@theme/CodeBlock';
+import AppSource from '!!example-source?region=react-app!@site/../../examples/react-rich/src/App.tsx';
+import EditorStyles from '!!example-source?region=editor-styles!@site/../../examples/react-rich/src/styles.css';
+
+# Getting Started with React
+
+Use `LexicalExtensionComposer` to create an editor from one root extension and
+manage its lifetime. Extensions provide editing behavior; React components render
+the editable area and your application's UI.
+
+## Creating Basic Rich Text Editor
+
+Install the packages used below in an existing React application:
+
+```sh
+npm install lexical @lexical/react @lexical/extension @lexical/rich-text @lexical/history @lexical/clipboard @lexical/html
+```
+
+Keep all Lexical packages on the same version. Define the root extension outside
+of the component so its identity stays stable across renders. This source is
+read directly from the runnable rich-text example, including its toolbar, theme,
+and HTML style extension:
+
+<CodeBlock language="tsx" title="examples/react-rich/src/App.tsx">
+  {AppSource}
+</CodeBlock>
+
+<CodeBlock language="css" title="examples/react-rich/src/styles.css">
+  {EditorStyles}
+</CodeBlock>
+
+Use **Open in StackBlitz** in the rich-text example below for the complete project,
+including the imported local modules and the rest of the stylesheet.
+
+The composer renders a `ContentEditable` by default. Here `contentEditable={null}`
+lets us place it inside our own layout. The composer also sets up React decorator
+rendering and its error boundary, and disposes the editor when it unmounts.
+
+`RichTextExtension` registers its nodes and editing behavior, `HistoryExtension`
+provides undo and redo, and `AutoFocusExtension` focuses the editor when it mounts.
+The examples opt out of autofocus when their URL includes `?embed`, which the
+documentation embeds add to avoid taking focus from the page. Standalone examples
+and StackBlitz previews keep autofocus enabled, even inside an iframe.
+`HMRExtension` preserves editor state and history during Vite updates; React's
+composer manages editor disposal. Passing `hot: null` is a no-op when HMR is
+unavailable. The composer accepts a single root extension, so this example
+includes HMR in its dependencies. Omit it for other bundlers; TypeScript projects
+using Vite need `vite/client` types, as described in [Quick Start](quick-start.mdx#creating-an-editor-and-using-it).
+Omit autofocus if focus should stay elsewhere on your page.
+`ClipboardDOMImportExtension` enables the extensions' HTML import rules for paste.
+
+There is no separate `nodes` list or set of behavior plugins to keep in sync with
+these dependencies. Errors throw by default; add `onError` to the root extension
+only when you need custom handling.
+
+Changing the extension reference recreates the editor. Keep it at module scope,
+and choose the feature set when creating the editor. Features that support
+runtime changes expose [signals](../extensions/signals.md).
+
+### Plain text
+
+For a plain-text editor, install `@lexical/plain-text` and replace
+`RichTextExtension` with `PlainTextExtension` from that package. Remove
+`ClipboardDOMImportExtension`, since plain-text paste does not import HTML. Keep
+history, autofocus, and the same React composition. The plain-text example omits
+the rich-text toolbar and `StyleImportExportExtension` as well.
+
+<GettingStartedExample example="react-plain-text" />
+
+## Adding UI to control text formatting
+
+Lexical provides commands and state for your UI. A React component inside the
+composer can access the editor with `useLexicalComposerContext`:
+
+```jsx
+import {useLexicalComposerContext} from '@lexical/react/LexicalComposerContext';
+import {FORMAT_TEXT_COMMAND} from 'lexical';
+
+function BoldButton() {
+  const [editor] = useLexicalComposerContext();
+  return (
+    <button
+      type="button"
+      onClick={() => editor.dispatchCommand(FORMAT_TEXT_COMMAND, 'bold')}>
+      Bold
+    </button>
+  );
+}
+```
+
+Render `<BoldButton />` inside the composer alongside your editable area.
+`RichTextExtension` handles the command. UI components do not need to register the
+editing behavior again.
+
+For reactive UI, use an extension's output signals. For example,
+`useExtensionSignalValue(HistoryExtension, 'canUndo')` tells an Undo button when it
+can be enabled. `TreeViewExtension` provides a debug panel through
+`ExtensionComponent`:
+
+```jsx
+import {ExtensionComponent} from '@lexical/react/ExtensionComponent';
+import {TreeViewExtension} from '@lexical/react/TreeViewExtension';
+
+// Render inside the composer (TreeViewExtension is already a dependency above):
+<ExtensionComponent lexical:extension={TreeViewExtension} />;
+```
+
+The runnable example includes a toolbar, the debug panel, and an extension that
+customizes HTML style import and export. Its theme classes are defined in
+`ExampleTheme.ts` and styled in `styles.css`.
+
+<GettingStartedExample example="react-rich" />
+
+## Saving Lexical State
+
+For an explicit Save action, read and serialize the editor when the user clicks.
+Use `editor.read('latest', ...)` to read the latest committed state without forcing
+a commit. `toJSON()` produces a JSON-compatible object, and `JSON.stringify()`
+produces the string you can store:
+
+```jsx
+import {useLexicalComposerContext} from '@lexical/react/LexicalComposerContext';
+
+function SaveButton({onSave}) {
+  const [editor] = useLexicalComposerContext();
+  return (
+    <button
+      type="button"
+      onClick={() => {
+        const json = editor.read('latest', () =>
+          JSON.stringify(editor.getEditorState().toJSON()),
+        );
+        onSave(json);
+      }}>
+      Save
+    </button>
+  );
+}
+```
+
+Render this inside the composer and pass your persistence callback as `onSave`.
+For autosave or other subscriptions, register an update listener in an extension
+and return its cleanup function, as shown in the
+[vanilla guide](quick-start.mdx#responding-to-changes). For React UI that needs the
+current state, add `EditorStateExtension` from `@lexical/extension` and subscribe
+with `useSignalValue(useExtensionDependency(EditorStateExtension).output)`.
+
+### Initial content
+
+Use `$initialEditorState` on the root extension for either serialized JSON or a
+synchronous initialization function:
+
+```js
+import {$createParagraphNode, $createTextNode, $getRoot} from 'lexical';
+
+function $initialEditorState() {
+  $getRoot().append(
+    $createParagraphNode().append($createTextNode('Hello world')),
+  );
+}
+```
+
+Set `$initialEditorState` to this function on `appExtension`. It runs during
+editor initialization. Lexical owns subsequent edits; do not
+feed every change back into `editor.setEditorState()` as if the editor were a
+controlled input. For deliberately loading a different document, see
+[Editor State](../concepts/editor-state.md).
+
+## Next steps
+
+- [Theming](theming.md): map node styles to your CSS.
+- [Creating an Extension](creating-plugin.mdx): package a custom node and transform.
+- [Included Extensions](../extensions/included-extensions.md): add more features.
+- [React and Lexical Extension](../extensions/react.md): integrate custom React UI.

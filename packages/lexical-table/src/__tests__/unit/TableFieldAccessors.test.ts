@@ -6,6 +6,8 @@
  *
  */
 
+// @vitest-environment node
+
 import {buildEditorFromExtensions, defineExtension} from '@lexical/extension';
 import {TableCellNode, TableNode} from '@lexical/table';
 import {describe, expect, test} from 'vitest';

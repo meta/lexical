@@ -32,7 +32,7 @@ export default function CommunityContributors() {
 
       <p>
         <a
-          href="https://github.com/facebook/lexical/graphs/contributors"
+          href="https://github.com/meta/lexical/graphs/contributors"
           target="_blank"
           rel="noreferrer">
           <Translate
@@ -45,11 +45,11 @@ export default function CommunityContributors() {
 
       <div className="mt-12 flex flex-wrap items-stretch gap-10">
         <a
-          href="https://github.com/facebook/lexical/graphs/contributors"
+          href="https://github.com/meta/lexical/graphs/contributors"
           target="_blank"
           rel="noreferrer">
           <img
-            src="https://contrib.rocks/image?repo=facebook/lexical"
+            src="https://contrib.rocks/image?repo=meta/lexical"
             alt="GitHub avatars of Lexical contributors"
           />
         </a>

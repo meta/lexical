@@ -99,18 +99,23 @@ declare export function formatUrl(url: string): string;
 export type ClickableLinkConfig = {
   newTab: boolean;
   disabled: boolean;
+  getWindow: (editor: LexicalEditor) => Window | null;
 }
 
 declare export function registerClickableLink(
   editor: LexicalEditor,
-  stores: NamedSignalsOutput<ClickableLinkConfig>,
+  stores: Pick<NamedSignalsOutput<ClickableLinkConfig>, 'disabled' | 'newTab'> & {
+    getWindow?: NamedSignalsOutput<ClickableLinkConfig>['getWindow'];
+  },
   eventOptions?: {signal?: AbortSignal, ...},
 ): () => void;
 
 declare export var ClickableLinkExtension: LexicalExtension<ClickableLinkConfig, "@lexical/link/ClickableLink", NamedSignalsOutput<ClickableLinkConfig>, void>;
 declare export function registerClickableLink(
   editor: LexicalEditor,
-  stores: NamedSignalsOutput<ClickableLinkConfig>,
+  stores: Pick<NamedSignalsOutput<ClickableLinkConfig>, 'disabled' | 'newTab'> & {
+    getWindow?: NamedSignalsOutput<ClickableLinkConfig>['getWindow'];
+  },
   eventOptions?: {signal?: AbortSignal, ...},
 ): () => void;
 

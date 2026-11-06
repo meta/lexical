@@ -76,6 +76,7 @@ import {
   KEY_TAB_COMMAND,
   type LexicalEditor,
   type LexicalNode,
+  mergeRegister,
   type NodeKey,
   PASTE_COMMAND,
   type PointCaret,
@@ -136,22 +137,43 @@ const isPointerDownOnEvent = (event: PointerEvent) => {
 const TAP_SLOP = 10;
 
 // Distance (px) from a scroll container edge at which drag auto-scroll kicks
-// in, and the maximum scroll delta applied per animation frame.
+// in, and the maximum scroll delta applied per frame at AUTO_SCROLL_FPS.
 const AUTO_SCROLL_EDGE_ZONE = 40;
 const AUTO_SCROLL_MAX_STEP = 18;
+// Each tick scales the per-frame deltas by the time since the previous one
+// (at most AUTO_SCROLL_MAX_ELAPSED_MS), so the scroll speed doesn't follow
+// the frame rate.
+const AUTO_SCROLL_FPS = 60;
+const AUTO_SCROLL_MAX_ELAPSED_MS = 100;
 
 // Given a pointer position and the start/end edges of a scroll container on one
-// axis, return the signed per-frame scroll delta: negative near the start edge,
-// positive near the end edge, 0 while outside both edge zones. The delta ramps
-// up the deeper the pointer is into the zone (and is capped once it reaches or
-// passes the edge).
-function autoScrollStep(pos: number, start: number, end: number): number {
+// axis, return the signed scroll delta for a tick covering `elapsed` ms (a
+// frame by default): negative near the start edge, positive near the end edge,
+// 0 while outside both edge zones. The per-frame delta ramps up the deeper the
+// pointer is into the zone (and is capped once it reaches or passes the edge).
+// The magnitude is scaled before the sign is applied, since Math.round rounds
+// halves up and would favour positive steps, and stays at least one pixel: the
+// loop stops on a tick that scrolls nothing.
+function autoScrollStep(
+  pos: number,
+  start: number,
+  end: number,
+  elapsed = 1000 / AUTO_SCROLL_FPS,
+): number {
   const speed = (depth: number) =>
     Math.max(
       1,
-      Math.ceil(
-        (Math.min(AUTO_SCROLL_EDGE_ZONE, depth) / AUTO_SCROLL_EDGE_ZONE) *
-          AUTO_SCROLL_MAX_STEP,
+      Math.round(
+        (Math.max(
+          1,
+          Math.ceil(
+            (Math.min(AUTO_SCROLL_EDGE_ZONE, depth) / AUTO_SCROLL_EDGE_ZONE) *
+              AUTO_SCROLL_MAX_STEP,
+          ),
+        ) *
+          elapsed *
+          AUTO_SCROLL_FPS) /
+          1000,
       ),
     );
   if (pos <= start + AUTO_SCROLL_EDGE_ZONE) {
@@ -243,6 +265,7 @@ export function registerTableWindowHandlers(
     }
 
     const pointerDownCallback = (event: PointerEvent) => {
+      tableObservers.touchTapCellKey = null;
       // Listener is on editorWindow; the composed target is needed so the
       // rootElement.contains check below sees the shadow-internal target.
       const target = getComposedEventTarget(event);
@@ -253,7 +276,15 @@ export function registerTableWindowHandlers(
       ) {
         return;
       }
-      const selectionInfo = getTableObserverFromCellNode(target);
+      // The nearest table can belong to another editor: a nested editor's
+      // table inside this root, or the parent's table around a nested root.
+      // Its node is not in this editor's node map, so leave it to the editor
+      // that owns it. The highlight below is still cleared.
+      const cellInfo = getTableObserverFromCellNode(target);
+      const selectionInfo =
+        cellInfo !== null && cellInfo.tableObserver.editor === editor
+          ? cellInfo
+          : null;
 
       editor.update(() => {
         // Clear highlights from all tables (even one we're actively clicking on)
@@ -280,10 +311,19 @@ export function registerTableWindowHandlers(
       });
     };
 
-    return registerEventListener(
-      editorWindow,
-      'pointerdown',
-      pointerDownCallback,
+    const clearTouchTap = () => {
+      tableObservers.touchTapCellKey = null;
+    };
+    return mergeRegister(
+      registerEventListener(editorWindow, 'pointerdown', pointerDownCallback),
+      // Clear before a key handler can extend the selection, including when
+      // that handler stops propagation. A later keyboard selection is not a tap.
+      registerEventListeners(
+        editorWindow,
+        {blur: clearTouchTap, keydown: clearTouchTap},
+        {capture: true},
+      ),
+      clearTouchTap,
     );
   });
 }
@@ -335,6 +375,9 @@ function $handleTableClick(
     let lastClientX = event.clientX;
     let lastClientY = event.clientY;
     let autoScrollRafId: number | null = null;
+    // The previous tick of the running auto-scroll. Starting a run sets it to
+    // Infinity, which no tick comes after.
+    let lastAutoScrollTime: number;
     // Removes every listener below. Assigned once they are defined; nothing
     // can call stopSelecting before then, since only those listeners do.
     let removeGestureListeners: (() => void) | null = null;
@@ -451,11 +494,13 @@ function $handleTableClick(
     };
 
     // Scroll `container` (or the window when null) on `axis` if the pointer is
-    // within the edge zone. Returns whether it actually scrolled.
+    // within the edge zone, by as much as `elapsed` ms of auto-scroll covers.
+    // Returns whether it actually scrolled.
     const scrollAxis = (
       container: HTMLElement | null,
       pos: number,
       axis: 'x' | 'y',
+      elapsed: number,
     ): boolean => {
       let start: number;
       let end: number;
@@ -467,7 +512,7 @@ function $handleTableClick(
         start = axis === 'x' ? rect.left : rect.top;
         end = axis === 'x' ? rect.right : rect.bottom;
       }
-      const step = autoScrollStep(pos, start, end);
+      const step = autoScrollStep(pos, start, end, elapsed);
       if (step === 0) {
         return false;
       }
@@ -532,18 +577,26 @@ function $handleTableClick(
       return autoScrollStep(lastClientY, vStart, vEnd) !== 0;
     };
 
-    const tickAutoScroll = () => {
+    const tickAutoScroll = (time: number) => {
       autoScrollRafId = null;
       if (!tableObserver.isSelecting) {
         return;
       }
+      // The first tick of a run covers a frame, as does one whose clock did
+      // not advance.
+      const elapsed =
+        time > lastAutoScrollTime
+          ? Math.min(time - lastAutoScrollTime, AUTO_SCROLL_MAX_ELAPSED_MS)
+          : 1000 / AUTO_SCROLL_FPS;
+      lastAutoScrollTime = time;
       const hContainer = findScrollContainer('x');
       const vContainer = findScrollContainer('y');
       // Only the table's own wrapper scrolls horizontally; pages don't
       // auto-scroll sideways. Vertically we fall back to the window.
       const scrolledX =
-        hContainer !== null && scrollAxis(hContainer, lastClientX, 'x');
-      const scrolledY = scrollAxis(vContainer, lastClientY, 'y');
+        hContainer !== null &&
+        scrollAxis(hContainer, lastClientX, 'x', elapsed);
+      const scrolledY = scrollAxis(vContainer, lastClientY, 'y', elapsed);
       if (scrolledX || scrolledY) {
         const [hitX, hitY] = clampHitPoint(hContainer, vContainer);
         const focusCell = resolveFocusCellFromPoint(hitX, hitY);
@@ -566,11 +619,15 @@ function $handleTableClick(
       ) {
         return;
       }
+      lastAutoScrollTime = Infinity;
       autoScrollRafId = editorWindow.requestAnimationFrame(tickAutoScroll);
     };
 
     const onPointerUp = (upEvent: PointerEvent) => {
       if (isGesturePointer(upEvent)) {
+        if (isBeyondTapSlop(upEvent.clientX, upEvent.clientY)) {
+          tableObservers.touchTapCellKey = null;
+        }
         stopSelecting();
       }
     };
@@ -584,6 +641,7 @@ function $handleTableClick(
     // gesture, so every subsequent tap selects cells (#8538).
     const onPointerGestureEnd = (endEvent: PointerEvent) => {
       if (isGesturePointer(endEvent)) {
+        tableObservers.touchTapCellKey = null;
         stopSelecting();
       }
     };
@@ -593,6 +651,7 @@ function $handleTableClick(
         return;
       }
       if (!isPointerDownOnEvent(moveEvent) && tableObserver.isSelecting) {
+        tableObservers.touchTapCellKey = null;
         stopSelecting();
         return;
       }
@@ -607,6 +666,7 @@ function $handleTableClick(
         isBeyondTapSlop(lastClientX, lastClientY)
       ) {
         tableObserver.isPointerDrag = true;
+        tableObservers.touchTapCellKey = null;
       }
       let focusCell: null | TableDOMCell = null;
       // In firefox the moveEvent.target may be captured so we must always
@@ -640,6 +700,14 @@ function $handleTableClick(
   };
 
   tableObserver.pointerType = event.pointerType;
+  if (
+    event.pointerType === 'touch' &&
+    !event.shiftKey &&
+    !tableObserver.isSelecting
+  ) {
+    const cellNode = $getNearestNodeFromDOMNode(selectedDOMCell.elem);
+    tableObservers.touchTapCellKey = cellNode ? cellNode.getKey() : null;
+  }
   const tableNode = $getTableNodeByKeyOrThrow(tableObserver.tableNodeKey);
   const prevSelection = $getPreviousSelection();
   // We can't trust Firefox to do the right thing with the selection and
@@ -1043,7 +1111,12 @@ export function applyTableHandlers(
         const visited = new Set<TableCellNode>();
         for (let i = minRow; i <= maxRow; i++) {
           for (let j = minColumn; j <= maxColumn; j++) {
-            const cell = tableMap[i][j].cell;
+            const value = tableMap[i][j];
+            if (value === undefined) {
+              // No cell here in a ragged table.
+              continue;
+            }
+            const cell = value.cell;
             if (visited.has(cell)) {
               continue;
             }
@@ -1313,6 +1386,36 @@ function $fixRangeSelectionForSelectedTable(
     ? $findTableNode(anchorCellNode)
     : null;
   const focusCellTable = focusCellNode ? $findTableNode(focusCellNode) : null;
+
+  // iOS can double-tap an empty cell by issuing only selectionchange after
+  // the first tap's pointerup. Its word selection reaches outside the cell;
+  // expanding that range below would let the next keystroke delete the table.
+  // Only repair a native range from the caret in the last touch-tapped empty
+  // cell. Model selections are dirty, and drags/keyboard input clear the tap.
+  if (
+    tableObservers.touchTapCellKey !== null &&
+    !selection.dirty &&
+    !selection.isCollapsed() &&
+    $isRangeSelection(prevSelection) &&
+    prevSelection.isCollapsed() &&
+    !(anchorCellNode && anchorCellNode.is(focusCellNode))
+  ) {
+    const paragraph = $getNodeByKey(prevSelection.anchor.key);
+    const cell = paragraph && paragraph.getParent();
+    if (
+      $isElementNode(paragraph) &&
+      paragraph.isEmpty() &&
+      $isTableCellNode(cell) &&
+      cell.getKey() === tableObservers.touchTapCellKey &&
+      cell
+        .getChildren()
+        .every(child => $isElementNode(child) && child.isEmpty()) &&
+      (anchor.is(prevSelection.anchor) || focus.is(prevSelection.anchor))
+    ) {
+      $setSelection(prevSelection.clone());
+      return;
+    }
+  }
   const isBackward = selection.isBackward();
 
   const isSameTable =
@@ -1941,7 +2044,8 @@ function getCorner(
   if (cellValue.startRow === rect.minRow) {
     rowName = 'minRow';
   } else if (
-    cellValue.startRow + cellValue.cell.__rowSpan - 1 ===
+    // A row span can reach past the last row, where the rect stops.
+    cellValue.startRow + cellValue.cell.__rowSpan - 1 >=
     rect.maxRow
   ) {
     rowName = 'maxRow';

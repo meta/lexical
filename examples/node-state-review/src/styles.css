@@ -1,0 +1,56 @@
+/**
+ * Copyright (c) Meta Platforms, Inc. and affiliates.
+ *
+ * This source code is licensed under the MIT license found in the
+ * LICENSE file in the root directory of this source tree.
+ *
+ */
+body {
+  font-family: system-ui, sans-serif;
+  color: #202124;
+  margin: 16px;
+}
+h1 {
+  font-size: 1.25rem;
+}
+button {
+  padding: 6px 10px;
+  cursor: pointer;
+}
+#editor {
+  min-height: 100px;
+  padding: 8px 12px;
+  border: 1px solid #aaa;
+  border-radius: 6px;
+  margin: 12px 0;
+}
+/* [docs:review-styles] Read directly by the Adding Data to Nodes guide. */
+#editor p {
+  padding: 4px 8px;
+  border-left: 4px solid transparent;
+}
+#editor p[data-reviewed='true'] {
+  background: #e4f5e8;
+  border-left-color: #277a3c;
+}
+/* [/docs:review-styles] */
+.actions {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+label {
+  display: block;
+  margin-bottom: 4px;
+}
+textarea {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 100px;
+}
+details {
+  margin-top: 12px;
+}
+#json {
+  height: 200px;
+}

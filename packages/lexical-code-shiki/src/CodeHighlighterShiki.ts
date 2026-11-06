@@ -23,6 +23,7 @@ import {
   $createTextNode,
   $getNodeByKey,
   $getSelection,
+  $getWritableNodeState,
   $isLineBreakNode,
   $isRangeSelection,
   $isTabNode,
@@ -32,6 +33,7 @@ import {
   type LexicalEditor,
   type LexicalNode,
   mergeRegister,
+  NODE_STATE_KEY,
   type NodeKey,
   safeCast,
   TextNode,
@@ -79,6 +81,34 @@ export const ShikiTokenizer: Tokenizer = {
   defaultTheme: DEFAULT_CODE_THEME,
 };
 
+/**
+ * Give `to` the NodeState of `from`, flat states included, keeping the state
+ * that `to` has for the keys `from` does not set (such as state that a node
+ * replacement initializes).
+ */
+function $copyNodeState(from: LexicalNode, to: LexicalNode): void {
+  // @internal access, like `__text`: the NodeState of the node
+  const json: Record<string, unknown> = from.__state
+    ? from.__state.toJSON()
+    : {};
+  const entries = Object.entries(json);
+  if (entries.length === 0) {
+    return;
+  }
+  const state = $getWritableNodeState(to);
+  for (const [key, value] of entries) {
+    if (key === NODE_STATE_KEY) {
+      for (const [nestedKey, nestedValue] of Object.entries(
+        value as Record<string, unknown>,
+      )) {
+        state.updateFromUnknown(nestedKey, nestedValue);
+      }
+    } else {
+      state.updateFromUnknown(key, value);
+    }
+  }
+}
+
 function $textNodeTransform(
   editor: LexicalEditor,
   tokenizer: Tokenizer,
@@ -92,8 +122,11 @@ function $textNodeTransform(
     $codeNodeTransform(editor, tokenizer, transformState, parentNode);
   } else if ($isCodeHighlightNode(node)) {
     // When code block converted into paragraph or other element
-    // code highlight nodes converted back to normal text
-    node.replace($createTextNode(node.__text));
+    // code highlight nodes converted back to normal text, which keeps
+    // their NodeState (such as comment ids)
+    const text = $createTextNode(node.__text);
+    $copyNodeState(node, text);
+    node.replace(text);
   }
 }
 
@@ -131,36 +164,41 @@ function $codeNodeTransform(
     node.setTheme(theme);
   }
 
-  // dynamic import of themes
-  let inFlight = false;
-  if (!isCodeThemeLoaded(theme)) {
-    loadCodeTheme(theme, editor, nodeKey);
-    // Only the highlight path (a resolved language) consumes the theme. With
-    // no language the text is plainified, which needs no theme, so don't defer
-    // the split on a theme load that won't be used — otherwise a code block
-    // with `defaultLanguage: null` stays an unsplit TextNode until the theme
-    // happens to finish loading.
-    if (language) {
-      inFlight = true;
-    }
-  }
-
   // dynamic import of languages
+  let inFlight = false;
+  // Only a language Shiki has a grammar for is highlighted. Without one (no
+  // language, or one Shiki does not know, e.g. "After" from the markdown
+  // shortcut "```After ") the text is split into plain CodeHighlightNodes,
+  // so the indent and line-move handlers can work on it.
+  let highlight = false;
   if (language) {
     if (isCodeLanguageLoaded(language)) {
       if (!node.getIsSyntaxHighlightSupported()) {
         node.setIsSyntaxHighlightSupported(true);
       }
-    } else {
-      const loadingTask = loadCodeLanguage(language, editor, nodeKey);
-      // if the language is not supported, the download will not occur
-      if (!loadingTask && node.getIsSyntaxHighlightSupported()) {
-        node.setIsSyntaxHighlightSupported(false);
-      }
+      highlight = true;
+    } else if (loadCodeLanguage(language, editor, nodeKey)) {
+      // The grammar is downloading; highlight once it has loaded.
       inFlight = true;
+    } else if (node.getIsSyntaxHighlightSupported()) {
+      // The language is not supported, so the download will not occur.
+      node.setIsSyntaxHighlightSupported(false);
     }
   } else if (node.getIsSyntaxHighlightSupported()) {
     node.setIsSyntaxHighlightSupported(false);
+  }
+
+  // dynamic import of themes
+  if (!isCodeThemeLoaded(theme)) {
+    loadCodeTheme(theme, editor, nodeKey);
+    // Only the highlight path consumes the theme. Plain text needs no theme,
+    // so don't defer the split on a theme load that won't be used: otherwise
+    // a code block with `defaultLanguage: null`, or with a language Shiki
+    // does not know, stays an unsplit TextNode until the theme happens to
+    // finish loading.
+    if (highlight) {
+      inFlight = true;
+    }
   }
 
   if (inFlight) {
@@ -188,7 +226,10 @@ function $codeNodeTransform(
     }
 
     const lang = currentNode.getLanguage() || tokenizer.defaultLanguage;
-    const highlightNodes = tokenizer.$tokenize(currentNode, lang ?? undefined);
+    const highlightNodes =
+      lang && !isCodeLanguageLoaded(lang)
+        ? $plainifyCodeContent(currentNode.getTextContent())
+        : tokenizer.$tokenize(currentNode, lang ?? undefined);
     const diffRange = getDiffRange(currentNode.getChildren(), highlightNodes);
     const {from, to, nodesForReplacement} = diffRange;
 
@@ -454,33 +495,4 @@ export const CodeShikiExtension = defineExtension({
       return registerHighlightingOnly(editor, stores.tokenizer.value);
     });
   },
-});
-
-/**
- * @deprecated Use {@link CodeShikiExtension} instead. This type is a
- * flat alias for {@link Tokenizer} kept for backward compatibility with
- * {@link CodeHighlighterShikiExtension}.
- */
-export type CodeHighlighterShikiConfig = Tokenizer;
-
-/**
- * @deprecated Use {@link CodeShikiExtension} instead.
- *
- * This is a thin backward-compatibility shim that preserves the original
- * flat {@link Tokenizer} config API. It depends on
- * {@link CodeShikiExtension} and routes its configured tokenizer to the
- * underlying extension during `init` (before `CodeShikiExtension` builds),
- * so consumers using
- * `configExtension(CodeHighlighterShikiExtension, customTokenizer)`
- * continue to work without modification.
- */
-export const CodeHighlighterShikiExtension = defineExtension({
-  config: safeCast<CodeHighlighterShikiConfig>(ShikiTokenizer),
-  dependencies: [CodeShikiExtension],
-  init: (editorConfig, config, state) => {
-    // Forward the flat Tokenizer config to CodeShikiExtension's `tokenizer`
-    // field before it builds.
-    state.getDependency(CodeShikiExtension).config.tokenizer = config;
-  },
-  name: '@lexical/code-shiki/legacy',
 });

@@ -11,7 +11,7 @@ import {
   $createHorizontalRuleNode,
   AutoFocusExtension,
   buildEditorFromExtensions,
-  EditorStateExtension,
+  configExtension,
   HorizontalRuleExtension,
   TabIndentationExtension,
 } from '@lexical/extension';
@@ -29,8 +29,7 @@ import {
 import {TreeViewExtension} from '@lexical/react/TreeViewExtension';
 import {RichTextExtension} from '@lexical/rich-text';
 import {TailwindExtension} from '@lexical/tailwind';
-import {mergeRegister} from '@lexical/utils';
-import {$createTextNode, $getRoot} from 'lexical';
+import {$createTextNode, $getRoot, defineExtension} from 'lexical';
 
 function $prepopulatedRichText() {
   $getRoot().append(
@@ -44,40 +43,43 @@ function $prepopulatedRichText() {
   );
 }
 
-const editorRef = document.getElementById('lexical-editor');
+const editor = buildEditorFromExtensions(
+  defineExtension({
+    $initialEditorState: $prepopulatedRichText,
+    dependencies: [
+      // These don't have to be in any particular order, they will be
+      // topologically sorted by their dependencies
+      TailwindExtension,
+      HistoryExtension,
+      RichTextExtension,
+      AutoFocusExtension,
+      CheckListExtension,
+      TabIndentationExtension,
+      HorizontalRuleExtension,
+      // Hosts React plug-ins and extension components in an app that
+      // otherwise doesn't use React
+      ReactPluginHostExtension,
+      // Style the tree view with Tailwind classes
+      configExtension(TreeViewExtension, {
+        viewClassName:
+          'block bg-gray-800 text-white text-xs p-2 whitespace-pre-wrap rounded',
+      }),
+    ],
+    name: '@lexical/extension-vanilla-react-plugin-host-example',
+    namespace: '@lexical/extension-vanilla-react-plugin-host-example',
+  }),
+);
+editor.setRootElement(document.getElementById('lexical-editor'));
 
-buildEditorFromExtensions({
-  $initialEditorState: $prepopulatedRichText,
-  afterRegistration(editor, _config, _state) {
-    const el = document.createElement('div');
-    document.body.appendChild(el);
+// The React root that ReactPluginHostExtension renders into. The plug-ins
+// and components it hosts can render anywhere in the page with portals.
+const reactHost = document.createElement('div');
+document.body.appendChild(reactHost);
+mountReactPluginHost(editor, reactHost);
 
-    mountReactPluginHost(editor, el);
-    mountReactExtensionComponent(editor, {
-      domNode: document.getElementById('tree-view')!,
-      extension: TreeViewExtension,
-      key: 'tree-view',
-      props: {
-        editor,
-      },
-    });
-    editor.setRootElement(editorRef);
-    return mergeRegister(() => editor.setRootElement(null));
-  },
-  dependencies: [
-    // These don't have to be in any paritcular order, they will be
-    // topologically sorted by their dependencies
-    TailwindExtension,
-    HistoryExtension,
-    RichTextExtension,
-    AutoFocusExtension,
-    CheckListExtension,
-    TabIndentationExtension,
-    EditorStateExtension,
-    HorizontalRuleExtension,
-    ReactPluginHostExtension,
-    TreeViewExtension,
-  ],
-  name: '[root]',
-  namespace: '@lexical/extension-vanilla-tailwind-example',
+mountReactExtensionComponent(editor, {
+  domNode: document.getElementById('tree-view'),
+  extension: TreeViewExtension,
+  key: 'tree-view',
+  props: {},
 });

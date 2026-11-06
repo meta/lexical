@@ -26,13 +26,24 @@ editor.registerNodeTransform<T extends LexicalNode>(klass: Klass<T>, listener: T
 
 Transforms are executed sequentially before changes are propagated to the DOM and multiple transforms still lead to a single DOM reconciliation (the most expensive operation in Lexical's lifecycle).
 
-![Transforms lifecycle](/img/docs/transforms-lifecycle.svg)
+```mermaid
+flowchart LR
+  accTitle: Transforms lifecycle
+  accDescr: A keyboard event leads to an update function. Its changes mark nodes dirty, and the transforms registered for those nodes run one after another. If a transform changed more nodes, the transforms for those nodes run again. When nothing is left dirty, the DOM is reconciled once and the update listeners run.
+  event{{"Keyboard event"}} --> update["Update function"]
+  update --> t1["transform1"]
+  t1 --> t2["transform2"]
+  t2 --> dirty{"Nodes still dirty?"}
+  dirty -->|"yes"| t1
+  dirty -->|"no"| reconcile["DOM reconciled once"]
+  reconcile --> listeners["Update listeners"]
+```
 
 :::caution Beware!
 
 While it is possible to achieve the same or very similar result through an [update listener](listeners.md#registerupdatelistener) followed by an update, this is highly discouraged as it triggers an additional render (the most expensive lifecycle operation).
 
-Additionally, each cycle creates a brand new `EditorState` object which can interfere with plugins like HistoryPlugin (undo-redo) if not handled correctly.
+Additionally, each cycle creates a brand new `EditorState` object which can interfere with features like undo/redo (`HistoryExtension`) if not handled correctly.
 
 ```js
 editor.registerUpdateListener(() => {
@@ -105,14 +116,14 @@ editor.registerNodeTransform(TextNode, textNode => {
 But oftentimes, the order is not important. The below would always end up in the result of the two transforms:
 
 ```js
-// Plugin 1
+// Extension 1
 editor.registerNodeTransform(TextNode, textNode => {
   // This transform runs twice but does nothing the first time because it doesn't meet the preconditions
   if (textNode.getTextContent() === 'modified') {
     textNode.setTextContent('re-modified');
   }
 })
-// Plugin 2
+// Extension 2
 editor.registerNodeTransform(TextNode, textNode => {
   // This transform runs only once
   if (textNode.getTextContent() === 'original') {
@@ -182,8 +193,14 @@ registerLexicalTextEntity<T extends TextNode>(
 ): Array<() => void>;
 ```
 
+Known limit: a matcher that looks back into a run of repeated characters
+(such as `/(?<=\$AA)A/`, an `A` right after `$AA`) can drop the NodeState of
+one existing character when typing extends the run, because the edit is read
+as text inserted at the end of the run
+([#9725](https://github.com/meta/lexical/issues/9725)).
+
 ## Examples
 
-1. [Emojis](https://github.com/facebook/lexical/blob/main/packages/lexical-playground/src/plugins/EmojisExtension/index.ts)
-2. [AutoLink](https://github.com/facebook/lexical/blob/main/packages/lexical-playground/src/plugins/AutoLinkExtension/index.ts)
-3. [HashtagPlugin](https://github.com/facebook/lexical/blob/main/packages/lexical-react/src/LexicalHashtagPlugin.ts)
+1. [Emojis](https://github.com/meta/lexical/blob/main/packages/lexical-playground/src/plugins/EmojisExtension/index.ts)
+2. [AutoLink](https://github.com/meta/lexical/blob/main/packages/lexical-playground/src/plugins/AutoLinkExtension/index.ts)
+3. [HashtagExtension](https://github.com/meta/lexical/blob/main/packages/lexical-hashtag/src/LexicalHashtagExtension.ts)

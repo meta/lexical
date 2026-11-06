@@ -23,6 +23,7 @@ import {
   $getChildCaret,
   $getChildCaretAtIndex,
   $getCollapsedCaretRange,
+  $getDOMSlot,
   $getEditor,
   $getNearestNodeFromDOMNode,
   $getRoot,
@@ -52,6 +53,7 @@ import {
   getDOMSelection,
   getDOMSelectionPoints,
   getEditorPropertyFromDOMNode,
+  INTERNAL_$withExportMemo,
   isHTMLElement,
   isLexicalEditor,
   isSelectionWithinEditor,
@@ -262,14 +264,27 @@ function $resolveDropPointCaret(
   if ($isTextNode(node)) {
     return $getTextPointCaret(node, 'next', hit.offset);
   }
-  if ($isElementNode(node)) {
-    return $getChildCaretAtIndex(node, hit.offset, 'next');
-  }
   const parent = node.getParent();
-  if (parent === null) {
-    return null;
+  if ($isElementNode(node)) {
+    // The DOM offset also counts the DOM the editor renders between the
+    // children (such as a zero-size anchor before a leading decorator), and
+    // a point outside the element's slot is beside the element.
+    const dom = editor.getElementByKey(node.getKey());
+    if (dom === null) {
+      return null;
+    }
+    const slot = $getDOMSlot(node, dom, editor);
+    return hit.node === slot.element || parent
+      ? $getChildCaretAtIndex(
+          ...slot.resolveChildIndex(node, dom, hit.node, hit.offset),
+          'next',
+        )
+      : null;
   }
-  return $getChildCaretAtIndex(parent, node.getIndexWithinParent() + 1, 'next');
+  return (
+    parent &&
+    $getChildCaretAtIndex(parent, node.getIndexWithinParent() + 1, 'next')
+  );
 }
 
 // A text edge and the element point beside it are the same drop position.
@@ -689,10 +704,12 @@ export function $generateJSONFromSelectedNodes<
   const topLevelChildren = (
     $isElementNode(slotFrame) ? slotFrame : root
   ).getChildren();
-  for (let i = 0; i < topLevelChildren.length; i++) {
-    const topLevelNode = topLevelChildren[i];
-    $appendNodesToJSON(editor, selection, topLevelNode, nodes);
-  }
+  INTERNAL_$withExportMemo(() => {
+    for (let i = 0; i < topLevelChildren.length; i++) {
+      const topLevelNode = topLevelChildren[i];
+      $appendNodesToJSON(editor, selection, topLevelNode, nodes);
+    }
+  });
   return {
     namespace: editor._config.namespace,
     nodes,

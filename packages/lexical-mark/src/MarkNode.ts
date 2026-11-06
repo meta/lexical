@@ -66,8 +66,10 @@ export class MarkNode extends ElementNode {
 
   $config() {
     return this.config('mark', {
+      children: 'inline',
       extends: ElementNode,
       generated: GENERATED_MARK,
+      inline: true,
       json: markNodeSchema,
     });
   }

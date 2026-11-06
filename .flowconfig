@@ -38,6 +38,7 @@ module.name_mapper='^@lexical/dragon$' -> '<PROJECT_ROOT>/packages/lexical-drago
 module.name_mapper='^@lexical/eslint-plugin$' -> '<PROJECT_ROOT>/packages/lexical-eslint-plugin/flow/LexicalEslintPlugin.js.flow'
 module.name_mapper='^@lexical/extension$' -> '<PROJECT_ROOT>/packages/lexical-extension/flow/LexicalExtension.js.flow'
 module.name_mapper='^@lexical/extension/AutoFocusExtension$' -> '<PROJECT_ROOT>/packages/lexical-extension/flow/LexicalExtensionAutoFocusExtension.js.flow'
+module.name_mapper='^@lexical/extension/BlockIdExtension$' -> '<PROJECT_ROOT>/packages/lexical-extension/flow/LexicalExtensionBlockIdExtension.js.flow'
 module.name_mapper='^@lexical/extension/ClearEditorExtension$' -> '<PROJECT_ROOT>/packages/lexical-extension/flow/LexicalExtensionClearEditorExtension.js.flow'
 module.name_mapper='^@lexical/extension/ClickAfterLastBlockExtension$' -> '<PROJECT_ROOT>/packages/lexical-extension/flow/LexicalExtensionClickAfterLastBlockExtension.js.flow'
 module.name_mapper='^@lexical/extension/config$' -> '<PROJECT_ROOT>/packages/lexical-extension/flow/LexicalExtensionConfig.js.flow'
@@ -56,6 +57,7 @@ module.name_mapper='^@lexical/extension/namedSignals$' -> '<PROJECT_ROOT>/packag
 module.name_mapper='^@lexical/extension/NestedEditorExtension$' -> '<PROJECT_ROOT>/packages/lexical-extension/flow/LexicalExtensionNestedEditorExtension.js.flow'
 module.name_mapper='^@lexical/extension/NodeSelectionDataSelectedExtension$' -> '<PROJECT_ROOT>/packages/lexical-extension/flow/LexicalExtensionNodeSelectionDataSelectedExtension.js.flow'
 module.name_mapper='^@lexical/extension/NodeSelectionExtension$' -> '<PROJECT_ROOT>/packages/lexical-extension/flow/LexicalExtensionNodeSelectionExtension.js.flow'
+module.name_mapper='^@lexical/extension/NodeStructureExtension$' -> '<PROJECT_ROOT>/packages/lexical-extension/flow/LexicalExtensionNodeStructureExtension.js.flow'
 module.name_mapper='^@lexical/extension/NormalizeInlineElementsExtension$' -> '<PROJECT_ROOT>/packages/lexical-extension/flow/LexicalExtensionNormalizeInlineElementsExtension.js.flow'
 module.name_mapper='^@lexical/extension/NormalizeTripleClickSelectionExtension$' -> '<PROJECT_ROOT>/packages/lexical-extension/flow/LexicalExtensionNormalizeTripleClickSelectionExtension.js.flow'
 module.name_mapper='^@lexical/extension/PreventSelectAllExtension$' -> '<PROJECT_ROOT>/packages/lexical-extension/flow/LexicalExtensionPreventSelectAllExtension.js.flow'
@@ -71,8 +73,10 @@ module.name_mapper='^@lexical/file$' -> '<PROJECT_ROOT>/packages/lexical-file/fl
 module.name_mapper='^@lexical/hashtag$' -> '<PROJECT_ROOT>/packages/lexical-hashtag/flow/LexicalHashtag.js.flow'
 module.name_mapper='^@lexical/headless$' -> '<PROJECT_ROOT>/packages/lexical-headless/flow/LexicalHeadless.js.flow'
 module.name_mapper='^@lexical/headless/dom$' -> '<PROJECT_ROOT>/packages/lexical-headless/flow/LexicalHeadlessDom.js.flow'
+module.name_mapper='^@lexical/headless/HeadlessExtension$' -> '<PROJECT_ROOT>/packages/lexical-headless/flow/LexicalHeadlessHeadlessExtension.js.flow'
 module.name_mapper='^@lexical/history$' -> '<PROJECT_ROOT>/packages/lexical-history/flow/LexicalHistory.js.flow'
 module.name_mapper='^@lexical/html$' -> '<PROJECT_ROOT>/packages/lexical-html/flow/LexicalHtml.js.flow'
+module.name_mapper='^@lexical/html/BlockIdHTMLExtension$' -> '<PROJECT_ROOT>/packages/lexical-html/flow/LexicalHtmlBlockIdHTMLExtension.js.flow'
 module.name_mapper='^@lexical/internal/createDevError$' -> '<PROJECT_ROOT>/packages/lexical-internal/flow/LexicalInternalCreateDevError.js.flow'
 module.name_mapper='^@lexical/internal/createError$' -> '<PROJECT_ROOT>/packages/lexical-internal/flow/LexicalInternalCreateError.js.flow'
 module.name_mapper='^@lexical/internal/createProdError$' -> '<PROJECT_ROOT>/packages/lexical-internal/flow/LexicalInternalCreateProdError.js.flow'
@@ -82,6 +86,7 @@ module.name_mapper='^@lexical/internal/formatDevWarningMessage$' -> '<PROJECT_RO
 module.name_mapper='^@lexical/internal/formatProdErrorMessage$' -> '<PROJECT_ROOT>/packages/lexical-internal/flow/LexicalInternalFormatProdErrorMessage.js.flow'
 module.name_mapper='^@lexical/internal/formatProdWarningMessage$' -> '<PROJECT_ROOT>/packages/lexical-internal/flow/LexicalInternalFormatProdWarningMessage.js.flow'
 module.name_mapper='^@lexical/internal/invariant$' -> '<PROJECT_ROOT>/packages/lexical-internal/flow/LexicalInternalInvariant.js.flow'
+module.name_mapper='^@lexical/internal/isCjkCharacter$' -> '<PROJECT_ROOT>/packages/lexical-internal/flow/LexicalInternalIsCjkCharacter.js.flow'
 module.name_mapper='^@lexical/internal/version$' -> '<PROJECT_ROOT>/packages/lexical-internal/flow/LexicalInternalVersion.js.flow'
 module.name_mapper='^@lexical/internal/warnOnlyOnce$' -> '<PROJECT_ROOT>/packages/lexical-internal/flow/LexicalInternalWarnOnlyOnce.js.flow'
 module.name_mapper='^@lexical/link$' -> '<PROJECT_ROOT>/packages/lexical-link/flow/LexicalLink.js.flow'
@@ -158,6 +163,12 @@ module.name_mapper='^@lexical/table$' -> '<PROJECT_ROOT>/packages/lexical-table/
 module.name_mapper='^@lexical/tailwind$' -> '<PROJECT_ROOT>/packages/lexical-tailwind/flow/LexicalTailwind.js.flow'
 module.name_mapper='^@lexical/text$' -> '<PROJECT_ROOT>/packages/lexical-text/flow/LexicalText.js.flow'
 module.name_mapper='^@lexical/utils$' -> '<PROJECT_ROOT>/packages/lexical-utils/flow/LexicalUtils.js.flow'
+module.name_mapper='^@lexical/y$' -> '<PROJECT_ROOT>/packages/lexical-y/flow/LexicalY.js.flow'
+module.name_mapper='^@lexical/y/headless$' -> '<PROJECT_ROOT>/packages/lexical-y/flow/LexicalYHeadless.js.flow'
+module.name_mapper='^@lexical/y/migrate$' -> '<PROJECT_ROOT>/packages/lexical-y/flow/LexicalYMigrate.js.flow'
+module.name_mapper='^@lexical/y/migrate/1to2$' -> '<PROJECT_ROOT>/packages/lexical-y/flow/LexicalYMigrate1to2.js.flow'
+module.name_mapper='^@lexical/y/migrate/2to3$' -> '<PROJECT_ROOT>/packages/lexical-y/flow/LexicalYMigrate2to3.js.flow'
+module.name_mapper='^@lexical/y/server$' -> '<PROJECT_ROOT>/packages/lexical-y/flow/LexicalYServer.js.flow'
 module.name_mapper='^@lexical/yjs$' -> '<PROJECT_ROOT>/packages/lexical-yjs/flow/LexicalYjs.js.flow'
 ;; [generated-end update-flowconfig]
 
@@ -167,6 +178,7 @@ munge_underscores=false
 .*/flow-typed/.*
 
 [libs]
+./libdefs/y.js
 ./libdefs/yjs.js
 ./flow-typed
 
@@ -175,4 +187,4 @@ nonstrict-import
 unclear-type
 
 [version]
-^0.331.0
+^0.333.0

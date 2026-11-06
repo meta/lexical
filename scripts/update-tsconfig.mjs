@@ -76,7 +76,10 @@ async function updateTsconfig({
     if (test) {
       testPaths.push([`${pkg.getNpmName()}/src`, [resolveRelative('src')]]);
       for (const fn of globSync(
-        pkg.resolve('src', '__tests__', 'utils', '*.{ts,tsx,mjs,jsx}'),
+        // Only the directory's index module backs the bare
+        // `<pkg>/src/__tests__/utils` specifier. Matching every file let
+        // glob order pick a sibling module (e.g. assertNodeType.ts) instead.
+        pkg.resolve('src', '__tests__', 'utils', 'index.{ts,tsx,mjs,jsx}'),
         {windowsPathsNoEscape: true},
       )) {
         testPaths.push([

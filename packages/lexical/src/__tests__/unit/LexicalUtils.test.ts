@@ -591,6 +591,82 @@ describe('LexicalUtils tests', () => {
       }
     });
 
+    describe('scrollIntoViewIfNeeded in vertical scroll containers', () => {
+      // A scroller between the editor root and the page, like an app frame
+      // with a sticky toolbar inside its own scroll container. Its box spans
+      // y 100 to 500, it can scroll, and it holds the editor root.
+      function setUp(scrollerStyle: string, overflowY = 'auto') {
+        const scroller = document.createElement('div');
+        const root = document.createElement('div');
+        scroller.append(root);
+        document.body.append(scroller);
+        onTestFinished(() => scroller.remove());
+        scroller.setAttribute(
+          'style',
+          `overflow-y: ${overflowY}; ${scrollerStyle}`,
+        );
+        vi.spyOn(scroller, 'getBoundingClientRect').mockReturnValue(
+          new DOMRect(0, 100, 800, 400),
+        );
+        Object.defineProperty(scroller, 'clientHeight', {
+          configurable: true,
+          value: 400,
+        });
+        Object.defineProperty(scroller, 'scrollHeight', {
+          configurable: true,
+          value: 5000,
+        });
+        // jsdom keeps whatever is assigned, without clamping it
+        scroller.scrollTop = 1000;
+        vi.spyOn(root, 'getBoundingClientRect').mockReturnValue(
+          new DOMRect(0, -900, 800, 5000),
+        );
+        return {root, scroller};
+      }
+
+      /** Reveals a caret at y and returns the scroller's scrollTop. */
+      function reveal(
+        top: number,
+        scrollerStyle: string,
+        overflowY?: string,
+      ): number {
+        const {root, scroller} = setUp(scrollerStyle, overflowY);
+        scrollIntoViewIfNeeded(
+          testEnv.editor,
+          new DOMRect(10, top, 0, 20),
+          root,
+        );
+        return scroller.scrollTop;
+      }
+
+      beforeEach(() => {
+        vi.spyOn(window, 'scrollBy').mockImplementation(() => {});
+      });
+
+      afterEach(() => {
+        vi.restoreAllMocks();
+      });
+
+      test('keeps the caret out of the scroll-padding at the top', () => {
+        // The caret line starts 20px below the scroller's top edge, inside a
+        // 40px scroll-padding, so the scroller moves up 20px.
+        expect(reveal(120, 'scroll-padding-top: 40px')).toBe(980);
+        // A percentage resolves against clientHeight: 10% of 400 is 40px
+        expect(reveal(120, 'scroll-padding-top: 10%')).toBe(980);
+        // Below the padding nothing moves
+        expect(reveal(160, 'scroll-padding-top: 40px')).toBe(1000);
+      });
+
+      test('keeps the caret out of the scroll-padding at the bottom', () => {
+        // The caret line ends at 470, 20px into a 50px scroll-padding
+        expect(reveal(450, 'scroll-padding-bottom: 50px')).toBe(1020);
+      });
+
+      test('ignores scroll-padding on an element that does not scroll', () => {
+        expect(reveal(120, 'scroll-padding-top: 40px', 'visible')).toBe(1000);
+      });
+    });
+
     describe('scrollIntoViewIfNeeded in horizontal scroll containers', () => {
       // The code element's scrollport starts at x 10 and is 300px wide, and
       // it can scroll by up to 4700px. Carets are collapsed rects in viewport

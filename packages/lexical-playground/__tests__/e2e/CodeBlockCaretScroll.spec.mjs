@@ -126,14 +126,17 @@ async function pollGeometry(page, check) {
     .toBe('ok');
 }
 
+test.skip(
+  ({isCollab, isPlainText}) => isPlainText || isCollab,
+  'Requires rich text without collaboration',
+);
+
 test.describe('Code block caret scrolling', () => {
   test('Home, End and Enter keep the caret visible in long lines', async ({
     page,
     isCollab,
-    isPlainText,
     browserName,
   }) => {
-    test.skip(isPlainText || isCollab);
     await initialize({isCollab, page});
     await createCodeBlock(page, [LONG_LINE, INDENTED_LINE]);
     // The data-gutter float numbers the lines.

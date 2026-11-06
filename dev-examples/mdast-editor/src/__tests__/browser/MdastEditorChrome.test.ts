@@ -11,7 +11,7 @@ import {
   $convertFromMarkdownString,
   $convertToMarkdownString,
   MdastCommonMarkExtension,
-  MdastExportExtension,
+  MdastExtension,
   MdastGfmExtension,
 } from '@lexical/mdast';
 import {RichTextExtension} from '@lexical/rich-text';
@@ -71,7 +71,7 @@ function mountEditor(markdown: string): {
       dependencies: [
         MdastCommonMarkExtension,
         MdastGfmExtension,
-        MdastExportExtension,
+        MdastExtension,
         MdastCollapsibleExtension,
         MdastAlertExtension,
         MdastFootnoteExtension,

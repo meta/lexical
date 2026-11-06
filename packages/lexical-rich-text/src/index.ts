@@ -24,6 +24,8 @@ import {
 import {
   $getNearestBlockElementAncestorOrThrow,
   $handleIndentAndOutdent,
+  $isAtEndOfNode,
+  $isAtStartOfNode,
   eventFiles,
   objectKlassEquals,
 } from '@lexical/utils';
@@ -55,11 +57,11 @@ import {
   $insertNodes,
   $isDecoratorNode,
   $isElementNode,
+  $isEventFromEmbeddedInput,
   $isNodeSelection,
   $isRangeSelection,
   $isRootNode,
   $isRootOrShadowRoot,
-  $isSelectionCapturedInDecoratorInput,
   $isShadowRootNode,
   $isSiblingCaret,
   $isTextNode,
@@ -109,7 +111,6 @@ import {
   IS_APPLE_WEBKIT,
   IS_IOS,
   IS_SAFARI,
-  isDOMNode,
   isHTMLElement,
   KEY_ARROW_DOWN_COMMAND,
   KEY_ARROW_LEFT_COMMAND,
@@ -204,6 +205,8 @@ export interface QuoteNode {
 export class QuoteNode extends ElementNode {
   $config() {
     return this.config('quote', {
+      // A shadow root quote (opt-in state) holds blocks instead.
+      children: 'inline',
       extends: ElementNode,
       generated: GENERATED_QUOTE,
       importDOM: {
@@ -362,6 +365,7 @@ export class HeadingNode extends ElementNode {
 
   $config() {
     return this.config('heading', {
+      children: 'inline',
       extends: ElementNode,
       generated: GENERATED_HEADING,
       importDOM: {
@@ -463,13 +467,10 @@ export class HeadingNode extends ElementNode {
     selection?: RangeSelection,
     restoreSelection = true,
   ): ParagraphNode | HeadingNode {
-    const anchorOffet = selection ? selection.anchor.offset : 0;
     const lastDesc = this.getLastDescendant();
     const isAtEnd =
-      !lastDesc ||
-      (selection &&
-        selection.anchor.key === lastDesc.getKey() &&
-        anchorOffet === lastDesc.getTextContentSize());
+      !lastDesc || (selection && $isAtEndOfNode(selection.anchor, this));
+    const isAtStart = selection && $isAtStartOfNode(selection.anchor, this);
     const newElement =
       isAtEnd || !selection
         ? $createParagraphNode()
@@ -481,7 +482,7 @@ export class HeadingNode extends ElementNode {
     const direction = this.getDirection();
     newElement.setDirection(direction);
     this.insertAfter(newElement, restoreSelection);
-    if (anchorOffet === 0 && !this.isEmpty() && selection) {
+    if (isAtStart && !this.isEmpty()) {
       const paragraph = $createParagraphNode();
       paragraph.select();
       this.replace(paragraph, true);
@@ -619,8 +620,13 @@ async function onCutForRichText(
 export {eventFiles} from '@lexical/utils';
 
 function $isTargetWithinDecorator(target: HTMLElement): boolean {
-  const node = $getNearestNodeFromDOMNode(target);
-  return $isDecoratorNode(node);
+  // A decorator's slot is an editing host of its own, so a key event that
+  // targets the slot itself is editing editor content, while any other
+  // target in the decorator (a native control, even inside the slot) is UI.
+  return (
+    $isDecoratorNode($getNearestNodeFromDOMNode(target)) &&
+    !(isHTMLElement(target) && target.hasAttribute('data-lexical-slot'))
+  );
 }
 
 function $isSelectionAtEndOfRoot(selection: RangeSelection) {
@@ -1296,7 +1302,7 @@ export function registerRichText(
           // node (its own click handler may select it, open an editor, …),
           // not a deselect gesture. Keep the selection when the click target
           // is inside the selected node's DOM; clicking anywhere else still
-          // deselects (facebook/lexical#8907).
+          // deselects (meta/lexical#8907).
           const eventTarget = event.target;
           if (isHTMLElement(eventTarget)) {
             for (const node of selection.getNodes()) {
@@ -1751,7 +1757,7 @@ export function registerRichText(
           // after Backspace. Returning false here skips event.preventDefault()
           // on keydown; the beforeinput deleteContentBackward handler still runs
           // and performs the deletion, so editing behavior is unchanged.
-          // See https://github.com/facebook/lexical/issues/5841
+          // See https://github.com/meta/lexical/issues/5841
           if (IS_IOS && CAN_USE_BEFORE_INPUT) {
             return false;
           }
@@ -1883,7 +1889,17 @@ export function registerRichText(
           // the event below, so the files have to be forwarded regardless,
           // otherwise the drop is silently discarded. PASTE_COMMAND already
           // dispatches DRAG_DROP_PASTE unconditionally.
-          editor.dispatchCommand(DRAG_DROP_PASTE, files);
+          const handled = editor.dispatchCommand(DRAG_DROP_PASTE, files);
+          // iOS can expose keyboard emoji drags as text files. If no file
+          // handler accepts them, let WebKit resolve the text and dispatch
+          // beforeinput insertFromDrop with its text DataTransfer.
+          if (
+            !handled &&
+            IS_IOS &&
+            files.every(file => file.type === 'text/plain')
+          ) {
+            return false;
+          }
           event.preventDefault();
           return true;
         }
@@ -1971,6 +1987,12 @@ export function registerRichText(
     editor.registerCommand(
       COPY_COMMAND,
       event => {
+        // A copy in an input embedded in a node's DOM, such as a decorator's,
+        // is the input's, as are a cut and a paste below: the editor's
+        // selection is still the one it had before the input took the focus.
+        if ($isEventFromEmbeddedInput(event)) {
+          return false;
+        }
         copyToClipboard(
           editor,
           objectKlassEquals(event, ClipboardEvent) ? event : null,
@@ -1982,6 +2004,9 @@ export function registerRichText(
     editor.registerCommand(
       CUT_COMMAND,
       event => {
+        if ($isEventFromEmbeddedInput(event)) {
+          return false;
+        }
         onCutForRichText(event, editor);
         return true;
       },
@@ -1999,10 +2024,7 @@ export function registerRichText(
         }
 
         // if inputs then paste within the input ignore creating a new node on paste event
-        if (
-          isDOMNode(event.target) &&
-          $isSelectionCapturedInDecoratorInput(event.target)
-        ) {
+        if ($isEventFromEmbeddedInput(event)) {
           return false;
         }
 
@@ -2159,7 +2181,6 @@ export {
 export {
   type RichTextConfig,
   RichTextExtension,
-  RichTextImportExtension,
 } from './LexicalRichTextExtension';
 export {
   RichTextImportRules,

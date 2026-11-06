@@ -13,7 +13,6 @@ import {
   $generateNodesFromDOMViaExtension,
 } from '@lexical/html';
 import {RichTextExtension} from '@lexical/rich-text';
-import {JSDOM} from 'jsdom';
 import {
   $createParagraphNode,
   $createTextNode,
@@ -25,7 +24,7 @@ import {
 } from 'lexical';
 import {assert, describe, expect, test} from 'vitest';
 
-// Reproduction for https://github.com/facebook/lexical/issues/8915
+// Reproduction for https://github.com/meta/lexical/issues/8915
 //
 // TextNode.exportDOM writes `text-transform: uppercase|lowercase|capitalize`
 // for the three capitalization formats, but no importer read it back, so the
@@ -62,8 +61,10 @@ function exportHtml(editor: LexicalEditor): string {
 }
 
 function parse(html: string): Document {
-  return new JSDOM(`<!doctype html><html><body>${html}</body></html>`).window
-    .document;
+  return new DOMParser().parseFromString(
+    `<!doctype html><html><body>${html}</body></html>`,
+    'text/html',
+  );
 }
 
 function firstTextNode(nodes: LexicalNode[]): LexicalNode {

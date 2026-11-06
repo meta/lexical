@@ -46,9 +46,15 @@ import {
   test,
 } from 'vitest';
 
+const TableTestThemeExtension = defineExtension({
+  dependencies: [TableExtension],
+  name: 'TableTestThemeExtension',
+  theme: {tableScrollableWrapper: ''},
+});
+
 describe('LexicalTableSelectionHelpers', () => {
   test('table normalization keeps its priority order across root attachment', () => {
-    using editor = buildEditorFromExtensions(TableExtension);
+    using editor = buildEditorFromExtensions(TableTestThemeExtension);
     const root = document.createElement('div');
     document.body.append(root);
     onTestFinished(() => root.remove());
@@ -83,7 +89,7 @@ describe('LexicalTableSelectionHelpers', () => {
   });
 
   test('table selection handling follows the root lifecycle', () => {
-    using editor = buildEditorFromExtensions(TableExtension);
+    using editor = buildEditorFromExtensions(TableTestThemeExtension);
     const firstRoot = document.createElement('div');
     const secondRoot = document.createElement('div');
     document.body.append(firstRoot, secondRoot);
@@ -140,13 +146,7 @@ describe('LexicalTableSelectionHelpers', () => {
     beforeEach(() => {
       container = document.createElement('div');
       document.body.appendChild(container);
-      editor = buildEditorFromExtensions(
-        defineExtension({
-          dependencies: [TableExtension],
-          name: 'regression-8670-test',
-          theme: {tableScrollableWrapper: ''},
-        }),
-      );
+      editor = buildEditorFromExtensions(TableTestThemeExtension);
       editor.setRootElement(container);
     });
 
@@ -224,13 +224,7 @@ describe('LexicalTableSelectionHelpers', () => {
       container = document.createElement('div');
       container.tabIndex = -1;
       document.body.appendChild(container);
-      editor = buildEditorFromExtensions(
-        defineExtension({
-          dependencies: [TableExtension],
-          name: 'regression-8832-test',
-          theme: {tableScrollableWrapper: ''},
-        }),
-      );
+      editor = buildEditorFromExtensions(TableTestThemeExtension);
       editor.setRootElement(container);
     });
 
@@ -402,13 +396,7 @@ describe('LexicalTableSelectionHelpers', () => {
     beforeEach(() => {
       container = document.createElement('div');
       document.body.appendChild(container);
-      editor = buildEditorFromExtensions(
-        defineExtension({
-          dependencies: [TableExtension],
-          name: 'delete-line-test',
-          theme: {tableScrollableWrapper: ''},
-        }),
-      );
+      editor = buildEditorFromExtensions(TableTestThemeExtension);
       editor.setRootElement(container);
     });
 

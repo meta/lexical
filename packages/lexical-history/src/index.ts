@@ -17,6 +17,7 @@ import {
   signal,
 } from '@lexical/extension';
 import {
+  $isElementNode,
   $isRangeSelection,
   $isRootNode,
   $isTextNode,
@@ -247,6 +248,36 @@ function isTextNodeUnchanged(
   return false;
 }
 
+function $serializeNode(node: LexicalNode): string {
+  return JSON.stringify([
+    node.exportJSON(),
+    $isElementNode(node) ? node.getChildrenKeys() : null,
+  ]);
+}
+
+function areNodesUnchanged(
+  keys: Set<NodeKey>,
+  prevEditorState: EditorState,
+  nextEditorState: EditorState,
+): boolean {
+  for (const key of keys) {
+    const prevNode = prevEditorState._nodeMap.get(key);
+    const nextNode = nextEditorState._nodeMap.get(key);
+    if (prevNode === nextNode) {
+      continue;
+    }
+    if (
+      !prevNode ||
+      !nextNode ||
+      prevEditorState.read(() => $serializeNode(prevNode)) !==
+        nextEditorState.read(() => $serializeNode(nextNode))
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
+
 function createMergeActionGetter(
   editor: LexicalEditor,
   delayOrStore: number | ReadonlySignal<number>,
@@ -264,6 +295,8 @@ function createMergeActionGetter(
   let compositionStartTime = prevChangeTime;
   let compositionStartChangeType = OTHER;
   let compositionStartState: EditorState | null = null;
+  // Include every update in the composition, not only its final deletion.
+  const compositionDirtyKeys = new Set<NodeKey>();
 
   return (
     prevEditorState,
@@ -279,6 +312,15 @@ function createMergeActionGetter(
       compositionStartTime = prevChangeTime;
       compositionStartChangeType = prevChangeType;
       compositionStartState = prevEditorState;
+      compositionDirtyKeys.clear();
+    }
+    if (compositionStartState !== null) {
+      for (const key of dirtyLeaves) {
+        compositionDirtyKeys.add(key);
+      }
+      for (const key of dirtyElements.keys()) {
+        compositionDirtyKeys.add(key);
+      }
     }
 
     // If applying changes from history stack there's no need
@@ -286,6 +328,8 @@ function createMergeActionGetter(
     if (tags.has(HISTORIC_TAG)) {
       prevChangeType = OTHER;
       prevChangeTime = changeTime;
+      compositionStartState = null;
+      compositionDirtyKeys.clear();
       return DISCARD_HISTORY_CANDIDATE;
     }
 
@@ -314,12 +358,28 @@ function createMergeActionGetter(
             editor.isComposing(),
           );
 
+    let isUnchangedComposition = false;
     const mergeAction = (() => {
       const isSameEditor =
         currentHistoryEntry === null || currentHistoryEntry.editor === editor;
       const shouldPushHistory = tags.has(HISTORY_PUSH_TAG);
       const shouldMergeHistory =
         !shouldPushHistory && isSameEditor && tags.has(HISTORY_MERGE_TAG);
+
+      if (
+        isCompositionEnd &&
+        compositionStartState !== null &&
+        isSameEditor &&
+        !shouldPushHistory &&
+        areNodesUnchanged(
+          compositionDirtyKeys,
+          compositionStartState,
+          nextEditorState,
+        )
+      ) {
+        isUnchangedComposition = true;
+        return HISTORY_MERGE;
+      }
 
       if (shouldMergeHistory) {
         return HISTORY_MERGE;
@@ -357,8 +417,11 @@ function createMergeActionGetter(
       }
 
       // A single node might have been marked as dirty, but not have changed
-      // due to some node transform reverting the change.
-      if (dirtyLeaves.size === 1) {
+      // due to some node transform reverting the change. An explicit
+      // HISTORY_PUSH_TAG always asks for its own entry, so it must not be
+      // merged away here even when the only dirty leaf is an unchanged
+      // TextNode (see #9217).
+      if (!shouldPushHistory && dirtyLeaves.size === 1) {
         const dirtyLeafKey = Array.from(dirtyLeaves)[0];
         if (
           isTextNodeUnchanged(dirtyLeafKey, prevEditorState, nextEditorState)
@@ -370,8 +433,14 @@ function createMergeActionGetter(
       return HISTORY_PUSH;
     })();
 
-    prevChangeTime = changeTime;
-    prevChangeType = changeType;
+    if (isCompositionEnd) {
+      compositionStartState = null;
+      compositionDirtyKeys.clear();
+    }
+    if (!isUnchangedComposition) {
+      prevChangeTime = changeTime;
+      prevChangeType = changeType;
+    }
 
     return mergeAction;
   };

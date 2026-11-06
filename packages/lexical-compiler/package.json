@@ -9,15 +9,15 @@
     "rollup-plugin",
     "tree-shaking"
   ],
-  "version": "0.51.0",
+  "version": "0.53.0",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/facebook/lexical.git",
+    "url": "git+https://github.com/meta/lexical.git",
     "directory": "packages/lexical-compiler"
   },
   "bugs": {
-    "url": "https://github.com/facebook/lexical/issues"
+    "url": "https://github.com/meta/lexical/issues"
   },
   "homepage": "https://lexical.dev/docs/packages/lexical-compiler",
   "dependencies": {
@@ -26,7 +26,7 @@
     "magic-string": "^0.30.21"
   },
   "devDependencies": {
-    "rollup": "^4.63.1"
+    "rollup": "^4.63.5"
   },
   "sideEffects": false,
   "exports": {

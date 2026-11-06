@@ -22,6 +22,7 @@ import {
   COMMAND_PRIORITY_LOW,
   configExtension,
   createCommand,
+  IS_BOLD,
   type LexicalEditor,
   SELECTION_CHANGE_COMMAND,
   SKIP_DOM_SELECTION_TAG,
@@ -1082,5 +1083,47 @@ describe('SELECTION_CHANGE_COMMAND', () => {
     editor.update(() => $getRoot().getAllTextNodes()[0].select(3, 3));
     editor.read(() => {});
     expect(onSelectionChange).toHaveBeenCalledTimes(1);
+  });
+
+  test('a dropped no-op update does not suppress the next notification', async () => {
+    using editor = buildEditorFromExtensions();
+    mountEditor(editor);
+    // Restates every range as bold, the way a toolbar might restate the format
+    // of only the text the reader can see.
+    editor.registerCommand(
+      SELECTION_CHANGE_COMMAND,
+      () => {
+        const selection = $getSelection();
+        if ($isRangeSelection(selection) && !selection.isCollapsed()) {
+          selection.format = IS_BOLD;
+        }
+        return false;
+      },
+      COMMAND_PRIORITY_LOW,
+    );
+    editor.update(
+      () => {
+        const text = $createTextNode('Hello');
+        $getRoot().append($createParagraphNode().append(text));
+        text.select(0, 5);
+      },
+      {discrete: true},
+    );
+    const committedFormat = () =>
+      editor.read(() => {
+        const selection = $getSelection();
+        assert($isRangeSelection(selection));
+        return selection.format;
+      });
+    expect(committedFormat()).toBe(IS_BOLD);
+    // Each selectionchange recomputes the range's format from its text (0)
+    // and announces it; the listener restates bold, which matches the
+    // committed selection, so the update is dropped. That dropped update must
+    // not leave its pre-listener selection recorded as notified.
+    for (let i = 0; i < 3; i++) {
+      document.dispatchEvent(new Event('selectionchange'));
+      await Promise.resolve();
+      expect(committedFormat()).toBe(IS_BOLD);
+    }
   });
 });

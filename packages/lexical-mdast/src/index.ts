@@ -11,17 +11,14 @@
 // the $convert* shorthands. Add MdastShortcutsExtension for typing shortcuts.
 
 export {RenderContextMarkdownSelection} from './MdastExport';
-export type {MdastExportExtensionOutput} from './MdastExportExtension';
 export {
   $convertSelectionToMarkdownString,
   $convertToMarkdownString,
   $convertToMdast,
-  MdastExportExtension,
 } from './MdastExportExtension';
 export type {
   MdastConfig,
   MdastExtensionOutput,
-  MdastImportExtensionOutput,
   MdastShortcutsConfig,
 } from './MdastExtension';
 export {
@@ -36,7 +33,6 @@ export {
   MdastExtension,
   MdastHeadingExtension,
   MdastHorizontalRuleExtension,
-  MdastImportExtension,
   MdastLinkExtension,
   MdastListExtension,
   MdastRichTextExtension,
@@ -65,6 +61,7 @@ export type {
   MdastImportRule,
   MdastNode,
   MdastParent,
+  MdastPunctuationMode,
 } from './types';
 // Re-exported so consumers writing import/export handlers (whose
 // signatures traffic in these mdast content types, e.g.

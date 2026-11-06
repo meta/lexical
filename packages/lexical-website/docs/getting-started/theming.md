@@ -31,45 +31,101 @@ In your CSS, you can then add something like:
 }
 ```
 
-To apply it, you need to pass it to your editor instance. If you're using a framework like React, this is done by
-passing it as a property of the `initialConfig` to `<LexicalComposer>`, like shown:
+Put the theme on your root extension. The same theme configuration works with
+React and vanilla JavaScript:
+
+```js
+import {PlainTextExtension} from '@lexical/plain-text';
+import {defineExtension} from 'lexical';
+
+export const appExtension = defineExtension({
+  name: 'MyEditor',
+  namespace: 'MyEditor',
+  dependencies: [PlainTextExtension],
+  theme: exampleTheme,
+});
+```
+
+In React, pass that stable extension to `LexicalExtensionComposer`. This example
+places its own `ContentEditable`, so it disables the composer's default one:
 
 ```jsx
-import {LexicalComposer} from '@lexical/react/LexicalComposer';
-import {PlainTextPlugin} from '@lexical/react/LexicalPlainTextPlugin';
 import {ContentEditable} from '@lexical/react/LexicalContentEditable';
-import {exampleTheme} from './exampleTheme';
-import {LexicalErrorBoundary} from '@lexical/react/LexicalErrorBoundary';
-
-const initialConfig = {namespace: 'MyEditor', theme: exampleTheme};
+import {LexicalExtensionComposer} from '@lexical/react/LexicalExtensionComposer';
+import {appExtension} from './appExtension';
 
 export default function Editor() {
   return (
-    <LexicalComposer initialConfig={initialConfig}>
-      <PlainTextPlugin
-        contentEditable={
-          <ContentEditable
-            aria-placeholder={'Enter some text...'}
-            placeholder={<div className="editor-placeholder">Enter some text...</div>}
-          />
-        }
-        ErrorBoundary={LexicalErrorBoundary}
-      />
-    </LexicalComposer>
+    <LexicalExtensionComposer extension={appExtension} contentEditable={null}>
+      <div style={{position: 'relative'}}>
+        <ContentEditable
+          aria-label="Plain text editor"
+          aria-placeholder="Enter some text..."
+          placeholder={<div className="editor-placeholder">Enter some text...</div>}
+        />
+      </div>
+    </LexicalExtensionComposer>
   );
 }
 ```
 
-If you are using vanilla JS, you can pass it to the `createEditor()` function, like shown:
+In vanilla JavaScript, build the editor from the same extension and attach it to
+your editable element:
 
 ```js
-import {createEditor} from 'lexical';
+import {buildEditorFromExtensions} from '@lexical/extension';
+import {appExtension} from './appExtension';
 
-const editor = createEditor({
-  namespace: 'MyEditor',
-  theme: exampleTheme,
-});
+const editor = buildEditorFromExtensions(appExtension);
+editor.setRootElement(document.getElementById('editor'));
+// Call editor.dispose() when removing this editor permanently.
 ```
+
+A theme supplies class names; it does not install features or include CSS. For
+example, to use the heading and quote styles below, add `RichTextExtension` in
+place of `PlainTextExtension`. Add the corresponding extensions for lists, links,
+and code highlighting when you need those features.
+
+## Merging extension themes
+
+Every extension can supply a `theme`. Lexical recursively merges these themes in
+dependency order: dependencies contribute first, and extensions that depend on
+them can override individual entries. Your root extension can therefore customize
+an extension's styles while keeping the rest of its theme, including nested
+entries such as `text` and `heading`.
+
+```js
+const EmphasisExtension = defineExtension({
+  name: 'Emphasis',
+  theme: {
+    text: {
+      bold: 'emphasis-bold',
+      italic: 'emphasis-italic',
+    },
+  },
+});
+
+const appExtension = defineExtension({
+  name: 'MyEditor',
+  dependencies: [PlainTextExtension, EmphasisExtension],
+  theme: {
+    paragraph: 'editor-paragraph',
+    text: {bold: 'editor-bold'},
+  },
+});
+
+// The merged theme is:
+// {
+//   paragraph: 'editor-paragraph',
+//   text: {bold: 'editor-bold', italic: 'emphasis-italic'},
+// }
+```
+
+When two themes set the same entry, the later value replaces the earlier one;
+class-name strings are not concatenated. There is no need to spread a dependency's
+theme into your own.
+
+## Available theme entries
 
 Many of the Lexical's core nodes also accept theming properties. Here's a more comprehensive theming object:
 

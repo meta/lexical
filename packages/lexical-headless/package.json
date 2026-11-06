@@ -8,14 +8,30 @@
     "headless"
   ],
   "license": "MIT",
-  "version": "0.51.0",
+  "version": "0.53.0",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/facebook/lexical.git",
+    "url": "git+https://github.com/meta/lexical.git",
     "directory": "packages/lexical-headless"
   },
   "sideEffects": false,
   "exports": {
+    "./HeadlessExtension": {
+      "source": "./src/HeadlessExtension.ts",
+      "types@<5.2": "./dist/typescript-too-old.d.ts",
+      "types": "./dist/HeadlessExtension.d.ts",
+      "development": "./dist/LexicalHeadlessHeadlessExtension.dev.js",
+      "production": "./dist/LexicalHeadlessHeadlessExtension.prod.js",
+      "default": "./dist/LexicalHeadlessHeadlessExtension.js"
+    },
+    "./HeadlessExtension.js": {
+      "source": "./src/HeadlessExtension.ts",
+      "types@<5.2": "./dist/typescript-too-old.d.ts",
+      "types": "./dist/HeadlessExtension.d.ts",
+      "development": "./dist/LexicalHeadlessHeadlessExtension.dev.js",
+      "production": "./dist/LexicalHeadlessHeadlessExtension.prod.js",
+      "default": "./dist/LexicalHeadlessHeadlessExtension.js"
+    },
     "./dom": {
       "source": "./src/dom.ts",
       "browser": {
@@ -42,7 +58,7 @@
   },
   "dependencies": {
     "@lexical/internal": "workspace:*",
-    "happy-dom": "^20.9.0",
+    "happy-dom": "^21.0.4",
     "lexical": "workspace:*"
   },
   "files": [

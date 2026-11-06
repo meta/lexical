@@ -21,6 +21,7 @@ import {
   $createParagraphNode,
   $getCommonAncestor,
   $getCommonAncestorResultBranchOrder,
+  $getSiblingCaret,
   $isDecoratorNode,
   $isElementNode,
   $isRootNode,
@@ -29,9 +30,17 @@ import {
   type ElementNode,
   type NODE_STATE_KEY,
 } from '.';
+import {
+  $collectSiblingNodes,
+  $detachNodeWithSelection,
+  $insertNodeBetween,
+  $insertSibling,
+  $selectAdjacentNode,
+} from './caret/LexicalCaretTree';
 import {DOMSlot} from './LexicalDOMSlot';
 import {
   $updateStateFromJSON,
+  type AnyStateConfig,
   type NodeState,
   type NodeStateJSON,
   type Prettify,
@@ -44,8 +53,6 @@ import {
   $isNodeSelection,
   $isRangeSelection,
   $moveSelectionPointToEnd,
-  $selectionTouchesElement,
-  $updateElementSelectionOnCreateDeleteNode,
   type BaseSelection,
   moveSelectionPointToSibling,
   type RangeSelection,
@@ -69,9 +76,9 @@ import {
   $getEditorDOMRenderConfig,
   $getNodeByKey,
   $hasAncestor,
+  $isKeyInSelectionNodes,
   $isRootOrShadowRoot,
   $maybeMoveChildrenSelectionToParent,
-  $removeFromParent,
   $setCompositionKey,
   $setNodeKey,
   $setSelection,
@@ -80,6 +87,7 @@ import {
   getStaticNodeConfig,
   getSuperclassOf,
   internalMarkNodeAsDirty,
+  internalStopExportMemo,
 } from './LexicalUtils';
 
 const __DEV__ = process.env.NODE_ENV !== 'production';
@@ -120,6 +128,27 @@ export type SerializedLexicalNode = {
    */
   $slots?: Record<string, SerializedLexicalNode>;
 };
+
+/**
+ * @experimental node-structure
+ *
+ * What an element may hold; see {@link StaticNodeConfigValue.children}.
+ */
+export type NodeChildrenConfig =
+  | 'inline'
+  | 'block'
+  | readonly ('inline' | Klass<LexicalNode>)[];
+
+/**
+ * @experimental node-structure
+ *
+ * When adjacent siblings merge; see
+ * {@link StaticNodeConfigValue.mergeAdjacent}.
+ */
+export interface MergeAdjacentConfig {
+  /** Schema field names of the class, or NodeState configs. */
+  readonly by: readonly (string | AnyStateConfig)[];
+}
 
 /**
  * EXPERIMENTAL
@@ -219,6 +248,71 @@ export interface StaticNodeConfigValue<
    * concurrency instead of racing on attribute creation.
    */
   readonly slots?: readonly string[];
+  /**
+   * @experimental node-structure
+   *
+   * Whether a node of this class is inline (it sits among text, like a link)
+   * rather than a block. A class that declares it in its own `$config()` and
+   * does not write its own `isInline()` gets one that returns it; a class
+   * that writes one must agree with it (checked when an editor is created, in
+   * development). Inherited by subclasses that do not declare it, unless a
+   * subclass's own `isInline()` may return something else.
+   */
+  readonly inline?: boolean;
+  /**
+   * @experimental node-structure
+   *
+   * What an {@link ElementNode} of this class may hold:
+   *
+   * - `'inline'`: inline content only (text, line breaks, inline elements and
+   *   decorators), like a paragraph. A plain paragraph child becomes lines of
+   *   the node: its content is joined to the inline content next to it with
+   *   line breaks, as importers build a quote or list item from several
+   *   paragraphs. Any other block child is lifted out: the node is split
+   *   around it, so the block keeps its type and sits between the two parts.
+   *   Out of an inline element (a link), the block's content is first wrapped
+   *   in a copy of the element.
+   * - `'block'`: blocks only, like a table cell. Each run of inline children
+   *   is wrapped in a paragraph. With the extension, the node is also a block
+   *   container for structural commands (see `$isBlockContainer`): they
+   *   convert, wrap, split and insert blocks inside it and never replace or
+   *   split the node itself.
+   * - a list of `'inline'` and classes: only those (a class allows its
+   *   subclasses). When the list names no `'inline'` (a list holds list
+   *   items), a child the first listed class can hold is wrapped in one (a
+   *   run of inline content in one), a plain paragraph becomes one holding
+   *   its content, and any other block is lifted out. Otherwise blocks are
+   *   handled as for `'inline'`.
+   *
+   * A block lifted out of a node goes on up until it reaches a node that may
+   * hold it, or one whose class declares nothing. A root or shadow root
+   * always holds blocks, whatever its class declares.
+   *
+   * The opt-in `NodeStructureExtension` enforces it in the same update as a
+   * change, and only moves content (it also removes an inline element left
+   * with nothing in it, which Lexical removes anyway); without the extension
+   * it changes nothing. Inherited by subclasses that do not declare it.
+   */
+  readonly children?: NodeChildrenConfig;
+  /**
+   * @experimental node-structure
+   *
+   * Adjacent siblings of this class are the same thing when the values `by`
+   * names are equal: schema fields of the class or {@link StateConfig}s
+   * (NodeState counts only when named; a derived value cannot be named).
+   * Tools that read the declarations can treat such siblings as one.
+   *
+   * `NodeStructureExtension` merges them, the later one's children appended
+   * to the earlier one, whose values win, for the class that declares it in
+   * its own `$config()` only. A subclass that merely inherits the declaration
+   * is never merged by the extension, so a merge method it overrides (such as
+   * `LinkNode`'s `shouldMergeAdjacentLink`) stays the authority. A class
+   * whose own transform merges must merge the same siblings the same way
+   * (`ListNode`'s leaves it to the extension where it is registered). `false`
+   * turns off a declaration an ancestor made. Inherited by subclasses that do
+   * not declare it.
+   */
+  readonly mergeAdjacent?: MergeAdjacentConfig | false;
   /**
    * The exact superclass of the node. Always name it.
    *
@@ -796,20 +890,12 @@ export function $removeNode(
     nodeToRemove.selectPrevious();
   }
 
-  if (
-    $isRangeSelection(selection) &&
-    restoreSelection &&
-    !selectionMoved &&
-    // getIndexWithinParent is O(n) in the parent's child count, so skip it
-    // unless the update below can observe the index (#5194).
-    $selectionTouchesElement(selection, parent)
-  ) {
-    const index = nodeToRemove.getIndexWithinParent();
-    $removeFromParent(nodeToRemove);
-    $updateElementSelectionOnCreateDeleteNode(selection, parent, index, -1);
-  } else {
-    $removeFromParent(nodeToRemove);
-  }
+  $detachNodeWithSelection(
+    nodeToRemove.getWritable(),
+    restoreSelection && !selectionMoved && $isRangeSelection(selection)
+      ? selection
+      : null,
+  );
 
   if (
     !preserveEmptyParent &&
@@ -1208,8 +1294,6 @@ export class LexicalNode {
         return true;
       }
 
-      // Annotation breaks a circular inference through the loop (TS7022),
-      // remove when the deprecated generic signatures from #8661 are removed
       const node: LexicalNode | null = $getNodeByKey(nodeKey);
 
       if (node === null) {
@@ -1234,11 +1318,9 @@ export class LexicalNode {
       return false;
     }
 
-    const isSelected = targetSelection
-      .getNodes()
-      .some(n => n.__key === this.__key);
+    const isSelected = $isKeyInSelectionNodes(targetSelection, this.__key);
 
-    if ($isTextNode(this)) {
+    if (!isSelected || $isTextNode(this)) {
       return isSelected;
     }
     // For inline images inside of element nodes.
@@ -1301,14 +1383,6 @@ export class LexicalNode {
   /**
    * Returns the parent of this node, or null if none is found.
    */
-  getParent(): ElementNode | null;
-  /**
-   * @deprecated The type parameter is an unchecked and unsafe cast,
-   * equivalent to `node.getParent() as T | null`, and will be removed
-   * in a future release. Call this method without a type argument and
-   * narrow the result with a type guard instead.
-   */
-  getParent<T extends ElementNode>(): T | null;
   getParent(): ElementNode | null {
     const parent = this.getLatest().__parent;
     if (parent === null) {
@@ -1321,14 +1395,6 @@ export class LexicalNode {
   /**
    * Returns the parent of this node, or throws if none is found.
    */
-  getParentOrThrow(): ElementNode;
-  /**
-   * @deprecated The type parameter is an unchecked and unsafe cast,
-   * equivalent to `node.getParentOrThrow() as T`, and will be removed
-   * in a future release. Call this method without a type argument and
-   * narrow the result with a type guard instead.
-   */
-  getParentOrThrow<T extends ElementNode>(): T;
   getParentOrThrow(): ElementNode {
     const parent = this.getParent();
     if (parent === null) {
@@ -1345,8 +1411,6 @@ export class LexicalNode {
   getTopLevelElement(): ElementNode | DecoratorNode<unknown> | null {
     let node: ElementNode | this | null = this;
     while (node !== null) {
-      // Annotation breaks a circular inference through the loop (TS7022),
-      // remove when the deprecated generic signatures from #8661 are removed
       const parent: ElementNode | null = node.getParent();
       // A slot value's host acts as a shadow root, so the slot boundary is
       // the top of the isolated scope and this node is its top-level element.
@@ -1413,14 +1477,6 @@ export class LexicalNode {
    * Returns the node before this one in the same parent, or null
    * if there is no such node.
    */
-  getPreviousSibling(): LexicalNode | null;
-  /**
-   * @deprecated The type parameter is an unchecked and unsafe cast,
-   * equivalent to `node.getPreviousSibling() as T | null`, and will be
-   * removed in a future release. Call this method without a type argument
-   * and narrow the result with a type guard instead.
-   */
-  getPreviousSibling<T extends LexicalNode>(): T | null;
   getPreviousSibling(): LexicalNode | null {
     const self = this.getLatest();
     const prevKey = self.__prev;
@@ -1431,43 +1487,17 @@ export class LexicalNode {
    * Returns all nodes before this one in the same parent,
    * in document order.
    */
-  getPreviousSiblings(): LexicalNode[];
-  /**
-   * @deprecated The type parameter is an unchecked and unsafe cast,
-   * equivalent to `node.getPreviousSiblings() as T[]`, and will be
-   * removed in a future release. Call this method without a type argument
-   * and narrow the results with a type guard instead.
-   */
-  getPreviousSiblings<T extends LexicalNode>(): T[];
   getPreviousSiblings(): LexicalNode[] {
-    const siblings: LexicalNode[] = [];
-    const parent = this.getParent();
-    if (parent === null) {
-      return siblings;
-    }
-    let node = parent.getFirstChild();
-    while (node !== null) {
-      if (node.is(this)) {
-        break;
-      }
-      siblings.push(node);
-      node = node.getNextSibling();
-    }
-    return siblings;
+    return $collectSiblingNodes(
+      this.getPreviousSibling(),
+      'previous',
+    ).reverse();
   }
 
   /**
    * Returns the node after this one in the same parent, or null
    * if there is no such node.
    */
-  getNextSibling(): LexicalNode | null;
-  /**
-   * @deprecated The type parameter is an unchecked and unsafe cast,
-   * equivalent to `node.getNextSibling() as T | null`, and will be
-   * removed in a future release. Call this method without a type argument
-   * and narrow the result with a type guard instead.
-   */
-  getNextSibling<T extends LexicalNode>(): T | null;
   getNextSibling(): LexicalNode | null {
     const self = this.getLatest();
     const nextKey = self.__next;
@@ -1478,22 +1508,8 @@ export class LexicalNode {
    * Returns all nodes after this one in the same parent,
    * in document order.
    */
-  getNextSiblings(): LexicalNode[];
-  /**
-   * @deprecated The type parameter is an unchecked and unsafe cast,
-   * equivalent to `node.getNextSiblings() as T[]`, and will be
-   * removed in a future release. Call this method without a type argument
-   * and narrow the results with a type guard instead.
-   */
-  getNextSiblings<T extends LexicalNode>(): T[];
   getNextSiblings(): LexicalNode[] {
-    const siblings: LexicalNode[] = [];
-    let node = this.getNextSibling();
-    while (node !== null) {
-      siblings.push(node);
-      node = node.getNextSibling();
-    }
-    return siblings;
+    return $collectSiblingNodes(this.getNextSibling(), 'next');
   }
 
   /**
@@ -1547,7 +1563,6 @@ export class LexicalNode {
     return $hasAncestor(targetNode, this);
   }
 
-  // TO-DO: this function can be simplified a lot
   /**
    * Returns a list of nodes that are between this node and
    * the target node in the EditorState.
@@ -1555,69 +1570,38 @@ export class LexicalNode {
    * @param targetNode - the node that marks the other end of the range of nodes to be returned.
    */
   getNodesBetween(targetNode: LexicalNode): LexicalNode[] {
-    const isBefore = this.isBefore(targetNode);
-    const nodes = [];
-    const visited = new Set();
-    let node: LexicalNode | this | null = this;
-    while (true) {
-      if (node === null) {
-        break;
-      }
-      const key = node.__key;
-      if (!visited.has(key)) {
-        visited.add(key);
+    const forward = this.isBefore(targetNode);
+    const nodes: LexicalNode[] = [];
+    let node: LexicalNode | null = this;
+    let entering = true;
+    let openElements = 0;
+    while (node !== null) {
+      // Only ancestors above the starting point lack an enter event. Count
+      // open elements to recognize their first visit without a visited Set.
+      if (entering || openElements === 0) {
         nodes.push(node);
       }
-      if (node === targetNode) {
+      if (node.is(targetNode)) {
         break;
       }
-      const child: LexicalNode | null = $isElementNode(node)
-        ? isBefore
-          ? node.getFirstChild()
-          : node.getLastChild()
-        : null;
+      if (!entering && openElements > 0) {
+        openElements--;
+      }
+      const child: LexicalNode | null =
+        entering && $isElementNode(node)
+          ? forward
+            ? node.getFirstChild()
+            : node.getLastChild()
+          : null;
       if (child !== null) {
-        node = child;
-        continue;
+        openElements++;
       }
-      const nextSibling: LexicalNode | null = isBefore
-        ? node.getNextSibling()
-        : node.getPreviousSibling();
-      if (nextSibling !== null) {
-        node = nextSibling;
-        continue;
-      }
-      const parent: LexicalNode | null = node.getParentOrThrow();
-      if (!visited.has(parent.__key)) {
-        nodes.push(parent);
-      }
-      if (parent === targetNode) {
-        break;
-      }
-      let parentSibling = null;
-      let ancestor: LexicalNode | null = parent;
-      do {
-        if (ancestor === null) {
-          invariant(false, 'getNodesBetween: ancestor is null');
-        }
-        parentSibling = isBefore
-          ? ancestor.getNextSibling()
-          : ancestor.getPreviousSibling();
-        ancestor = ancestor.getParent();
-        if (ancestor !== null) {
-          if (parentSibling === null && !visited.has(ancestor.__key)) {
-            nodes.push(ancestor);
-          }
-        } else {
-          break;
-        }
-      } while (parentSibling === null);
-      node = parentSibling;
+      const adjacent: LexicalNode | null =
+        child || (forward ? node.getNextSibling() : node.getPreviousSibling());
+      entering = adjacent !== null;
+      node = adjacent || node.getParent();
     }
-    if (!isBefore) {
-      nodes.reverse();
-    }
-    return nodes;
+    return forward ? nodes : nodes.reverse();
   }
 
   /**
@@ -1644,7 +1628,9 @@ export class LexicalNode {
     if (latest === null) {
       invariant(
         false,
-        'Lexical node does not exist in active editor state. Avoid using the same node references between nested closures from editorState.read/editor.update.',
+        'Lexical node does not exist in active editor state (key %s, type %s). The reference was probably kept from another read or update, for example in a closure, event handler or component state, and the node has since been removed or is not part of this editor state. Before using a node reference that may be stale, check node.isAttached() or look the node up again with $getNodeByKey(node.getKey()), inside the read or update where it is used.',
+        this.__key,
+        this.__type,
       );
     }
     return latest;
@@ -1661,6 +1647,9 @@ export class LexicalNode {
       return this;
     }
     errorOnReadOnly();
+    // Before the clone, whose hooks may read: a node that changes ends an
+    // export walk's memo (see INTERNAL_$withExportMemo).
+    internalStopExportMemo();
     const editorState = getActiveEditorState();
     const editor = getActiveEditor();
     const key = this.__key;
@@ -1681,7 +1670,9 @@ export class LexicalNode {
     const latestNode = nodeMap.get(key) as this | undefined;
     invariant(
       latestNode !== undefined,
-      'Lexical node does not exist in active editor state. Avoid using the same node references between nested closures from editorState.read/editor.update.',
+      'Lexical node does not exist in active editor state (key %s, type %s). The reference was probably kept from another read or update, for example in a closure, event handler or component state, and the node has since been removed or is not part of this editor state. Before using a node reference that may be stale, check node.isAttached() or look the node up again with $getNodeByKey(node.getKey()), inside the read or update where it is used.',
+      key,
+      this.__type,
     );
     const mutableNode = $cloneWithProperties(latestNode);
     cloneNotNeeded.set(key, mutableNode);
@@ -1783,7 +1774,7 @@ export class LexicalNode {
    * Controls how the this node is serialized to JSON. This is important for
    * copy and paste between Lexical editors sharing the same namespace. It's also important
    * if you're serializing to JSON for persistent storage somewhere.
-   * See [Serialization & Deserialization](https://lexical.dev/docs/concepts/serialization#lexical---html).
+   * See [Serialization & Deserialization](https://lexical.dev/docs/serialization/serialization#json).
    *
    * The base implementation writes every property the node's schema declares
    * (its own and those it inherits), reading each through its getter —
@@ -1846,7 +1837,7 @@ export class LexicalNode {
    * Controls how the this node is deserialized from JSON. This is usually boilerplate,
    * but provides an abstraction between the node implementation and serialized interface that can
    * be important if you ever make breaking changes to a node schema (by adding or removing properties).
-   * See [Serialization & Deserialization](https://lexical.dev/docs/concepts/serialization#lexical---html).
+   * See [Serialization & Deserialization](https://lexical.dev/docs/serialization/serialization#json).
    *
    * */
   static importJSON(
@@ -1976,55 +1967,21 @@ export class LexicalNode {
     // close a cycle through a slot up-link (reverse of $setSlot's guard).
     $errorOnSlotCycleChild(writableParent, writableReplaceWith);
     const size = writableParent.__size;
-    // Capture replaceWith's old parent / index before removeFromParent so the
-    // cloned selection's element offsets in that old parent can be adjusted
-    // afterwards. See #6031.
+    // Detaching repairs the cloned selection's old-parent offsets (#6031).
     const replaceWithOldParent = writableReplaceWith.getParent();
-    // getIndexWithinParent is O(n) in that parent's child count and the index
-    // is only read by the update below, which is a no-op unless a selection
-    // point sits on replaceWithOldParent itself (#5194).
-    const restoreInReplaceWithOldParent =
-      replaceWithOldParent !== null &&
-      $isRangeSelection(selection) &&
-      $selectionTouchesElement(selection, replaceWithOldParent);
-    const replaceWithOldIndex = restoreInReplaceWithOldParent
-      ? writableReplaceWith.getIndexWithinParent()
-      : -1;
-    $removeFromParent(writableReplaceWith);
-    if (
-      restoreInReplaceWithOldParent &&
-      replaceWithOldParent !== null &&
-      $isRangeSelection(selection)
-    ) {
-      $updateElementSelectionOnCreateDeleteNode(
-        selection,
-        replaceWithOldParent,
-        replaceWithOldIndex,
-        -1,
-      );
-    }
+    $detachNodeWithSelection(
+      writableReplaceWith,
+      $isRangeSelection(selection) ? selection : null,
+    );
     const prevSibling = self.getPreviousSibling();
     const nextSibling = self.getNextSibling();
-    const prevKey = self.__prev;
-    const nextKey = self.__next;
-    const parentKey = self.__parent;
     $removeNode(self, false, true);
-
-    if (prevSibling === null) {
-      writableParent.__first = key;
-    } else {
-      const writablePrevSibling = prevSibling.getWritable();
-      writablePrevSibling.__next = key;
-    }
-    writableReplaceWith.__prev = prevKey;
-    if (nextSibling === null) {
-      writableParent.__last = key;
-    } else {
-      const writableNextSibling = nextSibling.getWritable();
-      writableNextSibling.__prev = key;
-    }
-    writableReplaceWith.__next = nextKey;
-    writableReplaceWith.__parent = parentKey;
+    $insertNodeBetween(
+      writableParent,
+      writableReplaceWith,
+      prevSibling && prevSibling.getWritable(),
+      nextSibling && nextSibling.getWritable(),
+    );
     // `size` was read before replaceWith was detached. When replaceWith was
     // already a child of this same parent, two children collapse into one, so
     // the restored size must account for the node that is not coming back.
@@ -2050,35 +2007,19 @@ export class LexicalNode {
     }
     if ($isRangeSelection(selection)) {
       $setSelection(selection);
-      const anchor = selection.anchor;
-      const focus = selection.focus;
-      // For an element-anchored point on `this` with includeChildren, the
-      // transferred children land at offsets [prevSize ... prevSize + N) in
-      // writableReplaceWith, so the equivalent point is at
-      // `prevSize + originalOffset`. Without this remap the caller (e.g.
-      // `$setBlocksType`) has to re-anchor afterwards from a stale clone.
-      // For non-element points or !includeChildren the children are gone, so
-      // fall back to the previous "move to end" behavior.
-      if (anchor.key === toReplaceKey) {
-        if (includeChildren && anchor.type === 'element') {
-          anchor.set(
-            writableReplaceWith.__key,
-            prevSizeBeforeChildrenTransfer + anchor.offset,
-            'element',
-          );
-        } else {
-          $moveSelectionPointToEnd(anchor, writableReplaceWith);
-        }
-      }
-      if (focus.key === toReplaceKey) {
-        if (includeChildren && focus.type === 'element') {
-          focus.set(
-            writableReplaceWith.__key,
-            prevSizeBeforeChildrenTransfer + focus.offset,
-            'element',
-          );
-        } else {
-          $moveSelectionPointToEnd(focus, writableReplaceWith);
+      // Children transfer maps element offsets into the replacement's existing
+      // children. Other points retain replace's move-to-end behavior.
+      for (const point of [selection.anchor, selection.focus]) {
+        if (point.key === toReplaceKey) {
+          if (includeChildren && point.type === 'element') {
+            point.set(
+              writableReplaceWith.__key,
+              prevSizeBeforeChildrenTransfer + point.offset,
+              'element',
+            );
+          } else {
+            $moveSelectionPointToEnd(point, writableReplaceWith);
+          }
         }
       }
     }
@@ -2096,103 +2037,7 @@ export class LexicalNode {
    * selection to the appropriate place after the operation is complete.
    * */
   insertAfter(nodeToInsert: LexicalNode, restoreSelection = true): LexicalNode {
-    errorOnReadOnly();
-    errorOnInsertTextNodeOnRoot(this, nodeToInsert);
-    const writableSelf = this.getWritable();
-    const writableNodeToInsert = nodeToInsert.getWritable();
-    // Before any mutation: becoming a sibling of this node must not close a
-    // cycle through a slot up-link (reverse of $setSlot's guard).
-    $errorOnSlotCycleChild(this.getParentOrThrow(), writableNodeToInsert);
-    const oldParent = writableNodeToInsert.getParent();
-    const selection = $getSelection();
-    let elementAnchorSelectionOnNode = false;
-    let elementFocusSelectionOnNode = false;
-    // nodeToInsert's index in oldParent, or -1 when it was never computed
-    // because nothing below can observe it.
-    let oldIndex = -1;
-    // getIndexWithinParent walks oldParent's children from the first one, so
-    // calling it unconditionally makes a bulk insert quadratic (#5194). The
-    // index is only ever read through the selection: the comparisons below
-    // arm a flag only for a point whose key is oldParentKey, and
-    // $updateElementSelectionOnCreateDeleteNode is a no-op under the same
-    // condition $selectionTouchesElement tests. restoreSelection gates the
-    // block because the flags are read only under it, further down.
-    if (
-      oldParent !== null &&
-      restoreSelection &&
-      $isRangeSelection(selection) &&
-      $selectionTouchesElement(selection, oldParent)
-    ) {
-      const oldParentKey = oldParent.__key;
-      const anchor = selection.anchor;
-      const focus = selection.focus;
-      oldIndex = nodeToInsert.getIndexWithinParent();
-      elementAnchorSelectionOnNode =
-        anchor.type === 'element' &&
-        anchor.key === oldParentKey &&
-        anchor.offset === oldIndex + 1;
-      elementFocusSelectionOnNode =
-        focus.type === 'element' &&
-        focus.key === oldParentKey &&
-        focus.offset === oldIndex + 1;
-    }
-    $removeFromParent(writableNodeToInsert);
-    // Adjust element-anchored offsets in oldParent to track its reduced
-    // child count. The boolean flags captured above
-    // (elementAnchorSelectionOnNode / elementFocusSelectionOnNode) recorded
-    // whether anchor/focus sat at oldIndex+1 before this removal; the
-    // post-insertion block below uses them to re-anchor onto the moved
-    // node in its new parent. See #6031.
-    if (oldIndex !== -1 && oldParent !== null && $isRangeSelection(selection)) {
-      $updateElementSelectionOnCreateDeleteNode(
-        selection,
-        oldParent,
-        oldIndex,
-        -1,
-      );
-    }
-    const nextSibling = this.getNextSibling();
-    const writableParent = this.getParentOrThrow().getWritable();
-    const insertKey = writableNodeToInsert.__key;
-    const nextKey = writableSelf.__next;
-    if (nextSibling === null) {
-      writableParent.__last = insertKey;
-    } else {
-      const writableNextSibling = nextSibling.getWritable();
-      writableNextSibling.__prev = insertKey;
-    }
-    writableParent.__size++;
-    writableSelf.__next = insertKey;
-    writableNodeToInsert.__next = nextKey;
-    writableNodeToInsert.__prev = writableSelf.__key;
-    writableNodeToInsert.__parent = writableSelf.__parent;
-    if (restoreSelection && $isRangeSelection(selection)) {
-      const writableParentKey = writableParent.__key;
-      // Same reasoning as the oldParent block above, plus one more consumer:
-      // when the node was moved out of a different parent, the flags re-anchor
-      // the selection onto it here (#6031) and need the index even though no
-      // selection point is on writableParent yet. Check the flags as well as
-      // the points before paying for the sibling walk.
-      if (
-        elementAnchorSelectionOnNode ||
-        elementFocusSelectionOnNode ||
-        $selectionTouchesElement(selection, writableParent)
-      ) {
-        const index = this.getIndexWithinParent();
-        $updateElementSelectionOnCreateDeleteNode(
-          selection,
-          writableParent,
-          index + 1,
-        );
-        if (elementAnchorSelectionOnNode) {
-          selection.anchor.set(writableParentKey, index + 2, 'element');
-        }
-        if (elementFocusSelectionOnNode) {
-          selection.focus.set(writableParentKey, index + 2, 'element');
-        }
-      }
-    }
-    return nodeToInsert;
+    return $insertSibling(this, 'next', nodeToInsert, restoreSelection);
   }
 
   /**
@@ -2206,75 +2051,7 @@ export class LexicalNode {
     nodeToInsert: LexicalNode,
     restoreSelection = true,
   ): LexicalNode {
-    errorOnReadOnly();
-    errorOnInsertTextNodeOnRoot(this, nodeToInsert);
-    const writableSelf = this.getWritable();
-    const writableNodeToInsert = nodeToInsert.getWritable();
-    // Before any mutation: becoming a sibling of this node must not close a
-    // cycle through a slot up-link (reverse of $setSlot's guard).
-    $errorOnSlotCycleChild(this.getParentOrThrow(), writableNodeToInsert);
-    const insertKey = writableNodeToInsert.__key;
-    const selection = $getSelection();
-    // Capture nodeToInsert's old parent / index before detaching so the
-    // selection's element offsets in that old parent can be adjusted
-    // afterwards. See #6031.
-    const insertOldParent = writableNodeToInsert.getParent();
-    // getIndexWithinParent walks insertOldParent's children from the first
-    // one, so calling it unconditionally makes a bulk insert quadratic
-    // (#5194). The index is only read by the update below, which is a no-op
-    // unless a selection point sits on insertOldParent itself.
-    const restoreInOldParent =
-      insertOldParent !== null &&
-      restoreSelection &&
-      $isRangeSelection(selection) &&
-      $selectionTouchesElement(selection, insertOldParent);
-    const insertOldIndex = restoreInOldParent
-      ? writableNodeToInsert.getIndexWithinParent()
-      : -1;
-    $removeFromParent(writableNodeToInsert);
-    if (
-      restoreInOldParent &&
-      insertOldParent !== null &&
-      $isRangeSelection(selection)
-    ) {
-      $updateElementSelectionOnCreateDeleteNode(
-        selection,
-        insertOldParent,
-        insertOldIndex,
-        -1,
-      );
-    }
-    const prevSibling = this.getPreviousSibling();
-    const writableParent = this.getParentOrThrow().getWritable();
-    const prevKey = writableSelf.__prev;
-    // Same reasoning as the insertOldParent block above. Unlike insertAfter
-    // there is no #6031 re-anchor here, so the points are the only consumer.
-    // This node's index before the splice is where nodeToInsert lands, so it
-    // has to be read now rather than after the pointers are rewired.
-    const restoreInNewParent =
-      restoreSelection &&
-      $isRangeSelection(selection) &&
-      $selectionTouchesElement(selection, writableParent);
-    const index = restoreInNewParent ? this.getIndexWithinParent() : -1;
-    if (prevSibling === null) {
-      writableParent.__first = insertKey;
-    } else {
-      const writablePrevSibling = prevSibling.getWritable();
-      writablePrevSibling.__next = insertKey;
-    }
-    writableParent.__size++;
-    writableSelf.__prev = insertKey;
-    writableNodeToInsert.__prev = prevKey;
-    writableNodeToInsert.__next = writableSelf.__key;
-    writableNodeToInsert.__parent = writableSelf.__parent;
-    if (restoreInNewParent && $isRangeSelection(selection)) {
-      $updateElementSelectionOnCreateDeleteNode(
-        selection,
-        writableParent,
-        index,
-      );
-    }
-    return nodeToInsert;
+    return $insertSibling(this, 'previous', nodeToInsert, restoreSelection);
   }
 
   /**
@@ -2310,26 +2087,11 @@ export class LexicalNode {
    * @param focusOffset -  The focus offset for selection
    * */
   selectPrevious(anchorOffset?: number, focusOffset?: number): RangeSelection {
-    errorOnReadOnly();
-    // Slot value root has __parent === null, so the regular sibling walk
-    // would throw via getParentOrThrow. Defer to the host so the cursor
-    // moves past the slot-bearing host's previous sibling.
-    const slotHost = $getSlotHost(this);
-    if (slotHost !== null) {
-      return slotHost.selectPrevious(anchorOffset, focusOffset);
-    }
-    const prevSibling = this.getPreviousSibling();
-    const parent = this.getParentOrThrow();
-    if (prevSibling === null) {
-      return parent.select(0, 0);
-    }
-    if ($isElementNode(prevSibling)) {
-      return prevSibling.select();
-    } else if (!$isTextNode(prevSibling)) {
-      const index = prevSibling.getIndexWithinParent() + 1;
-      return parent.select(index, index);
-    }
-    return prevSibling.select(anchorOffset, focusOffset);
+    return $selectAdjacentNode(
+      $getSiblingCaret(this, 'previous'),
+      anchorOffset,
+      focusOffset,
+    );
   }
 
   /**
@@ -2339,26 +2101,11 @@ export class LexicalNode {
    * @param focusOffset -  The focus offset for selection
    * */
   selectNext(anchorOffset?: number, focusOffset?: number): RangeSelection {
-    errorOnReadOnly();
-    // Slot value root has __parent === null, so the regular sibling walk
-    // would throw via getParentOrThrow. Defer to the host so the cursor
-    // moves past the slot-bearing host's next sibling.
-    const slotHost = $getSlotHost(this);
-    if (slotHost !== null) {
-      return slotHost.selectNext(anchorOffset, focusOffset);
-    }
-    const nextSibling = this.getNextSibling();
-    const parent = this.getParentOrThrow();
-    if (nextSibling === null) {
-      return parent.select();
-    }
-    if ($isElementNode(nextSibling)) {
-      return nextSibling.select(0, 0);
-    } else if (!$isTextNode(nextSibling)) {
-      const index = nextSibling.getIndexWithinParent();
-      return parent.select(index, index);
-    }
-    return nextSibling.select(anchorOffset, focusOffset);
+    return $selectAdjacentNode(
+      $getSiblingCaret(this, 'next'),
+      anchorOffset,
+      focusOffset,
+    );
   }
 
   /**

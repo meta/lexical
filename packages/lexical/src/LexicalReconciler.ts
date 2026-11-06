@@ -22,7 +22,6 @@ import type {
   NodeKey,
   NodeMap,
 } from './LexicalNode';
-import type {ElementNode} from './nodes/LexicalElementNode';
 
 import invariant from '@lexical/internal/invariant';
 
@@ -33,6 +32,7 @@ import {
   $isRootNode,
   $isTextNode,
   DEFAULT_EDITOR_DOM_CONFIG,
+  ElementNode,
 } from '.';
 import {
   DOUBLE_LINE_BREAK,
@@ -64,6 +64,13 @@ const __DEV__ = process.env.NODE_ENV !== 'production';
 
 type IntentionallyMarkedAsDirtyElement = boolean;
 
+function $hasCustomTextContent(node: ElementNode): boolean {
+  return (
+    !$isRootNode(node) &&
+    node.getTextContent !== ElementNode.prototype.getTextContent
+  );
+}
+
 /**
  * @internal
  *
@@ -93,7 +100,10 @@ type IntentionallyMarkedAsDirtyElement = boolean;
  * The reconciler sets this on every reconciled leaf at the end of
  * `$reconcileNode` (and on every newly-created leaf in `$createNode`), so
  * the previous editor state's leaves always carry a valid cached size from
- * the cycle that just committed.
+ * the cycle that just committed. Decorator slot hosts are not stored here
+ * either: its text includes its slots' text, which an edit inside a slot
+ * changes without cloning the host, so `$prevSuffixTextSize` measures them
+ * instead.
  *
  * Suffix-incremental fast path reads this off the previous-state instance
  * to get the pre-reconcile size of dirty children in O(1), avoiding both
@@ -109,13 +119,13 @@ export const CACHED_TEXT_SIZE_KEY = Symbol.for('@lexical/CachedTextSize');
 // The whole walk runs inside `activePrevEditorState.read(...)` so that every
 // node method resolves against the PREVIOUS node map: a moved element recomputes
 // its size via `getTextContentSize()` (its shared keyed-DOM cache may already
-// hold the NEW size, cf. https://github.com/facebook/lexical/pull/8564), and the
+// hold the NEW size, cf. https://github.com/meta/lexical/pull/8564), and the
 // inter-sibling `isInline()` returns the node's previous-render value (a moved
 // or re-typed node could answer differently in the next state, and a node
 // removed this cycle would throw). The per-child size logic is inlined here
 // rather than shared so it cannot be called outside this read. Non-moved
-// elements and leaves still read their O(1) caches, so a large untouched suffix
-// child is not re-walked.
+// elements and leaves other than slot hosts still read their O(1) caches, so a
+// large untouched suffix child is not re-walked.
 function $prevSuffixTextSize(startKey: NodeKey, count: number): number {
   return activePrevEditorState.read(
     () => {
@@ -156,6 +166,11 @@ function $prevSuffixTextSize(startKey: NodeKey, count: number): number {
           if (i < count - 1 && !prevNode.isInline()) {
             size += DOUBLE_LINE_BREAK.length;
           }
+        } else if ($readSlots(prevNode).size > 0) {
+          // A slot host's text includes its slots' text, which an edit inside
+          // a slot changes without cloning the host, so the size cached on
+          // this instance can be stale.
+          size += prevNode.getTextContentSize();
         } else {
           // $reconcileNode / $createNode set the size on every leaf they touch,
           // so a missing entry means the invariant was broken upstream.
@@ -177,7 +192,9 @@ function $prevSuffixTextSize(startKey: NodeKey, count: number): number {
 }
 
 function $setCachedTextSize(node: LexicalNode): void {
-  if ($isElementNode(node)) {
+  // A slot host's size goes stale on its next slot edit, which doesn't clone
+  // it, so `$prevSuffixTextSize` measures it instead and nothing is cached.
+  if ($isElementNode(node) || $readSlots(node).size > 0) {
     return;
   }
   // Skip if a value is already cached on this instance. The setter is only
@@ -297,10 +314,21 @@ let activePrevEditorState: EditorState;
 let activeNextNodeMap: NodeMap;
 let activePrevKeyToDOMMap: Map<NodeKey, HTMLElement & LexicalPrivateDOM>;
 let activeDirtyChildrenByParent: Map<NodeKey, Set<NodeKey>>;
+// @experimental named-slots. The previous slot container of each slot value
+// whose DOM this reconciliation has moved (see $createNode), recorded before
+// the move: once the DOM is moved, its parentElement no longer names the
+// container (see $slotContainerForKey).
+let activeMovedSlotContainers: Map<NodeKey, HTMLElement>;
 let mutatedNodes: MutatedNodes;
 let activeEditorDOMRenderConfig: EditorDOMRenderConfig;
 
-function $destroyNode(key: NodeKey, parentDOM: null | HTMLElement): void {
+function $destroyNode(
+  key: NodeKey,
+  parentDOM: null | HTMLElement,
+  // Leave slot containers in place: the caller's DOM they sat in is being
+  // replaced as a whole (see $createNode).
+  keepSlotContainers: boolean = false,
+): void {
   const node = activePrevNodeMap.get(key);
   // A node "moved" across parents in the same transaction still exists in
   // the next node map. We only detach its DOM from the old parent here;
@@ -325,7 +353,13 @@ function $destroyNode(key: NodeKey, parentDOM: null | HTMLElement): void {
 
   if ($isElementNode(node)) {
     const children = $createChildrenArray(node, activePrevNodeMap);
-    $destroyChildren(children, 0, children.length - 1, null);
+    $destroyChildren(
+      children,
+      0,
+      children.length - 1,
+      null,
+      keepSlotContainers,
+    );
   }
 
   // Slots are a separate channel from the linked-list children, so the
@@ -338,8 +372,10 @@ function $destroyNode(key: NodeKey, parentDOM: null | HTMLElement): void {
   // where remove() is a harmless no-op on a detached parent.
   if (node !== undefined) {
     for (const slotKey of $readSlots(node).values()) {
-      const container = $slotContainerForKey(slotKey);
-      $destroyNode(slotKey, null);
+      const container = keepSlotContainers
+        ? null
+        : $slotContainerForKey(slotKey);
+      $destroyNode(slotKey, null, keepSlotContainers);
       if (container !== null) {
         container.remove();
       }
@@ -359,12 +395,13 @@ function $destroyChildren(
   _startIndex: number,
   endIndex: number,
   dom: null | HTMLElement,
+  keepSlotContainers: boolean = false,
 ): void {
   for (let startIndex = _startIndex; startIndex <= endIndex; ++startIndex) {
     const child = children[startIndex];
 
     if (child !== undefined) {
-      $destroyNode(child, dom);
+      $destroyNode(child, dom, keepSlotContainers);
     }
   }
 }
@@ -566,6 +603,10 @@ function $applySlotTarget(
 // decorator host that moves its slot containers into its decorate() chrome — and
 // can't match a slot subtree's own nested slot container.
 function $slotContainerForKey(slotKey: NodeKey): HTMLElement | null {
+  const movedFrom = activeMovedSlotContainers.get(slotKey);
+  if (movedFrom !== undefined) {
+    return movedFrom;
+  }
   const slotDom = activePrevKeyToDOMMap.get(slotKey);
   return slotDom !== undefined ? slotDom.parentElement : null;
 }
@@ -701,6 +742,16 @@ function $createNode(key: NodeKey, slot: DOMSlot | null): HTMLElement {
         const slotChildDomDetached =
           nextSlotHost !== null && existingDOM.parentElement !== slot.element;
         if (modelMoved || slotChildDomDetached) {
+          // A slot value's DOM sits in its slot container. Moving it makes
+          // its parentElement the new place, so keep the old container for
+          // the cleanup of the slot it left, which may run later in this
+          // reconciliation (a host rendered after the new place).
+          if (prevSlotHost !== null && !activeMovedSlotContainers.has(key)) {
+            const prevContainer = existingDOM.parentElement;
+            if (prevContainer !== null) {
+              activeMovedSlotContainers.set(key, prevContainer);
+            }
+          }
           slot.insertChild(existingDOM);
           return $reconcileNode(key, slot.element);
         }
@@ -729,7 +780,15 @@ function $createNode(key: NodeKey, slot: DOMSlot | null): HTMLElement {
     setDOMUnmanaged(dom, {captureSelection: true});
   }
 
+  // A child created below can take over (move) the DOM that `slot.before`
+  // points at: a node moved from another parent in this update reuses its
+  // DOM. Remember the node in front of it, so that this DOM still goes where
+  // `slot.before` stood.
+  const beforeDOM = slot !== null ? slot.before : null;
+  const beforePrevDOM = beforeDOM !== null ? beforeDOM.previousSibling : null;
+
   if ($isElementNode(node)) {
+    const outerBefore = subTreeTextContent;
     const indent = node.__indent;
     const childrenSize = node.__size;
     $setElementDirection(dom, node);
@@ -756,7 +815,6 @@ function $createNode(key: NodeKey, slot: DOMSlot | null): HTMLElement {
         dom.__lexicalSlotTextLength = slotTextContent.length;
       }
     } else {
-      const outerBefore = subTreeTextContent;
       const endIndex = childrenSize - 1;
       const children = $createChildrenArray(node, activeNextNodeMap);
       $createChildren(
@@ -780,6 +838,12 @@ function $createNode(key: NodeKey, slot: DOMSlot | null): HTMLElement {
       if (slots.size > 0) {
         dom.__lexicalSlotTextLength = slotTextContent.length;
       }
+    }
+
+    if ($hasCustomTextContent(node)) {
+      const text = node.getTextContent();
+      dom.__lexicalTextContent = text;
+      subTreeTextContent = outerBefore + text;
     }
 
     const format = node.__format;
@@ -816,8 +880,42 @@ function $createNode(key: NodeKey, slot: DOMSlot | null): HTMLElement {
     subTreeTextContent += text;
   }
 
+  // A node that was in the previous state but is built anew here (its
+  // element's updateDOM asked for a new DOM, it sits under such an element,
+  // or it took a parent's only child slot from its old ancestor) is not
+  // reconciled against its previous children and slot values. Destroy the
+  // ones that left the state, so that they leave the DOM map and report
+  // 'destroyed'; $destroyNode skips the ones still in the next state. The
+  // DOM they rendered is replaced as a whole, so slot containers are left as
+  // they are (a container found through a slot value's DOM can already be
+  // the value's new one).
+  const prevNode = activePrevNodeMap.get(key);
+  if (prevNode !== undefined) {
+    if ($isElementNode(prevNode)) {
+      const prevChildren = $createChildrenArray(prevNode, activePrevNodeMap);
+      $destroyChildren(prevChildren, 0, prevChildren.length - 1, null, true);
+    }
+    for (const prevSlotKey of $readSlots(prevNode).values()) {
+      $destroyNode(prevSlotKey, null, true);
+    }
+  }
+
   if (slot !== null) {
-    slot.insertChild(dom);
+    if (
+      beforeDOM !== null &&
+      beforeDOM.parentNode !== slot.element &&
+      (beforePrevDOM === null || beforePrevDOM.parentNode === slot.element)
+    ) {
+      slot
+        .withBefore(
+          beforePrevDOM !== null
+            ? beforePrevDOM.nextSibling
+            : slot.getFirstChild(),
+        )
+        .insertChild(dom);
+    } else {
+      slot.insertChild(dom);
+    }
   }
 
   activeEditorDOMRenderConfig.$decorateDOM(node, null, dom, activeEditor);
@@ -920,14 +1018,7 @@ function $isLastChildLineBreakOrDecorator(
   return null;
 }
 
-function $isBlockDecoratorChild(
-  key: null | NodeKey,
-  nodeMap: NodeMap,
-): boolean {
-  if (!key) {
-    return false;
-  }
-  const node = nodeMap.get(key);
+function $isBlockDecoratorChild(node: LexicalNode | null): boolean {
   return $isDecoratorNode(node) && !node.isInline();
 }
 
@@ -939,19 +1030,20 @@ function $isBlockDecoratorChild(
  * out-of-flow anchor parked outside each such boundary child so the browser has
  * an editable inline box to resolve the boundary position against. Interior
  * decorators are unaffected, so only the first / last child is considered.
+ * Outside a reconcile (ElementNode.reconcileObservedMutation), pass the slot.
  */
-function $reconcileDecoratorBoundaryAnchors(
+export function $reconcileDecoratorBoundaryAnchors(
   nextElement: ElementNode,
   dom: HTMLElement & LexicalPrivateDOM,
+  slot: ElementDOMSlot = $getDOMSlot(nextElement, dom, activeEditor),
 ): void {
-  const slot = $getDOMSlot(nextElement, dom, activeEditor);
   slot.setDecoratorBoundaryAnchor(
     'leading',
-    $isBlockDecoratorChild(nextElement.__first, activeNextNodeMap),
+    $isBlockDecoratorChild(nextElement.getFirstChild()),
   );
   slot.setDecoratorBoundaryAnchor(
     'trailing',
-    $isBlockDecoratorChild(nextElement.__last, activeNextNodeMap),
+    $isBlockDecoratorChild(nextElement.getLastChild()),
   );
 }
 
@@ -995,6 +1087,7 @@ function $reconcileChildrenWithDirection(
   prevElement: ElementNode,
   nextElement: ElementNode,
   dom: HTMLElement,
+  derivesTextFields: boolean,
 ): void {
   subTreeTextFormat = null;
   subTreeTextStyle = null;
@@ -1011,8 +1104,10 @@ function $reconcileChildrenWithDirection(
     // empty-element anchors gated on `!isRootTextContentEmpty`. Skipping
     // reconcile here keeps the invariant aligned and sidesteps the
     // suffix-fast-path's stale-format edge case at the root level.
-    reconcileTextFormat(nextElement);
-    reconcileTextStyle(nextElement);
+    if (derivesTextFields) {
+      reconcileTextFormat(nextElement);
+      reconcileTextStyle(nextElement);
+    }
   }
 }
 
@@ -1403,6 +1498,8 @@ function $reconcileChildren(
     const dirtyChildren = activeDirtyChildrenByParent.get(prevElement.__key);
     if (
       !treatAllNodesAsDirty &&
+      // Custom element text need not be a concatenation of child text.
+      !$hasCustomTextContent(nextElement) &&
       typeof cachedParentText === 'string' &&
       dirtyChildren !== undefined
     ) {
@@ -1808,7 +1905,19 @@ function $reconcileNode(
         : '';
     if (isDirty) {
       const outerBefore = subTreeTextContent;
-      $reconcileChildrenWithDirection(prevNode, nextNode, dom);
+      // A full reconcile (`$fullReconcile`, a new DOM render config) treats
+      // every node as dirty to render it again, but an element that this
+      // update did not change, or change inside, keeps its textFormat and
+      // textStyle: deriving them from its first text there would change a
+      // node in an update that changes none (a history entry, a write to
+      // collaborators). An element the new state does not share with the
+      // previous one (a state set whole) is derived as before.
+      $reconcileChildrenWithDirection(
+        prevNode,
+        nextNode,
+        dom,
+        prevNode !== nextNode || activeDirtyElements.has(key),
+      );
       if (!nextNode.isInline()) {
         if (!$isRootNode(nextNode)) {
           $reconcileElementTerminatingLineBreak(prevNode, nextNode, dom);
@@ -1834,6 +1943,11 @@ function $reconcileNode(
         // clear the stale prefix length so the next suffix fast path strips
         // nothing from the now child-only cache.
         dom.__lexicalSlotTextLength = 0;
+      }
+      if ($hasCustomTextContent(nextNode)) {
+        const text = nextNode.getTextContent();
+        dom.__lexicalTextContent = text;
+        subTreeTextContent = outerBefore + text;
       }
     } else {
       // Currently unreachable under normal flow — `getWritable()` always
@@ -2024,7 +2138,13 @@ function $reconcileNodeChildren(
       }
       if (!nextChildrenSet.has(prevKey)) {
         // Remove prev and continue
-        siblingDOM = getNextSibling(getPrevElementByKeyOrThrow(prevKey));
+        const prevDOM = getPrevElementByKeyOrThrow(prevKey);
+        // An earlier parent may already have reused this DOM for a moved node.
+        // In that case siblingDOM still points into this slot; advancing from
+        // prevDOM would use a sibling in the destination parent instead.
+        if (prevDOM.parentNode === slot.element) {
+          siblingDOM = getNextSibling(prevDOM);
+        }
         $destroyNode(prevKey, slot.element);
         prevIndex++;
         prevChildrenSet.delete(prevKey);
@@ -2036,7 +2156,15 @@ function $reconcileNodeChildren(
         // of the lexical range; fall back to `slot.before` so slots with a
         // trailing non-lexical decoration (e.g. block drag handle) keep
         // that decoration after the new child.
-        $createNode(nextKey, slot.withBefore(siblingDOM ?? slot.before));
+        const createdDOM = $createNode(
+          nextKey,
+          slot.withBefore(siblingDOM ?? slot.before),
+        );
+        // The created subtree can have taken over siblingDOM (a node moved
+        // into it from this parent); the created DOM stands in its place.
+        if (siblingDOM !== null && siblingDOM.parentNode !== slot.element) {
+          siblingDOM = getNextSibling(createdDOM);
+        }
         nextIndex++;
       } else {
         // Move next
@@ -2124,6 +2252,7 @@ export function $reconcileRoot(
   activeEditorStateReadOnly = nextEditorState._readOnly;
   activePrevKeyToDOMMap = cloneMap(editor._keyToDOMMap);
   activeDirtyChildrenByParent = $buildDirtyChildrenByParent();
+  activeMovedSlotContainers = new Map();
   // We keep track of mutated nodes so we can trigger mutation
   // listeners later in the update cycle.
   const currentMutatedNodes = new Map();
@@ -2153,6 +2282,8 @@ export function $reconcileRoot(
   activePrevKeyToDOMMap = undefined;
   // @ts-ignore
   activeDirtyChildrenByParent = undefined;
+  // @ts-ignore
+  activeMovedSlotContainers = undefined;
   // @ts-ignore
   mutatedNodes = undefined;
   activeEditorDOMRenderConfig = DEFAULT_EDITOR_DOM_CONFIG;

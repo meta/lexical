@@ -29,6 +29,15 @@ import useLayoutEffect from './useLayoutEffect';
  * preferred way to set ARIA properties. The camelCase `aria*` props (such as
  * `ariaLabel`) are also accepted but are retained only for backwards
  * compatibility.
+ *
+ * `role` defaults to `textbox` for editable editors and read-only editors
+ * with a non-empty `aria-label`, `aria-labelledby`, or `title`. An unnamed
+ * read-only editor defaults to no role. Pass `role` explicitly to override
+ * either default.
+ *
+ * Standard `aria-*` props override the legacy camelCase props, including
+ * explicit `undefined` values. Widget-only ARIA is removed when the resolved
+ * role is absent.
  */
 export type ContentEditableElementProps = {
   editor: LexicalEditor;
@@ -66,7 +75,7 @@ function ContentEditableElementImpl(
     autoCapitalize,
     className,
     id,
-    role = 'textbox',
+    role,
     spellCheck = true,
     style,
     tabIndex,
@@ -102,38 +111,63 @@ function ContentEditableElementImpl(
     });
   }, [editor]);
 
+  // Preserve the original spread precedence, including explicit undefined
+  // overrides, before deciding which attributes the resolved role can carry.
+  const elementProps: React.AllHTMLAttributes<HTMLDivElement> = {
+    'aria-activedescendant': isEditable ? ariaActiveDescendant : undefined,
+    'aria-autocomplete': isEditable ? ariaAutoComplete : 'none',
+    'aria-controls': isEditable ? ariaControls : undefined,
+    'aria-describedby': ariaDescribedBy,
+    ...(ariaErrorMessage != null
+      ? {'aria-errormessage': ariaErrorMessage}
+      : {}),
+    'aria-expanded': role === 'combobox' ? (ariaExpanded ?? false) : undefined,
+    ...(ariaInvalid != null ? {'aria-invalid': ariaInvalid} : {}),
+    'aria-label': ariaLabel,
+    'aria-labelledby': ariaLabelledBy,
+    'aria-multiline': ariaMultiline,
+    'aria-owns': isEditable ? ariaOwns : undefined,
+    'aria-readonly': isEditable ? undefined : true,
+    'aria-required': ariaRequired,
+    ...rest,
+  };
+  const hasAccessibleName = [
+    elementProps['aria-label'],
+    elementProps['aria-labelledby'],
+    elementProps.title,
+  ].some(value => typeof value === 'string' && value.trim() !== '');
+  const resolvedRole =
+    role === undefined
+      ? isEditable || hasAccessibleName
+        ? 'textbox'
+        : undefined
+      : role;
+
+  // Only roleless content needs filtering. Explicit widget attributes remain
+  // authoritative when a role is retained, including in read-only editors.
+  if (resolvedRole == null) {
+    elementProps['aria-activedescendant'] = undefined;
+    elementProps['aria-autocomplete'] = undefined;
+    elementProps['aria-expanded'] = undefined;
+    elementProps['aria-multiline'] = undefined;
+    elementProps['aria-placeholder'] = undefined;
+    elementProps['aria-readonly'] = undefined;
+    elementProps['aria-required'] = undefined;
+  }
+
   return (
     <div
-      aria-activedescendant={isEditable ? ariaActiveDescendant : undefined}
-      aria-autocomplete={isEditable ? ariaAutoComplete : 'none'}
-      aria-controls={isEditable ? ariaControls : undefined}
-      aria-describedby={ariaDescribedBy}
-      // for compat, only override aria-errormessage if ariaErrorMessage is defined
-      {...(ariaErrorMessage != null
-        ? {'aria-errormessage': ariaErrorMessage}
-        : {})}
-      aria-expanded={
-        isEditable && role === 'combobox' ? !!ariaExpanded : undefined
-      }
-      // for compat, only override aria-invalid if ariaInvalid is defined
-      {...(ariaInvalid != null ? {'aria-invalid': ariaInvalid} : {})}
-      aria-label={ariaLabel}
-      aria-labelledby={ariaLabelledBy}
-      aria-multiline={ariaMultiline}
-      aria-owns={isEditable ? ariaOwns : undefined}
-      aria-readonly={isEditable ? undefined : true}
-      aria-required={ariaRequired}
       autoCapitalize={autoCapitalize}
       className={className}
       contentEditable={isEditable}
       data-testid={testid}
       id={id}
       ref={mergedRefs}
-      role={role}
+      role={resolvedRole}
       spellCheck={spellCheck}
       style={style}
       tabIndex={tabIndex ?? (isEditable ? undefined : -1)}
-      {...rest}
+      {...elementProps}
     />
   );
 }

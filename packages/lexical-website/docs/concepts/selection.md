@@ -159,8 +159,8 @@ editor.update(() => {
 ```
 
 `SKIP_DOM_SELECTION_TAG` does not apply to the initial editor state setup
-(`editorState` supplied to `createEditor` or the `$initialEditorState`
-property of the root extension). On first mount the editor still scrolls
+(the `$initialEditorState` property of the root extension, or
+`initialConfig.editorState` with the legacy `LexicalComposer`). On first mount the editor still scrolls
 to and focuses the initial selection. To prevent that, call
 `$setSelection(null)` inside your initial state setup function:
 
@@ -215,18 +215,17 @@ from the last committed state. A listener can normalize the selection or edit
 nodes before that same update commits. Listeners that change the selection may
 cause another notification before commit; they must converge.
 
-**Breaking change:** eligible programmatic changes such as `node.select()` now
-notify without waiting for a DOM `selectionchange` event. Automatic non-range
-notifications, including `NodeSelection` and `TableSelection`, now run before
-reconciliation instead of after it. Native range-selection notifications already
-ran inside an update.
+This covers programmatic changes such as `node.select()`, which notify without
+waiting for a DOM `selectionchange` event, and non-range selections such as
+`NodeSelection` and `TableSelection`, as well as native range selections.
 
 Selection listeners use the update's normal error handling. A throwing listener
 reports through `onError` and can abort the entire pending update, including the
 edit that triggered the notification and any other edits batched into that
-commit, just like an explicit command dispatch inside that update. For updates
-that did not previously notify, this adds a new point at which a listener error
-can abort content changes. Listener edits do not have a separate rollback scope.
+commit, just like an explicit command dispatch inside that update. Because a
+programmatic selection change also notifies, a listener error can abort content
+edits made in the same update. Listener edits do not have a separate rollback
+scope.
 
 The DOM is not guaranteed to match the pending state, even for a `NodeSelection`.
 New nodes may not have an element yet, and DOM ranges, layout, and focus may

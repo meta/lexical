@@ -22,6 +22,15 @@ import {
 
 export type SerializedRootNode = SerializedElementNode;
 
+function $getCachedText(node: RootNode): string | null {
+  const cachedText = node.getLatest().__cachedText;
+  return cachedText !== null &&
+    (isCurrentlyReadOnlyMode() ||
+      getActiveEditor()._dirtyType === NO_DIRTY_NODES)
+    ? cachedText
+    : null;
+}
+
 /** @noInheritDoc */
 export class RootNode extends ElementNode {
   /** @internal */
@@ -44,12 +53,13 @@ export class RootNode extends ElementNode {
   }
 
   getTextContent(): string {
-    const cachedText = this.__cachedText;
-    return cachedText !== null &&
-      (isCurrentlyReadOnlyMode() ||
-        getActiveEditor()._dirtyType === NO_DIRTY_NODES)
-      ? cachedText
-      : super.getTextContent();
+    const cachedText = $getCachedText(this);
+    return cachedText !== null ? cachedText : super.getTextContent();
+  }
+
+  getTextContentSize(): number {
+    const cachedText = $getCachedText(this);
+    return cachedText !== null ? cachedText.length : super.getTextContentSize();
   }
 
   remove(): never {

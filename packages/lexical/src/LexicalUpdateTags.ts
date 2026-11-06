@@ -47,6 +47,17 @@ export const COLLABORATION_TAG = 'collaboration';
 export const SKIP_COLLAB_TAG = 'skip-collab';
 
 /**
+ * While an IME composition is active, this update does not merge text into
+ * or out of the composed text node, and neither do later updates of the same
+ * composition. The nodes are merged when the composition ends. Add it to
+ * updates that change text next to a composition without user input (for
+ * example, changes applied from another source): a merge rewrites the
+ * composed DOM text node, and the browser's composition range would take in
+ * the merged text. Without it, normalization ignores the composition.
+ */
+export const DEFER_COMPOSITION_MERGE_TAG = 'defer-composition-merge';
+
+/**
  * Indicates that the update should skip scrolling the selection into view
  */
 export const SKIP_SCROLL_INTO_VIEW_TAG = 'skip-scroll-into-view';
@@ -95,6 +106,7 @@ export type UpdateTag =
   | typeof HISTORY_PUSH_TAG
   | typeof PASTE_TAG
   | typeof SKIP_COLLAB_TAG
+  | typeof DEFER_COMPOSITION_MERGE_TAG
   | typeof SKIP_DOM_SELECTION_TAG
   | typeof SKIP_SCROLL_INTO_VIEW_TAG
   | typeof COMPOSITION_START_TAG

@@ -15,28 +15,42 @@ function myListener(event) {
     alert('Nice!');
 }
 
-const removeRootListener = editor.registerRootListener((rootElement) => {
-    // add the listener to the current root element
-    rootElement.addEventListener('click', myListener);
-    // remove the listener from the old root element - make sure the ref to myListener
-    // is stable so the removal works and you avoid a memory leak.
-    return () => rootElement.removeEventListener('click', myListener);
+const ClickExtension = defineExtension({
+  name: '@my-app/Click',
+  register: (editor) =>
+    editor.registerRootListener((rootElement) => {
+      if (rootElement === null) {
+        return;
+      }
+      // add the listener to the current root element
+      rootElement.addEventListener('click', myListener);
+      // remove the listener when the root element changes - make sure the ref
+      // to myListener is stable so the removal works and you avoid a memory leak.
+      return () => rootElement.removeEventListener('click', myListener);
+    }),
 });
-
-// teardown the listener - return this from your useEffect callback if you're using React.
-removeRootListener();
 ```
+
+An extension's `register` returns a cleanup function, and the editor calls it
+when it is disposed, so there is no teardown to write by hand. Add
+`ClickExtension` to your editor's `dependencies` to use it.
 This can be a simple, efficient way to handle some use cases, since it's not necessary to attach a listener to each DOM node individually.
 
 The `addEventListener`/`removeEventListener` pairing above is common enough that the core `lexical` package exports a `registerEventListener(target, type, listener, options?)` helper. It attaches the listener and returns a dispose function that removes it, so the example above becomes:
 
 ```js
-import {registerEventListener} from 'lexical';
+import {defineExtension, registerEventListener} from 'lexical';
 
-const removeRootListener = editor.registerRootListener((rootElement) => {
-    // registerEventListener returns the matching removeEventListener cleanup,
-    // so there's no need to write the teardown by hand.
-    return registerEventListener(rootElement, 'click', myListener);
+const ClickExtension = defineExtension({
+  name: '@my-app/Click',
+  register: (editor) =>
+    editor.registerRootListener((rootElement) =>
+      // registerEventListener returns the matching removeEventListener cleanup,
+      // so there's no need to write the teardown by hand.
+      rootElement === null
+        ? undefined
+        : registerEventListener(rootElement, 'click', myListener),
+    ),
 });
 ```
 
@@ -85,17 +99,18 @@ const removeMutationListener = editor.registerMutationListener(nodeType, (mutati
     });
 });
 
-// teardown the listener - return this from your useEffect callback if you're using React.
+// teardown the listener - return it from an extension's `register` so the
+// editor removes it when it is disposed.
 removeMutationListener();
 ```
 Notice that here we don't worry about cleaning up, as Lexical will dereference the underlying DOM nodes and allow the JavaScript runtime garbage collector to clean up their listeners.
 
 ## 3. Use NodeEventPlugin
 
-If you're using React, we've wrapped approach #2 up into a simple LexicalComposer plugin that you can use to achieve the same effect, without worrying about the details:
+If you're using React, we've wrapped approach #2 up into a simple React plugin that you can render inside your composer to achieve the same effect, without worrying about the details:
 
 ```jsx
-<LexicalComposer>
+<LexicalExtensionComposer extension={appExtension}>
     <NodeEventPlugin
         nodeType={LinkNode}
         eventType={'click'}
@@ -103,7 +118,7 @@ If you're using React, we've wrapped approach #2 up into a simple LexicalCompose
             alert('Nice!');
         }}
     />
-</LexicalComposer>
+</LexicalExtensionComposer>
 ```
 
 If the editor lives inside a shadow root or an iframe, see

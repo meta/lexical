@@ -218,17 +218,3 @@ export const TableExtension = defineExtension({
     );
   },
 });
-
-/**
- * Bundles {@link TableImportRules} together with the runtime
- * {@link TableExtension}.
- *
- * @experimental
- * @deprecated {@link TableExtension} now registers
- * {@link TableImportRules} (and `CoreImportExtension`) itself — depend on
- * it directly instead.
- */
-export const TableImportExtension = defineExtension({
-  dependencies: [TableExtension],
-  name: '@lexical/table/Import',
-});

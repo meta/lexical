@@ -230,4 +230,40 @@ describe('positionNodeOnRange', () => {
 
     expect(countOverlays()).toBe(0);
   });
+
+  it('does not re-insert its overlay after the root element was detached from the document', async () => {
+    const rootElement = createRootElement();
+    const container = rootElement.parentElement!;
+    const editor = createTestEditor();
+    editor.setRootElement(rootElement);
+    const range = document.createRange();
+    range.selectNodeContents(rootElement);
+    const cleanup = positionNodeOnRange(editor, range, () => {});
+
+    try {
+      // The host removes the editor's DOM before the editor is told, e.g. a
+      // framework tearing down a subtree before it unmounts the components in it.
+      container.remove();
+
+      // Re-inserting the overlay is itself a mutation the observer reacts to,
+      // so a re-insert on every mutation never yields. Stop it after a few
+      // rounds so the test fails instead of hanging.
+      const insertBefore = container.insertBefore.bind(container);
+      const insertBeforeSpy = vi
+        .spyOn(container, 'insertBefore')
+        .mockImplementation(<T extends Node>(node: T, child: Node | null) =>
+          insertBeforeSpy.mock.calls.length > 10
+            ? node
+            : insertBefore(node, child),
+        );
+
+      rootElement.setAttribute('data-layout', 'detached');
+      await new Promise(resolve => setTimeout(resolve, 0));
+
+      expect(insertBeforeSpy).not.toHaveBeenCalled();
+    } finally {
+      cleanup();
+      editor.setRootElement(null);
+    }
+  });
 });

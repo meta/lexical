@@ -6,6 +6,8 @@
  *
  */
 
+// @vitest-environment node
+
 import {buildEditorFromExtensions, defineExtension} from '@lexical/extension';
 import {$getRoot} from 'lexical';
 import {assert, describe, expect, test} from 'vitest';

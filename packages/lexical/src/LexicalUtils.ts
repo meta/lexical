@@ -34,6 +34,7 @@ import {
   normalizeClassNames,
   type UpdateTag,
 } from '.';
+import {$detachNode} from './caret/LexicalCaretTree';
 import {
   CAN_USE_DOM,
   IS_APPLE,
@@ -253,6 +254,22 @@ export function $isSelectionCapturedInDecoratorInput(
         getEditorPropertyFromDOMNode(activeElement) == null))
   );
 }
+/**
+ * Returns true if an event comes from an input embedded in a node's DOM, read
+ * from its composed target: an `<input>`, a `<textarea>` or a foreign
+ * contentEditable (see {@link $isSelectionCapturedInDecoratorInput}). That is
+ * a decorator's own input, or one in unmanaged DOM that any node renders
+ * beside its children or text, through `createDOM`, a DOM slot or a render
+ * override. The editor's selection is then still the one it had before the
+ * input took the focus, so a copy, cut or paste there belongs to the input: a
+ * `COPY_COMMAND`, `CUT_COMMAND` or `PASTE_COMMAND` handler that acts on the
+ * editor's selection should return false for it.
+ */
+export function $isEventFromEmbeddedInput(event: Event | null): boolean {
+  const target = event === null ? null : getComposedEventTarget(event);
+  return isDOMNode(target) && $isSelectionCapturedInDecoratorInput(target);
+}
+
 /** @deprecated renamed to {@link $isSelectionCapturedInDecoratorInput} by @lexical/eslint-plugin rules-of-lexical */
 export const isSelectionCapturedInDecoratorInput =
   $isSelectionCapturedInDecoratorInput;
@@ -542,53 +559,7 @@ export function $markSlotsUsed(): void {
  * Please do not use it as it may change in the future.
  */
 export function $removeFromParent(node: LexicalNode): void {
-  invariant(
-    $getSlotHostKey(node) === null,
-    '$removeFromParent: node %s is slotted into host %s; a slotted node and a child are mutually exclusive. Remove it from its slot first.',
-    node.__key,
-    String($getSlotHostKey(node)),
-  );
-  const oldParent = node.getParent();
-  if (oldParent !== null) {
-    const writableNode = node.getWritable();
-    const writableParent = oldParent.getWritable();
-    const prevSibling = node.getPreviousSibling();
-    const nextSibling = node.getNextSibling();
-
-    // Store sibling keys
-    const nextSiblingKey = nextSibling !== null ? nextSibling.__key : null;
-    const prevSiblingKey = prevSibling !== null ? prevSibling.__key : null;
-
-    // Get writable siblings once
-    const writablePrevSibling =
-      prevSibling !== null ? prevSibling.getWritable() : null;
-    const writableNextSibling =
-      nextSibling !== null ? nextSibling.getWritable() : null;
-
-    // Update parent's first/last pointers
-    if (prevSibling === null) {
-      writableParent.__first = nextSiblingKey;
-    }
-    if (nextSibling === null) {
-      writableParent.__last = prevSiblingKey;
-    }
-
-    // Update sibling links
-    if (writablePrevSibling !== null) {
-      writablePrevSibling.__next = nextSiblingKey;
-    }
-    if (writableNextSibling !== null) {
-      writableNextSibling.__prev = prevSiblingKey;
-    }
-
-    // Clear node's links
-    writableNode.__prev = null;
-    writableNode.__next = null;
-    writableNode.__parent = null;
-
-    // Update parent size
-    writableParent.__size--;
-  }
+  $detachNode(node.getParent() === null ? node : node.getWritable());
 }
 /** @deprecated renamed to {@link $removeFromParent} by @lexical/eslint-plugin rules-of-lexical */
 export const removeFromParent = $removeFromParent;
@@ -651,6 +622,7 @@ export function $setCompositionKey(compositionKey: null | NodeKey): void {
   const previousCompositionKey = editor._compositionKey;
   if (compositionKey !== previousCompositionKey) {
     editor._compositionKey = compositionKey;
+    editor._compositionMergeHeld = null;
     if (previousCompositionKey !== null) {
       const node = $getNodeByKey(previousCompositionKey);
       if (node !== null) {
@@ -674,24 +646,21 @@ export function $getCompositionKey(): null | NodeKey {
   return editor._compositionKey;
 }
 
+/** Desktop WebKit renders a suffix so an empty composing node can host the IME. */
+export function $isEmptyCompositionTarget(node: TextNode): boolean {
+  return (
+    !IS_IOS &&
+    (IS_SAFARI || IS_APPLE_WEBKIT) &&
+    node.__text === '' &&
+    // DOM selection reconciliation runs after the state becomes read-only.
+    node.__key === getActiveEditor()._compositionKey
+  );
+}
+
 /**
  * Returns the node with the given key from the active EditorState
  * (or the given EditorState), or null if it does not exist.
  */
-export function $getNodeByKey(
-  key: NodeKey,
-  _editorState?: EditorState,
-): LexicalNode | null;
-/**
- * @deprecated The type parameter is an unchecked and unsafe cast,
- * equivalent to `$getNodeByKey(key) as T | null`, and will be removed
- * in a future release. Call this function without a type argument and
- * narrow the result with a type guard instead.
- */
-export function $getNodeByKey<T extends LexicalNode>(
-  key: NodeKey,
-  _editorState?: EditorState,
-): T | null;
 export function $getNodeByKey(
   key: NodeKey,
   _editorState?: EditorState,
@@ -888,10 +857,14 @@ export function $setSelection(selection: null | BaseSelection): void {
   editorState._selection = selection;
 }
 
-export function $flushMutations(): void {
+/**
+ * @param rerenderText Render the text that the browser changed from the
+ * editor state, as the editor applied the input that changed it itself.
+ */
+export function $flushMutations(rerenderText?: boolean): void {
   errorOnReadOnly();
   const editor = getActiveEditor();
-  flushRootMutations(editor);
+  flushRootMutations(editor, rerenderText);
 }
 
 export function $getNodeFromDOM(dom: Node): null | LexicalNode {
@@ -941,7 +914,23 @@ export function getEditorsToPropagate(editor: LexicalEditor): LexicalEditor[] {
   return editorsToPropagate;
 }
 
+let serverUIDCounter = 0;
+
+/**
+ * Generates the identifiers `createEditor` uses for an editor's key and its
+ * default namespace.
+ *
+ * In a browser they are random, because both are compared across windows: a
+ * drag marker carries the source editor's key, and a clipboard payload carries
+ * its namespace. Without a DOM (server rendering) a counter is used instead,
+ * which is unique within the process: neither value is serialized into
+ * rendered markup, and frameworks such as Next.js fail a prerender that reads
+ * `Math.random()` (#9318).
+ */
 export function createUID(): string {
+  if (!CAN_USE_DOM) {
+    return `s${(++serverUIDCounter).toString(36)}`;
+  }
   return Math.random()
     .toString(36)
     .replace(/[^a-z]+/g, '')
@@ -1005,6 +994,7 @@ export function $updateTextNodeFromDOMContent(
 
   if (node.isAttached() && (compositionEnd || !node.isDirty())) {
     const isComposing = node.isComposing();
+    const isSafariComposition = !IS_IOS && (IS_SAFARI || IS_APPLE_WEBKIT);
 
     if (node.isToken() && isComposing) {
       return;
@@ -1013,13 +1003,16 @@ export function $updateTextNodeFromDOMContent(
     let normalizedTextContent = textContent;
 
     if (isComposing || compositionEnd) {
-      if (textContent.endsWith(COMPOSITION_SUFFIX)) {
+      if (
+        textContent.endsWith(COMPOSITION_SUFFIX) &&
+        (!isSafariComposition || textContent !== node.getTextContent())
+      ) {
         normalizedTextContent = textContent.slice(
           0,
           -COMPOSITION_SUFFIX.length,
         );
       }
-      if (compositionEnd) {
+      if (compositionEnd && !isSafariComposition) {
         const char = COMPOSITION_START_CHAR;
         let index;
         while ((index = normalizedTextContent.indexOf(char)) !== -1) {
@@ -1042,6 +1035,11 @@ export function $updateTextNodeFromDOMContent(
       const selection = $getSelection();
 
       if (normalizedTextContent === '') {
+        if (isComposing && !compositionEnd && isSafariComposition) {
+          // The composition key owns this target until composition ends.
+          $setTextContentWithSelection(node, '', selection);
+          return;
+        }
         $setCompositionKey(null);
         if (!IS_SAFARI && !IS_IOS && !IS_APPLE_WEBKIT) {
           // For composition (mainly Android), we have to remove the node on a later update
@@ -1902,6 +1900,20 @@ export function scrollIntoViewIfNeeded(
         element === rootElement ? rootRect : element.getBoundingClientRect();
       targetTop = targetRect.top;
       targetBottom = targetRect.bottom;
+      // A scroll container's own scroll-padding, like one that clears a
+      // sticky toolbar inside it, keeps the caret out of its edges the same
+      // way as on the document element above.
+      const clientHeight = element.clientHeight;
+      if (element.scrollHeight > clientHeight) {
+        const style = defaultView.getComputedStyle(element);
+        if (style.overflowY === 'auto' || style.overflowY === 'scroll') {
+          targetTop += parseScrollPadding(style.scrollPaddingTop, clientHeight);
+          targetBottom -= parseScrollPadding(
+            style.scrollPaddingBottom,
+            clientHeight,
+          );
+        }
+      }
     }
     let diff = 0;
 
@@ -2162,14 +2174,6 @@ export function errorOnInsertTextNodeOnRoot(
  * Returns the node with the given key from the active EditorState,
  * or throws if it does not exist.
  */
-export function $getNodeByKeyOrThrow(key: NodeKey): LexicalNode;
-/**
- * @deprecated The type parameter is an unchecked and unsafe cast,
- * equivalent to `$getNodeByKeyOrThrow(key) as N`, and will be removed
- * in a future release. Call this function without a type argument and
- * narrow the result with a type guard instead.
- */
-export function $getNodeByKeyOrThrow<N extends LexicalNode>(key: NodeKey): N;
 export function $getNodeByKeyOrThrow(key: NodeKey): LexicalNode {
   const node = $getNodeByKey(key);
   if (node === null) {
@@ -2278,18 +2282,25 @@ export function $updateDOMBlockCursorElement(
       // DOM is the wrapper but the managed children (and `insertBeforeElement`)
       // live in `slot.element`; inserting into the keyed wrapper would throw
       // because the reference node is not its child.
-      const elementDOM = $getDOMSlot(
+      const slot = $getDOMSlot(
         elementNode,
         editor.getElementByKey(elementNode.__key) as HTMLElement,
         editor,
-      ).element;
+      );
+      const elementDOM = slot.element;
       if (blockCursorElement === null) {
         editor._blockCursorElement = blockCursorElement =
           $createBlockCursorElement(editor._config);
       }
       rootElement.style.caretColor = 'transparent';
       if (insertBeforeElement === null) {
-        elementDOM.appendChild(blockCursorElement);
+        // Stay inside the slot's managed range: a slot with a `before`
+        // boundary keeps its trailing decoration after the children.
+        const before =
+          slot.before !== null && slot.before.parentNode === elementDOM
+            ? slot.before
+            : null;
+        elementDOM.insertBefore(blockCursorElement, before);
       } else {
         elementDOM.insertBefore(blockCursorElement, insertBeforeElement);
       }
@@ -2869,7 +2880,7 @@ export function isDocumentFragment(x: unknown): x is DocumentFragment {
 }
 
 const INLINE_TAG_RE =
-  /^(a|abbr|acronym|b|cite|code|del|em|i|ins|kbd|label|mark|output|q|ruby|s|samp|span|strong|sub|sup|time|u|tt|var|#text)$/i;
+  /^(a|abbr|acronym|b|bdi|bdo|big|cite|code|data|del|dfn|em|font|i|ins|kbd|label|mark|nobr|output|q|ruby|s|samp|small|span|strike|strong|sub|sup|time|u|tt|var|#text)$/i;
 
 /**
  *
@@ -3107,6 +3118,120 @@ export function $getDOMTextNode(
 ): Text | null {
   const slot = $getDOMSlot(node, dom, editor);
   return getDOMTextNode(slot.element);
+}
+
+const cachedSelectedKeys = new WeakMap<LexicalNode[], Set<NodeKey> | null>();
+/**
+ * @internal
+ * Whether the node with `key` is among the nodes of `selection`. When the
+ * selection caches its nodes and is asked more than once, a Set of their keys
+ * is cached with them, so asking this for every node of a large selection
+ * stays linear.
+ */
+export function $isKeyInSelectionNodes(
+  selection: BaseSelection,
+  key: NodeKey,
+): boolean {
+  const nodes = selection.getNodes();
+  if (nodes === selection.getCachedNodes()) {
+    let keys = cachedSelectedKeys.get(nodes);
+    if (keys === null) {
+      keys = new Set(nodes.map(node => node.__key));
+      cachedSelectedKeys.set(nodes, keys);
+    } else if (keys === undefined) {
+      // The first lookup scans, so a node list replaced after a single
+      // lookup (as an update that writes in between does) builds no Set.
+      cachedSelectedKeys.set(nodes, null);
+    }
+    if (keys) {
+      return keys.has(key);
+    }
+  }
+  return nodes.some(node => node.__key === key);
+}
+
+/**
+ * For each element of a committed (frozen) EditorState, whether it holds a
+ * TextNode at any depth, as ElementNode#shouldSerializeTextStyles asks for an
+ * inline element. Without it, serializing inline elements nested inside each
+ * other, each with a textFormat or textStyle, walks the same subtree once per
+ * level. A frozen state never changes, so its entries never go stale.
+ */
+const textInsideCache = new WeakMap<EditorState, Map<NodeKey, boolean>>();
+
+/**
+ * @internal
+ * The cache of $getTextInsideCache's frozen state for the active state, or
+ * null where none is known to hold: a pending state uses the cache of the
+ * committed state it was made from only while no node in it has been marked
+ * dirty (written, created or removed), when it holds exactly that state's
+ * nodes. A copy serializes in such an update.
+ */
+export function $getTextInsideCache(): Map<NodeKey, boolean> | null {
+  let editorState = getActiveEditorState();
+  if (!editorState._readOnly) {
+    const editor = internalGetActiveEditor();
+    if (
+      editor === null ||
+      editor._pendingEditorState !== editorState ||
+      editor._dirtyType !== NO_DIRTY_NODES ||
+      !editor._editorState._readOnly
+    ) {
+      return exportMemo !== null && exportMemo.editorState === editorState
+        ? exportMemo.holds
+        : null;
+    }
+    editorState = editor._editorState;
+  }
+  let cache = textInsideCache.get(editorState);
+  if (cache === undefined) {
+    cache = new Map();
+    textInsideCache.set(editorState, cache);
+  }
+  return cache;
+}
+
+/**
+ * The memo of one export walk in a pending state that has changed (see
+ * INTERNAL_$withExportMemo), or null.
+ */
+let exportMemo: null | {
+  editorState: EditorState;
+  holds: Map<NodeKey, boolean>;
+} = null;
+/** Whether an export walk is running (with or without its memo). */
+let exportWalk = false;
+
+/**
+ * @internal
+ * Run an export walk (EditorState#toJSON, the clipboard's selection export)
+ * with a memo of what $getTextInsideCache would hold, for an update whose
+ * pending state has changed and so has no cache of its own. The memo lives
+ * for the walk alone, which changes no node: a node made writable during the
+ * walk (see internalStopExportMemo) drops it for the rest of the walk, so it
+ * cannot answer for content that has changed.
+ */
+export function INTERNAL_$withExportMemo<T>(f: () => T): T {
+  if (exportWalk) {
+    return f();
+  }
+  const editorState = internalGetActiveEditorState();
+  exportWalk = true;
+  exportMemo =
+    editorState !== null && !editorState._readOnly
+      ? {editorState, holds: new Map()}
+      : null;
+  try {
+    return f();
+  } finally {
+    exportWalk = false;
+    exportMemo = null;
+  }
+}
+
+/** @internal Drop the export walk's memo (see INTERNAL_$withExportMemo). */
+export function internalStopExportMemo(): void {
+  exportMemo = null;
 }
 
 /** @internal */
@@ -3365,7 +3490,14 @@ export function $markSlotEditable(
   editor: LexicalEditor = $getEditor(),
 ): void {
   const editable = editor.isEditable();
-  element.contentEditable = editable ? 'true' : 'false';
+  const value = editable ? 'true' : 'false';
+  // In Chrome, any write of `contenteditable` to a connected element forces a
+  // synchronous style recalculation, even when the value is unchanged.
+  // This runs on every reconcile of a slot host, so skip the no-op write.
+  // (getAttribute, not the getter: the getter reads 'inherit' when unset.)
+  if (element.getAttribute('contenteditable') !== value) {
+    element.contentEditable = value;
+  }
   if (editable) {
     element.__lexicalEditor = editor;
   } else {
@@ -5094,11 +5226,61 @@ function buildNodeClassRecord(klass: Klass<LexicalNode>): NodeClassRecord {
     // stores them on every subclass instance, so its clone has to carry them
     // too.
     injectSynthesizedAfterCloneFrom(klass);
+    injectDeclaredIsInline(klass, ownNodeConfig);
   } catch (error) {
     NODE_CLASS_CACHE.delete(klass);
     throw error;
   }
   return record;
+}
+
+function synthesizedIsInlineTrue(): boolean {
+  return true;
+}
+function synthesizedIsInlineFalse(): boolean {
+  return false;
+}
+
+/**
+ * Whether `isInline` (an `isInline` method found on a prototype) was
+ * synthesized from a `$config({inline})` declaration.
+ *
+ * @internal
+ */
+export function isSynthesizedIsInline(isInline: unknown): boolean {
+  return (
+    isInline === synthesizedIsInlineTrue ||
+    isInline === synthesizedIsInlineFalse
+  );
+}
+
+/**
+ * A class that declares `$config({inline})` and does not write its own
+ * `isInline()` gets one returning the declaration, so classes that declare
+ * nothing run exactly the code they ran before (ElementNode.isInline is
+ * unchanged).
+ */
+function injectDeclaredIsInline(
+  klass: Klass<LexicalNode>,
+  ownNodeConfig:
+    | undefined
+    | StaticNodeConfigValue<LexicalNode, string | symbol>,
+): void {
+  if (
+    !ownNodeConfig ||
+    ownNodeConfig.inline === undefined ||
+    !hasOwnKey(klass.prototype as unknown as object, PROTOTYPE_CONFIG_METHOD) ||
+    Object.prototype.hasOwnProperty.call(klass.prototype, 'isInline')
+  ) {
+    return;
+  }
+  Object.defineProperty(klass.prototype, 'isInline', {
+    configurable: true,
+    value: ownNodeConfig.inline
+      ? synthesizedIsInlineTrue
+      : synthesizedIsInlineFalse,
+    writable: true,
+  });
 }
 
 /**
@@ -5194,6 +5376,15 @@ function injectSynthesizedStatics(
       if (importDOM) {
         klass.importDOM = () => importDOM;
       }
+    }
+    // Inject a delegated getTextContentSize if only getTextContent is overridden
+    const proto = klass.prototype;
+    if (
+      hasOwnKey(proto, 'getTextContent') &&
+      !hasOwnKey(proto, 'getTextContentSize')
+    ) {
+      klass.prototype.getTextContentSize =
+        LexicalNode.prototype.getTextContentSize;
     }
   }
 }

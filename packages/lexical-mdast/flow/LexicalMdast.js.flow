@@ -56,6 +56,7 @@ export type MdastExportContext = {
   exportInline(source: ElementNode | ReadonlyArray<LexicalNode>): MdastNode[],
   exportBlocks(source: ElementNode | ReadonlyArray<LexicalNode>): MdastNode[],
   isIncluded(node: LexicalNode): boolean,
+  readonly selection: BaseSelection | null,
 };
 
 export type MdastImportHandler = (
@@ -78,6 +79,8 @@ export type MdastExportRule = {
   readonly $export: MdastExportHandler,
 };
 
+export type MdastPunctuationMode = 'cjk-friendly' | 'strict-commonmark';
+
 export type MdastConfig = {
   readonly importRules: ReadonlyArray<MdastImportRule>,
   readonly exportRules: ReadonlyArray<MdastExportRule>,
@@ -86,6 +89,8 @@ export type MdastConfig = {
   readonly toMarkdownExtensions: ReadonlyArray<unknown>,
   readonly inlineShortcutTypes: ReadonlyArray<string>,
   readonly inlineShortcutTriggers: ReadonlyArray<string>,
+  readonly importPunctuation?: MdastPunctuationMode,
+  readonly exportPunctuation?: MdastPunctuationMode,
 };
 
 export type MdastShortcutsConfig = {
@@ -102,12 +107,6 @@ export type MdastExtensionOutput = {
   $convertSelectionToMarkdownString(selection?: BaseSelection | null): string,
   readonly registry: CompiledMdast,
 };
-
-/** @deprecated Use MdastExtensionOutput instead. */
-export type MdastImportExtensionOutput = MdastExtensionOutput;
-
-/** @deprecated Use MdastExtensionOutput instead. */
-export type MdastExportExtensionOutput = MdastExtensionOutput;
 
 declare export function $convertFromMarkdownString(
   markdown: string,
@@ -133,8 +132,6 @@ declare export function $convertSelectionToMarkdownString(
   selection?: BaseSelection | null,
 ): string;
 
-/** @deprecated Use MdastExtension instead. */
-declare export var MdastImportExtension: typeof MdastExtension;
 declare export var MdastExtension: LexicalExtension<
   MdastConfig,
   '@lexical/mdast/Mdast',
@@ -189,8 +186,6 @@ declare export var MdastAutolinkLiteralExtension: LexicalExtension<
   void,
   void,
 >;
-/** @deprecated Use MdastExtension instead. */
-declare export var MdastExportExtension: typeof MdastExtension;
 declare export var MdastStrikethroughExtension: LexicalExtension<
   ExtensionConfigBase,
   '@lexical/mdast/Strikethrough',

@@ -46,102 +46,101 @@ test.describe('TextEntry', () => {
     });
   });
 
-  test(`Can insert text and replace it`, async ({isCollab, page}) => {
-    test.skip(isCollab);
-    await page.locator('[data-lexical-editor]').fill('Front');
-    await page.locator('[data-lexical-editor]').fill('Front updated');
-    await assertHTML(
-      page,
-      html`
-        <p class="PlaygroundEditorTheme__paragraph" dir="auto">
-          <span data-lexical-text="true">Front updated</span>
-        </p>
-      `,
-    );
-    await assertSelection(page, {
-      anchorOffset: 13,
-      anchorPath: [0, 0, 0],
-      focusOffset: 13,
-      focusPath: [0, 0, 0],
+  test.describe(() => {
+    test.skip(({isCollab}) => isCollab);
+    test(`Can insert text and replace it`, async ({page}) => {
+      await page.locator('[data-lexical-editor]').fill('Front');
+      await page.locator('[data-lexical-editor]').fill('Front updated');
+      await assertHTML(
+        page,
+        html`
+          <p class="PlaygroundEditorTheme__paragraph" dir="auto">
+            <span data-lexical-text="true">Front updated</span>
+          </p>
+        `,
+      );
+      await assertSelection(page, {
+        anchorOffset: 13,
+        anchorPath: [0, 0, 0],
+        focusOffset: 13,
+        focusPath: [0, 0, 0],
+      });
     });
   });
 
-  test(`Can type 'Hello' as a header and insert a paragraph before`, async ({
-    page,
-    isPlainText,
-  }) => {
-    test.skip(isPlainText);
-    await focusEditor(page);
-    await page.keyboard.type('# Hello');
-
-    await moveToLineBeginning(page);
-
-    await assertHTML(
+  test.describe(() => {
+    test.skip(({isPlainText}) => isPlainText);
+    test(`Can type 'Hello' as a header and insert a paragraph before`, async ({
       page,
-      html`
-        <h1 class="PlaygroundEditorTheme__h1" dir="auto">
-          <span data-lexical-text="true">Hello</span>
-        </h1>
-      `,
-    );
-    await assertSelection(page, {
-      anchorOffset: 0,
-      anchorPath: [0, 0, 0],
-      focusOffset: 0,
-      focusPath: [0, 0, 0],
+    }) => {
+      await focusEditor(page);
+      await page.keyboard.type('# Hello');
+
+      await moveToLineBeginning(page);
+
+      await assertHTML(
+        page,
+        html`
+          <h1 class="PlaygroundEditorTheme__h1" dir="auto">
+            <span data-lexical-text="true">Hello</span>
+          </h1>
+        `,
+      );
+      await assertSelection(page, {
+        anchorOffset: 0,
+        anchorPath: [0, 0, 0],
+        focusOffset: 0,
+        focusPath: [0, 0, 0],
+      });
+
+      await page.keyboard.press('Enter');
+
+      await assertHTML(
+        page,
+        html`
+          <p class="PlaygroundEditorTheme__paragraph" dir="auto">
+            <br data-lexical-managed-linebreak="true" />
+          </p>
+          <h1 class="PlaygroundEditorTheme__h1" dir="auto">
+            <span data-lexical-text="true">Hello</span>
+          </h1>
+        `,
+      );
+      await assertSelection(page, {
+        anchorOffset: 0,
+        anchorPath: [1, 0, 0],
+        focusOffset: 0,
+        focusPath: [1, 0, 0],
+      });
     });
 
-    await page.keyboard.press('Enter');
+    test(`Can insert a paragraph between two text nodes`, async ({page}) => {
+      await focusEditor(page);
+      await page.keyboard.type('Hello ');
+      await toggleBold(page);
+      await page.keyboard.type('world');
+      await moveLeft(page, 5);
+      await page.keyboard.press('Enter');
 
-    await assertHTML(
-      page,
-      html`
-        <p class="PlaygroundEditorTheme__paragraph" dir="auto">
-          <br data-lexical-managed-linebreak="true" />
-        </p>
-        <h1 class="PlaygroundEditorTheme__h1" dir="auto">
-          <span data-lexical-text="true">Hello</span>
-        </h1>
-      `,
-    );
-    await assertSelection(page, {
-      anchorOffset: 0,
-      anchorPath: [1, 0, 0],
-      focusOffset: 0,
-      focusPath: [1, 0, 0],
-    });
-  });
-
-  test(`Can insert a paragraph between two text nodes`, async ({
-    page,
-    isPlainText,
-  }) => {
-    test.skip(isPlainText);
-    await focusEditor(page);
-    await page.keyboard.type('Hello ');
-    await toggleBold(page);
-    await page.keyboard.type('world');
-    await moveLeft(page, 5);
-    await page.keyboard.press('Enter');
-
-    await assertHTML(
-      page,
-      html`
-        <p dir="auto">
-          <span data-lexical-text="true">Hello</span>
-        </p>
-        <p dir="auto">
-          <strong data-lexical-text="true">world</strong>
-        </p>
-      `,
-      undefined,
-      {ignoreClasses: true},
-    );
-    await assertSelection(page, {
-      anchorOffset: 0,
-      anchorPath: [1, 0, 0],
-      focusOffset: 0,
-      focusPath: [1, 0, 0],
+      await assertHTML(
+        page,
+        html`
+          <p dir="auto">
+            <span data-lexical-text="true">Hello</span>
+          </p>
+          <p dir="auto">
+            <strong data-lexical-text="true">world</strong>
+          </p>
+        `,
+        undefined,
+        {ignoreClasses: true},
+      );
+      await assertSelection(page, {
+        anchorOffset: 0,
+        anchorPath: [1, 0, 0],
+        focusOffset: 0,
+        focusPath: [1, 0, 0],
+      });
     });
   });
 

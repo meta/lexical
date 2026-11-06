@@ -99,15 +99,15 @@ or use the template below):
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/facebook/lexical.git",
+    "url": "git+https://github.com/meta/lexical.git",
     "directory": "packages/lexical-eslint-plugin"
   },
   "main": "LexicalEslintPlugin.js",
   "types": "index.d.ts",
   "bugs": {
-    "url": "https://github.com/facebook/lexical/issues"
+    "url": "https://github.com/meta/lexical/issues"
   },
-  "homepage": "https://github.com/facebook/lexical#readme"
+  "homepage": "https://github.com/meta/lexical#readme"
 }
 ```
 </details>
@@ -205,6 +205,12 @@ package needs (the `dev`/`prod` ESM variants plus their fork modules,
 disk. The guard fails the build if e.g. you ran `pnpm run build` (dev
 only) and then tried to publish — the `.prod.js` files would be
 missing.
+
+It also copies the root `CHANGELOG.md` into `packages/lexical/` (the copy is
+gitignored), so the full release history ships with the `lexical` package
+for anyone upgrading from an installed version. For a prerelease (nightly,
+next, dev) the copy also lists the pending changesets under
+`## Unreleased`; the repository's CHANGELOG.md is not changed.
 
 Only ESM is published to npm. Every public package is a
 `"type": "module"` package (`update-version` adds the field), so its
@@ -381,7 +387,9 @@ faster as it is not doing any optimization/minification steps.
 ### pnpm run increment-version
 
 Increment the monorepo version. The `-i` argument must be one of
-`minor` | `patch` | `prerelease`.
+`minor` | `patch` | `prerelease`. A `patch` on the `latest` channel is
+refused while a `[breaking]` changeset is pending in `.changeset/`; breaking
+changes ship in minor releases.
 
 The postversion script will:
 - Create a local `${CHANNEL}__release` branch (the version-named
@@ -391,8 +399,15 @@ The postversion script will:
 - `pnpm install` to update the pnpm-lock.yaml
 - `pnpm run update-packages` to update other generated config
 - `pnpm run extract-codes` to extract the error codes and
-  `pnpm run update-changelog` to update the changelog (both only when
-  `CHANNEL` is `latest`)
+  `pnpm run update-changelog` to turn the pending changesets into a new
+  CHANGELOG.md version block, followed by an `### All changes` list of the
+  commits since the previous release, and delete them (both only when
+  `CHANNEL` is `latest`; prerelease changes stay pending until the next
+  `latest` release). `update-changelog` refuses to run while the previous
+  release is missing from CHANGELOG.md, that is, until the previous release
+  PR is merged, so the same changesets cannot end up in two releases. With
+  `GITHUB_TOKEN` set it looks up pull requests and contributor logins that
+  git history does not show
 - Create a version commit and tag from the branch
 
 This is typically executed through the `version.yml` GitHub Workflow which
@@ -400,7 +415,31 @@ will also push the tag and branch.
 
 ### pnpm run changelog
 
-Update the changelog from git history.
+Preview the CHANGELOG.md block that the pending changesets in `.changeset/`
+would produce, without changing anything. See
+[.changeset/README.md](https://github.com/meta/lexical/blob/main/.changeset/README.md)
+for the changeset format and `pnpm run check-changesets` to validate them.
+
+### pnpm run changelog:range
+
+`pnpm run changelog:range -- --from 0.40.0 [--to 0.52.0] [--breaking] [--json]`
+prints every CHANGELOG.md entry after `--from` up to `--to`, oldest first.
+`--breaking` keeps only breaking changes and deprecations. `--changelog
+<file>` reads another copy, such as an app's
+`node_modules/lexical/CHANGELOG.md`, which apps can also read directly.
+
+### pnpm run changeset:new
+
+`pnpm run changeset:new -- --category fix --packages lexical,@lexical/list --summary "..." [--pr 123]`
+writes a valid changeset; for `breaking` and `deprecation` it leaves TODO
+lines for the required paragraphs, which `check-changesets` rejects until
+they are filled in.
+
+### pnpm run release-notes
+
+`pnpm run release-notes -- --version 0.53.0` prints that version's
+CHANGELOG.md block without its heading: an optional starting point for the
+GitHub release notes.
 
 ### pnpm run release
 
@@ -486,7 +525,7 @@ Useful flags:
 - `--package <name>` (or a positional `<name>`, repeatable) — restrict the run to the given package(s), matched by full npm name (`@lexical/a11y`) or unscoped short name (`a11y`). Omit to process every public package.
 - `--dry-run` — print what would happen without touching the registry (works with both `--bootstrap` and `--setup-trust`)
 - `--workflow <filename>` — override the workflow filename (default `pre-release.yml`)
-- `--repo <owner/name>` — override the GitHub repo (default `facebook/lexical`)
+- `--repo <owner/name>` — override the GitHub repo (default `meta/lexical`)
 - `--stub-version <semver>` — override the placeholder version (default `0.0.0-bootstrap.0`)
 - `--registry <url>` — override the npm registry
 
@@ -537,6 +576,55 @@ The `increment-version=true + channel=latest` combination is refused
 by the workflow's guard job — real `latest` releases must go through
 `version.yml` first.
 
+## Continuous releases (pkg.pr.new)
+
+Every commit to a pull request and every commit to `main` publishes all public
+packages to [pkg.pr.new](https://github.com/stackblitz-labs/pkg.pr.new) through
+the `pkg-pr-new.yml` workflow. Nothing goes to npm: the nightly, next and latest
+channels above are unchanged and still publish through `call-release.yml`.
+
+```sh
+npm i https://pkg.pr.new/lexical@9372      # latest commit of PR #9372
+npm i https://pkg.pr.new/lexical@4282a68   # a specific commit
+npm i https://pkg.pr.new/lexical@main      # tip of main
+```
+
+The bot comments install commands on each pull request. Previews are built
+with `pnpm run prepare-release`, the same build as the npm channels, after
+`scripts/npm/preview-version.mjs` stamps a version in the nightly line:
+`0.52.1-pr.9372.g4282a68` for a PR and `0.52.1-main.g4282a68` for `main`, next
+to `0.52.1-nightly.20261019.0` on npm. That version is also what
+`LexicalEditor.version` reports. Dependencies between Lexical packages are
+rewritten to the same commit's pkg.pr.new URLs, so `@lexical/react` from a
+preview depends on `lexical` from that preview, not on an npm release.
+
+The bot's comment lists npm commands, and npm dedupes those dependencies by
+name and version, so `@9372` or `@main` URLs install one copy of each
+package. `npm ls` still marks `lexical` (and any other package installed
+that way that Lexical packages depend on) `invalid` then, and exits with 1:
+the packages depend on each other through the 7-character commit URL
+(`…/lexical@4282a68`), not the one you installed. Install with the
+7-character commit URLs to keep that check clean. pnpm and yarn key URL
+dependencies by URL instead: install with the long commit URLs that the
+packages use for each other, or you get more than one copy of `lexical`. pnpm
+11+ also refuses URL dependencies of URL dependencies unless
+`blockExoticSubdeps` is off. Each run's job summary lists these commands:
+
+```sh
+pnpm add --config.block-exotic-subdeps=false \
+  lexical@https://pkg.pr.new/meta/lexical/lexical@4282a68 \
+  @lexical/react@https://pkg.pr.new/meta/lexical/@lexical/react@4282a68
+yarn add \
+  lexical@https://pkg.pr.new/meta/lexical/lexical@4282a68 \
+  @lexical/react@https://pkg.pr.new/meta/lexical/@lexical/react@4282a68
+```
+
+On a cold cache, yarn 1 can fail with "the file appears to be corrupt" while
+it downloads the same URL for several packages at once. Run it again.
+
+The workflow requires the [pkg.pr.new GitHub App](https://github.com/apps/pkg-pr-new)
+to be installed on the repository.
+
 ## Release Procedure
 
 This is the current release procedure for public releases, at least as of
@@ -551,14 +639,40 @@ from main in step 4).
 2. Raise a PR against version branch created by that action
 3. After PR is approved with passing tests, merge PR
 4. After PR is merged to main, publish to NPM with the Github Actions "Publish to NPM" workflow (`pre-release.yml`)
-5. Create a GitHub release from the tag created in step 1, manually editing the release notes
+5. Create a GitHub release from the tag created in step 1, manually editing the release notes. `pnpm run release-notes -- --version <version>` prints the new CHANGELOG.md section, which can be a starting point under the hand-written notes
 6. Announce the release in #announcements on Discord
 
 ## Release Protocol
 
 1. All PRs with breaking changes must have `[Breaking Change]` in the PR's title with documentation of what followup actions consumers of the lexical library need to be aware of.
-2. Monthly releases happen on the last week of the month, with a minor increment (eg. v0.20+1.0).
-3. Anything in between will be a patch increment (eg. 0.20.0+1), unless there is a breaking change. 
+2. Every user-facing PR also adds a changeset (see "Changesets" in CONTRIBUTING.md); for a breaking change it is a `[breaking]` changeset whose `Migration:` paragraph is that documentation. A maintainer can write the changeset for an external contributor (with a `PR: #123` line when it lands in a later PR) or add the `skip-changeset` label when the change has no effect on users. The changesets become the CHANGELOG.md entry at the next release.
+3. Monthly releases happen on the last week of the month, with a minor increment (eg. v0.20+1.0).
+4. Anything in between will be a patch increment (eg. 0.20.0+1), unless there is a breaking change. A patch release is refused while a `[breaking]` changeset is pending; if an urgent fix has to ship then, release a minor instead (on 0.x that is the same kind of release a monthly one is), rather than holding back or splitting the breaking change.
+
+### Changesets
+
+The Changesets workflow (`.github/workflows/changesets.yml`) reports a pull
+request that changes a published package's code without a changeset. It runs
+the checker from the pull request's base revision, so a pull request cannot
+loosen the rules it is checked by. Its `CHANGESET_COVERAGE` setting decides
+what happens:
+
+- `warn` (the current setting): the missing changeset is written to the job
+  summary and as an annotation naming the file to add, with a link that opens
+  it prefilled on the pull request's branch; the check passes.
+- `error`: the check fails until a changeset is added or a maintainer adds
+  the `skip-changeset` label.
+
+It stays at `warn` until the `skip-changeset` label exists: contributors
+cannot skip the check themselves, so failing before then would block a
+drive-by contribution on a step only a maintainer can take. Once the label
+exists, flip it to `error`. Do not make the check required in branch
+protection until it has run cleanly for about a month. Malformed changeset
+files always fail `pnpm run ci-check`, whatever the setting.
+
+When reviewing, add a `Verify:` paragraph to a fix's changeset if the fix
+changes observable output or behavior, so it is listed under "Behavior
+changes".
 
 ## Website Team Page
 

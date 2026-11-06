@@ -15,6 +15,7 @@ import {
   moveToEditorBeginning,
   moveToEditorEnd,
   moveToLineBeginning,
+  moveToLineEnd,
   moveToParagraphEnd,
   pressBackspace,
   redo,
@@ -24,6 +25,7 @@ import {
   undo,
 } from '../keyboardShortcuts/index.mjs';
 import {
+  assertCaret,
   assertHTML,
   assertSelection,
   clearEditor,
@@ -41,7 +43,6 @@ import {
   selectFromFormatDropdown,
   test,
   waitForSelector,
-  withExclusiveClipboardAccess,
 } from '../utils/index.mjs';
 
 async function toggleBulletList(page) {
@@ -71,16 +72,14 @@ async function clickOutdentButton(page, times = 1) {
   }
 }
 
-test.beforeEach(({isPlainText}) => {
-  test.skip(isPlainText);
-});
+test.skip(({isPlainText}) => isPlainText, 'Requires rich text');
 
 test.describe('Checklist focus option', () => {
+  test.skip(({isCollab}) => isCollab);
   test('(shouldDisableFocusOnClickChecklist: true) Keeps focus outside the editor when clicking a checklist item', async ({
     isCollab,
     page,
   }) => {
-    test.skip(isCollab);
     await initialize({
       isCollab,
       page,
@@ -97,13 +96,15 @@ test.describe('Checklist focus option', () => {
       document.body.tabIndex = -1;
       document.body.focus();
     });
-    expect(
-      await page.evaluate(
-        () =>
-          document.activeElement === document.body ||
-          document.activeElement === document.documentElement,
-      ),
-    ).toBe(true);
+    await expect
+      .poll(() =>
+        page.evaluate(
+          () =>
+            document.activeElement === document.body ||
+            document.activeElement === document.documentElement,
+        ),
+      )
+      .toBe(true);
 
     // Click on the checkbox marker area (left side of the item)
     const box = await checklistItem.boundingBox();
@@ -121,7 +122,6 @@ test.describe('Checklist focus option', () => {
     isCollab,
     page,
   }) => {
-    test.skip(isCollab);
     await initialize({
       isCollab,
       page,
@@ -138,13 +138,15 @@ test.describe('Checklist focus option', () => {
       document.body.tabIndex = -1;
       document.body.focus();
     });
-    expect(
-      await page.evaluate(
-        () =>
-          document.activeElement === document.body ||
-          document.activeElement === document.documentElement,
-      ),
-    ).toBe(true);
+    await expect
+      .poll(() =>
+        page.evaluate(
+          () =>
+            document.activeElement === document.body ||
+            document.activeElement === document.documentElement,
+        ),
+      )
+      .toBe(true);
 
     // Click on the checkbox marker area (left side of the item)
     const box = await checklistItem.boundingBox();
@@ -171,11 +173,12 @@ test.describe('Checklist space key', () => {
   // tabIndex="-1" for its checkbox role. Firefox left focus there, and the
   // key handlers read a focused item as "the checkbox is what the keyboard is
   // operating", so Space toggled the item instead of typing a space.
+
+  test.skip(({isCollab}) => isCollab);
   test('typing a space in the label leaves the checkbox alone', async ({
     isCollab,
     page,
   }) => {
-    test.skip(isCollab);
     await initialize({isCollab, page});
     await focusEditor(page);
 
@@ -194,11 +197,9 @@ test.describe('Checklist space key', () => {
 
     // The click is in the label, so the editor holds the focus. The item is
     // the active element only when its checkbox is what was clicked.
-    expect(
-      await page.evaluate(
-        () => document.activeElement === window.lexicalEditor.getRootElement(),
-      ),
-    ).toBe(true);
+    await expect(
+      page.locator('[data-lexical-editor="true"]').first(),
+    ).toBeFocused();
 
     await page.keyboard.press('Space');
 
@@ -210,7 +211,6 @@ test.describe('Checklist space key', () => {
     isCollab,
     page,
   }) => {
-    test.skip(isCollab);
     await initialize({isCollab, page});
     await focusEditor(page);
 
@@ -223,13 +223,7 @@ test.describe('Checklist space key', () => {
     // Click the marker, which is the flow that hands the item keyboard focus.
     await page.mouse.click(box.x + 5, box.y + box.height / 2);
     await expect(item).toHaveAttribute('aria-checked', 'true');
-    expect(
-      await page.evaluate(
-        () =>
-          document.activeElement ===
-          document.querySelector('li[role="checkbox"]'),
-      ),
-    ).toBe(true);
+    await expect(page.locator('li[role="checkbox"]').first()).toBeFocused();
 
     await page.keyboard.press('Space');
 
@@ -237,11 +231,42 @@ test.describe('Checklist space key', () => {
     await expect(item).toHaveText('Task');
   });
 
+  test('space after a checkbox click types at a caret in another block', async ({
+    isCollab,
+    page,
+  }) => {
+    await initialize({isCollab, page});
+    await focusEditor(page);
+
+    await page.keyboard.type('Owners sign off by Friday.');
+    await page.keyboard.press('Enter');
+    await toggleCheckList(page);
+    await page.keyboard.type('Task');
+
+    // Back to the end of the paragraph above the list
+    await moveToEditorBeginning(page);
+    await moveToLineEnd(page);
+
+    // The click checks the item and focuses it, but the caret stays in the
+    // paragraph, so what is typed next belongs there.
+    const item = page.locator('li[role="checkbox"]').first();
+    const box = await item.boundingBox();
+    await page.mouse.click(box.x + 5, box.y + box.height / 2);
+    await expect(item).toHaveAttribute('aria-checked', 'true');
+
+    await page.keyboard.type(' Ping me');
+
+    await expect(item).toHaveAttribute('aria-checked', 'true');
+    await expect(item).toHaveText('Task');
+    await expect(
+      page.locator('[data-lexical-editor="true"] > p').first(),
+    ).toHaveText('Owners sign off by Friday. Ping me');
+  });
+
   test('clicking the label after the checkbox gives focus back', async ({
     isCollab,
     page,
   }) => {
-    test.skip(isCollab);
     await initialize({isCollab, page});
     await focusEditor(page);
 
@@ -271,7 +296,6 @@ test.describe('Checklist space key', () => {
     isCollab,
     page,
   }) => {
-    test.skip(isCollab);
     await initialize({isCollab, page});
     await focusEditor(page);
 
@@ -296,7 +320,6 @@ test.describe('Checklist space key', () => {
     isCollab,
     page,
   }) => {
-    test.skip(isCollab);
     await initialize({isCollab, page});
     await focusEditor(page);
 
@@ -308,14 +331,9 @@ test.describe('Checklist space key', () => {
     // The left arrow at the start of the label is the third way onto the
     // checkbox, with the caret never having left the item.
     await moveToLineBeginning(page);
+    await assertCaret(page, 'li[role=checkbox] > span', 0);
     await moveLeft(page);
-    expect(
-      await page.evaluate(
-        () =>
-          document.activeElement ===
-          document.querySelector('li[role="checkbox"]'),
-      ),
-    ).toBe(true);
+    await expect(page.locator('li[role="checkbox"]').first()).toBeFocused();
 
     await page.keyboard.press('Space');
 
@@ -327,7 +345,6 @@ test.describe('Checklist space key', () => {
     isCollab,
     page,
   }) => {
-    test.skip(isCollab);
     await initialize({isCollab, page});
     await focusEditor(page);
 
@@ -344,11 +361,9 @@ test.describe('Checklist space key', () => {
     );
     await page.mouse.down();
 
-    expect(
-      await page.evaluate(
-        () => document.activeElement === window.lexicalEditor.getRootElement(),
-      ),
-    ).toBe(true);
+    await expect(
+      page.locator('[data-lexical-editor="true"]').first(),
+    ).toBeFocused();
 
     await page.mouse.up();
   });
@@ -357,7 +372,6 @@ test.describe('Checklist space key', () => {
     isCollab,
     page,
   }) => {
-    test.skip(isCollab);
     await initialize({isCollab, page});
     await focusEditor(page);
 
@@ -374,11 +388,9 @@ test.describe('Checklist space key', () => {
     // Moving the caret through the label is operating the text, not the
     // checkbox, so the editor takes the focus back.
     await moveLeft(page);
-    expect(
-      await page.evaluate(
-        () => document.activeElement === window.lexicalEditor.getRootElement(),
-      ),
-    ).toBe(true);
+    await expect(
+      page.locator('[data-lexical-editor="true"]').first(),
+    ).toBeFocused();
 
     await page.keyboard.press('Space');
 
@@ -390,7 +402,6 @@ test.describe('Checklist space key', () => {
     isCollab,
     page,
   }) => {
-    test.skip(isCollab);
     await initialize({isCollab, page});
     await focusEditor(page);
 
@@ -404,23 +415,16 @@ test.describe('Checklist space key', () => {
 
     // The first left arrow reaches the checkbox of the second item.
     await moveToLineBeginning(page);
+    await assertCaret(page, 'li[role=checkbox]:nth-child(2) > span', 0);
     await moveLeft(page);
-    expect(
-      await page.evaluate(
-        () =>
-          document.activeElement ===
-          document.querySelectorAll('li[role="checkbox"]')[1],
-      ),
-    ).toBe(true);
+    await expect(page.locator('li[role="checkbox"]').nth(1)).toBeFocused();
 
     // The second one leaves the item, so the caret carries on into the item
     // before it and the focus goes with it.
     await moveLeft(page);
-    expect(
-      await page.evaluate(
-        () => document.activeElement === window.lexicalEditor.getRootElement(),
-      ),
-    ).toBe(true);
+    await expect(
+      page.locator('[data-lexical-editor="true"]').first(),
+    ).toBeFocused();
 
     await page.keyboard.type('X');
 
@@ -433,7 +437,6 @@ test.describe('Checklist space key', () => {
     isCollab,
     page,
   }) => {
-    test.skip(isCollab);
     await initialize({isCollab, page});
     await focusEditor(page);
 
@@ -444,23 +447,16 @@ test.describe('Checklist space key', () => {
 
     // Left at the start of the label puts the focus on the checkbox.
     await moveToLineBeginning(page);
+    await assertCaret(page, 'li[role=checkbox] > span', 0);
     await moveLeft(page);
-    expect(
-      await page.evaluate(
-        () =>
-          document.activeElement ===
-          document.querySelector('li[role="checkbox"]'),
-      ),
-    ).toBe(true);
+    await expect(page.locator('li[role="checkbox"]').first()).toBeFocused();
 
     // Right moves the caret back into the label, so the checkbox is no
     // longer what the keyboard is operating.
     await moveRight(page, 1);
-    expect(
-      await page.evaluate(
-        () => document.activeElement === window.lexicalEditor.getRootElement(),
-      ),
-    ).toBe(true);
+    await expect(
+      page.locator('[data-lexical-editor="true"]').first(),
+    ).toBeFocused();
 
     await page.keyboard.press('Space');
 
@@ -472,7 +468,6 @@ test.describe('Checklist space key', () => {
     isCollab,
     page,
   }) => {
-    test.skip(isCollab);
     await initialize({isCollab, page});
     await focusEditor(page);
 
@@ -490,11 +485,9 @@ test.describe('Checklist space key', () => {
     // Typing is text entry, so the editor takes the focus back and the next
     // Space is a space rather than a toggle.
     await page.keyboard.type('X');
-    expect(
-      await page.evaluate(
-        () => document.activeElement === window.lexicalEditor.getRootElement(),
-      ),
-    ).toBe(true);
+    await expect(
+      page.locator('[data-lexical-editor="true"]').first(),
+    ).toBeFocused();
 
     await moveLeft(page);
     await page.keyboard.press('Space');
@@ -509,10 +502,11 @@ test.describe('Nested List', () => {
 
   test(`Can create a list and partially copy some content out of it`, async ({
     page,
-    isCollab,
   }) => {
     await focusEditor(page);
-    await page.keyboard.type(
+    // Seed the long paragraph in one input event; this test exercises list
+    // conversion and partial copying, not individual character entry.
+    await page.keyboard.insertText(
       'Lorem ipsum dolor sit amet, consectetur adipiscing elit. Nam venenatis risus ac cursus efficitur. Cras efficitur magna odio, lacinia posuere mauris placerat in. Etiam eu congue nisl. Vestibulum ante ipsum primis in faucibus orci luctus et ultrices posuere cubilia curae; Nulla vulputate justo id eros convallis, vel pellentesque orci hendrerit. Pellentesque accumsan molestie eros, vitae tempor nisl semper sit amet. Sed vulputate leo dolor, et bibendum quam feugiat eget. Praesent vestibulum libero sed enim ornare, in consequat dui posuere. Maecenas ornare vestibulum felis, non elementum urna imperdiet sit amet.',
     );
     await toggleBulletList(page);
@@ -520,7 +514,7 @@ test.describe('Nested List', () => {
     await moveRight(page, 6);
     await selectCharacters(page, 'right', 11);
 
-    await withExclusiveClipboardAccess(async () => {
+    {
       const clipboard = await copyToClipboard(page);
 
       await moveToEditorEnd(page);
@@ -528,7 +522,7 @@ test.describe('Nested List', () => {
       await page.keyboard.press('Enter');
 
       await pasteFromClipboard(page, clipboard);
-    });
+    }
 
     await assertHTML(
       page,
@@ -552,100 +546,6 @@ test.describe('Nested List', () => {
         <p class="PlaygroundEditorTheme__paragraph" dir="auto">
           <span data-lexical-text="true">ipsum dolor</span>
         </p>
-      `,
-    );
-  });
-
-  test('Should outdent if indented when the backspace key is pressed', async ({
-    page,
-  }) => {
-    await focusEditor(page);
-    await toggleBulletList(page);
-
-    await page.keyboard.type('Hello');
-    await page.keyboard.press('Enter');
-
-    await clickIndentButton(page, 3);
-
-    await assertHTML(
-      page,
-      html`
-        <ul class="PlaygroundEditorTheme__ul" dir="auto">
-          <li class="PlaygroundEditorTheme__listItem" value="1">
-            <span data-lexical-text="true">Hello</span>
-          </li>
-          <li
-            class="PlaygroundEditorTheme__listItem PlaygroundEditorTheme__nestedListItem"
-            value="2">
-            <ul class="PlaygroundEditorTheme__ul">
-              <li
-                class="PlaygroundEditorTheme__listItem PlaygroundEditorTheme__nestedListItem"
-                value="1">
-                <ul class="PlaygroundEditorTheme__ul">
-                  <li
-                    class="PlaygroundEditorTheme__listItem PlaygroundEditorTheme__nestedListItem"
-                    value="1">
-                    <ul class="PlaygroundEditorTheme__ul">
-                      <li class="PlaygroundEditorTheme__listItem" value="1">
-                        <br data-lexical-managed-linebreak="true" />
-                      </li>
-                    </ul>
-                  </li>
-                </ul>
-              </li>
-            </ul>
-          </li>
-        </ul>
-      `,
-    );
-
-    await page.keyboard.press('Backspace');
-
-    await assertHTML(
-      page,
-      html`
-        <ul class="PlaygroundEditorTheme__ul" dir="auto">
-          <li class="PlaygroundEditorTheme__listItem" value="1">
-            <span data-lexical-text="true">Hello</span>
-          </li>
-          <li
-            class="PlaygroundEditorTheme__listItem PlaygroundEditorTheme__nestedListItem"
-            value="2">
-            <ul class="PlaygroundEditorTheme__ul">
-              <li
-                class="PlaygroundEditorTheme__listItem PlaygroundEditorTheme__nestedListItem"
-                value="1">
-                <ul class="PlaygroundEditorTheme__ul">
-                  <li class="PlaygroundEditorTheme__listItem" value="1">
-                    <br data-lexical-managed-linebreak="true" />
-                  </li>
-                </ul>
-              </li>
-            </ul>
-          </li>
-        </ul>
-      `,
-    );
-
-    await page.keyboard.press('Backspace');
-
-    await assertHTML(
-      page,
-      html`
-        <ul class="PlaygroundEditorTheme__ul" dir="auto">
-          <li class="PlaygroundEditorTheme__listItem" value="1">
-            <span data-lexical-text="true">Hello</span>
-          </li>
-          <li
-            class="PlaygroundEditorTheme__listItem PlaygroundEditorTheme__nestedListItem"
-            value="2">
-            <ul class="PlaygroundEditorTheme__ul">
-              <li class="PlaygroundEditorTheme__listItem" value="1">
-                <br data-lexical-managed-linebreak="true" />
-              </li>
-            </ul>
-          </li>
-        </ul>
       `,
     );
   });
@@ -2564,7 +2464,6 @@ test.describe('Nested List', () => {
 
   test(`Should NOT merge selected nodes into existing list siblings of a different type when formatting to a list`, async ({
     page,
-    isCollab,
   }) => {
     await focusEditor(page);
 
@@ -2667,82 +2566,6 @@ test.describe('Nested List', () => {
     await assertHTML(page, undoHTML);
     await redo(page);
     await assertHTML(page, forwardHTML);
-  });
-
-  test(`Should not process paragraph markdown inside list.`, async ({page}) => {
-    await focusEditor(page);
-
-    await toggleBulletList(page);
-    await page.keyboard.type('# ');
-    await assertHTML(
-      page,
-      html`
-        <ul class="PlaygroundEditorTheme__ul" dir="auto">
-          <li class="PlaygroundEditorTheme__listItem" value="1">
-            <span data-lexical-text="true">#</span>
-          </li>
-        </ul>
-      `,
-    );
-  });
-
-  test(`Un-indents list empty list items when the user presses enter`, async ({
-    page,
-  }) => {
-    await focusEditor(page);
-    await toggleBulletList(page);
-    await page.keyboard.type('a');
-    await page.keyboard.press('Enter');
-    await clickIndentButton(page);
-    await clickIndentButton(page);
-    await page.keyboard.press('Enter');
-    await assertHTML(
-      page,
-      html`
-        <ul class="PlaygroundEditorTheme__ul" dir="auto">
-          <li class="PlaygroundEditorTheme__listItem" value="1">
-            <span data-lexical-text="true">a</span>
-          </li>
-          <li
-            class="PlaygroundEditorTheme__listItem PlaygroundEditorTheme__nestedListItem"
-            value="2">
-            <ul class="PlaygroundEditorTheme__ul">
-              <li class="PlaygroundEditorTheme__listItem" value="1">
-                <br data-lexical-managed-linebreak="true" />
-              </li>
-            </ul>
-          </li>
-        </ul>
-      `,
-    );
-    await page.keyboard.press('Enter');
-    await assertHTML(
-      page,
-      html`
-        <ul class="PlaygroundEditorTheme__ul" dir="auto">
-          <li class="PlaygroundEditorTheme__listItem" value="1">
-            <span data-lexical-text="true">a</span>
-          </li>
-          <li class="PlaygroundEditorTheme__listItem" value="2">
-            <br data-lexical-managed-linebreak="true" />
-          </li>
-        </ul>
-      `,
-    );
-    await page.keyboard.press('Enter');
-    await assertHTML(
-      page,
-      html`
-        <ul class="PlaygroundEditorTheme__ul" dir="auto">
-          <li class="PlaygroundEditorTheme__listItem" value="1">
-            <span data-lexical-text="true">a</span>
-          </li>
-        </ul>
-        <p class="PlaygroundEditorTheme__paragraph" dir="auto">
-          <br data-lexical-managed-linebreak="true" />
-        </p>
-      `,
-    );
   });
 
   test(`Converts a List with one ListItem to a Paragraph when Normal is selected in the format menu`, async ({

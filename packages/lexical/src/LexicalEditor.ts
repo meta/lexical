@@ -39,6 +39,7 @@ import {
   addRootElementEvents,
   registerDefaultCommandHandlers,
   removeRootElementEvents,
+  restoreInputModeIOS,
 } from './LexicalEvents';
 import {GenMap} from './LexicalGenMap';
 import {flushRootMutations, initMutationObserver} from './LexicalMutations';
@@ -53,10 +54,12 @@ import {
 } from './LexicalNode';
 import {createSharedNodeState, type SharedNodeState} from './LexicalNodeState';
 import {$isCompactExport} from './LexicalSerializedExport';
+import {validateNodeStructure} from './LexicalStructure';
 import {
   $commitPendingUpdates,
   $fullReconcile,
   internalGetActiveEditor,
+  isDispatchingCommitListeners,
   parseEditorState,
   triggerListeners,
   updateEditor,
@@ -162,7 +165,10 @@ export type EditorSetOptions = {
  *
  * - `'force-commit'` (the default) flushes any pending updates immediately
  *   before the read, so it always observes a fully committed and reconciled
- *   state.
+ *   state. The exception is a read while the editor is notifying listeners of
+ *   a commit: pending updates then commit after those listeners have run, so
+ *   that every listener observes commits in order, and the read observes the
+ *   state being committed.
  * - `'pending'` reads the pending state if it exists, otherwise the committed
  *   state, without flushing. This is safe to call when an update may already
  *   be in progress at the cost of possibly observing an uncommitted state
@@ -269,8 +275,13 @@ export interface CollapsedSelectionFormat {
 
 /** @internal */
 export interface InputState {
-  compositionPhase: 'idle' | 'composing' | 'ending-firefox' | 'ending-safari';
-  compositionEndData: string;
+  compositionPhase: 'idle' | 'composing' | 'ending-firefox';
+  /**
+   * The segmented node that insertText switched to normal mode to compose
+   * into, which becomes a plain TextNode when the composition ends. No other
+   * TextNode subclass composed into is replaced.
+   */
+  composedSegmentedKey: NodeKey | null;
   hadOrphanedCompositionEvents: boolean;
 
   lastKeyDownTimeStamp: number;
@@ -296,7 +307,25 @@ export interface InputState {
     focusOffset: number;
   };
   isSelectionChangeFromMouseDown: boolean;
+  /** A mouse press that may start a selection drag, then its latest move. */
+  mouseDrag: MouseEvent | null;
+  /**
+   * The pointerType of the latest pointerdown in the root element ('touch',
+   * 'pen' or 'mouse'; '' until the first), on every platform. The
+   * compatibility mousedown and click that follow a tap on iOS tell it from an
+   * iPadOS trackpad or mouse press by it, and a mousedown starts a mouseDrag
+   * only after a 'mouse' one.
+   */
+  lastPointerType: '' | PointerEvent['pointerType'];
+  /**
+   * iOS only. The root element's own `inputmode` attribute (null when it had
+   * none), saved while Lexical holds it at "none" after a tap on a decorator
+   * focused the editor; undefined otherwise.
+   */
+  savedInputMode: string | null | undefined;
   isInsertLineBreak: boolean;
+  /** Explicit Shift state, excluding iOS automatic capitalization. */
+  isShiftKeyDown: boolean;
 
   isInsertTextAfterHandledSelectionCommand: boolean;
   handledSelectionCommandTimeoutId: ReturnType<typeof setTimeout> | null;
@@ -312,7 +341,7 @@ export function createInputState(): InputState {
       style: '',
       timeStamp: 0,
     },
-    compositionEndData: '',
+    composedSegmentedKey: null,
     compositionPhase: 'idle',
     hadOrphanedCompositionEvents: false,
     handledSelectionCommandTimeoutId: null,
@@ -320,10 +349,14 @@ export function createInputState(): InputState {
     isInsertTextAfterHandledSelectionCommand: false,
     isSelectionChangeFromDOMUpdate: false,
     isSelectionChangeFromMouseDown: false,
+    isShiftKeyDown: false,
     lastBeforeInputInsertTextTimeStamp: 0,
     lastKeyCode: null,
     lastKeyDownTimeStamp: 0,
+    lastPointerType: '',
+    mouseDrag: null,
     postDeleteSelectionToRestore: null,
+    savedInputMode: undefined,
     selectionChangeFromDOMUpdatePoints: null,
     unprocessedBeforeInputData: null,
   };
@@ -480,6 +513,10 @@ export interface CreateEditorArgs {
    * route them to telemetry at warn severity without raising an error alarm.
    * Defaults to a handler that throws in development (so the condition is
    * impossible to miss) and only `console.warn`s in production.
+   *
+   * Packages that report a condition with a stable code pass a
+   * `LexicalWarning`: check `error instanceof LexicalWarning` to read its
+   * `code` and `data`.
    */
   onWarn?: ErrorHandler;
   parentEditor?: LexicalEditor;
@@ -823,6 +860,9 @@ export function resetEditor(
   if (editor._inputState.handledSelectionCommandTimeoutId !== null) {
     clearTimeout(editor._inputState.handledSelectionCommandTimeoutId);
   }
+  if (prevRootElement !== null) {
+    restoreInputModeIOS(editor, prevRootElement);
+  }
   editor._inputState = createInputState();
 
   const observer = editor._observer;
@@ -1055,6 +1095,9 @@ export function createEditor(editorConfig?: CreateEditorArgs): LexicalEditor {
           }
         }
       }
+      if (__DEV__) {
+        validateNodeStructure(klass);
+      }
       const type = klass.getType();
       const transforms = getTransformSetFromKlass(klass);
       registeredNodes.set(type, {
@@ -1135,6 +1178,18 @@ export class LexicalEditor {
 
   /** @internal */
   _headless: boolean;
+  /**
+   * @internal Enabled by the v1 Yjs binding to distinguish moved nodes from
+   * shifted siblings. Once enabled, persists for the lifetime of this editor.
+   */
+  _recordNodeMoves: boolean;
+  /**
+   * @internal Enabled by the Yjs 14 binding (`@lexical/y`) while it is bound:
+   * every update records its text splits and text edits (see
+   * EditorState#_splitNodes and EditorState#_textEdits). Off by default, so
+   * an editor without that binding records nothing.
+   */
+  _recordTextEdits: boolean;
   /** @internal */
   _parentEditor: null | LexicalEditor;
   /** @internal */
@@ -1145,6 +1200,12 @@ export class LexicalEditor {
   _pendingEditorState: null | EditorState;
   /** @internal */
   _compositionKey: null | NodeKey;
+  /**
+   * @internal The composition key for which an update tagged
+   * DEFER_COMPOSITION_MERGE_TAG held back a text merge; merges stay held back
+   * until the composition key changes.
+   */
+  _compositionMergeHeld: null | NodeKey;
   /** @internal */
   _deferred: (() => void)[];
   /** @internal */
@@ -1237,6 +1298,7 @@ export class LexicalEditor {
     this._pendingEditorState = null;
     // Used to help co-ordinate selection and events
     this._compositionKey = null;
+    this._compositionMergeHeld = null;
     this._deferred = [];
     // Used during reconciliation
     this._keyToDOMMap = new GenMap();
@@ -1278,6 +1340,8 @@ export class LexicalEditor {
     this._htmlConversions = htmlConversions;
     this._editable = editable;
     this._headless = parentEditor !== null && parentEditor._headless;
+    this._recordNodeMoves = false;
+    this._recordTextEdits = false;
     this._window = null;
     this._blockCursorElement = null;
     this._slotsUsed = false;
@@ -1612,6 +1676,12 @@ export class LexicalEditor {
    * will be triggered in an implicit {@link LexicalEditor.update}, unless
    * this was invoked from inside an update in which case that update context
    * will be re-used (as if this was a dollar function itself).
+   *
+   * Do not call this from inside a read-only context such as
+   * {@link LexicalEditor.read} or {@link EditorState.read}. Command listeners
+   * usually change the editor, so Lexical runs them in a separate writable
+   * update and development builds log a warning when they detect this.
+   * Dispatch after the read returns instead.
    * @param type - the type of command listeners to trigger.
    * @param payload - the data to pass as an argument to the command listeners.
    */
@@ -1883,7 +1953,19 @@ export class LexicalEditor {
     const [mode, callbackFn]: [EditorReadMode, () => T] =
       args.length === 1 ? ['force-commit', args[0]] : args;
     if (mode === 'force-commit') {
-      $commitPendingUpdates(this);
+      if (!isDispatchingCommitListeners(this)) {
+        $commitPendingUpdates(this);
+      } else if (__DEV__ && this._pendingEditorState !== null) {
+        console.warn(
+          `editor.read() was called while the editor was notifying listeners ` +
+            `of a commit, and a listener had started another update. That ` +
+            `update was not committed early, so that listeners observe ` +
+            `commits in order, and the read observed the state being ` +
+            `committed. Inside listeners, read with ` +
+            `editor.getEditorState().read(fn, {editor}) or ` +
+            `editor.read('latest', fn) instead.`,
+        );
+      }
     }
     // 'pending' observes an in-progress or queued update without flushing it;
     // 'force-commit' and 'latest' read the committed (reconciled) state.

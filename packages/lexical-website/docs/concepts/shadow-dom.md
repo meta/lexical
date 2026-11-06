@@ -115,7 +115,7 @@ resolved against the iframe rather than the top‑level document:
 const iframeDoc = iframe.contentDocument;
 const contentEditable = iframeDoc.querySelector('#editor');
 
-// createEditor / setRootElement can run in the parent frame; the editor uses
+// The editor can be built in the parent frame; once its root element is set it uses
 // the iframe's own window and document for selection and focus.
 editor.setRootElement(contentEditable);
 ```
@@ -232,7 +232,7 @@ contract only after that guard. The initial `setFormValue` is what keeps a
 form submission before the user types from carrying an empty value, since
 the update listener has not fired yet at that point. A full reference
 implementation lives in
-[`dev-examples/shadow-dom-web-component`](https://github.com/facebook/lexical/tree/main/dev-examples/shadow-dom-web-component).
+[`examples/shadow-dom-web-component`](https://github.com/meta/lexical/tree/main/examples/shadow-dom-web-component).
 
 DOM moves (re-parenting the host into a different `<form>` or list) trigger
 `disconnectedCallback` followed by `connectedCallback`, which rebuilds the
@@ -372,14 +372,14 @@ detached popup whose `getRootNode()` returns itself.
 
 Runnable examples live in the repository:
 
-- [`dev-examples/shadow-dom`](https://github.com/facebook/lexical/tree/main/dev-examples/shadow-dom)
+- [`examples/shadow-dom`](https://github.com/meta/lexical/tree/main/examples/shadow-dom)
   — a React editor inside a shadow root with a light‑DOM toolbar.
-- [`dev-examples/shadow-dom-web-component`](https://github.com/facebook/lexical/tree/main/dev-examples/shadow-dom-web-component)
+- [`examples/shadow-dom-web-component`](https://github.com/meta/lexical/tree/main/examples/shadow-dom-web-component)
   — a framework‑free `<lexical-editor>` custom element, form‑associated via
   `ElementInternals`. The page also mounts one instance inside a wrapper
   `<div>` that opens its own shadow root, exercising the multi‑level
   walk through two nested shadow boundaries.
-- [`examples/vanilla-js-iframe`](https://github.com/facebook/lexical/tree/main/examples/vanilla-js-iframe)
+- [`examples/vanilla-js-iframe`](https://github.com/meta/lexical/tree/main/examples/vanilla-js-iframe)
   — an editor rendered into an `<iframe>`.
 - The playground's **Render in Shadow DOM** setting toggles the same editor
   between light and shadow mounts, useful for spot-checking your plugins

@@ -6,6 +6,8 @@
  *
  */
 
+// @vitest-environment node
+
 /**
  * Regression tests for binding reconciliation crashes on concurrent collaborative
  * editing, found by fuzzing. Each sequence below drives `syncYjsChangesToLexical`

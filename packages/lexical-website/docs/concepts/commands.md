@@ -4,13 +4,13 @@
 
 Commands are a very powerful feature of Lexical that lets you register listeners for events like `KEY_ENTER_COMMAND` or `KEY_TAB_COMMAND` and contextually react to them _wherever_ & _however_ you'd like.
 
-This pattern is useful for building [`Toolbars`](https://github.com/facebook/lexical/blob/main/packages/lexical-playground/src/plugins/ToolbarPlugin/index.tsx) or complex `Plugins` and `Nodes` such as the [`TablePlugin`](https://github.com/facebook/lexical/tree/main/packages/lexical-table) which require special handling for `selection`, `keyboard events`, and more.
+This pattern is useful for building [`Toolbars`](https://github.com/meta/lexical/blob/main/packages/lexical-playground/src/plugins/ToolbarPlugin/index.tsx) or complex extensions and nodes such as [tables](https://github.com/meta/lexical/tree/main/packages/lexical-table) which require special handling for `selection`, `keyboard events`, and more.
 
-When registering a `command` you supply a `priority` and can return `true` to mark it as "handled", which stops other listeners from receiving the event. If a command isn't handled explicitly by you, it's likely handled by default in the [`RichTextPlugin`](https://github.com/facebook/lexical/blob/main/packages/lexical-rich-text/src/index.ts) or the [`PlainTextPlugin`](https://github.com/facebook/lexical/blob/main/packages/lexical-plain-text/src/index.ts).
+When registering a `command` you supply a `priority` and can return `true` to mark it as "handled", which stops other listeners from receiving the event. If a command isn't handled explicitly by you, it's likely handled by default in [`RichTextExtension`](https://github.com/meta/lexical/blob/main/packages/lexical-rich-text/src/index.ts) or [`PlainTextExtension`](https://github.com/meta/lexical/blob/main/packages/lexical-plain-text/src/index.ts).
 
 ## `createCommand(...)`
 
-You can view all of the existing commands in [`LexicalCommands.ts`](https://github.com/facebook/lexical/blob/main/packages/lexical/src/LexicalCommands.ts), but if you need a custom command for your own use case check out the typed `createCommand(...)` function.
+You can view the core commands in the [`lexical` API reference](/docs/api/modules/lexical#commands). Other packages define their own, listed under Commands in each package's API reference, such as [`TOGGLE_LINK_COMMAND`](/docs/api/modules/lexical_link#toggle_link_command) in `@lexical/link`. If you need a custom command for your own use case, check out the typed `createCommand(...)` function.
 
 ```js
 const HELLO_WORLD_COMMAND: LexicalCommand<string> = createCommand('HELLO_WORLD');
@@ -29,9 +29,15 @@ editor.dispatchCommand(HELLO_WORLD_COMMAND, 'Hello World!');
 
 ## `editor.dispatchCommand(...)`
 
-Commands can be dispatched from anywhere you have access to the `editor` such as a Toolbar Button, an event listener, or a Plugin, but most of the core commands are dispatched from [`LexicalEvents.ts`](https://github.com/facebook/lexical/blob/main/packages/lexical/src/LexicalEvents.ts).
+Commands can be dispatched from anywhere you have access to the `editor` such as a Toolbar Button, an event listener, or an extension, but most of the core commands are dispatched from [`LexicalEvents.ts`](https://github.com/meta/lexical/blob/main/packages/lexical/src/LexicalEvents.ts).
 
 Calling `dispatchCommand` will implicitly call `editor.update` to trigger its command listeners if it was not called from inside `editor.update`.
+
+Don't dispatch a command from inside a read-only context such as
+`editor.read(fn)` or `editorState.read(fn)`. Command listeners usually change
+the editor, so Lexical runs them in a separate writable update and
+development builds log a warning when they detect this. Dispatch after the
+read returns instead.
 
 ```js
 editor.dispatchCommand(command, payload);
@@ -39,7 +45,7 @@ editor.dispatchCommand(command, payload);
 
 The `payload`s are typed via the `createCommand(...)` API, but they're usually a DOM `event` for commands dispatched from an event listener.
 
-Here are some real examples from [`LexicalEvents.ts`](https://github.com/facebook/lexical/blob/main/packages/lexical/src/LexicalEvents.ts).
+Here are some real examples from [`LexicalEvents.ts`](https://github.com/meta/lexical/blob/main/packages/lexical/src/LexicalEvents.ts).
 
 ```js
 editor.dispatchCommand(KEY_ARROW_LEFT_COMMAND, event);
@@ -47,7 +53,7 @@ editor.dispatchCommand(KEY_ARROW_LEFT_COMMAND, event);
 editor.dispatchCommand(FORMAT_TEXT_COMMAND, 'italic');
 ```
 
-And another example from the [`ToolbarPlugin`](https://github.com/facebook/lexical/blob/main/packages/lexical-playground/src/plugins/ToolbarPlugin/index.tsx) in our Playground.
+And another example from the [`ToolbarPlugin`](https://github.com/meta/lexical/blob/main/packages/lexical-playground/src/plugins/ToolbarPlugin/index.tsx) in our Playground.
 
 ```js
 const formatBulletList = () => {
@@ -55,7 +61,7 @@ const formatBulletList = () => {
 };
 ```
 
-Which is later handled in [`registerList`](https://github.com/facebook/lexical/blob/main/packages/lexical-list/src/index.ts) to insert the list into the editor.
+Which is later handled by [`ListExtension`](https://github.com/meta/lexical/blob/main/packages/lexical-list/src/LexicalListExtension.ts) to insert the list into the editor.
 
 ```js
 editor.registerCommand(
@@ -86,25 +92,46 @@ const removeListener = editor.registerCommand(
 removeListener(); // Cleans up the listener.
 ```
 
-A common pattern for easy clean-up is returning a `registerCommand` call within a React `useEffect`.
+The easiest way to get clean-up right is to register commands from an
+[extension](/docs/extensions/defining-extensions)'s `register` function and
+return the remove callback. The editor calls it when it is disposed. To
+register several things, combine their callbacks with `mergeRegister` from
+`@lexical/utils`.
 
-```jsx
-useEffect(() => {
-  return editor.registerCommand(
-    TOGGLE_LINK_COMMAND,
-    (payload) => {
-      const url: string | null = payload;
-      setLink(url);
-      return true;
-    },
-    COMMAND_PRIORITY_EDITOR,
-  );
-}, [editor]);
+```js
+import {LinkExtension, TOGGLE_LINK_COMMAND} from '@lexical/link';
+import {COMMAND_PRIORITY_BEFORE_EDITOR, defineExtension} from 'lexical';
+
+export const LinkLoggerExtension = defineExtension({
+  // The command it observes is handled by LinkExtension
+  dependencies: [LinkExtension],
+  name: '@my-app/LinkLogger',
+  register: (editor) =>
+    editor.registerCommand(
+      TOGGLE_LINK_COMMAND,
+      (payload) => {
+        console.log('link', payload);
+        return false; // let the link extension handle it too
+      },
+      // LinkExtension handles this command at COMMAND_PRIORITY_EDITOR and
+      // returns true, so observe it at the BEFORE variant of that priority.
+      COMMAND_PRIORITY_BEFORE_EDITOR,
+    ),
+});
 ```
+
+A listener that only observes a command, like this one, needs to run before
+the listener that handles it. Depending on the extension that handles it and
+using the `COMMAND_PRIORITY_BEFORE_*` variant of its priority does that
+without escalating to a higher priority. See
+[Priorities and ordering](#priorities-and-ordering) below.
+
+In a legacy React plugin, return the `registerCommand` call from a
+`useEffect` instead.
 
 And as seen above and below, `registerCommand`'s callback can return `true` to signal to the other listeners that the command has been handled and propagation will be stopped.
 
-Here's a simplified example of handling a `KEY_TAB_COMMAND` from the [`TabIndentationPlugin`](https://github.com/facebook/lexical/blob/main/packages/lexical-react/src/LexicalTabIndentationPlugin.tsx), which is used to dispatch a `OUTDENT_CONTENT_COMMAND` or `INDENT_CONTENT_COMMAND`.
+Here's a simplified example of handling a `KEY_TAB_COMMAND` from [`TabIndentationExtension`](https://github.com/meta/lexical/blob/main/packages/lexical-extension/src/TabIndentationExtension.ts), which is used to dispatch a `OUTDENT_CONTENT_COMMAND` or `INDENT_CONTENT_COMMAND`.
 
 ```js
 editor.registerCommand(
@@ -120,7 +147,7 @@ editor.registerCommand(
 );
 ```
 
-Note that the same `KEY_TAB_COMMAND` command is registered by [`LexicalTableSelectionHelpers.ts`](https://github.com/facebook/lexical/blob/main/packages/lexical-table/src/LexicalTableSelectionHelpers.ts), which handles moving focus to the next or previous cell within a `TableNode`, but the priority is high (`COMMAND_PRIORITY_HIGH`) because this behavior is very important.
+Note that the same `KEY_TAB_COMMAND` command is registered by [`LexicalTableSelectionHelpers.ts`](https://github.com/meta/lexical/blob/main/packages/lexical-table/src/LexicalTableSelectionHelpers.ts), which handles moving focus to the next or previous cell within a `TableNode`, but the priority is high (`COMMAND_PRIORITY_HIGH`) because this behavior is very important.
 
 ### Priorities and ordering
 
@@ -132,8 +159,8 @@ Command listeners are called in the following order until a listener returns `tr
 
 :::note
 
-As of v0.44.0 there are new `COMMAND_PRIORITY_BEFORE_*` priorities available
-which make it much easier to override default behavior without escalating the priority.
+The `COMMAND_PRIORITY_BEFORE_*` priorities make it much easier to override
+default behavior without escalating the priority.
 
 :::
 

@@ -6,6 +6,8 @@
  *
  */
 
+// @vitest-environment node
+
 /**
  * Regression test (found by fuzzing) for a collaborative desync where a local
  * edit is silently dropped from the shared Yjs document.

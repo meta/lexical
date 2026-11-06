@@ -18,79 +18,82 @@ import {
 } from '../utils/index.mjs';
 
 /* eslint-disable sort-keys-fix/sort-keys-fix */
+test.skip(({isPlainText}) => isPlainText, 'Requires rich text');
+
 test.describe('Tab', () => {
   test.beforeEach(({isCollab, page}) => initialize({isCollab, page}));
-  test(`can tab + IME`, async ({page, isPlainText, browserName}) => {
-    // CDP session is only available in Chromium
+  test.describe(() => {
     test.skip(
-      isPlainText || browserName === 'firefox' || browserName === 'webkit',
+      ({browserName}) => browserName === 'firefox' || browserName === 'webkit',
     );
+    test(`can tab + IME`, async ({page}) => {
+      // CDP session is only available in Chromium
 
-    const client = await page.context().newCDPSession(page);
-    async function imeType() {
-      // await page.keyboard.imeSetComposition('ｓ', 1, 1);
-      await client.send('Input.imeSetComposition', {
-        selectionStart: 1,
-        selectionEnd: 1,
-        text: 'ｓ',
-      });
-      // await page.keyboard.imeSetComposition('す', 1, 1);
-      await client.send('Input.imeSetComposition', {
-        selectionStart: 1,
-        selectionEnd: 1,
-        text: 'す',
-      });
-      // await page.keyboard.imeSetComposition('すｓ', 2, 2);
-      await client.send('Input.imeSetComposition', {
-        selectionStart: 2,
-        selectionEnd: 2,
-        text: 'すｓ',
-      });
-      // await page.keyboard.imeSetComposition('すｓｈ', 3, 3);
-      await client.send('Input.imeSetComposition', {
-        selectionStart: 3,
-        selectionEnd: 3,
-        text: 'すｓｈ',
-      });
-      // await page.keyboard.imeSetComposition('すし', 2, 2);
-      await client.send('Input.imeSetComposition', {
-        selectionStart: 2,
-        selectionEnd: 2,
-        text: 'すし',
-      });
-      // await page.keyboard.insertText('すし');
-      await client.send('Input.insertText', {
-        text: 'すし',
-      });
-      await page.keyboard.type(' ');
-    }
-    await focusEditor(page);
-    await enableCompositionKeyEvents(page);
-    // Indent
-    await page.keyboard.press('Tab');
-    await imeType();
-    await page.keyboard.press('Tab');
-    await imeType();
+      const client = await page.context().newCDPSession(page);
+      async function imeType() {
+        // await page.keyboard.imeSetComposition('ｓ', 1, 1);
+        await client.send('Input.imeSetComposition', {
+          selectionStart: 1,
+          selectionEnd: 1,
+          text: 'ｓ',
+        });
+        // await page.keyboard.imeSetComposition('す', 1, 1);
+        await client.send('Input.imeSetComposition', {
+          selectionStart: 1,
+          selectionEnd: 1,
+          text: 'す',
+        });
+        // await page.keyboard.imeSetComposition('すｓ', 2, 2);
+        await client.send('Input.imeSetComposition', {
+          selectionStart: 2,
+          selectionEnd: 2,
+          text: 'すｓ',
+        });
+        // await page.keyboard.imeSetComposition('すｓｈ', 3, 3);
+        await client.send('Input.imeSetComposition', {
+          selectionStart: 3,
+          selectionEnd: 3,
+          text: 'すｓｈ',
+        });
+        // await page.keyboard.imeSetComposition('すし', 2, 2);
+        await client.send('Input.imeSetComposition', {
+          selectionStart: 2,
+          selectionEnd: 2,
+          text: 'すし',
+        });
+        // await page.keyboard.insertText('すし');
+        await client.send('Input.insertText', {
+          text: 'すし',
+        });
+        await page.keyboard.type(' ');
+      }
+      await focusEditor(page);
+      await enableCompositionKeyEvents(page);
+      // Indent
+      await page.keyboard.press('Tab');
+      await imeType();
+      await page.keyboard.press('Tab');
+      await imeType();
 
-    await assertHTML(
-      page,
-      html`
-        <p
-          class="PlaygroundEditorTheme__paragraph PlaygroundEditorTheme__indent"
-          dir="auto"
-          style="padding-inline-start: calc(1 * var(--lexical-indent-base-value, 40px))">
-          <span data-lexical-text="true">すし</span>
-          <span
-            class="PlaygroundEditorTheme__tabNode"
-            data-lexical-text="true"></span>
-          <span data-lexical-text="true">すし</span>
-        </p>
-      `,
-    );
+      await assertHTML(
+        page,
+        html`
+          <p
+            class="PlaygroundEditorTheme__paragraph PlaygroundEditorTheme__indent"
+            dir="auto"
+            style="padding-inline-start: calc(1 * var(--lexical-indent-base-value, 40px))">
+            <span data-lexical-text="true">すし</span>
+            <span
+              class="PlaygroundEditorTheme__tabNode"
+              data-lexical-text="true"></span>
+            <span data-lexical-text="true">すし</span>
+          </p>
+        `,
+      );
+    });
   });
 
-  test('can tab inside code block #4399', async ({page, isPlainText}) => {
-    test.skip(isPlainText);
+  test('can tab inside code block #4399', async ({page}) => {
     await focusEditor(page);
 
     await page.keyboard.type('``` ');
@@ -113,11 +116,7 @@ test.describe('Tab', () => {
     );
   });
 
-  test('can go to start of line after a tab character', async ({
-    page,
-    isPlainText,
-  }) => {
-    test.skip(isPlainText);
+  test('can go to start of line after a tab character', async ({page}) => {
     await focusEditor(page);
 
     await page.keyboard.type('Foo');

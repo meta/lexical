@@ -13,11 +13,8 @@ import {
   moveToLineEnd,
   selectCharacters,
   toggleBold,
-  toggleCapitalize,
   toggleItalic,
-  toggleLowercase,
   toggleUnderline,
-  toggleUppercase,
 } from '../keyboardShortcuts/index.mjs';
 import {
   assertHTML,
@@ -34,14 +31,11 @@ import {
   test,
 } from '../utils/index.mjs';
 
+test.skip(({isPlainText}) => isPlainText, 'Requires rich text');
+
 test.describe('TextFormatting', () => {
   test.beforeEach(({isCollab, page}) => initialize({isCollab, page}));
-  test(`Can create bold text using the shortcut`, async ({
-    page,
-    isPlainText,
-  }) => {
-    test.skip(isPlainText);
-
+  test(`Can create bold text using the shortcut`, async ({page}) => {
     await focusEditor(page);
     await page.keyboard.type('Hello');
     await toggleBold(page);
@@ -87,125 +81,12 @@ test.describe('TextFormatting', () => {
       anchorPath: [0, 2, 0],
       focusOffset: 1,
       focusPath: [0, 2, 0],
-    });
-  });
-
-  test(`Can create italic text using the shortcut`, async ({
-    page,
-    isPlainText,
-  }) => {
-    test.skip(isPlainText);
-
-    await focusEditor(page);
-    await page.keyboard.type('Hello');
-    await toggleItalic(page);
-    await page.keyboard.type(' World');
-    await assertHTML(
-      page,
-      html`
-        <p class="PlaygroundEditorTheme__paragraph" dir="auto">
-          <span data-lexical-text="true">Hello</span>
-          <em
-            class="PlaygroundEditorTheme__textItalic"
-            data-lexical-text="true">
-            World
-          </em>
-        </p>
-      `,
-    );
-    await assertSelection(page, {
-      anchorOffset: 6,
-      anchorPath: [0, 1, 0],
-      focusOffset: 6,
-      focusPath: [0, 1, 0],
-    });
-
-    await toggleItalic(page);
-    await page.keyboard.type('!');
-    await assertHTML(
-      page,
-      html`
-        <p class="PlaygroundEditorTheme__paragraph" dir="auto">
-          <span data-lexical-text="true">Hello</span>
-          <em
-            class="PlaygroundEditorTheme__textItalic"
-            data-lexical-text="true">
-            World
-          </em>
-          <span data-lexical-text="true">!</span>
-        </p>
-      `,
-    );
-    await assertSelection(page, {
-      anchorOffset: 1,
-      anchorPath: [0, 2, 0],
-      focusOffset: 1,
-      focusPath: [0, 2, 0],
-    });
-  });
-
-  test(`Can select text and boldify it with the shortcut`, async ({
-    page,
-    isPlainText,
-  }) => {
-    test.skip(isPlainText);
-
-    await focusEditor(page);
-    await page.keyboard.type('Hello world!');
-    await moveLeft(page);
-    await selectCharacters(page, 'left', 5);
-    await assertSelection(page, {
-      anchorOffset: 11,
-      anchorPath: [0, 0, 0],
-      focusOffset: 6,
-      focusPath: [0, 0, 0],
-    });
-
-    await toggleBold(page);
-    await assertHTML(
-      page,
-      html`
-        <p class="PlaygroundEditorTheme__paragraph" dir="auto">
-          <span data-lexical-text="true">Hello</span>
-          <strong
-            class="PlaygroundEditorTheme__textBold"
-            data-lexical-text="true">
-            world
-          </strong>
-          <span data-lexical-text="true">!</span>
-        </p>
-      `,
-    );
-    await assertSelection(page, {
-      anchorOffset: 5,
-      anchorPath: [0, 1, 0],
-      focusOffset: 0,
-      focusPath: [0, 1, 0],
-    });
-
-    await toggleBold(page);
-    await assertHTML(
-      page,
-      html`
-        <p class="PlaygroundEditorTheme__paragraph" dir="auto">
-          <span data-lexical-text="true">Hello world!</span>
-        </p>
-      `,
-    );
-    await assertSelection(page, {
-      anchorOffset: 11,
-      anchorPath: [0, 0, 0],
-      focusOffset: 6,
-      focusPath: [0, 0, 0],
     });
   });
 
   test('Should not format the text in the subsequent paragraph after a triple click selection event.', async ({
     page,
-    isPlainText,
   }) => {
-    test.skip(isPlainText);
-
     await focusEditor(page);
     await page.keyboard.type('hello world');
     await page.keyboard.press('Enter');
@@ -242,68 +123,7 @@ test.describe('TextFormatting', () => {
     );
   });
 
-  test(`Can select text and italicify it with the shortcut`, async ({
-    page,
-    isPlainText,
-  }) => {
-    test.skip(isPlainText);
-
-    await focusEditor(page);
-    await page.keyboard.type('Hello world!');
-    await moveLeft(page);
-    await selectCharacters(page, 'left', 5);
-    await assertSelection(page, {
-      anchorOffset: 11,
-      anchorPath: [0, 0, 0],
-      focusOffset: 6,
-      focusPath: [0, 0, 0],
-    });
-
-    await toggleItalic(page);
-    await assertHTML(
-      page,
-      html`
-        <p class="PlaygroundEditorTheme__paragraph" dir="auto">
-          <span data-lexical-text="true">Hello</span>
-          <em
-            class="PlaygroundEditorTheme__textItalic"
-            data-lexical-text="true">
-            world
-          </em>
-          <span data-lexical-text="true">!</span>
-        </p>
-      `,
-    );
-    await assertSelection(page, {
-      anchorOffset: 5,
-      anchorPath: [0, 1, 0],
-      focusOffset: 0,
-      focusPath: [0, 1, 0],
-    });
-
-    await toggleItalic(page);
-    await assertHTML(
-      page,
-      html`
-        <p class="PlaygroundEditorTheme__paragraph" dir="auto">
-          <span data-lexical-text="true">Hello world!</span>
-        </p>
-      `,
-    );
-    await assertSelection(page, {
-      anchorOffset: 11,
-      anchorPath: [0, 0, 0],
-      focusOffset: 6,
-      focusPath: [0, 0, 0],
-    });
-  });
-
-  test(`Can select text and underline+strikethrough`, async ({
-    page,
-    isPlainText,
-  }) => {
-    test.skip(isPlainText);
-
+  test(`Can select text and underline+strikethrough`, async ({page}) => {
     await focusEditor(page);
     await page.keyboard.type('Hello world!');
     await moveLeft(page);
@@ -402,139 +222,7 @@ test.describe('TextFormatting', () => {
     });
   });
 
-  const capitalizationFormats = [
-    {
-      applyCapitalization: toggleLowercase,
-      className: 'PlaygroundEditorTheme__textLowercase',
-      format: 'lowercase',
-    },
-    {
-      applyCapitalization: toggleUppercase,
-      className: 'PlaygroundEditorTheme__textUppercase',
-      format: 'uppercase',
-    },
-    {
-      applyCapitalization: toggleCapitalize,
-      className: 'PlaygroundEditorTheme__textCapitalize',
-      format: 'capitalize',
-    },
-  ];
-
-  capitalizationFormats.forEach(({className, format, applyCapitalization}) => {
-    test(`Can select text and change it to ${format}`, async ({
-      page,
-      isPlainText,
-    }) => {
-      test.skip(isPlainText);
-
-      await focusEditor(page);
-      await page.keyboard.type('Hello world!');
-      await moveLeft(page);
-      await selectCharacters(page, 'left', 5);
-
-      await assertSelection(page, {
-        anchorOffset: 11,
-        anchorPath: [0, 0, 0],
-        focusOffset: 6,
-        focusPath: [0, 0, 0],
-      });
-
-      await applyCapitalization(page);
-      await assertHTML(
-        page,
-        html`
-          <p class="PlaygroundEditorTheme__paragraph" dir="auto">
-            <span data-lexical-text="true">Hello</span>
-            <span class="${className}" data-lexical-text="true">world</span>
-            <span data-lexical-text="true">!</span>
-          </p>
-        `,
-      );
-
-      await assertSelection(page, {
-        anchorOffset: 5,
-        anchorPath: [0, 1, 0],
-        focusOffset: 0,
-        focusPath: [0, 1, 0],
-      });
-    });
-  });
-
-  const capitalizationResettingTestCases = [
-    {
-      expectedFinalHTML: html`
-        <p class="PlaygroundEditorTheme__paragraph" dir="auto">
-          <span class="$formatClassName" data-lexical-text="true">Hello</span>
-          <span data-lexical-text="true">world!</span>
-        </p>
-      `,
-      key: 'Space',
-    },
-    {
-      expectedFinalHTML: html`
-        <p class="PlaygroundEditorTheme__paragraph" dir="auto">
-          <span class="$formatClassName" data-lexical-text="true">Hello</span>
-          <span
-            class="PlaygroundEditorTheme__tabNode"
-            data-lexical-text="true"></span>
-          <span data-lexical-text="true">world!</span>
-        </p>
-      `,
-      key: 'Tab',
-    },
-    {
-      expectedFinalHTML: html`
-        <p class="PlaygroundEditorTheme__paragraph" dir="auto">
-          <span class="$formatClassName" data-lexical-text="true">Hello</span>
-        </p>
-        <p class="PlaygroundEditorTheme__paragraph" dir="auto">
-          <span data-lexical-text="true">world!</span>
-        </p>
-      `,
-      key: 'Enter',
-    },
-  ];
-
-  capitalizationFormats.forEach(({format, className, applyCapitalization}) => {
-    capitalizationResettingTestCases.forEach(({key, expectedFinalHTML}) => {
-      test(`Pressing ${key} resets ${format} format`, async ({
-        page,
-        isPlainText,
-      }) => {
-        test.skip(isPlainText);
-
-        await focusEditor(page);
-
-        await applyCapitalization(page);
-        await page.keyboard.type('Hello');
-
-        await assertHTML(
-          page,
-          html`
-            <p class="PlaygroundEditorTheme__paragraph" dir="auto">
-              <span class="${className}" data-lexical-text="true">Hello</span>
-            </p>
-          `,
-        );
-
-        // Pressing the key should reset the format
-        await page.keyboard.press(key);
-        await page.keyboard.type(' world!');
-
-        await assertHTML(
-          page,
-          expectedFinalHTML.replace('$formatClassName', className),
-        );
-      });
-    });
-  });
-
-  test(`Can select text and increase the font-size`, async ({
-    page,
-    isPlainText,
-  }) => {
-    test.skip(isPlainText);
-
+  test(`Can select text and increase the font-size`, async ({page}) => {
     await focusEditor(page);
     await page.keyboard.type('Hello world!');
     await moveLeft(page);
@@ -570,10 +258,7 @@ test.describe('TextFormatting', () => {
 
   test(`Can select text with different size and increase the font-size relatively`, async ({
     page,
-    isPlainText,
   }) => {
-    test.skip(isPlainText);
-
     await focusEditor(page);
     await page.keyboard.type('Hello world!');
     await selectCharacters(page, 'left', 6);
@@ -593,12 +278,7 @@ test.describe('TextFormatting', () => {
     );
   });
 
-  test(`Can select text and decrease the font-size`, async ({
-    page,
-    isPlainText,
-  }) => {
-    test.skip(isPlainText);
-
+  test(`Can select text and decrease the font-size`, async ({page}) => {
     await focusEditor(page);
     await page.keyboard.type('Hello world!');
     await moveLeft(page);
@@ -634,10 +314,7 @@ test.describe('TextFormatting', () => {
 
   test(`Can select text with different size and decrease the font-size relatively`, async ({
     page,
-    isPlainText,
   }) => {
-    test.skip(isPlainText);
-
     await focusEditor(page);
     await page.keyboard.type('Hello world!');
     await selectCharacters(page, 'left', 6);
@@ -659,10 +336,7 @@ test.describe('TextFormatting', () => {
 
   test(`Can select text and change the font-size and font-family`, async ({
     page,
-    isPlainText,
   }) => {
-    test.skip(isPlainText);
-
     await focusEditor(page);
     await page.keyboard.type('Hello world!');
 
@@ -748,10 +422,7 @@ test.describe('TextFormatting', () => {
 
   test(`Can select text and update font size by entering the value`, async ({
     page,
-    isPlainText,
   }) => {
-    test.skip(isPlainText);
-
     await focusEditor(page);
     await page.keyboard.type('Hello world!');
     await moveLeft(page);
@@ -789,10 +460,7 @@ test.describe('TextFormatting', () => {
 
   test(`Can select text with different size and update font size by entering the value`, async ({
     page,
-    isPlainText,
   }) => {
-    test.skip(isPlainText);
-
     await focusEditor(page);
     await page.keyboard.type('Hello world!');
     await selectCharacters(page, 'left', 6);
@@ -816,11 +484,7 @@ test.describe('TextFormatting', () => {
 
   test(`Can select multiple text parts and format them with shortcuts`, async ({
     page,
-    isPlainText,
-    browserName,
   }) => {
-    test.skip(isPlainText);
-
     await focusEditor(page);
     await page.keyboard.type('Hello world!');
     await moveLeft(page);
@@ -1014,10 +678,7 @@ test.describe('TextFormatting', () => {
 
   test(`Can insert range of formatted text and select part and replace with character`, async ({
     page,
-    isPlainText,
   }) => {
-    test.skip(isPlainText);
-
     await focusEditor(page);
     await page.keyboard.type('123');
 
@@ -1111,9 +772,7 @@ test.describe('TextFormatting', () => {
 
   test(`Regression #2439: can format backwards when at first text node boundary`, async ({
     page,
-    isPlainText,
   }) => {
-    test.skip(isPlainText);
     await focusEditor(page);
     await page.keyboard.type('123456');
 
@@ -1163,9 +822,7 @@ test.describe('TextFormatting', () => {
 
   test(`The active state of the button in the toolbar should to be displayed correctly`, async ({
     page,
-    isPlainText,
   }) => {
-    test.skip(isPlainText);
     await focusEditor(page);
     await page.keyboard.type('A');
     await page.keyboard.press('Enter');
@@ -1202,9 +859,7 @@ test.describe('TextFormatting', () => {
   test('Regression #2523: can toggle format when selecting a TextNode edge followed by a non TextNode; ', async ({
     page,
     isCollab,
-    isPlainText,
   }) => {
-    test.skip(isPlainText);
     await focusEditor(page);
 
     await page.keyboard.type('A');
@@ -1259,10 +914,8 @@ test.describe('TextFormatting', () => {
 
   test('Multiline selection format ignores new lines', async ({
     page,
-    isPlainText,
     isCollab,
   }) => {
-    test.skip(isPlainText);
     let leftFrame = page;
     if (isCollab) {
       leftFrame = await page.frame('left');

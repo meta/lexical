@@ -482,6 +482,17 @@ export default [
     },
   },
 
+  // A window messaging channel is shared with whatever else is running in the
+  // page, so its name has to be specific to that page rather than a constant,
+  // and a message has to name the origin it is for. The name is not a secret;
+  // this is about collisions and crosstalk, not trust.
+  {
+    files: ['packages/lexical-devtools/**'],
+    rules: {
+      '@lexical/internal/no-unscoped-window-messaging': ERROR,
+    },
+  },
+
   // Keep extension source imports independent of the published bundle layout.
   // The package build rewrites barrels and relative siblings to subpaths.
   {

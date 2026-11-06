@@ -48,6 +48,7 @@ h1 {
   color: #333;
 }
 
+/* [docs:editor-styles] Read directly by the Getting Started with React guide. */
 .editor-container {
   margin: 20px auto 20px auto;
   border-radius: 2px;
@@ -98,6 +99,7 @@ h1 {
 .editor-text-italic {
   font-style: italic;
 }
+/* [/docs:editor-styles] */
 
 .editor-text-underline {
   text-decoration: underline;

@@ -37,6 +37,7 @@ Framework-agnostic accessibility extensions. See [Keyboard Accessibility](/docs/
 [@lexical/extension](/docs/api/modules/lexical_extension)
 
 - [AutoFocusExtension](/docs/api/modules/lexical_extension#autofocusextension) - Focus the editor when it is created (e.g. on page load)
+- [BlockIdExtension](/docs/api/modules/lexical_extension#blockidextension) - Stable, unique block ids stored as NodeState, for addressing blocks from outside the editor; see [Block IDs](/docs/extensions/block-ids) (experimental)
 - [ClearEditorExtension](/docs/api/modules/lexical_extension#cleareditorextension) - Implementation for the `CLEAR_EDITOR_COMMAND`
 - [ClickAfterLastBlockExtension](/docs/api/modules/lexical_extension#clickafterlastblockextension) - Inserts a paragraph when clicking below a last block that can not accommodate the click (e.g. a DecoratorNode or TableNode)
 - [DecoratorTextExtension](/docs/api/modules/lexical_extension#decoratortextextension) - DecoratorTextNode support, sets the format and CSS classes for the DOM container
@@ -49,6 +50,7 @@ Framework-agnostic accessibility extensions. See [Keyboard Accessibility](/docs/
 - [NestedEditorExtension](/docs/api/modules/lexical_extension#nestededitorextension) - Configures an editor as a nested editor of a parent editor (theme inheritance, optionally editable state)
 - [NodeSelectionExtension](/docs/api/modules/lexical_extension#nodeselectionextension) - Tracks selection, typically for DecoratorNodes
 - [NodeSelectionDataSelectedExtension](/docs/api/modules/lexical_extension#nodeselectiondataselectedextension) - Mirrors a node's `NodeSelection` membership onto its host DOM as a `data-selected` attribute so CSS can outline selected `ElementNode` hosts; configured per node type (experimental)
+- [NodeStructureExtension](/docs/api/modules/lexical_extension#nodestructureextension) - Enforces the node structure classes declare in `$config()` (`children`, `mergeAdjacent`): joins plain paragraphs into the block that holds them as lines, lifts other blocks out of nodes that hold inline content, wraps stray content, merges equal adjacent siblings; see [Node structure](/docs/serialization/#node-structure) (experimental)
 - [NormalizeInlineElementsExtension](/docs/api/modules/lexical_extension#normalizeinlineelementsextension) - Removes empty inline elements, included by default with `RichTextExtension` and `PlainTextExtension`
 - [NormalizeTripleClickSelectionExtension](/docs/api/modules/lexical_extension#normalizetripleclickselectionextension) - Corrects over-selection after triple click events, included by default with `RichTextExtension` and `PlainTextExtension`
 - [PreventSelectAllExtension](/docs/api/modules/lexical_extension#preventselectallextension) - Prevents select all (Ctrl/Cmd+A) inside input/textarea elements from selecting the editor content, included by default with `SelectBlockExtension`
@@ -69,6 +71,7 @@ Framework-agnostic accessibility extensions. See [Keyboard Accessibility](/docs/
 
 [@lexical/html](/docs/api/modules/lexical_html)
 
+- [BlockIdHTMLExtension](/docs/api/modules/lexical_html/BlockIdHTMLExtension#blockidhtmlextension) - Exports block ids as `data-block-id` and reads them back on import, through the uniqueness rule (experimental)
 - [CoreImportExtension](/docs/api/modules/lexical_html#coreimportextension) - DOM import rules for the core nodes, included implicitly by node-providing extensions (experimental)
 - [DOMImportExtension](/docs/api/modules/lexical_html#domimportextension) - Extension-based replacement for `importDOM`/`DOMConversion`, rules are compiled into a dispatcher at editor build time (experimental)
 - [DOMRenderExtension](/docs/api/modules/lexical_html#domrenderextension) - Overrides the DOM render and export behavior for an editor (experimental)
@@ -87,6 +90,9 @@ Framework-agnostic accessibility extensions. See [Keyboard Accessibility](/docs/
 [@lexical/mark](/docs/api/modules/lexical_mark)
 
 - [MarkExtension](/docs/api/modules/lexical_mark#markextension) - MarkNode
+- [MarkStateExtension](/docs/api/modules/lexical_mark#markstateextension) - Experimental: comment and annotation ids stored as NodeState on the leaves they cover, so marks overlap without wrapper nodes (see [Comments and Annotations](/docs/collaboration/comments))
+- [defineMarkExtension](/docs/api/modules/lexical_mark#definemarkextension) - Experimental: one extension like MarkStateExtension per kind of annotation (comments, suggestions), each on its own NodeState key (see [Mark flavors](/docs/collaboration/comments#mark-flavors))
+- [MarkBaseExtension](/docs/api/modules/lexical_mark#markbaseextension) - Experimental: the shared base of the mark flavors, with the registry of an editor's flavors
 
 [@lexical/mdast](/docs/api/modules/lexical_mdast)
 
@@ -107,7 +113,7 @@ Experimental micromark/mdast-based Markdown support (every extension in this pac
 - [MdastCommonMarkExtension](/docs/api/modules/lexical_mdast#mdastcommonmarkextension) - Bundle of the six CommonMark extensions
 - [MdastGfmExtension](/docs/api/modules/lexical_mdast#mdastgfmextension) - Bundle of the four GFM extensions
 - [MdastShadowRootQuoteExtension](/docs/api/modules/lexical_mdast#mdastshadowrootquoteextension) - Opt-in: blockquotes as block containers with full-fidelity nested content
-- [MdastHtmlExtension](/docs/api/modules/lexical_mdast#mdasthtmlextension) - Opt-in: raw HTML in Markdown routed through the `@lexical/html` DOM import rules (Markdown inside the tags included, GitHub-style), plus generic HTML-encoded export via `$exportViaDOM` / `rawHtmlBlock`
+- [MdastHtmlExtension](/docs/api/modules/lexical_mdast#mdasthtmlextension) - Opt-in: raw HTML in Markdown routed through the `@lexical/html` DOM import rules (Markdown inside the tags included), plus generic HTML-encoded export via `$exportViaDOM` / `rawHtmlBlock`
 - [MdastShortcutsExtension](/docs/api/modules/lexical_mdast#mdastshortcutsextension) - Streaming Markdown typing shortcuts, driven by the same grammar as import
 
 [@lexical/overflow](/docs/api/modules/lexical_overflow)

@@ -5,7 +5,7 @@
  * LICENSE file in the root directory of this source tree.
  *
  */
-import type {ContextRecord} from '../types';
+import type {ContextRecord} from '../internal/types';
 import type {
   DOMImportExtensionOutput,
   DOMPreprocessContext,
@@ -17,12 +17,15 @@ import type {
 import {$getExtensionOutput} from '@lexical/extension';
 import {defineExtension, type LexicalNode, shallowMergeConfig} from 'lexical';
 
-import {DOMImportContextSymbol, DOMImportExtensionName} from '../constants';
+import {
+  DOMImportContextSymbol,
+  DOMImportExtensionName,
+} from '../internal/constants';
 import {
   $withFullContext,
   contextFromPairs,
   getContextRecord,
-} from '../ContextRecord';
+} from '../internal/ContextRecord';
 import {type CompiledDispatch, compileImportRules} from './compileImportRules';
 import {defineImportRule} from './defineImportRule';
 import {

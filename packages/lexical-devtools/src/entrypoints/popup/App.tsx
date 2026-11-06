@@ -19,11 +19,11 @@ interface Props {
 }
 
 function App({tabID}: Props) {
-  const {lexicalState} = useExtensionStore();
+  const {editorCount} = useExtensionStore();
   const [errorMessage, setErrorMessage] = useState('');
 
-  const states = lexicalState[tabID];
-  const lexicalCount = Object.keys(states ?? {}).length;
+  const count = editorCount[tabID];
+  const lexicalCount = count ?? 0;
 
   return (
     <Flex direction="column">
@@ -33,12 +33,12 @@ function App({tabID}: Props) {
         </Box>
       ) : null}
       <Box>
-        {states === null ? (
+        {count === null ? (
           <Text fontSize="xs">
             This is a restricted browser page. Lexical DevTools cannot access
             this page.
           </Text>
-        ) : states === undefined ? (
+        ) : count === undefined ? (
           <Text fontSize="xs">Loading...</Text>
         ) : (
           <>

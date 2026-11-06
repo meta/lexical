@@ -10,7 +10,7 @@
     "serialization"
   ],
   "license": "MIT",
-  "version": "0.51.0",
+  "version": "0.53.0",
   "main": "./dist/LexicalFastCheck.js",
   "types": "./dist/typescript-too-old.d.ts",
   "dependencies": {
@@ -26,11 +26,11 @@
     }
   },
   "devDependencies": {
-    "fast-check": "^4.8.0"
+    "fast-check": "^4.10.2"
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/facebook/lexical.git",
+    "url": "git+https://github.com/meta/lexical.git",
     "directory": "packages/lexical-fast-check"
   },
   "module": "./dist/LexicalFastCheck.js",

@@ -14,6 +14,7 @@ import {
   $findMatchingParent,
   $getChildCaret,
   $getDocument,
+  $getEditor,
   $getSelection,
   $insertNodeToNearestRootAtCaret,
   $isElementNode,
@@ -32,7 +33,10 @@ import {
   type DOMConversionOutput,
   type EditorConfig,
   ElementNode,
+  getDeclaredNodeStructure,
+  INTERNAL_isNodeStructureEnforced,
   isHTMLAnchorElement,
+  type Klass,
   type LexicalCommand,
   type LexicalNode,
   type LexicalParseJSON,
@@ -123,6 +127,7 @@ export class LinkNode extends ElementNode {
 
   $config() {
     return this.config('link', {
+      children: 'inline',
       extends: ElementNode,
       generated: GENERATED_LINK,
       importDOM: {
@@ -131,7 +136,13 @@ export class LinkNode extends ElementNode {
           priority: 1,
         }),
       },
+      inline: true,
       json: linkNodeSchema,
+      // What shouldMergeAdjacentLink compares. The method stays the
+      // authority: $linkNodeTransform calls it, and a subclass that inherits
+      // this declaration is never merged by NodeStructureExtension (it merges
+      // only the class that declares mergeAdjacent itself).
+      mergeAdjacent: {by: ['url', 'target', 'rel', 'title']},
     });
   }
 
@@ -354,6 +365,23 @@ function $restoreCaretPair(point: PointType, pair: CaretPair): void {
 }
 
 /**
+ * Whether NodeStructureExtension merges `link` and its next sibling `next`
+ * itself, so that $linkNodeTransform leaves the pair to it: it enforces
+ * declared structure in this editor, and both are of one class that declares
+ * `mergeAdjacent` in its own `$config()` (LinkNode does; a subclass that only
+ * inherits the declaration is still merged here, by its
+ * shouldMergeAdjacentLink).
+ */
+function $structureMerges(link: LinkNode, next: LinkNode): boolean {
+  const klass = link.constructor as Klass<LinkNode>;
+  return (
+    next.constructor === klass &&
+    INTERNAL_isNodeStructureEnforced($getEditor()) &&
+    getDeclaredNodeStructure(klass).declaredBy.mergeAdjacent === klass
+  );
+}
+
+/**
  * Extracts block-level children from a LinkNode, splitting
  * ancestor nodes as needed to maintain a valid document structure.
  * @param link - The LinkNode to normalize
@@ -375,7 +403,12 @@ export function $linkNodeTransform(link: LinkNode): void {
   }
 
   let transformed = false;
-  for (const caret of $getChildCaret(link, 'next')) {
+  // Where NodeStructureExtension enforces declared structure, it lifts blocks
+  // out of links itself (LinkNode declares `children: 'inline'`), and merges
+  // equal adjacent LinkNodes (see $structureMerges), the same way whichever
+  // node is dirty, so this transform leaves them to it.
+  const liftsBlocks = !INTERNAL_isNodeStructureEnforced($getEditor());
+  for (const caret of liftsBlocks ? $getChildCaret(link, 'next') : []) {
     const node = caret.origin;
     if ($isElementNode(node) && !node.isInline()) {
       const blockChildren = node.getChildren();
@@ -411,7 +444,11 @@ export function $linkNodeTransform(link: LinkNode): void {
 
   if (link.isAttached()) {
     const prevSibling = link.getPreviousSibling();
-    if ($isLinkNode(prevSibling) && prevSibling.shouldMergeAdjacentLink(link)) {
+    if (
+      $isLinkNode(prevSibling) &&
+      !$structureMerges(prevSibling, link) &&
+      prevSibling.shouldMergeAdjacentLink(link)
+    ) {
       if (anchorPair) {
         anchorPair = $fixMergeBoundaryCaret(anchorPair, prevSibling, link);
       }
@@ -424,7 +461,11 @@ export function $linkNodeTransform(link: LinkNode): void {
       return;
     }
     const nextSibling = link.getNextSibling();
-    if ($isLinkNode(nextSibling) && link.shouldMergeAdjacentLink(nextSibling)) {
+    if (
+      $isLinkNode(nextSibling) &&
+      !$structureMerges(link, nextSibling) &&
+      link.shouldMergeAdjacentLink(nextSibling)
+    ) {
       if (anchorPair) {
         anchorPair = $fixMergeBoundaryCaret(anchorPair, link, nextSibling);
       }
@@ -540,6 +581,8 @@ export class AutoLinkNode extends LinkNode {
       extends: LinkNode,
       generated: GENERATED_AUTOLINK,
       json: autoLinkNodeSchema,
+      // Adjacent autolinks never merge (see shouldMergeAdjacentLink).
+      mergeAdjacent: false,
     });
   }
 
@@ -698,6 +741,14 @@ function $splitLinkAtSelection(
       ));
 
   const extractedChildren = allChildren.filter(isExtractedChild);
+
+  if (extractedChildren.length === 0 && allChildren.length > 0) {
+    // The selection only touches the link at a boundary (e.g. it ends at
+    // offset 0 of the link's first text node, or starts at the end of its
+    // last one), so extract() returned the LinkNode itself but none of its
+    // content. There is nothing to unlink.
+    return;
+  }
 
   if (extractedChildren.length === allChildren.length) {
     allChildren.forEach(child => parentLink.insertBefore(child));

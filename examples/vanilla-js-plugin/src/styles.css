@@ -15,13 +15,26 @@
 #lexical-editor:focus-visible {
   outline: none;
 }
-#lexical-state {
+textarea {
+  box-sizing: border-box;
   width: 100%;
-  height: 300px;
+  height: 150px;
+}
+.actions {
+  display: flex;
+  gap: 8px;
+  margin: 12px 0;
+}
+details {
+  margin-top: 12px;
 }
 
+/* [docs:emoji-styles] Read directly by the Creating an Extension guide. */
 .emoji-node {
   caret-color: #050505;
+}
+
+.emoji-node-loaded {
   color: transparent;
   background-size: 1em 1em;
   display: inline-block;
@@ -29,3 +42,4 @@
   width: 1em;
   height: 1em;
 }
+/* [/docs:emoji-styles] */

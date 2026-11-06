@@ -31,14 +31,17 @@ function assertHTMLIgnoreInlineStyles(page, expectedHtml) {
   });
 }
 
+test.skip(
+  ({isCollab, isPlainText}) => isPlainText || isCollab,
+  'Requires rich text without collaboration',
+);
+
 test.describe('Regression #7635', () => {
   test.beforeEach(({isCollab, page}) =>
     initialize({isCollab, page, showNestedEditorTreeView: false}),
   );
 
-  test('Paste into image caption', async ({page, isPlainText, isCollab}) => {
-    test.skip(isPlainText || isCollab);
-
+  test('Paste into image caption', async ({page}) => {
     await focusEditor(page);
     await insertSampleImage(page);
 

@@ -27,11 +27,8 @@ import {
   $isElementNode,
   $isRangeSelection,
 } from '.';
-import {
-  $markSlotsUsed,
-  $removeFromParent,
-  iterStaticNodeConfigChain,
-} from './LexicalUtils';
+import {$detachNode} from './caret/LexicalCaretTree';
+import {$markSlotsUsed, iterStaticNodeConfigChain} from './LexicalUtils';
 
 const __DEV__ = process.env.NODE_ENV !== 'production';
 
@@ -328,8 +325,8 @@ export function getDeclaredSlots(klass: Klass<LexicalNode>): readonly string[] {
  */
 export function $getSlotsTextContent(node: LexicalNode): string {
   let textContent = '';
-  for (const name of $getSlotNames(node)) {
-    const slot = $getSlot(node, name);
+  for (const key of $getSlotMap(node).values()) {
+    const slot = $getNodeByKey(key);
     if (slot !== null) {
       textContent += slot.getTextContent();
     }
@@ -346,8 +343,8 @@ export function $getSlotsTextContent(node: LexicalNode): string {
  */
 export function $getSlotsTextContentSize(node: LexicalNode): number {
   let textContentSize = 0;
-  for (const name of $getSlotNames(node)) {
-    const slot = $getSlot(node, name);
+  for (const key of $getSlotMap(node).values()) {
+    const slot = $getNodeByKey(key);
     if (slot !== null) {
       textContentSize += slot.getTextContentSize();
     }
@@ -521,11 +518,10 @@ export function $setSlot<T extends LexicalNode & SlotHostNode>(
     }
     writableNode.__slotHost = null;
   }
-  // $removeFromParent (not node.remove()) so the host survives even when it
-  // would otherwise cascade on becoming empty (e.g. a third-party host with
+  // Detach without cascading when the host becomes empty (e.g. a custom host with
   // canBeEmpty()=false whose single shadow-root child is being slotted in).
   // Mirrors the patterns in ElementNode.append / replace / insertBefore.
-  $removeFromParent(writableNode);
+  $detachNode(writableNode);
   writableNode.__slotHost = writableSelf.__key;
   slots.set(name, writableNode.__key);
   $canonicalizeSlotOrder(writableSelf);

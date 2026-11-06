@@ -89,7 +89,7 @@ const editor = buildEditorFromExtensions(
 );
 ```
 
-The `hot` config accepts any object with a `data: Record<string, unknown>` property — this is satisfied by Vite's `import.meta.hot` and similar bundler HMR APIs. Pass `null` in production or when HMR is not available; the extension becomes a no-op.
+The `hot` config accepts any object with a mutable `data: Record<string, unknown>` property — Vite's `import.meta.hot` satisfies this directly. Webpack and Parcel expose `module.hot` instead, whose `data` is populated by dispose handlers and is not directly mutable, so `module.hot` cannot be passed here; those bundlers need a small adapter built on `module.hot.addDisposeHandler`. Pass `null` in production or when HMR is not available; the extension becomes a no-op.
 
 When `HistoryExtension` is present as a peer, undo/redo stacks are preserved automatically. The extension does not declare `HistoryExtension` as a dependency — it detects it at runtime via peer dependency lookup.
 

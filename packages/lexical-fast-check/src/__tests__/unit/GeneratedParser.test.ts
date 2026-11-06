@@ -6,6 +6,8 @@
  *
  */
 
+// @vitest-environment node
+
 import {nodeArbitrary} from '@lexical/fast-check';
 import * as fc from 'fast-check';
 import {$getRoot, createEditor, TextNode} from 'lexical';

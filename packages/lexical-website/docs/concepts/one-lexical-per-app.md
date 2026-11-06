@@ -105,8 +105,8 @@ were supposed to be part of *your* app.
 Silent failures look like: a command that dispatches but never fires its
 listener, `$getSelection()` returning `null` inside an update, or a custom node
 rendering as plain text after a copy/paste. Real reports of this failure mode:
-[#4225](https://github.com/facebook/lexical/issues/4225) and
-[#7819](https://github.com/facebook/lexical/issues/7819).
+[#4225](https://github.com/meta/lexical/issues/4225) and
+[#7819](https://github.com/meta/lexical/issues/7819).
 
 ## Publishing a library
 

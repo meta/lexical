@@ -6,68 +6,59 @@
  *
  */
 
-import {AutoFocusPlugin} from '@lexical/react/LexicalAutoFocusPlugin';
-import {
-  type InitialConfigType,
-  LexicalComposer,
-} from '@lexical/react/LexicalComposer';
+import {AutoFocusExtension} from '@lexical/extension';
+import {HistoryExtension} from '@lexical/history';
+import {ExtensionComponent} from '@lexical/react/ExtensionComponent';
 import {ContentEditable} from '@lexical/react/LexicalContentEditable';
-import {LexicalErrorBoundary} from '@lexical/react/LexicalErrorBoundary';
-import {HistoryPlugin} from '@lexical/react/LexicalHistoryPlugin';
-import {RichTextPlugin} from '@lexical/react/LexicalRichTextPlugin';
-import {ParagraphNode, TextNode} from 'lexical';
+import {LexicalExtensionComposer} from '@lexical/react/LexicalExtensionComposer';
+import {TreeViewExtension} from '@lexical/react/TreeViewExtension';
+import {RichTextExtension} from '@lexical/rich-text';
+import {defineExtension} from 'lexical';
 
 import ExampleTheme from './ExampleTheme';
-import {
-  $createCustomParagraphNode,
-  CustomParagraphNode,
-} from './nodes/CustomParagraphNode';
-import ToolbarPlugin from './plugins/ToolbarPlugin';
-import TreeViewPlugin from './plugins/TreeViewPlugin';
+import {CustomParagraphExtension} from './nodes/CustomParagraphNode';
+import {ToolbarExtension, ToolbarPlugin} from './plugins/ToolbarPlugin';
 
 const placeholder = 'Enter some rich text...';
 
-const editorConfig: InitialConfigType = {
-  namespace: 'Node Replacement Demo',
-  nodes: [
-    ParagraphNode,
-    TextNode,
-    CustomParagraphNode,
-    {
-      replace: ParagraphNode,
-      with: () => $createCustomParagraphNode(),
-      withKlass: CustomParagraphNode,
-    },
+const appExtension = defineExtension({
+  dependencies: [
+    RichTextExtension,
+    HistoryExtension,
+    AutoFocusExtension,
+    TreeViewExtension,
+    CustomParagraphExtension,
+    ToolbarExtension,
   ],
-  onError(error: Error) {
-    throw error;
-  },
+  name: '@lexical/examples/node-replacement',
+  namespace: 'Node Replacement Demo',
   theme: ExampleTheme,
-};
+});
 
 export default function App() {
   return (
-    <LexicalComposer initialConfig={editorConfig}>
+    <LexicalExtensionComposer extension={appExtension} contentEditable={null}>
       <div className="editor-container">
         <ToolbarPlugin />
         <div className="editor-inner">
-          <RichTextPlugin
-            contentEditable={
-              <ContentEditable
-                className="editor-input"
-                aria-placeholder={placeholder}
-                placeholder={
-                  <div className="editor-placeholder">{placeholder}</div>
-                }
-              />
+          <ContentEditable
+            className="editor-input"
+            aria-placeholder={placeholder}
+            placeholder={
+              <div className="editor-placeholder">{placeholder}</div>
             }
-            ErrorBoundary={LexicalErrorBoundary}
           />
-          <HistoryPlugin />
-          <AutoFocusPlugin />
-          <TreeViewPlugin />
+          <ExtensionComponent
+            lexical:extension={TreeViewExtension}
+            viewClassName="tree-view-output"
+            treeTypeButtonClassName="debug-treetype-button"
+            timeTravelPanelClassName="debug-timetravel-panel"
+            timeTravelButtonClassName="debug-timetravel-button"
+            timeTravelPanelSliderClassName="debug-timetravel-panel-slider"
+            timeTravelPanelButtonClassName="debug-timetravel-panel-button"
+          />
         </div>
       </div>
-    </LexicalComposer>
+    </LexicalExtensionComposer>
   );
 }

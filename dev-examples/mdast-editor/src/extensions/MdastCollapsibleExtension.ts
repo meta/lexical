@@ -346,16 +346,16 @@ function $handleSummaryEnter(): boolean {
 }
 
 /**
- * Wires {@link CollapsibleNode} into the Markdown pipeline using the
- * GFM-style `<details><summary>…</summary>…</details>` encoding, with
- * Markdown syntax inside the construct working in both directions the way
- * it does on GitHub. There is no details-specific Markdown importer or
+ * Wires {@link CollapsibleNode} into the Markdown pipeline using the GFM-style
+ * `<details><summary>…</summary>…</details>` encoding, with Markdown syntax
+ * inside the construct working in both directions (the summary line too, which
+ * GitHub leaves raw). There is no details-specific Markdown importer or
  * serializer: {@link MdastHtmlExtension} routes raw HTML blocks (and the
- * Markdown text inside them) through the editor's DOM import rules, so the
- * one `<details>` rule here serves Markdown import and HTML paste alike,
- * and `$exportViaDOM` derives the Markdown encoding from the node's own
- * `exportDOM` shell — the summary phrasing and body blocks embed as
- * ordinary Markdown between the raw tags.
+ * Markdown text inside them) through the editor's DOM import rules, so the one
+ * `<details>` rule here serves Markdown import and HTML paste alike, and
+ * `$exportViaDOM` derives the Markdown encoding from the node's own `exportDOM`
+ * shell — the summary phrasing and body blocks embed as ordinary Markdown
+ * between the raw tags.
  *
  * The summary line is edited in the node's named `summary` slot, revealed
  * in-lexical with a `$getSlotTargetElement` render override (the Card

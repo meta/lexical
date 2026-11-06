@@ -10,6 +10,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  realpathSync,
   rmSync,
   symlinkSync,
   writeFileSync,
@@ -32,7 +33,9 @@ const websiteRequire = createRequire(
 test.each(['flat', 'pnpm'])(
   'links external types and sources with a %s install',
   async layout => {
-    const directory = mkdtempSync(path.join(tmpdir(), 'lexical-typedoc-'));
+    const directory = realpathSync(
+      mkdtempSync(path.join(tmpdir(), 'lexical-typedoc-')),
+    );
     onTestFinished(() => rmSync(directory, {force: true, recursive: true}));
     const packageDirectory = path.join(
       directory,
@@ -179,7 +182,7 @@ test.each(['flat', 'pnpm'])(
       readme: 'none',
       router: 'module',
       sourceLinkTemplate:
-        'https://github.com/facebook/lexical/blob/main/{path}#L{line}',
+        'https://github.com/meta/lexical/blob/main/{path}#L{line}',
       tsconfig,
     });
     const project = await app.convert();
@@ -213,7 +216,7 @@ test.each(['flat', 'pnpm'])(
       expect(markdown).not.toContain(`${file}#L`);
     }
     expect(markdown).toContain(
-      '[index.ts:4](https://github.com/facebook/lexical/blob/main/index.ts#L4)',
+      '[index.ts:4](https://github.com/meta/lexical/blob/main/index.ts#L4)',
     );
     expect(markdown).toContain(
       '[@fixture/types/index.d.ts:4](https://app.unpkg.com/@fixture/types@1.2.3/files/index.d.ts#L4)',

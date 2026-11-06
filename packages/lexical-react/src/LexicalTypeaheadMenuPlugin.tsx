@@ -24,6 +24,7 @@ import {
   startTransition,
   useCallback,
   useEffect,
+  useRef,
   useState,
 } from 'react';
 
@@ -166,19 +167,21 @@ export function LexicalTypeaheadMenuPlugin<TOption extends MenuOption>({
 }: TypeaheadMenuPluginProps<TOption>): JSX.Element | null {
   const [editor] = useLexicalComposerContext();
   const [resolution, setResolution] = useState<MenuResolution | null>(null);
-  const anchorElementRef = useMenuAnchorRef(
-    resolution,
-    setResolution,
-    anchorClassName,
-    parent,
-  );
-
+  const openGenerationRef = useRef(0);
+  // Whether the menu is open as far as onOpen/onClose are concerned. Unlike
+  // `resolution`, this sees an open whose transition has not rendered yet and
+  // a close whose onClose promise is still pending.
+  const isOpenRef = useRef(false);
   const closeTypeahead = useCallback(() => {
-    if (resolution === null) {
+    if (!isOpenRef.current) {
       return;
     }
+    isOpenRef.current = false;
+    const openGeneration = openGenerationRef.current;
     const finish = () => {
-      setResolution(null);
+      if (openGenerationRef.current === openGeneration) {
+        setResolution(null);
+      }
     };
     let result;
     try {
@@ -190,16 +193,40 @@ export function LexicalTypeaheadMenuPlugin<TOption extends MenuOption>({
         finish();
       }
     }
-  }, [onClose, resolution]);
+  }, [onClose]);
 
   const openTypeahead = useCallback(
     (res: MenuResolution) => {
+      // Track pending opens before their transition has rendered.
+      openGenerationRef.current++;
       setResolution(res);
-      if (onOpen != null && resolution === null) {
-        onOpen(res);
+      if (!isOpenRef.current) {
+        isOpenRef.current = true;
+        if (onOpen != null) {
+          onOpen(res);
+        }
       }
     },
-    [onOpen, resolution],
+    [onOpen],
+  );
+
+  // LexicalMenu hides the menu when its anchor scrolls out of view. Route
+  // that through closeTypeahead so onClose still pairs with onOpen.
+  const setMenuResolution = useCallback(
+    (res: MenuResolution | null) => {
+      if (res === null) {
+        closeTypeahead();
+      } else {
+        setResolution(res);
+      }
+    },
+    [closeTypeahead],
+  );
+  const anchorElementRef = useMenuAnchorRef(
+    resolution,
+    setMenuResolution,
+    anchorClassName,
+    parent,
   );
 
   useEffect(() => {
@@ -246,7 +273,7 @@ export function LexicalTypeaheadMenuPlugin<TOption extends MenuOption>({
             editorWindow,
             editor.getRootElement(),
           );
-          if (isRangePositioned !== null) {
+          if (isRangePositioned) {
             startTransition(() =>
               openTypeahead({
                 getRect: () => range.getBoundingClientRect(),

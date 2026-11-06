@@ -11,7 +11,7 @@ import type {LexicalNode, MutationListener} from 'lexical';
 
 import {MenuOption} from '@lexical/react/LexicalTypeaheadMenuPlugin';
 import type {MenuRenderFn} from '@lexical/react/LexicalTypeaheadMenuPlugin';
-import type {LexicalCommand, LexicalEditor, NodeKey, TextNode} from 'lexical';
+import type {CommandListenerPriority, LexicalCommand, LexicalEditor, NodeKey, TextNode} from 'lexical';
 import * as React from 'react';
 import {createCommand} from 'lexical';
 
@@ -44,6 +44,8 @@ type LexicalAutoEmbedPluginProps<TEmbedConfig> = {
     dismissFn: () => void,
   ) => AutoEmbedOption[],
   menuRenderFn?: MenuRenderFn<AutoEmbedOption>,
+  menuCommandPriority?: CommandListenerPriority,
+  $disableMenuFor?: (node: LexicalNode) => boolean,
 };
 
 declare export class AutoEmbedOption extends MenuOption {

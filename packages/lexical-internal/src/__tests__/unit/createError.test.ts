@@ -6,6 +6,8 @@
  *
  */
 
+// @vitest-environment node
+
 import {expect, test} from 'vitest';
 
 import createDevError from '../../createDevError';

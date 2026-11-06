@@ -6,6 +6,8 @@
  *
  */
 
+// @vitest-environment node
+
 /**
  * Several editors can share one Yjs `Doc` (the `rootName` / `getXmlText`
  * binding options), which puts every editor's tree in one document and one

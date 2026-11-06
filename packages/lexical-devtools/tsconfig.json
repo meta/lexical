@@ -38,6 +38,9 @@
       "@lexical/extension/AutoFocusExtension": [
         "../lexical-extension/src/AutoFocusExtension.ts"
       ],
+      "@lexical/extension/BlockIdExtension": [
+        "../lexical-extension/src/BlockIdExtension.ts"
+      ],
       "@lexical/extension/ClearEditorExtension": [
         "../lexical-extension/src/ClearEditorExtension.ts"
       ],
@@ -90,6 +93,9 @@
       "@lexical/extension/NodeSelectionExtension": [
         "../lexical-extension/src/NodeSelectionExtension.ts"
       ],
+      "@lexical/extension/NodeStructureExtension": [
+        "../lexical-extension/src/NodeStructureExtension.ts"
+      ],
       "@lexical/extension/NormalizeInlineElementsExtension": [
         "../lexical-extension/src/NormalizeInlineElementsExtension.ts"
       ],
@@ -123,8 +129,14 @@
       "@lexical/hashtag": ["../lexical-hashtag/src/index.ts"],
       "@lexical/headless": ["../lexical-headless/src/index.ts"],
       "@lexical/headless/dom": ["../lexical-headless/src/dom.ts"],
+      "@lexical/headless/HeadlessExtension": [
+        "../lexical-headless/src/HeadlessExtension.ts"
+      ],
       "@lexical/history": ["../lexical-history/src/index.ts"],
       "@lexical/html": ["../lexical-html/src/index.ts"],
+      "@lexical/html/BlockIdHTMLExtension": [
+        "../lexical-html/src/BlockIdHTMLExtension.ts"
+      ],
       "@lexical/internal/createDevError": [
         "../lexical-internal/src/createDevError.ts"
       ],
@@ -150,6 +162,9 @@
         "../lexical-internal/src/formatProdWarningMessage.ts"
       ],
       "@lexical/internal/invariant": ["../lexical-internal/src/invariant.ts"],
+      "@lexical/internal/isCjkCharacter": [
+        "../lexical-internal/src/isCjkCharacter.ts"
+      ],
       "@lexical/internal/version": ["../lexical-internal/src/version.ts"],
       "@lexical/internal/warnOnlyOnce": [
         "../lexical-internal/src/warnOnlyOnce.ts"
@@ -348,6 +363,12 @@
       "@lexical/tailwind": ["../lexical-tailwind/src/index.ts"],
       "@lexical/text": ["../lexical-text/src/index.ts"],
       "@lexical/utils": ["../lexical-utils/src/index.ts"],
+      "@lexical/y": ["../lexical-y/src/index.ts"],
+      "@lexical/y/headless": ["../lexical-y/src/headless.ts"],
+      "@lexical/y/migrate": ["../lexical-y/src/migrate.ts"],
+      "@lexical/y/migrate/1to2": ["../lexical-y/src/migrate/1to2.ts"],
+      "@lexical/y/migrate/2to3": ["../lexical-y/src/migrate/2to3.ts"],
+      "@lexical/y/server": ["../lexical-y/src/server.ts"],
       "@lexical/yjs": ["../lexical-yjs/src/index.ts"]
     }
   },

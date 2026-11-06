@@ -340,6 +340,16 @@ export type NodeStateJSON<T extends LexicalNode> = Prettify<
  * //    ^? State<'format', StateValueConfig<number>>
  * ```
  *
+ * {@link arraySetValue} builds an array of strings used as a set: frozen,
+ * sorted and without duplicates, both when it is parsed and when it is
+ * written with {@link $setState}:
+ *
+ * @example
+ * ```ts
+ * const tagsState = createState('tags', {parse: arraySetValue(stringValue())});
+ * //    ^? StateConfig<'tags', readonly string[]>
+ * ```
+ *
  * Only the parse option is required, it is generally not useful to
  * override `unparse` or `isEqual`. However, if you are using
  * non-primitive types such as Array, Object, Date, or something
@@ -404,6 +414,15 @@ export interface StateValueConfig<V> {
    * value to the default.
    */
   resetOnCopyNode?: boolean;
+  /**
+   * @experimental
+   *
+   * `true` when the node's own code recomputes this value from the document
+   * (like a list item's number). It is serialized as usual, but tools that
+   * copy or compare a node's data can leave it out, and `mergeAdjacent` may
+   * not name it.
+   */
+  derived?: boolean;
 }
 
 /**
@@ -433,6 +452,8 @@ export class StateConfig<K extends string | symbol, V> {
    */
   readonly defaultValue: V;
   readonly resetOnCopyNode: boolean;
+  /** @experimental See {@link StateValueConfig.derived}. */
+  readonly derived: boolean;
   /**
    * The {@link SerializationSchema} for this state's value, present when its
    * `parse` is a schema (e.g. `createState('mode', {parse: enumValue([...])})`).
@@ -443,6 +464,7 @@ export class StateConfig<K extends string | symbol, V> {
   readonly schema?: AnySerializationSchema;
   constructor(key: K, stateValueConfig: StateValueConfig<V>) {
     this.key = key;
+    this.derived = stateValueConfig.derived === true;
     // Binding below strips a schema's own properties from this.parse, so
     // resolve it first and keep the original when it carries introspectable
     // metadata.
@@ -632,18 +654,37 @@ export function $setState<Node extends LexicalNode, K extends string, V>(
   if (typeof valueOrUpdater === 'function') {
     const latest = node.getLatest();
     const prevValue = $getState(latest, stateConfig);
-    value = (valueOrUpdater as (v: V) => V)(prevValue);
+    value = canonicalValue(
+      stateConfig,
+      (valueOrUpdater as (v: V) => V)(prevValue),
+    );
     if (stateConfig.isEqual(prevValue, value)) {
       return latest;
     }
   } else {
-    value = valueOrUpdater;
+    value = canonicalValue(stateConfig, valueOrUpdater);
   }
   const writable = node.getWritable();
   const state = $getWritableNodeState(writable);
   $checkCollision(node, stateConfig, state);
   state.updateFromKnown(stateConfig, value);
   return writable;
+}
+
+/**
+ * The value {@link $setState} stores. An {@link arraySetValue} state puts a
+ * written value into the canonical form its parse produces (frozen, sorted,
+ * no duplicates), so a value set directly is stored, read back and compared
+ * like one loaded from JSON. Every other state stores the value as given.
+ */
+function canonicalValue<K extends string, V>(
+  stateConfig: StateConfig<K, V>,
+  value: V,
+): V {
+  const {schema} = stateConfig;
+  return schema !== undefined && schema.meta.kind === 'set'
+    ? stateConfig.parse(value)
+    : value;
 }
 
 /**
@@ -787,8 +828,8 @@ export class NodeState<T extends LexicalNode> {
    * A copy of serializedNode[NODE_STATE_KEY] that is made when JSON is
    * imported but has not been parsed yet.
    *
-   * It stays here until a get state requires us to parse it, and since we
-   * then know the value is safe we move it to knownState.
+   * It stays here until a set state replaces it with a known value, or the
+   * node is next cloned and its key is known to the node type.
    *
    * Note that since only string keys are used here, we can only allow this
    * state to pass-through on export or on the next version since there is
@@ -856,10 +897,9 @@ export class NodeState<T extends LexicalNode> {
    * @internal
    *
    * Get the value from knownState, or parse it from unknownState
-   * if it contains the given key.
+   * and cache in knownState if it contains the given key.
    *
    * Updates the sharedConfigMap when no known state is found.
-   * Updates unknownState and knownState when an unknownState is parsed.
    */
   getValue<K extends string, V>(stateConfig: StateConfig<K, V>): V {
     const known = this.knownState.get(stateConfig) as V | undefined;
@@ -873,8 +913,10 @@ export class NodeState<T extends LexicalNode> {
       if (jsonValue !== undefined) {
         parsed = stateConfig.parse(jsonValue);
       }
-      // Only update if the key was unknown
-      this.updateFromKnown(stateConfig, parsed);
+      // Record the parsed value. The JSON copy stays in unknownState so that
+      // a read does not change the key order of toJSON, and the key is
+      // already counted in size.
+      this.knownState.set(stateConfig, parsed);
     }
     return parsed;
   }
@@ -975,13 +1017,13 @@ export class NodeState<T extends LexicalNode> {
     const key = stateConfig.key;
     this.sharedNodeState.sharedConfigMap.set(key, stateConfig);
     const {knownState, unknownState} = this;
-    if (
-      !(knownState.has(stateConfig) || (unknownState && key in unknownState))
-    ) {
-      if (unknownState) {
-        delete unknownState[key];
-        this.unknownState = undefinedIfEmpty(unknownState);
-      }
+    if (unknownState && key in unknownState) {
+      // The known value replaces the JSON copy, which getValue would
+      // otherwise parse again once the known value is undefined. The key is
+      // already counted in size.
+      delete unknownState[key];
+      this.unknownState = undefinedIfEmpty(unknownState);
+    } else if (!knownState.has(stateConfig)) {
       this.size++;
     }
     knownState.set(stateConfig, value);
@@ -1264,6 +1306,58 @@ function hasUnequalRecordEntry<T extends LexicalNode>(
     }
   }
   return false;
+}
+
+/**
+ * @internal
+ *
+ * Give `to`, a node that takes the place of `from` with the same content as a
+ * node of another type, the NodeState of `from`: known values as they are,
+ * values not read yet as their JSON, parsed with the configs of the type of
+ * `to` where it has its own for a key. Default values are left out, and keys
+ * that `to` already holds (set when it was made) keep their value.
+ */
+export function $carryNodeState(from: LexicalNode, to: LexicalNode): void {
+  const fromState = from.getLatest().__state;
+  if (fromState === undefined || fromState.size === 0) {
+    return;
+  }
+  const toState = to.getLatest().__state;
+  const done = new Set<string>();
+  if (toState !== undefined) {
+    for (const [stateConfig] of toState.knownState) {
+      done.add(stateConfig.key);
+    }
+    if (toState.unknownState !== undefined) {
+      for (const key of Object.keys(toState.unknownState)) {
+        done.add(key);
+      }
+    }
+  }
+  const state = $getWritableNodeState(to);
+  for (const [stateConfig, value] of fromState.knownState) {
+    if (done.has(stateConfig.key)) {
+      continue;
+    }
+    done.add(stateConfig.key);
+    if (stateConfig.isEqual(value, stateConfig.defaultValue)) {
+      continue;
+    }
+    const own = state.sharedNodeState.sharedConfigMap.get(stateConfig.key);
+    if (own === undefined || own === stateConfig) {
+      state.updateFromKnown(stateConfig, value);
+    } else {
+      state.updateFromUnknown(stateConfig.key, stateConfig.unparse(value));
+    }
+  }
+  const {unknownState} = fromState;
+  if (unknownState !== undefined) {
+    for (const [key, value] of Object.entries(unknownState)) {
+      if (!done.has(key)) {
+        state.updateFromUnknown(key, value);
+      }
+    }
+  }
 }
 
 /**

@@ -55,6 +55,72 @@ function $duplicateNode(node: MyCustomNode) {
 }
 ```
 
+## The `afterCloneFrom` Method
+
+### What is `afterCloneFrom`?
+
+`afterCloneFrom(prevNode)` runs on every clone, right after it is constructed,
+and copies over whatever the constructor did not. The base implementation
+carries the node's links to its parent and siblings and its
+[NodeState](./node-state.md), and `ElementNode` and `TextNode` carry their own
+built-in properties such as format, style, and indent. A property that is
+copied neither by the constructor nor by some `afterCloneFrom` silently
+reverts to its default on the node's next write.
+
+### When you don't need it
+
+With the modern APIs you usually don't write one at all:
+
+- **Serialization schema.** A property declared as a field in a `$config`
+  [`json` schema](./nodes.mdx#creating-custom-nodes-with-a-serialization-schema)
+  (`withField(stringValue(), {field: '__label'})`) is carried across the
+  clone for you, because the schema says where it is stored. Available in
+  Lexical v0.51.0 and later.
+- **NodeState.** State created with `createState` and stored with `$setState`
+  is carried by the base `afterCloneFrom`, so a node whose extra data lives
+  only in NodeState needs nothing.
+
+```ts
+// At module scope, above the class, so TypeScript checks it against the class
+const calloutSchema = nodeSchema<CalloutNode>()({
+  label: withField(stringValue(), {field: '__label'}),
+});
+
+class CalloutNode extends ElementNode {
+  __label: string = '';
+
+  // No afterCloneFrom: `__label` is declared as a field in calloutSchema, so
+  // it is carried across every clone.
+  $config() {
+    return this.config('callout', {extends: ElementNode, json: calloutSchema});
+  }
+}
+```
+
+### When you still need it
+
+Override `afterCloneFrom` for a property that neither of those covers: a
+field that isn't in the node's schema, one declared only through accessor
+methods (see
+[Carrying properties across a clone](../serialization/serialization.md#carrying-properties-across-a-clone)),
+or any property of a node written without a schema. Always call
+`super.afterCloneFrom(prevNode)` first so the inherited properties and
+NodeState are still carried:
+
+```ts
+class MyCustomNode extends ElementNode {
+  __data: string = '';
+
+  afterCloneFrom(prevNode: this): void {
+    super.afterCloneFrom(prevNode);
+    this.__data = prevNode.__data;
+  }
+}
+```
+
+Like `clone`, `afterCloneFrom` is called by Lexical; don't call it yourself
+except through `super`.
+
 ## Using `$copyNode`
 
 ### What is `$copyNode`?

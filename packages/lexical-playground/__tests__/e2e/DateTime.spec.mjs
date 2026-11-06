@@ -17,14 +17,12 @@ import {
   test,
 } from '../utils/index.mjs';
 
+test.skip(({isPlainText}) => isPlainText, 'Requires rich text');
+
 test.describe('DateTime', () => {
   test.beforeEach(({isCollab, page}) => initialize({isCollab, page}));
 
-  test('can insert a DateTime node via the Insert dropdown', async ({
-    page,
-    isPlainText,
-  }) => {
-    test.skip(isPlainText);
+  test('can insert a DateTime node via the Insert dropdown', async ({page}) => {
     await focusEditor(page);
     // Insert DateTime using the Insert dropdown
     await selectFromInsertDropdown(page, '.item .calendar');
@@ -59,11 +57,7 @@ test.describe('DateTime', () => {
     );
   });
 
-  test('Datetime should be inserted into the link', async ({
-    page,
-    isPlainText,
-  }) => {
-    test.skip(isPlainText);
+  test('Datetime should be inserted into the link', async ({page}) => {
     await focusEditor(page);
     await page.keyboard.type('Hello world');
     await selectAll(page);
@@ -111,11 +105,7 @@ test.describe('DateTime', () => {
     );
   });
 
-  test('Datetime should apply the current selection format', async ({
-    page,
-    isPlainText,
-  }) => {
-    test.skip(isPlainText);
+  test('Datetime should apply the current selection format', async ({page}) => {
     await focusEditor(page);
     await toggleBold(page);
 

@@ -6,8 +6,10 @@
  *
  */
 
+import type {YCollabExtension} from '@lexical/y';
+
 import {$createCodeNode, $isCodeNode, CodeIndentExtension} from '@lexical/code';
-import {getPeerDependencyFromEditor} from '@lexical/extension';
+import {getPeerDependencyFromEditor, signal} from '@lexical/extension';
 import {
   editorStateFromSerializedDocument,
   exportFile,
@@ -27,6 +29,7 @@ import {
 } from '@lexical/markdown';
 import {useCollaborationContext} from '@lexical/react/LexicalCollaborationContext';
 import {useLexicalComposerContext} from '@lexical/react/LexicalComposerContext';
+import {useSignalValue} from '@lexical/react/useExtensionSignalValue';
 import {CONNECTED_COMMAND, TOGGLE_CONNECT_COMMAND} from '@lexical/yjs';
 import {
   $createParagraphNode,
@@ -76,12 +79,17 @@ async function shareDoc(doc: SerializedDocument): Promise<void> {
 
 type EditorMode = 'wysiwyg' | 'markdown' | 'html';
 
+// The status of an editor without collab Y (`@lexical/y`).
+const NO_COLLAB_Y_STATUS = signal('active');
+
 export default function ActionsPlugin({
   shouldPreserveNewLinesInMarkdown,
   useCollabV2,
+  useCollabY,
 }: {
   shouldPreserveNewLinesInMarkdown: boolean;
   useCollabV2: boolean;
+  useCollabY: boolean;
 }): JSX.Element {
   const [editor] = useLexicalComposerContext();
   const [isEditable, setIsEditable] = useState(() => editor.isEditable());
@@ -91,6 +99,16 @@ export default function ActionsPlugin({
   const [modal, showModal] = useModal();
   const showFlashMessage = useFlashMessage();
   const {isCollabActive} = useCollaborationContext();
+  // Collab Y keeps the editor non-editable until the binding has read the
+  // document, and while it is read only (a layout it cannot write): the
+  // read-only toggle is off until the binding is active. Looked up by name,
+  // so that `@lexical/y` stays in its own chunk.
+  const collabYStatus = useSignalValue(
+    getPeerDependencyFromEditor<typeof YCollabExtension>(
+      editor,
+      '@lexical/y/Collab',
+    )?.output.status ?? NO_COLLAB_Y_STATUS,
+  );
   const unregisterTransformRef = useRef(() => {});
   const [mode, dispatchMode, isPending] = useActionState(
     async (prevMode: EditorMode, nextMode: EditorMode): Promise<EditorMode> => {
@@ -364,6 +382,7 @@ export default function ActionsPlugin({
       </button>
       <button
         className={`action-button ${!isEditable ? 'unlock' : 'lock'}`}
+        disabled={collabYStatus !== 'active'}
         onClick={() => {
           editor.setEditable(!editor.isEditable());
         }}
@@ -391,7 +410,7 @@ export default function ActionsPlugin({
         aria-label={isHtml ? 'Convert from html' : 'Convert to html'}>
         <i className="html" />
       </button>
-      {isCollabActive && (
+      {(isCollabActive || useCollabY) && (
         <>
           <button
             className="action-button connect"

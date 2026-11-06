@@ -6,7 +6,7 @@
 `@experimental` and may change between any two Lexical releases —
 including breaking renames, signature changes, or behavior changes —
 until the API stabilizes. We track issues and proposals in the
-[GitHub repo](https://github.com/facebook/lexical); breaking changes
+[GitHub repo](https://github.com/meta/lexical); breaking changes
 will be called out in release notes. Apps that depend on this
 extension should pin their Lexical version and treat upgrades as
 intentional.
@@ -24,9 +24,11 @@ with significant additions in v0.45.0
 `DOMRenderExtension` lets you override how Lexical nodes are rendered
 to the DOM during reconciliation (the `createDOM` / `updateDOM` /
 `decorateDOM` cycle) and how they're serialized to HTML for clipboard
-export and `$generateHtmlFromNodes`. Both the in-editor render path
-and the export path consult the same set of overrides, so a single
-declaration can shape both.
+export and `$generateHtmlFromNodes`. Both paths are configured in the
+same extension, but they run different hooks: `$exportDOM` only runs
+for export, `$updateDOM` and `$decorateDOM` only run during
+reconciliation, and `$createDOM` reaches export only through a node's
+default `exportDOM` (see the tip under [Quick start](#quick-start)).
 
 For the inverse direction — converting a DOM tree into Lexical nodes
 — see [DOMImportExtension](./dom-import.md).
@@ -237,6 +239,10 @@ configExtension(DOMRenderExtension, {
   ],
 });
 ```
+
+The `id` reaches HTML export through `$createDOM` only for nodes that use
+the default `exportDOM`. For a node class whose `exportDOM` builds its own
+element, add a `$exportDOM` override that sets it as well.
 
 Note the `$updateDOM` shape: it returns `true` to tell the reconciler
 to unmount and re-create the DOM (e.g. when the element tag would
@@ -546,8 +552,10 @@ Current:
 - Middleware `$next()` chain composes across extensions.
 - Typed render context (`createRenderState`, `RenderContextExport`,
   `RenderContextRoot`) lets overrides branch on the calling mode.
-- A single declaration applies to both in-editor reconciliation and
-  HTML export.
+- One extension declares both in-editor rendering and HTML export
+  overrides. A `$createDOM` override also reaches export through the
+  default `exportDOM`; `$updateDOM` and `$decorateDOM` only run during
+  reconciliation.
 - Conditional installation via `disabledForEditor` / `disabledForSession`,
   with imperative `$setRenderContextValue` / `$updateRenderContextValue` to
   toggle editor-scoped overrides at runtime.

@@ -7,7 +7,7 @@
  */
 
 import {Tabs} from '@ark-ui/react/tabs';
-import {AutoFocusExtension} from '@lexical/extension';
+import {AutoFocusExtension, EditorStateExtension} from '@lexical/extension';
 import {HistoryExtension} from '@lexical/history';
 import {ContentEditable} from '@lexical/react/LexicalContentEditable';
 import {LexicalExtensionComposer} from '@lexical/react/LexicalExtensionComposer';
@@ -27,6 +27,7 @@ const editorExtension = defineExtension({
     RichTextExtension,
     HistoryExtension,
     AutoFocusExtension,
+    EditorStateExtension,
     StyleStateExtension,
     ToolbarExtension,
   ],

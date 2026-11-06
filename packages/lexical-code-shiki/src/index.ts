@@ -7,8 +7,6 @@
  */
 
 export {
-  type CodeHighlighterShikiConfig,
-  CodeHighlighterShikiExtension,
   type CodeShikiConfig,
   CodeShikiExtension,
   registerCodeHighlighting,

@@ -8,7 +8,14 @@
 
 import type {CompiledMdast, MdastNode} from './types';
 import type {LexicalNode} from 'lexical';
-import type {Blockquote, Code, Heading, List, PhrasingContent} from 'mdast';
+import type {
+  Blockquote,
+  Code,
+  Heading,
+  List,
+  PhrasingContent,
+  ThematicBreak,
+} from 'mdast';
 
 import {fromMarkdown} from 'mdast-util-from-markdown';
 
@@ -18,7 +25,8 @@ export type MdastBlockMatch =
   | {kind: 'heading'; node: Heading; markerLength: number}
   | {kind: 'blockquote'; node: Blockquote; markerLength: number}
   | {kind: 'list'; node: List; markerLength: number}
-  | {kind: 'code'; node: Code; markerLength: number};
+  | {kind: 'code'; node: Code; markerLength: number}
+  | {kind: 'thematicBreak'; node: ThematicBreak; markerLength: number};
 
 /**
  * Returns the offset of the first content character inside a block construct,
@@ -107,6 +115,24 @@ export class MarkdownStreamScanner {
    * matched construct together with the marker length, or `null`.
    */
   scanBlock(line: string): MdastBlockMatch | null {
+    const match = this.scanBlockConstruct(line);
+    if (match === null) {
+      return null;
+    }
+    // A marker is on one line. Text holding a line break (a TextNode can hold
+    // a newline when app code inserts one) can make an empty construct (a
+    // rule, a fence, a heading or list item with no content) span the rest of
+    // the text as its marker, and the lines after it would be stripped with
+    // it. Blank lines before the construct are not part of it.
+    const position = match.node.position;
+    const start =
+      position !== undefined && position.start.offset != null
+        ? position.start.offset
+        : 0;
+    return /[\n\r]/.test(line.slice(start, match.markerLength)) ? null : match;
+  }
+
+  private scanBlockConstruct(line: string): MdastBlockMatch | null {
     if (line.trim() === '') {
       return null;
     }
@@ -137,9 +163,18 @@ export class MarkdownStreamScanner {
           node: first,
         };
       case 'code':
+        // A line indented four columns is indented code: it has no marker and
+        // all of it is content, so it is not a shortcut, and Enter must not
+        // strip it. An opening fence alone on its line has no content yet.
+        if (first.value !== '') {
+          return null;
+        }
         // A code construct recognized from a single line is just the opening
         // fence (possibly with a language); the entire line is the marker.
         return {kind: 'code', markerLength: line.length, node: first};
+      case 'thematicBreak':
+        // A thematic break has no content: the entire line is the marker.
+        return {kind: 'thematicBreak', markerLength: line.length, node: first};
       default:
         return null;
     }

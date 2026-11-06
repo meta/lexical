@@ -20,7 +20,7 @@
       "username": "zurfyx",
       "location": "New York, New York",
       "org": "Meta",
-      "orgLink": "https://github.com/facebook",
+      "orgLink": "https://github.com/meta",
       "title": "Core Maintainer"
     },
     {
@@ -44,7 +44,7 @@
       "username": "fantactuka",
       "location": "New York, NY",
       "org": "Meta",
-      "orgLink": "https://github.com/facebook",
+      "orgLink": "https://github.com/meta",
       "title": "Core Maintainer"
     },
     {
@@ -54,10 +54,20 @@
       },
       "name": "Sherry",
       "username": "potatowagon",
+      "location": "Singapore",
       "title": "Core Maintainer"
     }
   ],
   "distinguished": [
+    {
+      "avatar": "https://avatars.githubusercontent.com/u/35405812?v=4",
+      "links": {
+        "github": "https://github.com/achaljhawar"
+      },
+      "name": "Achal Jhawar",
+      "username": "achaljhawar",
+      "location": "Melbourne, Australia"
+    },
     {
       "avatar": "https://avatars.githubusercontent.com/u/64399555?v=4",
       "links": {
@@ -144,7 +154,7 @@
       },
       "name": "German Jablonski",
       "username": "GermanJablo",
-      "location": "United Kingdom",
+      "location": "Florida, United States",
       "org": "Figma"
     },
     {
@@ -221,6 +231,14 @@
       "org": "Meta"
     },
     {
+      "avatar": "https://avatars.githubusercontent.com/u/91667160?v=4",
+      "links": {
+        "github": "https://github.com/Om-singhaI"
+      },
+      "name": "om singhal",
+      "username": "Om-singhaI"
+    },
+    {
       "avatar": "https://avatars.githubusercontent.com/u/126554055?v=4",
       "links": {
         "github": "https://github.com/randal-atticus"
@@ -244,6 +262,16 @@
       "name": "Sergey Gorbachev",
       "username": "levensta",
       "location": "Around the World"
+    },
+    {
+      "avatar": "https://avatars.githubusercontent.com/u/197028264?v=4",
+      "links": {
+        "github": "https://github.com/LeSingh1"
+      },
+      "name": "Shaurya Singh",
+      "username": "LeSingh1",
+      "location": "Bay Area",
+      "org": "Irvington"
     },
     {
       "avatar": "https://avatars.githubusercontent.com/u/33776279?v=4",
@@ -293,7 +321,6 @@
       },
       "name": "Yangshun Tay",
       "username": "yangshun",
-      "location": "Singapore",
       "org": "Greatfrontend",
       "orgLink": "https://github.com/greatfrontend",
       "sponsor": "https://github.com/sponsors/yangshun"
@@ -317,7 +344,7 @@
       "username": "acywatson",
       "location": "Park City, Utah",
       "org": "Meta",
-      "orgLink": "https://github.com/facebook",
+      "orgLink": "https://github.com/meta",
       "title": "Core Team Emeritus"
     },
     {
@@ -328,8 +355,8 @@
       "name": "Dominic Gannaway",
       "username": "trueadm",
       "location": "London, United Kingdom",
-      "org": "Attio",
-      "orgLink": "https://github.com/attio",
+      "org": "OpenAI",
+      "orgLink": "https://github.com/OpenAI",
       "title": "Creator"
     },
     {
@@ -341,7 +368,7 @@
       "username": "thegreatercurve",
       "location": "London, UK",
       "org": "Meta",
-      "orgLink": "https://github.com/facebook",
+      "orgLink": "https://github.com/meta",
       "title": "Core Team Emeritus"
     },
     {
@@ -355,5 +382,5 @@
       "title": "Core Team Emeritus"
     }
   ],
-  "generated": "2026-05-11T19:37:52.336Z"
+  "generated": "2026-10-28T22:04:24.005Z"
 }

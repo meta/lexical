@@ -6,12 +6,38 @@
  *
  */
 
+import type {Plugin} from 'vite';
+
 import react from '@vitejs/plugin-react';
 import {playwright} from '@vitest/browser-playwright';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import {fileURLToPath} from 'node:url';
-import {defineConfig} from 'vitest/config';
+import {configDefaults, defineConfig} from 'vitest/config';
+
+import {browserCommands} from './scripts/vitest/browserCommands.ts';
+
+// @vitest/browser adds @vitest/mocker's interceptor plugin with
+// `registerWebSocketEvents: false`, which still defines a configureServer
+// hook that does nothing, so Vite warns on every browser run that the hook is
+// ignored. Vitest installs its own logger, so drop the warning from the
+// resolved one.
+const IGNORED_INTERCEPTOR_WARNING =
+  'Plugin "vitest:mocks:interceptor" defines Vite-specific hooks (configureServer)';
+function ignoreInterceptorWarning(): Plugin {
+  return {
+    configResolved(config) {
+      const {logger} = config;
+      const {warnOnce} = logger;
+      logger.warnOnce = (message, options) => {
+        if (!message.startsWith(IGNORED_INTERCEPTOR_WARNING)) {
+          warnOnce(message, options);
+        }
+      };
+    },
+    name: 'lexical:ignore-interceptor-warning',
+  };
+}
 
 // Resolve monorepo imports to TypeScript source from the test tsconfig's
 // `paths`. This includes the cross-package and deep `*/src/__tests__/utils`
@@ -56,7 +82,48 @@ const browserInstances = (process.env.VITEST_BROWSER || 'chromium')
   .filter(
     name => name === 'webkit' || name === 'chromium' || name === 'firefox',
   )
-  .map(browser => ({browser}));
+  // Test files run in parallel pages of one browser. Playwright's Firefox
+  // activates a page's window for every mouse event it dispatches, so a click
+  // or drag in one file deactivates the window of a file that is pressing
+  // keys, and Firefox can drop caret navigation (arrow keys, Home, End) in an
+  // inactive window. Chromium and WebKit pages each behave as focused, so
+  // only Firefox runs its files one at a time.
+  //
+  // A mouse move that Playwright dispatches in Chromium or Firefox completes
+  // at the next frame, and both pace frames at 60Hz, so tests that drag the
+  // mouse spent most of their time waiting for frames. Both draw frames as
+  // soon as they can instead.
+  .map(browser =>
+    browser === 'firefox'
+      ? {
+          browser,
+          maxWorkers: 1,
+          provider: playwright({
+            launchOptions: {firefoxUserPrefs: {'layout.frame_rate': 0}},
+          }),
+        }
+      : browser === 'chromium'
+        ? {
+            browser,
+            provider: playwright({
+              launchOptions: {
+                args: ['--disable-frame-rate-limit', '--disable-gpu-vsync'],
+              },
+            }),
+          }
+        : {browser},
+  );
+
+const compilerUnitTests =
+  'packages/lexical-compiler/**/__tests__/unit/**/*.test{.ts,.tsx,.js,.jsx}';
+
+// jsdom's dependencies use require(esm), which VM pools only support on
+// Node 24.9+. Older Node versions also lack disposal symbols in VM contexts.
+const [nodeMajor, nodeMinor] = process.versions.node.split('.').map(Number);
+const unitPool =
+  nodeMajor > 24 || (nodeMajor === 24 && nodeMinor >= 9)
+    ? 'vmThreads'
+    : 'forks';
 
 export default defineConfig({
   resolve: {
@@ -81,12 +148,16 @@ export default defineConfig({
             ),
           },
           environment: 'jsdom',
+          exclude: [...configDefaults.exclude, compilerUnitTests],
           include: [
             'packages/**/__tests__/unit/**/*.test{.ts,.tsx,.js,.jsx}',
             'dev-examples/**/__tests__/unit/**/*.test{.ts,.tsx,.js,.jsx}',
           ],
           name: 'unit',
-          setupFiles: ['./vitest.setup.mts'],
+          // Reuse jsdom's implementation while keeping each file's window and
+          // module graph isolated (platform mocks depend on that isolation).
+          pool: unitPool,
+          setupFiles: ['./vitest.setup.mts', './vitest.setup.node.mts'],
           typecheck: {
             tsconfig: './tsconfig.test.json',
           },
@@ -111,10 +182,11 @@ export default defineConfig({
             'react-dom/client',
           ],
         },
-        plugins: [react()],
+        plugins: [react(), ignoreInterceptorWarning()],
         test: {
           api: {port: 8315},
           browser: {
+            commands: browserCommands,
             // Vitest's default browser server port (63315) is in the
             // ephemeral range, and Windows reserves randomized blocks of
             // that range (Hyper-V excluded port ranges), so on Windows CI
@@ -150,7 +222,12 @@ export default defineConfig({
         extends: true,
         test: {
           environment: 'node',
-          include: ['scripts/**/__tests__/unit/**/*.test.ts'],
+          // Compiler tests exercise native build tools whose realm-sensitive
+          // arguments (such as RegExp) cannot cross a VM context boundary.
+          include: [
+            'scripts/**/__tests__/unit/**/*.test.ts',
+            compilerUnitTests,
+          ],
           name: 'scripts-unit',
         },
       },
@@ -201,5 +278,8 @@ export default defineConfig({
         },
       },
     ],
+    // VM contexts retain modules until their worker is recycled. Keep the
+    // limit at the root: Vitest's pool reads it from the global config.
+    vmMemoryLimit: '512MB',
   },
 });

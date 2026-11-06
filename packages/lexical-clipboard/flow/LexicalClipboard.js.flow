@@ -18,6 +18,16 @@ import type {
  * Rich Text
  */
 
+export type ImportMimeTypeFunction = (
+  data: string,
+  selection: BaseSelection,
+  $next: (
+    nextData?: string | void,
+    nextSelection?: BaseSelection | void,
+  ) => boolean,
+  dataTransfer: DataTransfer,
+) => boolean;
+
 declare export function $insertDataTransferForRichText(
   dataTransfer: DataTransfer,
   selection: BaseSelection,

@@ -960,16 +960,19 @@ test.describe('Mentions', () => {
     });
   });
 
-  test(`Sets correct attributes on typeahead menu container`, async ({
-    page,
-    isCollab,
-  }) => {
-    test.skip(isCollab);
-    await focusEditor(page);
-    await page.keyboard.type('@a');
+  test.describe(() => {
+    test.skip(({isCollab}) => isCollab);
+    test(`Sets correct attributes on typeahead menu container`, async ({
+      page,
+    }) => {
+      await focusEditor(page);
+      await page.keyboard.type('@a');
 
-    const menuElement = page.locator('#typeahead-menu');
-    expect(await menuElement.getAttribute('aria-label')).toBe('Typeahead menu');
-    expect(await menuElement.getAttribute('role')).toBe('listbox');
+      const menuElement = page.locator('#typeahead-menu');
+      expect(await menuElement.getAttribute('aria-label')).toBe(
+        'Typeahead menu',
+      );
+      expect(await menuElement.getAttribute('role')).toBe('listbox');
+    });
   });
 });

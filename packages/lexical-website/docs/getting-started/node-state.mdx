@@ -1,0 +1,135 @@
+---
+sidebar_position: 6
+---
+
+import GettingStartedExample from '@site/src/components/GettingStartedExample';
+import CodeBlock from '@theme/CodeBlock';
+import ReviewedStateSource from '!!example-source?region=reviewed-state!@site/../../examples/node-state-review/src/ReviewExtension.ts';
+import ReviewSource from '!!example-source?region=review-extension!@site/../../examples/node-state-review/src/ReviewExtension.ts';
+import ReviewStyles from '!!example-source?region=review-styles!@site/../../examples/node-state-review/src/styles.css';
+import AppSource from '!!example-source?region=app-extension!@site/../../examples/node-state-review/src/AppExtension.ts';
+import MainSource from '!!example-source?region=main!@site/../../examples/node-state-review/src/main.ts';
+
+# Adding Data to Nodes
+
+[Creating an Extension](creating-plugin.mdx) adds an emoji node with its own
+properties. Sometimes a feature only needs extra data on existing nodes.
+[NodeState](../concepts/node-state.md) lets you attach that data without creating
+or replacing a node class.
+
+This example adds a `reviewed` flag to ordinary `ParagraphNode` instances. It
+highlights reviewed paragraphs in the editor and preserves the flag when saving
+JSON or exporting and importing HTML. The source blocks are read directly from
+named regions in the runnable example.
+
+## Defining the state
+
+<CodeBlock
+  language="ts"
+  title="examples/node-state-review/src/ReviewExtension.ts">
+  {ReviewedStateSource}
+</CodeBlock>
+
+Import `createState` and `booleanValue` from `lexical` and define the state once
+at module scope. `booleanValue()` accepts untrusted JSON and
+returns `false` for missing or invalid values. Read with `$getState(node,
+reviewedState)` and write with `$setState(node, reviewedState, value)` inside a
+Lexical read or update context, as appropriate.
+
+There is no `stateConfigs` registration here: this is ad-hoc data attached to an
+existing node. Lexical carries it across clones, undo/redo, and JSON saves. A
+reviewed paragraph includes `"$": {"reviewed": true}` in its JSON; the default
+`false` value is omitted. Choose a state key that won't collide with other
+features using the same nodes.
+
+## Rendering and preserving HTML
+
+NodeState handles JSON, but your feature defines what the data means in HTML.
+The following extension maps the flag to `data-reviewed="true"`:
+
+<CodeBlock
+  language="ts"
+  title="examples/node-state-review/src/ReviewExtension.ts">
+  {ReviewSource}
+</CodeBlock>
+
+`DOMRenderExtension`'s `$decorateDOM` runs after a paragraph's DOM is created or
+updated. It adds or removes the attribute as the flag changes. The separate
+`$exportDOM` hook adds the same attribute to exported HTML, including clipboard
+HTML; `$decorateDOM` only handles the live editor.
+
+The import rule matches `<p data-reviewed="true">`. Calling `$next()` keeps the
+normal paragraph import behavior, including its children and text formatting,
+then `$setState` restores the extra data. `RichTextExtension` supplies the
+underlying import rules and rich text behavior.
+
+Style the attribute in your application's CSS:
+
+<CodeBlock language="css" title="examples/node-state-review/src/styles.css">
+  {ReviewStyles}
+</CodeBlock>
+
+This CSS belongs to the application. The exported attribute preserves the data;
+other applications decide how to display it.
+
+## Updating the current paragraph
+
+`ReviewExtension` registers `SET_REVIEWED_COMMAND` for the paragraph containing
+the selection's anchor. Its payload is a boolean or an updater function, matching
+`$setState`. The command handler already runs in an editor update, so a toolbar
+or React component only needs to dispatch it:
+
+```ts
+import {SET_REVIEWED_COMMAND} from './ReviewExtension';
+
+editor.dispatchCommand(SET_REVIEWED_COMMAND, true); // Mark reviewed.
+editor.dispatchCommand(SET_REVIEWED_COMMAND, false); // Clear the flag.
+editor.dispatchCommand(SET_REVIEWED_COMMAND, reviewed => !reviewed); // Toggle.
+```
+
+The handler returns `false` when there is no range selection anchored in a
+paragraph. `$setState` marks the paragraph dirty so the render hook runs. Lexical
+handles copy-on-write updates.
+
+## Putting it together
+
+The application's root extension owns its DOM event handlers and JSON view.
+Define it at module scope in `AppExtension.ts`, with the interface elements in
+`index.html`:
+
+<CodeBlock language="ts" title="examples/node-state-review/src/AppExtension.ts">
+  {AppSource}
+</CodeBlock>
+
+`registerEventListener` and `registerEventListeners` return cleanup functions.
+`mergeRegister` combines them with the editor listener's cleanup, so disposing
+the editor also removes the toolbar and import/export handlers. No separate
+`AbortController` is needed. For asynchronous work or other APIs that accept an
+`AbortSignal`, `register(editor, config, state)` can use `state.getSignal()`.
+
+`register` runs before editor-state initialization. Use `afterRegistration` when
+setup needs the initialized state; these handlers only need it when an event
+fires. The clipboard extension routes pasted HTML through `DOMImportExtension`.
+
+The entry point now builds the editor and attaches its root:
+
+<CodeBlock language="ts" title="examples/node-state-review/src/main.ts">
+  {MainSource}
+</CodeBlock>
+
+The entry point adds `HMRExtension` to `buildEditorFromExtensions`, keeping
+Vite-specific setup out of `AppExtension`. It preserves editor state, selection,
+and undo/redo history through Vite updates. The entry point accepts those updates
+and disposes the old editor; the extension does not perform those bundler lifecycle steps. Passing
+`hot: null` makes it a no-op when HMR is unavailable.
+
+Use **Toggle reviewed**, then **Export HTML** and **Import HTML** to try the round
+trip. Expand **Editor state JSON** to inspect the ad-hoc data. This view uses
+`editorState.toJSON(true)` to omit default-valued fields. The same
+`ReviewExtension` also works with `LexicalExtensionComposer` in React.
+
+<GettingStartedExample example="node-state-review" />
+
+See [DOM rendering](../serialization/dom-render.md) and
+[DOM import](../serialization/dom-import.md) for more ways to compose render
+hooks and import rules.

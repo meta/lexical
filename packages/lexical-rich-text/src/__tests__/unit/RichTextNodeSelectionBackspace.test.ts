@@ -48,7 +48,7 @@ function createEditor(inline: boolean) {
 }
 
 describe('KEY_BACKSPACE_COMMAND on a single-decorator NodeSelection', () => {
-  // Regression for facebook/lexical#8712: the early "target within decorator"
+  // Regression for meta/lexical#8712: the early "target within decorator"
   // pass-through used to fire even when the active selection was a
   // NodeSelection on the decorator itself, so a click that selected a block
   // decorator followed by Backspace was a silent no-op. We now skip the

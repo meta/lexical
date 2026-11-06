@@ -275,6 +275,8 @@ declare export class LexicalEditor {
   _key: string;
   _editable: boolean;
   _headless: boolean;
+  _recordNodeMoves: boolean;
+  _recordTextEdits: boolean;
   isComposing(): boolean;
   registerUpdateListener(listener: UpdateListener): () => void;
   registerRootListener(listener: RootListener): () => void;
@@ -452,6 +454,22 @@ declare export function createEditor(editorConfig?: {
 
 export interface EditorState {
   _nodeMap: NodeMap;
+  _movedNodes: null | WeakMap<NodeMap, Set<NodeKey>>;
+  _splitNodes: null | WeakMap<NodeMap, Map<NodeKey, [NodeKey, number]>>;
+  _textEdits: null | WeakMap<
+    NodeMap,
+    Array<
+      | ['splice', NodeKey, number, number, string, string]
+      | ['split', NodeKey, ReadonlyArray<NodeKey>, ReadonlyArray<number>, string]
+      | ['merge', NodeKey, NodeKey, boolean, string, string]
+      | ['set', NodeKey, string, string]
+      | ['move', NodeKey, NodeKey, number, string, string]
+      | ['retype', NodeKey, NodeKey, string]
+      | ['attach', NodeKey, NodeKey, NodeKey | null, NodeKey | null, string | null]
+      | ['detach', NodeKey, NodeKey]
+      | ['delete', NodeKey],
+    >,
+  >;
   _selection: null | BaseSelection;
   _flushSync: boolean;
   _readOnly: boolean;
@@ -531,54 +549,68 @@ declare export class LexicalNode {
   getIndexWithinParent(): number;
   getParent(): ElementNode | null;
   /**
-   * @deprecated The type parameter is an unchecked and unsafe cast and
-   * will be removed in a future release. Call this method without a type
-   * argument and narrow the result with a type guard instead.
+   * @deprecated The type parameter is an unchecked and unsafe cast. The
+   * TypeScript overload was removed in v0.53.0; this Flow overload is kept
+   * until the Flow call sites that pass a type argument are migrated. Call
+   * this method without a type argument and narrow the result with a type
+   * guard instead.
    */
   getParent<T extends ElementNode>(): T | null;
   getParentOrThrow(): ElementNode;
   /**
-   * @deprecated The type parameter is an unchecked and unsafe cast and
-   * will be removed in a future release. Call this method without a type
-   * argument and narrow the result with a type guard instead.
+   * @deprecated The type parameter is an unchecked and unsafe cast. The
+   * TypeScript overload was removed in v0.53.0; this Flow overload is kept
+   * until the Flow call sites that pass a type argument are migrated. Call
+   * this method without a type argument and narrow the result with a type
+   * guard instead.
    */
   getParentOrThrow<T extends ElementNode>(): T;
   getTopLevelElement(): DecoratorNode<unknown> | ElementNode | null;
   getTopLevelElementOrThrow(): DecoratorNode<unknown> | ElementNode;
   getParents(): ElementNode[];
   /**
-   * @deprecated The type parameter is an unchecked and unsafe cast and
-   * will be removed in a future release. Call this method without a type
-   * argument and narrow the result with a type guard instead.
+   * @deprecated The type parameter is an unchecked and unsafe cast. The
+   * TypeScript overload was removed in v0.53.0; this Flow overload is kept
+   * until the Flow call sites that pass a type argument are migrated. Call
+   * this method without a type argument and narrow the result with a type
+   * guard instead.
    */
   getParents<T extends ElementNode>(): T[];
   getParentKeys(): NodeKey[];
   getPreviousSibling(): LexicalNode | null;
   /**
-   * @deprecated The type parameter is an unchecked and unsafe cast and
-   * will be removed in a future release. Call this method without a type
-   * argument and narrow the result with a type guard instead.
+   * @deprecated The type parameter is an unchecked and unsafe cast. The
+   * TypeScript overload was removed in v0.53.0; this Flow overload is kept
+   * until the Flow call sites that pass a type argument are migrated. Call
+   * this method without a type argument and narrow the result with a type
+   * guard instead.
    */
   getPreviousSibling<T extends LexicalNode>(): T | null;
   getPreviousSiblings(): LexicalNode[];
   /**
-   * @deprecated The type parameter is an unchecked and unsafe cast and
-   * will be removed in a future release. Call this method without a type
-   * argument and narrow the result with a type guard instead.
+   * @deprecated The type parameter is an unchecked and unsafe cast. The
+   * TypeScript overload was removed in v0.53.0; this Flow overload is kept
+   * until the Flow call sites that pass a type argument are migrated. Call
+   * this method without a type argument and narrow the result with a type
+   * guard instead.
    */
   getPreviousSiblings<T extends LexicalNode>(): T[];
   getNextSibling(): LexicalNode | null;
   /**
-   * @deprecated The type parameter is an unchecked and unsafe cast and
-   * will be removed in a future release. Call this method without a type
-   * argument and narrow the result with a type guard instead.
+   * @deprecated The type parameter is an unchecked and unsafe cast. The
+   * TypeScript overload was removed in v0.53.0; this Flow overload is kept
+   * until the Flow call sites that pass a type argument are migrated. Call
+   * this method without a type argument and narrow the result with a type
+   * guard instead.
    */
   getNextSibling<T extends LexicalNode>(): T | null;
   getNextSiblings(): LexicalNode[];
   /**
-   * @deprecated The type parameter is an unchecked and unsafe cast and
-   * will be removed in a future release. Call this method without a type
-   * argument and narrow the result with a type guard instead.
+   * @deprecated The type parameter is an unchecked and unsafe cast. The
+   * TypeScript overload was removed in v0.53.0; this Flow overload is kept
+   * until the Flow call sites that pass a type argument are migrated. Call
+   * this method without a type argument and narrow the result with a type
+   * guard instead.
    */
   getNextSiblings<T extends LexicalNode>(): T[];
   is(object: ?LexicalNode): boolean;
@@ -977,15 +1009,19 @@ declare export class ElementNode extends LexicalNode {
   getIndent(): number;
   getChildren(): LexicalNode[];
   /**
-   * @deprecated The type parameter is an unchecked and unsafe cast and
-   * will be removed in a future release. Call this method without a type
-   * argument and narrow the result with a type guard instead.
+   * @deprecated The type parameter is an unchecked and unsafe cast. The
+   * TypeScript overload was removed in v0.53.0; this Flow overload is kept
+   * until the Flow call sites that pass a type argument are migrated. Call
+   * this method without a type argument and narrow the result with a type
+   * guard instead.
    */
   getChildren<T extends LexicalNode>(): T[];
   /**
-   * @deprecated The type parameter is an unchecked and unsafe cast and
-   * will be removed in a future release. Call this method without a type
-   * argument and narrow the result with a type guard instead.
+   * @deprecated The type parameter is an unchecked and unsafe cast. The
+   * TypeScript overload was removed in v0.53.0; this Flow overload is kept
+   * until the Flow call sites that pass a type argument are migrated. Call
+   * this method without a type argument and narrow the result with a type
+   * guard instead.
    */
   getChildren<T extends LexicalNode[]>(): T;
   getChildrenKeys(): NodeKey[];
@@ -995,58 +1031,74 @@ declare export class ElementNode extends LexicalNode {
   getAllTextNodes(): TextNode[];
   getFirstDescendant(): null | LexicalNode;
   /**
-   * @deprecated The type parameter is an unchecked and unsafe cast and
-   * will be removed in a future release. Call this method without a type
-   * argument and narrow the result with a type guard instead.
+   * @deprecated The type parameter is an unchecked and unsafe cast. The
+   * TypeScript overload was removed in v0.53.0; this Flow overload is kept
+   * until the Flow call sites that pass a type argument are migrated. Call
+   * this method without a type argument and narrow the result with a type
+   * guard instead.
    */
   getFirstDescendant<T extends LexicalNode>(): null | T;
   getLastDescendant(): null | LexicalNode;
   /**
-   * @deprecated The type parameter is an unchecked and unsafe cast and
-   * will be removed in a future release. Call this method without a type
-   * argument and narrow the result with a type guard instead.
+   * @deprecated The type parameter is an unchecked and unsafe cast. The
+   * TypeScript overload was removed in v0.53.0; this Flow overload is kept
+   * until the Flow call sites that pass a type argument are migrated. Call
+   * this method without a type argument and narrow the result with a type
+   * guard instead.
    */
   getLastDescendant<T extends LexicalNode>(): null | T;
   getDescendantByIndex(index: number): null | LexicalNode;
   /**
-   * @deprecated The type parameter is an unchecked and unsafe cast and
-   * will be removed in a future release. Call this method without a type
-   * argument and narrow the result with a type guard instead.
+   * @deprecated The type parameter is an unchecked and unsafe cast. The
+   * TypeScript overload was removed in v0.53.0; this Flow overload is kept
+   * until the Flow call sites that pass a type argument are migrated. Call
+   * this method without a type argument and narrow the result with a type
+   * guard instead.
    */
   getDescendantByIndex<T extends LexicalNode>(index: number): null | T;
   getFirstChild(): null | LexicalNode;
   /**
-   * @deprecated The type parameter is an unchecked and unsafe cast and
-   * will be removed in a future release. Call this method without a type
-   * argument and narrow the result with a type guard instead.
+   * @deprecated The type parameter is an unchecked and unsafe cast. The
+   * TypeScript overload was removed in v0.53.0; this Flow overload is kept
+   * until the Flow call sites that pass a type argument are migrated. Call
+   * this method without a type argument and narrow the result with a type
+   * guard instead.
    */
   getFirstChild<T extends LexicalNode>(): null | T;
   getFirstChildOrThrow(): LexicalNode;
   /**
-   * @deprecated The type parameter is an unchecked and unsafe cast and
-   * will be removed in a future release. Call this method without a type
-   * argument and narrow the result with a type guard instead.
+   * @deprecated The type parameter is an unchecked and unsafe cast. The
+   * TypeScript overload was removed in v0.53.0; this Flow overload is kept
+   * until the Flow call sites that pass a type argument are migrated. Call
+   * this method without a type argument and narrow the result with a type
+   * guard instead.
    */
   getFirstChildOrThrow<T extends LexicalNode>(): T;
   getLastChild(): null | LexicalNode;
   /**
-   * @deprecated The type parameter is an unchecked and unsafe cast and
-   * will be removed in a future release. Call this method without a type
-   * argument and narrow the result with a type guard instead.
+   * @deprecated The type parameter is an unchecked and unsafe cast. The
+   * TypeScript overload was removed in v0.53.0; this Flow overload is kept
+   * until the Flow call sites that pass a type argument are migrated. Call
+   * this method without a type argument and narrow the result with a type
+   * guard instead.
    */
   getLastChild<T extends LexicalNode>(): null | T;
   getLastChildOrThrow(): LexicalNode;
   /**
-   * @deprecated The type parameter is an unchecked and unsafe cast and
-   * will be removed in a future release. Call this method without a type
-   * argument and narrow the result with a type guard instead.
+   * @deprecated The type parameter is an unchecked and unsafe cast. The
+   * TypeScript overload was removed in v0.53.0; this Flow overload is kept
+   * until the Flow call sites that pass a type argument are migrated. Call
+   * this method without a type argument and narrow the result with a type
+   * guard instead.
    */
   getLastChildOrThrow<T extends LexicalNode>(): T;
   getChildAtIndex(index: number): null | LexicalNode;
   /**
-   * @deprecated The type parameter is an unchecked and unsafe cast and
-   * will be removed in a future release. Call this method without a type
-   * argument and narrow the result with a type guard instead.
+   * @deprecated The type parameter is an unchecked and unsafe cast. The
+   * TypeScript overload was removed in v0.53.0; this Flow overload is kept
+   * until the Flow call sites that pass a type argument are migrated. Call
+   * this method without a type argument and narrow the result with a type
+   * guard instead.
    */
   getChildAtIndex<T extends LexicalNode>(index: number): null | T;
   getTextContent(): string;
@@ -1216,16 +1268,20 @@ declare export function $getNodeByKey(
   _editorState?: EditorState,
 ): LexicalNode | null;
 /**
- * @deprecated The type parameter is an unchecked and unsafe cast and
- * will be removed in a future release. Call this function without a type
- * argument and narrow the result with a type guard instead.
+ * @deprecated The type parameter is an unchecked and unsafe cast. The
+ * TypeScript overload was removed in v0.53.0; this Flow overload is kept
+ * until the Flow call sites that pass a type argument are migrated. Call
+ * this function without a type argument and narrow the result with a type
+ * guard instead.
  */
 declare export function $getNodeByKey<N extends LexicalNode>(key: NodeKey): N | null;
 declare export function $getNodeByKeyOrThrow(key: NodeKey): LexicalNode;
 /**
- * @deprecated The type parameter is an unchecked and unsafe cast and
- * will be removed in a future release. Call this function without a type
- * argument and narrow the result with a type guard instead.
+ * @deprecated The type parameter is an unchecked and unsafe cast. The
+ * TypeScript overload was removed in v0.53.0; this Flow overload is kept
+ * until the Flow call sites that pass a type argument are migrated. Call
+ * this function without a type argument and narrow the result with a type
+ * guard instead.
  */
 declare export function $getNodeByKeyOrThrow<N extends LexicalNode>(key: NodeKey): N;
 declare export function $getRoot(): RootNode;
@@ -1300,6 +1356,10 @@ declare export function $cloneWithPropertiesEphemeral<T extends LexicalNode>(nod
 declare export function $copyNode<T extends LexicalNode>(node: T, skipReset?: boolean): T;
 declare export function $getDocument(): Document;
 declare export function $getEditor(): LexicalEditor;
+/** @internal */
+declare export function INTERNAL_getActiveEditorState(): EditorState | null;
+/** @internal */
+declare export function INTERNAL_$withExportMemo<T>(f: () => T): T;
 declare export function $getEditorDOMRenderConfig(
   editor?: LexicalEditor,
 ): EditorDOMRenderConfig;
@@ -1365,6 +1425,12 @@ declare export function $getDOMTextNode(
   dom: HTMLElement,
   editor?: LexicalEditor,
 ): Text | null;
+/** @internal */
+declare export function $getElementAndOffsetForPoint(
+  editor: LexicalEditor,
+  node: LexicalNode,
+  offset: number,
+): [HTMLElement, number];
 declare export function $isElementDOMSlot(
   slot: DOMSlot<HTMLElement>,
 ): slot is ElementDOMSlot<HTMLElement>;
@@ -1413,6 +1479,7 @@ declare export function getActiveElementDeep(
   root: Document | ShadowRoot,
 ): Element | null;
 declare export function getComposedEventTarget(event: Event): EventTarget | null;
+declare export function $isEventFromEmbeddedInput(event: Event | null): boolean;
 
 /**
  * LexicalNormalization
@@ -1747,6 +1814,15 @@ declare export function $caretFromPoint<D extends CaretDirection>(
 declare export function $caretRangeFromSelection(
   selection: RangeSelection,
 ): CaretRange<CaretDirection>;
+declare export function $splitTextPointCaretSlice(
+  slice: TextPointCaretSlice<>,
+  selection?: RangeSelection | null,
+): TextNode | null;
+/** @internal */
+declare export function $getTextPointCaretSliceForNode(
+  slices: ReadonlyArray<TextPointCaretSlice<> | null>,
+  node: LexicalNode,
+): TextPointCaretSlice<> | void;
 declare export function $getAdjacentSiblingOrParentSiblingCaret<
   D extends CaretDirection,
 >(
@@ -1868,6 +1944,15 @@ declare export function $insertNodeToNearestRootAtCaret<T extends LexicalNode>(
 ): NodeCaret<CaretDirection>;
 
 /**
+ * LexicalWarning
+ */
+declare export class LexicalWarning extends Error {
+  readonly code: string;
+  readonly data?: unknown;
+  constructor(code: string, message: string, data?: unknown): void;
+}
+
+/**
  * LexicalUpdateTags
  */
 declare export var COLLABORATION_TAG: 'collaboration';
@@ -1877,6 +1962,7 @@ declare export var HISTORY_MERGE_TAG: 'history-merge';
 declare export var HISTORY_PUSH_TAG: 'history-push';
 declare export var PASTE_TAG: 'paste';
 declare export var SKIP_COLLAB_TAG: 'skip-collab';
+declare export var DEFER_COMPOSITION_MERGE_TAG: 'defer-composition-merge';
 declare export var SKIP_DOM_SELECTION_TAG: 'skip-dom-selection';
 declare export var SKIP_SCROLL_INTO_VIEW_TAG: 'skip-scroll-into-view';
 export type UpdateTag =
@@ -1887,6 +1973,7 @@ export type UpdateTag =
   | typeof HISTORY_PUSH_TAG
   | typeof PASTE_TAG
   | typeof SKIP_COLLAB_TAG
+  | typeof DEFER_COMPOSITION_MERGE_TAG
   | typeof SKIP_DOM_SELECTION_TAG
   | typeof SKIP_SCROLL_INTO_VIEW_TAG
   | string;
@@ -1949,6 +2036,7 @@ declare export class StateConfig<K extends string, V> {
   readonly isEqual: (a: V, b: V) => boolean;
   readonly defaultValue: V;
   readonly resetOnCopyNode: boolean;
+  readonly derived: boolean;
   readonly schema?: AnySerializationSchema;
   constructor(key: K, stateValueConfig: StateValueConfig<V>): this;
 }
@@ -1958,6 +2046,7 @@ export type StateValueConfig<V> = {
   unparse?: (parsed: V) => unknown;
   isEqual?: (a: V, b: V) => boolean;
   resetOnCopyNode?: boolean;
+  derived?: boolean;
 }
 
 export type Parse<T> = (value: unknown) => T;
@@ -1966,6 +2055,7 @@ export type Parse<T> = (value: unknown) => T;
 // `defaultValue` off a schema rather than only calling it.
 export type SerializationSchema<T> = Parse<T> & {
   readonly defaultValue: T,
+  readonly derived?: true,
   readonly meta: SerializationSchemaMeta,
   readonly getter?: SchemaGetterAccessor,
   readonly setter?: SchemaSetterAccessor,
@@ -2097,6 +2187,9 @@ declare export function aliasedValue<T>(
 ): SerializationSchema<T>;
 declare export function rawValue<T>(): SerializationSchema<T | void>;
 declare export function arrayValue<T>(item: SerializationSchema<T>): SerializationSchema<T[]>;
+declare export function arraySetValue<T extends string>(
+  item: SerializationSchema<T>,
+): SerializationSchema<ReadonlyArray<T>>;
 declare export function objectValue<T>(fields: SerializationSchemaShape<T>): SerializationSchema<T>;
 
 // Every member of `N` a schema may name: its own `__`-prefixed fields and its
@@ -2171,6 +2264,7 @@ export type FieldOptions = {
   readonly getter?: string,
   readonly setter?: string,
   readonly when?: string,
+  readonly derived?: boolean,
 };
 // One direction of a schema field: a method name, a node field, or null for a
 // direction that is deliberately unsupported.
@@ -2178,6 +2272,7 @@ export type SchemaAccessor = string | SchemaField | null;
 export type SchemaAccessors = {
   readonly getter?: SchemaGetterAccessor,
   readonly setter?: SchemaSetterAccessor,
+  readonly derived?: boolean,
 };
 declare export function isSchemaField<T extends SchemaFieldBase>(
   accessor: string | T | null | void,
@@ -2285,8 +2380,40 @@ export interface StaticNodeConfigValue<
   readonly generated?: GeneratedJSONFactory;
   readonly stateConfigs?: ReadonlyArray<RequiredNodeStateConfig>;
   readonly slots?: ReadonlyArray<string>;
+  readonly inline?: boolean;
+  readonly children?: NodeChildrenConfig;
+  readonly mergeAdjacent?: MergeAdjacentConfig | false;
   readonly extends?: Class<LexicalNode>;
 }
+
+export type NodeChildrenConfig =
+  | 'inline'
+  | 'block'
+  | ReadonlyArray<'inline' | Class<LexicalNode>>;
+
+export type MergeAdjacentConfig = {
+  readonly by: ReadonlyArray<string | AnyStateConfig>,
+};
+
+export type DeclaredNodeStructure = {
+  readonly inline?: boolean,
+  readonly children?: NodeChildrenConfig,
+  readonly mergeAdjacent?: MergeAdjacentConfig,
+  readonly derived: ReadonlySet<string>,
+  readonly declaredBy: {
+    readonly inline?: Class<LexicalNode>,
+    readonly children?: Class<LexicalNode>,
+    readonly mergeAdjacent?: Class<LexicalNode>,
+  },
+};
+
+declare export function getDeclaredNodeStructure(
+  klass: Class<LexicalNode>,
+): DeclaredNodeStructure;
+
+declare export function $isBlockContainer(
+  node: ?LexicalNode,
+): implies node is ElementNode;
 
 /**
  * This is the type of LexicalNode.$config() that can be
@@ -2636,17 +2763,31 @@ declare export function removeClassNamesFromElement(
   ...classNames: (typeof undefined | boolean | null | string)[]
 ): void;
 declare export function mergeRegister(...func: (() => void)[]): () => void;
+// `AddEventListenerOptions` from TypeScript's `lib.dom.d.ts` and
+// `EventListenerOptionsOrUseCapture` from the flow-typed DOM libdef describe
+// the same value under different names, so naming either one ties this
+// declaration to a single DOM libdef. Spelling it structurally keeps it
+// resolvable under both.
+type RegisterEventListenerOptions =
+  | boolean
+  | {
+      capture?: boolean,
+      once?: boolean,
+      passive?: boolean,
+      signal?: AbortSignal,
+      ...
+    };
 declare export function registerEventListener(
   target: EventTarget,
   type: string,
   listener: EventListener,
-  options?: EventListenerOptionsOrUseCapture,
+  options?: RegisterEventListenerOptions,
 ): () => void;
 export type EventListenerMap<T> = {readonly [type: string]: EventListener};
 declare export function registerEventListeners<T extends EventTarget>(
   target: T,
   listeners: EventListenerMap<T>,
-  options?: EventListenerOptionsOrUseCapture,
+  options?: RegisterEventListenerOptions,
 ): () => void;
 declare export function normalizeClassNames(...classNames: (typeof undefined | boolean | null | string)[]): string[];
 declare export function getStyleObjectFromCSS(css: string): {

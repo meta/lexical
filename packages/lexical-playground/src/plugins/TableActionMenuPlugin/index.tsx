@@ -529,7 +529,7 @@ function TableActionMenu({
       </button>
       <DropDown
         buttonLabel="Vertical Align"
-        buttonClassName="item"
+        buttonClassName="item vertical-align"
         buttonAriaLabel="Formatting options for vertical alignment">
         <DropDownItem
           onClick={() => {

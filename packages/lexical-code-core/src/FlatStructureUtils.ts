@@ -124,8 +124,6 @@ export function $getStartOfCodeInLine(
 
   while (true) {
     if (nodeOffset === 0) {
-      // Annotation breaks a circular inference through the loop (TS7022),
-      // remove when the deprecated generic signatures from #8661 are removed
       const prevSibling: LexicalNode | null = node.getPreviousSibling();
       if (prevSibling === null) {
         node = null;

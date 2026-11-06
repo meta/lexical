@@ -16,13 +16,13 @@ import {
   waitForSelector,
 } from '../utils/index.mjs';
 
+test.skip(({isPlainText}) => isPlainText, 'Requires rich text');
+
 test.describe('ComponentPicker', () => {
   test('Can insert a heading using the component picker slash command', async ({
     page,
-    isPlainText,
     isCollab,
   }) => {
-    test.skip(isPlainText);
     await initialize({isCollab, page});
     await focusEditor(page);
 
@@ -53,10 +53,8 @@ test.describe('ComponentPicker', () => {
 
   test('Can insert a 2x2 table using the component picker slash command', async ({
     page,
-    isPlainText,
     isCollab,
   }) => {
-    test.skip(isPlainText);
     await initialize({isCollab, page});
     await focusEditor(page);
 

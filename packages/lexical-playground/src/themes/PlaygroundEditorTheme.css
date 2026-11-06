@@ -749,10 +749,18 @@
   cursor: not-allowed;
 }
 .PlaygroundEditorTheme__contextMenuItemIcon {
+  display: flex;
+  flex-shrink: 0;
   width: 20px;
+  height: 20px;
   margin-right: 8px;
-  background-repeat: no-repeat;
-  background-size: contain;
+  background-color: currentColor;
+  -webkit-mask-size: contain;
+  mask-size: contain;
+  -webkit-mask-position: center;
+  mask-position: center;
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
 }
 
 .PlaygroundEditorTheme__page {

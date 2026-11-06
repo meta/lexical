@@ -19,7 +19,7 @@ export type RectLike = Pick<
  * the real text rect on some blocks (balanced or letter-spaced headings are the
  * reproducible case). Drawn as semi-transparent fills, duplicates read brighter
  * than a single rect, and the wider rect paints the "extra empty selection area"
- * reported in facebook/lexical#7106.
+ * reported in meta/lexical#7106.
  *
  * This drops zero-area rects and any rect that contains another, keeping the
  * smaller text-hugging one, with a 1px tolerance for sub-pixel jitter. The

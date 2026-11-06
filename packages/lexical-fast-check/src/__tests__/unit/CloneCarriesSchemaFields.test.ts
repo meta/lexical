@@ -6,6 +6,8 @@
  *
  */
 
+// @vitest-environment node
+
 import {CodeHighlightNode, CodeNode} from '@lexical/code';
 import {nodeArbitrary} from '@lexical/fast-check';
 import {AutoLinkNode, LinkNode} from '@lexical/link';

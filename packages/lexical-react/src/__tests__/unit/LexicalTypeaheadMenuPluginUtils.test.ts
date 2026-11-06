@@ -6,6 +6,8 @@
  *
  */
 
+// @vitest-environment node
+
 import {MenuOption as MenuOptionFromModule} from '@lexical/react/LexicalMenuOption';
 import {MenuOption as MenuOptionFromNodeMenu} from '@lexical/react/LexicalNodeMenuPlugin';
 import {

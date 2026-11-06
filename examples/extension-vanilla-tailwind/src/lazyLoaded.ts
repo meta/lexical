@@ -26,7 +26,7 @@ export function registerLazyLoaded(editor: LexicalEditor): () => void {
   if (el) {
     el.appendChild(button);
   }
-  return editor.registerCommand(
+  const unregisterCommand = editor.registerCommand(
     LAZY_LOADED_LOWERCASE_COMMAND,
     () => {
       for (const node of $getRoot().getAllTextNodes()) {
@@ -40,4 +40,8 @@ export function registerLazyLoaded(editor: LexicalEditor): () => void {
     },
     COMMAND_PRIORITY_EDITOR,
   );
+  return () => {
+    button.remove();
+    unregisterCommand();
+  };
 }

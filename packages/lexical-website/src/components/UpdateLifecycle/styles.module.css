@@ -1,0 +1,187 @@
+/**
+ * Copyright (c) Meta Platforms, Inc. and affiliates.
+ *
+ * This source code is licensed under the MIT license found in the
+ * LICENSE file in the root directory of this source tree.
+ *
+ */
+
+.root {
+  border: 1px solid var(--ifm-color-emphasis-300);
+  border-radius: var(--ifm-global-radius);
+  margin: 0 0 var(--ifm-leading);
+  padding: 1rem;
+}
+
+.caption {
+  font-weight: var(--ifm-font-weight-semibold);
+  margin-bottom: 0.5rem;
+}
+
+.scenarios {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+}
+
+.phases {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.phases > li + li::before {
+  color: var(--ifm-color-emphasis-500);
+  content: '↓';
+  display: block;
+  line-height: 1;
+  margin: -0.125rem 0 0.125rem;
+  text-align: center;
+}
+
+.phase {
+  margin: 0;
+}
+
+.phaseTitle {
+  color: var(--ifm-color-emphasis-700);
+  font-size: 0.8rem;
+  font-weight: var(--ifm-font-weight-semibold);
+  letter-spacing: 0.02em;
+  margin-bottom: 0.25rem;
+  text-transform: uppercase;
+}
+
+.phaseActive .phaseTitle {
+  color: var(--ifm-font-color-base);
+}
+
+.phaseActive .phaseTitle::before {
+  color: var(--ifm-color-primary-darkest);
+  content: '▸ ';
+}
+
+.steps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.375rem;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.phases > li,
+.steps > li,
+.phases > li + li,
+.steps > li + li {
+  margin: 0;
+}
+
+.step {
+  background: var(--ifm-background-surface-color);
+  border: 1px solid var(--ifm-color-emphasis-300);
+  border-radius: var(--ifm-global-radius);
+  color: var(--ifm-color-emphasis-700);
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.85rem;
+  padding: 0.25rem 0.625rem;
+  transition:
+    background-color 200ms,
+    border-color 200ms,
+    color 200ms;
+}
+
+.step:hover {
+  border-color: var(--ifm-color-primary);
+}
+
+.stepDone {
+  border-color: var(--ifm-color-primary-dark);
+  color: var(--ifm-font-color-base);
+}
+
+.stepCurrent {
+  background: var(--ifm-color-primary-darkest);
+  border-color: var(--ifm-color-primary-darkest);
+  color: var(--ifm-color-black);
+}
+
+[data-theme='dark'] .stepCurrent {
+  background: var(--ifm-color-primary-lighter);
+  border-color: var(--ifm-color-primary-lighter);
+  color: var(--ifm-color-black);
+}
+
+.detail {
+  margin: 1rem 0 0.75rem;
+  min-height: 3em;
+}
+
+.panes {
+  display: grid;
+  gap: 0.5rem;
+  grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
+}
+
+.pane {
+  border: 1px solid var(--ifm-color-emphasis-300);
+  border-radius: var(--ifm-global-radius);
+  min-width: 0;
+  transition:
+    border-color 300ms,
+    box-shadow 300ms;
+}
+
+.paneChanged {
+  border-color: var(--ifm-color-primary-darkest);
+  box-shadow: 0 0 0 1px var(--ifm-color-primary-darkest);
+}
+
+.paneTitle {
+  border-bottom: 1px solid var(--ifm-color-emphasis-200);
+  font-size: 0.8rem;
+  font-weight: var(--ifm-font-weight-semibold);
+  padding: 0.25rem 0.5rem;
+}
+
+.paneBody {
+  background: transparent;
+  border-radius: 0;
+  font-size: 0.8rem;
+  margin: 0;
+  min-height: 5.5em;
+  padding: 0.5rem;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.none {
+  color: var(--ifm-color-emphasis-500);
+  font-style: italic;
+}
+
+.controls {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+}
+
+.counter {
+  color: var(--ifm-color-emphasis-600);
+  font-size: 0.85rem;
+  margin-left: auto;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .step,
+  .pane {
+    transition: none;
+  }
+}

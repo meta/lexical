@@ -11,17 +11,7 @@ import type {Root} from 'mdast';
 
 import {$getExtensionOutput} from '@lexical/extension';
 
-import {MdastExtension, type MdastExtensionOutput} from './MdastExtension';
-
-/**
- * @deprecated Use {@link MdastExtensionOutput} instead.
- */
-export type MdastExportExtensionOutput = MdastExtensionOutput;
-
-/**
- * @deprecated Use {@link MdastExtension} instead.
- */
-export const MdastExportExtension = MdastExtension;
+import {MdastExtension} from './MdastExtension';
 
 /**
  * Shorthand for

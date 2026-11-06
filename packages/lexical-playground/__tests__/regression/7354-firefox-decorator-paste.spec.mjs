@@ -20,16 +20,15 @@ import {
   withExclusiveClipboardAccess,
 } from '../utils/index.mjs';
 
+test.skip(
+  ({isCollab, isPlainText}) => isPlainText || isCollab,
+  'Requires rich text without collaboration',
+);
+
 test.describe('HTML CopyAndPaste', () => {
   test.beforeEach(({isCollab, page}) => initialize({isCollab, page}));
 
-  test('Copy + paste multi line html with extra newlines', async ({
-    page,
-    isPlainText,
-    isCollab,
-  }) => {
-    test.skip(isPlainText || isCollab);
-
+  test('Copy + paste multi line html with extra newlines', async ({page}) => {
     await focusEditor(page);
     await selectFromInsertDropdown(page, '.poll');
     await click(page, '.Modal__overlay[role=dialog] .Input__input');

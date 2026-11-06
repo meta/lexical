@@ -6,6 +6,8 @@
  *
  */
 
+// @vitest-environment node
+
 import type {AnyLexicalExtensionArgument} from '@lexical/extension';
 
 import {

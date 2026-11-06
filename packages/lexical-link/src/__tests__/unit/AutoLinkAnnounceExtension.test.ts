@@ -24,9 +24,11 @@ import {
   $createParagraphNode,
   $createTextNode,
   $getRoot,
+  $isElementNode,
   configExtension,
   type ElementNode,
 } from 'lexical';
+import {$assertNodeType} from 'lexical/src/__tests__/utils';
 import {afterEach, describe, expect, onTestFinished, test} from 'vitest';
 
 afterEach(() => {
@@ -93,7 +95,10 @@ function addAutoLink(
 }
 
 function $onlyLink(): ElementNode {
-  return $getRoot().getLastChild<ElementNode>()!.getFirstChild<ElementNode>()!;
+  return $assertNodeType(
+    $assertNodeType($getRoot().getLastChild(), $isElementNode).getFirstChild(),
+    $isElementNode,
+  );
 }
 
 describe('AutoLinkAnnounceExtension', () => {
@@ -123,7 +128,7 @@ describe('AutoLinkAnnounceExtension', () => {
 
     editor.update(
       () => {
-        for (const paragraph of $getRoot().getChildren<ElementNode>()) {
+        for (const paragraph of $getRoot().getChildren()) {
           paragraph.remove();
         }
       },

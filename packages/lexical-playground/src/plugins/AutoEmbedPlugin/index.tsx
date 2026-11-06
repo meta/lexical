@@ -6,8 +6,6 @@
  *
  */
 
-import type {LexicalEditor} from 'lexical';
-
 import {
   AutoEmbedOption,
   type EmbedConfig,
@@ -16,12 +14,21 @@ import {
   URL_MATCHER,
 } from '@lexical/react/LexicalAutoEmbedPlugin';
 import {useLexicalComposerContext} from '@lexical/react/LexicalComposerContext';
+import {
+  $getSlotFrame,
+  $getSlotHost,
+  $getSlotNameWithinHost,
+  type LexicalEditor,
+  type LexicalNode,
+} from 'lexical';
 import {type JSX, useMemo, useState} from 'react';
 
 import useModal from '../../hooks/useModal';
 import Button from '../../ui/Button';
 import {DialogActions} from '../../ui/Dialog';
 import {INSERT_FIGMA_COMMAND} from '../FigmaExtension';
+import {$isPullQuoteNode} from '../PullQuoteExtension/PullQuoteNode';
+import {$isReviewNode} from '../ReviewExtension/ReviewNode';
 import {INSERT_TWEET_COMMAND} from '../TwitterExtension';
 import {INSERT_YOUTUBE_COMMAND} from '../YouTubeExtension';
 
@@ -224,6 +231,29 @@ export function AutoEmbedDialog({
   );
 }
 
+// A slot boundary is a shadow root - getParent() stops at the slot value -
+// so find the enclosing slot frame first, then check its name and host.
+function $isInHostSlot(
+  linkNode: LexicalNode,
+  slotName: string,
+  $isHost: (node: LexicalNode) => boolean,
+): boolean {
+  const frame = $getSlotFrame(linkNode);
+  if (frame === null) {
+    return false;
+  }
+  const host = $getSlotHost(frame);
+  return (
+    $getSlotNameWithinHost(frame) === slotName && host !== null && $isHost(host)
+  );
+}
+
+// Slots that only accept inline content: showing the embed menu there would
+// bypass the slot's protection against block insertion.
+const DISABLE_MENU_FOR: (node: LexicalNode) => boolean = node =>
+  $isInHostSlot(node, 'attribution', $isPullQuoteNode) ||
+  $isInHostSlot(node, 'author', $isReviewNode);
+
 export default function AutoEmbedPlugin(): JSX.Element {
   const [modal, showModal] = useModal();
 
@@ -255,6 +285,7 @@ export default function AutoEmbedPlugin(): JSX.Element {
         embedConfigs={EmbedConfigs}
         onOpenEmbedModalForConfig={openEmbedModal}
         getMenuOptions={getMenuOptions}
+        $disableMenuFor={DISABLE_MENU_FOR}
       />
     </>
   );

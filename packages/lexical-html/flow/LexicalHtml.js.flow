@@ -18,6 +18,7 @@ import type {
   LexicalNode,
   StateConfig,
 } from 'lexical';
+import type {Signal} from '@lexical/extension';
 
 // ContextRecord types
 

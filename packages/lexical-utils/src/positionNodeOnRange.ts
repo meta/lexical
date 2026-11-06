@@ -79,7 +79,10 @@ export default function mlcPositionNodeOnRange(
     // This path already filters full-width block rects. Keep overlapping rects
     // with distinct coverage; the generic keep-smaller dedupe can erase text.
     const rects = dedupeHighlightRects(createRectsFromDOMRange(editor, range));
-    if (!wrapperNode.isConnected) {
+    // Not `isConnected`: once the parent is detached from the document that is
+    // false forever, and re-inserting the wrapper is a mutation the observer
+    // reacts to, so every mutation would re-insert it without end.
+    if (wrapperNode.parentNode !== parentDOMNode) {
       prependDOMNode(parentDOMNode, wrapperNode);
     }
     let hasRepositioned = false;
