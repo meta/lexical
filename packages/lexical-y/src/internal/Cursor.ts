@@ -1434,6 +1434,10 @@ export class Cursor {
    * Delete `n` content units. The format items around and inside them stay:
    * a concurrent writer that has not seen the delete relies on them, and an
    * undo of the delete brings the content back between them (D24, D86).
+   * A stored element no editor shows (see leftOut) that the delete meets
+   * before its last unit goes with it, uncounted: left in place, one would
+   * end up beside other text (the next line's, where a whole line goes), and
+   * its text, arriving late or brought back by an undo, would show there.
    */
   delete(n: number): void {
     while (n > 0 && this.right !== null) {
@@ -1443,6 +1447,12 @@ export class Cursor {
           this.split(item, n);
         }
         n -= item.length;
+        deleteItemIn(this.view, item, this.tr);
+      } else if (
+        this.leftOut !== null &&
+        isLiveContent(this.view, item) &&
+        this.leftOut(item)
+      ) {
         deleteItemIn(this.view, item, this.tr);
       }
       this.forward();
