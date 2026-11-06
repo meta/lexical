@@ -1167,10 +1167,23 @@ struct whose dependencies are present, as the client did, so load stored
 states through them rather than with `Y.applyUpdate`. A loaded document can
 then also show a struct the encoding client still held pending, when the
 bytes cannot tell the two apart; once the missing updates arrive, it ends
-byte-identical to a plain load. Such an extra can be a format's opener whose
-closer is still blocked: the format then runs on to the end of the
-paragraph until the gap heals, as on any peer that received the opener
-alone. The repair is bounded: it makes at most 1,024 suffix applies in one
+byte-identical to a plain load. The repair is checked against the raw Yjs
+view, not the editor: the units of every list (characters, embeds, nodes)
+with the format attributes in effect, and the map entries (node attributes,
+NodeState). A repaired load shows every unit a plain load shows, only units
+a plain load or the repair without its rules shows, each with the format
+attributes one of them gives it, and each map entry as one of them has it.
+When nothing is held back and no entry the document shows is overwritten
+(the direct path), that holds as the repair applies, at the same cost as
+without the check; otherwise the load is checked on a copy of the document
+first, which costs about one more repair and a copy (on long dependency
+chains at the apply budget, 1.6 to 2 times the repair), and a candidate that
+passes is applied, down to the plain load itself. A run of format items alone is held back while a format item
+with the same key stays pending (a format's other end), unless content needs
+it, so a format is not opened or closed on its own over text the encoding
+client showed otherwise. A format of text the repair integrates can still be
+unpaired, and that text's neighbors then show the format running on until
+the gap heals, as on any peer that received it alone. The repair is bounded: it makes at most 1,024 suffix applies in one
 load (one can integrate many structs, so only pathological input reaches
 it), and past that budget the rest stays pending, never lost, and
 integrates when its missing updates arrive. The loaders repair stored bytes, not the
