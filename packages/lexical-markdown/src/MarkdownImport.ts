@@ -292,7 +292,8 @@ function $importBlocks(
 function $normalizeMarkdownTextNode(textNode: TextNode): void {
   // A TabNode is a TextNode whose content is a tab, so without this guard the
   // rebuild below would destroy it and create an equivalent one in its place.
-  if ($isTabNode(textNode)) {
+  // Inline code keeps its tabs as text, so they stay inside the code span.
+  if ($isTabNode(textNode) || textNode.hasFormat('code')) {
     return;
   }
   const text = textNode.getTextContent();
