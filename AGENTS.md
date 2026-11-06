@@ -271,6 +271,12 @@ This codebase uses **both TypeScript and Flow**:
 - Run `pnpm run flow` to check Flow types
 - Run `pnpm run tsc` to check TypeScript types
 - Both are checked in CI via `pnpm run ci-check`
+- Keep a statement under a `$FlowExpectedError` or `$FlowFixMe` suppression on
+  one line of at most 80 characters. Prettier ignores `.js.flow` here, but the
+  www sync (`scripts/www/transformFlowFileContents.mjs`) runs Prettier over
+  these files, and a statement it wraps moves the error off the line the
+  suppression covers — so the www copy fails Flow on an error that passes in
+  this repo.
 
 When adding/modifying APIs, types must be maintained for both systems.
 
