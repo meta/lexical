@@ -959,6 +959,147 @@ describe.each([false, true])(
   },
 );
 
+describe.each([false, true])('stored values shaped like types, gc %s', gc => {
+  const mk = (id: number, state?: Uint8Array) => {
+    const d = plainDoc(gc, state ?? null);
+    d.clientID = id;
+    return d;
+  };
+  const firstNode = (d: Y.Doc) => {
+    for (let it = d.get('t')._start; it !== null; it = it.right) {
+      if (!it.deleted && it.content instanceof Y.ContentType) {
+        return it.content.type as Y.Node;
+      }
+    }
+    throw new Error('no node');
+  };
+  const loads = (state: Uint8Array) => {
+    const plain = mk(5000, state);
+    const maximal = mk(6000, state);
+    integrateHeldBehindGapsWith(
+      Y,
+      maximal,
+      undefined,
+      true,
+      MAX_SUFFIX_APPLIES,
+      false,
+    );
+    const repaired = mk(7000, state);
+    integrateHeldBehindGapsWith(Y, repaired, undefined, true);
+    return {maximal, plain, repaired};
+  };
+
+  for (const kind of ['normal', 'item-object'] as const) {
+    test(`a concurrent overwrite of a node-valued entry beside a ${kind} payload: the text the plain load shows stays`, () => {
+      const z = mk(1);
+      z.transact(() => {
+        const p = new Y.Node('p');
+        z.get('t').insert(0, [p]);
+        const c = new Y.Node('c');
+        p.setAttr('cell', c);
+        c.insert(0, 'old');
+        p.setAttr(
+          's:payload',
+          kind === 'normal' ? {value: 1} : {_item: {}, value: 1},
+        );
+      });
+      const base = Y.encodeStateAsUpdate(z);
+      const b = writerDoc(gc, 2000, base);
+      b.d.transact(() => {
+        const c = new Y.Node('c');
+        firstNode(b.d).setAttr('cell', c);
+        c.insert(0, 't36z');
+      });
+      const a = writerDoc(gc, 3000, base);
+      a.d.transact(() => a.d.get('t').insert(0, 'L'));
+      a.d.transact(() => {
+        a.d.get('t').insert(1, 'M');
+        firstNode(a.d).setAttr('cell', new Y.Node('c'));
+      });
+      const peer = mk(4000, base);
+      Y.applyUpdate(peer, b.ups[0]);
+      Y.applyUpdate(peer, a.ups[1]);
+      const before = LOAD_PLAN_COUNTERS.checkFailed;
+      const {maximal, plain, repaired} = loads(Y.encodeStateAsUpdate(peer));
+      const cell = (d: Y.Doc) => textOf(firstNode(d).getAttr('cell') as Y.Node);
+      expect(cell(plain)).toBe('t36z');
+      expect(cell(maximal)).toBe('');
+      expect(cell(repaired)).toBe('t36z');
+      expect(LOAD_PLAN_COUNTERS.checkFailed).toBe(before);
+      [z, a.d, b.d, peer, plain, maximal, repaired].forEach(d => d.destroy());
+    });
+  }
+
+  for (const kind of ['normal', 'item-null'] as const) {
+    test(`a map value (${kind}) shows the plain load's or the maximal repair's, never a third`, () => {
+      const value = (v: string) => (kind === 'normal' ? {v} : {_item: null, v});
+      const z = mk(1);
+      z.transact(() => {
+        const p = new Y.Node('p');
+        z.get('t').insert(0, [p]);
+        p.insert(0, 'abcd');
+      });
+      const base = Y.encodeStateAsUpdate(z);
+      const p = writerDoc(gc, 1000, base);
+      p.d.transact(() => firstNode(p.d).setAttr('s:value', value('P')));
+      const c = writerDoc(gc, 2000, base);
+      c.d.transact(() => firstNode(c.d).insert(1, 'L'));
+      c.d.transact(() => {
+        firstNode(c.d).insert(2, 'M');
+        firstNode(c.d).setAttr('s:value', value('R'));
+      });
+      const a = writerDoc(gc, 3000, base);
+      a.d.transact(() => firstNode(a.d).insert(1, 'L'));
+      a.d.transact(() => {
+        firstNode(a.d).insert(2, 'M');
+        firstNode(a.d).setAttr('s:value', value('V'));
+        firstNode(a.d).format(0, 2, {'f:bold': true});
+      });
+      const peer = mk(4000, base);
+      Y.applyUpdate(peer, p.ups[0]);
+      Y.applyUpdate(peer, c.ups[1]);
+      Y.applyUpdate(peer, a.ups[1]);
+      const {maximal, plain, repaired} = loads(Y.encodeStateAsUpdate(peer));
+      const get = (d: Y.Doc) => firstNode(d).getAttr('s:value');
+      expect(get(plain)).toEqual(value('P'));
+      expect(get(maximal)).toEqual(value('V'));
+      expect([
+        JSON.stringify(get(plain)),
+        JSON.stringify(get(maximal)),
+      ]).toContain(JSON.stringify(get(repaired)));
+      [z, p.d, c.d, a.d, peer, plain, maximal, repaired].forEach(d =>
+        d.destroy(),
+      );
+    });
+  }
+
+  test('a check that throws (injected): the plain load, counted', () => {
+    const t = balancingCloser(gc);
+    const state = Y.encodeStateAsUpdate(t.peer);
+    const before = {
+      ...LOAD_PLAN_COUNTERS,
+      wins: {...LOAD_PLAN_COUNTERS.wins},
+    };
+    LOAD_TEST_HOOKS.check = () => {
+      throw new Error('injected');
+    };
+    let doc: Y.Doc;
+    try {
+      doc = createRawYDoc(state, {gc});
+    } finally {
+      LOAD_TEST_HOOKS.check = null;
+    }
+    expect(LOAD_PLAN_COUNTERS.checkFailed).toBe(before.checkFailed + 1);
+    expect(LOAD_PLAN_COUNTERS.wins.plain).toBe(before.wins.plain + 1);
+    const plain = plainDoc(gc, state);
+    expect(Buffer.from(Y.encodeStateAsUpdate(doc))).toEqual(
+      Buffer.from(Y.encodeStateAsUpdate(plain)),
+    );
+    [doc, plain].forEach(d => d.destroy());
+    t.dispose();
+  });
+});
+
 describe('canonical values', () => {
   test('values JSON writes alike stay apart', () => {
     const pairs: [unknown, unknown][] = [
@@ -979,9 +1120,95 @@ describe('canonical values', () => {
       expect(canonical(a)).not.toBe(canonical(b));
     }
     expect(canonical({a: 2, b: 1})).toBe(canonical({a: 2, b: 1}));
+    // By structure only: a plain object shaped like a type is a plain
+    // object, and anything not a stored value equals nothing.
+    const shaped = ['P', 'R', 'V'].map(v => canonical({_item: null, v}));
+    expect(new Set(shaped).size).toBe(3);
+    expect(canonical({_item: null, v: 'P'})).toBe(shaped[0]);
+    expect(canonical({_item: {}, value: 1})).toBe(
+      canonical({_item: {}, value: 1}),
+    );
+    expect(canonical(JSON.parse('{"__proto__": 1}'))).not.toBe(canonical({}));
+    expect(canonical({constructor: 1})).not.toBe(canonical({}));
     const doc = new Y.Doc();
-    expect(canonical(doc)).toBe(canonical(doc));
-    expect(canonical(doc)).not.toBe(canonical(new Y.Doc()));
+    expect(canonical(doc)).not.toBe(canonical(doc));
+    const throwing = {};
+    Object.defineProperty(throwing, 'x', {
+      enumerable: true,
+      get() {
+        throw new Error('read');
+      },
+    });
+    expect(() => canonical(throwing)).not.toThrow();
+    expect(canonical(throwing)).not.toBe(canonical(throwing));
+    doc.destroy();
+  });
+
+  test('a fuzz with adversarial keys (_item, __proto__, constructor, toJSON, nested): two values encode alike exactly when an independent typed comparison finds them equal', () => {
+    const r = rng(4242);
+    const names = ['_item', '__proto__', 'constructor', 'toJSON', 'a'];
+    const value = (depth: number): unknown => {
+      const k = r();
+      if (depth > 2 || k < 0.5) {
+        return [null, undefined, 0, 1, '', 'x', true, BigInt(1)][
+          Math.floor(r() * 8)
+        ];
+      }
+      if (k < 0.7) {
+        return Array.from({length: Math.floor(r() * 3)}, () =>
+          value(depth + 1),
+        );
+      }
+      const o: Record<string, unknown> = {};
+      for (let i = Math.floor(r() * 3); i > 0; i--) {
+        Object.defineProperty(o, names[Math.floor(r() * names.length)], {
+          configurable: true,
+          enumerable: true,
+          value: value(depth + 1),
+          writable: true,
+        });
+      }
+      return o;
+    };
+    const equal = (a: unknown, b: unknown): boolean => {
+      if (typeof a !== typeof b) {
+        return false;
+      }
+      if (a === null || b === null || typeof a !== 'object') {
+        return a === b;
+      }
+      if (Array.isArray(a) || Array.isArray(b)) {
+        return (
+          Array.isArray(a) &&
+          Array.isArray(b) &&
+          a.length === b.length &&
+          a.every((x, i) => equal(x, b[i]))
+        );
+      }
+      const own = (o: object) => Object.getOwnPropertyNames(o).sort();
+      const ka = own(a as object);
+      const kb = own(b as object);
+      return (
+        ka.length === kb.length &&
+        ka.every(
+          (k, i) =>
+            k === kb[i] &&
+            equal(
+              Object.getOwnPropertyDescriptor(a, k)!.value,
+              Object.getOwnPropertyDescriptor(b, k)!.value,
+            ),
+        )
+      );
+    };
+    let same = 0;
+    for (let i = 0; i < 20000; i++) {
+      const a = value(0);
+      const b = r() < 0.3 ? a : value(0);
+      const alike = canonical(a) === canonical(b);
+      expect(alike).toBe(equal(a, b));
+      same += alike ? 1 : 0;
+    }
+    expect(same).toBeGreaterThan(1000);
   });
 
   test('a fuzz: two values encode alike exactly when an independent typed comparison finds them equal', () => {

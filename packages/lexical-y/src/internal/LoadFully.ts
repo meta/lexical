@@ -52,7 +52,13 @@
 import {
   applyUpdate,
   applyUpdateV2,
+  ContentAny,
+  ContentBinary,
+  ContentDoc,
+  ContentEmbed,
   ContentFormat,
+  ContentJSON,
+  ContentString,
   ContentType,
   decodeUpdateV2,
   diffUpdateV2,
@@ -287,7 +293,9 @@ export function integrateHeldBehindGapsWith(
  */
 export const LOAD_TEST_HOOKS: {
   direct: ((wouldPass: () => boolean) => void) | null;
-} = {direct: null};
+  /** Called inside the check (a test makes it throw). */
+  check: (() => void) | null;
+} = {check: null, direct: null};
 
 type Runs = Map<number, {structs: Struct[]; end: number}>;
 
@@ -692,16 +700,9 @@ function viewOf(doc: Doc, scope: Scope): View {
         }
         const {client, clock} = item.id;
         const id = `i:${client}:${clock}`;
-        if (item.content instanceof ContentType) {
-          entries.set(`${key}|${canonical(name)}`, `type:${id}`);
-          if (deep) {
-            walk(item.content.type as never, id, true);
-          }
-        } else {
-          entries.set(
-            `${key}|${canonical(name)}`,
-            canonical(item.content.getContent()),
-          );
+        entries.set(`${key}|${canonical(name)}`, entryValue(item));
+        if (deep && item.content instanceof ContentType) {
+          walk(item.content.type as never, id, true);
         }
       });
     }
@@ -735,71 +736,130 @@ function viewOf(doc: Doc, scope: Scope): View {
 }
 
 /**
- * A value as a string that tells apart every value Yjs stores apart, and
- * never throws: undefined, null, booleans, numbers (NaN, infinities, -0),
- * bigints, strings, bytes, arrays, objects (keys sorted), documents (by
- * guid), types and anything else by kind.
+ * A value Yjs stores as `any` (lib0's: undefined, null, booleans, numbers
+ * with NaN, infinities and -0, bigints, strings, bytes, arrays and plain
+ * objects with any own keys, `_item`, `constructor` and `__proto__`
+ * included) as a string that tells apart every two values that differ, by
+ * structure only. Anything else (a class instance, a function, a property
+ * that throws when read) gets a tag of its own that equals nothing else.
+ * Never throws.
  */
 export function canonical(
   value: unknown,
-  seen: Set<unknown> = new Set(),
+  seen: Set<object> = new Set(),
 ): string {
-  switch (typeof value) {
-    case 'undefined':
-      return 'u';
-    case 'boolean':
-      return value ? 'b:1' : 'b:0';
-    case 'number':
-      return Object.is(value, -0) ? 'd:-0' : `d:${String(value)}`;
-    case 'bigint':
-      return `g:${value.toString()}`;
-    case 'string':
-      return `s:${value.length}:${value}`;
-    case 'object': {
-      if (value === null) {
-        return 'n';
-      }
-      if (seen.has(value)) {
-        return 'c';
-      }
-      if (value instanceof Uint8Array) {
-        let hex = '';
-        for (let i = 0; i < value.length; i++) {
-          hex += (value[i] < 16 ? '0' : '') + value[i].toString(16);
-        }
-        return `y:${hex}`;
-      }
-      if (value instanceof Doc) {
-        return `doc:${canonical(value.guid)}`;
-      }
-      const owner = (value as {_item?: Item | null})._item;
-      if (owner !== undefined) {
-        return owner === null
-          ? 'type:r'
-          : `type:i:${owner.id.client}:${owner.id.clock}`;
-      }
-      seen.add(value);
-      try {
-        if (Array.isArray(value)) {
-          return `a:[${value.map(v => canonical(v, seen)).join(',')}]`;
-        }
-        const keys = Object.keys(value).sort();
-        return `o:{${keys
-          .map(
-            k =>
-              `${canonical(k, seen)}:${canonical(
-                (value as Record<string, unknown>)[k],
-                seen,
-              )}`,
-          )
-          .join(',')}}`;
-      } finally {
-        seen.delete(value);
-      }
+  try {
+    switch (typeof value) {
+      case 'undefined':
+        return 'u';
+      case 'boolean':
+        return value ? 'b:1' : 'b:0';
+      case 'number':
+        return Object.is(value, -0) ? 'd:-0' : `d:${String(value)}`;
+      case 'bigint':
+        return `g:${value.toString()}`;
+      case 'string':
+        return `s:${value.length}:${value}`;
+      case 'object':
+        break;
+      default:
+        return opaque();
     }
-    default:
-      return `x:${typeof value}`;
+    if (value === null) {
+      return 'n';
+    }
+    if (seen.has(value)) {
+      return opaque();
+    }
+    if (Object.prototype.toString.call(value) === '[object Uint8Array]') {
+      const bytes = value as Uint8Array;
+      let hex = '';
+      for (let i = 0; i < bytes.length; i++) {
+        hex += (bytes[i] < 16 ? '0' : '') + bytes[i].toString(16);
+      }
+      return `y:${hex}`;
+    }
+    const proto = Object.getPrototypeOf(value);
+    const isArray = Array.isArray(value);
+    if (!isArray && proto !== Object.prototype && proto !== null) {
+      return opaque();
+    }
+    seen.add(value);
+    try {
+      if (isArray) {
+        const array = value as unknown[];
+        const parts: string[] = [];
+        for (let i = 0; i < array.length; i++) {
+          const own = Object.getOwnPropertyDescriptor(array, i);
+          parts.push(
+            own === undefined
+              ? 'u'
+              : 'value' in own
+                ? canonical(own.value, seen)
+                : opaque(),
+          );
+        }
+        return `a:${parts.length}:[${parts.join(',')}]`;
+      }
+      const keys = Object.keys(value as object).sort();
+      const parts: string[] = [];
+      for (const key of keys) {
+        const own = Object.getOwnPropertyDescriptor(value, key);
+        parts.push(
+          `${canonical(key, seen)}=${
+            own !== undefined && 'value' in own
+              ? canonical(own.value, seen)
+              : opaque()
+          }`,
+        );
+      }
+      return `o:${parts.length}:{${parts.join(',')}}`;
+    } finally {
+      seen.delete(value);
+    }
+  } catch {
+    return opaque();
   }
+}
+
+let opaques = 0;
+
+/** A tag no other value has. */
+function opaque(): string {
+  return `x:${++opaques}`;
+}
+
+/**
+ * A map entry's value, by its content's class: a type by its item's id,
+ * bytes, a document by its guid, a string, and stored values (any, JSON,
+ * an embed, a format) by structure (see canonical); any other content gets
+ * a tag of its own.
+ */
+function entryValue(item: Item): string {
+  const content = item.content;
+  if (content instanceof ContentType) {
+    return `type:i:${item.id.client}:${item.id.clock}`;
+  }
+  const values = (content as Item['content']).getContent();
+  if (content instanceof ContentBinary) {
+    return `bin:${canonical(values[0])}`;
+  }
+  if (content instanceof ContentDoc) {
+    const doc = values[0] as {guid?: unknown} | undefined;
+    return `doc:${canonical(doc === undefined ? undefined : doc.guid)}`;
+  }
+  if (content instanceof ContentString) {
+    return `str:${canonical(values.join(''))}`;
+  }
+  if (
+    content instanceof ContentAny ||
+    content instanceof ContentJSON ||
+    content instanceof ContentEmbed ||
+    content instanceof ContentFormat
+  ) {
+    return `any:${canonical(values)}`;
+  }
+  return opaque();
 }
 
 function sameView(a: View, b: View): boolean {
@@ -925,11 +985,15 @@ function choosePlan(
   try {
     p = viewOf(doc, scope);
     results = candidateViews(doc, update, runs, maximal, held, scope, p);
+    const hook = LOAD_TEST_HOOKS.check;
+    if (hook !== null) {
+      hook();
+    }
   } catch {
-    // The check failed (it never should): the maximal repair, as before
-    // the check, never the plain load over it.
+    // An exception means the reasoning about the document was wrong: the
+    // plain load, the one result that needs none.
     LOAD_PLAN_COUNTERS.checkFailed++;
-    return choose('maximal', maximal.plan, null);
+    return choose('plain', PLAIN, null);
   }
   if (results === null) {
     LOAD_PLAN_COUNTERS.copyInexact++;
