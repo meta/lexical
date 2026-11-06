@@ -206,6 +206,125 @@ describe.each([false, true])(
   },
 );
 
+// A follow-up (BlockIdExtension's naming commit, or an update tagged
+// `block-id-repair`) that removes a line holding an element peers emptied:
+// the delete is sized by what readers show, so the next line keeps its first
+// character for every client.
+async function runFollowUpRemoval(gc: boolean, how: 'tagged' | 'queued') {
+  const t = await setup(
+    () =>
+      $getRoot().append(
+        $createParagraphNode().append($createTextNode('one')),
+        $createParagraphNode().append(
+          $createMarkNode(['c1']).append($createTextNode('ab')),
+          $createTextNode('two'),
+        ),
+        $createParagraphNode().append($createTextNode('three')),
+      ),
+    {gc, ids: [1, 2, 3]},
+  );
+  const {a, b, c} = t;
+  t.offline();
+  b.update(() => {
+    $selectIn([1], 0, 1).removeText();
+    $setSelection(null);
+  });
+  c!.update(() => {
+    $selectIn([1], 1, 2).removeText();
+    $setSelection(null);
+  });
+  await t.sync();
+  const $removeMiddle = () => {
+    $getRoot().getChildAtIndex(1)!.remove();
+    $setSelection(null);
+  };
+  if (how === 'tagged') {
+    a.update($removeMiddle, 'block-id-repair');
+  } else {
+    // Queued from an update listener into the naming commit.
+    let queued = false;
+    const stop = a.editor.registerUpdateListener(({tags}) => {
+      if (!queued && tags.has('block-id-repair')) {
+        queued = true;
+        a.editor.update($removeMiddle, {tag: 'block-id-repair'});
+      }
+    });
+    a.update(() => {
+      ($getRoot().getFirstChildOrThrow() as ElementNode).setFormat('center');
+      $setSelection(null);
+    }, 'block-id-repair');
+    stop();
+  }
+  await t.sync();
+  const fresh = await freshReader(a);
+  expect(fresh.describe()).toBe(a.describe());
+  expect(b.describe()).toBe(a.describe());
+  fresh.stop();
+  expect(a.read(() => $getRoot().getTextContent())).toBe('one\n\nthree');
+  await expectConverged(t.peers);
+}
+
+describe.each([false, true])(
+  'a follow-up removing a line with an inline element peers emptied, gc %s',
+  gc => {
+    test('in an update tagged block-id-repair: the next line keeps its text', () =>
+      runFollowUpRemoval(gc, 'tagged'));
+    test('queued into the naming commit from an update listener: the next line keeps its text', () =>
+      runFollowUpRemoval(gc, 'queued'));
+  },
+);
+
+// Nested elements peers emptied (a comment inside a comment): the outer one
+// holds only the inner one, which no editor shows, so neither shows. A client
+// that loads the document writes text after them where it shows it.
+describe.each([false, true])(
+  'text written after nested inline elements peers emptied, gc %s',
+  gc => {
+    test('by a client that loaded the document: stored where shown', async () => {
+      const t = await setup(
+        () =>
+          $getRoot().append(
+            $createParagraphNode().append(
+              $createMarkNode(['c1']).append(
+                $createMarkNode(['c2']).append($createTextNode('ab')),
+              ),
+              $createTextNode('right'),
+            ),
+          ),
+        {gc, ids: [1, 2, 3]},
+      );
+      const {a, b, c} = t;
+      t.offline();
+      b.update(() => {
+        $selectIn([0], 0, 1).removeText();
+        $setSelection(null);
+      });
+      c!.update(() => {
+        $selectIn([0], 1, 2).removeText();
+        $setSelection(null);
+      });
+      await t.sync();
+      expect(a.read(() => $getRoot().getTextContent())).toBe('right');
+      const loaded = await freshReader(a);
+      try {
+        expect(loaded.read(() => $getRoot().getTextContent())).toBe('right');
+        loaded.update(() => {
+          $selectIn([0], 5).insertText('X');
+          $setSelection(null);
+        });
+        const stored = await freshReader(loaded);
+        expect(stored.read(() => $getRoot().getTextContent())).toBe('rightX');
+        stored.stop();
+        expect(loaded.warnings.filter(w => w.includes('self-check'))).toEqual(
+          [],
+        );
+      } finally {
+        loaded.stop();
+      }
+    });
+  },
+);
+
 const allowsEmpty = nodeSchema<AllowsEmptyInline>()({
   emptyAllowed: withField(booleanValue(), {field: '__emptyAllowed'}),
 });
