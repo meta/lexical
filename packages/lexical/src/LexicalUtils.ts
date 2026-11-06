@@ -1900,6 +1900,20 @@ export function scrollIntoViewIfNeeded(
         element === rootElement ? rootRect : element.getBoundingClientRect();
       targetTop = targetRect.top;
       targetBottom = targetRect.bottom;
+      // A scroll container's own scroll-padding, like one that clears a
+      // sticky toolbar inside it, keeps the caret out of its edges the same
+      // way as on the document element above.
+      const clientHeight = element.clientHeight;
+      if (element.scrollHeight > clientHeight) {
+        const style = defaultView.getComputedStyle(element);
+        if (style.overflowY === 'auto' || style.overflowY === 'scroll') {
+          targetTop += parseScrollPadding(style.scrollPaddingTop, clientHeight);
+          targetBottom -= parseScrollPadding(
+            style.scrollPaddingBottom,
+            clientHeight,
+          );
+        }
+      }
     }
     let diff = 0;
 
