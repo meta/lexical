@@ -233,11 +233,15 @@ const UNORDERED_LIST_REGEX = /^(\s*)[-*+]\s/;
 const CHECK_LIST_REGEX = /^(\s*)(?:[-*+]\s)?\s?(\[(\s|x)?\])\s/i;
 const HEADING_REGEX = /^(#{1,6})\s/;
 const QUOTE_REGEX = /^>\s/;
+const CODE_START_REGEX = /^([ \t]*`{3,})([\w-]+)?[ \t]?/;
 // The info string of a backtick fence cannot contain a backtick, so a line
 // with one after the fence is not a fence, except the single-line form
-// ```code``` whose code has none.
+// ```code``` whose code has none. This is applied to a whole line of imported
+// Markdown, not to `CODE.regExpStart`: the typing shortcut matches that
+// against the text of a node that goes on after the caret.
 // https://spec.commonmark.org/0.31.2/#fenced-code-blocks
-const CODE_START_REGEX = /^([ \t]*`{3,})(?=[^`]*$|[^`]+`{3,}$)([\w-]+)?[ \t]?/;
+const CODE_IMPORT_START_REGEX =
+  /^([ \t]*`{3,})(?=[^`]*$|[^`]+`{3,}$)([\w-]+)?[ \t]?/;
 const CODE_END_REGEX = /^[ \t]*`{3,}$/;
 const CODE_SINGLE_LINE_REGEX =
   /^[ \t]*```[^`]+(?:(?:`{1,2}|`{4,})[^`]+)*```(?:[^`]|$)/;
@@ -883,7 +887,12 @@ export const CODE: MultilineElementTransformer = {
       }
     }
     const language = node.getLanguage() || '';
-    const meta = language ? $getState(node, codeMetaState) : '';
+    // The info string of a backtick fence cannot hold a backtick, so a meta
+    // that does is left out: written, the fence line would not read back as a
+    // fence and its closing fence would open a block that takes the rest of
+    // the document.
+    const storedMeta = language ? $getState(node, codeMetaState) : '';
+    const meta = storedMeta.includes('`') ? '' : storedMeta;
 
     return (
       fence +
@@ -901,9 +910,14 @@ export const CODE: MultilineElementTransformer = {
     startLineIndex,
     startMatch,
   }) => {
+    const currentLine = lines[startLineIndex];
+    // Only an import gets here, so the rule for the info string is applied
+    // here rather than in `regExpStart`, which the typing shortcut also uses.
+    if (!CODE_IMPORT_START_REGEX.test(currentLine)) {
+      return null;
+    }
     const fence = startMatch[1];
     const fenceLength = fence.trim().length;
-    const currentLine = lines[startLineIndex];
     const afterFenceIndex = startMatch.index! + fence.length;
     const afterFence = currentLine.slice(afterFenceIndex);
 
@@ -1448,14 +1462,17 @@ export function normalizeMarkdown(
       lastLine !== undefined && parseMarkdownHardLineBreak(lastLine) !== null;
 
     // Code blocks of ```single line``` don't toggle the inCodeBlock flag
-    if (CODE_SINGLE_LINE_REGEX.test(line)) {
+    if (
+      CODE_IMPORT_START_REGEX.test(line) &&
+      CODE_SINGLE_LINE_REGEX.test(line)
+    ) {
       sanitizedLines.push(line);
       continue;
     }
 
     if (codeBlockFenceLength === 0) {
       // An opening fence may carry an info string (e.g. ```ts)
-      const openMatch = line.match(CODE_START_REGEX);
+      const openMatch = line.match(CODE_IMPORT_START_REGEX);
       if (openMatch) {
         codeBlockFenceLength = openMatch[1].trim().length;
         sanitizedLines.push(line);
