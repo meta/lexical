@@ -69,6 +69,22 @@ true loop silently loses whatever else was queued.
 To avoid this, we recommend looking into [Node Transforms](transforms.md), which allow you to listen to node changes and
 transform them as part of the same given update, meaning no waterfalls!
 
+A listener that throws does not stop the others: the editor still calls every
+listener of that commit (mutation, decorator, text content and update
+listeners alike, and every root or editable listener), also when a cleanup a
+listener returned throws (the editor runs each cleanup it dispatches once), and
+then rethrows the first error where the commit
+threw before (for a discrete `editor.update` or `setEditorState` outside an
+update, to its caller; a plain `editor.update()` commits in a microtask, where
+the rethrown error is uncaught; a commit forced inside a running update goes
+through that update's `onError`). The commit itself stays, and `onError` is not called
+for a listener's error otherwise. What the error skipped before is still
+skipped: the commit's `onUpdate` callbacks, and the updates its listeners
+queued (outside a running update, they commit with the next update; inside
+one, that update's recovery discards them). A collaboration binding is an
+update listener, so this is what keeps a commit an app's listener fails in
+from going unstored.
+
 ## `registerTextContentListener`
 
 Get notified when Lexical commits an update to the DOM and the text content of the editor changes from
