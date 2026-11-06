@@ -124,12 +124,13 @@ export function registerLink(
           if (!validateUrl(clipboardText)) {
             return false;
           }
-          // Skip link wrapping for non-simple text nodes (e.g. code blocks).
+          // Inline elements such as comment marks may be part of the selected
+          // text. Keep excluding blocks and non-simple text (e.g. code blocks).
           const nodes = selection.getNodes();
           if (
             !nodes.some(
               node =>
-                $isElementNode(node) ||
+                ($isElementNode(node) && !node.isInline()) ||
                 ($isTextNode(node) && !node.isSimpleText()),
             )
           ) {
