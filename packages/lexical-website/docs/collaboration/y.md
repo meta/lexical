@@ -1827,7 +1827,9 @@ raises `SEED_LAYOUT` with it, so servers also issue new incarnations for
 rooms never seeded (the seed contract, see the
 [server guide](./y-server.md#generations-and-the-handshake)). If your app
 stores rooms, plan for a server-side migration when you take such an
-upgrade; its release notes and changelog say when one is needed.
+upgrade; its release notes and changelog say when one is needed. An app
+with `layoutUpgrade: null` keeps such rooms read only unless it migrates
+them itself (see "Who migrates" below).
 
 What does not change:
 
