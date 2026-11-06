@@ -14,8 +14,10 @@
 // node's content beside it (setTextContent, as an IME composition or app
 // code does) was stored at the wrong position: the writer counted the
 // element where the reader shows none
-// (https://github.com/meta/lexical/issues/9807). The writer now counts and
-// keeps exactly what the reader leaves out.
+// (https://github.com/meta/lexical/issues/9807). The writer now counts
+// exactly what the reader counts: it does not count such an element, and
+// deletes one only where a delete meets it before its last unit (a removed
+// line takes it along).
 
 import {$createMarkNode, $wrapSelectionInMarkNode} from '@lexical/mark';
 import * as Y from '@y/y';
