@@ -7,10 +7,13 @@ layouts, and a document uses one or the other. Entries: `@lexical/y`,
 `@lexical/y/headless`, `@lexical/y/migrate` (with a step per layout,
 `@lexical/y/migrate/<n>to<n+1>`) and `@lexical/y/server`. Every export is
 `@experimental`, and `@y/y` is a release candidate. `@experimental` is not
-an exception to compatibility: once released, the public API, its types and
-the wire format below change only additively. No export is removed or
-renamed, no stored layout from 3 on stops being read, and no published
-migration step or revision is removed or changes what it writes.
+an exception to compatibility: once released, the public API and its types
+change only additively. No export is removed or renamed, and no published
+migration step or revision is removed or changes what it writes. The wire
+format below is the exception while the package is experimental: a release
+may stop reading an older layout, and rooms stored in it then open read
+only until their server migrates them (see
+[Layout upgrades](https://lexical.dev/docs/collaboration/y#layout-upgrades)).
 
 ## Install
 

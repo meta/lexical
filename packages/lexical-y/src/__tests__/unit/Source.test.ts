@@ -285,11 +285,13 @@ test('the layout constants are typed number, in the core and the server entry', 
   }
 });
 
-test('policy: the floor never rises past layout 3, and the runner targets it by default', () => {
-  // After the one-time break to layout 3, MIN_LAYOUT stays put: layouts are
-  // only added, the package never drops a reader or a step, and an app
-  // that wants a higher floor raises its own (its server stops admitting
-  // clients that cannot read the next layout).
+test('policy: raising the floor is deliberate, and the runner targets it by default', () => {
+  // While @lexical/y is experimental a release may raise MIN_LAYOUT and stop
+  // reading an older layout (y.md "Layout upgrades", D110): its rooms open
+  // read only until their server migrates them. Such a release updates this
+  // bound, the docs and its changelog together. Published steps stay
+  // published either way, and an app may raise its own floor (its server
+  // stops admitting clients that cannot read the next layout).
   expect(mainEntry.MIN_LAYOUT).toBeLessThanOrEqual(3);
   expect(serverEntry.MIN_LAYOUT).toBe(mainEntry.MIN_LAYOUT);
   // Published steps stay published: this list only grows (add a step here

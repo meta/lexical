@@ -12,10 +12,12 @@ document layout carries a version, so a client that meets a newer layout
 opens the document read only instead of misreading it.
 
 `@experimental` is not an exception to compatibility. Once released, the
-public API, its types and the stored format change only additively: no
-export is removed or renamed, no stored layout from 3 on stops being read
-(see [Layout upgrades](#layout-upgrades)), and no published migration step
-or revision is removed or changes what it writes.
+public API and its types change only additively: no export is removed or
+renamed, and no published migration step or revision is removed or changes
+what it writes. Stored layouts are the exception while the package is
+experimental: a release may stop reading an older one, and rooms stored in
+it then need a server-side migration (see
+[Layout upgrades](#layout-upgrades)).
 
 :::
 
@@ -1765,12 +1767,12 @@ id, and the document reads the same before and after. What clients see:
   Layout 2 came in lazily (the historical 1 → 2 rule): a client adds it to
   a room's record only when it first writes something that needs it, in
   the same transaction, and older clients then open that room read only.
-  Layouts after 3 are not stamped that way: a room moves to one only
-  through an explicitly selected target, and the default seed and target
-  stay 3 (see [Layout upgrades](#layout-upgrades)).
-- **Changes that raise `MIN_LAYOUT`:** only the one-time break to layout 3,
-  whose release stops reading older layouts (their rooms are migrated,
-  below). After it, `MIN_LAYOUT` stays 3 and layouts are only added: see
+  Layouts after 3 are not stamped that way: a room moves to one above
+  `MIN_LAYOUT` only through an explicitly selected target, and the default
+  seed and target do not move to it (see [Layout upgrades](#layout-upgrades)).
+- **Changes that raise `MIN_LAYOUT`:** a release that stops reading older
+  layouts, as layout 3's did (their rooms are migrated, below). While
+  `@lexical/y` is experimental, a later release may do it again: see
   [Layout upgrades](#layout-upgrades).
 - **Changing your own node types:** bump `schemaVersion` (see
   [Versioning your schema](#versioning-your-schema)), so that clients still
@@ -1814,18 +1816,27 @@ only, and `UNSUPPORTED_LAYOUT_WARNING` `'older'` says which was declared
 below the floor and also reports `UNSUPPORTED_CONFIG_WARNING`
 `'missing-layout-upgrade'`.
 
-**The policy: never drop a reader.** After the one-time break to layout 3:
+**Old layouts while `@lexical/y` is experimental.** A new layout is a new
+`LAYOUT_VERSION`, and releases usually keep reading the older ones. While
+the package is experimental, though, a release may stop reading an older
+layout (it raises `MIN_LAYOUT`), as layout 3's release did for layouts 1
+and 2. Rooms stored in that layout then open read only until their server
+migrates them with the published steps (`@lexical/y/migrate`, see
+[Migrating stored documents](#migrating-stored-documents)). If your app
+stores rooms, plan for a server-side migration when you take such an
+upgrade; its release notes and changelog say when one is needed.
 
-- Layouts are only added. A new layout is a new `LAYOUT_VERSION`; every
-  release keeps reading and writing every layout from 3 up.
-- The package never removes a reader or a writer of a layout from 3 on
-  (`MIN_LAYOUT` stays 3), and every published step and revision stays,
-  `1to2` and `2to3` included (`@lexical/y/migrate/<n>to<n+1>`).
-- A later layout is reached only through an explicitly selected target:
-  the default seed and the runner's default target stay 3.
+What does not change:
+
+- A layout above `MIN_LAYOUT` is reached only through an explicitly
+  selected target (`to`): adding a layout moves no room, and neither the
+  default seed (`SEED_LAYOUT`) nor the runner's default target
+  (`MIN_LAYOUT`) moves to it.
 - An app may raise its own floor. Its server migrates its rooms to layout
   N + 1 and stops admitting clients that cannot read N + 1 (the handshake's
-  `layouts` says what a client reads); the package's floor does not move.
+  `layouts` says what a client reads).
+- Every published step and revision stays available, `1to2` and `2to3`
+  included (`@lexical/y/migrate/<n>to<n+1>`).
 - A step's default revision never changes what it writes (see Migration
   identity below).
 
@@ -1873,7 +1884,8 @@ step stays revision 1 forever. A correction that would change what a step
 writes ships as a new, separately named revision, which an app selects
 explicitly; documents already migrated are never revised. Each revision's
 golden fixtures are pinned to it. The runner's default target (`to`) is
-`MIN_LAYOUT`, and after layout 3 `MIN_LAYOUT` never rises.
+`MIN_LAYOUT`, so it moves only when a release raises the floor (see
+[Layout upgrades](#layout-upgrades)).
 
 Each step runs on a copy of the document, in one transaction under a client
 id hashed from its inputs (two servers that migrate the same bytes write the
