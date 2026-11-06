@@ -31,6 +31,7 @@ import {
   type IdSet,
   Item,
   iterateStructsByIdSet,
+  mergeIdSets,
   Node as YNode,
   RelativePosition,
   relativePositionToJSON,
@@ -356,6 +357,9 @@ function gatedStep(
   // Restored, not cleared, afterwards: a step started from a listener of an
   // earlier one (whose capture is still running) leaves that one's flags.
   const {undoing, redoing, currStackItem} = um;
+  // The stack the step pushes its own item onto (see foldFollowUps).
+  const opposite = undo ? um.redoStack : um.undoStack;
+  const base = opposite.length;
   const outerHeld = heldPops.get(um);
   const held: Parameters<UndoManager['emit']>[] = [];
   heldPops.set(um, held);
@@ -401,6 +405,9 @@ function gatedStep(
     for (const args of held) {
       um.emit(...args);
     }
+    if (result !== null) {
+      foldFollowUps(opposite, base);
+    }
   } finally {
     if (outerHeld === undefined) {
       heldPops.delete(um);
@@ -412,6 +419,25 @@ function gatedStep(
     um.currStackItem = currStackItem;
   }
   return result;
+}
+
+/**
+ * Fold into the item an undo or redo pushed onto `stack` (at `base`) the
+ * items pushed after it during the step: writes the binding made while
+ * reading the step (a follow-up, see FollowUps), which Yjs captures while
+ * it undoes or redoes, and never merges into the last item then. Why: as
+ * items of their own, one redo after an undo redid only the follow-up, and
+ * the undone change stayed undone (#9816).
+ */
+function foldFollowUps(stack: UndoManager['undoStack'], base: number): void {
+  if (stack.length <= base + 1) {
+    return;
+  }
+  const item = stack[base];
+  for (const later of stack.splice(base + 1)) {
+    item.inserts = mergeIdSets([item.inserts, later.inserts]);
+    item.deletes = mergeIdSets([item.deletes, later.deletes]);
+  }
 }
 
 /** Pop events held while a gated step's transaction is open. */

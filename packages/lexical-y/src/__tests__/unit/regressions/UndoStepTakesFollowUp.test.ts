@@ -41,70 +41,69 @@ class MergingText extends TextNode {
 type Stacks = {undoStack: unknown[]; redoStack: unknown[]};
 
 describe.each([false, true])('an undo that writes a follow-up, gc %s', gc => {
-  // [text class, B's held change, fails on main]
-  for (const [cls, change, fails] of [
-    ['a merging subclass', 'unbold and type', true],
-    ['a merging subclass', 'type', false],
-    ['TextNode', 'unbold and type', false],
+  // [text class, B's held change]
+  for (const [cls, change] of [
+    ['a merging subclass', 'unbold and type'],
+    ['a merging subclass', 'type'],
+    ['TextNode', 'unbold and type'],
   ] as const) {
-    (fails ? test.fails : test)(
-      `${cls}, B's held change: ${change}: one redo restores the change`,
-      async () => {
-        const $text = (s: string): TextNode =>
-          cls === 'TextNode'
-            ? $createTextNode(s)
-            : $create(MergingText).setTextContent(s);
-        const t = await composing(
-          () =>
-            $getRoot().append(
-              $createParagraphNode().append(
-                $createTextNode('left'),
-                $create(HoldBox).append($text('abc').setFormat(1)),
-                $createTextNode('right'),
-              ),
+    test(`${cls}, B's held change: ${change}: one redo restores the change`, async () => {
+      const $text = (s: string): TextNode =>
+        cls === 'TextNode'
+          ? $createTextNode(s)
+          : $create(MergingText).setTextContent(s);
+      const t = await composing(
+        () =>
+          $getRoot().append(
+            $createParagraphNode().append(
+              $createTextNode('left'),
+              $create(HoldBox).append($text('abc').setFormat(1)),
+              $createTextNode('right'),
             ),
-          gc,
-          [1, 2, 3],
-          undefined,
-          [MergingText],
-        );
-        const {a} = t;
-        await held(t, () => {
-          const n = $composed();
-          if (change === 'unbold and type') {
-            n.setFormat(0);
-          }
-          n.spliceText(3, 0, 'R');
-        });
-        // A splits the composed text and types a new bold node between.
-        a.update(() => {
-          const [left] = $composed().splitText(2);
-          const typed = $text('X').setFormat(1).toggleUnmergeable();
-          left.getLatest().insertAfter(typed);
-          typed.select(1, 1);
-        });
-        await t.sync();
-        const um = a.binding.undoManager as unknown as Stacks;
-        const steps = um.undoStack.length;
-        a.binding.undo();
-        await t.sync();
-        // The undo is one step to redo.
-        expect([um.undoStack.length, um.redoStack.length]).toEqual([
-          steps - 1,
-          1,
-        ]);
-        a.binding.redo();
-        await t.sync();
-        a.update(() => $setCompositionKey(null));
-        await t.sync();
-        const fresh = await freshReader(a);
-        expect(fresh.read(() => $getRoot().getTextContent())).toBe(
-          'leftabXcRright',
-        );
-        expect(fresh.describe()).toBe(a.describe());
-        fresh.stop();
-        await expectConverged(t.peers);
-      },
-    );
+          ),
+        gc,
+        [1, 2, 3],
+        undefined,
+        [MergingText],
+      );
+      const {a} = t;
+      await held(t, () => {
+        const n = $composed();
+        if (change === 'unbold and type') {
+          n.setFormat(0);
+        }
+        n.spliceText(3, 0, 'R');
+      });
+      // A splits the composed text and types a new bold node between.
+      a.update(() => {
+        const [left] = $composed().splitText(2);
+        const typed = $text('X').setFormat(1).toggleUnmergeable();
+        left.getLatest().insertAfter(typed);
+        typed.select(1, 1);
+      });
+      await t.sync();
+      const um = a.binding.undoManager as unknown as Stacks;
+      const steps = um.undoStack.length;
+      a.binding.undo();
+      await t.sync();
+      // The undo is one step to redo.
+      expect([um.undoStack.length, um.redoStack.length]).toEqual([
+        steps - 1,
+        1,
+      ]);
+      a.binding.redo();
+      await t.sync();
+      // And the redo is one step to undo.
+      expect([um.undoStack.length, um.redoStack.length]).toEqual([steps, 0]);
+      a.update(() => $setCompositionKey(null));
+      await t.sync();
+      const fresh = await freshReader(a);
+      expect(fresh.read(() => $getRoot().getTextContent())).toBe(
+        'leftabXcRright',
+      );
+      expect(fresh.describe()).toBe(a.describe());
+      fresh.stop();
+      await expectConverged(t.peers);
+    });
   }
 });
