@@ -34,7 +34,12 @@ import {
 } from 'lexical';
 import {describe, expect, test} from 'vitest';
 
-import {$selectIn, freshReader, setup} from '../../utils/harness';
+import {
+  $selectIn,
+  expectConverged,
+  freshReader,
+  setup,
+} from '../../utils/harness';
 
 describe.each([false, true])(
   'a listener edit beside a local delete overlapping a remote one read later, gc %s',
@@ -96,7 +101,7 @@ describe.each([false, true])(
           'paragraph("two three four") / paragraph("eight nen###")',
         );
         expect(stored).toBe(a.describe());
-        expect(b.describe()).toBe(a.describe());
+        await expectConverged([a, b, t.c]);
       } finally {
         host.remove();
       }

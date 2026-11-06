@@ -9269,11 +9269,7 @@ export class YBinding {
     }
     const cleanups = doc._transactionCleanups;
     const splitting = this.splitting;
-    if (
-      this.takingCursor ||
-      splitting !== null ||
-      cleanups.some(t => t.origin === this.scanOrigin)
-    ) {
+    if (this.takingCursor || cleanups.some(t => t.origin === this.scanOrigin)) {
       const taken = this.takenCursor;
       if (taken !== null && taken.state === state) {
         return taken.cursor;

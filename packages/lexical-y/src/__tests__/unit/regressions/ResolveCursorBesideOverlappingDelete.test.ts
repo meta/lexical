@@ -16,7 +16,9 @@
 // bounds, in a transaction that changes nothing, as getCursor takes
 // positions. The change stays unread here while an app's mutation listener
 // edits on the local update's commit (see
-// ListenerEditBesideOverlappingDelete.test.ts).
+// ListenerEditBesideOverlappingDelete.test.ts). The first test also passes on
+// main, where the items are not split at what writes deleted again: it
+// guards the state in between.
 
 import * as Y from '@y/y';
 import {
@@ -221,6 +223,89 @@ describe.each([false, true])(
       } finally {
         a.doc.off('afterTransaction', observe);
         a.doc.off('afterTransactionCleanup', observe);
+        a.doc.off('afterAllTransactions', observeAll);
+        host.remove();
+      }
+    });
+
+    test('takes a fresh cursor from afterAllTransactions after resolving one', async () => {
+      const t = await setup(
+        () =>
+          $getRoot().append(
+            $createParagraphNode().append($createTextNode('two three four')),
+            $createParagraphNode().append($createTextNode('eight nine ten')),
+          ),
+        {gc, ids: [1, 2, 3]},
+      );
+      const {a, b} = t;
+      const host = document.createElement('div');
+      host.contentEditable = 'true';
+      document.body.append(host);
+      a.editor.setRootElement(host);
+      // A cursor taken on the local update's commit, before the binding
+      // writes it (Lexical notifies mutation listeners first).
+      let listened = false;
+      a.editor.registerMutationListener(
+        TextNode,
+        () => {
+          if (!listened) {
+            listened = true;
+            a.binding.getCursor();
+          }
+        },
+        {skipInitialization: true},
+      );
+      let written = false;
+      let peer: ReturnType<typeof b.binding.getCursor> = null;
+      const seen: [number | null, number | null][] = [];
+      const observeAll = (_doc: Y.Doc, trs: Y.Transaction[]) => {
+        if (trs.some(tr => tr.origin === a.binding)) {
+          written = true;
+        }
+        if (!written || seen.length > 20) {
+          return;
+        }
+        // A collaborator's cursor resolved (which may open a transaction,
+        // whose afterAllTransactions calls this again), then this client's
+        // taken.
+        a.editor.getEditorState().read(() => {
+          if (peer !== null) {
+            a.binding.$resolveCursor(peer);
+          }
+        });
+        const cursor = a.binding.getCursor();
+        seen.push(
+          a.editor.getEditorState().read(() => {
+            const selection = $getSelection();
+            const points =
+              cursor === null ? null : a.binding.$resolveCursor(cursor);
+            return [
+              $isRangeSelection(selection) ? selection.anchor.offset : null,
+              points === null ? null : points.anchor.offset,
+            ];
+          }),
+        );
+      };
+      try {
+        t.offline();
+        b.update(() => {
+          $selectIn([1], 8, 12).removeText();
+          $selectIn([0], 2);
+        });
+        peer = b.binding.getCursor();
+        const remote = Y.encodeStateAsUpdate(b.doc, Y.encodeStateVector(a.doc));
+        a.doc.on('afterAllTransactions', observeAll);
+        a.update(() => {
+          $selectIn([1], 7, 11).removeText();
+          Y.applyUpdate(a.doc, remote, 'provider');
+          $selectIn([1], 10).insertText('XYZ');
+        });
+        await Promise.resolve();
+        await t.sync();
+        a.doc.off('afterAllTransactions', observeAll);
+        expect(seen.length).toBeGreaterThan(0);
+        expect(seen).toEqual(seen.map(([editor]) => [editor, editor]));
+      } finally {
         a.doc.off('afterAllTransactions', observeAll);
         host.remove();
       }
