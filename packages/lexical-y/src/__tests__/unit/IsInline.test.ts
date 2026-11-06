@@ -33,6 +33,12 @@ import {$assertNodeType} from 'lexical/src/__tests__/utils';
 import {describe, expect, test} from 'vitest';
 
 import {
+  isNullRunValue,
+  isShadowKey,
+  stepFormat,
+  STORED_FOLD,
+} from '../../internal/Ident';
+import {
   $block,
   expectConverged,
   NODES,
@@ -163,15 +169,24 @@ function stored(peer: Peer, onAll = true): string[] {
       out.add(c.name);
     }
   }
-  const delta = peer.binding.root.toDelta().toJSON() as {
-    children?: {insert?: unknown; format?: Record<string, unknown>}[];
-  };
-  for (const c of delta.children ?? []) {
-    if (!onAll && typeof c.insert !== 'string') {
+  // The keys content shows, read by the paired fold (layout 3).
+  const formats = new Map<string, unknown>();
+  for (
+    let it = peer.binding.root._start as Y.Item | null;
+    it !== null;
+    it = it.right as Y.Item | null
+  ) {
+    if (it.deleted) {
       continue;
     }
-    for (const k of Object.keys(c.format ?? {})) {
-      out.add(k);
+    if (it.content instanceof Y.ContentFormat) {
+      stepFormat(formats, it, STORED_FOLD);
+    } else if (onAll || it.content instanceof Y.ContentString) {
+      for (const [k, v] of formats) {
+        if (!isShadowKey(k) && v !== null && !isNullRunValue(v)) {
+          out.add(k);
+        }
+      }
     }
   }
   return [...out].sort();
@@ -301,7 +316,7 @@ describe('@lexical/y when an instance is not what its class declares', () => {
       );
       expect(stored(t.a)).toContain('b:test_toggle_tag');
       // No character carries the inline form any more (the delete of its
-      // text leaves its format items, see Cursor#collapseGap).
+      // text leaves its format items, see Cursor#delete).
       expect(stored(t.a, false)).not.toContain('w:test_toggle_tag');
       const $lifted = () =>
         $assertNodeType(
@@ -362,7 +377,7 @@ describe('@lexical/y when an instance is not what its class declares', () => {
       // of the node or the other depending on the client ids, as any
       // concurrent insert at a deleted position does, and keeps the format it
       // was typed with, the inline form (a delete keeps the format items
-      // around the deleted text, see Cursor#collapseGap).
+      // around the deleted text, see Cursor#delete).
       await expectConverged(
         t.peers,
         ids[0] === 1

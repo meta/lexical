@@ -77,6 +77,8 @@ import {
 import * as Y13 from 'yjs';
 
 import {createYDoc, type YBinding, type YDoc} from '../..';
+import {setFullStackChecks} from '../../internal/Ident';
+import {setUnitLeftChecks} from '../../internal/Seen';
 import {
   $createBoxNode,
   BoxNode,
@@ -87,6 +89,10 @@ import {
   describeNode,
   NODES,
 } from './harness';
+
+// Test harnesses check every run stack push in full (see Ident, Rule 4).
+setFullStackChecks(true);
+setUnitLeftChecks(true);
 
 // ---------------------------------------------------------------------------
 // Script

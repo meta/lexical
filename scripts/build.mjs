@@ -193,6 +193,8 @@ const thirdPartyExternals = [
         'mdast-util-gfm-strikethrough',
         'mdast-util-gfm-table',
         'mdast-util-gfm-task-list-item',
+        'micromark',
+        'micromark-core-commonmark',
         'micromark-extension-gfm-autolink-literal',
         'micromark-extension-gfm-strikethrough',
         'micromark-extension-gfm-table',

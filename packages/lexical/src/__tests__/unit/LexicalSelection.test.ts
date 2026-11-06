@@ -28,6 +28,7 @@ import {$createQuoteNode, QuoteNode} from '@lexical/rich-text';
 import {
   $caretRangeFromSelection,
   $comparePointCaretNext,
+  $create,
   $createLineBreakNode,
   $createParagraphNode,
   $createRangeSelection,
@@ -36,6 +37,7 @@ import {
   $getCaretInDirection,
   $getRoot,
   $getSelection,
+  $getState,
   $isDecoratorNode,
   $isParagraphNode,
   $isRangeSelection,
@@ -43,14 +45,16 @@ import {
   $selectAll,
   $setCompositionKey,
   $setSelection,
+  $setState,
   $setTextFormat,
+  createState,
   ElementNode,
   getDOMSelection,
   IS_BOLD,
   type LexicalNode,
   type ParagraphNode,
   type RangeSelection,
-  type TextNode,
+  TextNode,
 } from 'lexical';
 import {
   afterEach,
@@ -69,6 +73,7 @@ import {
   $createTestInlineElementNode,
   $createTestShadowRootNode,
   $isTestShadowRootNode,
+  createTestEditor,
   TestDecoratorNode,
   TestInlineElementNode,
   TestShadowRootNode,
@@ -872,6 +877,121 @@ describe('Segmented node composition (#5065)', () => {
         expect(selection.isCollapsed()).toBe(true);
         expect(selection.anchor.key).toBe(allText[0].getKey());
         expect(selection.anchor.offset).toBe(5);
+      },
+      {discrete: true},
+    );
+  });
+
+  test('insertText without composition keeps the NodeState and detail of the segmented node', () => {
+    const note = createState('note', {
+      parse: v => (typeof v === 'string' ? v : ''),
+    });
+    using editor = buildEditorFromExtensions(selectionTestExtension);
+    editor.update(
+      () => {
+        const segmented = $setState(
+          $createTextNode('JohnSmith').setMode('segmented').toggleUnmergeable(),
+          note,
+          'c1',
+        );
+        $getRoot().clear().append($createParagraphNode().append(segmented));
+
+        segmented.select(4, 4).insertText('X');
+
+        const allText = $getRoot().getAllTextNodes();
+        expect(allText).toHaveLength(1);
+        expect(allText[0].isSegmented()).toBe(false);
+        expect(allText[0].getTextContent()).toBe('JohnXSmith');
+        expect($getState(allText[0], note)).toBe('c1');
+        expect(allText[0].isUnmergeable()).toBe(true);
+      },
+      {discrete: true},
+    );
+  });
+
+  test('a TextNode replacement keeps the NodeState it sets, and takes the rest', () => {
+    const note = createState('note', {
+      parse: v => (typeof v === 'string' ? v : ''),
+    });
+    const other = createState('other', {
+      parse: v => (typeof v === 'string' ? v : ''),
+    });
+    class ReplacementTextNode extends TextNode {
+      $config() {
+        return this.config('test-replacement-text', {extends: TextNode});
+      }
+    }
+    const editor = createTestEditor({
+      nodes: [
+        ReplacementTextNode,
+        {
+          replace: TextNode,
+          with: (node: TextNode) =>
+            $setState(
+              $create(ReplacementTextNode).setTextContent(
+                node.getTextContent(),
+              ),
+              note,
+              'replacement',
+            ),
+          withKlass: ReplacementTextNode,
+        },
+      ],
+    });
+    editor.update(
+      () => {
+        const segmented = $setState(
+          $setState(
+            $create(ReplacementTextNode)
+              .setTextContent('JohnSmith')
+              .setMode('segmented'),
+            note,
+            'c1',
+          ),
+          other,
+          'o1',
+        );
+        $getRoot().clear().append($createParagraphNode().append(segmented));
+        segmented.select(4, 4).insertText('X');
+        const [text] = $getRoot().getAllTextNodes();
+        expect(text.getTextContent()).toBe('JohnXSmith');
+        expect($getState(text, note)).toBe('replacement');
+        expect($getState(text, other)).toBe('o1');
+      },
+      {discrete: true},
+    );
+  });
+
+  test('removing text from inside a segmented node to the next block keeps its NodeState and detail', () => {
+    const note = createState('note', {
+      parse: v => (typeof v === 'string' ? v : ''),
+    });
+    using editor = buildEditorFromExtensions(selectionTestExtension);
+    editor.update(
+      () => {
+        const segmented = $setState(
+          $createTextNode('$AB').setMode('segmented').toggleUnmergeable(),
+          note,
+          'c1',
+        );
+        const next = $createTextNode('z');
+        $getRoot()
+          .clear()
+          .append(
+            $createParagraphNode().append(segmented),
+            $createParagraphNode().append(next),
+          );
+        const selection = $createRangeSelection();
+        selection.anchor.set(segmented.getKey(), 2, 'text');
+        selection.focus.set(next.getKey(), 0, 'text');
+        $setSelection(selection);
+        selection.removeText();
+        const nodes = $getRoot().getAllTextNodes();
+        expect($getRoot().getTextContent()).toBe('$Az');
+        const kept = nodes.find(n => n.getTextContent().startsWith('$A'));
+        expect(kept).toBeDefined();
+        expect($getState(kept!, note)).toBe('c1');
+        expect(kept!.isUnmergeable()).toBe(true);
       },
       {discrete: true},
     );

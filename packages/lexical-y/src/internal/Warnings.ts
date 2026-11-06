@@ -65,11 +65,19 @@ export const UNSUPPORTED_SLOTS_WARNING = '@lexical/y/unsupported-slots';
  */
 export const UNSUPPORTED_CONFIG_WARNING = '@lexical/y/unsupported-config';
 /**
- * @experimental A local update changed the editor while the binding is read
- * only: nothing is written, and what it changed is read again (once the
- * document cannot be read, the editor shows what it showed before the update
- * again), so the editor keeps showing the document. Reported once each time
- * the binding goes read only. `data`: YUnsupportedEditData.
+ * @experimental A local change was not written; what it changed is read
+ * again (once the document cannot be read, the editor shows what it showed
+ * before the update again), so the editor keeps showing the document.
+ * `data`: YUnsupportedEditData, with three reasons:
+ *
+ * - `'read-only'`: the binding is read only (code edited the editor, which
+ *   is not editable). Reported once each time the binding goes read only.
+ * - `'refused-at-write'`: the binding is active, but the write's own
+ *   transaction changed the layout or schema record (`record`). Reported for
+ *   each such write; it promises nothing about the binding's later status.
+ * - `'held-composition'`: the binding is active, and the change would delete
+ *   or leave behind text a collaborator wrote in the line being composed,
+ *   which the composition holds back. Reported for each such change.
  */
 export const UNSUPPORTED_EDIT_WARNING = '@lexical/y/unsupported-edit';
 /**
@@ -78,13 +86,35 @@ export const UNSUPPORTED_EDIT_WARNING = '@lexical/y/unsupported-edit';
  * YUnsupportedSchemaData.
  */
 export const UNSUPPORTED_SCHEMA_WARNING = '@lexical/y/unsupported-schema';
+/**
+ * @experimental Development builds only: a local transaction that is not
+ * the binding's (nor a Y.UndoManager's, nor a migration's) changed the Yjs
+ * content under the binding's root. The encoding under the root is private
+ * to the binding and unsupported for direct writes: change the document
+ * through the editor (or editYState). Once per binding and origin; nothing
+ * else happens (the binding reads the change as it reads a remote one).
+ * A diagnostic, not a complete detector: it judges a transaction by its
+ * origin and locality, and only once the binding has read its document
+ * (not while it is pending), so a raw write made through a provider-like
+ * remote update, or before the binding reads, is not reported. A
+ * transaction the binding also wrote in (an editor edit, `initialize()` or
+ * `binding.undo()` inside an app's `doc.transact`, which joins it) is not
+ * checked either, so an app's raw write in that same transaction goes
+ * unreported: it may miss a raw write, never report the binding's own.
+ * `data`:
+ * YRawYjsWriteData.
+ */
+export const RAW_YJS_WRITE_WARNING = '@lexical/y/raw-yjs-write';
 
 /**
- * @experimental The codes of the `LexicalWarning`s the binding passes to the
- * editor's `onWarn`. Codes are public API: a code is never renamed, and never
- * reused for another condition; new codes may be added in any release.
+ * Internal (not exported from the package): the codes of the
+ * `LexicalWarning`s this version of the binding passes to the editor's
+ * `onWarn`. It grows when a code is added, so it is not public: a public
+ * closed union would break an exhaustive switch over it. Each code is
+ * public (its constant); a code is never renamed, and never reused for
+ * another condition.
  */
-export type YWarningCode =
+export type YKnownWarningCode =
   | typeof UNSUPPORTED_LAYOUT_WARNING
   | typeof UNKNOWN_NODE_TYPES_WARNING
   | typeof STORAGE_MISMATCH_WARNING
@@ -96,7 +126,28 @@ export type YWarningCode =
   | typeof UNSUPPORTED_SLOTS_WARNING
   | typeof UNSUPPORTED_CONFIG_WARNING
   | typeof UNSUPPORTED_EDIT_WARNING
-  | typeof UNSUPPORTED_SCHEMA_WARNING;
+  | typeof UNSUPPORTED_SCHEMA_WARNING
+  | typeof RAW_YJS_WRITE_WARNING;
+
+/**
+ * @experimental A warning code: one this version reports (an editor
+ * completes them) or one a later version adds. Open on purpose: handle the
+ * codes you know, with `isYWarning(value, code)`, and keep a fallback for
+ * the others.
+ */
+export type YWarningCode = YKnownWarningCode | (string & {});
+
+/**
+ * @experimental The `data` every code may carry besides its own variants: a
+ * condition a later version reports under an existing code, `detailCode`
+ * naming it (with optional `details`). Permanent: a switch over a code's
+ * `reason` handles `'other'`, so a new condition never breaks it.
+ */
+export interface YOtherWarningData {
+  readonly reason: 'other';
+  readonly detailCode: string;
+  readonly details?: unknown;
+}
 
 /**
  * @experimental `data` of an `UNSUPPORTED_LAYOUT_WARNING` (the binding is read
@@ -118,10 +169,40 @@ export type YUnsupportedLayoutData =
       readonly supported: number;
     }
   /**
-   * The root has content but no layout record (`'missing'`), or the record
-   * was removed while the binding was writing (`'removed'`).
+   * The root has content, or records such as an epoch, but no layout
+   * record (`'missing'`), or the record was removed while the binding was
+   * writing (`'removed'`).
    */
   | {readonly reason: 'missing' | 'removed'; readonly supported: number}
+  /**
+   * The root records layout `found`, older than `min`, the oldest this
+   * version reads (MIN_LAYOUT): migrate the document (see
+   * @lexical/y/migrate). A document below the floor is an expected state
+   * for an app whose server migrates: handle this reason in `onWarn` (its
+   * development default throws).
+   */
+  | {
+      readonly reason: 'older';
+      readonly found: number;
+      readonly min: number;
+      readonly supported: number;
+      /**
+       * What the app declared (`layoutUpgrade`): `'server'` (its server
+       * upgrades such documents, so this one should have been migrated) or
+       * `'read-only'` (none, or not declared). A later release may add
+       * kinds.
+       */
+      readonly upgrade: 'server' | 'read-only' | (string & {});
+    }
+  /**
+   * The root requires features this version does not support, `features`
+   * (`lexical-y-require:<feature>`): shown, kept, never rewritten.
+   */
+  | {
+      readonly reason: 'requires';
+      readonly features: readonly string[];
+      readonly supported: number;
+    }
   /** Older layouts' roots, `roots`, hold content. */
   | {
       readonly reason: 'legacy-roots';
@@ -230,16 +311,44 @@ export type YUnsupportedConfigData =
    * The document runs Yjs's format cleanup (`doc.cleanupFormatting` is not
    * false): it was not made by `createYDoc`.
    */
-  | {readonly reason: 'cleanup-formatting'};
+  | {readonly reason: 'cleanup-formatting'}
+  /**
+   * No `layoutUpgrade` was declared (a config written without
+   * createYCollabConfig, or plain JavaScript), and the document is below
+   * MIN_LAYOUT: read only, as with `layoutUpgrade: null`. Sent with the
+   * `'older'` layout warning.
+   */
+  | {readonly reason: 'missing-layout-upgrade'};
 
 /**
- * @experimental `data` of an `UNSUPPORTED_EDIT_WARNING`: a local update
- * (code that edits the editor, which is not editable) changed content while
- * the binding is read only (`'read-only'`).
+ * @experimental `data` of an `UNSUPPORTED_EDIT_WARNING`, a local change that
+ * was not written:
+ *
+ * - `'read-only'`: the binding is read only (code edited the editor, which
+ *   is not editable); an earlier warning says why.
+ * - `'refused-at-write'`: the binding is active, but as the change was
+ *   written the root's `record` (`'layout'`: the layout record, or the
+ *   epoch or a feature requirement; `'schema'`: a schema record) did not
+ *   admit writes. It changed in the same transaction (an app's, or a
+ *   remote update a provider applied while the editor was updating). Not
+ *   retried; the binding may stay active (when the record is put back), so
+ *   this is not a read-only state.
  */
-export interface YUnsupportedEditData {
-  readonly reason: 'read-only';
-}
+export type YUnsupportedEditData =
+  | {readonly reason: 'read-only'}
+  | {
+      readonly reason: 'refused-at-write';
+      readonly record: 'layout' | 'schema';
+    }
+  /**
+   * While the binding is active: a local change that would delete or leave
+   * behind text a collaborator wrote in the line being composed with an IME,
+   * which the composition holds back until it ends (it moves, replaces or
+   * removes what holds that text, or takes text out of the inline element
+   * composed in). Nothing is written, the editor reads the document again
+   * (the change is undone), and the composition goes on; edit again.
+   */
+  | {readonly reason: 'held-composition'};
 
 /**
  * @experimental `data` of a `SELF_CHECK_WARNING`: the self-check found the
@@ -317,6 +426,24 @@ export type YNestedFallbackData =
     };
 
 /**
+ * @experimental `data` of a `RAW_YJS_WRITE_WARNING` (development builds).
+ */
+export interface YRawYjsWriteData {
+  readonly reason: 'raw-write';
+  /** The binding's root, by its name in the document (`'lexical-y'`). */
+  readonly root: string;
+  /**
+   * What the transaction changed first under the root: a text format
+   * (`'format'`, `key` its name), a node attribute (`'attribute'`, `key`
+   * its name) or other content (`'content'`, `key` null).
+   */
+  readonly kind: 'format' | 'attribute' | 'content';
+  readonly key: string | null;
+  /** The transaction origin's constructor name (`'null'` for none). */
+  readonly origin: string;
+}
+
+/**
  * @experimental `data` of an `UNSYNCED_VALUE_WARNING`: `property`
  * (`'<type>.<field>'` or `'NodeState <key>'`) holds a value that is not plain
  * JSON, so it is not synchronized.
@@ -336,28 +463,51 @@ interface YWarningDataByCode {
   [RECOVERED_WRITE_WARNING]: YRecoveredWriteData;
   [NESTED_FALLBACK_WARNING]: YNestedFallbackData;
   [UNSYNCED_VALUE_WARNING]: YUnsyncedValueData;
+  [RAW_YJS_WRITE_WARNING]: YRawYjsWriteData;
   [UNSUPPORTED_SLOTS_WARNING]: YUnsupportedSlotsData;
   [UNSUPPORTED_CONFIG_WARNING]: YUnsupportedConfigData;
   [UNSUPPORTED_EDIT_WARNING]: YUnsupportedEditData;
   [UNSUPPORTED_SCHEMA_WARNING]: YUnsupportedSchemaData;
 }
 
-/** @experimental The `data` of the warnings with code `C`. */
-export type YWarningData<C extends YWarningCode> = YWarningDataByCode[C];
+/**
+ * @experimental The `data` of the warnings with code `C`: its variants (and
+ * YOtherWarningData) for a code this version knows, `unknown` for another.
+ */
+export type YWarningData<C extends string = string> =
+  C extends YKnownWarningCode
+    ? YWarningDataByCode[C] | YOtherWarningData
+    : unknown;
+
+/** The `data` this version emits under code `C` (never `'other'`). */
+export type YEmittedWarningData<C extends YKnownWarningCode> =
+  YWarningDataByCode[C];
 
 /**
  * @experimental A warning the binding passes to the editor's `onWarn`: a
- * `LexicalWarning` whose `code` decides the type of its `data` (narrow it
- * with isYWarning, then switch over `code`, and over `data.reason`).
+ * `LexicalWarning` whose `code` decides the type of its `data`.
+ * `YWarning` (any code) is open: its `data` is `unknown` until narrowed.
+ * Narrow it with `isYWarning(value, code)`, which gives `YWarning<code>`,
+ * then switch over `data.reason`, `'other'` included. Comparing the code
+ * alone does not narrow `data`: after `isYWarning(value)`,
+ * `value.code === SELF_CHECK_WARNING` leaves `value.data` unknown, since
+ * the code is open and TypeScript narrows `data` by `code` only in a closed
+ * union. Write `isYWarning(value, SELF_CHECK_WARNING)` instead.
  */
-export type YWarning = {
-  [C in YWarningCode]: LexicalWarning & {
-    readonly code: C;
-    readonly data: YWarningData<C>;
-  };
-}[YWarningCode];
+export type YWarning<C extends string = YWarningCode> = LexicalWarning & {
+  readonly code: C;
+  readonly data: YWarningData<C>;
+};
 
-const CODES: ReadonlySet<string> = new Set<YWarningCode>([
+/**
+ * Internal (not exported, for the same reason as YKnownWarningCode): the
+ * warnings this version reports, one member per code.
+ */
+export type YKnownWarning = {
+  [C in YKnownWarningCode]: YWarning<C>;
+}[YKnownWarningCode];
+
+const CODES: ReadonlySet<string> = new Set<YKnownWarningCode>([
   UNSUPPORTED_LAYOUT_WARNING,
   UNKNOWN_NODE_TYPES_WARNING,
   STORAGE_MISMATCH_WARNING,
@@ -370,24 +520,36 @@ const CODES: ReadonlySet<string> = new Set<YWarningCode>([
   UNSUPPORTED_CONFIG_WARNING,
   UNSUPPORTED_EDIT_WARNING,
   UNSUPPORTED_SCHEMA_WARNING,
+  RAW_YJS_WRITE_WARNING,
 ]);
 
 /**
- * @experimental Whether `error` (what the editor's `onWarn` receives) is a
- * warning of the binding's, typed by its code.
+ * @experimental Whether `value` (what the editor's `onWarn` receives) is a
+ * warning of the binding's: with `code`, one with that code, its `data`
+ * typed by it; without, any of its codes (an open YWarning, whose `data` a
+ * later comparison of its `code` does not narrow: pass the code here).
  */
-export function isYWarning(error: unknown): error is YWarning {
-  return error instanceof LexicalWarning && CODES.has(error.code);
+export function isYWarning<C extends YKnownWarningCode>(
+  value: unknown,
+  code: C,
+): value is YWarning<C>;
+export function isYWarning(value: unknown): value is YWarning;
+export function isYWarning(value: unknown, code?: unknown): boolean {
+  if (!(value instanceof LexicalWarning) || !CODES.has(value.code)) {
+    return false;
+  }
+  // A code that is not a string (an array method's index) is no code.
+  return typeof code !== 'string' || value.code === code;
 }
 
 /** A warning found outside a binding's own state (class derivation, values). */
 type WarningNote = {
-  [C in YWarningCode]: {
+  [C in YKnownWarningCode]: {
     readonly code: C;
     readonly message: string;
-    readonly data: YWarningData<C>;
+    readonly data: YEmittedWarningData<C>;
   };
-}[YWarningCode];
+}[YKnownWarningCode];
 
 const noted = new Set<string>();
 const notes: WarningNote[] = [];
@@ -397,10 +559,10 @@ const notes: WarningNote[] = [];
  * (what is found about a class is cached with it, so it is found once): every
  * binding reports it once (see `notesSince`).
  */
-export function noteOnce<C extends YWarningCode>(
+export function noteOnce<C extends YKnownWarningCode>(
   code: C,
   message: string,
-  data: YWarningData<C>,
+  data: YEmittedWarningData<C>,
 ): void {
   if (!noted.has(message)) {
     noted.add(message);

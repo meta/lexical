@@ -48,6 +48,7 @@ import {expect, test} from 'vitest';
 
 import {createYDoc, YCollabExtension} from '../..';
 import {seedYState} from '../../headless';
+import {misLinkedItems} from '../utils/structure';
 
 const SEEDS = Number(process.env.US_SEEDS ?? 60);
 const START = Number(process.env.US_START ?? 1);
@@ -185,95 +186,93 @@ function gen(seed: number): Op[] {
 
 const WORDS = ['alpha', 'beta', 'gamma', 'delta', 'note', 'run'];
 
-// Seeds that spread a comment on main (#9623) with the default profile
-// (US_OPS, US_UNDO and US_STEP_END unchanged), pinned as test.fails until
-// the fix lands. Another profile makes other ops from the same seed, so it
-// pins nothing.
-const DEFAULT_PROFILE = OPS === 30 && UNDO === 0.15 && STEP_END === 0.1;
-const SPREADS_ON_MAIN = new Set([10, 23, 26, 35, 51]);
-
+// Seeds 10, 23, 26, 35 and 51 spread a comment with the default profile
+// (#9623) until the binding kept its own format items from garbage collection
+// while they are undoable: the documents here use Yjs's default, gc on, as
+// products do.
 for (let seed = START; seed < START + SEEDS; seed++) {
-  (DEFAULT_PROFILE && SPREADS_ON_MAIN.has(seed) ? test.fails : test)(
-    `an undo never spreads a comment onto another block (seed ${seed})`,
-    () => {
-      const seeded = seedYState(CONFIG, () => {
-        const root = $getRoot().clear();
-        for (let i = 0; i < BLOCKS; i++) {
-          root.append(
-            $createParagraphNode().append(
-              $createTextNode(`${WORDS[i]} one two three four five ${i}`),
-            ),
-          );
-        }
-      });
-      const peers = ['A', 'B'].map(name => {
-        const doc = createYDoc(seeded);
-        const editor = buildEditorFromExtensions(
-          defineExtension({
-            dependencies: [
-              RichTextExtension,
-              MarkStateExtension,
-              configExtension(YCollabExtension, {
-                // Undo steps end where the script says, whatever the
-                // runner's speed (see below).
-                captureTimeout: 2 ** 30,
-                doc,
-                schemaVersion: 1,
-                synced: true,
-              }),
-            ],
-            name: `undo-spread-fuzz/${name}`,
-            onError: error => {
-              throw error;
-            },
-          }),
+  test(`an undo never spreads a comment onto another block (seed ${seed})`, () => {
+    const seeded = seedYState(CONFIG, () => {
+      const root = $getRoot().clear();
+      for (let i = 0; i < BLOCKS; i++) {
+        root.append(
+          $createParagraphNode().append(
+            $createTextNode(`${WORDS[i]} one two three four five ${i}`),
+          ),
         );
-        const {binding} = getExtensionDependencyFromEditor(
-          editor,
-          YCollabExtension,
-        ).output;
-        return {binding, doc, editor};
-      });
-      const sync = () => {
-        const [a, b] = peers;
-        Y.applyUpdate(
-          b.doc,
-          Y.encodeStateAsUpdate(a.doc, Y.encodeStateVector(b.doc)),
-        );
-        Y.applyUpdate(
-          a.doc,
-          Y.encodeStateAsUpdate(b.doc, Y.encodeStateVector(a.doc)),
-        );
-      };
-      const ops = gen(seed);
-      // Where an undo step ends: after an op with this chance (as edits a
-      // person makes in a burst share one step), from its own sequence so
-      // the ops stay those of the seed.
-      const steps = rng(seed * 40503 + 1);
-      try {
-        ops.forEach((op, i) => {
-          const {editor} = peers[op.e];
-          if (op.k === 'undo') {
-            editor.dispatchCommand(UNDO_COMMAND, undefined);
-          } else {
-            editor.update(() => $apply(op), {discrete: true});
-          }
-          if (steps() < STEP_END) {
-            peers[op.e].binding.undoManager?.stopCapturing();
-          }
-          sync();
-          for (const peer of peers) {
-            expect(
-              spread(peer.editor),
-              `after op ${i}: ${JSON.stringify(ops.slice(0, i + 1))}`,
-            ).toEqual([]);
-          }
-        });
-      } finally {
-        for (const peer of peers) {
-          peer.editor.dispose();
-        }
       }
-    },
-  );
+    });
+    const peers = ['A', 'B'].map(name => {
+      const doc = createYDoc(seeded);
+      const editor = buildEditorFromExtensions(
+        defineExtension({
+          dependencies: [
+            RichTextExtension,
+            MarkStateExtension,
+            configExtension(YCollabExtension, {
+              // Undo steps end where the script says, whatever the
+              // runner's speed (see below).
+              captureTimeout: 2 ** 30,
+              doc,
+              schemaVersion: 1,
+              synced: true,
+            }),
+          ],
+          name: `undo-spread-fuzz/${name}`,
+          onError: error => {
+            throw error;
+          },
+        }),
+      );
+      const {binding} = getExtensionDependencyFromEditor(
+        editor,
+        YCollabExtension,
+      ).output;
+      return {binding, doc, editor};
+    });
+    const sync = () => {
+      const [a, b] = peers;
+      Y.applyUpdate(
+        b.doc,
+        Y.encodeStateAsUpdate(a.doc, Y.encodeStateVector(b.doc)),
+      );
+      Y.applyUpdate(
+        a.doc,
+        Y.encodeStateAsUpdate(b.doc, Y.encodeStateVector(a.doc)),
+      );
+    };
+    const ops = gen(seed);
+    // Where an undo step ends: after an op with this chance (as edits a
+    // person makes in a burst share one step), from its own sequence so
+    // the ops stay those of the seed.
+    const steps = rng(seed * 40503 + 1);
+    try {
+      ops.forEach((op, i) => {
+        const {editor} = peers[op.e];
+        if (op.k === 'undo') {
+          editor.dispatchCommand(UNDO_COMMAND, undefined);
+        } else {
+          editor.update(() => $apply(op), {discrete: true});
+        }
+        if (steps() < STEP_END) {
+          peers[op.e].binding.undoManager?.stopCapturing();
+        }
+        sync();
+        for (const peer of peers) {
+          expect(
+            spread(peer.editor),
+            `after op ${i}: ${JSON.stringify(ops.slice(0, i + 1))}`,
+          ).toEqual([]);
+          expect(
+            misLinkedItems(peer.doc),
+            `after op ${i}: ${JSON.stringify(ops.slice(0, i + 1))}`,
+          ).toEqual([]);
+        }
+      });
+    } finally {
+      for (const peer of peers) {
+        peer.editor.dispose();
+      }
+    }
+  });
 }

@@ -15,10 +15,14 @@
 // restore with " mid", and " plain" turns bold on every client (and a
 // comment covers it the same way). A delete of " mid" by hand keeps them.
 //
-// The cases marked test.fails fail on main and pass with #9561 (an undo
-// keeps the run ends of the text it removes), parked as a draft: with it, a
-// collaborator's undo of text typed inside a run, concurrent with the undo
-// of that run's value, gives the value back to the rest of the run (#9593).
+// The cases marked test.fails fail on main, each tracked by the issue named
+// above it: #9681 (an undo of text typed inside a run deletes that text's
+// run ends; D74) or #9682 (an undo of a run's value leaves it after a
+// restore the undo has seen; D64, documented in y.md's Limits, Undo).
+// #9561 (an undo keeps the run ends of the text it removes) fixes both and
+// is parked as a draft: with it, a collaborator's undo of text typed inside
+// a run, concurrent with the undo of that run's value, gives the value back
+// to the rest of the run (#9593).
 
 import {$addMarkID, $getNodeMarkIDs, $removeMarkID} from '@lexical/mark';
 import {$patchStyleText} from '@lexical/selection';
@@ -129,6 +133,7 @@ async function race(t: Setup, undo: 'undo' | 'delete' | 'none') {
 }
 
 describe('an undo keeps the run ends of the text it removes', () => {
+  // #9681: an undo of text typed inside a run deletes its run ends.
   test.fails.each(ORDERS)(
     'bold: text typed after its null stays plain (ids %i %i %i)',
     async (...ids) => {
@@ -137,6 +142,7 @@ describe('an undo keeps the run ends of the text it removes', () => {
     },
   );
 
+  // #9681: an undo of text typed inside a run deletes its run ends.
   test.fails.each(ORDERS)(
     'comment: text typed after its null stays uncommented (ids %i %i %i)',
     async (...ids) => {
@@ -157,6 +163,7 @@ describe('an undo keeps the run ends of the text it removes', () => {
     },
   );
 
+  // #9681: an undo of text typed inside a run deletes its run ends.
   test.fails.each(ORDERS)(
     'a paragraph inserted into a bold run split by Enter (ids %i %i %i)',
     async (...ids) => {
@@ -195,6 +202,7 @@ describe('an undo keeps the run ends of the text it removes', () => {
     },
   );
 
+  // #9681: an undo of text typed inside a run deletes its run ends.
   test.fails.each(ORDERS)(
     'bold text typed into plain text: text typed before it inside its run stays bold (ids %i %i %i)',
     async (...ids) => {
@@ -226,6 +234,7 @@ describe('an undo keeps the run ends of the text it removes', () => {
     },
   );
 
+  // #9681: an undo of text typed inside a run deletes its run ends.
   test.fails('a redo puts the text back with its own value', async () => {
     const t = await start([1, 2, 3], 'bold');
     expect(await race(t, 'undo')).toBe('one*| plain| two*');
@@ -275,7 +284,8 @@ describe('an undo keeps the run ends of the text it removes', () => {
 // an undo of that bold must not leave the content after the pair bold.
 describe('an undo of the run such run ends restate', () => {
   for (const how of ['undo', 'delete'] as const) {
-    (how === 'delete' ? test.fails : test).each(ORDERS)(
+    // (#9682 for the delete: fixed by paired runs, layout 3.)
+    test.each(ORDERS)(
       `F types " mid" into A's bold and ${how}s it; A undoes the bold, redoes it, undoes it (ids %i %i %i)`,
       async (...ids) => {
         const t = await setup(
@@ -316,6 +326,7 @@ describe('an undo of the run such run ends restate', () => {
 });
 
 describe('undo run ends, more orders of events', () => {
+  // #9681: an undo of text typed inside a run deletes its run ends.
   test.fails.each(ORDERS)(
     "F has seen E's text when it undoes; then A undoes the bold (ids %i %i %i)",
     async (...ids) => {
@@ -451,6 +462,7 @@ describe('undo run ends, more orders of events', () => {
     expect(t.a.read(() => $getRoot().getTextContent())).toBe('x');
     expect([um.undoStack.length, um.redoStack.length]).toEqual([0, 2]);
   });
+  // #9681: an undo of text typed inside a run deletes its run ends.
   test.fails.each([[[1, 2, 3, 4]], [[4, 3, 2, 1]]])(
     "text a third peer typed inside the collaborator's text stays plain too (ids %j)",
     async ids => {
@@ -625,6 +637,7 @@ describe('undo run ends, more orders of events', () => {
     },
   );
 
+  // #9681: an undo of text typed inside a run deletes its run ends.
   test.fails.each(ORDERS)(
     'the end a kept restore relies on stays ended when a collaborator deletes the run (ids %i %i %i)',
     async (...ids) => {
@@ -645,7 +658,8 @@ describe('undo run ends, more orders of events', () => {
       await t.sync();
       // H's restore after " x" stays (with #9561), and so does the
       // null H's write put right after B's closer, which that restore relies
-      // on: a collapse of B's run ends by a later delete leaves it.
+      // on: a later delete leaves it (and, before D86, a collapse of B's run
+      // ends by that delete did too).
       const root = h.doc.get('lexical-y') as unknown as {
         _start: Y.Item | null;
       };
@@ -674,8 +688,9 @@ describe('undo run ends, more orders of events', () => {
     "a comment's ends that a collaborator's deletes drop do not come back with an undo of text typed inside it (ids %i %i)",
     async (...ids) => {
       // A comments three words and, offline, types "X" inside the middle one
-      // and undoes it; B deletes the four words one by one, which collapses
-      // the comment's opener and end away. The run ends A's undo keeps rely
+      // and undoes it; B deletes the four words one by one, which collapsed
+      // the comment's opener and end away before D86 (a delete now keeps
+      // them). The run ends A's undo keeps rely
       // on that end (the null A's write put after it, rule 5 of
       // Cursor#format, needs #9562): without it the comment covered the rest
       // of the document.
@@ -815,6 +830,8 @@ describe('undo run ends, more orders of events', () => {
       ).toContain('T');
     },
   );
+  // D64: text a collaborator typed inside the run with the run's value loses
+  // it when the run is undone, on main and with paired runs.
   test.fails.each(
     ORDERS.flatMap(ids => [
       ['after " mid"', ...ids],
@@ -1086,6 +1103,7 @@ describe('run ends an undo kept, after changes made since', () => {
     );
   });
 
+  // #9681: an undo of text typed inside a run deletes its run ends.
   test.fails.each(ORDERS)(
     'with text a collaborator typed after the null: it stays plain, and a redo gives " two" its bold back (ids %i %i %i)',
     async (...ids) => {
@@ -1121,6 +1139,7 @@ describe('run ends an undo kept, after changes made since', () => {
     },
   );
 
+  // #9681: an undo of text typed inside a run deletes its run ends.
   test.fails.each(ORDERS)(
     'type, delete, undo, undo: text typed after the null stays plain (ids %i %i %i)',
     async (...ids) => {
@@ -1200,7 +1219,9 @@ describe('run ends an undo kept, after changes made since', () => {
     },
   );
 
-  test.fails.each(ORDERS)(
+  // #9682: an undo of a run's value left it after a restore it has seen
+  // (fixed by paired runs, layout 3).
+  test.each(ORDERS)(
     'an undo ends its value past the restore of text it has seen, still there (ids %i %i %i)',
     async (...ids) => {
       // A bolds "one two"; F types plain " mid" inside, which A sees; A
@@ -1232,9 +1253,10 @@ describe('run ends an undo kept, after changes made since', () => {
     },
   );
 
-  test('control: text typed inside the range as the undo runs, which the undo has not seen, keeps the restore (documented)', async () => {
-    // The concurrent case of the test above, a documented limit (y.md
-    // Limits, Undo): A's undo cannot end a restore it has not seen.
+  test('control: text typed inside the range as the undo runs, which the undo has not seen, leaves no format', async () => {
+    // The concurrent case of the test above, a documented limit before
+    // layout 3 (y.md Limits, Undo: an undo cannot end a restore it has not
+    // seen): the typing is a no-value run and restates nothing.
     const t = await setup(
       () =>
         $getRoot().append(
@@ -1254,7 +1276,7 @@ describe('run ends an undo kept, after changes made since', () => {
     a.undo();
     await t.sync();
     await expectConverged(t.peers);
-    expect(t.a.read($show)).toBe('one mid| two*');
+    expect(t.a.read($show)).toBe('one mid two');
   });
 
   test.each(ORDERS)(
@@ -1379,6 +1401,7 @@ describe('run ends an undo kept, after changes made since', () => {
     },
   );
 
+  // #9681: an undo of text typed inside a run deletes its run ends.
   test.fails.each(ORDERS)(
     'style: text typed after its null stays unstyled (ids %i %i %i)',
     async (...ids) => {

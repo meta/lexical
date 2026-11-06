@@ -92,6 +92,61 @@ Codemod: none; the old method replaced non-element arguments with their
 parents first, so each call site needs review.
 ````
 
+### Type signature changes
+
+A change to a published type is breaking when code that type checked before
+can stop type checking, even if nothing changes at runtime: removing or
+renaming a type or an overload, adding a required parameter, narrowing a
+parameter type, widening a return type, making a type parameter invariant
+(as a branded type does), or adding an overload that TypeScript picks before
+an existing generic one. Calls that never write a type argument count too:
+TypeScript infers it from where the result goes (an annotated variable, a
+function argument, a return value), so a new non-generic first overload
+changes what those calls return even though the generic overload is still
+there. Such a change is `[breaking]` even when the pull request only means to
+deprecate something or calls itself a refactor or chore. If it also
+deprecates an API, add a separate `[deprecation]` entry for that, and give it
+a `Detect:` paragraph too (it can point at the breaking entry), so the check
+below does not flag it.
+
+`Detect:` names each call shape that stops compiling, including callers that
+rely on an inferred type argument, and quotes the error TypeScript reports.
+`Migration:` gives the replacement for each shape:
+
+````md
+---
+'lexical': minor
+---
+
+[breaking] `getFirstChildOrThrow` returns `LexicalNode` unless a type argument is written
+
+Detect: calls to `getFirstChildOrThrow()` without a type argument whose
+result goes straight to a narrower node type, such as
+`const p: ParagraphNode = node.getFirstChildOrThrow()` or
+`$styleList(root.getFirstChildOrThrow())` where `$styleList` is a function of
+yours that takes a `ListNode`. TypeScript reports `Argument of type
+'LexicalNode' is not assignable to parameter of type 'ListNode'` (TS2345) or
+a TS2322/TS2740 error for the assignment.
+
+Migration: call it without a type argument and narrow with a node guard.
+
+```ts
+// Before
+$styleList(root.getFirstChildOrThrow());
+// After
+const first = root.getFirstChildOrThrow();
+if ($isListNode(first)) {
+  $styleList(first);
+}
+```
+````
+
+`pnpm run check-changesets` warns when a `[deprecation]` or `[chore]` entry
+mentions a type parameter or argument, an overload, a generic, a return or
+payload type, or a signature but has no `Detect:` paragraph: decide whether
+it is breaking, and if no call site can stop compiling, say so in a
+`Detect:` paragraph.
+
 ### Deprecations
 
 A `deprecation` entry must name the replacement in a `Replacement:`

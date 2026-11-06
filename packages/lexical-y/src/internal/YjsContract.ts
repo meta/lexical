@@ -8,6 +8,7 @@
 
 import {
   applyUpdate,
+  applyUpdateV2,
   ContentAny,
   ContentBinary,
   ContentFormat,
@@ -17,6 +18,8 @@ import {
   createIdSet,
   createRelativePositionFromJSON,
   decodeUpdate,
+  decodeUpdateV2,
+  diffUpdateV2,
   Doc,
   encodeStateAsUpdate,
   encodeStateVector,
@@ -29,14 +32,21 @@ import {
   Item,
   iterateStructsByIdSet,
   mergeUpdates,
+  mergeUpdatesV2,
   Node as YNode,
   RelativePosition,
   relativePositionToJSON,
   Skip,
   type Transaction,
+  tryGc,
   UndoManager,
 } from '@y/y';
 
+import {
+  encodeStateVector as encodeGapStateVector,
+  integrateHeldBehindGapsWith,
+  structIntegrated,
+} from './LoadFully';
 import {SUPPORTED_YJS_VERSION} from './SupportedYjs';
 
 /*
@@ -85,10 +95,13 @@ export const YJS_EXPORTS = [
   'Skip',
   'UndoManager',
   'applyUpdate',
+  'applyUpdateV2',
   'createID',
   'createIdSet',
   'createRelativePositionFromJSON',
   'decodeUpdate',
+  'decodeUpdateV2',
+  'diffUpdateV2',
   'encodeStateAsUpdate',
   'encodeStateVector',
   'findIndexSS',
@@ -96,7 +109,9 @@ export const YJS_EXPORTS = [
   'getItemCleanStart',
   'iterateStructsByIdSet',
   'mergeUpdates',
+  'mergeUpdatesV2',
   'relativePositionToJSON',
+  'tryGc',
 ] as const;
 
 type StructStore = Doc['store'];
@@ -105,18 +120,22 @@ type IdRange = ReturnType<IdRanges['getIds']>[number];
 type StackItem = UndoManager['undoStack'][number];
 type AbstractContent = Item['content'];
 type DecodedUpdate = ReturnType<typeof decodeUpdate>;
+type DecodedUpdateV2 = ReturnType<typeof decodeUpdateV2>;
+type PendingStructs = NonNullable<StructStore['pendingStructs']>;
 interface StackItemEvent {
   stackItem: StackItem;
   origin: unknown;
 }
 
-const isFunction = (value: unknown): boolean => typeof value === 'function';
-const isObject = (value: unknown): boolean =>
+export const isFunction = (value: unknown): boolean =>
+  typeof value === 'function';
+export const isObject = (value: unknown): boolean =>
   typeof value === 'object' && value !== null;
 /** A field that may hold null (an empty pointer), never undefined. */
-const isSet = (value: unknown): boolean => value !== undefined;
-const isNumber = (value: unknown): boolean => typeof value === 'number';
-const isBoolean = (value: unknown): boolean => typeof value === 'boolean';
+export const isSet = (value: unknown): boolean => value !== undefined;
+export const isNumber = (value: unknown): boolean => typeof value === 'number';
+export const isBoolean = (value: unknown): boolean =>
+  typeof value === 'boolean';
 /** A Map from any realm (@y/y may run in another one, such as a VM's). */
 const isMap = (value: unknown): boolean => {
   try {
@@ -158,9 +177,13 @@ export function yjsMembers() {
       cleanupFormatting: (d: Doc) => isBoolean(d.cleanupFormatting),
       clientID: (d: Doc) => isNumber(d.clientID),
       destroy: (d: Doc) => isFunction(d.destroy),
+      gc: (d: Doc) => isBoolean(d.gc),
+      gcFilter: (d: Doc) => isFunction(d.gcFilter),
       get: (d: Doc) => isFunction(d.get),
+      isDestroyed: (d: Doc) => isBoolean(d.isDestroyed),
       off: (d: Doc) => isFunction(d.off),
       on: (d: Doc) => isFunction(d.on),
+      once: (d: Doc) => isFunction(d.once),
       share: (d: Doc) => isMap(d.share),
       store: (d: Doc) => isObject(d.store),
       transact: (d: Doc) => isFunction(d.transact),
@@ -170,6 +193,7 @@ export function yjsMembers() {
     },
     GC: {
       id: (g: GC) => isObject(g.id),
+      length: (g: GC) => isNumber(g.length),
     },
     ID: {
       client: (id: ID) => isNumber(id.client),
@@ -194,6 +218,7 @@ export function yjsMembers() {
       deleted: (it: Item) => isBoolean(it.deleted),
       id: (it: Item) => isObject(it.id),
       integrate: (it: Item) => isFunction(it.integrate),
+      keep: (it: Item) => isBoolean(it.keep),
       lastId: (it: Item) => isObject(it.lastId),
       left: (it: Item) => isSet(it.left),
       length: (it: Item) => isNumber(it.length),
@@ -210,6 +235,7 @@ export function yjsMembers() {
     },
     Skip: {
       id: (k: Skip) => isObject(k.id),
+      length: (k: Skip) => isNumber(k.length),
     },
     StackItem: {
       deletes: (s: StackItem) => isObject(s.deletes),
@@ -224,27 +250,41 @@ export function yjsMembers() {
       clients: (s: StructStore) => isMap(s.clients),
       getClock: (s: StructStore) => isFunction(s.getClock),
       getItem: (s: StructStore) => isFunction(s.getItem),
+      pendingStructs: (s: StructStore) => isSet(s.pendingStructs),
+    },
+    // The gap repair (LoadFully) reads a pending update in format V2.
+    'StructStore.pendingStructs': {
+      missing: (p: PendingStructs) => isMap(p.missing),
+      update: (p: PendingStructs) => ArrayBuffer.isView(p.update),
     },
     Transaction: {
       changed: (tr: Transaction) => isMap(tr.changed),
       deleteSet: (tr: Transaction) => isObject(tr.deleteSet),
       doc: (tr: Transaction) => isObject(tr.doc),
       insertSet: (tr: Transaction) => isObject(tr.insertSet),
+      local: (tr: Transaction) => isBoolean(tr.local),
       origin: (tr: Transaction) => isSet(tr.origin),
     },
     UndoManager: {
       canRedo: (u: UndoManager) => isFunction(u.canRedo),
       canUndo: (u: UndoManager) => isFunction(u.canUndo),
       clear: (u: UndoManager) => isFunction(u.clear),
+      currStackItem: (u: UndoManager) => u.currStackItem === null,
       destroy: (u: UndoManager) => isFunction(u.destroy),
+      doc: (u: UndoManager) => isObject(u.doc),
+      emit: (u: UndoManager) => isFunction(u.emit),
       on: (u: UndoManager) => isFunction(u.on),
       redo: (u: UndoManager) => isFunction(u.redo),
       redoStack: (u: UndoManager) => Array.isArray(u.redoStack),
+      redoing: (u: UndoManager) => u.redoing === false,
       undo: (u: UndoManager) => isFunction(u.undo),
       undoStack: (u: UndoManager) => Array.isArray(u.undoStack),
+      undoing: (u: UndoManager) => u.undoing === false,
     },
     UndoManagerOptions: {
       captureTimeout: (u: UndoManager) => u.captureTimeout === 0,
+      captureTransaction: (u: UndoManager) =>
+        u.captureTransaction === PROBE_CAPTURE_TRANSACTION,
       deleteFilter: (u: UndoManager) => u.deleteFilter === PROBE_DELETE_FILTER,
       trackedOrigins: (u: UndoManager) => u.trackedOrigins.has(PROBE_ORIGIN),
     },
@@ -267,13 +307,25 @@ export function yjsMembers() {
       ds: (u: DecodedUpdate) => isObject(u.ds),
       structs: (u: DecodedUpdate) => Array.isArray(u.structs),
     },
+    decodeUpdateV2: {
+      structs: (u: DecodedUpdateV2) => Array.isArray(u.structs),
+    },
   };
 }
+
+const __DEV__ = process.env.NODE_ENV !== 'production';
+
+/** The kinds only the gap probe (probeGapLoad) makes. */
+const GAP_PROBE_KINDS: ReadonlySet<string> = new Set([
+  'StructStore.pendingStructs',
+  'decodeUpdateV2',
+]);
 
 const PROBE_GUID = '@lexical/y/yjs-probe';
 /** The undo manager options the probe passes, checked on what it kept. */
 const PROBE_ORIGIN = {};
 const PROBE_DELETE_FILTER = () => true;
+const PROBE_CAPTURE_TRANSACTION = () => true;
 
 /** The events the binding listens to, by emitter. */
 export const YJS_EVENTS = {
@@ -282,6 +334,7 @@ export const YJS_EVENTS = {
     'afterTransaction',
     'beforeObserverCalls',
     'beforeTransaction',
+    'destroy',
     'update',
   ],
   UndoManager: ['stack-cleared', 'stack-item-added', 'stack-item-popped'],
@@ -371,10 +424,13 @@ function yjsExports() {
     Skip,
     UndoManager,
     applyUpdate,
+    applyUpdateV2,
     createID,
     createIdSet,
     createRelativePositionFromJSON,
     decodeUpdate,
+    decodeUpdateV2,
+    diffUpdateV2,
     encodeStateAsUpdate,
     encodeStateVector,
     findIndexSS,
@@ -382,7 +438,9 @@ function yjsExports() {
     getItemCleanStart,
     iterateStructsByIdSet,
     mergeUpdates,
+    mergeUpdatesV2,
     relativePositionToJSON,
+    tryGc,
   };
 }
 
@@ -412,6 +470,218 @@ export function probeYjs(y: YjsExports = yjsExports()): string[] {
     );
   }
   return found;
+}
+
+/**
+ * What the gap repair (LoadFully) relies on, end to end, on scratch
+ * documents with two writers: a struct held pending behind a blocked struct
+ * of its client (a batched update), the pending update in format V2 (not
+ * V1) with its `missing`, diffUpdateV2's cut by a state vector in format V1
+ * (one client from a clock, every other client past its end), the store
+ * read for what is integrated (an item counts, a Skip does not), each
+ * writer's later struct integrated by the repair, and the repaired document
+ * converging, byte for byte, with one that got every update once the
+ * missing ones arrive. Upstream: "encodeStateAsUpdate drops text the doc
+ * shows after it integrated a struct across a clock gap" (@y/y
+ * 14.0.0-rc.29).
+ */
+function probeGapLoad(
+  y: YjsExports,
+  sample: (kind: string, value: unknown) => void,
+  found: string[],
+): void {
+  const docs: Doc[] = [];
+  const make = (clientID: number) => {
+    const d = new y.Doc({gc: false, guid: PROBE_GUID});
+    d.clientID = clientID;
+    d.cleanupFormatting = false;
+    docs.push(d);
+    return d;
+  };
+  try {
+    const text = (d: Doc) => {
+      let s = '';
+      for (let it = d.get('t')._start; it !== null; it = it.right) {
+        if (!it.deleted && it.content instanceof y.ContentString) {
+          s += it.content.str;
+        }
+      }
+      return s;
+    };
+    // A base text "AB" (client 1). Writers 2 and 3 each write a struct after
+    // A, one between A and it (it depends on it), and one after B (it does
+    // not): "x", "y", "z" and "u", "v", "w".
+    const base = make(1);
+    base.get('t').insert(0, 'AB');
+    const updates: Uint8Array<ArrayBuffer>[][] = [];
+    for (const [client, chars] of [
+      [2, 'xyz'],
+      [3, 'uvw'],
+    ] as const) {
+      const writer = make(client);
+      y.applyUpdate(writer, y.encodeStateAsUpdate(base));
+      const own: Uint8Array<ArrayBuffer>[] = [];
+      writer.on('update', (u: Uint8Array) => own.push(new Uint8Array(u)));
+      writer.transact(() => writer.get('t').insert(1, chars[0]));
+      writer.transact(() => writer.get('t').insert(1, chars[1]));
+      writer.transact(() => writer.get('t').insert(4, chars[2]));
+      updates.push(own);
+    }
+    // Without each writer's first struct: its second waits for it, and its
+    // third waits behind the second in the batch.
+    const loaded = make(4);
+    y.applyUpdate(loaded, y.encodeStateAsUpdate(base));
+    y.applyUpdate(
+      loaded,
+      y.mergeUpdates([
+        updates[0][1],
+        updates[0][2],
+        updates[1][1],
+        updates[1][2],
+      ]),
+    );
+    const pending = loaded.store.pendingStructs;
+    if (pending === null || text(loaded) !== 'AB') {
+      found.push(
+        'gap repair: a batched struct behind a blocked one is not held pending',
+      );
+      return;
+    }
+    sample('StructStore.pendingStructs', pending);
+    const decoded = y.decodeUpdateV2(pending.update);
+    sample('decodeUpdateV2', decoded);
+    const clocks = (structs: typeof decoded.structs, client: number) =>
+      structs
+        .filter(s => !(s instanceof y.Skip) && s.id.client === client)
+        .map(s => s.id.clock)
+        .sort((a, b) => a - b)
+        .join();
+    if (
+      clocks(decoded.structs, 2) !== '1,2' ||
+      clocks(decoded.structs, 3) !== '1,2' ||
+      pending.missing.get(2) !== 0 ||
+      pending.missing.get(3) !== 0
+    ) {
+      found.push(
+        'gap repair: the pending update (format V2) or its missing clocks changed',
+      );
+      return;
+    }
+    // Format V2: read as V1 (applyUpdate, diffUpdate), it would silently
+    // give nothing back.
+    let readsAsV1 = false;
+    try {
+      readsAsV1 =
+        y.decodeUpdate(pending.update).structs.length ===
+        decoded.structs.length;
+    } catch {
+      // Not V1, as expected.
+    }
+    if (readsAsV1) {
+      found.push('gap repair: the pending update is no longer in format V2');
+      return;
+    }
+    // The repair writes its state vectors itself (format V1; Yjs writes
+    // the clients in descending order).
+    const encoded = y.encodeStateVector(base);
+    const ours = encodeGapStateVector([[1, 2]]);
+    // Writer 2 from its clock 2, writer 3 past its end: writer 2's third
+    // struct alone.
+    const cut = y.decodeUpdateV2(
+      y.diffUpdateV2(
+        pending.update,
+        encodeGapStateVector([
+          [2, 2],
+          [3, 3],
+        ]),
+      ),
+    ).structs;
+    // Two pending updates merged (the repair keeps and merges every one it
+    // clears): both writers' structs.
+    const merged = y.decodeUpdateV2(
+      y.mergeUpdatesV2([
+        y.diffUpdateV2(
+          pending.update,
+          encodeGapStateVector([
+            [2, 2],
+            [3, 3],
+          ]),
+        ),
+        y.diffUpdateV2(
+          pending.update,
+          encodeGapStateVector([
+            [3, 2],
+            [2, 3],
+          ]),
+        ),
+      ]),
+    ).structs;
+    if (
+      encoded.length !== ours.length ||
+      encoded.some((byte, i) => byte !== ours[i]) ||
+      clocks(cut, 2) !== '2' ||
+      clocks(cut, 3) !== '' ||
+      clocks(merged, 2) !== '2' ||
+      clocks(merged, 3) !== '2'
+    ) {
+      found.push(
+        'gap repair: a state vector (format V1), the diffUpdateV2 cut by it or mergeUpdatesV2 changed',
+      );
+      return;
+    }
+    // The store as the repair reads it: the base's struct is integrated,
+    // a writer's missing first struct is not.
+    if (
+      !structIntegrated(y, loaded, {client: 1, clock: 0}) ||
+      structIntegrated(y, loaded, {client: 2, clock: 0})
+    ) {
+      found.push('gap repair: the store no longer reads as integrated');
+      return;
+    }
+    // The repair itself: "z" and "w" are integrated past the blocked "y"
+    // and "v", which are pending again.
+    integrateHeldBehindGapsWith(y, loaded);
+    const shown = text(loaded);
+    if (
+      !shown.includes('z') ||
+      !shown.includes('w') ||
+      shown.includes('y') ||
+      loaded.store.pendingStructs === null
+    ) {
+      found.push(
+        'gap repair: a struct applied on its own is not integrated past a blocked one',
+      );
+      return;
+    }
+    // Once the missing updates arrive, it converges with a document that
+    // got every update.
+    const whole = make(5);
+    y.applyUpdate(whole, y.encodeStateAsUpdate(base));
+    for (const own of updates) {
+      for (const u of own) {
+        y.applyUpdate(whole, u);
+      }
+    }
+    y.applyUpdate(loaded, updates[0][0]);
+    y.applyUpdate(loaded, updates[1][0]);
+    const a = y.encodeStateAsUpdate(loaded);
+    const b = y.encodeStateAsUpdate(whole);
+    if (
+      loaded.store.pendingStructs !== null ||
+      a.length !== b.length ||
+      a.some((byte, i) => byte !== b[i])
+    ) {
+      found.push('gap repair: the repaired document does not converge');
+    }
+  } catch (error) {
+    found.push(
+      `gap repair threw: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  } finally {
+    for (const d of docs) {
+      d.destroy();
+    }
+  }
 }
 
 /**
@@ -478,6 +748,7 @@ function probeMembers(y: YjsExports, found: string[]): void {
     }
     const undoManager = new y.UndoManager(root, {
       captureTimeout: 0,
+      captureTransaction: PROBE_CAPTURE_TRANSACTION,
       deleteFilter: PROBE_DELETE_FILTER,
       trackedOrigins: new Set<unknown>([PROBE_ORIGIN]),
     });
@@ -497,7 +768,7 @@ function probeMembers(y: YjsExports, found: string[]): void {
       sample('Transaction', tr);
       root.insert(0, 'ab');
       root.insert(2, [new y.Node('probe')]);
-      root.format(0, 1, {probe: true});
+      root.format(0, 1, {probe: [1]});
       root.setAttr('probe', 1);
       // Bytes made by @y/y, which may run in another realm (it switches on
       // the value's constructor).
@@ -542,6 +813,12 @@ function probeMembers(y: YjsExports, found: string[]): void {
     sample('RelativePosition', new y.RelativePosition(null, null, null, 0));
     sample('Skip', new y.Skip(y.createID(1, 0), 1));
     sample('decodeUpdate', y.decodeUpdate(y.encodeStateAsUpdate(doc)));
+    // Development builds only (the contract test runs it in CI): it costs
+    // the repair's code and scratch documents in every entry.
+    if (__DEV__) {
+      probeGapLoad(y, sample, found);
+    }
+    probeCopies(y, doc, root, undoManager, PROBE_ORIGIN, found);
     undoManager.undo();
     undoManager.clear();
   } catch (error) {
@@ -566,6 +843,10 @@ function probeMembers(y: YjsExports, found: string[]): void {
     return;
   }
   for (const kind of Object.keys(members)) {
+    // The gap probe makes these (development builds only, see above).
+    if (!__DEV__ && GAP_PROBE_KINDS.has(kind)) {
+      continue;
+    }
     if (!sampled.has(kind)) {
       found.push(`${kind} (not made)`);
     }
@@ -576,6 +857,291 @@ function probeMembers(y: YjsExports, found: string[]): void {
         found.push(`${emitter}@${name}`);
       }
     }
+  }
+}
+
+/**
+ * What the copy fix-up of paired format runs relies on (see Ident's
+ * beforeObservers), checked on the probe's document: a format item restored
+ * by an undo is a copy whose content shares its original's value object and
+ * whose original's `redone` names it; and content a `beforeObserverCalls`
+ * listener puts into an item the transaction inserted is what the
+ * transaction's update carries. Each failure is named in `found`.
+ */
+export const YJS_BEHAVIOURS = {
+  copyRedone: "UndoManager: a restored item is the original's redone",
+  copyRedoneAtObservers:
+    "UndoManager: the original's redone names its copy when beforeObserverCalls runs",
+  copyRedoneWhenUndoReturns:
+    "UndoManager: the original's redone names its copy when the undo call returns, inside an app's transaction",
+  copySharesValue: 'ContentFormat#copy: a copy shares the value object',
+  fixBeforeCaptureAndGc:
+    'Doc@beforeObserverCalls: runs before the UndoManager captures and before gc',
+  fixBeforeEncoding:
+    'Doc@beforeObserverCalls: runs before the update is encoded',
+  freshDecodedValues: 'decodeUpdate: decoded format values are fresh objects',
+  freshEqualDecodedValues:
+    'decodeUpdate: equal format values decode to separate objects, every time',
+  originByConstructor:
+    'UndoManager: tracks an origin by its constructor, and only so',
+} as const;
+
+function probeCopies(
+  y: YjsExports,
+  doc: Doc,
+  root: YNode,
+  undoManager: UndoManager,
+  origin: object,
+  found: string[],
+): void {
+  // The format item the probe wrote over "a", with an array value.
+  let original: Item | null = null;
+  for (let it = root._start; it !== null; it = it.right) {
+    if (
+      !it.deleted &&
+      it.content instanceof y.ContentFormat &&
+      it.content.key === 'probe' &&
+      Array.isArray(it.content.value)
+    ) {
+      original = it;
+      break;
+    }
+  }
+  if (original === null) {
+    found.push(YJS_BEHAVIOURS.copySharesValue);
+    return;
+  }
+  const value = (original.content as ContentFormat).value;
+  doc.transact(() => root.format(0, 1, {probe: null}), origin);
+  // The fix-up runs in beforeObserverCalls and finds an undo's copy through
+  // its original's `redone`: that must name the copy by then. A read inside
+  // an app's transaction repairs pending copies first (Reader#$reading), so
+  // it must name the copy as soon as the undo call returns, too (in the
+  // transaction the undo joins). Nothing relies on it earlier: no code of
+  // the binding runs while Yjs integrates the copy.
+  const restored: Item = original;
+  let redoneAtObservers = false;
+  let redoneOnReturn = false;
+  const atObservers = (tr: Transaction) => {
+    const r = restored.redone;
+    redoneAtObservers = r !== null && tr.insertSet.hasId(r);
+  };
+  doc.on('beforeObserverCalls', atObservers);
+  try {
+    doc.transact(tr => {
+      undoManager.undo();
+      const r = restored.redone;
+      redoneOnReturn = r !== null && tr.insertSet.hasId(r);
+    });
+  } finally {
+    doc.off('beforeObserverCalls', atObservers);
+  }
+  if (!redoneAtObservers) {
+    found.push(YJS_BEHAVIOURS.copyRedoneAtObservers);
+  }
+  if (!redoneOnReturn) {
+    found.push(YJS_BEHAVIOURS.copyRedoneWhenUndoReturns);
+  }
+  const redone = original.redone;
+  const copy = redone === null ? null : doc.store.getItem(redone);
+  if (!(copy instanceof y.Item) || copy.deleted) {
+    found.push(YJS_BEHAVIOURS.copyRedone);
+  } else if (
+    !(copy.content instanceof y.ContentFormat) ||
+    copy.content.value !== value
+  ) {
+    found.push(YJS_BEHAVIOURS.copySharesValue);
+  }
+  // A listener's new content reaches the update.
+  let fixing = true;
+  let update: Uint8Array | null = null;
+  const fix = (tr: Transaction) => {
+    if (!fixing) {
+      return;
+    }
+    y.iterateStructsByIdSet(tr, tr.insertSet, s => {
+      if (
+        s instanceof y.Item &&
+        s.content instanceof y.ContentFormat &&
+        s.content.key === 'probeFix' &&
+        s.content.value !== null
+      ) {
+        s.content = new y.ContentFormat('probeFix', 'fixed');
+      }
+    });
+  };
+  const onUpdate = (u: Uint8Array) => {
+    if (fixing) {
+      update = u;
+    }
+  };
+  doc.on('beforeObserverCalls', fix);
+  doc.on('update', onUpdate);
+  try {
+    doc.transact(() => root.format(1, 1, {probeFix: 'raw'}), origin);
+  } finally {
+    fixing = false;
+    doc.off('beforeObserverCalls', fix);
+    doc.off('update', onUpdate);
+  }
+  let carried = false;
+  if (update !== null) {
+    for (const struct of y.decodeUpdate(update).structs) {
+      if (
+        struct instanceof y.Item &&
+        struct.content instanceof y.ContentFormat &&
+        struct.content.key === 'probeFix' &&
+        struct.content.value === 'fixed'
+      ) {
+        carried = true;
+      }
+    }
+  }
+  if (!carried) {
+    found.push(YJS_BEHAVIOURS.fixBeforeEncoding);
+  }
+  // A decoded end is a fresh array, never the sender's object (the fix-up
+  // tells an undo's copy from a received end by the shared value).
+  const decoded = y.decodeUpdate(y.encodeStateAsUpdate(doc)).structs;
+  for (const struct of decoded) {
+    if (
+      struct instanceof y.Item &&
+      struct.content instanceof y.ContentFormat &&
+      struct.content.value === value
+    ) {
+      found.push(YJS_BEHAVIOURS.freshDecodedValues);
+      break;
+    }
+  }
+  // Nor two equal decoded arrays one object (a decoder that interns values
+  // would make two received ends look like one end and its undo copy), in
+  // one update or across two decodes of it.
+  probeEqualDecodes(y, found);
+  probeObserverOrder(y, origin, found);
+  // The layout record's origin is an instance of a private class: an
+  // UndoManager tracks an origin by identity or by its constructor, so one
+  // that tracks plain objects does not capture it, and one that tracks the
+  // class does (the check that the matching rule is what it was).
+  class Private {}
+  const byObject = new y.UndoManager(root, {
+    captureTimeout: 0,
+    trackedOrigins: new Set<unknown>([Object]),
+  });
+  const byClass = new y.UndoManager(root, {
+    captureTimeout: 0,
+    trackedOrigins: new Set<unknown>([Private]),
+  });
+  try {
+    doc.transact(() => root.setAttr('probeOrigin', 1), new Private());
+    if (byObject.canUndo() || !byClass.canUndo()) {
+      found.push(YJS_BEHAVIOURS.originByConstructor);
+    }
+  } finally {
+    byObject.destroy();
+    byClass.destroy();
+  }
+}
+
+/** Format values of key `key` in a decoded update, in order. */
+function decodedValues(y: YjsExports, update: Uint8Array, key: string) {
+  const out: unknown[] = [];
+  for (const struct of y.decodeUpdate(update).structs) {
+    if (
+      struct instanceof y.Item &&
+      struct.content instanceof y.ContentFormat &&
+      struct.content.key === key
+    ) {
+      out.push(struct.content.value);
+    }
+  }
+  return out;
+}
+
+function probeEqualDecodes(y: YjsExports, found: string[]): void {
+  const doc = new y.Doc({gc: false, guid: PROBE_GUID});
+  try {
+    const root = doc.get('probe');
+    doc.transact(() => {
+      root.insert(0, 'abcd');
+      root.format(0, 1, {probeEq: [1]});
+      root.format(2, 1, {probeEq: [1]});
+    });
+    const update = y.encodeStateAsUpdate(doc);
+    const once = decodedValues(y, update, 'probeEq').filter(Array.isArray);
+    const twice = decodedValues(y, update, 'probeEq').filter(Array.isArray);
+    if (
+      once.length < 2 ||
+      once[0] === once[1] ||
+      twice.length !== once.length ||
+      twice.some((v, i) => v === once[i])
+    ) {
+      found.push(YJS_BEHAVIOURS.freshEqualDecodedValues);
+    }
+  } finally {
+    doc.destroy();
+  }
+}
+
+/**
+ * The fix-up must change an undo's copies before an UndoManager captures the
+ * transaction (it records what the transaction inserted, by id) and before
+ * gc replaces the content of what the transaction deleted: beforeObserverCalls
+ * runs first, with every deleted item's content still there.
+ */
+function probeObserverOrder(
+  y: YjsExports,
+  origin: object,
+  found: string[],
+): void {
+  const doc = new y.Doc({gc: true, guid: PROBE_GUID});
+  const root = doc.get('probe');
+  doc.transact(() => {
+    root.insert(0, 'ab');
+    root.format(0, 1, {probeGc: true});
+  });
+  let gone: Item | null = null;
+  for (let it = root._start; it !== null; it = it.right) {
+    if (it.content instanceof y.ContentFormat && it.content.key === 'probeGc') {
+      gone = it;
+    }
+  }
+  const undoManager = new y.UndoManager(root, {
+    captureTimeout: 0,
+    trackedOrigins: new Set<unknown>([origin]),
+  });
+  const order: string[] = [];
+  let contentAtFix = false;
+  const fix = () => {
+    order.push('fix');
+    contentAtFix =
+      gone !== null && gone.deleted && gone.content instanceof y.ContentFormat;
+  };
+  const capture = () => order.push('capture');
+  const cleanup = () => order.push('cleanup');
+  doc.on('beforeObserverCalls', fix);
+  doc.on('afterTransactionCleanup', cleanup);
+  undoManager.on('stack-item-added', capture);
+  try {
+    // The transaction deletes the format item (as a format change does).
+    doc.transact(tr => {
+      if (gone !== null) {
+        gone.delete(tr);
+      }
+    }, origin);
+  } finally {
+    doc.off('beforeObserverCalls', fix);
+    doc.off('afterTransactionCleanup', cleanup);
+    undoManager.off('stack-item-added', capture);
+    undoManager.destroy();
+    doc.destroy();
+  }
+  if (
+    !contentAtFix ||
+    order[0] !== 'fix' ||
+    order.indexOf('capture') < order.indexOf('fix') ||
+    order.indexOf('cleanup') < order.indexOf('fix')
+  ) {
+    found.push(YJS_BEHAVIOURS.fixBeforeCaptureAndGc);
   }
 }
 

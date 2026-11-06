@@ -2268,18 +2268,25 @@ export function $updateDOMBlockCursorElement(
       // DOM is the wrapper but the managed children (and `insertBeforeElement`)
       // live in `slot.element`; inserting into the keyed wrapper would throw
       // because the reference node is not its child.
-      const elementDOM = $getDOMSlot(
+      const slot = $getDOMSlot(
         elementNode,
         editor.getElementByKey(elementNode.__key) as HTMLElement,
         editor,
-      ).element;
+      );
+      const elementDOM = slot.element;
       if (blockCursorElement === null) {
         editor._blockCursorElement = blockCursorElement =
           $createBlockCursorElement(editor._config);
       }
       rootElement.style.caretColor = 'transparent';
       if (insertBeforeElement === null) {
-        elementDOM.appendChild(blockCursorElement);
+        // Stay inside the slot's managed range: a slot with a `before`
+        // boundary keeps its trailing decoration after the children.
+        const before =
+          slot.before !== null && slot.before.parentNode === elementDOM
+            ? slot.before
+            : null;
+        elementDOM.insertBefore(blockCursorElement, before);
       } else {
         elementDOM.insertBefore(blockCursorElement, insertBeforeElement);
       }
@@ -2859,7 +2866,7 @@ export function isDocumentFragment(x: unknown): x is DocumentFragment {
 }
 
 const INLINE_TAG_RE =
-  /^(a|abbr|acronym|b|cite|code|del|em|i|ins|kbd|label|mark|output|q|ruby|s|samp|span|strong|sub|sup|time|u|tt|var|#text)$/i;
+  /^(a|abbr|acronym|b|bdi|bdo|big|cite|code|data|del|dfn|em|font|i|ins|kbd|label|mark|nobr|output|q|ruby|s|samp|small|span|strike|strong|sub|sup|time|u|tt|var|#text)$/i;
 
 /**
  *
@@ -3469,7 +3476,14 @@ export function $markSlotEditable(
   editor: LexicalEditor = $getEditor(),
 ): void {
   const editable = editor.isEditable();
-  element.contentEditable = editable ? 'true' : 'false';
+  const value = editable ? 'true' : 'false';
+  // In Chrome, any write of `contenteditable` to a connected element forces a
+  // synchronous style recalculation, even when the value is unchanged.
+  // This runs on every reconcile of a slot host, so skip the no-op write.
+  // (getAttribute, not the getter: the getter reads 'inherit' when unset.)
+  if (element.getAttribute('contenteditable') !== value) {
+    element.contentEditable = value;
+  }
   if (editable) {
     element.__lexicalEditor = editor;
   } else {

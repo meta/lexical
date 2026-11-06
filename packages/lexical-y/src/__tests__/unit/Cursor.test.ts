@@ -12,13 +12,19 @@ import * as Y from '@y/y';
 import {describe, expect, test} from 'vitest';
 
 import {Cursor} from '../../internal/Cursor';
+import {
+  isNullRunValue,
+  isShadowKey,
+  stepFormat,
+  STORED_FOLD,
+} from '../../internal/Ident';
 
 // The binding's write cursor reimplements Yjs' text-position operations on
 // items (Yjs exports no way to start them from a known item). It must stay
 // equivalent to Y.Node#applyDelta: the same operations through both, from
 // the same client, give the same content. It keeps format items Yjs removes
 // as redundant where they bound content outside the edit (see
-// Cursor#collapseGap and Cursor#format), so it holds at least as many. Run
+// Cursor#delete and Cursor#format), so it holds at least as many. Run
 // on every @y/y version bump.
 
 type Op =
@@ -103,6 +109,37 @@ function viaCursor(doc: Y.Doc, ops: Op[]) {
   }
 }
 
+/** Each live character with the formats it shows: paired fold or plain. */
+function shownChars(doc: Y.Doc, paired: boolean): string[] {
+  const formats = new Map<string, unknown>();
+  const out: string[] = [];
+  for (let it = doc.get('t')._start; it !== null; it = it.right) {
+    if (it.deleted) {
+      continue;
+    }
+    if (it.content instanceof Y.ContentFormat) {
+      if (paired) {
+        stepFormat(formats, it, STORED_FOLD);
+      } else if (it.content.value === null) {
+        formats.delete(it.content.key);
+      } else {
+        formats.set(it.content.key, it.content.value);
+      }
+    } else if (it.content instanceof Y.ContentString) {
+      const shown: Record<string, unknown> = {};
+      for (const [k, v] of [...formats].sort(([x], [y]) => (x < y ? -1 : 1))) {
+        if (!isShadowKey(k) && v !== null && !isNullRunValue(v)) {
+          shown[k] = v;
+        }
+      }
+      for (const ch of it.content.str) {
+        out.push(ch + JSON.stringify(shown));
+      }
+    }
+  }
+  return out;
+}
+
 const liveFormatItems = (doc: Y.Doc) => {
   let n = 0;
   for (let it = doc.get('t')._start; it !== null; it = it.right) {
@@ -124,21 +161,18 @@ describe('@lexical/y write cursor', () => {
       b.clientID = 7;
       viaApplyDelta(a, ops);
       viaCursor(b, ops);
-      expect(b.get('t').toDelta().toJSON()).toEqual(
-        a.get('t').toDelta().toJSON(),
-      );
+      // Layout 3: the cursor writes paired runs, so its document shows (read
+      // by the paired fold) what applyDelta's shows by Yjs's plain fold.
+      expect(shownChars(b, true)).toEqual(shownChars(a, false));
       expect(liveFormatItems(b)).toBeGreaterThanOrEqual(liveFormatItems(a));
     },
   );
 });
 
-// A format change followed by a delete on one cursor. The value each key had
-// at the start of the run of items without live content the cursor is in
-// (which a delete's collapse of that run keeps, see Cursor#collapseGap) must
-// stay the value of the content before the run, also where the format
-// change passes, after its range's last content, items of a key it does not
-// change: a delete on the same cursor then keeps the run's first item that
-// changes that value, which text a peer types after it relies on.
+// A format change followed by a delete on one cursor, after its range's last
+// content, past items of a key it does not change: the delete keeps every
+// format item there (D86), so text a peer types after the first of them keeps
+// its value.
 describe('a format change then a delete on one cursor', () => {
   type Raw = {
     forward(): void;
@@ -149,7 +183,7 @@ describe('a format change then a delete on one cursor', () => {
     ['old', 'new'],
     [true, null],
   ] as const) {
-    test(`a run of five items of K=${JSON.stringify(next)} after the range, K=${JSON.stringify(old)} before it: the first stays`, () => {
+    test(`a run of five items of K=${JSON.stringify(next)} after the range, K=${JSON.stringify(old)} before it: they stay`, () => {
       const doc = new Y.Doc();
       doc.clientID = 7;
       doc.cleanupFormatting = false;
@@ -182,13 +216,7 @@ describe('a format change then a delete on one cursor', () => {
         expect(cursor.formats.get('K') ?? null).toBe(next);
         cursor.delete(1);
       });
-      expect(ks.map(it => !it.deleted)).toEqual([
-        true,
-        false,
-        false,
-        true,
-        true,
-      ]);
+      expect(ks.map(it => !it.deleted)).toEqual([true, true, true, true, true]);
       // A peer that types after the first item, offline, keeps its value.
       peer.transact(tr => {
         let anchor = peer.get('t')._start;

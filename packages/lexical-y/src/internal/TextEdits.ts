@@ -19,7 +19,12 @@ import {
   type NodeMap,
 } from 'lexical';
 
-import {keptStretches, setTextEnds, snapToWords} from './Inline';
+import {
+  keptStretches,
+  setTextEnds,
+  setTextStretches,
+  snapToWords,
+} from './Inline';
 import {$isWrapper} from './Schema';
 
 const __DEV__ = process.env.NODE_ENV !== 'production';
@@ -1797,11 +1802,7 @@ export class TextReplay {
       if (made) {
         keep = keptStretches(w, text, caret, this.composing);
       } else {
-        const {prefix, suffix} = setTextEnds(w, text, caret, this.composing);
-        keep = [
-          [0, prefix, 0],
-          [tl - suffix, tl, shift],
-        ];
+        keep = setTextStretches(w, text, caret, this.composing);
       }
       if (sure.length > 0) {
         // Only what the diff that takes the common end first keeps too (see

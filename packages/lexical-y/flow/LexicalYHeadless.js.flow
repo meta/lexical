@@ -44,7 +44,9 @@ declare export opaque type YWriter: {readonly author: string};
 declare export function createYWriter(author: string): YWriter;
 
 export type HeadlessYConfig = {
-  // Required: the version of the app's document schema, as on the clients.
+  // Required: the version of your editor's nodes (registered node classes,
+  // their fields and NodeState), as on the clients. Bump it when you add,
+  // remove or change one, not on every release.
   schemaVersion: number,
   extensions?: ReadonlyArray<AnyLexicalExtensionArgument>,
   nodes?: CreateEditorArgs['nodes'],

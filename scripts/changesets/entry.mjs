@@ -104,6 +104,10 @@ const PR_LINE_RE = /^PR:\s*#?(\d+)\s*$/;
 const HEADING_RE = /^ {0,3}#{1,6}(?:\s|$)/;
 const PLACEHOLDER_RE = /^(?:TODO\b.*|\.\.\.|<[^>]*>)$/i;
 const PR_IN_SUMMARY_RE = /\(#\d+\)\s*$/;
+// Wording that suggests a change to a published type signature, which is
+// breaking when existing call sites can stop compiling.
+const TYPE_CHANGE_RE =
+  /\b(?:type[ -](?:param(?:eter)?s?|arguments?)|overloads?|generics?|branded|invariant|(?:return|payload) types?|narrow(?:ed|s)? (?:the )?(?:return|payload)|now returns|signatures?)\b/i;
 
 /**
  * @param {string | undefined | null} raw
@@ -421,6 +425,15 @@ export function validateChangeset(file, contents, ctx) {
         `${file}: [breaking] entries need a "Detect:" paragraph naming what identifies affected code, usually the symbol, import or CSS class, e.g. "Detect: imports of \`toggleLink\`."`,
       );
     }
+  }
+  if (
+    (entry.category === 'deprecation' || entry.category === 'chore') &&
+    !entry.sections.detect &&
+    TYPE_CHANGE_RE.test(`${entry.summary}\n${entry.details}`)
+  ) {
+    warnings.push(
+      `${file}: this [${entry.category}] entry mentions a type parameter, overload, generic or signature but has no "Detect:" paragraph. If any existing call site can stop compiling (including calls that relied on an inferred type argument), the change is [breaking]: use "minor", and name those call shapes in "Detect:" and the replacement in "Migration:". If none can, add a "Detect:" paragraph saying so. See "Type signature changes" in .changeset/README.md.`,
+    );
   }
   if (entry.category === 'deprecation') {
     if (!entry.sections.replacement) {

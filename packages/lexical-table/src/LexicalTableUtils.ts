@@ -1291,9 +1291,13 @@ export function $computeTableCellRectSpans(
   let bottomSpan = 1;
   const topRow = map[minRow];
   const bottomRow = map[maxRow];
+  // The rows a cell covers in the map: a row span can reach past the last
+  // row, where the map (and the rectangle) stop.
+  const rowsCovered = (value: TableMapValueType) =>
+    Math.min(value.cell.__rowSpan, map.length - value.startRow);
   for (let col = minColumn; col <= maxColumn; col++) {
-    topSpan = Math.max(topSpan, topRow[col].cell.__rowSpan);
-    bottomSpan = Math.max(bottomSpan, bottomRow[col].cell.__rowSpan);
+    topSpan = Math.max(topSpan, rowsCovered(topRow[col]));
+    bottomSpan = Math.max(bottomSpan, rowsCovered(bottomRow[col]));
   }
   for (let row = minRow; row <= maxRow; row++) {
     leftSpan = Math.max(leftSpan, map[row][minColumn].cell.__colSpan);
@@ -1318,9 +1322,16 @@ export function $computeTableCellRectBoundary(
     cellAMap.startColumn + cellAMap.cell.__colSpan - 1,
     cellBMap.startColumn + cellBMap.cell.__colSpan - 1,
   );
-  let maxRow = Math.max(
-    cellAMap.startRow + cellAMap.cell.__rowSpan - 1,
-    cellBMap.startRow + cellBMap.cell.__rowSpan - 1,
+  // A row span can reach past the last row (a remote update or imported JSON
+  // can leave one); the map stops at the last row, and so does the
+  // rectangle.
+  const lastRow = map.length - 1;
+  let maxRow = Math.min(
+    lastRow,
+    Math.max(
+      cellAMap.startRow + cellAMap.cell.__rowSpan - 1,
+      cellBMap.startRow + cellBMap.cell.__rowSpan - 1,
+    ),
   );
 
   // Keep expanding until we have a complete rectangle
@@ -1330,7 +1341,8 @@ export function $computeTableCellRectBoundary(
 
     // Check all cells in the table
     for (let row = 0; row < map.length; row++) {
-      for (let col = 0; col < map[0].length; col++) {
+      // Rows can have different lengths in a ragged table.
+      for (let col = 0; col < map[row].length; col++) {
         const cell = map[row][col];
         if (!cell) {
           continue;
@@ -1351,7 +1363,7 @@ export function $computeTableCellRectBoundary(
           const newMinColumn = Math.min(minColumn, cell.startColumn);
           const newMaxColumn = Math.max(maxColumn, cellEndCol);
           const newMinRow = Math.min(minRow, cell.startRow);
-          const newMaxRow = Math.max(maxRow, cellEndRow);
+          const newMaxRow = Math.min(lastRow, Math.max(maxRow, cellEndRow));
 
           // Check if boundaries changed
           if (
@@ -1594,7 +1606,11 @@ export function $insertTableIntoGrid(
   let startRow = anchorCellMap.startRow;
   let startCol = anchorCellMap.startColumn;
   let affectedRowCount = templateGridMap.length;
-  let affectedColCount = affectedRowCount > 0 ? templateGridMap[0].length : 0;
+  // The widest row: the pasted table's rows can have different lengths.
+  let affectedColCount = templateGridMap.reduce(
+    (width, row) => Math.max(width, row.length),
+    0,
+  );
 
   if (isTableSel) {
     const selectionBoundary = $computeTableCellRectBoundary(
@@ -1621,6 +1637,13 @@ export function $insertTableIntoGrid(
   const unmergedKeys = new Set<NodeKey>();
   for (let row = startRow; row <= lastRowForUnmerge; row++) {
     for (let col = startCol; col <= lastColForUnmerge; col++) {
+      const templateRowMap = templateGridMap[row - startRow];
+      if (
+        templateRowMap === undefined ||
+        templateRowMap[col - startCol] === undefined
+      ) {
+        continue; // the pasted table has no cell here: leave this one be
+      }
       const cellMap = initialGridMap[row][col];
       if (unmergedKeys.has(cellMap.cell.getKey())) {
         continue; // cell was a merged cell that was already handled
@@ -1664,6 +1687,9 @@ export function $insertTableIntoGrid(
       const templateRow = row - startRow;
       const templateCol = col - startCol;
       const templateCellMap = templateGridMap[templateRow][templateCol];
+      if (templateCellMap === undefined) {
+        continue; // no cell here in a ragged pasted table: leave this one be
+      }
       if (
         templateCellMap.startRow !== templateRow ||
         templateCellMap.startColumn !== templateCol

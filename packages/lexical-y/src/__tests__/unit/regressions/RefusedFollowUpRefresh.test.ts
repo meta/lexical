@@ -13,8 +13,8 @@
 // that rewrites the same content on every run, an app's listener that
 // answers every refresh with such a follow-up), the fourth re-read in a row
 // runs no refresh. That leaves derived values stale after four follow-ups in
-// a row (#9632): those cells are `test.fails` until it is decided (see the
-// pull request that fixes #9632).
+// a row (#9632), an accepted limit (DECISIONS.md D90, y.md's Limits): those
+// cells are `test.fails`, so that a change of the limit shows here.
 
 import {
   $createListItemNode,
@@ -84,7 +84,8 @@ describe('list numbering after follow-ups in a row that are read again', () => {
         [1, 2],
         [2, 1],
       ]) {
-        // #9632: the fourth re-read in a row runs no refresh.
+        // #9632 (D90, accepted limit): the fourth re-read in a row runs no
+        // refresh.
         const known = tag === NAMING && before >= 3;
         (known ? test.fails : test)(
           `${before} before, tag ${tag ?? 'none'}, ids ${ids}`,

@@ -7,11 +7,13 @@
  */
 
 import type {Hidden} from './Hidden';
+import type {View} from './Unread';
 import type {Item} from '@y/y';
 
 import {ContentFormat, ContentString, ContentType} from '@y/y';
 import {
   $isLineBreakNode,
+  $isTabNode,
   $isTextNode,
   type ElementNode,
   type LexicalNode,
@@ -20,6 +22,7 @@ import {
 } from 'lexical';
 
 import {type Formats, isLiveContent} from './Cursor';
+import {attrsOf} from './Ident';
 import {
   $foreignFlatKeys,
   $isWrapper,
@@ -36,7 +39,7 @@ import {
   TYPE_KEY,
   WRAPPER_PREFIX,
 } from './Schema';
-import {isGone, unheldLength} from './Seen';
+import {Folder, isGoneIn, unheldLength} from './Seen';
 
 // Inline content as atoms, the form both the editor's side ($pushInline)
 // and the shared side (readAtoms) are compared in: one atom per content unit
@@ -134,14 +137,32 @@ export type DesiredContext = {
   /** Origin ranges of a text node's text (relative), see Atoms.origins. */
   originOf?: ((node: TextNode) => [number, number, string][]) | null;
   /**
+   * The key of the node being composed, if any (the editor's composition
+   * key: `isComposing()` reads none in the read-only state the writer reads).
+   */
+  compositionKey?: NodeKey | null;
+  /**
    * Set when the content is stored, and read, otherwise than the editor
    * holds it: a wrapper nested in a wrapper of its own type (a link in a
    * link), as the formats store one per type, the inner one; two adjacent
    * text nodes that store the same attributes (that Lexical did not merge,
-   * because of NodeState it compares by reference), as one text node. The
-   * author then reads the content again, to show what every reader shows.
+   * because of NodeState it compares by reference, or because they are not
+   * simple text: two parts of one stored token or segmented run, which a
+   * reader showed apart while a format covered one of them), as one text
+   * node. The author then reads the content again, to show what every reader
+   * shows.
    */
   flattened?: boolean;
+  /**
+   * Set when a text node holds a surrogate half without its pair in it
+   * (D57: code split an emoji, or an app's selection inside one made
+   * Lexical split it into two nodes or keep one half). Such a half is
+   * stored as U+FFFD, as Yjs sends and stores it (its UTF-8 encoding of a
+   * lone half), so that the author's document holds what every other client
+   * and a reload read; the author then reads the content again, as for
+   * `flattened`.
+   */
+  unpaired?: boolean;
 };
 
 /**
@@ -164,8 +185,8 @@ export function $pushInline(
   ctx: DesiredContext,
   wrapperAttrs: Attrs = {},
 ): void {
-  // The stored attributes of the text node before, when it has no segment
-  // key (see DesiredContext.flattened).
+  // The stored attributes of the text node before (see
+  // DesiredContext.flattened).
   let prevText: string | null = null;
   for (const node of nodes) {
     const afterText: string | null = prevText;
@@ -173,15 +194,29 @@ export function $pushInline(
     if (node === PENDING_LINE_BREAK) {
       out.pushText('\n', {...wrapperAttrs});
     } else if ($isTextNode(node)) {
-      const text = node.getTextContent();
+      const shown = node.getTextContent();
+      const text = toWellFormed(shown);
+      if (text !== shown) {
+        ctx.unpaired = true;
+      }
       const segment = isMergeableText(node)
         ? null
         : (ctx.segments.get(node.getKey()) ??
           ctx.segments.create(node.getKey()));
       const attrs = {...wrapperAttrs, ...$textAttrs(node, segment)};
       // (Not around the node being composed: Lexical holds its merges back
-      // until the composition ends, see DEFER_COMPOSITION_MERGE_TAG.)
-      if (segment === null && text !== '' && !node.isComposing()) {
+      // until the composition ends, see DEFER_COMPOSITION_MERGE_TAG.) A node
+      // with a segment key stores it, so only a node with the same key, a
+      // part of the same stored run, compares equal; and only while nothing
+      // is being composed: the read would make every part of the run one
+      // node, the composed one included, and rewrite the IME's target. Readers
+      // show every tab as a node of its own.
+      if (
+        text !== '' &&
+        !node.isComposing() &&
+        !$isTabNode(node) &&
+        (segment === null || (ctx.compositionKey ?? null) === null)
+      ) {
         prevText = stableStringify(attrs);
         if (prevText === afterText) {
           ctx.flattened = true;
@@ -257,31 +292,44 @@ export function $pushInline(
 /**
  * Atoms of the shared items from `start` (inclusive) up to `stop`
  * (exclusive, null = end), with the formats in effect at `start`, as the
- * editor shows them: without what is held back (see Hidden). Returns the
- * formats stored at `stop`, held-back ones too (where a write cursor starts,
- * see Cursor).
+ * editor shows them: without what is held back, with the deleted items the
+ * hold keeps showing (see Hidden). Returns the formats stored at `stop`
+ * (see Seen.isStoredIn: held insertions in, kept deletions out), folded from
+ * `storedFormats`, the stored formats at `start` (where a write cursor
+ * starts, see Cursor, and what a line hands on).
  */
 export function readAtoms(
+  view: View | null,
   start: Item | null,
   stop: Item | null,
   formats: Formats,
   out: Atoms,
   hidden: Hidden | null = null,
+  frontier: Item | null = null,
+  end: {folded: Item | null} | null = null,
+  storedFormats: Formats = formats,
 ): Formats {
-  const current = new Map(formats);
-  // The formats the editor shows: `current` without held-back ones.
+  const current = new Map(storedFormats);
+  // The formats the editor shows (see Reader#held).
   const shown = hidden === null ? current : new Map(formats);
   let attrs: Attrs | null = null;
+  // Format items up to `frontier` are in `formats` already (see
+  // seedFrontier). What is handed on is stored; what the atoms show, held.
+  const stored = new Folder(current, view, 'stored', hidden, null, frontier);
+  const showing =
+    hidden === null
+      ? null
+      : new Folder(shown, view, 'shown', hidden, null, frontier);
   for (let it = start; it !== null && it !== stop; it = it.right) {
-    if (isGone(it)) {
+    stored.step(it);
+    if (showing !== null) {
+      showing.step(it);
+    }
+    if (isGoneIn(view, it) && (hidden === null || !hidden.keeps(it))) {
       continue;
     }
     const content = it.content;
     if (content instanceof ContentFormat) {
-      applyFormat(current, content);
-      if (shown !== current && !hidden!.hides(it)) {
-        applyFormat(shown, content);
-      }
       attrs = null;
       continue;
     }
@@ -289,7 +337,7 @@ export function readAtoms(
       continue;
     }
     if (attrs === null) {
-      attrs = Object.fromEntries(shown);
+      attrs = attrsOf(shown) as Attrs;
     }
     if (hidden !== null) {
       const runs = hidden.runs(it);
@@ -327,15 +375,13 @@ export function readAtoms(
       }
     }
   }
-  return current;
-}
-
-function applyFormat(formats: Formats, content: ContentFormat): void {
-  if (content.value === null) {
-    formats.delete(content.key);
-  } else {
-    formats.set(content.key, content.value);
+  if (stop !== null) {
+    stored.note(current, stop.left);
   }
+  if (end !== null) {
+    end.folded = stored.pending;
+  }
+  return current;
 }
 
 /**
@@ -365,13 +411,14 @@ function pushStoredText(out: Atoms, text: string, attrs: Attrs): void {
 
 /** Live content items from `start` up to `stop` (exclusive). */
 export function countLive(
+  view: View | null,
   start: Item | null,
   stop: Item | null,
   hidden: Hidden | null = null,
 ): number {
   let n = 0;
   for (let it = start; it !== null && it !== stop; it = it.right) {
-    if (isLiveContent(it)) {
+    if (isLiveContent(view, it)) {
       n += unheldLength(it, hidden);
     }
   }
@@ -1099,6 +1146,38 @@ export function keptStretches(
   composing: boolean,
 ): [number, number, number][] {
   const {prefix, suffix} = keptEnds(a, b, cursor, composing);
+  return withKeptWords(a, b, prefix, suffix, composing);
+}
+
+/**
+ * What text set whole (`setTextContent`, see setTextEnds) keeps of the text
+ * it replaces, as keptStretches gives it for text made again: its common
+ * start and end (setTextEnds, so a caret still places an insertion or a
+ * deletion), and between them every run of whole words a shortest
+ * word-by-word edit script keeps, so that a word a collaborator deletes
+ * between two changed words at the same time stays deleted.
+ */
+export function setTextStretches(
+  a: string,
+  b: string,
+  cursor: number,
+  composing: boolean,
+): [number, number, number][] {
+  const {prefix, suffix} = setTextEnds(a, b, cursor, composing);
+  return withKeptWords(a, b, prefix, suffix, composing);
+}
+
+/**
+ * The common start and end `prefix` and `suffix` of `a` and `b` as ranges
+ * (see keptStretches), with every run of whole words kept between them.
+ */
+function withKeptWords(
+  a: string,
+  b: string,
+  prefix: number,
+  suffix: number,
+  composing: boolean,
+): [number, number, number][] {
   const shift = a.length - b.length;
   const ends: [number, number, number][] = [
     [0, prefix, 0],
@@ -1177,3 +1256,41 @@ export function keptStretches(
 
 const isHighSurrogate = (c: number): boolean => c >= 0xd800 && c <= 0xdbff;
 const isLowSurrogate = (c: number): boolean => c >= 0xdc00 && c <= 0xdfff;
+
+const SURROGATE = /[\ud800-\udfff]/;
+
+/** Whether `s` holds a surrogate code unit that is not half of a pair. */
+export function hasLoneSurrogate(s: string): boolean {
+  if (!SURROGATE.test(s)) {
+    return false;
+  }
+  // String#isWellFormed where the runtime has it: it builds no new string.
+  const str = s as string & {isWellFormed?: () => boolean};
+  return typeof str.isWellFormed === 'function'
+    ? !str.isWellFormed()
+    : toWellFormed(s) !== s;
+}
+
+/**
+ * `s` with every surrogate code unit that is not half of a pair in it
+ * replaced with U+FFFD: what Yjs's UTF-8 encoding of `s` reads back as
+ * (`String#toWellFormed`, which not every supported browser has).
+ */
+export function toWellFormed(s: string): string {
+  if (!SURROGATE.test(s)) {
+    return s;
+  }
+  let out = '';
+  for (let i = 0; i < s.length; i++) {
+    const c = s.charCodeAt(i);
+    if (isHighSurrogate(c) && isLowSurrogate(s.charCodeAt(i + 1))) {
+      out += s[i] + s[i + 1];
+      i++;
+    } else if (isHighSurrogate(c) || isLowSurrogate(c)) {
+      out += '\ufffd';
+    } else {
+      out += s[i];
+    }
+  }
+  return out;
+}

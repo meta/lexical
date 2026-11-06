@@ -168,6 +168,9 @@
         "../lexical-internal/src/formatProdWarningMessage.ts"
       ],
       "@lexical/internal/invariant": ["../lexical-internal/src/invariant.ts"],
+      "@lexical/internal/isCjkCharacter": [
+        "../lexical-internal/src/isCjkCharacter.ts"
+      ],
       "@lexical/internal/version": ["../lexical-internal/src/version.ts"],
       "@lexical/internal/warnOnlyOnce": [
         "../lexical-internal/src/warnOnlyOnce.ts"
@@ -368,6 +371,10 @@
       "@lexical/utils": ["../lexical-utils/src/index.ts"],
       "@lexical/y": ["../lexical-y/src/index.ts"],
       "@lexical/y/headless": ["../lexical-y/src/headless.ts"],
+      "@lexical/y/migrate": ["../lexical-y/src/migrate.ts"],
+      "@lexical/y/migrate/1to2": ["../lexical-y/src/migrate/1to2.ts"],
+      "@lexical/y/migrate/2to3": ["../lexical-y/src/migrate/2to3.ts"],
+      "@lexical/y/server": ["../lexical-y/src/server.ts"],
       "@lexical/yjs": ["../lexical-yjs/src/index.ts"]
     }
   },

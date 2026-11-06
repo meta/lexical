@@ -37,9 +37,12 @@ import {
   $createTableNode,
   $createTableRowNode,
   $createTableSelectionFrom,
+  $insertTableRowAtSelection,
   $isTableCellNode,
   $isTableNode,
   $isTableRowNode,
+  $mergeCells,
+  $unmergeCellNode,
   type TableCellNode,
   type TableNode,
 } from '@lexical/table';
@@ -49,13 +52,16 @@ import {
   $createParagraphNode,
   $createTextNode,
   $getRoot,
+  $insertNodes,
   $isElementNode,
   $isLineBreakNode,
   $isParagraphNode,
   $isTextNode,
+  $parseSerializedNode,
   $setSelection,
   configExtension,
   defineExtension,
+  type SerializedEditorState,
   TextNode,
 } from 'lexical';
 import {$assertNodeType} from 'lexical/src/__tests__/utils';
@@ -376,6 +382,179 @@ describe('MdastTableExtension', () => {
         one.setColSpan(2);
       }),
     ).toBe(table('| a  |    | c |', '| :- | :- | - |', '| 1  |    | 3 |'));
+  });
+
+  describe('a new body cell', () => {
+    const aligned = table(
+      '| a | b | c | d |',
+      '| :- | :-: | -: | - |',
+      '| 1 | 2 | 3 | 4 |',
+    );
+
+    /** The format of the first paragraph of each cell, by row. */
+    const $formats = () =>
+      $cells().map(row =>
+        row.map(cell =>
+          $assertNodeType(
+            cell.getFirstChild(),
+            $isParagraphNode,
+          ).getFormatType(),
+        ),
+      );
+
+    function createAlignedEditor(): LexicalEditorWithDispose {
+      const editor = createEditor();
+      editor.update(() => $convertFromMarkdownString(aligned), {
+        discrete: true,
+      });
+      return editor;
+    }
+
+    it.each([
+      ['below the header row', 0, true],
+      ['below a body row', 1, true],
+      ['above a body row', 1, false],
+    ])(
+      'in a row inserted %s takes its column’s alignment',
+      (_where, rowIndex, insertAfter) => {
+        using editor = createAlignedEditor();
+        editor.update(
+          () => {
+            $cells()[rowIndex][0].selectStart();
+            $insertTableRowAtSelection(insertAfter);
+          },
+          {discrete: true},
+        );
+        editor.read(() => {
+          expect($formats()).toEqual([
+            ['left', 'center', 'right', ''],
+            ['left', 'center', 'right', ''],
+            ['left', 'center', 'right', ''],
+          ]);
+        });
+      },
+    );
+
+    it('split from a merged cell takes its column’s alignment', () => {
+      using editor = createAlignedEditor();
+      editor.update(
+        () => {
+          const [, [, two, three]] = $cells();
+          $mergeCells([two, three]);
+        },
+        {discrete: true},
+      );
+      editor.read(() => {
+        expect($cells()[1].map(cell => cell.getColSpan())).toEqual([1, 2, 1]);
+      });
+      editor.update(() => $unmergeCellNode($cells()[1][1]), {discrete: true});
+      editor.read(() => {
+        expect($formats()[1]).toEqual(['left', 'center', 'right', '']);
+      });
+    });
+
+    it('keeps the alignment its paragraph already has', () => {
+      using editor = createAlignedEditor();
+      editor.update(
+        () => {
+          $cells()[1][0].selectStart();
+          const row = $insertTableRowAtSelection(true);
+          assert(row !== null, 'Expected a new row');
+          $assertNodeType(
+            $assertNodeType(
+              row.getChildAtIndex(1),
+              $isTableCellNode,
+            ).getFirstChild(),
+            $isParagraphNode,
+          ).setFormat('right');
+        },
+        {discrete: true},
+      );
+      editor.read(() => {
+        expect($formats()[2]).toEqual(['left', 'right', 'right', '']);
+      });
+    });
+
+    it('leaves the cells that were there before as they are', () => {
+      using editor = createAlignedEditor();
+      editor.update(
+        () => {
+          $assertNodeType(
+            $cells()[1][1].getFirstChild(),
+            $isParagraphNode,
+          ).setFormat('');
+        },
+        {discrete: true},
+      );
+      editor.update(
+        () => {
+          $cells()[1][0].selectStart();
+          $insertTableRowAtSelection(true);
+        },
+        {discrete: true},
+      );
+      editor.read(() => {
+        expect($formats()).toEqual([
+          ['left', 'center', 'right', ''],
+          ['left', '', 'right', ''],
+          ['left', 'center', 'right', ''],
+        ]);
+      });
+    });
+
+    /**
+     * A saved editor state with the aligned table, where the body cell in
+     * the centered column has no format.
+     */
+    function saveUnalignedCell(): SerializedEditorState {
+      using editor = createAlignedEditor();
+      editor.update(
+        () => {
+          $assertNodeType(
+            $cells()[1][1].getFirstChild(),
+            $isParagraphNode,
+          ).setFormat('');
+        },
+        {discrete: true},
+      );
+      return editor.getEditorState().toJSON();
+    }
+
+    it('leaves the cells of a loaded table as they are', () => {
+      const json = saveUnalignedCell();
+      using editor = createEditor();
+      editor.setEditorState(editor.parseEditorState(json));
+      expect(editor.getEditorState().toJSON()).toEqual(json);
+    });
+
+    it('leaves the cells of a table in the initial editor state as they are', () => {
+      const json = saveUnalignedCell();
+      using editor = createEditor(
+        defineExtension({
+          $initialEditorState: JSON.stringify(json),
+          name: 'initial state',
+        }),
+      );
+      expect(editor.getEditorState().toJSON()).toEqual(json);
+    });
+
+    it('leaves the cells of a pasted table as they are', () => {
+      const [tableJSON] = saveUnalignedCell().root.children;
+      using editor = createEditor();
+      editor.update(
+        () => {
+          $getRoot().selectStart();
+          $insertNodes([$parseSerializedNode(tableJSON)]);
+        },
+        {discrete: true},
+      );
+      editor.read(() => {
+        expect($formats()).toEqual([
+          ['left', 'center', 'right', ''],
+          ['left', '', 'right', ''],
+        ]);
+      });
+    });
   });
 
   it('writes a line ending in a cell’s text as a space, unescaped', () => {
