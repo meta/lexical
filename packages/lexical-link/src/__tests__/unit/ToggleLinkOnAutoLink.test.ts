@@ -32,7 +32,6 @@ import {
   $getRoot,
   $getSelection,
   $isElementNode,
-  $isNodeSelection,
   $isTextNode,
   $setSelection,
   configExtension,
@@ -202,7 +201,7 @@ describe('$toggleLink inside an autolink', () => {
         return [
           $isAutoLinkNode(link),
           link.getURL(),
-          $isNodeSelection(selection) ? selection.getTextContent() : null,
+          selection === null ? null : selection.getTextContent(),
         ];
       }),
     ).toEqual([false, 'https://u1.test', 't30z']);
@@ -216,7 +215,8 @@ describe('$toggleLink inside an autolink', () => {
           .clear()
           .append(
             $createParagraphNode().append(
-              $createLinkNode('https://u1.test').append(
+              // The attributes $toggleLink gives, so the links merge.
+              $createLinkNode('https://u1.test', {rel: 'noreferrer'}).append(
                 $createTextNode('see '),
               ),
               $createTextNode('t30z now'),
@@ -244,11 +244,11 @@ describe('$toggleLink inside an autolink', () => {
         assert($isElementNode(paragraph), 'expected a paragraph');
         const selection = $getSelection();
         return [
-          paragraph.getChildren().some($isAutoLinkNode),
+          paragraph.getChildren().filter($isLinkNode).length,
           paragraph.getTextContent(),
-          $isNodeSelection(selection) ? selection.getTextContent() : null,
+          selection === null ? null : selection.getTextContent(),
         ];
       }),
-    ).toEqual([false, 'see t30z now', 't30z']);
+    ).toEqual([1, 'see t30z now', 't30z']);
   });
 });

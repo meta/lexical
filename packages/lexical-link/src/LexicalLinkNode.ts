@@ -11,6 +11,7 @@ import {
   $applyNodeReplacement,
   $caretFromPoint,
   $copyNode,
+  $createRangeSelection,
   $findMatchingParent,
   $getChildCaret,
   $getDocument,
@@ -21,6 +22,7 @@ import {
   $isNodeSelection,
   $isRangeSelection,
   $isSiblingCaret,
+  $isTextNode,
   $normalizeCaret,
   $normalizeSelection__EXPERIMENTAL,
   $rewindSiblingCaret,
@@ -807,12 +809,24 @@ function $replaceAutoLink(
     $isNodeSelection(selection) && selection.has(autoLink.getKey());
   autoLink.replace(replacement, true);
   if (selected) {
-    // The node selection held the autolink itself: it holds what the link
-    // holds now (the link may still merge into a neighbouring one, whose
-    // key would replace its own; its children keep theirs).
+    // The node selection held the autolink itself: the same content stays
+    // selected. Its text, as a range: the link and its text may still merge
+    // into neighbouring ones (Lexical's normalization), which moves range
+    // points along and would drop the merged keys from a node selection.
     selection.delete(autoLink.getKey());
-    for (const child of replacement.getChildren()) {
-      selection.add(child.getKey());
+    const first = replacement.getFirstDescendant();
+    const last = replacement.getLastDescendant();
+    if (
+      $isTextNode(first) &&
+      $isTextNode(last) &&
+      selection.getNodes().length === 0
+    ) {
+      const range = $createRangeSelection();
+      range.anchor.set(first.getKey(), 0, 'text');
+      range.focus.set(last.getKey(), last.getTextContentSize(), 'text');
+      $setSelection(range);
+    } else {
+      selection.add(replacement.getKey());
     }
   }
   return replacement.getKey();
