@@ -9260,14 +9260,17 @@ export class YBinding {
     if (running !== null) {
       return take(running);
     }
-    if (
-      this.takingCursor ||
-      doc._transactionCleanups.some(t => t.origin === this.scanOrigin)
-    ) {
+    const cleanups = doc._transactionCleanups;
+    if (this.takingCursor || cleanups.some(t => t.origin === this.scanOrigin)) {
       const taken = this.takenCursor;
-      return taken !== null && taken.state === state
-        ? taken.cursor
-        : this.readCursor();
+      if (taken !== null && taken.state === state) {
+        return taken.cursor;
+      }
+    }
+    if (cleanups.length > 0) {
+      // From the observers of a transaction being cleaned up: split in one
+      // of those (see splitWhileUnread), rather than open one more.
+      return take(cleanups[cleanups.length - 1]);
     }
     let cursor: YCursor | null = null;
     this.takingCursor = true;
@@ -9295,12 +9298,14 @@ export class YBinding {
       this.splitAtUnread(running);
       return fn();
     }
-    if (
-      this._doc._transactionCleanups.some(t => t.origin === this.scanOrigin)
-    ) {
-      // From that transaction's observers (an app's, on every transaction):
-      // the items are still split there, and one more transaction would
-      // call them again, without end (see takeCursor).
+    const cleanups = this._doc._transactionCleanups;
+    if (cleanups.length > 0) {
+      // From the observers of a transaction being cleaned up (an app's, on
+      // every transaction): split in one of those, whose merges may have run
+      // already, rather than open one more, whose observers would call this
+      // again, without end. Splits Yjs does not merge back stay split, which
+      // changes nothing.
+      this.splitAtUnread(cleanups[cleanups.length - 1]);
       return fn();
     }
     let result: T | undefined;

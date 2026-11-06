@@ -154,18 +154,30 @@ describe.each([false, true])(
       // An app resolving its cursor on every transaction (an awareness
       // cursor): the transaction $resolveCursor may open calls it again.
       let calls = 0;
-      const resolved: (number | null)[] = [];
-      const observe = () => {
+      const seen: [string, number | null, number | null][] = [];
+      // From A's first write on: before it, the editor shows a commit the
+      // binding has not written yet (Lexical notifies its listeners first),
+      // and a cursor taken there is of content not stored yet.
+      let written = false;
+      const observe = (tr: Y.Transaction) => {
         calls++;
-        if (calls > 50) {
+        if (tr.origin === a.binding) {
+          written = true;
+        }
+        if (calls > 50 || !written) {
           return;
         }
         const cursor = a.binding.getCursor();
-        resolved.push(
+        seen.push(
           a.editor.getEditorState().read(() => {
+            const selection = $getSelection();
             const points =
               cursor === null ? null : a.binding.$resolveCursor(cursor);
-            return points === null ? null : points.anchor.offset;
+            return [
+              $getRoot().getTextContent(),
+              $isRangeSelection(selection) ? selection.anchor.offset : null,
+              points === null ? null : points.anchor.offset,
+            ];
           }),
         );
       };
@@ -176,6 +188,7 @@ describe.each([false, true])(
         });
         const remote = Y.encodeStateAsUpdate(b.doc, Y.encodeStateVector(a.doc));
         a.doc.on('afterTransaction', observe);
+        a.doc.on('afterTransactionCleanup', observe);
         a.update(() => {
           $selectIn([1], 7, 11).removeText();
           Y.applyUpdate(a.doc, remote, 'provider');
@@ -184,10 +197,18 @@ describe.each([false, true])(
         await Promise.resolve();
         await t.sync();
         a.doc.off('afterTransaction', observe);
+        a.doc.off('afterTransactionCleanup', observe);
         expect(calls).toBeLessThan(50);
-        expect(resolved.length).toBeGreaterThan(0);
+        // Where the editor shows A's delete, written, and the change is
+        // unread, the cursor resolves where the editor shows it.
+        const shown = seen.filter(([text]) => text.includes('eight nte'));
+        expect(shown.length).toBeGreaterThan(0);
+        expect(shown.map(([, editor, at]) => [editor, at])).toEqual(
+          shown.map(([, editor]) => [editor, editor]),
+        );
       } finally {
         a.doc.off('afterTransaction', observe);
+        a.doc.off('afterTransactionCleanup', observe);
         host.remove();
       }
     });
