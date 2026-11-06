@@ -10,7 +10,7 @@ import './index.css';
 
 import {useMergeRefs} from '@floating-ui/react';
 import {$isCodeNode} from '@lexical/code';
-import {$isLinkNode, TOGGLE_LINK_COMMAND} from '@lexical/link';
+import {TOGGLE_LINK_COMMAND} from '@lexical/link';
 import {useLexicalComposerContext} from '@lexical/react/LexicalComposerContext';
 import {useLexicalEditable} from '@lexical/react/useLexicalEditable';
 import {useLexicalRovingTabIndexRef} from '@lexical/react/useLexicalRovingTabIndexRef';
@@ -45,7 +45,8 @@ import {
 import {createPortal} from 'react-dom';
 
 import {getDOMRangeRect} from '../../utils/getDOMRangeRect';
-import {getSelectedNode} from '../../utils/getSelectedNode';
+import {$getSelectedNode} from '../../utils/getSelectedNode';
+import {$getSelectionLinkNode} from '../../utils/getSelectionLinkNode';
 import {setFloatingElemPosition} from '../../utils/setFloatingElemPosition';
 import {INSERT_INLINE_COMMAND} from '../CommentPlugin';
 
@@ -398,7 +399,7 @@ function useFloatingTextFormatToolbar(
         return;
       }
 
-      const node = getSelectedNode(selection);
+      const node = $getSelectedNode(selection);
 
       // Update text format
       setIsBold(selection.hasFormat('bold'));
@@ -413,12 +414,7 @@ function useFloatingTextFormatToolbar(
       setIsCode(selection.hasFormat('code'));
 
       // Update links
-      const parent = node.getParent();
-      if ($isLinkNode(parent) || $isLinkNode(node)) {
-        setIsLink(true);
-      } else {
-        setIsLink(false);
-      }
+      setIsLink($getSelectionLinkNode(selection) !== null);
 
       if (
         !$isCodeNode(selection.anchor.getNode().getParent()) &&
