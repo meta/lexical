@@ -1508,7 +1508,6 @@ export class YBinding {
   /** Containers read while changes were deferred, checked later (see checkRead). */
   private readonly checkLater = new Set<CS>();
   /** While takeCursor's transaction runs. */
-  private takingCursor = false;
   /**
    * The transaction that changes nothing takeCursor or splitWhileUnread
    * opened, while its `transact` call is on the stack (its observers,
@@ -1516,9 +1515,6 @@ export class YBinding {
    * they split in it rather than open another, without end.
    */
   private splitting: Transaction | null = null;
-  /** The cursor takeCursor took last, and on which editor state. */
-  private takenCursor: {cursor: YCursor | null; state: EditorState} | null =
-    null;
   private gcFilters: {
     ours: (item: Item) => boolean;
     prev: (item: Item) => boolean;
@@ -9232,7 +9228,7 @@ export class YBinding {
    * remote change is not read yet, the positions are taken in a Yjs
    * transaction that changes nothing (the document's transaction observers
    * see it), or in the one running; called again from that transaction's
-   * observers, it returns the positions it just took.
+   * observers, it takes them there, opening no other.
    */
   getCursor(): YCursor | null {
     return this.takeCursor();
@@ -9246,9 +9242,9 @@ export class YBinding {
    * cleanup merges them back), else in a transaction of its own. The
    * positions are ids, which stay valid once Yjs merges the items again.
    * Taken again from that transaction's observers (an app's awareness
-   * cursor refreshed on every transaction), it is the one just taken, for
-   * the same editor state: no transaction opens from there, which would
-   * call those observers again.
+   * cursor refreshed on every transaction), or those of any transaction
+   * being cleaned up, they are taken in that transaction: no transaction
+   * opens from there, which would call those observers again.
    */
   private takeCursor(): YCursor | null {
     if (this.unread === null) {
@@ -9256,12 +9252,9 @@ export class YBinding {
       return this.readCursor();
     }
     const doc = this._doc;
-    const state = this._editor.getEditorState();
     const take = (tr: Transaction) => {
       this.splitAtUnread(tr);
-      const cursor = this.readCursor();
-      this.takenCursor = {cursor, state};
-      return cursor;
+      return this.readCursor();
     };
     const running = doc._transaction;
     if (running !== null) {
@@ -9269,12 +9262,6 @@ export class YBinding {
     }
     const cleanups = doc._transactionCleanups;
     const splitting = this.splitting;
-    if (this.takingCursor || cleanups.some(t => t.origin === this.scanOrigin)) {
-      const taken = this.takenCursor;
-      if (taken !== null && taken.state === state) {
-        return taken.cursor;
-      }
-    }
     if (splitting !== null) {
       // From the observers of the one opened (see splitting).
       return take(splitting);
@@ -9285,14 +9272,12 @@ export class YBinding {
       return take(cleanups[cleanups.length - 1]);
     }
     let cursor: YCursor | null = null;
-    this.takingCursor = true;
     try {
       doc.transact(tr => {
         this.splitting = tr;
         cursor = take(tr);
       }, this.scanOrigin);
     } finally {
-      this.takingCursor = false;
       this.splitting = null;
     }
     return cursor;
