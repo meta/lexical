@@ -1919,8 +1919,12 @@ migrated the room uploads that material before it replaces its document
 
 ### Reseeding a room
 
-No converter ships today. To move a room's content into a new layout, or out
-of `@lexical/yjs`, write it into a new room with `seedYState`:
+To move a stored room to a newer layout, migrate it in place with the
+published steps (see
+[The migration moment](./y-server.md#the-migration-moment)): the room keeps
+its name, and clients holding its material go through the generation
+handshake. To move content out of `@lexical/yjs`, or into a new room for
+another reason, write it into a new room with `seedYState`:
 
 ```mermaid
 flowchart LR
@@ -1932,10 +1936,16 @@ flowchart LR
   json["Lexical JSON"] -->|"seedYState"| room["New @lexical/y room"]
 ```
 
-1. **Get the content as Lexical JSON.** If your database holds it, use that.
-   If you store only Yjs, read it with the binding that wrote it:
+1. **Seal the old room, then get its content as Lexical JSON.** First stop
+   the old room from admitting writes and apply what it already received
+   (the barrier in
+   [The migration moment](./y-server.md#the-migration-moment)), and persist
+   that: a write synced to the old room after you read it would otherwise
+   be lost. Then read the sealed state with the binding that wrote it:
    `readYState` for an `@lexical/y` room, or an editor with `@lexical/yjs`
-   for a `@lexical/yjs` room, then `editor.getEditorState().toJSON()`.
+   for a `@lexical/yjs` room, then `editor.getEditorState().toJSON()`. Use
+   Lexical JSON from your database only if it holds everything the sealed
+   room holds.
 2. **Seed the new room** with the same extensions as the clients:
 
    ```ts
@@ -1957,10 +1967,19 @@ flowchart LR
    });
    ```
 
-3. **Switch clients to the new room.** Store `seed` under a new room name,
-   point upgraded clients at it, and retire the old room. A client that
-   still holds the old room (an open tab, an offline cache) must drop it:
-   merging the old room into the new one would mix the two.
+3. **Switch clients to the new room.** Store `seed` under a new room name
+   with a new incarnation, point upgraded clients at it, and keep the old
+   room's final state. Never merge the old room into the new one: that
+   would mix the two. A client that still holds the old room (an open tab,
+   an offline cache) can hold edits the old room never received, so don't
+   tell it to drop its copy: keep serving the old room's name with a
+   replaced incarnation, so that a session there holding material gets the
+   `stale` verdict and hands its material off to that room's quarantine
+   instead of syncing; a client without the handshake (a `@lexical/yjs`
+   one) is captured there instead (see
+   [Quarantine, capture and the handoff](./y-server.md#quarantine-capture-and-the-handoff)).
+   Keep those records listable for the quarantine window. Only a client
+   with nothing unsent may drop its old copy.
 
 ### Moving from `@lexical/yjs`
 
