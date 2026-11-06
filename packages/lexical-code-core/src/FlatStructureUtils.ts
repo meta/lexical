@@ -11,13 +11,16 @@ import {
   $createLineBreakNode,
   $createTabNode,
   $getSiblingCaret,
+  $getWritableNodeState,
   $isElementNode,
   $isLineBreakNode,
   $isTabNode,
+  $isTextNode,
   type CaretDirection,
   getTextDirection,
   type LexicalNode,
   type LineBreakNode,
+  NODE_STATE_KEY,
   type RangeSelection,
   type SiblingCaret,
   type TabNode,
@@ -247,6 +250,163 @@ export function $plainifyCodeContent(text: string): LexicalNode[] {
     tab: () => out.push($createTabNode()),
     text: part => out.push($createCodeHighlightNode(part)),
   });
+  return out;
+}
+
+/**
+ * Give `to` the NodeState of `from`, flat states included, keeping the state
+ * that `to` has for the keys `from` does not set.
+ */
+function $copyNodeState(from: LexicalNode, to: LexicalNode): void {
+  // @internal access, like `__text`: the NodeState of the node
+  const json: Record<string, unknown> = from.__state
+    ? from.__state.toJSON()
+    : {};
+  const state = $getWritableNodeState(to);
+  for (const [key, value] of Object.entries(json)) {
+    if (key === NODE_STATE_KEY) {
+      for (const [nestedKey, nestedValue] of Object.entries(
+        value as Record<string, unknown>,
+      )) {
+        state.updateFromUnknown(nestedKey, nestedValue);
+      }
+    } else {
+      state.updateFromUnknown(key, value);
+    }
+  }
+  // States the node knows by their StateConfig stay known on the copy (a
+  // StateConfig not registered for the copy's class would otherwise be
+  // read back as an unknown JSON value: a set-valued state, for one). As in
+  // the JSON: not a default value (the copy keeps what it has, such as state
+  // its replacement class sets), and the value of a key the copy's class
+  // has another StateConfig for stays parsed with that one (above).
+  if (from.__state) {
+    const {sharedConfigMap} = state.sharedNodeState;
+    for (const [config, value] of from.__state.getInternalState()[1]) {
+      if (config.isEqual(value, config.defaultValue)) {
+        continue;
+      }
+      const own = sharedConfigMap.get(config.key);
+      if (own === undefined || own === config) {
+        state.updateFromKnown(config, value);
+      }
+    }
+  }
+}
+
+/** Whether `node` has NodeState (such as comment ids or a suggestion). */
+function hasNodeState(node: LexicalNode): boolean {
+  // @internal access, like `__text`
+  return (
+    node.__state !== undefined && Object.keys(node.__state.toJSON()).length > 0
+  );
+}
+
+/**
+ * @internal
+ * Whether `a` and `b` have the same NodeState, for a highlighter's
+ * comparison of a code block's children with their new tokens.
+ */
+export function $isSameCodeNodeState(a: LexicalNode, b: LexicalNode): boolean {
+  // @internal access, like `__text`
+  if (a.__state === b.__state) {
+    return true;
+  }
+  const aHas = hasNodeState(a);
+  const bHas = hasNodeState(b);
+  if (!aHas || !bHas) {
+    return aHas === bHas;
+  }
+  return (
+    JSON.stringify(a.__state!.toJSON()) === JSON.stringify(b.__state!.toJSON())
+  );
+}
+
+/**
+ * @internal
+ * For a highlighter that tokenizes a code block again: `nextNodes`, the new
+ * tokens of the text of `prevNodes` (the block's children), with the
+ * NodeState of `prevNodes` kept (such as comment ids or a suggestion, which
+ * collaboration stores on the text). A token is split where that state
+ * changes, and each part gets the NodeState of the node its text came from.
+ * Returns `nextNodes` itself when no node of `prevNodes` has NodeState.
+ */
+export function $keepCodeNodeState(
+  prevNodes: LexicalNode[],
+  nextNodes: LexicalNode[],
+): LexicalNode[] {
+  // The common case, on every keystroke in code: no NodeState at all.
+  if (!prevNodes.some(hasNodeState)) {
+    return nextNodes;
+  }
+  const spans: {end: number; node: LexicalNode; start: number}[] = [];
+  let at = 0;
+  for (const node of prevNodes) {
+    const size = node.getTextContentSize();
+    if (
+      size > 0 &&
+      $isTextNode(node) &&
+      !$isTabNode(node) &&
+      hasNodeState(node)
+    ) {
+      spans.push({end: at + size, node, start: at});
+    }
+    at += size;
+  }
+  if (spans.length === 0) {
+    return nextNodes;
+  }
+  const out: LexicalNode[] = [];
+  let next = 0;
+  at = 0;
+  for (const node of nextNodes) {
+    const size = node.getTextContentSize();
+    const start = at;
+    const end = at + size;
+    at = end;
+    while (next < spans.length && spans[next].end <= start) {
+      next++;
+    }
+    if (
+      !$isCodeHighlightNode(node) ||
+      next === spans.length ||
+      spans[next].start >= end
+    ) {
+      out.push(node);
+      continue;
+    }
+    const text = node.getTextContent();
+    let pos = start;
+    let k = next;
+    while (pos < end) {
+      const span = k < spans.length && spans[k].start < end ? spans[k] : null;
+      let partEnd = end;
+      let from: LexicalNode | null = null;
+      if (span !== null && pos < span.start) {
+        partEnd = span.start;
+      } else if (span !== null) {
+        partEnd = Math.min(end, span.end);
+        from = span.node;
+      }
+      let part: CodeHighlightNode = node;
+      if (partEnd - pos !== size) {
+        part = $createCodeHighlightNode(
+          text.slice(pos - start, partEnd - start),
+          node.getHighlightType(),
+        );
+        part.setFormat(node.getFormat());
+        part.setStyle(node.getStyle());
+      }
+      if (from !== null) {
+        $copyNodeState(from, part);
+        if (partEnd === span!.end) {
+          k++;
+        }
+      }
+      out.push(part);
+      pos = partEnd;
+    }
+  }
   return out;
 }
 
