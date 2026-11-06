@@ -71,6 +71,7 @@ import {
   HISTORY_MERGE_TAG,
   INTERNAL_$normalizeNodeStructure,
   isCurrentlyReadOnlyMode,
+  isDispatchingCommitListeners,
   type Klass,
   type LexicalEditor,
   type LexicalNode,
@@ -2202,7 +2203,12 @@ export class YBinding {
       if (
         $isRootNode(node) &&
         this._status === 'active' &&
-        this.commitsAtOnce()
+        this.commitsAtOnce() &&
+        // Not while the editor notifies the listeners of a commit (an
+        // update a mutation listener makes, which Lexical runs at once):
+        // committed there, its listeners would run before the rest of that
+        // commit's, which would then write an older state over it.
+        !isDispatchingCommitListeners(this._editor)
       ) {
         $flushSyncAfterUpdate();
       }
@@ -4234,7 +4240,19 @@ export class YBinding {
     }
     if (this.isIdle()) {
       this.readDeferred();
-    } else if (this._editor._updating && !this.deferredQueued) {
+    } else if (
+      this._editor._updating &&
+      !this.deferredQueued &&
+      // An update made while Lexical notifies a commit's listeners (a
+      // mutation listener's) waits to commit after them (see the root
+      // transform): read into its pending state, the change would carry it
+      // under the read's tags, never written. That update's own commit
+      // schedules the read (see the update listener).
+      !(
+        this._editor._pendingEditorState !== null &&
+        isDispatchingCommitListeners(this._editor)
+      )
+    ) {
       this.deferredQueued = true;
       this.queueFirst(
         () => {
@@ -7886,7 +7904,12 @@ export class YBinding {
    * last commit waits for its registration pass (see isRegistrationPass).
    * Why: a merged commit cannot tell whose its changes are, and an update
    * written after a remote change is written at positions computed without
-   * it.
+   * it. Except an update made while Lexical notifies a commit's listeners (a
+   * mutation listener's): committed at once, it would commit inside that
+   * notification, before the rest of the outer commit's listeners, which
+   * the binding is one of. It commits after them; a remote change applied
+   * in the same task meanwhile finds it waiting, and is read after it is
+   * committed and written (see D108).
    */
   private commitsAtOnce(): boolean {
     if (this.task.committed || this.pending.size > 0 || this.pendingScheduled) {
@@ -8070,7 +8093,15 @@ export class YBinding {
     if (
       !this.pending.has('reread') ||
       !editor._updating ||
-      editor._updates.some(([fn]) => fn === this.rereadUpdate)
+      editor._updates.some(([fn]) => fn === this.rereadUpdate) ||
+      // An update made while Lexical notifies a commit's listeners (a
+      // mutation listener's) waits to commit after them (see the root
+      // transform): the re-read, run inside its pending state, would carry
+      // its edits under the read's tags, never written. Its own commit
+      // queues the re-read (as before this wait, that update applies to the
+      // editor before the re-read).
+      (editor._pendingEditorState !== null &&
+        isDispatchingCommitListeners(editor))
     ) {
       return;
     }
