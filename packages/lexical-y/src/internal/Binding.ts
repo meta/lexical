@@ -9295,6 +9295,14 @@ export class YBinding {
       this.splitAtUnread(running);
       return fn();
     }
+    if (
+      this._doc._transactionCleanups.some(t => t.origin === this.scanOrigin)
+    ) {
+      // From that transaction's observers (an app's, on every transaction):
+      // the items are still split there, and one more transaction would
+      // call them again, without end (see takeCursor).
+      return fn();
+    }
     let result: T | undefined;
     this._doc.transact(tr => {
       this.splitAtUnread(tr);

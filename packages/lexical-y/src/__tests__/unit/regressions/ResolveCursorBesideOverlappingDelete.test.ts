@@ -117,5 +117,79 @@ describe.each([false, true])(
         host.remove();
       }
     });
+
+    test('resolves from a transaction observer without opening transactions without end', async () => {
+      const t = await setup(
+        () =>
+          $getRoot().append(
+            $createParagraphNode().append($createTextNode('two three four')),
+            $createParagraphNode().append($createTextNode('eight nine ten')),
+          ),
+        {gc, ids: [1, 2, 3]},
+      );
+      const {a, b} = t;
+      const host = document.createElement('div');
+      host.contentEditable = 'true';
+      document.body.append(host);
+      a.editor.setRootElement(host);
+      let edits = 0;
+      a.editor.registerMutationListener(
+        TextNode,
+        mutations => {
+          if (edits < 3 && mutations.size > 0) {
+            edits++;
+            a.editor.update(() => {
+              const last = $getRoot().getLastChild();
+              const text = $isElementNode(last)
+                ? last.getLastDescendant()
+                : null;
+              if ($isTextNode(text)) {
+                text.setTextContent(text.getTextContent() + '#');
+              }
+            });
+          }
+        },
+        {skipInitialization: true},
+      );
+      // An app resolving its cursor on every transaction (an awareness
+      // cursor): the transaction $resolveCursor may open calls it again.
+      let calls = 0;
+      const resolved: (number | null)[] = [];
+      const observe = () => {
+        calls++;
+        if (calls > 50) {
+          return;
+        }
+        const cursor = a.binding.getCursor();
+        resolved.push(
+          a.editor.getEditorState().read(() => {
+            const points =
+              cursor === null ? null : a.binding.$resolveCursor(cursor);
+            return points === null ? null : points.anchor.offset;
+          }),
+        );
+      };
+      try {
+        t.offline();
+        b.update(() => {
+          $selectIn([1], 8, 12).removeText();
+        });
+        const remote = Y.encodeStateAsUpdate(b.doc, Y.encodeStateVector(a.doc));
+        a.doc.on('afterTransaction', observe);
+        a.update(() => {
+          $selectIn([1], 7, 11).removeText();
+          Y.applyUpdate(a.doc, remote, 'provider');
+          $selectIn([1], 9);
+        });
+        await Promise.resolve();
+        await t.sync();
+        a.doc.off('afterTransaction', observe);
+        expect(calls).toBeLessThan(50);
+        expect(resolved.length).toBeGreaterThan(0);
+      } finally {
+        a.doc.off('afterTransaction', observe);
+        host.remove();
+      }
+    });
   },
 );
