@@ -1162,9 +1162,10 @@ export class Cursor {
   insert(
     content: ContentString | ContentType,
     formats: Record<string, unknown>,
+    fresh = false,
   ): Item {
     if (this.writesPaired()) {
-      return this.insertWithFormats(content, formats);
+      return this.insertWithFormats(content, formats, fresh);
     }
     // Seeding (see Ident.withSeeding): covered formats as canonical layout
     // 3 runs, written in this pass where the unit's values change (see
@@ -1223,6 +1224,7 @@ export class Cursor {
   private insertWithFormats(
     content: ContentString | ContentType,
     formats: Record<string, unknown>,
+    fresh = false,
   ): Item {
     const f: Record<string, unknown> = {...formats};
     // A tab's node type key (`t`, with its segment key `k`) applies to tab
@@ -1255,10 +1257,11 @@ export class Cursor {
     // (Seeding, which writes no paired runs, owns no node keys: it writes
     // into an empty container, where the content's covered values are the
     // cursor's, see insert.)
-    const negated = this.insertFormats(
-      f,
-      this.pairs(SEGMENT_KEY) ? this.ownNodeKeys(f) : null,
-    );
+    let own = this.pairs(SEGMENT_KEY) ? this.ownNodeKeys(f) : null;
+    if (fresh) {
+      own = this.addHeldOver(f, own);
+    }
+    const negated = this.insertFormats(f, own);
     const item = this.newItem(content);
     this.right = item;
     this.forward();
@@ -1268,6 +1271,122 @@ export class Cursor {
     }
     this.insertNegatedFormats(negated);
     return item;
+  }
+
+  /**
+   * The text of a node new in the write (`fresh`, see Writer's $insertAtoms)
+   * gets a paired run of its own for each key it gives a value (not null)
+   * that equals what the editor shows at the cursor only while a
+   * composition holds changes back: a held change's run of that key is open
+   * there (a collaborator's unbold of the text composed in, written as a
+   * null run), or the shown value comes from a format item a held change
+   * deleted (an unbold, or the undo of a bold, that removed the bold run's
+   * items, which the hold keeps showing, see Hidden#keep). Stored without a
+   * run of its own, the text would lose the value once the hold ends. The
+   * format given to the new node is the node's own, not one it inherited:
+   * its run keeps it after the hold, as on a client that held nothing. Text typed into a node
+   * that existed before, and old characters written again, inherit as
+   * before (they are not fresh).
+   */
+  private addHeldOver(
+    f: Record<string, unknown>,
+    own: Set<string> | null,
+  ): Set<string> | null {
+    const hidden = this.hidden;
+    if (hidden === null) {
+      return own;
+    }
+    // The keys that could take a run of their own: given a value that is
+    // what the cursor shows (only those are looked up below).
+    let candidate = false;
+    for (const key in f) {
+      const val = f[key];
+      if (
+        val !== null &&
+        this.pairs(key) &&
+        equalFormatValue(this.formats.get(key) ?? null, val)
+      ) {
+        candidate = true;
+        break;
+      }
+    }
+    if (!candidate) {
+      return own;
+    }
+    const over = this.heldOpenKeys(hidden);
+    // The keys whose shown value comes from a format item a held change
+    // deleted (see Hidden#keep): once the hold ends, that value is gone.
+    if (hidden.keepsAny()) {
+      this.sources.forEach((source, key) => {
+        if (hidden.keeps(source)) {
+          over.add(key);
+        }
+      });
+    }
+    let out = own;
+    for (const key of over) {
+      const val = key in f ? f[key] : null;
+      if (
+        val === null ||
+        !this.pairs(key) ||
+        !equalFormatValue(this.formats.get(key) ?? null, val)
+      ) {
+        continue;
+      }
+      out = out === null ? new Set() : new Set(out);
+      out.add(key);
+    }
+    return out;
+  }
+
+  /**
+   * The runs held changes opened before the cursor in its container and did
+   * not end before it (opener id to key), and the item the walk that found
+   * them stopped at: the next call goes on from there (a write's cursor only
+   * moves forward), so the container is walked once (see heldOpenKeys).
+   */
+  private heldOpen: {open: Map<string, string>; at: Item | null} | null = null;
+
+  /**
+   * The keys of the runs held changes opened before the cursor in its
+   * container and did not end before it (see addHeldOver).
+   */
+  private heldOpenKeys(hidden: Hidden): Set<string> {
+    let state = this.heldOpen;
+    if (state !== null) {
+      // Go on from where the last walk stopped, if the cursor is at or past
+      // it; otherwise walk again from the start.
+      let reach = state.at;
+      while (reach !== null && reach !== this.right) {
+        reach = reach.right as Item | null;
+      }
+      if (reach !== this.right) {
+        state = null;
+      }
+    }
+    if (state === null) {
+      state = {at: this.parent._start, open: new Map()};
+    }
+    for (
+      let it = state.at;
+      it !== null && it !== this.right;
+      it = it.right as Item | null
+    ) {
+      if (!isFormat(it) || !hidden.hides(it)) {
+        continue;
+      }
+      if (isEndValue(valueOf(it))) {
+        const target = endTarget(it);
+        if (target !== null) {
+          state.open.delete(`${target.client}:${target.clock}`);
+        }
+      } else {
+        state.open.set(`${it.id.client}:${it.id.clock}`, keyOf(it));
+      }
+    }
+    state.at = this.right;
+    this.heldOpen = state;
+    return new Set(state.open.values());
   }
 
   /**
