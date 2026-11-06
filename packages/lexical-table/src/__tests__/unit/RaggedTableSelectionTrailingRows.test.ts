@@ -21,15 +21,18 @@ import {
   TableExtension,
   type TableRowNode,
 } from '@lexical/table';
+import {$insertNodeToNearestRoot} from '@lexical/utils';
 import {
   $createParagraphNode,
   $createTextNode,
+  $getNodeByKey,
   $getRoot,
   $getSelection,
   $setSelection,
   configExtension,
   defineExtension,
   type LexicalEditor,
+  type NodeKey,
 } from 'lexical';
 import {assert, expect, test} from 'vitest';
 
@@ -159,4 +162,28 @@ test('plain-text copy and paste keeps B in its source row', () => {
   using target = build([['X'], ['KEEP'], ['Y']]);
   paste(source, target, 'A', 'B', 'X', 'Y', 'text/plain');
   expect(target.read($texts)[2]).toEqual(['B']);
+});
+
+test('a block inserted with a trailing hole remains in the focus cell', () => {
+  using editor = build([['OUT', ['A', 1, 2], 'B'], ['OUT2']]);
+  select(editor, 'A', 'B');
+  const focusKey = editor.read(() => $cell('B').getKey());
+  let insertedKey: NodeKey;
+  editor.update(
+    () => {
+      const block = $createParagraphNode().append($createTextNode('inserted'));
+      insertedKey = block.getKey();
+      $insertNodeToNearestRoot(block);
+    },
+    {discrete: true},
+  );
+  editor.read(() => {
+    const block = $getNodeByKey(insertedKey);
+    const focus = $getNodeByKey(focusKey);
+    assert($isTableCellNode(focus));
+    expect(block?.isAttached()).toBe(true);
+    expect(block?.getParent()?.getKey()).toBe(focusKey);
+    expect(block?.getTextContent()).toBe('inserted');
+    expect(focus.getFirstChildOrThrow().getTextContent()).toBe('B');
+  });
 });
