@@ -37,9 +37,10 @@ import {
   TYPE_KEY,
   WRAPPER_FIELDS_KEY,
 } from './Schema';
-import {isShownEnd, shownAttrs} from './Seen';
+import {isShownEndIn, shownAttrs} from './Seen';
 import {$inNamedSlot} from './Slots';
 import {type CS, type State, typeOf, type Unit, type UnitKind} from './State';
+import {type View} from './Unread';
 
 // Block ids (BlockIdExtension's), as the binding reads them: the grammar of
 // derived ids, the index of which blocks store which id, and the settlement
@@ -250,6 +251,26 @@ export class BlockIdIndex {
   readonly touchedIds = new Set<string>();
   readonly repeatedIds = new Set<string>();
   constructor(private readonly config: {readonly blockIds: unknown}) {}
+
+  /** What the index holds now, and a function that puts it back. */
+  snapshot(): () => void {
+    const storedIdOf = new Map(this.storedIdOf);
+    const holdersOf = new Map(
+      [...this.holdersOf].map(([id, set]) => [id, new Set(set)] as const),
+    );
+    const touchedIds = new Set(this.touchedIds);
+    const repeatedIds = new Set(this.repeatedIds);
+    return () => {
+      this.storedIdOf.clear();
+      storedIdOf.forEach((v, k) => this.storedIdOf.set(k, v));
+      this.holdersOf.clear();
+      holdersOf.forEach((v, k) => this.holdersOf.set(k, new Set(v)));
+      this.touchedIds.clear();
+      touchedIds.forEach(v => this.touchedIds.add(v));
+      this.repeatedIds.clear();
+      repeatedIds.forEach(v => this.repeatedIds.add(v));
+    };
+  }
 
   /** Note the block id a read found stored for a node (see storedIdOf). */
   noteStoredId(key: NodeKey, id: unknown): void {
@@ -469,7 +490,11 @@ export class BlockIdSettler {
    * once in place, if identified blocks (see $settleIds).
    */
   private readonly inlineRuns = new Set<NodeKey>();
-  constructor(readonly state: State) {}
+  constructor(
+    readonly state: State,
+    /** The binding's view, read at each step (see Reader#liveView). */
+    private readonly liveView: () => View | null,
+  ) {}
 
   /**
    * A unit a read placed (see Reader#$commitUnits): whether its block (a
@@ -1234,8 +1259,9 @@ export class BlockIdSettler {
     if (cs.kind === 'i') {
       holder = $getNodeByKey(cs.key);
     } else {
+      const view = this.liveView();
       for (let it = item.right; it !== null; it = it.right) {
-        if (isShownEnd(it, state.hidden)) {
+        if (isShownEndIn(view, it, state.hidden)) {
           const u = state.unitByEnd.get(it);
           holder =
             u === undefined || u.key === null ? null : $getNodeByKey(u.key);
@@ -1661,7 +1687,8 @@ export function $unsettledAfterWrite(
     return null;
   }
   const touched = new Set(state.ids.touchedIds);
-  const settler = new BlockIdSettler(state);
+  // Yjs as it is: no binding's view applies where the check runs.
+  const settler = new BlockIdSettler(state, () => null);
   const unsettled = new Set(settler.$unsettled(changed));
   // Holders the check found removed (see BlockIdSettler#$storers).
   for (const id of state.ids.touchedIds) {

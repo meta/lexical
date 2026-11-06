@@ -11,10 +11,21 @@
 // document createYDoc made.
 
 import type {LexicalEditor} from 'lexical';
-import type {YCollabConfig, YDoc} from '@lexical/y';
+import type {
+  YBindingOptions,
+  YCollabConfig,
+  YCollabInput,
+  YDoc,
+  YLayoutUpgradeHandle,
+} from '@lexical/y';
 
 import {Doc} from '@y/y';
-import {createYDoc, YBinding} from '@lexical/y';
+import {
+  createYCollabConfig,
+  createYDoc,
+  createYServerLayoutUpgrade,
+  YBinding,
+} from '@lexical/y';
 import {createYDoc as createRelayDoc} from '@lexical/y/headless';
 
 declare const editor: LexicalEditor;
@@ -66,3 +77,81 @@ new YBinding(editor, new Doc(), {schemaVersion: 1});
 const forged: YDoc = new Doc();
 // $FlowExpectedError[incompatible-type] a plain Y.Doc may clean up formats
 configOf(new Doc());
+
+// What an app writes: doc and schemaVersion, every other option optional.
+const input: YCollabInput = {doc, layoutUpgrade: null, schemaVersion: 1};
+const tuned: YCollabInput = {
+  captureTimeout: null,
+  doc,
+  layoutUpgrade: createYServerLayoutUpgrade(),
+  schemaVersion: 2,
+};
+// $FlowExpectedError[incompatible-type] schemaVersion is required
+const unversioned: YCollabInput = {doc, layoutUpgrade: null};
+// $FlowExpectedError[incompatible-type] layoutUpgrade is required
+const undeclared: YCollabInput = {doc, schemaVersion: 1};
+// The factory: a handle or null.
+const configured = createYCollabConfig({doc, layoutUpgrade: null, schemaVersion: 1});
+const handshake = createYServerLayoutUpgrade().handshake({
+  generation: null,
+  material: false,
+});
+const seed: number = handshake.seed;
+
+// N2: the collab input accepts a field this release does not know (a later
+// option, set through a variable).
+declare const inputWithExtra: {
+  doc: YDoc,
+  layoutUpgrade: YLayoutUpgradeHandle | null,
+  schemaVersion: number,
+  laterOption: boolean,
+};
+const extended: YCollabInput = inputWithExtra;
+
+// F3: the binding options and the extension's configuration accept a field
+// a later release adds (every such field is optional), set through a
+// variable whose other fields have the same types.
+type B = YBindingOptions;
+declare const bindingOptionsWithExtra: {
+  schemaVersion: B['schemaVersion'],
+  root?: B['root'],
+  captureTimeout?: B['captureTimeout'],
+  onStatus?: B['onStatus'],
+  selfCheck?: B['selfCheck'],
+  selfCheckSample?: B['selfCheckSample'],
+  convert?: B['convert'],
+  clientIDRange?: B['clientIDRange'],
+  layoutUpgrade?: B['layoutUpgrade'],
+  laterOption: boolean,
+};
+const extendedBindingOptions: YBindingOptions = bindingOptionsWithExtra;
+type C = YCollabConfig;
+declare const configWithExtra: {
+  doc: C['doc'],
+  schemaVersion: C['schemaVersion'],
+  root: C['root'],
+  synced: C['synced'],
+  captureTimeout: C['captureTimeout'],
+  clientIDRange: C['clientIDRange'],
+  selfCheck: C['selfCheck'],
+  selfCheckSample: C['selfCheckSample'],
+  convert: C['convert'],
+  layoutUpgrade?: C['layoutUpgrade'],
+  laterOption: boolean,
+};
+const extendedConfig: YCollabConfig = configWithExtra;
+// An options literal with a later field, as a caller writes it.
+const literalOptions: YBindingOptions = {laterOption: true, schemaVersion: 1};
+
+// N3: the handle is opaque: only the factory makes one; its fields read.
+const realHandle: YLayoutUpgradeHandle = createYServerLayoutUpgrade();
+const handleKind: string = realHandle.kind;
+// $FlowExpectedError[prop-missing] a handle has no target (removed before v1)
+void realHandle.target;
+// $FlowExpectedError[extra-arg] the factory takes no options
+createYServerLayoutUpgrade({target: 1});
+// $FlowExpectedError[incompatible-type] a structural look-alike is not a handle
+const fakeHandle: YLayoutUpgradeHandle = {
+  handshake: realHandle.handshake,
+  kind: 'server',
+};

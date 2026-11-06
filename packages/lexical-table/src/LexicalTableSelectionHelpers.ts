@@ -1111,7 +1111,12 @@ export function applyTableHandlers(
         const visited = new Set<TableCellNode>();
         for (let i = minRow; i <= maxRow; i++) {
           for (let j = minColumn; j <= maxColumn; j++) {
-            const cell = tableMap[i][j].cell;
+            const value = tableMap[i][j];
+            if (value === undefined) {
+              // No cell here in a ragged table.
+              continue;
+            }
+            const cell = value.cell;
             if (visited.has(cell)) {
               continue;
             }
@@ -2039,7 +2044,8 @@ function getCorner(
   if (cellValue.startRow === rect.minRow) {
     rowName = 'minRow';
   } else if (
-    cellValue.startRow + cellValue.cell.__rowSpan - 1 ===
+    // A row span can reach past the last row, where the rect stops.
+    cellValue.startRow + cellValue.cell.__rowSpan - 1 >=
     rect.maxRow
   ) {
     rowName = 'maxRow';

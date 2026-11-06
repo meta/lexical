@@ -128,6 +128,15 @@ document-level serialization options, which can be configured by
 contributing `mdast-util-to-markdown` options through
 `toMarkdownExtensions`.
 
+Import reads emphasis and strikethrough as the
+[CommonMark CJK-friendly amendment](https://github.com/tats-u/markdown-cjk-friendly)
+does, so `**你好。**世界` comes in bold as its writer meant, while export
+writes a character reference where a strict CommonMark reader needs one
+(`**你好。**&#x4E16;界`). `MdastExtension`'s `importPunctuation` and
+`exportPunctuation` options (`'cjk-friendly'` or `'strict-commonmark'`)
+change either side; the `punctuation` option of `@lexical/markdown`'s
+import and export does the same there.
+
 GFM tables (`MdastTableExtension`) import a column's alignment as the
 element format of the paragraph in each of its cells, and write it from
 the content of the column's header cell (the format of the block holding
@@ -142,7 +151,10 @@ separated by `<br>` (whatever spelling of the tag, such as `<br/>` or
 `</br>`, was read), with a code block's lines as inline code. A merged
 cell is written where it starts with empty cells where it spans, flow
 content with no form in a cell (such as a horizontal rule) is written
-after the table, and the alignment of a body cell is dropped.
+after the table, and the alignment of a body cell is dropped. A body
+cell added in the editor (in an inserted row, or split from a merged
+cell) gets its column's alignment on its paragraphs with no format, so
+it is shown as the column is written.
 Editing tables in the editor also takes `TableExtension` from
 `@lexical/table`.
 

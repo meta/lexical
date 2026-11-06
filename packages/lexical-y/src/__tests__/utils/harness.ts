@@ -51,7 +51,13 @@ import {
 import {expect} from 'vitest';
 
 import {createYDoc, YBinding, YCollabExtension, type YDoc} from '../..';
+import {setFullStackChecks} from '../../internal/Ident';
+import {setUnitLeftChecks} from '../../internal/Seen';
 import {misLinkedItems} from './structure';
+
+// Test harnesses check every run stack push in full (see Ident, Rule 4).
+setFullStackChecks(true);
+setUnitLeftChecks(true);
 
 // An undeclared block container with a schema field ('node').
 const boxSchema = nodeSchema<BoxNode>()({
@@ -461,6 +467,7 @@ export async function freshReader(
     nodes || from.nodes,
     from.prepare,
     from.withBlockIds,
+    from.gc,
   );
   Y.applyUpdate(peer.doc, Y.encodeStateAsUpdate(from.doc), 'load');
   peer.binding.initialize();

@@ -1,0 +1,169 @@
+/**
+ * Copyright (c) Meta Platforms, Inc. and affiliates.
+ *
+ * This source code is licensed under the MIT license found in the
+ * LICENSE file in the root directory of this source tree.
+ *
+ * @flow strict
+ */
+
+// Checked by `pnpm run flow` (not shipped): the migration entries.
+
+import type {
+  YLayoutInfo,
+  YLayoutMigration,
+  YLoadYMigrationStepsOptions,
+  YMigrateStateOptions,
+  YMigrationReceipt,
+  YMigrationResult,
+  YMigrationRootReceipt,
+} from '@lexical/y/migrate';
+import type {YSessionVerdict} from '@lexical/y/server';
+import type {Doc, Node} from '@y/y';
+
+import {MIN_LAYOUT, SEED_LAYOUT, onYMigrationEpoch} from '@lexical/y';
+import {
+  getYLayoutInfo,
+  migrateYState,
+  YMigrationError,
+} from '@lexical/y/migrate';
+import step1to2 from '@lexical/y/migrate/1to2';
+import {
+  checkYSession,
+  createYDoc,
+  getYGeneration,
+  prepareYRoom,
+  SEED_LAYOUT as SERVER_SEED_LAYOUT,
+} from '@lexical/y/server';
+
+declare const stored: Uint8Array;
+const serverSeed: number = SERVER_SEED_LAYOUT;
+declare const container: Node;
+
+// A step built by hand: every member, checkAfter included.
+const handmade: YLayoutMigration = {
+  checkAfter: (c: Node) => [],
+  from: 1,
+  id: 'handmade',
+  // Returning nothing is a step's ordinary shape.
+  migrateContainer: (tr: unknown, c: Node) => {},
+  readAfter: (c: Node) => [],
+  readBefore: (c: Node) => [],
+  revision: 1,
+  rewrites: (key: string) => false,
+  to: 2,
+  v: 1,
+};
+// $FlowExpectedError[incompatible-type] a step names its contract version
+const unversioned: YLayoutMigration = {...handmade, v: undefined};
+const problems: ReadonlyArray<string> = handmade.checkAfter(container);
+const frozenProblems: ReadonlyArray<string> = step1to2.checkAfter(container);
+// $FlowExpectedError[incompatible-type] a step without checkAfter is not a step
+const incomplete: YLayoutMigration = {
+  from: 1,
+  id: 'incomplete',
+  migrateContainer: (tr: unknown, c: Node) => ({deleted: 0, written: 0}),
+  readAfter: (c: Node) => [],
+  readBefore: (c: Node) => [],
+  revision: 1,
+  rewrites: (key: string) => false,
+  to: 2,
+  v: 1,
+};
+
+const steps: ReadonlyArray<YLayoutMigration> = [step1to2];
+const result: YMigrationResult = migrateYState(stored, steps, {gc: true, to: 2});
+const update: Uint8Array | null = result.update;
+// $FlowExpectedError[incompatible-type] update is null when nothing ran
+const always: Uint8Array = result.update;
+const error = new YMigrationError('missing-step', 'no step');
+// Codes are open: a later release may refuse with a code this one does not
+// name.
+const later = new YMigrationError('a-later-code', 'no');
+const laterCode: string = later.code;
+const doc = createYDoc(stored);
+const generation: string = getYGeneration(doc, 'incarnation');
+const room = prepareYRoom(stored, {incarnation: 'i', steps});
+const verdict: YSessionVerdict = checkYSession(
+  {
+    generation: room.generation,
+    hasMigration: false,
+    incarnation: 'i',
+    inherited: false,
+    layouts: [1, 1],
+    pristine: false,
+    requires: [],
+    seedContract: SEED_LAYOUT,
+    unreadable: [],
+  },
+  {
+    generation: null,
+    layouts: [MIN_LAYOUT, 2],
+    material: false,
+    seed: SEED_LAYOUT,
+    v: 1,
+  },
+);
+if (verdict.verdict === 'admit') {
+  const initialize: boolean = verdict.initialize;
+}
+const stop: () => void = onYMigrationEpoch(doc, epoch => {
+  const layout: ?number = epoch?.layout;
+});
+
+// The layout state of a root: a fixed status union, details by status.
+function layoutOf(doc: Doc): number | null {
+  const info: YLayoutInfo = getYLayoutInfo(doc);
+  switch (info.status) {
+    case 'ready':
+      return info.layout;
+    case 'unsupported':
+      return info.reason === 'requires' ? null : info.layout;
+    case 'invalid':
+      // $FlowExpectedError[prop-missing] an invalid root has no layout
+      void info.layout;
+      return null;
+    case 'missing':
+      return null;
+  }
+}
+
+// N2: extensible objects are inexact: a value carrying a field this release
+// does not know still passes as the older shape.
+declare const newerReceipt: {
+  readonly v: 1,
+  readonly roots: ReadonlyArray<YMigrationRootReceipt>,
+  readonly changed: boolean,
+  readonly bytesBefore: number,
+  readonly bytesAfter: number,
+  readonly ms: number,
+  readonly signature: string,
+};
+const olderReceipt: YMigrationReceipt = newerReceipt;
+declare const newerResult: {
+  readonly state: Uint8Array,
+  readonly update: Uint8Array | null,
+  readonly pending: Uint8Array | null,
+  readonly receipt: YMigrationReceipt,
+  readonly timings: unknown,
+};
+const olderResult: YMigrationResult = newerResult;
+declare const newerOptions: {
+  readonly gc: boolean,
+  readonly to: number,
+  readonly note: string,
+};
+const options: YMigrateStateOptions = newerOptions;
+declare const newerInfo: {
+  readonly status: 'ready',
+  readonly root: string,
+  readonly layout: number,
+  readonly epoch: null,
+  readonly schema: string,
+};
+const info: YLayoutInfo = newerInfo;
+declare const newerLoaderOptions: {
+  readonly loaders: {readonly [from: number]: () => Promise<unknown>},
+  readonly cache: boolean,
+};
+const loaderOptions: YLoadYMigrationStepsOptions = newerLoaderOptions;

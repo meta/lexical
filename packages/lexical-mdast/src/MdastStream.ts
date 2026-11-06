@@ -123,6 +123,24 @@ export class MarkdownStreamScanner {
    * matched construct together with the marker length, or `null`.
    */
   scanBlock(line: string): MdastBlockMatch | null {
+    const match = this.scanBlockConstruct(line);
+    if (match === null) {
+      return null;
+    }
+    // A marker is on one line. Text holding a line break (a TextNode can hold
+    // a newline when app code inserts one) can make an empty construct (a
+    // rule, a fence, a heading or list item with no content) span the rest of
+    // the text as its marker, and the lines after it would be stripped with
+    // it. Blank lines before the construct are not part of it.
+    const position = match.node.position;
+    const start =
+      position !== undefined && position.start.offset != null
+        ? position.start.offset
+        : 0;
+    return /[\n\r]/.test(line.slice(start, match.markerLength)) ? null : match;
+  }
+
+  private scanBlockConstruct(line: string): MdastBlockMatch | null {
     if (line.trim() === '') {
       return null;
     }

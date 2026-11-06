@@ -603,7 +603,8 @@ describe('members that are not well-formed UTF-16', () => {
 describe('the layout record', () => {
   const record = (doc: Y.Doc): string[] =>
     Object.keys(doc.get('lexical-y').getAttrs())
-      .filter(key => key.startsWith('lexical-y:'))
+      // (Layout 3 only: every document records 3 from its creation.)
+      .filter(key => key.startsWith('lexical-y:') && key !== 'lexical-y:3')
       .sort();
   const docOf = (...updates: Uint8Array[]): Y.Doc => {
     const doc = new Y.Doc();

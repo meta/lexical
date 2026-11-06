@@ -281,15 +281,15 @@ const REMOVALS: Removal[] = [
 ];
 
 /**
- * The cells that still fail, pinned as test.fails until their fix lands:
- * where the removal took part of the word, the author's undo leaves the rest
+ * Where the removal took part of the word, the author's undo left the rest
  * of the word with the value the removal restated after that part (D64,
- * #9560), and the removal's undo gives the whole word back. With garbage
- * collection on, the restored value ran on past its end (#9623) until the
- * binding kept its own format items from collection while they are undoable.
+ * #9560). Layout 3: paired runs end the restored value where it ended, for
+ * text formats, styles and comments. Still pinned as test.fails: a NodeState
+ * value, whose restore runs two characters past the word.
  */
 function testOnMain(name: string, fn: () => void) {
   const fails =
+    name.startsWith('NodeState') &&
     name.includes('its author undoes it first') &&
     name.includes('part of the word');
   (fails ? test.fails : test)(name, fn);

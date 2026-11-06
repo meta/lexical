@@ -336,7 +336,7 @@ describe('parseChangelog', () => {
         }
       }
     }
-    expect(counts).toEqual({behavior: 43, breaking: 35, deprecation: 29});
+    expect(counts).toEqual({behavior: 44, breaking: 35, deprecation: 29});
   });
 });
 

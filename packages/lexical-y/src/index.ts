@@ -14,15 +14,29 @@ import {
   type YBindingOptions,
   type YBindingStatus,
   type YCursor,
+  type YQuiescedState,
 } from './internal/Binding';
 import {type ClientIDRange} from './internal/ClientID';
-import {DEFAULT_ROOT_NAME, LAYOUT_VERSION} from './internal/constants';
+import {
+  DEFAULT_ROOT_NAME,
+  LAYOUT_VERSION,
+  MIN_LAYOUT,
+  SEED_LAYOUT,
+} from './internal/constants';
 import {describeStorage} from './internal/Describe';
+import {onYMigrationEpoch, type YMigrationEpoch} from './internal/Layouts';
+import {
+  createYServerLayoutUpgrade,
+  isYLayoutUpgradeHandle,
+  type YClientSession,
+  type YLayoutUpgradeHandle,
+} from './internal/LayoutUpgrade';
 import {type StorageKind} from './internal/Schema';
 import {SUPPORTED_YJS_VERSION} from './internal/SupportedYjs';
 import {
   isYWarning,
   NESTED_FALLBACK_WARNING,
+  RAW_YJS_WRITE_WARNING,
   RECOVERED_READ_WARNING,
   RECOVERED_WRITE_WARNING,
   SELF_CHECK_WARNING,
@@ -36,6 +50,8 @@ import {
   UNSYNCED_VALUE_WARNING,
   type YNestedFallbackData,
   type YNestedFallbackReason,
+  type YOtherWarningData,
+  type YRawYjsWriteData,
   type YRecoveredReadData,
   type YRecoveredWriteData,
   type YSelfCheckData,
@@ -54,7 +70,12 @@ import {
   type YWarningData,
 } from './internal/Warnings';
 import {createYDoc, type YDoc, type YDocOptions} from './internal/YDoc';
-import {type YCollabConfig, YCollabExtension} from './internal/YExtension';
+import {
+  createYCollabConfig,
+  type YCollabConfig,
+  YCollabExtension,
+  type YCollabInput,
+} from './internal/YExtension';
 import {
   UNSUPPORTED_YJS_ERROR,
   type YUnsupportedYjsData,
@@ -67,12 +88,19 @@ export type {
   StorageKind,
   YBindingOptions,
   YBindingStatus,
+  YClientSession,
   YCollabConfig,
+  YCollabInput,
   YCursor,
   YDoc,
   YDocOptions,
+  YLayoutUpgradeHandle,
+  YMigrationEpoch,
   YNestedFallbackData,
   YNestedFallbackReason,
+  YOtherWarningData,
+  YQuiescedState,
+  YRawYjsWriteData,
   YRecoveredReadData,
   YRecoveredWriteData,
   YSelfCheckData,
@@ -93,14 +121,21 @@ export type {
   YWarningData,
 };
 export {
+  createYCollabConfig,
   createYDoc,
+  createYServerLayoutUpgrade,
   DEFAULT_ROOT_NAME,
   describeStorage,
+  isYLayoutUpgradeHandle,
   isYWarning,
   LAYOUT_VERSION,
+  MIN_LAYOUT,
   NESTED_FALLBACK_WARNING,
+  onYMigrationEpoch,
+  RAW_YJS_WRITE_WARNING,
   RECOVERED_READ_WARNING,
   RECOVERED_WRITE_WARNING,
+  SEED_LAYOUT,
   SELF_CHECK_WARNING,
   STORAGE_MISMATCH_WARNING,
   SUPPORTED_YJS_VERSION,
