@@ -241,6 +241,9 @@ export interface RovingTabIndexOptions {
    * Selector for the group's roving items. The default matches direct-child
    * non-disabled buttons. Pass a custom selector to include other focusables
    * or to scope to a marker attribute (e.g. `[data-roving-item]`).
+   * An item counts as the focused one when focus is on it or on a node inside
+   * it, including a node in the shadow root it hosts, so a selector may match a
+   * wrapper instead of the focusable itself.
    */
   itemSelector?: string;
 }
@@ -273,13 +276,29 @@ function registerRovingTabIndex(
     });
   };
 
+  // The element holding focus is not always the item itself: an item may host
+  // its real focus target in a shadow root (a custom element), or wrap a
+  // focusable child, which is exactly what a custom `itemSelector` documents as
+  // supported. `getActiveElementDeep` resolves to that inner element, so the
+  // item is found through the composed tree, the same way `registerFocusManager`
+  // below matches one. Comparing by identity alone makes every such group
+  // restart at the first item on each interaction.
+  const getActiveItemIndex = (items: HTMLElement[]): number => {
+    const active = getActiveElementDeep(container.ownerDocument);
+    if (!isHTMLElement(active)) {
+      return -1;
+    }
+    return items.findIndex(
+      item => item === active || containsComposed(item, active),
+    );
+  };
+
   const init = (): void => {
     const items = getItems();
     if (items.length === 0) {
       return;
     }
-    const active = getActiveElementDeep(container.ownerDocument);
-    const activeIdx = items.findIndex(el => el === active);
+    const activeIdx = getActiveItemIndex(items);
     applyTabIndex(items, activeIdx >= 0 ? activeIdx : 0);
   };
 
@@ -290,8 +309,7 @@ function registerRovingTabIndex(
     if (items.length === 0) {
       return;
     }
-    const active = getActiveElementDeep(container.ownerDocument);
-    const currentIdx = items.findIndex(el => el === active);
+    const currentIdx = getActiveItemIndex(items);
     if (currentIdx < 0) {
       // Firefox can focus the container itself (e.g. role="toolbar") rather
       // than a child item. Treat any arrow/Home/End as "enter the group at
