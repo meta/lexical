@@ -357,6 +357,59 @@ function useDraggableBlockMenu(
     }
   }, [scrollerElem, anchorElem, editor, isOnMenu, setDraggableBlockElem]);
 
+  // While text is drag-selected, the browser resolves a pointer over the menu
+  // to a position inside the menu, outside the editor, and extends the
+  // selection to the start of the document. Let the pointer pass through the
+  // menu until the button is released, so the selection follows the text
+  // beneath it instead.
+  useEffect(() => {
+    return editor.registerRootListener(rootElement => {
+      if (rootElement === null) {
+        return;
+      }
+      const doc = rootElement.ownerDocument;
+      let restore: (() => void) | null = null;
+      function onPointerUp() {
+        if (restore !== null) {
+          restore();
+          restore = null;
+        }
+      }
+      function onPointerDown(event: PointerEvent) {
+        const menuElem = menuRef.current;
+        if (event.button !== 0 || menuElem === null || restore !== null) {
+          return;
+        }
+        const pointerEvents = menuElem.style.pointerEvents;
+        menuElem.style.pointerEvents = 'none';
+        // The button may be released anywhere, not only over the editor, and
+        // the release is lost if the window loses focus mid-drag.
+        const removeListeners = registerEventListeners(doc, {
+          pointercancel: onPointerUp,
+          pointerup: onPointerUp,
+        });
+        const win = doc.defaultView;
+        if (win !== null) {
+          win.addEventListener('blur', onPointerUp);
+        }
+        restore = () => {
+          menuElem.style.pointerEvents = pointerEvents;
+          removeListeners();
+          if (win !== null) {
+            win.removeEventListener('blur', onPointerUp);
+          }
+        };
+      }
+      const removePointerDown = registerEventListeners(rootElement, {
+        pointerdown: onPointerDown,
+      });
+      return () => {
+        removePointerDown();
+        onPointerUp();
+      };
+    });
+  }, [editor, menuRef]);
+
   useEffect(() => {
     const zoomLevel = calculateZoomLevel(editor.getRootElement(), true);
     if (menuRef.current) {
