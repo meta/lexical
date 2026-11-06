@@ -352,6 +352,23 @@ describe('Markdown', () => {
       md: '###### Hello world',
     },
     {
+      // ATX closing sequence: https://spec.commonmark.org/0.31.2/#example-71
+      html: '<h2><span style="white-space: pre-wrap;">Hello world</span></h2>',
+      md: '## Hello world ##',
+      skipExport: true,
+    },
+    {
+      // The closing sequence may be any length and followed by spaces
+      html: '<h1><span style="white-space: pre-wrap;">Hello world</span></h1>',
+      md: '# Hello world #####   ',
+      skipExport: true,
+    },
+    {
+      // A `#` not preceded by a space is content, not a closing sequence
+      html: '<h1><span style="white-space: pre-wrap;">Hello C#</span></h1>',
+      md: '# Hello C#',
+    },
+    {
       // Multiline paragraphs: https://spec.commonmark.org/dingus/?text=Hello%0Aworld%0A!
       html: '<p><span style="white-space: pre-wrap;">Hello world !</span></p>',
       md: ['Hello', 'world', '!'].join('\n'),
