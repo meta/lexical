@@ -27,7 +27,7 @@
     "build-docs": "pnpm -C packages/lexical-website run build",
     "build-playground-dev": "pnpm run build && pnpm -C packages/lexical-playground run build-dev",
     "build-playground-prod": "pnpm run build-prod && pnpm -C packages/lexical-playground run build-prod",
-    "build-release": "pnpm run build-prod --release --codes",
+    "build-release": "pnpm run build-prod --release",
     "build:doc-examples": "node scripts/build-doc-examples.mjs",
     "build:dev-examples": "node scripts/build-dev-examples.mjs",
     "build-www": "pnpm run clean && pnpm run build --www && pnpm run build --www --prod && pnpm run prepare-www",

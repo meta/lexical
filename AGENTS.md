@@ -7,7 +7,7 @@ This file provides detailed guidance for AI agents and automated tools working w
 ### Building
 - `pnpm run build` - Build all packages in development mode
 - `pnpm run build-prod` - Clean and build all packages in production mode
-- `pnpm run build-release` - Build production release with error codes
+- `pnpm run build-release` - Build production release (minifies errors that have a code in `scripts/error-codes/codes.json`; add `LEXICAL_EXTRACT_CODES=true` to also assign new codes)
 - `pnpm run build-types` - Build TypeScript type definitions and validate them
 
 ### Testing
