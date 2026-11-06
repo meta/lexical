@@ -15,6 +15,7 @@ import {
   $getEditor,
   $getSelection,
   $getSiblingCaret,
+  $getState,
   $insertNodeToNearestRootAtCaret,
   $isElementNode,
   $isParagraphNode,
@@ -23,10 +24,12 @@ import {
   $rewindSiblingCaret,
   $setDirectionFromDOM,
   $setFormatFromDOM,
+  $setState,
   addClassNamesToElement,
   type BaseSelection,
   booleanValue,
   buildImportMap,
+  createState,
   type DOMConversionOutput,
   type DOMExportOutput,
   type EditorConfig,
@@ -59,6 +62,19 @@ import {$handleIndent, $handleOutdent, mergeLists} from './formatList';
 import {GENERATED_LISTITEM} from './LexicalListGeneratedJSON';
 import {ListNode} from './LexicalListNode';
 import {$getNewListStart, $isNestedListNode} from './utils';
+
+/**
+ * Marks a task item of a bullet or number list, and whether it is checked.
+ * GFM decides per item whether it is a task (`- [x] done` next to `- plain`),
+ * and a task list can be ordered. A ListItemNode's `checked` only means
+ * something in a check list, where every item is a task, so a task item of
+ * any other list keeps its checkbox here instead. See
+ * {@link $getTaskListItemChecked} and {@link $setTaskListItemChecked}.
+ */
+const taskListItemState = createState('listTaskItem', {
+  parse: (v): '' | 'checked' | 'unchecked' =>
+    v === 'checked' || v === 'unchecked' ? v : '',
+});
 
 /**
  * For the selection's element points in `parent`, which holds the consecutive
@@ -192,6 +208,9 @@ export class ListItemNode extends ElementNode {
           if (parent.getListType() !== 'check' && node.getChecked() != null) {
             node.setChecked(undefined);
           }
+          if (parent.getListType() === 'check') {
+            $adoptTaskListItem(node);
+          }
         } else if (parent) {
           const newParent = node.createParentElementNode();
           invariant(
@@ -285,7 +304,7 @@ export class ListItemNode extends ElementNode {
     dom: HTMLLIElement,
     config: EditorConfig,
   ) {
-    updateListItemChecked(dom, this, prevNode);
+    $updateListItemChecked(dom, this, prevNode);
 
     dom.value = this.__value;
     $setListItemThemeClassNames(dom, config.theme, this);
@@ -494,6 +513,11 @@ export class ListItemNode extends ElementNode {
     super.resetOnCopyNodeFrom(original);
     if (original.getChecked()) {
       this.setChecked(false);
+    }
+    // The same for a task item of a bullet or number list: a copy of it (the
+    // next item, after Enter) is an unchecked task.
+    if ($getState(original, taskListItemState) === 'checked') {
+      $setState(this, taskListItemState, 'unchecked');
     }
   }
 
@@ -708,10 +732,9 @@ function $setListItemThemeClassNames(
 
   const listItemClassName = listTheme.listitem;
   const nestedListItemClassName = listTheme.nested && listTheme.nested.listitem;
-  const parentNode = node.getParent();
-  const isCheckList =
-    $isListNode(parentNode) && parentNode.getListType() === 'check';
-  const checked = node.getChecked();
+  // Defined for every item of a check list, and for a task item of a bullet or
+  // number list.
+  const checked = $getTaskListItemChecked(node);
   const isNested = node.getChildren().some(child => $isListNode(child));
 
   // Always remove the variable theme classes first so that the className
@@ -736,7 +759,7 @@ function $setListItemThemeClassNames(
   if (listItemClassName !== undefined) {
     classesToAdd.push(...normalizeClassNames(listItemClassName));
   }
-  if (isCheckList) {
+  if (checked !== undefined) {
     const checkClassName = checked
       ? listTheme.listitemChecked
       : listTheme.listitemUnchecked;
@@ -752,15 +775,15 @@ function $setListItemThemeClassNames(
   }
 }
 
-function updateListItemChecked(
+function $updateListItemChecked(
   dom: HTMLElement,
   listItemNode: ListItemNode,
   prevListItemNode: ListItemNode | null,
 ): void {
-  const parent = listItemNode.getParent();
+  const checked = $getTaskListItemChecked(listItemNode);
   const isCheckbox =
-    $isListNode(parent) &&
-    parent.getListType() === 'check' &&
+    // Every item of a check list, or a task item of a bullet or number list
+    checked !== undefined &&
     // Only add attributes for leaf list items
     !$isListNode(listItemNode.getFirstChild());
   if (!isCheckbox) {
@@ -770,10 +793,7 @@ function updateListItemChecked(
   } else {
     dom.setAttribute('role', 'checkbox');
     dom.setAttribute('tabIndex', '-1');
-    dom.setAttribute(
-      'aria-checked',
-      listItemNode.getChecked() ? 'true' : 'false',
-    );
+    dom.setAttribute('aria-checked', checked ? 'true' : 'false');
   }
 }
 
@@ -852,6 +872,78 @@ function setFormatFromChildren(
  */
 export function $createListItemNode(checked?: boolean): ListItemNode {
   return $applyNodeReplacement(new ListItemNode(undefined, checked));
+}
+
+/**
+ * Whether a list item is a task, and whether it is checked: `undefined` for a
+ * plain item. Every item of a check list is a task, so there this is
+ * {@link ListItemNode.getChecked}. In a bullet or number list only an item
+ * made a task with {@link $setTaskListItemChecked} is one.
+ * @param listItem - The list item.
+ * @returns true or false for a task item, undefined for a plain item.
+ */
+export function $getTaskListItemChecked(
+  listItem: ListItemNode,
+): boolean | undefined {
+  const checked = listItem.getChecked();
+  if (checked !== undefined || !$isListNode(listItem.getParent())) {
+    return checked;
+  }
+  const task = $getState(listItem, taskListItemState);
+  return task === '' ? undefined : task === 'checked';
+}
+
+/**
+ * Makes a task item of a bullet or number list that is now in a check list
+ * (a paste, or a list made a check list with `setListType`) one of its items.
+ * Those keep their checked state themselves, so the item keeps its tick there.
+ * A checked state set in the check list before this runs wins, as when the
+ * `[x] ` shortcut of `@lexical/mdast` makes the list a check list and checks
+ * the item in one update. {@link $setTaskListItemChecked} clears the checked
+ * state, so one left from before the item was a task does not win.
+ * Called for each item by the list's transform, which runs whenever the list
+ * changes, and by the item's own transform.
+ * @param listItem - An item of a check list.
+ */
+export function $adoptTaskListItem(listItem: ListItemNode): void {
+  const task = $getState(listItem, taskListItemState);
+  if (task !== '') {
+    if (listItem.getLatest().__checked == null) {
+      listItem.setChecked(task === 'checked');
+    }
+    $setState(listItem, taskListItemState, '');
+  }
+}
+
+/**
+ * Makes a list item a task, checked or not, or a plain item with `undefined`.
+ * In a check list this is {@link ListItemNode.setChecked}, as every item there
+ * is a task. In a bullet or number list the item gets a checkbox of its own,
+ * like `- [x] done` next to `- plain` in GFM. A list command (such as
+ * INSERT_UNORDERED_LIST_COMMAND) makes the whole list one kind again.
+ * @param listItem - The list item.
+ * @param checked - true or false for a task item, undefined for a plain item.
+ * @returns The list item.
+ */
+export function $setTaskListItemChecked(
+  listItem: ListItemNode,
+  checked: boolean | undefined,
+): ListItemNode {
+  const parent = listItem.getParent();
+  if ($isListNode(parent) && parent.getListType() === 'check') {
+    return listItem.setChecked(checked);
+  }
+  // The item can still hold a checked state here: from a check list it was in
+  // earlier in this update, or from setChecked(), which only hides it outside
+  // a check list. It must not win over the task state in $adoptTaskListItem.
+  if (listItem.getLatest().__checked != null) {
+    listItem.setChecked(undefined);
+  }
+  return $setState(
+    listItem,
+    taskListItemState,
+    checked === undefined ? '' : checked ? 'checked' : 'unchecked',
+  );
 }
 
 /**

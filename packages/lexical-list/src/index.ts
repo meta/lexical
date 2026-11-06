@@ -14,7 +14,9 @@ import {
 } from './formatList';
 import {
   $createListItemNode,
+  $getTaskListItemChecked,
   $isListItemNode,
+  $setTaskListItemChecked,
   ListItemNode,
   type SerializedListItemNode,
 } from './LexicalListItemNode';
@@ -50,11 +52,13 @@ export {
   $createListItemNode,
   $createListNode,
   $getListDepth,
+  $getTaskListItemChecked,
   $handleListInsertParagraph,
   $insertList,
   $isListItemNode,
   $isListNode,
   $removeList,
+  $setTaskListItemChecked,
   INSERT_CHECK_LIST_COMMAND,
   ListItemNode,
   ListNode,

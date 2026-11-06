@@ -47,7 +47,7 @@ import {
   updateChildrenListItemValue,
 } from './formatList';
 import {GENERATED_LIST} from './LexicalListGeneratedJSON';
-import {ListItemNode} from './LexicalListItemNode';
+import {$adoptTaskListItem, ListItemNode} from './LexicalListItemNode';
 import {$getListDepth} from './utils';
 
 function $structureMerges(list: ListNode): boolean {
@@ -133,6 +133,16 @@ export class ListNode extends ElementNode {
           mergeNextSiblingListIfSameType(node);
         }
         updateChildrenListItemValue(node);
+        // A task item in a check list becomes one of its items and keeps its
+        // tick. This is done here, not only in the item's transform, because
+        // `setListType('check')` marks only the list.
+        if (node.getListType() === 'check') {
+          for (const child of node.getChildren()) {
+            if ($isListItemNode(child)) {
+              $adoptTaskListItem(child);
+            }
+          }
+        }
       },
       children: [ListItemNode],
       extends: ElementNode,
