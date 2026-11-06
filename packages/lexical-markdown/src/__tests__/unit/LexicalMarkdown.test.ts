@@ -371,6 +371,23 @@ describe('Markdown', () => {
       html: '<blockquote><span style="white-space: pre-wrap;">Hello</span><br><span style="white-space: pre-wrap;">world!</span></blockquote>',
       md: '> Hello\n> world!',
     },
+    {
+      // The space after `>` is optional: https://spec.commonmark.org/0.31.2/#block-quotes
+      html: '<blockquote><span style="white-space: pre-wrap;">Hello</span></blockquote>',
+      md: '>Hello',
+      mdAfterExport: '> Hello',
+    },
+    {
+      html: '<blockquote><span style="white-space: pre-wrap;">Hello</span><br><span style="white-space: pre-wrap;">world!</span></blockquote>',
+      md: '> Hello\n>world!',
+      mdAfterExport: '> Hello\n> world!',
+    },
+    {
+      // A blank `>` line stays a blank line of the quote, not a nested quote
+      html: '<blockquote><span style="white-space: pre-wrap;">Hello</span><br><br><span style="white-space: pre-wrap;">world!</span></blockquote>',
+      md: '> Hello\n>\n> world!',
+      mdAfterExport: '> Hello\n> \n> world!',
+    },
     // TO-DO: <br> should be preserved
     // {
     //   html: '<ul><li value="1"><span style="white-space: pre-wrap;">Hello</span></li><li value="2"><span style="white-space: pre-wrap;">world<br>!<br>!</span></li></ul>',
@@ -2077,6 +2094,46 @@ describe('Markdown', () => {
 
       expect(editor.read(() => $generateHtmlFromNodes(editor))).toBe(
         '<pre spellcheck="false" data-language="javascript"></pre>',
+      );
+    });
+
+    it('should keep a lone > as text when Enter is pressed', () => {
+      const editor = createTestEditor({
+        nodes: [
+          HeadingNode,
+          ListNode,
+          ListItemNode,
+          QuoteNode,
+          CodeNode,
+          LinkNode,
+        ],
+      });
+
+      registerMarkdownShortcuts(editor, TRANSFORMERS);
+
+      editor.update(
+        () => {
+          const root = $getRoot();
+          const paragraph = $createParagraphNode();
+          root.append(paragraph);
+          paragraph.selectEnd();
+          const selection = $getSelection();
+          if ($isRangeSelection(selection)) {
+            selection.insertText('>');
+          }
+        },
+        {discrete: true},
+      );
+
+      editor.update(
+        () => {
+          editor.dispatchCommand(KEY_ENTER_COMMAND, null);
+        },
+        {discrete: true},
+      );
+
+      expect(editor.read(() => $generateHtmlFromNodes(editor))).not.toContain(
+        '<blockquote',
       );
     });
 

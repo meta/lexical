@@ -232,7 +232,8 @@ const ORDERED_LIST_REGEX = /^(\s*)(\d{1,})\.\s/;
 const UNORDERED_LIST_REGEX = /^(\s*)[-*+]\s/;
 const CHECK_LIST_REGEX = /^(\s*)(?:[-*+]\s)?\s?(\[(\s|x)?\])\s/i;
 const HEADING_REGEX = /^(#{1,6})\s/;
-const QUOTE_REGEX = /^>\s/;
+// The space after `>` is optional: https://spec.commonmark.org/0.31.2/#block-quotes
+const QUOTE_REGEX = /^>[ \t]?/;
 const CODE_START_REGEX = /^([ \t]*`{3,})([\w-]+)?[ \t]?/;
 const CODE_END_REGEX = /^[ \t]*`{3,}$/;
 const CODE_SINGLE_LINE_REGEX =
@@ -838,7 +839,12 @@ export const QUOTE: ElementTransformer = {
     return output.join('\n');
   },
   regExp: QUOTE_REGEX,
-  replace: (parentNode, children, _match, isImport) => {
+  replace: (parentNode, children, match, isImport) => {
+    // As a shortcut, `>` must still be followed by a space, so typing `>`
+    // and pressing Enter keeps the `>` as text.
+    if (!isImport && match[0] === '>') {
+      return false;
+    }
     if (isImport) {
       const previousNode = parentNode.getPreviousSibling();
       if ($isQuoteNode(previousNode)) {
