@@ -33,7 +33,7 @@ import {
 import {forgiveRepeatedIds} from './BlockIds';
 import {equalFormatValue, type Formats} from './Cursor';
 import {repairPendingCopies} from './Ident';
-import {$pushInline, Atoms, readAtoms} from './Inline';
+import {$pushInline, Atoms, hasLiveContent, readAtoms} from './Inline';
 import {Reader} from './Read';
 import {
   type Attrs,
@@ -100,7 +100,7 @@ function $shownText(writer: Writer, atoms: Atoms): string {
         !(info.klass.prototype as ElementNode).canBeEmpty.call(
           Object.create(info.klass.prototype),
         ) &&
-        !hasLiveContent(y)
+        !hasLiveContent(writer.view, y)
       ) {
         continue;
       }
@@ -108,15 +108,6 @@ function $shownText(writer: Writer, atoms: Atoms): string {
     out += atoms.text[i];
   }
   return out;
-}
-
-function hasLiveContent(y: YNode): boolean {
-  for (let it = y._start; it !== null; it = it.right) {
-    if (!it.deleted && it.countable) {
-      return true;
-    }
-  }
-  return false;
 }
 
 /**

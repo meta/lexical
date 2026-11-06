@@ -8,10 +8,11 @@
 
 import type {Hidden} from './Hidden';
 import type {View} from './Unread';
-import type {Item} from '@y/y';
+import type {Item, Node as YNode} from '@y/y';
 
 import {ContentFormat, ContentString, ContentType} from '@y/y';
 import {
+  $getNodeByKey,
   $isLineBreakNode,
   $isTabNode,
   $isTextNode,
@@ -31,6 +32,7 @@ import {
   $wrapperAttrs,
   type Attrs,
   decodeFormatValue,
+  INLINE_PREFIX,
   isMergeableText,
   MARKER,
   RUN_END,
@@ -296,6 +298,74 @@ export function $pushInline(
 // Old atoms from Yjs
 
 /**
+ * Whether shared node `y` holds content that is not deleted, in `view` (see
+ * isGoneIn: in the document a write sees, content a change not read yet
+ * inserted does not count).
+ */
+export function hasLiveContent(view: View | null, y: YNode): boolean {
+  for (let it = y._start; it !== null; it = it.right) {
+    if (it.countable && !isGoneIn(view, it)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Whether live item `it` is a stored inline element the editor does not show:
+ * one holding no content that the editor did not hold before this update
+ * either (readers leave out an element that cannot be empty, as Lexical
+ * would remove it: a mark whose text peers deleted concurrently, or whose
+ * text has not arrived yet, see Reader). An empty element the editor shows
+ * (its class or the instance allows it), and one the update removed, count.
+ * The writer neither counts nor deletes one it leaves out. In an editor read
+ * or update; `view`: the document the write sees; `prevMap`: the node map
+ * before the update.
+ */
+export function $isLeftOutInline(
+  view: View | null,
+  it: Item,
+  keyByY: WeakMap<YNode, NodeKey>,
+  prevMap: ReadonlyMap<NodeKey, LexicalNode>,
+): boolean {
+  const content = it.content;
+  if (isGoneIn(view, it) || !(content instanceof ContentType)) {
+    return false;
+  }
+  const y = content.type as YNode;
+  const name = typeof y.name === 'string' ? y.name : '';
+  if (!name.startsWith(INLINE_PREFIX) || hasLiveContent(view, y)) {
+    return false;
+  }
+  // The node a read made for it (see Reader); a shared node no read mapped
+  // counts.
+  const key = keyByY.get(y);
+  if (key === undefined) {
+    return false;
+  }
+  const node = $getNodeByKey(key);
+  return (node === null || !node.isAttached()) && !attachedIn(prevMap, key);
+}
+
+/** Whether node `key` of `map` is attached to the root there. */
+function attachedIn(
+  map: ReadonlyMap<NodeKey, LexicalNode>,
+  key: NodeKey,
+): boolean {
+  for (let k: NodeKey | null = key; k !== null; ) {
+    if (k === 'root') {
+      return true;
+    }
+    const n = map.get(k);
+    if (n === undefined) {
+      return false;
+    }
+    k = n.__parent ?? (n as {__slotHost?: null | NodeKey}).__slotHost ?? null;
+  }
+  return false;
+}
+
+/**
  * Atoms of the shared items from `start` (inclusive) up to `stop`
  * (exclusive, null = end), with the formats in effect at `start`, as the
  * editor shows them: without what is held back, with the deleted items the
@@ -314,6 +384,7 @@ export function readAtoms(
   frontier: Item | null = null,
   end: {folded: Item | null} | null = null,
   storedFormats: Formats = formats,
+  leftOut: ((it: Item) => boolean) | null = null,
 ): Formats {
   const current = new Map(storedFormats);
   // The formats the editor shows (see Reader#held).
@@ -339,7 +410,7 @@ export function readAtoms(
       attrs = null;
       continue;
     }
-    if (!it.countable) {
+    if (!it.countable || (leftOut !== null && leftOut(it))) {
       continue;
     }
     if (attrs === null) {
