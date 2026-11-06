@@ -881,6 +881,14 @@ client's document with `createYDoc` from `@lexical/y`.
 One result per room is ever published, and clients only bootstrap from what
 was stored, so a discarded result is never seen.
 
+**Recreating a room** (a new incarnation after an expiry, a restore from a
+backup or a move to a new document) works the same way: raise the barrier,
+persist what the room applied, and keep that final state as the old
+incarnation's immutable base before you seed the new one. A client's edits
+that the room received live but never stored are in that state and nowhere
+else: a client that synced them has nothing left to hand off, so discarding
+the expired incarnation's live state loses them silently.
+
 ### Generations and the handshake
 
 A room's **generation** (`getYGeneration(doc, incarnation, roots)`) is its
