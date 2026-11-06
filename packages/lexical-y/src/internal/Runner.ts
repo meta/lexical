@@ -41,6 +41,7 @@ import {
   readRequirements,
   type YMigrationEpoch,
 } from './Layouts';
+import {applyStoredState} from './LoadFully';
 import {createRawYDoc, type YDoc, type YDocOptions} from './RawYDoc';
 import {assertSupportedMigrationYjs} from './YjsMigrationContract';
 
@@ -1084,7 +1085,7 @@ function checkedUpdate(
   const update = encodeStateAsUpdate(copy, vector);
   const fresh = createYDoc(integrated, {gc: copy.gc});
   try {
-    applyUpdate(fresh, update);
+    applyStoredState(fresh, update);
     const problems: string[] = [];
     const sv = (d: Doc) =>
       JSON.stringify(
@@ -1622,6 +1623,10 @@ export function migrateYDoc(
   }
   const {copy, roots} = result;
   try {
+    // A plain apply: the preflight refused a document holding pending
+    // structs or skipped ranges, and the checked update rebuilds the
+    // complete copy, so nothing here is held behind a gap (the repair, see
+    // LoadFully, is for loaded bytes).
     applyUpdate(
       doc,
       checkedUpdate(integrated, copy, encodeStateVector(doc)),

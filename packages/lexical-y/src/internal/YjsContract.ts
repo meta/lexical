@@ -8,6 +8,7 @@
 
 import {
   applyUpdate,
+  applyUpdateV2,
   ContentAny,
   ContentBinary,
   ContentFormat,
@@ -17,6 +18,8 @@ import {
   createIdSet,
   createRelativePositionFromJSON,
   decodeUpdate,
+  decodeUpdateV2,
+  diffUpdateV2,
   Doc,
   encodeStateAsUpdate,
   encodeStateVector,
@@ -29,6 +32,7 @@ import {
   Item,
   iterateStructsByIdSet,
   mergeUpdates,
+  mergeUpdatesV2,
   Node as YNode,
   RelativePosition,
   relativePositionToJSON,
@@ -38,6 +42,11 @@ import {
   UndoManager,
 } from '@y/y';
 
+import {
+  encodeStateVector as encodeGapStateVector,
+  integrateHeldBehindGapsWith,
+  structIntegrated,
+} from './LoadFully';
 import {SUPPORTED_YJS_VERSION} from './SupportedYjs';
 
 /*
@@ -86,10 +95,13 @@ export const YJS_EXPORTS = [
   'Skip',
   'UndoManager',
   'applyUpdate',
+  'applyUpdateV2',
   'createID',
   'createIdSet',
   'createRelativePositionFromJSON',
   'decodeUpdate',
+  'decodeUpdateV2',
+  'diffUpdateV2',
   'encodeStateAsUpdate',
   'encodeStateVector',
   'findIndexSS',
@@ -97,6 +109,7 @@ export const YJS_EXPORTS = [
   'getItemCleanStart',
   'iterateStructsByIdSet',
   'mergeUpdates',
+  'mergeUpdatesV2',
   'relativePositionToJSON',
   'tryGc',
 ] as const;
@@ -107,6 +120,8 @@ type IdRange = ReturnType<IdRanges['getIds']>[number];
 type StackItem = UndoManager['undoStack'][number];
 type AbstractContent = Item['content'];
 type DecodedUpdate = ReturnType<typeof decodeUpdate>;
+type DecodedUpdateV2 = ReturnType<typeof decodeUpdateV2>;
+type PendingStructs = NonNullable<StructStore['pendingStructs']>;
 interface StackItemEvent {
   stackItem: StackItem;
   origin: unknown;
@@ -235,6 +250,12 @@ export function yjsMembers() {
       clients: (s: StructStore) => isMap(s.clients),
       getClock: (s: StructStore) => isFunction(s.getClock),
       getItem: (s: StructStore) => isFunction(s.getItem),
+      pendingStructs: (s: StructStore) => isSet(s.pendingStructs),
+    },
+    // The gap repair (LoadFully) reads a pending update in format V2.
+    'StructStore.pendingStructs': {
+      missing: (p: PendingStructs) => isMap(p.missing),
+      update: (p: PendingStructs) => ArrayBuffer.isView(p.update),
     },
     Transaction: {
       changed: (tr: Transaction) => isMap(tr.changed),
@@ -286,8 +307,19 @@ export function yjsMembers() {
       ds: (u: DecodedUpdate) => isObject(u.ds),
       structs: (u: DecodedUpdate) => Array.isArray(u.structs),
     },
+    decodeUpdateV2: {
+      structs: (u: DecodedUpdateV2) => Array.isArray(u.structs),
+    },
   };
 }
+
+const __DEV__ = process.env.NODE_ENV !== 'production';
+
+/** The kinds only the gap probe (probeGapLoad) makes. */
+const GAP_PROBE_KINDS: ReadonlySet<string> = new Set([
+  'StructStore.pendingStructs',
+  'decodeUpdateV2',
+]);
 
 const PROBE_GUID = '@lexical/y/yjs-probe';
 /** The undo manager options the probe passes, checked on what it kept. */
@@ -392,10 +424,13 @@ function yjsExports() {
     Skip,
     UndoManager,
     applyUpdate,
+    applyUpdateV2,
     createID,
     createIdSet,
     createRelativePositionFromJSON,
     decodeUpdate,
+    decodeUpdateV2,
+    diffUpdateV2,
     encodeStateAsUpdate,
     encodeStateVector,
     findIndexSS,
@@ -403,6 +438,7 @@ function yjsExports() {
     getItemCleanStart,
     iterateStructsByIdSet,
     mergeUpdates,
+    mergeUpdatesV2,
     relativePositionToJSON,
     tryGc,
   };
@@ -434,6 +470,218 @@ export function probeYjs(y: YjsExports = yjsExports()): string[] {
     );
   }
   return found;
+}
+
+/**
+ * What the gap repair (LoadFully) relies on, end to end, on scratch
+ * documents with two writers: a struct held pending behind a blocked struct
+ * of its client (a batched update), the pending update in format V2 (not
+ * V1) with its `missing`, diffUpdateV2's cut by a state vector in format V1
+ * (one client from a clock, every other client past its end), the store
+ * read for what is integrated (an item counts, a Skip does not), each
+ * writer's later struct integrated by the repair, and the repaired document
+ * converging, byte for byte, with one that got every update once the
+ * missing ones arrive. Upstream: "encodeStateAsUpdate drops text the doc
+ * shows after it integrated a struct across a clock gap" (@y/y
+ * 14.0.0-rc.29).
+ */
+function probeGapLoad(
+  y: YjsExports,
+  sample: (kind: string, value: unknown) => void,
+  found: string[],
+): void {
+  const docs: Doc[] = [];
+  const make = (clientID: number) => {
+    const d = new y.Doc({gc: false, guid: PROBE_GUID});
+    d.clientID = clientID;
+    d.cleanupFormatting = false;
+    docs.push(d);
+    return d;
+  };
+  try {
+    const text = (d: Doc) => {
+      let s = '';
+      for (let it = d.get('t')._start; it !== null; it = it.right) {
+        if (!it.deleted && it.content instanceof y.ContentString) {
+          s += it.content.str;
+        }
+      }
+      return s;
+    };
+    // A base text "AB" (client 1). Writers 2 and 3 each write a struct after
+    // A, one between A and it (it depends on it), and one after B (it does
+    // not): "x", "y", "z" and "u", "v", "w".
+    const base = make(1);
+    base.get('t').insert(0, 'AB');
+    const updates: Uint8Array<ArrayBuffer>[][] = [];
+    for (const [client, chars] of [
+      [2, 'xyz'],
+      [3, 'uvw'],
+    ] as const) {
+      const writer = make(client);
+      y.applyUpdate(writer, y.encodeStateAsUpdate(base));
+      const own: Uint8Array<ArrayBuffer>[] = [];
+      writer.on('update', (u: Uint8Array) => own.push(new Uint8Array(u)));
+      writer.transact(() => writer.get('t').insert(1, chars[0]));
+      writer.transact(() => writer.get('t').insert(1, chars[1]));
+      writer.transact(() => writer.get('t').insert(4, chars[2]));
+      updates.push(own);
+    }
+    // Without each writer's first struct: its second waits for it, and its
+    // third waits behind the second in the batch.
+    const loaded = make(4);
+    y.applyUpdate(loaded, y.encodeStateAsUpdate(base));
+    y.applyUpdate(
+      loaded,
+      y.mergeUpdates([
+        updates[0][1],
+        updates[0][2],
+        updates[1][1],
+        updates[1][2],
+      ]),
+    );
+    const pending = loaded.store.pendingStructs;
+    if (pending === null || text(loaded) !== 'AB') {
+      found.push(
+        'gap repair: a batched struct behind a blocked one is not held pending',
+      );
+      return;
+    }
+    sample('StructStore.pendingStructs', pending);
+    const decoded = y.decodeUpdateV2(pending.update);
+    sample('decodeUpdateV2', decoded);
+    const clocks = (structs: typeof decoded.structs, client: number) =>
+      structs
+        .filter(s => !(s instanceof y.Skip) && s.id.client === client)
+        .map(s => s.id.clock)
+        .sort((a, b) => a - b)
+        .join();
+    if (
+      clocks(decoded.structs, 2) !== '1,2' ||
+      clocks(decoded.structs, 3) !== '1,2' ||
+      pending.missing.get(2) !== 0 ||
+      pending.missing.get(3) !== 0
+    ) {
+      found.push(
+        'gap repair: the pending update (format V2) or its missing clocks changed',
+      );
+      return;
+    }
+    // Format V2: read as V1 (applyUpdate, diffUpdate), it would silently
+    // give nothing back.
+    let readsAsV1 = false;
+    try {
+      readsAsV1 =
+        y.decodeUpdate(pending.update).structs.length ===
+        decoded.structs.length;
+    } catch {
+      // Not V1, as expected.
+    }
+    if (readsAsV1) {
+      found.push('gap repair: the pending update is no longer in format V2');
+      return;
+    }
+    // The repair writes its state vectors itself (format V1; Yjs writes
+    // the clients in descending order).
+    const encoded = y.encodeStateVector(base);
+    const ours = encodeGapStateVector([[1, 2]]);
+    // Writer 2 from its clock 2, writer 3 past its end: writer 2's third
+    // struct alone.
+    const cut = y.decodeUpdateV2(
+      y.diffUpdateV2(
+        pending.update,
+        encodeGapStateVector([
+          [2, 2],
+          [3, 3],
+        ]),
+      ),
+    ).structs;
+    // Two pending updates merged (the repair keeps and merges every one it
+    // clears): both writers' structs.
+    const merged = y.decodeUpdateV2(
+      y.mergeUpdatesV2([
+        y.diffUpdateV2(
+          pending.update,
+          encodeGapStateVector([
+            [2, 2],
+            [3, 3],
+          ]),
+        ),
+        y.diffUpdateV2(
+          pending.update,
+          encodeGapStateVector([
+            [3, 2],
+            [2, 3],
+          ]),
+        ),
+      ]),
+    ).structs;
+    if (
+      encoded.length !== ours.length ||
+      encoded.some((byte, i) => byte !== ours[i]) ||
+      clocks(cut, 2) !== '2' ||
+      clocks(cut, 3) !== '' ||
+      clocks(merged, 2) !== '2' ||
+      clocks(merged, 3) !== '2'
+    ) {
+      found.push(
+        'gap repair: a state vector (format V1), the diffUpdateV2 cut by it or mergeUpdatesV2 changed',
+      );
+      return;
+    }
+    // The store as the repair reads it: the base's struct is integrated,
+    // a writer's missing first struct is not.
+    if (
+      !structIntegrated(y, loaded, {client: 1, clock: 0}) ||
+      structIntegrated(y, loaded, {client: 2, clock: 0})
+    ) {
+      found.push('gap repair: the store no longer reads as integrated');
+      return;
+    }
+    // The repair itself: "z" and "w" are integrated past the blocked "y"
+    // and "v", which are pending again.
+    integrateHeldBehindGapsWith(y, loaded);
+    const shown = text(loaded);
+    if (
+      !shown.includes('z') ||
+      !shown.includes('w') ||
+      shown.includes('y') ||
+      loaded.store.pendingStructs === null
+    ) {
+      found.push(
+        'gap repair: a struct applied on its own is not integrated past a blocked one',
+      );
+      return;
+    }
+    // Once the missing updates arrive, it converges with a document that
+    // got every update.
+    const whole = make(5);
+    y.applyUpdate(whole, y.encodeStateAsUpdate(base));
+    for (const own of updates) {
+      for (const u of own) {
+        y.applyUpdate(whole, u);
+      }
+    }
+    y.applyUpdate(loaded, updates[0][0]);
+    y.applyUpdate(loaded, updates[1][0]);
+    const a = y.encodeStateAsUpdate(loaded);
+    const b = y.encodeStateAsUpdate(whole);
+    if (
+      loaded.store.pendingStructs !== null ||
+      a.length !== b.length ||
+      a.some((byte, i) => byte !== b[i])
+    ) {
+      found.push('gap repair: the repaired document does not converge');
+    }
+  } catch (error) {
+    found.push(
+      `gap repair threw: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  } finally {
+    for (const d of docs) {
+      d.destroy();
+    }
+  }
 }
 
 /**
@@ -565,6 +813,11 @@ function probeMembers(y: YjsExports, found: string[]): void {
     sample('RelativePosition', new y.RelativePosition(null, null, null, 0));
     sample('Skip', new y.Skip(y.createID(1, 0), 1));
     sample('decodeUpdate', y.decodeUpdate(y.encodeStateAsUpdate(doc)));
+    // Development builds only (the contract test runs it in CI): it costs
+    // the repair's code and scratch documents in every entry.
+    if (__DEV__) {
+      probeGapLoad(y, sample, found);
+    }
     probeCopies(y, doc, root, undoManager, PROBE_ORIGIN, found);
     undoManager.undo();
     undoManager.clear();
@@ -590,6 +843,10 @@ function probeMembers(y: YjsExports, found: string[]): void {
     return;
   }
   for (const kind of Object.keys(members)) {
+    // The gap probe makes these (development builds only, see above).
+    if (!__DEV__ && GAP_PROBE_KINDS.has(kind)) {
+      continue;
+    }
     if (!sampled.has(kind)) {
       found.push(`${kind} (not made)`);
     }

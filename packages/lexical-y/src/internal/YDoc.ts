@@ -11,9 +11,8 @@
 // entry use alone. Whatever a client's document needs beyond it (for the
 // binding) is added here, never there.
 
-import {applyUpdate} from '@y/y';
-
 import {installCopyRepair} from './Ident';
+import {applyStoredState} from './LoadFully';
 import {createRawYDoc, type YDoc, type YDocOptions} from './RawYDoc';
 
 export type {YDoc, YDocOptions};
@@ -43,7 +42,9 @@ export function createYDoc(
   installCopyRepair(doc);
   if (state != null) {
     try {
-      applyUpdate(doc, state);
+      // What the document that encoded `state` showed, a struct it
+      // integrated across a clock gap included (see LoadFully).
+      applyStoredState(doc, state);
     } catch (error) {
       doc.destroy();
       throw error;

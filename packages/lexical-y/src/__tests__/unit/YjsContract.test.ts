@@ -28,6 +28,7 @@ import {
   type YUnsupportedYjsData,
   YUnsupportedYjsError,
 } from '../..';
+import {encodeStateVector as encodeGapStateVector} from '../../internal/LoadFully';
 import {
   probeYjs,
   YJS_BEHAVIOURS,
@@ -772,6 +773,9 @@ describe('the contract', () => {
     const esbuild = await import('esbuild');
     const {outputFiles} = await esbuild.build({
       bundle: true,
+      // As the builds do: NODE_ENV is replaced (a realm of its own has no
+      // `process`).
+      define: {'process.env.NODE_ENV': '"development"'},
       entryPoints: [path.join(SRC_DIR, 'internal/YjsContract.ts')],
       external: ['@y/y'],
       format: 'cjs',
@@ -1196,5 +1200,79 @@ describe('with the supported @y/y', () => {
       }),
     );
     expect(doc.share.size).toBe(0);
+  });
+});
+
+describe("the gap repair's part of the contract (LoadFully)", () => {
+  const installed = () =>
+    ({...Y}) as unknown as NonNullable<Parameters<typeof probeYjs>[0]>;
+  const gapFindings = (found: string[]) =>
+    found.filter(f => f.startsWith('gap repair'));
+
+  test('the installed @y/y passes it', () => {
+    expect(gapFindings(probeYjs(installed()))).toEqual([]);
+  });
+
+  test('a diffUpdateV2 that ignores the state vector is found', () => {
+    expect(
+      gapFindings(
+        probeYjs({
+          ...installed(),
+          diffUpdateV2: (u: Uint8Array) => new Uint8Array(u),
+        }),
+      ),
+    ).toEqual([
+      'gap repair: a state vector (format V1), the diffUpdateV2 cut by it or mergeUpdatesV2 changed',
+    ]);
+  });
+
+  test("a diffUpdateV2 that ignores the other clients' cuts is found", () => {
+    // Keeps only the state vector's first entry (the cut client).
+    expect(
+      gapFindings(
+        probeYjs({
+          ...installed(),
+          diffUpdateV2: (u: Uint8Array, v: Uint8Array) => {
+            const entries = [...Y.decodeStateVector(v)];
+            return Y.diffUpdateV2(u, encodeGapStateVector(entries.slice(0, 1)));
+          },
+        }),
+      ),
+    ).toEqual([
+      'gap repair: a state vector (format V1), the diffUpdateV2 cut by it or mergeUpdatesV2 changed',
+    ]);
+  });
+
+  test('a mergeUpdatesV2 that drops material is found', () => {
+    expect(
+      gapFindings(
+        probeYjs({
+          ...installed(),
+          mergeUpdatesV2: (updates: Uint8Array[]) =>
+            new Uint8Array(updates[updates.length - 1]),
+        }),
+      ),
+    ).toEqual([
+      'gap repair: a state vector (format V1), the diffUpdateV2 cut by it or mergeUpdatesV2 changed',
+    ]);
+  });
+
+  test('a pending update read as format V1 is found', () => {
+    expect(
+      gapFindings(
+        probeYjs({
+          ...installed(),
+          decodeUpdateV2: Y.decodeUpdate as typeof Y.decodeUpdateV2,
+        }),
+      ),
+    ).toEqual([expect.stringMatching(/^gap repair/)]);
+  });
+
+  test('an applyUpdateV2 that does not integrate a lone struct is found', () => {
+    expect(
+      gapFindings(probeYjs({...installed(), applyUpdateV2: () => {}})),
+    ).toEqual([
+      'gap repair: a struct applied on its own is not integrated past a blocked one',
+    ]);
   });
 });

@@ -14,7 +14,7 @@ import {
   buildEditorFromExtensions,
 } from '@lexical/extension';
 import invariant from '@lexical/internal/invariant';
-import {applyUpdate, type Doc} from '@y/y';
+import {type Doc} from '@y/y';
 import {
   type AnyLexicalExtensionArgument,
   type CreateEditorArgs,
@@ -34,6 +34,7 @@ import {
   type YWarning,
   type YWarningCode,
 } from '..';
+import {applyStoredState} from './LoadFully';
 import {
   leaseWriterClientID,
   type WRITER_NEW_CLIENT_ID_WARNING,
@@ -501,7 +502,8 @@ export function openHeadlessYEditor(
   let lease: WriterLease | null = null;
   try {
     if (options.state) {
-      applyUpdate(doc, options.state);
+      // What the document that encoded the state showed (see LoadFully).
+      applyStoredState(doc, options.state);
     }
     if (writer !== null) {
       // After the state is loaded (Yjs draws a new client id when it loads
