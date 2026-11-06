@@ -67,6 +67,17 @@ export function createTabStateService(
   panelServiceFactory: PanelServiceFactory = defaultPanelServiceFactory,
 ) {
   return {
+    /**
+     * Whether a panel is attached to the calling page's tab.
+     *
+     * The page asks this when it starts, because a panel document outlives
+     * the page it inspects: after a reload the new page would otherwise
+     * never learn that someone is looking at it.
+     */
+    isPanelOpenForMyTab(message: PegasusRPCMessage): boolean {
+      return store.getState().isPanelOpen[senderTabID(message)] === true;
+    },
+
     reportEditorCount(message: PegasusRPCMessage, count: number): void {
       store.getState().setEditorCount(senderTabID(message), count);
     },
@@ -85,15 +96,19 @@ export function createTabStateService(
     /**
      * Forward a tab's editor state to the panel inspecting that tab.
      *
-     * The injected script only sends this while a panel is open for its tab,
-     * and the destination is derived from the attested sender, never from
-     * anything the caller passes.
+     * Dropped when no panel is attached: a message to a DevTools endpoint
+     * that is not connected would sit queued in this worker until one
+     * connects, which is exactly the retention this design is avoiding.
      */
     reportStates(
       message: PegasusRPCMessage,
       states: {[editorKey: string]: SerializedRawEditorState},
     ): void {
       const tabID = senderTabID(message);
+
+      if (store.getState().isPanelOpen[tabID] !== true) {
+        return;
+      }
 
       panelServiceFactory(tabID)
         .receiveStates(states)

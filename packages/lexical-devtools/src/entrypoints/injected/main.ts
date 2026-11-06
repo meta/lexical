@@ -28,4 +28,16 @@ export default function main() {
   );
 
   scanAndListenForEditors(tabState, commandLog);
+
+  // The panel outlives the page it inspects, so a page that loads with one
+  // already attached -- a reload, or any navigation -- has to ask whether it
+  // should be reporting its editors to it.
+  tabState
+    .adoptPanelState()
+    .then(() => {
+      if (tabState.isPanelOpen()) {
+        scanAndListenForEditors(tabState, commandLog);
+      }
+    })
+    .catch(console.error);
 }

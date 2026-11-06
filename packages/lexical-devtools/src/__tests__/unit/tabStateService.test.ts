@@ -37,6 +37,7 @@ describe('TabStateService', () => {
   beforeEach(() => {
     useExtensionStore.setState({
       editorCount: {},
+      isPanelOpen: {},
       isSelecting: {},
       selectedEditorKey: {},
     });
@@ -68,6 +69,7 @@ describe('TabStateService', () => {
       useExtensionStore,
       panelFor as unknown as Parameters<typeof createTabStateService>[1],
     );
+    useExtensionStore.getState().setIsPanelOpen(7, true);
 
     const states = {'editor-1': statesFor('hello')};
     service.reportStates(messageFrom(7), states);
@@ -76,12 +78,35 @@ describe('TabStateService', () => {
     expect(receiveStates).toHaveBeenCalledWith(states);
   });
 
+  it('drops a report when no panel is attached, rather than queueing it', () => {
+    const receiveStates = vi.fn().mockResolvedValue(undefined);
+    const panelFor = vi.fn(() => ({receiveStates}));
+    const service = createTabStateService(
+      useExtensionStore,
+      panelFor as unknown as Parameters<typeof createTabStateService>[1],
+    );
+
+    service.reportStates(messageFrom(7), {'editor-1': statesFor('hello')});
+
+    expect(panelFor).not.toHaveBeenCalled();
+    expect(receiveStates).not.toHaveBeenCalled();
+  });
+
+  it('tells a page whether a panel is attached to its own tab', () => {
+    const service = createTabStateService(useExtensionStore);
+    useExtensionStore.getState().setIsPanelOpen(7, true);
+
+    expect(service.isPanelOpenForMyTab(messageFrom(7))).toBe(true);
+    expect(service.isPanelOpenForMyTab(messageFrom(8))).toBe(false);
+  });
+
   it('keeps no editor content of its own', () => {
     const receiveStates = vi.fn().mockResolvedValue(undefined);
     const service = createTabStateService(useExtensionStore, (() => ({
       receiveStates,
     })) as unknown as Parameters<typeof createTabStateService>[1]);
 
+    useExtensionStore.getState().setIsPanelOpen(7, true);
     service.reportStates(messageFrom(7), {'editor-1': statesFor('secret')});
 
     expect(JSON.stringify(useExtensionStore.getState())).not.toContain(

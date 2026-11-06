@@ -38,6 +38,14 @@ export class InjectedTabState {
    */
   private readonly listenedEditors = new Set<string>();
 
+  /**
+   * Editors found by the last scan.
+   *
+   * Independent of the content held for the panel: the popup reports this
+   * number whether or not anyone is inspecting the page.
+   */
+  private editorCount = 0;
+
   private states: {[editorKey: string]: SerializedRawEditorState} = {};
   private panelOpen = false;
 
@@ -53,11 +61,25 @@ export class InjectedTabState {
     return this.panelOpen;
   }
 
+  /**
+   * Learn whether a DevTools panel is already attached to this tab.
+   *
+   * A panel document outlives the page it inspects, so a page that loads
+   * into an open panel is never told that the panel is there -- it has to
+   * ask. The background answers for the tab it attests on this call.
+   */
+  async adoptPanelState(): Promise<void> {
+    const isPanelOpen = await this.backgroundService.isPanelOpenForMyTab();
+
+    this.setPanelOpen(isPanelOpen === true);
+  }
+
   setPanelOpen(isPanelOpen: boolean): void {
     this.panelOpen = isPanelOpen;
 
     if (!isPanelOpen) {
-      // Nothing is kept for a panel that is not there to read it.
+      // Nothing is kept for a panel that is not there to read it. The count
+      // is unaffected: the editors are still on the page.
       this.states = {};
     }
 
@@ -65,11 +87,17 @@ export class InjectedTabState {
   }
 
   replaceStates(states: {[editorKey: string]: SerializedRawEditorState}): void {
-    this.states = states;
+    this.editorCount = Object.keys(states).length;
+    this.states = this.panelOpen ? states : {};
     this.push();
   }
 
   setState(editorKey: string, state: SerializedRawEditorState): void {
+    if (!this.panelOpen) {
+      // No panel to send it to, and the editor count has not changed.
+      return;
+    }
+
     this.states = {...this.states, [editorKey]: state};
     this.push();
   }
@@ -86,7 +114,7 @@ export class InjectedTabState {
 
   private push(): void {
     this.backgroundService
-      .reportEditorCount(Object.keys(this.states).length)
+      .reportEditorCount(this.editorCount)
       .catch(console.error);
 
     if (this.panelOpen) {

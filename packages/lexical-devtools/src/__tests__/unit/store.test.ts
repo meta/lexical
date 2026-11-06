@@ -18,6 +18,7 @@ describe('shared extension store', () => {
   beforeEach(() => {
     useExtensionStore.setState({
       editorCount: {},
+      isPanelOpen: {},
       isSelecting: {},
       selectedEditorKey: {},
     });
@@ -43,12 +44,28 @@ describe('shared extension store', () => {
     state().setEditorCount(7, 2);
     state().setSelectedEditorKey(7, 'editor-0');
     state().setIsSelecting(7, true);
+    state().setIsPanelOpen(7, true);
 
     state().clearTab(7);
 
     expect(state().editorCount).not.toHaveProperty('7');
     expect(state().selectedEditorKey).not.toHaveProperty('7');
     expect(state().isSelecting).not.toHaveProperty('7');
+    expect(state().isPanelOpen).not.toHaveProperty('7');
+  });
+
+  it('a navigation forgets the page but keeps the panel attached', () => {
+    state().setEditorCount(7, 2);
+    state().setSelectedEditorKey(7, 'editor-0');
+    state().setIsPanelOpen(7, true);
+
+    state().clearTabForNavigation(7);
+
+    // The editors are gone with the old document; the DevTools panel is
+    // still open on the tab and the next page must learn that.
+    expect(state().editorCount).not.toHaveProperty('7');
+    expect(state().selectedEditorKey).not.toHaveProperty('7');
+    expect(state().isPanelOpen[7]).toBe(true);
   });
 
   it('clearTab leaves other tabs alone', () => {

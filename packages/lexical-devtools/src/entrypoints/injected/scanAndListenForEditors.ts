@@ -46,8 +46,9 @@ export default function scanAndListenForEditors(
       tabState.setState(
         editor._key,
         serializeEditorState(event.editorState, {
-          // The panel is the only destination, and it is open: it is the
-          // tree the user asked to look at.
+          // The panel attached to this page is the only destination, and the
+          // state is only sent while it is open -- the tree the user asked
+          // to look at. Masked otherwise, belt and braces.
           obfuscateText: !tabState.isPanelOpen(),
         }),
       );

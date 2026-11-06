@@ -53,17 +53,33 @@ export interface ExtensionState {
   isSelecting: {
     [tabID: number]: boolean;
   };
+  /**
+   * Whether a DevTools panel is attached to a tab.
+   *
+   * A flag, not content. The page's own script asks the background for this
+   * when it starts, because the panel document outlives the page it
+   * inspects, and the background routes editor state only while it is true.
+   */
+  isPanelOpen: {
+    [tabID: number]: boolean;
+  };
   markTabAsRestricted: (tabID: number) => void;
   setEditorCount: (tabID: number, count: number) => void;
   setSelectedEditorKey: (tabID: number, editorKey: string | null) => void;
   setIsSelecting: (tadID: number, isSelecting: boolean) => void;
+  setIsPanelOpen: (tabID: number, isPanelOpen: boolean) => void;
   /**
-   * Drop everything retained for a tab.
-   *
-   * Called when the tab is closed or navigates: whatever was true of the
-   * page it used to show no longer is.
+   * Drop everything retained for a tab, including whether a panel is
+   * attached to it. Called when the tab is closed.
    */
   clearTab: (tabID: number) => void;
+  /**
+   * Drop what described the page a tab used to show.
+   *
+   * Called when the tab navigates: the editors it had are gone, but the
+   * DevTools panel attached to the tab is still there, so that flag stays.
+   */
+  clearTabForNavigation: (tabID: number) => void;
 }
 
 export const useExtensionStore = create<ExtensionState>()(
@@ -71,10 +87,18 @@ export const useExtensionStore = create<ExtensionState>()(
     clearTab: (tabID: number) =>
       set(state => ({
         editorCount: withoutTab(state.editorCount, tabID),
+        isPanelOpen: withoutTab(state.isPanelOpen, tabID),
+        isSelecting: withoutTab(state.isSelecting, tabID),
+        selectedEditorKey: withoutTab(state.selectedEditorKey, tabID),
+      })),
+    clearTabForNavigation: (tabID: number) =>
+      set(state => ({
+        editorCount: withoutTab(state.editorCount, tabID),
         isSelecting: withoutTab(state.isSelecting, tabID),
         selectedEditorKey: withoutTab(state.selectedEditorKey, tabID),
       })),
     editorCount: {},
+    isPanelOpen: {},
     isSelecting: {},
     markTabAsRestricted: (tabID: number) =>
       set(state => ({
@@ -89,6 +113,13 @@ export const useExtensionStore = create<ExtensionState>()(
         editorCount: {
           ...state.editorCount,
           [tabID]: count,
+        },
+      })),
+    setIsPanelOpen: (tabID: number, isPanelOpen: boolean) =>
+      set(state => ({
+        isPanelOpen: {
+          ...state.isPanelOpen,
+          [tabID]: isPanelOpen,
         },
       })),
     setIsSelecting: (tabID: number, isSelecting: boolean) =>
