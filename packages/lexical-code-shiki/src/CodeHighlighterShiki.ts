@@ -9,6 +9,7 @@
 import {
   $isCodeHighlightNode,
   $isCodeNode,
+  $keepCodeNodeState,
   $plainifyCodeContent,
   CodeExtension,
   CodeHighlightNode,
@@ -84,7 +85,10 @@ export const ShikiTokenizer: Tokenizer = {
 /**
  * Give `to` the NodeState of `from`, flat states included, keeping the state
  * that `to` has for the keys `from` does not set (such as state that a node
- * replacement initializes).
+ * replacement initializes). For text leaving a code block: the old token's
+ * values win, as the NodeState of that text. New tokens in a code block are
+ * copied the other way round (`$keepCodeNodeState`): there what the token
+ * holds already wins.
  */
 function $copyNodeState(from: LexicalNode, to: LexicalNode): void {
   // @internal access, like `__text`: the NodeState of the node
@@ -105,6 +109,24 @@ function $copyNodeState(from: LexicalNode, to: LexicalNode): void {
       }
     } else {
       state.updateFromUnknown(key, value);
+    }
+  }
+  // States the node knows by their StateConfig stay known on the copy (a
+  // StateConfig not registered for the copy's class would otherwise be
+  // read back as an unknown JSON value: a set-valued state, for one). As in
+  // the JSON: not a default value (the copy keeps what it has, such as state
+  // its replacement class sets), and the value of a key the copy's class
+  // has another StateConfig for stays parsed with that one (above).
+  if (from.__state) {
+    const {sharedConfigMap} = state.sharedNodeState;
+    for (const [config, value] of from.__state.getInternalState()[1]) {
+      if (config.isEqual(value, config.defaultValue)) {
+        continue;
+      }
+      const own = sharedConfigMap.get(config.key);
+      if (own === undefined || own === config) {
+        state.updateFromKnown(config, value);
+      }
     }
   }
 }
@@ -230,7 +252,13 @@ function $codeNodeTransform(
       lang && !isCodeLanguageLoaded(lang)
         ? $plainifyCodeContent(currentNode.getTextContent())
         : tokenizer.$tokenize(currentNode, lang ?? undefined);
-    const diffRange = getDiffRange(currentNode.getChildren(), highlightNodes);
+    // The NodeState of the block's children (comment ids, a suggestion)
+    // stays on their text.
+    const children = currentNode.getChildren();
+    const diffRange = getDiffRange(
+      children,
+      $keepCodeNodeState(children, highlightNodes),
+    );
     const {from, to, nodesForReplacement} = diffRange;
 
     if (from !== to || nodesForReplacement.length) {
