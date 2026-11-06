@@ -104,6 +104,7 @@ issues and docs that carry it.
 | D41 | **Resolve a comment in the product's store:** keep its id in the text, mark the thread resolved and hide it with `isMarkIDShown`. | Unresolving is free, and it avoids the item each removed id leaves (D47). | `DECIDED` | 10-28 | [#9489], [comments][comments] |
 | D42 | **A comment whose text is gone is orphaned**, as in Google Docs; the binding does not keep it restorable. | The thread stays in the product's store with no text to point at. | `DECIDED` | 10-28 | [#9496] |
 | D43 | **Mark ids are strict:** an id with whitespace is refused. | Strict first; it can be loosened later without breaking anyone. | `DECIDED` | 10-23 | [#9380] |
+| D114 | **The writer counts and keeps exactly the stored inline elements readers leave out.** An element that cannot be empty and holds nothing a reader shows (a comment whose text peers deleted at once, one whose text has not arrived, or one holding only such elements) is neither shown, counted nor deleted by a write: positions, deletes and format comparisons skip it, and it stays in the document until a change fills or removes it. An element the editor shows empty (its class or instance allows it), and one the update removed, count as before. | Text, formats and line removals written beside such an element were placed by positions that counted it while every editor's did not: stored one character off, or with the next line's first character deleted. Deleting it on the next rewrite would also drop a comment a late change could still fill. | `DECIDED` | 11-06 | [#9807], [#9808] |
 
 ## Server-side editing
 
@@ -273,3 +274,5 @@ issues and docs that carry it.
 [#9788]: https://github.com/meta/lexical/pull/9788
 [#9789]: https://github.com/meta/lexical/issues/9789
 [#9835]: https://github.com/meta/lexical/pull/9835
+[#9807]: https://github.com/meta/lexical/issues/9807
+[#9808]: https://github.com/meta/lexical/pull/9808
