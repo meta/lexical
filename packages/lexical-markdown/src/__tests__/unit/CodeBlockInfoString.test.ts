@@ -13,6 +13,7 @@ import {buildEditorFromExtensions} from '@lexical/extension';
 import {
   $convertFromMarkdownString,
   $convertToMarkdownString,
+  CODE,
   TRANSFORMERS,
 } from '@lexical/markdown';
 import {$getRoot} from 'lexical';
@@ -135,6 +136,35 @@ describe('fenced code block info string', () => {
       text: 'code',
     });
     expect(roundTrip('```js title=x\ncode')).toBe('```js title=x\ncode\n```');
+  });
+
+  it('keeps the match of a regExpStart composed from CODE', () => {
+    const CPP_CODE = {
+      ...CODE,
+      regExpStart: /^([ \t]*`{3,})([\w+#.-]+)?[ \t]?/,
+    };
+    const transformers = [
+      CPP_CODE,
+      ...TRANSFORMERS.filter(transformer => transformer !== CODE),
+    ];
+    using editor = buildEditorFromExtensions([MarkdownTestExtension]);
+    editor.update(
+      () => {
+        $convertFromMarkdownString('```c++\ncode\n```', transformers);
+      },
+      {discrete: true},
+    );
+    expect(
+      editor.read(() => {
+        const first = $getRoot().getFirstChild();
+        return $isCodeNode(first)
+          ? {language: first.getLanguage(), text: first.getTextContent()}
+          : null;
+      }),
+    ).toEqual({language: 'c++', text: 'code'});
+    expect(editor.read(() => $convertToMarkdownString(transformers))).toBe(
+      '```c++\ncode\n```',
+    );
   });
 
   it('reads the language of an unterminated fence after whitespace', () => {

@@ -890,10 +890,15 @@ export const CODE: MultilineElementTransformer = {
     rootNode,
     startLineIndex,
     startMatch: regExpStartMatch,
+    transformer,
   }) => {
     const currentLine = lines[startLineIndex];
+    // A transformer composed from CODE with its own regExpStart keeps that
+    // expression's match.
     const startMatch =
-      currentLine.match(CODE_INFO_START_REGEX) ?? regExpStartMatch;
+      transformer.regExpStart === CODE_START_REGEX
+        ? (currentLine.match(CODE_INFO_START_REGEX) ?? regExpStartMatch)
+        : regExpStartMatch;
     const fence = startMatch[1];
     const fenceLength = fence.trim().length;
     const afterFenceIndex = startMatch.index! + fence.length;
