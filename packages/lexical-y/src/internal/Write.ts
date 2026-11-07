@@ -3010,7 +3010,8 @@ export class Writer {
    * show (see $isLeftOutInline): one this write did not make. Invariant: the
    * writer counts exactly what the reader counts: it does not count such an
    * element, and deletes one only where a delete meets it before its last
-   * unit (see Cursor#delete). Why: text
+   * unit (see Cursor#delete) or past the end of content it ends (see
+   * Cursor#deleteLeftOutBefore). Why: text
    * written beside such an element was placed by positions that counted it
    * while the editor's did not. The self-check reads with it too (see
    * $shownText).

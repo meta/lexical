@@ -319,7 +319,8 @@ export function hasLiveContent(
  * Reader). An empty element the editor shows
  * (its class or the instance allows it), and one the update removed, count.
  * The writer does not count one it leaves out, and deletes it only where a
- * delete meets it before its last unit (see Cursor#delete). In an editor read
+ * delete meets it before its last unit (see Cursor#delete) or past the end of
+ * content it ends (see Cursor#deleteLeftOutBefore). In an editor read
  * or update; `view`: the document the write sees; `prevMap`: the node map
  * before the update; `made`: items the write itself inserted, never left
  * out. The one predicate for the rule: the writer (Writer#leftOut), its
