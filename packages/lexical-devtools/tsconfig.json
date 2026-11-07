@@ -118,6 +118,9 @@
       "@lexical/extension/TabIndentationExtension": [
         "../lexical-extension/src/TabIndentationExtension.ts"
       ],
+      "@lexical/extension/TextSubstitutionExtension": [
+        "../lexical-extension/src/TextSubstitutionExtension.ts"
+      ],
       "@lexical/extension/WatchEditableExtension": [
         "../lexical-extension/src/WatchEditableExtension.ts"
       ],

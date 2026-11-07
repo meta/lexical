@@ -66,6 +66,7 @@ module.name_mapper='^@lexical/extension/SelectBlockExtension$' -> '<PROJECT_ROOT
 module.name_mapper='^@lexical/extension/SelectionAlwaysOnDisplayExtension$' -> '<PROJECT_ROOT>/packages/lexical-extension/flow/LexicalExtensionSelectionAlwaysOnDisplayExtension.js.flow'
 module.name_mapper='^@lexical/extension/signals$' -> '<PROJECT_ROOT>/packages/lexical-extension/flow/LexicalExtensionSignals.js.flow'
 module.name_mapper='^@lexical/extension/TabIndentationExtension$' -> '<PROJECT_ROOT>/packages/lexical-extension/flow/LexicalExtensionTabIndentationExtension.js.flow'
+module.name_mapper='^@lexical/extension/TextSubstitutionExtension$' -> '<PROJECT_ROOT>/packages/lexical-extension/flow/LexicalExtensionTextSubstitutionExtension.js.flow'
 module.name_mapper='^@lexical/extension/WatchEditableExtension$' -> '<PROJECT_ROOT>/packages/lexical-extension/flow/LexicalExtensionWatchEditableExtension.js.flow'
 module.name_mapper='^@lexical/extension/watchedSignal$' -> '<PROJECT_ROOT>/packages/lexical-extension/flow/LexicalExtensionWatchedSignal.js.flow'
 module.name_mapper='^@lexical/fast-check$' -> '<PROJECT_ROOT>/packages/lexical-fast-check/flow/LexicalFastCheck.js.flow'
