@@ -64,6 +64,7 @@ import {
   $setSelection,
   COLLABORATION_TAG,
   COMMAND_PRIORITY_BEFORE_CRITICAL,
+  COMPOSITION_START_TAG,
   DEFER_COMPOSITION_MERGE_TAG,
   type EditorState,
   ElementNode,
@@ -225,6 +226,7 @@ import {
   UNSUPPORTED_SLOTS_WARNING,
   type YEmittedWarningData,
   type YKnownWarningCode,
+  type YOtherWarningData,
   type YRecoveredReadData,
   type YStorageMismatchData,
   type YUnsupportedConfigData,
@@ -1246,6 +1248,17 @@ export class YBinding {
    */
   private readonly untransformedText = new Set<NodeKey>();
   /**
+   * The markers of the lines a transform re-typed that were not written (see
+   * Writer#skippedLine), for the author's normalization once the hold ends
+   * (see $normalize): the line is read as stored, and Lexical's transforms
+   * run on it again in that update, which the author writes once, as part
+   * of its edit (a hashtag made again where a collaborator made the block a
+   * heading; a code highlighter, which tokenizes only inside a code block,
+   * makes nothing in a paragraph, and tokenizes a line a collaborator made a
+   * code block).
+   */
+  private readonly retyped = new Set<Item>();
+  /**
    * Stored nodes a user's edit wrote with a value holding an array hole (see
    * Writer#holed), for the author's normalization too: they take what every
    * reader parses from the stored null (colWidths: 0), which is written.
@@ -1326,6 +1339,16 @@ export class YBinding {
    * naming update (see rereadRefused).
    */
   private refusedNaming = false;
+  /**
+   * Whether a re-typing of the line composed in that the binding did not
+   * write (see Writer#skippedLine) was reported (UNSUPPORTED_EDIT_WARNING)
+   * during the composition going on, or the last one: once per composition,
+   * whatever holds it had. Cleared when a composition starts (see
+   * noteCompositionStart).
+   */
+  private retypeReported = false;
+  /** Whether the editor was composing at the last commit (see retypeReported). */
+  private wasComposing = false;
   /**
    * Block ids whose holders a local write changed and that the editor does
    * not show as a read settles them (see onUpdate): settled in the next
@@ -1903,6 +1926,7 @@ export class YBinding {
             this.task.committed = true;
             queueMicrotask(endOfTask(this.task));
           }
+          this.noteCompositionStart(payload.tags);
           withPins(this._pins, () => this.onUpdate(payload));
           if (this.deferred.length > 0) {
             // The update the remote changes were applied in has committed,
@@ -2610,6 +2634,7 @@ export class YBinding {
     this.toSettle.clear();
     this.untransformed.clear();
     this.untransformedText.clear();
+    this.retyped.clear();
     this.storedHoles.clear();
     this.registrationPasses.length = 0;
     this._undoManager = null;
@@ -3402,6 +3427,14 @@ export class YBinding {
     const problems: string[] = [];
     const wrong: CS[] = [];
     for (const cs of rebuilt) {
+      // A container a read replaced (its shared node deleted, its node's
+      // key now another container's) is not compared: its successor is.
+      if (
+        this.state.containers.get(cs.y) !== cs ||
+        (cs.y !== this._root && this.state.csByKey.get(cs.key) !== cs)
+      ) {
+        continue;
+      }
       if (sampleWholeContainer(cs)) {
         const found = checkContainer(this.state, cs, editorState);
         if (found.length > 0) {
@@ -3849,7 +3882,7 @@ export class YBinding {
   private warn<C extends YKnownWarningCode>(
     code: C,
     message: string,
-    data: YEmittedWarningData<C>,
+    data: YEmittedWarningData<C> | YOtherWarningData,
   ): void {
     this.pendingWarnings.push(new LexicalWarning(code, message, data));
   }
@@ -5766,6 +5799,20 @@ export class YBinding {
   }
 
   /**
+   * A composition starts (the editor composes, and did not at the last
+   * commit, or the commit is tagged as one that starts a composition, as
+   * where one ends and the next starts in one update): what is reported
+   * once per composition may be reported again (see retypeReported).
+   */
+  private noteCompositionStart(tags: ReadonlySet<string>): void {
+    const composing = this._editor._compositionKey !== null;
+    if ((composing && !this.wasComposing) || tags.has(COMPOSITION_START_TAG)) {
+      this.retypeReported = false;
+    }
+    this.wasComposing = composing;
+  }
+
+  /**
    * Show what a composition held back once its hold has ended (see $holds),
    * in an update of the binding's own: after a local update that ended it
    * (the composition ended, or moved, or a local edit took held content out
@@ -5909,13 +5956,21 @@ export class YBinding {
    * held in or wherever local edits took it, as a remote change that just
    * arrived; nothing is held any more.
    */
-  private $release(state: State, reader: Reader): void {
+  private $release(
+    state: State,
+    reader: Reader,
+    whole: ReadonlySet<YNode> | null = null,
+  ): void {
     const hidden = state.hidden;
     if (hidden === null) {
       return;
     }
     state.hidden = null;
     hidden.releaseKeeps();
+    if (this.retyped.size > 0) {
+      // The lines whose re-typing was not written: normalized once read.
+      this.pending.add('normalize');
+    }
     const items = this.hiddenItems(hidden);
     // The format items held changes deleted, which the line showed until
     // now (see Hidden#keeps): read where they were, as a deletion that just
@@ -5954,6 +6009,14 @@ export class YBinding {
         if (!end.deleted) {
           markers.set(typeOf(end), new Set(hidden.marker.was.keys()));
         }
+      }
+    }
+    // A container `reader` reads whole right after (see $rereadRefused)
+    // shows what it holds as stored then, held changes included.
+    if (whole !== null) {
+      for (const y of whole) {
+        items.delete(y);
+        markers.delete(y);
       }
     }
     const composing = reader.composingKey;
@@ -6771,6 +6834,47 @@ export class YBinding {
           this.storedHoles.add(key);
         }
         this.pending.add('normalize');
+      }
+      if (writer.skippedLine !== null) {
+        // The line composed in, which only a transform re-typed while the
+        // hold shows it as a block its shared counterpart no longer is, was
+        // not written (see Writer#skippedLine). It is read again as stored
+        // and the hold ends, as for an edit refused for the hold, and its
+        // transforms run again on what is stored (see retyped). The rest of
+        // the update is written.
+        const skipped = state.unitByKey.get(writer.skippedLine);
+        if (skipped !== undefined && skipped.end !== null) {
+          this.retyped.add(skipped.end);
+        }
+        if (
+          this.addContainerOf(
+            writer.skippedLine,
+            editorState._nodeMap,
+            this.refused,
+          ) ||
+          this.addContainerOf(
+            writer.skippedLine,
+            prevEditorState._nodeMap,
+            this.refused,
+          )
+        ) {
+          this.pending.add('reread');
+        }
+        const hidden = state.hidden;
+        if (hidden !== null) {
+          hidden.missed = true;
+        }
+        // Once per composition: a highlighter can re-type the line in more
+        // than one update before it is read again (Shiki's), and a
+        // composition can go on through more than one hold.
+        if (!this.retypeReported) {
+          this.retypeReported = true;
+          this.warn(
+            UNSUPPORTED_EDIT_WARNING,
+            "a local update re-typed the line being composed (a transform's tokens for it, such as a code highlighter's) while the composition's hold shows that line as a block its shared counterpart no longer is (a collaborator changed its type, or joined it into the line before it): the re-typing is not written, the rest of the update is, and the line is read again as stored and its transforms run on it again",
+            {detailCode: 'held-line-retokenize', reason: 'other'},
+          );
+        }
       }
     }
     if (commit.userEdit) {
@@ -8304,6 +8408,7 @@ export class YBinding {
       this.toSettle.clear();
       this.untransformed.clear();
       this.untransformedText.clear();
+      this.retyped.clear();
       this.storedHoles.clear();
       this.registrationPasses.length = 0;
       return;
@@ -8327,6 +8432,14 @@ export class YBinding {
         } else if (work === 'restore') {
           this.restoreShown();
         } else if (work === 'hidden') {
+          // With a re-read due, one read releases the hold (see
+          // $rereadRefused).
+          if (
+            this.pending.has('reread') &&
+            this._editor.getEditorState().read(() => this.$releasesWithReread())
+          ) {
+            this.rereadRefused();
+          }
           this.flushHidden();
         } else if (work === 'foresee') {
           this.foreseeNextUpdate();
@@ -8364,11 +8477,11 @@ export class YBinding {
    * client). Normally this runs as the next update (see queueReread); here
    * when the editor is idle (see runPending).
    */
-  private rereadRefused(): void {
+  private rereadRefused(release = true): void {
     let after: (() => void) | null = null;
     this.guardedRead({
       $read: () => {
-        after = this.$rereadRefused();
+        after = this.$rereadRefused(release);
       },
       after: () => {
         if (after !== null) {
@@ -8420,16 +8533,28 @@ export class YBinding {
     try {
       this.guard(() =>
         withPins(this._pins, () => {
+          // Nested in this update (see guardedRead). With updates queued
+          // behind it, the read does not release a hold that has ended (see
+          // $rereadRefused): they commit on their own before the release
+          // reads.
+          this.rereadRefused(later.length === 0);
           if (later.length > 0) {
-            $onUpdate(() => {
-              for (const [fn, options] of later) {
-                editor.update(fn, options);
-              }
-            });
+            // Queued after the read's own update, so that what follows the
+            // read runs first once it has committed: where the read failed,
+            // its recovery (see recoverRead) commits before them, and they
+            // never commit with what the recovery reads, which would drop
+            // them unwritten.
+            editor.update(
+              () => {
+                $onUpdate(() => {
+                  for (const [fn, options] of later) {
+                    editor.update(fn, options);
+                  }
+                });
+              },
+              {discrete: true, skipTransforms: true},
+            );
           }
-          // Nested in this update (see guardedRead): what follows the read
-          // runs after its commit, after the updates queued behind it.
-          this.rereadRefused();
         }),
       );
       done = true;
@@ -8446,7 +8571,7 @@ export class YBinding {
    * The re-read itself (see rereadRefused), inside an update (see
    * guardedRead); returns what runs once it has committed, if anything.
    */
-  private $rereadRefused(): (() => void) | null {
+  private $rereadRefused(mayRelease = true): (() => void) | null {
     const list = [...this.refused].filter(
       cs => this.state.containers.get(cs.y) === cs,
     );
@@ -8480,6 +8605,11 @@ export class YBinding {
     if (naming || last) {
       $addUpdateTag(BLOCK_ID_REPAIR_TAG);
     }
+    // A hold that ends now (see flushHidden) is released in this read: the
+    // editor reads what is stored once, not the containers as the hold shows
+    // them and then what the hold held.
+    const release =
+      mayRelease && list.length > 0 && !naming && this.$releasesWithReread();
     const cursor = this.$cursorBeforeRead();
     const caret = $showsCaret();
     const reader = new Reader(this.state, this.seer);
@@ -8528,6 +8658,10 @@ export class YBinding {
           }
         }
       };
+      if (release) {
+        this.pending.delete('hidden');
+        this.$release(this.state, reader, new Set(list.map(cs => cs.y)));
+      }
       for (const cs of list) {
         const el = cs.y === this._root ? $getRoot() : $getNodeByKey(cs.key);
         if ($isElementNode(el) && el.isAttached()) {
@@ -8574,8 +8708,30 @@ export class YBinding {
     }
     return () => {
       this.checkUnknownTypes();
+      if (release) {
+        // As after a release (see flushHidden).
+        this.checkRead(reader.rebuilt);
+      }
       this.flushRefresh(true);
     };
+  }
+
+  /**
+   * Whether the hold has ended and a re-read due now can release it in its
+   * read (see $rereadRefused): no composition goes on (where a composition
+   * moved, flushHidden places its caret), every remote change is read, and
+   * none of the binding's own updates that run before a release is due.
+   */
+  private $releasesWithReread(): boolean {
+    const hidden = this.state.hidden;
+    return (
+      hidden !== null &&
+      this.unread === null &&
+      this._editor._compositionKey === null &&
+      !this.pending.has('replies') &&
+      !this.pending.has('restore') &&
+      !this.$holds(hidden)
+    );
   }
 
   /**
@@ -8636,11 +8792,17 @@ export class YBinding {
 
   /** The author's normalization itself, inside an update. */
   private $normalize(): void {
+    // A line whose re-typing was not written, once its hold has ended.
+    const retyped = this.state.hidden === null ? [...this.retyped] : [];
+    if (retyped.length > 0) {
+      this.retyped.clear();
+    }
     if (
       !this.writesEdits() ||
       (this.untransformed.size === 0 &&
         this.untransformedText.size === 0 &&
-        this.storedHoles.size === 0)
+        this.storedHoles.size === 0 &&
+        retyped.length === 0)
     ) {
       this.untransformed.clear();
       this.untransformedText.clear();
@@ -8653,6 +8815,25 @@ export class YBinding {
     this.untransformed.clear();
     this.untransformedText.clear();
     this.storedHoles.clear();
+    for (const end of retyped) {
+      // The line that holds its text now: the one its marker ends, or, where
+      // a collaborator joined it into the next, the line the next live
+      // marker ends.
+      let marker: Item | null = end;
+      while (
+        marker !== null &&
+        (marker.deleted || this.state.unitByEnd.get(marker) === undefined)
+      ) {
+        marker = marker.right;
+      }
+      const line = this.$nodeStoredBy(marker);
+      if ($isElementNode(line) && line.isAttached()) {
+        line.markDirty();
+        for (const text of line.getAllTextNodes()) {
+          text.markDirty();
+        }
+      }
+    }
     $addUpdateTag(HISTORY_MERGE_TAG);
     $addUpdateTag(NORMALIZE_TAG);
     const fold = this.stepFold;

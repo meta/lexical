@@ -995,7 +995,7 @@ export function isSetStateConfig(config: AnyStateConfig | undefined): boolean {
   );
 }
 
-function isStringArray(value: unknown): value is string[] {
+export function isStringArray(value: unknown): value is string[] {
   return Array.isArray(value) && value.every(v => typeof v === 'string');
 }
 
