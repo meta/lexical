@@ -940,6 +940,7 @@ export function triggerListeners<T extends keyof MapListeners>(
   isCurrentlyEnqueuingUpdates: boolean,
   ...payload: MapListeners[T]
 ): void {
+  let rethrown: null | {error: unknown} = null;
   const previouslyUpdating = editor._updating;
   editor._updating = isCurrentlyEnqueuingUpdates;
 
@@ -950,22 +951,43 @@ export function triggerListeners<T extends keyof MapListeners>(
     >;
     const listeners = Array.from(listenerMap);
     for (const [listener, unregister] of listeners) {
-      if (unregister) {
-        unregister();
-      }
-      // TypeScript's void-return rule lets a `=> void` callback return any value,
-      // so a listener like `() => arr.push(x)` hands back a number. Only a
-      // function is an unregister callback.
-      const result = listener(...payload);
-      const nextUnregister = typeof result === 'function' ? result : undefined;
-      if (listenerMap.has(listener)) {
-        listenerMap.set(listener, nextUnregister);
-      } else if (nextUnregister) {
-        nextUnregister();
+      try {
+        if (unregister) {
+          if (type === 'update' && listenerMap.has(listener)) {
+            // A cleanup that throws, or whose next listener throws, has still
+            // been called. Do not call it again on the next commit.
+            listenerMap.set(listener, undefined);
+          }
+          unregister();
+        }
+        // TypeScript's void-return rule lets a `=> void` callback return any value,
+        // so a listener like `() => arr.push(x)` hands back a number. Only a
+        // function is an unregister callback.
+        const result = listener(...payload);
+        const nextUnregister =
+          typeof result === 'function' ? result : undefined;
+        if (listenerMap.has(listener)) {
+          listenerMap.set(listener, nextUnregister);
+        } else if (nextUnregister) {
+          nextUnregister();
+        }
+      } catch (error) {
+        if (type !== 'update') {
+          throw error;
+        }
+        // Every update listener must see the committed state, even if an
+        // earlier listener throws. Keep the existing error contract: callers
+        // receive the first error and onError is not called for listeners.
+        rethrown ??= {error};
       }
     }
   } finally {
     editor._updating = previouslyUpdating;
+  }
+  if (rethrown !== null) {
+    // A listener may have queued updates before the commit was interrupted.
+    scheduleMicroTask(() => $triggerEnqueuedUpdates(editor));
+    throw rethrown.error;
   }
 }
 
