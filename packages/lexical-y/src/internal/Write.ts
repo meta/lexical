@@ -3926,6 +3926,7 @@ export class Writer {
     now: string,
     hunks: readonly Hunk[],
     insert: (cursor: Cursor, from: number, to: number) => void,
+    oldStop?: Item | null,
   ): number {
     let pos = 0;
     let end = 0;
@@ -3942,6 +3943,13 @@ export class Writer {
       c.advance(at - pos);
       if (del > 0) {
         c.delete(del);
+        if (oldStop !== undefined && at + del === old.length) {
+          // A delete that reaches the end of the old content (a line
+          // without a marker, before a block node) takes the elements no
+          // editor shows after its last unit, up to that end, along: no end
+          // item follows for it to meet (see Cursor#delete).
+          c.deleteLeftOutBefore(oldStop);
+        }
       }
       if (to > from) {
         insert(c, from, to);
@@ -4264,6 +4272,7 @@ export class Writer {
       atoms.text,
       hunks,
       (cursor, from, to) => this.$insertAtoms(cursor, atoms, from, to, items),
+      oldStop,
     );
     this.$formatPass(y, left, startFormats, atoms);
     return items;
