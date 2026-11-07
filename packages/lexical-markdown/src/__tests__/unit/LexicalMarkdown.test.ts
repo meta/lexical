@@ -4838,6 +4838,7 @@ describe('emphasis next to Unicode punctuation and symbols', () => {
   // Importing the bold link as text used to leave the asterisks in the text,
   // so the export escaped them. The exporter writes the bold inside the link.
   const EXPORT_CASES: [md: string, exported: string][] = [
+    // The backslash is ASCII punctuation too (#9407).
     ['_a_\\\nb', '*a*\\\nb'],
     ['**a.**\\x', '**a.**\\\\x'],
     [
