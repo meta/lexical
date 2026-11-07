@@ -83,7 +83,7 @@ export type DOMNodeToLexicalConversionMap = {
 };
 declare export function $findMatchingParent(
   startingNode: LexicalNode,
-  findFn: (LexicalNode) => boolean,
+  findFn: (v: LexicalNode) => boolean,
 ): LexicalNode | null;
 declare export function mergeRegister(...func: (() => void)[]): () => void;
 declare export function dedupeSelectionRects(
