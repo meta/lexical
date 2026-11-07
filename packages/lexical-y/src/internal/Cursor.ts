@@ -415,7 +415,8 @@ export class Cursor {
   /**
    * Live items the editor does not show (see $isLeftOutInline): not counted,
    * as held content is not; deleted only where a delete meets one before its
-   * last unit (see delete).
+   * last unit (see delete), or past the end of content a write ends (see
+   * deleteLeftOutBefore).
    */
   leftOut: LeftOut = null;
   /**
