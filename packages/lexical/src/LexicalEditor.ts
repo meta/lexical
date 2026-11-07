@@ -1190,6 +1190,8 @@ export class LexicalEditor {
    * an editor without that binding records nothing.
    */
   _recordTextEdits: boolean;
+  /** @internal Number of consumers requesting split provenance only. */
+  _recordTextSplits: number;
   /** @internal */
   _parentEditor: null | LexicalEditor;
   /** @internal */
@@ -1342,6 +1344,7 @@ export class LexicalEditor {
     this._headless = parentEditor !== null && parentEditor._headless;
     this._recordNodeMoves = false;
     this._recordTextEdits = false;
+    this._recordTextSplits = 0;
     this._window = null;
     this._blockCursorElement = null;
     this._slotsUsed = false;

@@ -256,6 +256,7 @@ function $isInsertedText(
   text: string,
   start: number,
   end: number,
+  caret: number,
 ): boolean {
   // @internal access: the node in the committed state
   const prev = editor.getEditorState()._nodeMap.get(node.getKey());
@@ -273,9 +274,23 @@ function $isInsertedText(
   while (prefix < max && prevText[prefix] === text[prefix]) {
     prefix++;
   }
+  // The caret disambiguates repeated text only when both sides agree that
+  // the insertion ends there. Code can edit earlier text and leave the caret
+  // elsewhere. Capture it before the transform splits or replaces any text.
+  const startOfInsertion = caret - (text.length - prevText.length);
+  if (
+    caret >= 0 &&
+    prefix >= startOfInsertion &&
+    prevText.endsWith(text.slice(caret))
+  ) {
+    return start >= startOfInsertion && end <= caret && end > start;
+  }
   let suffix = 0;
+  // Repeated characters can make the insertion boundary ambiguous. Find the
+  // suffix independently of the prefix so that either possible alignment
+  // preserves the state of characters that may have existed before the edit.
   while (
-    suffix < max - prefix &&
+    suffix < max &&
     prevText[prevText.length - 1 - suffix] === text[text.length - 1 - suffix]
   ) {
     suffix++;
@@ -501,6 +516,14 @@ export function registerLexicalTextEntity<T extends TextNode>(
     if (!node.isSimpleText()) {
       return;
     }
+    const selection = $getSelection();
+    const caret =
+      $isRangeSelection(selection) &&
+      selection.isCollapsed() &&
+      selection.anchor.type === 'text' &&
+      selection.anchor.key === node.getKey()
+        ? selection.anchor.offset
+        : -1;
     // Text split off the end of an entity in this update: its pieces do not
     // give their NodeState to the entities made from them
     const splitOff = $splitOff(editor).has(node.getKey())
@@ -716,7 +739,7 @@ export function registerLexicalTextEntity<T extends TextNode>(
         .setDetail(nodeToReplace.getDetail());
       if (
         splitOff === null &&
-        !$isInsertedText(editor, node, nodeText, matchStart, matchEnd)
+        !$isInsertedText(editor, node, nodeText, matchStart, matchEnd, caret)
       ) {
         // The NodeState of the text becomes the entity's
         $carryNodeState(nodeToReplace, replacementNode);

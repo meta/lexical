@@ -212,6 +212,15 @@ export class EditorState {
    */
   _splitNodes: null | WeakMap<NodeMap, Map<NodeKey, [NodeKey, number]>>;
   /**
+   * @internal Split pieces and their same-text replacements, with their
+   * original source, offset and text before its first split. Kept separate
+   * from the Yjs split map, which contains split operations only.
+   */
+  _splitTextOrigins: null | WeakMap<
+    NodeMap,
+    Map<NodeKey, {source: NodeKey; offset: number; text: string}>
+  >;
+  /**
    * The changes of text nodes' text during the update, in order (see
    * TextEditRecord), keyed by the previous node map like `_movedNodes`:
    * - TextNode#spliceText, with its exact offsets, as the selection's text
@@ -252,6 +261,7 @@ export class EditorState {
     this._nodeMap = nodeMap;
     this._movedNodes = null;
     this._splitNodes = null;
+    this._splitTextOrigins = null;
     this._textEdits = null;
     this._selection = selection || null;
     this._flushSync = false;

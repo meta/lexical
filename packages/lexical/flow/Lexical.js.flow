@@ -277,6 +277,7 @@ declare export class LexicalEditor {
   _headless: boolean;
   _recordNodeMoves: boolean;
   _recordTextEdits: boolean;
+  _recordTextSplits: number;
   isComposing(): boolean;
   registerUpdateListener(listener: UpdateListener): () => void;
   registerRootListener(listener: RootListener): () => void;
@@ -456,6 +457,7 @@ export interface EditorState {
   _nodeMap: NodeMap;
   _movedNodes: null | WeakMap<NodeMap, Set<NodeKey>>;
   _splitNodes: null | WeakMap<NodeMap, Map<NodeKey, [NodeKey, number]>>;
+  _splitTextOrigins: null | WeakMap<NodeMap, Map<NodeKey, {source: NodeKey; offset: number; text: string}>>;
   _textEdits: null | WeakMap<
     NodeMap,
     Array<
