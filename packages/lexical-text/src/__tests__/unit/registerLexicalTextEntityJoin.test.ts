@@ -423,6 +423,130 @@ describe('entities of two registrations that touch', () => {
   });
 });
 
+describe('a hashtag before differently formatted text', () => {
+  test('typing before a bold word keeps its format and the caret position', () => {
+    const editor = createHashtagEditor();
+    editor.update(
+      () => {
+        const text = $createTextNode('foobar');
+        $getRoot().append(
+          $createParagraphNode().append(
+            $createTextNode('bold').setFormat('bold'),
+            text,
+            $createTextNode('bold').setFormat('bold'),
+          ),
+        );
+        text.select(3, 3);
+      },
+      {discrete: true},
+    );
+    for (const character of ' #tag ') {
+      editor.update(
+        () => {
+          const selection = $getSelection();
+          if (!$isRangeSelection(selection)) {
+            throw new Error('Expected a range selection');
+          }
+          selection.insertText(character);
+        },
+        {discrete: true},
+      );
+    }
+    expect(read(editor)).toEqual([
+      ['text', 'bold', 1, ''],
+      ['text', 'foo ', 0, ''],
+      ['hashtag', '#tag', 0, ''],
+      ['text', ' bar', 0, ''],
+      ['text', 'bold', 1, ''],
+    ]);
+    editor.read(() => {
+      const selection = $getSelection();
+      expect($isRangeSelection(selection)).toBe(true);
+      if ($isRangeSelection(selection)) {
+        expect(selection.isCollapsed()).toBe(true);
+        expect(selection.anchor.getNode().getTextContent()).toBe(' bar');
+        expect(selection.anchor.offset).toBe(1);
+      }
+    });
+  });
+
+  test.each([
+    {
+      end: 3,
+      expected: [
+        ['hashtag', '#fo', 1, ''],
+        ['text', 'obar', 0, ''],
+      ],
+      start: 0,
+    },
+    {
+      end: 7,
+      expected: [
+        ['hashtag', '#foo', 0, ''],
+        ['text', 'bar', 1, ''],
+      ],
+      start: 4,
+    },
+  ])(
+    'formatting a hashtag from $start to $end preserves the boundary',
+    ({start, end, expected}) => {
+      const editor = createHashtagEditor();
+      editor.update(
+        () => {
+          $getRoot().append(
+            $createParagraphNode().append($createHashtagNode('#foobar')),
+          );
+        },
+        {discrete: true},
+      );
+      editor.update(
+        () => {
+          $getRoot().getAllTextNodes()[0].select(start, end).formatText('bold');
+        },
+        {discrete: true},
+      );
+      expect(read(editor)).toEqual(expected);
+    },
+  );
+
+  test('typing with bold enabled at the end stays outside the hashtag', () => {
+    const editor = createHashtagEditor();
+    editor.update(
+      () => {
+        const hashtag = $createHashtagNode('#foo');
+        $getRoot().append($createParagraphNode().append(hashtag));
+        hashtag.selectEnd().toggleFormat('bold');
+      },
+      {discrete: true},
+    );
+    for (const character of 'xy') {
+      editor.update(
+        () => {
+          const selection = $getSelection();
+          if (!$isRangeSelection(selection)) {
+            throw new Error('Expected a range selection');
+          }
+          selection.insertText(character);
+        },
+        {discrete: true},
+      );
+    }
+    expect(read(editor)).toEqual([
+      ['hashtag', '#foo', 0, ''],
+      ['text', 'xy', 1, ''],
+    ]);
+    editor.read(() => {
+      const selection = $getSelection();
+      expect($isRangeSelection(selection)).toBe(true);
+      if ($isRangeSelection(selection)) {
+        expect(selection.isCollapsed()).toBe(true);
+        expect(selection.anchor.getNode().getTextContent()).toBe('xy');
+        expect(selection.anchor.offset).toBe(2);
+      }
+    });
+  });
+});
+
 describe('an entity that may not be kept does not grow', () => {
   class PhraseNode extends TextNode {
     $config() {
