@@ -21,6 +21,50 @@ const ruleTester = new RuleTester({
 const rule = plugin.rules['no-nested-editor-updates'];
 
 describe('no-nested-editor-updates', () => {
+  it('leaves async contexts alone while checking nested synchronous contexts', () => {
+    ruleTester.run('async contexts', rule, {
+      invalid: [
+        {
+          code: `editor.registerCommand(COMMAND, async () => {
+  await load();
+  editor.update(() => {
+    editor.update(() => {});
+  });
+  return true;
+}, COMMAND_PRIORITY_EDITOR);`,
+          errors: [{messageId: 'noNestedEditorUpdates'}],
+        },
+      ],
+      valid: [
+        `editor.registerCommand(COMMAND, async payload => {
+  const text = await upload(payload);
+  editor.update(() => $getRoot().append($createTextNode(text)));
+  return true;
+}, COMMAND_PRIORITY_EDITOR);`,
+        `editor.registerNodeTransform(TextNode, async function(node) {
+  const text = await load(node.getTextContent());
+  editor.update(() => node.setTextContent(text));
+});`,
+        `editor.update(async () => {
+  await load();
+  editor.update(() => {});
+});`,
+        `editor.read(async () => {
+  await load();
+  editor.update(() => {});
+});`,
+        `editor.read('latest', async () => {
+  await load();
+  editor.update(() => {});
+});`,
+        `async function $updateSomething(editor) {
+  await load();
+  editor.update(() => {});
+}`,
+      ],
+    });
+  });
+
   it('reports ambiguous $function ownership without flagging child editors', () => {
     ruleTester.run('$functions', rule, {
       invalid: [

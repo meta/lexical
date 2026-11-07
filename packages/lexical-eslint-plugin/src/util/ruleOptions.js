@@ -16,6 +16,18 @@ const DEFAULT_DOLLAR_FUNCTION_MATCHER = /^\$[a-z_]/;
 
 /**
  * @param {RuleContext} context
+ * @returns {import('eslint').SourceCode}
+ */
+function getSourceCode(context) {
+  if (context.sourceCode) {
+    return context.sourceCode;
+  }
+  // @ts-expect-error -- getSourceCode() removed from types in ESLint 10, kept for ESLint 8 compat
+  return context.getSourceCode();
+}
+
+/**
+ * @param {RuleContext} context
  * @param {string} optionName
  * @returns {ToMatcher}
  */
@@ -30,4 +42,9 @@ const matcherSchema = {
   oneOf: [{type: 'string'}, {contains: {type: 'string'}, type: 'array'}],
 };
 
-export {DEFAULT_DOLLAR_FUNCTION_MATCHER, matcherSchema, parseMatcherOption};
+export {
+  DEFAULT_DOLLAR_FUNCTION_MATCHER,
+  getSourceCode,
+  matcherSchema,
+  parseMatcherOption,
+};

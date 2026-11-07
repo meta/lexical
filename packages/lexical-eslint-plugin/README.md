@@ -134,6 +134,10 @@ reference, aliases between differently named editor variables, or another
 nested callback such as `setTimeout(() => editor.update(...))`. There is no
 autofix.
 
+Async callbacks and async $functions are also left alone because code after
+an `await` no longer has the surrounding editor context. A synchronous
+editor callback nested inside an async function is still checked.
+
 
 ### Advanced configuration
 

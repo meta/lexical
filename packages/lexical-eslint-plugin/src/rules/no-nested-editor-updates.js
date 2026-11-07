@@ -14,6 +14,7 @@ import {
 } from '../util/getLexicalFunctionName.js';
 import {
   DEFAULT_DOLLAR_FUNCTION_MATCHER,
+  getSourceCode,
   matcherSchema,
   parseMatcherOption,
 } from '../util/ruleOptions.js';
@@ -407,7 +408,7 @@ function getEditorCallbackContext(node, matchers) {
 export const noNestedEditorUpdates = {
   create(context) {
     const matchers = compileMatchers(context);
-    const sourceCode = context.sourceCode;
+    const sourceCode = getSourceCode(context);
 
     return {
       CallExpression: node => {
@@ -417,7 +418,8 @@ export const noNestedEditorUpdates = {
           return;
         }
         const enclosingFunction = getEnclosingFunction(node);
-        if (!enclosingFunction) {
+        // An async function may resume after its editor context has ended.
+        if (!enclosingFunction || enclosingFunction.async) {
           return;
         }
         const editorCallbackContext = getEditorCallbackContext(

@@ -14,6 +14,7 @@ import {
 } from '../util/getLexicalFunctionName.js';
 import {
   DEFAULT_DOLLAR_FUNCTION_MATCHER,
+  getSourceCode,
   matcherSchema,
   parseMatcherOption,
 } from '../util/ruleOptions.js';
@@ -186,7 +187,7 @@ function renameExportText({caller, suggestName}) {
 /** @type {RuleModule} */
 export const rulesOfLexical = {
   create(context) {
-    const sourceCode = context.sourceCode;
+    const sourceCode = getSourceCode(context);
     const matchers = compileMatchers(context);
 
     /**
