@@ -11,7 +11,7 @@ import type {ReadonlySignal, Signal} from '@lexical/extension/signals';
 import type {EditorState, LexicalEditor, LexicalExtension} from 'lexical';
 
 export type HotContext = {
-  readonly data: {[string]: unknown},
+  readonly data: {[key: string]: unknown},
 };
 
 interface HMRInit {

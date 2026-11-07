@@ -24,7 +24,7 @@ import type {Signal} from '@lexical/extension';
 
 type AnyContextSymbol = symbol;
 
-type ContextRecord<K extends symbol> = {readonly [string | symbol]: unknown};
+type ContextRecord<K extends symbol> = {readonly [key: string | symbol]: unknown};
 
 type ContextConfig<Sym extends symbol, V> = StateConfig<symbol, V>;
 

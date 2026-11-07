@@ -79,7 +79,7 @@ declare export function $getNearestNodeOfType<T extends LexicalNode>(
 ): T | null;
 export type DOMNodeToLexicalConversion = (element: Node) => LexicalNode;
 export type DOMNodeToLexicalConversionMap = {
-  [string]: DOMNodeToLexicalConversion,
+  [key: string]: DOMNodeToLexicalConversion,
 };
 declare export function $findMatchingParent(
   startingNode: LexicalNode,

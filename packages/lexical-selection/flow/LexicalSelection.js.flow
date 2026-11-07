@@ -21,13 +21,13 @@ import type {
 declare export function $cloneWithProperties<T extends LexicalNode>(node: T): T;
 /** @deprecated moved to the lexical package */
 declare export function getStyleObjectFromCSS(css: string): {
-  [string]: string,
+  [key: string]: string,
 };
 declare export function getCSSFromStyleObject(styles: Record<string, string>): string;
 declare export function $patchStyleText(
   selection: BaseSelection,
   patch: {
-    [string]: string | null,
+    [key: string]: string | null,
   },
 ): void;
 declare export function $getSelectionStyleValueForProperty(
