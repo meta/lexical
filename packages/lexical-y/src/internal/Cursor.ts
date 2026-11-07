@@ -1461,6 +1461,24 @@ export class Cursor {
   }
 
   /**
+   * Delete the elements no editor shows (see leftOut) from the cursor up to
+   * `stop` (exclusive), without moving: where a delete reached the end of
+   * old content, they would otherwise stay before the next content (see
+   * delete).
+   */
+  deleteLeftOutBefore(stop: Item | null): void {
+    const leftOut = this.leftOut;
+    if (leftOut === null) {
+      return;
+    }
+    for (let it = this.right; it !== null && it !== stop; it = it.right) {
+      if (isLiveContent(this.view, it) && leftOut(it)) {
+        deleteItemIn(this.view, it, this.tr);
+      }
+    }
+  }
+
+  /**
    * Whether format item `item` is one this client wrote, before this
    * transaction, right next to text of its own in the same insert: the null
    * right before the text (`before`: the text's origin is the null) or the

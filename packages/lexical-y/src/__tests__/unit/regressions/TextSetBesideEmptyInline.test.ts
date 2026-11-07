@@ -20,6 +20,7 @@
 // line takes it along).
 
 import {$createMarkNode, $wrapSelectionInMarkNode} from '@lexical/mark';
+import {$createHeadingNode} from '@lexical/rich-text';
 import * as Y from '@y/y';
 import {
   $create,
@@ -43,6 +44,7 @@ import {
   freshReader,
   NODES,
   setup,
+  WidgetNode,
 } from '../../utils/harness';
 
 async function run(gc: boolean, edit: 'compose' | 'set' | 'insert') {
@@ -415,6 +417,81 @@ describe.each([false, true])(
       runLineRemoval(gc, 'late text'));
     test('its text brought back by an undo does not reappear in the next line', () =>
       runLineRemoval(gc, 'undo'));
+  },
+);
+
+// The same with a line without a marker (text a concurrent join left before
+// a block node) that ends with the emptied element: removing the line takes
+// the element too, where no end item follows for the delete to meet.
+async function runMarkerlessLineRemoval(gc: boolean, how: 'remove' | 'range') {
+  const t = await setup(
+    () =>
+      $getRoot().append(
+        $createHeadingNode('h1').append($createTextNode('Title')),
+        $createParagraphNode().append(
+          $createTextNode('one'),
+          $createMarkNode(['c1']).append($createTextNode('ab')),
+        ),
+        $createParagraphNode().append($createTextNode('two')),
+      ),
+    {gc, ids: [1, 2, 3]},
+  );
+  const {a, b, c} = t;
+  t.offline();
+  // A joins the line with the next while B inserts a block node between.
+  a.update(() => {
+    ($getRoot().getChildAtIndex(1) as ElementNode)
+      .selectEnd()
+      .deleteCharacter(false);
+    $setSelection(null);
+  });
+  b.update(() => {
+    $getRoot().getChildAtIndex(1)!.insertAfter($create(WidgetNode));
+    $setSelection(null);
+  });
+  await t.sync();
+  t.offline();
+  b.update(() => {
+    $selectIn([1], 3, 4).removeText();
+    $setSelection(null);
+  });
+  c!.update(() => {
+    $selectIn([1], 4, 5).removeText();
+    $setSelection(null);
+  });
+  await t.sync();
+  expect(a.describe()).toBe(
+    'heading[h1]("Title") / paragraph("one") / test_widget / paragraph("two")',
+  );
+  a.update(() => {
+    if (how === 'remove') {
+      $getRoot().getChildAtIndex(1)!.remove();
+    } else {
+      // A range delete from the end of the title.
+      const selection = $selectIn([0], 5);
+      const line = $getRoot().getChildAtIndex(1) as ElementNode;
+      selection.focus.set(line.getKey(), line.getChildrenSize(), 'element');
+      selection.removeText();
+    }
+    $setSelection(null);
+  });
+  await t.sync();
+  const fresh = await freshReader(a);
+  expect(fresh.describe()).toBe(a.describe());
+  fresh.stop();
+  expect(a.describe()).toBe(
+    'heading[h1]("Title") / test_widget / paragraph("two")',
+  );
+  await expectConverged(t.peers);
+}
+
+describe.each([false, true])(
+  'a line without a marker removed with an inline element no editor shows, gc %s',
+  gc => {
+    test('removed: no empty paragraph is left for other clients', () =>
+      runMarkerlessLineRemoval(gc, 'remove'));
+    test('deleted by a range from the end of the title: no empty paragraph is left for other clients', () =>
+      runMarkerlessLineRemoval(gc, 'range'));
   },
 );
 
