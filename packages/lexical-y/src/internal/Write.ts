@@ -2795,6 +2795,11 @@ export class Writer {
         const c = this.cursor(cs.y, left, startFormats);
         this.frontier = null;
         c.advance(atoms.length);
+        // The old content's elements no editor shows after its last unit go
+        // (as a rewrite of the line deleted them): left there, they would
+        // follow the end item, as a line of their own the editor does not
+        // have.
+        c.deleteLeftOutBefore(oldStop);
         const lastD = desired[lines[lines.length - 1]];
         items.set(
           atoms.length,
@@ -3290,6 +3295,9 @@ export class Writer {
         );
         const c = this.cursor(u.cs.y, left, u.start || EMPTY_FORMATS);
         c.advance(at);
+        // As for a sequence's open tail: the elements no editor shows after
+        // the content's last unit go, or they would follow the marker.
+        c.deleteLeftOutBefore(stop);
         end = c.insertPlain(new ContentType(new YNode(MARKER)));
       } finally {
         this.frontier = null;

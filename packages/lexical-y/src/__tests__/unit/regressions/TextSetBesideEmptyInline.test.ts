@@ -422,8 +422,13 @@ describe.each([false, true])(
 
 // The same with a line without a marker (text a concurrent join left before
 // a block node) that ends with the emptied element: removing the line takes
-// the element too, where no end item follows for the delete to meet.
-async function runMarkerlessLineRemoval(gc: boolean, how: 'remove' | 'range') {
+// the element too, where no end item follows for the delete to meet, and an
+// edit that keeps the line ends it with its marker after the element is gone
+// (left there, the element would follow the marker as a line of its own).
+async function runMarkerlessLineRemoval(
+  gc: boolean,
+  how: 'remove' | 'range' | 'edit',
+) {
   const t = await setup(
     () =>
       $getRoot().append(
@@ -464,7 +469,14 @@ async function runMarkerlessLineRemoval(gc: boolean, how: 'remove' | 'range') {
     'heading[h1]("Title") / paragraph("one") / test_widget / paragraph("two")',
   );
   a.update(() => {
-    if (how === 'remove') {
+    if (how === 'edit') {
+      // An edit inside the line that keeps it (its last characters stay).
+      (
+        (
+          $getRoot().getChildAtIndex(1) as ElementNode
+        ).getFirstChild() as TextNode
+      ).setTextContent('oe');
+    } else if (how === 'remove') {
       $getRoot().getChildAtIndex(1)!.remove();
     } else {
       // A range delete from the end of the title.
@@ -480,7 +492,9 @@ async function runMarkerlessLineRemoval(gc: boolean, how: 'remove' | 'range') {
   expect(fresh.describe()).toBe(a.describe());
   fresh.stop();
   expect(a.describe()).toBe(
-    'heading[h1]("Title") / test_widget / paragraph("two")',
+    how === 'edit'
+      ? 'heading[h1]("Title") / paragraph("oe") / test_widget / paragraph("two")'
+      : 'heading[h1]("Title") / test_widget / paragraph("two")',
   );
   await expectConverged(t.peers);
 }
@@ -492,6 +506,8 @@ describe.each([false, true])(
       runMarkerlessLineRemoval(gc, 'remove'));
     test('deleted by a range from the end of the title: no empty paragraph is left for other clients', () =>
       runMarkerlessLineRemoval(gc, 'range'));
+    test('edited inside, keeping its end: no empty paragraph is left for other clients', () =>
+      runMarkerlessLineRemoval(gc, 'edit'));
   },
 );
 
