@@ -39,8 +39,8 @@ import {
 import {describe, expect, test} from 'vitest';
 
 import {
-  $runOutdentScenario,
   OUTDENT_SCENARIOS,
+  runOutdentScenario,
 } from '../../../../lexical-code-core/src/__tests__/outdentTestUtils';
 
 describe('LexicalCodeNode tests', () => {
@@ -262,7 +262,7 @@ describe('LexicalCodeNode tests', () => {
           ],
           name: 'prism-outdent',
         });
-        const {text, cursor} = $runOutdentScenario(
+        const {text, cursor} = runOutdentScenario(
           editor,
           rawText,
           cursorOffset,

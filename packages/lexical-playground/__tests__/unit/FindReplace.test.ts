@@ -1094,7 +1094,7 @@ describe('FindReplaceExtension — command dispatch integration', () => {
     expect(dep.output.isRegex.peek()).toBe(true);
   });
 
-  test('REPLACE_CURRENT_COMMAND replaces the current match', () => {
+  test('REPLACE_CURRENT_COMMAND replaces the current match synchronously', () => {
     using editor = buildEditorFromExtensions(FindReplaceExtension);
     const dep = getExtensionDependencyFromEditor(editor, FindReplaceExtension);
     editor.update(
@@ -1112,12 +1112,12 @@ describe('FindReplaceExtension — command dispatch integration', () => {
     dep.output.replaceTerm.value = 'baz';
     expect(dep.output.matches.peek()).toHaveLength(2);
     editor.dispatchCommand(REPLACE_CURRENT_COMMAND);
-    editor.read(() => {
+    editor.getEditorState().read(() => {
       expect($getRoot().getTextContent()).toBe('baz bar foo');
     });
   });
 
-  test('REPLACE_ALL_COMMAND replaces all matches', () => {
+  test('REPLACE_ALL_COMMAND replaces all matches synchronously', () => {
     using editor = buildEditorFromExtensions(FindReplaceExtension);
     const dep = getExtensionDependencyFromEditor(editor, FindReplaceExtension);
     editor.update(
@@ -1135,7 +1135,7 @@ describe('FindReplaceExtension — command dispatch integration', () => {
     dep.output.replaceTerm.value = 'qux';
     expect(dep.output.matches.peek()).toHaveLength(2);
     editor.dispatchCommand(REPLACE_ALL_COMMAND);
-    editor.read(() => {
+    editor.getEditorState().read(() => {
       expect($getRoot().getTextContent()).toBe('qux bar qux');
     });
   });

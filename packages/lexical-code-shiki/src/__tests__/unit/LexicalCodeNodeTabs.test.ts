@@ -49,8 +49,8 @@ import {
 import {assert, describe, expect, test} from 'vitest';
 
 import {
-  $runOutdentScenario,
   OUTDENT_SCENARIOS,
+  runOutdentScenario,
 } from '../../../../lexical-code-core/src/__tests__/outdentTestUtils';
 import {isCodeThemeLoaded} from '../../FacadeShiki';
 
@@ -309,7 +309,7 @@ describe('LexicalCodeNode tests', () => {
           ],
           name: 'shiki-outdent',
         });
-        const {text, cursor} = $runOutdentScenario(
+        const {text, cursor} = runOutdentScenario(
           editor,
           rawText,
           cursorOffset,

@@ -318,6 +318,7 @@ function $editOnce(done: WeakSet<LexicalEditor>, kind: Edit): void {
     cell.append($createTextNode('loose'));
   } else if (kind === 'update the app queues') {
     // Lexical runs it in the read's update, behind the read.
+    // eslint-disable-next-line @lexical/no-nested-editor-updates -- This test verifies app edits queued behind a remote change's read.
     editor.update(() => {
       const text = (
         $getRoot().getChildAtIndex(2) as ParagraphNode
