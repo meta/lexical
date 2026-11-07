@@ -64,10 +64,12 @@ describe('code block leading blank lines', () => {
     expect(roundTrip('```js\ncode\n```')).toBe('```js\ncode\n```');
   });
 
-  it('still treats text after the opening fence as content', () => {
-    expect(importCodeText('``` code\nmore\n```')).toBe('code\nmore');
-    expect(importCodeText('```javascript Incomplete tag')).toBe(
-      'Incomplete tag',
-    );
+  it('treats text after the opening fence as the info string', () => {
+    expect(importCodeText('``` code\nmore\n```')).toBe('more');
+    expect(importCodeText('```javascript Incomplete tag')).toBe('');
+  });
+
+  it('keeps a blank first line of an unterminated fence with an info string', () => {
+    expect(importCodeText('```js title=x\n\ncode')).toBe('\ncode');
   });
 });
