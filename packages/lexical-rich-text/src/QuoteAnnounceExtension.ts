@@ -14,6 +14,7 @@ import {
   $getSelection,
   $isParagraphNode,
   $isRangeSelection,
+  $isRootOrShadowRoot,
   defineExtension,
   type EditorState,
   type NodeKey,
@@ -122,7 +123,16 @@ export const QuoteAnnounceExtension = defineExtension({
           return null;
         }
         const node = selection.anchor.getNode();
-        const block = node.getTopLevelElement() ?? node;
+        // getTopLevelElement() throws for a text node whose parent is the
+        // root or a shadow root, a state this listener has to survive.
+        let block = node;
+        for (
+          let parent = node.getParent();
+          parent !== null && !$isRootOrShadowRoot(parent);
+          parent = parent.getParent()
+        ) {
+          block = parent;
+        }
         const quote = $findMatchingParent(node, $isQuoteNode);
         return {
           block: block.getKey(),
@@ -257,7 +267,8 @@ export const QuoteAnnounceExtension = defineExtension({
                     )
                   ) {
                     const level = $headingLevel(editorState, after.block);
-                    // Where the caret landed, then the quote it replaced.
+                    // Where the caret landed, then the quote it replaced. When
+                    // nothing else speaks for the new block, the removal does.
                     if (level !== null && !headingDisabled.peek()) {
                       announce(
                         joinSwap(
@@ -265,8 +276,8 @@ export const QuoteAnnounceExtension = defineExtension({
                           destroyed.peek(),
                         ),
                       );
+                      return;
                     }
-                    return;
                   }
                   // Removing the lower of two quotes leaves the caret inside
                   // the one above, which is worth saying as well.

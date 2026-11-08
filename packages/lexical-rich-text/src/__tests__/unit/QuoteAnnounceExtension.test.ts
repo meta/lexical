@@ -11,6 +11,7 @@ import {
   buildEditorFromExtensions,
   defineExtension,
   getExtensionDependencyFromEditor,
+  getPeerDependencyFromEditor,
   type LexicalEditorWithDispose,
 } from '@lexical/extension';
 import {HistoryExtension} from '@lexical/history';
@@ -19,6 +20,7 @@ import {
   $createHeadingNode,
   $createQuoteNode,
   $isQuoteNode,
+  HeadingAnnounceExtension,
   QuoteAnnounceExtension,
   RichTextExtension,
 } from '@lexical/rich-text';
@@ -283,8 +285,9 @@ describe('QuoteAnnounceExtension', () => {
     await Promise.resolve();
     observer.disconnect();
 
-    // Where the caret landed first, then the quote that was removed.
-    // The heading is not written on its own.
+    // Where the caret landed first, then the quote that was removed. The
+    // heading announcer writes "Heading level 2" first and this extension
+    // replaces it in the same task, so only the combined line is left.
     expect({final: readLiveRegion(), seen}).toEqual({
       final: 'Heading level 2, block quote removed',
       seen: ['Heading level 2, block quote removed'],
@@ -343,6 +346,46 @@ describe('QuoteAnnounceExtension', () => {
 
     // Nothing announces a paragraph, so this is the only report there is.
     expect(readLiveRegion()).toBe('Block quote removed');
+  });
+
+  test('still reports removal when the heading announcer is off', () => {
+    using editor = buildEditor();
+    getExtensionDependencyFromEditor(
+      editor,
+      HeadingAnnounceExtension,
+    ).output.disabled.value = true;
+    addQuote(editor);
+    clearLiveRegion();
+
+    editor.update(
+      () => $setBlocksType($getSelection(), () => $createHeadingNode('h2')),
+      {discrete: true},
+    );
+
+    // Nothing else speaks for the new block, so the removal does.
+    expect(readLiveRegion()).toBe('Block quote removed');
+  });
+
+  test('does not throw when the caret is in a text node directly under a shadow root', () => {
+    using editor = buildEditor();
+    const updates: string[] = [];
+    editor.registerUpdateListener(() => void updates.push('later listener'));
+
+    // Without the transforms that would wrap it, the text node sits straight
+    // under the quote, which is a shadow root. getTopLevelElement() throws
+    // for that state.
+    editor.update(
+      () => {
+        const quote = $createQuoteNode({shadowRoot: true});
+        const text = $createTextNode('inside');
+        quote.append(text);
+        $getRoot().clear().append(quote);
+        text.select();
+      },
+      {discrete: true, skipTransforms: true},
+    );
+
+    expect(updates).toEqual(['later listener']);
   });
 
   test('says what undo and redo actually changed', () => {
@@ -436,6 +479,11 @@ describe('QuoteAnnounceExtension', () => {
       discrete: true,
     });
 
+    // Plain text must not pull the quote announcer in. Its dependencies
+    // register heading nodes, which a plain text editor does not have.
+    expect(
+      getPeerDependencyFromEditor(editor, QuoteAnnounceExtension.name),
+    ).toBeUndefined();
     expect(readLiveRegion()).toBe('');
   });
 });
