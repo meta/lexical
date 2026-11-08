@@ -482,7 +482,10 @@ describe('QuoteAnnounceExtension', () => {
     // Plain text must not pull the quote announcer in. Its dependencies
     // register heading nodes, which a plain text editor does not have.
     expect(
-      getPeerDependencyFromEditor(editor, QuoteAnnounceExtension.name),
+      getPeerDependencyFromEditor<typeof QuoteAnnounceExtension>(
+        editor,
+        QuoteAnnounceExtension.name,
+      ),
     ).toBeUndefined();
     expect(readLiveRegion()).toBe('');
   });

@@ -127,6 +127,8 @@ Experimental micromark/mdast-based Markdown support (every extension in this pac
 
 [@lexical/rich-text](/docs/api/modules/lexical_rich-text)
 
+- [HeadingAnnounceExtension](/docs/api/modules/lexical_rich-text#headingannounceextension) - Announces heading changes through the live region, included by default with `RichTextExtension`
+- [QuoteAnnounceExtension](/docs/api/modules/lexical_rich-text#quoteannounceextension) - Announces block quote changes through the live region, included by default with `RichTextExtension`
 - [RichTextExtension](/docs/api/modules/lexical_rich-text#richtextextension) - Rich Text editor (QuoteNode, HeadingNode), the return key creates a ParagraphNode by default (multiple ParagraphNode per document). Includes configurable `escapeFormatTriggers` to escape text formatting (e.g. code) at text node boundaries, and `shouldHandlePasteAsFiles` to control whether files win over incidental text/HTML clipboard entries on paste
 
 [@lexical/table](/docs/api/modules/lexical_table)
