@@ -6,7 +6,7 @@
  *
  */
 import {buildEditorFromExtensions, defineExtension} from '@lexical/extension';
-import {RichTextExtension} from '@lexical/rich-text';
+import {$createQuoteNode, RichTextExtension} from '@lexical/rich-text';
 import {
   $createLineBreakNode,
   $createParagraphNode,
@@ -134,6 +134,24 @@ describe('ParagraphNode.collapseAtStart', () => {
 
     editor.read(() => {
       expect($blocks()).toEqual(['world']);
+    });
+  });
+
+  test('collapses first QuoteNode at start in a headless editor without window (#9849)', () => {
+    using editor = buildEditorFromExtensions(ext);
+    editor.update(
+      () => {
+        const quote = $createQuoteNode().append($createTextNode('quote'));
+        $getRoot().clear().append(quote);
+        quote.selectStart();
+      },
+      {discrete: true},
+    );
+
+    expect(() => backspace(editor)).not.toThrow();
+
+    editor.read(() => {
+      expect($getRoot().getChildren().map(n => n.getType())).toEqual(['paragraph']);
     });
   });
 });
