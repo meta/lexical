@@ -448,13 +448,13 @@ function $insertText(
     // text node so that the recursive insertText can proceed.
     if (anchorNode.isSegmented() && offset !== 0 && offset !== anchorSize) {
       if ($getCompositionKey() !== null) {
-        anchorNode.setMode('normal').setFormat(format).setStyle(style);
+        anchorNode.setMode('normal');
         getActiveEditor()._inputState.composedSegmentedKey =
           anchorNode.getKey();
       } else {
         const replacement = $createTextNode(anchorNode.getTextContent());
-        replacement.setFormat(format);
-        replacement.setStyle(style);
+        replacement.setFormat(anchorNode.getFormat());
+        replacement.setStyle(anchorNode.getStyle());
         replacement.setDetail(anchorNode.getDetail());
         // The characters keep their NodeState (comment ids, for example)
         $carryNodeState(anchorNode, replacement);
