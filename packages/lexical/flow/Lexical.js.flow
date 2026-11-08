@@ -123,7 +123,7 @@ type TextContentListener = (text: string) => void;
 type ErrorHandler = (error: Error) => void;
 export type MutationListener = (
   nodes: Map<NodeKey, NodeMutation>,
-  {
+  v1: {
     updateTags: Set<string>,
     dirtyLeaves: Set<string>,
     prevEditorState: EditorState,
@@ -756,8 +756,8 @@ type TextPointType = {
   key: NodeKey,
   offset: number,
   type: 'text',
-  is: (PointType) => boolean,
-  isBefore: (PointType) => boolean,
+  is: (v: PointType) => boolean,
+  isBefore: (v: PointType) => boolean,
   getNode: () => TextNode,
   set: (key: NodeKey, offset: number, type: 'text' | 'element') => void,
   getCharacterOffset: () => number,
@@ -767,8 +767,8 @@ type ElementPointType = {
   key: NodeKey,
   offset: number,
   type: 'element',
-  is: (PointType) => boolean,
-  isBefore: (PointType) => boolean,
+  is: (v: PointType) => boolean,
+  isBefore: (v: PointType) => boolean,
   getNode: () => ElementNode,
   set: (key: NodeKey, offset: number, type: 'text' | 'element') => void,
 };

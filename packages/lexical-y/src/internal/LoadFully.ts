@@ -9,6 +9,68 @@
 // Loading stored Yjs bytes so that the document shows what the document they
 // were encoded from showed (D112).
 //
+// TEMPORARY: this module is our workaround for a @y/y bug, yjs/yjs#824
+// (https://github.com/yjs/yjs/issues/824), whose upstream fix is
+// yjs/yjs#827 (https://github.com/yjs/yjs/pull/827). It exists only until
+// a @y/y release that contains that fix (or an equivalent one) is the
+// version @lexical/y supports; then drop it in favor of @y/y's own decode.
+// Removal steps:
+//
+// 1. Before the bump, keep bytes stored the old way: under @y/y
+//    14.0.0-rc.29, write the stored states of the outcome cases of
+//    src/__tests__/unit/regressions/LoadAcrossGap.test.ts (states with a
+//    gap) and what the repaired load shows to fixtures, since those cases
+//    generate their states with whichever @y/y is installed.
+// 2. Bump @y/y to the fixed release in all three pins:
+//    packages/lexical-y/package.json's peerDependencies and
+//    devDependencies, and packages/lexical-playground/package.json's
+//    dependencies; then `pnpm install` (refreshing pnpm-lock.yaml) and
+//    `pnpm run update-version` (which regenerates SupportedYjs.ts). "the
+//    supported version" test in YjsContract.test.ts checks that the pins
+//    and the installed @y/y agree. The signal that the fix is in: the test
+//    "the installed @y/y still needs the loader repair" in
+//    src/__tests__/unit/YjsContract.test.ts fails, and the development
+//    probe (YjsContract's probeGapLoad) logs GAP_REPAIR_RETIRABLE_WARNING
+//    instead of refusing that @y/y (D114).
+// 3. Check D112's removal condition before deleting anything: the fixed
+//    @y/y must load the states already stored with the old batching as this
+//    repair does. Load the fixtures from step 1, unchanged, with a plain
+//    `applyUpdate`, and check each shows what the repaired load showed;
+//    keep that as a plain-load regression test.
+// 4. Delete this module and its mechanism tests:
+//    - src/internal/LoadFully.ts;
+//    - the rest of src/__tests__/unit/regressions/LoadAcrossGap.test.ts
+//      (everything that uses what it imports from LoadFully:
+//      applyStoredState, GapRepairYjs, integrateHeldBehindGapsWith,
+//      LOAD_COUNTERS, LOAD_PLAN_COUNTERS, LOAD_TEST_HOOKS,
+//      MAX_SUFFIX_APPLIES, MAX_TRIAL_VISITS, planGapRepairForTests);
+//    - src/__tests__/unit/regressions/FixedYjsNotRefused.test.ts (it builds
+//      a fixed @y/y from this module's repair);
+//    - in src/internal/YjsContract.ts: probeGapLoad and its call in
+//      probeMembers, GAP_PROBE_KINDS and the `!__DEV__ &&
+//      GAP_PROBE_KINDS.has(kind)` skip in probeMembers' check of every kind,
+//      GapRepairStatus, the `gapRepair` variable, getGapRepairStatus,
+//      GAP_REPAIR_RETIRABLE_WARNING, the import from './LoadFully', and the
+//      `'StructStore.pendingStructs'` and `decodeUpdateV2` member kinds if
+//      nothing else uses them (YjsContract.test's "lists exactly what the
+//      sources use of @y/y" says which entries to drop);
+//    - in src/__tests__/unit/YjsContract.test.ts: the describe block "the
+//      gap repair's part of the contract (LoadFully)" and the imports only
+//      it uses (encodeGapStateVector, integrateHeldBehindGaps,
+//      GAP_REPAIR_RETIRABLE_WARNING, getGapRepairStatus).
+//    Then `pnpm run tsc` names anything left.
+// 5. Replace the entry points with plain applies:
+//    `applyStoredState(doc, state)` becomes `applyUpdate(doc, state)` in
+//    YDoc.ts, RawYDoc.ts, HeadlessEditor.ts and Runner.ts, and Server.ts
+//    drops its `integrateHeldBehindGaps(doc)` call. Check that the
+//    migration goldens (src/__tests__/unit/golden/migrate-*-r1.json) are
+//    unchanged.
+// 6. Docs: remove the paragraph on the loaders' repair ("Causal order
+//    includes each client's own order") from
+//    packages/lexical-website/docs/collaboration/y.md, mark D112 and D114
+//    in DECISIONS.md as replaced by the @y/y release (rows are never
+//    deleted), and add a changeset.
+//
 // Works around an upstream @y/y problem, "encodeStateAsUpdate drops text the
 // doc shows after it integrated a struct across a clock gap" (@y/y
 // 14.0.0-rc.29): a struct that arrives in an update of its own is
@@ -135,6 +197,10 @@ interface StructId {
  * integrate what they hold pending behind a blocked struct (see above).
  * Each apply is a transaction of its own under `origin`, as applyUpdate's,
  * joining an enclosing one when there is one.
+ *
+ * Temporary, until a supported @y/y release contains yjs/yjs#827 (the fix
+ * for yjs/yjs#824): then every caller uses a plain `applyUpdate(doc,
+ * update, origin)` instead. Removal steps: this module's header.
  */
 export function applyStoredState(
   doc: Doc,
@@ -149,6 +215,10 @@ export function applyStoredState(
 /**
  * Integrate every struct `doc` holds pending whose dependencies are present
  * (see above). Nothing happens when nothing is pending.
+ *
+ * Temporary, until a supported @y/y release contains yjs/yjs#827 (the fix
+ * for yjs/yjs#824): then @y/y's own apply integrates these structs and the
+ * call is dropped. Removal steps: this module's header.
  */
 export function integrateHeldBehindGaps(doc: Doc, origin?: unknown): void {
   integrateHeldBehindGapsWith(Y, doc, origin);
@@ -175,6 +245,8 @@ const NOTHING: GapRepairResult = {
 
 /**
  * integrateHeldBehindGaps with the given @y/y functions (see above).
+ * Temporary like the rest of this module (yjs/yjs#824, fixed upstream by
+ * yjs/yjs#827; removal steps in this module's header).
  *
  * Work: P decoded once; passes over its structs, each check a binary
  * search of the store; at most `budget` suffix apply attempts (normally each

@@ -28,8 +28,13 @@ import {
   type YUnsupportedYjsData,
   YUnsupportedYjsError,
 } from '../..';
-import {encodeStateVector as encodeGapStateVector} from '../../internal/LoadFully';
 import {
+  encodeStateVector as encodeGapStateVector,
+  integrateHeldBehindGaps,
+} from '../../internal/LoadFully';
+import {
+  GAP_REPAIR_RETIRABLE_WARNING,
+  getGapRepairStatus,
   probeYjs,
   YJS_BEHAVIOURS,
   YJS_EVENTS,
@@ -1211,6 +1216,275 @@ describe("the gap repair's part of the contract (LoadFully)", () => {
 
   test('the installed @y/y passes it', () => {
     expect(gapFindings(probeYjs(installed()))).toEqual([]);
+  });
+
+  // yjs/yjs#824: @y/y holds a batched struct pending behind a blocked struct
+  // of its client, so a load of stored bytes drops text the encoding
+  // document showed, and the loaders repair it (D112). When a @y/y bump
+  // fixes it (yjs/yjs#827), this test fails: remove the repair (LoadFully,
+  // its tests and y.md's paragraph) as D112 says, checked against the gap
+  // fixtures, then delete this test (D114).
+  test('the installed @y/y still needs the loader repair', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      expect(probeYjs(installed())).toEqual([]);
+      expect(getGapRepairStatus()).toBe('needed');
+      expect(warn).not.toHaveBeenCalled();
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  /**
+   * The installed @y/y with its decode fixed, as yjs/yjs#827 fixes it: an
+   * apply integrates every struct whose dependencies are present and holds
+   * only the rest pending. The repair itself does that, after a plain
+   * apply; `repairs` says which applies it follows (all by default).
+   */
+  const fixedYjs = (repairs: (n: number) => boolean = () => true) => {
+    let applies = 0;
+    return {
+      ...installed(),
+      applyUpdate: (d: Y.Doc, u: Uint8Array, o?: unknown) => {
+        Y.applyUpdate(d, u, o);
+        if (d.store.pendingStructs !== null && repairs(applies++)) {
+          integrateHeldBehindGaps(d, o);
+        }
+      },
+    };
+  };
+
+  test('a @y/y with the encoding problem fixed is not refused: the repair is reported retirable', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      // The whole probe passes: a fixed @y/y is supported, in development
+      // builds as in production ones.
+      expect(probeYjs(fixedYjs())).toEqual([]);
+      expect(getGapRepairStatus()).toBe('retirable');
+      expect(warn.mock.calls).toEqual([[GAP_REPAIR_RETIRABLE_WARNING]]);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  test('a @y/y that integrates past the gap but not as a fixed encoding does is found', () => {
+    // Its decode integrates the batched struct once, but the document then
+    // reloads from its own encoding with that struct pending again.
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      expect(gapFindings(probeYjs(fixedYjs(n => n === 0)))).toEqual([
+        'gap repair: @y/y integrates a batched struct past a blocked one, but not as a fixed encoding does',
+      ]);
+      expect(getGapRepairStatus()).toBe(undefined);
+      expect(warn).not.toHaveBeenCalled();
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  test('a @y/y that integrates past the gap but keeps an integrated struct pending is found', () => {
+    // Its decode integrates the batched struct but leaves it in the pending
+    // update too.
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      expect(
+        gapFindings(
+          probeYjs({
+            ...installed(),
+            applyUpdate: (d: Y.Doc, u: Uint8Array, o?: unknown) => {
+              Y.applyUpdate(d, u, o);
+              const before = d.store.pendingStructs;
+              if (before === null) {
+                return;
+              }
+              integrateHeldBehindGaps(d, o);
+              const after = d.store.pendingStructs;
+              if (after !== null) {
+                d.store.pendingStructs = {...after, update: before.update};
+              }
+            },
+          }),
+        ),
+      ).toEqual([
+        'gap repair: @y/y integrates a batched struct past a blocked one, but not as a fixed encoding does',
+      ]);
+      expect(getGapRepairStatus()).toBe(undefined);
+      expect(warn).not.toHaveBeenCalled();
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  test("a @y/y that integrates past the gap but keeps the first writer's integrated struct pending is found", () => {
+    // As above, for the first writer alone: the second writer's pending
+    // part is what a fixed encoding holds.
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      expect(
+        gapFindings(
+          probeYjs({
+            ...installed(),
+            applyUpdate: (d: Y.Doc, u: Uint8Array, o?: unknown) => {
+              Y.applyUpdate(d, u, o);
+              const before = d.store.pendingStructs;
+              if (before === null) {
+                return;
+              }
+              integrateHeldBehindGaps(d, o);
+              const after = d.store.pendingStructs;
+              if (after !== null && before.missing.has(2)) {
+                // Writer 2's integrated struct (clock 2), back in the
+                // pending update.
+                const second = Y.diffUpdateV2(
+                  before.update,
+                  encodeGapStateVector([
+                    [2, 2],
+                    [3, 3],
+                  ]),
+                );
+                d.store.pendingStructs = {
+                  ...after,
+                  update: Y.mergeUpdatesV2([after.update, second]),
+                };
+              }
+            },
+          }),
+        ),
+      ).toEqual([
+        'gap repair: @y/y integrates a batched struct past a blocked one, but not as a fixed encoding does',
+      ]);
+      expect(getGapRepairStatus()).toBe(undefined);
+      expect(warn).not.toHaveBeenCalled();
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  test("a @y/y that integrates past the gap but keeps the second writer's integrated struct pending is found", () => {
+    // As above, for the second writer alone: the first writer's pending
+    // part is what a fixed encoding holds.
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      expect(
+        gapFindings(
+          probeYjs({
+            ...installed(),
+            applyUpdate: (d: Y.Doc, u: Uint8Array, o?: unknown) => {
+              Y.applyUpdate(d, u, o);
+              const before = d.store.pendingStructs;
+              if (before === null) {
+                return;
+              }
+              integrateHeldBehindGaps(d, o);
+              const after = d.store.pendingStructs;
+              if (after !== null && before.missing.has(3)) {
+                // Writer 3's integrated struct (clock 2), back in the
+                // pending update.
+                const third = Y.diffUpdateV2(
+                  before.update,
+                  encodeGapStateVector([
+                    [2, 3],
+                    [3, 2],
+                  ]),
+                );
+                d.store.pendingStructs = {
+                  ...after,
+                  update: Y.mergeUpdatesV2([after.update, third]),
+                };
+              }
+            },
+          }),
+        ),
+      ).toEqual([
+        'gap repair: @y/y integrates a batched struct past a blocked one, but not as a fixed encoding does',
+      ]);
+      expect(getGapRepairStatus()).toBe(undefined);
+      expect(warn).not.toHaveBeenCalled();
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  test('a @y/y that integrates past the gap but loses an update while it holds structs pending is found', () => {
+    // Its decode integrates the batched struct, but drops an update that
+    // arrives while anything is pending, so the missing updates never heal
+    // the gap.
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      expect(
+        gapFindings(
+          probeYjs({
+            ...installed(),
+            applyUpdate: (d: Y.Doc, u: Uint8Array, o?: unknown) => {
+              if (d.store.pendingStructs !== null) {
+                return;
+              }
+              Y.applyUpdate(d, u, o);
+              if (d.store.pendingStructs !== null) {
+                integrateHeldBehindGaps(d, o);
+              }
+            },
+          }),
+        ),
+      ).toEqual([
+        'gap repair: @y/y integrates a batched struct past a blocked one, but not as a fixed encoding does',
+      ]);
+      expect(getGapRepairStatus()).toBe(undefined);
+      expect(warn).not.toHaveBeenCalled();
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  test('a @y/y that integrates past the gap but makes the repair throw is found', () => {
+    // The loaders run the repair on every load, rethrowing in development
+    // builds; here its plan throws on the pending structs' origins.
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      expect(
+        gapFindings(
+          probeYjs({
+            ...fixedYjs(),
+            decodeUpdateV2: ((u: Uint8Array) => {
+              const decoded = Y.decodeUpdateV2(u);
+              for (const struct of decoded.structs) {
+                if (struct instanceof Y.Item) {
+                  Object.defineProperty(struct, 'origin', {
+                    get() {
+                      throw new Error('origin');
+                    },
+                  });
+                }
+              }
+              return decoded;
+            }) as typeof Y.decodeUpdateV2,
+          }),
+        ),
+      ).toEqual(['gap repair threw: origin']);
+      expect(getGapRepairStatus()).toBe(undefined);
+      expect(warn).not.toHaveBeenCalled();
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  test('a @y/y that neither holds a batched struct pending nor integrates it is found', () => {
+    // Drops what it holds pending.
+    expect(
+      gapFindings(
+        probeYjs({
+          ...installed(),
+          applyUpdate: (d: Y.Doc, u: Uint8Array, o?: unknown) => {
+            Y.applyUpdate(d, u, o);
+            if (d.store.pendingStructs !== null) {
+              d.store.pendingStructs = null;
+            }
+          },
+        }),
+      ),
+    ).toEqual([
+      'gap repair: a batched struct behind a blocked one is neither held pending nor integrated',
+    ]);
   });
 
   test('a diffUpdateV2 that ignores the state vector is found', () => {
