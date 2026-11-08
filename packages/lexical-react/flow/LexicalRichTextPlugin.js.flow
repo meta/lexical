@@ -19,7 +19,7 @@ type InitialEditorStateType =
   | EditorState
   | ((editor: LexicalEditor) => void);
 
-declare export function RichTextPlugin({
+declare export function RichTextPlugin(v: {
   contentEditable: React.Node,
   placeholder?:
   | ((isEditable: boolean) => null | React.Node)
