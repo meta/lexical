@@ -273,11 +273,13 @@ export function yjsMembers() {
     UndoManager: {
       canRedo: (u: UndoManager) => isFunction(u.canRedo),
       canUndo: (u: UndoManager) => isFunction(u.canUndo),
+      captureTimeout: (u: UndoManager) => typeof u.captureTimeout === 'number',
       clear: (u: UndoManager) => isFunction(u.clear),
       currStackItem: (u: UndoManager) => u.currStackItem === null,
       destroy: (u: UndoManager) => isFunction(u.destroy),
       doc: (u: UndoManager) => isObject(u.doc),
       emit: (u: UndoManager) => isFunction(u.emit),
+      lastChange: (u: UndoManager) => typeof u.lastChange === 'number',
       on: (u: UndoManager) => isFunction(u.on),
       redo: (u: UndoManager) => isFunction(u.redo),
       redoStack: (u: UndoManager) => Array.isArray(u.redoStack),

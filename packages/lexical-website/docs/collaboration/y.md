@@ -442,7 +442,7 @@ for developers (what happened and what to do): render your own text from
 | `UNSUPPORTED_CONFIG_WARNING` | `BlockIdExtension` with `repairTransforms: true`, or a document with Yjs's format cleanup on (not from `createYDoc`), see [Set up an editor](#set-up-an-editor); or a document below `MIN_LAYOUT` with no `layoutUpgrade` declared (`'missing-layout-upgrade'`, with the `'older'` layout warning, see [Layout upgrades](#layout-upgrades)). Nothing is written; read only. | `'repair-transforms'`: `options`; `'cleanup-formatting'`; `'missing-layout-upgrade'` |
 | `NESTED_FALLBACK_WARNING` | A class that declares a line, format or group is stored as a node of its own (see [How content is stored](#how-content-is-stored)). Once per binding, class and reason. | `'merge-override'`: `type`, `method`; `'undeclared-properties'`: `type`, `properties`; `'inline-slots'`, `'inline-incomplete-schema'`, `'type-name'`, `'merge-incomplete-schema'`, `'merge-slots'`, `'group-children'`, `'group-state-merge'`, `'group-incomplete-schema'`: `type` |
 | `UNSYNCED_VALUE_WARNING` | A property or NodeState value is not plain JSON, so it is not synchronized. Once per binding and property. | `'not-json'`: `property` |
-| `UNSUPPORTED_EDIT_WARNING` | A local update changed the editor while the binding is read only (`'read-only'`, reported once each time it goes read only), or, on an active binding, a write refused at write time because the layout or schema record changed inside its transaction (`'refused-at-write'`, each such write, not retried; the binding may stay active, so it is not a read-only state). Not written; what it changed is read again, or, once the document cannot be read, the editor shows again the last state it showed before the update. With `'held-composition'`, the binding stays active: a local change that inserts no character would have deleted or left behind text a collaborator wrote in the line being composed with an IME, which the composition holds back; it is not written and is read again (undone): every non-character change in the refused update, including NodeState, is undone, and the composition goes on. A change that inserts a character is always written. With `'unstorable'`, a written local update left an empty text node Lexical keeps (not mergeable simple text), which the document does not store (each such update): the update is written, and the container holding the empty node is read again. | `'read-only'`; `'refused-at-write'`: `record` (`'layout'` or `'schema'`, see below); `'held-composition'`; `'unstorable'` |
+| `UNSUPPORTED_EDIT_WARNING` | A local update changed the editor while the binding is read only (`'read-only'`, reported once each time it goes read only), or, on an active binding, a write refused at write time because the layout or schema record changed inside its transaction (`'refused-at-write'`, each such write, not retried; the binding may stay active, so it is not a read-only state). Not written; what it changed is read again, or, once the document cannot be read, the editor shows again the last state it showed before the update. With `'held-composition'`, the binding stays active: a local change that inserts no character would have deleted or left behind text a collaborator wrote in the line being composed with an IME, which the composition holds back; it is not written and is read again (undone): every non-character change in the refused update, including NodeState, is undone, and the composition goes on. A change that inserts a character is always written. With `'unstorable'`, a written local update left an empty text node Lexical keeps (not mergeable simple text), which the document does not store (each such update): the update is written, and the container holding the empty node is read again. With `'other'` and `detailCode: 'held-line-retokenize'`, the binding stays active: a local update re-typed the line being composed (a transform's tokens for it, such as a code highlighter's) while the composition's hold shows that line as a block its shared counterpart no longer is (a collaborator changed its type, or joined it into the line before it); the re-typing is not written, the rest of the update is, and the line is read again as stored; its transforms then run again, and only changes that agree with what that update would have written are saved (once per composition). | `'read-only'`; `'refused-at-write'`: `record` (`'layout'` or `'schema'`, see below); `'held-composition'`; `'unstorable'`; `'other'`: `detailCode` (`'held-line-retokenize'`) |
 | `SELF_CHECK_WARNING` | The self-check (`selfCheck`) found the editor and the document disagree. | `'local'`, `'remote'`: `problems` |
 | `RECOVERED_READ_WARNING` | A change could not be read; the editor was rebuilt from the document. | `'remote-change'`, `'reread'`: `error` |
 | `RAW_YJS_WRITE_WARNING` | Development builds only: a local transaction that is not the binding's (nor a Y.UndoManager's) changed the Yjs content under the binding's root, which is private and unsupported for direct writes (see [Wire format](#wire-format)), or another client's insertions appeared inside one of the binding's own write transactions, which is unsupported (see [Wire format](#wire-format); remote deletions there, and updates applied inside an app's outer `doc.transact`, are not detected). Once per binding and origin (once per binding for the second); nothing else happens. | `'raw-write'`: `root`, `kind` (`'format'`, `'attribute'`, `'content'`), `key`, `origin` (the origin's constructor name); `'remote-in-write'`: `root`, `kind` `'content'`, `key` null, `origin` (the other client's id) |
@@ -1310,6 +1310,34 @@ not merge as a user might expect:
   line (a deletion, a join, a `MarkNode` comment, which moves the text into
   it) shows at once: the text node being composed keeps its key, unless its
   class changes (a code block made a heading).
+  While a composition is held and a collaborator has changed the type of the
+  block it's in, the highlighter's re-tokenization of that line isn't written.
+  A NodeState value set in the update that ends the composition is written
+  when the tokenizer carries it onto the new tokens; clearing a value or a
+  format on those tokens isn't written in that update. A style set on those
+  tokens in that update isn't written either; a code highlighter colors its
+  tokens through style in the same update, so the two can't be told apart. A
+  set-valued or object NodeState change on those tokens isn't written in that
+  update either, and the stored value stays. So does a value whose name the
+  stored class reads as a set-valued state or one of its members. Extending a
+  value within one of those tokens, onto characters next to others of it that
+  had the value already, isn't written in that update either. When a held
+  composition ends, the line is read as stored and its transforms run again;
+  only changes that agree with what the composer's own update would have
+  written are saved. They join the undo step of the composer's update,
+  whatever `captureTimeout` is, unless an edit of the composer's own came in
+  between. If an app transform restructures the held line or rewrites its text
+  when its transforms run again (for example, one that converts, moves or
+  upper-cases blocks of the converted type), what changed is kept as stored.
+  When a collaborator turns the block into a code block, what it stored there
+  stays (its highlighter's tokens, or plain text where it runs none), not an
+  entity the composing editor had in its held view; the formats and NodeState
+  set in that update stay on plain text and follow the highlighter on its
+  tokens. When the update that ends the composition also changes the line's
+  text (as Firefox's input and WebKit's `insertFromComposition` do, inserting
+  the composed text in it), the re-tokenization is written, as on `main`. The
+  binding reports the skip with `UNSUPPORTED_EDIT_WARNING` (`reason: 'other'`,
+  `detailCode: 'held-line-retokenize'`), once per composition.
 - **Set-valued NodeState** (`arraySetValue`, which `MarkStateExtension` uses)
   merges per member on text, line breaks and nodes stored as their own Yjs
   node (such as decorators), so two collaborators commenting on the same
