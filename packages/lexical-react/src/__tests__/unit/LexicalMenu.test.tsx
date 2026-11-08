@@ -42,12 +42,17 @@ vi.mock('@lexical/react/LexicalComposerContext', () => ({
   useLexicalComposerContext: () => [createTestEditor()],
 }));
 
-// The real hook reads AriaLiveRegionExtension off the editor, which a bare
-// test editor does not have. Standing in for it makes announcements
-// observable, including the ones that must not happen.
-const {announce} = vi.hoisted(() => ({announce: vi.fn()}));
-vi.mock('@lexical/react/useLexicalAriaLiveRegion', () => ({
-  useLexicalAriaLiveRegion: () => announce,
+// A bare test editor has no AriaLiveRegionExtension. Standing in for the
+// lookup makes announcements observable, including the ones that must not
+// happen, and lets a test remove the live region.
+const {announce, liveRegion} = vi.hoisted(() => ({
+  announce: vi.fn(),
+  liveRegion: {present: true},
+}));
+vi.mock('@lexical/extension', async importOriginal => ({
+  ...(await importOriginal<typeof import('@lexical/extension')>()),
+  getPeerDependencyFromEditor: () =>
+    liveRegion.present ? {output: {announce}} : undefined,
 }));
 
 class TestOption extends MenuOption {
@@ -600,6 +605,7 @@ describe('LexicalMenu accessibility', () => {
   beforeEach(() => {
     announce.mockClear();
     announce.mockImplementation(() => {});
+    liveRegion.present = true;
     // jsdom has no layout, so it does not implement scrollIntoView. Arrowing
     // through the menu scrolls the highlighted option into view.
     originalScrollIntoView = Element.prototype.scrollIntoView;
@@ -617,7 +623,12 @@ describe('LexicalMenu accessibility', () => {
     editor.setRootElement(rootElement);
   });
 
-  afterEach(() => {
+  afterEach(async () => {
+    // An unmounted menu cancels its pending announcement. One left mounted
+    // can speak during a later test.
+    await act(async () => {
+      reactRoot.unmount();
+    });
     Element.prototype.scrollIntoView = originalScrollIntoView;
     container.remove();
     anchorElement.remove();
@@ -700,12 +711,12 @@ describe('LexicalMenu accessibility', () => {
   });
 
   describe('what the editor points at', () => {
-    it('owns the listbox while there are options to point at', async () => {
+    it('points at an option while there are options', async () => {
       await render({options: [new TestOption('A')]});
 
-      // The menu is rendered outside the editor, so the relationship has to
-      // be declared or the reference does not resolve.
-      expect(root().getAttribute('aria-owns')).toBe(listbox()!.id);
+      // The editor names the highlighted option and nothing more. It does not
+      // claim to own the menu.
+      expect(root().hasAttribute('aria-owns')).toBe(false);
       const active = root().getAttribute('aria-activedescendant');
       expect(document.getElementById(active!)).not.toBeNull();
     });
@@ -752,7 +763,19 @@ describe('LexicalMenu accessibility', () => {
       expect(root().getAttribute('aria-activedescendant')).toBeNull();
     });
 
-    it('does not own a list a custom menu never draws', async () => {
+    it('lets go of a root that replaced the one it opened on', async () => {
+      await render({options: [new TestOption('A')]});
+      const newRoot = document.createElement('div');
+      newRoot.setAttribute('aria-activedescendant', 'typeahead-item-0');
+      editor.setRootElement(newRoot);
+      await act(async () => {
+        reactRoot.unmount();
+      });
+
+      expect(newRoot.getAttribute('aria-activedescendant')).toBeNull();
+    });
+
+    it('does not name a list a custom menu never draws', async () => {
       const customRenderFn: MenuRenderFn<TestOption> = (
         anchorElementRef,
         itemProps,
@@ -779,13 +802,9 @@ describe('LexicalMenu accessibility', () => {
         options: [new TestOption('A'), new TestOption('B')],
       });
 
-      // The default listbox id is not in this menu. Owning it leaves the
-      // editor pointing at nothing. The menu's own box is on the page.
+      // The default listbox id is not in this menu.
       expect(document.getElementById('typeahead-listbox')).toBeNull();
-      expect(root().getAttribute('aria-owns')).toBe(anchorElement.id);
-      expect(document.getElementById(root().getAttribute('aria-owns')!)).toBe(
-        anchorElement,
-      );
+      expect(root().hasAttribute('aria-owns')).toBe(false);
       // The choices have no typeahead-item-N id, so there is nothing to point
       // at. A dangling id is the same break as the missing list.
       expect(root().getAttribute('aria-activedescendant')).toBeNull();
@@ -819,7 +838,7 @@ describe('LexicalMenu accessibility', () => {
         options: [new TestOption('A')],
       });
 
-      expect(root().getAttribute('aria-owns')).toBe('typeahead-menu');
+      expect(root().hasAttribute('aria-owns')).toBe(false);
       expect(root().getAttribute('aria-activedescendant')).toBe(
         'typeahead-item-0',
       );
@@ -828,8 +847,14 @@ describe('LexicalMenu accessibility', () => {
   });
 
   describe('saying how many matches there are', () => {
-    beforeEach(() => {
+    beforeEach(async () => {
       vi.useFakeTimers();
+      // Let anything left over from an earlier test speak now, so what the
+      // test hears can only come from its own menu.
+      await act(async () => {
+        vi.runAllTimers();
+      });
+      announce.mockClear();
     });
 
     afterEach(() => {
@@ -950,14 +975,40 @@ describe('LexicalMenu accessibility', () => {
       expect(spoken[spoken.length - 1]).toBe('3 suggestions available');
     });
 
-    it('still shows the menu when the editor cannot speak', async () => {
-      announce.mockImplementation(() => {
-        throw new Error('no aria live region in this editor');
+    it('uses the line the app provides', async () => {
+      const getStatusMessage = vi.fn((count: number, loading: boolean) =>
+        loading ? 'Cargando' : `${count} sugerencias`,
+      );
+
+      await render({
+        getStatusMessage,
+        options: [new TestOption('A'), new TestOption('B')],
       });
+      await settle();
+
+      expect(getStatusMessage).toHaveBeenCalledWith(2, false);
+      expect(announce).toHaveBeenCalledWith('2 sugerencias');
+      expect(announce).not.toHaveBeenCalledWith('2 suggestions available');
+    });
+
+    it('stays silent when the app returns null', async () => {
+      await render({
+        getStatusMessage: () => null,
+        loading: false,
+        options: [],
+      });
+      await settle();
+
+      expect(announce).not.toHaveBeenCalled();
+    });
+
+    it('still shows the menu when the editor cannot speak', async () => {
+      liveRegion.present = false;
 
       await render({options: [new TestOption('A'), new TestOption('B')]});
       await settle();
 
+      expect(announce).not.toHaveBeenCalled();
       expect(items()).toHaveLength(2);
       expect(listbox()).not.toBeNull();
     });

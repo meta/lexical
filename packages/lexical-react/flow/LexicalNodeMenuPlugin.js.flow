@@ -29,6 +29,11 @@ declare export class MenuOption {
   setRefElement(element: HTMLElement | null): void;
 }
 
+export type MenuStatusMessageFn = (
+  count: number,
+  loading: boolean,
+) => string | null;
+
 export type MenuRenderFn<TOption> = (
   anchorElementRef: {current: HTMLElement | null},
   itemProps: {
@@ -58,6 +63,8 @@ type NodeMenuPluginProps<TOption> = {
   onClose?: () => void,
   onOpen?: (resolution: MenuResolution) => void,
   anchorClassName?: string,
+  menuAriaLabel?: string,
+  getStatusMessage?: MenuStatusMessageFn,
 };
 
 declare export function LexicalNodeMenuPlugin<TOption>(

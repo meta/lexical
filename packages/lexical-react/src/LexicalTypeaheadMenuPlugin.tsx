@@ -33,6 +33,7 @@ import {
   MenuOption,
   type MenuRenderFn,
   type MenuResolution,
+  type MenuStatusMessageFn,
   type MenuTextMatch,
   type TriggerFn,
   useMenuAnchorRef,
@@ -111,7 +112,10 @@ function isSelectionOnEntityBoundary(
   });
 }
 
-export {useDynamicPositioning} from './shared/LexicalMenu';
+export {
+  type MenuStatusMessageFn,
+  useDynamicPositioning,
+} from './shared/LexicalMenu';
 export {
   getScrollParent,
   PUNCTUATION,
@@ -152,6 +156,11 @@ export type TypeaheadMenuPluginProps<TOption extends MenuOption> = {
    * @default false
    */
   loading?: boolean;
+  /**
+   * Replaces the spoken status line, for translation or to change the
+   * wording. Return `null` to stay silent.
+   */
+  getStatusMessage?: MenuStatusMessageFn;
 };
 
 /**
@@ -178,6 +187,7 @@ export function LexicalTypeaheadMenuPlugin<TOption extends MenuOption>({
   ignoreEntityBoundary = false,
   menuAriaLabel,
   loading = false,
+  getStatusMessage,
 }: TypeaheadMenuPluginProps<TOption>): JSX.Element | null {
   const [editor] = useLexicalComposerContext();
   const [resolution, setResolution] = useState<MenuResolution | null>(null);
@@ -340,6 +350,7 @@ export function LexicalTypeaheadMenuPlugin<TOption extends MenuOption>({
       anchorElementRef={anchorElementRef}
       options={options}
       loading={loading}
+      getStatusMessage={getStatusMessage}
       menuRenderFn={menuRenderFn}
       shouldSplitNodeWithQuery={true}
       onSelectOption={onSelectOption}

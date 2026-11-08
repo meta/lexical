@@ -28,6 +28,7 @@ import {
   MenuOption,
   type MenuRenderFn,
   type MenuResolution,
+  type MenuStatusMessageFn,
   useMenuAnchorRef,
 } from './shared/LexicalMenu';
 
@@ -55,6 +56,11 @@ export type NodeMenuPluginProps<TOption extends MenuOption> = {
    * @default 'Typeahead menu'
    */
   menuAriaLabel?: string;
+  /**
+   * Replaces the spoken status line, for translation or to change the
+   * wording. Return `null` to stay silent.
+   */
+  getStatusMessage?: MenuStatusMessageFn;
 };
 
 /**
@@ -77,6 +83,7 @@ export function LexicalNodeMenuPlugin<TOption extends MenuOption>({
   commandPriority = COMMAND_PRIORITY_LOW,
   parent,
   menuAriaLabel,
+  getStatusMessage,
 }: NodeMenuPluginProps<TOption>): JSX.Element | null {
   const [editor] = useLexicalComposerContext();
   const [resolution, setResolution] = useState<MenuResolution | null>(null);
@@ -147,6 +154,7 @@ export function LexicalNodeMenuPlugin<TOption extends MenuOption>({
     editor === null ? null : (
     <LexicalMenu
       ariaLabel={menuAriaLabel}
+      getStatusMessage={getStatusMessage}
       close={closeNodeMenu}
       resolution={resolution}
       editor={editor}
