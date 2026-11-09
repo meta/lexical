@@ -23,7 +23,9 @@ import {buildEditorFromExtensions} from '@lexical/extension';
 import {$createQuoteNode, RichTextExtension} from '@lexical/rich-text';
 import {
   $create,
+  $createLineBreakNode,
   $createParagraphNode,
+  $createTabNode,
   $createTextNode,
   $getRoot,
   $getSelection,
@@ -169,6 +171,55 @@ describe('a code block tokenized again keeps the NodeState of its text', () => {
     );
     expect(show(editor).join('')).toBe('const a = 1;t50z[members=s1]');
     expect(allTokens(editor)).toBe(true);
+  });
+
+  test('a tab and a line break with NodeState inside a code block keep it, as the text around them does', () => {
+    using editor = editorWithCode();
+    // As a collaborator's change is read: with no transforms.
+    editor.update(
+      () => {
+        const nodes = [
+          $createTextNode('foo'),
+          $createTabNode(),
+          $createTextNode('bar'),
+          $createLineBreakNode(),
+          $createTextNode('baz'),
+        ];
+        for (const node of nodes) {
+          $setState(node, noteState, 'kept');
+        }
+        $getRoot().append(
+          $createCodeNode('javascript').append(...nodes),
+          $createParagraphNode().append($createTextNode('after')),
+        );
+      },
+      {discrete: true, skipTransforms: true},
+    );
+    // A paragraph inserted right after the block makes the highlighter
+    // tokenize it again.
+    editor.update(
+      () => {
+        $getRoot()
+          .getFirstChildOrThrow()
+          .insertAfter($createParagraphNode().append($createTextNode('x')));
+      },
+      {discrete: true},
+    );
+    expect(
+      editor.read(() => {
+        const block = $getRoot().getFirstChildOrThrow();
+        return ($isElementNode(block) ? block.getChildren() : []).map(node => [
+          node.getType(),
+          $getState(node, noteState),
+        ]);
+      }),
+    ).toEqual([
+      ['code-highlight', 'kept'],
+      ['tab', 'kept'],
+      ['code-highlight', 'kept'],
+      ['linebreak', 'kept'],
+      ['code-highlight', 'kept'],
+    ]);
   });
 
   test('without NodeState, the block is tokenized as before', () => {
