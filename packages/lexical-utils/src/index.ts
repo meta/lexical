@@ -36,6 +36,7 @@ import {
   $getChildCaret,
   $getChildCaretOrSelf,
   $getCollapsedCaretRange,
+  $getNodeByKey,
   $getPreviousSelection,
   $getRoot,
   $getSelection,
@@ -745,7 +746,7 @@ export function $insertNodeToNearestRoot<T extends LexicalNode>(node: T): T {
   let initialCaret: undefined | PointCaret<'next'>;
   if (selection !== null) {
     const points = selection.getStartEndPoints();
-    const focusNode = points && points[1].getNode();
+    const focusNode = points && $getNodeByKey(points[1].key);
     if ($isRangeSelection(selection)) {
       initialCaret = $caretFromPoint(selection.focus, 'next');
     } else if ($isBlockContainer(focusNode)) {
