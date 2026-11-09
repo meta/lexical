@@ -667,9 +667,10 @@ describe.each([false, true])(
 );
 
 // The self-check compares the formats of a line holding an element no editor
-// shows (it read the line with the element, saw the texts differ by it, and
-// skipped them): a format the writer fails to store there is reported. The
-// format pass is turned off for the one update, to make such a failure.
+// shows (before #9853 it read the line with the element, saw the texts differ
+// by it, and skipped them): a format the writer fails to store there is
+// reported. The format pass is turned off for the one update, to make such a
+// failure.
 describe.each([false, true])(
   'the self-check on a line with an inline element peers emptied, gc %s',
   gc => {
@@ -712,7 +713,7 @@ describe.each([false, true])(
       }
       expect(
         a.warnings.filter(
-          w => w.includes('self-check') && w.includes('format'),
+          w => w.includes('self-check') && w.includes('format f:bold'),
         ),
       ).not.toEqual([]);
     });
