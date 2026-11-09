@@ -10,7 +10,7 @@
     "crdt"
   ],
   "license": "MIT",
-  "version": "0.53.0",
+  "version": "0.53.1-nightly.20261109.0",
   "types": "./dist/typescript-too-old.d.ts",
   "dependencies": {
     "@lexical/extension": "workspace:*",

@@ -10,7 +10,7 @@
     "micromark"
   ],
   "license": "MIT",
-  "version": "0.53.0",
+  "version": "0.53.1-nightly.20261109.0",
   "main": "./dist/LexicalMdast.js",
   "types": "./dist/typescript-too-old.d.ts",
   "dependencies": {
