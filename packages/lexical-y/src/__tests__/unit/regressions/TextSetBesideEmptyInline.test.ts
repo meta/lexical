@@ -19,6 +19,7 @@
 // deletes one only where a delete meets it before its last unit (a removed
 // line takes it along).
 
+import {HashtagNode, registerLexicalHashtag} from '@lexical/hashtag';
 import {$createMarkNode, $wrapSelectionInMarkNode} from '@lexical/mark';
 import {$createHeadingNode} from '@lexical/rich-text';
 import * as Y from '@y/y';
@@ -28,10 +29,13 @@ import {
   $createTextNode,
   $getDocument,
   $getRoot,
+  $getSelection,
+  $isRangeSelection,
   $setCompositionKey,
   $setSelection,
   booleanValue,
   ElementNode,
+  type LexicalEditor,
   nodeSchema,
   type TextNode,
   withField,
@@ -508,6 +512,88 @@ describe.each([false, true])(
       runMarkerlessLineRemoval(gc, 'range'));
     test('edited inside, keeping its end: no empty paragraph is left for other clients', () =>
       runMarkerlessLineRemoval(gc, 'edit'));
+  },
+);
+
+// A composition hold's writes of a line (a hashtag composed while a
+// collaborator restyles its line, the line bolded as the composition ends)
+// read the stored line without the elements no editor shows, as the format
+// pass does: with an emptied comment in the line, the format was lost.
+describe.each([false, true])(
+  'a composition held over a line with an inline element peers emptied, gc %s',
+  gc => {
+    test('the format set as it ends is stored', async () => {
+      const t = await setup(
+        () =>
+          $getRoot().append(
+            $createHeadingNode('h2').append(
+              $createTextNode('see '),
+              $createMarkNode(['c1']).append($createTextNode('ab')),
+            ),
+          ),
+        {
+          gc,
+          ids: [1, 2, 3],
+          nodes: [...NODES, HashtagNode],
+          prepare: (editor: LexicalEditor) => {
+            registerLexicalHashtag(editor);
+          },
+        },
+      );
+      const {a, b, c} = t;
+      t.offline();
+      b.update(() => {
+        $selectIn([0], 4, 5).removeText();
+        $setSelection(null);
+      });
+      c!.update(() => {
+        $selectIn([0], 5, 6).removeText();
+        $setSelection(null);
+      });
+      await t.sync();
+      // A composes `#tag`; B makes the heading a paragraph.
+      a.update(() => {
+        const text = $getRoot().getAllTextNodes()[0];
+        text.select(4, 4);
+        $setCompositionKey(text.getKey());
+        const selection = $getSelection();
+        if ($isRangeSelection(selection)) {
+          selection.insertText('#tag');
+        }
+      });
+      await t.sync();
+      b.update(() => {
+        const line = $getRoot().getFirstChildOrThrow() as ElementNode;
+        line.replace($createParagraphNode().append(...line.getChildren()));
+        $setSelection(null);
+      });
+      await t.sync();
+      // The composition ends in the update that bolds the line.
+      a.update(() => {
+        $setCompositionKey(null);
+        for (const text of $getRoot().getAllTextNodes()) {
+          if (!text.hasFormat('bold')) {
+            text.toggleFormat('bold');
+          }
+        }
+        $setSelection(null);
+      });
+      await t.sync();
+      await t.sync();
+      const fresh = await freshReader(a);
+      const $runs = () =>
+        $getRoot()
+          .getAllTextNodes()
+          .map(
+            text =>
+              `${text.getType()}:${text.getTextContent()}${text.hasFormat('bold') ? '/b' : ''}`,
+          );
+      for (const peer of [...t.peers, fresh]) {
+        expect(peer.read($runs)).toEqual(['text:see /b', 'hashtag:#tag/b']);
+      }
+      fresh.stop();
+      await expectConverged(t.peers);
+    });
   },
 );
 

@@ -3330,6 +3330,11 @@ export class Writer {
       old,
       this.state.hidden,
       frontier,
+      // Without what readers leave out, as the desired atoms and the
+      // format pass (see leftOut).
+      null,
+      startFormats,
+      this.leftOut,
     );
     if (old.text !== atoms.text) {
       return;
@@ -3501,6 +3506,11 @@ export class Writer {
       old,
       this.state.hidden,
       frontier,
+      // Without what readers leave out, as the desired atoms and the
+      // format pass (see leftOut).
+      null,
+      startFormats,
+      this.leftOut,
     );
     // A transform that restructured the line (moved a node holding one of
     // its characters into another line): nothing is written for it (an
