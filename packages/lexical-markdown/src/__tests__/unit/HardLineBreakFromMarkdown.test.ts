@@ -95,6 +95,13 @@ describe('hard line breaks are read from the Markdown (#9408)', () => {
     expect(importFirstBlock('- a\\\\\n  b')).toBe('a\\<soft>  b');
   });
 
+  // A character reference for a backslash is a literal backslash, not an
+  // escape or a hard break.
+  // https://spec.commonmark.org/0.31.2/#entity-and-numeric-character-references
+  it('reads a character reference for a backslash as a literal backslash', () => {
+    expect(importFirstBlock('a&#92;\nb')).toBe('a\\<soft>b');
+  });
+
   it('reads an escaped backslash followed by a hard break', () => {
     expect(importFirstBlock('a\\\\\\\nb')).toBe('a\\<hard \\>b');
   });
