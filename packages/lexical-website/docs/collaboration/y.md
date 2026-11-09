@@ -1303,7 +1303,7 @@ not merge as a user might expect:
   with [`MarkStateExtension`](./comments.md).
   A `MarkNode` whose text has not arrived yet (or that collaborators emptied)
   shows nothing; deleting the character right after it deletes the element
-  too, so its text, once it arrives, does not show (DECISIONS.md D116).
+  too, so its text, once it arrives, does not show (DECISIONS.md D117).
 - **Input method composition.** While the editor composes with an input
   method (IME) in a line, what collaborators add to that line (text,
   formats and comments, a split, pasted lines, a change of its type) waits
