@@ -37,11 +37,18 @@ import {
 
 import {pushAll} from './Arrays';
 import {$withoutLevelId, innerBlockIds, NO_IDS} from './BlockIds';
-import {Cursor, equalFormatValue, type Formats, isLiveContent} from './Cursor';
+import {
+  Cursor,
+  equalFormatValue,
+  type Formats,
+  isShownContent,
+  type LeftOut,
+} from './Cursor';
 import {groupKeySig, groupSig} from './Groups';
 import {$heldDecision, type HeldDecision, ownerTextKeys} from './HoldGuard';
 import {isShadowKey} from './Ident';
 import {
+  $isLeftOutInline,
   $pushInline,
   Atoms,
   countLive,
@@ -2694,10 +2701,21 @@ export class Writer {
       const from = own !== null && own !== left ? own.right : startItem;
       if (from !== startItem) {
         cursor.advance(
-          countLive(this.view, startItem, from, this.state.hidden),
+          countLive(
+            this.view,
+            startItem,
+            from,
+            this.state.hidden,
+            this.leftOut,
+          ),
         );
       }
-      cursor.delete(countLive(this.view, from, stop, this.state.hidden));
+      // Sized as the cursor moves: without what readers leave out (see
+      // leftOut), which it does not count (and deletes with the line, see
+      // Cursor#delete).
+      cursor.delete(
+        countLive(this.view, from, stop, this.state.hidden, this.leftOut),
+      );
     }
     if (idx + 1 < old.length) {
       old[idx + 1].start = copyStart(u.start);
@@ -2819,6 +2837,11 @@ export class Writer {
         const c = this.cursor(cs.y, left, startFormats);
         this.frontier = null;
         c.advance(atoms.length);
+        // The old content's elements no editor shows after its last unit go
+        // (as a rewrite of the line deleted them): left there, they would
+        // follow the end item, as a line of their own the editor does not
+        // have.
+        c.deleteLeftOutBefore(oldStop);
         const lastD = desired[lines[lines.length - 1]];
         items.set(
           atoms.length,
@@ -3020,8 +3043,32 @@ export class Writer {
       this.view,
     );
     c.hidden = this.state.hidden;
+    c.leftOut = this.leftOut;
     return c;
   }
+
+  /**
+   * Whether live item `it` is a stored inline element the editor does not
+   * show (see $isLeftOutInline): one this write did not make. Invariant: the
+   * writer counts exactly what the reader counts: it does not count such an
+   * element, and deletes one only where a delete meets it before its last
+   * unit (see Cursor#delete) or past the end of content it ends (see
+   * Cursor#deleteLeftOutBefore). Why: text
+   * written beside such an element was placed by positions that counted it
+   * while the editor's did not. The self-check reads with it too (see
+   * $shownText).
+   */
+  readonly leftOut = (it: Item): boolean =>
+    $isLeftOutInline(
+      this.view,
+      it,
+      this.state.keyByY,
+      this.prevState._nodeMap,
+      this.made,
+    );
+
+  /** Whether this write inserted `it` (never left out, see leftOut). */
+  private readonly made = (it: Item): boolean => this.tr.insertSet.hasId(it.id);
 
   /** Formats in effect right after `item` (an end item, or null). */
   private formatsAfter(item: Item | null): Formats {
@@ -3283,6 +3330,11 @@ export class Writer {
       old,
       this.state.hidden,
       frontier,
+      // Without what readers leave out, as the desired atoms and the
+      // format pass (see leftOut).
+      null,
+      startFormats,
+      this.leftOut,
     );
     if (old.text !== atoms.text) {
       return;
@@ -3454,6 +3506,11 @@ export class Writer {
       old,
       this.state.hidden,
       frontier,
+      // Without what readers leave out, as the desired atoms and the
+      // format pass (see leftOut).
+      null,
+      startFormats,
+      this.leftOut,
     );
     // A transform that restructured the line (moved a node holding one of
     // its characters into another line): nothing is written for it (an
@@ -3621,6 +3678,9 @@ export class Writer {
         );
         const c = this.cursor(u.cs.y, left, u.start || EMPTY_FORMATS);
         c.advance(at);
+        // As for a sequence's open tail: the elements no editor shows after
+        // the content's last unit go, or they would follow the marker.
+        c.deleteLeftOutBefore(stop);
         end = c.insertPlain(new ContentType(new YNode(MARKER)));
       } finally {
         this.frontier = null;
@@ -3885,6 +3945,7 @@ export class Writer {
     now: string,
     hunks: readonly Hunk[],
     insert: (cursor: Cursor, from: number, to: number) => void,
+    oldStop?: Item | null,
   ): number {
     let pos = 0;
     let end = 0;
@@ -3901,6 +3962,13 @@ export class Writer {
       c.advance(at - pos);
       if (del > 0) {
         c.delete(del);
+        if (oldStop !== undefined && at + del === old.length) {
+          // A delete that reaches the end of the old content (a line
+          // without a marker, before a block node) takes the elements no
+          // editor shows after its last unit, up to that end, along: no end
+          // item follows for it to meet (see Cursor#delete).
+          c.deleteLeftOutBefore(oldStop);
+        }
       }
       if (to > from) {
         insert(c, from, to);
@@ -3940,6 +4008,9 @@ export class Writer {
       old,
       this.state.hidden,
       this.frontier,
+      null,
+      startFormats,
+      this.leftOut,
     );
     const state = this.state;
     // Types of the new inline nodes (those without a shared node yet): a
@@ -4220,6 +4291,7 @@ export class Writer {
       atoms.text,
       hunks,
       (cursor, from, to) => this.$insertAtoms(cursor, atoms, from, to, items),
+      oldStop,
     );
     this.$formatPass(y, left, startFormats, atoms);
     return items;
@@ -4721,6 +4793,7 @@ export class Writer {
       atoms.length,
       actual,
       this.state.hidden,
+      this.leftOut,
     );
     // Kept for $fixStartsAfter while nothing is written.
     this.passFold =
@@ -6007,11 +6080,12 @@ function readAtomsLimited(
   limit: number,
   out: Atoms,
   hidden: Hidden | null,
+  leftOut: LeftOut = null,
 ): PassFold {
   let stop: Item | null = start;
   let n = 0;
   while (stop !== null && n < limit) {
-    if (isLiveContent(view, stop)) {
+    if (isShownContent(view, stop, leftOut)) {
       n += unheldLength(stop, hidden);
     }
     stop = stop.right;
@@ -6026,6 +6100,8 @@ function readAtomsLimited(
     hidden,
     frontier,
     end,
+    formats,
+    leftOut,
   );
   return {
     after,

@@ -10,7 +10,7 @@ import type {View} from './Unread';
 import type {Writer} from './Write';
 
 import {buildEditorFromExtensions, LexicalBuilder} from '@lexical/extension';
-import {ContentType, type Item, type Node as YNode} from '@y/y';
+import {type ContentType, type Item} from '@y/y';
 import {
   $getNodeByKey,
   $getRoot,
@@ -21,7 +21,7 @@ import {
   $parseSerializedNode,
   createEditor,
   type EditorState,
-  ElementNode,
+  type ElementNode,
   getDeclaredNodeStructure,
   type LexicalEditor,
   type LexicalNode,
@@ -42,7 +42,6 @@ import {
   getContainerGroupSpec,
   getGroupSpec,
   getWrapperSpec,
-  INLINE_PREFIX,
   isSetStateConfig,
   MARKER,
   ownsFormat,
@@ -84,39 +83,13 @@ function $shownText(writer: Writer, atoms: Atoms): string {
   let out = '';
   for (let i = 0; i < atoms.text.length; i++) {
     const sp = atoms.specials.get(i);
-    if (
-      sp !== undefined &&
-      sp.kind === 'oldNode' &&
-      sp.item.content instanceof ContentType
-    ) {
-      const y = sp.item.content.type as YNode;
-      const name = typeof y.name === 'string' ? y.name : '';
-      const info = name.startsWith(INLINE_PREFIX)
-        ? writer.state.editor._nodes.get(name.slice(INLINE_PREFIX.length))
-        : undefined;
-      if (
-        info !== undefined &&
-        info.klass.prototype instanceof ElementNode &&
-        !(info.klass.prototype as ElementNode).canBeEmpty.call(
-          Object.create(info.klass.prototype),
-        ) &&
-        !hasLiveContent(y)
-      ) {
-        continue;
-      }
+    // The writer's own rule (see Writer#leftOut, $isLeftOutInline).
+    if (sp !== undefined && sp.kind === 'oldNode' && writer.leftOut(sp.item)) {
+      continue;
     }
     out += atoms.text[i];
   }
   return out;
-}
-
-function hasLiveContent(y: YNode): boolean {
-  for (let it = y._start; it !== null; it = it.right) {
-    if (!it.deleted && it.countable) {
-      return true;
-    }
-  }
-  return false;
 }
 
 /**

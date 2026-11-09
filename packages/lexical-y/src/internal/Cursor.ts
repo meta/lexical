@@ -330,6 +330,25 @@ export function runOpener(doc: Doc, item: Item): Item {
 export const isLiveContent = (view: View | null, item: Item): boolean =>
   !isGoneIn(view, item) && item.countable;
 
+/**
+ * Names a stored element the editor does not show (see $isLeftOutInline),
+ * or null where none is left out.
+ */
+export type LeftOut = ((item: Item) => boolean) | null;
+
+/**
+ * Whether `item` is content the editor shows: live content (see
+ * isLiveContent) that `leftOut` does not name. The one rule the writer counts
+ * positions by: the cursor's moves and deletes, a removed line's delete (see
+ * countLive), the stored atoms a format pass compares (readAtomsLimited), and
+ * whether an element holds content (hasLiveContent).
+ */
+export const isShownContent = (
+  view: View | null,
+  item: Item,
+  leftOut: LeftOut,
+): boolean => isLiveContent(view, item) && !(leftOut !== null && leftOut(item));
+
 /** An opener of a node type key (`t`) or segment key (`k`). */
 function isNodeTypeOpener(content: ContentFormat): boolean {
   // An end or a `[]` opener of a paired run closes a type, as null does.
@@ -393,6 +412,13 @@ export class Cursor {
    * wherever the cursor looks for format items.
    */
   hidden: Hidden | null = null;
+  /**
+   * Live items the editor does not show (see $isLeftOutInline): not counted,
+   * as held content is not; deleted only where a delete meets one before its
+   * last unit (see delete), or past the end of content a write ends (see
+   * deleteLeftOutBefore).
+   */
+  leftOut: LeftOut = null;
   /**
    * The live format item that gave each key its value at the cursor, for
    * the keys whose format items the cursor passed.
@@ -635,7 +661,7 @@ export class Cursor {
    * or all shown, and answer whether it is shown.
    */
   private counts(item: Item): boolean {
-    if (!isLiveContent(this.view, item)) {
+    if (!isShownContent(this.view, item, this.leftOut)) {
       return false;
     }
     const hidden = this.hidden;
@@ -1410,6 +1436,10 @@ export class Cursor {
    * Delete `n` content units. The format items around and inside them stay:
    * a concurrent writer that has not seen the delete relies on them, and an
    * undo of the delete brings the content back between them (D24, D86).
+   * A stored element no editor shows (see leftOut) that the delete meets
+   * before its last unit goes with it, uncounted: left in place, one would
+   * end up beside other text (the next line's, where a whole line goes), and
+   * its text, arriving late or brought back by an undo, would show there.
    */
   delete(n: number): void {
     while (n > 0 && this.right !== null) {
@@ -1420,8 +1450,32 @@ export class Cursor {
         }
         n -= item.length;
         deleteItemIn(this.view, item, this.tr);
+      } else if (
+        this.leftOut !== null &&
+        isLiveContent(this.view, item) &&
+        this.leftOut(item)
+      ) {
+        deleteItemIn(this.view, item, this.tr);
       }
       this.forward();
+    }
+  }
+
+  /**
+   * Delete the elements no editor shows (see leftOut) from the cursor up to
+   * `stop` (exclusive), without moving: where a delete reached the end of
+   * old content, they would otherwise stay before the next content (see
+   * delete).
+   */
+  deleteLeftOutBefore(stop: Item | null): void {
+    const leftOut = this.leftOut;
+    if (leftOut === null) {
+      return;
+    }
+    for (let it = this.right; it !== null && it !== stop; it = it.right) {
+      if (isLiveContent(this.view, it) && leftOut(it)) {
+        deleteItemIn(this.view, it, this.tr);
+      }
     }
   }
 
