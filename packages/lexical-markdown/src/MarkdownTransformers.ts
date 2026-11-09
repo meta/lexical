@@ -894,9 +894,12 @@ export const CODE: MultilineElementTransformer = {
   }) => {
     const currentLine = lines[startLineIndex];
     // A transformer composed from CODE with its own regExpStart keeps that
-    // expression's match.
+    // expression's match. A backtick fence's info string can't contain
+    // backticks, so a line such as ``` a``b ``` tail (which export writes for
+    // a paragraph starting with inline code) keeps the old reading too.
     const startMatch =
-      transformer.regExpStart === CODE_START_REGEX
+      transformer.regExpStart === CODE_START_REGEX &&
+      !currentLine.includes('`', regExpStartMatch[1].length)
         ? (currentLine.match(CODE_INFO_START_REGEX) ?? regExpStartMatch)
         : regExpStartMatch;
     const fence = startMatch[1];

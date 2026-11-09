@@ -167,6 +167,15 @@ describe('fenced code block info string', () => {
     );
   });
 
+  it('keeps a fence-like line whose info string has a backtick as content', () => {
+    // A backtick fence's info string can't contain backticks. Export writes
+    // this line for a paragraph that starts with inline code holding ``.
+    expect(importCodeBlock('``` a``b ``` tail')).toEqual({
+      language: undefined,
+      text: 'a``b ``` tail',
+    });
+  });
+
   it('reads the language of an unterminated fence after whitespace', () => {
     expect(importCodeBlock('``` js\ncode')).toEqual({
       language: 'js',
