@@ -42,6 +42,7 @@ import {
 } from 'lexical';
 import {describe, expect, test} from 'vitest';
 
+import {Writer} from '../../../internal/Write';
 import {
   $selectIn,
   expectConverged,
@@ -131,7 +132,7 @@ async function run(
   await expectConverged(t.peers);
   // Once the comment's text arrives: the comment and its text are where B
   // made them, before the text written beside it (deleting the character
-  // right after it deletes it too, see DECISIONS.md D116).
+  // right after it deletes it too, see DECISIONS.md D117).
   expect(a.describe()).toBe(
     {
       compose: 'paragraph("one") / paragraph(mark<c1>("业"{1}) "丛ZZ东丝"{1})',
@@ -661,6 +662,60 @@ describe.each([false, true])(
       }
       fresh.stop();
       await expectConverged(t.peers);
+    });
+  },
+);
+
+// The self-check compares the formats of a line holding an element no editor
+// shows (before #9853 it read the line with the element, saw the texts differ
+// by it, and skipped them): a format the writer fails to store there is
+// reported. The format pass is turned off for the one update, to make such a
+// failure.
+describe.each([false, true])(
+  'the self-check on a line with an inline element peers emptied, gc %s',
+  gc => {
+    test('reports a format the writer did not store', async () => {
+      const t = await setup(
+        () =>
+          $getRoot().append(
+            $createParagraphNode().append(
+              $createMarkNode(['c1']).append($createTextNode('ab')),
+              $createTextNode('丛东丝').toggleFormat('bold'),
+            ),
+          ),
+        {gc, ids: [1, 2, 3]},
+      );
+      const {a, b, c} = t;
+      t.offline();
+      b.update(() => {
+        $selectIn([0], 0, 1).removeText();
+        $setSelection(null);
+      });
+      c!.update(() => {
+        $selectIn([0], 1, 2).removeText();
+        $setSelection(null);
+      });
+      await t.sync();
+      const proto = Writer.prototype as unknown as {$formatPass: () => void};
+      const formatPass = proto.$formatPass;
+      proto.$formatPass = () => {};
+      try {
+        a.update(() => {
+          (
+            (
+              $getRoot().getFirstChildOrThrow() as ElementNode
+            ).getLastChildOrThrow() as TextNode
+          ).toggleFormat('bold');
+          $setSelection(null);
+        });
+      } finally {
+        proto.$formatPass = formatPass;
+      }
+      expect(
+        a.warnings.filter(
+          w => w.includes('self-check') && w.includes('format f:bold'),
+        ),
+      ).not.toEqual([]);
     });
   },
 );
