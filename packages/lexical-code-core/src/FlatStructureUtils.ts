@@ -329,7 +329,9 @@ function hasNodeState(node: LexicalNode): boolean {
  * collaboration stores on the text). A token is split at the boundaries of
  * each node with NodeState, and each part is a copy of the token (its class,
  * its fields and the NodeState the tokenizer gave it) with the NodeState of
- * the node its text came from, for the keys the token does not hold.
+ * the node its text came from, for the keys the token does not hold. A new
+ * tab or line break gets the NodeState of the tab or line break at the same
+ * offset in `prevNodes`, the same way.
  * Returns `nextNodes` itself when no node of `prevNodes` has NodeState.
  */
 export function $keepCodeNodeState(
@@ -341,20 +343,21 @@ export function $keepCodeNodeState(
     return nextNodes;
   }
   const spans: {end: number; node: LexicalNode; start: number}[] = [];
+  // The tabs and line breaks with NodeState, by their offset.
+  const breaks = new Map<number, LexicalNode>();
   let at = 0;
   for (const node of prevNodes) {
     const size = node.getTextContentSize();
-    if (
-      size > 0 &&
-      $isTextNode(node) &&
-      !$isTabNode(node) &&
-      hasNodeState(node)
-    ) {
-      spans.push({end: at + size, node, start: at});
+    if (hasNodeState(node)) {
+      if ($isTabNode(node) || $isLineBreakNode(node)) {
+        breaks.set(at, node);
+      } else if (size > 0 && $isTextNode(node)) {
+        spans.push({end: at + size, node, start: at});
+      }
     }
     at += size;
   }
-  if (spans.length === 0) {
+  if (spans.length === 0 && breaks.size === 0) {
     return nextNodes;
   }
   const out: LexicalNode[] = [];
@@ -367,6 +370,16 @@ export function $keepCodeNodeState(
     at = end;
     while (next < spans.length && spans[next].end <= start) {
       next++;
+    }
+    const prevBreak = breaks.get(start);
+    if (
+      prevBreak !== undefined &&
+      (($isTabNode(node) && $isTabNode(prevBreak)) ||
+        ($isLineBreakNode(node) && $isLineBreakNode(prevBreak)))
+    ) {
+      $copyNodeState(prevBreak, node);
+      out.push(node);
+      continue;
     }
     if (
       !$isCodeHighlightNode(node) ||
