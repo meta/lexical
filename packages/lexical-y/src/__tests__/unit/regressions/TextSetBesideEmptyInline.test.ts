@@ -51,7 +51,10 @@ import {
   WidgetNode,
 } from '../../utils/harness';
 
-async function run(gc: boolean, edit: 'compose' | 'set' | 'insert') {
+async function run(
+  gc: boolean,
+  edit: 'compose' | 'set' | 'insert' | 'delete last' | 'delete first',
+) {
   const t = await setup(
     () =>
       $getRoot().append(
@@ -94,6 +97,14 @@ async function run(gc: boolean, edit: 'compose' | 'set' | 'insert') {
       $setSelection(null);
       return;
     }
+    if (edit === 'delete last' || edit === 'delete first') {
+      (edit === 'delete last'
+        ? $selectIn([1], 2, 3)
+        : $selectIn([1], 0, 1)
+      ).removeText();
+      $setSelection(null);
+      return;
+    }
     const text = (
       $getRoot().getLastChildOrThrow() as ElementNode
     ).getFirstChildOrThrow() as TextNode;
@@ -106,12 +117,32 @@ async function run(gc: boolean, edit: 'compose' | 'set' | 'insert') {
     }
   });
   const fresh = await freshReader(a);
-  expect(fresh.read($line)).toBe('丛ZZ东丝');
+  expect(fresh.read($line)).toBe(
+    edit === 'delete last'
+      ? '丛东'
+      : edit === 'delete first'
+        ? '东丝'
+        : '丛ZZ东丝',
+  );
   expect(a.warnings.filter(w => w.includes('self-check'))).toEqual([]);
   fresh.stop();
   a.update(() => $setCompositionKey(null));
   await t.sync();
   await expectConverged(t.peers);
+  // Once the comment's text arrives: the comment and its text are where B
+  // made them, before the text written beside it (deleting the character
+  // right after it deletes it too, see DECISIONS.md D116).
+  expect(a.describe()).toBe(
+    {
+      compose: 'paragraph("one") / paragraph(mark<c1>("业"{1}) "丛ZZ东丝"{1})',
+      'delete first': 'paragraph("one") / paragraph("东丝"{1})',
+      'delete last':
+        'paragraph("one") / paragraph(mark<c1>("业"{1}) "丛东"{1})',
+      insert:
+        'paragraph("one") / paragraph(mark<c1>("业"{1}) "丛"{1} "ZZ" "东丝"{1})',
+      set: 'paragraph("one") / paragraph(mark<c1>("业"{1}) "丛ZZ东丝"{1})',
+    }[edit],
+  );
 }
 
 describe.each([false, true])(
@@ -120,6 +151,10 @@ describe.each([false, true])(
     test('inserted: stored where shown', () => run(gc, 'insert'));
     test('set on the text node: stored where shown', () => run(gc, 'set'));
     test('set by a composition: stored where shown', () => run(gc, 'compose'));
+    test('the last character deleted: stored where shown', () =>
+      run(gc, 'delete last'));
+    test('the first character deleted: stored where shown', () =>
+      run(gc, 'delete first'));
   },
 );
 
@@ -127,7 +162,13 @@ describe.each([false, true])(
 // text at once, so the element stays with no content, which no editor shows.
 async function runConcurrent(
   gc: boolean,
-  edit: 'set' | 'insert' | 'unbold' | 'move bold',
+  edit:
+    | 'set'
+    | 'insert'
+    | 'unbold'
+    | 'move bold'
+    | 'delete last'
+    | 'delete first',
 ) {
   const t = await setup(
     () =>
@@ -135,7 +176,10 @@ async function runConcurrent(
         $createParagraphNode().append($createTextNode('one')),
         $createParagraphNode().append(
           $createMarkNode(['c1']).append($createTextNode('ab')),
-          ...(edit === 'set' || edit === 'insert'
+          ...(edit === 'set' ||
+          edit === 'insert' ||
+          edit === 'delete last' ||
+          edit === 'delete first'
             ? [$createTextNode('丛东丝')]
             : edit === 'unbold'
               ? [$createTextNode('丛东丝').toggleFormat('bold')]
@@ -194,6 +238,11 @@ async function runConcurrent(
   a.update(() => {
     if (edit === 'insert') {
       $selectIn([1], 1).insertText('ZZ');
+    } else if (edit === 'delete last' || edit === 'delete first') {
+      (edit === 'delete last'
+        ? $selectIn([1], 2, 3)
+        : $selectIn([1], 0, 1)
+      ).removeText();
     } else {
       (
         (
@@ -204,11 +253,26 @@ async function runConcurrent(
     $setSelection(null);
   });
   const fresh = await freshReader(a);
-  expect(fresh.read($line)).toBe('丛ZZ东丝');
+  expect(fresh.read($line)).toBe(
+    edit === 'delete last'
+      ? '丛东'
+      : edit === 'delete first'
+        ? '东丝'
+        : '丛ZZ东丝',
+  );
   expect(a.warnings.filter(w => w.includes('self-check'))).toEqual([]);
   fresh.stop();
   await t.sync();
   await expectConverged(t.peers);
+  expect(a.describe()).toBe(
+    `paragraph("one") / paragraph("${
+      edit === 'delete last'
+        ? '丛东'
+        : edit === 'delete first'
+          ? '东丝'
+          : '丛ZZ东丝'
+    }")`,
+  );
 }
 
 describe.each([false, true])(
@@ -221,6 +285,10 @@ describe.each([false, true])(
       runConcurrent(gc, 'unbold'));
     test('a format moved to the next text node: stored where shown', () =>
       runConcurrent(gc, 'move bold'));
+    test('the last character deleted: stored where shown', () =>
+      runConcurrent(gc, 'delete last'));
+    test('the first character deleted: stored where shown', () =>
+      runConcurrent(gc, 'delete first'));
   },
 );
 
