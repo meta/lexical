@@ -1315,32 +1315,34 @@ not merge as a user might expect:
   class changes (a code block made a heading).
   While a composition is held and a collaborator has changed the type of the
   block it's in, the highlighter's re-tokenization of that line isn't written.
-  A NodeState value set in the update that ends the composition is written
-  when the tokenizer carries it onto the new tokens; clearing a value or a
-  format on those tokens isn't written in that update. A style set on those
-  tokens in that update isn't written either; a code highlighter colors its
-  tokens through style in the same update, so the two can't be told apart. A
+  A NodeState value set in the update that ends the composition is written when
+  the tokenizer carries it onto the new tokens; clearing a value or a format on
+  those tokens isn't written in that update. A style set on those tokens in
+  that update isn't written either; a code highlighter colors its tokens
+  through style in the same update, so the two can't be told apart. A
   set-valued or object NodeState change on those tokens isn't written in that
   update either, and the stored value stays. So does a value whose name the
-  stored class reads as a set-valued state or one of its members. Extending a
-  value within one of those tokens, onto characters next to others of it that
-  had the value already, isn't written in that update either. When a held
-  composition ends, the line is read as stored and its transforms run again;
-  only changes that agree with what the composer's own update would have
-  written are saved. They join the undo step of the composer's update,
-  whatever `captureTimeout` is, unless an edit of the composer's own came in
-  between. If an app transform restructures the held line or rewrites its text
-  when its transforms run again (for example, one that converts, moves or
-  upper-cases blocks of the converted type), what changed is kept as stored.
-  When a collaborator turns the block into a code block, what it stored there
-  stays (its highlighter's tokens, or plain text where it runs none), not an
-  entity the composing editor had in its held view; the formats and NodeState
-  set in that update stay on plain text and follow the highlighter on its
-  tokens. When the update that ends the composition also changes the line's
-  text (as Firefox's input and WebKit's `insertFromComposition` do, inserting
-  the composed text in it), the re-tokenization is written, as on `main`. The
-  binding reports the skip with `UNSUPPORTED_EDIT_WARNING` (`reason: 'other'`,
-  `detailCode: 'held-line-retokenize'`), once per composition.
+  stored class reads as a set-valued state or one of its members. Where a code
+  highlighter other than @lexical/code-prism's and @lexical/code-shiki's merges
+  characters of several nodes into one token, extending a value within that
+  token, onto characters next to others of it that had the value already, isn't
+  written in that update either. When a held composition
+  ends, the line is read as stored and its transforms run again; only changes
+  that agree with what the composer's own update would have written are saved.
+  They join the undo step of the composer's update, whatever `captureTimeout`
+  is, unless an edit of the composer's own came in between. If an app transform
+  restructures the held line or rewrites its text when its transforms run again
+  (for example, one that converts, moves or upper-cases blocks of the converted
+  type), what changed is kept as stored. When a collaborator turns the block
+  into a code block, what it stored there stays (its highlighter's tokens, or
+  plain text where it runs none), not an entity the composing editor had in its
+  held view; the formats and NodeState set in that update stay on plain text
+  and follow the highlighter on its tokens. When the update that ends the
+  composition also changes the line's text (as Firefox's input and WebKit's
+  `insertFromComposition` do, inserting the composed text in it), the
+  re-tokenization is written, as on `main`. The binding reports the skip with
+  `UNSUPPORTED_EDIT_WARNING` (`reason: 'other'`, `detailCode:
+  'held-line-retokenize'`), once per composition.
 - **Set-valued NodeState** (`arraySetValue`, which `MarkStateExtension` uses)
   merges per member on text, line breaks and nodes stored as their own Yjs
   node (such as decorators), so two collaborators commenting on the same

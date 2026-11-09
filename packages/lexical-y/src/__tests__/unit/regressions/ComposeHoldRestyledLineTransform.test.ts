@@ -37,9 +37,10 @@
 // stored.
 //
 // A NodeState value set in the update that ends the composition on text of
-// the held line that a tokenizer carries onto the tokens it makes is
-// written; with the stock tokenizers, which drop it, every client and a
-// fresh reader agree on the line as stored.
+// the held line, which the tokenizer carries onto the tokens it makes (an
+// app's tokenizer, and the stock ones alike), is written; so is a value set
+// there on a code token that the highlighter replaces, the join having
+// changed the line's tokens.
 
 import {
   $createCodeHighlightNode,
@@ -438,6 +439,37 @@ async function setupRelease(
     t.peers.forEach(p => p.stop());
   });
   return t;
+}
+
+/**
+ * A tokenizer that makes one token of each run of the highlight tokens
+ * `base` makes, as an app's tokenizer that merges characters of several
+ * nodes into one token could (through the public Tokenizer API). Counts its
+ * merges in `merges`.
+ */
+function mergingTokenizer(
+  base: PrismTokenizerType,
+  merges: {count: number},
+): PrismTokenizerType {
+  return {
+    ...base,
+    $tokenize(
+      code: Parameters<PrismTokenizerType['$tokenize']>[0],
+      language?: string,
+    ) {
+      const out: LexicalNode[] = [];
+      for (const node of base.$tokenize(code, language)) {
+        const last = out[out.length - 1];
+        if ($isCodeHighlightNode(node) && $isCodeHighlightNode(last)) {
+          last.setTextContent(last.getTextContent() + node.getTextContent());
+          merges.count++;
+        } else {
+          out.push(node);
+        }
+      }
+      return out;
+    },
+  };
 }
 
 /** In the active update: insert `TYPED` at the start of the first line. */
@@ -1261,7 +1293,7 @@ for (const gc of [false, true]) {
     for (const highlighter of ['Prism', 'Shiki'] as const) {
       for (const shape of ['string', 'anchor', 'flat anchor'] as const) {
         for (const carries of [true, false]) {
-          test(`a NodeState value (${shape}) set on the held line in the update that ends the composition ${carries ? 'is written where the tokenizer carries it onto the tokens it makes' : 'leaves the stored line as stored with the stock tokenizer'} (${highlighter}, ${variant})`, async () => {
+          test(`a NodeState value (${shape}) set on the held line in the update that ends the composition is written where ${carries ? "an app's tokenizer" : 'the stock tokenizer'} carries it onto the tokens it makes (${highlighter}, ${variant})`, async () => {
             const value = VALUE_SHAPES[shape];
             const base: PrismTokenizerType =
               highlighter === 'Prism'
@@ -1360,11 +1392,8 @@ for (const gc of [false, true]) {
                 .join(''),
             );
             expect(show(t.a)).not.toContain('hl:');
-            // With the stock tokenizers the value is dropped in A's editor by
-            // the highlighter itself, as on main.
             expect(values).toBe(
-              (carries ? 'ssssss' : '------') +
-                '-'.repeat('before let x = 1;'.length - 6),
+              'ssssss' + '-'.repeat('before let x = 1;'.length - 6),
             );
           });
         }
@@ -3588,7 +3617,7 @@ for (const gc of [false, true]) {
       }
     });
 
-    test(`a composition that ends in the update inserting its text, as Firefox's input and WebKit's insertFromComposition end one, is written with the highlighter's tokens, as on main (${variant})`, async () => {
+    test(`a composition that ends in the update inserting its text, as Firefox's input and WebKit's insertFromComposition end one, is written with the highlighter's tokens, each keeping the NodeState of the text it covers (${variant})`, async () => {
       const t = await setupJoin('paragraph', gc, ids);
       const composed = startComposing(t.a);
       await t.sync();
@@ -3596,7 +3625,8 @@ for (const gc of [false, true]) {
       await t.sync();
       // One update inserts the composed text and ends the composition: the
       // line's text changes, so its re-typing is written as main writes it
-      // (an accepted limit, see DECISIONS.md D115).
+      // (an accepted limit, see DECISIONS.md D115); the highlighter's tokens
+      // keep each word's comment mark.
       t.a.update(() => {
         const n = $getNodeByKey(composed);
         if ($isTextNode(n) && n.isAttached()) {
@@ -3610,9 +3640,168 @@ for (const gc of [false, true]) {
         $setSelection(null);
       });
       expect(await converged(t)).toBe(
-        'paragraph[hl:aa bb cc dd|l|hl:zz|et x = 1;]',
+        'paragraph[hl:aa bb|hl: cc/c5|hl: dd/c6|l|hl:zz|et x = 1;]',
       );
     });
+
+    for (const highlighter of ['Prism', 'Shiki'] as const) {
+      for (const shape of ['string', 'anchor', 'flat anchor'] as const) {
+        test(`a NodeState value (${shape}) set in the update that ends the composition on a code token that the highlighter replaces, the join having changed the line's tokens, is kept (${highlighter}, ${variant})`, async () => {
+          const value = VALUE_SHAPES[shape];
+          // `before` and `let` join into one word, `beforelet`: the
+          // highlighter's token for it replaces the `let` keyword token.
+          const t = await setup(
+            () => {
+              $getRoot().append(
+                $createParagraphNode().append($createTextNode('before')),
+                $createCodeNode('javascript').append(
+                  $createCodeHighlightNode('let x = 1;'),
+                ),
+              );
+            },
+            {
+              gc,
+              ids,
+              nodes: value.nodes,
+              prepare: (editor: LexicalEditor) => {
+                if (highlighter === 'Prism') {
+                  registerCodeHighlighting(editor);
+                } else {
+                  registerShikiHighlighting(editor);
+                }
+              },
+            },
+          );
+          const host = document.createElement('div');
+          host.contentEditable = 'true';
+          document.body.append(host);
+          t.a.editor.setRootElement(host);
+          host.focus();
+          onTestFinished(() => {
+            t.a.editor.setRootElement(null);
+            host.remove();
+            t.peers.forEach(p => p.stop());
+          });
+          startComposing(t.a);
+          await t.sync();
+          joinCode(t.b);
+          await t.sync();
+          let token = '';
+          t.a.update(() => {
+            $setCompositionKey(null);
+            const line = $getRoot().getChildrenSize() - 1;
+            for (const n of $selectIn([line], 6, 9).extract()) {
+              if ($isTextNode(n)) {
+                token = n.getKey();
+                value.$set(n);
+              }
+            }
+            $setSelection(null);
+          });
+          // The highlighter replaced the token the value was set on.
+          expect(t.a.read(() => $getNodeByKey(token))).toBe(null);
+          await converged(t);
+          const values = t.a.read(() =>
+            $getRoot()
+              .getAllTextNodes()
+              .flatMap(n =>
+                [...n.getTextContent()].map(() => (value.$has(n) ? 's' : '-')),
+              )
+              .join(''),
+          );
+          expect(show(t.a)).not.toContain('hl:');
+          expect(t.a.read(() => $getRoot().getTextContent())).toBe(
+            'beforelet x = 1;',
+          );
+          expect(values).toBe('------sss' + '-'.repeat(7));
+        });
+      }
+    }
+
+    for (const highlighter of ['Prism', 'Shiki'] as const) {
+      for (const merging of [false, true]) {
+        test(`a NodeState value extended in the update that ends the composition onto characters next to others that had it is written (${highlighter}${merging ? ', with a tokenizer that makes one token of each run of tokens' : ''}, ${variant})`, async () => {
+          // A merged token is split again at the boundaries of each node with
+          // NodeState, after whatever tokenizer the stock highlighters run.
+          const merges = {count: 0};
+          const base: PrismTokenizerType =
+            highlighter === 'Prism'
+              ? PrismTokenizer
+              : (ShikiTokenizer as unknown as PrismTokenizerType);
+          const tokenizer = merging ? mergingTokenizer(base, merges) : base;
+          const t = await setup(
+            () => {
+              const bef = $createTextNode('bef');
+              $setState(bef, note, 'saved');
+              $getRoot().append(
+                $createParagraphNode().append(
+                  bef,
+                  $createTextNode('ore'),
+                  $createTextNode(' '),
+                ),
+                $createCodeNode('javascript').append(
+                  $createCodeHighlightNode('let x = 1;'),
+                ),
+              );
+            },
+            {
+              gc,
+              ids,
+              prepare: (editor: LexicalEditor) => {
+                if (highlighter === 'Prism') {
+                  registerCodeHighlighting(editor, tokenizer);
+                } else {
+                  registerShikiHighlighting(
+                    editor,
+                    tokenizer as unknown as ShikiTokenizerType,
+                  );
+                }
+              },
+            },
+          );
+          const host = document.createElement('div');
+          host.contentEditable = 'true';
+          document.body.append(host);
+          t.a.editor.setRootElement(host);
+          host.focus();
+          onTestFinished(() => {
+            t.a.editor.setRootElement(null);
+            host.remove();
+            t.peers.forEach(p => p.stop());
+          });
+          startComposing(t.a);
+          await t.sync();
+          joinCode(t.b);
+          await t.sync();
+          t.a.update(() => {
+            $setCompositionKey(null);
+            const line = $getRoot().getChildrenSize() - 1;
+            for (const n of $selectIn([line], 3, 6).extract()) {
+              if ($isTextNode(n)) {
+                $setState(n, note, 'saved');
+              }
+            }
+            $setSelection(null);
+          });
+          await converged(t);
+          const values = t.a.read(() =>
+            $getRoot()
+              .getAllTextNodes()
+              .flatMap(n =>
+                [...n.getTextContent()].map(() =>
+                  $getState(n, note) === 'saved' ? 's' : '-',
+                ),
+              )
+              .join(''),
+          );
+          expect(show(t.a)).not.toContain('hl:');
+          expect(values).toBe(
+            'ssssss' + '-'.repeat('before let x = 1;'.length - 6),
+          );
+          expect(merges.count > 0).toBe(merging);
+        });
+      }
+    }
 
     test(`without a hold, a code block joined into a paragraph keeps the paragraph's words (${variant})`, async () => {
       const t = await setupJoin('paragraph', gc, ids);
