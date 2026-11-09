@@ -3056,7 +3056,7 @@ export class Writer {
    * Cursor#deleteLeftOutBefore). Why: text
    * written beside such an element was placed by positions that counted it
    * while the editor's did not. The self-check reads with it too (see
-   * $shownText).
+   * $checkWrite).
    */
   readonly leftOut = (it: Item): boolean =>
     $isLeftOutInline(

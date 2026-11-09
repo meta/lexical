@@ -76,23 +76,6 @@ import {type CS, EMPTY_FORMATS, State} from './State';
 // its result.
 
 /**
- * The shared text without stored elements a reader does not show (an
- * element that cannot be empty, emptied by peers).
- */
-function $shownText(writer: Writer, atoms: Atoms): string {
-  let out = '';
-  for (let i = 0; i < atoms.text.length; i++) {
-    const sp = atoms.specials.get(i);
-    // The writer's own rule (see Writer#leftOut, $isLeftOutInline).
-    if (sp !== undefined && sp.kind === 'oldNode' && writer.leftOut(sp.item)) {
-      continue;
-    }
-    out += atoms.text[i];
-  }
-  return out;
-}
-
-/**
  * Development self-check of a local write: every line the write touched is
  * read back from Yjs (characters, owned formats, child nodes, marker
  * attributes) and compared with the editor's content. Returns the
@@ -157,15 +140,16 @@ export function $checkWrite(writer: Writer): string[] {
       have,
       writer.state.hidden,
       frontierOf(writer.view, unit.start, left, unit.cs.y, null),
+      null,
+      unit.start || EMPTY_FORMATS,
+      // Without the stored elements readers leave out, as the writer counts
+      // (see Writer#leftOut): their formats are compared too.
+      writer.leftOut,
     );
-    if (want.text !== have.text && want.text !== $shownText(writer, have)) {
+    if (want.text !== have.text) {
       problems.push(
         `line ${String(unit.key)}: text ${JSON.stringify(have.text)} != ${JSON.stringify(want.text)}`,
       );
-      continue;
-    }
-    if (want.text !== have.text) {
-      // Equal once stored elements the reader hides are left out.
       continue;
     }
     let ra = 0;
