@@ -113,7 +113,7 @@ export type UpdateListenerPayload = {
 export type UpdateListener = (payload: UpdateListenerPayload) => void;
 type DecoratorListener = (decorator: {
   // $FlowFixMe[unclear-type]: defined by user
-  [NodeKey]: any,
+  [key: NodeKey]: any,
 }) => void;
 type RootListener = (
   rootElement: null | HTMLElement,
@@ -258,10 +258,10 @@ declare export class LexicalEditor {
   _onError: ErrorHandler;
   _onWarn: ErrorHandler;
   _decorators: {
-    [NodeKey]: unknown,
+    [key: NodeKey]: unknown,
   };
   _pendingDecorators: null | {
-    [NodeKey]: unknown,
+    [key: NodeKey]: unknown,
   };
   _createEditorArgs?: CreateEditorArgs;
   _config: EditorConfig;
@@ -302,7 +302,7 @@ declare export class LexicalEditor {
   hasNodes(nodes: Class<LexicalNode>[]): boolean;
   getKey(): string;
   getDecorators<X>(): {
-    [NodeKey]: X,
+    [key: NodeKey]: X,
   };
   getRootElement(): null | HTMLElement;
   setRootElement(rootElement: null | HTMLElement): void;
@@ -386,7 +386,7 @@ export type EditorThemeClasses = {
   link?: EditorThemeClassName,
   quote?: EditorThemeClassName,
   code?: EditorThemeClassName,
-  codeHighlight?: {[string]: EditorThemeClassName},
+  codeHighlight?: {[key: string]: EditorThemeClassName},
   hashtag?: EditorThemeClassName,
   heading?: {
     h1?: EditorThemeClassName,
@@ -401,7 +401,7 @@ export type EditorThemeClasses = {
     focus?: EditorThemeClassName,
   },
   // Handle other generic values
-  [string]: EditorThemeClassName | {[string]: EditorThemeClassName},
+  [key: string]: EditorThemeClassName | {[key: string]: EditorThemeClassName},
 };
 export type EditorConfig = {
   dom?: EditorDOMRenderConfig,
@@ -503,7 +503,7 @@ export type DOMChildConversion = (
   parentLexicalNode: ?LexicalNode | null,
 ) => LexicalNode | null | void;
 export type DOMConversionMap = {
-  [NodeName]: <T extends HTMLElement>(node: T) => DOMConversion | null,
+  [key: NodeName]: <T extends HTMLElement>(node: T) => DOMConversion | null,
 };
 type NodeName = string;
 export type DOMConversionOutput = {
@@ -1527,7 +1527,7 @@ declare export function createRefCountedRegistry<Key, Options = void>(
 // with an optional `version` — @lexical/clipboard's BaseSerializedNode — be
 // passed without a cast.
 export type ParsableSerializedNode = {
-  $slots?: {[string]: ParsableSerializedNode},
+  $slots?: {[key: string]: ParsableSerializedNode},
   children?: Array<ParsableSerializedNode>,
   type: string,
   version?: number,
@@ -1600,7 +1600,7 @@ export type SerializedPartial<T extends SerializedLexicalNode> = {
   ...(T extends {children: Array<infer _C>, ...}
     ? {children?: Array<SerializedPartialNode>}
     : {}),
-  $slots?: {[string]: SerializedPartialNode | SerializedLexicalNode},
+  $slots?: {[key: string]: SerializedPartialNode | SerializedLexicalNode},
   ...
 };
 
@@ -1623,10 +1623,10 @@ export type SerializedPartial<T extends SerializedLexicalNode> = {
 export type SerializedPartialNode = {
   type: string,
   version?: number,
-  $?: {[string]: unknown},
-  $slots?: {[string]: SerializedPartialNode | SerializedLexicalNode},
+  $?: {[key: string]: unknown},
+  $slots?: {[key: string]: SerializedPartialNode | SerializedLexicalNode},
   children?: Array<SerializedPartialNode>,
-  [string]: unknown,
+  [key: string]: unknown,
   ...
 };
 
@@ -2026,7 +2026,7 @@ export type StateValueOrUpdater<Cfg extends AnyStateConfig> = ValueOrUpdater<
 // $FlowFixMe[unclear-type]
 export type AnyStateConfig = StateConfig<any, any>;
 export type NodeStateJSON<T extends LexicalNode> = Partial<{
-    [typeof NODE_STATE_KEY]: CollectStateJSON<GetNodeStateConfig<T>, false>;
+    [key: typeof NODE_STATE_KEY]: CollectStateJSON<GetNodeStateConfig<T>, false>;
   }> & CollectStateJSON<GetNodeStateConfig<T>, true>;
 
 declare export class StateConfig<K extends string, V> {
@@ -2288,7 +2288,7 @@ declare export function withAccessors<T>(
 // The serialized input a node's schemas accept, keyed by property. Flow does
 // not model the composition, so each property is `unknown` — what a state parsed
 // on the way in is not recorded, the same reason StateConfig.parse takes it.
-export type LexicalSchemaInput<out T> = {[string]: unknown};
+export type LexicalSchemaInput<out T> = {[key: string]: unknown};
 
 // The predicate a schema's author installed, or void where it carries only the
 // one its combinator derived. `@lexical/fast-check` and the JSON code
@@ -2740,7 +2740,7 @@ export type NormalizedLexicalExtensionArgument<
 export type NormalizedPeerDependency<Extension extends AnyLexicalExtension> = [
   name: Extension['name'],
   config?: Partial<LexicalExtensionConfig<Extension>>,
-] & {readonly [typeof peerDependencySymbol]: Extension};
+] & {readonly [key: typeof peerDependencySymbol]: Extension};
 export type OutputComponentExtension<ComponentType> =
   // $FlowFixMe[unclear-type]
   LexicalExtension<any, any, {Component: ComponentType}, any>;
@@ -2791,11 +2791,11 @@ declare export function registerEventListeners<T extends EventTarget>(
 ): () => void;
 declare export function normalizeClassNames(...classNames: (typeof undefined | boolean | null | string)[]): string[];
 declare export function getStyleObjectFromCSS(css: string): {
-  [string]: string,
+  [key: string]: string,
 };
 declare export function setDOMStyleObject(
   domStyle: CSSStyleDeclaration,
-  styleObject: {[string]: string | null | void},
+  styleObject: {[key: string]: string | null | void},
 ): void;
 declare export function setDOMStyleFromCSS(
   domStyle: CSSStyleDeclaration,

@@ -174,7 +174,7 @@ export type TableDOMTable = {
 };
 
 export type HTMLTableElementWithWithTableSelectionState = HTMLTableElement & Partial<{
-  [typeof LEXICAL_ELEMENT_KEY]: TableObserver | void;
+  [key: typeof LEXICAL_ELEMENT_KEY]: TableObserver | void;
 }>;
 
 declare export function applyTableHandlers(
