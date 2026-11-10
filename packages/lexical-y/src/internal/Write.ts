@@ -4054,6 +4054,13 @@ export class Writer {
     });
     // The desired lines (or parts of one, see $pushLine) of each line key.
     const lines = new Map<NodeKey, number[]>();
+    // The last desired line new in this update (-1: none).
+    let lastNew = -1;
+    newLines.forEach((n, k) => {
+      if (n.isNew) {
+        lastNew = k;
+      }
+    });
     // Which desired lines hold each node.
     const holders = new Map<NodeKey, number[]>();
     const add = <K>(m: Map<K, number[]>, k: K, v: number) => {
@@ -4218,10 +4225,7 @@ export class Writer {
               )
             : [];
         set = new Set(tails.length === 1 ? tails : own);
-        if (
-          tails.length !== 1 &&
-          newLines.some((l, k) => l.isNew && k > own[own.length - 1])
-        ) {
+        if (tails.length !== 1 && lastNew > own[own.length - 1]) {
           // With a new line after it and no line holding its old end (lines
           // pasted at its end, Enter or a paste over a selection that reaches
           // its end, app code that adds a line after it): by position, as

@@ -793,3 +793,109 @@ for (const gc of [false, true]) {
     }
   }
 }
+
+// The second repro's symptom on its own: text A types at its saved node as
+// the composition ends. On main that node had moved to the paragraph B added
+// after the code block, so the text landed there; here the node goes with B's
+// deleted marker, and nothing lands in the paragraph (D118).
+for (const gc of [false, true]) {
+  for (const ids of [
+    [33, 11, 22],
+    [33, 22, 11],
+  ]) {
+    test(`text typed at the saved node as the composition ends does not land in the block a collaborator added (gc ${gc}, ids ${ids.join(',')})`, async () => {
+      const t = await setup(
+        () =>
+          $getRoot().append(
+            $createParagraphNode().append($createTextNode('intro')),
+            $createCodeNode('javascript').append($createTextNode('see ')),
+          ),
+        {gc, ids, nodes: [...NODES, CodeHighlightNode], prepare: autoLink},
+      );
+      onTestFinished(() => t.peers.forEach(p => p.stop()));
+      const {a, b} = t;
+      const key = compose(a.editor, 'https://lexical.dev');
+      await t.sync();
+      b.update(() => {
+        const line = $getRoot().getChildAtIndex(1) as ElementNode;
+        const code = $createCodeNode('javascript').append(
+          ...line.getChildren(),
+        );
+        line.replace(code);
+        code.insertAfter($untouchedBlock('paragraph'));
+        $setSelection(null);
+      });
+      await t.sync();
+      a.update(() => {
+        $setCompositionKey(null);
+        const n = $getNodeByKey(key);
+        if ($isTextNode(n) && n.isAttached()) {
+          n.select(n.getTextContentSize(), n.getTextContentSize());
+          const selection = $getSelection();
+          if ($isRangeSelection(selection)) {
+            selection.insertText(' z');
+          }
+        }
+        $setSelection(null);
+      });
+      await t.sync();
+      await t.sync();
+      for (const peer of t.peers) {
+        expect(
+          peer.read(() => $getRoot().getLastChildOrThrow().getTextContent()),
+        ).toBe('let untouched = 1;');
+      }
+      await expectConverged(t.peers);
+    });
+  }
+}
+
+// A joins a line into the one before and adds a line after it, while B joins
+// the next line into the joined one: the joined line keeps the marker after
+// the joined text (D118), which B's join deletes, so A's added line joins it
+// (main gave B's join to the added line). Neither keeps both intents; pinned
+// so a change here is deliberate.
+for (const gc of [false, true]) {
+  for (const ids of [
+    [1, 2],
+    [2, 1],
+  ]) {
+    test(`a join with a line added after it, while a collaborator joins the next line (gc ${gc}, ids ${ids.join(',')})`, async () => {
+      const t = await setup(
+        () =>
+          $getRoot().append(
+            ...['one', 'two', 'three', 'four'].map(text =>
+              $createParagraphNode().append($createTextNode(text)),
+            ),
+          ),
+        {gc, ids},
+      );
+      onTestFinished(() => t.peers.forEach(p => p.stop()));
+      t.offline();
+      t.a.update(() => {
+        $selectIn([1], 0).deleteCharacter(true);
+        ($getRoot().getFirstChildOrThrow() as ElementNode).insertAfter(
+          $createParagraphNode().append($createTextNode('added')),
+        );
+        $setSelection(null);
+      });
+      t.b.update(() => {
+        $selectIn([2], 0).deleteCharacter(true);
+        $setSelection(null);
+      });
+      await t.sync();
+      const fresh = await freshReader(t.a);
+      onTestFinished(() => fresh.stop());
+      for (const peer of [...t.peers, fresh]) {
+        expect(
+          peer.read(() =>
+            $getRoot()
+              .getChildren()
+              .map(n => n.getTextContent()),
+          ),
+        ).toEqual(['onetwoadded', 'three', 'four']);
+      }
+      await expectConverged(t.peers);
+    });
+  }
+}
