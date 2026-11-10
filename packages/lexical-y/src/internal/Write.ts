@@ -3986,20 +3986,21 @@ export class Writer {
    * Which old line markers a desired line may keep, where a sequence holds
    * more than one marker on either side (one line written on its own keeps
    * its marker): null where there is no choice. Invariant: an old marker is
-   * kept only by the line that continues the line it ended (see D118):
-   * - that line itself (the same key);
-   * - a line that holds a node the old line held before this update, where
-   *   the old line is gone (a line Lexical replaced, `$setBlocksType`, or one
-   *   joined into another) or the line is new (the tail of a split that took
-   *   a node along);
-   * - the tail of a split: a new line that ends with what the old line, which
-   *   stays, lost from its end (Enter in the middle of a line: the old line
-   *   keeps the head and a new marker, the new line the marker after the
-   *   tail, so no character moves);
-   * - a join: a line that was there before and now ends with all of the
-   *   text of the old line, which is gone (Backspace at the start of a line:
-   *   the line before keeps the marker after the joined text, and its own
-   *   goes).
+   * kept only by the line that continues the line it ended (see D118), the
+   * first of:
+   * - the line whose last character is the old line's last character, by
+   *   Lexical's record of text edits (`record`, see $exactAtoms): the tail of
+   *   a split (Enter in the middle of a line: the new line keeps the marker
+   *   after the tail and the old line, holding the head, gets a new one, so
+   *   no character moves), or the line a join or a range delete across lines
+   *   ends with the joined text (it keeps the marker after that text, and its
+   *   own goes);
+   * - that line itself (the same key), where it stays;
+   * - where it is gone: the lines holding a node it held before this update
+   *   (a line Lexical replaced, `$setBlocksType`, or one joined into another),
+   *   else the lines ending with all of its text (a paste over it);
+   * - else none: the line gets a new marker (a line without a key keeps the
+   *   old rule).
    * Why: a marker matched any marker, so where a collaborator replaced a
    * line and added another after it, the common suffix gave the old marker
    * to the new line; every reader keys a line by its marker, so the old
@@ -4029,27 +4030,72 @@ export class Writer {
     oldAt.sort((x, y) => x - y);
     newAt.sort((x, y) => x - y);
     const prevMap = this.prevState._nodeMap;
-    // The text of the line ending at the `k`th marker (from the one before).
+    // The text of the line ending at the `k`th marker (from the one before),
+    // and the atom before that marker where it is in that line (else -1).
     const textOf = (a: Atoms, at: number[], k: number) =>
       a.text.slice(k === 0 ? 0 : at[k - 1] + 1, at[k]);
-    const desiredOf = (j: number) =>
-      (atoms.specials.get(j) as {ref: unknown}).ref as Desired;
+    const lastOf = (at: number[], k: number) =>
+      at[k] - 1 >= (k === 0 ? 0 : at[k - 1] + 1) ? at[k] - 1 : -1;
+    const newLines = newAt.map((j, k) => {
+      const d = (atoms.specials.get(j) as {ref: unknown}).ref as Desired;
+      const to = d.key === null ? null : lineOfUnit(d.key);
+      return {
+        isNew: to !== null && !prevMap.has(to),
+        j,
+        now: textOf(atoms, newAt, k),
+        to,
+      };
+    });
     const lines = new Map<NodeKey, number>();
-    newAt.forEach((j, k) => {
-      const d = desiredOf(j);
-      if (d.key !== null) {
-        lines.set(lineOfUnit(d.key), k);
+    // Which desired lines hold each node, and end with each short text.
+    const holders = new Map<NodeKey, number[]>();
+    const enders = new Map<string, number[]>();
+    const add = <K>(m: Map<K, number[]>, k: K, v: number) => {
+      const l = m.get(k);
+      if (l === undefined) {
+        m.set(k, [v]);
+      } else if (l[l.length - 1] !== v) {
+        l.push(v);
+      }
+    };
+    const ENDING = 8;
+    newLines.forEach((n, k) => {
+      if (n.to !== null) {
+        lines.set(n.to, k);
+      }
+      const d = (atoms.specials.get(n.j) as {ref: unknown}).ref as Desired;
+      const stack = [...$lineChildren(d)];
+      while (stack.length > 0) {
+        const node = stack.pop()!;
+        add(holders, node.getKey(), k);
+        if ($isElementNode(node)) {
+          stack.push(...node.getChildren());
+        }
+      }
+      for (let len = 1; len <= ENDING && len <= n.now.length; len++) {
+        add(enders, n.now.slice(-len), k);
       }
     });
-    const heldBefore = (line: NodeKey): Set<NodeKey> => {
-      const out = new Set<NodeKey>();
+    // The desired line whose last character Lexical's record says is old
+    // atom `i`.
+    const recorded = new Map<number, number>();
+    if (record !== null) {
+      newAt.forEach((_, k) => {
+        const nj = lastOf(newAt, k);
+        if (nj >= 0 && record.of[nj] >= 0) {
+          recorded.set(record.of[nj], k);
+        }
+      });
+    }
+    const $heldBefore = (line: NodeKey): NodeKey[] => {
+      const out: NodeKey[] = [];
       const stack = [line];
       while (stack.length > 0) {
         const n = prevMap.get(stack.pop()!);
         if (n !== undefined && $isElementNode(n)) {
           let c = n.__first;
           while (c !== null) {
-            out.add(c);
+            out.push(c);
             stack.push(c);
             const next = prevMap.get(c);
             c = next === undefined ? null : next.__next;
@@ -4058,89 +4104,70 @@ export class Writer {
       }
       return out;
     };
-    const $holds = (d: Desired, keys: Set<NodeKey>): boolean => {
-      if (keys.size === 0) {
-        return false;
+    // The desired lines ending with `text` (all of it).
+    const endingWith = (text: string): number[] => {
+      const l = enders.get(text.slice(-ENDING)) ?? [];
+      return text.length <= ENDING
+        ? l
+        : l.filter(k => newLines[k].now.endsWith(text));
+    };
+    const ANY = null;
+    // Lines without a key: kept as before by a marker no line claims.
+    const keyless = new Set<number>();
+    newLines.forEach((n, k) => {
+      if (n.to === null) {
+        keyless.add(k);
       }
-      const stack = [...$lineChildren(d)];
-      while (stack.length > 0) {
-        const n = stack.pop()!;
-        if (keys.has(n.getKey())) {
-          return true;
+    });
+    // The desired lines with the strongest claim on each old marker (ANY:
+    // every line, where the marker's line is not known), see the rules
+    // above. A line that stays keeps its marker unless the record gives its
+    // last character to another line (the tail of a split).
+    const best = new Map<number, Set<number> | null>();
+    oldAt.forEach((i, ki) => {
+      const owner = this.ownerBefore(
+        (old.specials.get(i) as {ref: unknown}).ref as Item,
+      );
+      if (owner === null) {
+        best.set(i, ANY);
+        return;
+      }
+      const oi = lastOf(oldAt, ki);
+      const byRecord =
+        oi >= 0 && !old.specials.has(oi) ? recorded.get(oi) : undefined;
+      const from = lineOfUnit(owner);
+      let set = new Set<number>();
+      if (byRecord !== undefined) {
+        set.add(byRecord);
+      } else if (lines.has(from)) {
+        set.add(lines.get(from)!);
+      } else {
+        for (const key of $heldBefore(from)) {
+          for (const k of holders.get(key) ?? []) {
+            set.add(k);
+          }
         }
-        if ($isElementNode(n)) {
-          stack.push(...n.getChildren());
+        if (set.size === 0) {
+          const was = textOf(old, oldAt, ki);
+          if (was.length > 0) {
+            set = new Set(endingWith(was));
+          }
+        }
+      }
+      best.set(i, set.size > 0 ? set : keyless);
+    });
+    return (i, j) => {
+      const set = best.get(i)!;
+      if (set === ANY) {
+        return true;
+      }
+      for (const k of set) {
+        if (newLines[k].j === j) {
+          return true;
         }
       }
       return false;
     };
-    // How strongly the line ending at desired marker `j` continues the line
-    // the old marker `i` ended (0: not at all), see the rules above.
-    const $claim = (ki: number, kj: number): number => {
-      const i = oldAt[ki];
-      const j = newAt[kj];
-      const owner = this.ownerBefore(
-        (old.specials.get(i) as {ref: unknown}).ref as Item,
-      );
-      const d = desiredOf(j);
-      if (owner === null || d.key === null) {
-        return 1;
-      }
-      // The old line's last character is this line's last one.
-      const oi = ki === 0 ? i - 1 : i - 1 > oldAt[ki - 1] ? i - 1 : -1;
-      const nj = kj === 0 ? j - 1 : j - 1 > newAt[kj - 1] ? j - 1 : -1;
-      if (
-        record !== null &&
-        oi >= 0 &&
-        nj >= 0 &&
-        !old.specials.has(oi) &&
-        record.of[nj] === oi
-      ) {
-        return 5;
-      }
-      const from = lineOfUnit(owner);
-      const to = lineOfUnit(d.key);
-      if (from === to) {
-        return 4;
-      }
-      const stays = lines.has(from);
-      const isNew = !prevMap.has(to);
-      if ((!stays || isNew) && $holds(d, heldBefore(from))) {
-        return 3;
-      }
-      const was = textOf(old, oldAt, ki);
-      const now = textOf(atoms, newAt, kj);
-      if (stays && isNew) {
-        const head = textOf(atoms, newAt, lines.get(from)!);
-        let n = 0;
-        while (n < was.length && n < head.length && was[n] === head[n]) {
-          n++;
-        }
-        const tail = was.slice(n);
-        return tail.length > 0 && now.endsWith(tail) ? 2 : 0;
-      }
-      if (!stays) {
-        return was.length > 0 && now.endsWith(was) ? 2 : 0;
-      }
-      return 0;
-    };
-    // Each old marker may go only to the lines with its strongest claim.
-    const best = new Map<number, Set<number>>();
-    oldAt.forEach((i, ki) => {
-      let top = 0;
-      let set = new Set<number>();
-      newAt.forEach((j, kj) => {
-        const c = $claim(ki, kj);
-        if (c > top) {
-          top = c;
-          set = new Set([j]);
-        } else if (c === top && c > 0) {
-          set.add(j);
-        }
-      });
-      best.set(i, set);
-    });
-    return (i, j) => best.get(i)!.has(j);
   }
 
   /**
