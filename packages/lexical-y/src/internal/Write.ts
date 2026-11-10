@@ -4054,9 +4054,8 @@ export class Writer {
     });
     // The desired lines (or parts of one, see $pushLine) of each line key.
     const lines = new Map<NodeKey, number[]>();
-    // Which desired lines hold each node, and end with each short text.
+    // Which desired lines hold each node.
     const holders = new Map<NodeKey, number[]>();
-    const enders = new Map<string, number[]>();
     const add = <K>(m: Map<K, number[]>, k: K, v: number) => {
       const l = m.get(k);
       if (l === undefined) {
@@ -4065,7 +4064,6 @@ export class Writer {
         l.push(v);
       }
     };
-    const ENDING = 8;
     newLines.forEach((n, k) => {
       if (n.to !== null) {
         add(lines, n.to, k);
@@ -4119,32 +4117,48 @@ export class Writer {
       return out;
     };
     // The desired lines ending with `text` (all of it).
-    // The desired lines ending with `text` (all of it), indexed by their
-    // last 1 to ENDING characters and their last 32 and 128 (so a lookup
-    // filters only the lines sharing as long an ending as it can).
-    const LONG = [128, 32];
+    // The desired lines ending with `text` (all of it): their texts reversed
+    // and sorted, so the lines ending with a text are those whose reversed
+    // text starts with it reversed, a range found by binary search (the cost
+    // does not grow with how many lines share an ending).
+    let reversed: [string, number][] | null = null;
+    const reverse = (x: string) => {
+      let out = '';
+      for (let i = x.length - 1; i >= 0; i--) {
+        out += x[i];
+      }
+      return out;
+    };
     const endingWith = (text: string): number[] => {
-      if (enders.size === 0) {
-        newLines.forEach((n, k) => {
-          for (let len = 1; len <= ENDING && len <= n.now.length; len++) {
-            add(enders, n.now.slice(-len), k);
-          }
-          for (const len of LONG) {
-            if (n.now.length >= len) {
-              add(enders, `${len}\u0000${n.now.slice(-len)}`, k);
-            }
-          }
-        });
+      if (reversed === null) {
+        reversed = newLines.map((n, k): [string, number] => [
+          reverse(n.now),
+          k,
+        ]);
+        reversed.sort((x, y) =>
+          x[0] < y[0] ? -1 : x[0] > y[0] ? 1 : x[1] - y[1],
+        );
       }
-      if (text.length <= ENDING) {
-        return enders.get(text) ?? [];
+      const r = reverse(text);
+      let lo = 0;
+      let hi = reversed.length;
+      while (lo < hi) {
+        const mid = (lo + hi) >> 1;
+        if (reversed[mid][0] < r) {
+          lo = mid + 1;
+        } else {
+          hi = mid;
+        }
       }
-      const len = LONG.find(x => text.length >= x);
-      const l =
-        (len === undefined
-          ? enders.get(text.slice(-ENDING))
-          : enders.get(`${len}\u0000${text.slice(-len)}`)) ?? [];
-      return l.filter(k => newLines[k].now.endsWith(text));
+      const out: number[] = [];
+      for (
+        let i = lo;
+        i < reversed.length && reversed[i][0].startsWith(r);
+        i++
+      ) {
+        out.push(reversed[i][1]);
+      }
+      return out.sort((x, y) => x - y);
     };
     const ANY = null;
     // Lines without a key: kept as before by a marker no line claims.
