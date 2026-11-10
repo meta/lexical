@@ -3983,6 +3983,167 @@ export class Writer {
   // Sequences
 
   /**
+   * Which old line markers a desired line may keep, where a sequence holds
+   * more than one marker on either side (one line written on its own keeps
+   * its marker): null where there is no choice. Invariant: an old marker is
+   * kept only by the line that continues the line it ended (see D118):
+   * - that line itself (the same key);
+   * - a line that holds a node the old line held before this update, where
+   *   the old line is gone (a line Lexical replaced, `$setBlocksType`, or one
+   *   joined into another) or the line is new (the tail of a split that took
+   *   a node along);
+   * - the tail of a split: a new line that ends with what the old line, which
+   *   stays, lost from its end (Enter in the middle of a line: the old line
+   *   keeps the head and a new marker, the new line the marker after the
+   *   tail, so no character moves);
+   * - a join: a line that was there before and now ends with all of the
+   *   text of the old line, which is gone (Backspace at the start of a line:
+   *   the line before keeps the marker after the joined text, and its own
+   *   goes).
+   * Why: a marker matched any marker, so where a collaborator replaced a
+   * line and added another after it, the common suffix gave the old marker
+   * to the new line; every reader keys a line by its marker, so the old
+   * line's node, and a composition in it, moved to the new line (and the
+   * composer's highlighter re-tokenized it, or its typing landed there).
+   */
+  private $markerContinues(
+    old: Atoms,
+    atoms: Atoms,
+    record: {of: Int32Array; kept: Int32Array} | null,
+  ): ((i: number, j: number) => boolean) | null {
+    const oldAt: number[] = [];
+    const newAt: number[] = [];
+    old.specials.forEach((sp, i) => {
+      if (sp.kind === 'marker') {
+        oldAt.push(i);
+      }
+    });
+    atoms.specials.forEach((sp, j) => {
+      if (sp.kind === 'marker') {
+        newAt.push(j);
+      }
+    });
+    if (oldAt.length <= 1 && newAt.length <= 1) {
+      return null;
+    }
+    oldAt.sort((x, y) => x - y);
+    newAt.sort((x, y) => x - y);
+    const prevMap = this.prevState._nodeMap;
+    // The text of the line ending at the `k`th marker (from the one before).
+    const textOf = (a: Atoms, at: number[], k: number) =>
+      a.text.slice(k === 0 ? 0 : at[k - 1] + 1, at[k]);
+    const desiredOf = (j: number) =>
+      (atoms.specials.get(j) as {ref: unknown}).ref as Desired;
+    const lines = new Map<NodeKey, number>();
+    newAt.forEach((j, k) => {
+      const d = desiredOf(j);
+      if (d.key !== null) {
+        lines.set(lineOfUnit(d.key), k);
+      }
+    });
+    const heldBefore = (line: NodeKey): Set<NodeKey> => {
+      const out = new Set<NodeKey>();
+      const stack = [line];
+      while (stack.length > 0) {
+        const n = prevMap.get(stack.pop()!);
+        if (n !== undefined && $isElementNode(n)) {
+          let c = n.__first;
+          while (c !== null) {
+            out.add(c);
+            stack.push(c);
+            const next = prevMap.get(c);
+            c = next === undefined ? null : next.__next;
+          }
+        }
+      }
+      return out;
+    };
+    const $holds = (d: Desired, keys: Set<NodeKey>): boolean => {
+      if (keys.size === 0) {
+        return false;
+      }
+      const stack = [...$lineChildren(d)];
+      while (stack.length > 0) {
+        const n = stack.pop()!;
+        if (keys.has(n.getKey())) {
+          return true;
+        }
+        if ($isElementNode(n)) {
+          stack.push(...n.getChildren());
+        }
+      }
+      return false;
+    };
+    // How strongly the line ending at desired marker `j` continues the line
+    // the old marker `i` ended (0: not at all), see the rules above.
+    const $claim = (ki: number, kj: number): number => {
+      const i = oldAt[ki];
+      const j = newAt[kj];
+      const owner = this.ownerBefore(
+        (old.specials.get(i) as {ref: unknown}).ref as Item,
+      );
+      const d = desiredOf(j);
+      if (owner === null || d.key === null) {
+        return 1;
+      }
+      // The old line's last character is this line's last one.
+      const oi = ki === 0 ? i - 1 : i - 1 > oldAt[ki - 1] ? i - 1 : -1;
+      const nj = kj === 0 ? j - 1 : j - 1 > newAt[kj - 1] ? j - 1 : -1;
+      if (
+        record !== null &&
+        oi >= 0 &&
+        nj >= 0 &&
+        !old.specials.has(oi) &&
+        record.of[nj] === oi
+      ) {
+        return 5;
+      }
+      const from = lineOfUnit(owner);
+      const to = lineOfUnit(d.key);
+      if (from === to) {
+        return 4;
+      }
+      const stays = lines.has(from);
+      const isNew = !prevMap.has(to);
+      if ((!stays || isNew) && $holds(d, heldBefore(from))) {
+        return 3;
+      }
+      const was = textOf(old, oldAt, ki);
+      const now = textOf(atoms, newAt, kj);
+      if (stays && isNew) {
+        const head = textOf(atoms, newAt, lines.get(from)!);
+        let n = 0;
+        while (n < was.length && n < head.length && was[n] === head[n]) {
+          n++;
+        }
+        const tail = was.slice(n);
+        return tail.length > 0 && now.endsWith(tail) ? 2 : 0;
+      }
+      if (!stays) {
+        return was.length > 0 && now.endsWith(was) ? 2 : 0;
+      }
+      return 0;
+    };
+    // Each old marker may go only to the lines with its strongest claim.
+    const best = new Map<number, Set<number>>();
+    oldAt.forEach((i, ki) => {
+      let top = 0;
+      let set = new Set<number>();
+      newAt.forEach((j, kj) => {
+        const c = $claim(ki, kj);
+        if (c > top) {
+          top = c;
+          set = new Set([j]);
+        } else if (c === top && c > 0) {
+          set.add(j);
+        }
+      });
+      best.set(i, set);
+    });
+    return (i, j) => best.get(i)!.has(j);
+  }
+
+  /**
    * Make the items after `left` up to `oldStop` (exclusive) hold `atoms`:
    * the deletes and inserts between the common prefix and suffix of the old
    * and desired atoms, separated by the old atoms kept there (see islands),
@@ -4023,10 +4184,22 @@ export class Writer {
         newTypes.add(sp.node.getType());
       }
     });
+    // Lexical's record of which old atom each desired atom is (see
+    // $exactAtoms), where it explains the whole content.
+    const record =
+      oldOrigins !== null &&
+      (atoms.origins.length > 0 || atoms.nodes.length > 0) &&
+      oldOrigins[oldOrigins.length - 1][1] === old.length
+        ? this.$exactAtoms(oldOrigins, atoms, old)
+        : null;
+    const continues = this.$markerContinues(old, atoms, record);
     const matchSpecial = (i: number, j: number): boolean => {
       const a = old.specials.get(i)!;
       const b = atoms.specials.get(j)!;
-      if (a.kind === 'marker' || a.kind === 'runEnd') {
+      if (a.kind === 'marker') {
+        return b.kind === 'marker' && (continues === null || continues(i, j));
+      }
+      if (a.kind === 'runEnd') {
         return a.kind === b.kind;
       }
       if (a.kind === 'oldNode' && b.kind === 'inline') {
@@ -4076,7 +4249,7 @@ export class Writer {
     ) {
       const total = oldOrigins[oldOrigins.length - 1][1];
       if (total === old.length) {
-        exact = this.$exactAtoms(oldOrigins, atoms, old);
+        exact = record;
         const oldKey = keysAt(oldOrigins, old.length);
         const newKey = this.$sameTextLineage(old, atoms, oldOrigins)
           ? oldKey
