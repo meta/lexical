@@ -1316,11 +1316,6 @@ not merge as a user might expect:
   line with a new block and adds another block next to it in one update gives
   the new block a new line marker (DECISIONS.md D118): the node being composed
   is no longer in the document, and the composition ends without it.
-- **A line replaced next to a new line.** A line a collaborator replaces with
-  a new one holding the same text, while adding a line after it in the same
-  update, gets a new line marker (DECISIONS.md D118): a concurrent change of
-  that line's alignment or block type by another collaborator is dropped
-  (before, it was applied to the added line).
   While a composition is held and a collaborator has changed the type of the
   block it's in, the highlighter's re-tokenization of that line isn't written.
   A NodeState value set in the update that ends the composition is written when
@@ -1351,6 +1346,11 @@ not merge as a user might expect:
   re-tokenization is written, as on `main`. The binding reports the skip with
   `UNSUPPORTED_EDIT_WARNING` (`reason: 'other'`, `detailCode:
   'held-line-retokenize'`), once per composition.
+- **A line replaced next to a new line.** A line a collaborator replaces with
+  a new one holding the same text, while adding a line after it in the same
+  update, gets a new line marker (DECISIONS.md D118): a concurrent change of
+  that line's alignment or block type by another collaborator is dropped
+  (before, it was applied to the added line).
 - **Set-valued NodeState** (`arraySetValue`, which `MarkStateExtension` uses)
   merges per member on text, line breaks and nodes stored as their own Yjs
   node (such as decorators), so two collaborators commenting on the same

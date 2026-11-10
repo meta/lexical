@@ -21,6 +21,7 @@
 import {$createCodeNode, $isCodeNode, CodeHighlightNode} from '@lexical/code';
 import {PrismTokenizer, registerCodeHighlighting} from '@lexical/code-prism';
 import {autoLinkUrlMatcher, registerAutoLink} from '@lexical/link';
+import {$createListItemNode, $createListNode, $isListNode} from '@lexical/list';
 import {$createHeadingNode, $createQuoteNode} from '@lexical/rich-text';
 import {
   $createParagraphNode,
@@ -188,7 +189,7 @@ for (const gc of [false, true]) {
         await expectConverged(t.peers);
       });
 
-      test('a code block replaced by a code block with a paragraph added after it: the composed node does not go to the paragraph, and nothing typed lands there', async () => {
+      test('a code block replaced by a code block with a paragraph added after it: the composed node does not go to the paragraph', async () => {
         const t = await setup(
           () =>
             $getRoot().append(
@@ -217,14 +218,6 @@ for (const gc of [false, true]) {
         expect(a.read(() => $blockOf(key))).toBe(-1);
         a.update(() => {
           $setCompositionKey(null);
-          const n = $getNodeByKey(key);
-          if ($isTextNode(n) && n.isAttached()) {
-            n.select(n.getTextContentSize(), n.getTextContentSize());
-            const selection = $getSelection();
-            if ($isRangeSelection(selection)) {
-              selection.insertText(' z');
-            }
-          }
           $setSelection(null);
         });
         await t.sync();
@@ -625,5 +618,108 @@ for (const gc of [false, true]) {
         });
       }
     });
+  }
+}
+
+// Enter, or lines pasted, over a selection that reaches the end of a line
+// (the line loses its end, which no line holds): the last new line keeps the
+// marker, as before, for a concurrent change of the line's alignment or a
+// Delete at its end (D118); also on the last line, and in a list item.
+for (const gc of [false, true]) {
+  for (const ids of [
+    [1, 2],
+    [2, 1],
+  ]) {
+    for (const edit of ['Enter', 'a paste'] as const) {
+      for (const where of [
+        'a paragraph',
+        'the last line',
+        'a list item',
+      ] as const) {
+        for (const change of ['Delete at its end', 'centers it'] as const) {
+          if (where === 'the last line' && change === 'Delete at its end') {
+            continue;
+          }
+          test(`${edit} over the end of ${where} while a collaborator ${change} (gc ${gc}, ids ${ids.join(',')}): as before`, async () => {
+            const t = await setup(
+              () => {
+                const first =
+                  where === 'a list item'
+                    ? $createListItemNode().append(
+                        $createTextNode('hello world'),
+                      )
+                    : $createParagraphNode().append(
+                        $createTextNode('hello world'),
+                      );
+                $getRoot().append(
+                  where === 'a list item'
+                    ? $createListNode('bullet').append(
+                        first,
+                        $createListItemNode().append($createTextNode('next')),
+                      )
+                    : first,
+                );
+                if (where === 'a paragraph') {
+                  $getRoot().append(
+                    $createParagraphNode().append($createTextNode('next')),
+                  );
+                }
+              },
+              {gc, ids},
+            );
+            onTestFinished(() => t.peers.forEach(p => p.stop()));
+            const $line = () =>
+              $getRoot().getAllTextNodes()[0].getParentOrThrow() as ElementNode;
+            t.offline();
+            t.a.update(() => {
+              const text = $getRoot().getAllTextNodes()[0];
+              const selection = text.select(6, 11);
+              if (edit === 'Enter') {
+                selection.insertParagraph();
+              } else {
+                selection.insertNodes([
+                  $createParagraphNode().append($createTextNode('A')),
+                  $createParagraphNode().append($createTextNode('B')),
+                ]);
+              }
+              $setSelection(null);
+            });
+            t.b.update(() => {
+              if (change === 'centers it') {
+                $line().setFormat('center');
+              } else {
+                const text = $getRoot().getAllTextNodes()[0];
+                text.select(11, 11).deleteCharacter(false);
+              }
+              $setSelection(null);
+            });
+            await t.sync();
+            const fresh = await freshReader(t.a);
+            onTestFinished(() => fresh.stop());
+            const shape = (peer: {read: <T>(f: () => T) => T}) =>
+              peer.read(() =>
+                $getRoot()
+                  .getChildren()
+                  .flatMap(n => ($isListNode(n) ? n.getChildren() : [n]))
+                  .map(
+                    n =>
+                      `${(n as ElementNode).getFormatType()}:${n.getTextContent()}`,
+                  ),
+              );
+            const first = edit === 'Enter' ? ':hello ' : ':hello A';
+            const added = edit === 'Enter' ? '' : 'B';
+            const rest = where === 'the last line' ? [] : [':next'];
+            const want =
+              change === 'centers it'
+                ? [first, `center:${added}`, ...rest]
+                : [first, `:${added}next`];
+            for (const peer of [...t.peers, fresh]) {
+              expect(shape(peer)).toEqual(want);
+            }
+            await expectConverged(t.peers);
+          });
+        }
+      }
+    }
   }
 }

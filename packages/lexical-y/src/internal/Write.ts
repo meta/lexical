@@ -4116,7 +4116,6 @@ export class Writer {
       }
       return out;
     };
-    // The desired lines ending with `text` (all of it).
     // The desired lines ending with `text` (all of it): their texts reversed
     // and sorted, so the lines ending with a text are those whose reversed
     // text starts with it reversed, a range found by binary search (the cost
@@ -4219,18 +4218,17 @@ export class Writer {
         set = new Set(tails.length > 0 ? tails : own);
         if (
           tails.length === 0 &&
-          n === was.length &&
-          head.length > was.length &&
           newLines.some((l, k) => l.isNew && k > own[own.length - 1])
         ) {
-          // It only grew at its end, with a new line after it (lines pasted
-          // at its end, app code that adds text and a line after it): the
-          // split's tail is empty, so by position, as before (the last new
-          // line keeps the marker, which the common suffix gives it). Kept
-          // by that line alone, the marker could not stay (only the common
-          // prefix or suffix keeps such a marker), so it was deleted: a
-          // composition there lost its line, and a collaborator's concurrent
-          // change of the line, or a Delete at its end, was dropped.
+          // With a new line after it and no line holding its old end (lines
+          // pasted at its end, Enter or a paste over a selection that reaches
+          // its end, app code that adds a line after it): by position, as
+          // before (the last new line keeps the marker, which the common
+          // suffix gives it). Kept by that line alone, the marker could not
+          // stay (only the common prefix or suffix keeps such a marker), so
+          // it was deleted: a composition there lost its line, and a
+          // collaborator's concurrent change of the line, or a Delete at its
+          // end, was dropped.
           set = new Set();
         }
       } else {
