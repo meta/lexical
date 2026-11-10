@@ -36,4 +36,5 @@ export {
   $keepCodeNodeState,
   $outdentLeadingSpaces,
   $plainifyCodeContent,
+  $replaceCodeTokensAddedTo,
 } from './FlatStructureUtils';

@@ -11,6 +11,7 @@ import {
   $isCodeNode,
   $keepCodeNodeState,
   $plainifyCodeContent,
+  $replaceCodeTokensAddedTo,
   CodeExtension,
   CodeHighlightNode,
   CodeIndentExtension,
@@ -255,11 +256,13 @@ function $codeNodeTransform(
     // The NodeState of the block's children (comment ids, a suggestion)
     // stays on their text.
     const children = currentNode.getChildren();
-    const diffRange = getDiffRange(
-      children,
-      $keepCodeNodeState(children, highlightNodes),
-    );
+    const nextNodes = $keepCodeNodeState(children, highlightNodes);
+    const diffRange = getDiffRange(children, nextNodes);
     const {from, to, nodesForReplacement} = diffRange;
+    // A kept child that its new token adds to (an app tokenizer's own class
+    // or NodeState) is replaced by it, one for one, with any selection point
+    // on it kept at its offset.
+    $replaceCodeTokensAddedTo(children, nextNodes, from, to);
 
     if (from !== to || nodesForReplacement.length) {
       node.splice(from, to - from, nodesForReplacement);

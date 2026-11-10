@@ -32,7 +32,7 @@ import {
 import {
   $createCodeHighlightNode,
   $isCodeHighlightNode,
-  type CodeHighlightNode,
+  CodeHighlightNode,
 } from './CodeHighlightNode';
 
 // The anchor is generic (rather than the narrower
@@ -319,6 +319,147 @@ function hasNodeState(node: LexicalNode): boolean {
   return (
     node.__state !== undefined && Object.keys(node.__state.toJSON()).length > 0
   );
+}
+
+/**
+ * The NodeState values of `node` by key, as JSON, whichever way its class
+ * stores each (a key it declares flat, or nested), and the keys it stores
+ * flat (at the top level of its JSON, beside its fields).
+ */
+function nodeStateValues(node: LexicalNode): {
+  flat: Set<string>;
+  values: Map<string, string>;
+} {
+  // @internal access, like `__text`
+  const json: Record<string, unknown> = node.__state
+    ? node.__state.toJSON()
+    : {};
+  const flat = new Set<string>();
+  const values = new Map<string, string>();
+  for (const [key, value] of Object.entries(json)) {
+    if (key === NODE_STATE_KEY) {
+      for (const [nestedKey, nestedValue] of Object.entries(
+        value as Record<string, unknown>,
+      )) {
+        values.set(nestedKey, JSON.stringify(nestedValue));
+      }
+    } else {
+      flat.add(key);
+      values.set(key, JSON.stringify(value));
+    }
+  }
+  return {flat, values};
+}
+
+/**
+ * Whether `next`, a new token with the same text and highlight type as
+ * `prev`, adds to it without losing any of it: `next` is of `prev`'s class
+ * with the same fields, or of an app's own subclass where `prev` is a stock
+ * CodeHighlightNode; it has `prev`'s format, style and every NodeState value
+ * `prev` has; and it has a class or a NodeState value of its own besides
+ * (one the tokenizer gave it).
+ */
+function $addsToCodeToken(
+  prev: CodeHighlightNode,
+  next: CodeHighlightNode,
+): boolean {
+  const sameClass: boolean = next.constructor === prev.constructor;
+  if (
+    sameClass
+      ? !hasNodeState(next)
+      : prev.getType() !== CodeHighlightNode.getType() ||
+        !(next instanceof CodeHighlightNode)
+  ) {
+    return false;
+  }
+  if (
+    next.getFormat() !== prev.getFormat() ||
+    next.getStyle() !== prev.getStyle() ||
+    next.getDetail() !== prev.getDetail() ||
+    next.getMode() !== prev.getMode()
+  ) {
+    return false;
+  }
+  const prevState = nodeStateValues(prev);
+  const nextState = nodeStateValues(next);
+  let adds = !sameClass;
+  for (const key of nextState.values.keys()) {
+    if (!prevState.values.has(key)) {
+      adds = true;
+    }
+  }
+  if (!adds) {
+    return false;
+  }
+  for (const [key, value] of prevState.values) {
+    if (nextState.values.get(key) !== value) {
+      return false;
+    }
+  }
+  if (sameClass) {
+    // The fields of the class: every key of either JSON but its type and
+    // its NodeState (nested, or a key the class declares flat).
+    const prevJSON = prev.exportJSON() as unknown as Record<string, unknown>;
+    const nextJSON = next.exportJSON() as unknown as Record<string, unknown>;
+    for (const key of new Set([
+      ...Object.keys(prevJSON),
+      ...Object.keys(nextJSON),
+    ])) {
+      if (
+        key !== 'type' &&
+        key !== NODE_STATE_KEY &&
+        !prevState.flat.has(key) &&
+        !nextState.flat.has(key) &&
+        JSON.stringify(prevJSON[key]) !== JSON.stringify(nextJSON[key])
+      ) {
+        return false;
+      }
+    }
+  }
+  return true;
+}
+
+/**
+ * @internal
+ * For a highlighter that tokenizes a code block again, once it compared the
+ * block's children `prevNodes` with the new tokens `nextNodes`, and keeps the
+ * children before `from` and from `to` on, each the same token (text and
+ * highlight type) as the new one at its place: each kept child that its new
+ * token adds to, without losing any of it, is replaced by the new token, one
+ * for one (an app's tokenizer making its own CodeHighlightNode subclass, or
+ * setting NodeState on its tokens; see `$keepCodeNodeState` for the NodeState
+ * of the text each new token came from). Every other kept child stays as it
+ * is. A selection point on a replaced child goes to its new token at the
+ * same offset, so the selection stays where it was. Returns whether any
+ * child was replaced.
+ */
+export function $replaceCodeTokensAddedTo(
+  prevNodes: LexicalNode[],
+  nextNodes: LexicalNode[],
+  from: number,
+  to: number,
+): boolean {
+  let replaced = false;
+  const replace = (prev: LexicalNode, next: LexicalNode) => {
+    if (
+      $isCodeHighlightNode(prev) &&
+      $isCodeHighlightNode(next) &&
+      next !== prev &&
+      $addsToCodeToken(prev, next)
+    ) {
+      // A selection point on `prev` goes to `next` at its offset (`replace`
+      // keeps an offset within the text, which the two share).
+      prev.replace(next);
+      replaced = true;
+    }
+  };
+  for (let i = 0; i < from; i++) {
+    replace(prevNodes[i], nextNodes[i]);
+  }
+  for (let i = 1; i <= prevNodes.length - to; i++) {
+    replace(prevNodes[prevNodes.length - i], nextNodes[nextNodes.length - i]);
+  }
+  return replaced;
 }
 
 /**
