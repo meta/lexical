@@ -21,7 +21,7 @@
 import {$createCodeNode, $isCodeNode, CodeHighlightNode} from '@lexical/code';
 import {PrismTokenizer, registerCodeHighlighting} from '@lexical/code-prism';
 import {autoLinkUrlMatcher, registerAutoLink} from '@lexical/link';
-import {$createQuoteNode} from '@lexical/rich-text';
+import {$createHeadingNode, $createQuoteNode} from '@lexical/rich-text';
 import {
   $createParagraphNode,
   $createTextNode,
@@ -42,7 +42,14 @@ import {
 } from 'lexical';
 import {describe, expect, onTestFinished, test} from 'vitest';
 
-import {expectConverged, freshReader, NODES, setup} from '../../utils/harness';
+import {
+  $createEquation,
+  $selectIn,
+  expectConverged,
+  freshReader,
+  NODES,
+  setup,
+} from '../../utils/harness';
 
 const note = createState('note', {parse: stringValue()});
 
@@ -233,5 +240,115 @@ for (const gc of [false, true]) {
         await expectConverged(t.peers);
       });
     });
+  }
+}
+
+// A split, a join and a line remade with a line added after it keep the old
+// marker where the diff kept it (D118: the tail of a split, the line a join
+// ends with), so a collaborator's concurrent change of the line's attributes
+// (its alignment, its type) stays with the line that holds its end.
+type Change = 'centers' | 'makes it a heading';
+const $change = (change: Change, index: number) => {
+  const line = $getRoot().getChildAtIndex(index) as ElementNode;
+  if (change === 'centers') {
+    line.setFormat('center');
+  } else {
+    line.replace($createHeadingNode('h2').append(...line.getChildren()));
+  }
+  $setSelection(null);
+};
+const $shape = () =>
+  $getRoot()
+    .getChildren()
+    .map(
+      n =>
+        `${n.getType()}${(n as ElementNode).getFormatType()}:${n.getTextContent()}`,
+    );
+
+for (const gc of [false, true]) {
+  for (const ids of [
+    [1, 2],
+    [2, 1],
+  ]) {
+    for (const change of ['centers', 'makes it a heading'] as const) {
+      describe(`gc ${gc}, ids ${ids.join(',')}, a collaborator ${change} the line`, () => {
+        const run = async (
+          init: () => void,
+          $edit: () => void,
+          index: number,
+          want: string[],
+        ) => {
+          const t = await setup(init, {gc, ids});
+          onTestFinished(() => t.peers.forEach(p => p.stop()));
+          t.offline();
+          t.a.update($edit);
+          t.b.update(() => $change(change, index));
+          await t.sync();
+          const fresh = await freshReader(t.a);
+          onTestFinished(() => fresh.stop());
+          for (const peer of [...t.peers, fresh]) {
+            expect(peer.read($shape)).toEqual(want);
+          }
+          await expectConverged(t.peers);
+        };
+        const changed = (type: string, text: string) =>
+          change === 'centers' ? `${type}center:${text}` : `heading:${text}`;
+
+        test('Enter in a line that ends with an inline node: the tail keeps the change', () =>
+          run(
+            () =>
+              $getRoot().append(
+                $createParagraphNode().append(
+                  $createTextNode('hello world'),
+                  $createEquation('x^2'),
+                ),
+              ),
+            () => {
+              $selectIn([0], 6).insertParagraph();
+              $setSelection(null);
+            },
+            0,
+            ['paragraph:hello ', changed('paragraph', 'world')],
+          ));
+
+        test("app code that splits a line (the head's text set, a line added holding the tail): the tail keeps the change", () =>
+          run(
+            () =>
+              $getRoot().append(
+                $createParagraphNode().append($createTextNode('hello world')),
+              ),
+            () => {
+              const line = $getRoot().getFirstChildOrThrow() as ElementNode;
+              (line.getFirstChildOrThrow() as TextNode).setTextContent(
+                'hello ',
+              );
+              line.insertAfter(
+                $createParagraphNode().append($createTextNode('world')),
+              );
+              $setSelection(null);
+            },
+            0,
+            ['paragraph:hello ', changed('paragraph', 'world')],
+          ));
+
+        test('Backspace at the start of a line, with a line added after it: the joined line keeps the change', () =>
+          run(
+            () =>
+              $getRoot().append(
+                $createParagraphNode().append($createTextNode('one')),
+                $createParagraphNode().append($createTextNode('two')),
+              ),
+            () => {
+              $selectIn([1], 0).deleteCharacter(true);
+              $getRoot().append(
+                $createParagraphNode().append($createTextNode('added')),
+              );
+              $setSelection(null);
+            },
+            1,
+            [changed('paragraph', 'onetwo'), 'paragraph:added'],
+          ));
+      });
+    }
   }
 }

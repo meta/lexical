@@ -3989,14 +3989,16 @@ export class Writer {
    * its marker): null where there is no choice. Invariant: an old marker is
    * kept only by the line that continues the line it ended (see D118), the
    * first of:
-   * - the line whose last character is the old line's last character, by
-   *   Lexical's record of text edits (`record`, see $exactAtoms): the tail of
-   *   a split (Enter in the middle of a line: the new line keeps the marker
-   *   after the tail and the old line, holding the head, gets a new one, so
-   *   no character moves), or the line a join or a range delete across lines
-   *   ends with the joined text (it keeps the marker after that text, and its
-   *   own goes);
-   * - that line itself (the same key), where it stays;
+   * - the line whose last atom is the old line's last atom (a character, or
+   *   an inline node kept), by Lexical's record of text edits (`record`, see
+   *   $exactAtoms): the tail of a split (Enter in the middle of a line: the
+   *   new line keeps the marker after the tail and the old line, holding the
+   *   head, gets a new one, so no character moves), or the line a join or a
+   *   range delete across lines ends with the joined text (it keeps the
+   *   marker after that text, and its own goes);
+   * - where the old line stays: a new line ending with what it lost from its
+   *   end (a split the record does not explain: app code that sets the
+   *   head's text and adds a line holding the tail), else that line itself;
    * - where it is gone: the lines holding a node it held before this update
    *   (a line Lexical replaced, `$setBlocksType`, or one joined into another),
    *   else the lines ending with all of its text (a paste over it);
@@ -4012,7 +4014,10 @@ export class Writer {
     old: Atoms,
     atoms: Atoms,
     record: {of: Int32Array; kept: Int32Array} | null,
-  ): ((i: number, j: number) => boolean) | null {
+  ): {
+    match: (i: number, j: number) => boolean;
+    anchored: Set<number>;
+  } | null {
     const oldAt: number[] = [];
     const newAt: number[] = [];
     old.specials.forEach((sp, i) => {
@@ -4065,9 +4070,6 @@ export class Writer {
       if (n.to !== null) {
         add(lines, n.to, k);
       }
-      for (let len = 1; len <= ENDING && len <= n.now.length; len++) {
-        add(enders, n.now.slice(-len), k);
-      }
     });
     // The desired line whose last character Lexical's record says is old
     // atom `i`.
@@ -4118,6 +4120,13 @@ export class Writer {
     };
     // The desired lines ending with `text` (all of it).
     const endingWith = (text: string): number[] => {
+      if (enders.size === 0) {
+        newLines.forEach((n, k) => {
+          for (let len = 1; len <= ENDING && len <= n.now.length; len++) {
+            add(enders, n.now.slice(-len), k);
+          }
+        });
+      }
       const l = enders.get(text.slice(-ENDING)) ?? [];
       return text.length <= ENDING
         ? l
@@ -4136,6 +4145,8 @@ export class Writer {
     // above. A line that stays keeps its marker unless the record gives its
     // last character to another line (the tail of a split).
     const best = new Map<number, Set<number> | null>();
+    // Old markers the record gives a line (see withMarkerIslands).
+    const anchored = new Set<number>();
     oldAt.forEach((i, ki) => {
       const owner = this.ownerBefore(
         (old.specials.get(i) as {ref: unknown}).ref as Item,
@@ -4145,14 +4156,42 @@ export class Writer {
         return;
       }
       const oi = lastOf(oldAt, ki);
+      // A character, or an inline node kept (an equation the line ends
+      // with), see $exactAtoms.
+      const lastSpecial = oi < 0 ? undefined : old.specials.get(oi);
+      const lastKind =
+        oi < 0
+          ? null
+          : lastSpecial === undefined
+            ? undefined
+            : lastSpecial.kind;
       const byRecord =
-        oi >= 0 && !old.specials.has(oi) ? recorded.get(oi) : undefined;
+        oi >= 0 && (lastKind === undefined || lastKind === 'oldNode')
+          ? recorded.get(oi)
+          : undefined;
       const from = lineOfUnit(owner);
       let set = new Set<number>();
       if (byRecord !== undefined) {
         set.add(byRecord);
+        anchored.add(i);
       } else if (lines.has(from)) {
-        set = new Set(lines.get(from));
+        // The line stays: it keeps its marker, unless a new line ends with
+        // what it lost from its end (a split the record does not explain,
+        // app code that sets the head's text and adds a line holding the
+        // tail), which keeps the marker after that text.
+        const own = lines.get(from)!;
+        const was = textOf(old, oldAt, ki);
+        const head = newLines[own[0]].now;
+        let n = 0;
+        while (n < was.length && n < head.length && was[n] === head[n]) {
+          n++;
+        }
+        const tail = was.slice(n);
+        const tails =
+          tail.length > 0 && head.length < was.length
+            ? endingWith(tail).filter(k => newLines[k].isNew)
+            : [];
+        set = new Set(tails.length > 0 ? tails : own);
       } else {
         if (!indexed) {
           $indexHolders();
@@ -4171,17 +4210,20 @@ export class Writer {
       }
       best.set(i, set.size > 0 ? set : keyless);
     });
-    return (i, j) => {
-      const set = best.get(i)!;
-      if (set === ANY) {
-        return true;
-      }
-      for (const k of set) {
-        if (newLines[k].j === j) {
+    return {
+      anchored,
+      match: (i, j) => {
+        const set = best.get(i)!;
+        if (set === ANY) {
           return true;
         }
-      }
-      return false;
+        for (const k of set) {
+          if (newLines[k].j === j) {
+            return true;
+          }
+        }
+        return false;
+      },
     };
   }
 
@@ -4239,7 +4281,9 @@ export class Writer {
       const a = old.specials.get(i)!;
       const b = atoms.specials.get(j)!;
       if (a.kind === 'marker') {
-        return b.kind === 'marker' && (continues === null || continues(i, j));
+        return (
+          b.kind === 'marker' && (continues === null || continues.match(i, j))
+        );
       }
       if (a.kind === 'runEnd') {
         return a.kind === b.kind;
@@ -4462,7 +4506,42 @@ export class Writer {
         }
       }
     }
+    // A marker the record gives the line that continues its line (see
+    // $markerContinues: the line ending with its line's last character),
+    // where that line is between the prefix and the suffix (a join or a
+    // split with a line added after it): kept as an island where it falls
+    // between the atoms kept there, in order. Only these: a client that
+    // diffs the same content with a concurrent edit keeps the same marker
+    // with the same text (a marker a line kept by its key alone, kept
+    // here while that client keeps another, would leave both deleted). Why:
+    // only the prefix and the suffix kept markers, so a marker whose line
+    // was not at either end was deleted and written again, and a
+    // collaborator's concurrent change of the line's attributes was lost.
+    if (continues !== null && continues.anchored.size > 0) {
+      kept = this.withMarkerIslands(
+        kept,
+        old,
+        atoms,
+        prefix,
+        suffix,
+        (i, j) => continues.anchored.has(i) && matchSpecial(i, j),
+      );
+    }
     const items = new Map<number, Item>();
+    for (const [ki, kj] of kept) {
+      const it = old.items.get(ki);
+      const a = old.specials.get(ki);
+      const b = atoms.specials.get(kj);
+      if (
+        it !== undefined &&
+        a !== undefined &&
+        a.kind === 'marker' &&
+        b !== undefined &&
+        b.kind === 'marker'
+      ) {
+        items.set(kj, it);
+      }
+    }
     for (let i = 0; i < prefix; i++) {
       const it = old.items.get(i);
       if (it !== undefined && atoms.specials.has(i)) {
@@ -4510,6 +4589,64 @@ export class Writer {
     );
     this.$formatPass(y, left, startFormats, atoms);
     return items;
+  }
+
+  /**
+   * `kept` (old and desired atoms kept between the prefix and the suffix,
+   * in order) with the markers `matchSpecial` keeps for a line there added
+   * where each falls between two kept atoms on both sides.
+   */
+  private withMarkerIslands(
+    kept: [number, number][],
+    old: Atoms,
+    atoms: Atoms,
+    prefix: number,
+    suffix: number,
+    matchSpecial: (i: number, j: number) => boolean,
+  ): [number, number][] {
+    const oldEnd = old.length - suffix;
+    const newEnd = atoms.length - suffix;
+    const newMarkers: number[] = [];
+    atoms.specials.forEach((sp, j) => {
+      if (sp.kind === 'marker' && j >= prefix && j < newEnd) {
+        newMarkers.push(j);
+      }
+    });
+    if (newMarkers.length === 0) {
+      return kept;
+    }
+    newMarkers.sort((x, y) => x - y);
+    const out = [...kept];
+    const oldMarkers: number[] = [];
+    old.specials.forEach((sp, i) => {
+      if (sp.kind === 'marker' && i >= prefix && i < oldEnd) {
+        oldMarkers.push(i);
+      }
+    });
+    oldMarkers.sort((x, y) => x - y);
+    for (const i of oldMarkers) {
+      // The kept atoms around old atom `i`.
+      let at = 0;
+      while (at < out.length && out[at][0] < i) {
+        at++;
+      }
+      if (at < out.length && out[at][0] === i) {
+        continue;
+      }
+      const lo = at === 0 ? prefix - 1 : out[at - 1][1];
+      const hi = at === out.length ? newEnd : out[at][1];
+      const j = newMarkers.find(
+        x =>
+          x > lo &&
+          x < hi &&
+          matchSpecial(i, x) &&
+          !out.some(([, kj]) => kj === x),
+      );
+      if (j !== undefined) {
+        out.splice(at, 0, [i, j]);
+      }
+    }
+    return out;
   }
 
   /**
