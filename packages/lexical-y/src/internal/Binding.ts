@@ -5786,6 +5786,15 @@ export class YBinding {
    * shared root, on a new state.
    */
   private $rebuild(): void {
+    // A composition held until now (see recoverRead): its hold ends here, so
+    // the deleted format items it kept showing lose the Item.keep it set
+    // (see Hidden#keep), as when a hold ends (see $release) or the binding
+    // stops (see dispose). Only the flags change; the rebuild reads the
+    // whole document as stored.
+    const hidden = this.state.hidden;
+    if (hidden !== null) {
+      hidden.releaseKeeps();
+    }
     // With what startInner configured on the state it replaces.
     this.state = this.state.configuredLike(this._doc, this._root);
     const root = $getRoot();
