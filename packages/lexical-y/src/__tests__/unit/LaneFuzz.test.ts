@@ -100,115 +100,118 @@ const SHRINK_PER_TEST = 3;
  * Finding classes that reproduce on main, per lane: counted and printed, not
  * failed one by one (LANE_STRICT=1 fails them too). Each says what was seen
  * and its rate on main: histories per 1,000 that show it (`per1000`,
- * measured on main at 5326e0627 over seeds 100001 to 103000 per gc setting,
- * the higher of the two). A run of at least CEILING_MIN_HISTORIES fails when
- * a class grows past its ceiling (see `ceiling`), so growth fails instead of
- * hiding behind the class name. Lower `per1000` with a fix that reduces a
- * class, and remove the entry with the fix that brings it to zero.
+ * measured on main at 8c369d793 over 13,000 histories per gc setting, seeds
+ * 100001 to 110000 and 300001 to 303000, the higher of the two). A run of at least
+ * CEILING_MIN_HISTORIES fails when a class grows past its ceiling (see
+ * `ceiling`), so growth fails instead of hiding behind the class name. Lower
+ * `per1000` with a fix that reduces a class, and remove the entry with the
+ * fix that brings it to zero.
  *
  * Triage: these classes share one root cause, in the writer's marker
  * matching when the ending update of a held composition is written over a
  * block a collaborator changed; its fix is planned as a separate pull
- * request. #9835 (open) keeps a code highlighter's re-tokenization of a held
- * code line off a block a collaborator made of it, and reduces several.
+ * request. The rates are measured with #9835 (a code highlighter's
+ * re-tokenization of a held code line kept off a block a collaborator made
+ * of it) and #9832 (the highlighter keeps the NodeState of the text it
+ * tokenizes again), which reduced the carry lane's classes most.
  */
 const KNOWN_OPEN = new Map<string, {seen: string; per1000: number}>([
   [
-    'blockconv:ending-phase-code-highlight-outside-code',
-    {
-      per1000: 58,
-      seen: 'the ending update writes code highlight tokens onto a block a collaborator converted out of code (fewer with #9835)',
-    },
-  ],
-  [
     'blockconv:ending-phase-other-block',
     {
-      per1000: 26,
+      per1000: 26.5,
       seen: "the composer's highlighter re-tokenizes a collaborator's untouched code block in the ending update, dropping its format and NodeState",
     },
   ],
   [
     'blockconv:untouched-block-changed',
     {
-      per1000: 25,
+      per1000: 26.3,
       seen: "the composer's highlighter re-tokenizes a collaborator's untouched code block in the ending update, dropping its format and NodeState",
     },
   ],
   [
-    'blockconv:ending-phase-format',
+    'blockconv:ending-phase-code-highlight-outside-code',
     {
-      per1000: 10,
-      seen: 'the ending update writes a format nothing asked for onto the held line, for example a parent-dependent transform run against the block type the line had, written onto the line a collaborator joined it into',
+      per1000: 9.2,
+      seen: 'the ending update writes code highlight tokens onto a block a collaborator converted out of code',
     },
   ],
   [
     'blockconv:ending-phase-text',
     {
-      per1000: 9.3,
+      per1000: 8.6,
       seen: 'text the ending update writes lands in another block, for example what it types at the end of the held line lands in the block after it',
     },
   ],
   [
-    'blockconv:ending-phase-state',
+    'blockconv:ending-phase-format',
     {
-      per1000: 0.3,
-      seen: "the ending phase drops a parent-dependent transform's NodeState from the held line",
+      per1000: 7.8,
+      seen: 'the ending update writes a format nothing asked for onto the held line, for example a parent-dependent transform run against the block type the line had, written onto the line a collaborator joined it into',
+    },
+  ],
+  [
+    'blockconv:ending-phase-boundary',
+    {
+      per1000: 0.1,
+      seen: 'the ending phase adds a block boundary nothing accounts for (seen once in 26,000 histories: a release transform that splits the held line, which the collaborator deleted)',
     },
   ],
   [
     'carry:ending-phase-code-highlight-outside-code',
     {
-      per1000: 558.7,
-      seen: 'the ending update re-tokenizes the held code line a collaborator joined into a paragraph and writes the tokens there (fewer with #9835)',
+      per1000: 196.5,
+      seen: 'the ending update re-tokenizes the held code line a collaborator joined into a paragraph and writes the tokens there',
     },
   ],
   [
     'carry:ending-phase-field',
     {
-      per1000: 535.7,
-      seen: "the ending update re-tokenizes the held code line a collaborator joined into a paragraph and writes the tokens' styles there (fewer with #9835)",
-    },
-  ],
-  [
-    'carry:decorator-lost',
-    {
-      per1000: 182.3,
-      seen: "the composer's highlighter, run on the held line as the code it was, turns its inline decorator into code text (stock highlighters do so in any code block; fewer with #9835)",
+      per1000: 187.3,
+      seen: "the ending update re-tokenizes the held code line a collaborator joined into a paragraph and writes the tokens' styles there",
     },
   ],
   [
     'carry:ending-phase-text',
     {
-      per1000: 235,
-      seen: "the composer's highlighter, run on the held line as the code it was, turns its inline decorator into code text (stock highlighters do so in any code block; fewer with #9835)",
+      per1000: 94.8,
+      seen: "the composer's writes from the ending update add or remove characters, in the held line or another block, for example the text of an inline decorator its highlighter turned into code text",
     },
   ],
   [
-    'carry:ending-phase-state',
+    'carry:decorator-lost',
     {
-      per1000: 142,
-      seen: 'the ending phase leaves NodeState values the ending update did not ask for on the held line (fewer with #9835)',
-    },
-  ],
-  [
-    'carry:target-value',
-    {
-      per1000: 50.3,
-      seen: 'a NodeState value the ending update set does not stay on a changed character (fewer with #9835)',
+      per1000: 57.5,
+      seen: "the composer's highlighter, run on the held line as the code it was, turns its inline decorator into code text (stock highlighters do so in any code block)",
     },
   ],
   [
     'carry:other-block-changed',
     {
-      per1000: 13.7,
+      per1000: 15.2,
       seen: "with the held line deleted by the collaborator, the composer's re-tokenized text joins the untouched block after it",
     },
   ],
   [
     'carry:ending-phase-other-block',
     {
-      per1000: 13.7,
+      per1000: 15.2,
       seen: "with the held line deleted by the collaborator, the composer's re-tokenized text joins the untouched block after it",
+    },
+  ],
+  [
+    'carry:ending-phase-state',
+    {
+      per1000: 7.2,
+      seen: 'the ending phase leaves NodeState values the ending update did not ask for on the held line',
+    },
+  ],
+  [
+    'carry:target-value',
+    {
+      per1000: 7.2,
+      seen: 'a NodeState value the ending update set does not stay on a changed character',
     },
   ],
 ]);
