@@ -4002,9 +4002,7 @@ export class Writer {
    * - where it is gone: the lines holding a node it held before this update
    *   (a line Lexical replaced, `$setBlocksType`, or one joined into another),
    *   else the lines ending with all of its text (a paste over it);
-   * - else, where no line continues it, any line that was there before (or
-   *   one without a key), by position as before, never a line new in this
-   *   update.
+   * - else, where no line continues it, any line, by position as before.
    * Why: a marker matched any marker, so where a collaborator replaced a
    * line and added another after it, the common suffix gave the old marker
    * to the new line; every reader keys a line by its marker, so the old
@@ -4135,20 +4133,6 @@ export class Writer {
     };
     const ANY = null;
     // Lines without a key: kept as before by a marker no line claims.
-    // A marker no line continues (its line is gone, and no line holds what
-    // it held) is kept as before, by position, but only by a line that was
-    // there before this update or one without a key, never by a new line.
-    // Why: deleted with its line, text a collaborator typed into that line
-    // at the same time lost the marker after it and joined the next line's
-    // text or showed as a line of its own (the previous rule kept it at the
-    // end of the line before, as an edit there does); a new line that took
-    // it is the case D118 fixes.
-    const orphanable = new Set<number>();
-    newLines.forEach((n, k) => {
-      if (n.to === null || !n.isNew) {
-        orphanable.add(k);
-      }
-    });
     // The desired lines with the strongest claim on each old marker (ANY:
     // every line, where the marker's line is not known), see the rules
     // above. A line that stays keeps its marker unless the record gives its
@@ -4217,7 +4201,15 @@ export class Writer {
           }
         }
       }
-      best.set(i, set.size > 0 ? set : orphanable);
+      // A marker no line continues (its line is gone, and no line holds
+      // what it held or ends with its text) is kept by position, as before,
+      // by any line. Why: deleted with its line, text a collaborator typed
+      // into that line at the same time lost the marker after it and joined
+      // the next line's text or showed as a line of its own; and a client
+      // composing in that line had its composition moved into the line the
+      // deletion joined it with (the line after it) instead of the line
+      // that took its marker.
+      best.set(i, set.size > 0 ? set : ANY);
     });
     return {
       anchored,
