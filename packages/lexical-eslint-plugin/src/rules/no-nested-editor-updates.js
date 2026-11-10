@@ -209,10 +209,20 @@ function unwrapChainExpression(node) {
  * @param {Identifier} identifier
  */
 function getReferenceVariable(sourceCode, identifier) {
-  const reference = sourceCode
-    .getScope(identifier)
-    .references.find(ref => ref.identifier === identifier);
-  return reference && reference.resolved;
+  // SourceCode#getScope was added in ESLint 8.37. Earlier versions expose
+  // the same references through scopeManager, including shadowed bindings.
+  const scopes =
+    typeof sourceCode.getScope === 'function'
+      ? [sourceCode.getScope(identifier)]
+      : sourceCode.scopeManager.scopes;
+  for (const scope of scopes) {
+    const reference = scope.references.find(
+      ref => ref.identifier === identifier,
+    );
+    if (reference) {
+      return reference.resolved;
+    }
+  }
 }
 
 /**
@@ -442,7 +452,9 @@ export const noNestedEditorUpdates = {
           messageId =
             editorCallbackContext.method === 'read'
               ? 'readOnlyUpdate'
-              : 'noNestedEditorUpdates';
+              : editorCallbackContext.method === 'registerNodeTransform'
+                ? 'nodeTransformUpdate'
+                : 'noNestedEditorUpdates';
         } else {
           const dollarFunctionContext = getDollarFunctionContext(
             enclosingFunction,
@@ -487,13 +499,17 @@ export const noNestedEditorUpdates = {
     },
     messages: {
       dollarFunctionUpdate:
-        '{{context}} is named as a Lexical $function but calls {{callee}}. Remove the update wrapper, or remove the $ prefix if this function intentionally starts the update.',
+        '{{context}} is named as a Lexical $function but calls {{callee}}. If {{callee}} targets the editor this $function runs in, remove the update wrapper. If this function intentionally starts the update, remove the $ prefix.',
       dollarFunctionUpdateWithOptions:
-        '{{context}} is named as a Lexical $function but calls {{callee}}. Apply {{migrations}} in the current context and remove the update wrapper, or remove the $ prefix if this function intentionally starts the update.',
+        '{{context}} is named as a Lexical $function but calls {{callee}}. If {{callee}} targets the editor this $function runs in, apply {{migrations}} in the current context and remove the update wrapper. If this function intentionally starts the update, remove the $ prefix.',
       noNestedEditorUpdates:
         '{{context}} already provides an update context for this editor. Remove the nested {{callee}} wrapper.',
       noNestedEditorUpdatesWithOptions:
         '{{context}} already provides an update context for this editor. Apply {{migrations}} in the current context, then remove the nested {{callee}} wrapper.',
+      nodeTransformUpdate:
+        '{{context}} already provides an update context for this editor. Remove the nested {{callee}} wrapper and ensure inline mutations converge by checking transform preconditions: https://lexical.dev/docs/concepts/transforms#preconditions.',
+      nodeTransformUpdateWithOptions:
+        '{{context}} already provides an update context for this editor. Apply {{migrations}} in the current context, then remove the nested {{callee}} wrapper and ensure inline mutations converge by checking transform preconditions: https://lexical.dev/docs/concepts/transforms#preconditions.',
       readOnlyUpdate:
         '{{context}} is read-only. Move {{callee}} after the read callback, preserving its update wrapper and options.',
     },

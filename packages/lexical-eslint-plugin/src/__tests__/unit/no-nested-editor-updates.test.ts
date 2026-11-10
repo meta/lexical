@@ -69,6 +69,30 @@ describe('no-nested-editor-updates', () => {
     ruleTester.run('$functions', rule, {
       invalid: [
         {
+          code: `function $followUpDifference() {
+  const editor = createEditor();
+  editor.update(() => {});
+}`,
+          errors: [
+            {
+              message:
+                '$followUpDifference is named as a Lexical $function but calls editor.update. If editor.update targets the editor this $function runs in, remove the update wrapper. If this function intentionally starts the update, remove the $ prefix.',
+            },
+          ],
+        },
+        {
+          code: `function $followUpDifference() {
+  const editor = createEditor();
+  editor.update(() => {}, {discrete: true});
+}`,
+          errors: [
+            {
+              message:
+                '$followUpDifference is named as a Lexical $function but calls editor.update. If editor.update targets the editor this $function runs in, apply `discrete` with `$flushSyncAfterUpdate` in the current context and remove the update wrapper. If this function intentionally starts the update, remove the $ prefix.',
+            },
+          ],
+        },
+        {
           code: `function $updateSomething(editor) {
   editor.update(() => {});
 }`,
@@ -201,7 +225,23 @@ editor.registerCommand(COMMAND, () => {
           code: `editor.registerNodeTransform(Node, () => {
   editor.update(() => {});
 });`,
-          errors: [{messageId: 'noNestedEditorUpdates'}],
+          errors: [
+            {
+              message:
+                'editor.registerNodeTransform callback already provides an update context for this editor. Remove the nested editor.update wrapper and ensure inline mutations converge by checking transform preconditions: https://lexical.dev/docs/concepts/transforms#preconditions.',
+            },
+          ],
+        },
+        {
+          code: `editor.registerNodeTransform(Node, () => {
+  editor.update(() => {}, {tag: 'history-merge'});
+});`,
+          errors: [
+            {
+              message:
+                'editor.registerNodeTransform callback already provides an update context for this editor. Apply `tag` with `$addUpdateTag` in the current context, then remove the nested editor.update wrapper and ensure inline mutations converge by checking transform preconditions: https://lexical.dev/docs/concepts/transforms#preconditions.',
+            },
+          ],
         },
         {
           code: `editor.read(() => {
