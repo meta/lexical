@@ -1078,7 +1078,7 @@ describe('registerLexicalTextEntity between text nodes of other formats (#9637)'
     }
   });
 
-  test('a createNode that adds text or changes its case settles as before', () => {
+  test('a createNode that adds text or changes its case settles', () => {
     const anywhere = (text: string): null | EntityMatch => {
       const m = /dog|cat/.exec(text);
       return m === null ? null : {end: m.index + m[0].length, start: m.index};
@@ -1127,12 +1127,15 @@ describe('registerLexicalTextEntity between text nodes of other formats (#9637)'
       ['text', 'cat', 0],
       ['text', 'y', B],
     ]);
+    // The `DOG` made from "xdog" is no entity after the bold "z" either, so
+    // it is turned back into text before it grows over the italic `DOG`
+    // (before, it grew over it first, and that text lost its italic).
     expect(
       settle(['*z', 'xdog', '_dog cat', '*!'], text => text.toUpperCase()),
     ).toEqual([
       ['text', 'z', B],
-      ['text', 'xDOGDOG', 0],
-      ['text', ' CAT', I],
+      ['text', 'xDOG', 0],
+      ['text', 'DOG CAT', I],
       ['text', '!', B],
     ]);
   });

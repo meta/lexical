@@ -284,9 +284,8 @@ describe('an undo keeps the run ends of the text it removes', () => {
 // an undo of that bold must not leave the content after the pair bold.
 describe('an undo of the run such run ends restate', () => {
   for (const how of ['undo', 'delete'] as const) {
-    // #9682 for the delete: the delete keeps F's run ends, and A's undo of
-    // the bold leaves it after F's restore.
-    (how === 'delete' ? test.fails : test).each(ORDERS)(
+    // (#9682 for the delete: fixed by paired runs, layout 3.)
+    test.each(ORDERS)(
       `F types " mid" into A's bold and ${how}s it; A undoes the bold, redoes it, undoes it (ids %i %i %i)`,
       async (...ids) => {
         const t = await setup(
@@ -831,7 +830,8 @@ describe('undo run ends, more orders of events', () => {
       ).toContain('T');
     },
   );
-  // #9682: an undo of a run's value leaves it after a restore it has seen.
+  // D64: text a collaborator typed inside the run with the run's value loses
+  // it when the run is undone, on main and with paired runs.
   test.fails.each(
     ORDERS.flatMap(ids => [
       ['after " mid"', ...ids],
@@ -1219,8 +1219,9 @@ describe('run ends an undo kept, after changes made since', () => {
     },
   );
 
-  // #9682: an undo of a run's value leaves it after a restore it has seen.
-  test.fails.each(ORDERS)(
+  // #9682: an undo of a run's value left it after a restore it has seen
+  // (fixed by paired runs, layout 3).
+  test.each(ORDERS)(
     'an undo ends its value past the restore of text it has seen, still there (ids %i %i %i)',
     async (...ids) => {
       // A bolds "one two"; F types plain " mid" inside, which A sees; A
@@ -1252,9 +1253,10 @@ describe('run ends an undo kept, after changes made since', () => {
     },
   );
 
-  test('control: text typed inside the range as the undo runs, which the undo has not seen, keeps the restore (documented)', async () => {
-    // The concurrent case of the test above, a documented limit (y.md
-    // Limits, Undo): A's undo cannot end a restore it has not seen.
+  test('control: text typed inside the range as the undo runs, which the undo has not seen, leaves no format', async () => {
+    // The concurrent case of the test above, a documented limit before
+    // layout 3 (y.md Limits, Undo: an undo cannot end a restore it has not
+    // seen): the typing is a no-value run and restates nothing.
     const t = await setup(
       () =>
         $getRoot().append(
@@ -1274,7 +1276,7 @@ describe('run ends an undo kept, after changes made since', () => {
     a.undo();
     await t.sync();
     await expectConverged(t.peers);
-    expect(t.a.read($show)).toBe('one mid| two*');
+    expect(t.a.read($show)).toBe('one mid two');
   });
 
   test.each(ORDERS)(

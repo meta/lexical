@@ -558,6 +558,22 @@ describe("a range end that restates another client's opener ends it where that o
           await expectConverged(t.peers);
           expect(t.a.editor.getEditorState().read($valuesAfterK)).toEqual([]);
         });
+        // #9719: C's change is a normal update that commits after B's undo
+        // has reached C's document (written from what C's editor showed).
+        test(`${kind}, C's change committed after B's undo arrived (gc ${gc ? 'on' : 'off'}, ids ${ids})`, async () => {
+          const t = await setup(() => $getRoot().append($p(LINE)), {gc, ids});
+          const [, b, c] = t.peers;
+          b.update(() => $give(kind, 'B', 10, 12));
+          b.binding.undoManager?.stopCapturing();
+          b.update(() => $give(kind, 'B', 13, 14));
+          await t.sync();
+          c.binding.undoManager?.stopCapturing();
+          c.editor.update(() => $give(kind, 'C', 11, 13));
+          b.undo();
+          await t.sync();
+          await expectConverged(t.peers);
+          expect(t.a.editor.getEditorState().read($valuesAfterK)).toEqual([]);
+        });
       }
     }
   }

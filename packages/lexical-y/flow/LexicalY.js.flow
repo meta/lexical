@@ -7,17 +7,26 @@
  * @flow strict
  */
 
-import type {LexicalEditor, LexicalExtension, PointType} from 'lexical';
+import type {
+  LexicalEditor,
+  LexicalExtension,
+  NormalizedLexicalExtensionArgument,
+  PointType,
+  SerializedEditorState,
+} from 'lexical';
 import {LexicalWarning} from 'lexical';
 import type {Doc, Node as YNode, UndoManager} from '@y/y';
 import type {ReadonlySignal} from '@lexical/extension';
+import type {YSessionHandshake} from '@lexical/y/server';
 
 /**
  * @lexical/y: EXPERIMENTAL Yjs 14 binding (block-marker layout).
  */
 
 declare export var DEFAULT_ROOT_NAME: 'lexical-y';
-declare export var LAYOUT_VERSION: 2;
+declare export var LAYOUT_VERSION: number;
+declare export var MIN_LAYOUT: number;
+declare export var SEED_LAYOUT: number;
 
 export type YBindingStatus = 'pending' | 'active' | 'readonly';
 
@@ -35,7 +44,13 @@ declare export var UNSUPPORTED_SLOTS_WARNING: '@lexical/y/unsupported-slots';
 declare export var UNSUPPORTED_CONFIG_WARNING: '@lexical/y/unsupported-config';
 declare export var UNSUPPORTED_EDIT_WARNING: '@lexical/y/unsupported-edit';
 declare export var UNSUPPORTED_SCHEMA_WARNING: '@lexical/y/unsupported-schema';
-export type YWarningCode =
+// Development builds: a local transaction of another origin changed the
+// Yjs content under the binding's root (private, unsupported for direct
+// writes). Once per binding and origin.
+declare export var RAW_YJS_WRITE_WARNING: '@lexical/y/raw-yjs-write';
+// The codes this version reports; YWarningCode is open (a later version may
+// add codes: keep a fallback).
+type YKnownWarningCode =
   | typeof UNSUPPORTED_LAYOUT_WARNING
   | typeof UNKNOWN_NODE_TYPES_WARNING
   | typeof STORAGE_MISMATCH_WARNING
@@ -47,12 +62,25 @@ export type YWarningCode =
   | typeof UNSUPPORTED_SLOTS_WARNING
   | typeof UNSUPPORTED_CONFIG_WARNING
   | typeof UNSUPPORTED_EDIT_WARNING
-  | typeof UNSUPPORTED_SCHEMA_WARNING;
+  | typeof UNSUPPORTED_SCHEMA_WARNING
+  | typeof RAW_YJS_WRITE_WARNING;
+export type YWarningCode = string;
+// What any code may carry besides its own variants (permanent fallback).
+export type YOtherWarningData = {
+  readonly reason: 'other',
+  readonly detailCode: string,
+  readonly details?: unknown,
+};
 
+// Warning data variants are exact on purpose: each is a fixed v1 shape.
+// A new condition under an existing code arrives as YOtherWarningData
+// (reason 'other'), never as a new field or variant here.
 export type YUnsupportedLayoutData =
   | {readonly reason: 'newer', readonly found: number, readonly supported: number}
   | {readonly reason: 'malformed', readonly key: string, readonly found: unknown, readonly supported: number}
   | {readonly reason: 'missing' | 'removed', readonly supported: number}
+  | {readonly reason: 'older', readonly found: number, readonly min: number, readonly supported: number, readonly upgrade: string}
+  | {readonly reason: 'requires', readonly features: ReadonlyArray<string>, readonly supported: number}
   | {readonly reason: 'legacy-roots', readonly roots: ReadonlyArray<string>, readonly supported: number};
 export type YUnsupportedSchemaData =
   | {readonly reason: 'newer', readonly found: number, readonly supported: number}
@@ -84,8 +112,13 @@ export type YUnsupportedSlotsData = {
 };
 export type YUnsupportedConfigData =
   | {readonly reason: 'repair-transforms', readonly options: ReadonlyArray<string>}
-  | {readonly reason: 'cleanup-formatting'};
-export type YUnsupportedEditData = {readonly reason: 'read-only'};
+  | {readonly reason: 'cleanup-formatting'}
+  | {readonly reason: 'missing-layout-upgrade'};
+export type YUnsupportedEditData =
+  | {readonly reason: 'read-only'}
+  | {readonly reason: 'refused-at-write', readonly record: 'layout' | 'schema'}
+  | {readonly reason: 'held-composition'}
+  | {readonly reason: 'unstorable'};
 export type YSelfCheckData = {
   readonly reason: 'local' | 'remote',
   readonly problems: ReadonlyArray<string>,
@@ -125,51 +158,60 @@ export type YNestedFallbackData =
         | 'group-incomplete-schema',
       readonly type: string,
     };
+export type YRawYjsWriteData = {
+  readonly reason: 'raw-write',
+  readonly root: string,
+  readonly kind: 'format' | 'attribute' | 'content',
+  readonly key: string | null,
+  readonly origin: string,
+};
 export type YUnsyncedValueData = {readonly reason: 'not-json', readonly property: string};
 
-declare export class YWarningOf<out C extends YWarningCode, out D>
+// A warning the binding passes to `onWarn`: a LexicalWarning whose `code`
+// decides its `data`. Open: `YWarning` (any code) has `data` unknown until
+// isYWarning(value, code) narrows it to `YWarning<code>`. Comparing `code`
+// after isYWarning(value) does not narrow `data`: pass the code instead.
+// Not exported (no such runtime value): the typing of a binding warning.
+declare class YWarningInstance<out C extends string, out D>
   extends LexicalWarning
 {
   readonly code: C;
   readonly data: D;
 }
-export type YWarning =
-  | YWarningOf<typeof UNSUPPORTED_LAYOUT_WARNING, YUnsupportedLayoutData>
-  | YWarningOf<
-      typeof UNKNOWN_NODE_TYPES_WARNING,
-      YUnknownNodeTypesData | YUnreadableContentData,
-    >
-  | YWarningOf<typeof STORAGE_MISMATCH_WARNING, YStorageMismatchData>
-  | YWarningOf<typeof SELF_CHECK_WARNING, YSelfCheckData>
-  | YWarningOf<typeof RECOVERED_READ_WARNING, YRecoveredReadData>
-  | YWarningOf<typeof RECOVERED_WRITE_WARNING, YRecoveredWriteData>
-  | YWarningOf<typeof NESTED_FALLBACK_WARNING, YNestedFallbackData>
-  | YWarningOf<typeof UNSYNCED_VALUE_WARNING, YUnsyncedValueData>
-  | YWarningOf<typeof UNSUPPORTED_SLOTS_WARNING, YUnsupportedSlotsData>
-  | YWarningOf<typeof UNSUPPORTED_CONFIG_WARNING, YUnsupportedConfigData>
-  | YWarningOf<typeof UNSUPPORTED_EDIT_WARNING, YUnsupportedEditData>
-  | YWarningOf<typeof UNSUPPORTED_SCHEMA_WARNING, YUnsupportedSchemaData>;
-// The `data` of each code.
+export type YWarning<C extends string = string> = YWarningInstance<
+  C,
+  YWarningData<C>,
+>;
+// The `data` of each known code.
 type YWarningDataByCode = {
-  '@lexical/y/unsupported-layout': YUnsupportedLayoutData,
-  '@lexical/y/unknown-node-types': YUnknownNodeTypesData | YUnreadableContentData,
-  '@lexical/y/storage-mismatch': YStorageMismatchData,
-  '@lexical/y/self-check': YSelfCheckData,
-  '@lexical/y/recovered-read': YRecoveredReadData,
-  '@lexical/y/recovered-write': YRecoveredWriteData,
-  '@lexical/y/nested-fallback': YNestedFallbackData,
-  '@lexical/y/unsynced-value': YUnsyncedValueData,
-  '@lexical/y/unsupported-slots': YUnsupportedSlotsData,
-  '@lexical/y/unsupported-config': YUnsupportedConfigData,
-  '@lexical/y/unsupported-edit': YUnsupportedEditData,
-  '@lexical/y/unsupported-schema': YUnsupportedSchemaData,
+  '@lexical/y/unsupported-layout': YUnsupportedLayoutData | YOtherWarningData,
+  '@lexical/y/unknown-node-types': YUnknownNodeTypesData | YUnreadableContentData | YOtherWarningData,
+  '@lexical/y/storage-mismatch': YStorageMismatchData | YOtherWarningData,
+  '@lexical/y/self-check': YSelfCheckData | YOtherWarningData,
+  '@lexical/y/recovered-read': YRecoveredReadData | YOtherWarningData,
+  '@lexical/y/recovered-write': YRecoveredWriteData | YOtherWarningData,
+  '@lexical/y/nested-fallback': YNestedFallbackData | YOtherWarningData,
+  '@lexical/y/unsynced-value': YUnsyncedValueData | YOtherWarningData,
+  '@lexical/y/unsupported-slots': YUnsupportedSlotsData | YOtherWarningData,
+  '@lexical/y/unsupported-config': YUnsupportedConfigData | YOtherWarningData,
+  '@lexical/y/unsupported-edit': YUnsupportedEditData | YOtherWarningData,
+  '@lexical/y/unsupported-schema': YUnsupportedSchemaData | YOtherWarningData,
+  '@lexical/y/raw-yjs-write': YRawYjsWriteData | YOtherWarningData,
 };
-// The `data` of a warning whose `code` is `C`.
-export type YWarningData<C extends YWarningCode> = YWarningDataByCode[C];
-declare export function isYWarning(error: unknown): error is YWarning;
+// The `data` of a warning whose `code` is `C`: its variants (and
+// YOtherWarningData) for a code this version reports, unknown for another.
+export type YWarningData<C extends string = string> =
+  C extends YKnownWarningCode ? YWarningDataByCode[C] : unknown;
+declare export function isYWarning<C extends YKnownWarningCode>(
+  value: unknown,
+  code: C,
+): value is YWarning<C>;
+declare export function isYWarning(value: unknown): value is YWarning<>;
 
 export type YBindingOptions = {
-  // Required: the version of the app's document schema, an integer from 1.
+  // Required: the version of your editor's nodes (registered node classes,
+  // their fields and NodeState). Bump it when you add, remove or change one,
+  // not on every release. An integer from 1.
   schemaVersion: number,
   root?: YNode,
   captureTimeout?: number | null,
@@ -178,7 +220,39 @@ export type YBindingOptions = {
   selfCheckSample?: number,
   convert?: boolean,
   clientIDRange?: ClientIDRange,
+  // How documents below MIN_LAYOUT are upgraded: a handle, or null (read
+  // only). Left out: read only, plus UNSUPPORTED_CONFIG_WARNING
+  // 'missing-layout-upgrade' for such a document.
+  layoutUpgrade?: YLayoutUpgradeHandle | null,
+  // Inexact: a later release may add options, each one optional.
+  ...
 };
+
+// What a migration records under `lexical-y-epoch` (inexact: readers keep
+// fields they do not know). `layout`: the destination (the layout after the
+// migration). `step` + `revision`: the receipt (which frozen step, at which
+// immutable revision, wrote it; step ids are opaque). `client` + `clock`:
+// the migration's first written item, the transition identity the
+// generation uses. `kind`: `layout` today.
+export type YMigrationEpoch = {
+  readonly v: 1,
+  readonly kind: string,
+  readonly layout: number,
+  readonly client: number,
+  readonly clock: number,
+  readonly step: string,
+  readonly revision: number,
+  readonly schema?: {readonly id: string, readonly version: number, ...},
+  ...
+};
+
+// Calls `fn` after every listener of a transaction that changed `root`'s
+// epoch (a migration) has run: clear app UndoManagers there.
+declare export function onYMigrationEpoch(
+  doc: Doc,
+  fn: (epoch: YMigrationEpoch | null) => void,
+  root?: string | YNode,
+): () => void;
 
 export type YCursor = {anchor: unknown, focus: unknown};
 
@@ -225,7 +299,8 @@ declare export class YUnsupportedYjsError extends Error {
 }
 
 // A Y.Doc for @lexical/y (a client's, a relay's or a server's), with Yjs's
-// format cleanup turned off before `state` is applied (when given).
+// format cleanup turned off before `state` is applied (when given). A relay
+// or server can use @lexical/y/server's createYDoc (Yjs alone).
 declare export function createYDoc(
   state?: Uint8Array | null,
   options?: YDocOptions,
@@ -248,8 +323,25 @@ declare export class YBinding {
   undo(): boolean;
   redo(): boolean;
   getCursor(): YCursor | null;
+  quiesce(): YQuiescedState;
   $resolveCursor(cursor: YCursor): {anchor: PointType, focus: PointType} | null;
 }
+
+// What YBinding.quiesce() returns. Repeat calls (before or after dispose)
+// write nothing and return a copy of the first call's result, draft and
+// differs included; a first call after dispose writes nothing either. The
+// draft is the editor state's JSON, parsed from JSON.stringify's text (a
+// Date NodeState value is its ISO string, NaN is null, a Map is {}). A
+// state JSON cannot hold, found before the drain, makes quiesce() throw a
+// TypeError without draining or quiescing; one that app code produces
+// during the drain throws after local work may have been written, with
+// nothing cached (fix it and retry). Every result, the first included, is
+// its own copy.
+export type YQuiescedState = {
+  readonly state: Uint8Array,
+  readonly draft: {readonly json: SerializedEditorState, readonly differs: boolean},
+  ...
+};
 
 export type StorageKind = 'line' | 'format' | 'group' | 'nested';
 
@@ -261,9 +353,35 @@ declare export function describeStorage(
   },
 ): {[type: string]: StorageKind | 'text'};
 
+// What an app writes: doc and schemaVersion required, every option with a
+// default optional (later options are additive). Type configs with it.
+export type YCollabInput = {
+  readonly doc: YDoc,
+  // Required: how documents below MIN_LAYOUT are upgraded (see y.md "Layout
+  // upgrades"): createYServerLayoutUpgrade(), or null (read only).
+  readonly layoutUpgrade: YLayoutUpgradeHandle | null,
+  // The version of your editor's nodes: registered node classes, their
+  // fields and NodeState. Bump it when you add, remove or change one, not on
+  // every release.
+  readonly schemaVersion: number,
+  readonly root?: YNode | null,
+  readonly synced?: boolean,
+  readonly captureTimeout?: number | null,
+  readonly clientIDRange?: ClientIDRange,
+  readonly selfCheck?: boolean | null,
+  readonly selfCheckSample?: number | null,
+  readonly convert?: boolean,
+  ...
+};
+
+// The extension's configuration (what configExtension takes, partially).
+// Its fields stay; a field a later release adds is optional, its default
+// resolved inside the extension, so a complete object keeps type-checking.
 export type YCollabConfig = {
   doc: YDoc | null,
-  // Required (the extension throws without one): an integer from 1.
+  // The version of your editor's nodes: registered node classes, their
+  // fields and NodeState. Bump it when you add, remove or change one, not on
+  // every release. Required (the extension throws without one): from 1.
   schemaVersion: number,
   root: YNode | null,
   synced: boolean,
@@ -272,9 +390,42 @@ export type YCollabConfig = {
   selfCheck: boolean | null,
   selfCheckSample: number | null,
   convert: boolean,
+  layoutUpgrade?: YLayoutUpgradeHandle | null,
+  // Inexact: a field a later release adds is optional (see above).
+  ...
 };
 
 declare export var YCollabExtension: LexicalExtension<
+  YCollabConfig,
+  '@lexical/y/Collab',
+  {binding: YBinding, status: ReadonlySignal<YBindingStatus>},
+  unknown,
+>;
+
+// What a client sends before any sync message (see checkYSession).
+export type YClientSession = {
+  readonly generation: string | null,
+  readonly material: boolean,
+  ...
+};
+// How documents below MIN_LAYOUT are upgraded. Opaque: only
+// createYServerLayoutUpgrade makes one (the runtime brands it with a
+// registered symbol); its public fields are readable, and later releases
+// may add kinds and fields.
+declare export opaque type YLayoutUpgradeHandle: {
+  readonly kind: string,
+  handshake(session: YClientSession): YSessionHandshake,
+  ...
+};
+declare export function createYServerLayoutUpgrade(): YLayoutUpgradeHandle;
+declare export function isYLayoutUpgradeHandle(
+  value: unknown,
+): value is YLayoutUpgradeHandle;
+// The configured YCollabExtension: the way to configure it (its input
+// requires layoutUpgrade).
+declare export function createYCollabConfig(
+  input: YCollabInput,
+): NormalizedLexicalExtensionArgument<
   YCollabConfig,
   '@lexical/y/Collab',
   {binding: YBinding, status: ReadonlySignal<YBindingStatus>},

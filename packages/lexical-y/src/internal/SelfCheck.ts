@@ -6,20 +6,22 @@
  *
  */
 
+import type {View} from './Unread';
 import type {Writer} from './Write';
 
 import {buildEditorFromExtensions, LexicalBuilder} from '@lexical/extension';
-import {ContentFormat, ContentType, type Item, type Node as YNode} from '@y/y';
+import {type ContentType, type Item} from '@y/y';
 import {
   $getNodeByKey,
   $getRoot,
   $getSlot,
   $getSlotNames,
   $isElementNode,
+  $isTextNode,
   $parseSerializedNode,
   createEditor,
   type EditorState,
-  ElementNode,
+  type ElementNode,
   getDeclaredNodeStructure,
   type LexicalEditor,
   type LexicalNode,
@@ -30,6 +32,7 @@ import {
 
 import {forgiveRepeatedIds} from './BlockIds';
 import {equalFormatValue, type Formats} from './Cursor';
+import {repairPendingCopies} from './Ident';
 import {$pushInline, Atoms, readAtoms} from './Inline';
 import {Reader} from './Read';
 import {
@@ -39,7 +42,6 @@ import {
   getContainerGroupSpec,
   getGroupSpec,
   getWrapperSpec,
-  INLINE_PREFIX,
   isSetStateConfig,
   MARKER,
   ownsFormat,
@@ -52,7 +54,7 @@ import {
   TYPE_KEY,
   WRAPPER_PREFIX,
 } from './Schema';
-import {prevLiveEnd} from './Seen';
+import {Folder, frontierOf, prevLiveEnd} from './Seen';
 import {type CS, EMPTY_FORMATS, State} from './State';
 
 // The opt-in self-check (YBindingOptions.selfCheck): the lines a local
@@ -74,55 +76,13 @@ import {type CS, EMPTY_FORMATS, State} from './State';
 // its result.
 
 /**
- * The shared text without stored elements a reader does not show (an
- * element that cannot be empty, emptied by peers).
- */
-function $shownText(writer: Writer, atoms: Atoms): string {
-  let out = '';
-  for (let i = 0; i < atoms.text.length; i++) {
-    const sp = atoms.specials.get(i);
-    if (
-      sp !== undefined &&
-      sp.kind === 'oldNode' &&
-      sp.item.content instanceof ContentType
-    ) {
-      const y = sp.item.content.type as YNode;
-      const name = typeof y.name === 'string' ? y.name : '';
-      const info = name.startsWith(INLINE_PREFIX)
-        ? writer.state.editor._nodes.get(name.slice(INLINE_PREFIX.length))
-        : undefined;
-      if (
-        info !== undefined &&
-        info.klass.prototype instanceof ElementNode &&
-        !(info.klass.prototype as ElementNode).canBeEmpty.call(
-          Object.create(info.klass.prototype),
-        ) &&
-        !hasLiveContent(y)
-      ) {
-        continue;
-      }
-    }
-    out += atoms.text[i];
-  }
-  return out;
-}
-
-function hasLiveContent(y: YNode): boolean {
-  for (let it = y._start; it !== null; it = it.right) {
-    if (!it.deleted && it.countable) {
-      return true;
-    }
-  }
-  return false;
-}
-
-/**
  * Development self-check of a local write: every line the write touched is
  * read back from Yjs (characters, owned formats, child nodes, marker
  * attributes) and compared with the editor's content. Returns the
  * mismatches found (empty when the write is faithful).
  */
 export function $checkWrite(writer: Writer): string[] {
+  repairPendingCopies(writer.state.doc);
   const problems: string[] = [];
   // A line written twice in one write (its container rewritten after it)
   // is checked as last written.
@@ -170,23 +130,26 @@ export function $checkWrite(writer: Writer): string[] {
       get: key => writer.state.segments.get(key),
     };
     $pushInline(want, nodes, ctx);
-    const left = prevLiveEnd(end, writer.state.hidden);
+    const left = prevLiveEnd(writer.view, end, writer.state.hidden);
     const have = new Atoms();
     readAtoms(
+      writer.view,
       left === null ? unit.cs.y._start : left.right,
       end,
       unit.start || EMPTY_FORMATS,
       have,
       writer.state.hidden,
+      frontierOf(writer.view, unit.start, left, unit.cs.y, null),
+      null,
+      unit.start || EMPTY_FORMATS,
+      // Without the stored elements readers leave out, as the writer counts
+      // (see Writer#leftOut): their formats are compared too.
+      writer.leftOut,
     );
-    if (want.text !== have.text && want.text !== $shownText(writer, have)) {
+    if (want.text !== have.text) {
       problems.push(
         `line ${String(unit.key)}: text ${JSON.stringify(have.text)} != ${JSON.stringify(want.text)}`,
       );
-      continue;
-    }
-    if (want.text !== have.text) {
-      // Equal once stored elements the reader hides are left out.
       continue;
     }
     let ra = 0;
@@ -292,18 +255,45 @@ export function $checkWrite(writer: Writer): string[] {
 const CHANGED = '\u0000changed';
 
 /**
+ * Whether an element has a text node among its children, or theirs (not in
+ * named slots, which the reconciler captures apart): the text it takes its
+ * text format and style from as it renders.
+ */
+function $hasChildText(node: LexicalNode): boolean {
+  if (!$isElementNode(node)) {
+    return false;
+  }
+  for (const child of node.getChildren()) {
+    if ($isTextNode(child) || $hasChildText(child)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
  * A node's JSON with its children and named slots, as exportJSON gives it.
  * Adjacent text nodes that differ only in their text are compared as one
  * (Lexical keeps them apart while one of them is being composed). `unstored`
  * are nodes whose NodeState is left out (see $runNodes); `changed`, elements
- * marked CHANGED (see stripFollowUpText).
+ * marked CHANGED (see stripFollowUpText). With `shown`, as the binding
+ * compares what an editor shows (see YBinding#$readEditsShow): only the
+ * text nodes Lexical merges as it normalizes (TextNode#isSimpleText: class
+ * `text`, mode normal) are compared as one, and an element with text in it
+ * leaves out its text format and style, which the reconciler takes from its
+ * first text.
  */
-function $deepJSON(
+export function $deepJSON(
   node: LexicalNode,
   unstored: ReadonlySet<NodeKey> | null = null,
   changed: ReadonlySet<NodeKey> | null = null,
+  shown = false,
 ): Attrs {
   const json = node.exportJSON() as unknown as Attrs;
+  if (shown && $hasChildText(node)) {
+    delete json.textFormat;
+    delete json.textStyle;
+  }
   if (unstored !== null && unstored.has(node.getKey())) {
     delete json.$;
   }
@@ -313,12 +303,14 @@ function $deepJSON(
     }
     const children: Attrs[] = [];
     for (const child of node.getChildren()) {
-      const c = $deepJSON(child, unstored, changed);
+      const c = $deepJSON(child, unstored, changed, shown);
       const prev = children[children.length - 1];
+      const simple = (j: Attrs) => j.type === 'text' && j.mode === 'normal';
       if (
         prev !== undefined &&
         typeof prev.text === 'string' &&
         typeof c.text === 'string' &&
+        (!shown || (simple(prev) && simple(c))) &&
         stableStringify({...prev, text: ''}) ===
           stableStringify({...c, text: ''})
       ) {
@@ -335,7 +327,7 @@ function $deepJSON(
     for (const name of names) {
       const slot = $getSlot(node, name);
       if (slot !== null) {
-        slots[name] = $deepJSON(slot, unstored, changed);
+        slots[name] = $deepJSON(slot, unstored, changed, shown);
       }
     }
     json.$slots = slots;
@@ -540,7 +532,7 @@ export function checkContainer(
       () => {
         const freshState = new State(fresh, state.doc, state.root);
         freshState.blockIds = state.blockIds;
-        const reader = new Reader(freshState);
+        const reader = new Reader(freshState, () => null);
         let el: ElementNode;
         if (cs.y === state.root) {
           el = $getRoot();
@@ -791,6 +783,7 @@ const followUpEditors = new WeakMap<LexicalEditor, LexicalEditor>();
  * the first difference, or null.
  */
 export function $followUpDifference(
+  view: View | null,
   state: State,
   cs: CS,
   ranges: readonly [number, number][] | null,
@@ -851,6 +844,7 @@ export function $followUpDifference(
         // The formats in effect at the start of each range (ranges are in
         // document order).
         const formats: Formats = new Map();
+        const folder = new Folder(formats, view, 'raw', null, null);
         let scanned: Item | null = cs.y._start;
         const formatsAt = (item: Item | null): Formats => {
           for (
@@ -858,14 +852,7 @@ export function $followUpDifference(
             scanned !== null && scanned !== item;
             scanned = scanned.right
           ) {
-            const content = scanned.content;
-            if (!scanned.deleted && content instanceof ContentFormat) {
-              if (content.value === null) {
-                formats.delete(content.key);
-              } else {
-                formats.set(content.key, content.value);
-              }
-            }
+            folder.step(scanned);
           }
           return new Map(formats);
         };
@@ -878,7 +865,7 @@ export function $followUpDifference(
         for (const [start, stop] of parts) {
           const freshState = new State(editor, state.doc, state.root);
           freshState.blockIds = state.blockIds;
-          const reader = new Reader(freshState);
+          const reader = new Reader(freshState, () => null);
           let el: ElementNode;
           if (cs.y === state.root) {
             el = $getRoot();

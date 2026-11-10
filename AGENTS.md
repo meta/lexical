@@ -7,7 +7,7 @@ This file provides detailed guidance for AI agents and automated tools working w
 ### Building
 - `pnpm run build` - Build all packages in development mode
 - `pnpm run build-prod` - Clean and build all packages in production mode
-- `pnpm run build-release` - Build production release with error codes
+- `pnpm run build-release` - Build production release (minifies errors that have a code in `scripts/error-codes/codes.json`; add `LEXICAL_EXTRACT_CODES=true` to also assign new codes)
 - `pnpm run build-types` - Build TypeScript type definitions and validate them
 
 ### Testing
@@ -271,8 +271,16 @@ This codebase uses **both TypeScript and Flow**:
 - Run `pnpm run flow` to check Flow types
 - Run `pnpm run tsc` to check TypeScript types
 - Both are checked in CI via `pnpm run ci-check`
+- Keep a statement under a `$FlowExpectedError` or `$FlowFixMe` suppression on
+  one line of at most 80 characters. Prettier ignores `.js.flow` here, but the
+  www sync (`scripts/www/transformFlowFileContents.mjs`) runs Prettier over
+  these files, and a statement it wraps moves the error off the line the
+  suppression covers — so the www copy fails Flow on an error that passes in
+  this repo.
 
 When adding/modifying APIs, types must be maintained for both systems.
+
+Put types in TypeScript, not in JSDoc. Write `@param name - description` and `@returns description`, without a `{type}` or `[optional]` bracket: TypeScript already states the type and whether the parameter is optional, and a second copy in the comment drifts out of date.
 
 ## Backwards Compatibility
 
@@ -470,8 +478,13 @@ follow, not text to copy into the message.
   `[category] one-line summary` with category `breaking`, `deprecation`,
   `feature`, `fix`, `perf`, `docs` or `chore`, and no PR number. A
   `[breaking]` entry needs `Migration:` and `Detect:` (usually just the
-  affected symbol, import or CSS class; add `Codemod:` when useful); a
-  `[deprecation]` entry needs `Replacement:` and `Removal:` (`v0.NN`,
+  affected symbol, import or CSS class; add `Codemod:` when useful). A
+  type signature change that can make existing call sites stop compiling
+  (overloads, generics, branded or narrowed types, including calls that
+  relied on an inferred type argument) is `[breaking]` even when it only
+  deprecates something; its `Detect:` names those call shapes and its
+  `Migration:` the replacement (see "Type signature changes" in
+  `.changeset/README.md`). A `[deprecation]` entry needs `Replacement:` and `Removal:` (`v0.NN`,
   `no earlier than v0.NN`, or `not scheduled`). A non-breaking change that
   alters observable output or behavior gets a `Verify:` paragraph saying what
   to test (it renders under "Behavior changes"); add one when reviewing a fix

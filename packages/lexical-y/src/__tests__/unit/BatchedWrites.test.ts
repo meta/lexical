@@ -40,6 +40,15 @@ import {
   setup,
 } from '../utils/harness';
 
+/** The text of the last line when it ends with `tail line`, else null. */
+function tailLine(described: string): string | null {
+  const start = described.lastIndexOf('paragraph("');
+  const end = 'tail line")';
+  return start === -1 || !described.endsWith(end)
+    ? null
+    : described.slice(start + 'paragraph("'.length, -end.length);
+}
+
 // Local updates made without `discrete: true` commit, and are written, in a
 // microtask. A remote change a provider applies in the same task, before
 // that commit, is integrated into the document first; the local edit is
@@ -225,12 +234,8 @@ describe('the invariant, over random batched edits', () => {
         await expectConverged(t.peers);
         // Each peer's, once.
         const fresh = await freshReader(t.a);
-        const tail = fresh.describe().match(/paragraph\("(.*)tail line"\)$/);
-        expect(tail && tail[1].match(/\d>/g)?.sort()).toEqual([
-          '1>',
-          '2>',
-          '3>',
-        ]);
+        const tail = tailLine(fresh.describe());
+        expect(tail?.match(/\d>/g)?.sort()).toEqual(['1>', '2>', '3>']);
       } catch (error) {
         failures.push(
           `seed ${seed}: ${log.join(' ')}\n${error}\n` +

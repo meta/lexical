@@ -7,11 +7,14 @@
  */
 
 import type {Hidden} from './Hidden';
-import type {Item} from '@y/y';
+import type {View} from './Unread';
+import type {Item, Node as YNode} from '@y/y';
 
 import {ContentFormat, ContentString, ContentType} from '@y/y';
 import {
+  $getNodeByKey,
   $isLineBreakNode,
+  $isTabNode,
   $isTextNode,
   type ElementNode,
   type LexicalNode,
@@ -19,7 +22,8 @@ import {
   type TextNode,
 } from 'lexical';
 
-import {type Formats, isLiveContent} from './Cursor';
+import {type Formats, isShownContent, type LeftOut} from './Cursor';
+import {attrsOf} from './Ident';
 import {
   $foreignFlatKeys,
   $isWrapper,
@@ -28,6 +32,7 @@ import {
   $wrapperAttrs,
   type Attrs,
   decodeFormatValue,
+  INLINE_PREFIX,
   isMergeableText,
   MARKER,
   RUN_END,
@@ -36,7 +41,7 @@ import {
   TYPE_KEY,
   WRAPPER_PREFIX,
 } from './Schema';
-import {isGone, unheldLength} from './Seen';
+import {Folder, isGoneIn, unheldLength} from './Seen';
 
 // Inline content as atoms, the form both the editor's side ($pushInline)
 // and the shared side (readAtoms) are compared in: one atom per content unit
@@ -67,6 +72,12 @@ export class Atoms {
   runs: Run[] = [];
   /** The old items of marker / run-end atoms (old atoms only). */
   items = new Map<number, Item>();
+  /**
+   * The id of the stored character each atom is (`client:clock`), where set
+   * to an array before old atoms are read (see readAtoms): what identifies a
+   * character wherever it moves (see Writer#heldResult).
+   */
+  ids: string[] | null = null;
   /**
    * Where each text range comes from (desired atoms only): the text node it
    * was in before this update. The diff keeps an old character only for the
@@ -134,14 +145,32 @@ export type DesiredContext = {
   /** Origin ranges of a text node's text (relative), see Atoms.origins. */
   originOf?: ((node: TextNode) => [number, number, string][]) | null;
   /**
+   * The key of the node being composed, if any (the editor's composition
+   * key: `isComposing()` reads none in the read-only state the writer reads).
+   */
+  compositionKey?: NodeKey | null;
+  /**
    * Set when the content is stored, and read, otherwise than the editor
    * holds it: a wrapper nested in a wrapper of its own type (a link in a
    * link), as the formats store one per type, the inner one; two adjacent
    * text nodes that store the same attributes (that Lexical did not merge,
-   * because of NodeState it compares by reference), as one text node. The
-   * author then reads the content again, to show what every reader shows.
+   * because of NodeState it compares by reference, or because they are not
+   * simple text: two parts of one stored token or segmented run, which a
+   * reader showed apart while a format covered one of them), as one text
+   * node. The author then reads the content again, to show what every reader
+   * shows.
    */
   flattened?: boolean;
+  /**
+   * Set when a text node holds a surrogate half without its pair in it
+   * (D57: code split an emoji, or an app's selection inside one made
+   * Lexical split it into two nodes or keep one half). Such a half is
+   * stored as U+FFFD, as Yjs sends and stores it (its UTF-8 encoding of a
+   * lone half), so that the author's document holds what every other client
+   * and a reload read; the author then reads the content again, as for
+   * `flattened`.
+   */
+  unpaired?: boolean;
 };
 
 /**
@@ -164,8 +193,8 @@ export function $pushInline(
   ctx: DesiredContext,
   wrapperAttrs: Attrs = {},
 ): void {
-  // The stored attributes of the text node before, when it has no segment
-  // key (see DesiredContext.flattened).
+  // The stored attributes of the text node before (see
+  // DesiredContext.flattened).
   let prevText: string | null = null;
   for (const node of nodes) {
     const afterText: string | null = prevText;
@@ -173,15 +202,29 @@ export function $pushInline(
     if (node === PENDING_LINE_BREAK) {
       out.pushText('\n', {...wrapperAttrs});
     } else if ($isTextNode(node)) {
-      const text = node.getTextContent();
+      const shown = node.getTextContent();
+      const text = toWellFormed(shown);
+      if (text !== shown) {
+        ctx.unpaired = true;
+      }
       const segment = isMergeableText(node)
         ? null
         : (ctx.segments.get(node.getKey()) ??
           ctx.segments.create(node.getKey()));
       const attrs = {...wrapperAttrs, ...$textAttrs(node, segment)};
       // (Not around the node being composed: Lexical holds its merges back
-      // until the composition ends, see DEFER_COMPOSITION_MERGE_TAG.)
-      if (segment === null && text !== '' && !node.isComposing()) {
+      // until the composition ends, see DEFER_COMPOSITION_MERGE_TAG.) A node
+      // with a segment key stores it, so only a node with the same key, a
+      // part of the same stored run, compares equal; and only while nothing
+      // is being composed: the read would make every part of the run one
+      // node, the composed one included, and rewrite the IME's target. Readers
+      // show every tab as a node of its own.
+      if (
+        text !== '' &&
+        !node.isComposing() &&
+        !$isTabNode(node) &&
+        (segment === null || (ctx.compositionKey ?? null) === null)
+      ) {
         prevText = stableStringify(attrs);
         if (prevText === afterText) {
           ctx.flattened = true;
@@ -255,41 +298,145 @@ export function $pushInline(
 // Old atoms from Yjs
 
 /**
+ * Whether shared node `y` holds content that is not deleted, in `view` (see
+ * isGoneIn: in the document a write sees, content a change not read yet
+ * inserted does not count), less the items `leftOut` names (a nested
+ * element the editor does not show either, see $isLeftOutInline).
+ */
+export function hasLiveContent(
+  view: View | null,
+  y: YNode,
+  leftOut: LeftOut = null,
+): boolean {
+  for (let it = y._start; it !== null; it = it.right) {
+    if (isShownContent(view, it, leftOut)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Whether live item `it` is a stored inline element the editor does not show:
+ * one holding no content (an element left out itself is none) that the
+ * editor did not hold before this update either (readers leave out an
+ * element that cannot be empty, as Lexical would remove it: a mark whose
+ * text peers deleted concurrently, or whose text has not arrived yet, see
+ * Reader). An empty element the editor shows
+ * (its class or the instance allows it), and one the update removed, count.
+ * The writer does not count one it leaves out, and deletes it only where a
+ * delete meets it before its last unit (see Cursor#delete) or past the end of
+ * content it ends (see Cursor#deleteLeftOutBefore). In an editor read
+ * or update; `view`: the document the write sees; `prevMap`: the node map
+ * before the update; `made`: items the write itself inserted, never left
+ * out. The one predicate for the rule: the writer (Writer#leftOut), its
+ * cursor, a delete's size and the self-check all read through it.
+ */
+export function $isLeftOutInline(
+  view: View | null,
+  it: Item,
+  keyByY: WeakMap<YNode, NodeKey>,
+  prevMap: ReadonlyMap<NodeKey, LexicalNode>,
+  made: ((item: Item) => boolean) | null = null,
+): boolean {
+  const content = it.content;
+  if (
+    isGoneIn(view, it) ||
+    !(content instanceof ContentType) ||
+    (made !== null && made(it))
+  ) {
+    return false;
+  }
+  const y = content.type as YNode;
+  const name = typeof y.name === 'string' ? y.name : '';
+  // Content counts unless it is an element left out itself (a comment
+  // inside a comment, both emptied): readers show neither.
+  if (
+    !name.startsWith(INLINE_PREFIX) ||
+    hasLiveContent(view, y, child =>
+      $isLeftOutInline(view, child, keyByY, prevMap, made),
+    )
+  ) {
+    return false;
+  }
+  // The node a read made for it (see Reader); a shared node no read mapped
+  // counts.
+  const key = keyByY.get(y);
+  if (key === undefined) {
+    return false;
+  }
+  const node = $getNodeByKey(key);
+  return (node === null || !node.isAttached()) && !attachedIn(prevMap, key);
+}
+
+/** Whether node `key` of `map` is attached to the root there. */
+function attachedIn(
+  map: ReadonlyMap<NodeKey, LexicalNode>,
+  key: NodeKey,
+): boolean {
+  for (let k: NodeKey | null = key; k !== null; ) {
+    if (k === 'root') {
+      return true;
+    }
+    const n = map.get(k);
+    if (n === undefined) {
+      return false;
+    }
+    k = n.__parent ?? (n as {__slotHost?: null | NodeKey}).__slotHost ?? null;
+  }
+  return false;
+}
+
+/**
  * Atoms of the shared items from `start` (inclusive) up to `stop`
  * (exclusive, null = end), with the formats in effect at `start`, as the
- * editor shows them: without what is held back (see Hidden). Returns the
- * formats stored at `stop`, held-back ones too (where a write cursor starts,
- * see Cursor).
+ * editor shows them: without what is held back, with the deleted items the
+ * hold keeps showing (see Hidden). Returns the formats stored at `stop`
+ * (see Seen.isStoredIn: held insertions in, kept deletions out), folded from
+ * `storedFormats`, the stored formats at `start` (where a write cursor
+ * starts, see Cursor, and what a line hands on).
  */
 export function readAtoms(
+  view: View | null,
   start: Item | null,
   stop: Item | null,
   formats: Formats,
   out: Atoms,
   hidden: Hidden | null = null,
+  frontier: Item | null = null,
+  end: {folded: Item | null} | null = null,
+  storedFormats: Formats = formats,
+  leftOut: LeftOut = null,
 ): Formats {
-  const current = new Map(formats);
-  // The formats the editor shows: `current` without held-back ones.
+  const current = new Map(storedFormats);
+  // The formats the editor shows (see Reader#held).
   const shown = hidden === null ? current : new Map(formats);
   let attrs: Attrs | null = null;
+  // Format items up to `frontier` are in `formats` already (see
+  // seedFrontier). What is handed on is stored; what the atoms show, held.
+  const stored = new Folder(current, view, 'stored', hidden, null, frontier);
+  const showing =
+    hidden === null
+      ? null
+      : new Folder(shown, view, 'shown', hidden, null, frontier);
   for (let it = start; it !== null && it !== stop; it = it.right) {
-    if (isGone(it)) {
+    stored.step(it);
+    if (showing !== null) {
+      showing.step(it);
+    }
+    if (isGoneIn(view, it) && (hidden === null || !hidden.keeps(it))) {
       continue;
     }
     const content = it.content;
     if (content instanceof ContentFormat) {
-      applyFormat(current, content);
-      if (shown !== current && !hidden!.hides(it)) {
-        applyFormat(shown, content);
-      }
       attrs = null;
       continue;
     }
-    if (!it.countable) {
+    if (!it.countable || (leftOut !== null && leftOut(it))) {
       continue;
     }
     if (attrs === null) {
-      attrs = Object.fromEntries(shown);
+      attrs = attrsOf(shown) as Attrs;
     }
     if (hidden !== null) {
       const runs = hidden.runs(it);
@@ -300,6 +447,7 @@ export function readAtoms(
           let pos = 0;
           for (const [len, isHidden] of runs) {
             if (!isHidden) {
+              pushIds(out, it, pos, len);
               pushStoredText(out, content.str.slice(pos, pos + len), attrs);
             }
             pos += len;
@@ -308,6 +456,7 @@ export function readAtoms(
         continue;
       }
     }
+    pushIds(out, it, 0, it.length);
     if (content instanceof ContentString) {
       pushStoredText(out, content.str, attrs);
     } else if (content instanceof ContentType) {
@@ -327,14 +476,23 @@ export function readAtoms(
       }
     }
   }
+  if (stop !== null) {
+    stored.note(current, stop.left);
+  }
+  if (end !== null) {
+    end.folded = stored.pending;
+  }
   return current;
 }
 
-function applyFormat(formats: Formats, content: ContentFormat): void {
-  if (content.value === null) {
-    formats.delete(content.key);
-  } else {
-    formats.set(content.key, content.value);
+/** Note the ids of `len` characters of `it` from `from` (see Atoms.ids). */
+function pushIds(out: Atoms, it: Item, from: number, len: number): void {
+  const ids = out.ids;
+  if (ids !== null) {
+    const prefix = it.id.client + ':';
+    for (let i = 0; i < len; i++) {
+      ids.push(prefix + (it.id.clock + from + i));
+    }
   }
 }
 
@@ -363,15 +521,21 @@ function pushStoredText(out: Atoms, text: string, attrs: Attrs): void {
   }
 }
 
-/** Live content items from `start` up to `stop` (exclusive). */
+/**
+ * Live content items from `start` up to `stop` (exclusive), less those
+ * `leftOut` names (a stored element the editor does not show, which the
+ * writer's cursor does not count; see Cursor#delete for when it deletes one).
+ */
 export function countLive(
+  view: View | null,
   start: Item | null,
   stop: Item | null,
   hidden: Hidden | null = null,
+  leftOut: LeftOut = null,
 ): number {
   let n = 0;
   for (let it = start; it !== null && it !== stop; it = it.right) {
-    if (isLiveContent(it)) {
+    if (isShownContent(view, it, leftOut)) {
       n += unheldLength(it, hidden);
     }
   }
@@ -1209,3 +1373,41 @@ function withKeptWords(
 
 const isHighSurrogate = (c: number): boolean => c >= 0xd800 && c <= 0xdbff;
 const isLowSurrogate = (c: number): boolean => c >= 0xdc00 && c <= 0xdfff;
+
+const SURROGATE = /[\ud800-\udfff]/;
+
+/** Whether `s` holds a surrogate code unit that is not half of a pair. */
+export function hasLoneSurrogate(s: string): boolean {
+  if (!SURROGATE.test(s)) {
+    return false;
+  }
+  // String#isWellFormed where the runtime has it: it builds no new string.
+  const str = s as string & {isWellFormed?: () => boolean};
+  return typeof str.isWellFormed === 'function'
+    ? !str.isWellFormed()
+    : toWellFormed(s) !== s;
+}
+
+/**
+ * `s` with every surrogate code unit that is not half of a pair in it
+ * replaced with U+FFFD: what Yjs's UTF-8 encoding of `s` reads back as
+ * (`String#toWellFormed`, which not every supported browser has).
+ */
+export function toWellFormed(s: string): string {
+  if (!SURROGATE.test(s)) {
+    return s;
+  }
+  let out = '';
+  for (let i = 0; i < s.length; i++) {
+    const c = s.charCodeAt(i);
+    if (isHighSurrogate(c) && isLowSurrogate(s.charCodeAt(i + 1))) {
+      out += s[i] + s[i + 1];
+      i++;
+    } else if (isHighSurrogate(c) || isLowSurrogate(c)) {
+      out += '\ufffd';
+    } else {
+      out += s[i];
+    }
+  }
+  return out;
+}

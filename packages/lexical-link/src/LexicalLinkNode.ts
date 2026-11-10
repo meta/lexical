@@ -11,6 +11,7 @@ import {
   $applyNodeReplacement,
   $caretFromPoint,
   $copyNode,
+  $createRangeSelection,
   $findMatchingParent,
   $getChildCaret,
   $getDocument,
@@ -21,6 +22,7 @@ import {
   $isNodeSelection,
   $isRangeSelection,
   $isSiblingCaret,
+  $isTextNode,
   $normalizeCaret,
   $normalizeSelection__EXPERIMENTAL,
   $rewindSiblingCaret,
@@ -32,12 +34,14 @@ import {
   createCommand,
   type DOMConversionOutput,
   type EditorConfig,
+  type EditorState,
   ElementNode,
   getDeclaredNodeStructure,
   INTERNAL_isNodeStructureEnforced,
   isHTMLAnchorElement,
   type Klass,
   type LexicalCommand,
+  type LexicalEditor,
   type LexicalNode,
   type LexicalParseJSON,
   type NodeKey,
@@ -784,6 +788,80 @@ function $splitLinkAtSelection(
 }
 
 /**
+ * The autolinks `$toggleLink` made links, by key, for the editor state each
+ * update that did so commits (see takeMadeLink): AutoLinkAnnounceExtension
+ * leaves them out, as the text is still a link. Bound to that state, the
+ * record goes with it: an update that does not commit, or a later state
+ * (one an undo restores included), has none.
+ */
+const madeLinks = new WeakMap<EditorState, Set<NodeKey>>();
+
+/**
+ * Whether `$toggleLink` made the autolink `key`, destroyed by the commit of
+ * `editor`'s current state, a link. @internal
+ */
+export function takeMadeLink(editor: LexicalEditor, key: NodeKey): boolean {
+  const keys = madeLinks.get(editor.getEditorState());
+  return keys !== undefined && keys.has(key);
+}
+
+/**
+ * Replace `autoLink` with a LinkNode holding its children and `url` (the
+ * attributes given, or the autolink's own where not given): an autolink's URL
+ * follows its text (AutoLinkExtension sets it again on the next transform of
+ * its text), so a URL the user sets makes it a link of its own. Returns the
+ * new link's key.
+ */
+function $replaceAutoLink(
+  autoLink: AutoLinkNode,
+  url: string,
+  rel: null | string | undefined,
+  target: null | string | undefined,
+  title: null | string | undefined,
+): NodeKey {
+  const replacement = $createLinkNode(url, {
+    rel: rel !== undefined ? rel : autoLink.getRel(),
+    target: target !== undefined ? target : autoLink.getTarget(),
+    title: title !== undefined ? title : autoLink.getTitle(),
+  });
+  const selection = $getSelection();
+  const selected =
+    $isNodeSelection(selection) && selection.has(autoLink.getKey());
+  const pending = $getEditor()._pendingEditorState;
+  if (pending !== null) {
+    let made = madeLinks.get(pending);
+    if (made === undefined) {
+      made = new Set();
+      madeLinks.set(pending, made);
+    }
+    made.add(autoLink.getKey());
+  }
+  autoLink.replace(replacement, true);
+  if (selected) {
+    // The node selection held the autolink itself: the same content stays
+    // selected. Its text, as a range: the link and its text may still merge
+    // into neighbouring ones (Lexical's normalization), which moves range
+    // points along and would drop the merged keys from a node selection.
+    selection.delete(autoLink.getKey());
+    const first = replacement.getFirstDescendant();
+    const last = replacement.getLastDescendant();
+    if (
+      $isTextNode(first) &&
+      $isTextNode(last) &&
+      selection.getNodes().length === 0
+    ) {
+      const range = $createRangeSelection();
+      range.anchor.set(first.getKey(), 0, 'text');
+      range.focus.set(last.getKey(), last.getTextContentSize(), 'text');
+      $setSelection(range);
+    } else {
+      selection.add(replacement.getKey());
+    }
+  }
+  return replacement.getKey();
+}
+
+/**
  * Generates or updates a LinkNode. It can also delete a LinkNode if the URL is null,
  * but saves any children and brings them up to the parent node.
  * @param urlOrAttributes - The URL the link directs to, or an attributes object with an url property
@@ -840,7 +918,12 @@ export function $toggleLink(
           (parent): parent is LinkNode =>
             !$isAutoLinkNode(parent) && $isLinkNode(parent),
         );
-        if (existingLink) {
+        const autoLink = existingLink
+          ? null
+          : $findMatchingParent(node, $isAutoLinkNode);
+        if (autoLink) {
+          $replaceAutoLink(autoLink, url, rel, target, title);
+        } else if (existingLink) {
           existingLink.setURL(url);
           if (target !== undefined) {
             existingLink.setTarget(target);
@@ -911,6 +994,10 @@ export function $toggleLink(
   const updatedNodes = new Set<NodeKey>();
   const updateLinkNode = (linkNode: LinkNode) => {
     if (updatedNodes.has(linkNode.getKey())) {
+      return;
+    }
+    if ($isAutoLinkNode(linkNode)) {
+      updatedNodes.add($replaceAutoLink(linkNode, url, rel, target, title));
       return;
     }
     updatedNodes.add(linkNode.getKey());

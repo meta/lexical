@@ -29,11 +29,23 @@ import {
   YUnsupportedYjsError,
 } from '../..';
 import {
+  encodeStateVector as encodeGapStateVector,
+  integrateHeldBehindGaps,
+} from '../../internal/LoadFully';
+import {
+  GAP_REPAIR_RETIRABLE_WARNING,
+  getGapRepairStatus,
   probeYjs,
+  YJS_BEHAVIOURS,
   YJS_EVENTS,
   YJS_EXPORTS,
   yjsMembers,
 } from '../../internal/YjsContract';
+import {
+  MIGRATION_YJS_EXPORTS,
+  migrationYjsMembers,
+  probeMigrationYjs,
+} from '../../internal/YjsMigrationContract';
 
 const PACKAGE_DIR = path.resolve(__dirname, '../../..');
 const SRC_DIR = path.join(PACKAGE_DIR, 'src');
@@ -161,8 +173,9 @@ function inventory(): Map<string, Set<string>> {
       } else if (
         /\.tsx?$/.test(entry.name) &&
         !/\.(test|bench)\.tsx?$/.test(entry.name) &&
-        // The contract's own probe is not a use.
-        entry.name !== 'YjsContract.ts'
+        // The contract's own probes are not uses.
+        entry.name !== 'YjsContract.ts' &&
+        entry.name !== 'YjsMigrationContract.ts'
       ) {
         files.push(p);
       }
@@ -427,23 +440,62 @@ function inventory(): Map<string, Set<string>> {
   return uses;
 }
 
+/**
+ * Where the two contract lists and the sources disagree. The core list
+ * covers what the core uses; the migration list covers what the runner,
+ * the server and the steps use beyond it. A member both use may be in both
+ * lists (the migration probe checks it again) or in the core list only.
+ */
+function contractGaps(
+  usedByCore: ReadonlySet<string>,
+  usedByMigration: ReadonlySet<string>,
+  listedCore: ReadonlySet<string>,
+  listedMigration: ReadonlySet<string>,
+) {
+  return {
+    core: {
+      listedButUnused: [...listedCore].filter(k => !usedByCore.has(k)).sort(),
+      usedButNotListed: [...usedByCore].filter(k => !listedCore.has(k)).sort(),
+    },
+    migration: {
+      listedButUnused: [...listedMigration]
+        .filter(k => !usedByMigration.has(k))
+        .sort(),
+      usedButNotListed: [...usedByMigration]
+        .filter(k => !listedCore.has(k) && !listedMigration.has(k))
+        .sort(),
+    },
+  };
+}
+
 describe('the contract', () => {
   // Type-checks the package's sources: about 1.5 s alone, more under load.
   test('lists exactly what the sources use of @y/y', {timeout: 60_000}, () => {
     const uses = inventory();
     // `YNode` is the class @y/y exports as `Node`.
     const exportName = (name: string) => (name === 'YNode' ? 'Node' : name);
-    const used = new Set<string>();
-    for (const key of uses.keys()) {
-      if (key.startsWith('import ')) {
-        used.add(`export ${exportName(key.slice(7))}`);
-      } else if (key.startsWith('new ')) {
-        used.add(`export ${exportName(key.slice(4))}`);
-      } else {
-        used.add(key);
+    const keyOf = (key: string) =>
+      key.startsWith('import ')
+        ? `export ${exportName(key.slice(7))}`
+        : key.startsWith('new ')
+          ? `export ${exportName(key.slice(4))}`
+          : key;
+    // The runner, the server entry and the steps check their own part of
+    // the contract (YjsMigrationContract); the core checks the rest.
+    const isMigration = (file: string) =>
+      file === 'internal/Runner.ts' ||
+      file === 'internal/Server.ts' ||
+      file.startsWith('migrate/') ||
+      file.startsWith('migrate.') ||
+      file.startsWith('server.');
+    const usedByCore = new Set<string>();
+    const usedByMigration = new Set<string>();
+    for (const [key, files] of uses) {
+      for (const file of files) {
+        (isMigration(file) ? usedByMigration : usedByCore).add(keyOf(key));
       }
     }
-    const listed = new Set<string>([
+    const listedCore = new Set<string>([
       ...YJS_EXPORTS.map(name => `export ${name}`),
       ...Object.entries(yjsMembers()).flatMap(([owner, members]) =>
         Object.keys(members).map(m => `${owner}#${m}`),
@@ -452,25 +504,243 @@ describe('the contract', () => {
         events.map(e => `${owner}@${e}`),
       ),
     ]);
+    const listedMigration = new Set<string>([
+      ...MIGRATION_YJS_EXPORTS.map(name => `export ${name}`),
+      ...Object.entries(migrationYjsMembers()).flatMap(([owner, members]) =>
+        Object.keys(members).map(m => `${owner}#${m}`),
+      ),
+    ]);
     const where = (key: string) => {
       const files =
         uses.get(key) || uses.get(key.replace('export ', 'import '));
       return files ? ` (${[...files].join(', ')})` : '';
     };
     // Used but not in the contract: add it to the lists in
-    // src/internal/YjsContract.ts (its arity for an export), so the runtime
-    // check probes it. Listed but no longer used: remove it.
+    // src/internal/YjsContract.ts (or YjsMigrationContract.ts for what only
+    // the runner and the server use), so the runtime check probes it.
+    // Listed but no longer used: remove it.
+    const gaps = contractGaps(
+      usedByCore,
+      usedByMigration,
+      listedCore,
+      listedMigration,
+    );
+    const located = (keys: string[]) => keys.map(k => k + where(k));
     expect({
-      listedButUnused: [...listed].filter(k => !used.has(k)).sort(),
-      usedButNotListed: [...used]
-        .filter(k => !listed.has(k))
-        .sort()
-        .map(k => k + where(k)),
-    }).toEqual({listedButUnused: [], usedButNotListed: []});
+      core: {
+        listedButUnused: gaps.core.listedButUnused,
+        usedButNotListed: located(gaps.core.usedButNotListed),
+      },
+      migration: {
+        listedButUnused: gaps.migration.listedButUnused,
+        usedButNotListed: located(gaps.migration.usedButNotListed),
+      },
+    }).toEqual({
+      core: {listedButUnused: [], usedButNotListed: []},
+      migration: {listedButUnused: [], usedButNotListed: []},
+    });
+  });
+
+  test('a member the core and the migration code both use may be in both lists (or only the core one)', () => {
+    const core = new Set(['GC#length', 'Item#id']);
+    const migration = new Set(['GC#length', 'export diffUpdate']);
+    const clean = {
+      core: {listedButUnused: [], usedButNotListed: []},
+      migration: {listedButUnused: [], usedButNotListed: []},
+    };
+    // Listed in both: a duplicate, allowed.
+    expect(
+      contractGaps(
+        core,
+        migration,
+        new Set(['GC#length', 'Item#id']),
+        new Set(['GC#length', 'export diffUpdate']),
+      ),
+    ).toEqual(clean);
+    // Listed in the core list only: covered there.
+    expect(
+      contractGaps(
+        core,
+        migration,
+        new Set(['GC#length', 'Item#id']),
+        new Set(['export diffUpdate']),
+      ),
+    ).toEqual(clean);
+    // The core uses it but only the migration list has it: the core's gap.
+    expect(
+      contractGaps(
+        core,
+        migration,
+        new Set(['Item#id']),
+        new Set(['GC#length', 'export diffUpdate']),
+      ).core.usedButNotListed,
+    ).toEqual(['GC#length']);
+    // Only the migration code uses it, and only the core list has it: the
+    // core lists what it does not use.
+    expect(
+      contractGaps(
+        new Set(['Item#id']),
+        migration,
+        new Set(['GC#length', 'Item#id']),
+        new Set(['export diffUpdate']),
+      ).core.listedButUnused,
+    ).toEqual(['GC#length']);
+    // Listed for the migration code, which no longer uses it.
+    expect(
+      contractGaps(
+        core,
+        new Set(['export diffUpdate']),
+        new Set(['GC#length', 'Item#id']),
+        new Set(['GC#length', 'export diffUpdate']),
+      ).migration.listedButUnused,
+    ).toEqual(['GC#length']);
+  });
+
+  test('the installed @y/y passes the migration probe, which the core does not ship', () => {
+    expect(probeMigrationYjs()).toEqual([]);
+    expect(probeMigrationYjs({...Y, diffUpdate: undefined} as never)).toEqual([
+      'diffUpdate',
+    ]);
+    // Nothing of the core reaches it.
+    const src = fs.readFileSync(path.join(SRC_DIR, 'internal/YDoc.ts'), 'utf8');
+    expect(src.includes('YjsMigrationContract')).toBe(false);
   });
 
   test('the installed @y/y passes the probe', () => {
     expect(probeYjs()).toEqual([]);
+  });
+
+  // The copy fix-up of paired format runs (Ident) re-points an undo's copy
+  // of an end before the update is encoded: it finds copies by the value
+  // object ContentFormat#copy shares and by the original's `redone`, and
+  // rewrites them in a beforeObserverCalls listener.
+  test('fails when a format copy stops sharing its value object', () => {
+    const copy = Y.ContentFormat.prototype.copy;
+    const spy = vi
+      .spyOn(Y.ContentFormat.prototype, 'copy')
+      .mockImplementation(function (this: Y.ContentFormat) {
+        const c = copy.call(this);
+        const v = c.value as unknown;
+        return Array.isArray(v)
+          ? new Y.ContentFormat(c.key, [...v] as unknown as object)
+          : c;
+      });
+    try {
+      expect(probeYjs()).toContain(YJS_BEHAVIOURS.copySharesValue);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  test('fails when beforeObserverCalls runs after the update is encoded', () => {
+    // Its listeners run when the update is emitted, from the bytes already
+    // encoded.
+    const on = Y.Doc.prototype.on;
+    const spy = vi.spyOn(Y.Doc.prototype, 'on').mockImplementation(function (
+      this: Y.Doc,
+      name: string,
+      f: (...args: unknown[]) => void,
+    ) {
+      return name === 'beforeObserverCalls'
+        ? on.call(this, 'update', (...args: unknown[]) => f(args[3]))
+        : on.call(this, name as 'update', f as () => void);
+    } as typeof on);
+    try {
+      expect(probeYjs()).toContain(YJS_BEHAVIOURS.fixBeforeEncoding);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  test('fails when equal format values decode to one object', () => {
+    // A decoder that interns equal values would make two received ends look
+    // like one end and an undo's copy of it.
+    const interned = new Map<string, unknown>();
+    const decodeUpdate = ((update: Uint8Array) => {
+      const decoded = Y.decodeUpdate(update);
+      for (const struct of decoded.structs) {
+        if (
+          struct instanceof Y.Item &&
+          struct.content instanceof Y.ContentFormat &&
+          Array.isArray(struct.content.value)
+        ) {
+          const k = JSON.stringify(struct.content.value);
+          if (!interned.has(k)) {
+            interned.set(k, struct.content.value);
+          }
+          struct.content.value = interned.get(k) as object;
+        }
+      }
+      return decoded;
+    }) as typeof Y.decodeUpdate;
+    expect(probeYjs({...Y, decodeUpdate})).toContain(
+      YJS_BEHAVIOURS.freshEqualDecodedValues,
+    );
+  });
+
+  test('fails when beforeObserverCalls runs after the capture and gc', () => {
+    const on = Y.Doc.prototype.on;
+    const spy = vi.spyOn(Y.Doc.prototype, 'on').mockImplementation(function (
+      this: Y.Doc,
+      name: string,
+      f: (...args: unknown[]) => void,
+    ) {
+      return on.call(
+        this,
+        (name === 'beforeObserverCalls'
+          ? 'afterTransactionCleanup'
+          : name) as 'update',
+        f as () => void,
+      );
+    } as typeof on);
+    try {
+      expect(probeYjs()).toContain(YJS_BEHAVIOURS.fixBeforeCaptureAndGc);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  test("fails when an undo's copy is not its original's redone by beforeObserverCalls", () => {
+    // Its listeners run before the transaction does anything.
+    const on = Y.Doc.prototype.on;
+    const spy = vi.spyOn(Y.Doc.prototype, 'on').mockImplementation(function (
+      this: Y.Doc,
+      name: string,
+      f: (...args: unknown[]) => void,
+    ) {
+      return on.call(
+        this,
+        (name === 'beforeObserverCalls'
+          ? 'beforeTransaction'
+          : name) as 'update',
+        f as () => void,
+      );
+    } as typeof on);
+    try {
+      expect(probeYjs()).toContain(YJS_BEHAVIOURS.copyRedoneAtObservers);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  test("fails when an undo's copy is not its original's redone once the undo call returns", () => {
+    // The undo is put off until the app's transaction ends.
+    const undo = Y.UndoManager.prototype.undo;
+    const spy = vi
+      .spyOn(Y.UndoManager.prototype, 'undo')
+      .mockImplementation(function (this: Y.UndoManager) {
+        const doc = this.doc;
+        if (doc._transaction === null) {
+          return undo.call(this);
+        }
+        doc.once('afterTransaction', () => undo.call(this));
+        return null;
+      });
+    try {
+      expect(probeYjs()).toContain(YJS_BEHAVIOURS.copyRedoneWhenUndoReturns);
+    } finally {
+      spy.mockRestore();
+    }
   });
 
   test('content classes are told apart by identity, not name', () => {
@@ -508,6 +778,9 @@ describe('the contract', () => {
     const esbuild = await import('esbuild');
     const {outputFiles} = await esbuild.build({
       bundle: true,
+      // As the builds do: NODE_ENV is replaced (a realm of its own has no
+      // `process`).
+      define: {'process.env.NODE_ENV': '"development"'},
       entryPoints: [path.join(SRC_DIR, 'internal/YjsContract.ts')],
       external: ['@y/y'],
       format: 'cjs',
@@ -932,5 +1205,389 @@ describe('with the supported @y/y', () => {
       }),
     );
     expect(doc.share.size).toBe(0);
+  });
+});
+
+describe("the gap repair's part of the contract (LoadFully)", () => {
+  const installed = () =>
+    ({...Y}) as unknown as NonNullable<Parameters<typeof probeYjs>[0]>;
+  const gapFindings = (found: string[]) =>
+    found.filter(f => f.startsWith('gap repair'));
+
+  test('the installed @y/y passes it', () => {
+    expect(gapFindings(probeYjs(installed()))).toEqual([]);
+  });
+
+  // yjs/yjs#824: @y/y holds a batched struct pending behind a blocked struct
+  // of its client, so a load of stored bytes drops text the encoding
+  // document showed, and the loaders repair it (D112). When a @y/y bump
+  // fixes it (yjs/yjs#827), this test fails: remove the repair (LoadFully,
+  // its tests and y.md's paragraph) as D112 says, checked against the gap
+  // fixtures, then delete this test (D114).
+  test('the installed @y/y still needs the loader repair', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      expect(probeYjs(installed())).toEqual([]);
+      expect(getGapRepairStatus()).toBe('needed');
+      expect(warn).not.toHaveBeenCalled();
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  /**
+   * The installed @y/y with its decode fixed, as yjs/yjs#827 fixes it: an
+   * apply integrates every struct whose dependencies are present and holds
+   * only the rest pending. The repair itself does that, after a plain
+   * apply; `repairs` says which applies it follows (all by default).
+   */
+  const fixedYjs = (repairs: (n: number) => boolean = () => true) => {
+    let applies = 0;
+    return {
+      ...installed(),
+      applyUpdate: (d: Y.Doc, u: Uint8Array, o?: unknown) => {
+        Y.applyUpdate(d, u, o);
+        if (d.store.pendingStructs !== null && repairs(applies++)) {
+          integrateHeldBehindGaps(d, o);
+        }
+      },
+    };
+  };
+
+  test('a @y/y with the encoding problem fixed is not refused: the repair is reported retirable', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      // The whole probe passes: a fixed @y/y is supported, in development
+      // builds as in production ones.
+      expect(probeYjs(fixedYjs())).toEqual([]);
+      expect(getGapRepairStatus()).toBe('retirable');
+      expect(warn.mock.calls).toEqual([[GAP_REPAIR_RETIRABLE_WARNING]]);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  test('a @y/y that integrates past the gap but not as a fixed encoding does is found', () => {
+    // Its decode integrates the batched struct once, but the document then
+    // reloads from its own encoding with that struct pending again.
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      expect(gapFindings(probeYjs(fixedYjs(n => n === 0)))).toEqual([
+        'gap repair: @y/y integrates a batched struct past a blocked one, but not as a fixed encoding does',
+      ]);
+      expect(getGapRepairStatus()).toBe(undefined);
+      expect(warn).not.toHaveBeenCalled();
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  test('a @y/y that integrates past the gap but keeps an integrated struct pending is found', () => {
+    // Its decode integrates the batched struct but leaves it in the pending
+    // update too.
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      expect(
+        gapFindings(
+          probeYjs({
+            ...installed(),
+            applyUpdate: (d: Y.Doc, u: Uint8Array, o?: unknown) => {
+              Y.applyUpdate(d, u, o);
+              const before = d.store.pendingStructs;
+              if (before === null) {
+                return;
+              }
+              integrateHeldBehindGaps(d, o);
+              const after = d.store.pendingStructs;
+              if (after !== null) {
+                d.store.pendingStructs = {...after, update: before.update};
+              }
+            },
+          }),
+        ),
+      ).toEqual([
+        'gap repair: @y/y integrates a batched struct past a blocked one, but not as a fixed encoding does',
+      ]);
+      expect(getGapRepairStatus()).toBe(undefined);
+      expect(warn).not.toHaveBeenCalled();
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  test("a @y/y that integrates past the gap but keeps the first writer's integrated struct pending is found", () => {
+    // As above, for the first writer alone: the second writer's pending
+    // part is what a fixed encoding holds.
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      expect(
+        gapFindings(
+          probeYjs({
+            ...installed(),
+            applyUpdate: (d: Y.Doc, u: Uint8Array, o?: unknown) => {
+              Y.applyUpdate(d, u, o);
+              const before = d.store.pendingStructs;
+              if (before === null) {
+                return;
+              }
+              integrateHeldBehindGaps(d, o);
+              const after = d.store.pendingStructs;
+              if (after !== null && before.missing.has(2)) {
+                // Writer 2's integrated struct (clock 2), back in the
+                // pending update.
+                const second = Y.diffUpdateV2(
+                  before.update,
+                  encodeGapStateVector([
+                    [2, 2],
+                    [3, 3],
+                  ]),
+                );
+                d.store.pendingStructs = {
+                  ...after,
+                  update: Y.mergeUpdatesV2([after.update, second]),
+                };
+              }
+            },
+          }),
+        ),
+      ).toEqual([
+        'gap repair: @y/y integrates a batched struct past a blocked one, but not as a fixed encoding does',
+      ]);
+      expect(getGapRepairStatus()).toBe(undefined);
+      expect(warn).not.toHaveBeenCalled();
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  test("a @y/y that integrates past the gap but keeps the second writer's integrated struct pending is found", () => {
+    // As above, for the second writer alone: the first writer's pending
+    // part is what a fixed encoding holds.
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      expect(
+        gapFindings(
+          probeYjs({
+            ...installed(),
+            applyUpdate: (d: Y.Doc, u: Uint8Array, o?: unknown) => {
+              Y.applyUpdate(d, u, o);
+              const before = d.store.pendingStructs;
+              if (before === null) {
+                return;
+              }
+              integrateHeldBehindGaps(d, o);
+              const after = d.store.pendingStructs;
+              if (after !== null && before.missing.has(3)) {
+                // Writer 3's integrated struct (clock 2), back in the
+                // pending update.
+                const third = Y.diffUpdateV2(
+                  before.update,
+                  encodeGapStateVector([
+                    [2, 3],
+                    [3, 2],
+                  ]),
+                );
+                d.store.pendingStructs = {
+                  ...after,
+                  update: Y.mergeUpdatesV2([after.update, third]),
+                };
+              }
+            },
+          }),
+        ),
+      ).toEqual([
+        'gap repair: @y/y integrates a batched struct past a blocked one, but not as a fixed encoding does',
+      ]);
+      expect(getGapRepairStatus()).toBe(undefined);
+      expect(warn).not.toHaveBeenCalled();
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  test('a @y/y that integrates past the gap but loses an update while it holds structs pending is found', () => {
+    // Its decode integrates the batched struct, but drops an update that
+    // arrives while anything is pending, so the missing updates never heal
+    // the gap.
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      expect(
+        gapFindings(
+          probeYjs({
+            ...installed(),
+            applyUpdate: (d: Y.Doc, u: Uint8Array, o?: unknown) => {
+              if (d.store.pendingStructs !== null) {
+                return;
+              }
+              Y.applyUpdate(d, u, o);
+              if (d.store.pendingStructs !== null) {
+                integrateHeldBehindGaps(d, o);
+              }
+            },
+          }),
+        ),
+      ).toEqual([
+        'gap repair: @y/y integrates a batched struct past a blocked one, but not as a fixed encoding does',
+      ]);
+      expect(getGapRepairStatus()).toBe(undefined);
+      expect(warn).not.toHaveBeenCalled();
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  test('a @y/y that integrates past the gap but makes the repair throw is found', () => {
+    // The loaders run the repair on every load, rethrowing in development
+    // builds; here its plan throws on the pending structs' origins.
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      expect(
+        gapFindings(
+          probeYjs({
+            ...fixedYjs(),
+            decodeUpdateV2: ((u: Uint8Array) => {
+              const decoded = Y.decodeUpdateV2(u);
+              for (const struct of decoded.structs) {
+                if (struct instanceof Y.Item) {
+                  Object.defineProperty(struct, 'origin', {
+                    get() {
+                      throw new Error('origin');
+                    },
+                  });
+                }
+              }
+              return decoded;
+            }) as typeof Y.decodeUpdateV2,
+          }),
+        ),
+      ).toEqual(['gap repair threw: origin']);
+      expect(getGapRepairStatus()).toBe(undefined);
+      expect(warn).not.toHaveBeenCalled();
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  test('a @y/y that neither holds a batched struct pending nor integrates it is found', () => {
+    // Drops what it holds pending.
+    expect(
+      gapFindings(
+        probeYjs({
+          ...installed(),
+          applyUpdate: (d: Y.Doc, u: Uint8Array, o?: unknown) => {
+            Y.applyUpdate(d, u, o);
+            if (d.store.pendingStructs !== null) {
+              d.store.pendingStructs = null;
+            }
+          },
+        }),
+      ),
+    ).toEqual([
+      'gap repair: a batched struct behind a blocked one is neither held pending nor integrated',
+    ]);
+  });
+
+  test('a diffUpdateV2 that ignores the state vector is found', () => {
+    expect(
+      gapFindings(
+        probeYjs({
+          ...installed(),
+          diffUpdateV2: (u: Uint8Array) => new Uint8Array(u),
+        }),
+      ),
+    ).toEqual([
+      'gap repair: a state vector (format V1), the diffUpdateV2 cut by it or mergeUpdatesV2 changed',
+    ]);
+  });
+
+  test("a diffUpdateV2 that ignores the other clients' cuts is found", () => {
+    // Keeps only the state vector's first entry (the cut client).
+    expect(
+      gapFindings(
+        probeYjs({
+          ...installed(),
+          diffUpdateV2: (u: Uint8Array, v: Uint8Array) => {
+            const entries = [...Y.decodeStateVector(v)];
+            return Y.diffUpdateV2(u, encodeGapStateVector(entries.slice(0, 1)));
+          },
+        }),
+      ),
+    ).toEqual([
+      'gap repair: a state vector (format V1), the diffUpdateV2 cut by it or mergeUpdatesV2 changed',
+    ]);
+  });
+
+  test('a format item whose key reads otherwise is found (the format rule reads it)', () => {
+    expect(
+      gapFindings(
+        probeYjs({
+          ...installed(),
+          decodeUpdateV2: ((u: Uint8Array) => {
+            const decoded = Y.decodeUpdateV2(u);
+            for (const struct of decoded.structs) {
+              const content = (struct as {content?: unknown}).content;
+              if (content instanceof Y.ContentFormat) {
+                content.key = `${content.key}-${struct.id.clock}`;
+              }
+            }
+            return decoded;
+          }) as typeof Y.decodeUpdateV2,
+        }),
+      ),
+    ).toEqual(['gap repair: a format item read on a decoded struct changed']);
+  });
+
+  test('a @y/y that no longer integrates a struct past a clock gap is found (the plan relies on it)', () => {
+    expect(
+      gapFindings(
+        probeYjs({
+          ...installed(),
+          applyUpdateV2: (d: Y.Doc, u: Uint8Array, o?: unknown) => {
+            const [first] = Y.decodeUpdateV2(u).structs;
+            if (
+              first === undefined ||
+              first.id.clock <= d.store.getClock(first.id.client)
+            ) {
+              Y.applyUpdateV2(d, u, o);
+            }
+          },
+        }),
+      ),
+    ).toEqual([
+      'gap repair: a struct applied on its own is not integrated past a blocked one',
+    ]);
+  });
+
+  test('a mergeUpdatesV2 that drops material is found', () => {
+    expect(
+      gapFindings(
+        probeYjs({
+          ...installed(),
+          mergeUpdatesV2: (updates: Uint8Array[]) =>
+            new Uint8Array(updates[updates.length - 1]),
+        }),
+      ),
+    ).toEqual([
+      'gap repair: a state vector (format V1), the diffUpdateV2 cut by it or mergeUpdatesV2 changed',
+    ]);
+  });
+
+  test('a pending update read as format V1 is found', () => {
+    expect(
+      gapFindings(
+        probeYjs({
+          ...installed(),
+          decodeUpdateV2: Y.decodeUpdate as typeof Y.decodeUpdateV2,
+        }),
+      ),
+    ).toEqual([expect.stringMatching(/^gap repair/)]);
+  });
+
+  test('an applyUpdateV2 that does not integrate a lone struct is found', () => {
+    expect(
+      gapFindings(probeYjs({...installed(), applyUpdateV2: () => {}})),
+    ).toEqual([
+      'gap repair: a struct applied on its own is not integrated past a blocked one',
+    ]);
   });
 });
