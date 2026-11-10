@@ -4204,12 +4204,6 @@ export class Writer {
             set = new Set(endingWith(was));
           }
         }
-        // The line is gone, so no other writer keeps this marker for a line
-        // of its own: it is kept where the line that continues it is, also
-        // between the common prefix and suffix (see withMarkerIslands).
-        if (set.size > 0) {
-          anchored.add(i);
-        }
       }
       // A marker no line continues (its line is gone, and no line holds
       // what it held or ends with its text) is kept by position, as before,
@@ -4518,13 +4512,14 @@ export class Writer {
       }
     }
     // A marker the record gives the line that continues its line (see
-    // $markerContinues: the line ending with its line's last character), or
-    // one of a line that is gone, where the line that continues it is
-    // between the prefix and the suffix (a join, a split or a replaced line
+    // $markerContinues: the line ending with its line's last character),
+    // where that line is between the prefix and the suffix (a join or a split
     // with a line added after it): kept as an island where it falls between
-    // the atoms kept there, in order. Not a line's own marker: a client that
-    // diffs the same content with a concurrent edit may keep another (both
-    // would be deleted). Why:
+    // the atoms kept there, in order. Only these: a client that joins the
+    // same lines concurrently keeps the same marker (the one after the joined
+    // text); a line's own marker, or one a replaced line's holder claims, may
+    // be deleted by a concurrent join on another client, which would leave
+    // the line without a boundary (a new marker is safe). Why:
     // only the prefix and the suffix kept markers, so a marker whose line
     // was not at either end was deleted and written again, and a
     // collaborator's concurrent change of the line's attributes was lost.
