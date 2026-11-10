@@ -6,12 +6,14 @@
  *
  */
 
+/* eslint-disable simple-import-sort/imports -- import order is load order here */
 import type {Token, TokenStream} from 'prismjs';
 
-// Side-effect import: loads prismjs and sets up the global `Prism` that the
-// component imports below extend. Must stay separate from the type-only import
-// above so it is not elided.
-import 'prismjs';
+// The core must stay the first import: bundlers emit these modules in
+// import order, so anything above the components runs with no `Prism`.
+// A bare `import 'prismjs'` is not enough, its require call can sink past
+// them; reading the namespace below pins the core's initialization first.
+import * as PrismCore from 'prismjs';
 import 'prismjs/components/prism-clike';
 import 'prismjs/components/prism-diff';
 import 'prismjs/components/prism-javascript';
@@ -29,6 +31,7 @@ import 'prismjs/components/prism-swift';
 import 'prismjs/components/prism-typescript';
 import 'prismjs/components/prism-java';
 import 'prismjs/components/prism-cpp';
+/* eslint-enable simple-import-sort/imports */
 
 import {$createCodeHighlightNode, type CodeNode} from '@lexical/code-core';
 import {
@@ -47,8 +50,7 @@ declare global {
 }
 
 export const Prism: typeof import('prismjs') =
-  // eslint-disable-next-line no-restricted-syntax
-  (globalThis as {Prism?: typeof import('prismjs')}).Prism || window.Prism;
+  (globalThis as {Prism?: typeof import('prismjs')}).Prism ?? PrismCore;
 
 export const CODE_LANGUAGE_FRIENDLY_NAME_MAP: Record<string, string> = {
   c: 'C',
