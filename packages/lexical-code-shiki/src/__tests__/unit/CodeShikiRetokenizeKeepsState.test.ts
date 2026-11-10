@@ -27,6 +27,7 @@ import {
   $create,
   $createLineBreakNode,
   $createParagraphNode,
+  $createRangeSelection,
   $createTabNode,
   $createTextNode,
   $getRoot,
@@ -34,6 +35,7 @@ import {
   $getState,
   $isElementNode,
   $isRangeSelection,
+  $setSelection,
   $setState,
   configExtension,
   createState,
@@ -777,5 +779,403 @@ describe("a NodeState value an app's tokenizer sets", () => {
           .map(node => node.getTextContent()),
       ),
     ).toEqual([]);
+  });
+});
+
+// A token an app's tokenizer makes, over old tokens that have NodeState of
+// their own (comment ids, as a collaborator's change is read): the
+// highlighter writes the tokenizer's token, with the NodeState of the text
+// it came from, where it adds to the old token (its own class, or NodeState
+// the tokenizer set) and loses nothing of it; it keeps an old token that has
+// something the new one does not (a NodeState value of its own, here), as it
+// keeps any token whose text and type did not change.
+
+/** The Shiki tokenizer, making each token of the app's class, with `kind`. */
+const appKindTokenizer: Tokenizer = {
+  ...ShikiTokenizer,
+  $tokenize(code, language) {
+    return ShikiTokenizer.$tokenize(code, language).map(node =>
+      $isCodeHighlightNode(node)
+        ? $setState($appToken(node), kindState, kindOf(node))
+        : node,
+    );
+  },
+};
+
+/** A NodeState value named as the app class's field. */
+const fieldNamedState = createState('app', {parse: parseString});
+
+/** The same, with no style (an app's tokenizer that colors nothing). */
+const appPlainTokenizer: Tokenizer = {
+  ...ShikiTokenizer,
+  $tokenize(code, language) {
+    return appKindTokenizer
+      .$tokenize(code, language)
+      .map(node => ($isCodeHighlightNode(node) ? node.setStyle('') : node));
+  },
+};
+
+/**
+ * A code block of `texts`, old tokens with members `c1`, `c2`, ... (and
+ * `kind` set to `kind`, where given), read as a collaborator's change is (no
+ * transforms), then tokenized again by a paragraph inserted right after it.
+ */
+function $retokenizeOldTokens(
+  editor: LexicalEditor,
+  texts: string[],
+  kind?: string,
+): void {
+  editor.update(
+    () => {
+      const tokens = texts.map((text, i) => {
+        const token = $setState($createCodeHighlightNode(text), membersState, [
+          `c${i + 1}`,
+        ]);
+        return kind === undefined ? token : $setState(token, kindState, kind);
+      });
+      $getRoot().append($createCodeNode('javascript').append(...tokens));
+    },
+    {discrete: true, skipTransforms: true},
+  );
+  editor.update(
+    () => {
+      $getRoot()
+        .getFirstChildOrThrow()
+        .insertAfter($createParagraphNode().append($createTextNode('x')));
+    },
+    {discrete: true},
+  );
+}
+
+/**
+ * The first block: each distinct kind of token (of the app's class, its
+ * field, whether its `kind` is the tokenizer's, else its `kind`), and each
+ * character with its members.
+ */
+const tokensOf = (editor: LexicalEditor) =>
+  editor.read(() => {
+    const block = $getRoot().getFirstChildOrThrow();
+    const nodes = $isElementNode(block) ? block.getChildren() : [];
+    return {
+      chars: nodes
+        .flatMap(node =>
+          [...node.getTextContent()].map(
+            ch => `${ch}:${$getState(node, membersState).join(',')}`,
+          ),
+        )
+        .join(' '),
+      kinds: [
+        ...new Set(
+          nodes.map(node =>
+            JSON.stringify([
+              node instanceof AppHighlightNode,
+              node instanceof AppHighlightNode ? node.getApp() : '',
+              $isCodeHighlightNode(node) &&
+              $getState(node, kindState) === kindOf(node)
+                ? 'tokenizer'
+                : $getState(node, kindState),
+            ]),
+          ),
+        ),
+      ],
+    };
+  });
+
+describe("a token an app's tokenizer makes, over old tokens with NodeState", () => {
+  beforeAll(async () => {
+    await loadCodeLanguage('javascript');
+    await loadCodeTheme('one-light');
+  });
+
+  test("each part of a token an app's tokenizer makes of its own class is of that class, with its field and the tokenizer's NodeState, and has the NodeState of its own text", () => {
+    using editor = editorWithAppHighlight(appKindTokenizer);
+    $retokenizeOldTokens(editor, ['alpha ', 'beta']);
+    expect(tokensOf(editor)).toEqual({
+      chars: 'a:c1 l:c1 p:c1 h:c1 a:c1  :c1 b:c2 e:c2 t:c2 a:c2',
+      kinds: [JSON.stringify([true, 'app', 'tokenizer'])],
+    });
+  });
+
+  test("a NodeState value an app's tokenizer sets is on each token, beside the NodeState of its own text", () => {
+    using editor = editorWithAppHighlight(kindTokenizer);
+    $retokenizeOldTokens(editor, ['alpha ', 'beta']);
+    expect(tokensOf(editor)).toEqual({
+      chars: 'a:c1 l:c1 p:c1 h:c1 a:c1  :c1 b:c2 e:c2 t:c2 a:c2',
+      kinds: [JSON.stringify([false, '', 'tokenizer'])],
+    });
+  });
+
+  test('an old token with a NodeState value the new one has another value for is kept as it is', () => {
+    using editor = editorWithAppHighlight(appPlainTokenizer);
+    $retokenizeOldTokens(editor, ['alpha'], 'set by the app');
+    expect(tokensOf(editor)).toEqual({
+      chars: 'a:c1 l:c1 p:c1 h:c1 a:c1',
+      kinds: [JSON.stringify([false, '', 'set by the app'])],
+    });
+  });
+
+  test('among old tokens as the stock tokenizer makes them, each with a comment, the ones a new token adds to are replaced, one for one, and one with a value the app set is kept, on every pass', () => {
+    using editor = editorWithAppHighlight(appKindTokenizer);
+    // As a collaborator's change is read: the stock tokenizer's tokens of
+    // `let x = 1;`, each with a comment of its own, and the third with a
+    // value of `kind` the app set.
+    const protectedAt = 2;
+    editor.update(
+      () => {
+        const code = $createCodeNode('javascript')
+          .setTheme(ShikiTokenizer.defaultTheme)
+          .append($createTextNode('let x = 1;'));
+        $getRoot().append(code);
+        const tokens = ShikiTokenizer.$tokenize(code, 'javascript');
+        code.clear();
+        tokens.forEach((token, i) => {
+          if ($isCodeHighlightNode(token)) {
+            $setState(token, membersState, [`c${i + 1}`]);
+            if (i === protectedAt) {
+              $setState(token, kindState, 'set by the app');
+            }
+          }
+        });
+        code.append(...tokens);
+      },
+      {discrete: true, skipTransforms: true},
+    );
+    const pass = () =>
+      editor.update(
+        () => {
+          $getRoot()
+            .getFirstChildOrThrow()
+            .insertAfter($createParagraphNode().append($createTextNode('x')));
+        },
+        {discrete: true},
+      );
+    const rows = () =>
+      editor.read(() => {
+        const block = $getRoot().getFirstChildOrThrow();
+        return ($isElementNode(block) ? block.getChildren() : []).map(node => ({
+          key: node.getKey(),
+          row: [
+            node instanceof AppHighlightNode,
+            node instanceof AppHighlightNode ? node.getApp() : '',
+            $isCodeHighlightNode(node) &&
+            $getState(node, kindState) === kindOf(node)
+              ? 'tokenizer'
+              : $getState(node, kindState),
+            $getState(node, membersState).join(','),
+          ],
+        }));
+      });
+    pass();
+    const first = rows();
+    expect(first.length).toBeGreaterThan(protectedAt + 1);
+    expect(first.map(r => r.row)).toEqual(
+      first.map((_, i) =>
+        i === protectedAt
+          ? [false, '', 'set by the app', `c${i + 1}`]
+          : [true, 'app', 'tokenizer', `c${i + 1}`],
+      ),
+    );
+    // Another pass replaces nothing.
+    pass();
+    expect(rows()).toEqual(first);
+  });
+
+  test("an old token of the app's class with a field value of its own is kept, where the new token of that class has another, also with a NodeState value of the field's name", () => {
+    // The app's tokenizer, also setting a NodeState value named as the
+    // class's field.
+    const tokenizer: Tokenizer = {
+      ...ShikiTokenizer,
+      $tokenize(code, language) {
+        return appKindTokenizer
+          .$tokenize(code, language)
+          .map(node =>
+            $isCodeHighlightNode(node)
+              ? $setState(node, fieldNamedState, 'from the tokenizer')
+              : node,
+          );
+      },
+    };
+    using editor = editorWithAppHighlight(tokenizer);
+    editor.update(
+      () => {
+        const code = $createCodeNode('javascript')
+          .setTheme(ShikiTokenizer.defaultTheme)
+          .append($createTextNode('let x = 1;'));
+        $getRoot().append(code);
+        const tokens = ShikiTokenizer.$tokenize(code, 'javascript').map(
+          (token, i) =>
+            $isCodeHighlightNode(token)
+              ? $setState(
+                  $appToken(token).setApp('set by the app'),
+                  membersState,
+                  [`c${i + 1}`],
+                )
+              : token,
+        );
+        code.clear();
+        code.append(...tokens);
+      },
+      {discrete: true, skipTransforms: true},
+    );
+    editor.update(
+      () => {
+        $getRoot()
+          .getFirstChildOrThrow()
+          .insertAfter($createParagraphNode().append($createTextNode('x')));
+      },
+      {discrete: true},
+    );
+    const rows = editor.read(() => {
+      const block = $getRoot().getFirstChildOrThrow();
+      return ($isElementNode(block) ? block.getChildren() : []).map(node => [
+        node instanceof AppHighlightNode ? node.getApp() : '',
+        $getState(node, fieldNamedState),
+      ]);
+    });
+    expect(rows.length).toBeGreaterThan(0);
+    expect(rows).toEqual(rows.map(() => ['set by the app', '']));
+  });
+
+  test('replacing old tokens a new token adds to keeps the selection where it was: a caret, a range forward and backward, and a range from outside the block', () => {
+    // [anchor token, offset, focus token, offset], token -1: the paragraph
+    // after the block.
+    const cases: [number, number, number, number][] = [
+      [1, 1, 1, 1],
+      [0, 1, 3, 1],
+      [3, 1, 0, 1],
+      [-1, 2, 1, 1],
+    ];
+    for (const [anchorAt, anchorOffset, focusAt, focusOffset] of cases) {
+      using editor = editorWithAppHighlight(appKindTokenizer);
+      editor.update(
+        () => {
+          const code = $createCodeNode('javascript')
+            .setTheme(ShikiTokenizer.defaultTheme)
+            .append($createTextNode('let x = 1;'));
+          $getRoot().append(
+            code,
+            $createParagraphNode().append($createTextNode('after')),
+          );
+          const tokens = ShikiTokenizer.$tokenize(code, 'javascript');
+          code.clear();
+          tokens.forEach((token, i) => {
+            if ($isCodeHighlightNode(token)) {
+              $setState(token, membersState, [`c${i + 1}`]);
+            }
+          });
+          code.append(...tokens);
+          const after = $getRoot().getLastChildOrThrow();
+          const at = (i: number) =>
+            i < 0
+              ? $isElementNode(after)
+                ? after.getFirstChildOrThrow()
+                : after
+              : code.getChildAtIndex(i)!;
+          const selection = $createRangeSelection();
+          selection.anchor.set(at(anchorAt).getKey(), anchorOffset, 'text');
+          selection.focus.set(at(focusAt).getKey(), focusOffset, 'text');
+          $setSelection(selection);
+        },
+        {discrete: true, skipTransforms: true},
+      );
+      const where = () =>
+        editor.read(() => {
+          const selection = $getSelection();
+          if (!$isRangeSelection(selection)) {
+            return null;
+          }
+          return [selection.anchor, selection.focus].map(point => {
+            const node = point.getNode();
+            const block = node.getTopLevelElementOrThrow();
+            return [
+              block.getIndexWithinParent(),
+              node
+                .getPreviousSiblings()
+                .reduce((n, sibling) => n + sibling.getTextContentSize(), 0) +
+                point.offset,
+            ];
+          });
+        });
+      const before = where();
+      editor.update(
+        () => {
+          $getRoot()
+            .getFirstChildOrThrow()
+            .insertAfter($createParagraphNode().append($createTextNode('x')));
+        },
+        {discrete: true},
+      );
+      // The tokens were replaced (of the app's class now), and the selection
+      // is where it was: the paragraph after the block is now the third
+      // block.
+      expect(
+        editor.read(() => {
+          const block = $getRoot().getFirstChildOrThrow();
+          return (
+            $isElementNode(block) &&
+            block.getChildren().every(node => node instanceof AppHighlightNode)
+          );
+        }),
+      ).toBe(true);
+      expect(where()).toEqual(
+        before!.map(([block, offset]) => [block === 0 ? 0 : 2, offset]),
+      );
+    }
+  });
+
+  test('with a change inside the line that the highlighter replaces, the old tokens a new token adds to before and after it are replaced too, one for one', () => {
+    using editor = editorWithAppHighlight(appKindTokenizer);
+    editor.update(
+      () => {
+        const code = $createCodeNode('javascript')
+          .setTheme(ShikiTokenizer.defaultTheme)
+          .append($createTextNode('let x = 1;'));
+        $getRoot().append(code);
+        const tokens = ShikiTokenizer.$tokenize(code, 'javascript');
+        code.clear();
+        tokens.forEach((token, i) => {
+          if ($isCodeHighlightNode(token)) {
+            $setState(token, membersState, [`c${i + 1}`]);
+          }
+        });
+        code.append(...tokens);
+      },
+      {discrete: true, skipTransforms: true},
+    );
+    const $childrenOf = () => {
+      const block = $getRoot().getFirstChildOrThrow();
+      return $isElementNode(block) ? block.getChildren() : [];
+    };
+    const tokensBefore = editor.read(() => $childrenOf().length);
+    // `1` becomes `1+2`, three tokens: the highlighter replaces it, and the
+    // tokens before and after it, which the comparison keeps, are added to.
+    editor.update(
+      () => {
+        const one = $getRoot()
+          .getAllTextNodes()
+          .find(node => node.getTextContent() === '1');
+        if (one !== undefined) {
+          one.setTextContent('1+2');
+        }
+      },
+      {discrete: true},
+    );
+    const rows = editor.read(() =>
+      $childrenOf().map(node => [
+        node.getTextContent(),
+        node instanceof AppHighlightNode,
+        $isCodeHighlightNode(node) &&
+          $getState(node, kindState) === kindOf(node),
+        $getState(node, membersState).length,
+      ]),
+    );
+    expect(rows.map(r => r[0]).join('')).toBe('let x = 1+2;');
+    expect(rows.length).toBeGreaterThan(tokensBefore);
+    expect(
+      rows.every(([, app, kind, members]) => app && kind && members === 1),
+    ).toBe(true);
+    // The first and the last tokens were kept by the comparison.
+    expect(rows[0][0]).toBe('let');
+    expect(rows[rows.length - 1][0]).toBe(';');
   });
 });

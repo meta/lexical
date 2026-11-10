@@ -84,6 +84,13 @@ declare export function $keepCodeNodeState(
   nextNodes: Array<LexicalNode>,
 ): Array<LexicalNode>;
 
+declare export function $replaceCodeTokensAddedTo(
+  prevNodes: Array<LexicalNode>,
+  nextNodes: Array<LexicalNode>,
+  from: number,
+  to: number,
+): boolean;
+
 /**
  * CodeNode
  */
