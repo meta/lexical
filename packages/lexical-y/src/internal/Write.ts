@@ -3996,13 +3996,16 @@ export class Writer {
    *   head, gets a new one, so no character moves), or the line a join or a
    *   range delete across lines ends with the joined text (it keeps the
    *   marker after that text, and its own goes);
-   * - where the old line stays: a new line after it ending with what it
-   *   lost from its end (a split the record does not explain: app code that
-   *   sets the head's text and adds a line holding the tail), else that line
-   *   itself;
+   * - where the old line stays: the one new line after it ending with what
+   *   it lost from its end (a split the record does not explain: app code
+   *   that sets the head's text and adds a line holding the tail); else, where
+   *   a new line follows it, any line by position, as before (lines pasted at
+   *   its end, Enter or a paste over a selection reaching its end); else that
+   *   line itself;
    * - where it is gone: the lines holding a node it held before this update
    *   (a line Lexical replaced, `$setBlocksType`, or one joined into another),
-   *   else the lines ending with all of its text (a paste over it);
+   *   else the one line ending with all of its text (with several, any line
+   *   by position);
    * - else, where no line continues it, any line, by position as before.
    * Why: a marker matched any marker, so where a collaborator replaced a
    * line and added another after it, the common suffix gave the old marker
