@@ -171,8 +171,8 @@ const KNOWN_OPEN = new Map<string, {seen: string; per1000: number}>([
   [
     'carry:target-value',
     {
-      per1000: 7.2,
-      seen: 'a NodeState value the ending update set does not stay on a changed character',
+      per1000: 9.8,
+      seen: 'a NodeState value the ending update set does not stay on a changed character, for example after a collaborator joins the held code line into the paragraph before it (raised from 7.2 by #9860: with a block added after the join, the marker no longer goes to that block, so these histories take the join path, which fails the same way on main without the added block; #9865)',
     },
   ],
 ]);
