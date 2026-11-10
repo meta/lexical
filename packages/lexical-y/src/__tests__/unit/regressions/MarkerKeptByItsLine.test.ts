@@ -189,7 +189,7 @@ for (const gc of [false, true]) {
         await expectConverged(t.peers);
       });
 
-      test('a code block replaced by a code block with a paragraph added after it: the composed node does not go to the paragraph, and what is typed as the composition ends stays in the code block', async () => {
+      test('a code block replaced by a code block with a paragraph added after it: the composed node does not go to the paragraph', async () => {
         const t = await setup(
           () =>
             $getRoot().append(
@@ -213,8 +213,7 @@ for (const gc of [false, true]) {
         });
         await t.sync();
         // As above: the saved node goes with B's deleted marker (on main it
-        // went to the paragraph after the code block, where the text typed at
-        // it landed).
+        // went to the paragraph after the code block).
         expect(a.read(() => $blockOf(key))).toBe(-1);
         // The composition ends, and A types at its selection.
         a.update(() => {
@@ -236,7 +235,8 @@ for (const gc of [false, true]) {
               .map(n => [$isCodeNode(n), n.getTextContent()]),
           );
           expect(blocks[2]).toEqual([false, 'let untouched = 1;']);
-          // What A typed is in the code block (on main, the paragraph).
+          // What A typed at its selection is in the code block (as on main,
+          // where the selection stays on the code block's text).
           expect(blocks[1][1]).toContain(' z');
           expect(blocks[1][0]).toBe(true);
           expect(peer.read($untouched)).toBe('text:8:old');
