@@ -348,6 +348,69 @@ for (const gc of [false, true]) {
             ['paragraph:world', changed('paragraph', 'hello ')],
           ));
 
+        // The same accepted limit (D118) for a line replaced by one holding
+        // its own nodes, with its text changed, and a line added after it.
+        test.fails(
+          'a line replaced by a quote holding its nodes, its text changed, with a line added after it: the quote keeps the change',
+          () =>
+            run(
+              () =>
+                $getRoot().append(
+                  $createParagraphNode().append($createTextNode('see')),
+                ),
+              () => {
+                const line = $getRoot().getFirstChildOrThrow() as ElementNode;
+                const quote = $createQuoteNode().append(...line.getChildren());
+                line.replace(quote);
+                (quote.getFirstChildOrThrow() as TextNode).setTextContent(
+                  'SEE',
+                );
+                quote.insertAfter(
+                  $createParagraphNode().append($createTextNode('xyz')),
+                );
+                $setSelection(null);
+              },
+              0,
+              [
+                change === 'centers' ? 'quotecenter:SEE' : 'heading:SEE',
+                'paragraph:xyz',
+              ],
+            ),
+        );
+
+        // And for app code that splits a line without the record of text
+        // edits and adds another line after the tail.
+        test.fails(
+          'app code that splits a line and adds a line after the tail: the tail keeps the change',
+          () =>
+            run(
+              () =>
+                $getRoot().append(
+                  $createParagraphNode().append($createTextNode('hello world')),
+                ),
+              () => {
+                const line = $getRoot().getFirstChildOrThrow() as ElementNode;
+                (line.getFirstChildOrThrow() as TextNode).setTextContent(
+                  'hello ',
+                );
+                const tail = $createParagraphNode().append(
+                  $createTextNode('world'),
+                );
+                line.insertAfter(tail);
+                tail.insertAfter(
+                  $createParagraphNode().append($createTextNode('extra')),
+                );
+                $setSelection(null);
+              },
+              0,
+              [
+                'paragraph:hello ',
+                changed('paragraph', 'world'),
+                'paragraph:extra',
+              ],
+            ),
+        );
+
         // An accepted limit (D118): the remade line gets a new marker, so the
         // change is dropped (before, it was applied to the added line).
         test.fails(

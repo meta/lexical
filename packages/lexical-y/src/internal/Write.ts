@@ -4128,7 +4128,7 @@ export class Writer {
       }
       return out;
     };
-    const endingWith = (text: string): number[] => {
+    const endingWith = (text: string, limit = Infinity): number[] => {
       if (reversed === null) {
         reversed = newLines.map((n, k): [string, number] => [
           reverse(n.now),
@@ -4152,7 +4152,9 @@ export class Writer {
       const out: number[] = [];
       for (
         let i = lo;
-        i < reversed.length && reversed[i][0].startsWith(r);
+        i < reversed.length &&
+        out.length < limit &&
+        reversed[i][0].startsWith(r);
         i++
       ) {
         out.push(reversed[i][1]);
@@ -4215,9 +4217,9 @@ export class Writer {
                 k => newLines[k].isNew && k > own[own.length - 1],
               )
             : [];
-        set = new Set(tails.length > 0 ? tails : own);
+        set = new Set(tails.length === 1 ? tails : own);
         if (
-          tails.length === 0 &&
+          tails.length !== 1 &&
           newLines.some((l, k) => l.isNew && k > own[own.length - 1])
         ) {
           // With a new line after it and no line holding its old end (lines
@@ -4243,7 +4245,11 @@ export class Writer {
         if (set.size === 0) {
           const was = textOf(old, oldAt, ki);
           if (was.length > 0) {
-            set = new Set(endingWith(was));
+            // Only where one line does: several lines ending with it (lines
+            // remade as they were, many alike) are kept by position, as
+            // before, so a claim is never a set of many lines.
+            const ends = endingWith(was, 2);
+            set = new Set(ends.length === 1 ? ends : []);
           }
         }
       }
@@ -4257,19 +4263,18 @@ export class Writer {
       // that took its marker.
       best.set(i, set.size > 0 ? set : ANY);
     });
+    // The desired marker positions each old marker may go to (none: any).
+    const at = new Map<number, Set<number>>();
+    best.forEach((set, i) => {
+      if (set !== ANY) {
+        at.set(i, new Set([...set].map(k => newLines[k].j)));
+      }
+    });
     return {
       anchored,
       match: (i, j) => {
-        const set = best.get(i)!;
-        if (set === ANY) {
-          return true;
-        }
-        for (const k of set) {
-          if (newLines[k].j === j) {
-            return true;
-          }
-        }
-        return false;
+        const set = at.get(i);
+        return set === undefined || set.has(j);
       },
     };
   }
