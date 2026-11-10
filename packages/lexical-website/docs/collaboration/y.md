@@ -1313,7 +1313,8 @@ not merge as a user might expect:
   line (a deletion, a join, a `MarkNode` comment, which moves the text into
   it) shows at once: the text node being composed keeps its key, unless its
   class changes (a code block made a heading). A collaborator who replaces the
-  line with a new block and adds another block after it in one update gives
+  line with a new block (holding the same text, or its own nodes with their
+  text changed) and adds another block after it in one update gives
   the new block a new line marker (DECISIONS.md D118): the node being composed
   is no longer in the document, and the composition ends without it.
   While a composition is held and a collaborator has changed the type of the
