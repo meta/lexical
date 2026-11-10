@@ -520,19 +520,11 @@ function $insertText(
     return;
   }
 
-  const atStartOfInline =
-    anchorParent.isInline() && offset === 0 && !anchorNode.__prev;
-  const atEndOfInline =
-    anchorParent.isInline() && offset === anchorSize && !anchorNode.__next;
-  const formatDiffers =
-    anchorNode.getFormat() !== format || anchorNode.getStyle() !== style;
-
-  if (atStartOfInline || atEndOfInline || formatDiffers) {
-    if (
-      anchorNode.getTextContent() === '' &&
-      !atStartOfInline &&
-      !atEndOfInline
-    ) {
+  // A boundary of an inline parent that refuses text was already handled by
+  // needsRedirect above, so the parent accepts text at this point and it is
+  // inserted in place.
+  if (anchorNode.getFormat() !== format || anchorNode.getStyle() !== style) {
+    if (anchorNode.getTextContent() === '') {
       anchorNode.setFormat(format);
       anchorNode.setStyle(style);
     } else {
@@ -568,7 +560,8 @@ function $insertTextAtPoint(
   if (
     atBoundary &&
     parent.isInline() &&
-    !(before ? anchorNode.__prev : anchorNode.__next)
+    !(before ? anchorNode.__prev : anchorNode.__next) &&
+    !(before ? parent.canInsertTextBefore() : parent.canInsertTextAfter())
   ) {
     $getSiblingCaret(parent, before ? 'previous' : 'next').insert(textNode);
   } else {
