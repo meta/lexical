@@ -4616,7 +4616,6 @@ export class Writer {
       return kept;
     }
     newMarkers.sort((x, y) => x - y);
-    const out = [...kept];
     const oldMarkers: number[] = [];
     old.specials.forEach((sp, i) => {
       if (sp.kind === 'marker' && i >= prefix && i < oldEnd) {
@@ -4624,27 +4623,57 @@ export class Writer {
       }
     });
     oldMarkers.sort((x, y) => x - y);
+    const used = new Set<number>();
+    for (const [, kj] of kept) {
+      used.add(kj);
+    }
+    // One pass over the old markers and the kept atoms, in order.
+    const added: [number, number][] = [];
+    let at = 0;
+    let last = prefix - 1;
     for (const i of oldMarkers) {
-      // The kept atoms around old atom `i`.
-      let at = 0;
-      while (at < out.length && out[at][0] < i) {
+      while (at < kept.length && kept[at][0] < i) {
         at++;
       }
-      if (at < out.length && out[at][0] === i) {
+      if (at < kept.length && kept[at][0] === i) {
         continue;
       }
-      const lo = at === 0 ? prefix - 1 : out[at - 1][1];
-      const hi = at === out.length ? newEnd : out[at][1];
-      const j = newMarkers.find(
-        x =>
-          x > lo &&
-          x < hi &&
-          matchSpecial(i, x) &&
-          !out.some(([, kj]) => kj === x),
-      );
-      if (j !== undefined) {
-        out.splice(at, 0, [i, j]);
+      const lo = Math.max(at === 0 ? prefix - 1 : kept[at - 1][1], last);
+      const hi = at === kept.length ? newEnd : kept[at][1];
+      // The first desired marker after `lo` (binary search).
+      let l = 0;
+      let h = newMarkers.length;
+      while (l < h) {
+        const m = (l + h) >> 1;
+        if (newMarkers[m] <= lo) {
+          l = m + 1;
+        } else {
+          h = m;
+        }
       }
+      for (let k = l; k < newMarkers.length && newMarkers[k] < hi; k++) {
+        const j = newMarkers[k];
+        if (!used.has(j) && matchSpecial(i, j)) {
+          added.push([i, j]);
+          used.add(j);
+          last = j;
+          break;
+        }
+      }
+    }
+    if (added.length === 0) {
+      return kept;
+    }
+    const out: [number, number][] = [];
+    let x = 0;
+    for (const pair of added) {
+      while (x < kept.length && kept[x][0] < pair[0]) {
+        out.push(kept[x++]);
+      }
+      out.push(pair);
+    }
+    while (x < kept.length) {
+      out.push(kept[x++]);
     }
     return out;
   }

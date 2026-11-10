@@ -352,3 +352,63 @@ for (const gc of [false, true]) {
     }
   }
 }
+
+// A removes the lines after a line while composing in one of them, and B
+// typed into it at the same time (held on A): the line before keeps its own
+// marker, and B's character, left without its line's marker, shows as a
+// paragraph of its own rather than joining that line's text (D118). Before,
+// the line before took the last removed line's marker, and B's character
+// was added to its text.
+for (const gc of [false, true]) {
+  for (const ids of [
+    [1, 2],
+    [2, 1],
+  ]) {
+    test(`lines removed after a line while a collaborator typed in one of them (gc ${gc}, ids ${ids.join(',')}): the line keeps its marker, the typed character is its own paragraph`, async () => {
+      const t = await setup(
+        () =>
+          $getRoot().append(
+            $createParagraphNode().append($createTextNode('zero')),
+            $createParagraphNode().append($createTextNode('one')),
+            $createParagraphNode().append($createTextNode('two')),
+          ),
+        {gc, ids},
+      );
+      onTestFinished(() => t.peers.forEach(p => p.stop()));
+      const {a, b} = t;
+      a.update(() => {
+        const text = (
+          $getRoot().getChildAtIndex(2) as ElementNode
+        ).getFirstChildOrThrow() as TextNode;
+        text.select(1, 1);
+        $setCompositionKey(text.getKey());
+      });
+      b.update(() => {
+        $selectIn([2], 1).insertText('R');
+        $setSelection(null);
+      });
+      await t.sync();
+      a.update(() => {
+        $getRoot().getChildAtIndex(2)!.remove();
+        $getRoot().getChildAtIndex(1)!.remove();
+        // The caret ends at the end of the line before.
+        $getRoot().getFirstChildOrThrow().selectEnd();
+      });
+      await t.sync();
+      a.update(() => $setCompositionKey(null));
+      await t.sync();
+      const fresh = await freshReader(a);
+      onTestFinished(() => fresh.stop());
+      for (const peer of [...t.peers, fresh]) {
+        expect(
+          peer.read(() =>
+            $getRoot()
+              .getChildren()
+              .map(n => n.getTextContent()),
+          ),
+        ).toEqual(['zero', 'R']);
+      }
+      await expectConverged(t.peers);
+    });
+  }
+}
