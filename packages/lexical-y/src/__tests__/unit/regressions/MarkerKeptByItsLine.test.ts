@@ -354,17 +354,16 @@ for (const gc of [false, true]) {
 }
 
 // A removes the lines after a line while composing in one of them, and B
-// typed into it at the same time (held on A): the line before keeps its own
-// marker, and B's character, left without its line's marker, shows as a
-// paragraph of its own rather than joining that line's text (D118). Before,
-// the line before took the last removed line's marker, and B's character
-// was added to its text.
+// typed into it at the same time (held on A): no line continues the removed
+// lines' markers, so the line before keeps one by position, as before, and
+// B's character joins its end rather than the next line's text or a line of
+// its own (D118).
 for (const gc of [false, true]) {
   for (const ids of [
     [1, 2],
     [2, 1],
   ]) {
-    test(`lines removed after a line while a collaborator typed in one of them (gc ${gc}, ids ${ids.join(',')}): the line keeps its marker, the typed character is its own paragraph`, async () => {
+    test(`lines removed after a line while a collaborator typed in one of them (gc ${gc}, ids ${ids.join(',')}): the typed character joins the line before, as before`, async () => {
       const t = await setup(
         () =>
           $getRoot().append(
@@ -406,7 +405,7 @@ for (const gc of [false, true]) {
               .getChildren()
               .map(n => n.getTextContent()),
           ),
-        ).toEqual(['zero', 'R']);
+        ).toEqual(['zeroR']);
       }
       await expectConverged(t.peers);
     });
