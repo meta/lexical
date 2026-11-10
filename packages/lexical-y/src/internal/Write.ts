@@ -23,6 +23,7 @@ import {
   $getNodeByKey,
   $getSelection,
   $isElementNode,
+  $isLexicalNode,
   $isLineBreakNode,
   $isParagraphNode,
   $isRangeSelection,
@@ -4046,7 +4047,8 @@ export class Writer {
         to,
       };
     });
-    const lines = new Map<NodeKey, number>();
+    // The desired lines (or parts of one, see $pushLine) of each line key.
+    const lines = new Map<NodeKey, number[]>();
     // Which desired lines hold each node, and end with each short text.
     const holders = new Map<NodeKey, number[]>();
     const enders = new Map<string, number[]>();
@@ -4061,16 +4063,7 @@ export class Writer {
     const ENDING = 8;
     newLines.forEach((n, k) => {
       if (n.to !== null) {
-        lines.set(n.to, k);
-      }
-      const d = (atoms.specials.get(n.j) as {ref: unknown}).ref as Desired;
-      const stack = [...$lineChildren(d)];
-      while (stack.length > 0) {
-        const node = stack.pop()!;
-        add(holders, node.getKey(), k);
-        if ($isElementNode(node)) {
-          stack.push(...node.getChildren());
-        }
+        add(lines, n.to, k);
       }
       for (let len = 1; len <= ENDING && len <= n.now.length; len++) {
         add(enders, n.now.slice(-len), k);
@@ -4087,6 +4080,25 @@ export class Writer {
         }
       });
     }
+    // Built when a line that is gone is looked for (see below).
+    let indexed = false;
+    const $indexHolders = () => {
+      indexed = true;
+      newLines.forEach((n, k) => {
+        const d = (atoms.specials.get(n.j) as {ref: unknown}).ref as Desired;
+        const stack: (LexicalNode | null | undefined)[] = [...$lineChildren(d)];
+        while (stack.length > 0) {
+          const node = stack.pop();
+          if (!$isLexicalNode(node)) {
+            continue;
+          }
+          add(holders, node.getKey(), k);
+          if ($isElementNode(node)) {
+            stack.push(...node.getChildren());
+          }
+        }
+      });
+    };
     const $heldBefore = (line: NodeKey): NodeKey[] => {
       const out: NodeKey[] = [];
       const stack = [line];
@@ -4140,8 +4152,11 @@ export class Writer {
       if (byRecord !== undefined) {
         set.add(byRecord);
       } else if (lines.has(from)) {
-        set.add(lines.get(from)!);
+        set = new Set(lines.get(from));
       } else {
+        if (!indexed) {
+          $indexHolders();
+        }
         for (const key of $heldBefore(from)) {
           for (const k of holders.get(key) ?? []) {
             set.add(k);
