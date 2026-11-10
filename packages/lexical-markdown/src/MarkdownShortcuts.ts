@@ -11,6 +11,7 @@ import invariant from '@lexical/internal/invariant';
 import {
   $addUpdateTag,
   $createRangeSelection,
+  $getNodeByKey,
   $getSelection,
   $isBlockContainer,
   $isElementNode,
@@ -652,17 +653,21 @@ export function registerMarkdownShortcuts(
         }
 
         editor.update(() => {
-          if (!canContainTransformableMarkdown(anchorNode)) {
+          // Read the node again by its key: an update queued before this one
+          // (a collaboration binding reading the document again, say) may
+          // have replaced it, and then there is nothing to transform.
+          const node = $getNodeByKey(anchorKey);
+          if (node === null || !canContainTransformableMarkdown(node)) {
             return;
           }
 
-          const parentNode = anchorNode.getParent();
+          const parentNode = node.getParent();
 
           if (parentNode === null || $isCodeNode(parentNode)) {
             return;
           }
 
-          if ($transform(parentNode, anchorNode, selection.anchor.offset)) {
+          if ($transform(parentNode, node, anchorOffset)) {
             $addUpdateTag(HISTORY_PUSH_TAG);
           }
         });
