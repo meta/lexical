@@ -4119,18 +4119,32 @@ export class Writer {
       return out;
     };
     // The desired lines ending with `text` (all of it).
+    // The desired lines ending with `text` (all of it), indexed by their
+    // last 1 to ENDING characters and their last 32 and 128 (so a lookup
+    // filters only the lines sharing as long an ending as it can).
+    const LONG = [128, 32];
     const endingWith = (text: string): number[] => {
       if (enders.size === 0) {
         newLines.forEach((n, k) => {
           for (let len = 1; len <= ENDING && len <= n.now.length; len++) {
             add(enders, n.now.slice(-len), k);
           }
+          for (const len of LONG) {
+            if (n.now.length >= len) {
+              add(enders, `${len}\u0000${n.now.slice(-len)}`, k);
+            }
+          }
         });
       }
-      const l = enders.get(text.slice(-ENDING)) ?? [];
-      return text.length <= ENDING
-        ? l
-        : l.filter(k => newLines[k].now.endsWith(text));
+      if (text.length <= ENDING) {
+        return enders.get(text) ?? [];
+      }
+      const len = LONG.find(x => text.length >= x);
+      const l =
+        (len === undefined
+          ? enders.get(text.slice(-ENDING))
+          : enders.get(`${len}\u0000${text.slice(-len)}`)) ?? [];
+      return l.filter(k => newLines[k].now.endsWith(text));
     };
     const ANY = null;
     // Lines without a key: kept as before by a marker no line claims.
@@ -4189,6 +4203,22 @@ export class Writer {
               )
             : [];
         set = new Set(tails.length > 0 ? tails : own);
+        if (
+          tails.length === 0 &&
+          n === was.length &&
+          head.length > was.length &&
+          newLines.some((l, k) => l.isNew && k > own[own.length - 1])
+        ) {
+          // It only grew at its end, with a new line after it (lines pasted
+          // at its end, app code that adds text and a line after it): the
+          // split's tail is empty, so by position, as before (the last new
+          // line keeps the marker, which the common suffix gives it). Kept
+          // by that line alone, the marker could not stay (only the common
+          // prefix or suffix keeps such a marker), so it was deleted: a
+          // composition there lost its line, and a collaborator's concurrent
+          // change of the line, or a Delete at its end, was dropped.
+          set = new Set();
+        }
       } else {
         if (!indexed) {
           $indexHolders();

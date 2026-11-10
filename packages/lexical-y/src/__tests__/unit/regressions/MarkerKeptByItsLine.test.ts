@@ -136,7 +136,7 @@ for (const gc of [false, true]) {
     [33, 22, 11],
   ]) {
     describe(`gc ${gc}, ids ${ids.join(',')}`, () => {
-      test('a line replaced by a quote with a code block added after it: the composition stays on the quote, the code block keeps its format and NodeState', async () => {
+      test('a line replaced by a quote with a code block added after it: the composed node does not go to the code block, which keeps its format and NodeState', async () => {
         const t = await setup(
           () =>
             $getRoot().append(
@@ -159,9 +159,10 @@ for (const gc of [false, true]) {
           $setSelection(null);
         });
         await t.sync();
-        // The composed text node is not the code block's (B's quote has a new
-        // marker, see D118, so the node does not go with the old one).
-        expect(a.read(() => $blockOf(key))).not.toBe(2);
+        // The composed text node is not the code block's: B's quote has a new
+        // marker (D118), so the node goes with the old one, which B deleted
+        // (on main it went to the code block).
+        expect(a.read(() => $blockOf(key))).toBe(-1);
         a.update(() => {
           $setCompositionKey(null);
           const n = $getNodeByKey(key);
@@ -187,7 +188,7 @@ for (const gc of [false, true]) {
         await expectConverged(t.peers);
       });
 
-      test('a code block replaced by a code block with a paragraph added after it: text typed as the composition ends stays in the code block', async () => {
+      test('a code block replaced by a code block with a paragraph added after it: the composed node does not go to the paragraph, and nothing typed lands there', async () => {
         const t = await setup(
           () =>
             $getRoot().append(
@@ -210,7 +211,10 @@ for (const gc of [false, true]) {
           $setSelection(null);
         });
         await t.sync();
-        expect(a.read(() => $blockOf(key))).not.toBe(2);
+        // As above: the saved node goes with B's deleted marker (on main it
+        // went to the paragraph after the code block, where the text typed at
+        // it landed).
+        expect(a.read(() => $blockOf(key))).toBe(-1);
         a.update(() => {
           $setCompositionKey(null);
           const n = $getNodeByKey(key);
@@ -522,5 +526,104 @@ for (const gc of [false, true]) {
         await expectConverged(t.peers);
       });
     }
+  }
+}
+
+// Lines pasted at the end of a line (or text and a line added after it by app
+// code): the split's tail is empty, so the last new line keeps the marker, as
+// before, and the line keeps its place for a collaborator composing in it
+// (the paste waits until the composition ends), for a concurrent Delete at
+// its end, and for a concurrent change of its alignment (D118).
+const $pasteAtEnd = () => {
+  $selectIn([0], 5).insertNodes([
+    $createParagraphNode().append($createTextNode('A')),
+    $createParagraphNode().append($createTextNode('B')),
+  ]);
+  $setSelection(null);
+};
+for (const gc of [false, true]) {
+  for (const ids of [
+    [1, 2],
+    [2, 1],
+  ]) {
+    describe(`lines pasted at the end of a line (gc ${gc}, ids ${ids.join(',')})`, () => {
+      const $init = () =>
+        $getRoot().append(
+          $createParagraphNode().append($createTextNode('hello')),
+          $createParagraphNode().append($createTextNode('next')),
+        );
+      const lines = (p: {read: <T>(f: () => T) => T}) =>
+        p.read(() =>
+          $getRoot()
+            .getChildren()
+            .map(
+              n =>
+                `${(n as ElementNode).getFormatType()}:${n.getTextContent()}`,
+            ),
+        );
+
+      test('while a collaborator composes at its end: the line keeps its nodes until the composition ends', async () => {
+        const t = await setup($init, {gc, ids});
+        onTestFinished(() => t.peers.forEach(p => p.stop()));
+        const {a, b} = t;
+        const host = document.createElement('div');
+        host.contentEditable = 'true';
+        document.body.append(host);
+        a.editor.setRootElement(host);
+        host.focus();
+        onTestFinished(() => {
+          a.editor.setRootElement(null);
+          host.remove();
+        });
+        let key = '';
+        a.update(() => {
+          const text = $getRoot().getAllTextNodes()[0];
+          text.select(5, 5);
+          key = text.getKey();
+          $setCompositionKey(key);
+        });
+        b.update($pasteAtEnd);
+        await t.sync();
+        expect(a.read(() => $blockOf(key))).toBe(0);
+        a.update(() => $setCompositionKey(null));
+        await t.sync();
+        const fresh = await freshReader(a);
+        onTestFinished(() => fresh.stop());
+        for (const peer of [...t.peers, fresh]) {
+          expect(lines(peer)).toEqual([':helloA', ':B', ':next']);
+        }
+        await expectConverged(t.peers);
+      });
+
+      for (const change of ['Delete at its end', 'centers it'] as const) {
+        test(`while a collaborator ${change}: as before`, async () => {
+          const t = await setup($init, {gc, ids});
+          onTestFinished(() => t.peers.forEach(p => p.stop()));
+          t.offline();
+          t.a.update($pasteAtEnd);
+          t.b.update(() => {
+            if (change === 'centers it') {
+              ($getRoot().getFirstChildOrThrow() as ElementNode).setFormat(
+                'center',
+              );
+            } else {
+              $selectIn([0], 5).deleteCharacter(false);
+            }
+            $setSelection(null);
+          });
+          await t.sync();
+          const fresh = await freshReader(t.a);
+          onTestFinished(() => fresh.stop());
+          for (const peer of [...t.peers, fresh]) {
+            expect(lines(peer)).toEqual(
+              change === 'centers it'
+                ? [':helloA', 'center:B', ':next']
+                : [':helloA', ':Bnext'],
+            );
+          }
+          await expectConverged(t.peers);
+        });
+      }
+    });
   }
 }
