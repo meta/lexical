@@ -3996,9 +3996,10 @@ export class Writer {
    *   head, gets a new one, so no character moves), or the line a join or a
    *   range delete across lines ends with the joined text (it keeps the
    *   marker after that text, and its own goes);
-   * - where the old line stays: a new line ending with what it lost from its
-   *   end (a split the record does not explain: app code that sets the
-   *   head's text and adds a line holding the tail), else that line itself;
+   * - where the old line stays: a new line after it ending with what it
+   *   lost from its end (a split the record does not explain: app code that
+   *   sets the head's text and adds a line holding the tail), else that line
+   *   itself;
    * - where it is gone: the lines holding a node it held before this update
    *   (a line Lexical replaced, `$setBlocksType`, or one joined into another),
    *   else the lines ending with all of its text (a paste over it);
@@ -4182,7 +4183,10 @@ export class Writer {
         const tail = was.slice(n);
         const tails =
           tail.length > 0 && head.length < was.length
-            ? endingWith(tail).filter(k => newLines[k].isNew)
+            ? endingWith(tail).filter(
+                // A split's tail comes after its head.
+                k => newLines[k].isNew && k > own[own.length - 1],
+              )
             : [];
         set = new Set(tails.length > 0 ? tails : own);
       } else {
@@ -4199,6 +4203,12 @@ export class Writer {
           if (was.length > 0) {
             set = new Set(endingWith(was));
           }
+        }
+        // The line is gone, so no other writer keeps this marker for a line
+        // of its own: it is kept where the line that continues it is, also
+        // between the common prefix and suffix (see withMarkerIslands).
+        if (set.size > 0) {
+          anchored.add(i);
         }
       }
       // A marker no line continues (its line is gone, and no line holds
@@ -4508,13 +4518,13 @@ export class Writer {
       }
     }
     // A marker the record gives the line that continues its line (see
-    // $markerContinues: the line ending with its line's last character),
-    // where that line is between the prefix and the suffix (a join or a
-    // split with a line added after it): kept as an island where it falls
-    // between the atoms kept there, in order. Only these: a client that
-    // diffs the same content with a concurrent edit keeps the same marker
-    // with the same text (a marker a line kept by its key alone, kept
-    // here while that client keeps another, would leave both deleted). Why:
+    // $markerContinues: the line ending with its line's last character), or
+    // one of a line that is gone, where the line that continues it is
+    // between the prefix and the suffix (a join, a split or a replaced line
+    // with a line added after it): kept as an island where it falls between
+    // the atoms kept there, in order. Not a line's own marker: a client that
+    // diffs the same content with a concurrent edit may keep another (both
+    // would be deleted). Why:
     // only the prefix and the suffix kept markers, so a marker whose line
     // was not at either end was deleted and written again, and a
     // collaborator's concurrent change of the line's attributes was lost.

@@ -159,9 +159,8 @@ for (const gc of [false, true]) {
           $setSelection(null);
         });
         await t.sync();
-        // The composed text node is not the code block's (it stays in the
-        // quote, or goes with the text B's transform rewrote).
-        expect(a.read(() => $blockOf(key))).not.toBe(2);
+        // The composed text node stays in the line B made of its line.
+        expect(a.read(() => $blockOf(key))).toBe(1);
         a.update(() => {
           $setCompositionKey(null);
           const n = $getNodeByKey(key);
@@ -210,7 +209,7 @@ for (const gc of [false, true]) {
           $setSelection(null);
         });
         await t.sync();
-        expect(a.read(() => $blockOf(key))).not.toBe(2);
+        expect(a.read(() => $blockOf(key))).toBe(1);
         a.update(() => {
           $setCompositionKey(null);
           const n = $getNodeByKey(key);
@@ -329,6 +328,47 @@ for (const gc of [false, true]) {
             },
             0,
             ['paragraph:hello ', changed('paragraph', 'world')],
+          ));
+
+        test("app code that sets a line's text to its start and adds a line holding its end before it: the line keeps the change", () =>
+          run(
+            () =>
+              $getRoot().append(
+                $createParagraphNode().append($createTextNode('hello world')),
+              ),
+            () => {
+              const line = $getRoot().getFirstChildOrThrow() as ElementNode;
+              (line.getFirstChildOrThrow() as TextNode).setTextContent(
+                'hello ',
+              );
+              line.insertBefore(
+                $createParagraphNode().append($createTextNode('world')),
+              );
+              $setSelection(null);
+            },
+            0,
+            ['paragraph:world', changed('paragraph', 'hello ')],
+          ));
+
+        test('a line remade with the same text, with a line added after it: the remade line keeps the change', () =>
+          run(
+            () =>
+              $getRoot().append(
+                $createParagraphNode().append($createTextNode('abc')),
+              ),
+            () => {
+              const line = $getRoot().getFirstChildOrThrow();
+              const remade = $createParagraphNode().append(
+                $createTextNode('abc'),
+              );
+              line.replace(remade);
+              remade.insertAfter(
+                $createParagraphNode().append($createTextNode('xyz')),
+              );
+              $setSelection(null);
+            },
+            0,
+            [changed('paragraph', 'abc'), 'paragraph:xyz'],
           ));
 
         test('Backspace at the start of a line, with a line added after it: the joined line keeps the change', () =>
