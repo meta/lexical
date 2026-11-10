@@ -9,10 +9,11 @@
 /* eslint-disable simple-import-sort/imports -- import order is load order here */
 import type {Token, TokenStream} from 'prismjs';
 
-// The core must stay the first import: bundlers emit these modules in
-// import order, so anything above the components runs with no `Prism`.
-// A bare `import 'prismjs'` is not enough, its require call can sink past
-// them; reading the namespace below pins the core's initialization first.
+// Keep the core as the first import: the components below extend the
+// `Prism` namespace at module scope, so they must evaluate against an
+// initialized core. Reading the namespace through the module binding (rather
+// than only the global) keeps that initialization order explicit in the
+// bundled output.
 import * as PrismCore from 'prismjs';
 import 'prismjs/components/prism-clike';
 import 'prismjs/components/prism-diff';
