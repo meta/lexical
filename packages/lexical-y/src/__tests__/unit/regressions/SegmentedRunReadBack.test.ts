@@ -384,50 +384,48 @@ describe('other parts of one stored run', () => {
     }
   });
 
-  // An emptied part Lexical keeps (token or segmented) is not read back yet:
-  // the author keeps it, and the parts around it, where readers show one
-  // node (inherited; https://github.com/meta/lexical/issues/9739).
-  test.fails(
-    'the commented middle part emptied: the author shows one node for the parts around it',
-    async () => {
-      const t = await splitRun(
-        () => $createTextNode('alpha xbeta').setMode('segmented'),
-        6,
-        1,
+  // An emptied part Lexical keeps (token or segmented) is not stored: the
+  // author reads it back after the write (see YBinding#readBackUnstored,
+  // #9789), and then shows one node for the parts around it, as readers do
+  // (the emptied-part case of https://github.com/meta/lexical/issues/9739).
+  test('the commented middle part emptied: the author shows one node for the parts around it', async () => {
+    const t = await splitRun(
+      () => $createTextNode('alpha xbeta').setMode('segmented'),
+      6,
+      1,
+    );
+    try {
+      expect(shape(t.b)).toBe(
+        '"alpha ":segmented "x":segmented[c5] "beta":segmented',
       );
+      t.b.update(() => {
+        const middle = (
+          $getRoot().getFirstChildOrThrow() as ElementNode
+        ).getChildAtIndex(1) as TextNode;
+        middle.setTextContent('');
+        $setSelection(null);
+      });
+      await t.sync();
+      const fresh = await freshReader(t.b);
       try {
-        expect(shape(t.b)).toBe(
-          '"alpha ":segmented "x":segmented[c5] "beta":segmented',
-        );
-        t.b.update(() => {
-          const middle = (
-            $getRoot().getFirstChildOrThrow() as ElementNode
-          ).getChildAtIndex(1) as TextNode;
-          middle.setTextContent('');
-          $setSelection(null);
-        });
-        await t.sync();
-        const fresh = await freshReader(t.b);
-        try {
-          const text = (p: Peer) =>
-            p.read(() =>
-              ($getRoot().getFirstChildOrThrow() as ElementNode)
-                .getChildren()
-                .filter(child => child.getTextContentSize() > 0)
-                .map(child => JSON.stringify(child.getTextContent()))
-                .join(' '),
-            );
-          expect(text(t.b)).toBe(text(fresh));
-          expect(text(fresh)).toBe('"alpha beta"');
-        } finally {
-          fresh.stop();
-          fresh.doc.destroy();
-        }
+        const text = (p: Peer) =>
+          p.read(() =>
+            ($getRoot().getFirstChildOrThrow() as ElementNode)
+              .getChildren()
+              .filter(child => child.getTextContentSize() > 0)
+              .map(child => JSON.stringify(child.getTextContent()))
+              .join(' '),
+          );
+        expect(text(t.b)).toBe(text(fresh));
+        expect(text(fresh)).toBe('"alpha beta"');
       } finally {
-        stop(t.peers);
+        fresh.stop();
+        fresh.doc.destroy();
       }
-    },
-  );
+    } finally {
+      stop(t.peers);
+    }
+  });
 
   test('two tabs sharing a segment key stay two tabs, as every reader shows them', async () => {
     const t = await setup(

@@ -43,6 +43,10 @@ function reasonOf(error: unknown): string {
     const code: string = warning.code;
     // $FlowExpectedError[incompatible-use] the open warning's data is unknown
     void warning.data.reason;
+    if (error.code === UNSUPPORTED_LAYOUT_WARNING) {
+      // $FlowExpectedError[incompatible-use] comparing the code does not narrow data
+      void error.data.reason;
+    }
     return code;
   }
   return '';
@@ -57,7 +61,7 @@ function foundOf(
 ): number | null {
   return data.reason === 'newer' ? data.found : null;
 }
-// $FlowExpectedError[incompatible-type] an edit warning's reason is 'read-only' or 'refused-at-write'
+// $FlowExpectedError[incompatible-type] an edit warning's reason is 'read-only', 'refused-at-write' or 'held-composition'
 const edit: YWarningData<typeof UNSUPPORTED_EDIT_WARNING> = {reason: 'newer'};
 const refusedAtWrite: YWarningData<typeof UNSUPPORTED_EDIT_WARNING> = {
   reason: 'refused-at-write',
@@ -66,6 +70,10 @@ const refusedAtWrite: YWarningData<typeof UNSUPPORTED_EDIT_WARNING> = {
 // $FlowExpectedError[incompatible-type] a refusal at write time names its record
 const unnamed: YWarningData<typeof UNSUPPORTED_EDIT_WARNING> = {
   reason: 'refused-at-write',
+};
+// A local change refused while a composition holds a collaborator's text.
+const heldEdit: YWarningData<typeof UNSUPPORTED_EDIT_WARNING> = {
+  reason: 'held-composition',
 };
 
 // N3: YWarning is generic and YWarningData falls back to unknown for a code

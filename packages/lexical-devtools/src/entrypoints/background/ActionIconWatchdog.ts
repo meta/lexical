@@ -37,8 +37,8 @@ export default class ActionIconWatchdog {
     // Re-check the page once a navigation finishes and update the DevTools icon.
     browser.tabs.onUpdated.addListener(this.handleTabsUpdatedEvent.bind(this));
 
-    // Serialized editor state lives as long as this service worker, so drop a
-    // tab's contents once they can no longer describe anything on screen.
+    // What is known about a tab lives as long as this service worker, so
+    // drop it once it can no longer describe anything on screen.
     browser.tabs.onRemoved.addListener(tabId => {
       this.extensionStore.getState().clearTab(tabId);
     });
@@ -89,7 +89,7 @@ export default class ActionIconWatchdog {
     // A navigation tears down every editor the previous document had, so the
     // state retained for it is stale the moment loading starts.
     if (changeInfo.status === 'loading') {
-      this.extensionStore.getState().clearTab(tabId);
+      this.extensionStore.getState().clearTabForNavigation(tabId);
     }
 
     // The content script runs at document_end, before the tab reports

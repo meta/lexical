@@ -219,6 +219,7 @@ async function repeatedReader(n: number, r: number) {
   const markers: Y.Node[] = [];
   doc.transact(() => {
     root.setAttr('lexical-y:1', true);
+    root.setAttr('lexical-y:3', true);
     root.setAttr('k:paragraph', 'line');
     let at = 0;
     for (let i = 0; i < n; i++) {

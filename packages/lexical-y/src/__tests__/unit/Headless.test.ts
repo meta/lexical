@@ -356,7 +356,7 @@ describe('@lexical/y/headless', () => {
       t.b.update(() => $selectIn([0], 0, 1).removeText());
       await t.sync();
       const state = Y.encodeStateAsUpdate(t.a.doc);
-      expect(aliveFormats(state)).toEqual(['f:bold=true', 'f:bold=null']);
+      expect(aliveFormats(state)).toEqual(['f:bold=true', 'f:bold=[1]']);
       // The server edits elsewhere and stores the returned state.
       const result = editYState(
         state,
@@ -427,7 +427,7 @@ describe('@lexical/y/headless', () => {
       }
       await t.sync();
       const clients = aliveFormats(Y.encodeStateAsUpdate(t.a.doc));
-      expect(clients).toEqual(['f:bold=true', 'f:bold=null']);
+      expect(clients).toEqual(['f:bold=true', 'f:bold=[1]']);
       expect(aliveFormats(Y.encodeStateAsUpdate(relay))).toEqual(clients);
       // A plain Y.Doc runs Yjs's format cleanup and stores less.
       expect(aliveFormats(Y.encodeStateAsUpdate(plain))).not.toEqual(clients);
@@ -975,8 +975,14 @@ describe('@lexical/y/headless', () => {
     // initialization and the one that compacts its state), the edit's (and
     // its compaction), the read's and the handle's.
     expect(atDestroy.length).toBe(8);
+    // A document createYDoc made keeps its copy repair for its lifetime
+    // (Ident.installCopyRepair): one listener of its own, not the binding's.
+    const lifetime = docListeners(createYDoc()).filter(
+      l => !expectedDoc.includes(l),
+    );
+    expect(lifetime).toEqual(['beforeObserverCalls:1']);
     for (const listeners of atDestroy) {
-      expect(listeners).toEqual(expectedDoc);
+      expect(listeners.filter(l => !lifetime.includes(l))).toEqual(expectedDoc);
     }
     for (const editor of editors) {
       expect(editorListeners(editor)).toEqual(expectedEditor);

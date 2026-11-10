@@ -6,11 +6,10 @@
  *
  */
 
-import type {ExtensionState} from '../../store';
 import type {SerializedRawEditorState} from '../../types';
+import type {InjectedTabState} from './InjectedTabState';
 import type {IPegasusRPCService, PegasusRPCMessage} from '@webext-pegasus/rpc';
 import type {LexicalEditor} from 'lexical';
-import type {StoreApi} from 'zustand';
 
 import {generateContent, type LexicalCommandLog} from '@lexical/devtools-core';
 
@@ -43,15 +42,30 @@ export class InjectedPegasusService implements IPegasusRPCService<InjectedPegasu
   private pickerActive: ElementPicker | null = null;
 
   constructor(
-    private readonly tabID: number,
-    private readonly extensionStore: StoreApi<ExtensionState>,
+    private readonly tabState: InjectedTabState,
     private readonly commandLog: WeakMap<LexicalEditor, LexicalCommandLog>,
   ) {}
 
   refreshLexicalEditors(message: PegasusRPCMessage) {
     assertTrustedRPCCaller(message);
 
-    scanAndListenForEditors(this.tabID, this.extensionStore, this.commandLog);
+    scanAndListenForEditors(this.tabState, this.commandLog);
+  }
+
+  /**
+   * Tell this page whether a DevTools panel is open for it.
+   *
+   * Editor state is only sent out of the page while one is, so this is what
+   * starts and stops the flow of content.
+   */
+  setPanelOpen(message: PegasusRPCMessage, isPanelOpen: boolean): void {
+    assertTrustedRPCCaller(message);
+
+    this.tabState.setPanelOpen(isPanelOpen);
+
+    if (isPanelOpen) {
+      scanAndListenForEditors(this.tabState, this.commandLog);
+    }
   }
 
   setEditorReadOnly(
@@ -121,7 +135,7 @@ export class InjectedPegasusService implements IPegasusRPCService<InjectedPegasu
   }
 
   private activatePicker(): void {
-    this.extensionStore.getState().setIsSelecting(this.tabID, true);
+    this.tabState.reportIsSelecting(true);
 
     this.pickerActive = new ElementPicker({style: ELEMENT_PICKER_STYLE});
     this.pickerActive.start({
@@ -140,9 +154,7 @@ export class InjectedPegasusService implements IPegasusRPCService<InjectedPegasu
       onClick: el => {
         this.deactivatePicker();
         if (isLexicalNode(el)) {
-          this.extensionStore
-            .getState()
-            .setSelectedEditorKey(this.tabID, el.__lexicalEditor.getKey());
+          this.tabState.reportSelectedEditorKey(el.__lexicalEditor.getKey());
         } else {
           console.warn('Selected Element is not a Lexical node');
         }
@@ -153,6 +165,6 @@ export class InjectedPegasusService implements IPegasusRPCService<InjectedPegasu
   private deactivatePicker(): void {
     this.pickerActive?.stop();
     this.pickerActive = null;
-    this.extensionStore.getState().setIsSelecting(this.tabID, false);
+    this.tabState.reportIsSelecting(false);
   }
 }

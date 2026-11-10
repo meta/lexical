@@ -136,11 +136,15 @@ as the clients' documents do: it would delete format items that the
 clients keep, and the stored document would then read differently from
 theirs once someone types there. A relay or server that loads a stored
 state into a `Doc` of its own (to apply clients' updates to it, compact or
-merge it) creates it with `createYDoc(state)`, which does the same; merging
-updates with `mergeUpdates` needs no document:
+merge it) creates it with `createYDoc(state)` from `@lexical/y/server`,
+which does the same with Yjs alone (see
+[Migrating stored documents](#migrating-stored-documents)); the package has
+no relay of its own. With the cleanup on (a plain `Doc`'s default), loading a
+layout-3 document is also several times slower: about 150 ms against 19 ms
+for 20,000 words. Merging updates with `mergeUpdates` needs no document:
 
 ```ts
-import {createYDoc} from '@lexical/y/headless';
+import {createYDoc} from '@lexical/y/server';
 import {applyUpdate, encodeStateAsUpdate} from '@y/y';
 
 // A relay's copy of a document: load what is stored, apply what clients
@@ -797,11 +801,11 @@ upgrade every client of the document at the same time.
 
 ## Migrating stored documents
 
-These APIs are EXPERIMENTAL. When a release raises `MIN_LAYOUT` (the
-one-time break to layout 3; it never rises after that, see
-[Changing the layout and migrating](./y.md#migrating-stored-documents)),
-rooms stored at an older layout open read only in it until they are
-migrated. The server that stores a room migrates it when it loads it, before
+These APIs are EXPERIMENTAL. When a release raises `MIN_LAYOUT` (layout
+3's release did, and while `@lexical/y` is experimental a later one may,
+see [Layout upgrades](./y.md#layout-upgrades)), rooms stored at an older
+layout open read only in it until they are migrated. The server that
+stores a room migrates it when it loads it, before
 it serves it, with the published steps, which `@lexical/y/server` imports
 statically (clients that have a server carry no migration code).
 `@lexical/y/server` has the pieces (no Lexical import):
@@ -876,6 +880,14 @@ client's document with `createYDoc` from `@lexical/y`.
 
 One result per room is ever published, and clients only bootstrap from what
 was stored, so a discarded result is never seen.
+
+**Recreating a room** (a new incarnation after an expiry, a restore from a
+backup or a move to a new document) works the same way: raise the barrier,
+persist what the room applied, and keep that final state as the old
+incarnation's immutable base before you seed the new one. A client's edits
+that the room received live but never stored are in that state and nowhere
+else: a client that synced them has nothing left to hand off, so discarding
+the expired incarnation's live state loses them silently.
 
 ### Generations and the handshake
 

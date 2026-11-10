@@ -83,6 +83,8 @@ export type Unit = {
   sig: string;
   /** Formats in effect at the start of the unit (null: none). */
   start: Formats | null;
+  /** Its index in its container's units when last looked up (a hint). */
+  at?: number;
 };
 
 type Role =
@@ -129,7 +131,12 @@ export function typeOf(it: Item): YNode {
 
 /** Mutable state shared by the read and write paths. */
 export class State {
-  readonly containers = new WeakMap<YNode, CS>();
+  /**
+   * The container of each shared node. A WeakMap, which cannot be cleared:
+   * clear() replaces it (and keyByY), so that a binding started again reads
+   * the document into new containers, mapped to the editor's nodes.
+   */
+  containers = new WeakMap<YNode, CS>();
   readonly csByKey = new Map<NodeKey, CS>();
   readonly unitByEnd = new Map<Item, Unit>();
   readonly unitByKey = new Map<NodeKey, Unit>();
@@ -140,7 +147,7 @@ export class State {
   readonly holders = new Set<NodeKey>();
   /** Stored nodes (b: and i:) by Lexical key, and back. */
   readonly yByKey = new Map<NodeKey, YNode>();
-  readonly keyByY = new WeakMap<YNode, NodeKey>();
+  keyByY = new WeakMap<YNode, NodeKey>();
   /** Segment keys of text nodes Lexical would not merge. */
   readonly segments = new Map<NodeKey, string>();
   private segmentCounter = 0;
@@ -319,6 +326,60 @@ export class State {
     });
   }
 
+  /**
+   * What the maps between keys, shared nodes and units hold now, and a
+   * function that puts them back (see the recovery of a write that failed
+   * part way while a hold is on, in Binding). Segment numbers stay as they
+   * went on (never reused).
+   */
+  snapshotMaps(): () => void {
+    const yByKey = new Map(this.yByKey);
+    const csByKey = new Map(this.csByKey);
+    const unitByEnd = new Map(this.unitByEnd);
+    const unitByKey = new Map(this.unitByKey);
+    const holders = new Set(this.holders);
+    const segments = new Map(this.segments);
+    const refresh = new Set(this.refresh);
+    const inlineRunStart = new Map(this.inlineRunStart);
+    const containers: [CS, NodeKey, Unit[]][] = [];
+    const units: [Unit, Unit][] = [];
+    for (const cs of csByKey.values()) {
+      containers.push([cs, cs.key, [...cs.units]]);
+      for (const u of cs.units) {
+        units.push([u, {...u}]);
+      }
+    }
+    const ids = this.ids.snapshot();
+    const refill = <K, V>(map: Map<K, V>, from: Map<K, V>) => {
+      map.clear();
+      from.forEach((v, k) => map.set(k, v));
+    };
+    const refillSet = <V>(set: Set<V>, from: Set<V>) => {
+      set.clear();
+      from.forEach(v => set.add(v));
+    };
+    return () => {
+      refill(this.yByKey, yByKey);
+      refill(this.csByKey, csByKey);
+      refill(this.unitByEnd, unitByEnd);
+      refill(this.unitByKey, unitByKey);
+      refillSet(this.holders, holders);
+      refill(this.segments, segments);
+      refillSet(this.refresh, refresh);
+      refill(this.inlineRunStart, inlineRunStart);
+      yByKey.forEach((y, key) => this.keyByY.set(y, key));
+      for (const [cs, key, list] of containers) {
+        cs.key = key;
+        cs.units = [...list];
+        this.containers.set(cs.y, cs);
+      }
+      for (const [u, saved] of units) {
+        Object.assign(u, saved);
+      }
+      ids();
+    };
+  }
+
   newCS(y: YNode, key: NodeKey, kind: Kind): CS {
     const cs: CS = {key, kind, units: [], y};
     this.containers.set(y, cs);
@@ -327,6 +388,13 @@ export class State {
   }
 
   clear(): void {
+    this.containers = new WeakMap();
+    this.keyByY = new WeakMap();
+    // What a read found it could not read: the read a binding started
+    // again makes finds it anew (read only again where it is still there).
+    this.unknownTypes.clear();
+    this.unreadable.clear();
+    this.malformedSlots.clear();
     this.csByKey.clear();
     this.unitByEnd.clear();
     this.unitByKey.clear();

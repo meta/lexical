@@ -68,13 +68,29 @@ export const UNSUPPORTED_CONFIG_WARNING = '@lexical/y/unsupported-config';
  * @experimental A local change was not written; what it changed is read
  * again (once the document cannot be read, the editor shows what it showed
  * before the update again), so the editor keeps showing the document.
- * `data`: YUnsupportedEditData, with two reasons:
+ * `data`: YUnsupportedEditData, with four reasons, and one condition
+ * reported as `'other'` (YOtherWarningData):
  *
  * - `'read-only'`: the binding is read only (code edited the editor, which
  *   is not editable). Reported once each time the binding goes read only.
  * - `'refused-at-write'`: the binding is active, but the write's own
  *   transaction changed the layout or schema record (`record`). Reported for
  *   each such write; it promises nothing about the binding's later status.
+ * - `'held-composition'`: the binding is active, and the change would delete
+ *   or leave behind text a collaborator wrote in the line being composed,
+ *   which the composition holds back. Reported for each such change.
+ * - `'unstorable'`: a written local update left an empty text node Lexical
+ *   keeps (not mergeable simple text), which the document does not store:
+ *   the editor reads it back. Reported for each such update.
+ * - `'other'`, `detailCode` `'held-line-retokenize'`: the binding is active,
+ *   and a local update re-typed the line being composed (a transform's
+ *   tokens for it, such as a code highlighter's) while the composition's
+ *   hold shows that line as a block its shared counterpart no longer is (a
+ *   collaborator changed its type, or joined it into the line before it).
+ *   The re-typing is not written, the rest of the update is, and the line
+ *   is read again as stored; its transforms then run again, and only
+ *   changes that agree with what that update would have written are saved.
+ *   Reported once per composition.
  */
 export const UNSUPPORTED_EDIT_WARNING = '@lexical/y/unsupported-edit';
 /**
@@ -336,7 +352,23 @@ export type YUnsupportedEditData =
   | {
       readonly reason: 'refused-at-write';
       readonly record: 'layout' | 'schema';
-    };
+    }
+  /**
+   * While the binding is active: a local change that would delete or leave
+   * behind text a collaborator wrote in the line being composed with an IME,
+   * which the composition holds back until it ends (it moves, replaces or
+   * removes what holds that text, or takes text out of the inline element
+   * composed in). Nothing is written, the editor reads the document again
+   * (the change is undone), and the composition goes on; edit again.
+   */
+  | {readonly reason: 'held-composition'}
+  /**
+   * A written local update (or an app's edit in the update of a remote
+   * change's read) left an empty text node Lexical keeps (not mergeable
+   * simple text), which the document does not store: the editor reads it
+   * back, as every peer and a fresh reader show it.
+   */
+  | {readonly reason: 'unstorable'};
 
 /**
  * @experimental `data` of a `SELF_CHECK_WARNING`: the self-check found the
@@ -417,7 +449,16 @@ export type YNestedFallbackData =
  * @experimental `data` of a `RAW_YJS_WRITE_WARNING` (development builds).
  */
 export interface YRawYjsWriteData {
-  readonly reason: 'raw-write';
+  /**
+   * `'raw-write'`: a transaction not the binding's changed the content under
+   * its root. `'remote-in-write'`: another client's insertions appeared
+   * inside one of the binding's own write transactions (`origin` is that
+   * client's id), which the binding does not read as a remote change.
+   * Development builds only, and not a complete detector: a remote deletion
+   * there, or a remote update applied inside an app's outer `transact` the
+   * write joins, is not reported.
+   */
+  readonly reason: 'raw-write' | 'remote-in-write';
   /** The binding's root, by its name in the document (`'lexical-y'`). */
   readonly root: string;
   /**
@@ -427,7 +468,10 @@ export interface YRawYjsWriteData {
    */
   readonly kind: 'format' | 'attribute' | 'content';
   readonly key: string | null;
-  /** The transaction origin's constructor name (`'null'` for none). */
+  /**
+   * `'raw-write'`: the transaction origin's constructor name (`'null'` for
+   * none). `'remote-in-write'`: the other client's id, as a string.
+   */
   readonly origin: string;
 }
 
@@ -467,7 +511,10 @@ export type YWarningData<C extends string = string> =
     ? YWarningDataByCode[C] | YOtherWarningData
     : unknown;
 
-/** The `data` this version emits under code `C` (never `'other'`). */
+/**
+ * The `data` this version emits under code `C`, besides the conditions it
+ * reports as `'other'` (see UNSUPPORTED_EDIT_WARNING).
+ */
 export type YEmittedWarningData<C extends YKnownWarningCode> =
   YWarningDataByCode[C];
 
@@ -476,7 +523,11 @@ export type YEmittedWarningData<C extends YKnownWarningCode> =
  * `LexicalWarning` whose `code` decides the type of its `data`.
  * `YWarning` (any code) is open: its `data` is `unknown` until narrowed.
  * Narrow it with `isYWarning(value, code)`, which gives `YWarning<code>`,
- * then switch over `data.reason`, `'other'` included.
+ * then switch over `data.reason`, `'other'` included. Comparing the code
+ * alone does not narrow `data`: after `isYWarning(value)`,
+ * `value.code === SELF_CHECK_WARNING` leaves `value.data` unknown, since
+ * the code is open and TypeScript narrows `data` by `code` only in a closed
+ * union. Write `isYWarning(value, SELF_CHECK_WARNING)` instead.
  */
 export type YWarning<C extends string = YWarningCode> = LexicalWarning & {
   readonly code: C;
@@ -510,7 +561,8 @@ const CODES: ReadonlySet<string> = new Set<YKnownWarningCode>([
 /**
  * @experimental Whether `value` (what the editor's `onWarn` receives) is a
  * warning of the binding's: with `code`, one with that code, its `data`
- * typed by it; without, any of its codes (an open YWarning).
+ * typed by it; without, any of its codes (an open YWarning, whose `data` a
+ * later comparison of its `code` does not narrow: pass the code here).
  */
 export function isYWarning<C extends YKnownWarningCode>(
   value: unknown,

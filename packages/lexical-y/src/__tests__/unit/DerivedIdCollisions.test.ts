@@ -202,6 +202,7 @@ for (const gc of [false, true]) {
     const second = new Y.Node('¶');
     doc.transact(() => {
       root.setAttr('lexical-y:1', true);
+      root.setAttr('lexical-y:3', true);
       root.setAttr('k:paragraph', 'line');
       root.insert(0, 'one');
       root.insert(3, [first]);
@@ -411,6 +412,7 @@ for (const gc of [false, true]) {
     const second = new Y.Node('¶');
     doc.transact(() => {
       root.setAttr('lexical-y:1', true);
+      root.setAttr('lexical-y:3', true);
       root.setAttr('k:paragraph', 'line');
       root.insert(0, 'one');
       root.insert(3, [first]);

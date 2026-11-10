@@ -233,9 +233,15 @@ directly from that directory by `scripts/npm/release.mjs` so pnpm's
 automatic `workspace:*` rewriting and the `files` whitelist do the
 right thing without an intermediate `npm/` copy step.
 
-This will also update `scripts/error-codes/codes.json`, the mapping of
-production error codes to error messages. It's imperative to commit the
-result of this before tagging a release.
+It does not assign new production error codes. Errors whose message is in
+`scripts/error-codes/codes.json` are minified to their code; a message missing
+from codes.json stays as full text in the production build, so two builds of
+the same commit never number it differently. The publish workflows (npm and
+pkg.pr.new) rely on this, because they never commit codes.json; a `latest`
+release gets its codes from `pnpm run extract-codes` in the version bump (see
+`pnpm run increment-version`). Set `LEXICAL_EXTRACT_CODES=true` to also
+assign codes in this build, and commit the updated codes.json before tagging
+a release.
 
 ### pnpm run ci-check
 
@@ -379,8 +385,8 @@ it would cause conflicts between serial numbers.
 It's safe and probably advisable to do this more often, possibly any time a
 branch is merged to main.
 
-The codes.json file is also updated any time a release build is generated
-as a failsafe to ensure that these codes are up to date in a release.
+Release builds (`pnpm run build-release`) do not extract codes unless
+`LEXICAL_EXTRACT_CODES=true` is set (see `pnpm run prepare-release`).
 This command runs a development build to extract the codes which is much
 faster as it is not doing any optimization/minification steps.
 

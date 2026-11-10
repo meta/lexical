@@ -79,6 +79,18 @@ declare export function $outdentLeadingSpaces(
 
 declare export function $plainifyCodeContent(text: string): LexicalNode[];
 
+declare export function $keepCodeNodeState(
+  prevNodes: Array<LexicalNode>,
+  nextNodes: Array<LexicalNode>,
+): Array<LexicalNode>;
+
+declare export function $replaceCodeTokensAddedTo(
+  prevNodes: Array<LexicalNode>,
+  nextNodes: Array<LexicalNode>,
+  from: number,
+  to: number,
+): boolean;
+
 /**
  * CodeNode
  */

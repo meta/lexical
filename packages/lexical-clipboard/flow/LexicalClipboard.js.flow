@@ -86,7 +86,7 @@ declare export function $writeDragSourceToDataTransfer(
 // name for it.
 export interface BaseSerializedNode {
   children?: BaseSerializedNode[];
-  $slots?: {[string]: BaseSerializedNode};
+  $slots?: {[key: string]: BaseSerializedNode};
   type: string;
   // Deprecated: ignored when parsing, and omitted by a compact export.
   version?: number;

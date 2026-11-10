@@ -23,8 +23,9 @@
 // have deleted some, so the binding refuses to write to one that runs it
 // (see UNSUPPORTED_CONFIG_WARNING, `'cleanup-formatting'`).
 
-import {applyUpdate, Doc} from '@y/y';
+import {Doc} from '@y/y';
 
+import {applyStoredState} from './LoadFully';
 import {assertSupportedYjs} from './YjsContract';
 
 /**
@@ -73,7 +74,9 @@ export function createRawYDoc(
   doc.cleanupFormatting = false;
   if (state != null) {
     try {
-      applyUpdate(doc, state);
+      // What the document that encoded `state` showed, a struct it
+      // integrated across a clock gap included (see LoadFully).
+      applyStoredState(doc, state);
     } catch (error) {
       doc.destroy();
       throw error;

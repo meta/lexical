@@ -7,10 +7,13 @@ layouts, and a document uses one or the other. Entries: `@lexical/y`,
 `@lexical/y/headless`, `@lexical/y/migrate` (with a step per layout,
 `@lexical/y/migrate/<n>to<n+1>`) and `@lexical/y/server`. Every export is
 `@experimental`, and `@y/y` is a release candidate. `@experimental` is not
-an exception to compatibility: once released, the public API, its types and
-the wire format below change only additively. No export is removed or
-renamed, no stored layout from 3 on stops being read, and no published
-migration step or revision is removed or changes what it writes.
+an exception to API compatibility: once released, the public API and its types
+change only additively. No export is removed or renamed, and no published
+migration step or revision is removed or changes what it writes. Each layout
+below stays frozen once released, but while the package is experimental a
+release may stop reading an older one, and rooms stored in it then open read
+only until their server migrates them (see
+[Layout upgrades](https://lexical.dev/docs/collaboration/y#layout-upgrades)).
 
 ## Install
 
@@ -103,12 +106,15 @@ binding.initialize();
 
 ## Servers
 
-A server or relay that loads a document into a plain Yjs `Doc` and stores
-its state must set `doc.cleanupFormatting = false` before it applies
-updates (`createYDoc(state)`, from `@lexical/y` or `@lexical/y/headless`,
-makes such a document, as the clients do). Otherwise Yjs's format cleanup
-deletes format items the clients keep, and the stored state reads
-differently from what the clients show. See
+A server or relay that holds a document in a Yjs `Doc` (to apply updates
+to it, store, compact or merge it) creates it with `createYDoc(state)` from
+`@lexical/y/server` (Yjs only, no Lexical import); the package has no relay
+of its own. A relay that cannot import it sets
+`doc.cleanupFormatting = false` on a new `Doc` before it applies updates.
+Otherwise Yjs's format cleanup deletes format items the clients keep, and
+the stored state reads differently from what the clients show. It is also
+slow on layout 3: loading a 20,000-word document takes about 150 ms with the
+cleanup on, against 19 ms with it off. See
 [Servers](https://lexical.dev/docs/collaboration/y#servers) for the other
 requirements (yrs versions, 32-bit client ids).
 
@@ -167,7 +173,7 @@ type records its kind on the root (`k:<type>`); a later client whose class
 derives another kind uses the recorded one when it can, and opens read only
 otherwise.
 
-## Wire format: layout 1
+## Wire format
 
 **Private: read it, never write it.** The Yjs content under the binding's
 root is the binding's private encoding: the root itself, its record keys
@@ -180,10 +186,18 @@ the editor, `editYState` or a migration step. Development builds report a
 local transaction of another origin that changes it
 (`RAW_YJS_WRITE_WARNING`).
 
+Each layout adds to the one before and is frozen once released: layout 1
+is the base, layout 2 adds member entries of set-valued NodeState, and
+layout 3 stores format runs as paired runs. This release writes layout 3
+(`MIN_LAYOUT` and `LAYOUT_VERSION`); a document that records only an older
+layout opens read only until its migration (see
+[layout 3](#wire-format-layout-3)).
+
+### Wire format: layout 1
+
 Layout 1 is frozen: these names are stored in documents and do not change.
 A change to any of them is a new layout version, which older clients open
-read only. Layout 2 (below) keeps everything here and adds member entries
-of set-valued NodeState.
+read only. Move records (#9449) need a later layout.
 
 - **Root:** the top-level type `lexical-y` (or the `root` option). Root
   attributes: `lexical-y:<n>` = `true` for each layout version `n` the
@@ -326,7 +340,7 @@ of set-valued NodeState.
   Every client of a document must therefore register classes with the same
   defaults.
 
-## Wire format: layout 2
+### Wire format: layout 2
 
 Layout 2 is layout 1 plus member entries of set-valued NodeState, and is
 frozen the same way.
@@ -361,3 +375,66 @@ clients keep editing them.
   the binding refuses it whenever it writes it or the set, even without a
   value (an invariant in development; in production a warning, and the set
   is stored as one value).
+
+### Wire format: layout 3
+
+Layout 3 is layout 2 with paired format runs, and is frozen the same way.
+It is the only layout this release writes: `MIN_LAYOUT`, `LAYOUT_VERSION`
+and `SEED_LAYOUT` are 3. A new document records `lexical-y:1` and
+`lexical-y:3` (and `lexical-y:2` when it holds a member entry) with its
+first content. A document that records only an older layout opens read
+only until the frozen step `@lexical/y/migrate/2to3` (after `1to2` for
+layout 1) rewrites its format runs, in place, keeping every content id.
+
+- **Covered names.** The names whose runs are paired, by stored name: `t`
+  and `k` (a text node's type and segment key), `f:<format>`, `p:<field>`
+  on text, `w:<type>` (links and other inline elements stored as a format),
+  and `s:<key>\u001f<member>` (member entries of set-valued NodeState).
+  Every other name keeps layout 2's plain-value rules: a flat NodeState
+  value `s:<key>` (apps change it through the editor's NodeState APIs; raw
+  Yjs writes under the root, `s:<key>` included, are unsupported, D109),
+  and any name the binding does not write.
+- **Runs.** A write's run of a covered name is an opener and an end:
+  - the **opener** is a format item whose value is the run's value, or `[]`
+    for a run that shows no value (text made plain inside another run);
+  - the **end** is a format item of the same name, later in the same
+    container, whose value names the opener: `[d]` for the item `d` clocks
+    before the end on the end's own client (`d` a positive integer), or
+    `[client, clock]` (non-negative integers) for an opener of another
+    client. A plain `null` keeps its meaning.
+- **Reading.** A reader keeps, per covered name, a stack of open runs while
+  it walks a container. A live opener that a live end names is paired: it
+  pushes its run. Any other item of the name (a plain value, a plain
+  `null`, an opener whose end is deleted or has not arrived) is unpaired:
+  it replaces the unpaired runs above the topmost paired run and pushes
+  itself. A live end removes the run it names, with the unpaired runs above
+  it; the paired runs above it stay. An end whose run is not open (it names
+  an item that is not an opener of its name in its container, or one after
+  it) removes the unpaired runs above the topmost paired run, as a `null`
+  would. So does an array of any other shape, which names nothing: every
+  array but `[]`, `[d]` and `[client, clock]` (another length, an element
+  that is not such an integer, a nested array). These shapes are reserved:
+  a raw writer's array, or an end a later layout adds, is never shown as a
+  value, and the binding never rewrites, re-points or deletes one. Every
+  value that is not an array is a value, an object keyed by array indices
+  (a wrapper whose class declares a field named `0` stores one) and a typed
+  array included. The top run's value is the one shown. A container
+  without ends reads exactly as with plain values. Format names whose first
+  character is U+0002 are not read.
+- **Whole containers.** A migration step and seeding write each container
+  in one canonical form: the countable units split into maximal stretches
+  whose covered values are all equal; each stretch gets an opener for each
+  covered name it holds, in name order, right before its first unit, and the
+  matching ends, in the same order, right after its last unit, each `[d]`. A
+  value that is not JSON-representable is refused before anything is
+  written; a raw array is stored as `{json: <its JSON>}` so it cannot read
+  as an end. Seeding writes these runs interleaved with the content, in the
+  seed's own pass; the seed's bytes are pinned per `SEED_LAYOUT`, so a
+  change to them is a new seed layout.
+- **Copies.** An undo or redo restores a deleted end as a new item that
+  shares its value with the original, and a raw writer's `format()` can copy
+  a stored end. In documents made by `createYDoc`, such a copy is given
+  its own value, naming the opener the original named (or that opener's own
+  restored copy), before the transaction's update is encoded, so every peer
+  receives a correct end. A copy of an end of a reserved shape (see Reading)
+  keeps its value as it is.
