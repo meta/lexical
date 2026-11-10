@@ -454,7 +454,14 @@ export class TableSelection implements BaseSelection {
 
   getTextContent(): string {
     const allNodes = this.getNodes();
-    const nodes = allNodes.filter(node => $isTableCellNode(node));
+    const isCellOfTable = (node: LexicalNode): node is TableCellNode => {
+      if (!$isTableCellNode(node)) {
+        return false;
+      }
+      const row = node.getParent();
+      return $isTableRowNode(row) && row.__parent === this.tableKey;
+    };
+    const nodes = allNodes.filter(isCellOfTable);
     // The rows of the table that hold no selected cell of their own (rows a
     // ragged table or a row span leaves empty within the selection) are
     // blank lines, so that the lines keep their rows.
@@ -462,7 +469,7 @@ export class TableSelection implements BaseSelection {
     let textContent = '';
     let cellIndex = 0;
     for (const node of allNodes) {
-      if ($isTableCellNode(node)) {
+      if (isCellOfTable(node)) {
         const row = node.__parent;
         const nextRow = (nodes[cellIndex + 1] || {}).__parent;
         textContent += node.getTextContent() + (nextRow !== row ? '\n' : '\t');
