@@ -1352,8 +1352,9 @@ not merge as a user might expect:
   or splits by setting its text and adding the rest as a new line, while adding
   another line after it in the same update, gets a new line marker
   (DECISIONS.md D118): a concurrent change of that line's alignment or block
-  type by another collaborator is dropped (before, it was applied to the added
-  line).
+  type by another collaborator, or a Delete at its end (a join with the next
+  line), is dropped (before, it was applied to the added line). No text is
+  lost.
 - **Set-valued NodeState** (`arraySetValue`, which `MarkStateExtension` uses)
   merges per member on text, line breaks and nodes stored as their own Yjs
   node (such as decorators), so two collaborators commenting on the same

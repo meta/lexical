@@ -899,3 +899,121 @@ for (const gc of [false, true]) {
     });
   }
 }
+
+// Enter in the middle of a line with a paragraph added after the tail: the
+// tail keeps the marker (the record places it), so a concurrent change of
+// the line's alignment stays on the tail (main gave it to the added
+// paragraph); and a concurrent Delete at the line's end joins the added
+// paragraph to the tail, as the join above does (main joined the next line
+// to the added paragraph). Neither keeps both intents for the Delete; pinned.
+for (const gc of [false, true]) {
+  for (const ids of [
+    [1, 2],
+    [2, 1],
+  ]) {
+    for (const change of ['centers it', 'Delete at its end'] as const) {
+      test(`Enter in a line with a paragraph added after the tail, while a collaborator ${change} (gc ${gc}, ids ${ids.join(',')})`, async () => {
+        const t = await setup(
+          () =>
+            $getRoot().append(
+              $createParagraphNode().append($createTextNode('hello world')),
+              $createParagraphNode().append($createTextNode('next')),
+            ),
+          {gc, ids},
+        );
+        onTestFinished(() => t.peers.forEach(p => p.stop()));
+        t.offline();
+        t.a.update(() => {
+          $selectIn([0], 6).insertParagraph();
+          ($getRoot().getChildAtIndex(1) as ElementNode).insertAfter(
+            $createParagraphNode().append($createTextNode('added')),
+          );
+          $setSelection(null);
+        });
+        t.b.update(() => {
+          if (change === 'centers it') {
+            ($getRoot().getFirstChildOrThrow() as ElementNode).setFormat(
+              'center',
+            );
+          } else {
+            $selectIn([0], 11).deleteCharacter(false);
+          }
+          $setSelection(null);
+        });
+        await t.sync();
+        const fresh = await freshReader(t.a);
+        onTestFinished(() => fresh.stop());
+        for (const peer of [...t.peers, fresh]) {
+          expect(
+            peer.read(() =>
+              $getRoot()
+                .getChildren()
+                .map(
+                  n =>
+                    `${(n as ElementNode).getFormatType()}:${n.getTextContent()}`,
+                ),
+            ),
+          ).toEqual(
+            change === 'centers it'
+              ? [':hello ', 'center:world', ':added', ':next']
+              : [':hello ', ':worldadded', ':next'],
+          );
+        }
+        await expectConverged(t.peers);
+      });
+    }
+  }
+}
+
+// The accepted limit (D118) also drops a concurrent join: B's Delete at the
+// end of a line A replaces (its nodes in a quote, their text changed) while
+// adding a line after it has no effect (main joined the next line to the
+// added one).
+for (const gc of [false, true]) {
+  for (const ids of [
+    [1, 2],
+    [2, 1],
+  ]) {
+    test.fails(
+      `a line replaced by a quote, its text changed, with a line added after it, while a collaborator deletes at its end: the next line joins (gc ${gc}, ids ${ids.join(',')})`,
+      async () => {
+        const t = await setup(
+          () =>
+            $getRoot().append(
+              ...['intro', 'see', 'next'].map(text =>
+                $createParagraphNode().append($createTextNode(text)),
+              ),
+            ),
+          {gc, ids},
+        );
+        onTestFinished(() => t.peers.forEach(p => p.stop()));
+        t.offline();
+        t.a.update(() => {
+          const line = $getRoot().getChildAtIndex(1) as ElementNode;
+          const quote = $createQuoteNode().append(...line.getChildren());
+          line.replace(quote);
+          (quote.getFirstChildOrThrow() as TextNode).setTextContent('SEE');
+          quote.insertAfter(
+            $createParagraphNode().append($createTextNode('xyz')),
+          );
+          $setSelection(null);
+        });
+        t.b.update(() => {
+          $selectIn([1], 3).deleteCharacter(false);
+          $setSelection(null);
+        });
+        await t.sync();
+        for (const peer of t.peers) {
+          expect(
+            peer.read(() =>
+              $getRoot()
+                .getChildren()
+                .map(n => n.getTextContent()),
+            ),
+          ).toEqual(['intro', 'SEEnext', 'xyz']);
+        }
+        await expectConverged(t.peers);
+      },
+    );
+  }
+}
