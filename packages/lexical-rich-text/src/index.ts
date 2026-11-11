@@ -59,7 +59,6 @@ import {
   $isElementNode,
   $isEventFromEmbeddedInput,
   $isNodeSelection,
-  $isParagraphNode,
   $isRangeSelection,
   $isRootNode,
   $isRootOrShadowRoot,
@@ -1461,11 +1460,11 @@ export function registerRichText(
       event => {
         const selection = $getSelection();
         // A node selection has no DOM caret, so the browser would put typed
-        // text at the top of the document. Move the caret into a paragraph
-        // right after the decorator (an empty one already there, or a new
-        // one) and let the default handler take it from there: the text
-        // starts a line of its own after the block, as Enter's paragraph
-        // does, rather than joining the start of the block after it.
+        // text at the top of the document. Move the caret into a line of its
+        // own right after the decorator (an empty block already there, such
+        // as the empty heading inserting a rule after a heading leaves, or a
+        // new paragraph) and let the default handler take it from there: the
+        // text does not join the start of the block after it.
         if ($isNodeSelection(selection) && event.inputType === 'insertText') {
           const nodes = selection.getNodes();
           if (
@@ -1474,7 +1473,12 @@ export function registerRichText(
             !nodes[0].isInline()
           ) {
             const next = nodes[0].getNextSibling();
-            if ($isParagraphNode(next) && next.isEmpty()) {
+            if (
+              $isElementNode(next) &&
+              !next.isInline() &&
+              next.isEmpty() &&
+              next.canBeEmpty()
+            ) {
               next.select();
             } else {
               const paragraph = $createParagraphNode();

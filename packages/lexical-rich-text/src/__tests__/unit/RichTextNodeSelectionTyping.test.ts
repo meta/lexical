@@ -7,7 +7,11 @@
  */
 
 import {buildEditorFromExtensions} from '@lexical/extension';
-import {RichTextExtension} from '@lexical/rich-text';
+import {
+  $createHeadingNode,
+  $isHeadingNode,
+  RichTextExtension,
+} from '@lexical/rich-text';
 import {
   $createNodeSelection,
   $createParagraphNode,
@@ -17,6 +21,7 @@ import {
   $isRangeSelection,
   $setSelection,
   BEFORE_INPUT_COMMAND,
+  type ElementNode,
   type LexicalEditor,
   ParagraphNode,
 } from 'lexical';
@@ -26,7 +31,10 @@ import {
 } from 'lexical/src/__tests__/utils';
 import {assert, describe, expect, onTestFinished, test} from 'vitest';
 
-function createEditor(followedBy: string | null) {
+function createEditor(
+  followedBy: string | null,
+  $block: () => ElementNode = $createParagraphNode,
+) {
   const editor = buildEditorFromExtensions({
     $initialEditorState: () => {
       const decorator = $createTestDecoratorNode().setIsInline(false);
@@ -35,9 +43,11 @@ function createEditor(followedBy: string | null) {
         decorator,
       );
       if (followedBy !== null) {
-        $getRoot().append(
-          $createParagraphNode().append($createTextNode(followedBy)),
-        );
+        const block = $block();
+        if (followedBy !== '') {
+          block.append($createTextNode(followedBy));
+        }
+        $getRoot().append(block);
       }
       const selection = $createNodeSelection();
       selection.add(decorator.getKey());
@@ -71,7 +81,11 @@ function texts(editor: LexicalEditor): string[] {
     $getRoot()
       .getChildren()
       .map(node =>
-        node instanceof ParagraphNode ? node.getTextContent() : '<decorator>',
+        node instanceof ParagraphNode
+          ? node.getTextContent()
+          : $isHeadingNode(node)
+            ? `<${node.getTag()}>${node.getTextContent()}`
+            : '<decorator>',
       ),
   );
 }
@@ -100,6 +114,22 @@ describe('typing while a block decorator is node-selected', () => {
     type(editor, 'q');
 
     expect(texts(editor)).toEqual(['before', '<decorator>', 'q']);
+  });
+
+  test('types into the empty heading already after it', () => {
+    using editor = createEditor('', () => $createHeadingNode('h1'));
+
+    type(editor, 'q');
+
+    expect(texts(editor)).toEqual(['before', '<decorator>', '<h1>q']);
+  });
+
+  test('types into a new paragraph before a heading with text after it', () => {
+    using editor = createEditor('Title', () => $createHeadingNode('h1'));
+
+    type(editor, 'q');
+
+    expect(texts(editor)).toEqual(['before', '<decorator>', 'q', '<h1>Title']);
   });
 
   test('types into a new paragraph when nothing follows', () => {
