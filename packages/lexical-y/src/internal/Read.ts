@@ -252,15 +252,22 @@ function parseRange(
   let pending = false;
   for (let it = start; it !== null && it !== stop; it = it.right) {
     last = it;
-    if (it.deleted) {
-      continue;
-    }
     const content = it.content;
     if (content instanceof ContentFormat) {
-      folder.step(it);
+      if (!it.deleted) {
+        folder.step(it);
+      }
       continue;
     }
-    if (!it.countable || isHeld(it, hidden)) {
+    // Content and end items as each line's read shows them (see $pieces),
+    // in the read's view: what a change not read yet inserted is not there,
+    // and what it deleted is (see Unread). Before, these were Yjs's own:
+    // a read that runs before such a change is read (the reread of a line
+    // whose write was refused, while a collaborator's removal of that line
+    // waited to be read) parsed the removed line as gone, and read its
+    // text, still shown, into the line after it, where the next write
+    // stored it again.
+    if (isGoneIn(view, it) || !it.countable || isHeld(it, hidden)) {
       continue;
     }
     if (isEndItem(it)) {
