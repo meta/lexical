@@ -12,6 +12,8 @@ import type {NodeKey} from 'lexical';
 
 import {type Item} from '@y/y';
 
+import {keepShown, unkeepShown} from './Keeps';
+
 /*
  * Remote changes held back while the local editor composes.
  *
@@ -123,11 +125,7 @@ export class Hidden {
     if (this.kept.has(item)) {
       return;
     }
-    const set = !item.keep;
-    if (set) {
-      item.keep = true;
-    }
-    this.kept.set(item, set);
+    this.kept.set(item, keepShown(item));
   }
 
   /**
@@ -143,7 +141,7 @@ export class Hidden {
       return;
     }
     if (set) {
-      item.keep = false;
+      unkeepShown(item);
     }
     this.kept.delete(item);
   }
@@ -167,7 +165,7 @@ export class Hidden {
   releaseKeeps(): void {
     for (const [item, set] of this.kept) {
       if (set) {
-        item.keep = false;
+        unkeepShown(item);
       }
     }
   }

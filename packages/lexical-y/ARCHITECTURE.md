@@ -7,9 +7,8 @@ order in which the three large files are taken apart. Every step is a
 refactor under the package rule: identical stored bytes, editor states and
 warnings, before and after (section 6 says how that is checked).
 
-Step 1 is done: the shown-items filter (`Shown.ts`). Step 2, the one owner
-of `Item.keep` (`Keeps.ts`), is the next pull request. The rest is
-planned.
+Steps 1 and 2 are done: the shown-items filter (`Shown.ts`) and the one
+owner of `Item.keep` (`Keeps.ts`). The rest is planned.
 
 ## 1. The problem this solves
 
@@ -140,8 +139,8 @@ places, none of which needs a step of its own:
 | Module | Responsibility | Owns | Status |
 | --- | --- | --- | --- |
 | `Unread.ts` | The record of remote changes not read yet, and which types it applies to (`scopedView`). | Nothing live: `Unread` objects are made and dropped by `Inbox`. | Exists |
-| `Hidden.ts` | The record of one hold: held id ranges, kept format items, the held marker attributes. | Nothing live: the `Hidden` object is made by the reader and dropped by `Hold`. | Exists; its `Item.keep` writes move to `Keeps` with step 2 |
-| `Keeps.ts` | Every write of Yjs's `Item.keep`. Two clients: the undo registry (D88, `UndoKeeps`) and the hold's kept items (`keepShown`, `unkeepShown`). Each keeps its rule from before the move; a test fails if another module writes the flag. | `Item.keep` | Step 2 |
+| `Hidden.ts` | The record of one hold: held id ranges, kept format items, the held marker attributes. | Nothing live: the `Hidden` object is made by the reader and dropped by `Hold`. | Exists; its `Item.keep` writes moved to `Keeps` |
+| **`Keeps.ts`** | **Every write of Yjs's `Item.keep`.** Two clients: the undo registry (D88, `UndoKeeps`) and the hold's kept items (`keepShown`, `unkeepShown`). Each keeps its rule from before the move; a test fails if another module writes the flag. | `Item.keep` | **Done** |
 | **`Shown.ts`** | **Whether an item is shown, and if not, why.** One private function, `facts()`, decides; `whyNotShown()` names the reason; the lanes are the same facts asked with some inputs left out. Also the left-out rule itself (`$isLeftOutInline`), the lengths every position counts by (`shownLengthIn`, `countShown`) and the walk to the shown end before an item (`prevShownEnd`). | The definition of the view. No state. | **Done** |
 | `Seen.ts` | Reading and writing through the view: attribute values, deletes that an unread change already made, the delete guard, folds of format items in a lane, the end before a unit. | The per-transaction "noted as deleted" set and the delete guard's protected set. | Exists; shrunk by step 1 |
 
@@ -246,7 +245,7 @@ means assigns or mutates; everyone else calls the owner.
 | State | Owner | Writes today | Readers |
 | --- | --- | --- | --- |
 | Whether an item is shown | `Shown` (no state; the rule) | Was: `Seen`, `Cursor`, `Inline`, `Read`, `Ident`, `Binding`. **Now: `Shown` only.** | Every engine, `Positions` |
-| `Item.keep` | `Keeps` (step 2) | `Binding.ts:2069-2178` (undo registry, D88) and `Hidden.ts:126-170` (kept format items). After step 2: `Keeps` only. The two rules still do not know of each other (section 7). | Yjs's garbage collection |
+| `Item.keep` | `Keeps` | Was: `Binding.ts:2069-2178` (undo registry, D88) and `Hidden.ts:126-170` (kept format items). **Now: `Keeps` only.** The two rules still do not know of each other (section 7). | Yjs's garbage collection |
 | `state.hidden` (the hold) | `Hold` | `Read.ts:1165` creates it; `Binding.ts:2606`, `5996` clear it | 51 reads in `Binding.ts`, 33 in `Write.ts`, 23 in `Read.ts` |
 | Unread changes | `Inbox` | `Binding.ts:4133-4190` | Everything, through the view |
 | The view (`seer`) | `Inbox`, with `Hold` for the held view | `Binding.ts:1602-1672` | `Reader`, `Writer`, `BlockIdSettler` take it as `liveView` |
@@ -276,7 +275,7 @@ The order is by what unblocks the next step, then by size.
 | # | Step | Lines moved | Why here |
 | --- | --- | --- | --- |
 | 1 | **`Shown.ts`: the one filter.** | Done | Everything below reads the view. `Positions` and the engine splits cannot be checked for "asks the same question" until there is one question. |
-| 2 | `Keeps.ts`: one owner of `Item.keep`. The undo registry's three maps and `Hidden`'s flag writes behind one module, each client keeping its present rule. | about 200 | Small, and it makes the possible early release (an item the hold kept first and an undo step then relies on, section 7) a one-file question. |
+| 2 | **`Keeps.ts`: one owner of `Item.keep`.** The undo registry's three maps and `Hidden`'s flag writes behind one module, each client keeping its present rule. | Done | Small, and it makes the possible early release (an item the hold kept first and an undo step then relies on, section 7) a one-file question. |
 | 3 | A view object in place of the `(view, hidden, leftOut)` argument triples (section 5.1), one engine per pull request: `Cursor`, `Reader`, `Writer`, then the binding's position code. | signatures only | Before any code moves between files: every later step moves functions that take the triple, and would move them once with three arguments and rewrite them again. |
 | 4 | `Records.ts`. | about 1,000 | Independent of everything else and the least tangled: the first move out of `Binding.ts`, and the one that settles how a session module is handed the binding. |
 | 5 | `Positions.ts`, the pure mapping only (section 3). | about 1,100 | The largest block with no writes but the Lexical selection. `takeCursor` and the split stay in the binding until step 9. |
@@ -394,7 +393,8 @@ same" is per test and per history, not a total.
 8. **A guard for a rule that moved.** For a step that moves a rule into
    one owner: a test that fails when another module decides it again,
    reading the sources by symbol and not by pattern
-   (`ShownFilter.test.ts` with `utils/shownGuard.ts` for step 1).
+   (`ShownFilter.test.ts` with `utils/shownGuard.ts` for step 1,
+   `KeepsOwner.test.ts` with `utils/keepGuard.ts` for step 2).
 
 ## 7. What the plan does not do
 
@@ -419,7 +419,7 @@ same" is per test and per history, not a total.
   the one to set the flag, and neither knows of the other: an item the
   hold kept first is `external` to the undo registry (the flag was set
   already), so the hold's release clears a flag an undo step may rely on,
-  and garbage collection can then take the item. Step 2 moves both
+  and garbage collection can then take the item. Step 2 moved both
   writers into one module without changing either rule; the fix (one
   count per item across both clients) is a behavior change with its own
   test.
