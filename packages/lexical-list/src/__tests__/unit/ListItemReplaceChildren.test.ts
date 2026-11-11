@@ -26,6 +26,54 @@ import {
 } from 'lexical';
 import {assert, expect, onTestFinished, test} from 'vitest';
 
+test('replacing a list item preserves a caret inside its text', () => {
+  const editor = createEditor({
+    nodes: [ListNode, ListItemNode],
+    onError(error) {
+      throw error;
+    },
+  });
+  onTestFinished(registerList(editor));
+  let original: ListItemNode;
+  let replacement: ListItemNode;
+  let textKey: string;
+  editor.update(
+    () => {
+      const text = $createTextNode('original');
+      textKey = text.getKey();
+      original = $createListItemNode().append(text);
+      $getRoot().append($createListNode('bullet').append(original));
+      text.select(2, 2);
+    },
+    {discrete: true},
+  );
+  expect(() =>
+    editor.update(
+      () => {
+        replacement = $createListItemNode();
+        expect(original.replace(replacement, true)).toBe(replacement);
+      },
+      {discrete: true},
+    ),
+  ).not.toThrow();
+  editor.read(() => {
+    const list = $getRoot().getFirstChildOrThrow();
+    assert($isListNode(list));
+    const item = list.getFirstChildOrThrow();
+    assert($isListItemNode(item));
+    expect(item.is(replacement)).toBe(true);
+    expect(original.isAttached()).toBe(false);
+    expect(item.getChildren().map(node => node.getKey())).toEqual([textKey]);
+    expect(item.getTextContent()).toBe('original');
+    const selection = $getSelection();
+    assert($isRangeSelection(selection));
+    expect(selection.anchor.key).toBe(textKey);
+    expect(selection.anchor.offset).toBe(2);
+    expect(selection.anchor.type).toBe('text');
+    expect(selection.isCollapsed()).toBe(true);
+  });
+});
+
 for (const includeChildren of [true, false, undefined]) {
   test(`replacing a list item respects includeChildren=${includeChildren}`, () => {
     const editor = createEditor({
