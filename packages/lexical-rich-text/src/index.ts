@@ -1460,8 +1460,11 @@ export function registerRichText(
       event => {
         const selection = $getSelection();
         // A node selection has no DOM caret, so the browser would put typed
-        // text at the top of the document. Move the caret past the decorator
-        // first and let the default handler take it from there.
+        // text at the top of the document. Move the caret into a line of its
+        // own right after the decorator (an empty block already there, such
+        // as the empty heading inserting a rule after a heading leaves, or a
+        // new paragraph) and let the default handler take it from there: the
+        // text does not join the start of the block after it.
         if ($isNodeSelection(selection) && event.inputType === 'insertText') {
           const nodes = selection.getNodes();
           if (
@@ -1470,8 +1473,13 @@ export function registerRichText(
             !nodes[0].isInline()
           ) {
             const next = nodes[0].getNextSibling();
-            if ($isElementNode(next) && !next.isInline()) {
-              next.selectStart();
+            if (
+              $isElementNode(next) &&
+              !next.isInline() &&
+              next.isEmpty() &&
+              next.canBeEmpty()
+            ) {
+              next.select();
             } else {
               const paragraph = $createParagraphNode();
               nodes[0].insertAfter(paragraph);
