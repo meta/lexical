@@ -614,7 +614,7 @@ export const FindReplaceExtension = defineExtension({
     const scrollToCurrentMatch = () => {
       const match = output.matches.peek()[output.effectiveIndex.peek()];
       if (match) {
-        editor.read(() => $scrollMatchIntoView(editor, match));
+        editor.read('latest', () => $scrollMatchIntoView(editor, match));
       }
     };
 
