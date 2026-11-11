@@ -100,50 +100,47 @@ const SHRINK_PER_TEST = 3;
  * Finding classes that reproduce on main, per lane: counted and printed, not
  * failed one by one (LANE_STRICT=1 fails them too). Each says what was seen
  * and its rate on main: histories per 1,000 that show it (`per1000`,
- * measured over 13,000 histories per gc setting, seeds 100001 to 110000 and
- * 300001 to 303000, the higher of the two: on main at 8c369d793, and with
- * #9860 for the classes it lowered or removed). A run of at least
+ * measured on main at 8c369d793 over 13,000 histories per gc setting, seeds
+ * 100001 to 110000 and 300001 to 303000, the higher of the two). A run of at least
  * CEILING_MIN_HISTORIES fails when a class grows past its ceiling (see
  * `ceiling`), so growth fails instead of hiding behind the class name. Lower
  * `per1000` with a fix that reduces a class, and remove the entry with the
  * fix that brings it to zero.
  *
- * Triage: most of these classes shared one root cause, the writer's marker
- * matching (a marker matched any marker, so the composer's held line moved
- * to a block a collaborator added after it), which #9860 fixed (D118): it
- * removed the carry lane's decorator-lost, ending-phase-text,
- * other-block-changed, ending-phase-other-block and ending-phase-state and
- * the blockconv lane's ending-phase-boundary, and lowered the rest. The
- * rates are also measured with #9835 (a code highlighter's re-tokenization
- * of a held code line kept off a block a collaborator made of it) and #9832
- * (the highlighter keeps the NodeState of the text it tokenizes again).
+ * Triage: these classes share one root cause, in the writer's marker
+ * matching when the ending update of a held composition is written over a
+ * block a collaborator changed; its fix is planned as a separate pull
+ * request. The rates are measured with #9835 (a code highlighter's
+ * re-tokenization of a held code line kept off a block a collaborator made
+ * of it) and #9832 (the highlighter keeps the NodeState of the text it
+ * tokenizes again), which reduced the carry lane's classes most.
  */
 const KNOWN_OPEN = new Map<string, {seen: string; per1000: number}>([
   [
     'blockconv:ending-phase-other-block',
     {
-      per1000: 4.2,
+      per1000: 26.5,
       seen: "the composer's highlighter re-tokenizes a collaborator's untouched code block in the ending update, dropping its format and NodeState",
     },
   ],
   [
     'blockconv:untouched-block-changed',
     {
-      per1000: 2.5,
+      per1000: 26.3,
       seen: "the composer's highlighter re-tokenizes a collaborator's untouched code block in the ending update, dropping its format and NodeState",
     },
   ],
   [
     'blockconv:ending-phase-code-highlight-outside-code',
     {
-      per1000: 6.3,
+      per1000: 9.2,
       seen: 'the ending update writes code highlight tokens onto a block a collaborator converted out of code',
     },
   ],
   [
     'blockconv:ending-phase-text',
     {
-      per1000: 5.4,
+      per1000: 8.6,
       seen: 'text the ending update writes lands in another block, for example what it types at the end of the held line lands in the block after it',
     },
   ],
@@ -155,24 +152,66 @@ const KNOWN_OPEN = new Map<string, {seen: string; per1000: number}>([
     },
   ],
   [
+    'blockconv:ending-phase-boundary',
+    {
+      per1000: 0.1,
+      seen: 'the ending phase adds a block boundary nothing accounts for (seen once in 26,000 histories: a release transform that splits the held line, which the collaborator deleted)',
+    },
+  ],
+  [
     'carry:ending-phase-code-highlight-outside-code',
     {
-      per1000: 8.5,
+      per1000: 196.5,
       seen: 'the ending update re-tokenizes the held code line a collaborator joined into a paragraph and writes the tokens there',
     },
   ],
   [
     'carry:ending-phase-field',
     {
-      per1000: 4.6,
+      per1000: 187.3,
       seen: "the ending update re-tokenizes the held code line a collaborator joined into a paragraph and writes the tokens' styles there",
+    },
+  ],
+  [
+    'carry:ending-phase-text',
+    {
+      per1000: 94.8,
+      seen: "the composer's writes from the ending update add or remove characters, in the held line or another block, for example the text of an inline decorator its highlighter turned into code text",
+    },
+  ],
+  [
+    'carry:decorator-lost',
+    {
+      per1000: 57.5,
+      seen: "the composer's highlighter, run on the held line as the code it was, turns its inline decorator into code text (stock highlighters do so in any code block)",
+    },
+  ],
+  [
+    'carry:other-block-changed',
+    {
+      per1000: 15.2,
+      seen: "with the held line deleted by the collaborator, the composer's re-tokenized text joins the untouched block after it",
+    },
+  ],
+  [
+    'carry:ending-phase-other-block',
+    {
+      per1000: 15.2,
+      seen: "with the held line deleted by the collaborator, the composer's re-tokenized text joins the untouched block after it",
+    },
+  ],
+  [
+    'carry:ending-phase-state',
+    {
+      per1000: 7.2,
+      seen: 'the ending phase leaves NodeState values the ending update did not ask for on the held line',
     },
   ],
   [
     'carry:target-value',
     {
-      per1000: 9.8,
-      seen: 'a NodeState value the ending update set does not stay on a changed character, for example after a collaborator joins the held code line into the paragraph before it (raised from 7.2 by #9860: with a block added after the join, the marker no longer goes to that block, so these histories take the join path, which fails the same way on main without the added block; #9865)',
+      per1000: 7.2,
+      seen: 'a NodeState value the ending update set does not stay on a changed character',
     },
   ],
 ]);

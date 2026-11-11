@@ -1312,11 +1312,7 @@ not merge as a user might expect:
   Enter or a paste made while composing. What removes something from the
   line (a deletion, a join, a `MarkNode` comment, which moves the text into
   it) shows at once: the text node being composed keeps its key, unless its
-  class changes (a code block made a heading). A collaborator who replaces the
-  line with a new block (holding the same text, or its own nodes with their
-  text changed) and adds another block after it in one update gives
-  the new block a new line marker (DECISIONS.md D118): the node being composed
-  is no longer in the document, and the composition ends without it.
+  class changes (a code block made a heading).
   While a composition is held and a collaborator has changed the type of the
   block it's in, the highlighter's re-tokenization of that line isn't written.
   A NodeState value set in the update that ends the composition is written when
@@ -1347,14 +1343,6 @@ not merge as a user might expect:
   re-tokenization is written, as on `main`. The binding reports the skip with
   `UNSUPPORTED_EDIT_WARNING` (`reason: 'other'`, `detailCode:
   'held-line-retokenize'`), once per composition.
-- **A line replaced next to a new line.** A line a collaborator replaces with
-  a new block (holding the same text, or its own nodes with its text changed),
-  or splits by setting its text and adding the rest as a new line, while adding
-  another line after it in the same update, gets a new line marker
-  (DECISIONS.md D118): a concurrent change of that line's alignment or block
-  type by another collaborator, or a Delete at its end (a join with the next
-  line), is dropped (before, it was applied to the added line). No text is
-  lost.
 - **Set-valued NodeState** (`arraySetValue`, which `MarkStateExtension` uses)
   merges per member on text, line breaks and nodes stored as their own Yjs
   node (such as decorators), so two collaborators commenting on the same
