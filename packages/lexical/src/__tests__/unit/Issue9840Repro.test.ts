@@ -11,9 +11,11 @@ import {RichTextExtension} from '@lexical/rich-text';
 import {
   $createParagraphNode,
   $createTextNode,
+  $getNodeByKey,
   $getRoot,
   $getSelection,
   $isRangeSelection,
+  $isTextNode,
   DecoratorNode,
   getDOMSelection,
   isDOMTextNode,
@@ -150,9 +152,9 @@ test('Issue #9840: Shift-click on an inline decorator keeps the anchor and puts 
   // Step 1: Initial selection collapsed inside text before decorator at offset 2 ('Be|fore ')
   editor.update(
     () => {
-      const t1 = editor.getEditorState()._nodeMap.get(text1Key);
-      assert(t1 !== null);
-      (t1 as any).select(2, 2);
+      const t1 = $getNodeByKey(text1Key);
+      assert($isTextNode(t1));
+      t1.select(2, 2);
     },
     {discrete: true},
   );
@@ -180,6 +182,12 @@ test('Issue #9840: Shift-click on an inline decorator keeps the anchor and puts 
   const decoratorText = decoratorSpan.firstChild;
   assert(isDOMTextNode(decoratorText), 'Expected decorator text node');
 
+  const origElementFromPoint = document.elementFromPoint;
+  document.elementFromPoint = () => decoratorSpan;
+  onTestFinished(() => {
+    document.elementFromPoint = origElementFromPoint;
+  });
+
   const domSelection = getDOMSelection(window);
   assert(domSelection !== null, 'Expected a DOM selection');
 
@@ -188,6 +196,8 @@ test('Issue #9840: Shift-click on an inline decorator keeps the anchor and puts 
     bubbles: true,
     button: 0,
     buttons: 1,
+    clientX: 100,
+    clientY: 10,
     composed: true,
     shiftKey: true,
   };

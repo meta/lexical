@@ -916,10 +916,7 @@ function $moveMouseDragFocus(
   const {clientX: x, clientY: y} = event;
   // Not in a document without layout (jsdom).
   const target = doc.elementFromPoint && doc.elementFromPoint(x, y);
-  const hit =
-    (target && $getNearestNodeFromDOMNode(target)) ||
-    ($isDecoratorNode(decorator) ? decorator : null) ||
-    (isDOMNode(event.target) ? $getNearestNodeFromDOMNode(event.target) : null);
+  const hit = target && $getNearestNodeFromDOMNode(target);
   const $leaf = (node: LexicalNode | null, dir: CaretDirection) =>
     $isElementNode(node)
       ? dir === 'next'
@@ -2486,6 +2483,18 @@ function hasStoppedLexicalPropagation(event: Event): boolean {
 
 export type EventHandler = (event: Event, editor: LexicalEditor) => void;
 
+function isEmbeddedInput(target: Node, hostRoot: HTMLElement | null): boolean {
+  const element = isHTMLElement(target) ? target : getParentElement(target);
+  if (element === null) {
+    return false;
+  }
+  if (element.nodeName === 'INPUT' || element.nodeName === 'TEXTAREA') {
+    return true;
+  }
+  const host = element.closest && element.closest('[contenteditable="true"]');
+  return host != null && host !== hostRoot;
+}
+
 export function addRootElementEvents(
   rootElement: HTMLElement,
   editor: LexicalEditor,
@@ -2561,36 +2570,6 @@ export function addRootElementEvents(
   }
   // The latest pointerdown in the root element.
   let press: PointerEvent | undefined;
-  // Follows a mouse press that can start a selection drag: not on a decorator,
-  // nor a double or triple click, which selects by words or paragraphs.
-  function isDOMCapturingMouseDrag(
-    target: Node,
-    editor: LexicalEditor,
-    event: MouseEvent,
-  ): boolean {
-    const element = isHTMLElement(target) ? target : getParentElement(target);
-    if (
-      element !== null &&
-      (element.nodeName === 'INPUT' ||
-        element.nodeName === 'TEXTAREA' ||
-        (element.isContentEditable &&
-          getEditorPropertyFromDOMNode(element) == null))
-    ) {
-      return true;
-    }
-    if (event.shiftKey) {
-      return false;
-    }
-    if (!isDOMCapturingSelection(target, editor)) {
-      return false;
-    }
-    // An inline decorator without an embedded input still allows mouse selection
-    // (clicks and drags place the selection beside it).
-    const nearestNode = editor
-      .getEditorState()
-      .read(() => $getNearestNodeFromDOMNode(target));
-    return !$isDecoratorNode(nearestNode) || !nearestNode.isInline();
-  }
   const endMouseDrag = () => {
     editor._inputState.mouseDrag = null;
   };
@@ -2716,7 +2695,8 @@ export function addRootElementEvents(
           inputState.lastPointerType === 'mouse' &&
           editor.isEditable() &&
           !editor.isComposing() &&
-          !isDOMCapturingMouseDrag(target, editor, event)
+          (!isDOMCapturingSelection(target, editor) ||
+            (event.shiftKey && !isEmbeddedInput(target, rootElement)))
             ? event
             : null;
       },
