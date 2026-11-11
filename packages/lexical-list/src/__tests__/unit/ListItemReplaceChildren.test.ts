@@ -11,6 +11,8 @@
 import {
   $createListItemNode,
   $createListNode,
+  $isListItemNode,
+  $isListNode,
   ListItemNode,
   ListNode,
   registerList,
@@ -61,9 +63,10 @@ for (const includeChildren of [true, false, undefined]) {
       {discrete: true},
     );
     editor.read(() => {
-      const item = $getRoot()
-        .getFirstChildOrThrow<ListNode>()
-        .getFirstChildOrThrow<ListItemNode>();
+      const list = $getRoot().getFirstChildOrThrow();
+      assert($isListNode(list));
+      const item = list.getFirstChildOrThrow();
+      assert($isListItemNode(item));
       expect(item.is(replacement)).toBe(true);
       expect(original.isAttached()).toBe(false);
       if (includeChildren) {
