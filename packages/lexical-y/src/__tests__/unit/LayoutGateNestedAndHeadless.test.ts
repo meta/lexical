@@ -24,7 +24,7 @@ import {
   stepFormat,
   STORED_FOLD,
 } from '../../internal/Ident';
-import {readLayout3Formats} from '../../internal/Layout3';
+import {readLayout4Formats} from '../../migrate/3to4/frozen/layout4';
 import {$p, NODES} from '../utils/harness';
 
 const text = (root: Y.Node) => {
@@ -41,11 +41,11 @@ const config = {
 };
 for (const gc of [false, true]) {
   test(`copy repair uses a nested root's own layout gc=${gc}`, () => {
-    for (const version of [1, 2, 3]) {
+    for (const version of [1, 2, 3, 4]) {
       const doc = createYDoc(null, {gc});
       doc.clientID = 7;
       const parent = doc.get('app');
-      parent.setAttr('lexical-y:3', true);
+      parent.setAttr('lexical-y:4', true);
       const root = new Y.Node('editor-root');
       parent.setAttr('editor', root);
       root.setAttr('lexical-y:' + version, true);
@@ -93,7 +93,7 @@ for (const gc of [false, true]) {
           Array.isArray(it.content.value)
         )
           value = it.content.value;
-      if (version < 3) expect(value).toEqual([1]);
+      if (version < 4) expect(value).toEqual([1]);
       else expect(value).toEqual([2]);
       app.destroy();
       doc.destroy();
@@ -103,7 +103,7 @@ for (const gc of [false, true]) {
     const doc = createYDoc(null, {gc});
     doc.clientID = 7;
     const parent = doc.get('app');
-    parent.setAttr('lexical-y:3', true);
+    parent.setAttr('lexical-y:4', true);
     const root = new Y.Node('editor-root');
     parent.setAttr('editor', root);
     root.setAttr('lexical-y:1', true);
@@ -171,7 +171,7 @@ for (const gc of [false, true]) {
       },
       {
         transact: doc => {
-          doc.get('lexical-y').deleteAttr('lexical-y:3');
+          doc.get('lexical-y').deleteAttr('lexical-y:4');
           e!.update(() => $getRoot().append($p('forbidden')), {discrete: true});
         },
         writer: null,
@@ -187,13 +187,21 @@ for (const gc of [false, true]) {
       seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
       return seed / 4294967296;
     };
-    const keys = ['p:style', 'f:bold', 's:ids\u001fx', 'w:link', 't', 'k'];
+    const keys = [
+      'p:style',
+      'f:bold',
+      's:ids\u001fx',
+      's:tone',
+      'w:link',
+      't',
+      'k',
+    ];
     for (let sample = 0; sample < 300; sample++) {
       const doc = new Y.Doc({gc});
       doc.cleanupFormatting = false;
       doc.clientID = 17;
       const root = doc.get('c');
-      root.setAttr('lexical-y:3', true);
+      root.setAttr('lexical-y:4', true);
       const formats: Y.Item[] = [];
       doc.transact(tr => {
         let left: Y.Item | null = null;
@@ -230,7 +238,7 @@ for (const gc of [false, true]) {
       doc.transact(tr => {
         for (const it of formats) if (random() < 0.2) it.delete(tr);
       });
-      const actual = readLayout3Formats(root).map(m => Object.fromEntries(m));
+      const actual = readLayout4Formats(root).map(m => Object.fromEntries(m));
       const m = new Map<string, unknown>();
       const expected: Record<string, unknown>[] = [];
       for (let it = root._start; it; it = it.right) {

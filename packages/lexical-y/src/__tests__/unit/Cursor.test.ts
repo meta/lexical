@@ -212,9 +212,12 @@ describe('a format change then a delete on one cursor', () => {
       Y.applyUpdate(peer, Y.encodeStateAsUpdate(doc));
       doc.transact(tr => {
         const cursor = new Cursor(tr, text, start, new Map([['K', old]]));
-        cursor.format(1, {F: true});
-        expect(cursor.formats.get('K') ?? null).toBe(next);
+        // Layout 4: a format change writes paired runs of covered names
+        // only, and stops right after its range's ends; the delete walks
+        // past the items of `K`, a name the binding does not own.
+        cursor.format(1, {'f:bold': true});
         cursor.delete(1);
+        expect(cursor.formats.get('K') ?? null).toBe(next);
       });
       expect(ks.map(it => !it.deleted)).toEqual([true, true, true, true, true]);
       // A peer that types after the first item, offline, keeps its value.

@@ -4488,7 +4488,7 @@ function attrsAtItems(
  * U+001F), a value other than what its stored format attributes `tattrs`
  * give it: a reader's comparison of stored attributes leaves member entries
  * that are not `true` out, so a node that kept one from an earlier read (an
- * array a raw writer stored, read as a value before the layout 3 record) is
+ * array a raw writer stored, read as a value before the layout record) is
  * built again. It compares the node with what is stored there.
  */
 function $coveredStateDiffers(node: LexicalNode, tattrs: Attrs): boolean {

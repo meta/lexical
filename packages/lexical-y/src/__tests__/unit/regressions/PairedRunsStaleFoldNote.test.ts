@@ -28,7 +28,7 @@ import {frontierOf, noteFolded} from '../../../internal/Seen';
 test('a fold point that is gone is no frontier', () => {
   const doc = createYDoc(null, {gc: false});
   const root = doc.get('lexical-y');
-  root.setAttr('lexical-y:3', true);
+  root.setAttr('lexical-y:4', true);
   // Four items (inserted before one another: none merges).
   for (const ch of ['d', 'c', 'b', 'a']) {
     root.insert(0, ch);
@@ -53,7 +53,7 @@ test('a fold point that is gone is no frontier', () => {
 test('a start folded again once is a fresh fold: no refold per later walk', () => {
   const doc = createYDoc(null, {gc: false});
   const root = doc.get('lexical-y');
-  root.setAttr('lexical-y:3', true);
+  root.setAttr('lexical-y:4', true);
   // A container: 1,000 items before the unit's left.
   for (let i = 0; i < 1_000; i++) {
     root.insert(0, String.fromCharCode(97 + (i % 26)));

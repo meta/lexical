@@ -74,12 +74,12 @@ for (const gc of [false, true])
   }
 
 for (const gc of [false, true]) {
-  test(`copy repair still repairs a root that records layout 3 gc=${gc}`, () => {
+  test(`copy repair still repairs a root that records layout 4 gc=${gc}`, () => {
     const doc = createYDoc(null, {gc});
     doc.clientID = 7;
     const root = doc.get('lexical-y');
     root.setAttr('lexical-y:1', true);
-    root.setAttr('lexical-y:3', true);
+    root.setAttr('lexical-y:4', true);
     root.insert(0, 'abc');
     const app = new Y.UndoManager(root, {
       captureTimeout: 0,

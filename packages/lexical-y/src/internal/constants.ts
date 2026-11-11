@@ -19,7 +19,7 @@ export const DEFAULT_ROOT_NAME = 'lexical-y';
  * Prefix of the root attributes that record the layout versions a document
  * needs (internal): `lexical-y:<version>` = true, one per version. The record
  * only grows: a writer records a version in the same transaction as the
- * first content that needs it (a new document's version 1 before its
+ * first content that needs it (a new document's layout before its
  * content), so no client receives that content without it, and the binding
  * never deletes one. A reader takes the highest version recorded, so two
  * clients that upgrade a document at once agree on it. Any change to how a
@@ -28,27 +28,27 @@ export const DEFAULT_ROOT_NAME = 'lexical-y';
 export const LAYOUT_PREFIX = 'lexical-y:';
 /**
  * @experimental The newest layout version this binding reads and writes.
- * A new document records version 1; the first member entry of a set-valued
- * NodeState written into a document also records 2 (clients that only read
- * version 1 then open it read only instead of missing the members).
  */
 // Typed `number`, not its literal: a later release raises it, and code that
 // names its type must not stop compiling (so do MIN_LAYOUT and SEED_LAYOUT).
-export const LAYOUT_VERSION: number = 3;
+export const LAYOUT_VERSION: number = 4;
 /**
- * The version of a document holding paired-run items (an
- * end naming its opener, or a `[]` opener; see Ident).
+ * The layout every document this binding writes records (`lexical-y:4`):
+ * every name the binding writes on text is stored as paired runs (an end
+ * naming its opener, or a `[]` opener; see Ident), flat NodeState
+ * (`s:<key>`) included. A new document records only this version; a
+ * migrated one keeps its earlier records beside it.
  */
-export const IDENTITY_LAYOUT_VERSION = 3;
+export const IDENTITY_LAYOUT_VERSION = 4;
 /**
  * @experimental The oldest layout version this binding reads and writes: layout
- * 3 only (paired format runs). A root below it binds read only
- * (UNSUPPORTED_LAYOUT_WARNING, `'older'`) until it is migrated (see
- * @lexical/y/migrate, @lexical/y/migrate/2to3); the migration runner's default
+ * 4 only. A root below it binds read only (UNSUPPORTED_LAYOUT_WARNING,
+ * `'older'`), showing its content, until it is migrated (see
+ * @lexical/y/migrate, @lexical/y/migrate/3to4); the migration runner's default
  * target.
  */
-export const MIN_LAYOUT: number = 3;
-/** The version a new document records. */
+export const MIN_LAYOUT: number = 4;
+/** The first layout version (the oldest a record can name). */
 export const BASE_LAYOUT_VERSION = 1;
 /**
  * @experimental The layout a new document's seed records (written by
@@ -57,11 +57,6 @@ export const BASE_LAYOUT_VERSION = 1;
  * pristine room only at its own seed layout (D22).
  */
 export const SEED_LAYOUT: number = IDENTITY_LAYOUT_VERSION;
-/**
- * The version of a document holding member entries of set-valued NodeState
- * (`s:<key>\u001f<member>` = true).
- */
-export const SET_MEMBERS_LAYOUT_VERSION = 2;
 /**
  * The root attribute a migration records (see @lexical/y/migrate and
  * YMigrationEpoch): `{v: 1, kind: 'layout', layout, client, clock, step,

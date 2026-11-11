@@ -20,6 +20,7 @@ import {PUBLISHED_STEPS} from '../../internal/StepTable';
 import * as migrateEntry from '../../migrate';
 import * as step1to2Entry from '../../migrate/1to2';
 import * as step2to3Entry from '../../migrate/2to3';
+import * as step3to4Entry from '../../migrate/3to4';
 import * as serverEntry from '../../server';
 
 // Bundlers replace only process.env.NODE_ENV: any other process.env read in
@@ -154,8 +155,6 @@ test('internal writes of node attributes go through Seen', () => {
   }
   expect(found).toEqual([
     'Binding.ts recordSchema: root.setAttr(key)',
-    'Binding.ts recordLayout: root.setAttr(key)',
-    'Binding.ts $writeInitial: root.setAttr(LAYOUT_PREFIX + BASE_LAYOUT_VERSION)',
     'Binding.ts $writeInitial: root.setAttr(SCHEMA_PREFIX + this.options.schemaVersion)',
     'Binding.ts recordPins: root.setAttr(PIN_PREFIX + type)',
     'Ident.ts writeIdentityRecord: root.setAttr(LAYOUT_PREFIX + IDENTITY_LAYOUT_VERSION)',
@@ -186,6 +185,8 @@ test('public entries', () => {
     './migrate/1to2.js',
     './migrate/2to3',
     './migrate/2to3.js',
+    './migrate/3to4',
+    './migrate/3to4.js',
     './server',
     './server.js',
   ]);
@@ -197,6 +198,7 @@ test('public entries', () => {
   ]);
   expect(Object.keys(step1to2Entry)).toEqual(['default']);
   expect(Object.keys(step2to3Entry)).toEqual(['default']);
+  expect(Object.keys(step3to4Entry)).toEqual(['default']);
   expect(Object.keys(serverEntry).sort()).toEqual([
     'LAYOUT_VERSION',
     'MIN_LAYOUT',
@@ -292,11 +294,11 @@ test('policy: raising the floor is deliberate, and the runner targets it by defa
   // bound, the docs and its changelog together. Published steps stay
   // published either way, and an app may raise its own floor (its server
   // stops admitting clients that cannot read the next layout).
-  expect(mainEntry.MIN_LAYOUT).toBeLessThanOrEqual(3);
+  expect(mainEntry.MIN_LAYOUT).toBeLessThanOrEqual(4);
   expect(serverEntry.MIN_LAYOUT).toBe(mainEntry.MIN_LAYOUT);
   // Published steps stay published: this list only grows (add a step here
   // when you publish it; removing one fails).
-  const everPublished = ['1to2', '2to3'];
+  const everPublished = ['1to2', '2to3', '3to4'];
   const manifest = JSON.parse(
     fs.readFileSync(
       path.resolve(__dirname, '../../migrate/manifest.json'),
@@ -409,6 +411,7 @@ test('the core, the runner, the steps and the server entry stay apart', () => {
     'migrate.ts',
     'migrate/1to2.ts',
     'migrate/2to3.ts',
+    'migrate/3to4.ts',
     'server.ts',
   ]) {
     const {files, bare} = graph(entry);
@@ -416,7 +419,12 @@ test('the core, the runner, the steps and the server entry stay apart', () => {
     // own entries (never inlined); the runner loads them on demand.
     expect([...bare].sort()).toEqual(
       entry === 'server.ts'
-        ? ['@lexical/y/migrate/1to2', '@lexical/y/migrate/2to3', '@y/y']
+        ? [
+            '@lexical/y/migrate/1to2',
+            '@lexical/y/migrate/2to3',
+            '@lexical/y/migrate/3to4',
+            '@y/y',
+          ]
         : ['@y/y'],
     );
     expect(files.has('internal/Binding.ts')).toBe(false);
@@ -448,7 +456,7 @@ test('the core, the runner, the steps and the server entry stay apart', () => {
   // Core's createYDoc builds on the Yjs-only factory.
   expect(graph('internal/YDoc.ts').files.has('internal/RawYDoc.ts')).toBe(true);
   // A step imports nothing of the package but its own frozen sources.
-  for (const step of ['1to2', '2to3']) {
+  for (const step of ['1to2', '2to3', '3to4']) {
     expect(
       [...graph(`migrate/${step}.ts`).files].filter(
         f => !f.startsWith(`migrate/${step}`),

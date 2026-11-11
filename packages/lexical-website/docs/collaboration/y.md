@@ -749,15 +749,18 @@ block-beta
 _A heading, a paragraph with a link, a bold word and a NodeState value, and
 a custom container (`callout`) that holds a paragraph, in layout 1._
 
-**Layout 3** (what this release writes) stores format runs as pairs. A
-write's run of a text format, a link, a text field, a text node's type or a
-comment id is an opener (the value, or `[]` for "no value") and an end that
+**Layout 4** (what this release writes) stores format runs as pairs. A
+write's run of a text format, a link, a text field, a text node's type, a
+comment id or a NodeState value on text is an opener (the value, or `[]` for "no value") and an end that
 names its opener by id, so a reader knows which write each end belongs to.
 Concurrent formats of one key nest instead of cutting each other short:
 when one collaborator's run ends, the run another collaborator opened
-around it shows again. Flat NodeState values (`s:<key>`) keep layout 1's
-plain values. The package README specifies it:
-[layout 3](https://github.com/meta/lexical/tree/main/packages/lexical-y#wire-format-layout-3).
+around it shows again. Layout 3 introduced the pairs; layout 4 stores a
+NodeState value on text (`s:<key>`) the same way, so every name the
+binding writes on text has one mechanism. The package README specifies it:
+[layout 3](https://github.com/meta/lexical/tree/main/packages/lexical-y#wire-format-layout-3)
+and
+[layout 4](https://github.com/meta/lexical/tree/main/packages/lexical-y#wire-format-layout-4).
 
 ## What changes when you turn on collaboration
 
@@ -1100,7 +1103,7 @@ itself (`doc.cleanupFormatting = false`) before it applies anything.
 Otherwise, when Yjs applies an update there it deletes format items that
 it finds redundant but the clients keep, and the state the server stores
 reads differently from what the clients show. The cleanup also costs time
-on layout 3: loading a stored layout-3 document (one `Y.applyUpdate` of its
+with paired runs: loading a stored document (one `Y.applyUpdate` of its
 state into a new `Doc`) takes about 150 ms for 20,000 words with the cleanup
 on, against about 19 ms with it off, and about 60 ms against 8 ms for 5,000
 words. With the cleanup off, a layout-3 document loads about as fast as a
@@ -1663,8 +1666,11 @@ not merge as a user might expect:
   `MIN_LAYOUT`. Export its content and reseed it into a top-level root with
   a release that reads its layout, or keep a release that reads the stored
   layout.
-- **Format runs (layout 3).** Each change only formats what it covers, and
-  concurrent formats of one key nest. A few outcomes are accepted:
+- **Format runs.** Each change only formats what it covers, and concurrent
+  formats of one key nest; from layout 4 on, so do NodeState values on
+  text (two collaborators' overlapping values of one state: on the overlap
+  the run opened later in the text shows, and nothing spreads past either
+  range). A few outcomes are accepted:
   - Text a collaborator types inside a range that another writer formats
     at the same time takes the new format, as in Peritext and Automerge;
     text typed exactly where a run starts or ends is ordered by client id,
@@ -1674,7 +1680,7 @@ not merge as a user might expect:
   - Raw Yjs writes under the root are unsupported (see
     [Wire format](#wire-format) and `RAW_YJS_WRITE_WARNING`): write through
     an editor or `editYState`. Code that writes formats straight into Yjs
-    anyway writes plain items, not paired runs, and in a layout 3 room they
+    anyway writes plain items, not paired runs, and among paired runs they
     can change the formatting of other text (about 3.0% of randomized
     sessions with one such writer); text is never affected. Stored format
     names starting with U+0002 are not read, and an array such code stores
@@ -1778,19 +1784,25 @@ in the package README is the contract for what a room stores: the markers,
 attributes and records, and their names. Every room records the layout
 versions it needs (`lexical-y:<n>: true`, a record that only grows), and a
 client reads the highest. A client reads and writes the layouts from
-`MIN_LAYOUT` to `LAYOUT_VERSION` (currently 3 to 3: paired format runs). A
-new room records `SEED_LAYOUT` (currently 3). A room that records only an
+`MIN_LAYOUT` to `LAYOUT_VERSION` (currently 4 to 4: paired runs for every
+name the binding writes on text). A new room records `SEED_LAYOUT`
+(currently 4) and no older layout. A room that records only an
 older layout opens read only (`'older'`) until it is migrated (see
 [Migrating stored documents](#migrating-stored-documents)).
 
-**Moving to layout 3.** This release reads and writes layout 3 only. A room
-stored at layout 1 or 2 opens read only in it, showing its content, until it
-is migrated with `@lexical/y/migrate/2to3` (after `@lexical/y/migrate/1to2`
-for layout 1): the server that stores a room migrates it on load (see the
+**Moving to layout 4.** This release reads and writes layout 4 only. A room
+stored at layout 1, 2 or 3 opens read only in it, showing its content, until
+it is migrated with `@lexical/y/migrate/3to4` (after
+`@lexical/y/migrate/2to3` for layout 2, and `@lexical/y/migrate/1to2`
+before that for layout 1): the server that stores a room migrates it on load (see the
 [server guide](./y-server.md#migrating-stored-documents)). The step keeps every character, node and line marker with its Yjs
-id, and the document reads the same before and after. What clients see:
+id, and the document reads the same before and after. The default step
+lists include it; a server that passes its own list to `migrateYState` or
+`prepareYRoom` adds `@lexical/y/migrate/3to4` after
+`@lexical/y/migrate/2to3`, or the run refuses (no chain of steps to layout
+4). What clients see:
 
-- **Older clients** (`@lexical/y` releases before layout 3) open a layout 3
+- **Older clients** (`@lexical/y` releases before layout 4) open a layout 4
   room read only (`UNSUPPORTED_LAYOUT_WARNING`, reason `'newer'`). A
   server with the generation fence (see the server guide) never serves them
   the migrated room; a relay without it can, and they then show it read
@@ -1802,7 +1814,7 @@ id, and the document reads the same before and after. What clients see:
 - **Rooms written by code.** Raw Yjs writes under the root are unsupported
   (development builds report them with `RAW_YJS_WRITE_WARNING`): code that
   writes formats straight into Yjs (`Y.Node#format`) writes plain items,
-  which a layout 3 room reads beside its paired runs. Write through an
+  which a room reads beside its paired runs. Write through an
   editor or `editYState` instead (see "Format runs" in the limits).
 
 - **Changes that keep the layout:** additions older clients can ignore, such
@@ -1812,11 +1824,12 @@ id, and the document reads the same before and after. What clients see:
   Layout 2 came in lazily (the historical 1 → 2 rule): a client adds it to
   a room's record only when it first writes something that needs it, in
   the same transaction, and older clients then open that room read only.
-  Layouts after 3 are not stamped that way: a room moves to one above
+  Layouts from 3 on are not stamped that way: a room moves to one above
   `MIN_LAYOUT` only through an explicitly selected target, and the default
   seed and target do not move to it (see [Layout upgrades](#layout-upgrades)).
 - **Changes that raise `MIN_LAYOUT`:** a release that stops reading older
-  layouts, as layout 3's did (their rooms are migrated, below). While
+  layouts, as layout 3's and layout 4's did (their rooms are migrated,
+  below). While
   `@lexical/y` is experimental, a later release may do it again: see
   [Layout upgrades](#layout-upgrades).
 - **Changing your own node types:** bump `schemaVersion` (see
@@ -1865,7 +1878,7 @@ below the floor and also reports `UNSUPPORTED_CONFIG_WARNING`
 `LAYOUT_VERSION`, and releases usually keep reading the older ones. While
 the package is experimental, though, a release may stop reading an older
 layout (it raises `MIN_LAYOUT`), as layout 3's release did for layouts 1
-and 2. Rooms stored in that layout then open read only until their server
+and 2 and layout 4's did for layout 3. Rooms stored in that layout then open read only until their server
 migrates them with the published steps (`@lexical/y/migrate`, see
 [Migrating stored documents](#migrating-stored-documents)). Such a release
 raises `SEED_LAYOUT` with it, so servers also issue new incarnations for
@@ -1885,8 +1898,8 @@ What does not change:
 - An app may raise its own floor. Its server migrates its rooms to layout
   N + 1 and stops admitting clients that cannot read N + 1 (the handshake's
   `layouts` says what a client reads).
-- Every published step and revision stays available, `1to2` and `2to3`
-  included (`@lexical/y/migrate/<n>to<n+1>`).
+- Every published step and revision stays available, `1to2`, `2to3` and
+  `3to4` included (`@lexical/y/migrate/<n>to<n+1>`).
 - A step's default revision never changes what it writes (see Migration
   identity below).
 

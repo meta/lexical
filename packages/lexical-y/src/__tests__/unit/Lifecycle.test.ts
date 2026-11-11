@@ -148,8 +148,7 @@ describe('version gate', () => {
     const doc = createYDoc();
     doc.clientID = 6;
     Y.applyUpdate(doc, Y.encodeStateAsUpdate(src));
-    doc.get('lexical-y').deleteAttr('lexical-y:1');
-    doc.get('lexical-y').deleteAttr('lexical-y:3');
+    doc.get('lexical-y').deleteAttr('lexical-y:4');
     const e2 = mkEditor(warnings);
     const b2 = new YBinding(e2, doc, {schemaVersion: 1, selfCheck: true});
     b2.start();
@@ -158,8 +157,7 @@ describe('version gate', () => {
     expect(Y.decodeStateVector(Y.encodeStateVector(doc)).has(6)).toBe(false);
     // The version arrives later: the document is one this version reads.
     doc.transact(() => {
-      doc.get('lexical-y').setAttr('lexical-y:1', true);
-      doc.get('lexical-y').setAttr('lexical-y:3', true);
+      doc.get('lexical-y').setAttr('lexical-y:4', true);
     });
     expect(b2.status).toBe('active');
     expect(e2.isEditable()).toBe(true);
@@ -208,7 +206,7 @@ describe('version gate', () => {
         `layout ${newest} is newer than ${LAYOUT_VERSION}. A newer version of the binding wrote this document, so this editor is read only: upgrade the binding on every client of the document`,
       );
       expect(peer.binding.root.getAttrs()).toMatchObject({
-        'lexical-y:1': true,
+        ['lexical-y:' + LAYOUT_VERSION]: true,
         ['lexical-y:' + newer]: true,
         ['lexical-y:' + newest]: true,
       });

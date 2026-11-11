@@ -33,7 +33,7 @@ for (const gc of [false, true]) {
         const d = createYDoc(null, {gc});
         d.clientID = 17;
         const r = d.get('c');
-        r.setAttr('lexical-y:3', true);
+        r.setAttr('lexical-y:4', true);
         let open: Y.Item | undefined;
         let end: Y.Item | undefined;
         d.transact(tr => {

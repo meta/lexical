@@ -24,7 +24,7 @@ export type {YDoc, YDocOptions};
  * (`cleanupFormatting = false`) before anything is applied to it: applying
  * an update to a document with it on deletes format items the binding keeps,
  * and the document then reads differently from its peers once someone types
- * there (on layout 3 the cleanup also makes loading a stored state several
+ * there (with paired runs the cleanup also makes loading a stored state several
  * times slower). A relay or server can use `@lexical/y/server`'s
  * `createYDoc`, the same document with Yjs alone. `state`, a stored state, is
  * applied when given; `options` are those of `new Y.Doc(options)` (the

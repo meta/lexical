@@ -8,9 +8,12 @@
 
 // @vitest-environment node
 
-// The layout 3 whole-container writer (internal/Layout3.ts): it reproduces the values it is given, read by its
-// own pure fold and by the binding's, deterministically, rewriting every
-// covered item and nothing else.
+// The layout 4 whole-container writer, as the 3to4 step holds it
+// (migrate/3to4/frozen/layout4.ts; the runtime keeps only the canonical
+// form's rules, internal/Canonical.ts, which its seed writes by): it
+// reproduces the values it is given, read by its own pure fold and by the
+// binding's, deterministically, rewriting every covered item, flat
+// NodeState included, and nothing else.
 
 import * as Y from '@y/y';
 import {
@@ -29,12 +32,16 @@ import {
 } from '../../internal/Ident';
 import {
   isCoveredKey,
-  readLayout3Formats,
-  writeLayout3Formats,
-} from '../../internal/Layout3';
+  readLayout4Formats,
+  writeLayout4Formats,
+} from '../../migrate/3to4/frozen/layout4';
 import {$p, flush, freshReader, setup} from '../utils/harness';
 
-/** A container: "ab" + marker + "cd\te" + marker, plus an uncovered item. */
+/**
+ * A container: "ab" + marker + "cd\te" + marker, plus a flat NodeState
+ * value and a covered run as a raw writer (or layout 3) stores them, and an
+ * item of a name layout 4 does not cover.
+ */
 function makeDoc(clientID: number): Y.Doc {
   const doc = new Y.Doc({gc: false});
   doc.clientID = clientID;
@@ -45,9 +52,9 @@ function makeDoc(clientID: number): Y.Doc {
     root.insert(2, [new Y.Node('¶')]);
     root.insert(3, 'cd\te');
     root.insert(7, [new Y.Node('¶')]);
-    // An uncovered flat NodeState key and a legacy covered run.
     root.format(0, 1, {'s:flat': 'x'});
     root.format(3, 2, {'f:bold': true});
+    root.format(1, 1, {'x:raw': 'y'});
   });
   return doc;
 }
@@ -56,13 +63,16 @@ function makeDoc(clientID: number): Y.Doc {
  * Golden layout and bytes of VALUES written into makeDoc(7), the canonical
  * (full-map) form: a frozen copy of the writer must give exactly these.
  */
-const GOLDEN_LAYOUT = `{f:bold=true} {s:flat="x"} a {f:bold=[1]} {f:bold=true} {f:italic=true} {s:flat=null} b {f:bold=[2]} {f:italic=[2]} [¶] {s:markIdsc1=true} {w:link={"rel":null,"target":null,"title":null,"url":"https://x.test"}} cd {s:markIdsc1=[2]} {w:link=[2]} {k="seg1"} {t="tab"} 	 {k=[2]} {t=[2]} {p:meta={"json":"[1,2]"}} e {p:meta=[1]} [¶]`;
-const GOLDEN_BYTES = `ARAHDEYHCAZmOmJvbGQEdHJ1ZcYHAAcJBmY6Ym9sZANbMV3GBw0HCQZmOmJvbGQEdHJ1ZcYHDgcJCGY6aXRhbGljBHRydWXGBwEHAgZmOmJvbGQDWzJdxgcQBwIIZjppdGFsaWMDWzJdxgcCBwoMczptYXJrSWRzH2MxBHRydWXGBxIHCgZ3Omxpbms+eyJyZWwiOm51bGwsInRhcmdldCI6bnVsbCwidGl0bGUiOm51bGwsInVybCI6Imh0dHBzOi8veC50ZXN0In3GBwQHCwxzOm1hcmtJZHMfYzEDWzJdxgcUBwsGdzpsaW5rA1syXcYHFQcLAWsGInNlZzEixgcWBwsBdAUidGFiIsYHBQcGAWsDWzJdxgcYBwYBdANbMl3GBxkHBgZwOm1ldGEQeyJqc29uIjoiWzEsMl0ifcYHBgcHBnA6bWV0YQNbMV0BBwEKAg==`;
+const GOLDEN_LAYOUT = `{f:bold=true} {s:flat="x"} a {f:bold=[2]} {s:flat=[2]} {f:bold=true} {f:italic=true} {x:raw="y"} b {f:bold=[2]} {f:italic=[2]} {x:raw=null} [¶] {s:markIdsc1=true} {w:link={"rel":null,"target":null,"title":null,"url":"https://x.test"}} cd {s:markIdsc1=[2]} {w:link=[2]} {k="seg1"} {t="tab"} 	 {k=[2]} {t=[2]} {p:meta={"json":"[1,2]"}} e {p:meta=[1]} [¶]`;
+const GOLDEN_BYTES = `ARIHDkYHCAZmOmJvbGQEdHJ1ZcYHDgcIBnM6ZmxhdAMieCLGBwAHCQZmOmJvbGQDWzJdxgcQBwkGczpmbGF0A1syXcYHEQcJBmY6Ym9sZAR0cnVlxgcSBwkIZjppdGFsaWMEdHJ1ZcYHAQcNBmY6Ym9sZANbMl3GBxQHDQhmOml0YWxpYwNbMl3GBwIHCgxzOm1hcmtJZHMfYzEEdHJ1ZcYHFgcKBnc6bGluaz57InJlbCI6bnVsbCwidGFyZ2V0IjpudWxsLCJ0aXRsZSI6bnVsbCwidXJsIjoiaHR0cHM6Ly94LnRlc3QifcYHBAcLDHM6bWFya0lkcx9jMQNbMl3GBxgHCwZ3OmxpbmsDWzJdxgcZBwsBawYic2VnMSLGBxoHCwF0BSJ0YWIixgcFBwYBawNbMl3GBxwHBgF0A1syXcYHHQcGBnA6bWV0YRB7Impzb24iOiJbMSwyXSJ9xgcGBwcGcDptZXRhA1sxXQEHAQgE`;
 
 const LINK = {rel: null, target: null, title: null, url: 'https://x.test'};
 /** Values per countable unit: a b ¶ c d \t e ¶. */
 const VALUES: Map<string, unknown>[] = [
-  new Map<string, unknown>([['f:bold', true]]),
+  new Map<string, unknown>([
+    ['f:bold', true],
+    ['s:flat', 'x'],
+  ]),
   new Map<string, unknown>([
     ['f:bold', true],
     ['f:italic', true],
@@ -157,7 +167,7 @@ const layout = (container: Y.Node) => {
   return out.join(' ');
 };
 
-describe('writeLayout3Formats', () => {
+describe('writeLayout4Formats', () => {
   test('the covered-key predicate equals the binding’s', () => {
     for (const key of [
       't',
@@ -169,7 +179,7 @@ describe('writeLayout3Formats', () => {
       's:flat',
       's:markIds\u001fc1',
       'x:y',
-      'lexical-y:3',
+      'lexical-y:4',
     ]) {
       expect(isCoveredKey(key)).toBe(covered(key));
     }
@@ -180,12 +190,15 @@ describe('writeLayout3Formats', () => {
     const root = doc.get('c');
     let result = {deleted: 0, written: 0};
     doc.transact(tr => {
-      result = writeLayout3Formats(tr, root, VALUES);
+      result = writeLayout4Formats(tr, root, VALUES);
     });
-    // The legacy bold run (opener and null) is deleted; the flat key stays.
-    expect(result.deleted).toBe(2);
-    expect(layout(root)).toContain('{s:flat="x"}');
-    expect(readLayout3Formats(root).map(toObj)).toEqual(expected);
+    // The plain bold and flat NodeState items (an opener and a null each)
+    // are deleted; the items of the name it does not cover stay.
+    expect(result.deleted).toBe(4);
+    expect(layout(root)).toContain('{x:raw="y"}');
+    expect(layout(root)).toContain('{x:raw=null}');
+    expect(layout(root)).not.toContain('{s:flat=null}');
+    expect(readLayout4Formats(root).map(toObj)).toEqual(expected);
     expect(coreRead(root)).toEqual(expected);
     expect(layout(root)).toBe(GOLDEN_LAYOUT);
   });
@@ -194,7 +207,7 @@ describe('writeLayout3Formats', () => {
     const run = () => {
       const doc = makeDoc(7);
       const before = Y.encodeStateVector(doc);
-      doc.transact(tr => writeLayout3Formats(tr, doc.get('c'), VALUES));
+      doc.transact(tr => writeLayout4Formats(tr, doc.get('c'), VALUES));
       return Y.encodeStateAsUpdate(doc, before);
     };
     const bytes = Buffer.from(run()).toString('base64');
@@ -206,11 +219,11 @@ describe('writeLayout3Formats', () => {
   test('a second call gives the same read and the same canonical layout', () => {
     const doc = makeDoc(7);
     const root = doc.get('c');
-    doc.transact(tr => writeLayout3Formats(tr, root, VALUES));
+    doc.transact(tr => writeLayout4Formats(tr, root, VALUES));
     const first = layout(root);
-    doc.transact(tr => writeLayout3Formats(tr, root, VALUES));
+    doc.transact(tr => writeLayout4Formats(tr, root, VALUES));
     expect(layout(root)).toBe(first);
-    expect(readLayout3Formats(root).map(toObj)).toEqual(expected);
+    expect(readLayout4Formats(root).map(toObj)).toEqual(expected);
   });
 
   test('refuses, before writing, a length mismatch, an uncovered key, a value JSON cannot encode, another document', () => {
@@ -221,7 +234,7 @@ describe('writeLayout3Formats', () => {
     const bad: Map<string, unknown>[][] = [
       VALUES.slice(1),
       VALUES.map((m, i) =>
-        i === 0 ? new Map<string, unknown>([['s:flat', 'x']]) : m,
+        i === 0 ? new Map<string, unknown>([['x:raw', 'y']]) : m,
       ),
       VALUES.map((m, i) =>
         i === 0 ? new Map<string, unknown>([['f:bold', BigInt(1)]]) : m,
@@ -229,11 +242,11 @@ describe('writeLayout3Formats', () => {
     ];
     for (const values of bad) {
       expect(() =>
-        doc.transact(tr => writeLayout3Formats(tr, root, values)),
+        doc.transact(tr => writeLayout4Formats(tr, root, values)),
       ).toThrow();
     }
     expect(() =>
-      other.transact(tr => writeLayout3Formats(tr, root, VALUES)),
+      other.transact(tr => writeLayout4Formats(tr, root, VALUES)),
     ).toThrow();
     expect(Y.encodeStateVector(doc)).toEqual(sv);
   });
@@ -241,11 +254,11 @@ describe('writeLayout3Formats', () => {
   test('a bound editor shows what it wrote, as a fresh reader does', async () => {
     const t = await setup(() => $getRoot().append($p('abc'), $p('next')));
     const root = t.a.doc.get('lexical-y');
-    const n = readLayout3Formats(root).length;
+    const n = readLayout4Formats(root).length;
     const values = Array.from({length: n}, (_, i) =>
       i === 1 ? new Map<string, unknown>([['f:bold', true]]) : new Map(),
     );
-    t.a.doc.transact(tr => writeLayout3Formats(tr, root, values));
+    t.a.doc.transact(tr => writeLayout4Formats(tr, root, values));
     await flush();
     await t.sync();
     for (const peer of [t.a, t.b, await freshReader(t.a)]) {
@@ -261,7 +274,7 @@ describe('writeLayout3Formats', () => {
     }
   });
 
-  test('the seed writes its covered formats as canonical layout 3 runs (D22 under layout 3)', async () => {
+  test('the seed writes its formats as canonical runs (D22)', async () => {
     const t = await setup(() =>
       $getRoot().append(
         $p('plain'),
@@ -290,12 +303,12 @@ describe('writeLayout3Formats', () => {
     expect(live).toEqual(['f:bold=true', 'f:bold=[3]']);
     // A second rewrite with what it reads changes neither the read nor the
     // layout (end distances aside: the seed writes its openers before the
-    // content, see SeedLayout3.test).
-    const read = readLayout3Formats(root);
+    // content, see SeedLayout4.test).
+    const read = readLayout4Formats(root);
     const shape = () => layout(root).replace(/=\[\d+\]/g, '=[end]');
     const before = shape();
-    t.a.doc.transact(tr => writeLayout3Formats(tr, root, read));
+    t.a.doc.transact(tr => writeLayout4Formats(tr, root, read));
     expect(shape()).toBe(before);
-    expect(readLayout3Formats(root)).toEqual(read);
+    expect(readLayout4Formats(root)).toEqual(read);
   });
 });

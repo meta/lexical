@@ -47,7 +47,7 @@ for (const gc of [false, true]) {
       $setSelection(null);
     });
     await t.sync();
-    expect(rootOf(t.a).getAttr('lexical-y:3')).toBe(true);
+    expect(rootOf(t.a).getAttr('lexical-y:4')).toBe(true);
     // A raw writer's document (createYDoc: no Yjs format cleanup).
     const raw = createYDoc(null, {gc});
     raw.clientID = 777;

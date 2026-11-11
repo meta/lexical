@@ -17,28 +17,26 @@ import {expect, test} from 'vitest';
 
 import {createYDoc} from '../../..';
 import {
+  isSeeding,
   keyInfoCount,
   keySlice,
   withSeeding,
-  writesPairedRuns,
 } from '../../../internal/Ident';
 
-test('seeding one document leaves paired writes on in another', () => {
+test('seeding one document leaves the writes of another as they are', () => {
   const seeded = createYDoc();
   const other = createYDoc();
-  const seededRoot = seeded.get('lexical-y');
-  const otherRoot = other.get('lexical-y');
-  expect(writesPairedRuns(seeded, seededRoot)).toBe(true);
+  expect(isSeeding(seeded)).toBe(false);
   withSeeding(seeded, () => {
-    expect(writesPairedRuns(seeded, seededRoot)).toBe(false);
-    expect(writesPairedRuns(other, otherRoot)).toBe(true);
+    expect(isSeeding(seeded)).toBe(true);
+    expect(isSeeding(other)).toBe(false);
     // nested seeding of the same document
     withSeeding(seeded, () => {
-      expect(writesPairedRuns(seeded, seededRoot)).toBe(false);
+      expect(isSeeding(seeded)).toBe(true);
     });
-    expect(writesPairedRuns(seeded, seededRoot)).toBe(false);
+    expect(isSeeding(seeded)).toBe(true);
   });
-  expect(writesPairedRuns(seeded, seededRoot)).toBe(true);
+  expect(isSeeding(seeded)).toBe(false);
 });
 
 test('interned key infos stay bounded across many set member keys', () => {

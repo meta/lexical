@@ -23,7 +23,10 @@ import {
 import {expect, test} from 'vitest';
 
 import {createYDoc, YBinding} from '../..';
-import {readLayout3Formats, writeLayout3Formats} from '../../internal/Layout3';
+import {
+  readLayout4Formats,
+  writeLayout4Formats,
+} from '../../migrate/3to4/frozen/layout4';
 import {flush} from '../utils/harness';
 
 class SizeGated extends TextNode {
@@ -72,7 +75,7 @@ for (const gc of [false, true])
       );
       b.initialize();
       await flush();
-      const values = readLayout3Formats(b.root);
+      const values = readLayout4Formats(b.root);
       // A distinct client owns "de", so "bc" and "de" are separate content items.
       doc.transact(() => {
         b.root.delete(3, 2);
@@ -80,7 +83,7 @@ for (const gc of [false, true])
       }, 'raw');
       await flush();
       doc.transact(tr =>
-        writeLayout3Formats(
+        writeLayout4Formats(
           tr,
           b.root,
           values.map((m, i) =>

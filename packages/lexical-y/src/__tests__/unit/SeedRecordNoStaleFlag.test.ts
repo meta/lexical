@@ -35,7 +35,7 @@ for (const gc of [false, true])
     e.update(() => $getRoot().append($p('abc')), {discrete: true});
     const app = new Y.UndoManager(root, {
       captureTimeout: 0,
-      deleteFilter: i => i.parentSub === 'lexical-y:3',
+      deleteFilter: i => i.parentSub === 'lexical-y:4',
       trackedOrigins: new Set(['outer']),
     });
     doc.transact(() => {
@@ -46,9 +46,9 @@ for (const gc of [false, true])
     await flush();
     // The record survives the undo (written again untracked after the outer
     // transaction, the binding disposed or not); remove it for this check.
-    expect(root.getAttr('lexical-y:3')).toBe(true);
-    doc.transact(() => root.deleteAttr('lexical-y:3'), 'raw');
-    expect(root.getAttr('lexical-y:3')).toBeUndefined();
+    expect(root.getAttr('lexical-y:4')).toBe(true);
+    doc.transact(() => root.deleteAttr('lexical-y:4'), 'raw');
+    expect(root.getAttr('lexical-y:4')).toBeUndefined();
     const e2 = createEditor({
       nodes: NODES,
       onError: x => {
@@ -66,7 +66,7 @@ for (const gc of [false, true])
     incoming.get('activity').setAttr('event', true);
     Y.applyUpdate(doc, Y.encodeStateAsUpdate(incoming), 'remote');
     incoming.destroy();
-    const after = root.getAttr('lexical-y:3') ?? null;
+    const after = root.getAttr('lexical-y:4') ?? null;
     expect(after).toBeNull();
     // The read-only binding wrote nothing.
     expect(doc.store.getClock(doc.clientID)).toBe(clock);

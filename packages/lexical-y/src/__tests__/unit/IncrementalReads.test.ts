@@ -83,7 +83,7 @@ test('text typed before the nested list a first item holds renumbers the list, a
   const nested = new Y.Node('i:list');
   doc.transact(() => {
     root.setAttr('lexical-y:1', true);
-    root.setAttr('lexical-y:3', true);
+    root.setAttr('lexical-y:4', true);
     root.setAttr('k:list', 'group|listType');
     root.setAttr('k:listitem', 'line');
     root.insert(0, [nested]);

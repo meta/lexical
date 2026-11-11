@@ -20,7 +20,7 @@ import {expect, test} from 'vitest';
 
 import {createYDoc} from '../..';
 import {isValidEnd, STORED_FOLD} from '../../internal/Ident';
-import {writeLayout3Formats} from '../../internal/Layout3';
+import {writeLayout4Formats} from '../../migrate/3to4/frozen/layout4';
 
 function root(d: Y.Doc): Y.Node {
   return d.share.has('app')
@@ -35,10 +35,10 @@ function source(gc: boolean, nested = false): Y.Doc {
   if (nested) {
     d.get('app').setAttr('editor', r);
   }
-  r.setAttr('lexical-y:3', true);
+  r.setAttr('lexical-y:4', true);
   r.insert(0, 'ab');
   d.transact(tr =>
-    writeLayout3Formats(tr, r, [
+    writeLayout4Formats(tr, r, [
       new Map([['f:bold', true]]),
       new Map([['f:bold', true]]),
     ]),

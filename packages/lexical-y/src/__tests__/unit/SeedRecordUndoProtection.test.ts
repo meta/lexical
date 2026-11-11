@@ -56,7 +56,7 @@ for (const gc of [false, true])
         );
         const app = new Y.UndoManager(root, {
           captureTimeout: 0,
-          deleteFilter: i => i.parentSub === 'lexical-y:3',
+          deleteFilter: i => i.parentSub === 'lexical-y:4',
           trackedOrigins: new Set<unknown>([
             mode === 'Object capture' ? Object : 'outer',
           ]),
@@ -80,10 +80,10 @@ for (const gc of [false, true])
         const seen: unknown[] = [];
         for (const u of updates) {
           Y.applyUpdate(receiver, u, 'remote');
-          seen.push(rroot.getAttr('lexical-y:3') ?? null);
+          seen.push(rroot.getAttr('lexical-y:4') ?? null);
         }
         expect(seen.every(v => v === true)).toBe(true);
-        expect(root.getAttr('lexical-y:3')).toBe(true);
+        expect(root.getAttr('lexical-y:4')).toBe(true);
         app.destroy();
         b.dispose();
         doc.destroy();

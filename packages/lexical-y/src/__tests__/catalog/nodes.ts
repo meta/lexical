@@ -68,6 +68,8 @@ import {
   $createTextNode,
   $getRoot,
   $setSlot,
+  $setState,
+  createState,
   type Klass,
   type LexicalNode,
   LineBreakNode,
@@ -254,6 +256,14 @@ export type Tag =
   /** Without text content. */
   | 'zero-text';
 
+/** Scalar NodeState of the catalog's `text/node-state` shape. */
+export const catalogTone = createState('catalog_tone', {
+  parse: v => (typeof v === 'string' ? v : ''),
+});
+export const catalogRank = createState('catalog_rank', {
+  parse: v => (typeof v === 'number' ? v : 0),
+});
+
 const $p = (...children: LexicalNode[]) =>
   $createParagraphNode().append(...children);
 const $t = (text: string) => $createTextNode(text);
@@ -356,6 +366,19 @@ export const NODE_SHAPES: readonly NodeShape[] = [
     $t(' styled').setStyle('color: red'),
     $t(' code').setFormat('code'),
   ]),
+  // NodeState stored flat on text (`s:<key>`, a paired run from layout 4
+  // on): a string, and a number under a text format.
+  inline(
+    'text/node-state',
+    'text',
+    [TextNode],
+    'lexical',
+    ['node-state'],
+    () => [
+      $setState($t('toned'), catalogTone, 'warm'),
+      $setState($t(' ranked').setFormat('bold'), catalogRank, 3),
+    ],
+  ),
   inline(
     'text/token',
     'text',
