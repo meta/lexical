@@ -155,20 +155,6 @@ const KNOWN_OPEN = new Map<string, {seen: string; per1000: number}>([
     },
   ],
   [
-    'carry:ending-phase-code-highlight-outside-code',
-    {
-      per1000: 8.5,
-      seen: 'the ending update re-tokenizes the held code line a collaborator joined into a paragraph and writes the tokens there',
-    },
-  ],
-  [
-    'carry:ending-phase-field',
-    {
-      per1000: 4.6,
-      seen: "the ending update re-tokenizes the held code line a collaborator joined into a paragraph and writes the tokens' styles there",
-    },
-  ],
-  [
     'carry:target-value',
     {
       per1000: 9.8,

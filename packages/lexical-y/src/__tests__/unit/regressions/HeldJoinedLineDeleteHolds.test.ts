@@ -82,7 +82,11 @@ for (const gc of [false, true]) {
         } as never);
       } finally {
         spy.mockRestore();
-        process.env.LANE_TRACE = prev;
+        if (prev === undefined) {
+          delete process.env.LANE_TRACE;
+        } else {
+          process.env.LANE_TRACE = prev;
+        }
       }
       const fresh =
         lines

@@ -266,7 +266,10 @@ function parseRange(
     // whose write was refused, while a collaborator's removal of that line
     // waited to be read) parsed the removed line as gone, and read its
     // text, still shown, into the line after it, where the next write
-    // stored it again.
+    // stored it again. Only content and ends: a line kept by the view alone
+    // (its marker deleted by the unread change) reads its attributes from
+    // that deleted marker, so as a paragraph until the change is read, and
+    // unit start formats still fold in the raw lane.
     if (isGoneIn(view, it) || !it.countable || isHeld(it, hidden)) {
       continue;
     }
