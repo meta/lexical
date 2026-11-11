@@ -12,7 +12,16 @@ import type {
   LexicalNode,
   EditorState,
   EditorThemeClasses,
+  ExtensionConfigBase,
+  LexicalExtension,
 } from 'lexical';
+
+declare export var HeadlessExtension: LexicalExtension<
+  ExtensionConfigBase,
+  '@lexical/headless/Headless',
+  void,
+  void,
+>;
 
 declare export function createHeadlessEditor(editorConfig?: {
   editorState?: EditorState,

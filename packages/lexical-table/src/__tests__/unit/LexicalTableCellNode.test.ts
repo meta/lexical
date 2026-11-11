@@ -10,7 +10,9 @@ import {$generateHtmlFromNodes, $generateNodesFromDOM} from '@lexical/html';
 import {
   $createTableCellNode,
   $isTableCellNode,
+  type SerializedTableCellNode,
   TableCellHeaderStates,
+  TableCellNode,
 } from '@lexical/table';
 import {$createTextNode, $getRoot, type DOMConversionOutput} from 'lexical';
 import {
@@ -31,6 +33,61 @@ const editorConfig = Object.freeze({
 
 describe('LexicalTableCellNode tests', () => {
   initializeUnitTest(testEnv => {
+    test('importJSON coerces out-of-domain span/width/verticalAlign', async () => {
+      const {editor} = testEnv;
+
+      await editor.update(() => {
+        // Everything a TableCellNode adds over an element, out of domain: the
+        // serialization schema replaced the historical `|| 1` / `|| undefined`
+        // parsing, so these fall back rather than being stored verbatim.
+        // Cast: these are values a legacy or hostile document can carry, not
+        // values the node's own type admits.
+        const json = {
+          colSpan: 0,
+          headerState: TableCellHeaderStates.NO_STATUS,
+          rowSpan: -3,
+          type: 'tablecell',
+          verticalAlign: 'nonsense',
+          width: 0,
+        } as SerializedTableCellNode;
+        const cell = TableCellNode.importJSON(json);
+        invariant($isTableCellNode(cell), 'expected a TableCellNode');
+        expect(cell.getColSpan()).toBe(1);
+        expect(cell.getRowSpan()).toBe(1);
+        expect(cell.getWidth()).toBeUndefined();
+        expect(cell.getVerticalAlign()).toBeUndefined();
+      });
+    });
+
+    test('importJSON round-trips in-domain values', async () => {
+      const {editor} = testEnv;
+
+      await editor.update(() => {
+        const json: SerializedTableCellNode = {
+          backgroundColor: '#fff',
+          children: [],
+          colSpan: 2,
+          direction: null,
+          format: '',
+          headerState: TableCellHeaderStates.ROW,
+          indent: 0,
+          rowSpan: 3,
+          type: 'tablecell',
+          version: 1,
+          verticalAlign: 'middle',
+          width: 120,
+        };
+        const cell = TableCellNode.importJSON(json);
+        invariant($isTableCellNode(cell), 'expected a TableCellNode');
+        expect(cell.getColSpan()).toBe(2);
+        expect(cell.getRowSpan()).toBe(3);
+        expect(cell.getWidth()).toBe(120);
+        expect(cell.getVerticalAlign()).toBe('middle');
+        expect(cell.getBackgroundColor()).toBe('#fff');
+        expect(cell.getHeaderStyles()).toBe(TableCellHeaderStates.ROW);
+      });
+    });
+
     test('TableCellNode.constructor', async () => {
       const {editor} = testEnv;
 

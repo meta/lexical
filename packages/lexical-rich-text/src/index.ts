@@ -24,6 +24,8 @@ import {
 import {
   $getNearestBlockElementAncestorOrThrow,
   $handleIndentAndOutdent,
+  $isAtEndOfNode,
+  $isAtStartOfNode,
   eventFiles,
   objectKlassEquals,
 } from '@lexical/utils';
@@ -55,11 +57,11 @@ import {
   $insertNodes,
   $isDecoratorNode,
   $isElementNode,
+  $isEventFromEmbeddedInput,
   $isNodeSelection,
   $isRangeSelection,
   $isRootNode,
   $isRootOrShadowRoot,
-  $isSelectionCapturedInDecoratorInput,
   $isShadowRootNode,
   $isSiblingCaret,
   $isTextNode,
@@ -75,10 +77,13 @@ import {
   $setState,
   $setTextFormat,
   addClassNamesToElement,
+  BEFORE_INPUT_COMMAND,
+  booleanValue,
   CAN_USE_BEFORE_INPUT,
   type CaretDirection,
   CLICK_COMMAND,
   COMMAND_PRIORITY_EDITOR,
+  COMMAND_PRIORITY_LOW,
   type CommandPayloadType,
   CONTROLLED_TEXT_INSERTION_COMMAND,
   COPY_COMMAND,
@@ -96,6 +101,7 @@ import {
   DROP_COMMAND,
   type EditorConfig,
   ElementNode,
+  enumValue,
   FORMAT_ELEMENT_COMMAND,
   FORMAT_TEXT_COMMAND,
   getDOMSelection,
@@ -103,10 +109,10 @@ import {
   INSERT_LINE_BREAK_COMMAND,
   INSERT_PARAGRAPH_COMMAND,
   INSERT_TAB_COMMAND,
+  INTERNAL_$expandSelectionToWholeDocument,
   IS_APPLE_WEBKIT,
   IS_IOS,
   IS_SAFARI,
-  isDOMNode,
   isHTMLElement,
   KEY_ARROW_DOWN_COMMAND,
   KEY_ARROW_LEFT_COMMAND,
@@ -121,11 +127,12 @@ import {
   type LexicalCommand,
   type LexicalEditor,
   type LexicalNode,
-  type LexicalUpdateJSON,
+  type LexicalParseJSON,
   mergeRegister,
   MOVE_TO_END,
   MOVE_TO_START,
   type NodeKey,
+  nodeSchema,
   type NodeSelection,
   OUTDENT_CONTENT_COMMAND,
   type ParagraphNode,
@@ -135,11 +142,18 @@ import {
   REMOVE_TEXT_COMMAND,
   SELECT_ALL_COMMAND,
   type SerializedElementNode,
+  type SerializedPartial,
   SET_TEXT_FORMAT_COMMAND,
   setNodeIndentFromDOM,
   type Spread,
   type TextFormatType,
+  withField,
 } from 'lexical';
+
+import {
+  GENERATED_HEADING,
+  GENERATED_QUOTE,
+} from './LexicalRichTextGeneratedJSON';
 
 export type SerializedHeadingNode = Spread<
   {
@@ -174,14 +188,29 @@ export type SerializedQuoteNode = Spread<
  * change to the legacy behavior (and nothing extra is serialized).
  */
 export const quoteShadowRootState = createState('shadowRoot', {
-  parse: Boolean,
+  // `booleanValue()`, not `Boolean`: the state's own serializer only ever
+  // writes `true`/`false`, so anything else was never produced by Lexical and
+  // is out of domain rather than a legacy form to coerce.
+  parse: booleanValue(),
 });
 
+// The serialized shape this node exports; the runtime implementation is the
+// schema-driven LexicalNode.exportJSON.
+// eslint-disable-next-line @typescript-eslint/no-unsafe-declaration-merging
+export interface QuoteNode {
+  exportJSON(compact?: false): SerializedQuoteNode;
+  exportJSON(compact: boolean): SerializedPartial<SerializedQuoteNode>;
+}
+
 /** @noInheritDoc */
+// eslint-disable-next-line @typescript-eslint/no-unsafe-declaration-merging
 export class QuoteNode extends ElementNode {
   $config() {
     return this.config('quote', {
+      // A shadow root quote (opt-in state) holds blocks instead.
+      children: 'inline',
       extends: ElementNode,
+      generated: GENERATED_QUOTE,
       importDOM: {
         blockquote: () => ({
           conversion: $convertBlockquoteElement,
@@ -248,20 +277,25 @@ export class QuoteNode extends ElementNode {
     };
   }
 
-  exportJSON(): SerializedQuoteNode {
-    return super.exportJSON();
-  }
-
-  static importJSON(serializedNode: SerializedQuoteNode): QuoteNode {
+  static importJSON(
+    serializedNode: SerializedPartial<SerializedQuoteNode>,
+  ): QuoteNode {
     return $createQuoteNode().updateFromJSON(serializedNode);
   }
 
   // Mutation
 
-  insertNewAfter(_: RangeSelection, restoreSelection?: boolean): ParagraphNode {
+  insertNewAfter(
+    rangeSelection: RangeSelection,
+    restoreSelection?: boolean,
+  ): ParagraphNode {
     const newBlock = $createParagraphNode();
+    newBlock.setTextFormat(rangeSelection.format);
+    newBlock.setTextStyle(rangeSelection.style);
     const direction = this.getDirection();
     newBlock.setDirection(direction);
+    newBlock.setFormat(this.getFormatType());
+    newBlock.setStyle(this.getStyle());
     this.insertAfter(newBlock, restoreSelection);
     return newBlock;
   }
@@ -308,14 +342,34 @@ export function $isQuoteNode(
 
 export type HeadingTagType = 'h1' | 'h2' | 'h3' | 'h4' | 'h5' | 'h6';
 
+// Single source of truth for parsing the node-specific properties of a
+// SerializedHeadingNode (those it adds over a SerializedElementNode).
+const headingNodeSchema = nodeSchema<HeadingNode>()({
+  // The tag *is* the field in both directions; getTag/setTag are bare
+  // accessors, so a subclass overriding either reclaims the property.
+  tag: withField(enumValue(['h1', 'h2', 'h3', 'h4', 'h5', 'h6']), {
+    field: '__tag',
+  }),
+});
+
+// eslint-disable-next-line @typescript-eslint/no-unsafe-declaration-merging
+export interface HeadingNode {
+  exportJSON(compact?: false): SerializedHeadingNode;
+  exportJSON(compact: boolean): SerializedPartial<SerializedHeadingNode>;
+  updateFromJSON(serializedNode: LexicalParseJSON<SerializedHeadingNode>): this;
+}
+
 /** @noInheritDoc */
+// eslint-disable-next-line @typescript-eslint/no-unsafe-declaration-merging
 export class HeadingNode extends ElementNode {
   /** @internal */
   __tag: HeadingTagType;
 
   $config() {
     return this.config('heading', {
+      children: 'inline',
       extends: ElementNode,
+      generated: GENERATED_HEADING,
       importDOM: {
         h1: () => ({conversion: $convertHeadingElement, priority: 0}),
         h2: () => ({conversion: $convertHeadingElement, priority: 0}),
@@ -349,12 +403,8 @@ export class HeadingNode extends ElementNode {
           return null;
         },
       },
+      json: headingNodeSchema,
     });
-  }
-
-  afterCloneFrom(prevNode: this): void {
-    super.afterCloneFrom(prevNode);
-    this.__tag = prevNode.__tag;
   }
 
   constructor(tag: HeadingTagType = 'h1', key?: NodeKey) {
@@ -414,31 +464,15 @@ export class HeadingNode extends ElementNode {
     };
   }
 
-  updateFromJSON(
-    serializedNode: LexicalUpdateJSON<SerializedHeadingNode>,
-  ): this {
-    return super.updateFromJSON(serializedNode).setTag(serializedNode.tag);
-  }
-
-  exportJSON(): SerializedHeadingNode {
-    return {
-      ...super.exportJSON(),
-      tag: this.getTag(),
-    };
-  }
-
   // Mutation
   insertNewAfter(
     selection?: RangeSelection,
     restoreSelection = true,
   ): ParagraphNode | HeadingNode {
-    const anchorOffet = selection ? selection.anchor.offset : 0;
     const lastDesc = this.getLastDescendant();
     const isAtEnd =
-      !lastDesc ||
-      (selection &&
-        selection.anchor.key === lastDesc.getKey() &&
-        anchorOffet === lastDesc.getTextContentSize());
+      !lastDesc || (selection && $isAtEndOfNode(selection.anchor, this));
+    const isAtStart = selection && $isAtStartOfNode(selection.anchor, this);
     const newElement =
       isAtEnd || !selection
         ? $createParagraphNode()
@@ -450,7 +484,7 @@ export class HeadingNode extends ElementNode {
     const direction = this.getDirection();
     newElement.setDirection(direction);
     this.insertAfter(newElement, restoreSelection);
-    if (anchorOffet === 0 && !this.isEmpty() && selection) {
+    if (isAtStart && !this.isEmpty()) {
       const paragraph = $createParagraphNode();
       paragraph.select();
       this.replace(paragraph, true);
@@ -549,6 +583,20 @@ async function onCutForRichText(
   event: CommandPayloadType<typeof CUT_COMMAND>,
   editor: LexicalEditor,
 ): Promise<void> {
+  // Widen a whole-document range to the blocks themselves *before* the copy, so
+  // the clipboard carries exactly what the removal below takes out: Cmd+X then
+  // Cmd+V has to restore the heading, quote or list it took, not just its text
+  // (#5835). A collapsed caret cuts nothing and is left alone. Tagged like the
+  // removal so the two stay one entry in history.
+  editor.update(
+    () => {
+      const selection = $getSelection();
+      if ($isRangeSelection(selection) && !selection.isCollapsed()) {
+        INTERNAL_$expandSelectionToWholeDocument(selection);
+      }
+    },
+    {discrete: true, tag: CUT_TAG},
+  );
   await copyToClipboard(
     editor,
     objectKlassEquals(event, ClipboardEvent) ? event : null,
@@ -574,8 +622,13 @@ async function onCutForRichText(
 export {eventFiles} from '@lexical/utils';
 
 function $isTargetWithinDecorator(target: HTMLElement): boolean {
-  const node = $getNearestNodeFromDOMNode(target);
-  return $isDecoratorNode(node);
+  // A decorator's slot is an editing host of its own, so a key event that
+  // targets the slot itself is editing editor content, while any other
+  // target in the decorator (a native control, even inside the slot) is UI.
+  return (
+    $isDecoratorNode($getNearestNodeFromDOMNode(target)) &&
+    !(isHTMLElement(target) && target.hasAttribute('data-lexical-slot'))
+  );
 }
 
 function $isSelectionAtEndOfRoot(selection: RangeSelection) {
@@ -586,6 +639,35 @@ function $isSelectionAtEndOfRoot(selection: RangeSelection) {
 function $isSelectionAtStartOfRoot(selection: RangeSelection) {
   const focus = selection.focus;
   return focus.key === 'root' && focus.offset === 0;
+}
+
+/**
+ * True when the selection is a collapsed element point at the very start or
+ * end of the root, beside a child that renders a block cursor (a decorator, a
+ * table or another shadow root). There is nothing past the block cursor to
+ * move to, so horizontal arrow navigation in that direction has to be a no-op.
+ * Left to the browser, the native caret escapes to the other side of the block
+ * instead and the caret appears to cycle around it. See #7999.
+ */
+function $isBlockCursorAtRootEdge(
+  selection: RangeSelection,
+  direction: CaretDirection,
+): boolean {
+  if (!selection.isCollapsed()) {
+    return false;
+  }
+  const isNext = direction === 'next';
+  if (
+    !(isNext
+      ? $isSelectionAtEndOfRoot(selection)
+      : $isSelectionAtStartOfRoot(selection))
+  ) {
+    return false;
+  }
+  const offset = selection.focus.offset;
+  return $needsBlockCursorBeside(
+    $getRoot().getChildAtIndex(isNext ? offset - 1 : offset),
+  );
 }
 
 function $isSelectionCollapsedAtFrontOfIndentedBlock(
@@ -1222,7 +1304,7 @@ export function registerRichText(
           // node (its own click handler may select it, open an editor, …),
           // not a deselect gesture. Keep the selection when the click target
           // is inside the selected node's DOM; clicking anywhere else still
-          // deselects (facebook/lexical#8907).
+          // deselects (meta/lexical#8907).
           const eventTarget = event.target;
           if (isHTMLElement(eventTarget)) {
             for (const node of selection.getNodes()) {
@@ -1372,6 +1454,34 @@ export function registerRichText(
         return true;
       },
       COMMAND_PRIORITY_EDITOR,
+    ),
+    editor.registerCommand(
+      BEFORE_INPUT_COMMAND,
+      event => {
+        const selection = $getSelection();
+        // A node selection has no DOM caret, so the browser would put typed
+        // text at the top of the document. Move the caret past the decorator
+        // first and let the default handler take it from there.
+        if ($isNodeSelection(selection) && event.inputType === 'insertText') {
+          const nodes = selection.getNodes();
+          if (
+            nodes.length === 1 &&
+            $isDecoratorNode(nodes[0]) &&
+            !nodes[0].isInline()
+          ) {
+            const next = nodes[0].getNextSibling();
+            if ($isElementNode(next) && !next.isInline()) {
+              next.selectStart();
+            } else {
+              const paragraph = $createParagraphNode();
+              nodes[0].insertAfter(paragraph);
+              paragraph.select();
+            }
+          }
+        }
+        return false;
+      },
+      COMMAND_PRIORITY_LOW,
     ),
     editor.registerCommand(
       INSERT_LINE_BREAK_COMMAND,
@@ -1562,12 +1672,16 @@ export function registerRichText(
         if (!$isRangeSelection(selection)) {
           return false;
         }
+        const leftDirection = $isParentRTL(selection.anchor.getNode())
+          ? 'next'
+          : 'previous';
+        if ($isBlockCursorAtRootEdge(selection, leftDirection)) {
+          event.preventDefault();
+          return true;
+        }
         if (
           !event.shiftKey &&
-          $tryBlockCursorShadowRootNavigation(
-            selection,
-            $isParentRTL(selection.anchor.getNode()) ? 'next' : 'previous',
-          )
+          $tryBlockCursorShadowRootNavigation(selection, leftDirection)
         ) {
           event.preventDefault();
           return true;
@@ -1616,12 +1730,16 @@ export function registerRichText(
         if (!$isRangeSelection(selection)) {
           return false;
         }
+        const rightDirection = $isParentRTL(selection.anchor.getNode())
+          ? 'previous'
+          : 'next';
+        if ($isBlockCursorAtRootEdge(selection, rightDirection)) {
+          event.preventDefault();
+          return true;
+        }
         if (
           !event.shiftKey &&
-          $tryBlockCursorShadowRootNavigation(
-            selection,
-            $isParentRTL(selection.anchor.getNode()) ? 'previous' : 'next',
-          )
+          $tryBlockCursorShadowRootNavigation(selection, rightDirection)
         ) {
           event.preventDefault();
           return true;
@@ -1669,7 +1787,7 @@ export function registerRichText(
           // after Backspace. Returning false here skips event.preventDefault()
           // on keydown; the beforeinput deleteContentBackward handler still runs
           // and performs the deletion, so editing behavior is unchanged.
-          // See https://github.com/facebook/lexical/issues/5841
+          // See https://github.com/meta/lexical/issues/5841
           if (IS_IOS && CAN_USE_BEFORE_INPUT) {
             return false;
           }
@@ -1795,7 +1913,22 @@ export function registerRichText(
                 $normalizeSelection__EXPERIMENTAL(selection);
               $setSelection(normalizedSelection);
             }
-            editor.dispatchCommand(DRAG_DROP_PASTE, files);
+          }
+          // The drop point does not always resolve to a caret (the browser
+          // returns nothing for e.g. the editor's padding). We still consume
+          // the event below, so the files have to be forwarded regardless,
+          // otherwise the drop is silently discarded. PASTE_COMMAND already
+          // dispatches DRAG_DROP_PASTE unconditionally.
+          const handled = editor.dispatchCommand(DRAG_DROP_PASTE, files);
+          // iOS can expose keyboard emoji drags as text files. If no file
+          // handler accepts them, let WebKit resolve the text and dispatch
+          // beforeinput insertFromDrop with its text DataTransfer.
+          if (
+            !handled &&
+            IS_IOS &&
+            files.every(file => file.type === 'text/plain')
+          ) {
+            return false;
           }
           event.preventDefault();
           return true;
@@ -1884,6 +2017,12 @@ export function registerRichText(
     editor.registerCommand(
       COPY_COMMAND,
       event => {
+        // A copy in an input embedded in a node's DOM, such as a decorator's,
+        // is the input's, as are a cut and a paste below: the editor's
+        // selection is still the one it had before the input took the focus.
+        if ($isEventFromEmbeddedInput(event)) {
+          return false;
+        }
         copyToClipboard(
           editor,
           objectKlassEquals(event, ClipboardEvent) ? event : null,
@@ -1895,6 +2034,9 @@ export function registerRichText(
     editor.registerCommand(
       CUT_COMMAND,
       event => {
+        if ($isEventFromEmbeddedInput(event)) {
+          return false;
+        }
         onCutForRichText(event, editor);
         return true;
       },
@@ -1904,16 +2046,15 @@ export function registerRichText(
       PASTE_COMMAND,
       event => {
         const [, files, hasTextContent] = eventFiles(event);
-        if (shouldHandlePasteAsFiles.peek()(files, hasTextContent)) {
-          editor.dispatchCommand(DRAG_DROP_PASTE, files);
+        if (
+          shouldHandlePasteAsFiles.peek()(files, hasTextContent) &&
+          editor.dispatchCommand(DRAG_DROP_PASTE, files)
+        ) {
           return true;
         }
 
         // if inputs then paste within the input ignore creating a new node on paste event
-        if (
-          isDOMNode(event.target) &&
-          $isSelectionCapturedInDecoratorInput(event.target)
-        ) {
+        if ($isEventFromEmbeddedInput(event)) {
           return false;
         }
 
@@ -2070,7 +2211,6 @@ export {
 export {
   type RichTextConfig,
   RichTextExtension,
-  RichTextImportExtension,
 } from './LexicalRichTextExtension';
 export {
   QuoteAnnounceExtension,

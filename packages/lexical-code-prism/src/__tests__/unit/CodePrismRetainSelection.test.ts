@@ -6,6 +6,8 @@
  *
  */
 
+// @vitest-environment node
+
 import {$createCodeNode, $isCodeNode} from '@lexical/code-core';
 import {CodePrismExtension} from '@lexical/code-prism';
 import {buildEditorFromExtensions} from '@lexical/extension';

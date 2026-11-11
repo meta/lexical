@@ -84,6 +84,48 @@ const editor = buildEditorFromExtensions(
 );
 ```
 
+### Errors and warnings
+
+`onError` and `onWarn` are root properties too. `onError` receives errors
+an update could not recover from; it throws by default. `onWarn` receives
+recoverable, warn-level conditions the editor or a package has already
+handled (an update listener that keeps scheduling updates, a selection
+listener that keeps changing the selection); by default it throws in
+development, so the
+condition is hard to miss, and calls `console.warn` in production.
+
+A package that reports a condition with a stable code passes a
+`LexicalWarning` to `onWarn`. It is an `Error` with a `code` namespaced by
+the package (such as `'@example/importer/skipped-element'`) and optional `data` for
+programs, documented with each code; the message is for people and may
+change.
+
+```ts
+import {defineExtension, LexicalWarning} from 'lexical';
+
+const AppExtension = defineExtension({
+  name: '@example/app',
+  onWarn(error, editor) {
+    if (error instanceof LexicalWarning) {
+      switch (error.code) {
+        case '@example/importer/skipped-element':
+          showImportNotice(editor, error.data);
+          break;
+        default:
+          break;
+      }
+      reportWarning(error.code, error.message, error.data);
+      return;
+    }
+    console.warn(error);
+  },
+});
+```
+
+Each package documents the codes it reports. Treat them as public API: a
+code is never renamed or reused for another condition, and new codes may be
+added in any release, so keep a `default` branch in a `switch` over codes.
+
 ## Extension Dependencies
 
 Lexical Extensions have two ways for extensions to depend on and specify
@@ -130,8 +172,10 @@ built with the editor. You can use
 [declarePeerDependency](/docs/api/modules/lexical#declarepeerdependency) to
 build this array with type inference.
 
-Since these are optional and by name, the graph between `peerDependencies`
-are not restricted. Loops are allowed.
+Since these are optional and by name, an extension may declare a peer it does
+not import. The graph must still be acyclic: peer edges take part in the same
+topological sort as `dependencies`, so two extensions that peer-depend on each
+other and are both present will fail to build.
 
 This is rarely needed in practice and is considered an advanced use case,
 typically to avoid a direct import or dependency loop. See
@@ -149,7 +193,11 @@ in the same editor.
 ```ts
 export const PlainTextExtension = defineExtension({
   conflictsWith: ['@lexical/rich-text'],
-  dependencies: [DragonExtension],
+  dependencies: [
+    DragonExtension,
+    NormalizeInlineElementsExtension,
+    NormalizeTripleClickSelectionExtension,
+  ],
   name: '@lexical/plain-text',
   register: registerPlainText,
 });
@@ -221,7 +269,8 @@ This is rarely needed in practice and is considered an advanced use case.
 
 ### build
 
-The build phase happens just before the editor is constructed but after
+The build phase happens after the editor is constructed — it receives the
+`LexicalEditor` — but before [register](#register), and after
 [config](#config) and [init](#init). The return value of the `build`
 phase is `output` and is available for later phases.
 
@@ -239,18 +288,28 @@ commands that the extension implements, etc.
 export interface TabIndentationConfig {
   disabled: boolean;
   maxIndent: null | number;
+  /**
+   * By default, indents are set on all elements for which the
+   * {@link ElementNode.canIndent} returns true. This option allows you to set
+   * indents for specific nodes without overriding the method for others.
+   */
+  $canIndent: CanIndentPredicate;
 }
 export const TabIndentationExtension = defineExtension({
   build(editor, config, state) {
     return namedSignals(config);
   },
-  config: safeCast<TabIndentationConfig>({disabled: false, maxIndent: null}),
+  config: safeCast<TabIndentationConfig>({
+    $canIndent: $defaultCanIndent,
+    disabled: false,
+    maxIndent: null,
+  }),
   name: '@lexical/extension/TabIndentation',
   register(editor, config, state) {
-    const {disabled, maxIndent} = state.getOutput();
+    const {disabled, maxIndent, $canIndent} = state.getOutput();
     return effect(() => {
       if (!disabled.value) {
-        return registerTabIndentation(editor, maxIndent);
+        return registerTabIndentation(editor, maxIndent, $canIndent);
       }
     });
   },
@@ -261,8 +320,8 @@ export const TabIndentationExtension = defineExtension({
 
 This happens after the editor has been constructed. This is where you will
 register any commands, listeners, etc. that your extension needs. It can use
-the result of `init` or `build` via `state.getInit()` and `state.getOutput()`
-respectively.
+the result of `init` or `build` via `state.getInitResult()` and
+`state.getOutput()` respectively.
 
 The return value is a dispose function, typically the result of `mergeRegister`.
 

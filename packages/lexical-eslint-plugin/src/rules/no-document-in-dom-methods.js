@@ -20,7 +20,7 @@ const DOM_METHOD_NAMES = new Set([
 ]);
 
 /** @type {RuleModule} */
-module.exports.noDocumentInDomMethods = {
+export const noDocumentInDomMethods = {
   create(context) {
     // Tracks nesting depth inside DOM method bodies. Does not reset at nested
     // function boundaries — acceptable since DOM methods don't define callbacks

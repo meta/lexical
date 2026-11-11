@@ -8,50 +8,92 @@
 
 // @ts-check
 
-const {name, version} = require('../package.json');
-const {
-  noDocumentInDomMethods,
-} = require('./rules/no-document-in-dom-methods.js');
-const {rulesOfLexical} = require('./rules/rules-of-lexical.js');
+import {noDocumentInDomMethods} from './rules/no-document-in-dom-methods.js';
+import {rulesOfLexical} from './rules/rules-of-lexical.js';
+import {SOURCE_VERSION} from './version.js';
 
-// Legacy config format (ESLint 7-8)
-const legacyAll = {
-  plugins: ['@lexical'],
-  rules: {
-    '@lexical/rules-of-lexical': /** @type {'warn'|'error'|'off'}*/ ('warn'),
-  },
+/**
+ * @typedef {import('eslint').Rule.RuleModule} RuleModule
+ * @typedef {{plugins: {'@lexical': Plugin}; rules: {'@lexical/rules-of-lexical': 'warn' | 'error' | 'off'}}} FlatConfig
+ * @typedef {{meta: {name: string; version: string}; rules: Rules; configs: Configs}} Plugin
+ * @typedef {{'no-document-in-dom-methods': RuleModule; 'rules-of-lexical': RuleModule}} Rules
+ * @typedef {{all: FlatConfig; recommended: FlatConfig; 'flat/all': FlatConfig; 'flat/recommended': FlatConfig}} Configs
+ */
+
+// The plugin is assembled in functions declared free of side effects (and
+// called once each at module scope) rather than by statements at module
+// scope: a bundler keeps every module-scope property read and mutation, and
+// the build annotates these calls so that a bare import of this module
+// retains nothing.
+
+/**
+ * @returns {{name: string; version: string}}
+ *
+ * @__NO_SIDE_EFFECTS__
+ */
+function createMeta() {
+  // The build replaces process.env.LEXICAL_VERSION with a literal such as
+  // '0.50.0+prod.esm'; the build metadata is dropped so that `meta.version`
+  // is the package version, as it was when it was read from package.json.
+  const version = process.env.LEXICAL_VERSION ?? SOURCE_VERSION;
+  // Not one string literal: the www build rewrites the quoted npm names of
+  // the packages to their www module names (scripts/build.mjs), and
+  // `meta.name` is the npm name there too.
+  const name = ['@lexical', 'eslint-plugin'].join('/');
+  return {name, version: version.replace(/\+.*$/, '')};
+}
+
+/**
+ * @param {Plugin['meta']} pluginMeta
+ * @param {Rules} pluginRules
+ * @returns {Configs}
+ *
+ * @__NO_SIDE_EFFECTS__
+ */
+function createConfigs(pluginMeta, pluginRules) {
+  // The flat configs reference the plugin, and the plugin carries the
+  // configs, so the object the flat configs point at is created here with
+  // the same rules, meta, and (once built) configs as the default export.
+  /** @type {Plugin} */
+  const plugin = {
+    configs: /** @type {Configs} */ ({}),
+    meta: pluginMeta,
+    rules: pluginRules,
+  };
+  /** @type {FlatConfig} */
+  const flatAll = {
+    plugins: {
+      '@lexical': plugin,
+    },
+    rules: {
+      '@lexical/rules-of-lexical': 'warn',
+    },
+  };
+  // Flat configs (ESLint 9+). `flat/all` and `flat/recommended` are the
+  // names from when `all` and `recommended` were the legacy (ESLint 7-8)
+  // configs, kept as aliases.
+  /** @type {Configs} */
+  const pluginConfigs = {
+    all: flatAll,
+    'flat/all': flatAll,
+    'flat/recommended': flatAll,
+    recommended: flatAll,
+  };
+  plugin.configs = pluginConfigs;
+  return pluginConfigs;
+}
+
+export const meta = createMeta();
+
+/** @type {Rules} */
+export const rules = {
+  'no-document-in-dom-methods': noDocumentInDomMethods,
+  'rules-of-lexical': rulesOfLexical,
 };
 
-const plugin = {
-  configs: {
-    // Legacy configs (ESLint 7-8) - available under multiple names for compatibility
-    all: legacyAll,
-    // Flat configs (ESLint 9-10+) - placeholders, will be set below
-    'flat/all': /** @type {any} */ (null),
-    'flat/recommended': /** @type {any} */ (null),
-    'legacy-all': legacyAll,
-    'legacy-recommended': legacyAll,
-    recommended: legacyAll,
-  },
-  meta: {name, version},
-  rules: {
-    'no-document-in-dom-methods': noDocumentInDomMethods,
-    'rules-of-lexical': rulesOfLexical,
-  },
-};
+export const configs = createConfigs(meta, rules);
 
-// Flat config format (ESLint 9-10+)
-// Must be created after plugin is defined to avoid circular reference
-const flatAll = {
-  plugins: {
-    '@lexical': plugin,
-  },
-  rules: {
-    '@lexical/rules-of-lexical': 'warn' /** @type {'warn'|'error'|'off'}*/,
-  },
-};
+/** @type {Plugin} */
+const plugin = {configs, meta, rules};
 
-plugin.configs['flat/all'] = flatAll;
-plugin.configs['flat/recommended'] = flatAll;
-
-module.exports = plugin;
+export default plugin;

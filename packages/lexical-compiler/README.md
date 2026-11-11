@@ -4,7 +4,7 @@ Lexical's build-time compiler: source-to-source passes over Lexical code,
 delivered as a Vite/Rollup plugin and as plain transform functions for
 builds with no plugin API of their own.
 
-Today it does one thing — **tree-shaking**. It inserts `/* @__PURE__ */`
+The **tree-shaking** pass inserts `/* @__PURE__ */`
 annotations before module-scope calls to the side-effect-free factories
 (`defineExtension`, `createCommand`, `createState`, `safeCast`,
 `defineImportRule`, …) so bundlers can drop the extension, command, and rule
@@ -38,6 +38,21 @@ transform annotates every module-scope call, nested ones included.
 Calls inside function bodies, class fields, and static blocks are left alone —
 they are not evaluated when the module is initialized, so an annotation there
 has no effect on tree-shaking.
+
+Factory calls are not the only module-scope statements a bundler has to keep.
+esbuild and webpack keep, as a side effect, any property read
+(`navigator.userAgent`, `Date.now`, `SomeExtension.name`), any call or `new`
+they were not told is pure (`new RegExp(...)`, `Object.freeze(...)`,
+`[...].join(',')`), an array or object spread, an `in` test, a `try`
+statement, a mutation (`table.push(...)`, `Klass.static = ...`), and a class
+with a computed member — and everything such a statement references, which is
+how one `LexicalEditor.version = ...` after the class kept nearly all of
+`lexical` in a bundle that imported only `createCommand`. The fix is the same
+mechanism: move the work into a function declared `@__NO_SIDE_EFFECTS__` and
+call it at module scope, so that this transform annotates the call and a
+bundler can drop it when its result is unused. A call to a builtin or to a
+third-party function that cannot be declared is annotated by hand at the call
+site.
 
 ## Guaranteeing a definition can be dropped
 
@@ -122,7 +137,9 @@ in the module and annotates the call when that binding is:
   `@lexical/*` (configurable with `sources`). Every factory in
   `PURE_FACTORY_FUNCTIONS` is declared `@__NO_SIDE_EFFECTS__` in those
   packages, so the import is evidence enough. Aliased imports
-  (`import {defineExtension as define}`) are resolved too;
+  (`import {defineExtension as define}`) are resolved too, and so is a
+  default import from a Lexical module named for its export
+  (`import warnOnlyOnce from '@lexical/internal/warnOnlyOnce'`);
 - **declared in the same module with `@__NO_SIDE_EFFECTS__`**, or **imported
   from a relative module that declares it that way** — the imported file is
   read and parsed to check (turn this off with `relativeImports: false`).
@@ -227,3 +244,114 @@ than failing the build.
 
 The transform is idempotent: a call that already has a `/* @__PURE__ */` (or
 terser's `/* #__PURE__ */`) annotation immediately before it is left alone.
+
+## Subpath imports without tree-shaking
+
+`subpathImports` redirects named imports and re-exports from
+`@lexical/extension` to their public subpaths. For example,
+`import {namedSignals, defineExtension} from '@lexical/extension'` becomes
+imports from `@lexical/extension/namedSignals` and `lexical`. It reads the
+installed version's barrel, including aliases, rather than using a fixed
+list of symbols.
+
+```ts
+import {subpathImports} from '@lexical/compiler/SubpathImports';
+
+export default {
+  plugins: [subpathImports()],
+};
+```
+
+Use this Rollup/Vite plugin before dependency resolution. It accepts
+TypeScript, TSX and JavaScript, including CommonJS dependencies, standard
+decorators and legacy TypeScript parameter decorators, so it can run before
+or after TypeScript transpilation. Unlike `pureAnnotations`, it also helps
+builds that do not tree-shake: unused extension modules never become
+dependencies in the first place. It does not make an individual subpath
+smaller than that subpath's own dependency graph.
+
+Options:
+
+- `packages`: package names, or paths to their `package.json` files. Defaults
+  to `['@lexical/extension']`. Each package must publish its source files via
+  the `source` export condition and declare `sideEffects: false`. Only packages
+  with multiple public entries and transparent re-export barrels are narrowed;
+  executable root entries are left intact.
+- `root`: directory from which package names are resolved. Defaults to
+  `process.cwd()`. Use absolute package.json paths for an unbuilt checkout.
+- `parserPlugins`: extra `@babel/parser` plugins, appended to the defaults
+  for each filename. Accepts plugin names and `[name, options]` tuples, just
+  like `pureAnnotations`. Applies to consumers and package source files read
+  to derive the export mapping. For example, `parserPlugins: ['doExpressions']`
+  enables parsing that syntax; your downstream compiler must still transform it.
+  `flow` and `flowComments` are omitted for TypeScript filenames, so Flow
+  consumers can import TypeScript packages without enabling both languages
+  for the same file. This also applies to `pureAnnotations`.
+- `strict`: defaults to `false`. Set to `true` to reject unmappable default
+  imports, namespace imports, side-effect imports, star re-exports, dynamic
+  imports, TypeScript import assignments and `require` calls
+  targeting a barrel. These forms load the whole namespace and cannot be
+  narrowed safely. With the default setting they keep their original
+  behavior. An explicitly re-exported default is narrowed like a named export.
+  Checks include access inside exported declarations. Type-only imports are
+  preserved and erased by TypeScript. String literals and template literals
+  without substitutions are checked; computed module names cannot be narrowed.
+
+In Rollup watch builds and Vite development servers, changes to the package export
+map or barrel bindings refresh the mapping and invalidate cached consumer
+transforms. Vite also includes those consumers in the hot update even when
+rewriting removed the barrel from their dependency graph.
+
+Relative imports between public entry points are also converted to package
+subpaths. Lexical's package build keeps those subpaths external, so a shared
+module such as `signals` has one instance across entries. The plugin does
+not change a bundler's external configuration: a downstream application can
+bundle the subpaths together normally.
+
+Lexical runs this pass in strict mode for all its published package builds,
+including www. Consumers can continue to import the complete barrel API
+without using any compiler plugin. Barrel and subpath exports reference the
+same functions, classes, extensions and signals runtime.
+
+In this repository, source code imports from the `@lexical/extension` barrel
+across package boundaries and uses relative imports within that package,
+including the barrel's own re-exports. ESLint enforces this convention;
+the compiler handles the published subpath layout. Direct subpath imports
+remain supported for downstream consumers, including applications that need
+small bundles without tree-shaking or the compiler plugin.
+
+## SchemaJsonCodegen
+
+The package's second entry point, `@lexical/compiler/SchemaJsonCodegen`, is
+not part of the plugin pipeline: it is the library a code generator uses to
+turn a node's declarative serialization schema (the `json` property of
+`$config`) into straight-line JavaScript. Lexical's own
+`scripts/generate-node-json.mjs` uses it to generate the specialized
+`exportJSON`/`updateFromJSON` implementations the built-in nodes ship with.
+
+- `compileParse(meta, defaultValue, tableBaseName)` compiles a schema's
+  introspectable `meta` into a JavaScript expression over `v` that parses
+  exactly as the schema does, plus any lookup tables the expression refers
+  to. Only the kinds whose meta fully determines the parse are compiled
+  (strings, numbers, booleans, enums, and `aliasedValue` tables); the rest
+  throw `NotCompilable` rather than emit a guess.
+- Compiling is not trusting: `verifyCompiledParse` runs the compiled
+  expression against the real schema over `verificationCorpus(meta)` — every
+  value the schema names plus a fixed set of hostile inputs,
+  `Object.prototype` member names included — and throws naming the first
+  value they disagree on. `verifyTableCoversDomain` proves an emitted lookup
+  table total over a schema's domain, so its miss-fallback is dead code.
+- The compact form's comparisons are compiled the same way.
+  `compileDiffersFromDefault(schema, name)` states the test that a value is
+  not the schema's default — a literal for a primitive default, and the
+  length test `arrayValue`'s equality reduces to for an empty-array default —
+  and `verifyDiffersFromDefault` runs it against the schema's own `isEqual`
+  over the corpus.
+- `NUM_HELPER_SOURCE` and `JSON_NUMBER_SOURCE` are the number-parsing helper
+  as source text, so an emitted module and the verification share one
+  definition rather than two copies that could drift; `NUM_RANGE_HELPER_SOURCE`
+  is the constrained-domain variant.
+
+The corpus is fixed rather than sampled, so a generator built on this
+produces byte-reproducible output — which is what lets generated files be
+checked in and drift-tested against regeneration.

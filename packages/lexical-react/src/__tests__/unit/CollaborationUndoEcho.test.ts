@@ -6,9 +6,11 @@
  *
  */
 
+// @vitest-environment node
+
 /**
  * Regression test for the "empty-paragraph echo" on collaborative undo
- * (facebook/lexical#8651, issue #6614).
+ * (meta/lexical#8651, issue #6614).
  *
  * The React collaboration test harness in ./utils relays Yjs updates
  * SYNCHRONOUSLY (re-entrantly, inside the sender's transaction), which serializes
@@ -30,6 +32,7 @@
  */
 
 import {
+  type Binding,
   createBinding,
   createUndoManager,
   type Provider,
@@ -105,7 +108,7 @@ type Peer = {
   name: string;
   doc: Y.Doc;
   editor: LexicalEditor;
-  binding: ReturnType<typeof createBinding>;
+  binding: Binding;
   awareness: Awareness;
 };
 

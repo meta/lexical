@@ -6,6 +6,8 @@
  *
  */
 
+// @vitest-environment node
+
 import {$unwrapAndFilterDescendants} from '@lexical/utils';
 import {
   $createParagraphNode,

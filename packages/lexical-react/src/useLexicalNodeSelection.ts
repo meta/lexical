@@ -21,9 +21,9 @@ import {useCallback, useEffect, useState} from 'react';
 /**
  * A helper function to determine if a specific node is selected in a Lexical editor.
  *
- * @param {LexicalEditor} editor - The LexicalEditor instance.
- * @param {NodeKey} key - The key of the node to check.
- * @returns {boolean} Whether the node is selected.
+ * @param editor - The LexicalEditor instance.
+ * @param key - The key of the node to check.
+ * @returns Whether the node is selected.
  */
 
 function isNodeSelected(editor: LexicalEditor, key: NodeKey): boolean {
@@ -46,10 +46,13 @@ function isNodeSelected(editor: LexicalEditor, key: NodeKey): boolean {
  * - Update its selection state.
  * - Clear the selection.
  *
- * @param {NodeKey} key - The key of the node to track selection for.
- * @returns {[boolean, (selected: boolean) => void, () => void]} A tuple containing:
+ * @param key - The key of the node to track selection for.
+ * @returns A tuple containing:
  * - `isSelected` (boolean): Whether the node is currently selected.
  * - `setSelected` (function): A function to set the selection state of the node.
+ *   `setSelected(false)` is a no-op when the node is not part of the current
+ *   selection, so that deselecting something already unselected cannot discard
+ *   the user's caret.
  * - `clearSelected` (function): A function to clear the selection of the node.
  *
  */
@@ -84,6 +87,19 @@ export function useLexicalNodeSelection(
         let selection = $getSelection();
 
         if (!$isNodeSelection(selection)) {
+          const node = selected ? null : $getNodeByKey(key);
+          if (node !== null && !node.isSelected()) {
+            // Nothing to remove: this node is not part of the current
+            // selection, and replacing it with an empty NodeSelection would
+            // discard the user's caret for no benefit.
+            return;
+          }
+          // Deselecting a node the selection *does* cover still has to take
+          // effect, or the `clearSelection(); setSelected(!isSelected)` toggle
+          // that HorizontalRuleNode, BlockWithAlignableContents and the
+          // playground decorators use becomes a dead click under a
+          // RangeSelection: isSelected() is true for those, so the toggle
+          // arrives here with `false` and the node could never be selected.
           selection = $createNodeSelection();
           $setSelection(selection);
         }

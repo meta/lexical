@@ -4,19 +4,28 @@ sidebar_position: 1
 
 # React
 
+:::note
+
+This page uses `@lexical/yjs`, the Yjs 13 binding. For a new editor on Yjs
+14, see [Yjs 14 (`@lexical/y`)](./y.md): a separate binding with its own
+document layout, set up as an extension (`YCollabExtension`) rather than
+with `LexicalCollaborationPlugin`. A document uses one binding or the other.
+
+:::
+
 Lexical provides `LexicalCollaborationPlugin` and `useCollaborationContext` hook within `@lexical/react` to accelerate creation of the collaborative React backed editors.
 This is on top of the Yjs bindings provided by `@lexical/yjs`.
 
 
 :::tip
 
-Clone [Lexical GitHub repo](https://github.com/facebook/lexical), run `npm i && npm run start` and open [`http://localhost:3000/split/?isCollab=true`](http://localhost:3000/split/?isCollab=true) to launch playground in collaborative mode.
+Clone [Lexical GitHub repo](https://github.com/meta/lexical), run `pnpm i && pnpm run start` and open [`http://localhost:3000/split/?isCollab=true`](http://localhost:3000/split/?isCollab=true) to launch playground in collaborative mode.
 
 :::
 
 ## Getting started
 
-This guide is based on [examples/react-rich](https://github.com/facebook/lexical/tree/main/examples/react-rich) example.
+This guide is based on [examples/react-rich](https://github.com/meta/lexical/tree/main/examples/react-rich) example.
 
 **Install minimal set of the required dependencies:**
 ```bash
@@ -101,6 +110,7 @@ function Editor() {
         <CollaborationPlugin
           id="lexical/react-rich-collab"
           providerFactory={providerFactory}
+          shouldBootstrap={true}
         />
       </LexicalComposer>
     </LexicalCollaboration>
@@ -120,15 +130,15 @@ import type {CreateEditorArgs} from 'lexical';
 import {$getRoot, $createParagraphNode} from 'lexical';
 import {Doc} from 'yjs';
 
-import {withHeadlessCollaborationEditor} from './withHeadlessCollaborationEditor';
+import {withHeadlessCollaborationEditor} from './createHeadlessCollaborativeEditor';
 
 function createBootstrappedYDoc(nodes: CreateEditorArgs['nodes']): Doc {
-  return withHeadlessCollaborationEditor(nodes, (editor) => {
-    const yDoc = new Doc();
+  return withHeadlessCollaborationEditor(nodes, (editor, binding) => {
     editor.update(() => {
       $getRoot().append($createParagraphNode());
     }, {discrete: true});
-    return yDoc;
+    // binding.doc is the Doc the editor synced into
+    return binding.doc;
   });
 }
 ```
@@ -143,18 +153,91 @@ shouldBootstrap={true}
 
 ## See it in action
 
-Source code: [examples/react-rich-collab](https://github.com/facebook/lexical/tree/main/examples/react-rich-collab)
+Source code: [examples/react-rich-collab](https://github.com/meta/lexical/tree/main/examples/react-rich-collab)
 
-<iframe width="100%" height="600" src="https://stackblitz.com/github/facebook/lexical/tree/main/examples/react-rich-collab?embed=1&file=src%2FApp.tsx&terminalHeight=0&ctl=1&showSidebar=0&devtoolsheight=0&view=preview" sandbox="allow-forms allow-modals allow-popups allow-popups-to-escape-sandbox allow-presentation allow-same-origin allow-scripts"></iframe>
+<iframe width="100%" height="600" src="https://stackblitz.com/github/meta/lexical/tree/main/examples/react-rich-collab?embed=1&file=src%2FApp.tsx&terminalHeight=0&ctl=1&showSidebar=0&devtoolsheight=0&view=preview" sandbox="allow-forms allow-modals allow-popups allow-popups-to-escape-sandbox allow-presentation allow-same-origin allow-scripts"></iframe>
+
+## Sharing one Yjs document between editors
+
+By default a binding uses the `XmlText` shared type named `root` on the Yjs
+`Doc`, so each editor needs its own document. Two options let several editors
+live in one document instead, which is what applications like collaborative
+sticky notes or comment threads usually want:
+
+- `rootName` picks a different top-level shared type, one per editor:
+
+```jsx
+<CollaborationPlugin
+  id={`note-${noteId}`}
+  providerFactory={providerFactory}
+  rootName={`note-${noteId}`}
+  shouldBootstrap={true}
+/>
+```
+
+- `getXmlText` resolves the root yourself, for roots that are not top-level
+  shared types (for example an `XmlText` stored in a `Y.Map`). It takes
+  precedence over `rootName`:
+
+```jsx
+const getXmlText = useCallback(
+  (doc) => doc.getMap('notes').get(noteId),
+  [noteId],
+);
+
+<CollaborationPlugin
+  id={`note-${noteId}`}
+  providerFactory={providerFactory}
+  getXmlText={getXmlText}
+  shouldBootstrap={true}
+/>
+```
+
+Give each editor its own `id`, as above: the `id` keys the document map and the
+remote-cursor highlight registry, both of which are shared across the page, so
+two editors mounted under one `id` overwrite each other's entries.
+
+Both options are also available on `createYjsBinding` for non-React usage.
+
+:::warning
+
+The root is chosen when the binding is created, and a mounted editor cannot be
+repointed at another root: changing `rootName` or `getXmlText` afterwards has no
+effect. To switch documents, remount the **editor** — put a `key` that changes
+with the document on the component that owns the `LexicalComposer`. Remounting
+only the plugin is not enough: the editor would keep the previous document's
+content and write it into the newly selected root.
+
+:::
+
+`getXmlText` runs while the binding is constructed, before the provider has
+synced, so it has to resolve the root from whatever the local `Doc` holds at
+that moment — reaching into a `Y.Array` that the server has not sent yet throws.
+Either mount the editor only once the note exists locally, or have the callback
+create the missing shared type. Write it to be idempotent: it can run more than
+once for one editor (React StrictMode double-invokes render, and a remount
+builds a new binding), and a callback that unconditionally stores a new
+`XmlText` would throw away what the previous call stored.
+
+The returned `XmlText` is checked to be an `XmlText` that is integrated into the
+document; that it is not already driving another live binding is yours to
+guarantee, since a second binding over one root takes over the collab nodes
+cached on its shared types.
+
+The experimental `CollaborationPluginV2__EXPERIMENTAL` (and
+`createBindingV2__EXPERIMENTAL`) take the same two options, except that its
+root is an `XmlElement`, so the callback is named `getXmlElement`. Create that
+element as `new Y.XmlElement()` without a `nodeName`, which is how the root is
+recognized.
 
 ## Building collaborative plugins
 
 [Lexical Playground](https://playground.lexical.dev/) features set of the collaboration enabled plugins that integrate with primary document via `useCollaborationContext()` hook. Notable mentions:
 
-- [`CommentPlugin`](https://github.com/facebook/lexical/tree/main/packages/lexical-playground/src/plugins/CommentPlugin) - features use of the separate provider and Yjs room to sync comments.
-- [`ImageComponent`](https://github.com/facebook/lexical/blob/main/packages/lexical-playground/src/nodes/ImageComponent.tsx) - features use of the `LexicalNestedComposer` paired with `CollaborationPlugin`.
-- [`PollOptionComponent`](https://github.com/facebook/lexical/blob/main/packages/lexical-playground/src/nodes/PollComponent.tsx) - showcases poll implementation using `clientID` from Yjs context.
-- [`StickyComponent`](https://github.com/facebook/lexical/blob/main/packages/lexical-playground/src/nodes/StickyComponent.tsx) - features use of the `LexicalNestedComposer` paired with `CollaborationPlugin` as well as sticky note position real-time sync.
+- [`CommentPlugin`](https://github.com/meta/lexical/tree/main/packages/lexical-playground/src/plugins/CommentPlugin) - features use of the separate provider and Yjs room to sync comments.
+- [`ImageComponent`](https://github.com/meta/lexical/blob/main/packages/lexical-playground/src/nodes/ImageComponent.tsx) - features use of the `LexicalExtensionEditorComposer` for its nested caption editor.
+- [`PollOptionComponent`](https://github.com/meta/lexical/blob/main/packages/lexical-playground/src/nodes/PollComponent.tsx) - showcases poll implementation using `name` from the collaboration context.
+- [`StickyComponent`](https://github.com/meta/lexical/blob/main/packages/lexical-playground/src/nodes/StickyComponent.tsx) - features use of the `LexicalExtensionEditorComposer` for its nested editor as well as sticky note position real-time sync.
 
 :::note
 

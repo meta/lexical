@@ -6,6 +6,8 @@
  *
  */
 
+// @vitest-environment node
+
 import {buildEditorFromExtensions} from '@lexical/extension';
 import {$createHeadingNode, RichTextExtension} from '@lexical/rich-text';
 import {
@@ -17,6 +19,7 @@ import {
   $isRangeSelection,
   $isTextNode,
   defineExtension,
+  type ElementFormatType,
   type ParagraphNode,
 } from 'lexical';
 import {assert, describe, expect, test} from 'vitest';
@@ -94,6 +97,61 @@ describe('clearFormatting (Toolbar)', () => {
       expect(rest.hasFormat('bold')).toBe(true);
     });
   });
+
+  test.each([false, true])(
+    'clears only selected text across paragraphs (backward: %s)',
+    backward => {
+      using editor = createEditor();
+      editor.update(
+        () => {
+          const first = $createTextNode('Foo bar').toggleFormat('bold');
+          const second = $createTextNode('baz qux').toggleFormat('bold');
+          $getRoot()
+            .clear()
+            .append(
+              $createParagraphNode().append(first),
+              $createParagraphNode().append(second),
+            );
+          const selection = first.select();
+          if (backward) {
+            selection.setTextNodeRange(second, 4, first, 4);
+          } else {
+            selection.setTextNodeRange(first, 4, second, 4);
+          }
+        },
+        {discrete: true},
+      );
+
+      editor.update(() => clearFormatting(editor), {discrete: true});
+
+      editor.read(() => {
+        expect(
+          $getRoot()
+            .getChildren()
+            .map(paragraph => {
+              assert($isParagraphNode(paragraph));
+              return paragraph.getAllTextNodes().map(text => ({
+                bold: text.hasFormat('bold'),
+                text: text.getTextContent(),
+              }));
+            }),
+        ).toEqual([
+          [
+            {bold: true, text: 'Foo '},
+            {bold: false, text: 'bar'},
+          ],
+          [
+            {bold: false, text: 'baz '},
+            {bold: true, text: 'qux'},
+          ],
+        ]);
+        const selection = $getSelection();
+        assert($isRangeSelection(selection));
+        expect(selection.getTextContent()).toBe('bar\nbaz ');
+        expect(selection.isBackward()).toBe(backward);
+      });
+    },
+  );
 
   test('clears block formatting of an empty block with a collapsed selection', () => {
     using editor = createEditor();
@@ -289,3 +347,62 @@ describe('clearFormatting (Toolbar)', () => {
     });
   });
 });
+
+describe.each(['', 'right', 'center', 'justify'] as ElementFormatType[])(
+  'clearFormatting alignment %j',
+  alignment => {
+    test.each([
+      [0, false],
+      [0, true],
+      [2, false],
+      [2, true],
+    ] as const)(
+      'clears indent %s with text formatting %s',
+      (indent, formatted) => {
+        using editor = createEditor();
+        editor.update(
+          () => {
+            const first = $createTextNode('Hello');
+            const second = $createTextNode(' World');
+            const third = $createTextNode(' Test');
+            if (formatted) {
+              second.toggleFormat('bold');
+              third
+                .toggleFormat('bold')
+                .toggleFormat('italic')
+                .toggleFormat('underline');
+              third.setStyle(
+                'color: red; background-color: blue; font-size: 24px;',
+              );
+            }
+            const paragraph = $createParagraphNode().append(
+              first,
+              second,
+              third,
+            );
+            paragraph.setFormat(alignment);
+            paragraph.setIndent(indent);
+            $getRoot().clear().append(paragraph);
+            paragraph.select(0, paragraph.getChildrenSize());
+          },
+          {discrete: true},
+        );
+        editor.update(() => clearFormatting(editor), {discrete: true});
+        editor.read(() => {
+          const paragraph = $getFirstParagraph();
+          expect(paragraph.getFormatType()).toBe('');
+          expect(paragraph.getIndent()).toBe(0);
+          expect(paragraph.getTextContent()).toBe('Hello World Test');
+          const texts = paragraph.getAllTextNodes();
+          expect(texts).toHaveLength(1);
+          expect(texts[0].getFormat()).toBe(0);
+          expect(texts[0].getStyle()).toBe('');
+          const selection = $getSelection();
+          assert($isRangeSelection(selection));
+          expect(selection.format).toBe(0);
+          expect(selection.style).toBe('');
+        });
+      },
+    );
+  },
+);

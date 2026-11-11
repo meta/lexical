@@ -1,0 +1,34 @@
+/**
+ * Copyright (c) Meta Platforms, Inc. and affiliates.
+ *
+ * This source code is licensed under the MIT license found in the
+ * LICENSE file in the root directory of this source tree.
+ *
+ * @flow strict
+ */
+
+import type {LexicalCommand} from 'lexical';
+
+import type {MenuOption} from '@lexical/react/LexicalMenuOption';
+import type {TriggerFn} from '@lexical/react/LexicalTypeaheadMenuPlugin';
+
+declare export var PUNCTUATION: string;
+declare export var SCROLL_TYPEAHEAD_OPTION_INTO_VIEW_COMMAND: LexicalCommand<{
+  index: number,
+  option: MenuOption,
+}>;
+
+declare export function getScrollParent(
+  element: HTMLElement,
+  includeHidden?: boolean,
+): HTMLElement | HTMLBodyElement;
+
+declare export hook useBasicTypeaheadTriggerMatch(
+  trigger: string,
+  options: {
+    minLength?: number,
+    maxLength?: number,
+    punctuation?: string,
+    allowWhitespace?: boolean,
+  },
+): TriggerFn;

@@ -24,7 +24,7 @@ export function useLexicalIsTextContentEmpty(
   editor: LexicalEditor,
   trim?: boolean,
 ): boolean {
-  const [isEmpty, setIsEmpty] = useState(
+  const [isEmpty, setIsEmpty] = useState(() =>
     editor.read(
       'latest',
       $isRootTextContentEmptyCurry(editor.isComposing(), trim),
@@ -32,6 +32,18 @@ export function useLexicalIsTextContentEmpty(
   );
 
   useLayoutEffect(() => {
+    function resetIsEmpty() {
+      setIsEmpty(
+        editor.read(
+          'latest',
+          $isRootTextContentEmptyCurry(editor.isComposing(), trim),
+        ),
+      );
+    }
+    // The state was seeded on the first render only, so re-derive it whenever
+    // the inputs the effect depends on change -- otherwise a new editor or a
+    // new trim keeps reporting the previous answer until the next update.
+    resetIsEmpty();
     return editor.registerUpdateListener(({editorState}) => {
       const isComposing = editor.isComposing();
       const currentIsEmpty = editorState.read(

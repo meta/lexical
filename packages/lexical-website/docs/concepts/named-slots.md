@@ -167,6 +167,11 @@ The core API surface (all exported from `lexical`):
 - [`$getSlotFrame(node)`](/docs/api/modules/lexical#getslotframe) — the innermost slot value containing a node (the
   "frame" whose virtual shadow root scopes editing), or `null` when the node
   is not inside any slot.
+- [`$getSelectionSlotFrame(selection)`](/docs/api/modules/lexical#getselectionslotframe) — the slot frame a
+  selection lives in, or `null` when it is outside any slot. Selection-driven
+  exporters walk this frame instead of the root's children, because a
+  selection inside a slot never contains its host and a root walk would
+  export nothing. Works for every selection type, not just `RangeSelection`.
 - [`$isSlotHost(node)`](/docs/api/modules/lexical#isslothost) /
   [`$isSlotChild(node)`](/docs/api/modules/lexical#isslotchild) — type guards
   for the [`SlotHostNode`](/docs/api/modules/lexical#slothostnode) /
@@ -328,7 +333,9 @@ re-applying it from `updateDOM` so an editable toggle reaches the island.
   anchor's slot frame at every entry point (DOM resolution,
   [`$setSelection`](/docs/api/modules/lexical#setselection),
   and point mutation), so a mouse drag and a `shift+arrow` across the
-  boundary land on the same clamped result.
+  boundary land on the same clamped result. A focus in a slot of a host is
+  moved past the whole host, or to the edge of the host's own children when
+  the selection starts inside the host.
 - **Deletion stops at the boundary.** Backspace at the start of a slot and
   forward-Delete at its end are no-ops instead of merging across the virtual
   shadow root.
@@ -420,6 +427,10 @@ eagerly, so two clients
 concurrently setting *different* slot names for the first time merge
 per-entry instead of racing. Malformed or hostile remote entries are
 validated and skipped.
+
+The Yjs 14 binding, `@lexical/y`, stores each slot on its host's node under
+its own name, so slots of different names merge as well (see
+[How content is stored](../collaboration/y.md#how-content-is-stored)).
 
 :::caution
 

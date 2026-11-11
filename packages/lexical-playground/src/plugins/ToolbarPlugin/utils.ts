@@ -21,10 +21,7 @@ import {
 } from '@lexical/rich-text';
 import {$patchStyleText, $setBlocksType} from '@lexical/selection';
 import {$isTableSelection} from '@lexical/table';
-import {
-  $getNearestBlockElementAncestorOrThrow,
-  $isBlockFullySelected,
-} from '@lexical/utils';
+import {$getNearestBlockElementAncestorOrThrow} from '@lexical/utils';
 import {
   $addUpdateTag,
   $createParagraphNode,
@@ -33,6 +30,7 @@ import {
   $getEditor,
   $getSelection,
   $isBlockElementNode,
+  $isBlockFullySelected,
   $isLineBreakNode,
   $isRangeSelection,
   $isTextNode,

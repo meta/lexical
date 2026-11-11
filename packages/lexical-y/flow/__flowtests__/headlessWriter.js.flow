@@ -1,0 +1,38 @@
+/**
+ * Copyright (c) Meta Platforms, Inc. and affiliates.
+ *
+ * This source code is licensed under the MIT license found in the
+ * LICENSE file in the root directory of this source tree.
+ *
+ * @flow strict
+ */
+
+// Checked by `pnpm run flow` (not shipped): every editYState call decides
+// who it writes as.
+
+import type {HeadlessYConfig, YWriter} from '@lexical/y/headless';
+
+import {createYWriter, editYState} from '@lexical/y/headless';
+
+declare const state: Uint8Array;
+
+const config: HeadlessYConfig = {schemaVersion: 1};
+// $FlowExpectedError[incompatible-type] schemaVersion is required
+const unversioned: HeadlessYConfig = {};
+const $edit = () => {};
+const writer = createYWriter('agent');
+const author: string = writer.author;
+const clientID: number = editYState(state, config, $edit, {writer}).clientID;
+editYState(state, config, $edit, {writer: null});
+// $FlowExpectedError[incompatible-type] options, with a writer, are required
+editYState(state, config, $edit);
+// $FlowExpectedError[incompatible-type] writer is required: a writer, or null
+editYState(state, config, $edit, {});
+// $FlowExpectedError[incompatible-type] a writer comes from createYWriter
+editYState(state, config, $edit, {writer: {author: 'agent'}});
+// $FlowExpectedError[incompatible-type] a client id is not a writer
+editYState(state, config, $edit, {writer: 123});
+// $FlowExpectedError[incompatible-type] undefined is not a decision
+editYState(state, config, $edit, {writer: undefined});
+// $FlowExpectedError[incompatible-type] a writer cannot be written by hand
+const forged: YWriter = {author: 'agent'};

@@ -8,6 +8,23 @@
 
 export {type AutoFocusConfig, AutoFocusExtension} from './AutoFocusExtension';
 export {
+  $defaultIsIdentifiedBlock,
+  $getBlockById,
+  $getBlockHandle,
+  $getBlockHandles,
+  $getBlockId,
+  $isRootChildBlock,
+  $resolveBlockHandle,
+  type BlockHandleOptions,
+  type BlockHandleResult,
+  type BlockIdConfig,
+  BlockIdExtension,
+  type BlockIdOutput,
+  blockIdState,
+  generateBlockId,
+  MIN_BLOCK_HANDLE_LENGTH,
+} from './BlockIdExtension';
+export {
   type ClearEditorConfig,
   ClearEditorExtension,
   registerClearEditor,
@@ -40,6 +57,12 @@ export {
   getPeerDependencyFromEditorOrThrow,
 } from './getPeerDependencyFromEditor';
 export {
+  type HMRConfig,
+  HMRExtension,
+  type HMROutput,
+  type HotContext,
+} from './HMRExtension';
+export {
   $createHorizontalRuleNode,
   $isHorizontalRuleNode,
   HorizontalRuleExtension,
@@ -71,6 +94,11 @@ export {
   NodeSelectionDataSelectedExtension,
 } from './NodeSelectionDataSelectedExtension';
 export {NodeSelectionExtension} from './NodeSelectionExtension';
+export {
+  type NodeStructureConfig,
+  NodeStructureExtension,
+  registerNodeStructure,
+} from './NodeStructureExtension';
 export {
   type NormalizeInlineElementsConfig,
   NormalizeInlineElementsExtension,

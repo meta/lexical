@@ -23,6 +23,7 @@ import {
   $isTableSelection,
   $mergeCells,
   INSERT_TABLE_COMMAND,
+  TableCellHeaderStates,
   type TableCellNode,
   TableExtension,
   type TableNode,
@@ -516,6 +517,139 @@ describe('TableExtension', () => {
         ]);
       });
     });
+
+    test('pasting a table carries the cell backgroundColor and verticalAlign', () => {
+      editor.update(
+        () => {
+          const root = $getRoot().clear();
+          const table = $createTableNode();
+          const row = $createTableRowNode();
+          const cell = $createTableCellNode();
+          cell.append($createParagraphNode().append($createTextNode('old')));
+          row.append(cell);
+          table.append(row);
+          root.append(table);
+          cell.selectStart();
+        },
+        {discrete: true},
+      );
+
+      editor.update(
+        () => {
+          const template = $createTableNode();
+          const row = $createTableRowNode();
+          const cell = $createTableCellNode()
+            .setBackgroundColor('rgb(255, 0, 0)')
+            .setVerticalAlign('middle');
+          cell.append($createParagraphNode().append($createTextNode('new')));
+          row.append(cell);
+          template.append(row);
+          const selection = $getSelection();
+          assert(selection !== null, 'Expected a selection');
+          $insertGeneratedNodes(editor, [template], selection);
+        },
+        {discrete: true},
+      );
+
+      editor.read('latest', () => {
+        const table = $getRoot().getFirstChild();
+        assert($isTableNode(table), 'Expected table node');
+        const row = table.getFirstChild();
+        assert($isTableRowNode(row), 'Expected row node');
+        const cell = row.getFirstChild();
+        assert($isTableCellNode(cell), 'Expected cell node');
+        expect(cell.getTextContent()).toBe('new');
+        expect(cell.getBackgroundColor()).toBe('rgb(255, 0, 0)');
+        expect(cell.getVerticalAlign()).toBe('middle');
+      });
+    });
+  });
+
+  describe('$tableTransform padding', () => {
+    test('a short header row is padded with header cells', () => {
+      editor.update(
+        () => {
+          const root = $getRoot().clear();
+          const table = $createTableNode();
+          // First row is a header row but is one cell short.
+          const headerRow = $createTableRowNode();
+          headerRow.append(
+            $createTableCellNode(TableCellHeaderStates.ROW).append(
+              $createParagraphNode().append($createTextNode('h')),
+            ),
+          );
+          table.append(headerRow);
+          const bodyRow = $createTableRowNode();
+          for (const text of ['a', 'b']) {
+            bodyRow.append(
+              $createTableCellNode().append(
+                $createParagraphNode().append($createTextNode(text)),
+              ),
+            );
+          }
+          table.append(bodyRow);
+          root.append(table);
+        },
+        {discrete: true},
+      );
+
+      editor.read('latest', () => {
+        const table = $assertNodeType($getRoot().getFirstChild(), $isTableNode);
+        const rows = table.getChildren().filter($isTableRowNode);
+        const tags = rows.map(row =>
+          row
+            .getChildren()
+            .filter($isTableCellNode)
+            .map(cell => cell.getTag()),
+        );
+        expect(tags).toEqual([
+          ['th', 'th'],
+          ['td', 'td'],
+        ]);
+      });
+    });
+
+    test('a short body row is padded with body cells', () => {
+      editor.update(
+        () => {
+          const root = $getRoot().clear();
+          const table = $createTableNode();
+          const headerRow = $createTableRowNode();
+          for (const text of ['h1', 'h2']) {
+            headerRow.append(
+              $createTableCellNode(TableCellHeaderStates.ROW).append(
+                $createParagraphNode().append($createTextNode(text)),
+              ),
+            );
+          }
+          table.append(headerRow);
+          const bodyRow = $createTableRowNode();
+          bodyRow.append(
+            $createTableCellNode().append(
+              $createParagraphNode().append($createTextNode('a')),
+            ),
+          );
+          table.append(bodyRow);
+          root.append(table);
+        },
+        {discrete: true},
+      );
+
+      editor.read('latest', () => {
+        const table = $assertNodeType($getRoot().getFirstChild(), $isTableNode);
+        const rows = table.getChildren().filter($isTableRowNode);
+        const tags = rows.map(row =>
+          row
+            .getChildren()
+            .filter($isTableCellNode)
+            .map(cell => cell.getTag()),
+        );
+        expect(tags).toEqual([
+          ['th', 'th'],
+          ['td', 'td'],
+        ]);
+      });
+    });
   });
 
   describe('colWidths', () => {
@@ -889,7 +1023,7 @@ describe('TableExtension', () => {
       // root element is mounted. Regression test for the bug where the
       // pointerdown listener on editorWindow was never attached because
       // editor.getRootElement() was null at register() time, breaking drag
-      // selection. See https://github.com/facebook/lexical/issues/8491
+      // selection. See https://github.com/meta/lexical/issues/8491
       const container = document.createElement('div');
       document.body.appendChild(container);
       try {
@@ -950,6 +1084,69 @@ describe('TableExtension', () => {
         editor.setRootElement(null);
         document.body.removeChild(container);
       }
+    });
+  });
+
+  describe('triple click in a cell', () => {
+    let container: HTMLDivElement;
+
+    beforeEach(() => {
+      container = document.createElement('div');
+      container.contentEditable = 'true';
+      document.body.appendChild(container);
+      editor.setRootElement(container);
+    });
+
+    afterEach(() => {
+      editor.setRootElement(null);
+      container.remove();
+    });
+
+    it('selects the paragraph with text points, as a native selection of it resolves', () => {
+      let firstKey = '';
+      let lastKey = '';
+      editor.update(
+        () => {
+          const table = $createTableNodeWithDimensions(1, 2, false);
+          $getRoot().clear().append(table);
+          const row = $assertNodeType(table.getFirstChild(), $isTableRowNode);
+          const cell = $assertNodeType(row.getLastChild(), $isTableCellNode);
+          const paragraph = $assertNodeType(
+            cell.getFirstChild(),
+            $isParagraphNode,
+          );
+          const first = $createTextNode('Foo');
+          const last = $createTextNode('Bar').toggleFormat('bold');
+          paragraph.append(first, last);
+          firstKey = first.getKey();
+          lastKey = last.getKey();
+        },
+        {discrete: true},
+      );
+      const target = editor.getElementByKey(lastKey);
+      assert(target !== null, 'Expected the clicked text to be rendered');
+
+      // The third click's click event, with detail 3. The table cancels that
+      // click's mousedown, so the browser makes no selection of its own.
+      target.dispatchEvent(
+        new MouseEvent('click', {bubbles: true, cancelable: true, detail: 3}),
+      );
+
+      editor.read('force-commit', () => {
+        const selection = $getSelection();
+        assert($isRangeSelection(selection), 'Expected a RangeSelection');
+        const {anchor, focus} = selection;
+        expect([anchor.key, anchor.offset, anchor.type]).toEqual([
+          firstKey,
+          0,
+          'text',
+        ]);
+        expect([focus.key, focus.offset, focus.type]).toEqual([
+          lastKey,
+          3,
+          'text',
+        ]);
+      });
     });
   });
 

@@ -9,13 +9,20 @@
 import {
   $applyNodeReplacement,
   $getDocument,
+  addClassNamesToElement,
   type EditorConfig,
   type LexicalNode,
   type NodeKey,
+  nodeSchema,
   type SerializedTextNode,
   type Spread,
+  stringValue,
   TextNode,
 } from 'lexical';
+
+const emojiNodeSchema = nodeSchema<EmojiNode>()({
+  className: stringValue(),
+});
 
 export type SerializedEmojiNode = Spread<
   {
@@ -28,14 +35,23 @@ export class EmojiNode extends TextNode {
   __className: string;
 
   $config() {
-    return this.config('emoji', {extends: TextNode});
+    return this.config('emoji', {
+      extends: TextNode,
+      json: emojiNodeSchema,
+    });
   }
 
   static clone(node: EmojiNode): EmojiNode {
     return new EmojiNode(node.__className, node.__text, node.__key);
   }
 
-  constructor(className: string, text: string, key?: NodeKey) {
+  setClassName(className: string): this {
+    const self = this.getWritable();
+    self.__className = className;
+    return self;
+  }
+
+  constructor(className: string = '', text: string = '', key?: NodeKey) {
     super(text, key);
     this.__className = className;
   }
@@ -44,7 +60,9 @@ export class EmojiNode extends TextNode {
     const dom = $getDocument().createElement('span');
     const inner = super.createDOM(config);
     dom.className = this.__className;
-    inner.className = 'emoji-inner';
+    // Add to the class names TextNode.createDOM applied for the text formats
+    // rather than replacing them, otherwise a formatted emoji renders unstyled.
+    addClassNamesToElement(inner, 'emoji-inner');
     dom.appendChild(inner);
     return dom;
   }
@@ -54,22 +72,17 @@ export class EmojiNode extends TextNode {
     if (inner === null) {
       return true;
     }
-    super.updateDOM(prevNode, inner as HTMLElement, config);
-    return false;
-  }
-
-  static importJSON(serializedNode: SerializedEmojiNode): EmojiNode {
-    return $createEmojiNode(
-      serializedNode.className,
-      serializedNode.text,
-    ).updateFromJSON(serializedNode);
-  }
-
-  exportJSON(): SerializedEmojiNode {
-    return {
-      ...super.exportJSON(),
-      className: this.getClassName(),
-    };
+    // The outer span carries the class, which setClassName and the
+    // schema-driven updateFromJSON can change on an existing node; createDOM
+    // set it the same way.
+    if (prevNode.__className !== this.__className) {
+      dom.className = this.__className;
+    }
+    // TextNode.updateDOM returns true when the format change needs a different
+    // tag, in which case it has not touched the DOM at all and the element has
+    // to be recreated. Returning false regardless would promise the reconciler
+    // that the difference was already applied.
+    return super.updateDOM(prevNode, inner as HTMLElement, config);
   }
 
   getClassName(): string {

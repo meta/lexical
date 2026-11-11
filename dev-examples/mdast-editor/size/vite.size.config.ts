@@ -8,10 +8,10 @@
 import * as path from 'node:path';
 import {defineConfig} from 'vite';
 
-import lexicalMonorepoPlugin from '../../../scripts/vite/lexicalMonorepoPlugin';
+import lexicalMonorepoPlugin from '../../../scripts/vite/lexicalMonorepoPlugin.ts';
 
-// Selected by size/measure.mjs: 'legacy', 'mdast', or 'mdast-import'.
-const ENTRIES = ['legacy', 'mdast', 'mdast-import'];
+// Selected by size/measure.mjs: 'legacy' or 'mdast'.
+const ENTRIES = ['legacy', 'mdast'];
 const envEntry = process.env.SIZE_ENTRY ?? 'mdast';
 const entry = ENTRIES.includes(envEntry) ? envEntry : 'mdast';
 

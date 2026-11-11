@@ -1,0 +1,99 @@
+/**
+ * Copyright (c) Meta Platforms, Inc. and affiliates.
+ *
+ * This source code is licensed under the MIT license found in the
+ * LICENSE file in the root directory of this source tree.
+ *
+ * @flow strict
+ */
+
+/**
+ * LexicalCompilerSchemaJsonCodegen
+ */
+
+import type {
+  AnySerializationSchema,
+  SerializationSchemaMeta,
+} from 'lexical';
+
+export type SchemaJsonTable = {
+  name: string,
+  table: {readonly [key: string]: unknown},
+};
+
+// An expression, with whatever has to be bound before it is evaluated. A
+// collapsing wrapper over a parse that allocates or reads a table names it once
+// here rather than writing it into the expression twice, so a caller that emits
+// the expression without these statements emits an unbound name.
+export type CompiledExpression = {
+  expression: string,
+  statements: Array<string>,
+};
+
+export type CompileParseResult = {
+  ...CompiledExpression,
+  tables: Array<SchemaJsonTable>,
+  helpers: Array<string>,
+};
+
+export type VerifyCompiledParseOptions = {
+  schema: AnySerializationSchema,
+  expression: string,
+  statements?: ReadonlyArray<string>,
+  tables: ReadonlyArray<SchemaJsonTable>,
+  nullPrototypeTables?: ReadonlyArray<string>,
+};
+
+// How a compiled expression names the tables it reads: a prefix, or a callback
+// given the table and its index, which is what lets a caller share one emitted
+// table between the schemas that use the same object.
+export type TableNaming =
+  | string
+  | ((table: {readonly [key: string]: unknown}, index: number) => string);
+
+// How it names a local it binds. A callback rather than a prefix, because the
+// scope is the caller's: a generated parser applies every property of a class
+// in one function, so only the caller knows how many names have gone before.
+export type BindingNaming = () => string;
+
+declare export var JSON_NUMBER_SOURCE: string;
+declare export var NUM_BODY: string;
+declare export var NUM_RANGE_BODY: string;
+declare export var NUM_CLAMP_BODY: string;
+declare export var NUM_HELPER_SOURCE: string;
+declare export var NUM_RANGE_HELPER_SOURCE: string;
+declare export var NUM_CLAMP_HELPER_SOURCE: string;
+declare export class NotCompilable extends Error {}
+
+declare export function literal(value: unknown): string;
+
+declare export function compileParse(
+  meta: SerializationSchemaMeta,
+  defaultValue: unknown,
+  tableBaseName: TableNaming,
+  bindingName?: BindingNaming,
+): CompileParseResult;
+
+declare export function verificationCorpus(
+  meta: SerializationSchemaMeta,
+): Array<unknown>;
+
+declare export function verifyCompiledParse(
+  options: VerifyCompiledParseOptions,
+): void;
+
+declare export function verifyTableCoversDomain(options: {
+  schema: AnySerializationSchema,
+  table: {readonly [key: string]: unknown},
+}): void;
+
+declare export function compileDiffersFromDefault(
+  schema: AnySerializationSchema,
+  name: string,
+): string;
+
+declare export function verifyDiffersFromDefault(options: {
+  expression: string,
+  name: string,
+  schema: AnySerializationSchema,
+}): void;

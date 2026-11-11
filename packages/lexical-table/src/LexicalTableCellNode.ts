@@ -19,27 +19,89 @@ import {
   type DOMExportOutput,
   type EditorConfig,
   ElementNode,
+  enumValue,
   isHTMLElement,
   type LexicalEditor,
   type LexicalNode,
-  type LexicalUpdateJSON,
+  type LexicalParseJSON,
   type NodeKey,
+  nodeSchema,
+  nullable,
+  numberValue,
+  optional,
   type ParagraphNode,
   type SerializedElementNode,
+  type SerializedPartial,
   type Spread,
+  stringValue,
+  withAccessors,
+  withField,
 } from 'lexical';
 
 import {COLUMN_WIDTH, PIXEL_VALUE_REG_EXP} from './constants';
+import {GENERATED_TABLECELL} from './LexicalTableGeneratedJSON';
+
+// Declared as bindings and collected into the exported object, rather than
+// written as literals inside it, so that the schema below can name one without
+// a module-scope property read. Such a read is a side effect to esbuild and
+// webpack — it cannot see that the object has no getter — and it retains the
+// whole statement plus everything the statement references, which here is the
+// entire schema (#9120).
+const NO_STATUS = 0;
+const ROW = 1;
+const COLUMN = 2;
+const BOTH = 3;
 
 export const TableCellHeaderStates = {
-  BOTH: 3,
-  COLUMN: 2,
-  NO_STATUS: 0,
-  ROW: 1,
+  BOTH,
+  COLUMN,
+  NO_STATUS,
+  ROW,
 };
 
 export type TableCellHeaderState =
   (typeof TableCellHeaderStates)[keyof typeof TableCellHeaderStates];
+
+const tableCellNodeSchema = nodeSchema<TableCellNode>()({
+  // defaultAsNull preserves the legacy `backgroundColor || null` semantics:
+  // an empty string means "no background", which exportDOM checks for.
+  backgroundColor: withField(nullable(stringValue(), {defaultAsNull: true}), {
+    field: '__backgroundColor',
+  }),
+  // A span is a positive integer; 0 (the historical `|| 1` case), a negative,
+  // or a fractional span is out of domain and falls back to 1.
+  colSpan: withField(numberValue(1, {integer: true, min: 1}), {
+    field: '__colSpan',
+  }),
+  // Neither accessor is the conventional get<Prop>/set<Prop>: headerState is
+  // read through getHeaderStyles and applied through setHeaderStyles (with its
+  // default BOTH mask). The read is still the field, standing in for the
+  // getter so a subclass that overrides it reclaims the property; the write
+  // goes through the method, which supplies that mask.
+  headerState: withAccessors(numberValue(NO_STATUS), {
+    getter: {field: '__headerState', method: 'getHeaderStyles'},
+    setter: 'setHeaderStyles',
+  }),
+  rowSpan: withField(numberValue(1, {integer: true, min: 1}), {
+    field: '__rowSpan',
+  }),
+  // The domain exportJSON already enforces via isValidVerticalAlign; anything
+  // else (including the historical falsy `|| undefined` case) is absent.
+  // `undefined` leads the list, so it is the default.
+  // The setter is the field it writes rather than setVerticalAlign, whose
+  // `|| undefined` is a no-op over this enum: every value the parse yields is
+  // already `undefined`, 'middle' or 'bottom'. Naming it is what tells the
+  // clone where `verticalAlign` lives.
+  verticalAlign: withAccessors(enumValue([undefined, 'middle', 'bottom']), {
+    getter: 'getSerializedVerticalAlign',
+    setter: {field: '__verticalAlign'},
+  }),
+  // A width of 0 is not a real width, matching the historical
+  // `serializedNode.width || undefined`.
+  width: withField(optional(numberValue(), {omitDefault: true}), {
+    field: '__width',
+  }),
+});
 
 export type SerializedTableCellNode = Spread<
   {
@@ -53,7 +115,17 @@ export type SerializedTableCellNode = Spread<
   SerializedElementNode
 >;
 
+// eslint-disable-next-line @typescript-eslint/no-unsafe-declaration-merging
+export interface TableCellNode {
+  exportJSON(compact?: false): SerializedTableCellNode;
+  exportJSON(compact: boolean): SerializedPartial<SerializedTableCellNode>;
+  updateFromJSON(
+    serializedNode: LexicalParseJSON<SerializedTableCellNode>,
+  ): this;
+}
+
 /** @noInheritDoc */
+// eslint-disable-next-line @typescript-eslint/no-unsafe-declaration-merging
 export class TableCellNode extends ElementNode {
   /** @internal */
   __colSpan: number;
@@ -70,7 +142,9 @@ export class TableCellNode extends ElementNode {
 
   $config() {
     return this.config('tablecell', {
+      children: 'block',
       extends: ElementNode,
+      generated: GENERATED_TABLECELL,
       importDOM: {
         td: () => ({
           conversion: $convertTableCellNodeElement,
@@ -81,30 +155,8 @@ export class TableCellNode extends ElementNode {
           priority: 0,
         }),
       },
+      json: tableCellNodeSchema,
     });
-  }
-
-  afterCloneFrom(node: this): void {
-    super.afterCloneFrom(node);
-    this.__rowSpan = node.__rowSpan;
-    this.__backgroundColor = node.__backgroundColor;
-    this.__verticalAlign = node.__verticalAlign;
-    this.__colSpan = node.__colSpan;
-    this.__headerState = node.__headerState;
-    this.__width = node.__width;
-  }
-
-  updateFromJSON(
-    serializedNode: LexicalUpdateJSON<SerializedTableCellNode>,
-  ): this {
-    return super
-      .updateFromJSON(serializedNode)
-      .setHeaderStyles(serializedNode.headerState)
-      .setColSpan(serializedNode.colSpan || 1)
-      .setRowSpan(serializedNode.rowSpan || 1)
-      .setWidth(serializedNode.width || undefined)
-      .setBackgroundColor(serializedNode.backgroundColor || null)
-      .setVerticalAlign(serializedNode.verticalAlign || undefined);
   }
 
   constructor(
@@ -178,20 +230,6 @@ export class TableCellNode extends ElementNode {
     return output;
   }
 
-  exportJSON(): SerializedTableCellNode {
-    return {
-      ...super.exportJSON(),
-      ...(isValidVerticalAlign(this.__verticalAlign) && {
-        verticalAlign: this.__verticalAlign,
-      }),
-      backgroundColor: this.getBackgroundColor(),
-      colSpan: this.__colSpan,
-      headerState: this.__headerState,
-      rowSpan: this.__rowSpan,
-      width: this.getWidth(),
-    };
-  }
-
   getColSpan(): number {
     return this.getLatest().__colSpan;
   }
@@ -237,6 +275,12 @@ export class TableCellNode extends ElementNode {
 
   getWidth(): number | undefined {
     return this.getLatest().__width;
+  }
+
+  /** @internal Serialized `verticalAlign`, or undefined to omit it. */
+  getSerializedVerticalAlign(): 'bottom' | 'middle' | undefined {
+    const verticalAlign = this.getLatest().__verticalAlign;
+    return isValidVerticalAlign(verticalAlign) ? verticalAlign : undefined;
   }
 
   getBackgroundColor(): null | string {

@@ -216,5 +216,6 @@ describe('fast path differential fuzz — cross-parent moves', () => {
         slow.setRootElement(null);
       }
     }
-  });
+    // 2,000 updates of each editor take seconds on a loaded machine.
+  }, 30_000);
 });

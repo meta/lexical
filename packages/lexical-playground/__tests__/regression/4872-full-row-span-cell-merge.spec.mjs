@@ -16,15 +16,13 @@ import {
   test,
 } from '../utils/index.mjs';
 
+test.skip(({isPlainText}) => isPlainText, 'Requires rich text');
+
 test.describe('Regression test #4872', () => {
   test.beforeEach(({isCollab, page}) => initialize({isCollab, page}));
   test('merging two full rows does not break table selection', async ({
     page,
-    isPlainText,
-    isCollab,
   }) => {
-    test.skip(isPlainText);
-
     await focusEditor(page);
 
     await insertTable(page, 5, 5);

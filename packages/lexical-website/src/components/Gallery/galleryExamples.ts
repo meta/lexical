@@ -64,9 +64,9 @@ export const galleryExamples: GalleryExample[] = [
     description: 'Learn how to create an editor with Emojis',
     dir: 'vanilla-js-plugin',
     stackblitzQuery:
-      'file=src%2Femoji-plugin%2FEmojiPlugin.ts&terminalHeight=0&ctl=0',
-    tags: ['opensource', 'vanilla', 'emoji'],
-    title: 'EmojiPlugin',
+      'file=src%2Femoji-plugin%2FEmojiExtension.ts&terminalHeight=0&ctl=0',
+    tags: ['opensource', 'extension', 'vanilla', 'emoji'],
+    title: 'Emoji Extension',
     waitForSelector: '[data-lexical-editor]',
   },
   {

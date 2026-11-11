@@ -1,0 +1,28 @@
+/**
+ * Copyright (c) Meta Platforms, Inc. and affiliates.
+ *
+ * This source code is licensed under the MIT license found in the
+ * LICENSE file in the root directory of this source tree.
+ *
+ * @flow strict
+ */
+
+import type {
+  AnyLexicalExtension,
+  LexicalExtensionDependency,
+  LexicalExtensionOutput,
+} from 'lexical';
+
+declare export function $getExtensionDependency<E extends AnyLexicalExtension>(
+  extension: E,
+): LexicalExtensionDependency<E>;
+
+declare export function $getExtensionOutput<E extends AnyLexicalExtension>(
+  extension: E,
+): LexicalExtensionOutput<E>;
+
+declare export function $getPeerDependency<
+  E extends AnyLexicalExtension = empty,
+>(
+  extensionName: E['name'],
+): LexicalExtensionDependency<E> | void;

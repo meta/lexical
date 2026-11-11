@@ -40,7 +40,7 @@ declare module 'yjs' {
 
   declare export class Map {
     _length: number;
-    +doc: ?YDoc;
+    readonly doc: ?YDoc;
     get(key: string): any;
     keys(): [string];
     parent: null | XmlText;
@@ -49,7 +49,7 @@ declare module 'yjs' {
 
   declare export class XmlElement {
     delete(offset: number, delCount: number): void;
-    +doc: ?YDoc;
+    readonly doc: ?YDoc;
     firstChild: null | YDoc;
     getAttribute(string): string | void;
     getAttributes(): {...};
@@ -166,7 +166,7 @@ declare module 'yjs' {
   }
 
   declare export interface YAbstractType {
-    +doc: ?YDoc;
+    readonly doc: ?YDoc;
     observe((event: YEvent, transaction?: Transaction) => void): void;
     parent: null | XmlText | XmlElement;
     toJSON<T>(): T;
@@ -196,7 +196,7 @@ declare module 'yjs' {
      * A unique id that identifies a client for a session. It should not be reused
      * across sessions - see FAQ.
      */
-    +clientID: number;
+    readonly clientID: number;
 
     constructor(): this;
 
@@ -296,7 +296,7 @@ declare module 'yjs' {
      * The Yjs document that this type is bound to. Is null when it is not bound
      * yet.
      */
-    +doc: ?YDoc;
+    readonly doc: ?YDoc;
 
     /**
      * Execute the provided function once on every element.
@@ -429,7 +429,7 @@ declare module 'yjs' {
      * The Yjs document that this type is bound to. Is null when it is not bound
      * yet.
      */
-    +doc: ?YDoc;
+    readonly doc: ?YDoc;
 
     /**
      * Returns an Iterator of [key, value] pairs.
@@ -551,7 +551,7 @@ declare module 'yjs' {
      * The Yjs document that this type is bound to. Is null when it is not bound
      * yet.
      */
-    +doc: ?YDoc;
+    readonly doc: ?YDoc;
 
     /**
      * Assign formatting attributes to a range of text.

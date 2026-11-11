@@ -21,7 +21,16 @@ import {
   DecoratorBlockNode,
   type SerializedDecoratorBlockNode,
 } from '@lexical/react/LexicalDecoratorBlockNode';
+import {nodeSchema, stringValue, withAccessors} from 'lexical';
 import * as React from 'react';
+
+const figmaNodeSchema = nodeSchema<FigmaNode>()({
+  documentID: withAccessors(stringValue(), {
+    getter: {
+      field: '__id',
+    },
+  }),
+});
 
 type FigmaComponentProps = Readonly<{
   className: Readonly<{
@@ -66,27 +75,23 @@ export class FigmaNode extends DecoratorBlockNode {
   __id: string;
 
   $config() {
-    return this.config('figma', {extends: DecoratorBlockNode});
+    return this.config('figma', {
+      extends: DecoratorBlockNode,
+      json: figmaNodeSchema,
+    });
   }
 
   static clone(node: FigmaNode): FigmaNode {
     return new FigmaNode(node.__id, node.__format, node.__key);
   }
 
-  static importJSON(serializedNode: SerializedFigmaNode): FigmaNode {
-    return $createFigmaNode(serializedNode.documentID).updateFromJSON(
-      serializedNode,
-    );
+  setDocumentID(documentID: string): this {
+    const self = this.getWritable();
+    self.__id = documentID;
+    return self;
   }
 
-  exportJSON(): SerializedFigmaNode {
-    return {
-      ...super.exportJSON(),
-      documentID: this.__id,
-    };
-  }
-
-  constructor(id: string, format?: ElementFormatType, key?: NodeKey) {
+  constructor(id: string = '', format?: ElementFormatType, key?: NodeKey) {
     super(format, key);
     this.__id = id;
   }

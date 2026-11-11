@@ -69,10 +69,19 @@ export type CursorSelection = {
   selections: HTMLElement[];
 };
 
-const SUPPORTS_CSS_HIGHLIGHTS =
-  typeof Highlight !== 'undefined' &&
-  typeof CSS !== 'undefined' &&
-  'highlights' in CSS;
+/** @__NO_SIDE_EFFECTS__ */
+function supportsCSSHighlights(): boolean {
+  return (
+    typeof Highlight !== 'undefined' &&
+    typeof CSS !== 'undefined' &&
+    'highlights' in CSS
+  );
+}
+
+// A call to a function declared side-effect free, so that the probe (an `in`
+// test is a side effect to bundlers) does not pin this module into bundles
+// that never render a cursor.
+const SUPPORTS_CSS_HIGHLIGHTS = supportsCSSHighlights();
 
 /**
  * The subset of a binding that {@link getCursorHighlightSheet} reads. Declared
@@ -242,19 +251,34 @@ function createRelativePositionV2(
     return createRelativePositionFromTypeIndex(yType, adjustedOffset, assoc);
   } else if (point.type === 'element') {
     invariant($isElementNode(node), 'Element point must be an element node');
-    let i = 0;
+    // `offset` counts lexical children, but the index handed to yjs counts
+    // yjs children, and normalizeNodeContent collapses a run of adjacent
+    // TextNodes into a single XmlText child. Advance a lexical cursor to
+    // `offset` while counting each text run as one yjs child, mirroring
+    // $getNodeAndOffsetV2, which consumes one yjs offset per child and then
+    // skips the remainder of a text run.
+    //
+    // Only offsets that fall on a run boundary round trip exactly: yjs has no
+    // index for a position *inside* a collapsed run, so an element point in
+    // the middle of one (children [Text, Text], offset 1) necessarily decodes
+    // back to the end of that run. That is inherent to the serialization, not
+    // to this loop.
+    let yIndex = 0;
+    let lexicalIndex = 0;
     let child = node.getFirstChild();
-    while (child !== null && i < offset) {
+    while (child !== null && lexicalIndex < offset) {
+      let nextSibling = child.getNextSibling();
+      lexicalIndex++;
       if ($isTextNode(child)) {
-        let nextSibling = child.getNextSibling();
         while ($isTextNode(nextSibling)) {
           nextSibling = nextSibling.getNextSibling();
+          lexicalIndex++;
         }
       }
-      i++;
-      child = child.getNextSibling();
+      yIndex++;
+      child = nextSibling;
     }
-    return createRelativePositionFromTypeIndex(yType, i, assoc);
+    return createRelativePositionFromTypeIndex(yType, yIndex, assoc);
   }
   return null;
 }
@@ -463,6 +487,75 @@ function updateCursor(
     return;
   }
 
+  const positionCaretAtFocus = (): boolean => {
+    const focusRange = createDOMRange(
+      editor,
+      focusNode,
+      focus.offset,
+      focusNode,
+      focus.offset,
+    );
+    let caretRect =
+      focusRange === null ? undefined : focusRange.getBoundingClientRect();
+    if ((!caretRect || caretRect.height === 0) && $isLineBreakNode(focusNode)) {
+      const focusEl = editor.getElementByKey(focusKey) as HTMLElement | null;
+      if (focusEl !== null) {
+        caretRect = focusEl.getBoundingClientRect();
+      }
+    }
+    if (
+      caretRect !== undefined &&
+      caretRect.width === 0 &&
+      caretRect.height === 0 &&
+      $isElementNode(focusNode)
+    ) {
+      // A collapsed range at an element boundary can have no geometry. Use
+      // the adjacent text boundary instead of treating (0, 0) as a caret.
+      const adjacentRect = editor.read('latest', () => {
+        const previous = focusNode.getChildAtIndex(focus.offset - 1);
+        const next = focusNode.getChildAtIndex(focus.offset);
+        for (const [node, offset] of [
+          [previous, $isTextNode(previous) ? previous.getTextContentSize() : 0],
+          [next, 0],
+        ] as const) {
+          if ($isTextNode(node)) {
+            const range = createDOMRange(editor, node, offset, node, offset);
+            const rect =
+              range === null ? undefined : range.getBoundingClientRect();
+            if (rect && rect.height > 0) {
+              return rect;
+            }
+          }
+        }
+        return null;
+      });
+      if (adjacentRect !== null) {
+        caretRect = adjacentRect;
+      }
+    }
+    if (!caretRect || (caretRect.width === 0 && caretRect.height === 0)) {
+      return false;
+    }
+
+    setDOMStyleObject(caret.style, {
+      'background-color': theme.cursor ? '' : color,
+      bottom: '',
+      height: `${caretRect.height || 16}px`,
+      left: `${caretRect.left - containerRect.left}px`,
+      'pointer-events': 'none',
+      position: 'absolute',
+      right: '',
+      top: `${caretRect.top - containerRect.top}px`,
+      width: '1px',
+      'z-index': '10',
+    });
+
+    if (caret.parentNode !== cursorsContainer) {
+      cursorsContainer.appendChild(caret);
+    }
+    return true;
+  };
+
   if (highlight !== null) {
     // modern path: CSS Custom Highlight API
     const range = createDOMRange(
@@ -482,35 +575,7 @@ function updateCursor(
       highlight.add(range);
     }
 
-    // Caret stays as a positioned element; anchor it to the focus end.
-    const caretRange = range.cloneRange();
-    caretRange.collapse(false);
-    let caretRect: DOMRect = caretRange.getBoundingClientRect();
-    if (caretRect.height === 0 && $isLineBreakNode(focusNode)) {
-      // Bare <br>: collapsed range reports zero size. Fall back to the
-      // line break's own box so the caret still renders.
-      const focusEl = editor.getElementByKey(focusKey) as HTMLElement | null;
-      if (focusEl !== null) {
-        caretRect = focusEl.getBoundingClientRect();
-      }
-    }
-
-    setDOMStyleObject(caret.style, {
-      'background-color': theme.cursor ? '' : color,
-      bottom: '',
-      height: `${caretRect.height || 16}px`,
-      left: `${caretRect.left - containerRect.left}px`,
-      'pointer-events': 'none',
-      position: 'absolute',
-      right: '',
-      top: `${caretRect.top - containerRect.top}px`,
-      width: '1px',
-      'z-index': '10',
-    });
-
-    if (caret.parentNode !== cursorsContainer) {
-      cursorsContainer.appendChild(caret);
-    }
+    positionCaretAtFocus();
     return;
   }
 
@@ -596,11 +661,21 @@ function updateCursor(
         'z-index': '5',
       });
     }
+  }
 
-    if (i === selectionRectsLength - 1) {
-      if (caret.parentNode !== selection) {
-        selection.appendChild(caret);
-      }
+  if (!positionCaretAtFocus() && selectionRectsLength > 0) {
+    const lastSelection = selections[selectionRectsLength - 1];
+    // A reused caret may still have container-relative coordinates. Restore
+    // rectangle-relative positioning before moving it into the fallback span.
+    setDOMStyleObject(caret.style, {
+      bottom: '0',
+      height: '',
+      left: '',
+      right: '-1px',
+      top: '0',
+    });
+    if (caret.parentNode !== lastSelection) {
+      lastSelection.appendChild(caret);
     }
   }
 
@@ -636,10 +711,12 @@ export function getAnchorAndFocusCollabNodesForUserState(
 
     if (anchorAbsPos !== null && focusAbsPos !== null) {
       [anchorCollabNode, anchorOffset] = getCollabNodeAndOffset(
+        binding,
         anchorAbsPos.type,
         anchorAbsPos.index,
       );
       [focusCollabNode, focusOffset] = getCollabNodeAndOffset(
+        binding,
         focusAbsPos.type,
         focusAbsPos.index,
       );
@@ -682,10 +759,12 @@ export function $getAnchorAndFocusForUserState(
 
   if (isBindingV1(binding)) {
     const [anchorCollabNode, anchorOffset] = getCollabNodeAndOffset(
+      binding,
       anchorAbsPos.type,
       anchorAbsPos.index,
     );
     const [focusCollabNode, focusOffset] = getCollabNodeAndOffset(
+      binding,
       focusAbsPos.type,
       focusAbsPos.index,
     );
@@ -780,14 +859,47 @@ function $setPoint(point: Point, key: NodeKey, offset: number): void {
   }
 }
 
+/**
+ * Whether `sharedType` is inside the subtree this binding is bound to.
+ *
+ * Several editors can share one Yjs `Doc` (see the `rootName` and `getXmlText`
+ * binding options), which also puts them on one awareness channel, so a peer's
+ * position can describe a place in another editor's subtree. V1 resolves a
+ * position through the collab node cached on the shared type
+ * (`sharedType._collabNode`), which belongs to whichever binding materialized
+ * it and carries `NodeKey`s that only mean something in that binding's editor.
+ *
+ * The test walks the yjs type tree rather than the collab nodes: a cached
+ * collab node outlives the binding that created it (`destroy` does not clear
+ * `_collabNode`, and a later binding reuses the node without re-parenting it),
+ * so its `_parent` chain can still end at a previous binding's root even for a
+ * position that is squarely inside this one.
+ */
+function isSharedTypeInBinding(
+  binding: Binding,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  sharedType: any,
+): boolean {
+  const rootSharedType = binding.root.getSharedType();
+  let type: null | {parent: unknown} = sharedType;
+  while (type != null) {
+    if (type === rootSharedType) {
+      return true;
+    }
+    type = type.parent as null | {parent: unknown};
+  }
+  return false;
+}
+
 function getCollabNodeAndOffset(
+  binding: Binding,
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   sharedType: any,
   offset: number,
 ): [null | AnyCollabNode, number] {
   const collabNode = sharedType._collabNode;
 
-  if (collabNode === undefined) {
+  if (collabNode === undefined || !isSharedTypeInBinding(binding, sharedType)) {
     return [null, 0];
   }
 
@@ -912,6 +1024,17 @@ export function syncCursorPositions(
       if (cursor === undefined) {
         cursor = createCursor(name, color);
         cursors.set(clientID, cursor);
+      } else if (cursor.name !== name || cursor.color !== color) {
+        // Awareness is mutable: a peer can rename itself or change colour at
+        // any time (the React plugin republishes local state whenever its
+        // `username` / `cursorColor` props change). The name and colour are
+        // baked into the caret DOM and the ::highlight() rule when the
+        // selection is built, so drop the stale selection here and let the
+        // code below rebuild it from the new values.
+        destroyCursor(binding, cursor);
+        cursor.name = name;
+        cursor.color = color;
+        cursor.selection = null;
       }
 
       if (focusing) {

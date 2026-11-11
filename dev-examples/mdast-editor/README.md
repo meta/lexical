@@ -13,7 +13,7 @@ what the extension-first design removes.
 pnpm run start:dev-example mdast-editor
 ```
 
-[![Open in StackBlitz](https://developer.stackblitz.com/img/open_in_stackblitz.svg)](https://stackblitz.com/github/facebook/lexical/tree/main?file=dev-examples%2Fmdast-editor%2Fsrc%2FEditor.tsx&startScript=start:dev-example:mdast-editor)
+[![Open in StackBlitz](https://developer.stackblitz.com/img/open_in_stackblitz.svg)](https://stackblitz.com/github/meta/lexical/tree/main?file=dev-examples%2Fmdast-editor%2Fsrc%2FEditor.tsx&startScript=start:dev-example:mdast-editor)
 
 Because this example depends on unreleased workspace packages, the
 StackBlitz link opens the monorepo root and boots the example with the
@@ -55,11 +55,11 @@ The legacy example's `MarkdownExtension.ts` is ~240 lines; the equivalent
 example plumbing only (the preview signal and two toolbar commands), because
 `@lexical/mdast` ships extension-ready:
 
-- **No transformer list to curate.** Depending on `MdastShortcutsExtension`
-  pulls in the CommonMark + GFM grammar and every node it needs.
-- **No `registerMarkdownShortcuts` call.** The extension registers the
-  streaming shortcuts itself, driven by the same micromark grammar as
-  document import.
+- **No transformer list to curate.** Depending on `MdastCommonMarkExtension`
+  and `MdastGfmExtension` pulls in their grammar and every node they need.
+- **No `registerMarkdownShortcuts` call.** `MdastShortcutsExtension`
+  registers the streaming shortcuts itself, driven by the same micromark
+  grammar as document import.
 - **No checklist workaround.** The legacy example needed a custom
   `text-match` transformer (`CHECK_LIST_ITEM`, ~50 lines) so `[ ] ` typed in
   an existing bullet item would convert; that behavior is built in.
@@ -69,9 +69,11 @@ example plumbing only (the preview signal and two toolbar commands), because
 
 It also does more: blockquotes, links, strikethrough, thematic breaks, and
 fenced code blocks round-trip out of the box (the legacy example's default
-set covered headings, lists, and inline formatting), and the code blocks
-are syntax-highlighted by adding `CodeShikiExtension` — highlighting
-composes with the Markdown machinery without any extra wiring.
+set covered headings, lists, and inline formatting); GFM tables are edited
+with `TableExtension` and the toolbar's Table menu, and written as near as
+GFM allows where a table holds more than it can (merged cells, say); and
+the code blocks are syntax-highlighted by adding `CodeShikiExtension` —
+highlighting composes with the Markdown machinery without any extra wiring.
 
 ## Bundle size
 
@@ -89,24 +91,12 @@ the production dist artifacts, and prints their sizes. All include the
 lexical core, so the deltas are the markdown machinery itself. Snapshot at
 the time of writing:
 
-| bundle                         | minified  | min+gzip |
-| ------------------------------ | --------- | -------- |
-| legacy `@lexical/markdown`     | 287.3 kB  | 77.3 kB  |
-| `@lexical/mdast`               | 408.6 kB  | 103.6 kB |
-| `@lexical/mdast` (import only) | 393.5 kB  | 99.9 kB  |
-| delta (full vs legacy)         | +121.4 kB | +26.3 kB |
+| bundle                     | minified  | min+gzip |
+| -------------------------- | --------- | -------- |
+| legacy `@lexical/markdown` | 287.3 kB  | 77.3 kB  |
+| `@lexical/mdast`           | 408.6 kB  | 103.6 kB |
+| delta (full vs legacy)     | +121.4 kB | +26.3 kB |
 
-Two packaging decisions keep the delta down:
-
-- The dist build keeps the micromark/mdast dependencies **external**, so
-  the app bundler resolves them with browser export conditions (named
-  character references decode through the DOM instead of shipping a
-  ~36 kB entity table) and tree-shakes what's unused.
-- Import and export are **separate extensions**; the import-only row
-  omits `MdastExportExtension` and with it most of
-  `mdast-util-to-markdown`.
-
-That ~26 kB (gzip) buys spec-compliant CommonMark + GFM parsing, a single
-grammar shared by import and typing shortcuts, and the micromark/mdast
-extension ecosystem (footnotes, frontmatter, directives, ...) as the path
-for new syntax.
+The dist build keeps the micromark/mdast dependencies external, so the app
+bundler resolves them with browser export conditions and tree-shakes what's
+unused.

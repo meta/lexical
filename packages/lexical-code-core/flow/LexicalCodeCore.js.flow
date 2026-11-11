@@ -79,6 +79,18 @@ declare export function $outdentLeadingSpaces(
 
 declare export function $plainifyCodeContent(text: string): LexicalNode[];
 
+declare export function $keepCodeNodeState(
+  prevNodes: Array<LexicalNode>,
+  nextNodes: Array<LexicalNode>,
+): Array<LexicalNode>;
+
+declare export function $replaceCodeTokensAddedTo(
+  prevNodes: Array<LexicalNode>,
+  nextNodes: Array<LexicalNode>,
+  from: number,
+  to: number,
+): boolean;
+
 /**
  * CodeNode
  */
@@ -107,6 +119,12 @@ declare export class CodeNode extends ElementNode {
   setLanguage(language: string): void;
   getLanguage(): string | void;
 }
+
+/**
+ * CodeGutter
+ */
+
+declare export function registerCodeGutter(editor: LexicalEditor): () => void;
 
 declare export var CodeExtension: LexicalExtension<ExtensionConfigBase, "@lexical/code", unknown, unknown>;
 

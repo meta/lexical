@@ -5,6 +5,7 @@
  * LICENSE file in the root directory of this source tree.
  *
  */
+import {$generateHtmlFromNodes, $generateNodesFromDOM} from '@lexical/html';
 import {$createLinkNode, $isLinkNode, type LinkNode} from '@lexical/link';
 import {
   $createListItemNode,
@@ -13,9 +14,16 @@ import {
   $isListNode,
   ListItemNode,
   ListNode,
+  type SerializedListNode,
 } from '@lexical/list';
 import {waitForReact} from '@lexical/react/src/__tests__/utils';
-import {$createTextNode, $getRoot, ParagraphNode, TextNode} from 'lexical';
+import {
+  $createTextNode,
+  $getRoot,
+  type LexicalParseJSON,
+  ParagraphNode,
+  TextNode,
+} from 'lexical';
 import {
   $assertNodeType,
   expectHtmlToBeEqual,
@@ -65,6 +73,24 @@ describe('LexicalListNode tests', () => {
       });
       await editor.update(() => {
         expect(() => $createListNode()).not.toThrow();
+      });
+    });
+
+    test('ListNode.updateFromJSON normalizes the legacy tag-form listType', async () => {
+      const {editor} = testEnv;
+
+      await editor.update(() => {
+        // Older serialized documents may carry the 'ul'/'ol' tag forms in
+        // listType (outside the declared ListType), which the constructor has
+        // always normalized.
+        const legacy = (listType: string) =>
+          ({listType}) as LexicalParseJSON<SerializedListNode>;
+        const bullet = $createListNode().updateFromJSON(legacy('ul'));
+        expect(bullet.getListType()).toBe('bullet');
+        expect(bullet.getTag()).toBe('ul');
+        const number = $createListNode('bullet').updateFromJSON(legacy('ol'));
+        expect(number.getListType()).toBe('number');
+        expect(number.getTag()).toBe('ol');
       });
     });
 
@@ -209,6 +235,39 @@ describe('LexicalListNode tests', () => {
         expect(domElement.outerHTML).toBe(
           '<ul class="my-ul-list-class my-ul-list-class-1"></ul>',
         );
+      });
+    });
+
+    test('ListNode.exportDOM() round-trips the dir attribute', async () => {
+      const {editor} = testEnv;
+
+      const parser = new DOMParser();
+      const input = html`
+        <ul dir="rtl">
+          <li dir="rtl">שלום</li>
+        </ul>
+      `;
+
+      await editor.update(
+        () => {
+          const root = $getRoot();
+          root.clear();
+          root.append(
+            ...$generateNodesFromDOM(
+              editor,
+              parser.parseFromString(input, 'text/html'),
+            ),
+          );
+        },
+        {discrete: true},
+      );
+
+      editor.read(() => {
+        const listNode = $getRoot().getFirstChild();
+        assert($isListNode(listNode), 'expected a ListNode at the root');
+        // $convertListNode read it back off the <ul>
+        expect(listNode.getDirection()).toBe('rtl');
+        expect($generateHtmlFromNodes(editor)).toContain('<ul dir="rtl">');
       });
     });
 

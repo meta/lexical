@@ -16,14 +16,14 @@ export interface Provider {
   disconnect(): void;
   awareness: ProviderAwareness;
   on(type: 'sync', cb: (isSynced: boolean) => void): void;
-  on(type: 'status', cb: ({status: string}) => void): void;
+  on(type: 'status', cb: (v: {status: string}) => void): void;
   // $FlowFixMe[unclear-type]: temp
-  on(type: 'update', cb: (any) => void): void;
+  on(type: 'update', cb: (v: any) => void): void;
   on(type: 'reload', cb: (doc: Doc) => void): void;
   off(type: 'sync', cb: (isSynced: boolean) => void): void;
   // $FlowFixMe[unclear-type]: temp
-  off(type: 'update', cb: (any) => void): void;
-  off(type: 'status', cb: ({status: string}) => void): void;
+  off(type: 'update', cb: (v: any) => void): void;
+  off(type: 'status', cb: (v: {status: string}) => void): void;
   off(type: 'reload', cb: (doc: Doc) => void): void;
 }
 

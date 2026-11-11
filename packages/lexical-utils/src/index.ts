@@ -9,7 +9,7 @@
 import invariant from '@lexical/internal/invariant';
 import {$isAtEdgeOfElement} from '@lexical/selection';
 import {
-  $getSlotFrame,
+  $isExtendableTextPointCaret,
   CAN_USE_BEFORE_INPUT,
   CAN_USE_DOM,
   getParentElement,
@@ -26,13 +26,11 @@ import {
   $caretFromPoint,
   $caretRangeFromSelection,
   $cloneWithProperties,
-  $comparePointCaretNext,
   $createParagraphNode,
   $findMatchingParent,
   $fullReconcile,
   $getAdjacentChildCaret,
   $getAdjacentSiblingOrParentSiblingCaret,
-  $getCaretInDirection,
   $getCaretRange,
   $getCaretRangeInDirection,
   $getChildCaret,
@@ -47,6 +45,7 @@ import {
   $getSlotNames,
   $getState,
   $insertNodeToNearestRootAtCaret,
+  $isBlockContainer,
   $isChildCaret,
   $isElementNode,
   $isRangeSelection,
@@ -61,7 +60,6 @@ import {
   $setState,
   $splitAtPointCaretNext,
   type CaretDirection,
-  type CaretRange,
   type EditorState,
   type ElementNode,
   type Klass,
@@ -73,7 +71,6 @@ import {
   type PasteCommandType,
   type PointCaret,
   type PointType,
-  type RangeSelection,
   type SiblingCaret,
   type StateConfig,
   type ValueOrUpdater,
@@ -86,6 +83,7 @@ export {default as selectionAlwaysOnDisplay} from './selectionAlwaysOnDisplay';
 export {
   $findMatchingParent,
   $getAdjacentSiblingOrParentSiblingCaret,
+  $isBlockFullySelected,
   $splitNode,
   addClassNamesToElement,
   isBlockDomNode,
@@ -590,51 +588,6 @@ export function $getNearestBlockElementAncestorOrThrow(
   return blockNode;
 }
 
-/**
- * Checks whether the selection covers the entire block: the selection's
- * start point is at or before the first position inside blockNode and its
- * end point is at or after the last position inside blockNode. A selection
- * that extends beyond the block's boundaries still fully selects the block,
- * and an empty block is fully selected by any selection that touches or
- * surrounds it.
- *
- * @param blockNode - The ElementNode to check, typically a top-level block or the RootNode
- * @param selectionOrRange - The RangeSelection or CaretRange to check
- * @returns true if the selection covers the entire blockNode
- */
-export function $isBlockFullySelected(
-  blockNode: ElementNode,
-  selectionOrRange: RangeSelection | CaretRange,
-): boolean {
-  const range = $getCaretRangeInDirection(
-    $isRangeSelection(selectionOrRange)
-      ? $caretRangeFromSelection(selectionOrRange)
-      : selectionOrRange,
-    'next',
-  );
-  // A named-slot subtree is isolated from its host through a parentless
-  // up-link, so a range inside a slot can never cover a block outside that
-  // slot frame (and vice versa) — and the caret comparison below has no
-  // common ancestor to walk across the boundary. Different frames are
-  // never fully selected; the same frame compares safely within it.
-  const anchorFrame = $getSlotFrame(range.anchor.origin);
-  const blockFrame = $getSlotFrame(blockNode.getLatest());
-  if (
-    anchorFrame === null ? blockFrame !== null : !anchorFrame.is(blockFrame)
-  ) {
-    return false;
-  }
-  const blockStart = $normalizeCaret($getChildCaret(blockNode, 'next'));
-  const blockEnd = $getCaretInDirection(
-    $normalizeCaret($getChildCaret(blockNode, 'previous')),
-    'next',
-  );
-  return (
-    $comparePointCaretNext(range.anchor, blockStart) <= 0 &&
-    $comparePointCaretNext(range.focus, blockEnd) >= 0
-  );
-}
-
 export type DOMNodeToLexicalConversion = (element: Node) => LexicalNode;
 
 export type DOMNodeToLexicalConversionMap = Record<
@@ -753,8 +706,35 @@ export function $restoreEditorState(
 }
 
 /**
- * If the selected insertion area is the root/shadow root node (see {@link lexical!$isRootOrShadowRoot}),
- * the node will be appended there, otherwise, it will be inserted before the insertion area.
+ * Determine whether anything follows the given caret before the end of its
+ * nearest block container (see {@link lexical!$isBlockContainer}).
+ */
+function $hasContentAfter(caret: PointCaret<'next'>): boolean {
+  if ($isExtendableTextPointCaret(caret)) {
+    return true;
+  }
+  for (
+    let c: null | NodeCaret<'next'> = $isTextPointCaret(caret)
+      ? caret.getSiblingCaret()
+      : caret;
+    c !== null;
+    c = c.getParentCaret('shadowRoot')
+  ) {
+    if (c.getNodeAtCaret() !== null) {
+      return true;
+    }
+    const parent = $isChildCaret(c) ? c.origin : c.origin.getParent();
+    if ($isBlockContainer(parent)) {
+      return false;
+    }
+  }
+  return false;
+}
+
+/**
+ * If the selected insertion area is a block container (the root, a shadow root
+ * or a declared container, see {@link lexical!$isBlockContainer}), the node
+ * will be appended there, otherwise, it will be inserted before the insertion area.
  * If there is no selection where the node is to be inserted, it will be appended after any current nodes
  * within the tree, as a child of the root node. A paragraph will then be added after the inserted node and selected.
  * @param node - The node to be inserted
@@ -779,7 +759,18 @@ export function $insertNodeToNearestRoot<T extends LexicalNode>(node: T): T {
         .getFlipped()
         .insert($createParagraphNode());
   }
-  const insertCaret = $insertNodeToNearestRootAtCaret(node, initialCaret);
+  // Splitting at the end of a block would otherwise leave an empty copy of
+  // that block after the inserted node. That empty block is only useful when
+  // the insertion point is at the very end of its nearest root, where it is
+  // the only place left for the selection to go. Anywhere else it is a
+  // spurious extra paragraph (#5433).
+  const insertCaret = $insertNodeToNearestRootAtCaret(
+    node,
+    initialCaret,
+    $hasContentAfter(initialCaret)
+      ? {$shouldSplit: (_node, edge) => edge !== 'last'}
+      : undefined,
+  );
   const adjacent = $getAdjacentChildCaret(insertCaret);
   const selectionCaret = $isChildCaret(adjacent)
     ? $normalizeCaret(adjacent)
@@ -959,7 +950,7 @@ function needsManualZoom(): boolean {
     // If the browser implements standardized CSS zoom, then the client rect
     // will be wider after zoom is applied
     // https://chromestatus.com/feature/5198254868529152
-    // https://github.com/facebook/lexical/issues/6863
+    // https://github.com/meta/lexical/issues/6863
     // eslint-disable-next-line no-restricted-syntax
     const div = document.createElement('div');
     div.style.position = 'absolute';

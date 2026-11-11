@@ -6,6 +6,8 @@
  *
  */
 
+import type {LexicalEditor} from 'lexical';
+
 import {createTestEditor} from 'lexical/src/__tests__/utils';
 import * as React from 'react';
 import {act} from 'react';
@@ -14,7 +16,7 @@ import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
 
 import {useMenuAnchorRef} from '../../shared/LexicalMenu';
 
-let shadowEditor: ReturnType<typeof createTestEditor>;
+let shadowEditor: LexicalEditor;
 let shadowRootElement: HTMLDivElement;
 let shadowRoot: ShadowRoot;
 

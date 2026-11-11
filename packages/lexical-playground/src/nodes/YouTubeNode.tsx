@@ -21,9 +21,20 @@ import {
   type LexicalEditor,
   type LexicalNode,
   type NodeKey,
+  nodeSchema,
   type Spread,
+  stringValue,
+  withAccessors,
 } from 'lexical';
 import * as React from 'react';
+
+const youTubeNodeSchema = nodeSchema<YouTubeNode>()({
+  videoID: withAccessors(stringValue(), {
+    getter: {
+      field: '__id',
+    },
+  }),
+});
 
 type YouTubeComponentProps = Readonly<{
   className: Readonly<{
@@ -70,27 +81,23 @@ export class YouTubeNode extends DecoratorBlockNode {
   __id: string;
 
   $config() {
-    return this.config('youtube', {extends: DecoratorBlockNode});
+    return this.config('youtube', {
+      extends: DecoratorBlockNode,
+      json: youTubeNodeSchema,
+    });
   }
 
   static clone(node: YouTubeNode): YouTubeNode {
     return new YouTubeNode(node.__id, node.__format, node.__key);
   }
 
-  static importJSON(serializedNode: SerializedYouTubeNode): YouTubeNode {
-    return $createYouTubeNode(serializedNode.videoID).updateFromJSON(
-      serializedNode,
-    );
+  setVideoID(videoID: string): this {
+    const self = this.getWritable();
+    self.__id = videoID;
+    return self;
   }
 
-  exportJSON(): SerializedYouTubeNode {
-    return {
-      ...super.exportJSON(),
-      videoID: this.__id,
-    };
-  }
-
-  constructor(id: string, format?: ElementFormatType, key?: NodeKey) {
+  constructor(id: string = '', format?: ElementFormatType, key?: NodeKey) {
     super(format, key);
     this.__id = id;
   }

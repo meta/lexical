@@ -10,23 +10,38 @@ import {
   $create,
   $createParagraphNode,
   $createTextNode,
+  $getNodeByKeyOrThrow,
   $getRoot,
   $getState,
   $getStateChange,
   $isParagraphNode,
   $setState,
+  aliasedValue,
+  arraySetValue,
+  arrayValue,
   createEditor,
   createState,
   ElementNode,
+  enumValue,
   type LexicalExportJSON,
   NODE_STATE_DIRECT,
   NODE_STATE_KEY,
+  nodeSchema,
   type NodeStateJSON,
+  nullable,
+  numberValue,
+  objectValue,
+  optional,
   ParagraphNode,
   type RootNode,
   type SerializedElementNode,
   type SerializedLexicalNode,
+  type StateConfig,
   type StateValueOrUpdater,
+  stringValue as stringSchema,
+  transformValue,
+  unionValue,
+  withField,
 } from 'lexical';
 import {beforeEach, describe, expect, expectTypeOf, test} from 'vitest';
 
@@ -353,6 +368,33 @@ describe('LexicalNode state', () => {
             expect($getState(node, boolState)).toBe(true);
             expect($getState(node, numberState)).toBe(2);
           }
+        });
+      });
+
+      test('an absent flat key leaves the nested value alone', () => {
+        // The reason the flat pass tests for presence at all rather than
+        // parsing every key: `$updateStateFromJSON` applies the nested `$`
+        // blob first, and this runs over it. Parsing an absent flat key to
+        // its default would overwrite what the blob supplied, so a document
+        // that spells a flat-capable state the nested way would lose it —
+        // which is what the round-trip above reads back through `nestedJSON`,
+        // stated here as the rule it follows from.
+        const {editor} = testEnv;
+        editor.update(() => {
+          const node = StateNode.importJSON({
+            [NODE_STATE_KEY]: {numberState: 7},
+            type: 'state',
+            version: 1,
+          });
+          expect($getState(node, numberState)).toBe(7);
+          // And a flat key that *is* present wins over the blob's value.
+          const both = StateNode.importJSON({
+            [NODE_STATE_KEY]: {numberState: 7},
+            numberState: 9,
+            type: 'state',
+            version: 1,
+          });
+          expect($getState(both, numberState)).toBe(9);
         });
       });
 
@@ -857,5 +899,572 @@ describe('$config interleaved abstract/concrete classes', () => {
     // The abstract base's $transform ran for the concrete leaf (transforms fire
     // during reconciliation once the node is part of the document).
     expect(interleaveTransforms).toContain('interleave-concrete');
+  });
+});
+
+describe('flat NodeState through a node replacement', () => {
+  const replacedFlatState = createState('replacedFlatKey', {
+    parse: v => (typeof v === 'string' ? v : ''),
+  });
+
+  class FlatParagraph extends ParagraphNode {
+    $config() {
+      return this.config('flat-paragraph', {
+        extends: ParagraphNode,
+        stateConfigs: [{flat: true, stateConfig: replacedFlatState}],
+      });
+    }
+  }
+
+  // A replacement class that reuses the replaced class's type — the only shape
+  // in which the RegisteredNode for a live node's type could come from the
+  // `replace` entry rather than from the subclass's own registration.
+  class SameTypeParagraph extends ParagraphNode {
+    $config() {
+      return this.config('paragraph', {
+        extends: ParagraphNode,
+        stateConfigs: [{flat: true, stateConfig: replacedFlatState}],
+      });
+    }
+  }
+
+  test('the subclass writes and reads its own flat state top-level', () => {
+    // Flat state is applied on import from the composed schema of
+    // `node.constructor`, but written on export from the SharedNodeState the
+    // node's *type* is registered with. Those agree here because a replacement
+    // class is registered under its own type: the two directions cannot drift.
+    const editor = createEditor({
+      namespace: '',
+      nodes: [
+        FlatParagraph,
+        {
+          replace: ParagraphNode,
+          with: () => new FlatParagraph(),
+          withKlass: FlatParagraph,
+        },
+      ],
+      onError: err => {
+        throw err;
+      },
+    });
+    editor.update(
+      () => {
+        const p = $createParagraphNode();
+        expect(p).toBeInstanceOf(FlatParagraph);
+        expect(p.getType()).toBe('flat-paragraph');
+        $getRoot()
+          .clear()
+          .append(p.append($createTextNode('x')));
+        $setState(p, replacedFlatState, 'hello');
+      },
+      {discrete: true},
+    );
+
+    const json = editor.getEditorState().toJSON();
+    const exported = json.root.children[0];
+    // written top-level, not nested under the NodeState key
+    expect(exported).toMatchObject({replacedFlatKey: 'hello'});
+    expect(exported[NODE_STATE_KEY]).toBeUndefined();
+
+    const reparsed = editor.parseEditorState(JSON.stringify(json));
+    expect(
+      reparsed.read(() =>
+        $getState($getRoot().getFirstChildOrThrow(), replacedFlatState),
+      ),
+    ).toBe('hello');
+  });
+
+  test('withKlass must itself be registered', () => {
+    const editor = createEditor({
+      namespace: '',
+      nodes: [
+        {
+          replace: ParagraphNode,
+          with: () => new FlatParagraph(),
+          withKlass: FlatParagraph,
+        },
+      ],
+      onError: err => {
+        throw err;
+      },
+    });
+    expect(() =>
+      editor.update(() => void $createParagraphNode(), {discrete: true}),
+    ).toThrow(/not configured to be used on the editor/);
+  });
+
+  test('a replacement class cannot reuse the replaced type', () => {
+    const editor = createEditor({
+      namespace: '',
+      nodes: [
+        {
+          replace: ParagraphNode,
+          with: () => new SameTypeParagraph(),
+          withKlass: SameTypeParagraph,
+        },
+      ],
+      onError: err => {
+        throw err;
+      },
+    });
+    expect(() =>
+      editor.update(() => void $createParagraphNode(), {discrete: true}),
+    ).toThrow(/does not match registered node ParagraphNode/);
+  });
+});
+
+describe('importJSON applies state to the node it just built', () => {
+  // importJSON constructs the node itself, so it skips the getWritable() that
+  // updateFromJSON opens with — $setNodeKey already made that node the
+  // writable latest. What must not be skipped is the state itself.
+  const flatKey = createState('importFlatKey', {
+    parse: v => (typeof v === 'string' ? v : ''),
+  });
+  const directKey = createState('importDirectKey', {
+    parse: v => (typeof v === 'number' ? v : 0),
+  });
+
+  class StatefulParagraph extends ParagraphNode {
+    $config() {
+      return this.config('stateful-paragraph', {
+        extends: ParagraphNode,
+        stateConfigs: [{flat: true, stateConfig: flatKey}],
+      });
+    }
+  }
+
+  function editorWith() {
+    return createEditor({
+      namespace: '',
+      nodes: [StatefulParagraph],
+      onError: err => {
+        throw err;
+      },
+    });
+  }
+
+  test('both flat and nested state survive a round trip through importJSON', () => {
+    const editor = editorWith();
+    editor.update(
+      () => {
+        const p = $create(StatefulParagraph);
+        $getRoot()
+          .clear()
+          .append(p.append($createTextNode('x')));
+        $setState(p, flatKey, 'flat-value');
+        $setState(p, directKey, 42);
+      },
+      {discrete: true},
+    );
+    const json = JSON.stringify(editor.getEditorState().toJSON());
+    const reparsed = editor.parseEditorState(json);
+    reparsed.read(() => {
+      const p = $getRoot().getFirstChildOrThrow();
+      // The flat one comes back through the compiled schema, the nested one
+      // through $updateStateFromJSON — the branch importJSON only takes when
+      // the JSON actually carries state.
+      expect($getState(p, flatKey)).toBe('flat-value');
+      expect($getState(p, directKey)).toBe(42);
+    });
+  });
+
+  test('a node whose JSON carries no state still imports its own properties', () => {
+    const editor = editorWith();
+    editor.update(
+      () => {
+        const p = $create(StatefulParagraph);
+        $getRoot()
+          .clear()
+          .append(p.append($createTextNode('hello')));
+        p.setIndent(2);
+      },
+      {discrete: true},
+    );
+    const json = JSON.stringify(editor.getEditorState().toJSON());
+    expect(json).not.toContain(NODE_STATE_KEY);
+    const reparsed = editor.parseEditorState(json);
+    reparsed.read(() => {
+      const p = $getRoot().getFirstChildOrThrow();
+      invariant($isParagraphNode(p), 'expected a paragraph');
+      expect(p.getIndent()).toBe(2);
+      expect(p.getTextContent()).toBe('hello');
+      expect($getState(p, flatKey)).toBe('');
+    });
+  });
+
+  test('the node importJSON returns is writable, so its properties stick', () => {
+    // If the skipped getWritable() had been load-bearing, the writes would
+    // land on a stale version and the reconciled state would not see them.
+    const editor = editorWith();
+    editor.update(
+      () => {
+        const node = ParagraphNode.importJSON({
+          children: [],
+          direction: null,
+          format: '',
+          indent: 3,
+          type: 'paragraph',
+          version: 1,
+        });
+        invariant($isParagraphNode(node), 'expected a paragraph');
+        $getRoot()
+          .clear()
+          .append(node.append($createTextNode('y')));
+      },
+      {discrete: true},
+    );
+    editor.read(() => {
+      const p = $getRoot().getFirstChildOrThrow();
+      invariant($isParagraphNode(p), 'expected a paragraph');
+      expect(p.getIndent()).toBe(3);
+      expect(p.getTextContent()).toBe('y');
+    });
+  });
+});
+
+describe('set-valued state (arraySetValue)', () => {
+  const tagsState = createState('tags', {parse: arraySetValue(stringSchema())});
+
+  function $paragraphWithTags(tags: readonly string[]): ParagraphNode {
+    const p = $setState($createParagraphNode(), tagsState, tags);
+    $getRoot().clear().append(p);
+    return p;
+  }
+
+  function createSetEditor() {
+    return createEditor({
+      namespace: '',
+      onError: err => {
+        throw err;
+      },
+    });
+  }
+
+  test('the value is a readonly array, and the schema says it is a set', () => {
+    expectTypeOf(tagsState).toEqualTypeOf<
+      StateConfig<'tags', readonly string[]>
+    >();
+    expect(tagsState.defaultValue).toEqual([]);
+    expect(Object.isFrozen(tagsState.defaultValue)).toBe(true);
+    const {schema} = tagsState;
+    invariant(schema !== undefined, 'expected a schema');
+    // The kind code outside the core reads
+    expect(schema.meta.kind).toBe('set');
+    expect(schema.meta.kind === 'set' && schema.meta.item.meta.kind).toBe(
+      'string',
+    );
+  });
+
+  test('parsing drops duplicates and rejected entries, sorts and freezes', () => {
+    const parsed = tagsState.parse(['b', 'a', 'b', 1, null, undefined, 'c']);
+    expect(parsed).toEqual(['a', 'b', 'c']);
+    expect(Object.isFrozen(parsed)).toBe(true);
+    // Sorted by UTF-16 code unit, as Array.prototype.sort does
+    expect(tagsState.parse(['b', 'B', 'a', 'é', 'e'])).toEqual([
+      'B',
+      'a',
+      'b',
+      'e',
+      'é',
+    ]);
+    for (const notAnArray of ['a', undefined, null, 1, {a: true}]) {
+      const empty = tagsState.parse(notAnArray);
+      expect(empty).toEqual([]);
+      expect(Object.isFrozen(empty)).toBe(true);
+    }
+    // A value that is already canonical is kept as is
+    expect(tagsState.parse(parsed)).toBe(parsed);
+    // An unfrozen or unsorted one is not
+    const unfrozen = ['a', 'b'];
+    expect(tagsState.parse(unfrozen)).not.toBe(unfrozen);
+    const sizeState = createState('size', {
+      parse: arraySetValue(enumValue(['s', 'm', 'l'])),
+    });
+    expectTypeOf(sizeState).toEqualTypeOf<
+      StateConfig<'size', readonly ('s' | 'm' | 'l')[]>
+    >();
+    expect(sizeState.parse(['xl', 'l', 's', 'l'])).toEqual(['l', 's']);
+    expect(sizeState.parse(Object.freeze(['l', 'xl']))).toEqual(['l']);
+  });
+
+  test('the value is frozen, so mutating it in place throws', () => {
+    // Test modules are ES modules, so strict mode code
+    const parsed = tagsState.parse(['b', 'a']) as string[];
+    expect(() => parsed.push('c')).toThrow(TypeError);
+    expect(() => parsed.sort()).toThrow(TypeError);
+    expect(() => {
+      parsed[0] = 'z';
+    }).toThrow(TypeError);
+    expect(parsed).toEqual(['a', 'b']);
+    const editor = createSetEditor();
+    editor.update(
+      () => {
+        const p = $paragraphWithTags(['b', 'a']);
+        const stored = $getState(p, tagsState) as string[];
+        expect(() => stored.push('c')).toThrow(TypeError);
+        expect($getState(p, tagsState)).toEqual(['a', 'b']);
+      },
+      {discrete: true},
+    );
+  });
+
+  test('$setState stores unsorted or duplicated input in the canonical form', () => {
+    const editor = createSetEditor();
+    let key = '';
+    editor.update(
+      () => {
+        const p = $paragraphWithTags(['b', 'a', 'a']);
+        key = p.getKey();
+        const stored = $getState(p, tagsState);
+        expect(stored).toEqual(['a', 'b']);
+        expect(Object.isFrozen(stored)).toBe(true);
+        // An updater's result is canonicalized too
+        $setState(p, tagsState, prev => [...prev, 'c', 'a', 'c']);
+        expect($getState(p, tagsState)).toEqual(['a', 'b', 'c']);
+        expect(Object.isFrozen($getState(p, tagsState))).toBe(true);
+        expect(p.exportJSON()[NODE_STATE_KEY]).toEqual({tags: ['a', 'b', 'c']});
+      },
+      {discrete: true},
+    );
+    editor.read(() => {
+      const p = $getNodeByKeyOrThrow(key);
+      expect($getState(p, tagsState)).toEqual(['a', 'b', 'c']);
+      expect(Object.isFrozen($getState(p, tagsState))).toBe(true);
+    });
+  });
+
+  test('equality is element by element on the canonical form', () => {
+    const ab = tagsState.parse(['a', 'b']);
+    expect(tagsState.isEqual(ab, tagsState.parse(['b', 'a', 'b']))).toBe(true);
+    expect(tagsState.isEqual(ab, ['a', 'b'])).toBe(true);
+    expect(tagsState.isEqual(ab, tagsState.parse(['a']))).toBe(false);
+    expect(tagsState.isEqual(ab, tagsState.parse(['a', 'c']))).toBe(false);
+    // Total: not an array is not equal
+    expect(tagsState.isEqual(ab, 'a,b' as never)).toBe(false);
+  });
+
+  test('the JSON is one sorted array, and the empty set is omitted', () => {
+    const editor = createSetEditor();
+    editor.update(
+      () => {
+        const p = $paragraphWithTags(['c', 'a', 'b']);
+        expect(p.exportJSON()[NODE_STATE_KEY]).toEqual({tags: ['a', 'b', 'c']});
+        $setState(p, tagsState, []);
+        expect(p.exportJSON()).not.toHaveProperty(NODE_STATE_KEY);
+        $setState(p, tagsState, ['a', 'a']);
+        expect(p.exportJSON()[NODE_STATE_KEY]).toEqual({tags: ['a']});
+      },
+      {discrete: true},
+    );
+  });
+
+  test('setting the same members in another order does not mark the node dirty', () => {
+    const editor = createSetEditor();
+    let key = '';
+    editor.update(
+      () => {
+        key = $paragraphWithTags(['a', 'b']).getKey();
+      },
+      {discrete: true},
+    );
+    const dirty: string[] = [];
+    editor.registerUpdateListener(({dirtyElements, dirtyLeaves}) => {
+      dirty.push(...dirtyElements.keys(), ...dirtyLeaves);
+    });
+    editor.update(
+      () => {
+        const p = $getRoot().getFirstChildOrThrow();
+        $setState(p, tagsState, () => ['b', 'a', 'b']);
+        // Returning the previous value as is
+        $setState(p, tagsState, prev => prev);
+      },
+      {discrete: true},
+    );
+    expect(dirty).not.toContain(key);
+  });
+
+  test('the JSON is canonical and stable across a round trip', () => {
+    // Declared for the node type, so JSON is parsed when it is loaded
+    class TagsParagraphNode extends ParagraphNode {
+      $config() {
+        return this.config('tags-paragraph', {
+          extends: ParagraphNode,
+          stateConfigs: [{stateConfig: tagsState}],
+        });
+      }
+    }
+    const createTagsEditor = () =>
+      createEditor({
+        namespace: '',
+        nodes: [TagsParagraphNode],
+        onError: err => {
+          throw err;
+        },
+      });
+    const editor = createTagsEditor();
+    editor.update(
+      () => {
+        $getRoot()
+          .clear()
+          .append($setState($create(TagsParagraphNode), tagsState, ['b', 'a']));
+      },
+      {discrete: true},
+    );
+    const json = JSON.stringify(editor.getEditorState().toJSON());
+    expect(json).toContain('"$":{"tags":["a","b"]}');
+    // Unordered, duplicated input with an entry out of the item's domain is
+    // the same set, and is written back canonical without being read
+    const unordered = json.replace('["a","b"]', '["b","a","b",7]');
+    for (const input of [json, unordered]) {
+      const loaded = createTagsEditor();
+      loaded.setEditorState(loaded.parseEditorState(input));
+      expect(JSON.stringify(loaded.getEditorState().toJSON())).toBe(json);
+      loaded.read(() => {
+        const value = $getState($getRoot().getFirstChildOrThrow(), tagsState);
+        expect(value).toEqual(['a', 'b']);
+        expect(Object.isFrozen(value)).toBe(true);
+      });
+    }
+  });
+
+  test('an unparse of its own still wins', () => {
+    const csvState = createState('csv', {
+      parse: arraySetValue(stringSchema()),
+      unparse: (v: readonly string[]) => v.join(','),
+    });
+    expect(csvState.unparse(csvState.parse(['b', 'a']))).toBe('a,b');
+  });
+
+  test('an arraySetValue can only be the whole value of a createState', () => {
+    const item = stringSchema();
+    for (const build of [
+      () => arrayValue(arraySetValue(item)),
+      () => nullable(arraySetValue(item)),
+      () => arraySetValue(arraySetValue(item) as never),
+      () => objectValue({tags: arraySetValue(item)}),
+      () => withField(arraySetValue(item), {field: '__tags'}),
+      () => nodeSchema<ParagraphNode>()({tags: arraySetValue(item)} as never),
+      () => optional(arraySetValue(item)),
+      () => unionValue([arraySetValue(item) as never, stringSchema()]),
+      () => aliasedValue(arraySetValue(item) as never, {}),
+      () => transformValue(arraySetValue(item), v => v.length),
+    ]) {
+      expect(build).toThrow(/arraySetValue can only be the whole value/);
+    }
+  });
+
+  test('the item schema must produce strings', () => {
+    expect(() => arraySetValue(numberValue() as never)).toThrow(
+      /the item schema must produce strings/,
+    );
+  });
+
+  test('an item schema that declines some strings drops them', () => {
+    const word = Object.assign(
+      (value: unknown) => (typeof value === 'string' ? value : ''),
+      {
+        accepts: (value: unknown) =>
+          typeof value === 'string' && /^\w+$/.test(value),
+        defaultValue: '',
+        meta: {kind: 'string'} as const,
+      },
+    );
+    const parse = arraySetValue(word);
+    expect(parse(['b', 'a b', '', 'a', 7])).toEqual(['a', 'b']);
+    expect(parse(Object.freeze(['a', 'b c']))).toEqual(['a']);
+  });
+
+  test('a frozen value that is not canonical is still canonicalized', () => {
+    for (const [input, expected] of [
+      [['a', 'a'], ['a']],
+      [
+        ['b', 'a'],
+        ['a', 'b'],
+      ],
+      [['a', 1], ['a']],
+      [[], []],
+    ] as const) {
+      const frozen = Object.freeze(input.slice());
+      const parsed = tagsState.parse(frozen);
+      expect(parsed).toEqual(expected);
+      expect(Object.isFrozen(parsed)).toBe(true);
+      if (input.length > 0) {
+        expect(parsed).not.toBe(frozen);
+      }
+    }
+    // A canonical frozen value is kept as is
+    const canonical = Object.freeze(['a', 'b']);
+    expect(tagsState.parse(canonical)).toBe(canonical);
+    const editor = createSetEditor();
+    editor.update(
+      () => {
+        const p = $paragraphWithTags([]);
+        $setState(p, tagsState, Object.freeze(['b', 'a', 'a']));
+        expect($getState(p, tagsState)).toEqual(['a', 'b']);
+      },
+      {discrete: true},
+    );
+  });
+
+  test('a state that is not declared is canonical when it is read after loading JSON', () => {
+    const editor = createSetEditor();
+    editor.update(
+      () => {
+        $paragraphWithTags(['a']);
+      },
+      {discrete: true},
+    );
+    const json = JSON.stringify(editor.getEditorState().toJSON()).replace(
+      '["a"]',
+      '["b","a","b"]',
+    );
+    const loaded = createSetEditor();
+    loaded.setEditorState(loaded.parseEditorState(json));
+    loaded.read(() => {
+      const value = $getState($getRoot().getFirstChildOrThrow(), tagsState);
+      expect(value).toEqual(['a', 'b']);
+      expect(Object.isFrozen(value)).toBe(true);
+    });
+  });
+});
+
+describe('$setState stores the value as given for every state that is not an arraySetValue', () => {
+  test('arrayValue, a hand-written parse and an updater keep the exact reference', () => {
+    const listState = createState('list', {parse: arrayValue(stringSchema())});
+    const handState = createState('hand', {
+      parse: (v: unknown) => (Array.isArray(v) ? (v as string[]) : []),
+    });
+    const objectState = createState('object', {
+      parse: objectValue({a: stringSchema()}),
+    });
+    const editor = createEditor({
+      namespace: '',
+      onError: err => {
+        throw err;
+      },
+    });
+    editor.update(
+      () => {
+        const p = $createParagraphNode();
+        $getRoot().clear().append(p);
+        const list = ['b', 'a', 'a'];
+        $setState(p, listState, list);
+        expect($getState(p, listState)).toBe(list);
+        expect(Object.isFrozen(list)).toBe(false);
+        const hand = ['b', 'a'];
+        $setState(p, handState, hand);
+        expect($getState(p, handState)).toBe(hand);
+        const updated = ['z', 'y'];
+        $setState(p, listState, () => updated);
+        expect($getState(p, listState)).toBe(updated);
+        const object = {a: 'x'};
+        $setState(p, objectState, object);
+        expect($getState(p, objectState)).toBe(object);
+        // Out of the parse's domain, and still stored as given
+        $setState(p, handState, 'not an array' as never);
+        expect($getState(p, handState)).toBe('not an array');
+      },
+      {discrete: true},
+    );
   });
 });

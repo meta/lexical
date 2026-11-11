@@ -24,7 +24,15 @@ import {
   isHTMLElement,
   LineBreakNode,
 } from 'lexical';
-import {afterEach, assert, describe, expect, test} from 'vitest';
+import {
+  afterEach,
+  assert,
+  describe,
+  expect,
+  onTestFinished,
+  test,
+  vi,
+} from 'vitest';
 
 import {$internalCreateRangeSelection} from '../../LexicalSelection';
 
@@ -236,6 +244,64 @@ describe('Selection resolution for leaf nodes (resolveLeafPosition)', () => {
         },
         {discrete: true},
       );
+    });
+
+    test('a caret just before the wrapped line break is scrolled into view by the inner <br>, not the wrapper', () => {
+      using editor = buildWrapEditor();
+      const root = mountRoot(editor);
+      const wrapDOM = editor.getElementByKey(getLineBreakKey(editor));
+      assert(wrapDOM !== null);
+      const br = wrapDOM.firstElementChild;
+      assert(br !== null && br.tagName === 'BR');
+      const paragraphDOM = root.firstElementChild;
+      assert(isHTMLElement(paragraphDOM));
+      onTestFinished(() => {
+        vi.restoreAllMocks();
+      });
+
+      // The paragraph scrolls sideways. Its scrollport is 300px wide at x 0,
+      // and it is scrolled 1000px in.
+      paragraphDOM.style.overflowX = 'auto';
+      for (const [name, value] of Object.entries({
+        clientWidth: 300,
+        scrollWidth: 5000,
+      })) {
+        Object.defineProperty(paragraphDOM, name, {configurable: true, value});
+      }
+      paragraphDOM.scrollLeft = 1000;
+      vi.spyOn(paragraphDOM, 'getBoundingClientRect').mockReturnValue(
+        new DOMRect(0, 0, 300, 100),
+      );
+      vi.spyOn(root, 'getBoundingClientRect').mockReturnValue(
+        new DOMRect(0, 0, 800, 600),
+      );
+      vi.spyOn(window, 'scrollBy').mockImplementation(() => {});
+      // The <br> ends the first line at x 400, just past the view. The
+      // wrapper's rect also covers the start of the next line, 1000px left of
+      // the view, as it does when the wrapper draws that line's number there.
+      vi.spyOn(br, 'getBoundingClientRect').mockReturnValue(
+        new DOMRect(400, 10, 0, 20),
+      );
+      vi.spyOn(wrapDOM, 'getBoundingClientRect').mockReturnValue(
+        new DOMRect(-1000, 10, 1400, 40),
+      );
+      root.tabIndex = 0;
+      root.focus();
+      expect(document.activeElement).toBe(root);
+
+      // The caret goes just before the line break, where insertLineBreak(true)
+      // leaves it.
+      editor.update(
+        () => {
+          const paragraph = $getRoot().getFirstChildOrThrow();
+          assert($isElementNode(paragraph));
+          paragraph.select(1, 1);
+        },
+        {discrete: true},
+      );
+      // The caret, painted 1px wide, ends at 401, which is 101px past the
+      // view. Measuring the wrapper would scroll all the way back to 0.
+      expect(paragraphDOM.scrollLeft).toBe(1101);
     });
   });
 });

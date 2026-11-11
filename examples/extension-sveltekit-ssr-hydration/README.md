@@ -11,4 +11,4 @@ is lossless relative to the createDOM output.
 It's also a rudimentary demo for how you can support Vite HMR to preserve
 the editor's state during reloads (great for tweaking html/styles/etc.)
 
-[![Open in StackBlitz](https://developer.stackblitz.com/img/open_in_stackblitz.svg)](https://stackblitz.com/github/facebook/lexical/tree/main/examples/extension-sveltekit-ssr-hydration?file=src%2Froutes%2F%2Bpage.svelte)
+[![Open in StackBlitz](https://developer.stackblitz.com/img/open_in_stackblitz.svg)](https://stackblitz.com/github/meta/lexical/tree/main/examples/extension-sveltekit-ssr-hydration?file=src%2Froutes%2F%2Bpage.svelte)

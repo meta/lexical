@@ -116,6 +116,12 @@ type Props = React.PropsWithChildren<{
  * {@link LexicalExtensionComposer} instead; see the
  * [React extensions guide](https://lexical.dev/docs/extensions/react).
  *
+ * @deprecated Superseded by `LexicalExtensionComposer` from
+ * `@lexical/react/LexicalExtensionComposer`, and expected to be removed in a
+ * future major release. `LexicalComposer` cannot accept extensions, so any
+ * feature delivered as an extension is unreachable from an editor built here.
+ * See the [React extensions guide](https://lexical.dev/docs/extensions/react)
+ * for the migration, which is usually a two-line change.
  * @returns A context provider wrapping `children`.
  */
 export function LexicalComposer({initialConfig, children}: Props): JSX.Element {

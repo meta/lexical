@@ -116,6 +116,36 @@ it('inserts text', () => {
 
 This only works in unit tests (jsdom). The `using` syntax is not supported in all browser engines, so browser tests should call `editor.dispose()` manually or use vitest's `onTestFinished` callback instead.
 
+### Property-based tests with `@lexical/fast-check`
+
+A node that declares a [serialization schema](./serialization/serialization.md#declarative-serialization-schemas-with-config) has already stated what each of its properties accepts, so tests do not have to invent examples. [`@lexical/fast-check`](./packages/lexical-fast-check.md) turns that declaration into a [fast-check](https://fast-check.dev) arbitrary:
+
+```bash
+npm install --save-dev @lexical/fast-check fast-check
+```
+
+```ts
+import {nodeArbitrary} from '@lexical/fast-check';
+import * as fc from 'fast-check';
+
+fc.assert(
+  fc.property(nodeArbitrary(MyNode), props => {
+    // props is a serialized MyNode, drawn from its own schema's domain
+  }),
+);
+```
+
+This is worth reaching for whenever a hand-written fixture would tend to use *default* values, because a bug that drops a property compares equal to the default — the test looks like it passed exactly when the bug is invisible. The clearest case is `afterCloneFrom`: declaring a new property and forgetting to copy it there is silent, since the field still exists on the clone and simply holds the constructor's default. Generated values catch it, and fast-check shrinks the failure to the property at fault:
+
+```
+Counterexample: [{"style":" "}]
+
+-   "style": " ",
++   "style": "",
+```
+
+The package's [README](./packages/lexical-fast-check.md) has the full example, and `packages/lexical-fast-check/src/__tests__/unit/` runs it against `TextNode`.
+
 ## Browser tests (vitest browser mode)
 
 Browser tests run in a real browser via vitest's [browser mode](https://vitest.dev/guide/browser/), backed by Playwright. The browser has a real `contentEditable` engine, so input events, composition, and selection work as expected.
@@ -162,7 +192,7 @@ test('IME composition inserts Korean text', async () => {
 });
 ```
 
-For a complete working setup with vitest browser mode configured from scratch, see the [`website-toolbar` example](https://github.com/facebook/lexical/tree/main/examples/website-toolbar).
+For a complete working setup with vitest browser mode configured from scratch, see the [`website-toolbar` example](https://github.com/meta/lexical/tree/main/examples/website-toolbar).
 
 ## End-to-end (E2E) tests
 
@@ -186,6 +216,7 @@ Tests live under `packages/lexical-playground/__tests__/` in `e2e/` (feature cov
 | What you're testing | Tier |
 |---|---|
 | Node creation, transforms, serialization | Unit (jsdom) |
+| A node property's whole domain, not one example | Unit (jsdom), property-based |
 | Command dispatch and handler logic | Unit (jsdom) |
 | Extension registration and config | Unit (jsdom) |
 | Real keystroke input and typing | Browser |

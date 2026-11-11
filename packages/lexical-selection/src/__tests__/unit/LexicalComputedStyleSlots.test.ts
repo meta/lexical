@@ -45,7 +45,7 @@ function runInEditor($build: () => void, $check: () => void): void {
 // arrow-key handlers in @lexical/rich-text call $isParentRTL on the anchor
 // node, and the anchor is the slot value itself whenever the caret sits in an
 // empty slot or next to a decorator inside one.
-// https://github.com/facebook/lexical/issues/8937
+// https://github.com/meta/lexical/issues/8937
 describe('computed styles and named slots', () => {
   test('$getComputedStyleForParent returns null for a bare-block slot value', () => {
     let slotParaKey = '';

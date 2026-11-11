@@ -10,6 +10,7 @@ import {
   type LexicalEditorWithDispose,
 } from '@lexical/extension';
 import {
+  type BindingV2,
   createBindingV2__EXPERIMENTAL,
   type Provider,
   syncLexicalUpdateToYjsV2__EXPERIMENTAL,
@@ -188,10 +189,7 @@ describe('named-slots collab-v2: lexical <-> yjs', () => {
     return {binding, editor};
   }
 
-  function serialize(
-    editor: LexicalEditor,
-    binding: ReturnType<typeof createBindingV2__EXPERIMENTAL>,
-  ) {
+  function serialize(editor: LexicalEditor, binding: BindingV2) {
     editor.read(() => {
       binding.doc.transact(() => {
         $updateYFragment(
@@ -599,7 +597,7 @@ describe('named-slots collab-v2: lexical <-> yjs', () => {
   // provider is unused beyond the selection sync, which short-circuits on a null
   // local awareness state.
   function applyLocalUpdate(
-    binding: ReturnType<typeof createBindingV2__EXPERIMENTAL>,
+    binding: BindingV2,
     editor: LexicalEditor,
     mutate: () => void,
   ) {

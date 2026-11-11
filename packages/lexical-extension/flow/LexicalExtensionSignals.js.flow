@@ -1,0 +1,65 @@
+/**
+ * Copyright (c) Meta Platforms, Inc. and affiliates.
+ *
+ * This source code is licensed under the MIT license found in the
+ * LICENSE file in the root directory of this source tree.
+ *
+ * @flow strict
+ */
+
+declare export class Signal<T = unknown> {
+  constructor(value?: T, options?: SignalOptions<T>): this;
+  subscribe(fn: (value: T) => void): () => void;
+  name?: string;
+  valueOf(): T;
+  toString(): string;
+  toJSON(): T;
+  peek(): T;
+  brand: symbol;
+  value: T;
+}
+
+export interface ReadonlySignal<T = unknown> {
+  readonly value: T;
+  peek(): T;
+  subscribe(fn: (value: T) => void): () => void;
+  valueOf(): T;
+  toString(): string;
+  toJSON(): T;
+  brand: symbol;
+}
+
+export type SignalOptions<T = unknown> = {
+  watched?: (this: Signal<T>) => void,
+  unwatched?: (this: Signal<T>) => void,
+  name?: string,
+};
+
+type EffectFn =
+  | ((this: {dispose: () => void}) => void | (() => void))
+  | (() => void | (() => void));
+
+type EffectOptions = {
+  name?: string,
+};
+
+declare export function batch<T>(fn: () => T): T;
+
+declare export function computed<T>(
+  fn: () => T,
+  options?: SignalOptions<T>,
+): ReadonlySignal<T>;
+
+declare export function effect(
+  fn: EffectFn,
+  options?: EffectOptions,
+): () => void;
+
+declare export function signal<T>(
+  value: T,
+  options?: SignalOptions<T>,
+): Signal<T>;
+
+declare export function signal<T = void>(): Signal<T | void>;
+
+declare export function untracked<T>(fn: () => T): T;

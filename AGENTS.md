@@ -7,11 +7,11 @@ This file provides detailed guidance for AI agents and automated tools working w
 ### Building
 - `pnpm run build` - Build all packages in development mode
 - `pnpm run build-prod` - Clean and build all packages in production mode
-- `pnpm run build-release` - Build production release with error codes
+- `pnpm run build-release` - Build production release (minifies errors that have a code in `scripts/error-codes/codes.json`; add `LEXICAL_EXTRACT_CODES=true` to also assign new codes)
 - `pnpm run build-types` - Build TypeScript type definitions and validate them
 
 ### Testing
-- `pnpm run test-unit` - Run all unit tests (Vitest, jsdom)
+- `pnpm run test-unit` - Run all unit tests (Vitest, Node/jsdom)
 - `pnpm run test-unit-watch` - Run unit tests in watch mode
 - `pnpm run test-browser` - Run browser-mode unit tests (Vitest + Playwright, real browser)
 - `pnpm run test-browser-watch` - Run browser-mode tests in watch mode
@@ -29,14 +29,17 @@ For E2E testing workflow:
 - `pnpm run start` - Start playground dev server + collab server (http://localhost:3000)
 - `pnpm run dev` - Start only the playground dev server (no collab)
 - `pnpm run start:website` - Start Docusaurus website (http://localhost:3001)
-- `pnpm run collab` - Start collab server on localhost:1234
+- `pnpm run collab` - Start collab server on localhost:1234 (collab v1/v2, `@lexical/yjs`)
+- `pnpm run collab:y` - Start the Yjs 14 collab server on localhost:1235 (collab Y, the experimental `@lexical/y`; open the playground with `?isCollab=true&useCollabY=true`)
+- `pnpm run start:y` - Start playground dev server + the Yjs 14 collab server
+- `pnpm run test-e2e-collab-y-chromium` - Run the collab Y E2E specs (`Collaboration.spec.mjs`, `CollabY*.spec.mjs`; needs `pnpm run start:y`)
 
 ### Code Quality
 - `pnpm run lint` - Run ESLint on all files
 - `pnpm run lint:fix` - Auto-fix lint issues
 - `pnpm run prettier` - Check code formatting
 - `pnpm run prettier:fix` - Auto-fix formatting issues
-- `pnpm run flow` - Run Flow type checker
+- `pnpm run flow` - Run a full foreground Flow check (does not reuse a server)
 - `pnpm run tsc` - Run TypeScript compiler
 - `pnpm run ci-check` - Run all checks (TypeScript, Flow, Prettier, ESLint)
 
@@ -67,6 +70,18 @@ Metavariables (`$NAME`, `$$$LIST`) capture nodes for reporting or rewriting
 with `--rewrite`. Reach for it whenever a change spans many files and must be
 precise — e.g. moving symbols that `@lexical/utils` merely re-exports back to
 a direct `lexical` import.
+
+### Extension source imports
+
+Import from the `@lexical/extension` barrel across package boundaries. Within
+`packages/lexical-extension`, use relative imports and re-exports. Do not
+manually rewrite these source imports to `@lexical/extension/*`: ESLint
+enforces the source convention, and `@lexical/compiler`'s `subpathImports`
+pass rewrites them in all published package builds, including www. Public
+sibling entries stay external so shared modules such as signals retain one
+instance. Helpers with only one owning entry live under `src/internal` and
+are bundled into that entry, without exposing additional public subpaths.
+Downstream users may import either the barrel or public subpaths.
 
 ### Tree-shaking annotations
 
@@ -106,6 +121,26 @@ lazy (a `nodes: () => [...]` callback is not evaluated at module scope), or
 declare the function side-effect free so its calls are annotated too. A
 third-party factory that cannot be declared is annotated by hand at the call
 site, which is what the remaining hand-written annotations in the tree are.
+
+Factory calls are not the only module-scope statements that pin a module.
+esbuild and webpack keep, as a side effect, any property read at module scope
+(`navigator.userAgent`, `Date.now`, `SomeExtension.name`), any call or `new`
+they were not told is pure (`new RegExp(...)`, `Object.freeze(...)`,
+`[...].join(',')`), an array or object spread, an `in` test, a `try`
+statement, a mutation (`table.push(...)`, `Klass.static = ...`), a class with
+a computed member (`[SOME_SYMBOL]?: number` — write `declare` on it), and an
+IIFE — together with everything the statement references. One
+`LexicalEditor.version = ...` after the class kept nearly all of `lexical` in
+a bundle that imported only `createCommand` (#9120). Move such work into a
+function declared `@__NO_SIDE_EFFECTS__` and call it at module scope, so the
+build annotates the call; annotate a call to a builtin or to a third-party
+function (`/* @__PURE__ */ forwardRef(...)`) by hand. Two tests enforce this
+by bundling a bare `import 'pkg'` of every entry with esbuild and requiring
+that nothing is retained: `scripts/__tests__/unit/treeShakingSource.test.ts`
+on the sources (runs with `pnpm run test-unit`) and
+`scripts/__tests__/integration/tree-shaking.test.mjs` on the published
+builds. A failure prints the retained code; its first statement is usually
+the culprit.
 
 A factory whose body is a trivial expression over its own arguments (like
 `safeCast`, `defineExtension`, or `configExtension`) is additionally marked
@@ -236,8 +271,16 @@ This codebase uses **both TypeScript and Flow**:
 - Run `pnpm run flow` to check Flow types
 - Run `pnpm run tsc` to check TypeScript types
 - Both are checked in CI via `pnpm run ci-check`
+- Keep a statement under a `$FlowExpectedError` or `$FlowFixMe` suppression on
+  one line of at most 80 characters. Prettier ignores `.js.flow` here, but the
+  www sync (`scripts/www/transformFlowFileContents.mjs`) runs Prettier over
+  these files, and a statement it wraps moves the error off the line the
+  suppression covers — so the www copy fails Flow on an error that passes in
+  this repo.
 
 When adding/modifying APIs, types must be maintained for both systems.
+
+Put types in TypeScript, not in JSDoc. Write `@param name - description` and `@returns description`, without a `{type}` or `[optional]` bracket: TypeScript already states the type and whether the parameter is optional, and a second copy in the comment drifts out of date.
 
 ## Backwards Compatibility
 
@@ -247,7 +290,38 @@ When adding/modifying APIs, types must be maintained for both systems.
 - Do NOT change the signature, return type, or behavior of existing public APIs in ways that could break callers. Prefer additive, optional parameters.
 - Preserve the serialization format of `EditorState` and node JSON. Serialized content produced by older versions must continue to deserialize correctly.
 - If an API genuinely must change, deprecate the old one first (keep it working, document the replacement) rather than removing it outright.
+- A breaking change that cannot be avoided ships in a minor release with a `[breaking]` changeset whose `Migration:` paragraph tells callers what to change.
 - When in doubt, assume external code depends on the current behavior and keep it intact.
+
+## Dependencies: Lexical is a singleton within one app
+
+An application must resolve exactly one copy of `lexical`, and one copy of each
+`@lexical/*` package it uses. The active editor and editor state are
+module-scope variables in `LexicalUpdates.ts`, node registration and
+`instanceof LexicalNode` compare class references, and commands are object
+identities from `createCommand()` — none of which survive a second copy of the
+module. Two copies also mean two versions, which is API drift inside one editor.
+
+The boundary is the app, not the page: several self-contained apps, each with
+its own bundled Lexical, can coexist on one page (`isLexicalEditor` is an
+`instanceof` check precisely to support that). They just cannot interoperate —
+nodes, editors, `EditorState`s, selections and commands must never be passed
+across such a boundary, only serialized data.
+
+- Inside this monorepo, packages depend on siblings with `"lexical":
+  "workspace:*"`; `pnpm publish` rewrites that to the exact published version,
+  so every `@lexical/*` release pins the matching `lexical`. Keep that pattern
+  when adding a package — do not hand-write a version range.
+- A **library** published on top of Lexical (anything outside this repo that
+  imports `lexical` or `@lexical/*`) declares those packages in
+  `peerDependencies`, plus `devDependencies` for its own build and tests, never
+  in `dependencies`. Apps bring their own Lexical and own the version.
+- Code under `examples/` and `packages/lexical-playground` are applications, so
+  they depend on Lexical directly — that is correct and should stay.
+
+The user-facing version of this rule lives in
+`packages/lexical-website/docs/concepts/one-lexical-per-app.md`; keep the two in
+sync when either changes.
 
 ## Important Development Notes
 
@@ -264,7 +338,18 @@ When adding/modifying APIs, types must be maintained for both systems.
 Always access node properties/methods within read/update context. Nodes automatically resolve to their latest version via their key. Don't store node references across update boundaries.
 
 ### Testing Strategy
-- **Unit tests** - Vitest (jsdom), located in `packages/**/__tests__/unit/**/*.test.{ts,tsx}`
+- **Unit tests** - Vitest, located in `packages/**/__tests__/unit/**/*.test.{ts,tsx}`.
+  Add `// @vitest-environment node` after the copyright header for tests that
+  only exercise editor state, headless behavior, or pure utilities. DOM tests
+  use jsdom with `vmThreads` on Node 24.9+, which reuses the jsdom implementation
+  while keeping each file's window and module graph isolated. Older Node
+  versions use isolated forks because their VM contexts cannot load jsdom's
+  `require(esm)` dependencies. Platform-mocked tests depend on module isolation.
+  Compiler tests run with `scripts-unit` in
+  ordinary Node workers because native build tools are not VM-realm-safe.
+  Use `DOMParser` to parse HTML in DOM tests and iframes for separate-window
+  tests. Reserve direct JSDOM construction for Node fixtures or CSSOM behavior
+  that jsdom's DOMParser lacks.
 - **Browser tests** - Vitest browser mode driven by the Playwright runner, located in
   `packages/**/__tests__/browser/**/*.test.{ts,tsx}`. Use these for behavior that depends on
   a real layout/selection engine instead of stubbing the missing jsdom functionality from
@@ -285,10 +370,49 @@ Always access node properties/methods within read/update context. Nodes automati
 
 ### Custom Nodes
 When creating custom nodes:
-1. Extend a base node class (TextNode, ElementNode, DecoratorNode)
-2. Implement instance methods: `$config()`, `createDOM()`, `updateDOM()`
-3. Register with extension or editor config: `nodes: [YourCustomNode]`
-4. Export a `$createYourNode()` factory function (follows $ convention)
+1. Extend a base node class (TextNode, ElementNode, DecoratorNode). The
+   constructor must work with no arguments.
+2. Implement `$config()` with `this.config('type', {extends: BaseNode, json:
+   schema})`, where `schema` is built with `nodeSchema<YourNode>()({...})`
+   as a module-scope `const` above the class. Written inline in `$config()`,
+   it makes TypeScript skip checking the class without a diagnostic.
+   Declare every property inherent to the node in it, and declare each one
+   stored verbatim in a field with
+   `withField(stringValue(), {field: '__name'})`. Initialize that field in
+   the class (`__name: string = '';`) so it is an own property of a fresh
+   node. Use `withAccessors` only where a property is not a plain field.
+3. Do not hand-write `clone`, `importJSON`, `exportJSON` or
+   `updateFromJSON`: `$config` derives them from the schema, and it carries
+   every property declared with `withField` across a clone. A field missing
+   from the schema is not carried, so it is lost the first time a later
+   update clones the node; declare it with `withField` rather than writing
+   `afterCloneFrom`. Ad-hoc data that is not inherent to the node type
+   belongs in NodeState (`createState`), which clones on its own. Write
+   `afterCloneFrom` only for storage neither covers, such as a property
+   declared through accessors on both sides whose value is not one field
+   (one that is can name it: `setter: {field: '__ids', method: 'setIDs'}`
+   in `MarkNode`). Call `super.afterCloneFrom(prevNode)` first, and copy
+   every field of the class, schema fields included: Lexical does not add
+   to a class's own `afterCloneFrom`.
+4. Implement `createDOM()` and `updateDOM()` (and `decorate()` for a
+   DecoratorNode). Keep `exportDOM()` on the class when the default export
+   is not enough.
+5. For HTML import, prefer `defineImportRule` rules registered by the
+   extension that provides the node: list `CoreImportExtension` and
+   `configExtension(DOMImportExtension, {rules: [...]})` in its
+   `dependencies` (see `ListExtension`, and `ListImportRules` for the rules,
+   in `@lexical/list`). Both APIs are `@experimental`, and the rules only
+   apply where the editor routes HTML through the pipeline; see
+   `packages/lexical-website/docs/serialization/dom-import.md`.
+   `importDOM()`, which that page calls legacy, is not deprecated yet, but
+   its deprecation is planned.
+6. Register with an extension (`nodes: () => [YourNode]`) or editor config.
+7. Export a `$createYourNode()` factory built on `$create(YourNode)` and the
+   node's setters, and a `$isYourNode()` guard.
+
+The full schema reference is
+`packages/lexical-website/docs/serialization/serialization.md`; the cloning
+rules are in `packages/lexical-website/docs/concepts/node-cloning.md`.
 
 ### Shadow DOM and iframe realm safety
 
@@ -346,6 +470,30 @@ Drop any template section that does not apply to the diff instead of carrying
 an empty heading, and treat the template's HTML comments as instructions to
 follow, not text to copy into the message.
 
+- **Changesets**: a changeset is required for user-facing changes (a
+  published package's behavior, API, types or shipped Flow types). Add it
+  in `.changeset/` with `pnpm run changeset:new` or by hand (format in
+  `.changeset/README.md`): frontmatter listing each affected npm package
+  with `patch` (or `minor` for `[breaking]`, never `major`), then
+  `[category] one-line summary` with category `breaking`, `deprecation`,
+  `feature`, `fix`, `perf`, `docs` or `chore`, and no PR number. A
+  `[breaking]` entry needs `Migration:` and `Detect:` (usually just the
+  affected symbol, import or CSS class; add `Codemod:` when useful). A
+  type signature change that can make existing call sites stop compiling
+  (overloads, generics, branded or narrowed types, including calls that
+  relied on an inferred type argument) is `[breaking]` even when it only
+  deprecates something; its `Detect:` names those call shapes and its
+  `Migration:` the replacement (see "Type signature changes" in
+  `.changeset/README.md`). A `[deprecation]` entry needs `Replacement:` and `Removal:` (`v0.NN`,
+  `no earlier than v0.NN`, or `not scheduled`). A non-breaking change that
+  alters observable output or behavior gets a `Verify:` paragraph saying what
+  to test (it renders under "Behavior changes"); add one when reviewing a fix
+  that changes output. No Markdown headings in the body. Add a
+  `PR: #123` line only when the changeset lands in a different PR than the
+  change. Validate with `pnpm run check-changesets`. Tests,
+  website, playground, examples and tooling need none. The changeset file is
+  the record, so the commit message's `## Changeset` section is optional.
+
 ### Commit and PR Hygiene for Agents
 This is an open source project: never include agent-session URLs or other
 private/team-internal links (e.g. `https://claude.ai/code/session_...`) in
@@ -360,5 +508,8 @@ should follow this rule as written.
 - Uses Rollup for bundling
 - Build script: `scripts/build.mjs`
 - Supports multiple build modes: development, production, www (Meta internal)
-- TypeScript source → compiled to CommonJS and ESM
+- TypeScript source → compiled to ESM for npm (`dist/*.js` in the
+  `"type": "module"` packages; CommonJS consumers load it through
+  `require(esm)`, so the fork modules must stay free of top-level await) and
+  to CommonJS for www only (`--www`)
 - Package manager logic in `scripts/shared/packagesManager.mjs`

@@ -45,31 +45,48 @@ const UNIVERSAL_KEYS: Record<string, string | undefined> = {
   ' ': 'Space',
 };
 
-const APPLE_KEYS: Record<string, string | undefined> = {
-  ...UNIVERSAL_KEYS,
-  Alt: '\u2325',
-  ArrowDown: '\u2193',
-  ArrowLeft: '\u2190',
-  ArrowRight: '\u2192',
-  ArrowUp: '\u2191',
-  Backspace: '\u232B',
-  CapsLock: '\u21EA',
-  Ctrl: '\u2303',
-  Delete: '\u2326',
-  End: '\u2198',
-  Enter: '\u21A9',
-  Escape: '\u238B',
-  Home: '\u2196',
-  Meta: '\u2318',
-  PageDown: '\u21DF',
-  PageUp: '\u21DE',
-  Shift: '\u21E7',
-  Tab: '\u21E5',
-};
-const SHIFT_APPLE_KEYS: Record<string, string | undefined> = {
-  ...APPLE_KEYS,
-  Tab: '\u21E4',
-};
+/**
+ * Extend a key display map. A function declared side-effect free (so the
+ * build annotates the calls) rather than an object spread at module scope,
+ * which is a side effect to bundlers and would pin these tables into every
+ * bundle that imports the module.
+ *
+ * @__NO_SIDE_EFFECTS__
+ */
+function extendKeys(
+  base: Record<string, string | undefined>,
+  keys: Record<string, string | undefined>,
+): Record<string, string | undefined> {
+  return {...base, ...keys};
+}
+
+const APPLE_KEYS: Record<string, string | undefined> = extendKeys(
+  UNIVERSAL_KEYS,
+  {
+    Alt: '\u2325',
+    ArrowDown: '\u2193',
+    ArrowLeft: '\u2190',
+    ArrowRight: '\u2192',
+    ArrowUp: '\u2191',
+    Backspace: '\u232B',
+    CapsLock: '\u21EA',
+    Ctrl: '\u2303',
+    Delete: '\u2326',
+    End: '\u2198',
+    Enter: '\u21A9',
+    Escape: '\u238B',
+    Home: '\u2196',
+    Meta: '\u2318',
+    PageDown: '\u21DF',
+    PageUp: '\u21DE',
+    Shift: '\u21E7',
+    Tab: '\u21E5',
+  },
+);
+const SHIFT_APPLE_KEYS: Record<string, string | undefined> = extendKeys(
+  APPLE_KEYS,
+  {Tab: '\u21E4'},
+);
 
 /**
  * Format the key binding of a shortcut as a human readable string for

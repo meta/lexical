@@ -3,7 +3,7 @@ import TabItem from '@theme/TabItem';
 
 # Migration Guide
 
-Migrating to Lexical Builder is designed to be seamless! Lexical Builder is
+Migrating to Lexical Extensions is designed to be seamless! Lexical Extensions is
 a higher-level API on top of the existing functionality you are already using.
 
 Generally speaking, the only thing that needs to change is how you create the
@@ -50,7 +50,7 @@ mergeRegister(
   registerHistory(editor, createEmptyHistoryState(), 300),
 );
 
-editor.update(prepopulatedRichText, {tag: 'history-merge'});
+editor.update($prepopulatedRichText, {tag: 'history-merge'});
 ```
 
 </TabItem>
@@ -100,7 +100,9 @@ editor.update($prepopulatedRichText, {tag: 'history-merge'});
 import {buildEditorFromExtensions} from '@lexical/extension';
 import {HistoryExtension} from '@lexical/history';
 import {RichTextExtension} from '@lexical/rich-text';
-import prepopulatedRichText from './prepopulatedRichText';
+import $prepopulatedRichText from './$prepopulatedRichText';
+
+const editorRef = document.getElementById('lexical-editor');
 
 const editor = buildEditorFromExtensions({
   // highlight-start
@@ -193,19 +195,21 @@ export default function App() {
 <TabItem value="after" label="After">
 
 ```tsx
-import { ContentEditable } from "@lexical/react/LexicalContentEditable";
+import {ContentEditable} from '@lexical/react/LexicalContentEditable';
 // highlight-start
-import { HistoryExtension } from "@lexical/history";
-import { RichTextExtension } from "@lexical/rich-text";
-import { AutoFocusExtension } from "@lexical/extension";
-import { LexicalExtensionComposer } from "@lexical/react/LexicalExtensionComposer";
+import {HistoryExtension} from '@lexical/history';
+import {RichTextExtension} from '@lexical/rich-text';
+import {AutoFocusExtension} from '@lexical/extension';
+import {configExtension, defineExtension} from 'lexical';
+import {ReactExtension} from '@lexical/react/ReactExtension';
+import {LexicalExtensionComposer} from '@lexical/react/LexicalExtensionComposer';
 // highlight-end
 
-import ExampleTheme from "./ExampleTheme";
-import ToolbarPlugin from "./plugins/ToolbarPlugin";
-import TreeViewPlugin from "./plugins/TreeViewPlugin";
+import ExampleTheme from './ExampleTheme';
+import ToolbarPlugin from './plugins/ToolbarPlugin';
+import TreeViewPlugin from './plugins/TreeViewPlugin';
 
-const placeholderText = "Enter some rich text...";
+const placeholderText = 'Enter some rich text...';
 const contentEditable = (
   <ContentEditable
     className="editor-input"
@@ -216,13 +220,13 @@ const contentEditable = (
 
 // highlight-start
 const editorExtension = defineExtension({
-  name: "[root]",
-  namespace: "React.js Extension Demo",
+  name: '[root]',
+  namespace: 'React.js Extension Demo',
   dependencies: [
     AutoFocusExtension,
     RichTextExtension,
     HistoryExtension,
-    configExtension(ReactExtension, { contentEditable: null }),
+    configExtension(ReactExtension, {contentEditable: null}),
   ],
   // The editor theme
   theme: ExampleTheme,
@@ -231,9 +235,11 @@ const editorExtension = defineExtension({
 
 export default function App() {
   return (
+    // We specify our own layout for the editor's children
     // highlight-next-line
-    {/* We specify our own layout for the editor's children */}
-    <LexicalExtensionComposer extension={editorExtension} contentEditable={null}>
+    <LexicalExtensionComposer
+      extension={editorExtension}
+      contentEditable={null}>
       <div className="editor-container">
         <ToolbarPlugin />
         <div className="editor-inner">
@@ -358,7 +364,7 @@ export function KeywordsPlugin(): JSX.Element | null {
 ```tsx
 // highlight-start
 // Use this strategy for a minimal changes and to expose a backwards
-// compatible interface to support editors not using Lexical Builder
+// compatible interface to support editors not using Lexical Extensions
 /**
  * USAGE:
  * 1. Add KeywordsExtension as a dependency to your LexicalExtensionComposer root extension
@@ -478,24 +484,18 @@ export const KeywordsExtension = defineExtension({
  *    If you don't like that selector, use
  *    `configExtension(KeywordsExtension, {className: 'something-else'})`
  */
-import type {
-  EditorConfig,
-  LexicalNode,
-  SerializedTextNode,
-} from "lexical";
+import type {EditorConfig, LexicalNode, SerializedTextNode} from 'lexical';
 import {
   $create,
   TextNode,
-  configExtension
+  configExtension,
   defineExtension,
   safeCast,
-} from "lexical";
-import {
-  $getExtensionDependency,
-} from "@lexical/extension";
+} from 'lexical';
+import {$getExtensionDependency} from '@lexical/extension';
+import {mergeRegister} from '@lexical/utils';
 // highlight-end
-import { registerLexicalTextEntity } from "@lexical/text";
-import { useCallback, useEffect } from "react";
+import {registerLexicalTextEntity} from '@lexical/text';
 
 // highlight-start
 // Provide any type-safe configuration, that a Node can use in its
@@ -513,7 +513,7 @@ export class KeywordNode extends TextNode {
 
   createDOM(config: EditorConfig): HTMLElement {
     const dom = super.createDOM(config);
-    dom.style.cursor = "default";
+    dom.style.cursor = 'default';
     // highlight-start
     // This lets us configure the class name!
     dom.className = $getExtensionDependency(KeywordsExtension).config.className;
@@ -545,6 +545,22 @@ export function $isKeywordNode(node: LexicalNode | null | undefined): boolean {
 const KEYWORDS_REGEX =
   /(^|[^A-Za-z])(congrats|congratulations|mazel tov|mazal tov)($|[^A-Za-z])/i;
 
+function getKeywordMatch(text: string) {
+  const matchArr = KEYWORDS_REGEX.exec(text);
+
+  if (matchArr === null) {
+    return null;
+  }
+
+  const hashtagLength = matchArr[2].length;
+  const startOffset = matchArr.index + matchArr[1].length;
+  const endOffset = startOffset + hashtagLength;
+  return {
+    end: endOffset,
+    start: startOffset,
+  };
+}
+
 function $convertToKeywordNode(textNode: TextNode) {
   return $createKeywordNode(textNode.getTextContent());
 }
@@ -552,9 +568,9 @@ function $convertToKeywordNode(textNode: TextNode) {
 // highlight-start
 // Oh wait, we don't even have a React dependency anymore!
 export const KeywordsExtension = defineExtension({
-  name: "@lexical/example/LexicalKeywords",
+  name: '@lexical/example/LexicalKeywords',
   nodes: () => [KeywordNode],
-  config: safeCast<KeywordsConfig>({ className: "keyword" }),
+  config: safeCast<KeywordsConfig>({className: 'keyword'}),
   register(editor) {
     return mergeRegister(
       ...registerLexicalTextEntity(
@@ -562,7 +578,7 @@ export const KeywordsExtension = defineExtension({
         getKeywordMatch,
         KeywordNode,
         $convertToKeywordNode,
-      )
+      ),
     );
   },
 });

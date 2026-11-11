@@ -117,7 +117,7 @@ function exec(command) {
 function fetchContributors() {
   console.log('Fetching contributors from GitHub...');
   const result = exec(
-    "gh api repos/facebook/lexical/contributors --jq '.[] | {login, contributions, avatar_url, html_url}' --paginate",
+    "gh api repos/meta/lexical/contributors --jq '.[] | {login, contributions, avatar_url, html_url}' --paginate",
   );
   if (!result) {
     throw new Error('Failed to fetch contributors');
@@ -139,7 +139,7 @@ function fetchRecentCommits(username) {
 
   console.log(`  Checking activity for ${username}...`);
   const result = exec(
-    `gh api /repos/facebook/lexical/commits?author=${username}'&'since=${since} --jq 'length'`,
+    `gh api /repos/meta/lexical/commits?author=${username}'&'since=${since} --jq 'length'`,
   );
   return result ? parseInt(result, 10) : 0;
 }
@@ -262,7 +262,6 @@ function buildTeamMember(contributor, profile, hasSponsors, category) {
       if (orgHandle.toLowerCase() === 'facebook') {
         orgDisplayName = 'Meta';
       } else if (orgHandle.toLowerCase() === 'meta') {
-        // meta should link to facebook and display as Meta
         orgDisplayName = 'Meta';
       } else if (!/[A-Z]/.test(orgDisplayName)) {
         // If no capital letters, capitalize first letter
@@ -271,9 +270,9 @@ function buildTeamMember(contributor, profile, hasSponsors, category) {
       }
 
       member.org = orgDisplayName;
-      // Always link to facebook for Meta references
+      // The facebook GitHub org was renamed to meta; link Meta references there
       const linkHandle =
-        orgHandle.toLowerCase() === 'meta' ? 'facebook' : orgHandle;
+        orgHandle.toLowerCase() === 'facebook' ? 'meta' : orgHandle;
       member.orgLink = `https://github.com/${linkHandle}`;
     } else {
       // Non-GitHub org - take first org if multiple, capitalize if needed

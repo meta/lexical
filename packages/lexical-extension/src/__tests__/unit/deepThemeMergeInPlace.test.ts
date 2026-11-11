@@ -5,10 +5,12 @@
  * LICENSE file in the root directory of this source tree.
  *
  */
+
+// @vitest-environment node
 import {} from '@lexical/extension';
 import {describe, expect, it} from 'vitest';
 
-import {deepThemeMergeInPlace} from '../../deepThemeMergeInPlace';
+import {deepThemeMergeInPlace} from '../../internal/deepThemeMergeInPlace';
 
 describe('deepThemeMergeInPlace', () => {
   it('merges recursively', () => {

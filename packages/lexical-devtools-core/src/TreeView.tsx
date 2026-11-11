@@ -21,7 +21,11 @@ import {
 
 const LARGE_EDITOR_STATE_SIZE = 1000;
 
-export const TreeView = forwardRef<
+// Annotated by hand: React's forwardRef is not a Lexical factory, so the build
+// does not annotate it, and an unannotated module-scope call is a side effect
+// to a bundler — one that pins this module, and everything it references, into
+// every bundle that imports @lexical/devtools-core.
+export const TreeView = /* @__PURE__ */ forwardRef<
   HTMLPreElement,
   {
     editorState: EditorState;

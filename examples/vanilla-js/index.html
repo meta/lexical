@@ -6,7 +6,23 @@
     <title>Lexical Basic - Vanilla JS</title>
   </head>
   <body>
-    <div id="app"></div>
+    <div id="app">
+      <div>
+        <h1>Lexical Basic - Vanilla JS</h1>
+        <!-- [docs:editor-html] Read directly by the Quick Start guide. -->
+        <div class="editor-wrapper">
+          <div
+            id="lexical-editor"
+            contenteditable="true"
+            role="textbox"
+            aria-label="Rich text editor"
+            aria-multiline="true"></div>
+        </div>
+        <h4><label for="lexical-state">Editor state:</label></h4>
+        <textarea id="lexical-state" readonly></textarea>
+        <!-- [/docs:editor-html] -->
+      </div>
+    </div>
     <script src="/src/main.ts" type="module"></script>
   </body>
 </html>

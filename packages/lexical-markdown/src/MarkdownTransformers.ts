@@ -49,7 +49,13 @@ import {
   type TextNode,
 } from 'lexical';
 
-import {unescapeText} from './utils';
+import {scanCodeSpans} from './importTextFormatTransformer';
+import {
+  isEmptyParagraph,
+  isEscaped,
+  toCharacterReference,
+  unescapeText,
+} from './utils';
 
 export type Transformer =
   | ElementTransformer
@@ -176,7 +182,12 @@ export type TextFormatTransformer = Readonly<{
 export type TextMatchTransformer = Readonly<{
   dependencies: Klass<LexicalNode>[];
   /**
-   * Determines how a node should be exported to markdown
+   * Determines how a node should be exported to markdown. Return null when
+   * this transformer does not export `node`.
+   *
+   * Markdown export may also call this with placeholder callbacks only to learn
+   * whether the transformer writes `node` in its own syntax (to decide which
+   * neighbouring brackets to escape), so it should have no side effects.
    */
   export?: (
     node: LexicalNode,
@@ -296,6 +307,16 @@ export const codeFenceState = createState('mdCodeFence', {
   resetOnCopyNode: true,
 });
 
+/**
+ * The info-string tail after a fenced code block's language (e.g. `title="x"`
+ * in ```` ```js title="x" ````). `CodeNode` models only the language, so the
+ * rest is kept here to survive the round trip.
+ */
+export const codeMetaState = createState('mdCodeMeta', {
+  parse: val => (typeof val === 'string' ? val : ''),
+  resetOnCopyNode: true,
+});
+
 export type MarkdownHardLineBreak = string;
 
 export const hardLineBreakState = createState('mdHardLineBreak', {
@@ -312,7 +333,15 @@ export function parseMarkdownHardLineBreak(
   line: string,
 ): [string, MarkdownHardLineBreak] | null {
   if (line.endsWith('\\')) {
-    return [line.slice(0, -1), '\\'];
+    // A trailing backslash is a hard line break only when it is not itself
+    // escaped. `foo\\` is an escaped backslash — a literal `\` followed by an
+    // ordinary (soft) line ending — so only an odd-length run counts.
+    // https://spec.commonmark.org/0.31.2/#backslash-escapes
+    let backslashes = 0;
+    for (let i = line.length - 1; i >= 0 && line[i] === '\\'; i--) {
+      backslashes++;
+    }
+    return backslashes % 2 === 1 ? [line.slice(0, -1), '\\'] : null;
   }
 
   const spaces = line.match(/^(.*?\S)( {2,})$/);
@@ -378,6 +407,44 @@ export function $createMarkdownLineBreakNode(
   return lineBreakNode;
 }
 
+/**
+ * Block-level shortcuts convert by replacing the enclosing block, which
+ * discards it. A QuoteNode holds inline content, so there is nowhere to nest
+ * the new block and the quote would simply be lost. Import already refuses:
+ * `$convertFromMarkdownString('> # x')` keeps the quote and leaves `# x` as
+ * literal text, so the shortcut declines too rather than dropping the quote
+ * out from under the caret. See #7407.
+ */
+function $isUnreplaceableBlock(parentNode: ElementNode): boolean {
+  return $isQuoteNode(parentNode);
+}
+
+/**
+ * CommonMark: "If the leading code fence is indented N spaces, then up to N
+ * spaces of indentation are removed from each line of the content (if
+ * present)." https://spec.commonmark.org/0.31.2/#fenced-code-blocks
+ */
+function stripFenceIndent(line: string, indent: number): string {
+  let index = 0;
+  while (index < indent && (line[index] === ' ' || line[index] === '\t')) {
+    index++;
+  }
+  return line.slice(index);
+}
+
+/**
+ * Attaches the opening fence's info-string tail to the `CodeNode` that
+ * `CODE.replace` just appended. `replace` takes the match rather than the
+ * source line, so the tail is applied here, where the line is in hand.
+ */
+function $setCodeMeta(parentNode: ElementNode, meta: string): void {
+  const codeNode = parentNode.getLastChild();
+  if (meta && $isCodeNode(codeNode)) {
+    $setState(codeNode, codeMetaState, meta);
+  }
+}
+
+/** @__NO_SIDE_EFFECTS__ */
 const createBlockNode = (
   createNode: (match: string[]) => ElementNode,
 ): ElementTransformer['replace'] => {
@@ -412,16 +479,139 @@ function getIndent(whitespaces: string): number {
   return indent;
 }
 
+/**
+ * The column the text after `whitespaces` starts at, expanding a tab to the
+ * next multiple of `LIST_INDENT_SIZE` the way CommonMark does.
+ */
+function getColumn(whitespaces: string): number {
+  let column = 0;
+  for (const char of whitespaces) {
+    column +=
+      char === '\t' ? LIST_INDENT_SIZE - (column % LIST_INDENT_SIZE) : 1;
+  }
+  return column;
+}
+
+/**
+ * The content columns of the list levels the lines placed so far have left
+ * open, outermost first, or null outside a markdown import.
+ *
+ * A sublist is measured against the column where its parent item's content
+ * begins rather than against a fixed number of spaces: that is what lets
+ * `1. a` take a three-space sublist while `- a` takes a two-space one, and
+ * what keeps two items written at the same column siblings even when that
+ * column is deep enough to have opened a level.
+ *
+ * Only the line that opened a level knows the column it was written at, and
+ * nothing in the tree records it afterwards, so the columns are carried from
+ * line to line for the length of one import. A shortcut typed into an editor
+ * is a line on its own with no such run behind it and keeps reading its indent
+ * as a fixed `LIST_INDENT_SIZE` per level, which is the step `$listExport`
+ * writes and the one the toolbar and Tab indent by.
+ */
+let importListColumns: number[] | null = null;
+let importJoinsLooseLists = false;
+
+/**
+ * Run `fn` with the columns of a single markdown import tracked across the
+ * lines it places. Restores whatever was being tracked around it, so an import
+ * that runs inside another one does not disturb it.
+ *
+ * `joinLooseLists` reads a blank line between list lines as making the list
+ * loose rather than ending it. An import that preserves new lines keeps blank
+ * paragraphs as content, so there a blank line closes the list like any other
+ * block.
+ *
+ * @internal
+ */
+export function withListIndentColumns<T>(
+  joinLooseLists: boolean,
+  fn: () => T,
+): T {
+  const previousColumns = importListColumns;
+  const previousJoins = importJoinsLooseLists;
+  importListColumns = [];
+  importJoinsLooseLists = joinLooseLists;
+  try {
+    return fn();
+  } finally {
+    importListColumns = previousColumns;
+    importJoinsLooseLists = previousJoins;
+  }
+}
+
+/**
+ * The indent `whitespaces` names given the levels open above it: the innermost
+ * level whose content column it reaches, or 0 when it reaches none of them.
+ */
+function getColumnIndent(
+  columns: readonly number[],
+  whitespaces: string,
+): number {
+  const column = getColumn(whitespaces);
+  for (let i = columns.length - 1; i >= 0; i--) {
+    if (column >= columns[i]) {
+      return i + 1;
+    }
+  }
+  return 0;
+}
+
+/**
+ * The column this line opens its content at: where the matched marker ends,
+ * with tabs expanded, so `-\ta` opens at the tab stop and not two columns in.
+ * A check list item is marked by its bullet — the `[ ]` is content — so
+ * `- [ ] a` opens where `- a` does. Capped one `LIST_INDENT_SIZE` past the
+ * marker so that the indent `$listExport` writes always nests: a sublist of
+ * `100. ` is exported with four spaces, short of that marker's real content
+ * column.
+ */
+function getContentColumn(match: string[], listType: ListType): number {
+  let prefix = match[0];
+  if (listType === 'check') {
+    const bullet = prefix.slice(match[1].length).match(/^[-*+]\s/);
+    if (bullet) {
+      prefix = match[1] + bullet[0];
+    }
+  }
+  return Math.min(getColumn(prefix), getColumn(match[1]) + LIST_INDENT_SIZE);
+}
+
+/**
+ * Record the content column that this line leaves open for the lines below it,
+ * closing the levels it stepped back out of.
+ */
+function setOpenColumn(
+  columns: number[],
+  indent: number,
+  match: string[],
+  listType: ListType,
+): void {
+  // An indent read from `getIndent` rather than from the columns can name a
+  // level no line of this import opened, so any gap below it is filled with
+  // the fixed step that reading assumed.
+  for (let i = columns.length; i < indent; i++) {
+    columns[i] = (i + 1) * LIST_INDENT_SIZE;
+  }
+  columns.length = indent;
+  columns[indent] = getContentColumn(match, listType);
+}
+
+/** @__NO_SIDE_EFFECTS__ */
 const listReplace = (listType: ListType): ElementTransformer['replace'] => {
   return (parentNode, children, match, isImport) => {
-    if ($isHeadingNode(parentNode)) {
+    if (
+      $isHeadingNode(parentNode) ||
+      (!isImport && $isUnreplaceableBlock(parentNode))
+    ) {
       return false;
     }
 
     const previousNode = parentNode.getPreviousSibling();
     const nextNode = parentNode.getNextSibling();
     const listItem = $createListItemNode(
-      listType === 'check' ? match[3] === 'x' : undefined,
+      // CHECK_LIST_REGEX matches case-insensitively, so `[X]` is checked too.
+      listType === 'check' ? /^x$/i.test(match[3] || '') : undefined,
     );
     const firstMatchChar = match[0].trim()[0];
     const listMarker =
@@ -429,10 +619,32 @@ const listReplace = (listType: ListType): ElementTransformer['replace'] => {
       firstMatchChar === listMarkerState.parse(firstMatchChar)
         ? firstMatchChar
         : undefined;
-    if ($isListNode(nextNode) && nextNode.getListType() === listType) {
-      if (listMarker) {
-        $setState(nextNode, listMarkerState, listMarker);
+    // A block of another kind closes every level above this line. Blank lines
+    // do not: they only make the list loose, and a blank line must not decide
+    // how the line after it is read, or the same sublist would be read one way
+    // written tightly and another written with a blank line before it. So the
+    // line is measured against, and placed into, the list it follows across
+    // any blank lines, and the levels close only when the nearest block that
+    // is not one is no longer the list itself. Outside such an import — a
+    // typed shortcut, or an import that keeps its blank lines as content — a
+    // blank line above the line is a block like any other.
+    const columns = importListColumns;
+    let precedingBlock = previousNode;
+    if (columns !== null) {
+      if (importJoinsLooseLists) {
+        while (precedingBlock !== null && isEmptyParagraph(precedingBlock)) {
+          precedingBlock = precedingBlock.getPreviousSibling();
+        }
       }
+      if (!$isListNode(precedingBlock)) {
+        columns.length = 0;
+      }
+    }
+    const indent =
+      columns === null || columns.length === 0
+        ? getIndent(match[1])
+        : getColumnIndent(columns, match[1]);
+    if ($isListNode(nextNode) && nextNode.getListType() === listType) {
       const firstChild = nextNode.getFirstChild();
       if (firstChild !== null) {
         firstChild.insertBefore(listItem);
@@ -441,30 +653,30 @@ const listReplace = (listType: ListType): ElementTransformer['replace'] => {
         nextNode.append(listItem);
       }
       // The new list item lands at index 0, so the typed number becomes the
-      // list's starting value. #8677.
-      if (listType === 'number') {
+      // list's starting value. #8677. An indented item only passes through —
+      // `setIndent` below moves it into a sublist — so its number belongs to
+      // that sublist, not to the list it leaves.
+      if (listType === 'number' && indent === 0) {
         nextNode.setStart(Number(match[2]));
       }
       parentNode.remove();
     } else if (
-      $isListNode(previousNode) &&
-      previousNode.getListType() === listType
+      $isListNode(precedingBlock) &&
+      (precedingBlock.getListType() === listType || indent > 0)
     ) {
-      if (listMarker) {
-        $setState(previousNode, listMarkerState, listMarker);
-      }
-      // The new item is appended at the end and inherits the existing
-      // sequence, so the typed number is intentionally ignored here.
-      previousNode.append(listItem);
+      // An item of the same type continues the list, and inherits the
+      // existing sequence — the typed number is intentionally ignored. An
+      // indented item of another type belongs inside it too: it is appended
+      // at the top level here, `setIndent` below moves it to its level, and a
+      // list of the right type is spliced in once the level it lands in is
+      // known.
+      precedingBlock.append(listItem);
       parentNode.remove();
     } else {
       const list = $createListNode(
         listType,
         listType === 'number' ? Number(match[2]) : undefined,
       );
-      if (listMarker) {
-        $setState(list, listMarkerState, listMarker);
-      }
       list.append(listItem);
       parentNode.replace(list);
     }
@@ -472,12 +684,65 @@ const listReplace = (listType: ListType): ElementTransformer['replace'] => {
     if (!isImport) {
       listItem.select(0, 0);
     }
-    const indent = getIndent(match[1]);
     if (indent) {
       listItem.setIndent(indent);
+      $retypeNestedList(listItem, listType, match);
+    }
+    // The marker belongs to the list the item actually ends up in, which is
+    // only known once it has been indented and retyped.
+    const listNode = listItem.getParent();
+    if (listMarker && $isListNode(listNode)) {
+      $setState(listNode, listMarkerState, listMarker);
+    }
+    if (columns !== null) {
+      setOpenColumn(columns, indent, match, listType);
     }
   };
 };
+
+/**
+ * `setIndent` nests an item by copying the list it is in, so an item whose
+ * type differs from the list above it lands in a nested list of the wrong
+ * type. Split it out into a list of its own type, in place, so that a sublist
+ * can change type the way CommonMark lets it — `1. a` may be followed by an
+ * indented `- b`, and that by an indented `- [ ] c`.
+ */
+function $retypeNestedList(
+  listItem: ListItemNode,
+  listType: ListType,
+  match: string[],
+): void {
+  const nestedList = listItem.getParent();
+  if (!$isListNode(nestedList) || nestedList.getListType() === listType) {
+    return;
+  }
+  const wrapper = nestedList.getParent();
+  if (!$isListItemNode(wrapper)) {
+    return;
+  }
+  const retypedList = $createListNode(
+    listType,
+    listType === 'number' ? Number(match[2]) : undefined,
+  );
+  // `setIndent` either appends the item to the nested list or puts it in
+  // front of it, so the list of its own type belongs on whichever side of the
+  // one it was placed in it already sits on.
+  const isFirst = listItem.getPreviousSibling() === null;
+  // `append` moves the item without disturbing the selection, which
+  // `remove` would relocate to a sibling and leave there — the caret has to
+  // stay in the item the shortcut just created.
+  retypedList.append(listItem);
+  const retypedWrapper = $createListItemNode();
+  retypedWrapper.append(retypedList);
+  if (isFirst) {
+    wrapper.insertBefore(retypedWrapper);
+  } else {
+    wrapper.insertAfter(retypedWrapper);
+  }
+  if (nestedList.getChildrenSize() === 0) {
+    wrapper.remove();
+  }
+}
 
 const $listExport = (
   listNode: ListNode,
@@ -533,6 +798,11 @@ const $listExport = (
   return output.join('\n');
 };
 
+const $replaceWithHeading = createBlockNode(match => {
+  const tag = ('h' + match[1].length) as HeadingTagType;
+  return $createHeadingNode(tag);
+});
+
 export const HEADING: ElementTransformer = {
   dependencies: [HeadingNode],
   export: (node, exportChildren) => {
@@ -543,10 +813,12 @@ export const HEADING: ElementTransformer = {
     return '#'.repeat(level) + ' ' + exportChildren(node);
   },
   regExp: HEADING_REGEX,
-  replace: createBlockNode(match => {
-    const tag = ('h' + match[1].length) as HeadingTagType;
-    return $createHeadingNode(tag);
-  }),
+  replace: (parentNode, children, match, isImport) => {
+    if (!isImport && $isUnreplaceableBlock(parentNode)) {
+      return false;
+    }
+    return $replaceWithHeading(parentNode, children, match, isImport);
+  },
   triggerOnEnter: true,
   type: 'element',
 };
@@ -606,9 +878,13 @@ export const CODE: MultilineElementTransformer = {
         fence = '`'.repeat(maxLength + 1);
       }
     }
+    const language = node.getLanguage() || '';
+    const meta = language ? $getState(node, codeMetaState) : '';
+
     return (
       fence +
-      (node.getLanguage() || '') +
+      language +
+      (meta ? ' ' + meta : '') +
       (textContent ? '\n' + textContent : '') +
       '\n' +
       fence
@@ -655,10 +931,28 @@ export const CODE: MultilineElementTransformer = {
         const endMatch = line.match(multilineEndRegex);
         const linesInBetween = lines.slice(startLineIndex + 1, i);
 
-        const afterFullMatch = currentLine.slice(startMatch[0].length);
-        if (afterFullMatch.length > 0) {
-          linesInBetween.unshift(afterFullMatch);
-        }
+        // Everything after the opening fence is the info string, and only its
+        // first word is the language. When a language was captured, whatever
+        // follows it on that line is metadata (```js title="x", ```ts {1,3})
+        // and must not be prepended to the block's content.
+        // https://spec.commonmark.org/0.31.2/#fenced-code-blocks
+        //
+        // With no language captured the fence carries no info string, so the
+        // remainder is kept as content (``` code) as before.
+        //
+        // Either way the slot itself is always occupied: `replace` follows the
+        // default $importMultiline contract, where linesInBetween[0] is the
+        // remainder of the opening fence line and is discarded when blank. So
+        // an empty placeholder goes in when the remainder is metadata, and a
+        // blank remainder is unshifted rather than skipped — otherwise a code
+        // block that genuinely starts with a blank line would have that line
+        // mistaken for the (empty) remainder and dropped.
+        const meta = startMatch[2]
+          ? currentLine.slice(startMatch[0].length).trim()
+          : '';
+        linesInBetween.unshift(
+          meta ? '' : currentLine.slice(startMatch[0].length),
+        );
 
         CODE.replace(
           rootNode,
@@ -668,15 +962,13 @@ export const CODE: MultilineElementTransformer = {
           linesInBetween,
           true,
         );
+        $setCodeMeta(rootNode, meta);
         return [true, i];
       }
     }
 
     const linesInBetween = lines.slice(startLineIndex + 1);
-    const afterFullMatch = currentLine.slice(startMatch[0].length);
-    if (afterFullMatch.length > 0) {
-      linesInBetween.unshift(afterFullMatch);
-    }
+    linesInBetween.unshift(currentLine.slice(startMatch[0].length));
 
     CODE.replace(rootNode, null, startMatch, null, linesInBetween, true);
     return [true, lines.length - 1];
@@ -701,12 +993,16 @@ export const CODE: MultilineElementTransformer = {
 
     const fence = startMatch[1] ? startMatch[1].trim() : '```';
     const language = startMatch[2] || undefined;
+    // `startMatch[1]` keeps the whitespace that precedes the opening fence.
+    const fenceIndent = startMatch[1]
+      ? startMatch[1].length - startMatch[1].trimStart().length
+      : 0;
 
     if (!children && linesInBetween) {
       if (linesInBetween.length === 1) {
         if (endMatch) {
           codeBlockNode = $createCodeNode(language);
-          code = linesInBetween[0];
+          code = stripFenceIndent(linesInBetween[0], fenceIndent);
         } else {
           codeBlockNode = $createCodeNode(language);
           code = linesInBetween[0].startsWith(' ')
@@ -731,7 +1027,9 @@ export const CODE: MultilineElementTransformer = {
           linesInBetween.pop();
         }
 
-        code = linesInBetween.join('\n');
+        code = linesInBetween
+          .map(line => stripFenceIndent(line, fenceIndent))
+          .join('\n');
       }
 
       $setState(codeBlockNode, codeFenceState, fence);
@@ -740,6 +1038,9 @@ export const CODE: MultilineElementTransformer = {
       codeBlockNode.append(textNode);
       rootNode.append(codeBlockNode);
     } else if (children) {
+      if (!isImport && $isUnreplaceableBlock(rootNode)) {
+        return false;
+      }
       createBlockNode(match => {
         return $createCodeNode(match ? match[2] : undefined);
       })(rootNode, children, startMatch, isImport);
@@ -805,10 +1106,12 @@ export function getCodeSpanDelimiter(content: string): {
     ? Math.max(...backtickRuns.map(run => run.length))
     : 0;
   const fence = '`'.repeat(longestRun + 1);
+  // A reader strips one space from each end only when the content is not all
+  // spaces, so content made only of spaces goes out as it is.
   const needsPadding =
     content.length === 0 ||
     content.includes('`') ||
-    (/^\s/.test(content) && /\s$/.test(content));
+    (/^\s/.test(content) && /\s$/.test(content) && /[^ ]/.test(content));
   const padded = needsPadding ? ` ${content} ` : content;
   return {fence, padded};
 }
@@ -864,17 +1167,84 @@ export const ITALIC_UNDERSCORE: TextFormatTransformer = {
   type: 'text-format',
 };
 
-// `unescapeText` decodes a numeric character reference and a CommonMark reader
-// decodes the named ones too, so an `&` that begins one cannot be written raw
-// in a link destination or the URL comes back as the character it names. It
-// goes out as `&#38;` instead, which both of them read back as a single `&`.
-// An `&` that begins nothing is an ordinary character and stays as it is, so a
-// query string keeps the separators it was written with.
-function escapeCharacterReferences(value: string): string {
-  return value.replace(
-    /&(?=#\d+;|#[Xx][\dA-Fa-f]+;|[A-Za-z][\dA-Za-z]*;)/g,
-    '&#38;',
-  );
+// A raw link destination cannot hold an ASCII control character or a space in
+// CommonMark, nor any Unicode whitespace in the raw branch of `LINK`'s import
+// patterns, so export writes a URL with any of them in the pointy form. Import
+// still reads control characters in a raw destination, as older exports wrote
+// them there. A NUL reads back as U+FFFD in a CommonMark reader whichever form
+// it is in, since no spelling of it avoids that.
+// eslint-disable-next-line no-control-regex
+const NOT_RAW_DESTINATION = /[\s\0-\x1f\x7f]/;
+
+// A link destination or title is read back through `unescapeText`, which
+// decodes a numeric character reference, and a CommonMark reader decodes the
+// named ones too. So an `&` that begins one goes out as `&#38;`, or the part
+// would come back as the character the reference names. An `&` that begins
+// nothing is an ordinary character and stays as it is, so a query string keeps
+// the separators it was written with.
+//
+// Then every match of `syntax`, a global regular expression for the characters
+// the part's shape treats as syntax, gets a backslash. So does a backtick: this
+// package's importer reads code spans before links, so one anywhere in the
+// link could pair with one in the text after it and swallow the link, although
+// a CommonMark reader would not let it.
+//
+// Neither part may hold a line ending either. CommonMark allows none in a
+// destination and no blank line in a title, where two CRs make one as surely
+// as two LFs, and the importer reads one LF-separated line at a time, so even
+// a single LF would split the link. Each goes out as the character reference
+// that `unescapeText` and a CommonMark reader both turn back into the line
+// ending, written after the `&` escape so that one leaves it alone.
+function escapeLinkPart(value: string, syntax: RegExp): string {
+  return value
+    .replace(/&(?=#\d+;|#[Xx][\dA-Fa-f]+;|[A-Za-z][\dA-Za-z]*;)/g, '&#38;')
+    .replace(syntax, '\\$&')
+    .replace(/`/g, '\\`')
+    .replace(/[\r\n]/g, toCharacterReference);
+}
+
+// Mask escaped/code brackets without changing source offsets, then find an inner
+// opener after a literal prefix. Return -1 for balanced labels or null when
+// unmatched closers leave no recoverable opener.
+export function getLinkLabelOpener(text: string): number | null {
+  const codeSpans = scanCodeSpans(text);
+  let codeIndex = 0;
+  const brackets = text.replace(/\\.|[[\]]/g, (part, index: number) => {
+    while (
+      codeIndex < codeSpans.length &&
+      index >= codeSpans[codeIndex].endIndex
+    )
+      codeIndex++;
+    return (codeIndex < codeSpans.length &&
+      index >= codeSpans[codeIndex].startIndex) ||
+      part[0] === '\\'
+      ? ' '.repeat(part.length)
+      : part;
+  });
+  const openers: number[] = [];
+  let unmatchedCloser = false;
+  for (let index = 0; index < brackets.length; index++) {
+    const character = brackets[index];
+    if (character === '[') {
+      openers.push(index);
+    } else if (character === ']') {
+      if (openers.pop() === undefined) unmatchedCloser = true;
+    }
+  }
+  return openers.pop() ?? (unmatchedCloser ? null : -1);
+}
+
+function unescapeLinkPrefix(text: string): string {
+  let output = '';
+  let previous = 0;
+  // Keep existing code-prefix source intact; only plain text has escapes.
+  for (const {startIndex, endIndex} of scanCodeSpans(text)) {
+    output +=
+      unescapeText(text.slice(previous, startIndex)) +
+      text.slice(startIndex, endIndex);
+    previous = endIndex;
+  }
+  return output + unescapeText(text.slice(previous));
 }
 
 // Order of text transformers matters:
@@ -888,43 +1258,24 @@ export const LINK: TextMatchTransformer = {
       return null;
     }
     const textContent = exportChildren(node);
-    let title = node.getTitle();
+    const title = node.getTitle();
 
-    // A title is read back through `unescapeText` as well, so a character
-    // reference in it needs the same treatment the destination gets below.
-    if (title != null) {
-      title = escapeCharacterReferences(title).replace(/([\\"])/g, '\\$1');
-    }
-
-    // A raw destination cannot hold whitespace, so a URL that has any is
-    // written in the pointy form, where only `<`, `>` and a backslash need an
-    // escape. An empty URL goes there too, since the raw form has nothing left
-    // to match. Everywhere else the destination is written raw, where a
-    // parenthesis would close it early, a backslash would start an escape, and
-    // only a `<` in first place turns it into the pointy form. An angle
-    // bracket anywhere else is an ordinary character and goes out as it is.
-    //
-    // Neither shape may hold a line ending, so a literal one would leave a
-    // destination that no reader can close and would split the paragraph in
-    // two. It goes out as the character reference that `unescapeText` and a
-    // CommonMark reader both turn back into the line ending.
-    //
-    // That spelling only survives because a reader decodes it, so an `&` that
-    // already begins a character reference has to go out as one itself, or the
-    // URL comes back as whatever the reference names. Escaping it first keeps
-    // the references written for the line endings below out of its way.
+    // A URL that `NOT_RAW_DESTINATION` matches goes in the pointy form, where
+    // `<`, `>` and a backslash are syntax. An empty URL goes there too, since
+    // the raw form has nothing left to match. Everywhere else the destination
+    // is written raw, where a parenthesis would close it early, a backslash
+    // would start an escape, and only a `<` in first place turns it into the
+    // pointy form. An angle bracket anywhere else is an ordinary character and
+    // goes out as it is.
     const rawUrl = node.getURL();
-    const escapedUrl = escapeCharacterReferences(rawUrl);
     const url =
-      rawUrl === '' || /\s/.test(rawUrl)
-        ? `<${escapedUrl
-            .replace(/([\\<>])/g, '\\$1')
-            .replace(/\r/g, '&#13;')
-            .replace(/\n/g, '&#10;')}>`
-        : escapedUrl.replace(/([\\()])/g, '\\$1').replace(/^</, '\\<');
+      rawUrl === '' || NOT_RAW_DESTINATION.test(rawUrl)
+        ? `<${escapeLinkPart(rawUrl, /[\\<>]/g)}>`
+        : escapeLinkPart(rawUrl, /[\\()]|^</g);
 
+    // In the double-quoted title only `"` and a backslash are syntax.
     const linkContent = title
-      ? `[${textContent}](${url} "${title}")`
+      ? `[${textContent}](${url} "${escapeLinkPart(title, /[\\"]/g)}")`
       : `[${textContent}](${url})`;
 
     return linkContent;
@@ -957,12 +1308,18 @@ export const LINK: TextMatchTransformer = {
   // are characters, which costs a quadratic walk of every run that never
   // reaches the closing parenthesis.
   importRegExp:
-    /(?:\[(.+?)\])(?:\(\s*(?:(?:<((?:\\.|[^<>\n\\])*)>|((?!<)(?:\\[^\s]|\\(?=\s)|\((?:\\[^\s]|[^\s()\\]|\((?:\\[^\s]|[^\s()\\]|\((?:\\[^\s]|[^\s()\\])*\))*\))*\)|[^\s()\\])+))(?:\s+(?:"((?:[^"]*\\")*[^"]*)"|'((?:[^']*\\')*[^']*)'|\(((?:\\.|[^()\\])*)\)))?\s*)?\))/,
+    /(?:\[(.+?)\])(?:\(\s*(?:(?:<((?:\\[^\n\r]|[^<>\n\r\\])*)>|((?!<)(?:\\[^\s]|\\(?=\s)|\((?:\\[^\s]|[^\s()\\]|\((?:\\[^\s]|[^\s()\\]|\((?:\\[^\s]|[^\s()\\])*\))*\))*\)|[^\s()\\])+))(?:\s+(?:"((?:\\[\s\S]|[^"\\])*)"|'((?:\\[\s\S]|[^'\\])*)'|\(((?:\\[\s\S]|[^()\\])*)\)))?\s*)?\))/,
   regExp:
-    /(?:\[([^[\]]*(?:\[[^[\]]*\][^[\]]*)*)\])(?:\(\s*(?:(?:<((?:\\.|[^<>\n\\])*)>|((?!<)(?:\\[^\s]|\\(?=\s)|\((?:\\[^\s]|[^\s()\\]|\((?:\\[^\s]|[^\s()\\]|\((?:\\[^\s]|[^\s()\\])*\))*\))*\)|[^\s()\\])+))(?:\s+(?:"((?:[^"]*\\")*[^"]*)"|'((?:[^']*\\')*[^']*)'|\(((?:\\.|[^()\\])*)\)))?\s*)?\))$/,
+    /(?:\[([^[\]]*(?:\[[^[\]]*\][^[\]]*)*)\])(?:\(\s*(?:(?:<((?:\\[^\n\r]|[^<>\n\r\\])*)>|((?!<)(?:\\[^\s]|\\(?=\s)|\((?:\\[^\s]|[^\s()\\]|\((?:\\[^\s]|[^\s()\\]|\((?:\\[^\s]|[^\s()\\])*\))*\))*\)|[^\s()\\])+))(?:\s+(?:"((?:\\[\s\S]|[^"\\])*)"|'((?:\\[\s\S]|[^'\\])*)'|\(((?:\\[\s\S]|[^()\\])*)\)))?\s*)?\))$/,
   replace: (textNode, match) => {
     // https://spec.commonmark.org/0.31.2/#inline-link
-    if ($findMatchingParent(textNode, $isLinkNode)) {
+    const source = match.input || '';
+    const startIndex = match.index || 0;
+    if (
+      $findMatchingParent(textNode, $isLinkNode) ||
+      isEscaped(source, startIndex) ||
+      isEscaped(source, startIndex + match[1].length + 1)
+    ) {
       return;
     }
     const [
@@ -984,24 +1341,28 @@ export const LINK: TextMatchTransformer = {
     const linkTitle =
       rawLinkTitle != null ? unescapeText(rawLinkTitle) : undefined;
     const linkNode = $createLinkNode(linkUrl, {title: linkTitle});
-    const openBracketAmount = linkText.split('[').length - 1;
-    const closeBracketAmount = linkText.split(']').length - 1;
+    // Import passes the label from its real opener, so this finds none, but
+    // a custom caller may pass a match that starts at an earlier `[`.
+    const openBracketIndex = getLinkLabelOpener(linkText);
+    if (openBracketIndex === null) return;
     let parsedLinkText = linkText;
     let outsideLinkText = '';
-    if (openBracketAmount < closeBracketAmount) {
-      return;
-    } else if (openBracketAmount > closeBracketAmount) {
-      const linkTextParts = linkText.split('[');
-      outsideLinkText = '[' + linkTextParts[0];
-      parsedLinkText = linkTextParts.slice(1).join('[');
+    if (openBracketIndex !== -1) {
+      outsideLinkText =
+        '[' + unescapeLinkPrefix(linkText.slice(0, openBracketIndex));
+      parsedLinkText = linkText.slice(openBracketIndex + 1);
     }
+    // Both new nodes stand in for the TextNode being replaced, so the text
+    // left outside the link carries its inline format just like the link's own
+    // text node does. Read the format before the replace below detaches it.
+    const format = textNode.getFormat();
     const linkTextNode = $createTextNode(parsedLinkText);
-    linkTextNode.setFormat(textNode.getFormat());
+    linkTextNode.setFormat(format);
     linkNode.append(linkTextNode);
     textNode.replace(linkNode);
 
     if (outsideLinkText) {
-      linkNode.insertBefore($createTextNode(outsideLinkText));
+      linkNode.insertBefore($createTextNode(outsideLinkText).setFormat(format));
     }
     return linkTextNode;
   },
@@ -1038,12 +1399,26 @@ export const TEXT_FORMAT_TRANSFORMERS: TextFormatTransformer[] = [
 
 export const TEXT_MATCH_TRANSFORMERS: TextMatchTransformer[] = [LINK];
 
-export const TRANSFORMERS: Transformer[] = [
-  ...ELEMENT_TRANSFORMERS,
-  ...MULTILINE_ELEMENT_TRANSFORMERS,
-  ...TEXT_FORMAT_TRANSFORMERS,
-  ...TEXT_MATCH_TRANSFORMERS,
-];
+/**
+ * Concatenate transformer lists. A function declared side-effect free (so the
+ * build annotates the call) rather than an array spread at module scope,
+ * which is a side effect to bundlers and would pin every transformer into
+ * every bundle that imports this module.
+ *
+ * @__NO_SIDE_EFFECTS__
+ */
+function concatTransformers(
+  ...lists: (readonly Transformer[])[]
+): Transformer[] {
+  return lists.flat();
+}
+
+export const TRANSFORMERS: Transformer[] = concatTransformers(
+  ELEMENT_TRANSFORMERS,
+  MULTILINE_ELEMENT_TRANSFORMERS,
+  TEXT_FORMAT_TRANSFORMERS,
+  TEXT_MATCH_TRANSFORMERS,
+);
 
 export function normalizeMarkdown(
   input: string,

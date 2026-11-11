@@ -13,16 +13,30 @@ import {
   type LexicalEditor,
 } from '../../';
 
+let attachedEditor: LexicalEditor | null = null;
+let attachedRoot: HTMLElement | null = null;
+
 /**
  * Attach a fresh contentEditable host to `document.body` and bind the
  * editor's root element to it. Returns the host so callers can inspect
  * or detach it.
  */
 export function attachToDOM(editor: LexicalEditor): HTMLElement {
+  // Benchmark setup runs again for warmup and measurement. Detach the previous
+  // editor so earlier documents do not remain in document.body and affect
+  // later samples through DOM size or memory pressure.
+  if (attachedEditor !== null) {
+    attachedEditor.setRootElement(null);
+    if (attachedRoot !== null) {
+      attachedRoot.remove();
+    }
+  }
   const root = document.createElement('div');
   root.contentEditable = 'true';
   document.body.appendChild(root);
   editor.setRootElement(root);
+  attachedEditor = editor;
+  attachedRoot = root;
   return root;
 }
 

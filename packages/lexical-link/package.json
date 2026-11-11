@@ -8,7 +8,7 @@
     "link"
   ],
   "license": "MIT",
-  "version": "0.49.0",
+  "version": "0.53.0",
   "main": "./dist/LexicalLink.js",
   "types": "./dist/typescript-too-old.d.ts",
   "dependencies": {
@@ -21,29 +21,19 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/facebook/lexical.git",
+    "url": "git+https://github.com/meta/lexical.git",
     "directory": "packages/lexical-link"
   },
-  "module": "./dist/LexicalLink.mjs",
+  "module": "./dist/LexicalLink.js",
   "sideEffects": false,
   "exports": {
     ".": {
       "source": "./src/index.ts",
-      "import": {
-        "types@<5.2": "./dist/typescript-too-old.d.ts",
-        "types": "./dist/index.d.ts",
-        "development": "./dist/LexicalLink.dev.mjs",
-        "production": "./dist/LexicalLink.prod.mjs",
-        "node": "./dist/LexicalLink.node.mjs",
-        "default": "./dist/LexicalLink.mjs"
-      },
-      "require": {
-        "types@<5.2": "./dist/typescript-too-old.d.ts",
-        "types": "./dist/index.d.ts",
-        "development": "./dist/LexicalLink.dev.js",
-        "production": "./dist/LexicalLink.prod.js",
-        "default": "./dist/LexicalLink.js"
-      }
+      "types@<5.2": "./dist/typescript-too-old.d.ts",
+      "types": "./dist/index.d.ts",
+      "development": "./dist/LexicalLink.dev.js",
+      "production": "./dist/LexicalLink.prod.js",
+      "default": "./dist/LexicalLink.js"
     }
   },
   "files": [
@@ -73,5 +63,6 @@
     "typescript": {
       "optional": true
     }
-  }
+  },
+  "type": "module"
 }

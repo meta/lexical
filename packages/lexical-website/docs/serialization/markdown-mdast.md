@@ -6,7 +6,7 @@
 `@experimental` and may change between any two Lexical releases —
 including breaking renames, signature changes, or behavior changes —
 until the API stabilizes. We track issues and proposals in the
-[GitHub repo](https://github.com/facebook/lexical); breaking changes
+[GitHub repo](https://github.com/meta/lexical); breaking changes
 will be called out in release notes.
 
 The existing `@lexical/markdown` package is unchanged and remains the
@@ -39,7 +39,7 @@ configured **exclusively** through the
 [extension system](/docs/extensions/intro). Each feature extension
 ships the nodes it needs and contributes its import/export rules (and
 the micromark grammar that tokenizes them) to the core
-`MdastImportExtension` registry. There is no transformer list to
+`MdastExtension` registry. There is no transformer list to
 curate and no `registerMarkdownShortcuts` call:
 
 ```ts
@@ -75,7 +75,7 @@ const markdown = editor.read(() => $convertToMarkdownString());
 ```
 
 Try it live in the
-[mdast-editor dev example](/dev-examples/mdast-editor/), a WYSIWYG
+[mdast-editor dev example](pathname:///dev-examples/mdast-editor/), a WYSIWYG
 Markdown editor with an editable Markdown source pane — typing on
 either side exercises import or export through this package.
 
@@ -86,31 +86,77 @@ grammar — see the
 [full list](/docs/extensions/included-extensions) or the
 [package README](/docs/packages/lexical-mdast). Granular
 configurations degrade gracefully: unsupported constructs import as
-their content (a table becomes its cell text), and typing shortcuts
-only fire for constructs the editor can represent (`> ` stays literal
-without `MdastBlockquoteExtension`).
+their content (without `MdastTableExtension`, which brings the GFM
+table grammar, a table is read as plain CommonMark), and typing
+shortcuts only fire for constructs the editor can represent (`> `
+stays literal without `MdastBlockquoteExtension`).
 
-## Import and export are split
+## Import and export share one extension
 
-`MdastImportExtension` owns the compiled registry and parsing;
-`MdastExportExtension` compiles the same registry into a serializer
-(`$convertToMarkdownString`). An editor that never converts back to
-Markdown simply omits `MdastExportExtension` and doesn't bundle
-`mdast-util-to-markdown`. `MdastExtension` is a convenience bundle of
-both directions.
+`MdastExtension` owns the compiled registry and exposes both import and export.
+Feature extensions contribute their rules and grammar to it automatically.
 
-## Round-trips are minimally different
+Export rules accept a node type string or class (`'text'` or `TextNode`) and
+apply to subclasses. The nearest matching ancestor takes precedence, so a
+`TabNode` rule overrides a `TextNode` rule. Rules for the same type retain
+contribution order: later extension contributions take priority. Classes must
+have their own node type; abstract classes without one are rejected.
 
-The literal syntax of each construct is preserved on the Lexical
-nodes with [NodeState](/docs/concepts/node-state): list bullet
-`-`/`*`/`+`, ordered delimiter `.`/`)`, code fence style and
-info-string meta, setext vs ATX headings, hard-break style, soft line
-breaks, thematic break marker, table column alignment, `_` vs `*`
-emphasis, and link style (`[text](url)` vs `<autolink>` vs bare GFM
-literal). Normalization is never forced; nodes created in the editor
-defer to the document-level serialization options, which can be
-configured by contributing `mdast-util-to-markdown` options through
+Import and export handlers can call `context.next()` to delegate conversion
+of the same node and receive an array of output nodes to return or modify.
+Export tries the remaining rules for the same type before its ancestors,
+from nearest to farthest; import uses contribution order for the mdast type.
+After the last handler, `next()` uses the generic fallback. Returning `null`
+uses the default export directly, or omits the node and its children on import.
+Returning `[]` omits the node in either direction.
+
+## Round-trips are close, not exact
+
+The literal syntax of each construct is preserved on the Lexical nodes
+with [NodeState](/docs/concepts/node-state): list bullet `-`/`*`/`+`,
+ordered delimiter `.`/`)`, code fence style and info-string meta,
+setext vs ATX headings, hard-break style, soft line breaks, thematic
+break marker, `*` vs `_` emphasis and strong markers (one of each for
+the whole document, `_` if any was used, though not in named slots or
+in text between the tags of an HTML block, unless `toMarkdownExtensions`
+sets them), and link style (`[text](url)` vs `<autolink>` vs bare GFM
+literal). Some forms are normalized, such as a run of text both bold
+and italic on its own, written as emphasis around strong (`**_both_**`
+comes back as `_**both**_`), and GFM tables, padded so their columns
+line up and written as below. Nodes created in the editor defer to the
+document-level serialization options, which can be configured by
+contributing `mdast-util-to-markdown` options through
 `toMarkdownExtensions`.
+
+Import reads emphasis and strikethrough as the
+[CommonMark CJK-friendly amendment](https://github.com/tats-u/markdown-cjk-friendly)
+does, so `**你好。**世界` comes in bold as its writer meant, while export
+writes a character reference where a strict CommonMark reader needs one
+(`**你好。**&#x4E16;界`). `MdastExtension`'s `importPunctuation` and
+`exportPunctuation` options (`'cjk-friendly'` or `'strict-commonmark'`)
+change either side; the `punctuation` option of `@lexical/markdown`'s
+import and export does the same there.
+
+GFM tables (`MdastTableExtension`) import a column's alignment as the
+element format of the paragraph in each of its cells, and write it from
+the content of the column's header cell (the format of the block holding
+the cell's first inline content, or of the nearest block around it with
+one, or, when the cell has no inline content, of its first element
+block, or else of the cell, where blocks in a nested table count for
+nothing and start and end are none); a format GFM can't express leaves
+the column unaligned. Export is lossy where GFM has no form for a
+table's content: the content of a cell is exported by its export rules,
+and the blocks that come out (and their line breaks) become lines
+separated by `<br>` (whatever spelling of the tag, such as `<br/>` or
+`</br>`, was read), with a code block's lines as inline code. A merged
+cell is written where it starts with empty cells where it spans, flow
+content with no form in a cell (such as a horizontal rule) is written
+after the table, and the alignment of a body cell is dropped. A body
+cell added in the editor (in an inserted row, or split from a merged
+cell) gets its column's alignment on its paragraphs with no format, so
+it is shown as the column is written.
+Editing tables in the editor also takes `TableExtension` from
+`@lexical/table`.
 
 ## unified / remark interop
 
@@ -140,8 +186,9 @@ inline `<kbd>` runs — and by default it imports as literal text. The
 opt-in `MdastHtmlExtension` routes it through the editor's
 [`DOMImportExtension`](/docs/serialization/dom-import) rules instead,
 so any HTML the editor can already import works from Markdown, and
-Markdown *inside* the construct keeps working in both directions, the
-way it does on GitHub:
+Markdown *inside* the construct keeps working in both directions: the
+blocks after a blank line, as on GitHub, and also text between the tags,
+such as the summary line below, which GFM itself leaves raw:
 
 ```md
 <details><summary>
@@ -167,7 +214,7 @@ lets a DOM rule distinguish Markdown import from HTML paste.
 A complete HTML-encoded construct is one DOM import rule (which then
 also serves HTML paste) plus one `$exportViaDOM` export rule — see
 the [package README](/docs/packages/lexical-mdast) for a template and
-the [mdast-editor dev example](/dev-examples/mdast-editor/) for
+the [mdast-editor dev example](pathname:///dev-examples/mdast-editor/) for
 complete constructs on the block path (`<details><summary>` with a
 named slot) and the inline path (`<kbd>`).
 
@@ -198,7 +245,10 @@ techniques in either registry:
   `RenderContextMarkdownSelection` carrying the selection — a
   contributed to-markdown handler that appends end-of-document data
   (like the dev example's footnote definitions) reads it with
-  `$getRenderContextValue` to scope its output to a clipboard copy.
+  `$getRenderContextValue` to scope its output to a clipboard copy. An
+  export rule can also read the selection its own export is limited to as
+  `context.selection` (`null` for a whole-document export, including one a
+  handler runs during a selection export), which needs no active editor.
 
 ## Comparison with @lexical/markdown
 

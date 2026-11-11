@@ -13,6 +13,22 @@ should be less than 3kB in a production environment.
 
 The NodeCaret API was introduced in lexical v0.25.0.
 
+## Narrowing traversal results
+
+Node traversal and key lookup methods return base node types. Use a type guard
+before accessing subclass-specific methods:
+
+```ts
+import {$isTextNode} from 'lexical';
+
+const child = element.getFirstChild();
+if ($isTextNode(child)) {
+  child.setTextContent('Updated text');
+}
+
+const textChildren = element.getChildren().filter($isTextNode);
+```
+
 ## Concepts
 
 The core concept with `NodeCaret` is that you can represent any specific
@@ -114,6 +130,12 @@ type can be used to represent any point in the document that `PointType` can rep
 `TextPointCaretSlice` is a wrapper for `TextPointCaret` that provides a signed `distance`.
 
 * Constructed with `$getTextPointCaretSlice(caret, distance)`
+* `$splitTextPointCaretSlice(slice, selection?)` isolates the slice in a text node,
+  splitting at its boundaries when needed. It returns `null` for an empty slice
+  and the original node for a whole-node slice. Pass the range selection that
+  produced the slice to preserve its endpoints, including element points and
+  detached selections. Like `TextNode.splitText`, it does not treat token or
+  segmented nodes as atomic.
 * There are convenience methods like `removeTextSlice()` and `getTextContent()`,
   so it's not generally necessary to know the implementation details here
 * `Math.min(caret.offset, caret.offset + distance)` refers to the start offset of the slice
@@ -168,7 +190,7 @@ treatment (splitting instead of removing, for example).
 
 ## Traversal Strategies
 
-<!-- when you update the example code below, please update the tests in packages/src/lexical/caret/__tests__/unit/docs-traversals.test.ts -->
+<!-- when you update the example code below, please update the tests in packages/lexical/src/caret/__tests__/unit/docs-traversals.test.ts -->
 
 ### Adjacent Caret Traversals
 

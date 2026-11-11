@@ -16,13 +16,13 @@ import {
   test,
 } from '../utils/index.mjs';
 
+test.skip(({isCollab}) => isCollab, 'Requires non-collaborative editing');
+
 test.describe('Regression test #1055', () => {
   test.beforeEach(({isCollab, page}) => initialize({isCollab, page}));
   test(`Adds new editor state into undo stack right after undo was done`, async ({
-    isCollab,
     page,
   }) => {
-    test.skip(isCollab);
     await focusEditor(page);
     // Freeze the history merge clock before typing so the whole burst coalesces
     // into a single undo entry deterministically. History merges consecutive

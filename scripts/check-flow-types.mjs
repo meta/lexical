@@ -40,4 +40,5 @@ async function runFlow(renderer, args) {
   });
 }
 
-runFlow();
+// Check the whole project in the foreground without requiring a background server.
+runFlow(undefined, ['full-check']);

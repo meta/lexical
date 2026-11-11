@@ -7,7 +7,7 @@
  */
 // @ts-check
 
-const {getParentAssignmentName} = require('./getParentAssignmentName');
+import {getParentAssignmentName} from './getParentAssignmentName.js';
 
 /**
  * Gets the static name of a function AST node. For function declarations it is
@@ -18,7 +18,7 @@ const {getParentAssignmentName} = require('./getParentAssignmentName');
  *
  * @param {import('eslint').Rule.Node} node
  */
-module.exports.getFunctionName = function getFunctionName(node) {
+export function getFunctionName(node) {
   if (
     node.type === 'FunctionDeclaration' ||
     (node.type === 'FunctionExpression' && node.id)
@@ -40,4 +40,4 @@ module.exports.getFunctionName = function getFunctionName(node) {
   } else {
     return undefined;
   }
-};
+}

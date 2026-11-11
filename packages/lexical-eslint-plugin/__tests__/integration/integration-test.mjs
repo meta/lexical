@@ -8,11 +8,11 @@
  */
 
 /**
- * Integration test to verify @lexical/eslint-plugin works with:
- * - ESLint 8 (legacy .eslintrc config)
- * - ESLint 10 (flat eslint.config.js)
+ * Integration test to verify @lexical/eslint-plugin works with every
+ * supported ESLint major (9 and 10), each loading the published build through
+ * the same flat eslint.config.js.
  *
- * This test uses pnpx to run different ESLint versions without
+ * This test uses pnpm dlx to run different ESLint versions without
  * modifying package.json or pnpm-lock.yaml
  */
 /* eslint-disable no-console */
@@ -26,12 +26,8 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const FIXTURES_DIR = path.join(__dirname, 'fixtures');
-const ESLINT8_DIR = path.join(FIXTURES_DIR, 'eslint8-legacy');
-const ESLINT8_DEPRECATED_DIR = path.join(
-  FIXTURES_DIR,
-  'eslint8-legacy-deprecated',
-);
-const ESLINT10_DIR = path.join(FIXTURES_DIR, 'eslint10-flat');
+const FLAT_CONFIG_DIR = path.join(FIXTURES_DIR, 'flat-config');
+const ESLINT_VERSIONS = ['9', '10'];
 
 // ANSI color codes
 const RESET = '\x1b[0m';
@@ -79,11 +75,7 @@ function runESLint(version, configDir, configFile, file, shouldFail = false) {
 
   try {
     // Use -c with relative path (relative to cwd) to explicitly specify config
-    // Use --no-eslintrc to prevent parent config lookup (ESLint 8 only)
-    // For ESLint 8, set ESLINT_USE_FLAT_CONFIG=false to avoid flat config detection
-    const envPrefix = version === '8' ? 'ESLINT_USE_FLAT_CONFIG=false ' : '';
-    const noEslintrc = version === '8' ? '--no-eslintrc ' : '';
-    const cmd = `${envPrefix}pnpm dlx eslint@${version} ${noEslintrc}--no-ignore -c "${configFile}" "${fileName}"`;
+    const cmd = `pnpm dlx eslint@${version} --no-ignore -c "${configFile}" "${fileName}"`;
     const _output = execSync(cmd, {
       cwd: configDir,
       encoding: 'utf8',
@@ -137,54 +129,27 @@ function runESLint(version, configDir, configFile, file, shouldFail = false) {
   }
 }
 
-function testESLint8(dirName) {
-  log(`\n${BOLD}${BLUE}Testing ESLint 8 (${path.basename(dirName)})${RESET}`);
-  log(`Directory: ${dirName}`);
+function testFlatConfig(version) {
+  log(`\n${BOLD}${BLUE}Testing ESLint ${version} (Flat Config)${RESET}`);
+  log(`Directory: ${FLAT_CONFIG_DIR}`);
 
   // Check if config exists
-  const configPath = path.join(dirName, '.eslintrc.json');
+  const configPath = path.join(FLAT_CONFIG_DIR, 'eslint.config.js');
   if (!fs.existsSync(configPath)) {
     log(`  ✗ Config file not found: ${configPath}`, RED);
     return false;
   }
 
   runESLint(
-    '8',
-    dirName,
-    '.eslintrc.json',
-    path.join(FIXTURES_DIR, 'valid.js'),
-    false,
-  );
-  runESLint(
-    '8',
-    dirName,
-    '.eslintrc.json',
-    path.join(FIXTURES_DIR, 'invalid.js'),
-    true,
-  );
-}
-
-function testESLint10Flat() {
-  log(`\n${BOLD}${BLUE}Testing ESLint 10 (Flat Config)${RESET}`);
-  log(`Directory: ${ESLINT10_DIR}`);
-
-  // Check if config exists
-  const configPath = path.join(ESLINT10_DIR, 'eslint.config.js');
-  if (!fs.existsSync(configPath)) {
-    log(`  ✗ Config file not found: ${configPath}`, RED);
-    return false;
-  }
-
-  runESLint(
-    '10',
-    ESLINT10_DIR,
+    version,
+    FLAT_CONFIG_DIR,
     'eslint.config.js',
     path.join(FIXTURES_DIR, 'valid.js'),
     false,
   );
   runESLint(
-    '10',
-    ESLINT10_DIR,
+    version,
+    FLAT_CONFIG_DIR,
     'eslint.config.js',
     path.join(FIXTURES_DIR, 'invalid.js'),
     true,
@@ -194,7 +159,7 @@ function testESLint10Flat() {
 function setupFixtures() {
   log(`\n${BOLD}${BLUE}Setting up test fixtures...${RESET}`);
 
-  [ESLINT8_DIR, ESLINT8_DEPRECATED_DIR, ESLINT10_DIR].forEach(cwd => {
+  [FLAT_CONFIG_DIR].forEach(cwd => {
     try {
       log(`  Installing dependencies for ${path.basename(cwd)} fixture...`);
       execSync('pnpm install --no-lockfile', {
@@ -217,15 +182,15 @@ function main() {
   log(`${BOLD}ESLint Plugin Integration Tests${RESET}`);
   log(`${BOLD}${'='.repeat(70)}${RESET}`);
   log(`\nTesting @lexical/eslint-plugin compatibility with:`);
-  log(`  - ESLint 8.x (legacy deprecated .eslintrc config)`);
-  log(`  - ESLint 8.x (legacy prefixed .eslintrc config)`);
-  log(`  - ESLint 10.x (flat eslint.config.js)`);
+  for (const version of ESLINT_VERSIONS) {
+    log(`  - ESLint ${version}.x (flat eslint.config.js)`);
+  }
 
   try {
     setupFixtures();
-    testESLint8(ESLINT8_DIR);
-    testESLint8(ESLINT8_DEPRECATED_DIR);
-    testESLint10Flat();
+    for (const version of ESLINT_VERSIONS) {
+      testFlatConfig(version);
+    }
 
     log(`\n${BOLD}${'='.repeat(70)}${RESET}`);
     log(`${BOLD}Test Summary${RESET}`);

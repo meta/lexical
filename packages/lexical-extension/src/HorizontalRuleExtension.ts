@@ -62,12 +62,8 @@ export const INSERT_HORIZONTAL_RULE_COMMAND: LexicalCommand<void> =
 
 export class HorizontalRuleNode extends DecoratorNode<unknown> {
   $config() {
-    // `extends` is intentionally left to the runtime default (the prototype
-    // parent) rather than declared explicitly: the deprecated
-    // `@lexical/react` HorizontalRuleNode subclasses this one and reuses the
-    // same 'horizontalrule' type, so both `$config()` overrides must infer a
-    // matching shape.
     return this.config('horizontalrule', {
+      extends: DecoratorNode,
       importDOM: {
         hr: () => ({
           conversion: $convertHorizontalRuleElement,

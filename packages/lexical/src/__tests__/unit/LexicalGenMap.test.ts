@@ -5,6 +5,8 @@
  * LICENSE file in the root directory of this source tree.
  *
  */
+
+// @vitest-environment node
 import {} from 'lexical';
 import {describe, expect, test} from 'vitest';
 

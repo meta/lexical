@@ -7,49 +7,39 @@
     "theme",
     "css"
   ],
-  "version": "0.49.0",
+  "version": "0.53.0",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/facebook/lexical.git",
+    "url": "git+https://github.com/meta/lexical.git",
     "directory": "packages/lexical-tailwind"
   },
   "main": "./dist/LexicalTailwind.js",
   "types": "./dist/typescript-too-old.d.ts",
   "bugs": {
-    "url": "https://github.com/facebook/lexical/issues"
+    "url": "https://github.com/meta/lexical/issues"
   },
-  "homepage": "https://github.com/facebook/lexical#readme",
+  "homepage": "https://github.com/meta/lexical#readme",
   "dependencies": {
     "@lexical/extension": "workspace:*",
     "lexical": "workspace:*"
   },
   "devDependencies": {
-    "@tailwindcss/cli": "^4.3.0",
-    "tailwind-merge": "^3.6.0",
-    "tailwindcss": "^4.3.0"
+    "@tailwindcss/cli": "^4.3.3",
+    "tailwind-merge": "^3.7.0",
+    "tailwindcss": "^4.3.3"
   },
   "description": "This package contains an extension to use Tailwind for the editor theme",
   "sideEffects": false,
-  "module": "./dist/LexicalTailwind.mjs",
+  "module": "./dist/LexicalTailwind.js",
   "exports": {
     ".": {
       "source": "./src/index.ts",
-      "import": {
-        "types@<5.2": "./dist/typescript-too-old.d.ts",
-        "types": "./dist/index.d.ts",
-        "development": "./dist/LexicalTailwind.dev.mjs",
-        "production": "./dist/LexicalTailwind.prod.mjs",
-        "node": "./dist/LexicalTailwind.node.mjs",
-        "default": "./dist/LexicalTailwind.mjs"
-      },
-      "require": {
-        "types@<5.2": "./dist/typescript-too-old.d.ts",
-        "types": "./dist/index.d.ts",
-        "development": "./dist/LexicalTailwind.dev.js",
-        "production": "./dist/LexicalTailwind.prod.js",
-        "default": "./dist/LexicalTailwind.js"
-      }
+      "types@<5.2": "./dist/typescript-too-old.d.ts",
+      "types": "./dist/index.d.ts",
+      "development": "./dist/LexicalTailwind.dev.js",
+      "production": "./dist/LexicalTailwind.prod.js",
+      "default": "./dist/LexicalTailwind.js"
     }
   },
   "files": [
@@ -79,5 +69,6 @@
     "typescript": {
       "optional": true
     }
-  }
+  },
+  "type": "module"
 }

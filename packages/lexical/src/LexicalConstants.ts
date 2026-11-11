@@ -32,43 +32,58 @@ export const IS_TOKEN = 1;
 export const IS_SEGMENTED = 2;
 // IS_INERT = 3
 
+// The flags are written as literals (the shift is in the comment) because a
+// bundler that does not minify keeps `1 << n` as a side effect, which would
+// pin the constant into every development bundle that imports the module.
 /** Bitmask for bold text formatting. */
 export const IS_BOLD = 1;
 /** Bitmask for italic text formatting. */
-export const IS_ITALIC = 1 << 1;
+export const IS_ITALIC = 2; // 1 << 1
 /** Bitmask for strikethrough text formatting. */
-export const IS_STRIKETHROUGH = 1 << 2;
+export const IS_STRIKETHROUGH = 4; // 1 << 2
 /** Bitmask for underline text formatting. */
-export const IS_UNDERLINE = 1 << 3;
+export const IS_UNDERLINE = 8; // 1 << 3
 /** Bitmask for code (monospace) text formatting. */
-export const IS_CODE = 1 << 4;
+export const IS_CODE = 16; // 1 << 4
 /** Bitmask for subscript text formatting. */
-export const IS_SUBSCRIPT = 1 << 5;
+export const IS_SUBSCRIPT = 32; // 1 << 5
 /** Bitmask for superscript text formatting. */
-export const IS_SUPERSCRIPT = 1 << 6;
+export const IS_SUPERSCRIPT = 64; // 1 << 6
 /** Bitmask for highlighted text formatting. */
-export const IS_HIGHLIGHT = 1 << 7;
-export const IS_LOWERCASE = 1 << 8;
-export const IS_UPPERCASE = 1 << 9;
-export const IS_CAPITALIZE = 1 << 10;
+export const IS_HIGHLIGHT = 128; // 1 << 7
+export const IS_LOWERCASE = 256; // 1 << 8
+export const IS_UPPERCASE = 512; // 1 << 9
+export const IS_CAPITALIZE = 1024; // 1 << 10
+
+/**
+ * A function declared side-effect free (so the build annotates the call
+ * below): a bitwise operation on other bindings is a side effect to bundlers
+ * until a minifier folds it, so the development build would otherwise keep it.
+ *
+ * @__NO_SIDE_EFFECTS__
+ */
+function allFormatting(): number {
+  return (
+    IS_BOLD |
+    IS_ITALIC |
+    IS_STRIKETHROUGH |
+    IS_UNDERLINE |
+    IS_CODE |
+    IS_SUBSCRIPT |
+    IS_SUPERSCRIPT |
+    IS_HIGHLIGHT |
+    IS_LOWERCASE |
+    IS_UPPERCASE |
+    IS_CAPITALIZE
+  );
+}
 
 /** Bitmask combining all text format flags. */
-export const IS_ALL_FORMATTING =
-  IS_BOLD |
-  IS_ITALIC |
-  IS_STRIKETHROUGH |
-  IS_UNDERLINE |
-  IS_CODE |
-  IS_SUBSCRIPT |
-  IS_SUPERSCRIPT |
-  IS_HIGHLIGHT |
-  IS_LOWERCASE |
-  IS_UPPERCASE |
-  IS_CAPITALIZE;
+export const IS_ALL_FORMATTING = allFormatting();
 
 // Text node details
 export const IS_DIRECTIONLESS = 1;
-export const IS_UNMERGEABLE = 1 << 1;
+export const IS_UNMERGEABLE = 2; // 1 << 1
 
 // Element node formatting
 export const IS_ALIGN_LEFT = 1;
@@ -101,10 +116,21 @@ const LTR =
   '\u00F8-\u02B8\u0300-\u0590\u0800-\u1FFF\u200E\u2C00-\uFB1C' +
   '\uFE00-\uFE6F\uFEFD-\uFFFF';
 
-// eslint-disable-next-line no-misleading-character-class
-export const RTL_REGEX = new RegExp('^[^' + LTR + ']*[' + RTL + ']');
-// eslint-disable-next-line no-misleading-character-class
-export const LTR_REGEX = new RegExp('^[^' + RTL + ']*[' + LTR + ']');
+/**
+ * A RegExp matching text whose first strongly directional character is in
+ * `include`, skipping any run of characters outside `exclude`. A function
+ * declared side-effect free (so the build annotates the calls below) rather
+ * than a module-scope `new RegExp`, which is a side effect to bundlers and
+ * would pin the character tables into every bundle that imports the module.
+ *
+ * @__NO_SIDE_EFFECTS__
+ */
+function createDirectionRegExp(exclude: string, include: string): RegExp {
+  return new RegExp('^[^' + exclude + ']*[' + include + ']');
+}
+
+export const RTL_REGEX = createDirectionRegExp(LTR, RTL);
+export const LTR_REGEX = createDirectionRegExp(RTL, LTR);
 
 /** Maps {@link TextFormatType} string names to their bitmask values. */
 export const TEXT_TYPE_TO_FORMAT: Record<TextFormatType | string, number> = {
@@ -138,14 +164,26 @@ export const ELEMENT_TYPE_TO_FORMAT: Record<
   start: IS_ALIGN_START,
 };
 
-export const ELEMENT_FORMAT_TO_TYPE: Record<number, ElementFormatType> = {
-  [IS_ALIGN_CENTER]: 'center',
-  [IS_ALIGN_END]: 'end',
-  [IS_ALIGN_JUSTIFY]: 'justify',
-  [IS_ALIGN_LEFT]: 'left',
-  [IS_ALIGN_RIGHT]: 'right',
-  [IS_ALIGN_START]: 'start',
-};
+/**
+ * Invert a record whose values are unique. A function declared side-effect
+ * free (so the build annotates the calls below) rather than an object literal
+ * with computed keys, which is a side effect to bundlers and would pin these
+ * tables into every bundle that imports the module.
+ *
+ * @__NO_SIDE_EFFECTS__
+ */
+function invertRecord<K extends string, V extends number>(
+  record: Record<K, V>,
+): Record<V, K> {
+  const inverted = {} as Record<V, K>;
+  for (const key of Object.keys(record) as K[]) {
+    inverted[record[key]] = key;
+  }
+  return inverted;
+}
+
+export const ELEMENT_FORMAT_TO_TYPE: Record<number, ElementFormatType> =
+  invertRecord(ELEMENT_TYPE_TO_FORMAT);
 
 export const TEXT_MODE_TO_TYPE: Record<TextModeType, 0 | 1 | 2> = {
   normal: IS_NORMAL,
@@ -153,11 +191,8 @@ export const TEXT_MODE_TO_TYPE: Record<TextModeType, 0 | 1 | 2> = {
   token: IS_TOKEN,
 };
 
-export const TEXT_TYPE_TO_MODE: Record<number, TextModeType> = {
-  [IS_NORMAL]: 'normal',
-  [IS_SEGMENTED]: 'segmented',
-  [IS_TOKEN]: 'token',
-};
+export const TEXT_TYPE_TO_MODE: Record<number, TextModeType> =
+  invertRecord(TEXT_MODE_TO_TYPE);
 
 /** The property key used to store node state on serialized node JSON. */
 export const NODE_STATE_KEY = '$';

@@ -112,15 +112,15 @@ describe('dedupeSelectionRects', () => {
   });
 });
 
-// The consumer pipeline in positionNodeOnRange is
-// `dedupeSelectionRects(createRectsFromDOMRange(editor, range))`.
+// Characterize why positionNodeOnRange must not compose this keep-smaller
+// helper with createRectsFromDOMRange.
 // createRectsFromDOMRange already runs its own dedupe — single-pass and
 // adjacent-only: it sorts by top (3px tolerance) then left, drops a rect only when
-// it overlaps the immediately-preceding KEPT rect, and drops rects spanning the
+// it is contained in the immediately-preceding KEPT rect, and drops rects spanning the
 // full editor width. So the common #7106 block-width spurious rect is removed
 // before dedupe; what can still reach dedupe is a same-row CONTAINED pair whose
 // inner rect carries a sub-pixel-smaller top (as overlapping inline content
-// produces), which the asymmetric filter lets through. These tests run the REAL
+// produces), which the strict containment filter lets through. These tests run the REAL
 // createRectsFromDOMRange against a faked root + range to characterize that.
 type Rect = ReturnType<typeof rect>;
 
@@ -145,9 +145,9 @@ describe('dedupeSelectionRects + createRectsFromDOMRange', () => {
   // A narrower text rect and a wider rect on the same visual row, the wider carrying
   // a sub-pixel-smaller top (wider.top 90.0 vs text.top 90.5) — the split overlapping
   // inline content produces. They group within createRectsFromDOMRange's 3px row
-  // tolerance, but its overlap test is asymmetric — it drops the current rect only
-  // when `prevRect.top <= cur.top` — so with the text rect kept first (the larger
-  // top) the wider rect is NOT dropped, and both reach dedupe. (The full-block-width
+  // tolerance, but neither strictly contains the other: the text rect has a lower
+  // bottom as well as a lower top. Both reach dedupe, which tolerates that sub-pixel
+  // difference. (The full-block-width
   // #7106 rect would instead be dropped upstream by selectionSpansElement.)
   const text = (): Rect => rect(128, 90.5, 368, 18);
   const wider = (): Rect => rect(128, 90.0, 900, 18); // ≠ editor width (1200): not dropped as full-width
@@ -164,12 +164,11 @@ describe('dedupeSelectionRects + createRectsFromDOMRange', () => {
     ).toEqual([368]);
   });
 
-  it('dedupeSelectionRects is order-independent where createRectsFromDOMRange is not', () => {
+  it('preserves the partially overlapping pair in either order before tolerant deduplication', () => {
     const editor = fakeEditorWithRoot(1200);
-    // createRectsFromDOMRange keeps whichever rect streams first → order-dependent.
-    expect(widths(createRects(editor, [text(), wider()]))).not.toEqual(
-      widths(createRects(editor, [wider(), text()])),
-    );
+    // Neither rect is strictly contained, regardless of input order.
+    expect(widths(createRects(editor, [text(), wider()]))).toEqual([368, 900]);
+    expect(widths(createRects(editor, [wider(), text()]))).toEqual([368, 900]);
     // dedupeSelectionRects always keeps the smaller → same result either way.
     expect(widths(dedupeSelectionRects([text(), wider()]))).toEqual([368]);
     expect(widths(dedupeSelectionRects([wider(), text()]))).toEqual([368]);

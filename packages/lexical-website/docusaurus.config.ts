@@ -10,6 +10,7 @@ import type {Options as DocsPluginOptions} from '@docusaurus/plugin-content-docs
 import type {Config, PluginModule} from '@docusaurus/types';
 
 import tailwindcssPostcss from '@tailwindcss/postcss';
+import {execFileSync} from 'node:child_process';
 import fs from 'node:fs';
 import {createRequire} from 'node:module';
 import path from 'node:path';
@@ -20,6 +21,7 @@ import {packagesManager} from '../../scripts/shared/packagesManager.mjs';
 import copyPageButtonPlugin from './plugins/copy-page-button/index.mjs';
 import packageDocsPlugin from './plugins/package-docs/index.mjs';
 import slugifyPlugin from './src/plugins/lexical-remark-slugify-anchors/index.js';
+import {externalSymbolLinkMappings} from './src/plugins/lexical-typedoc-plugin-external-links/index.mjs';
 
 type SidebarItemsGenerator = NonNullable<
   DocsPluginOptions['sidebarItemsGenerator']
@@ -52,10 +54,8 @@ function buildLexicalWebpackAliases() {
       moduleExports,
     ] of pkg.getNormalizedNpmModuleExportEntries()) {
       const candidates = [
-        moduleExports.import.development,
-        moduleExports.import.default,
-        moduleExports.require.development,
-        moduleExports.require.default,
+        moduleExports.development,
+        moduleExports.default,
       ].flatMap(fn => {
         if (!fn) {
           return [];
@@ -78,11 +78,13 @@ function buildLexicalWebpackAliases() {
 }
 
 const TITLE = 'Lexical';
-const GITHUB_REPO_URL = 'https://github.com/facebook/lexical'; // TODO: Update when repo name updated
+const GITHUB_REPO_URL = 'https://github.com/meta/lexical';
 const DISCORD_URL = 'https://discord.gg/KmG4wQnnD9';
 
 function sourceLinkOptions() {
-  const sourceLinkTemplate = `${GITHUB_REPO_URL}/tree/{gitRevision}/{path}#L{line}`;
+  // With disableGit, TypeDoc makes {path} relative to the common directory of
+  // the entry points (packages/) rather than the repository root
+  const sourceLinkTemplate = `${GITHUB_REPO_URL}/tree/{gitRevision}/packages/{path}#L{line}`;
   return {
     disableGit: true,
     gitRevision: 'main',
@@ -153,6 +155,28 @@ const sidebarItemsGenerator: SidebarItemsGenerator = async ({
 }) => {
   const items = await defaultSidebarItemsGenerator(args);
   if (args.item.dirName === 'api') {
+    const moduleNames = new Map(
+      args.docs
+        .filter(doc => /^api\/modules\//i.test(doc.id))
+        .map(doc => [doc.id, doc.title]),
+    );
+    // Submodule directories already provide the package and nested path context.
+    // Use TypeDoc's module titles to preserve names, including underscores.
+    function shortenSubmoduleLabels(
+      item: NormalizedSidebarItem,
+    ): NormalizedSidebarItem {
+      if (item.type === 'doc') {
+        const name = moduleNames.get(item.id);
+        return name ? {...item, label: name.split('/').at(-1)} : item;
+      } else if (item.type === 'category') {
+        return {
+          ...item,
+          items: item.items.map(shortenSubmoduleLabels),
+          label: item.label.split('/').at(-1)!,
+        };
+      }
+      return item;
+    }
     return items
       .map(sidebarItem => {
         if (sidebarItem.type === 'doc' && sidebarItem.id in docLabels) {
@@ -163,7 +187,7 @@ const sidebarItemsGenerator: SidebarItemsGenerator = async ({
         const groupedItems: NormalizedSidebarItem[] = [];
         for (const item of sidebarItem.items) {
           if (item.type === 'doc' && item.id.match(/^api\/modules\//i)) {
-            const label = idToModuleName(item.id);
+            const label = moduleNames.get(item.id) ?? idToModuleName(item.id);
             const lastItem = groupedItems.at(-1);
             if (
               lastItem &&
@@ -203,6 +227,7 @@ const sidebarItemsGenerator: SidebarItemsGenerator = async ({
           } else if (item.type === 'category') {
             groupedItems.push({
               ...item,
+              items: item.items.map(shortenSubmoduleLabels),
               label: idToModuleName(item.label),
             });
           } else {
@@ -259,7 +284,12 @@ const docusaurusPluginTypedocConfig = {
             ),
         ),
   excludeInternal: true,
+  externalSymbolLinkMappings,
   plugin: [
+    path.resolve(
+      __dirname,
+      'src/plugins/lexical-typedoc-plugin-external-links/index.mjs',
+    ),
     'typedoc-plugin-no-inherit',
     path.resolve(
       __dirname,
@@ -268,6 +298,10 @@ const docusaurusPluginTypedocConfig = {
     path.resolve(
       __dirname,
       'src/plugins/lexical-typedoc-plugin-legacy-router/index.mjs',
+    ),
+    path.resolve(
+      __dirname,
+      'src/plugins/lexical-typedoc-plugin-command-group/index.mjs',
     ),
     'typedoc-plugin-rename-defaults',
   ],
@@ -279,10 +313,36 @@ const docusaurusPluginTypedocConfig = {
   watch: process.env.TYPEDOC_WATCH === 'true',
 };
 
-const GIT_COMMIT_SHA = process.env.VERCEL_GIT_COMMIT_SHA || 'main';
-const GIT_COMMIT_REF = process.env.VERCEL_GIT_COMMIT_REF || 'main';
-const GIT_REPO_OWNER = process.env.VERCEL_GIT_REPO_OWNER || 'facebook';
-const GIT_REPO_SLUG = process.env.VERCEL_GIT_REPO_SLUG || 'lexical';
+// Cloudflare supplies the branch and commit, but not the GitHub repository.
+// Use its checkout's remote so preview links also work in forks.
+function getCloudflareRepository(): string[] {
+  if (process.env.CF_PAGES) {
+    try {
+      const remote = execFileSync('git', ['remote', 'get-url', 'origin'], {
+        cwd: __dirname,
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'ignore'],
+      }).trim();
+      const match = remote.match(/github\.com[:/]([^/]+)\/([^/]+?)(?:\.git)?$/);
+      if (match) {
+        return [match[1], match[2]];
+      }
+    } catch {
+      // Direct uploads may have no git checkout; keep the canonical fallback.
+    }
+  }
+  return ['meta', 'lexical'];
+}
+
+const [repoOwner, repoSlug] = getCloudflareRepository();
+const GIT_COMMIT_SHA =
+  process.env.VERCEL_GIT_COMMIT_SHA ||
+  process.env.CF_PAGES_COMMIT_SHA ||
+  'main';
+const GIT_COMMIT_REF =
+  process.env.VERCEL_GIT_COMMIT_REF || process.env.CF_PAGES_BRANCH || 'main';
+const GIT_REPO_OWNER = process.env.VERCEL_GIT_REPO_OWNER || repoOwner;
+const GIT_REPO_SLUG = process.env.VERCEL_GIT_REPO_SLUG || repoSlug;
 const STACKBLITZ_PREFIX = `https://stackblitz.com/github/${GIT_REPO_OWNER}/${GIT_REPO_SLUG}/tree/${
   // Vercel does not set owner and slug correctly for fork PRs so we can't trust the ref by default
   (GIT_COMMIT_REF === 'main' && !process.env.VERCEL_GIT_PULL_REQUEST_ID) ||
@@ -319,16 +379,33 @@ const config: Config = {
     parseFrontMatter,
     preprocessor: ({fileContent}: {fileContent: string}) =>
       fileContent.replaceAll(
-        'https://stackblitz.com/github/facebook/lexical/tree/main/',
+        'https://stackblitz.com/github/meta/lexical/tree/main/',
         STACKBLITZ_PREFIX,
       ),
   },
 
   onBrokenAnchors: 'throw',
-  // These are false positives when linking from API docs
-  onBrokenLinks: 'ignore',
-  organizationName: 'facebook',
+  onBrokenLinks: 'throw',
+  organizationName: 'meta',
+  // These are the parts of @docusaurus/preset-classic this site uses, listed
+  // directly. The preset would also install theme-search-algolia (and its
+  // @docsearch/* and AI SDK dependencies) even though search comes from
+  // @easyops-cn/docusaurus-search-local below.
   plugins: [
+    [
+      '@docusaurus/plugin-content-docs',
+      {
+        beforeDefaultRemarkPlugins: [slugifyPlugin],
+        editUrl: `${GITHUB_REPO_URL}/tree/main/packages/lexical-website/`,
+        path: 'docs',
+        sidebarItemsGenerator,
+        sidebarPath: require.resolve('./sidebars.js'),
+      } satisfies DocsPluginOptions,
+    ],
+    '@docusaurus/plugin-content-pages',
+    ['@docusaurus/plugin-google-gtag', {trackingID: 'G-7C6YYBYBBT'}],
+    process.env.NODE_ENV === 'production' ? '@docusaurus/plugin-sitemap' : null,
+    '@docusaurus/plugin-svgr',
     process.env.FB_INTERNAL
       ? null
       : [
@@ -407,6 +484,14 @@ const config: Config = {
               }),
             ],
             resolve: {alias},
+            resolveLoader: {
+              alias: {
+                'example-source': path.resolve(
+                  __dirname,
+                  'plugins/example-source/loader.cjs',
+                ),
+              },
+            },
           };
         },
         name: 'webpack-lexical-modules',
@@ -428,34 +513,12 @@ const config: Config = {
         redirects: [
           {
             from: '/2024-recap',
-            to: 'https://github.com/facebook/lexical/discussions/7220',
+            to: 'https://github.com/meta/lexical/discussions/7220',
           },
         ],
       },
     ],
   ].filter(plugin => plugin != null),
-  presets: [
-    [
-      'classic',
-      {
-        blog: false,
-        docs: {
-          beforeDefaultRemarkPlugins: [slugifyPlugin],
-          editUrl: `${GITHUB_REPO_URL}/tree/main/packages/lexical-website/`,
-          path: 'docs',
-          sidebarItemsGenerator,
-          sidebarPath: require.resolve('./sidebars.js'),
-        },
-        gtag: {
-          trackingID: 'G-7C6YYBYBBT',
-        },
-        theme: {
-          customCss: require.resolve('./src/css/custom.css'),
-        },
-      },
-    ],
-  ],
-
   // Usually your GitHub org/user name.
   projectName: 'lexical',
 
@@ -528,6 +591,10 @@ const config: Config = {
   },
 
   themes: [
+    [
+      '@docusaurus/theme-classic',
+      {customCss: require.resolve('./src/css/custom.css')},
+    ],
     '@docusaurus/theme-mermaid',
     [
       require.resolve('@easyops-cn/docusaurus-search-local'),

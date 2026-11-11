@@ -33,7 +33,11 @@ export const IS_COLLAB_V1 =
   process.env.E2E_EDITOR_MODE === 'rich-text-with-collab';
 export const IS_COLLAB_V2 =
   process.env.E2E_EDITOR_MODE === 'rich-text-with-collab-v2';
-export const IS_COLLAB = IS_COLLAB_V1 || IS_COLLAB_V2;
+// Collab Y: `@lexical/y` (Yjs 14). Runs the specs listed in
+// playwright.config.mjs, against `pnpm run collab:y`.
+export const IS_COLLAB_Y =
+  process.env.E2E_EDITOR_MODE === 'rich-text-with-collab-y';
+export const IS_COLLAB = IS_COLLAB_V1 || IS_COLLAB_V2 || IS_COLLAB_Y;
 const IS_RICH_TEXT = process.env.E2E_EDITOR_MODE !== 'plain-text';
 const IS_PLAIN_TEXT = process.env.E2E_EDITOR_MODE === 'plain-text';
 export const IS_TABLE_HORIZONTAL_SCROLL =
@@ -81,7 +85,12 @@ export function wrapTableHtml(
   `;
 }
 
-export async function initialize({
+export async function initialize(options) {
+  return test.step('Initialize playground', () =>
+    initializePlayground(options));
+}
+
+async function initializePlayground({
   page,
   isCollab,
   selectBlock,
@@ -110,6 +119,7 @@ export async function initialize({
   if (isCollab) {
     appSettings.isCollab = !!isCollab;
     appSettings.useCollabV2 = isCollab === 2;
+    appSettings.useCollabY = isCollab === 'y';
     appSettings.collabId = randomUUID();
   }
   if (showNestedEditorTreeView === undefined) {
@@ -184,7 +194,9 @@ export async function initialize({
     });
   }
 
-  await page.goto(url);
+  // The split page's load event also waits for iframe subresources. The
+  // explicit provider/editor checks below determine collaboration readiness.
+  await page.goto(url, {waitUntil: isCollab ? 'domcontentloaded' : 'load'});
 
   await exposeLexicalEditor(page, pageError);
 }
@@ -296,7 +308,7 @@ async function exposeLexicalEditor(page, pageError = null) {
         if (attempt >= 2) {
           throw err;
         }
-        await page.reload();
+        await page.reload({waitUntil: 'domcontentloaded'});
       }
     }
     // Ensure that they started up with the correct empty state
@@ -341,11 +353,16 @@ export const test = base.extend({
   hasLinkAttributes: false,
   isCharLimit: false,
   isCharLimitUtf8: false,
-  /** @type {number | false} */
-  isCollab: IS_COLLAB_V1 ? 1 : IS_COLLAB_V2 ? 2 : false,
+  // Editor mode is fixed by the worker's environment. Worker-scoped fixtures
+  // let skip callbacks run before any parent beforeEach hook creates a page
+  // or initializes the playground, including skips in nested describe blocks.
+  isCollab: [
+    IS_COLLAB_V1 ? 1 : IS_COLLAB_V2 ? 2 : IS_COLLAB_Y ? 'y' : false,
+    {scope: 'worker'},
+  ],
   isMaxLength: false,
-  isPlainText: IS_PLAIN_TEXT,
-  isRichText: IS_RICH_TEXT,
+  isPlainText: [IS_PLAIN_TEXT, {scope: 'worker'}],
+  isRichText: [IS_RICH_TEXT, {scope: 'worker'}],
   selectionAlwaysOnDisplay: false,
   shouldAllowHighlightingWithBrackets: false,
   shouldUseLexicalContextMenu: false,
@@ -463,7 +480,7 @@ export async function withExclusiveClipboardAccess(f) {
     retries: 5,
   });
   try {
-    return f();
+    return await f();
   } finally {
     await release();
   }
@@ -545,138 +562,187 @@ export function getPageOrFrame(page) {
 }
 
 export async function assertTableSelectionCoordinates(page, coordinates) {
-  const pageOrFrame = getPageOrFrame(page);
+  await expect(async () => {
+    const pageOrFrame = getPageOrFrame(page);
 
-  const {_anchor, _focus} = await pageOrFrame.evaluate(() => {
-    const editor = window.lexicalEditor;
-    const editorState = editor.getEditorState();
-    const selection = editorState._selection;
-    if (!selection.tableKey) {
-      throw new Error('Expected table selection');
-    }
-    const anchorElement = editor.getElementByKey(selection.anchor.key);
-    const focusElement = editor.getElementByKey(selection.focus.key);
-    return {
-      _anchor: {
-        x: anchorElement._cell?.x,
-        y: anchorElement._cell?.y,
-      },
-      _focus: {
-        x: focusElement._cell?.x,
-        y: focusElement._cell?.y,
-      },
-    };
-  });
+    const {_anchor, _focus} = await pageOrFrame.evaluate(() => {
+      const editor = window.lexicalEditor;
+      const editorState = editor.getEditorState();
+      const selection = editorState._selection;
+      if (!selection?.tableKey) {
+        throw new Error('Expected table selection');
+      }
+      const anchorElement = editor.getElementByKey(selection.anchor.key);
+      const focusElement = editor.getElementByKey(selection.focus.key);
+      return {
+        _anchor: {
+          x: anchorElement._cell?.x,
+          y: anchorElement._cell?.y,
+        },
+        _focus: {
+          x: focusElement._cell?.x,
+          y: focusElement._cell?.y,
+        },
+      };
+    });
 
-  if (coordinates.anchor) {
-    if (coordinates.anchor.x !== undefined) {
-      expect(_anchor.x).toEqual(coordinates.anchor.x);
+    if (coordinates.anchor) {
+      if (coordinates.anchor.x !== undefined) {
+        expect(_anchor.x).toEqual(coordinates.anchor.x);
+      }
+      if (coordinates.anchor.y !== undefined) {
+        expect(_anchor.y).toEqual(coordinates.anchor.y);
+      }
     }
-    if (coordinates.anchor.y !== undefined) {
-      expect(_anchor.y).toEqual(coordinates.anchor.y);
+    if (coordinates.focus) {
+      if (coordinates.focus.x !== undefined) {
+        expect(_focus.x).toEqual(coordinates.focus.x);
+      }
+      if (coordinates.focus.y !== undefined) {
+        expect(_focus.y).toEqual(coordinates.focus.y);
+      }
     }
-  }
-  if (coordinates.focus) {
-    if (coordinates.focus.x !== undefined) {
-      expect(_focus.x).toEqual(coordinates.focus.x);
-    }
-    if (coordinates.focus.y !== undefined) {
-      expect(_focus.y).toEqual(coordinates.focus.y);
-    }
-  }
+  }).toPass({intervals: [20, 50, 100], timeout: 5000});
 }
 
 async function assertSelectionOnPageOrFrame(page, expected) {
-  // Assert the selection of the editor matches the snapshot
-  const selection = await page.evaluate(() => {
-    const rootElement = document.querySelector('div[contenteditable="true"]');
+  await expect(async () => {
+    // Assert the selection of the editor matches the snapshot
+    const selection = await page.evaluate(() => {
+      const rootElement = document.querySelector('div[contenteditable="true"]');
 
-    // The zero-size anchors the reconciler parks outside a leading / trailing
-    // block decorator (#8922) occupy a DOM child slot but no lexical one, so
-    // discount them from both paths and offsets.
-    const boundaryAnchorsBefore = (parent, index) => {
-      const children = parent.childNodes;
-      let count = 0;
-      for (let i = 0; i < index && i < children.length; i++) {
-        const child = children[i];
-        if (
-          child.nodeType === Node.ELEMENT_NODE &&
-          child.getAttribute('data-lexical-decorator-boundary') === 'true'
-        ) {
-          count++;
+      // The zero-size anchors the reconciler parks outside a leading / trailing
+      // block decorator (#8922) occupy a DOM child slot but no lexical one, so
+      // discount them from both paths and offsets. Keep these helpers in step
+      // with the playground's TestRecorderPlugin, which records the paths and
+      // offsets that this asserts.
+      const boundaryAnchorsBefore = (parent, index) => {
+        const children = parent.childNodes;
+        let count = 0;
+        for (let i = 0; i < index && i < children.length; i++) {
+          const child = children[i];
+          if (
+            child.nodeType === Node.ELEMENT_NODE &&
+            child.getAttribute('data-lexical-decorator-boundary') === 'true'
+          ) {
+            count++;
+          }
         }
-      }
-      return count;
-    };
+        return count;
+      };
 
-    const getPathFromNode = node => {
-      const path = [];
-      if (node === rootElement) {
-        return [];
-      }
-      while (node !== null) {
-        const parent = node.parentNode;
-        if (parent === null || node === rootElement) {
-          break;
+      const getPathFromNode = node => {
+        const path = [];
+        if (node === rootElement) {
+          return [];
         }
-        const index = Array.from(parent.childNodes).indexOf(node);
-        path.push(index - boundaryAnchorsBefore(parent, index));
-        node = parent;
-      }
-      return path.reverse();
-    };
+        while (node !== null) {
+          const parent = node.parentNode;
+          if (parent === null || node === rootElement) {
+            break;
+          }
+          const index = Array.from(parent.childNodes).indexOf(node);
+          path.push(index - boundaryAnchorsBefore(parent, index));
+          node = parent;
+        }
+        return path.reverse();
+      };
 
-    const fixOffset = (node, offset) => {
-      if (node && node.nodeType === Node.ELEMENT_NODE) {
-        offset -= boundaryAnchorsBefore(node, offset);
-      }
-      // If the selection offset is at the br of a webkit img+br linebreak
-      // then move the offset to the img so the tests are consistent across
-      // browsers
-      if (node && node.nodeType === Node.ELEMENT_NODE && offset > 0) {
-        const child = node.children[offset - 1];
+      const fixOffset = (node, offset) => {
+        if (!node || node.nodeType !== Node.ELEMENT_NODE) {
+          return offset;
+        }
+        // If the selection offset is at the br of a webkit img+br linebreak
+        // then move the offset to the img so the tests are consistent across
+        // browsers. Look the child up by the DOM offset: a leading anchor can
+        // precede it in the same element.
+        const child = offset > 0 ? node.childNodes[offset - 1] : null;
+        const lexicalOffset = offset - boundaryAnchorsBefore(node, offset);
         if (
           child &&
           child.nodeType === Node.ELEMENT_NODE &&
           child.nodeName === 'IMG' &&
           child.getAttribute('data-lexical-managed-linebreak') === 'true'
         ) {
-          return offset - 1;
+          return lexicalOffset - 1;
         }
-      }
-      return offset;
-    };
+        return lexicalOffset;
+      };
 
-    const {anchorNode, anchorOffset, focusNode, focusOffset} =
-      window.getSelection();
+      const {anchorNode, anchorOffset, focusNode, focusOffset} =
+        window.getSelection();
 
-    return {
-      anchorOffset: fixOffset(anchorNode, anchorOffset),
-      anchorPath: getPathFromNode(anchorNode),
-      focusOffset: fixOffset(focusNode, focusOffset),
-      focusPath: getPathFromNode(focusNode),
-    };
-  });
-  expect(selection.anchorPath).toEqual(expected.anchorPath);
-  expect(selection.focusPath).toEqual(expected.focusPath);
-  if (Array.isArray(expected.anchorOffset)) {
-    const [start, end] = expected.anchorOffset;
-    expect(selection.anchorOffset).toBeGreaterThanOrEqual(start);
-    expect(selection.anchorOffset).toBeLessThanOrEqual(end);
-  } else {
-    expect(selection.anchorOffset).toEqual(expected.anchorOffset);
-  }
-  if (Array.isArray(expected.focusOffset)) {
-    const [start, end] = expected.focusOffset;
-    expect(selection.focusOffset).toBeGreaterThanOrEqual(start);
-    expect(selection.focusOffset).toBeLessThanOrEqual(end);
-  } else {
-    expect(selection.focusOffset).toEqual(expected.focusOffset);
-  }
+      return {
+        anchorOffset: fixOffset(anchorNode, anchorOffset),
+        anchorPath: getPathFromNode(anchorNode),
+        focusOffset: fixOffset(focusNode, focusOffset),
+        focusPath: getPathFromNode(focusNode),
+      };
+    });
+    expect(selection.anchorPath).toEqual(expected.anchorPath);
+    expect(selection.focusPath).toEqual(expected.focusPath);
+    if (Array.isArray(expected.anchorOffset)) {
+      const [start, end] = expected.anchorOffset;
+      expect(selection.anchorOffset).toBeGreaterThanOrEqual(start);
+      expect(selection.anchorOffset).toBeLessThanOrEqual(end);
+    } else {
+      expect(selection.anchorOffset).toEqual(expected.anchorOffset);
+    }
+    if (Array.isArray(expected.focusOffset)) {
+      const [start, end] = expected.focusOffset;
+      expect(selection.focusOffset).toBeGreaterThanOrEqual(start);
+      expect(selection.focusOffset).toBeLessThanOrEqual(end);
+    } else {
+      expect(selection.focusOffset).toEqual(expected.focusOffset);
+    }
+  }).toPass({intervals: [20, 50, 100], timeout: 5000});
 }
 
 export async function assertSelection(page, expected) {
   await assertSelectionOnPageOrFrame(getPageOrFrame(page), expected);
+}
+
+// Native caret movement and Lexical's selectionchange handler complete in
+// separate tasks. Editing tests need both selections at the intended point
+// before sending the next key, especially a destructive one.
+export async function assertCaret(page, selector, offset) {
+  await expect
+    .poll(() =>
+      evaluate(
+        page,
+        target => {
+          const editor = window.lexicalEditor;
+          const element = editor
+            .getRootElement()
+            .querySelector(target.selector);
+          const domSelection = window.getSelection();
+          const selection = editor.getEditorState()._selection;
+          return {
+            domCollapsed: domSelection?.isCollapsed,
+            domOffset: domSelection?.anchorOffset,
+            domTarget:
+              element !== null &&
+              (domSelection?.anchorNode === element ||
+                domSelection?.anchorNode === element.firstChild),
+            modelCollapsed: selection?.isCollapsed(),
+            modelOffset: selection?.anchor?.offset,
+            modelTarget:
+              element !== null &&
+              selection?.anchor !== undefined &&
+              editor.getElementByKey(selection.anchor.key) === element,
+          };
+        },
+        {selector},
+      ),
+    )
+    .toEqual({
+      domCollapsed: true,
+      domOffset: offset,
+      domTarget: true,
+      modelCollapsed: true,
+      modelOffset: offset,
+      modelTarget: true,
+    });
 }
 
 export async function isMac(page) {
@@ -767,6 +833,7 @@ async function copyToClipboardPageOrFrame(pageOrFrame) {
   });
 }
 
+// Capture the editor's copy payload without accessing the system clipboard.
 export async function copyToClipboard(page) {
   return await copyToClipboardPageOrFrame(getPageOrFrame(page));
 }
@@ -800,7 +867,7 @@ async function pasteWithClipboardDataFromPageOrFrame(
         eventClipboardData = {
           files,
           getData(type, value) {
-            return _clipboardData[type];
+            return _clipboardData[type] || '';
           },
           types: [...Object.keys(_clipboardData), 'Files'],
         };
@@ -808,7 +875,7 @@ async function pasteWithClipboardDataFromPageOrFrame(
         eventClipboardData = {
           files,
           getData(type, value) {
-            return _clipboardData[type];
+            return _clipboardData[type] || '';
           },
           types: Object.keys(_clipboardData),
         };
@@ -872,6 +939,8 @@ async function pasteWithClipboardDataFromPageOrFrame(
 }
 
 /**
+ * Paste supplied data through a DOM event, or omit it for a native keyboard paste.
+ *
  * @param {import('@playwright/test').Page} page
  */
 export async function pasteFromClipboard(
@@ -894,6 +963,20 @@ export async function pasteFromClipboard(
 
 export async function sleep(delay) {
   await new Promise(resolve => setTimeout(resolve, delay));
+}
+
+/**
+ * Wait for one timer task in the page. On Chrome for macOS, Lexical ignores an
+ * insertText that arrives before a zero-delay timer after a handled Backspace
+ * or select all, because the OS can use it to accept a pending text
+ * replacement. A real keystroke always comes after that timer, but text
+ * Playwright types with `Input.insertText` (an emoji, or any character with no
+ * key on the US layout) can arrive before it on a busy machine and be dropped.
+ * Timers with the same delay run in order, so once ours has run, Lexical's has
+ * too.
+ */
+export async function waitForTimerTick(page) {
+  await page.evaluate(() => new Promise(resolve => setTimeout(resolve, 0)));
 }
 
 /**
@@ -932,14 +1015,18 @@ export async function advanceHistoryClock(page, overheadMs = 50) {
       const editor = document.querySelector(
         '[data-lexical-editor="true"]',
       ).__lexicalEditor;
-      // Collab: reset the Yjs UndoManager's capture window.
-      const undoManager = editor[Symbol.for('@lexical/yjs/UndoManager')];
+      const builder = editor[Symbol.for('@lexical/extension/LexicalBuilder')];
+      // Collab: reset the Yjs UndoManager's capture window (collab v1/v2
+      // publish it on the editor; collab Y keeps it on its binding).
+      const undoManager =
+        editor[Symbol.for('@lexical/yjs/UndoManager')] ||
+        builder?.extensionNameMap.get('@lexical/y/Collab')?.state?.output
+          ?.binding.undoManager;
       if (undoManager) {
         undoManager.stopCapturing();
         return;
       }
       // Local history: freeze `now` past the merge delay.
-      const builder = editor[Symbol.for('@lexical/extension/LexicalBuilder')];
       const output = builder?.extensionNameMap.get('@lexical/history/History')
         ?.state?.output;
       if (output && !output.disabled.value) {
@@ -997,7 +1084,12 @@ export async function freezeCollabUndoGrouping(page) {
     const editor = document.querySelector(
       '[data-lexical-editor="true"]',
     )?.__lexicalEditor;
-    const undoManager = editor?.[Symbol.for('@lexical/yjs/UndoManager')];
+    const undoManager =
+      editor?.[Symbol.for('@lexical/yjs/UndoManager')] ||
+      editor?.[
+        Symbol.for('@lexical/extension/LexicalBuilder')
+      ]?.extensionNameMap.get('@lexical/y/Collab')?.state?.output?.binding
+        .undoManager;
     if (!undoManager) {
       return false;
     }
@@ -1068,15 +1160,13 @@ export async function selectorBoundingBox(page, selector) {
 }
 
 export async function click(page, selector, options) {
-  const frame = getPageOrFrame(page);
-  await frame.waitForSelector(selector, options);
-  await frame.click(selector, options);
+  // Playwright already waits for the target to be visible, enabled and stable.
+  // A separate wait repeats that work and adds a protocol round trip per click.
+  await getPageOrFrame(page).click(selector, options);
 }
 
 export async function doubleClick(page, selector, options) {
-  const frame = getPageOrFrame(page);
-  await frame.waitForSelector(selector, options);
-  await frame.dblclick(selector, options);
+  await getPageOrFrame(page).dblclick(selector, options);
 }
 
 export async function focus(page, selector, options) {
@@ -1103,6 +1193,7 @@ export async function clearEditor(page) {
   await selectAll(page);
   await page.keyboard.press('Backspace');
   await page.keyboard.press('Backspace');
+  await waitForTimerTick(page);
 }
 
 export async function insertSampleImage(page, modifier) {
@@ -1143,6 +1234,17 @@ export async function insertUploadImage(page, files, altText) {
     await page.keyboard.type(altText);
   }
   await click(page, 'button[data-test-id="image-modal-file-upload-btn"]');
+}
+
+// Selection and embed-wrapper tests exercise the iframe element, not the
+// remote player's network requests and cross-origin event handlers.
+export async function stubYouTubePlayer(page) {
+  await page.route('https://www.youtube-nocookie.com/embed/**', route =>
+    route.fulfill({
+      body: '<!doctype html><title>YouTube embed fixture</title>',
+      contentType: 'text/html',
+    }),
+  );
 }
 
 export async function insertYouTubeEmbed(page, url) {
@@ -1220,7 +1322,6 @@ export async function dragMouse(
     offsetEnd = {x: 0, y: 0},
     mouseDown = true,
     mouseUp = true,
-    slow = false,
   } = opts;
   let fromX = fromBoundingBox.x;
   let fromY = fromBoundingBox.y;
@@ -1245,7 +1346,7 @@ export async function dragMouse(
   if (mouseDown) {
     await page.mouse.down();
   }
-  await page.mouse.move(toX, toY, slow ? 10 : 1);
+  await page.mouse.move(toX, toY);
   if (mouseUp) {
     await page.mouse.up();
   }
@@ -1264,6 +1365,10 @@ export async function dragImage(
     {positionEnd, positionStart},
   );
 }
+
+// The two collab clients, undo/redo assertions and polling frequently format
+// identical DOM. Share in-flight work too, while bounding retained snapshots.
+const htmlFormattingCache = new Map();
 
 export async function prettifyHTML(
   string,
@@ -1285,7 +1390,11 @@ export async function prettifyHTML(
 
   output = output.replace(/\s__playwright_target__="[^"]+"/, '');
 
-  return await prettier.format(output, {
+  const cached = htmlFormattingCache.get(output);
+  if (cached !== undefined) {
+    return cached;
+  }
+  const formatted = prettier.format(output, {
     attributeGroups: ['$DEFAULT', '^data-'],
     attributeSort: 'asc',
     bracketSameLine: true,
@@ -1293,6 +1402,11 @@ export async function prettifyHTML(
     parser: 'html',
     plugins: ['prettier-plugin-organize-attributes'],
   });
+  htmlFormattingCache.set(output, formatted);
+  if (htmlFormattingCache.size > 128) {
+    htmlFormattingCache.delete(htmlFormattingCache.keys().next().value);
+  }
+  return formatted;
 }
 
 // This function does not suppose to do anything, it's only used as a trigger
@@ -1421,7 +1535,7 @@ export async function selectCellsFromTableCords(
 
   // const firstBox = await firstRowFirstColumnCell.boundingBox();
   // const secondBox = await secondRowSecondCell.boundingBox();
-  // await dragMouse(page, firstBox, secondBox, {slow: true});
+  // await dragMouse(page, firstBox, secondBox);
 }
 
 export async function clickTableCellActiveButton(page) {
@@ -1570,21 +1684,15 @@ export async function typeSushiMojia(client, page) {
 }
 
 export async function pressToggleBold(page) {
-  await keyDownCtrlOrMeta(page);
-  await page.keyboard.press('b');
-  await keyUpCtrlOrMeta(page);
+  await page.keyboard.press('ControlOrMeta+b');
 }
 
 export async function pressToggleItalic(page) {
-  await keyDownCtrlOrMeta(page);
-  await page.keyboard.press('i');
-  await keyUpCtrlOrMeta(page);
+  await page.keyboard.press('ControlOrMeta+i');
 }
 
 export async function pressToggleUnderline(page) {
-  await keyDownCtrlOrMeta(page);
-  await page.keyboard.press('u');
-  await keyUpCtrlOrMeta(page);
+  await page.keyboard.press('ControlOrMeta+u');
 }
 
 export async function dragDraggableMenuTo(

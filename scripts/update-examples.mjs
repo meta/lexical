@@ -70,7 +70,11 @@ async function main() {
         );
       }
     };
-    await pnpm('--ignore-workspace', '--no-frozen-lockfile', 'i');
+    // No --ignore-workspace: each example carries its own
+    // pnpm-workspace.yaml, which already keeps the install out of the
+    // monorepo workspace, and which the flag would suppress along with
+    // the example's own overrides and build-script decisions.
+    await pnpm('--no-frozen-lockfile', 'i');
     if (hasUnreleasedDependency) {
       console.log(
         'Unreleased lexical dependencies required, removing local versions',

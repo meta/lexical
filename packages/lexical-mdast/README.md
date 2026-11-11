@@ -22,8 +22,9 @@ in sync.
 
 Like `@lexical/markdown`, the original syntax of a construct is preserved on
 the Lexical nodes (the bullet character of a list, a code block's fence, and a
-hard line break's style), so re-serializing produces **minimally different**
-Markdown — `* a`/`+ b` bullets and `~~~` fences round-trip unchanged.
+hard line break's style), so re-serializing stays **close to the source**,
+though not exact — `* a`/`+ b` bullets and `~~~` fences round-trip unchanged,
+while tables are re-padded and some constructs are normalized (see the guide).
 
 ## Configured through extensions
 
@@ -31,7 +32,7 @@ Markdown — `* a`/`+ b` bullets and `~~~` fences round-trip unchanged.
 system, modeled on `@lexical/html`'s `DOMImportExtension`. Each feature
 extension ships the nodes it needs and contributes its import/export rules (and
 the micromark/mdast extensions that tokenize them) to the core
-`MdastImportExtension` registry:
+`MdastExtension` registry:
 
 CommonMark features:
 
@@ -60,25 +61,20 @@ Behavior and convenience bundles:
 | `MdastCommonMarkExtension` | bundle of the six CommonMark extensions |
 | `MdastGfmExtension` | bundle of the four GFM extensions |
 | `MdastRichTextExtension` | bundle of heading + blockquote |
-| `MdastExportExtension` | serialization back to Markdown (`$convertToMarkdownString`) |
-| `MdastExtension` | bundle of `MdastImportExtension` + `MdastExportExtension` |
+| `MdastExtension` | core registry, Markdown import and export |
 | `MdastShadowRootQuoteExtension` | opt-in: blockquotes as block containers (full-fidelity nested content) |
 | `MdastHtmlExtension` | opt-in: raw HTML routed through the `@lexical/html` DOM import rules; HTML-encoded export via `$exportViaDOM` / `rawHtmlBlock` |
 | `MdastShortcutsExtension` | streaming keyboard shortcuts |
 
 Everything composes granularly and degrades gracefully: an editor with only
 the extensions it wants imports unsupported constructs as their content
-(a table becomes its cell text), and the typing shortcuts — driven by the
-same registry — only fire for constructs the editor can represent (`> `
-stays literal without `MdastBlockquoteExtension`).
+(without `MdastTableExtension`, which brings the GFM table grammar, a table
+is read as plain CommonMark), and the typing shortcuts — driven by the same
+registry — only fire for constructs the editor can represent (`> ` stays
+literal without `MdastBlockquoteExtension`).
 
-Import and export are separate extensions: `MdastImportExtension` (and the
-feature extensions that contribute to it) only parse, and
-`MdastExportExtension` compiles the same registry into a serializer. An
-editor that never converts back to Markdown simply omits
-`MdastExportExtension` and doesn't bundle `mdast-util-to-markdown`. When you
-want both directions without thinking about it, depend on `MdastExtension`,
-which bundles the two.
+`MdastExtension` owns the shared configuration and exposes both import and
+export. Feature extensions depend on it automatically.
 
 ## Usage
 
@@ -117,14 +113,16 @@ const markdown = editor.read(() => $convertToMarkdownString());
 ```
 
 The same API is available from the editor as
-`$getExtensionOutput(MdastImportExtension).$convertFromMarkdownString(...)`
+`$getExtensionOutput(MdastExtension).$convertFromMarkdownString(...)`
 and
-`$getExtensionOutput(MdastExportExtension).$convertToMarkdownString(...)`.
+`$getExtensionOutput(MdastExtension).$convertToMarkdownString(...)`.
 
 `$convertSelectionToMarkdownString(selection?)` serializes only the
 selected content (defaulting to the current selection): unselected
 blocks and list items are skipped and partially selected text is
-sliced to the selected range.
+sliced to the selected range. A GFM table writes the rows and columns a
+selection reaches, or a text or node selection within one cell as that
+cell's blocks, as copying in a cell does.
 
 ### unified / remark interop
 
@@ -173,16 +171,82 @@ scalar options in a `toMarkdownExtensions` entry apply document-wide
 and override the package defaults:
 
 ```ts
-import {MdastImportExtension} from '@lexical/mdast';
+import {MdastExtension} from '@lexical/mdast';
 import {configExtension} from 'lexical';
 
 // Serialize bullets as `+` and emphasis as `_`. Per-node syntax
 // recorded on import (a list's bullet, a code block's fence, ...)
 // still wins for those nodes' own output.
-configExtension(MdastImportExtension, {
+configExtension(MdastExtension, {
   toMarkdownExtensions: [{bullet: '+', emphasis: '_'}],
 });
 ```
+
+Export time can grow with the square of a paragraph's size, because of how
+`mdast-util-to-markdown` (2.2.2 and earlier) picks emphasis, strong and
+strikethrough markers that read back correctly
+([syntax-tree/mdast-util-to-markdown#96](https://github.com/syntax-tree/mdast-util-to-markdown/issues/96)).
+The known cases are a paragraph of many short runs of formatting side by
+side whose markers have to change, such as alternating bold, italic, and
+bold italic text (2,000 runs take about 7.5 s), with or without
+strikethrough among them, and many empty emphasis,
+strong or strikethrough nodes side by side, which only a contributed handler
+or mdast tree makes (1,000 take about 14 s).
+
+### Punctuation modes
+
+CommonMark doesn't let `**` open or close between a letter and punctuation,
+so `**你好。**世界` reads with literal asterisks. `importPunctuation` and
+`exportPunctuation` choose how markers beside punctuation are read and
+written:
+
+- `'cjk-friendly'` follows the
+  [CommonMark CJK-friendly amendment](https://github.com/tats-u/markdown-cjk-friendly),
+  as `micromark-extension-cjk-friendly` does. It reads Markdown as CommonMark
+  does except beside Chinese, Japanese and Korean characters and
+  punctuation, where markers open and close as their writer meant. A
+  variation selector before a marker reads as the character it follows,
+  before a closing `~` or `~~` too, as `markdown-it-cjk-friendly` reads it:
+  `x ~~Done ✔︎~~ y` closes, where
+  `micromark-extension-cjk-friendly-gfm-strikethrough` leaves it open, so
+  export writes such a selector as a reference (`x ~~Done ✔&#xFE0E;~~ y`).
+  After a U+0000, which micromark reads as U+FFFD, a selector reads as that
+  U+FFFD, as `markdown-it-cjk-friendly` reads it, where
+  `micromark-extension-cjk-friendly` reads the selector itself.
+- `'strict-commonmark'` follows CommonMark and GFM.
+
+Import defaults to `'cjk-friendly'`, which accepts what CJK writers type and,
+beside CJK text, what `@lexical/markdown` exported before it followed
+CommonMark's Unicode punctuation. Markdown exported earlier with an emoji or a text variation
+selector at the inner edge of a run beside a letter (`Hello**🎉 launch**`,
+`**©︎**2024`) now reads with literal markers, as the amendment reads it;
+strict CommonMark readers still read the selector case as bold, since a
+selector is not punctuation. Import `'strict-commonmark'` keeps the earlier
+reading of those.
+Export defaults to `'strict-commonmark'`: it writes a character reference
+where a marker would not open or close otherwise (`**你好。**&#x4E16;界`),
+which every CommonMark, GFM and CJK-friendly reader reads the same way, with
+three exceptions. A run of three or more markers that a pair uses only part
+of (`***a*b*c***` or `***x****y*`, as on earlier versions, or
+`**“***!。**」!a***`) is read
+differently by micromark and by commonmark.js and markdown-it, which apply the
+rule of 3 to the whole run. A selector after a tab, a line ending, a vertical
+tab or a form feed that ends a run (`**。\v︎**`) reads as that whitespace in
+`markdown-it-cjk-friendly`, which leaves those markers literal.
+A vertical tab beside a marker (`p\v**.**\vq`) reads as whitespace in
+commonmark.js, markdown-it and micromark, but not in cmark and cmark-gfm
+(GitHub's renderer), which follow CommonMark's definition of whitespace, and
+no reference can stand for it. Export `'cjk-friendly'` writes such CJK text as
+typed (`**你好。**世界`, `**你好。**abc`) for readers that follow the
+amendment:
+
+```ts
+configExtension(MdastExtension, {exportPunctuation: 'cjk-friendly'});
+```
+
+A CJK-friendly import reads the `~~` runs of `MdastStrikethroughExtension`
+as it reads emphasis. A strikethrough syntax contributed some other way
+through `micromarkExtensions` is left as it is.
 
 ### Raw HTML (`MdastHtmlExtension`)
 
@@ -191,7 +255,9 @@ Markdown passes raw HTML through — GitHub-style `<details>` blocks, inline
 `MdastHtmlExtension` routes it through the editor's `@lexical/html`
 `DOMImportExtension` rules instead, so **any HTML the editor can already
 import works from Markdown**, and Markdown *inside* the construct keeps
-working in both directions, the way it does on GitHub:
+working in both directions: the blocks after a blank line, as on GitHub,
+and also text between the tags, such as the summary line below, which GFM
+itself leaves raw:
 
 ```md
 <details><summary>
@@ -231,13 +297,16 @@ The **body** blocks
   (`$convertSelectionToMarkdownString`) run under
   `RenderContextMarkdownSelection` carrying the selection, so a
   contributed to-markdown handler that appends end-of-document data can
-  scope its output to a clipboard copy.
+  scope its output to a clipboard copy. An export rule reads the selection
+  its own export is limited to as `context.selection` (`null` for a
+  whole-document export, including one a handler runs during a selection
+  export), which needs no active editor.
 
 A complete HTML-encoded construct is one DOM import rule (which then also
 serves HTML paste) plus one export rule:
 
 ```ts
-import {$exportViaDOM, MdastHtmlExtension, MdastImportExtension} from '@lexical/mdast';
+import {$exportViaDOM, MdastHtmlExtension, MdastExtension} from '@lexical/mdast';
 import {defineImportRule, DOMImportExtension, sel} from '@lexical/html';
 import {configExtension, defineExtension} from 'lexical';
 
@@ -250,15 +319,15 @@ export const MdastCollapsibleExtension = defineExtension({
       // sel.tag('details') -> CollapsibleNode; serves Markdown and paste.
       rules: [DetailsImportRule],
     }),
-    configExtension(MdastImportExtension, {
+    configExtension(MdastExtension, {
       // exportDOM is the single source of truth for the encoding.
-      exportRules: [{$export: $exportViaDOM, type: 'collapsible'}],
+      exportRules: [{$export: $exportViaDOM, type: CollapsibleNode}],
     }),
   ],
 });
 ```
 
-The [mdast-editor dev example](https://github.com/facebook/lexical/tree/main/dev-examples/mdast-editor)
+The [mdast-editor dev example](https://github.com/meta/lexical/tree/main/dev-examples/mdast-editor)
 demonstrates the block path (a `<details><summary>` collapsible with a
 named summary slot), the inline path (`<kbd>` keys), and inline HTML text
 formats (`<u>`, `<mark>`, `<sub>`/`<sup>`, `style="color: …"` spans).
@@ -266,19 +335,19 @@ formats (`<u>`, `<mark>`, `<sub>`/`<sup>`, `style="color: …"` spans).
 ### Custom mappings
 
 Because extensions are the unit of configuration, you add or override behavior
-by contributing rules to `MdastImportExtension` from your own extension:
+by contributing rules to `MdastExtension` from your own extension:
 
 ```ts
-import {MdastImportExtension} from '@lexical/mdast';
+import {MdastExtension} from '@lexical/mdast';
 import {configExtension, defineExtension} from 'lexical';
 
 export const MyMdastExtension = defineExtension({
   name: 'my-mdast',
   nodes: [MyNode],
   dependencies: [
-    configExtension(MdastImportExtension, {
+    configExtension(MdastExtension, {
       importRules: [{type: 'myMdastType', $import: $importMyNode}],
-      exportRules: [{type: 'my-node', $export: $exportMyNode}],
+      exportRules: [{type: MyNode, $export: $exportMyNode}],
       micromarkExtensions: [myMicromarkExtension()],
       mdastExtensions: [myMdastExtension()],
       toMarkdownExtensions: [myToMarkdownExtension()],
@@ -286,3 +355,65 @@ export const MyMdastExtension = defineExtension({
   ],
 });
 ```
+
+Export rule `type` accepts a Lexical type string or node class: `'text'` and
+`TextNode` are equivalent. Rules also apply to subclasses, so a text rule
+handles `TabNode` and custom text nodes unless a more specific rule exists.
+The nearest matching ancestor runs first, regardless of contribution order. For
+multiple rules targeting the same type (including a mix of strings and classes),
+array order determines priority; contributions merged later are prepended.
+Ancestor classes do not need to be registered in the editor themselves. Classes
+must have their own node type; abstract classes without one (such as `ElementNode`)
+are rejected.
+Rules are resolved once when the editor is built.
+
+Handlers can delegate with `context.next()`, which converts the same node
+using the next handler and returns an array of output nodes. An export chain
+runs lower-priority rules for the same type before moving to its ancestors,
+from nearest to farthest. When no handlers remain, it uses the generic export
+fallback. A handler can return the delegated result or modify it. Formatting
+such as bold and italic wraps text in child nodes, so this uppercase example
+walks the returned tree, including inline code:
+
+```ts
+import {MdastExtension, type MdastNode} from '@lexical/mdast';
+import {configExtension, TextNode} from 'lexical';
+
+function uppercaseText(nodes: readonly MdastNode[]): void {
+  for (const node of nodes) {
+    if (node.type === 'text' || node.type === 'inlineCode') {
+      node.value = node.value.toUpperCase();
+    } else if ('children' in node) {
+      uppercaseText(node.children);
+    }
+  }
+}
+
+configExtension(MdastExtension, {
+  exportRules: [{
+    type: TextNode,
+    $export: (_node, context) => {
+      const output = context.next();
+      uppercaseText(output);
+      return output;
+    },
+  }],
+});
+```
+
+Plain formatted text returned by text middleware is merged into adjacent text
+runs so shared and overlapping formats serialize correctly. Output containing
+extra fields such as `data`, or custom structure, is preserved as-is instead
+of merged. Such middleware must ensure its output serializes correctly on its
+own; adjacent bold nodes, for example, can produce `**a****b**`.
+
+Import rules use mdast type strings: mdast nodes are plain objects,
+without a Lexical node class hierarchy. Their `context.next()` runs the next
+handler for the same type in contribution order, eventually reaching the
+generic import fallback.
+
+| Handler result | Import | Export |
+| --- | --- | --- |
+| `context.next()` | Runs the next handler for the same mdast type, or the generic import fallback when none remain. | Runs the next same-type or ancestor handler, or the generic export fallback when none remain. |
+| `null` | Omits the node and its children. | Uses the default export directly, without trying remaining handlers. |
+| `[]` | Omits the node and its children. | Omits the node. |

@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Lexical - Paragraph Review</title>
+  </head>
+  <body>
+    <div id="app">
+      <h1>Paragraph review</h1>
+      <p>Place the cursor in a paragraph, then toggle its review status.</p>
+      <button id="toggle-reviewed" type="button">Toggle reviewed</button>
+      <div
+        id="editor"
+        contenteditable="true"
+        role="textbox"
+        aria-label="Paragraph review editor"
+        aria-multiline="true"></div>
+      <div class="actions">
+        <button id="export-html" type="button">Export HTML</button>
+        <button id="import-html" type="button">Import HTML</button>
+      </div>
+      <label for="html">HTML (export, edit, then import)</label>
+      <textarea id="html" spellcheck="false"></textarea>
+      <details>
+        <summary>Editor state JSON</summary>
+        <textarea id="json" readonly aria-label="Editor state JSON"></textarea>
+      </details>
+    </div>
+    <script src="/src/main.ts" type="module"></script>
+  </body>
+</html>

@@ -25,7 +25,7 @@ export default function CommunityHowToContribute() {
           description="Phrase before paragraph listing documents and policies to read before contributing">
           Before participating in Lexical's communities, please read our
         </Translate>{' '}
-        <Link to="https://github.com/facebook/lexical/blob/main/CODE_OF_CONDUCT.md">
+        <Link to="https://github.com/meta/lexical/blob/main/CODE_OF_CONDUCT.md">
           <Translate
             id="pages.community.howTo.codeOfConductLink"
             description="Hyperlink to code of conduct">
@@ -50,7 +50,7 @@ export default function CommunityHowToContribute() {
           description="Phrase about our expectations that all contributors adhere to all policies listed herein.">
           and we expect that all community members adhere to the
         </Translate>{' '}
-        <Link to="https://github.com/facebook/lexical/blob/main/CONTRIBUTING.md">
+        <Link to="https://github.com/meta/lexical/blob/main/CONTRIBUTING.md">
           <Translate
             id="pages.community.howTo.contributingLink"
             description="Hyperlink to contributing technical instructions">
@@ -65,7 +65,7 @@ export default function CommunityHowToContribute() {
           description="Phrase inviting users to join us as contributors after agreeing to the guidelines">
           Once you've read over those, we invite you to join us on the
         </Translate>{' '}
-        <Link to="https://github.com/facebook/lexical">
+        <Link to="https://github.com/meta/lexical">
           <Translate id="pages.community.contributors.joinUsRepoLink">
             Lexical GitHub repository
           </Translate>

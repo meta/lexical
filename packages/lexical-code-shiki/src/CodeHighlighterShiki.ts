@@ -9,12 +9,15 @@
 import {
   $isCodeHighlightNode,
   $isCodeNode,
+  $keepCodeNodeState,
   $plainifyCodeContent,
+  $replaceCodeTokensAddedTo,
   CodeExtension,
   CodeHighlightNode,
   CodeIndentExtension,
   CodeNode,
   DEFAULT_CODE_LANGUAGE,
+  registerCodeGutter,
   registerCodeIndentation,
 } from '@lexical/code-core';
 import {effect, namedSignals} from '@lexical/extension';
@@ -22,6 +25,7 @@ import {
   $createTextNode,
   $getNodeByKey,
   $getSelection,
+  $getWritableNodeState,
   $isLineBreakNode,
   $isRangeSelection,
   $isTabNode,
@@ -31,6 +35,7 @@ import {
   type LexicalEditor,
   type LexicalNode,
   mergeRegister,
+  NODE_STATE_KEY,
   type NodeKey,
   safeCast,
   TextNode,
@@ -78,6 +83,55 @@ export const ShikiTokenizer: Tokenizer = {
   defaultTheme: DEFAULT_CODE_THEME,
 };
 
+/**
+ * Give `to` the NodeState of `from`, flat states included, keeping the state
+ * that `to` has for the keys `from` does not set (such as state that a node
+ * replacement initializes). For text leaving a code block: the old token's
+ * values win, as the NodeState of that text. New tokens in a code block are
+ * copied the other way round (`$keepCodeNodeState`): there what the token
+ * holds already wins.
+ */
+function $copyNodeState(from: LexicalNode, to: LexicalNode): void {
+  // @internal access, like `__text`: the NodeState of the node
+  const json: Record<string, unknown> = from.__state
+    ? from.__state.toJSON()
+    : {};
+  const entries = Object.entries(json);
+  if (entries.length === 0) {
+    return;
+  }
+  const state = $getWritableNodeState(to);
+  for (const [key, value] of entries) {
+    if (key === NODE_STATE_KEY) {
+      for (const [nestedKey, nestedValue] of Object.entries(
+        value as Record<string, unknown>,
+      )) {
+        state.updateFromUnknown(nestedKey, nestedValue);
+      }
+    } else {
+      state.updateFromUnknown(key, value);
+    }
+  }
+  // States the node knows by their StateConfig stay known on the copy (a
+  // StateConfig not registered for the copy's class would otherwise be
+  // read back as an unknown JSON value: a set-valued state, for one). As in
+  // the JSON: not a default value (the copy keeps what it has, such as state
+  // its replacement class sets), and the value of a key the copy's class
+  // has another StateConfig for stays parsed with that one (above).
+  if (from.__state) {
+    const {sharedConfigMap} = state.sharedNodeState;
+    for (const [config, value] of from.__state.getInternalState()[1]) {
+      if (config.isEqual(value, config.defaultValue)) {
+        continue;
+      }
+      const own = sharedConfigMap.get(config.key);
+      if (own === undefined || own === config) {
+        state.updateFromKnown(config, value);
+      }
+    }
+  }
+}
+
 function $textNodeTransform(
   editor: LexicalEditor,
   tokenizer: Tokenizer,
@@ -91,33 +145,12 @@ function $textNodeTransform(
     $codeNodeTransform(editor, tokenizer, transformState, parentNode);
   } else if ($isCodeHighlightNode(node)) {
     // When code block converted into paragraph or other element
-    // code highlight nodes converted back to normal text
-    node.replace($createTextNode(node.__text));
+    // code highlight nodes converted back to normal text, which keeps
+    // their NodeState (such as comment ids)
+    const text = $createTextNode(node.__text);
+    $copyNodeState(node, text);
+    node.replace(text);
   }
-}
-
-function updateCodeGutter(node: CodeNode, editor: LexicalEditor): void {
-  const codeElement = editor.getElementByKey(node.getKey());
-  if (codeElement === null) {
-    return;
-  }
-  const children = node.getChildren();
-  const childrenLength = children.length;
-  // @ts-ignore: internal field
-  if (childrenLength === codeElement.__cachedChildrenLength) {
-    // Avoid updating the attribute if the children length hasn't changed.
-    return;
-  }
-  // @ts-ignore:: internal field
-  codeElement.__cachedChildrenLength = childrenLength;
-  let gutter = '1';
-  let count = 1;
-  for (let i = 0; i < childrenLength; i++) {
-    if ($isLineBreakNode(children[i])) {
-      gutter += '\n' + ++count;
-    }
-  }
-  codeElement.setAttribute('data-gutter', gutter);
 }
 
 interface TransformState {
@@ -154,36 +187,41 @@ function $codeNodeTransform(
     node.setTheme(theme);
   }
 
-  // dynamic import of themes
-  let inFlight = false;
-  if (!isCodeThemeLoaded(theme)) {
-    loadCodeTheme(theme, editor, nodeKey);
-    // Only the highlight path (a resolved language) consumes the theme. With
-    // no language the text is plainified, which needs no theme, so don't defer
-    // the split on a theme load that won't be used — otherwise a code block
-    // with `defaultLanguage: null` stays an unsplit TextNode until the theme
-    // happens to finish loading.
-    if (language) {
-      inFlight = true;
-    }
-  }
-
   // dynamic import of languages
+  let inFlight = false;
+  // Only a language Shiki has a grammar for is highlighted. Without one (no
+  // language, or one Shiki does not know, e.g. "After" from the markdown
+  // shortcut "```After ") the text is split into plain CodeHighlightNodes,
+  // so the indent and line-move handlers can work on it.
+  let highlight = false;
   if (language) {
     if (isCodeLanguageLoaded(language)) {
       if (!node.getIsSyntaxHighlightSupported()) {
         node.setIsSyntaxHighlightSupported(true);
       }
-    } else {
-      const loadingTask = loadCodeLanguage(language, editor, nodeKey);
-      // if the language is not supported, the download will not occur
-      if (!loadingTask && node.getIsSyntaxHighlightSupported()) {
-        node.setIsSyntaxHighlightSupported(false);
-      }
+      highlight = true;
+    } else if (loadCodeLanguage(language, editor, nodeKey)) {
+      // The grammar is downloading; highlight once it has loaded.
       inFlight = true;
+    } else if (node.getIsSyntaxHighlightSupported()) {
+      // The language is not supported, so the download will not occur.
+      node.setIsSyntaxHighlightSupported(false);
     }
   } else if (node.getIsSyntaxHighlightSupported()) {
     node.setIsSyntaxHighlightSupported(false);
+  }
+
+  // dynamic import of themes
+  if (!isCodeThemeLoaded(theme)) {
+    loadCodeTheme(theme, editor, nodeKey);
+    // Only the highlight path consumes the theme. Plain text needs no theme,
+    // so don't defer the split on a theme load that won't be used: otherwise
+    // a code block with `defaultLanguage: null`, or with a language Shiki
+    // does not know, stays an unsplit TextNode until the theme happens to
+    // finish loading.
+    if (highlight) {
+      inFlight = true;
+    }
   }
 
   if (inFlight) {
@@ -211,9 +249,20 @@ function $codeNodeTransform(
     }
 
     const lang = currentNode.getLanguage() || tokenizer.defaultLanguage;
-    const highlightNodes = tokenizer.$tokenize(currentNode, lang ?? undefined);
-    const diffRange = getDiffRange(currentNode.getChildren(), highlightNodes);
+    const highlightNodes =
+      lang && !isCodeLanguageLoaded(lang)
+        ? $plainifyCodeContent(currentNode.getTextContent())
+        : tokenizer.$tokenize(currentNode, lang ?? undefined);
+    // The NodeState of the block's children (comment ids, a suggestion)
+    // stays on their text.
+    const children = currentNode.getChildren();
+    const nextNodes = $keepCodeNodeState(children, highlightNodes);
+    const diffRange = getDiffRange(children, nextNodes);
     const {from, to, nodesForReplacement} = diffRange;
+    // A kept child that its new token adds to (an app tokenizer's own class
+    // or NodeState) is replaced by it, one for one, with any selection point
+    // on it kept at its offset.
+    $replaceCodeTokensAddedTo(children, nextNodes, from, to);
 
     if (from !== to || nodesForReplacement.length) {
       node.splice(from, to - from, nodesForReplacement);
@@ -395,27 +444,7 @@ export function registerHighlightingOnly(
 ): () => void {
   const registrations = [];
 
-  // Only register the mutation listener if not in headless mode
-  if (editor._headless !== true) {
-    registrations.push(
-      editor.registerMutationListener(
-        CodeNode,
-        mutations => {
-          editor.read('latest', () => {
-            for (const [key, type] of mutations) {
-              if (type !== 'destroyed') {
-                const node = $getNodeByKey(key);
-                if (node !== null) {
-                  updateCodeGutter(node as CodeNode, editor);
-                }
-              }
-            }
-          });
-        },
-        {skipInitialization: false},
-      ),
-    );
-  }
+  registrations.push(registerCodeGutter(editor));
 
   const transformState: TransformState = {
     didTransform: false,
@@ -497,33 +526,4 @@ export const CodeShikiExtension = defineExtension({
       return registerHighlightingOnly(editor, stores.tokenizer.value);
     });
   },
-});
-
-/**
- * @deprecated Use {@link CodeShikiExtension} instead. This type is a
- * flat alias for {@link Tokenizer} kept for backward compatibility with
- * {@link CodeHighlighterShikiExtension}.
- */
-export type CodeHighlighterShikiConfig = Tokenizer;
-
-/**
- * @deprecated Use {@link CodeShikiExtension} instead.
- *
- * This is a thin backward-compatibility shim that preserves the original
- * flat {@link Tokenizer} config API. It depends on
- * {@link CodeShikiExtension} and routes its configured tokenizer to the
- * underlying extension during `init` (before `CodeShikiExtension` builds),
- * so consumers using
- * `configExtension(CodeHighlighterShikiExtension, customTokenizer)`
- * continue to work without modification.
- */
-export const CodeHighlighterShikiExtension = defineExtension({
-  config: safeCast<CodeHighlighterShikiConfig>(ShikiTokenizer),
-  dependencies: [CodeShikiExtension],
-  init: (editorConfig, config, state) => {
-    // Forward the flat Tokenizer config to CodeShikiExtension's `tokenizer`
-    // field before it builds.
-    state.getDependency(CodeShikiExtension).config.tokenizer = config;
-  },
-  name: '@lexical/code-shiki/legacy',
 });

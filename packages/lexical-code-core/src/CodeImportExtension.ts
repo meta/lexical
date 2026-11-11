@@ -7,6 +7,7 @@
  */
 
 import {
+  $isBlockLevel,
   defineImportRule,
   defineOverlayRules,
   type DOMPreprocessFn,
@@ -14,16 +15,38 @@ import {
   sel,
 } from '@lexical/html';
 import {
-  $generateNodesFromRawText,
   isDOMDocumentNode,
   isDOMTextNode,
   isHTMLElement,
+  type LexicalNode,
 } from 'lexical';
 
 import {$createCodeNode} from './CodeNode';
+import {$plainifyCodeContent} from './FlatStructureUtils';
 
 const LANGUAGE_DATA_ATTRIBUTE = 'data-language';
 const THEME_DATA_ATTRIBUTE = 'data-theme';
+
+/**
+ * Code editing expects flat CodeHighlightNode, TabNode and LineBreakNode
+ * children. Preserve imported nodes' plain-text representations, separating
+ * block siblings by a line break, then normalize with the code tokenizer.
+ * Nested containers keep their own plain-text separators.
+ */
+function $normalizeCodeChildren(children: LexicalNode[]): LexicalNode[] {
+  const text: string[] = [];
+  let previousWasBlock = false;
+  for (let i = 0; i < children.length; i++) {
+    const child = children[i];
+    const isBlock = $isBlockLevel(child);
+    if (i > 0 && (isBlock || previousWasBlock)) {
+      text.push('\n');
+    }
+    text.push(child.getTextContent());
+    previousWasBlock = isBlock;
+  }
+  return $plainifyCodeContent(text.join(''));
+}
 
 /**
  * True for elements whose `font-family` mentions `monospace` — the
@@ -67,7 +90,7 @@ const PreRule = defineImportRule({
     $createCodeNode(
       el.getAttribute(LANGUAGE_DATA_ATTRIBUTE),
       el.getAttribute(THEME_DATA_ATTRIBUTE),
-    ).splice(0, 0, ctx.$importChildren(el)),
+    ).splice(0, 0, $normalizeCodeChildren(ctx.$importChildren(el))),
   ],
   match: sel.tag('pre'),
   name: '@lexical/code/pre',
@@ -90,7 +113,7 @@ const MultilineCodeRule = defineImportRule({
       $createCodeNode(
         el.getAttribute(LANGUAGE_DATA_ATTRIBUTE),
         el.getAttribute(THEME_DATA_ATTRIBUTE),
-      ).splice(0, 0, ctx.$importChildren(el)),
+      ).splice(0, 0, $normalizeCodeChildren(ctx.$importChildren(el))),
     ];
   },
   match: sel.tag('code'),
@@ -214,11 +237,7 @@ const VscodeWrapperRule = defineImportRule({
       return $next();
     }
     return [
-      $createCodeNode().splice(
-        0,
-        0,
-        $generateNodesFromRawText(lines.join('\n')),
-      ),
+      $createCodeNode().splice(0, 0, $plainifyCodeContent(lines.join('\n'))),
     ];
   },
   match: sel.tag('div'),
@@ -252,11 +271,7 @@ const VscodeLineRunRule = defineImportRule({
       return $next();
     }
     return [
-      $createCodeNode().splice(
-        0,
-        0,
-        $generateNodesFromRawText(lines.join('\n')),
-      ),
+      $createCodeNode().splice(0, 0, $plainifyCodeContent(lines.join('\n'))),
     ];
   },
   match: sel.tag('div', 'br'),
@@ -307,18 +322,19 @@ export const $installVscodeCodePasteOverlay: DOMPreprocessFn = (
 
 /**
  * A `<div style="font-family: …monospace…">` (Google-Docs-style code
- * block) creates a CodeNode. Descendant elements inside a monospace
- * wrapper just unwrap so their text content flows into the surrounding
- * CodeNode.
+ * block) creates a CodeNode. Plain descendant divs defer to the transparent
+ * block rule so their boundaries become separate lines in that CodeNode.
  */
 const DivRule = defineImportRule({
   $import: (ctx, el, $next) => {
     if (isMonospaceElement(el)) {
-      return [$createCodeNode().splice(0, 0, ctx.$importChildren(el))];
-    }
-    if (isMonospaceDescendant(el)) {
-      // Unwrap so children flow into the enclosing CodeNode.
-      return ctx.$importChildren(el);
+      return [
+        $createCodeNode().splice(
+          0,
+          0,
+          $normalizeCodeChildren(ctx.$importChildren(el)),
+        ),
+      ];
     }
     return $next();
   },
@@ -338,7 +354,9 @@ const GitHubCodeTableRule = defineImportRule({
     $createCodeNode().splice(
       0,
       0,
-      ctx.$importChildren(el, {rules: GitHubCodeTableOverlayRules}),
+      $normalizeCodeChildren(
+        ctx.$importChildren(el, {rules: GitHubCodeTableOverlayRules}),
+      ),
     ),
   ],
   match: sel.tag('table').classAll('js-file-line-container'),

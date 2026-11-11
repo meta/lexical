@@ -15,9 +15,11 @@ import {
   $createParagraphNode,
   $getRoot,
   $insertNodes,
+  $isParagraphNode,
   defineExtension,
 } from 'lexical';
-import {assert, describe, expect, it} from 'vitest';
+import {$assertNodeType} from 'lexical/src/__tests__/utils';
+import {describe, expect, it} from 'vitest';
 
 import {$createMentionNode, $isMentionNode} from '../../src/nodes/MentionNode';
 import {PlaygroundImportExtension} from '../../src/nodes/PlaygroundImportExtension';
@@ -40,13 +42,11 @@ function $importHtml(html: string): void {
 }
 
 function $getMention() {
-  const paragraph = $getRoot().getFirstChild();
-  assert(paragraph !== null, 'expected a first child');
-  const mention = (
-    paragraph as ReturnType<typeof $createParagraphNode>
-  ).getFirstChild();
-  assert($isMentionNode(mention), 'expected a MentionNode');
-  return mention;
+  const paragraph = $assertNodeType(
+    $getRoot().getFirstChild(),
+    $isParagraphNode,
+  );
+  return $assertNodeType(paragraph.getFirstChild(), $isMentionNode);
 }
 
 describe('MentionNode display text', () => {
@@ -101,7 +101,10 @@ describe('MentionNode display text', () => {
     target.read(() => {
       const mention = $getMention();
       expect(mention.getTextContent()).toBe('Luke Skywalker');
-      expect(mention.exportJSON().mentionName).toBe('luke_skywalker');
+      expect(mention.exportJSON()).toHaveProperty(
+        'mentionName',
+        'luke_skywalker',
+      );
     });
   });
 });

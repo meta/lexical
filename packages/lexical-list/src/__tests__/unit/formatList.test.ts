@@ -79,6 +79,29 @@ function $isExtendedTestListItemNode(node?: LexicalNode | null) {
   return node instanceof ExtendedTestListItemNode;
 }
 
+/**
+ * Builds a ListItemNode that holds a nested list of the given type, one child
+ * per text.
+ */
+function $createNestedListItem(
+  listType: ListType,
+  ...texts: string[]
+): ListItemNode {
+  return $createListItemNode().append(
+    $createListNode(listType).append(
+      ...texts.map(text => $createListItemNode().append($createTextNode(text))),
+    ),
+  );
+}
+
+/** Returns the nested list held by a ListItemNode. */
+function $getNestedList(node: LexicalNode): ListNode {
+  return $assertNodeType(
+    $assertNodeType(node, $isListItemNode).getFirstChild(),
+    $isListNode,
+  );
+}
+
 const initOptions = {
   nodes: [ExtendedTestListNode, ExtendedTestListItemNode],
 };
@@ -415,6 +438,166 @@ describe('$handleIndent', () => {
           expect($isExtendedTestListNode(nestedList)).toBe(true);
           expect(nestedList.getChildren().length).toBe(1);
           expect(nestedList.getChildren()[0].is(listItem2)).toBe(true);
+        });
+      });
+
+      test('merges the surrounding sublists when they are the same type', async () => {
+        const {editor} = testEnv;
+        let middleItem: ListItemNode;
+
+        await editor.update(() => {
+          middleItem = $createListItemNode().append($createTextNode('middle'));
+          $getRoot().append(
+            $createListNode('bullet').append(
+              $createNestedListItem('bullet', 'first child'),
+              middleItem,
+              $createNestedListItem('bullet', 'second child'),
+            ),
+          );
+        });
+
+        await editor.update(() => {
+          $handleIndent(middleItem);
+        });
+
+        editor.read(() => {
+          const listNode = $assertNodeType(
+            $getRoot().getFirstChild(),
+            $isListNode,
+          );
+          const children = listNode.getChildren();
+          expect(children.length).toBe(1);
+
+          const sublist = $getNestedList(children[0]);
+          expect(sublist.getListType()).toBe('bullet');
+          expect(
+            sublist.getChildren().map(item => item.getTextContent()),
+          ).toEqual(['first child', 'middle', 'second child']);
+        });
+      });
+
+      test('does not merge the surrounding sublists of a different listType', async () => {
+        const {editor} = testEnv;
+        let middleItem: ListItemNode;
+
+        await editor.update(() => {
+          middleItem = $createListItemNode().append($createTextNode('middle'));
+          $getRoot().append(
+            $createListNode('bullet').append(
+              $createNestedListItem('bullet', 'bullet child'),
+              middleItem,
+              $createNestedListItem('number', 'number one', 'number two'),
+            ),
+          );
+        });
+
+        await editor.update(() => {
+          $handleIndent(middleItem);
+        });
+
+        editor.read(() => {
+          const listNode = $assertNodeType(
+            $getRoot().getFirstChild(),
+            $isListNode,
+          );
+          const children = listNode.getChildren();
+          // the numbered sublist survives with its type and its children
+          const numberSublist = $getNestedList(children[children.length - 1]);
+          expect(numberSublist.getListType()).toBe('number');
+          expect(
+            numberSublist.getChildren().map(item => item.getTextContent()),
+          ).toEqual(['number one', 'number two']);
+          expect(children.length).toBe(2);
+
+          // the item is still indented into the preceding sublist
+          const bulletSublist = $getNestedList(children[0]);
+          expect(bulletSublist.getListType()).toBe('bullet');
+          expect(
+            bulletSublist.getChildren().map(item => item.getTextContent()),
+          ).toEqual(['bullet child', 'middle']);
+        });
+      });
+
+      test('does not merge the surrounding sublists of a different listType, the other way round', async () => {
+        const {editor} = testEnv;
+        let middleItem: ListItemNode;
+
+        await editor.update(() => {
+          middleItem = $createListItemNode().append($createTextNode('middle'));
+          $getRoot().append(
+            $createListNode('number').append(
+              $createNestedListItem('number', 'number one'),
+              middleItem,
+              $createNestedListItem('bullet', 'bullet one', 'bullet two'),
+            ),
+          );
+        });
+
+        await editor.update(() => {
+          $handleIndent(middleItem);
+        });
+
+        editor.read(() => {
+          const listNode = $assertNodeType(
+            $getRoot().getFirstChild(),
+            $isListNode,
+          );
+          const children = listNode.getChildren();
+          const bulletSublist = $getNestedList(children[children.length - 1]);
+          expect(bulletSublist.getListType()).toBe('bullet');
+          expect(
+            bulletSublist.getChildren().map(item => item.getTextContent()),
+          ).toEqual(['bullet one', 'bullet two']);
+          expect(children.length).toBe(2);
+
+          const numberSublist = $getNestedList(children[0]);
+          expect(numberSublist.getListType()).toBe('number');
+          expect(
+            numberSublist.getChildren().map(item => item.getTextContent()),
+          ).toEqual(['number one', 'middle']);
+        });
+      });
+
+      test('keeps the checked state of a following check sublist', async () => {
+        const {editor} = testEnv;
+        let middleItem: ListItemNode;
+
+        await editor.update(() => {
+          middleItem = $createListItemNode().append($createTextNode('middle'));
+          const checkItem = $createListItemNode();
+          checkItem.setChecked(true);
+          checkItem.append($createTextNode('done'));
+          $getRoot().append(
+            $createListNode('bullet').append(
+              $createNestedListItem('bullet', 'bullet child'),
+              middleItem,
+              $createListItemNode().append(
+                $createListNode('check').append(checkItem),
+              ),
+            ),
+          );
+        });
+
+        await editor.update(() => {
+          $handleIndent(middleItem);
+        });
+
+        editor.read(() => {
+          const listNode = $assertNodeType(
+            $getRoot().getFirstChild(),
+            $isListNode,
+          );
+          const children = listNode.getChildren();
+          // a bullet list swallowing this one would strip checked, because
+          // updateChildrenListItemValue clears it outside a check list
+          const checkSublist = $getNestedList(children[children.length - 1]);
+          expect(checkSublist.getListType()).toBe('check');
+          const checkItem = $assertNodeType(
+            checkSublist.getFirstChild(),
+            $isListItemNode,
+          );
+          expect(checkItem.getChecked()).toBe(true);
+          expect(children.length).toBe(2);
         });
       });
     },
@@ -771,6 +954,41 @@ describe('ListItemNode.collapseAtStart', () => {
       const outdentedItem = $getNodeByKey(emptyItemKey);
       invariant($isListItemNode(outdentedItem), 'Expected ListItemNode');
       expect(outdentedItem.getIndent()).toBe(0);
+    });
+  });
+});
+
+describe('mergeNextSiblingListIfSameType', () => {
+  initializeUnitTest(testEnv => {
+    test('does not merge nested sublists of a different listType', async () => {
+      const {editor} = testEnv;
+
+      await editor.update(
+        () => {
+          const list1 = $createListNode('bullet').append(
+            $createListItemNode().append($createTextNode('a')),
+            $createNestedListItem('number', 'one'),
+          );
+          const list2 = $createListNode('bullet').append(
+            $createNestedListItem('bullet', 'two'),
+            $createListItemNode().append($createTextNode('b')),
+          );
+          $getRoot().clear().append(list1, list2);
+        },
+        {discrete: true},
+      );
+
+      editor.read(() => {
+        const [list] = $getRoot().getChildren();
+        invariant($isListNode(list), 'Expected ListNode');
+        // The two bullet lists merge, but their sublists stay separate.
+        const sublistTypes = list
+          .getChildren()
+          .map(child => ($isListItemNode(child) ? child.getFirstChild() : null))
+          .filter($isListNode)
+          .map(sublist => sublist.getListType());
+        expect(sublistTypes).toEqual(['number', 'bullet']);
+      });
     });
   });
 });

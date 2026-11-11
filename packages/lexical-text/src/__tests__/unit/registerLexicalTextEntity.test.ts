@@ -47,6 +47,33 @@ function getMatch(text: string): null | EntityMatch {
 describe('registerLexicalTextEntity', () => {
   initializeUnitTest(
     testEnv => {
+      test('preserves style and detail when promoting simple text to an entity', async () => {
+        const {editor} = testEnv;
+        registerLexicalTextEntity(editor, getMatch, TestEntityNode, textNode =>
+          $createTestEntityNode(textNode.getTextContent()),
+        );
+
+        await editor.update(() => {
+          const paragraph = $createParagraphNode();
+          paragraph.append(
+            $createTextNode('#lexical')
+              .setFormat('bold')
+              .setStyle('color: red')
+              .setDetail('directionless'),
+          );
+          $getRoot().clear().append(paragraph);
+        });
+
+        editor.getEditorState().read(() => {
+          const node = $getRoot().getFirstDescendant() as TextNode;
+          expect($isTestEntityNode(node)).toBe(true);
+          expect(node.getTextContent()).toBe('#lexical');
+          expect(node.hasFormat('bold')).toBe(true);
+          expect(node.getStyle()).toBe('color: red');
+          expect(node.isDirectionless()).toBe(true);
+        });
+      });
+
       test('preserves style and detail when reverting an entity to simple text', async () => {
         const {editor} = testEnv;
         registerLexicalTextEntity(editor, getMatch, TestEntityNode, textNode =>

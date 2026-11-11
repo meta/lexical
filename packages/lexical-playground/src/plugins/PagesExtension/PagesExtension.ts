@@ -17,6 +17,7 @@ import {
   $getSelection,
   $getStateChange,
   $isRangeSelection,
+  $onUpdate,
   $setSelection,
   COMMAND_PRIORITY_LOW,
   defineExtension,
@@ -175,8 +176,14 @@ export const PagesExtension = defineExtension({
         const children = contentNode.getChildren();
         const childNodes = Array.from(contentElement.childNodes);
         if (children.length !== childNodes.length) {
-          childNodes.forEach(childNode => childNode.remove());
-          contentNode.reconcileObservedMutation(contentElement, editor);
+          // Measure this update's children, which may still be rendered on
+          // another page.
+          contentElement.replaceChildren(
+            ...children.flatMap(child => {
+              const dom = editor.getElementByKey(child.getKey());
+              return dom ? [dom] : [];
+            }),
+          );
           return $getOverflowingChildren(node);
         }
         pageElement.style.minHeight = 'unset';
@@ -579,34 +586,40 @@ export const PagesExtension = defineExtension({
             editor.registerCommand(
               SELECTION_CHANGE_COMMAND,
               () => {
-                const pageSetup = $getPageSetup();
-                if (!pageSetup) return false;
-                const selection = $getSelection();
-                if (!$isRangeSelection(selection)) return false;
-                const anchorNode = selection.anchor.getNode();
-                const nearestRoot =
-                  anchorNode.getKey() === 'root'
-                    ? anchorNode
-                    : $getNearestRootOrShadowRoot(anchorNode);
-                if (!$isPageContentNode(nearestRoot)) return false;
-                const currentPage = nearestRoot.getPageNode();
-                const currentPageKey = currentPage.getKey();
-                const oldPreviousPageKey = previousPageKey;
-                const pageContentElement = currentPage.getPageContentElement();
-                if (!pageContentElement) return false;
-                previousPageKey = currentPageKey;
-                pageObserver.observe(pageContentElement);
-                if (
-                  oldPreviousPageKey === null ||
-                  oldPreviousPageKey === currentPageKey
-                )
-                  return false;
-                const previousPage = $getNodeByKey(oldPreviousPageKey);
-                if (!$isPageNode(previousPage)) return false;
-                const previousPageContent =
-                  previousPage.getPageContentElement();
-                if (!previousPageContent) return false;
-                pageObserver.unobserve(previousPageContent);
+                $onUpdate(() =>
+                  editor.read('latest', () => {
+                    const pageSetup = $getPageSetup();
+                    if (!pageSetup) return false;
+                    const selection = $getSelection();
+                    if (!$isRangeSelection(selection)) return false;
+                    const anchorNode = selection.anchor.getNode();
+                    const nearestRoot =
+                      anchorNode.getKey() === 'root'
+                        ? anchorNode
+                        : $getNearestRootOrShadowRoot(anchorNode);
+                    if (!$isPageContentNode(nearestRoot)) return false;
+                    const currentPage = nearestRoot.getPageNode();
+                    const currentPageKey = currentPage.getKey();
+                    const oldPreviousPageKey = previousPageKey;
+                    const pageContentElement =
+                      currentPage.getPageContentElement();
+                    if (!pageContentElement) return false;
+                    previousPageKey = currentPageKey;
+                    pageObserver.observe(pageContentElement);
+                    if (
+                      oldPreviousPageKey === null ||
+                      oldPreviousPageKey === currentPageKey
+                    )
+                      return false;
+                    const previousPage = $getNodeByKey(oldPreviousPageKey);
+                    if (!$isPageNode(previousPage)) return false;
+                    const previousPageContent =
+                      previousPage.getPageContentElement();
+                    if (!previousPageContent) return false;
+                    pageObserver.unobserve(previousPageContent);
+                    return false;
+                  }),
+                );
                 return false;
               },
               COMMAND_PRIORITY_LOW,

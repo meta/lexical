@@ -32,8 +32,8 @@ describe('prepare-release tests', () => {
   }
 });
 // Fixtures that declare `link:` deps are exercised through pnpm's symlink
-// flow (`pnpm install --ignore-workspace`); the rest are installed from
-// the packed tarballs prepare-release just produced.
+// flow; the rest are installed from the packed tarballs prepare-release just
+// produced, layered into each project's pnpm-workspace.yaml as overrides.
 ['examples', 'scripts/__tests__/integration/fixtures']
   .flatMap(packagesDir =>
     glob.sync(`${packagesDir}/*/package.json`, {windowsPathsNoEscape: true}),

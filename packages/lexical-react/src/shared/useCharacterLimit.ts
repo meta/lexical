@@ -61,7 +61,41 @@ export function useCharacterLimit(
 
   useEffect(() => {
     let text = editor.read('latest', $rootTextContent);
-    let lastComputedTextLength = 0;
+    let lastComputedTextLength: null | number = null;
+
+    // Not `$`-prefixed: this runs outside an update/read context (from the
+    // effect body and from listener callbacks) and opens its own
+    // editor.update() for the OverflowNode wrapping.
+    function updateCharacterLimit(): void {
+      const textLength = strlen(text);
+      const textLengthAboveThreshold =
+        textLength > maxCharacters ||
+        (lastComputedTextLength !== null &&
+          lastComputedTextLength > maxCharacters);
+      const diff = maxCharacters - textLength;
+
+      remainingCharacters(diff);
+
+      if (lastComputedTextLength === null || textLengthAboveThreshold) {
+        const offset = findOffset(text, maxCharacters, strlen);
+        editor.update(
+          () => {
+            $wrapOverflowedNodes(offset);
+          },
+          {
+            tag: HISTORY_MERGE_TAG,
+          },
+        );
+      }
+
+      lastComputedTextLength = textLength;
+    }
+
+    // Derive the count from the content that is already there before
+    // subscribing. registerUpdateListener does not fire on registration, so
+    // otherwise both the reported count and the OverflowNode wrapping stay at
+    // their initial values until the next edit.
+    updateCharacterLimit();
 
     return mergeRegister(
       editor.registerTextContentListener((currentText: string) => {
@@ -76,28 +110,7 @@ export function useCharacterLimit(
           return;
         }
 
-        const textLength = strlen(text);
-        const textLengthAboveThreshold =
-          textLength > maxCharacters ||
-          (lastComputedTextLength !== null &&
-            lastComputedTextLength > maxCharacters);
-        const diff = maxCharacters - textLength;
-
-        remainingCharacters(diff);
-
-        if (lastComputedTextLength === null || textLengthAboveThreshold) {
-          const offset = findOffset(text, maxCharacters, strlen);
-          editor.update(
-            () => {
-              $wrapOverflowedNodes(offset);
-            },
-            {
-              tag: HISTORY_MERGE_TAG,
-            },
-          );
-        }
-
-        lastComputedTextLength = textLength;
+        updateCharacterLimit();
       }),
       editor.registerCommand(
         DELETE_CHARACTER_COMMAND,

@@ -60,17 +60,14 @@ function equationHtml(inline = true) {
 }
 
 test.describe('EquationNode', () => {
-  test.beforeEach(({isCollab, isPlainText, page}) => {
-    test.skip(isPlainText);
+  test.skip(({isPlainText}) => isPlainText, 'Requires rich text');
+  test.beforeEach(({isCollab, page}) => {
     return initialize({
       isCollab,
       page,
     });
   });
-  test('inline EquationNode is wrapped in a paragraph', async ({
-    page,
-    isCollab,
-  }) => {
+  test('inline EquationNode is wrapped in a paragraph', async ({page}) => {
     await focusEditor(page);
     await page.keyboard.type('$1$');
     await waitForSelector(page, '.editor-equation');
@@ -85,10 +82,7 @@ test.describe('EquationNode', () => {
       `,
     );
   });
-  test('block EquationNode is a child of the root', async ({
-    page,
-    isCollab,
-  }) => {
+  test('block EquationNode is a child of the root', async ({page}) => {
     await focusEditor(page);
     await insertBlockEquation(page, '1');
     await waitForSelector(page, '.editor-equation');

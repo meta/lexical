@@ -7,17 +7,14 @@
  */
 
 import {useLexicalComposerContext} from '@lexical/react/LexicalComposerContext';
-import {getScrollParent as getScrollParent_} from '@lexical/utils';
 import {
   $getSelection,
   $isRangeSelection,
   $isTextNode,
   COMMAND_PRIORITY_LOW,
   type CommandListenerPriority,
-  createCommand,
   getDOMSelection,
   getDOMSelectionPoints,
-  type LexicalCommand,
   type LexicalEditor,
   type RangeSelection,
   type TextNode,
@@ -27,6 +24,7 @@ import {
   startTransition,
   useCallback,
   useEffect,
+  useRef,
   useState,
 } from 'react';
 
@@ -39,14 +37,6 @@ import {
   type TriggerFn,
   useMenuAnchorRef,
 } from './shared/LexicalMenu';
-
-/**
- * The default set of punctuation characters (as a character-class fragment)
- * that terminate a typeahead query. Used as the default `punctuation` option of
- * {@link useBasicTypeaheadTriggerMatch}.
- */
-export const PUNCTUATION =
-  '\\.,\\+\\*\\?\\$\\@\\|#{}\\(\\)\\^\\-\\[\\]\\\\/!%\'"~=<>_:;';
 
 function getTextUpToAnchor(selection: RangeSelection): string | null {
   const anchor = selection.anchor;
@@ -122,75 +112,12 @@ function isSelectionOnEntityBoundary(
 }
 
 export {useDynamicPositioning} from './shared/LexicalMenu';
-/** @deprecated Moved to `@lexical/utils`. Import `getScrollParent` from there. */
-export const getScrollParent = getScrollParent_;
-
-/**
- * Command dispatched while the typeahead menu is open to scroll the option at
- * the given `index` into view. The default menu renderer listens for it; custom
- * {@link MenuRenderFn}s can handle it to implement their own scrolling.
- */
-export const SCROLL_TYPEAHEAD_OPTION_INTO_VIEW_COMMAND: LexicalCommand<{
-  index: number;
-  option: MenuOption;
-}> = createCommand('SCROLL_TYPEAHEAD_OPTION_INTO_VIEW_COMMAND');
-
-/**
- * Builds a {@link TriggerFn} for the common case of a single-character
- * `trigger` (such as `@` or `#`) followed by a query. The returned function
- * matches when the trigger is preceded by whitespace or the start of the line
- * and is followed by between `minLength` and `maxLength` non-`punctuation`
- * characters (optionally allowing whitespace).
- *
- * @returns A memoized trigger function for {@link LexicalTypeaheadMenuPlugin}.
- */
-export function useBasicTypeaheadTriggerMatch(
-  trigger: string,
-  {
-    minLength = 1,
-    maxLength = 75,
-    punctuation = PUNCTUATION,
-    allowWhitespace = false,
-  }: {
-    minLength?: number;
-    maxLength?: number;
-    punctuation?: string;
-    allowWhitespace?: boolean;
-  },
-): TriggerFn {
-  return useCallback(
-    (text: string) => {
-      const validCharsSuffix = allowWhitespace ? '' : '\\s';
-      const validChars = '[^' + trigger + punctuation + validCharsSuffix + ']';
-      const TypeaheadTriggerRegex = new RegExp(
-        '(^|\\s|\\()(' +
-          '[' +
-          trigger +
-          ']' +
-          '((?:' +
-          validChars +
-          '){0,' +
-          maxLength +
-          '})' +
-          ')$',
-      );
-      const match = TypeaheadTriggerRegex.exec(text);
-      if (match !== null) {
-        const maybeLeadingWhitespace = match[1];
-        const matchingString = match[3];
-        if (matchingString.length >= minLength) {
-          return {
-            leadOffset: match.index + maybeLeadingWhitespace.length,
-            matchingString,
-            replaceableString: match[2],
-          };
-        }
-      }
-      return null;
-    },
-    [allowWhitespace, trigger, punctuation, maxLength, minLength],
-  );
-}
+export {
+  getScrollParent,
+  PUNCTUATION,
+  SCROLL_TYPEAHEAD_OPTION_INTO_VIEW_COMMAND,
+  useBasicTypeaheadTriggerMatch,
+} from '@lexical/react/LexicalTypeaheadMenuPluginUtils';
 
 /**
  * Props for the {@link LexicalTypeaheadMenuPlugin} component.
@@ -240,19 +167,21 @@ export function LexicalTypeaheadMenuPlugin<TOption extends MenuOption>({
 }: TypeaheadMenuPluginProps<TOption>): JSX.Element | null {
   const [editor] = useLexicalComposerContext();
   const [resolution, setResolution] = useState<MenuResolution | null>(null);
-  const anchorElementRef = useMenuAnchorRef(
-    resolution,
-    setResolution,
-    anchorClassName,
-    parent,
-  );
-
+  const openGenerationRef = useRef(0);
+  // Whether the menu is open as far as onOpen/onClose are concerned. Unlike
+  // `resolution`, this sees an open whose transition has not rendered yet and
+  // a close whose onClose promise is still pending.
+  const isOpenRef = useRef(false);
   const closeTypeahead = useCallback(() => {
-    if (resolution === null) {
+    if (!isOpenRef.current) {
       return;
     }
+    isOpenRef.current = false;
+    const openGeneration = openGenerationRef.current;
     const finish = () => {
-      setResolution(null);
+      if (openGenerationRef.current === openGeneration) {
+        setResolution(null);
+      }
     };
     let result;
     try {
@@ -264,16 +193,40 @@ export function LexicalTypeaheadMenuPlugin<TOption extends MenuOption>({
         finish();
       }
     }
-  }, [onClose, resolution]);
+  }, [onClose]);
 
   const openTypeahead = useCallback(
     (res: MenuResolution) => {
+      // Track pending opens before their transition has rendered.
+      openGenerationRef.current++;
       setResolution(res);
-      if (onOpen != null && resolution === null) {
-        onOpen(res);
+      if (!isOpenRef.current) {
+        isOpenRef.current = true;
+        if (onOpen != null) {
+          onOpen(res);
+        }
       }
     },
-    [onOpen, resolution],
+    [onOpen],
+  );
+
+  // LexicalMenu hides the menu when its anchor scrolls out of view. Route
+  // that through closeTypeahead so onClose still pairs with onOpen.
+  const setMenuResolution = useCallback(
+    (res: MenuResolution | null) => {
+      if (res === null) {
+        closeTypeahead();
+      } else {
+        setResolution(res);
+      }
+    },
+    [closeTypeahead],
+  );
+  const anchorElementRef = useMenuAnchorRef(
+    resolution,
+    setMenuResolution,
+    anchorClassName,
+    parent,
   );
 
   useEffect(() => {
@@ -320,7 +273,7 @@ export function LexicalTypeaheadMenuPlugin<TOption extends MenuOption>({
             editorWindow,
             editor.getRootElement(),
           );
-          if (isRangePositioned !== null) {
+          if (isRangePositioned) {
             startTransition(() =>
               openTypeahead({
                 getRect: () => range.getBoundingClientRect(),

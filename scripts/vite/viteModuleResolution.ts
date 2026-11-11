@@ -84,7 +84,7 @@ const distModuleResolution = (
               !isSsrBuild &&
                 moduleExports.browser &&
                 moduleExports.browser[condition],
-              moduleExports.import[condition],
+              moduleExports[condition],
             ].flatMap(fn => (fn ? [pkg.resolve(fn)] : [])),
         );
         const distRel = path.relative(pkg.resolve('.'), replacements[1] || '');

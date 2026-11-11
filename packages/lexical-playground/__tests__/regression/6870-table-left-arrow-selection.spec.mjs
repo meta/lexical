@@ -19,16 +19,16 @@ import {
 
 const WRAPPER = IS_TABLE_HORIZONTAL_SCROLL ? [0, 0] : [];
 
+test.skip(
+  ({isCollab, isPlainText}) => isCollab || isPlainText,
+  'Requires rich text without collaboration',
+);
+
 test.describe('Regression test #6870', () => {
   test.beforeEach(({isCollab, page}) => initialize({isCollab, page}));
   test('left arrow moves selection around decorators near tables', async ({
     page,
-    isPlainText,
-    isCollab,
   }) => {
-    test.skip(isCollab);
-    test.skip(isPlainText);
-
     await focusEditor(page);
 
     await insertTable(page, 2, 1);
@@ -65,12 +65,7 @@ test.describe('Regression test #6870', () => {
   });
   test('left arrow expands selection around decorators near tables', async ({
     page,
-    isPlainText,
-    isCollab,
   }) => {
-    test.skip(isCollab);
-    test.skip(isPlainText);
-
     await focusEditor(page);
 
     await insertTable(page, 2, 1);

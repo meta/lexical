@@ -21,16 +21,20 @@ import {
   $convertSelectionToMarkdownString,
   $convertToMarkdownString,
   MdastCommonMarkExtension,
-  MdastExportExtension,
+  MdastExtension,
   MdastGfmExtension,
 } from '@lexical/mdast';
 import {$isQuoteNode, RichTextExtension} from '@lexical/rich-text';
 import {
+  $createParagraphNode,
   $createRangeSelection,
+  $createTabNode,
+  $createTextNode,
   $getRoot,
   $getSlot,
   $isElementNode,
   $isParagraphNode,
+  $isTabNode,
   $isTextNode,
   defineExtension,
   type ElementNode,
@@ -74,7 +78,7 @@ function createEditor(): LexicalEditorWithDispose {
       dependencies: [
         MdastCommonMarkExtension,
         MdastGfmExtension,
-        MdastExportExtension,
+        MdastExtension,
         MdastCollapsibleExtension,
         MdastKbdExtension,
         MdastAlertExtension,
@@ -456,6 +460,20 @@ describe('footnotes', () => {
       'no refs here\n\n[^orphan]: kept anyway',
       'no refs here\n\n[^orphan]: kept anyway',
     ],
+    // A bold italic ref merges with the bold italic text around it.
+    ['***x[^a] y***\n\n[^a]: n', '***x[^a] y***\n\n[^a]: n'],
+    ['**a *b[^a]***\n\n[^a]: n', '**a *b[^a]***\n\n[^a]: n'],
+    ['**_x_[^a]**\n\n[^a]: n', '**_x_[^a]**\n\n[^a]: n'],
+    ['**a *b[^a]c***\n\n[^a]: n', '**a *b[^a]c***\n\n[^a]: n'],
+    ['**x *[^a]y***\n\n[^a]: n', '**x *[^a]y***\n\n[^a]: n'],
+    ['**x _[^a]_**_z_\n\n[^a]: n', '**x _[^a]_**_z_\n\n[^a]: n'],
+    ['*x __[^a]__*__z__\n\n[^a]: n', '*x __[^a]__*__z__\n\n[^a]: n'],
+    ['~~a **b[^a]**~~ c\n\n[^a]: n', '~~a **b[^a]**~~ c\n\n[^a]: n'],
+    ['*ld*~~***llo[^a]***~~\n\n[^a]: n', '*ld*~~***llo[^a]***~~\n\n[^a]: n'],
+    [
+      '*ld*~~***llo***~~ x[^a]\n\n[^a]: n',
+      '*ld*~~***llo***~~ x[^a]\n\n[^a]: n',
+    ],
     // Undefined refs stay literal, GitHub-style.
     ['no def[^ghost] here', 'no def\\[^ghost] here'],
     // Definitions serialize at the END regardless of source position.
@@ -774,6 +792,60 @@ describe('read-only', () => {
 });
 
 describe('HtmlTextFormatExtension', () => {
+  it('nests bold italic in an HTML format as the core text does', () => {
+    expect(importExport('***x*** <u>***y***</u>')).toBe(
+      '***x*** <u>***y***</u>',
+    );
+  });
+
+  it('preserves a tab between formatted text through the custom text rule', () => {
+    using editor = createEditor();
+    editor.update(
+      () => {
+        const nodes = [
+          $createTextNode('left'),
+          $createTabNode(),
+          $createTextNode('right'),
+        ];
+        for (const node of nodes) {
+          node
+            .toggleFormat('underline')
+            .toggleFormat('bold')
+            .setStyle('color: red;');
+        }
+        $getRoot()
+          .clear()
+          .append($createParagraphNode().append(...nodes));
+      },
+      {discrete: true},
+    );
+    const markdown = editor.read(() => $convertToMarkdownString());
+    expect(markdown).toBe(
+      '<u><span style="color: red;">**left**</span></u>' +
+        '<u><span style="color: red;">**&#x9;**</span></u>' +
+        '<u><span style="color: red;">**right**</span></u>',
+    );
+    editor.update(() => $convertFromMarkdownString(markdown), {discrete: true});
+    editor.read(() => {
+      const paragraph = $firstChild();
+      expect($isElementNode(paragraph)).toBe(true);
+      if ($isElementNode(paragraph)) {
+        const children = paragraph.getChildren();
+        expect(children.map(node => node.getTextContent())).toEqual([
+          'left',
+          '\t',
+          'right',
+        ]);
+        expect($isTabNode(children[1])).toBe(true);
+        for (const child of children) {
+          expect($isTextNode(child) && child.hasFormat('underline')).toBe(true);
+          expect($isTextNode(child) && child.hasFormat('bold')).toBe(true);
+          expect($isTextNode(child) && child.getStyle()).toBe('color: red;');
+        }
+      }
+    });
+  });
+
   it('round-trips the formats Markdown cannot express', () => {
     const source =
       '<u>underline</u>, <mark>highlight</mark>, H<sub>2</sub>O, e=mc<sup>2</sup>, and <span style="color: red;">styled text</span>.';

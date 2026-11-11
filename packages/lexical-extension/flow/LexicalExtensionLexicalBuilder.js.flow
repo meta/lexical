@@ -1,0 +1,29 @@
+/**
+ * Copyright (c) Meta Platforms, Inc. and affiliates.
+ *
+ * This source code is licensed under the MIT license found in the
+ * LICENSE file in the root directory of this source tree.
+ *
+ * @flow strict
+ */
+
+import type {
+  AnyLexicalExtensionArgument,
+  LexicalEditor,
+  LexicalEditorWithDispose,
+} from 'lexical';
+
+declare export var builderSymbol: symbol;
+
+declare export function buildEditorFromExtensions(
+  ...extensions: AnyLexicalExtensionArgument[]
+): LexicalEditorWithDispose;
+
+declare export class LexicalBuilder {
+  static fromExtensions(
+    extensions: AnyLexicalExtensionArgument[],
+  ): LexicalBuilder;
+  static maybeFromEditor(editor: LexicalEditor): void | LexicalBuilder;
+  static fromEditor(editor: LexicalEditor): LexicalBuilder;
+  hasExtensionByName(name: string): boolean;
+}

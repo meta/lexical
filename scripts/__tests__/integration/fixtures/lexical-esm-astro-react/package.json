@@ -2,7 +2,7 @@
   "name": "lexical-esm-astro-react",
   "private": true,
   "type": "module",
-  "version": "0.49.0",
+  "version": "0.53.0",
   "scripts": {
     "dev": "astro dev",
     "start": "astro dev",
@@ -13,18 +13,19 @@
   "dependencies": {
     "@astrojs/check": "^0.9.9",
     "@astrojs/react": "^5.0.5",
-    "@lexical/code": "0.49.0",
-    "@lexical/react": "0.49.0",
+    "@lexical/code": "0.53.0",
+    "@lexical/code-prism": "0.53.0",
+    "@lexical/react": "0.53.0",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.1.9",
     "astro": "^6.1.10",
-    "lexical": "0.49.0",
+    "lexical": "0.53.0",
     "react": "^19.2.5",
     "react-dom": "^19.2.5"
   },
   "sideEffects": false,
   "devDependencies": {
-    "@playwright/test": "^1.60.0",
+    "@playwright/test": "^1.62.1",
     "typescript": "^5.9.2"
   },
   "optionalDependencies": {
@@ -32,10 +33,5 @@
     "@rollup/rollup-darwin-arm64": "4.52.0",
     "@rollup/rollup-win32-x64-msvc": "4.52.0",
     "@rollup/wasm-node": "4.52.0"
-  },
-  "pnpm": {
-    "overrides": {
-      "yaml-language-server": ">=1.20.0"
-    }
   }
 }

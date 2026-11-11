@@ -22,7 +22,7 @@ import type {
 } from 'lexical';
 
 // $FlowFixMe[unclear-type]: todo
-export type YjsEvent = Object;
+export type YjsEvent = any;
 
 export type UserState = {
   anchorPos: null | RelativePosition,
@@ -37,7 +37,7 @@ export type ProviderAwareness = {
   getStates: () => Map<number, UserState>,
   off: (type: 'update', cb: () => void) => void,
   on: (type: 'update', cb: () => void) => void,
-  setLocalState: (UserState | null) => void,
+  setLocalState: (v: UserState | null) => void,
 };
 
 declare interface Provider {
@@ -46,13 +46,13 @@ declare interface Provider {
   disconnect(): void;
   off(type: 'sync', cb: (isSynced: boolean) => void): void;
   // $FlowFixMe[unclear-type]: temp
-  off(type: 'update', cb: (any) => void): void;
-  off(type: 'status', cb: ({status: string}) => void): void;
+  off(type: 'update', cb: (v: any) => void): void;
+  off(type: 'status', cb: (v: {status: string}) => void): void;
   off(type: 'reload', cb: (doc: Doc) => void): void;
   on(type: 'sync', cb: (isSynced: boolean) => void): void;
-  on(type: 'status', cb: ({status: string}) => void): void;
+  on(type: 'status', cb: (v: {status: string}) => void): void;
   // $FlowFixMe[unclear-type]: temp
-  on(type: 'update', cb: (any) => void): void;
+  on(type: 'update', cb: (v: any) => void): void;
   on(type: 'reload', cb: (doc: Doc) => void): void;
 }
 
@@ -110,11 +110,13 @@ export type BaseBinding = {
   editor: LexicalEditor,
   excludedProperties: ExcludedProperties,
   id: string,
+  isBootstrapping: boolean,
   nodeProperties: Map<string, {[property: string]: unknown}>,
 };
 
 export type Binding = {
   ...BaseBinding,
+  _movedNodeKeys?: Set<NodeKey>,
   collabNodeMap: Map<
     NodeKey,
     | CollabElementNode
@@ -374,7 +376,36 @@ declare export function createBinding(
   id: string,
   doc: ?Doc,
   docMap: Map<string, Doc>,
+  excludedProperties?: ExcludedProperties,
 ): Binding;
+
+export type CreateYjsBindingOptions = {
+  editor: LexicalEditor,
+  id: string,
+  doc: Doc,
+  docMap: Map<string, Doc>,
+  excludedProperties?: ExcludedProperties,
+  rootName?: string,
+  getXmlText?: (doc: Doc) => XmlText,
+};
+
+declare export function createYjsBinding(
+  options: CreateYjsBindingOptions,
+): Binding;
+
+export type CreateBindingV2Options__EXPERIMENTAL = {
+  excludedProperties?: ExcludedProperties,
+  rootName?: string,
+  getXmlElement?: (doc: Doc) => XmlElement,
+};
+
+declare export function createBindingV2__EXPERIMENTAL(
+  editor: LexicalEditor,
+  id: string,
+  doc: ?Doc,
+  docMap: Map<string, Doc>,
+  options?: CreateBindingV2Options__EXPERIMENTAL,
+): BindingV2;
 
 export type SyncCursorPositionsOptions = {
   getAwarenessStates?: (

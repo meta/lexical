@@ -141,7 +141,7 @@ const rule = {
           const exports = packageMetadata.getNormalizedNpmModuleExportEntries();
           const exportEntry = exports.find(([name]) => importPath === name);
           if (exportEntry) {
-            const resolvedExport = exportEntry[1].import.default;
+            const resolvedExport = exportEntry[1].default;
             // Resolved path of file that is trying to be imported, without extensions
             const resolvedExportPath = packageMetadata.resolve(
               'src',

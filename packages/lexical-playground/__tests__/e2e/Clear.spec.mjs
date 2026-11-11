@@ -45,6 +45,15 @@ test.describe('Clear', () => {
     await click(page, '.action-button.clear');
 
     await click(page, 'button:has-text("Clear")');
+    // Wait for the clear command to commit before typing again.
+    await assertHTML(
+      page,
+      html`
+        <p class="PlaygroundEditorTheme__paragraph" dir="auto">
+          <br data-lexical-managed-linebreak="true" />
+        </p>
+      `,
+    );
     await page.keyboard.type('bar');
     await assertHTML(
       page,

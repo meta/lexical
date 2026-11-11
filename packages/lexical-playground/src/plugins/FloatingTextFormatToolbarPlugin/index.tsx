@@ -12,12 +12,14 @@ import {useMergeRefs} from '@floating-ui/react';
 import {$isCodeNode} from '@lexical/code';
 import {$isLinkNode, TOGGLE_LINK_COMMAND} from '@lexical/link';
 import {useLexicalComposerContext} from '@lexical/react/LexicalComposerContext';
+import {useLexicalEditable} from '@lexical/react/useLexicalEditable';
 import {useLexicalRovingTabIndexRef} from '@lexical/react/useLexicalRovingTabIndexRef';
 import {
   $getSelection,
   $isParagraphNode,
   $isRangeSelection,
   $isTextNode,
+  $onUpdate,
   COMMAND_PRIORITY_LOW,
   FORMAT_TEXT_COMMAND,
   getDOMSelection,
@@ -82,6 +84,7 @@ function TextFormatFloatingToolbar({
 }): JSX.Element {
   const popupCharStylesEditorRef = useRef<HTMLDivElement | null>(null);
   const rovingRef = useLexicalRovingTabIndexRef();
+  const isEditable = useLexicalEditable();
   const mergedRef = useMergeRefs([popupCharStylesEditorRef, rovingRef, ref]);
 
   const insertLink = useCallback(() => {
@@ -210,7 +213,9 @@ function TextFormatFloatingToolbar({
       editor.registerCommand(
         SELECTION_CHANGE_COMMAND,
         () => {
-          $updateTextFormatFloatingToolbar();
+          $onUpdate(() =>
+            editor.read('latest', $updateTextFormatFloatingToolbar),
+          );
           return false;
         },
         COMMAND_PRIORITY_LOW,
@@ -224,7 +229,7 @@ function TextFormatFloatingToolbar({
       className="floating-text-format-popup"
       role="toolbar"
       aria-label="Floating text format toolbar">
-      {editor.isEditable() && (
+      {isEditable && (
         <>
           <button
             type="button"

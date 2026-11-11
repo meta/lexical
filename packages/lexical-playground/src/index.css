@@ -6,7 +6,19 @@
  *
  */
 
-@import 'https://fonts.googleapis.com/css?family=Reenie+Beanie';
+/* Reenie Beanie is served from the app rather than fetched from Google Fonts.
+   A third-party stylesheet in the critical path delays `load` for every visitor
+   (and every e2e run) on whatever the network does that day, and it hands a
+   request from each of them to a third party. See src/fonts/OFL.txt for the
+   license. */
+@font-face {
+  font-family: 'Reenie Beanie';
+  font-style: normal;
+  font-weight: 400;
+  /* The sticky note is decorative, so let it paint in the fallback and swap. */
+  font-display: swap;
+  src: url(fonts/ReenieBeanie-Regular.woff2) format('woff2');
+}
 
 :root {
   --playground-font-size: 16px;
@@ -72,6 +84,16 @@ header h1 {
   color: #333;
   display: inline-block;
   margin: 20px 0 0 0;
+}
+
+.collab-y-notice {
+  margin: 20px auto 0;
+  max-width: 1128px;
+  padding: 8px 12px;
+  border-radius: 4px;
+  background-color: #fff4e5;
+  color: #663c00;
+  font-size: 14px;
 }
 
 .editor-shell {
@@ -1046,8 +1068,13 @@ i.page-setup,
   .code-language .dropdown-button-text {
     display: flex !important;
   }
+
+  .vertical-align .dropdown-button-text {
+    display: flex !important;
+  }
 }
 
+i.paragraph,
 .icon.paragraph {
   -webkit-mask-image: url(images/icons/text-paragraph.svg);
   mask-image: url(images/icons/text-paragraph.svg);
@@ -1214,7 +1241,6 @@ i.page-setup,
   cursor: default;
   display: inline-block;
   position: relative;
-  user-select: none;
   overflow: hidden;
 }
 
@@ -1799,7 +1825,7 @@ button.toolbar-item.active i {
   padding: 20px 10px;
   position: relative;
   border: 1px solid #e8e8e8;
-  font-family: 'Reenie Beanie';
+  font-family: 'Reenie Beanie', cursive;
   font-size: 24px;
   border-bottom-right-radius: 60px 5px;
   display: block;

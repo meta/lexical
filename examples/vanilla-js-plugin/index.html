@@ -3,10 +3,35 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Vanilla JS Lexical Plugin</title>
+    <title>Vanilla JS Lexical Extension</title>
   </head>
   <body>
-    <div id="app"></div>
+    <div id="app">
+      <div>
+        <h1>Vanilla JS Lexical Extension</h1>
+        <div class="editor-wrapper">
+          <div
+            id="lexical-editor"
+            contenteditable="true"
+            role="textbox"
+            aria-label="Rich text editor"
+            aria-multiline="true"></div>
+        </div>
+        <div class="actions">
+          <button id="export-html" type="button">Export HTML</button>
+          <button id="import-html" type="button">Import HTML</button>
+        </div>
+        <label for="html">HTML (export, edit, then import)</label>
+        <textarea id="html" spellcheck="false"></textarea>
+        <details>
+          <summary>Editor state JSON</summary>
+          <textarea
+            id="lexical-state"
+            readonly
+            aria-label="Editor state JSON"></textarea>
+        </details>
+      </div>
+    </div>
     <script src="/src/main.ts" type="module"></script>
   </body>
 </html>

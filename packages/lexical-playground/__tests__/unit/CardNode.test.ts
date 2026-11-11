@@ -9,6 +9,7 @@
 import {
   $generateJSONFromSelectedNodes,
   $generateNodesFromSerializedNodes,
+  type BaseSerializedNode,
 } from '@lexical/clipboard';
 import {
   $defaultShouldInsertAfter,
@@ -39,6 +40,7 @@ import {
   KEY_TAB_COMMAND,
   type SerializedElementNode,
 } from 'lexical';
+import {$assertNodeType} from 'lexical/src/__tests__/utils';
 import {assert, describe, expect, it} from 'vitest';
 
 import {CardExtension} from '../../src/plugins/CardExtension';
@@ -79,7 +81,7 @@ describe('CardNode named slots', () => {
   it('round-trips the title slot and body children through clipboard copy -> paste', () => {
     using editor = buildEditorFromExtensions(CardTestExtension);
 
-    let exported: ReturnType<typeof $generateJSONFromSelectedNodes>;
+    let exported: {namespace: string; nodes: BaseSerializedNode[]};
     editor.update(
       () => {
         const card = $createCardWithText();
@@ -329,6 +331,58 @@ describe('CardNode named slots', () => {
     });
   });
 
+  // A Card is a shadow root, so a caret placed between two of them renders a
+  // block cursor rather than a text position. Backspace there has to delete
+  // the Card it sits against — including its named slots — the same way it
+  // deletes an adjacent block DecoratorNode (#8939).
+  it.for([
+    {isBackward: true, survivor: 'B'},
+    {isBackward: false, survivor: 'A'},
+  ])(
+    'block cursor between two Cards deletes one (isBackward: $isBackward)',
+    ({isBackward, survivor}) => {
+      using editor = buildEditorFromExtensions(CardTestExtension);
+
+      editor.update(
+        () => {
+          const a = $createCardNode();
+          const b = $createCardNode();
+          for (const [card, label] of [
+            [a, 'A'],
+            [b, 'B'],
+          ] as const) {
+            const title = $assertNodeType(
+              $getSlot(card, 'title'),
+              $isParagraphNode,
+            );
+            title.append($createTextNode(label));
+          }
+          $getRoot().clear().append(a, b);
+          // The block cursor sits between the two Cards.
+          $getRoot().select(1, 1);
+        },
+        {discrete: true},
+      );
+
+      editor.update(
+        () => {
+          const selection = $getSelection();
+          assert($isRangeSelection(selection), 'Expected a RangeSelection');
+          selection.deleteCharacter(isBackward);
+        },
+        {discrete: true},
+      );
+
+      editor.read(() => {
+        expect($getRoot().getChildrenSize()).toBe(1);
+        // The other Card must survive: the slot went with the deleted host,
+        // and the survivor kept its own.
+        const card = $assertNodeType($getRoot().getFirstChild(), $isCardNode);
+        expect($getSlot(card, 'title')?.getTextContent()).toBe(survivor);
+      });
+    },
+  );
+
   // Mid-text deletion inside the bare title value rides core's
   // deleteCharacter: $getNearestRootOrShadowRoot treats the slotted value as
   // its own scope root (the slot link is a virtual shadow root), so the
@@ -562,6 +616,63 @@ describe('CardNode named slots', () => {
       // selection stays whatever the caller set (here, null since the
       // Card was just inserted without a starting selection).
       expect($isNodeSelection(selection)).toBe(false);
+    });
+
+    container.remove();
+  });
+
+  // Regression test for #9115: when selecting text inside an editable slot and
+  // releasing the mouse over the host chrome, the click synthesized by the
+  // browser must NOT promote the host to a NodeSelection. Promotion requires
+  // that the interaction began with a mousedown on the host chrome.
+  it('releasing mouse over card chrome after mousedown in slot does not promote to NodeSelection (#9115)', () => {
+    using editor = buildEditorFromExtensions(CardTestExtension);
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    editor.setRootElement(container);
+
+    editor.update(
+      () => {
+        $getRoot().clear().append($createCardNode());
+      },
+      {discrete: true},
+    );
+
+    const cardElement = container.querySelector('.lexical-card-node');
+    assert(cardElement instanceof HTMLElement);
+    const slotParagraph = container.querySelector(
+      '[data-lexical-slot="title"] p',
+    );
+    assert(slotParagraph instanceof HTMLElement);
+
+    // 1. Mousedown starts inside the slot (e.g. text selection drag)
+    slotParagraph.dispatchEvent(
+      new MouseEvent('mousedown', {bubbles: true, cancelable: true}),
+    );
+
+    // 2. Mouse released over card chrome -> click dispatched targeting cardElement
+    const clickEvent = new MouseEvent('click', {
+      bubbles: true,
+      cancelable: true,
+    });
+    Object.defineProperty(clickEvent, 'target', {value: cardElement});
+    editor.dispatchCommand(CLICK_COMMAND, clickEvent);
+
+    // 3. Must NOT become a NodeSelection
+    editor.read(() => {
+      const selection = $getSelection();
+      expect($isNodeSelection(selection)).toBe(false);
+    });
+
+    // 4. Positive case: explicit click on chrome (mousedown + click on chrome) DOES promote
+    cardElement.dispatchEvent(
+      new MouseEvent('mousedown', {bubbles: true, cancelable: true}),
+    );
+    editor.dispatchCommand(CLICK_COMMAND, clickEvent);
+
+    editor.read(() => {
+      const selection = $getSelection();
+      expect($isNodeSelection(selection)).toBe(true);
     });
 
     container.remove();

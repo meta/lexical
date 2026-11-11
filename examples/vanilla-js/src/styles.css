@@ -6,22 +6,26 @@
  *
  */
 
+/* [docs:editor-styles] Read directly by the Quick Start guide. */
 .editor-wrapper {
   border: 2px solid gray;
+}
+#lexical-editor {
+  min-height: 8em;
+  padding: 1em;
 }
 #lexical-state {
   width: 100%;
   height: 300px;
 }
 
-.PlaygroundEditorTheme__quote {
-  margin: 0;
-  margin-left: 20px;
-  margin-bottom: 10px;
-  font-size: 16px;
-  color: rgb(101, 103, 107);
-  border-left-color: rgb(206, 208, 212);
-  border-left-width: 4px;
-  border-left-style: solid;
-  padding-left: 16px;
+.editor-paragraph {
+  margin: 0 0 1em;
 }
+.editor-text-bold {
+  font-weight: bold;
+}
+.editor-text-italic {
+  font-style: italic;
+}
+/* [/docs:editor-styles] */

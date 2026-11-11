@@ -1,0 +1,31 @@
+{
+  "name": "@lexical/node-state-review-example",
+  "private": true,
+  "version": "0.53.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "monorepo:dev": "vite -c vite.config.monorepo.ts",
+    "build": "tsc && vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@lexical/clipboard": "0.53.0",
+    "@lexical/extension": "0.53.0",
+    "@lexical/history": "0.53.0",
+    "@lexical/html": "0.53.0",
+    "@lexical/rich-text": "0.53.0",
+    "lexical": "0.53.0"
+  },
+  "devDependencies": {
+    "cross-env": "^7.0.3",
+    "typescript": "^5.9.2",
+    "vite": "^7.3.2"
+  },
+  "optionalDependencies": {
+    "@rollup/rollup-linux-x64-gnu": "4.52.0",
+    "@rollup/rollup-darwin-arm64": "4.52.0",
+    "@rollup/rollup-win32-x64-msvc": "4.52.0",
+    "@rollup/wasm-node": "4.52.0"
+  }
+}

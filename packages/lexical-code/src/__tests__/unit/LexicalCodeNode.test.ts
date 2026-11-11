@@ -115,12 +115,19 @@ describe('LexicalCodeNode tests', () => {
         // logic is in place in the corresponding importJSON  method
         // to accommodate these changes.import { moveSelectionPointToSibling } from '../../../../lexical/src/LexicalSelection';
 
+        // A getter with nothing to say puts `undefined` in the value
+        // position rather than omitting the key: JSON.stringify omits it
+        // either way, so the serialized bytes are unchanged, and this is the
+        // shape the hand-written exporters always had (CodeNode itself wrote
+        // `theme: this.getTheme()` unconditionally).
         expect(node.exportJSON()).toStrictEqual({
           children: [],
           direction: null,
           format: '',
           indent: 0,
           language: 'javascript',
+          textFormat: undefined,
+          textStyle: undefined,
           theme: undefined,
           type: 'code',
           version: 1,

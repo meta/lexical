@@ -9,6 +9,7 @@
 import {registerLexicalTextEntity} from '@lexical/text';
 import {
   $applyNodeReplacement,
+  addClassNamesToElement,
   defineExtension,
   type EditorConfig,
   type LexicalNode,
@@ -27,7 +28,11 @@ export class KeywordNode extends TextNode {
   createDOM(config: EditorConfig): HTMLElement {
     const dom = super.createDOM(config);
     dom.style.cursor = 'default';
-    dom.className = 'keyword';
+    // Add to the class names TextNode.createDOM already applied for the text
+    // formats rather than replacing them: registerLexicalTextEntity carries
+    // the format of the node it replaces over to the KeywordNode, so a
+    // keyword typed under an active format has one to render.
+    addClassNamesToElement(dom, 'keyword');
     return dom;
   }
 

@@ -66,6 +66,8 @@ export type LinkMatcher = (text: string) => LinkMatcherResult | null;
  * to prepend a protocol). Pass the result to the auto-link plugin's `matchers`.
  *
  * @returns A matcher that reports the first match of `regExp` in the text.
+ *
+ * @__NO_SIDE_EFFECTS__
  */
 export function createLinkMatcherWithRegExp(
   regExp: RegExp,

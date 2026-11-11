@@ -28,7 +28,13 @@ export function createCommand<T>(type?: string): LexicalCommand<T> {
   return {type};
 }
 
-/** Dispatched whenever the editor selection changes. */
+/**
+ * Dispatched in an update, before reconciliation, when the selection changes.
+ * $getSelection() is the pending selection; $getPreviousSelection() is the last
+ * committed selection. Listeners may modify the pending update. The DOM is not
+ * guaranteed to match it: use $onUpdate(() => editor.read('latest', ...)) for
+ * DOM-dependent work, including element lookup, focus checks and positioning.
+ */
 export const SELECTION_CHANGE_COMMAND: LexicalCommand<void> = createCommand(
   'SELECTION_CHANGE_COMMAND',
 );

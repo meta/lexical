@@ -7,6 +7,7 @@
  */
 
 import {useLexicalComposerContext} from '@lexical/react/LexicalComposerContext';
+import {useLexicalEditable} from '@lexical/react/useLexicalEditable';
 import {eventFiles} from '@lexical/rich-text';
 import {calculateZoomLevel} from '@lexical/utils';
 import {
@@ -612,12 +613,16 @@ export function DraggableBlockPlugin_EXPERIMENTAL({
   onElementChanged?: (element: HTMLElement | null) => void;
 }): JSX.Element {
   const [editor] = useLexicalComposerContext();
+  // Subscribed rather than read off the editor, so that setEditable() actually
+  // re-renders the handle. useLexicalEditable also handles StrictMode and
+  // concurrent rendering correctly.
+  const isEditable = useLexicalEditable();
   return useDraggableBlockMenu(
     editor,
     anchorElem,
     menuRef,
     targetLineRef,
-    editor._editable,
+    isEditable,
     menuComponent,
     targetLineComponent,
     isOnMenu,

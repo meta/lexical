@@ -7,6 +7,8 @@
  */
 import {getDOMSelection, getDOMSelectionRange, getParentElement} from 'lexical';
 
+import {getElementScale} from './getElementScale';
+
 const VERTICAL_GAP = 10;
 const HORIZONTAL_OFFSET = 5;
 
@@ -30,8 +32,15 @@ export function setFloatingElemPosition(
   const anchorElementRect = anchorElem.getBoundingClientRect();
   const editorScrollerRect = scrollerElem.getBoundingClientRect();
 
-  let top = targetRect.top - floatingElemRect.height - verticalGap;
-  let left = targetRect.left - horizontalOffset;
+  // Every rect above is in on-screen pixels, so the gaps — which are authored
+  // in the anchor's own coordinate space — have to be scaled to match before
+  // they are mixed in. The result is converted back at the end.
+  const scale = getElementScale(anchorElem);
+  const verticalGapPx = verticalGap * scale.y;
+  const horizontalOffsetPx = horizontalOffset * scale.x;
+
+  let top = targetRect.top - floatingElemRect.height - verticalGapPx;
+  let left = targetRect.left - horizontalOffsetPx;
 
   // Check if text is end-aligned.
   const domSelection = getDOMSelection(anchorElem.ownerDocument.defaultView);
@@ -47,7 +56,7 @@ export function setFloatingElemPosition(
 
       if (textAlign === 'right' || textAlign === 'end') {
         // For end-aligned text, position the toolbar relative to the text end
-        left = targetRect.right - floatingElemRect.width + horizontalOffset;
+        left = targetRect.right - floatingElemRect.width + horizontalOffsetPx;
       }
     }
   }
@@ -57,19 +66,20 @@ export function setFloatingElemPosition(
     top +=
       floatingElemRect.height +
       targetRect.height +
-      verticalGap * (isLink ? 9 : 2);
+      verticalGapPx * (isLink ? 9 : 2);
   }
 
   if (left + floatingElemRect.width > editorScrollerRect.right) {
-    left = editorScrollerRect.right - floatingElemRect.width - horizontalOffset;
+    left =
+      editorScrollerRect.right - floatingElemRect.width - horizontalOffsetPx;
   }
 
   if (left < editorScrollerRect.left) {
-    left = editorScrollerRect.left + horizontalOffset;
+    left = editorScrollerRect.left + horizontalOffsetPx;
   }
 
-  top -= anchorElementRect.top;
-  left -= anchorElementRect.left;
+  top = (top - anchorElementRect.top) / scale.y;
+  left = (left - anchorElementRect.left) / scale.x;
 
   floatingElem.style.opacity = '1';
   floatingElem.style.transform = `translate(${left}px, ${top}px)`;

@@ -9,9 +9,11 @@
 import {
   buildEditorFromExtensions,
   getExtensionDependencyFromEditor,
+  type LexicalEditorWithDispose,
 } from '@lexical/extension';
 import {DRAG_DROP_PASTE, RichTextExtension} from '@lexical/rich-text';
 import {
+  $createParagraphNode,
   $getRoot,
   COMMAND_PRIORITY_CRITICAL,
   configExtension,
@@ -35,7 +37,7 @@ function createDataTransferWithFiles(
 }
 
 function dispatchPasteAndCaptureFiles(
-  editor: ReturnType<typeof buildEditorFromExtensions>,
+  editor: LexicalEditorWithDispose,
   dataTransfer: DataTransfer,
 ): File[] | null {
   let dispatchedFiles: File[] | null = null;
@@ -104,6 +106,37 @@ describe('RichTextExtension shouldHandlePasteAsFiles', () => {
     expect(dispatchedFiles).not.toBeNull();
     expect(dispatchedFiles).toHaveLength(1);
     expect(dispatchedFiles?.[0]).toBe(fakeImage);
+  });
+
+  test('override falls back to HTML when DRAG_DROP_PASTE is not handled', async () => {
+    using editor = buildEditorFromExtensions({
+      $initialEditorState: () => {
+        $getRoot().append($createParagraphNode()).selectEnd();
+      },
+      dependencies: [
+        configExtension(RichTextExtension, {
+          shouldHandlePasteAsFiles: (files: File[]) => files.length > 0,
+        }),
+      ],
+      name: 'test-unhandled-file',
+    });
+
+    const dataTransfer = createDataTransferWithFiles(
+      {'text/html': '<p>HTML fallback</p>'},
+      [fakeImage],
+    );
+
+    await editor.update(() => {
+      $getRoot().getFirstChildOrThrow().selectEnd();
+    });
+    editor.dispatchCommand(
+      PASTE_COMMAND,
+      new ClipboardEvent('paste', {clipboardData: dataTransfer}),
+    );
+
+    expect(editor.read('force-commit', () => $getRoot().getTextContent())).toBe(
+      'HTML fallback',
+    );
   });
 
   test('override does not hijack a plain text/html paste with no file', () => {

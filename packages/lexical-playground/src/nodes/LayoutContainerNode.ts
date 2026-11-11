@@ -13,10 +13,11 @@ import {
   type EditorConfig,
   ElementNode,
   type LexicalNode,
-  type LexicalUpdateJSON,
   type NodeKey,
+  nodeSchema,
   type SerializedElementNode,
   type Spread,
+  stringValue,
 } from 'lexical';
 
 export type SerializedLayoutContainerNode = Spread<
@@ -26,16 +27,23 @@ export type SerializedLayoutContainerNode = Spread<
   SerializedElementNode
 >;
 
+const layoutContainerNodeSchema = nodeSchema<LayoutContainerNode>()({
+  templateColumns: stringValue(),
+});
+
 export class LayoutContainerNode extends ElementNode {
   __templateColumns: string;
 
-  constructor(templateColumns: string, key?: NodeKey) {
+  constructor(templateColumns: string = '', key?: NodeKey) {
     super(key);
     this.__templateColumns = templateColumns;
   }
 
   $config() {
-    return this.config('layout-container', {extends: ElementNode});
+    return this.config('layout-container', {
+      extends: ElementNode,
+      json: layoutContainerNodeSchema,
+    });
   }
 
   static clone(node: LayoutContainerNode): LayoutContainerNode {
@@ -65,31 +73,12 @@ export class LayoutContainerNode extends ElementNode {
     return false;
   }
 
-  static importJSON(json: SerializedLayoutContainerNode): LayoutContainerNode {
-    return $createLayoutContainerNode().updateFromJSON(json);
-  }
-
-  updateFromJSON(
-    serializedNode: LexicalUpdateJSON<SerializedLayoutContainerNode>,
-  ): this {
-    return super
-      .updateFromJSON(serializedNode)
-      .setTemplateColumns(serializedNode.templateColumns);
-  }
-
   isShadowRoot(): boolean {
     return true;
   }
 
   canBeEmpty(): boolean {
     return false;
-  }
-
-  exportJSON(): SerializedLayoutContainerNode {
-    return {
-      ...super.exportJSON(),
-      templateColumns: this.__templateColumns,
-    };
   }
 
   getTemplateColumns(): string {

@@ -24,7 +24,11 @@ import {
 import * as React from 'react';
 import {type JSX, useEffect, useLayoutEffect, useRef} from 'react';
 
-import {createWebsocketProvider} from '../collaboration';
+import {createWebsocketProvider, skipCollaborationInit} from '../collaboration';
+import {
+  COLLAB_Y_NESTED_EDITOR_NOTICE,
+  useCollabYNestedEditor,
+} from '../hooks/useCollabYNestedEditor';
 import {$isStickyNode} from './StickyNode';
 
 interface Positioning {
@@ -74,6 +78,7 @@ export default function StickyComponent({
     y: 0,
   });
   const {isCollabActive} = useCollaborationContext();
+  const isReadOnly = useCollabYNestedEditor(caption);
 
   useEffect(() => {
     const position = positioningRef.current;
@@ -191,6 +196,7 @@ export default function StickyComponent({
     <div ref={stickyContainerRef} className="sticky-note-container">
       <div
         className={`sticky-note ${color}`}
+        title={isReadOnly ? COLLAB_Y_NESTED_EDITOR_NOTICE : undefined}
         onPointerDown={event => {
           const stickyContainer = stickyContainerRef.current;
           if (
@@ -238,7 +244,7 @@ export default function StickyComponent({
             <CollaborationPlugin
               id={caption.getKey()}
               providerFactory={createWebsocketProvider}
-              shouldBootstrap={true}
+              shouldBootstrap={!skipCollaborationInit}
               selectionHighlight={true}
             />
           ) : null}

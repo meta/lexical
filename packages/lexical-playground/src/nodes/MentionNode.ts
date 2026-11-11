@@ -6,6 +6,7 @@
  *
  */
 
+import {addClassNamesToElement} from '@lexical/utils';
 import {
   $applyNodeReplacement,
   $getDocument,
@@ -13,10 +14,11 @@ import {
   type EditorConfig,
   type LexicalNode,
   type NodeKey,
-  type SerializedTextNode,
-  type Spread,
+  nodeSchema,
+  stringValue,
   type TextFormatType,
   TextNode,
+  withAccessors,
 } from 'lexical';
 
 // The element TextNode.exportDOM wraps its output with, one per text format,
@@ -28,46 +30,48 @@ const FORMAT_WRAPPER_TAGS: readonly (readonly [TextFormatType, string])[] = [
   ['underline', 'u'],
 ];
 
-export type SerializedMentionNode = Spread<
-  {
-    mentionName: string;
-  },
-  SerializedTextNode
->;
+const mentionNodeSchema = nodeSchema<MentionNode>()({
+  mentionName: withAccessors(stringValue(), {
+    getter: {
+      field: '__mention',
+    },
+  }),
+});
 
 const mentionBackgroundColor = 'rgba(24, 119, 232, 0.2)';
+
 export class MentionNode extends TextNode {
   __mention: string;
 
   $config() {
-    return this.config('mention', {extends: TextNode});
+    return this.config('mention', {
+      extends: TextNode,
+      json: mentionNodeSchema,
+    });
   }
 
   static clone(node: MentionNode): MentionNode {
     return new MentionNode(node.__mention, node.__text, node.__key);
   }
-  static importJSON(serializedNode: SerializedMentionNode): MentionNode {
-    return $createMentionNode(serializedNode.mentionName).updateFromJSON(
-      serializedNode,
-    );
+
+  setMentionName(mentionName: string): this {
+    const self = this.getWritable();
+    self.__mention = mentionName;
+    return self;
   }
 
-  constructor(mentionName: string, text?: string, key?: NodeKey) {
+  constructor(mentionName: string = '', text?: string, key?: NodeKey) {
     super(text ?? mentionName, key);
     this.__mention = mentionName;
-  }
-
-  exportJSON(): SerializedMentionNode {
-    return {
-      ...super.exportJSON(),
-      mentionName: this.__mention,
-    };
   }
 
   createDOM(config: EditorConfig): HTMLElement {
     const dom = super.createDOM(config);
     dom.style.backgroundColor = mentionBackgroundColor;
-    dom.className = 'mention';
+    // Add to the class names TextNode.createDOM applied for the text formats
+    // rather than replacing them, otherwise a formatted mention renders
+    // unstyled every time the element is rebuilt.
+    addClassNamesToElement(dom, 'mention');
     dom.spellcheck = false;
 
     return dom;

@@ -13,15 +13,22 @@ import {
   type EditorThemeClasses,
   type ElementNode,
   type LexicalNode,
-  type LexicalUpdateJSON,
+  type LexicalParseJSON,
   type NodeKey,
+  nodeSchema,
+  nullable,
+  optional,
   removeClassNamesFromElement,
+  type SerializedPartial,
   type SerializedTextNode,
   type Spread,
+  stringValue,
   TextNode,
+  withAccessors,
 } from 'lexical';
 
 import {$createCodeNode} from './CodeNode';
+import {GENERATED_CODEHIGHLIGHT} from './LexicalCodeCoreGeneratedJSON';
 
 type SerializedCodeHighlightNode = Spread<
   {
@@ -30,7 +37,29 @@ type SerializedCodeHighlightNode = Spread<
   SerializedTextNode
 >;
 
+// Single source of truth for parsing the node-specific properties of a
+// SerializedCodeHighlightNode (those it adds over a SerializedTextNode).
+const codeHighlightNodeSchema = nodeSchema<CodeHighlightNode>()({
+  // Read straight off the field; applied through setHighlightType, which
+  // normalizes a falsy value to undefined. Naming the field is also what
+  // tells the clone where this property lives, so the class needs no
+  // `afterCloneFrom` of its own. The same shape CodeNode's `language` uses.
+  highlightType: withAccessors(optional(nullable(stringValue())), {
+    getter: {field: '__highlightType'},
+  }),
+});
+
+// eslint-disable-next-line @typescript-eslint/no-unsafe-declaration-merging
+export interface CodeHighlightNode {
+  exportJSON(compact?: false): SerializedCodeHighlightNode;
+  exportJSON(compact: boolean): SerializedPartial<SerializedCodeHighlightNode>;
+  updateFromJSON(
+    serializedNode: LexicalParseJSON<SerializedCodeHighlightNode>,
+  ): this;
+}
+
 /** @noInheritDoc */
+// eslint-disable-next-line @typescript-eslint/no-unsafe-declaration-merging
 export class CodeHighlightNode extends TextNode {
   /** @internal */
   __highlightType: string | null | undefined;
@@ -45,12 +74,11 @@ export class CodeHighlightNode extends TextNode {
   }
 
   $config() {
-    return this.config('code-highlight', {extends: TextNode});
-  }
-
-  afterCloneFrom(prevNode: this): void {
-    super.afterCloneFrom(prevNode);
-    this.__highlightType = prevNode.__highlightType;
+    return this.config('code-highlight', {
+      extends: TextNode,
+      generated: GENERATED_CODEHIGHLIGHT,
+      json: codeHighlightNodeSchema,
+    });
   }
 
   getHighlightType(): string | null | undefined {
@@ -97,21 +125,6 @@ export class CodeHighlightNode extends TextNode {
       }
     }
     return update;
-  }
-
-  updateFromJSON(
-    serializedNode: LexicalUpdateJSON<SerializedCodeHighlightNode>,
-  ): this {
-    return super
-      .updateFromJSON(serializedNode)
-      .setHighlightType(serializedNode.highlightType);
-  }
-
-  exportJSON(): SerializedCodeHighlightNode {
-    return {
-      ...super.exportJSON(),
-      highlightType: this.getHighlightType(),
-    };
   }
 
   // Prevent formatting (bold, underline, etc)

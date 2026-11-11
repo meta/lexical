@@ -15,7 +15,7 @@ import {
   CheckListExtension,
 } from '@lexical/list';
 import {RichTextExtension} from '@lexical/rich-text';
-import {$getRoot} from 'lexical';
+import {$createParagraphNode, $createTextNode, $getRoot} from 'lexical';
 import {invariant} from 'lexical/src/__tests__/utils';
 import {
   afterAll,
@@ -118,6 +118,44 @@ describe('CheckListExtension mobile tap toggle', () => {
     expect(readChecked(editor, 0)).toBe(true);
   });
 
+  // Touch pointers are captured by the element they went down on, so the
+  // pointerup of a swipe that starts on a check mark is still dispatched to
+  // its item, at the point where the finger lifted.
+  function touch(
+    target: HTMLLIElement,
+    type: 'pointerdown' | 'pointerup',
+    clientY: number,
+    clientX = 10,
+  ) {
+    target.dispatchEvent(
+      new PointerEvent(type, {
+        bubbles: true,
+        cancelable: true,
+        clientX,
+        clientY,
+        pointerId: 1,
+        pointerType: 'touch',
+      }),
+    );
+  }
+
+  it('a touch that moves before lifting does not toggle the item', () => {
+    using editor = buildEditor();
+    const li = getCheckListItem(0);
+    touch(li, 'pointerdown', 5);
+    touch(li, 'pointerup', 205);
+    expect(readChecked(editor, 0)).toBe(false);
+  });
+
+  it('a tap that moves a few pixels still toggles the item', () => {
+    using editor = buildEditor();
+    const li = getCheckListItem(0);
+    // 8px along each axis, as core's tap detection allows
+    touch(li, 'pointerdown', 5, 10);
+    touch(li, 'pointerup', 13, 18);
+    expect(readChecked(editor, 0)).toBe(true);
+  });
+
   it('mouse pointerup is ignored (click stays the desktop path)', () => {
     using editor = buildEditor();
     expect(readChecked(editor, 0)).toBe(false);
@@ -193,5 +231,165 @@ describe('CheckListExtension mobile tap toggle', () => {
 
     expect(readChecked(editor, 0)).toBe(true);
     expect(readChecked(editor, 1)).toBe(true);
+  });
+
+  it('rapid mouse clicks on the same item all toggle (desktop not throttled)', () => {
+    using editor = buildEditor();
+    expect(readChecked(editor, 0)).toBe(false);
+
+    const baseTimeStamp = 1000;
+    const click = (offsetMs: number) => {
+      const event = new MouseEvent('click', {
+        bubbles: true,
+        cancelable: true,
+        clientX: 10,
+        clientY: 5,
+      });
+      Object.defineProperty(event, 'timeStamp', {
+        value: baseTimeStamp + offsetMs,
+      });
+      getCheckListItem(0).dispatchEvent(event);
+    };
+
+    // Two rapid mouse clicks within the dedup window must both toggle.
+    click(0);
+    click(100);
+
+    expect(readChecked(editor, 0)).toBe(false);
+  });
+
+  it('rapid touch taps on the same item are throttled (mobile preserved)', () => {
+    using editor = buildEditor();
+    expect(readChecked(editor, 0)).toBe(false);
+
+    const baseTimeStamp = 1000;
+    const tap = (offsetMs: number) => {
+      const event = new PointerEvent('pointerup', {
+        bubbles: true,
+        cancelable: true,
+        clientX: 10,
+        clientY: 5,
+        pointerType: 'touch',
+      });
+      Object.defineProperty(event, 'timeStamp', {
+        value: baseTimeStamp + offsetMs,
+      });
+      getCheckListItem(0).dispatchEvent(event);
+    };
+
+    // First tap toggles, second tap within DEDUP_WINDOW_MS is throttled.
+    tap(0);
+    tap(100);
+
+    expect(readChecked(editor, 0)).toBe(true);
+  });
+});
+
+describe('CheckListExtension Space after a click on a check mark', () => {
+  // A click on a check mark focuses its item and leaves the caret where it
+  // was, here at the end of the paragraph above the list.
+  const extension = defineExtension({
+    $initialEditorState: () => {
+      $getRoot().append(
+        $createParagraphNode().append($createTextNode('Owners sign off')),
+        $createListNode('check').append(
+          $createListItemNode(false).append($createTextNode('Task')),
+        ),
+      );
+    },
+    dependencies: [CheckListExtension, RichTextExtension],
+    name: '[checklist-space-test]',
+  });
+
+  let rootElement: HTMLDivElement;
+  beforeEach(() => {
+    rootElement = document.createElement('div');
+    rootElement.contentEditable = 'true';
+    document.body.appendChild(rootElement);
+  });
+  afterEach(() => {
+    rootElement.remove();
+  });
+
+  function focusItemWithCaret(
+    editor: ReturnType<typeof buildEditorFromExtensions>,
+    $placeCaret: () => void,
+  ): HTMLLIElement {
+    editor.setRootElement(rootElement);
+    editor.update($placeCaret, {discrete: true});
+    const li = rootElement.querySelector('li');
+    invariant(li !== null, 'No <li>');
+    li.focus();
+    expect(document.activeElement).toBe(li);
+    return li;
+  }
+
+  function pressSpace(target: HTMLElement): KeyboardEvent {
+    const event = new KeyboardEvent('keydown', {
+      bubbles: true,
+      cancelable: true,
+      key: ' ',
+    });
+    target.dispatchEvent(event);
+    return event;
+  }
+
+  function isChecked(
+    editor: ReturnType<typeof buildEditorFromExtensions>,
+  ): boolean {
+    return editor.read(() => {
+      const list = $getRoot().getLastChildOrThrow();
+      invariant($isListNode(list), 'Expected a ListNode');
+      const item = list.getFirstChildOrThrow();
+      invariant($isListItemNode(item), 'Expected a ListItemNode');
+      return item.getChecked() === true;
+    });
+  }
+
+  it('leaves the item alone and gives the Space to a caret in another block', () => {
+    using editor = buildEditorFromExtensions(extension);
+    const li = focusItemWithCaret(editor, () => {
+      $getRoot().getFirstChildOrThrow().selectEnd();
+    });
+    const event = pressSpace(li);
+    expect(isChecked(editor)).toBe(false);
+    expect(event.defaultPrevented).toBe(false);
+    expect(document.activeElement).toBe(rootElement);
+  });
+
+  it.each([
+    ['from the paragraph into the item', false],
+    ['from the item into the paragraph', true],
+  ])('gives the Space to a selection that reaches %s', (_, isBackward) => {
+    using editor = buildEditorFromExtensions(extension);
+    const li = focusItemWithCaret(editor, () => {
+      const [paragraphText, itemText] = $getRoot().getAllTextNodes();
+      invariant(
+        paragraphText !== undefined && itemText !== undefined,
+        'Expected text in the paragraph and the item',
+      );
+      const inParagraph = [paragraphText.getKey(), 6] as const;
+      const inItem = [itemText.getKey(), 2] as const;
+      const [anchor, focus] = isBackward
+        ? [inItem, inParagraph]
+        : [inParagraph, inItem];
+      const selection = $getRoot().select();
+      selection.anchor.set(anchor[0], anchor[1], 'text');
+      selection.focus.set(focus[0], focus[1], 'text');
+    });
+    const event = pressSpace(li);
+    expect(isChecked(editor)).toBe(false);
+    expect(event.defaultPrevented).toBe(false);
+    expect(document.activeElement).toBe(rootElement);
+  });
+
+  it('toggles the item when the caret is in it', () => {
+    using editor = buildEditorFromExtensions(extension);
+    const li = focusItemWithCaret(editor, () => {
+      $getRoot().getLastChildOrThrow().selectStart();
+    });
+    const event = pressSpace(li);
+    expect(isChecked(editor)).toBe(true);
+    expect(event.defaultPrevented).toBe(true);
   });
 });

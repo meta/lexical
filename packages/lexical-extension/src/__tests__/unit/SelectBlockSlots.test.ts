@@ -11,7 +11,6 @@ import {
   SelectBlockExtension,
 } from '@lexical/extension';
 import {RichTextExtension} from '@lexical/rich-text';
-import {$isBlockFullySelected} from '@lexical/utils';
 import {
   $create,
   $createParagraphNode,
@@ -20,6 +19,7 @@ import {
   $getSelection,
   $getSlot,
   $getSlotFrame,
+  $isBlockFullySelected,
   $isElementNode,
   $isRangeSelection,
   $isTextNode,

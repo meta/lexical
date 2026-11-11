@@ -8,7 +8,7 @@
 
 import type {InitialEditorStateType} from './LexicalComposer';
 import type {LexicalEditor} from 'lexical';
-import type {Doc} from 'yjs';
+import type {Doc, XmlElement, XmlText} from 'yjs';
 
 import {
   type CollaborationContextType,
@@ -39,6 +39,19 @@ type ProviderFactory = (id: string, yjsDocMap: Map<string, Doc>) => Provider;
 type CollaborationPluginProps = {
   id: string;
   providerFactory: ProviderFactory;
+  /**
+   * Seed the document with an empty paragraph (or `initialEditorState`) once
+   * the provider reports `sync` and the document is still empty.
+   *
+   * At most one client may pass `true` for a given document. The seed is an
+   * ordinary Yjs insert rather than a compare-and-set, so two clients that both
+   * observe an empty document each insert a paragraph and Yjs keeps both,
+   * leaving every client with a spurious leading empty block. This is easy to
+   * hit with a nested editor (an image caption, a sticky note), where every
+   * client mounts the editor -- and so connects to its document -- at the same
+   * moment the node itself syncs. Prefer bootstrapping the document
+   * server-side; see the collaboration docs.
+   */
   shouldBootstrap: boolean;
   username?: string;
   cursorColor?: string;
@@ -54,6 +67,19 @@ type CollaborationPluginProps = {
   selectionHighlight?: boolean;
   /** Customize the Yjs shared-type key used for the root `XmlText`. Defaults to `'root'`. */
   rootName?: string;
+  /**
+   * Resolve the root `XmlText` from the `Doc` yourself, for roots that are not
+   * a top-level shared type (e.g. an `XmlText` held in a `Y.Map` or `Y.Array`,
+   * as when one `Doc` stores many independently editable documents). Takes
+   * precedence over `rootName`.
+   *
+   * Read when the binding is created: this prop and `rootName` cannot repoint
+   * a mounted editor at another document. Remount the editor (a React `key` on
+   * the component that owns it) to edit a different one — a remount of this
+   * plugin alone would leave the previous document's content in the editor and
+   * write it into the new root.
+   */
+  getXmlText?: (doc: Doc) => XmlText;
 };
 
 /**
@@ -78,9 +104,19 @@ export function CollaborationPlugin({
   syncCursorPositionsFn,
   selectionHighlight,
   rootName,
+  getXmlText,
 }: CollaborationPluginProps): JSX.Element {
   const isBindingInitialized = useRef(false);
-  const isProviderInitialized = useRef(false);
+  // The inputs that produced the current Provider. A ref rather than the effect
+  // deps alone because the effect must be idempotent: React StrictMode (and
+  // React 18+ remounts in general) re-runs the effect with unchanged inputs and
+  // must not create a second Provider.
+  const providerInputs = useRef<null | {
+    id: string;
+    providerFactory: ProviderFactory;
+    yjsDocMap: Map<string, Doc>;
+  }>(null);
+  const providerRef = useRef<Provider | null>(null);
 
   const collabContext = useCollaborationContext(username, cursorColor);
   const {yjsDocMap, name, color} = collabContext;
@@ -93,20 +129,44 @@ export function CollaborationPlugin({
   const [doc, setDoc] = useState<Doc>();
 
   useEffect(() => {
-    if (isProviderInitialized.current) {
+    const prevInputs = providerInputs.current;
+    if (
+      prevInputs !== null &&
+      prevInputs.id === id &&
+      prevInputs.providerFactory === providerFactory &&
+      prevInputs.yjsDocMap === yjsDocMap
+    ) {
       return;
     }
 
-    isProviderInitialized.current = true;
+    providerInputs.current = {id, providerFactory, yjsDocMap};
 
     const newProvider = providerFactory(id, yjsDocMap);
+    const previousProvider = providerRef.current;
+    // Disconnected here rather than from this effect's cleanup, and only when
+    // something really did replace it. A `providerFactory` declared inline --
+    // the shape this package's own test harness uses -- has a fresh identity
+    // every render, so a cleanup-based disconnect tears down the live provider
+    // on every parent render; and when such a factory hands back a cached
+    // provider, setProvider() bails on the identical value, nothing re-runs,
+    // and the editor is left permanently disconnected.
+    if (previousProvider !== null && previousProvider !== newProvider) {
+      previousProvider.disconnect();
+    }
+    providerRef.current = newProvider;
     setProvider(newProvider);
     setDoc(yjsDocMap.get(id));
-
-    return () => {
-      newProvider.disconnect();
-    };
   }, [id, providerFactory, yjsDocMap]);
+
+  useEffect(() => {
+    return () => {
+      const currentProvider = providerRef.current;
+      if (currentProvider !== null) {
+        providerRef.current = null;
+        currentProvider.disconnect();
+      }
+    };
+  }, []);
 
   const [binding, setBinding] = useState<Binding>();
 
@@ -130,16 +190,33 @@ export function CollaborationPlugin({
       docMap: yjsDocMap,
       editor,
       excludedProperties,
+      getXmlText,
       id,
       rootName,
     });
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setBinding(newBinding);
+    // `excludedProperties`, `rootName` and `getXmlText` configure the binding
+    // and are read on the pass that creates it (which is not necessarily the
+    // first one -- the effect returns early until the provider exists, so a
+    // root that only resolves after mount is still picked up). They are
+    // deliberately not dependencies: a binding cannot be reconfigured or
+    // repointed once it exists, and re-running this effect would only tear the
+    // editor's binding down.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editor, provider, id, yjsDocMap, doc]);
 
+  // Destroying the binding belongs to unmount, not to this effect's cleanup:
+  // the binding is created once, so a cleanup on the creation effect would
+  // destroy it on any input change without building a replacement.
+  useEffect(() => {
+    if (binding === undefined) {
+      return;
+    }
     return () => {
-      newBinding.root.destroy(newBinding);
+      binding.root.destroy(binding);
     };
-  }, [editor, provider, id, yjsDocMap, doc, excludedProperties, rootName]);
+  }, [binding]);
 
   if (!provider || !binding) {
     return <></>;
@@ -242,6 +319,20 @@ type CollaborationPluginV2Props = {
   selectionHighlight?: boolean;
   /** Customize the Yjs shared-type key used for the root `XmlElement`. Defaults to `'root-v2'`. */
   rootName?: string;
+  /**
+   * Resolve the root `XmlElement` from the `Doc` yourself, for roots that are
+   * not a top-level shared type (e.g. an `XmlElement` held in a `Y.Map` or
+   * `Y.Array`, as when one `Doc` stores many independently editable
+   * documents). The element must be created as `new XmlElement()` without a
+   * `nodeName`. Takes precedence over `rootName`.
+   *
+   * Read when the binding is created: this prop and `rootName` cannot repoint
+   * a mounted editor at another document. Remount the editor (a React `key` on
+   * the component that owns it) to edit a different one — a remount of this
+   * plugin alone would leave the previous document's content in the editor and
+   * write it into the new root.
+   */
+  getXmlElement?: (doc: Doc) => XmlElement;
 };
 
 /**
@@ -265,6 +356,7 @@ export function CollaborationPluginV2__EXPERIMENTAL({
   awarenessData,
   selectionHighlight,
   rootName,
+  getXmlElement,
 }: CollaborationPluginV2Props): JSX.Element {
   const collabContext = useCollaborationContext(username, cursorColor);
   const {yjsDocMap, name, color} = collabContext;
@@ -284,6 +376,7 @@ export function CollaborationPluginV2__EXPERIMENTAL({
       __shouldBootstrapUnsafe,
       awarenessData,
       excludedProperties,
+      getXmlElement,
       rootName,
       selectionHighlight,
     },

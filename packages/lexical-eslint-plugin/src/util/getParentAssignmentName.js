@@ -18,9 +18,7 @@
  *
  * @param {import('eslint').Rule.Node} node
  */
-module.exports.getParentAssignmentName = function getParentAssignmentName(
-  node,
-) {
+export function getParentAssignmentName(node) {
   // Unlike React's rules of hooks, this does not check property assignment.
   // The rules of lexical $function convention only applies to functions,
   // not methods or properties.
@@ -41,4 +39,4 @@ module.exports.getParentAssignmentName = function getParentAssignmentName(
   } else {
     return undefined;
   }
-};
+}

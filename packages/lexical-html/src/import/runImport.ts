@@ -30,9 +30,10 @@ import {$applySchema, RootSchema} from './schemas';
 
 const __DEV__ = process.env.NODE_ENV !== 'production';
 
-const NO_CAPTURES: Record<string, RegExpMatchArray> = Object.freeze(
-  {} as Record<string, RegExpMatchArray>,
-);
+// Annotated by hand: a module-scope call is a side effect to bundlers, and the
+// build only injects annotations for Lexical's own factories.
+const NO_CAPTURES: Record<string, RegExpMatchArray> =
+  /* @__PURE__ */ Object.freeze({} as Record<string, RegExpMatchArray>);
 
 interface Runtime {
   readonly dispatch: CompiledDispatch;

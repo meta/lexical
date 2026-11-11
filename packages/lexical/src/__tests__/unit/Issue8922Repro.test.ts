@@ -37,9 +37,10 @@ import {
   $selectAll,
   DecoratorNode,
   type LexicalEditor,
+  type RangeSelection,
 } from 'lexical';
 import {createTestEditor} from 'lexical/src/__tests__/utils';
-import {afterEach, beforeEach, describe, expect, test} from 'vitest';
+import {afterEach, assert, beforeEach, describe, expect, test} from 'vitest';
 
 const BOUNDARY_SELECTOR = 'img[data-lexical-decorator-boundary="true"]';
 
@@ -238,6 +239,89 @@ describe('Issue #8922: select-all with a boundary block decorator', () => {
     expect(managedLinebreaks).not.toContain('img');
   });
 
+  // Lexical adds anchors only while it isn't observing the DOM, so one that
+  // native editing or an extension moved or copied is put back on its edge.
+  test.each([
+    [
+      'an anchor moved into a paragraph',
+      (anchor: Node, paragraph: Element) => {
+        paragraph.appendChild(anchor);
+      },
+    ],
+    [
+      'an anchor moved into a text node',
+      (anchor: Node, paragraph: Element) => {
+        const text = paragraph.firstElementChild;
+        assert(text !== null, 'Expected the text');
+        text.appendChild(anchor);
+      },
+    ],
+    [
+      'an anchor moved to the end of its element',
+      (anchor: Node) => {
+        container.appendChild(anchor);
+      },
+    ],
+    [
+      'a copy of an anchor',
+      (anchor: Node) => {
+        container.insertBefore(anchor.cloneNode(true), anchor);
+      },
+    ],
+  ])('%s leaves one anchor, on its edge', async (_name, edit) => {
+    setRootChildren('decorator', 'text');
+    const anchor = container.firstChild;
+    const paragraph = container.lastElementChild;
+    assert(anchor !== null && paragraph !== null, 'Expected the anchor and p');
+    edit(anchor, paragraph);
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(rootChildNames(container)).toEqual(['boundary', 'decorator', 'p']);
+    expect(paragraph.querySelectorAll(BOUNDARY_SELECTOR)).toHaveLength(0);
+  });
+
+  test('an anchor removed before its decorator goes back on its edge', async () => {
+    setRootChildren('decorator', 'text');
+    const [anchor, decorator] = Array.from(container.childNodes);
+    // One record each, so the decorator the anchor's record names as its
+    // next sibling is gone when that record is read.
+    anchor.remove();
+    decorator.remove();
+    await expect
+      .poll(() => rootChildNames(container))
+      .toEqual(['boundary', 'decorator', 'p']);
+  });
+
+  test('an anchor removed before the block cursor goes back on its edge', async () => {
+    container.tabIndex = 0;
+    container.focus();
+    setRootChildren('decorator', 'text');
+    editor.update(
+      () => {
+        $getRoot().select(0, 0);
+      },
+      {discrete: true},
+    );
+    expect(rootChildNames(container)).toEqual([
+      'boundary',
+      'div',
+      'decorator',
+      'p',
+    ]);
+    const [anchor, cursor] = Array.from(container.childNodes);
+    // One record each, so the block cursor the anchor's record names as its
+    // next sibling is gone when that record is read, and the anchor has no
+    // previous sibling to go after.
+    anchor.remove();
+    cursor.remove();
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(rootChildNames(container)).toEqual([
+      'boundary',
+      'div',
+      'decorator',
+      'p',
+    ]);
+  });
+
   test('anchors do not shift the child offsets $selectAll resolves to', () => {
     setRootChildren('decorator', 'text', 'decorator');
 
@@ -259,7 +343,7 @@ describe('Issue #8922: select-all with a boundary block decorator', () => {
       const selection = $getSelection();
       expect($isRangeSelection(selection)).toBe(true);
       expect(
-        (selection as ReturnType<typeof $selectAll>)
+        (selection as RangeSelection)
           .getNodes()
           .filter(node => node.getParent() === $getRoot()),
       ).toEqual($getRoot().getChildren());
@@ -307,7 +391,7 @@ describe('Issue #8922: select-all with a boundary block decorator', () => {
       const selection = $getSelection();
       expect($isRangeSelection(selection)).toBe(true);
       expect(
-        (selection as ReturnType<typeof $selectAll>)
+        (selection as RangeSelection)
           .getNodes()
           .filter(node => node.getParent() === $getRoot()),
       ).toEqual($getRoot().getChildren());

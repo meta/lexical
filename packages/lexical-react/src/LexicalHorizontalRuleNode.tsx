@@ -82,11 +82,12 @@ function HorizontalRuleComponent({nodeKey}: {nodeKey: NodeKey}) {
  */
 export class HorizontalRuleNode extends BaseHorizontalRuleNode {
   $config() {
-    // `extends` is left to the runtime default (the prototype parent,
-    // BaseHorizontalRuleNode) so this deprecated subclass infers a `$config()`
-    // shape compatible with the base node it reuses the 'horizontalrule' type
-    // from.
+    // Named rather than left to the runtime default, for the reason the base
+    // node names its own: it is what carries this config on the record the
+    // composed serialization types walk. The shape still matches the base
+    // node's, whose 'horizontalrule' type this deprecated subclass reuses.
     return this.config('horizontalrule', {
+      extends: BaseHorizontalRuleNode,
       importDOM: {
         hr: () => ({
           conversion: $convertHorizontalRuleElement,

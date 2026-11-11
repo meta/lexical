@@ -127,9 +127,11 @@ if (isJsdom) {
     PointerEvent: named('PointerEvent')(
       class PointerEventMock extends MouseEvent {
         pointerType: string;
+        pointerId: number;
         constructor(type: string, options?: PointerEventInit) {
           super(type, options);
           this.pointerType = (options && options.pointerType) || 'mouse';
+          this.pointerId = (options && options.pointerId) || 0;
         }
       },
     ),

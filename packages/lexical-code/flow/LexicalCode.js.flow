@@ -14,7 +14,6 @@ import type {
   ParagraphNode,
   RangeSelection,
   EditorThemeClasses,
-  LexicalEditor,
   LineBreakNode,
   SerializedElementNode,
   SerializedTabNode,
@@ -112,33 +111,3 @@ export type CodeIndentConfig = {
 };
 
 declare export var CodeIndentExtension: LexicalExtension<CodeIndentConfig, "@lexical/code-indent", unknown, unknown>;
-
-/**
- * Deprecated @lexical/code-prism re-exports
- */
-
-type TokenContent = string | Token | (string | Token)[];
-export interface Token {
-  type: string;
-  content: TokenContent;
-}
-export interface Tokenizer {
-  defaultLanguage: string | null;
-  tokenize(code: string, language?: string): (string | Token)[];
-}
-declare export var PrismTokenizer: Tokenizer;
-
-declare export function registerCodeHighlighting(
-  editor: LexicalEditor,
-  tokenizer?: Tokenizer,
-): () => void;
-
-/** @deprecated renamed to {@link normalizeCodeLanguage} and moved to `@lexical/code-prism` */
-declare export function normalizeCodeLang(lang: string): string;
-declare export function normalizeCodeLanguage(lang: string): string;
-
-declare export var getCodeLanguages: () => string[];
-declare export function getLanguageFriendlyName(lang: string): string;
-
-declare export var CODE_LANGUAGE_FRIENDLY_NAME_MAP: {[string]: string};
-declare export var CODE_LANGUAGE_MAP: {[string]: string};

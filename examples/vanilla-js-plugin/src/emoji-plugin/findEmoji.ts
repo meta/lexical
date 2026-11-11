@@ -8,11 +8,13 @@
 
 import emojis from 'emoji-datasource-facebook/emoji.json';
 
+// [docs:emoji-match] Read directly by the Creating an Extension guide.
 export type EmojiMatch = Readonly<{
   position: number;
   shortcode: string;
   unifiedID: string;
 }>;
+// [/docs:emoji-match]
 
 /**
  * Map where keys are possible replacements while values are unified emoji IDs

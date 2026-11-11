@@ -8,6 +8,7 @@
 
 import invariant from '@lexical/internal/invariant';
 import {
+  $copyNode,
   $createParagraphNode,
   $createRangeSelection,
   $createTextNode,
@@ -101,6 +102,8 @@ export class TableObservers {
   >;
   nextFocus: TableNextFocus | null;
   shouldCheckSelectionForTable: NodeKey | null;
+  /** The last touch-tapped cell, retained after pointerup for native word selection. */
+  touchTapCellKey: NodeKey | null;
 
   constructor() {
     this.observers = new Map<
@@ -109,6 +112,7 @@ export class TableObservers {
     >();
     this.nextFocus = null;
     this.shouldCheckSelectionForTable = null;
+    this.touchTapCellKey = null;
   }
 
   /**
@@ -229,6 +233,19 @@ export class TableObserver {
   tableSelection: TableSelection | null;
   hasHijackedSelectionStyles: boolean;
   isSelecting: boolean;
+  /**
+   * Whether the pointer gesture currently in progress has travelled beyond
+   * the tap slop box, i.e. it is a drag rather than a tap. Only a drag may
+   * start a table selection from touch input. Set by the pointermove handler
+   * and reset whenever the gesture ends.
+   */
+  isPointerDrag: boolean;
+  /**
+   * The cell the pointer gesture currently in progress started on, null when
+   * no gesture is in progress. A drag that never leaves this cell is
+   * selecting text within it, not selecting cells.
+   */
+  pointerStartCell: TableDOMCell | null;
   pointerType: string | null;
   abortController: AbortController;
   listenerOptions: {signal: AbortSignal};
@@ -254,6 +271,8 @@ export class TableObserver {
     this.focusCell = null;
     this.hasHijackedSelectionStyles = false;
     this.isSelecting = false;
+    this.isPointerDrag = false;
+    this.pointerStartCell = null;
     this.pointerType = null;
     this.abortController = new AbortController();
     this.listenerOptions = {signal: this.abortController.signal};
@@ -580,18 +599,21 @@ export class TableObserver {
 
     const selectedNodes = selection.getNodes().filter($isTableCellNode);
 
-    // Check if the entire table is selected by verifying first and last cells
-    const firstRow = tableNode.getFirstChild();
-    const lastRow = tableNode.getLastChild();
-
+    // The entire table is selected when the selection holds every cell. (In
+    // a table whose rows have different numbers of cells, a selection from
+    // the first cell to the last can leave out cells of a longer row.)
+    let cellCount = 0;
+    for (const row of tableNode.getChildren()) {
+      if ($isTableRowNode(row)) {
+        cellCount += row.getChildrenSize();
+      }
+    }
     const isEntireTableSelected =
-      selectedNodes.length > 0 &&
-      firstRow !== null &&
-      lastRow !== null &&
-      $isTableRowNode(firstRow) &&
-      $isTableRowNode(lastRow) &&
-      selectedNodes[0] === firstRow.getFirstChild() &&
-      selectedNodes[selectedNodes.length - 1] === lastRow.getLastChild();
+      cellCount > 0 &&
+      selectedNodes.filter(cell => {
+        const row = cell.getParent();
+        return row !== null && row.getParent() === tableNode;
+      }).length === cellCount;
 
     if (isEntireTableSelected) {
       tableNode.selectPrevious();
@@ -607,7 +629,15 @@ export class TableObserver {
 
     selectedNodes.forEach(cellNode => {
       if ($isElementNode(cellNode)) {
-        const paragraphNode = $createParagraphNode();
+        // Clearing a cell empties its content; it does not reset how that
+        // content is laid out. A fresh ParagraphNode would start with no
+        // format, style, direction or indent, so the cell's paragraph is
+        // copied instead when there is one — $copyNode carries that state and
+        // returns it childless.
+        const firstChild = cellNode.getFirstChild();
+        const paragraphNode = $isParagraphNode(firstChild)
+          ? $copyNode(firstChild)
+          : $createParagraphNode();
         const textNode = $createTextNode();
         paragraphNode.append(textNode);
         cellNode.append(paragraphNode);

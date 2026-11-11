@@ -1,0 +1,151 @@
+{
+  "name": "@lexical/y",
+  "description": "Experimental Yjs 14 (@y/y) collaboration binding for Lexical. Entries: @lexical/y (binding and extension), @lexical/y/headless (server-side edits, seeds and reads), @lexical/y/migrate (layout migrations, with one step per layout), @lexical/y/server (migrating stored documents).",
+  "keywords": [
+    "lexical",
+    "editor",
+    "rich-text",
+    "collaboration",
+    "yjs",
+    "crdt"
+  ],
+  "license": "MIT",
+  "version": "0.53.0",
+  "types": "./dist/typescript-too-old.d.ts",
+  "dependencies": {
+    "@lexical/extension": "workspace:*",
+    "@lexical/internal": "workspace:*",
+    "lexical": "workspace:*"
+  },
+  "devDependencies": {
+    "@y/y": "14.0.0-rc.29",
+    "ywasm": "0.28.0",
+    "ywasm-0.23": "npm:ywasm@0.23.5"
+  },
+  "peerDependencies": {
+    "@y/y": "14.0.0-rc.29",
+    "typescript": ">=5.2"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/meta/lexical.git",
+    "directory": "packages/lexical-y"
+  },
+  "sideEffects": false,
+  "exports": {
+    "./headless": {
+      "source": "./src/headless.ts",
+      "types@<5.2": "./dist/typescript-too-old.d.ts",
+      "types": "./dist/headless.d.ts",
+      "development": "./dist/LexicalYHeadless.dev.js",
+      "production": "./dist/LexicalYHeadless.prod.js",
+      "default": "./dist/LexicalYHeadless.js"
+    },
+    "./headless.js": {
+      "source": "./src/headless.ts",
+      "types@<5.2": "./dist/typescript-too-old.d.ts",
+      "types": "./dist/headless.d.ts",
+      "development": "./dist/LexicalYHeadless.dev.js",
+      "production": "./dist/LexicalYHeadless.prod.js",
+      "default": "./dist/LexicalYHeadless.js"
+    },
+    ".": {
+      "source": "./src/index.ts",
+      "types@<5.2": "./dist/typescript-too-old.d.ts",
+      "types": "./dist/index.d.ts",
+      "development": "./dist/LexicalY.dev.js",
+      "production": "./dist/LexicalY.prod.js",
+      "default": "./dist/LexicalY.js"
+    },
+    "./migrate": {
+      "source": "./src/migrate.ts",
+      "types@<5.2": "./dist/typescript-too-old.d.ts",
+      "types": "./dist/migrate.d.ts",
+      "development": "./dist/LexicalYMigrate.dev.js",
+      "production": "./dist/LexicalYMigrate.prod.js",
+      "default": "./dist/LexicalYMigrate.js"
+    },
+    "./migrate.js": {
+      "source": "./src/migrate.ts",
+      "types@<5.2": "./dist/typescript-too-old.d.ts",
+      "types": "./dist/migrate.d.ts",
+      "development": "./dist/LexicalYMigrate.dev.js",
+      "production": "./dist/LexicalYMigrate.prod.js",
+      "default": "./dist/LexicalYMigrate.js"
+    },
+    "./migrate/1to2": {
+      "source": "./src/migrate/1to2.ts",
+      "types@<5.2": "./dist/typescript-too-old.d.ts",
+      "types": "./dist/migrate/1to2.d.ts",
+      "development": "./dist/LexicalYMigrate1to2.dev.js",
+      "production": "./dist/LexicalYMigrate1to2.prod.js",
+      "default": "./dist/LexicalYMigrate1to2.js"
+    },
+    "./migrate/1to2.js": {
+      "source": "./src/migrate/1to2.ts",
+      "types@<5.2": "./dist/typescript-too-old.d.ts",
+      "types": "./dist/migrate/1to2.d.ts",
+      "development": "./dist/LexicalYMigrate1to2.dev.js",
+      "production": "./dist/LexicalYMigrate1to2.prod.js",
+      "default": "./dist/LexicalYMigrate1to2.js"
+    },
+    "./migrate/2to3": {
+      "source": "./src/migrate/2to3.ts",
+      "types@<5.2": "./dist/typescript-too-old.d.ts",
+      "types": "./dist/migrate/2to3.d.ts",
+      "development": "./dist/LexicalYMigrate2to3.dev.js",
+      "production": "./dist/LexicalYMigrate2to3.prod.js",
+      "default": "./dist/LexicalYMigrate2to3.js"
+    },
+    "./migrate/2to3.js": {
+      "source": "./src/migrate/2to3.ts",
+      "types@<5.2": "./dist/typescript-too-old.d.ts",
+      "types": "./dist/migrate/2to3.d.ts",
+      "development": "./dist/LexicalYMigrate2to3.dev.js",
+      "production": "./dist/LexicalYMigrate2to3.prod.js",
+      "default": "./dist/LexicalYMigrate2to3.js"
+    },
+    "./server": {
+      "source": "./src/server.ts",
+      "types@<5.2": "./dist/typescript-too-old.d.ts",
+      "types": "./dist/server.d.ts",
+      "development": "./dist/LexicalYServer.dev.js",
+      "production": "./dist/LexicalYServer.prod.js",
+      "default": "./dist/LexicalYServer.js"
+    },
+    "./server.js": {
+      "source": "./src/server.ts",
+      "types@<5.2": "./dist/typescript-too-old.d.ts",
+      "types": "./dist/server.d.ts",
+      "development": "./dist/LexicalYServer.dev.js",
+      "production": "./dist/LexicalYServer.prod.js",
+      "default": "./dist/LexicalYServer.js"
+    }
+  },
+  "files": [
+    "dist",
+    "src",
+    "!src/__tests__",
+    "!src/__bench__",
+    "!src/__mocks__",
+    "!src/**/*.test.ts",
+    "!src/**/*.test.tsx",
+    "!src/**/*.bench.ts",
+    "!src/**/*.bench.tsx",
+    "README.md",
+    "LICENSE"
+  ],
+  "typesVersions": {
+    "*": {
+      "*": [
+        "./dist/typescript-too-old.d.ts"
+      ]
+    }
+  },
+  "peerDependenciesMeta": {
+    "typescript": {
+      "optional": true
+    }
+  },
+  "type": "module"
+}

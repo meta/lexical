@@ -23,6 +23,8 @@ import {$dfsWithSlotsIterator} from '@lexical/utils';
 import {
   $getNodeByKeyOrThrow,
   $getRoot,
+  $isBlockElementNode,
+  $isDecoratorNode,
   $isElementNode,
   $isLineBreakNode,
   $isTextNode,
@@ -30,6 +32,7 @@ import {
   configExtension,
   CONTROL_OR_META,
   createCommand,
+  DecoratorNode,
   defineExtension,
   IS_APPLE,
   isExactShortcutMatch,
@@ -124,19 +127,13 @@ export function expandReplacement(
 export function $buildOffsetMap(): OffsetEntry[] {
   const entries: OffsetEntry[] = [];
   let offset = 0;
-  let prevNonInlineDepth: number | null = null;
 
-  for (const {node, depth} of $dfsWithSlotsIterator()) {
-    if ($isElementNode(node) && !node.isInline() && depth > 0) {
-      if (prevNonInlineDepth !== null && depth <= prevNonInlineDepth) {
-        offset += 2;
-      }
-      prevNonInlineDepth = depth;
+  for (const {node} of $dfsWithSlotsIterator()) {
+    // Handle a preceding non-inline ElementNode's '\n\n'
+    if ($isBlockElementNode(node.getPreviousSibling())) {
+      offset += 2;
     }
-
-    if ($isLineBreakNode(node)) {
-      offset += 1;
-    } else if ($isTextNode(node)) {
+    if ($isTextNode(node)) {
       const len = node.getTextContentSize();
       entries.push({
         globalEnd: offset + len,
@@ -144,9 +141,30 @@ export function $buildOffsetMap(): OffsetEntry[] {
         key: node.__key,
       });
       offset += len;
+    } else if ($isLineBreakNode(node)) {
+      offset += 1;
+    } else if ($isElementNode(node)) {
+      // An override of ElementNode.getTextContent() is ignored here, and would
+      // require a specific handler for the same reasons as DecoratorNode below
+    } else if ($isDecoratorNode(node)) {
+      // The default implementation of DecoratorNode.getTextContent()
+      // only returns the contents of the slots, which are traversed
+      // after this node. We skip calling getTextContentSize for nodes
+      // that use it to avoid double-counting slot text.
+      //
+      // This algorithm would be incorrect for a DecoratorNode that overrides
+      // getTextContentSize and has slots, but the API provides no way for
+      // us to know where the customized text was inserted relative to the
+      // slot text (or if the slot text is represented at all). There are no
+      // DecoratorNodes in the playground that override getTextContent and
+      // have slots, but if you are adapting this to an application that
+      // does you will need to address it accordingly.
+      offset +=
+        node.getTextContent === DecoratorNode.prototype.getTextContent
+          ? 0
+          : node.getTextContentSize();
     }
   }
-
   return entries;
 }
 

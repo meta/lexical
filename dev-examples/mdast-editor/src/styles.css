@@ -414,3 +414,9 @@ br[data-lexical-managed-linebreak] + .footnote-def-backlinks {
 [data-lexical-editor][contenteditable='false'] .markdown-alert-title::after {
   content: none;
 }
+
+/* A multi-cell table selection shows the selected cells, not the native
+   text selection across them. */
+.table-selection *::selection {
+  background: transparent;
+}

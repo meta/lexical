@@ -15,14 +15,11 @@
 // Usage: node scripts/check-homepage-examples.mjs
 // Assumes `build/` already exists (run the docusaurus build first).
 
-import {createReadStream, existsSync, statSync} from 'node:fs';
-import {createServer} from 'node:http';
+import {existsSync} from 'node:fs';
 import path from 'node:path';
-import {fileURLToPath} from 'node:url';
 import {chromium} from 'playwright';
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const BUILD_DIR = path.resolve(__dirname, '..', 'build');
+import {BUILD_DIR, startServer} from './serve-built-website.mjs';
 
 // The homepage editor examples, keyed by the `data-example-error` marker that
 // ExampleErrorBoundary renders on failure (matches `stackblitzPath`).
@@ -42,45 +39,6 @@ const IGNORED_ERROR_PATTERNS = [
   /ERR_TUNNEL_CONNECTION_FAILED/,
   /Failed to load resource/,
 ];
-
-const CONTENT_TYPES = {
-  '.css': 'text/css',
-  '.html': 'text/html; charset=utf-8',
-  '.js': 'text/javascript',
-  '.json': 'application/json',
-  '.mjs': 'text/javascript',
-  '.svg': 'image/svg+xml',
-  '.wasm': 'application/wasm',
-};
-
-function startServer() {
-  const server = createServer((req, res) => {
-    const urlPath = decodeURIComponent((req.url || '/').split('?')[0]);
-    let filePath = path.join(BUILD_DIR, urlPath);
-    if (existsSync(filePath) && statSync(filePath).isDirectory()) {
-      filePath = path.join(filePath, 'index.html');
-    }
-    if (!existsSync(filePath)) {
-      // Only fall back to the SPA shell for extension-less client routes;
-      // a missing asset must 404 so it surfaces as a real failure.
-      if (path.extname(urlPath) === '') {
-        filePath = path.join(BUILD_DIR, 'index.html');
-      } else {
-        res.writeHead(404);
-        res.end('Not found');
-        return;
-      }
-    }
-    res.writeHead(200, {
-      'Content-Type':
-        CONTENT_TYPES[path.extname(filePath)] || 'application/octet-stream',
-    });
-    createReadStream(filePath).pipe(res);
-  });
-  return new Promise(resolve => {
-    server.listen(0, '127.0.0.1', () => resolve(server));
-  });
-}
 
 async function main() {
   if (!existsSync(path.join(BUILD_DIR, 'index.html'))) {

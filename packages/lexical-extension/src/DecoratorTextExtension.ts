@@ -18,6 +18,7 @@ import {
   type LexicalEditor,
   type LexicalNode,
   type NodeStateVersion,
+  numberValue,
   type SerializedLexicalNode,
   type Spread,
   type StateConfigValue,
@@ -35,7 +36,7 @@ export type SerializedDecoratorTextNode = Spread<
 >;
 
 const formatState = createState('format', {
-  parse: value => (typeof value === 'number' ? value : 0),
+  parse: numberValue(),
 });
 
 export class DecoratorTextNode

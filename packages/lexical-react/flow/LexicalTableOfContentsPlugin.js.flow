@@ -10,7 +10,7 @@
 import type {HeadingTagType} from '@lexical/rich-text';
 import type {LexicalEditor, NodeKey} from 'lexical';
 
-declare export function TableOfContentsPlugin({
+declare export function TableOfContentsPlugin(v: {
   children: (
     tableOfContents: [NodeKey, string, HeadingTagType][],
     editor: LexicalEditor,

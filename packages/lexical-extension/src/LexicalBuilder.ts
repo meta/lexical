@@ -26,15 +26,15 @@ import {
 } from 'lexical';
 
 import {getNodeConfig} from './config';
-import {deepThemeMergeInPlace} from './deepThemeMergeInPlace';
+import {InitialStateExtension} from './InitialStateExtension';
+import {deepThemeMergeInPlace} from './internal/deepThemeMergeInPlace';
 import {
   applyPermanentMark,
   applyTemporaryMark,
   ExtensionRep,
   isExactlyPermanentExtensionRepState,
   isExactlyUnmarkedExtensionRepState,
-} from './ExtensionRep';
-import {InitialStateExtension} from './InitialStateExtension';
+} from './internal/ExtensionRep';
 
 /** @internal Use a well-known symbol for dev tools purposes */
 export const builderSymbol = Symbol.for('@lexical/extension/LexicalBuilder');
@@ -494,7 +494,13 @@ export class LexicalBuilder {
       config.theme = theme;
     }
     if (nodes.size) {
-      config.nodes = [...nodes];
+      // `Array.from` rather than `[...nodes]` on purpose. Some downstream
+      // builds lower iterable spread in loose mode, where `[...x]` becomes
+      // `[].concat(x)` — correct for arrays, but it wraps any other iterable
+      // instead of expanding it. That turned this into `[Set]`, which
+      // `createEditor` then read as a `{replace, with}` node replacement and
+      // rejected with "nodes[0] undefined is not a constructor".
+      config.nodes = Array.from(nodes);
     }
     const hasImport = Object.keys(htmlImport).length > 0;
     const hasExport = htmlExport.size > 0;

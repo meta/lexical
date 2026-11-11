@@ -14,14 +14,17 @@ import {
   $createRangeSelection,
   $createTabNode,
   $createTextNode,
+  $findMatchingParent,
   $getNodeByKey,
   $getNodeByKeyOrThrow,
   $getRoot,
   $getSelection,
   $isDecoratorNode,
   $isElementNode,
+  $isParagraphNode,
   $isRangeSelection,
   $isTabNode,
+  $isTextNode,
   $setSelection,
   createEditor,
   DecoratorNode,
@@ -31,6 +34,7 @@ import {
   type NodeKey,
   ParagraphNode,
   type RangeSelection,
+  type SerializedTextNode,
   type TabNode,
   TextNode,
 } from 'lexical';
@@ -45,8 +49,13 @@ import {
   vi,
 } from 'vitest';
 
-import {LexicalNode} from '../../LexicalNode';
 import {
+  type GetStaticNodeType,
+  type LexicalExportJSON,
+  LexicalNode,
+} from '../../LexicalNode';
+import {
+  $assertNodeType,
   $createTestElementNode,
   $createTestInlineElementNode,
   initializeUnitTest,
@@ -773,59 +782,6 @@ describe('LexicalNode tests', () => {
           ]);
         });
         expect(() => textNode.getNextSiblings()).toThrow();
-      });
-
-      test('LexicalNode.getCommonAncestor()', async () => {
-        const {editor} = testEnv;
-        let quxTextNode: TextNode;
-        let barParagraphNode: ParagraphNode;
-        let barTextNode: TextNode;
-        let bazParagraphNode: ParagraphNode;
-        let bazTextNode: TextNode;
-
-        editor.update(
-          () => {
-            const rootNode = $getRoot();
-            barParagraphNode = new ParagraphNode();
-            barTextNode = new TextNode('bar');
-            barTextNode.toggleUnmergeable();
-            bazParagraphNode = new ParagraphNode();
-            bazTextNode = new TextNode('baz');
-            bazTextNode.toggleUnmergeable();
-            expect(bazTextNode.getCommonAncestor(bazTextNode)).toBe(null);
-            quxTextNode = new TextNode('qux');
-            quxTextNode.toggleUnmergeable();
-            paragraphNode.append(quxTextNode);
-            expect(barTextNode.getCommonAncestor(bazTextNode)).toBe(null);
-            barParagraphNode.append(barTextNode);
-            bazParagraphNode.append(bazTextNode);
-            expect(barTextNode.getCommonAncestor(bazTextNode)).toBe(null);
-            expect(bazTextNode.getCommonAncestor(bazTextNode)).toBe(
-              bazParagraphNode,
-            );
-            rootNode.append(barParagraphNode, bazParagraphNode);
-          },
-          {discrete: true},
-        );
-
-        expect(testEnv.outerHTML).toBe(
-          '<div contenteditable="true" style="user-select: text; white-space: pre-wrap; word-break: break-word;" data-lexical-editor="true"><p dir="auto"><span data-lexical-text="true">foo</span><span data-lexical-text="true">qux</span></p><p dir="auto"><span data-lexical-text="true">bar</span></p><p dir="auto"><span data-lexical-text="true">baz</span></p></div>',
-        );
-
-        await editor.read('latest', () => {
-          const rootNode = $getRoot();
-          expect(textNode.getCommonAncestor(rootNode)).toBe(rootNode);
-          expect(quxTextNode.getCommonAncestor(rootNode)).toBe(rootNode);
-          expect(barTextNode.getCommonAncestor(rootNode)).toBe(rootNode);
-          expect(bazTextNode.getCommonAncestor(rootNode)).toBe(rootNode);
-          expect(textNode.getCommonAncestor(quxTextNode)).toBe(
-            paragraphNode.getLatest(),
-          );
-          expect(barTextNode.getCommonAncestor(bazTextNode)).toBe(rootNode);
-          expect(barTextNode.getCommonAncestor(bazTextNode)).toBe(rootNode);
-        });
-
-        expect(() => textNode.getCommonAncestor(barTextNode)).toThrow();
       });
 
       test('LexicalNode.isBefore()', async () => {
@@ -1566,7 +1522,7 @@ describe('LexicalNode tests', () => {
                 text: 'codegen!',
                 type: 'custom-text',
                 version: 1,
-              });
+              } as SerializedTextNode);
               expect(node).toBeInstanceOf(CustomTextNode);
               expect(node.getType()).toBe('custom-text');
               expect(node.getTextContent()).toBe('codegen!');
@@ -1578,7 +1534,7 @@ describe('LexicalNode tests', () => {
           class SNCVersionedTextNode extends TextNode {
             __version = 0;
             $config() {
-              return this.config('snc-vtext', {});
+              return this.config('snc-vtext', {extends: TextNode});
             }
             afterCloneFrom(node: this): void {
               super.afterCloneFrom(node);
@@ -2061,6 +2017,855 @@ describe('Element-anchored selection on old parent (#6031)', () => {
   });
 });
 
+describe('insertAfter selection side effects', () => {
+  initializeUnitTest(testEnv => {
+    // insertAfter reads getIndexWithinParent for two reasons only: to shift
+    // element-anchored offsets in the parent that loses the node and in the
+    // parent that gains it, and to re-anchor a point that was sitting on the
+    // node itself when it moves between parents (#6031). These pin every one
+    // of those effects, including the offsets, so that any change to when the
+    // index is computed has to keep producing the same selection.
+    type Refs = {
+      source: ElementNode;
+      target: ElementNode;
+      mover: ElementNode;
+      inTarget: ElementNode;
+    };
+    // source holds [mover, a2, a3]; target holds [inTarget]. Moving mover
+    // into target puts it at target offset 1, so a point that was on mover
+    // (source offset 1) belongs at target offset 2 afterwards.
+    const $setupTwoContainers = (out: Refs) => {
+      const root = $getRoot().clear();
+      out.source = $createTestElementNode();
+      out.target = $createTestElementNode();
+      out.mover = $createParagraphNode();
+      out.inTarget = $createParagraphNode();
+      out.source.append(
+        out.mover,
+        $createParagraphNode(),
+        $createParagraphNode(),
+      );
+      out.target.append(out.inTarget);
+      root.append(out.source, out.target);
+    };
+
+    test('cross-parent move re-anchors a collapsed point that sat on the moved node', () => {
+      const {editor} = testEnv;
+      let targetKey = '';
+      editor.update(
+        () => {
+          const refs = {} as Refs;
+          $setupTwoContainers(refs);
+          targetKey = refs.target.__key;
+          // Collapsed at source offset 1, which is mover's index (0) plus
+          // one: the point is immediately after the node being moved, so it
+          // has to follow the node into target rather than stay behind.
+          refs.source.select(1, 1);
+          refs.inTarget.insertAfter(refs.mover);
+        },
+        {discrete: true},
+      );
+      editor.read(() => {
+        const sel = $getSelection();
+        invariant($isRangeSelection(sel));
+        expect(sel.anchor.key).toBe(targetKey);
+        expect(sel.anchor.type).toBe('element');
+        expect(sel.anchor.offset).toBe(2);
+        expect(sel.focus.key).toBe(targetKey);
+        expect(sel.focus.offset).toBe(2);
+      });
+    });
+
+    test('cross-parent move re-anchors only the point that sat on the moved node', () => {
+      const {editor} = testEnv;
+      let sourceKey = '';
+      let targetKey = '';
+      editor.update(
+        () => {
+          const refs = {} as Refs;
+          $setupTwoContainers(refs);
+          sourceKey = refs.source.__key;
+          targetKey = refs.target.__key;
+          // Anchor at source offset 0 is at the removed index, so it stays
+          // put; focus at 1 sat on mover and follows it into target.
+          refs.source.select(0, 1);
+          refs.inTarget.insertAfter(refs.mover);
+        },
+        {discrete: true},
+      );
+      editor.read(() => {
+        const sel = $getSelection();
+        invariant($isRangeSelection(sel));
+        expect(sel.anchor.key).toBe(sourceKey);
+        expect(sel.anchor.type).toBe('element');
+        expect(sel.anchor.offset).toBe(0);
+        expect(sel.focus.key).toBe(targetKey);
+        expect(sel.focus.type).toBe('element');
+        expect(sel.focus.offset).toBe(2);
+      });
+    });
+
+    test('cross-parent move shifts a source point past the removed index (times=-1)', () => {
+      const {editor} = testEnv;
+      let sourceKey = '';
+      editor.update(
+        () => {
+          const refs = {} as Refs;
+          $setupTwoContainers(refs);
+          sourceKey = refs.source.__key;
+          // Offset 2 is past mover's index (0) but not on it, so the removal
+          // shift applies and no re-anchor does.
+          refs.source.select(2, 2);
+          refs.inTarget.insertAfter(refs.mover);
+        },
+        {discrete: true},
+      );
+      editor.read(() => {
+        const sel = $getSelection();
+        invariant($isRangeSelection(sel));
+        expect(sel.anchor.key).toBe(sourceKey);
+        expect(sel.anchor.type).toBe('element');
+        expect(sel.anchor.offset).toBe(1);
+        expect(sel.focus.offset).toBe(1);
+      });
+    });
+
+    test('collapsed point on the destination parent shifts by one', () => {
+      const {editor} = testEnv;
+      let parentKey = '';
+      editor.update(
+        () => {
+          const root = $getRoot().clear();
+          const parent = $createTestElementNode();
+          const a = $createParagraphNode();
+          parent.append(a, $createParagraphNode());
+          root.append(parent);
+          parentKey = parent.__key;
+          // Collapsed at the end of [a, b]. Inserting after a lands at
+          // offset 1, so the cursor moves to 3.
+          parent.select(2, 2);
+          a.insertAfter($createParagraphNode());
+        },
+        {discrete: true},
+      );
+      editor.read(() => {
+        const sel = $getSelection();
+        invariant($isRangeSelection(sel));
+        expect(sel.anchor.key).toBe(parentKey);
+        expect(sel.anchor.type).toBe('element');
+        expect(sel.anchor.offset).toBe(3);
+        expect(sel.focus.offset).toBe(3);
+      });
+    });
+
+    test('non-collapsed selection on the destination parent shifts only the side past the insert', () => {
+      const {editor} = testEnv;
+      let parentKey = '';
+      editor.update(
+        () => {
+          const root = $getRoot().clear();
+          const parent = $createTestElementNode();
+          const a = $createParagraphNode();
+          parent.append(a, $createParagraphNode());
+          root.append(parent);
+          parentKey = parent.__key;
+          // Anchor at 0 is before the insert point (1) and stays; focus at 2
+          // is past it and shifts to 3.
+          parent.select(0, 2);
+          a.insertAfter($createParagraphNode());
+        },
+        {discrete: true},
+      );
+      editor.read(() => {
+        const sel = $getSelection();
+        invariant($isRangeSelection(sel));
+        expect(sel.anchor.key).toBe(parentKey);
+        expect(sel.anchor.offset).toBe(0);
+        expect(sel.focus.key).toBe(parentKey);
+        expect(sel.focus.offset).toBe(3);
+      });
+    });
+
+    test('restoreSelection=false leaves the destination parent offset alone', () => {
+      const {editor} = testEnv;
+      let parentKey = '';
+      editor.update(
+        () => {
+          const root = $getRoot().clear();
+          const parent = $createTestElementNode();
+          const a = $createParagraphNode();
+          parent.append(a, $createParagraphNode());
+          root.append(parent);
+          parentKey = parent.__key;
+          parent.select(2, 2);
+          a.insertAfter($createParagraphNode(), false);
+        },
+        {discrete: true},
+      );
+      editor.read(() => {
+        const sel = $getSelection();
+        invariant($isRangeSelection(sel));
+        expect(sel.anchor.key).toBe(parentKey);
+        expect(sel.anchor.offset).toBe(2);
+        expect(sel.focus.offset).toBe(2);
+      });
+    });
+
+    // Every scenario above moves `mover`, which is source's *first* child, so
+    // an oldIndex of 0 would satisfy them by accident. These two move a node
+    // from the middle instead, pinning the index value that the guarded walk
+    // computes.
+    const $setupMoverAtIndexOne = () => {
+      const root = $getRoot().clear();
+      const source = $createTestElementNode();
+      const target = $createTestElementNode();
+      const mover = $createParagraphNode();
+      const inTarget = $createParagraphNode();
+      source.append($createParagraphNode(), mover, $createParagraphNode());
+      target.append(inTarget);
+      root.append(source, target);
+      return {inTarget, mover, source, target};
+    };
+
+    test('cross-parent move leaves a point at the moved node index alone', () => {
+      const {editor} = testEnv;
+      let sourceKey = '';
+      editor.update(
+        () => {
+          const {inTarget, mover, source} = $setupMoverAtIndexOne();
+          sourceKey = source.__key;
+          // Offset 1 is exactly mover's index, so the removal must not shift
+          // it and it is not the point that sat on mover either.
+          source.select(1, 1);
+          inTarget.insertAfter(mover);
+        },
+        {discrete: true},
+      );
+      editor.read(() => {
+        const sel = $getSelection();
+        invariant($isRangeSelection(sel));
+        expect(sel.anchor.key).toBe(sourceKey);
+        expect(sel.anchor.type).toBe('element');
+        expect(sel.anchor.offset).toBe(1);
+        expect(sel.focus.offset).toBe(1);
+      });
+    });
+
+    test('cross-parent move re-anchors onto a moved node that is not the first child', () => {
+      const {editor} = testEnv;
+      let targetKey = '';
+      editor.update(
+        () => {
+          const {inTarget, mover, source, target} = $setupMoverAtIndexOne();
+          targetKey = target.__key;
+          // Offset 2 is mover's index (1) plus one, so the point sat on mover
+          // and follows it into target, landing after inTarget at offset 2.
+          source.select(2, 2);
+          inTarget.insertAfter(mover);
+        },
+        {discrete: true},
+      );
+      editor.read(() => {
+        const sel = $getSelection();
+        invariant($isRangeSelection(sel));
+        expect(sel.anchor.key).toBe(targetKey);
+        expect(sel.anchor.type).toBe('element');
+        expect(sel.anchor.offset).toBe(2);
+        expect(sel.focus.key).toBe(targetKey);
+        expect(sel.focus.offset).toBe(2);
+      });
+    });
+
+    // The two tests below put the anchor in a container the move does not
+    // touch, so the parent that loses (or gains) the node is reachable only
+    // through the focus. A guard that inspected the anchor alone would skip
+    // the index walk here and silently leave the focus behind.
+    test('cross-parent move re-anchors a focus-only point that sat on the moved node', () => {
+      const {editor} = testEnv;
+      let otherKey = '';
+      let targetKey = '';
+      editor.update(
+        () => {
+          const refs = {} as Refs;
+          $setupTwoContainers(refs);
+          const other = $createTestElementNode();
+          other.append($createParagraphNode(), $createParagraphNode());
+          $getRoot().append(other);
+          otherKey = other.__key;
+          targetKey = refs.target.__key;
+          const sel = $createRangeSelection();
+          sel.anchor.set(otherKey, 1, 'element');
+          // source offset 1 is mover's index (0) plus one, so the focus sat
+          // on mover and has to follow it into target.
+          sel.focus.set(refs.source.__key, 1, 'element');
+          $setSelection(sel);
+          refs.inTarget.insertAfter(refs.mover);
+        },
+        {discrete: true},
+      );
+      editor.read(() => {
+        const sel = $getSelection();
+        invariant($isRangeSelection(sel));
+        expect(sel.anchor.key).toBe(otherKey);
+        expect(sel.anchor.offset).toBe(1);
+        expect(sel.focus.key).toBe(targetKey);
+        expect(sel.focus.type).toBe('element');
+        expect(sel.focus.offset).toBe(2);
+      });
+    });
+
+    test('insert shifts a focus-only point on the destination parent', () => {
+      const {editor} = testEnv;
+      let otherKey = '';
+      let parentKey = '';
+      editor.update(
+        () => {
+          const root = $getRoot().clear();
+          const parent = $createTestElementNode();
+          const a = $createParagraphNode();
+          parent.append(a, $createParagraphNode());
+          const other = $createTestElementNode();
+          other.append($createParagraphNode(), $createParagraphNode());
+          root.append(parent, other);
+          parentKey = parent.__key;
+          otherKey = other.__key;
+          const sel = $createRangeSelection();
+          sel.anchor.set(otherKey, 1, 'element');
+          sel.focus.set(parentKey, 2, 'element');
+          $setSelection(sel);
+          // The fresh node lands at offset 1, so the focus at 2 moves to 3.
+          a.insertAfter($createParagraphNode());
+        },
+        {discrete: true},
+      );
+      editor.read(() => {
+        const sel = $getSelection();
+        invariant($isRangeSelection(sel));
+        expect(sel.anchor.key).toBe(otherKey);
+        expect(sel.anchor.offset).toBe(1);
+        expect(sel.focus.key).toBe(parentKey);
+        expect(sel.focus.type).toBe('element');
+        expect(sel.focus.offset).toBe(3);
+      });
+    });
+
+    test('cross-parent move re-anchors an anchor-only point that sat on the moved node', () => {
+      const {editor} = testEnv;
+      let otherKey = '';
+      let targetKey = '';
+      editor.update(
+        () => {
+          const refs = {} as Refs;
+          $setupTwoContainers(refs);
+          const other = $createTestElementNode();
+          other.append($createParagraphNode(), $createParagraphNode());
+          $getRoot().append(other);
+          otherKey = other.__key;
+          targetKey = refs.target.__key;
+          const sel = $createRangeSelection();
+          // The mirror of the test above: this time the focus is the one in
+          // the untouched container, so the move is reachable only through
+          // the anchor.
+          sel.anchor.set(refs.source.__key, 1, 'element');
+          sel.focus.set(otherKey, 1, 'element');
+          $setSelection(sel);
+          refs.inTarget.insertAfter(refs.mover);
+        },
+        {discrete: true},
+      );
+      editor.read(() => {
+        const sel = $getSelection();
+        invariant($isRangeSelection(sel));
+        expect(sel.anchor.key).toBe(targetKey);
+        expect(sel.anchor.type).toBe('element');
+        expect(sel.anchor.offset).toBe(2);
+        expect(sel.focus.key).toBe(otherKey);
+        expect(sel.focus.offset).toBe(1);
+      });
+    });
+
+    test('a point in an unrelated parent survives a cross-parent move untouched', () => {
+      const {editor} = testEnv;
+      let otherKey = '';
+      editor.update(
+        () => {
+          const refs = {} as Refs;
+          $setupTwoContainers(refs);
+          const other = $createTestElementNode();
+          other.append($createParagraphNode(), $createParagraphNode());
+          $getRoot().append(other);
+          otherKey = other.__key;
+          other.select(1, 1);
+          refs.inTarget.insertAfter(refs.mover);
+        },
+        {discrete: true},
+      );
+      editor.read(() => {
+        const sel = $getSelection();
+        invariant($isRangeSelection(sel));
+        expect(sel.anchor.key).toBe(otherKey);
+        expect(sel.anchor.offset).toBe(1);
+        expect(sel.focus.key).toBe(otherKey);
+        expect(sel.focus.offset).toBe(1);
+      });
+    });
+  });
+});
+
+describe('selectPrevious and selectNext', () => {
+  initializeUnitTest(testEnv => {
+    test('both land on the sibling index', () => {
+      const {editor} = testEnv;
+      let paragraphKey = '';
+      editor.update(
+        () => {
+          const paragraph = $createParagraphNode();
+          const first = $createLineBreakNode();
+          const middle = $createLineBreakNode();
+          const last = $createLineBreakNode();
+          paragraph.append(first, middle, last);
+          $getRoot().clear().append(paragraph);
+          paragraphKey = paragraph.__key;
+          // A LineBreakNode sibling is neither an element nor a text node,
+          // so both helpers resolve it through its index in the parent.
+          const sel = last.selectPrevious();
+          expect(sel.anchor.key).toBe(paragraphKey);
+          expect(sel.anchor.type).toBe('element');
+          expect(sel.anchor.offset).toBe(2);
+          expect(sel.focus.offset).toBe(2);
+          const nextSel = first.selectNext();
+          expect(nextSel.anchor.key).toBe(paragraphKey);
+          expect(nextSel.anchor.type).toBe('element');
+          expect(nextSel.anchor.offset).toBe(1);
+          expect(nextSel.focus.offset).toBe(1);
+        },
+        {discrete: true},
+      );
+    });
+  });
+});
+
+describe('insertBefore, remove and replace selection side effects', () => {
+  initializeUnitTest(testEnv => {
+    // insertBefore, $removeNode and replace each read getIndexWithinParent
+    // purely to shift element-anchored offsets in the parent whose child
+    // count changed. Like the insertAfter block above, these pin the offsets
+    // so that skipping the walk when no selection point can observe it has
+    // to keep producing the same selection.
+    // source holds [s0, s1, s2]; target holds [t0, t1].
+    const $setup = () => {
+      const root = $getRoot().clear();
+      const source = $createTestElementNode();
+      const target = $createTestElementNode();
+      source.append(
+        $createParagraphNode(),
+        $createParagraphNode(),
+        $createParagraphNode(),
+      );
+      target.append($createParagraphNode(), $createParagraphNode());
+      root.append(source, target);
+      return {source, target};
+    };
+
+    const expectSelection = (
+      editor: LexicalEditor,
+      anchorKey: string,
+      anchorOffset: number,
+      focusKey = anchorKey,
+      focusOffset = anchorOffset,
+    ) => {
+      editor.read(() => {
+        const sel = $getSelection();
+        invariant($isRangeSelection(sel));
+        expect(sel.anchor.key).toBe(anchorKey);
+        expect(sel.anchor.type).toBe('element');
+        expect(sel.anchor.offset).toBe(anchorOffset);
+        expect(sel.focus.key).toBe(focusKey);
+        expect(sel.focus.type).toBe('element');
+        expect(sel.focus.offset).toBe(focusOffset);
+      });
+    };
+
+    test('insertBefore shifts a point past the removed index in the old parent', () => {
+      const {editor} = testEnv;
+      let sourceKey = '';
+      editor.update(
+        () => {
+          const {source, target} = $setup();
+          sourceKey = source.__key;
+          // Offset 2 is past s1's index (1), so the removal shifts it to 1.
+          source.select(2, 2);
+          target.getLastChildOrThrow().insertBefore(source.getChildAtIndex(1)!);
+        },
+        {discrete: true},
+      );
+      expectSelection(editor, sourceKey, 1);
+    });
+
+    test('insertBefore leaves a point at the removed index in the old parent alone', () => {
+      const {editor} = testEnv;
+      let sourceKey = '';
+      editor.update(
+        () => {
+          const {source, target} = $setup();
+          sourceKey = source.__key;
+          // Offset 1 is exactly s1's index, so the removal must not shift it.
+          // This pins the index value itself, not just that an update ran.
+          source.select(1, 1);
+          target.getLastChildOrThrow().insertBefore(source.getChildAtIndex(1)!);
+        },
+        {discrete: true},
+      );
+      expectSelection(editor, sourceKey, 1);
+    });
+
+    test('insertBefore shifts a point at or past the insert index in the new parent', () => {
+      const {editor} = testEnv;
+      let targetKey = '';
+      editor.update(
+        () => {
+          const {target} = $setup();
+          targetKey = target.__key;
+          // t1 is at index 1, so the fresh node lands there and the collapsed
+          // point at the end of [t0, t1] moves from 2 to 3.
+          target.select(2, 2);
+          target.getLastChildOrThrow().insertBefore($createParagraphNode());
+        },
+        {discrete: true},
+      );
+      expectSelection(editor, targetKey, 3);
+    });
+
+    test('insertBefore leaves a point before the insert index alone', () => {
+      const {editor} = testEnv;
+      let targetKey = '';
+      editor.update(
+        () => {
+          const {target} = $setup();
+          targetKey = target.__key;
+          // Anchor at 0 is before the insert index (1) and stays; focus at 2
+          // is past it and shifts to 3.
+          target.select(0, 2);
+          target.getLastChildOrThrow().insertBefore($createParagraphNode());
+        },
+        {discrete: true},
+      );
+      expectSelection(editor, targetKey, 0, targetKey, 3);
+    });
+
+    test('insertBefore with restoreSelection=false leaves both parents alone', () => {
+      const {editor} = testEnv;
+      let targetKey = '';
+      editor.update(
+        () => {
+          const {target} = $setup();
+          targetKey = target.__key;
+          target.select(2, 2);
+          target
+            .getLastChildOrThrow()
+            .insertBefore($createParagraphNode(), false);
+        },
+        {discrete: true},
+      );
+      expectSelection(editor, targetKey, 2);
+    });
+
+    test('insertBefore leaves a point in an unrelated parent untouched', () => {
+      const {editor} = testEnv;
+      let sourceKey = '';
+      editor.update(
+        () => {
+          const {source, target} = $setup();
+          sourceKey = source.__key;
+          // The selection is on source, which neither loses nor gains a child.
+          source.select(1, 1);
+          target.getLastChildOrThrow().insertBefore($createParagraphNode());
+        },
+        {discrete: true},
+      );
+      expectSelection(editor, sourceKey, 1);
+    });
+
+    test('remove shifts a point past the removed index', () => {
+      const {editor} = testEnv;
+      let sourceKey = '';
+      editor.update(
+        () => {
+          const {source} = $setup();
+          sourceKey = source.__key;
+          // Offset 3 is past s1's index (1), so it shifts to 2.
+          source.select(3, 3);
+          source.getChildAtIndex(1)!.remove();
+        },
+        {discrete: true},
+      );
+      expectSelection(editor, sourceKey, 2);
+    });
+
+    test('remove leaves a point at or before the removed index alone', () => {
+      const {editor} = testEnv;
+      let sourceKey = '';
+      editor.update(
+        () => {
+          const {source} = $setup();
+          sourceKey = source.__key;
+          // Anchor at 1 is *at* the removed index so it stays; focus at 3 is
+          // past it and shifts to 2.
+          source.select(1, 3);
+          source.getChildAtIndex(1)!.remove();
+        },
+        {discrete: true},
+      );
+      expectSelection(editor, sourceKey, 1, sourceKey, 2);
+    });
+
+    test('remove leaves a point in an unrelated parent untouched', () => {
+      const {editor} = testEnv;
+      let targetKey = '';
+      editor.update(
+        () => {
+          const {source, target} = $setup();
+          targetKey = target.__key;
+          target.select(2, 2);
+          source.getChildAtIndex(1)!.remove();
+        },
+        {discrete: true},
+      );
+      expectSelection(editor, targetKey, 2);
+    });
+
+    test("replace shifts a point past the replacement's index in its old parent", () => {
+      const {editor} = testEnv;
+      let sourceKey = '';
+      editor.update(
+        () => {
+          const {source, target} = $setup();
+          sourceKey = source.__key;
+          // s1 leaves source at index 1 to replace t0, so the point at 2
+          // shifts to 1.
+          source.select(2, 2);
+          target.getFirstChildOrThrow().replace(source.getChildAtIndex(1)!);
+        },
+        {discrete: true},
+      );
+      expectSelection(editor, sourceKey, 1);
+    });
+
+    test("replace leaves a point at the replacement's index in its old parent alone", () => {
+      const {editor} = testEnv;
+      let sourceKey = '';
+      editor.update(
+        () => {
+          const {source, target} = $setup();
+          sourceKey = source.__key;
+          // Offset 1 is exactly s1's index, so its departure must not shift
+          // the point. Pins the index value, not just that an update ran.
+          source.select(1, 1);
+          target.getFirstChildOrThrow().replace(source.getChildAtIndex(1)!);
+        },
+        {discrete: true},
+      );
+      expectSelection(editor, sourceKey, 1);
+    });
+
+    test('replace leaves a point in an unrelated parent untouched', () => {
+      const {editor} = testEnv;
+      let targetKey = '';
+      editor.update(
+        () => {
+          const {source, target} = $setup();
+          targetKey = target.__key;
+          // The point is on target, which keeps its child count across the
+          // replace, so nothing should move it.
+          target.select(2, 2);
+          target.getFirstChildOrThrow().replace(source.getChildAtIndex(1)!);
+        },
+        {discrete: true},
+      );
+      expectSelection(editor, targetKey, 2);
+    });
+
+    // As in the insertAfter block, these reach the affected parent only
+    // through the focus, so a guard that inspected the anchor alone would
+    // skip the walk and leave the focus stale.
+    test('insertBefore shifts a focus-only point in the old parent', () => {
+      const {editor} = testEnv;
+      let otherKey = '';
+      let sourceKey = '';
+      editor.update(
+        () => {
+          const {source, target} = $setup();
+          const other = $createTestElementNode();
+          other.append($createParagraphNode(), $createParagraphNode());
+          $getRoot().append(other);
+          otherKey = other.__key;
+          sourceKey = source.__key;
+          const sel = $createRangeSelection();
+          sel.anchor.set(otherKey, 1, 'element');
+          sel.focus.set(sourceKey, 2, 'element');
+          $setSelection(sel);
+          target.getLastChildOrThrow().insertBefore(source.getChildAtIndex(1)!);
+        },
+        {discrete: true},
+      );
+      expectSelection(editor, otherKey, 1, sourceKey, 1);
+    });
+
+    test('insertBefore shifts a focus-only point in the new parent', () => {
+      const {editor} = testEnv;
+      let otherKey = '';
+      let targetKey = '';
+      editor.update(
+        () => {
+          const {target} = $setup();
+          const other = $createTestElementNode();
+          other.append($createParagraphNode(), $createParagraphNode());
+          $getRoot().append(other);
+          otherKey = other.__key;
+          targetKey = target.__key;
+          const sel = $createRangeSelection();
+          sel.anchor.set(otherKey, 1, 'element');
+          sel.focus.set(targetKey, 2, 'element');
+          $setSelection(sel);
+          target.getLastChildOrThrow().insertBefore($createParagraphNode());
+        },
+        {discrete: true},
+      );
+      expectSelection(editor, otherKey, 1, targetKey, 3);
+    });
+
+    test('remove shifts a focus-only point past the removed index', () => {
+      const {editor} = testEnv;
+      let otherKey = '';
+      let sourceKey = '';
+      editor.update(
+        () => {
+          const {source} = $setup();
+          const other = $createTestElementNode();
+          other.append($createParagraphNode(), $createParagraphNode());
+          $getRoot().append(other);
+          otherKey = other.__key;
+          sourceKey = source.__key;
+          const sel = $createRangeSelection();
+          sel.anchor.set(otherKey, 1, 'element');
+          sel.focus.set(sourceKey, 3, 'element');
+          $setSelection(sel);
+          source.getChildAtIndex(1)!.remove();
+        },
+        {discrete: true},
+      );
+      expectSelection(editor, otherKey, 1, sourceKey, 2);
+    });
+
+    test("replace shifts a focus-only point in the replacement's old parent", () => {
+      const {editor} = testEnv;
+      let otherKey = '';
+      let sourceKey = '';
+      editor.update(
+        () => {
+          const {source, target} = $setup();
+          const other = $createTestElementNode();
+          other.append($createParagraphNode(), $createParagraphNode());
+          $getRoot().append(other);
+          otherKey = other.__key;
+          sourceKey = source.__key;
+          const sel = $createRangeSelection();
+          sel.anchor.set(otherKey, 1, 'element');
+          sel.focus.set(sourceKey, 2, 'element');
+          $setSelection(sel);
+          target.getFirstChildOrThrow().replace(source.getChildAtIndex(1)!);
+        },
+        {discrete: true},
+      );
+      expectSelection(editor, otherKey, 1, sourceKey, 1);
+    });
+
+    test('insertBefore shifts an anchor-only point in the new parent', () => {
+      const {editor} = testEnv;
+      let otherKey = '';
+      let targetKey = '';
+      editor.update(
+        () => {
+          const {target} = $setup();
+          const other = $createTestElementNode();
+          other.append($createParagraphNode(), $createParagraphNode());
+          $getRoot().append(other);
+          otherKey = other.__key;
+          targetKey = target.__key;
+          const sel = $createRangeSelection();
+          sel.anchor.set(targetKey, 2, 'element');
+          sel.focus.set(otherKey, 1, 'element');
+          $setSelection(sel);
+          target.getLastChildOrThrow().insertBefore($createParagraphNode());
+        },
+        {discrete: true},
+      );
+      expectSelection(editor, targetKey, 3, otherKey, 1);
+    });
+
+    test('remove shifts an anchor-only point past the removed index', () => {
+      const {editor} = testEnv;
+      let otherKey = '';
+      let sourceKey = '';
+      editor.update(
+        () => {
+          const {source} = $setup();
+          const other = $createTestElementNode();
+          other.append($createParagraphNode(), $createParagraphNode());
+          $getRoot().append(other);
+          otherKey = other.__key;
+          sourceKey = source.__key;
+          const sel = $createRangeSelection();
+          sel.anchor.set(sourceKey, 3, 'element');
+          sel.focus.set(otherKey, 1, 'element');
+          $setSelection(sel);
+          source.getChildAtIndex(1)!.remove();
+        },
+        {discrete: true},
+      );
+      expectSelection(editor, sourceKey, 2, otherKey, 1);
+    });
+
+    test("replace shifts an anchor-only point in the replacement's old parent", () => {
+      const {editor} = testEnv;
+      let otherKey = '';
+      let sourceKey = '';
+      editor.update(
+        () => {
+          const {source, target} = $setup();
+          const other = $createTestElementNode();
+          other.append($createParagraphNode(), $createParagraphNode());
+          $getRoot().append(other);
+          otherKey = other.__key;
+          sourceKey = source.__key;
+          const sel = $createRangeSelection();
+          sel.anchor.set(sourceKey, 2, 'element');
+          sel.focus.set(otherKey, 1, 'element');
+          $setSelection(sel);
+          target.getFirstChildOrThrow().replace(source.getChildAtIndex(1)!);
+        },
+        {discrete: true},
+      );
+      expectSelection(editor, sourceKey, 1, otherKey, 1);
+    });
+
+    test('replace with a fresh node leaves the parent offsets alone', () => {
+      const {editor} = testEnv;
+      let targetKey = '';
+      editor.update(
+        () => {
+          const {target} = $setup();
+          targetKey = target.__key;
+          target.select(2, 2);
+          target.getFirstChildOrThrow().replace($createParagraphNode());
+        },
+        {discrete: true},
+      );
+      expectSelection(editor, targetKey, 2);
+    });
+  });
+});
+
 describe('replace(other, includeChildren) selection mapping', () => {
   initializeUnitTest(testEnv => {
     // When `replace` transfers `this`'s children into `other`, the
@@ -2241,6 +3046,17 @@ describe('replace(other, includeChildren) selection mapping', () => {
   });
 });
 
+describe('LexicalNode.$config() inferred types', () => {
+  test('GetStaticNodeType / LexicalExportJSON recover the literal node type', () => {
+    // Left to inference (not widened to BaseStaticNodeConfig), $config()'s
+    // return type lets GetStaticNodeType recover the literal node `type`, so
+    // LexicalExportJSON can build the full serialized type from it. Annotating
+    // `$config(): BaseStaticNodeConfig` would collapse both to `string`.
+    expectTypeOf<GetStaticNodeType<TextNode>>().toEqualTypeOf<'text'>();
+    expectTypeOf<LexicalExportJSON<TextNode>['type']>().toEqualTypeOf<'text'>();
+  });
+});
+
 // These are outside of the above suite because of the
 // LexicalNode getType mock which ruins it
 describe('LexicalNode.$config() without registration', () => {
@@ -2385,6 +3201,7 @@ describe('LexicalNode.$config() without registration', () => {
           $transform: (node: AbstractBaseNode) => {
             transformed.push(node.getType());
           },
+          extends: ElementNode,
         });
       }
     }
@@ -2454,13 +3271,11 @@ describe('LexicalNode.$config() without registration', () => {
     );
   });
 
-  test('traversal methods return base node types unless explicitly cast', () => {
-    // The type parameters on the traversal methods are deprecated unchecked
-    // casts. Calls without a type argument must resolve to the base node
-    // types rather than inferring the type parameter from context.
+  test('traversal methods require guards to narrow base node types', () => {
     const $checkTraversalTypes = (node: LexicalNode, element: ElementNode) => {
       expectTypeOf(node.getParent()).toEqualTypeOf<ElementNode | null>();
       expectTypeOf(node.getParentOrThrow()).toEqualTypeOf<ElementNode>();
+      expectTypeOf(node.getParents()).toEqualTypeOf<ElementNode[]>();
       expectTypeOf(
         node.getPreviousSibling(),
       ).toEqualTypeOf<LexicalNode | null>();
@@ -2490,25 +3305,34 @@ describe('LexicalNode.$config() without registration', () => {
       expectTypeOf(
         $getNodeByKeyOrThrow(node.getKey()),
       ).toEqualTypeOf<LexicalNode>();
-      // The deprecated generic overloads remain callable so that existing
-      // code continues to compile during migration.
-      expectTypeOf(
-        node.getParent<ParagraphNode>(),
-      ).toEqualTypeOf<ParagraphNode | null>();
-      expectTypeOf(
-        element.getFirstChild<TextNode>(),
-      ).toEqualTypeOf<TextNode | null>();
-      expectTypeOf(
-        $getNodeByKey<TextNode>(node.getKey()),
-      ).toEqualTypeOf<TextNode | null>();
-      expectTypeOf(
-        $getNodeByKeyOrThrow<TextNode>(node.getKey()),
-      ).toEqualTypeOf<TextNode>();
-      // The type parameter is no longer inferred from the contextual type,
-      // so this implicit unchecked cast is a compile error.
+      // Contextual return types cannot establish the node type either.
       // @ts-expect-error - getFirstChild() returns LexicalNode | null
       const child: TextNode | null = element.getFirstChild();
-      return child;
+      void child;
+      const parent = node.getParent();
+      if ($isParagraphNode(parent)) {
+        expectTypeOf(parent).toEqualTypeOf<ParagraphNode>();
+      }
+      expectTypeOf(element.getChildren().filter($isTextNode)).toEqualTypeOf<
+        TextNode[]
+      >();
+      expectTypeOf(
+        $findMatchingParent(node, $isParagraphNode),
+      ).toEqualTypeOf<ParagraphNode | null>();
+      const firstChild = element.getFirstChild();
+      if ($isTextNode(firstChild)) {
+        expectTypeOf(firstChild).toEqualTypeOf<TextNode>();
+        expectTypeOf(firstChild.getLatest()).toEqualTypeOf<TextNode>();
+        expectTypeOf(firstChild.getWritable()).toEqualTypeOf<TextNode>();
+        expectTypeOf(
+          $cloneWithProperties(firstChild),
+        ).toEqualTypeOf<TextNode>();
+      }
+      const found = $getNodeByKeyOrThrow(node.getKey());
+      if ($isTextNode(found)) {
+        expectTypeOf(found).toEqualTypeOf<TextNode>();
+      }
+      return firstChild;
     };
 
     const editor = createEditor({
@@ -2526,5 +3350,43 @@ describe('LexicalNode.$config() without registration', () => {
       },
       {discrete: true},
     );
+  });
+});
+
+describe('a setter returns the version it wrote to', () => {
+  initializeUnitTest(testEnv => {
+    test('setFormat/setStyle/setIndent return the writable, not the receiver', () => {
+      // Each takes a writable, writes to it, and used to return `this` — the
+      // version it was called on, which getWritable() had just superseded.
+      // Their neighbours setTextFormat/setTextStyle return `self`, which is
+      // what makes this a slip rather than a decision.
+      const {editor} = testEnv;
+      editor.update(
+        () => {
+          $getRoot().clear().append($createParagraphNode());
+        },
+        {discrete: true},
+      );
+      // A node is cloned only *across* updates: within the one that created it
+      // getWritable() hands back the same object, so the two never diverge.
+      editor.update(
+        () => {
+          const paragraph = $assertNodeType(
+            $getRoot().getFirstChildOrThrow(),
+            $isParagraphNode,
+          );
+          const afterIndent = paragraph.setIndent(2);
+          expect(afterIndent).not.toBe(paragraph);
+          expect(afterIndent).toBe(paragraph.getLatest());
+          // The rest of the update no longer clones, so the remaining two are
+          // checked against the latest rather than against a fresh receiver.
+          expect(afterIndent.setStyle('color: red')).toBe(
+            paragraph.getLatest(),
+          );
+          expect(afterIndent.setFormat('center')).toBe(paragraph.getLatest());
+        },
+        {discrete: true},
+      );
+    });
   });
 });

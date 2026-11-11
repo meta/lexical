@@ -40,6 +40,7 @@ export interface RefCountedRegistry<Key, Options = void> {
  *
  * @param activate - Wires `key` and returns its teardown. Called on the first
  *   registration of each key.
+ * @__NO_SIDE_EFFECTS__
  */
 export function createRefCountedRegistry<Key, Options = void>(
   activate: (key: Key, options: Options | undefined) => () => void,

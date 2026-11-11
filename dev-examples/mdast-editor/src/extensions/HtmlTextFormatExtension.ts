@@ -16,7 +16,7 @@ import {
   ImportTextStyle,
   sel,
 } from '@lexical/html';
-import {MdastHtmlExtension, MdastImportExtension} from '@lexical/mdast';
+import {MdastExtension, MdastHtmlExtension} from '@lexical/mdast';
 import {getCSSFromStyleObject} from '@lexical/selection';
 import {
   $isTextNode,
@@ -24,6 +24,7 @@ import {
   defineExtension,
   getStyleObjectFromCSS,
   type TextFormatType,
+  TextNode,
 } from 'lexical';
 
 // Text-level constructs that are a good case for HTML rather than Markdown:
@@ -104,14 +105,15 @@ const $exportHtmlFormattedText: MdastExportHandler = node => {
   if (tags.length === 0 && css === '') {
     return null;
   }
+  // Nested as the core text serialization nests (emphasis around strong).
   let content: PhrasingContent = node.hasFormat('code')
     ? {type: 'inlineCode', value: node.getTextContent()}
     : {type: 'text', value: node.getTextContent()};
-  if (node.hasFormat('italic')) {
-    content = {children: [content], type: 'emphasis'};
-  }
   if (node.hasFormat('bold')) {
     content = {children: [content], type: 'strong'};
+  }
+  if (node.hasFormat('italic')) {
+    content = {children: [content], type: 'emphasis'};
   }
   if (node.hasFormat('strikethrough')) {
     content = {children: [content], type: 'delete'};
@@ -147,8 +149,8 @@ export const HtmlTextFormatExtension = defineExtension({
     configExtension(DOMImportExtension, {
       rules: [StyledSpanImportRule],
     }),
-    configExtension(MdastImportExtension, {
-      exportRules: [{$export: $exportHtmlFormattedText, type: 'text'}],
+    configExtension(MdastExtension, {
+      exportRules: [{$export: $exportHtmlFormattedText, type: TextNode}],
     }),
   ],
   name: '@lexical/dev-mdast-editor-example/HtmlTextFormat',

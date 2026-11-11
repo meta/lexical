@@ -6,12 +6,12 @@
  *
  */
 
-import {$isBlockFullySelected} from '@lexical/utils';
 import {
   $getRoot,
   $getSelection,
   $getSlotFrame,
   $getSlotHost,
+  $isBlockFullySelected,
   $isElementNode,
   $isNodeSelection,
   $isRangeSelection,

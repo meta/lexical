@@ -443,6 +443,96 @@ describe('LexicalReconciler', () => {
     });
   });
 
+  describe('Cross-parent moves preserve the source insertion anchor (regression #9273)', () => {
+    for (const destinationSuffix of ['', 'b']) {
+      for (const sourcePrefix of ['', 'c']) {
+        test.each(['update', 'setEditorState'] as const)(
+          `%s: move x from ${sourcePrefix}xy to a${destinationSuffix} and insert z before y`,
+          method => {
+            // Prepare snapshots without reconciling DOM so setEditorState is
+            // exercised independently of the editor.update reconciliation path.
+            using stateEditor = buildEditorFromExtensions({
+              name: 'reconciler-move-state',
+            });
+            let aKey = '';
+            let xKey = '';
+            let yKey = '';
+            stateEditor.update(
+              () => {
+                const a = $createTextNode('a').setMode('token');
+                const x = $createTextNode('x').setMode('token');
+                const y = $createTextNode('y').setMode('token');
+                aKey = a.getKey();
+                xKey = x.getKey();
+                yKey = y.getKey();
+                const destination = $createParagraphNode().append(a);
+                if (destinationSuffix) {
+                  destination.append(
+                    $createTextNode(destinationSuffix).setMode('token'),
+                  );
+                }
+                const source = $createParagraphNode();
+                if (sourcePrefix) {
+                  source.append($createTextNode(sourcePrefix).setMode('token'));
+                }
+                $getRoot().clear().append(destination, source.append(x, y));
+              },
+              {discrete: true},
+            );
+            const beforeState = stateEditor.getEditorState();
+            const errors: Error[] = [];
+            using editor = buildEditorFromExtensions({
+              name: 'reconciler-move-dom',
+              onError: error => errors.push(error),
+            });
+            const rootElement = document.createElement('div');
+            editor.setRootElement(rootElement);
+            editor.setEditorState(beforeState);
+            const originalDOM = editor.read('latest', () =>
+              $getRoot()
+                .getChildren()
+                .flatMap(node => [
+                  node.getKey(),
+                  ...$assertNodeType(node, $isElementNode).getChildrenKeys(),
+                ])
+                .map(key => [key, editor.getElementByKey(key)] as const),
+            );
+            const $moveAndInsert = () => {
+              $getNodeByKey(aKey)!.insertAfter($getNodeByKey(xKey)!);
+              $getNodeByKey(yKey)!.insertBefore(
+                $createTextNode('z').setMode('token'),
+              );
+            };
+
+            if (method === 'update') {
+              editor.update($moveAndInsert, {discrete: true});
+            } else {
+              stateEditor.update($moveAndInsert, {discrete: true});
+              editor.setEditorState(stateEditor.getEditorState());
+            }
+
+            expect(errors).toEqual([]);
+            expect(
+              Array.from(rootElement.children, element => element.textContent),
+            ).toEqual([`ax${destinationSuffix}`, `${sourcePrefix}zy`]);
+            expect(
+              editor.read('latest', () =>
+                $getRoot()
+                  .getChildren()
+                  .map(node => node.getTextContent()),
+              ),
+            ).toEqual([`ax${destinationSuffix}`, `${sourcePrefix}zy`]);
+            // Error recovery can produce the right content by rebuilding the
+            // entire editor. All existing paragraphs and text DOM must survive.
+            for (const [key, dom] of originalDOM) {
+              expect(editor.getElementByKey(key)).toBe(dom);
+            }
+          },
+        );
+      }
+    }
+  });
+
   describe('setElementIndent', () => {
     test('emits a CSS variable reference rather than a pre-resolved value', () => {
       using editor = buildEditorFromExtensions(

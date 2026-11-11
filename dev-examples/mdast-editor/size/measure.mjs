@@ -33,7 +33,7 @@ const monorepoRoot = path.resolve(exampleDir, '..', '..');
 // measurement is meaningless. Fail loudly instead.
 if (
   !existsSync(
-    path.join(monorepoRoot, 'packages', 'lexical', 'dist', 'Lexical.prod.mjs'),
+    path.join(monorepoRoot, 'packages', 'lexical', 'dist', 'Lexical.prod.js'),
   )
 ) {
   console.error(
@@ -43,7 +43,7 @@ if (
   process.exit(1);
 }
 
-const entries = ['legacy', 'mdast', 'mdast-import'];
+const entries = ['legacy', 'mdast'];
 const results = {};
 
 for (const entry of entries) {
@@ -69,7 +69,6 @@ const kb = n => `${(n / 1024).toFixed(1)} kB`;
 const labels = {
   legacy: 'legacy `@lexical/markdown`',
   mdast: '`@lexical/mdast`',
-  'mdast-import': '`@lexical/mdast` (import only)',
 };
 console.log('\n| bundle | minified | min+gzip |');
 console.log('| --- | --- | --- |');

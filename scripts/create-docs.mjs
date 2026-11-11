@@ -14,17 +14,28 @@ import {packagesManager} from './shared/packagesManager.mjs';
 
 /**
  * @param {string} npmName the npm package name, e.g. '@lexical/rich-text'
- * @param {string} directoryName the package directory name, e.g. 'lexical-rich-text'
  * @param {string} description the package description
+ * @param {boolean} hasRootModule whether typedoc documents the package itself
  * @returns {string} the rendered README.md contents
  */
-function readmeTemplate(npmName, directoryName, description) {
-  const apiModuleName = directoryName.replace(/-/g, '_');
+function readmeTemplate(npmName, description, hasRootModule) {
+  // Derived from the npm name the way typedoc derives the module page it
+  // links to: drop the leading `@` and turn the scope separator into an
+  // underscore. Deriving it from the directory name instead (replacing every
+  // hyphen) produced a 404 for any package with a hyphen of its own —
+  // `@lexical/code-core` is documented at `lexical_code-core`, not
+  // `lexical_code_core`.
+  const apiModuleName = npmName.replace(/^@/, '').replace('/', '_');
+  // Typedoc emits one page per entry point, so a package that does not export
+  // its own name — `@lexical/react`, which is only ever imported one plugin at
+  // a time — has no page under that name to link to. Linking it anyway is the
+  // 404 the derivation above exists to avoid, one level up.
+  const badge = hasRootModule
+    ? `\n\n[![See API Documentation](https://lexical.dev/img/see-api-documentation.svg)](https://lexical.dev/docs/api/modules/${apiModuleName})`
+    : '';
   return (
     `
-    # \`${npmName}\`
-
-[![See API Documentation](https://lexical.dev/img/see-api-documentation.svg)](https://lexical.dev/docs/api/modules/${apiModuleName})
+    # \`${npmName}\`${badge}
 
 ${description}
 `.trim() + '\n'
@@ -34,7 +45,6 @@ ${description}
 function createDocs() {
   packagesManager.getPublicPackages().forEach(pkg => {
     const npmName = pkg.getNpmName();
-    const directoryName = pkg.getDirectoryName();
     const root = pkg.resolve('..', '..');
     const readmePath = pkg.resolve('README.md');
     if (!fs.existsSync(readmePath)) {
@@ -43,9 +53,9 @@ function createDocs() {
         readmePath,
         readmeTemplate(
           npmName,
-          directoryName,
           pkg.packageJson.description ||
             'TODO: This package needs a description!',
+          pkg.getExportedNpmModuleNames().includes(npmName),
         ),
       );
     }

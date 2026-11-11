@@ -12,19 +12,31 @@ import type {ElementNode, LexicalEditor, LexicalNode, TextNode} from 'lexical';
 
 import {$createCodeNode, $isCodeNode} from '@lexical/code-core';
 import {
+  $createHorizontalRuleNode,
+  HorizontalRuleNode,
+} from '@lexical/extension';
+import {
   $createListItemNode,
   $createListNode,
   $isListItemNode,
   $isListNode,
 } from '@lexical/list';
-import {$createHeadingNode, $createQuoteNode} from '@lexical/rich-text';
+import {
+  $createHeadingNode,
+  $createQuoteNode,
+  $isQuoteNode,
+  type QuoteNode,
+} from '@lexical/rich-text';
 import {
   $addUpdateTag,
+  $createParagraphNode,
+  $findMatchingParent,
+  $getEditor,
   $getNodeByKey,
   $getSelection,
+  $isBlockContainer,
   $isParagraphNode,
   $isRangeSelection,
-  $isRootOrShadowRoot,
   $isTextNode,
   $setState,
   COLLABORATION_TAG,
@@ -38,14 +50,23 @@ import {
 
 import {$append, $listTypeFromMdast} from './handlers';
 import {MarkdownStreamScanner} from './MdastStream';
-import {codeFenceState, codeMetaState} from './state';
+import {codeFenceState, codeMetaState, hrMarkerState} from './state';
 
 /**
  * Block markers are at most a few characters (`'###### '`, `'   999. '`,
  * `'- [x] '`); when the caret is past this column a space cannot complete a
- * block marker, so the micromark scan is skipped entirely.
+ * block marker, so the micromark scan is skipped entirely. A thematic break
+ * is the one exception, see {@link THEMATIC_BREAK_LINE}.
  */
 const MAX_BLOCK_MARKER_LENGTH = 24;
+
+/**
+ * A line that is only a thematic break: three or more of the same `-`, `*`
+ * or `_`, with spaces or tabs between them allowed (CommonMark 4.1). A rule
+ * has no length limit, so a space typed after a long one is still scanned
+ * past {@link MAX_BLOCK_MARKER_LENGTH}, as Enter already does.
+ */
+const THEMATIC_BREAK_LINE = /^ {0,3}([-*_])(?:[ \t]*\1){2,}[ \t]*$/;
 
 /** Removes the first `n` characters from the leading text nodes of `element`. */
 function $stripLeading(element: ElementNode, n: number): void {
@@ -69,10 +90,77 @@ function $stripLeading(element: ElementNode, n: number): void {
 }
 
 /**
+ * Installs `block` in place of `container`, except for an inline-content quote
+ * (see {@link $isShortcutQuote}) which keeps its identity and adopts the block
+ * as a child instead.
+ *
+ * A QuoteNode may only hold block-level children once it has opted in to
+ * shadow root behaviour, so adopting the block also sets that flag — leaving
+ * it unset would produce a quote holding a block without the state that makes
+ * it legal, which is not the tree {@link MdastShadowRootQuoteExtension}
+ * imports for `> ## H2`.
+ */
+function $placeBlock(container: ElementNode, block: LexicalNode): void {
+  if ($isQuoteNode(container)) {
+    container.setIsShadowRoot(true).append(block);
+  } else {
+    container.replace(block);
+  }
+}
+
+/**
+ * Replaces `container` with a horizontal rule, and puts the caret in a new
+ * empty paragraph under it: the new line that the typed space or Enter asks
+ * for. The marker must be the whole line. `--- text` is a paragraph in
+ * Markdown, so a space typed between `---` and text converts nothing.
+ *
+ * A rule converts only where Markdown can write one: at the top level or
+ * inside a quote. A table cell, for example, has no Markdown for a rule (the
+ * GFM table export writes one after the table), so `---` typed in a cell
+ * stays text. Checking the ancestors this way, rather than for a table cell,
+ * keeps `@lexical/table` out of editors that don't use tables.
+ *
+ * An editor can import `thematicBreak` as its own node, without
+ * `HorizontalRuleExtension`. There the line stays text too, rather than
+ * fail on a node the editor doesn't have.
+ */
+function $applyThematicBreak(
+  container: ElementNode,
+  markerLength: number,
+): boolean {
+  const line = container.getTextContent();
+  if (
+    !$getEditor().hasNode(HorizontalRuleNode) ||
+    line.length !== markerLength ||
+    !container.getChildren().every($isTextNode) ||
+    $findMatchingParent(
+      container.getParentOrThrow(),
+      node => !$isQuoteNode(node),
+    )
+  ) {
+    return false;
+  }
+  $stripLeading(container, markerLength);
+  const rule = $createHorizontalRuleNode();
+  // Keep the typed marker (`-`, `*` or `_`) so export writes the same rule.
+  $setState(rule, hrMarkerState, line.trimStart()[0]);
+  const next = $createParagraphNode();
+  $placeBlock(container, rule);
+  rule.insertAfter(next);
+  next.select();
+  return true;
+}
+
+/**
  * Replaces `paragraph` with the block construct described by `match`, keeping
- * the content that followed the marker.
+ * the content that followed the marker. `paragraph` is the shortcut container:
+ * a ParagraphNode, or an inline-content QuoteNode that adopts the new block
+ * rather than being replaced by it.
  */
 function $applyBlock(paragraph: ElementNode, match: MdastBlockMatch): boolean {
+  if (match.kind === 'thematicBreak') {
+    return $applyThematicBreak(paragraph, match.markerLength);
+  }
   // Capture the fence before the marker is stripped from the paragraph.
   const fence =
     match.kind === 'code'
@@ -91,7 +179,7 @@ function $applyBlock(paragraph: ElementNode, match: MdastBlockMatch): boolean {
       $setState(code, codeMetaState, match.node.meta);
     }
     $append(code, remaining);
-    paragraph.replace(code);
+    $placeBlock(paragraph, code);
     code.selectStart();
     return true;
   }
@@ -128,7 +216,7 @@ function $applyBlock(paragraph: ElementNode, match: MdastBlockMatch): boolean {
     selectInto = item;
   }
 
-  paragraph.replace(target);
+  $placeBlock(paragraph, target);
   selectInto.selectStart();
   return true;
 }
@@ -251,8 +339,43 @@ function $isShortcutParagraph(
 ): boolean {
   return (
     $isParagraphNode(node) &&
-    $isRootOrShadowRoot(node.getParent()) &&
+    $isBlockContainer(node.getParent()) &&
     node.getFirstChild() === anchorNode
+  );
+}
+
+const ShortcutQuoteBrand: unique symbol = Symbol.for(
+  '@lexical/mdast/ShortcutQuoteBrand',
+);
+
+/**
+ * A blockquote imported by the default handler holds inline content directly,
+ * so a block marker typed at its start has no enclosing paragraph to convert.
+ * The marker still has to take effect, because import already produces the
+ * nested shape: `> ## H2` imports as a QuoteNode holding a HeadingNode. Only
+ * the leading text is eligible, so a quote that already starts with a block is
+ * left alone. Shadow root quotes are excluded — they hold paragraphs, which
+ * {@link $isShortcutParagraph} already accepts. See #7407.
+ */
+function $isShortcutQuote(
+  node: LexicalNode,
+  anchorNode: TextNode,
+): node is QuoteNode & {[ShortcutQuoteBrand]: never} {
+  return (
+    $isQuoteNode(node) &&
+    !node.isShadowRoot() &&
+    $isBlockContainer(node.getParent()) &&
+    node.getFirstChild() === anchorNode
+  );
+}
+
+/** The element a block marker typed at `anchorNode` may convert. */
+function $isShortcutContainer(
+  node: LexicalNode,
+  anchorNode: TextNode,
+): boolean {
+  return (
+    $isShortcutParagraph(node, anchorNode) || $isShortcutQuote(node, anchorNode)
   );
 }
 
@@ -264,8 +387,13 @@ function $isShortcutParagraph(
  *
  * - Block markers (`# `, `> `, `- `, `1. `, `- [ ] `) convert the paragraph
  *   into the matching Lexical block as soon as the trailing space is typed.
+ *   Typed at the start of a blockquote they nest the block inside the quote,
+ *   matching what import produces for `> ## H2`.
  * - A marker-only line (`` ```lang ``, `## `, `- `) converts on
  *   <kbd>Enter</kbd>.
+ * - A thematic break (`---`, `***`, `___`) alone on its line converts to a
+ *   horizontal rule on space or <kbd>Enter</kbd>, with the caret in a new
+ *   paragraph under it.
  * - Inline constructs (`*em*`, `**strong**`, `` `code` ``, `~~del~~`,
  *   `[text](url)`, plus registered `inlineShortcutTypes`) convert when their
  *   closing delimiter is typed.
@@ -376,15 +504,15 @@ export function registerMarkdownShortcuts(
               $tryCheckbox(node, parent, anchorOffset)
             ) {
               transformed = true;
-            } else if (
-              anchorOffset <= MAX_BLOCK_MARKER_LENGTH &&
-              $isShortcutParagraph(parent, node)
-            ) {
+            } else if ($isShortcutContainer(parent, node)) {
               // The marker must end exactly at the caret, so scanning the
               // prefix is sufficient (and cheaper than the whole line).
-              const match = scanner.scanBlock(
-                node.getTextContent().slice(0, anchorOffset),
-              );
+              const prefix = node.getTextContent().slice(0, anchorOffset);
+              const match =
+                anchorOffset <= MAX_BLOCK_MARKER_LENGTH ||
+                THEMATIC_BREAK_LINE.test(prefix)
+                  ? scanner.scanBlock(prefix)
+                  : null;
               if (
                 match &&
                 match.kind !== 'code' &&
@@ -422,13 +550,13 @@ export function registerMarkdownShortcuts(
         if (
           parent === null ||
           $isCodeNode(parent) ||
-          !$isShortcutParagraph(parent, anchorNode) ||
+          !$isShortcutContainer(parent, anchorNode) ||
           anchorOffset !== anchorNode.getTextContentSize()
         ) {
           return false;
         }
         const match = scanner.scanBlock(parent.getTextContent());
-        // Only convert when the whole line is the marker (`## `, `- `,
+        // Only convert when the whole line is the marker (`## `, `- `, `---`,
         // '```lang title=x'). A line with content after the marker was either
         // already converted at the trailing space, or deliberately reverted
         // with undo — Enter must not re-convert it.

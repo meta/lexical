@@ -8,7 +8,7 @@
     "table"
   ],
   "license": "MIT",
-  "version": "0.49.0",
+  "version": "0.53.0",
   "main": "./dist/LexicalTable.js",
   "types": "./dist/typescript-too-old.d.ts",
   "dependencies": {
@@ -21,29 +21,19 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/facebook/lexical.git",
+    "url": "git+https://github.com/meta/lexical.git",
     "directory": "packages/lexical-table"
   },
-  "module": "./dist/LexicalTable.mjs",
+  "module": "./dist/LexicalTable.js",
   "sideEffects": false,
   "exports": {
     ".": {
       "source": "./src/index.ts",
-      "import": {
-        "types@<5.2": "./dist/typescript-too-old.d.ts",
-        "types": "./dist/index.d.ts",
-        "development": "./dist/LexicalTable.dev.mjs",
-        "production": "./dist/LexicalTable.prod.mjs",
-        "node": "./dist/LexicalTable.node.mjs",
-        "default": "./dist/LexicalTable.mjs"
-      },
-      "require": {
-        "types@<5.2": "./dist/typescript-too-old.d.ts",
-        "types": "./dist/index.d.ts",
-        "development": "./dist/LexicalTable.dev.js",
-        "production": "./dist/LexicalTable.prod.js",
-        "default": "./dist/LexicalTable.js"
-      }
+      "types@<5.2": "./dist/typescript-too-old.d.ts",
+      "types": "./dist/index.d.ts",
+      "development": "./dist/LexicalTable.dev.js",
+      "production": "./dist/LexicalTable.prod.js",
+      "default": "./dist/LexicalTable.js"
     }
   },
   "files": [
@@ -73,5 +63,6 @@
     "typescript": {
       "optional": true
     }
-  }
+  },
+  "type": "module"
 }

@@ -1,0 +1,97 @@
+/**
+ * Copyright (c) Meta Platforms, Inc. and affiliates.
+ *
+ * This source code is licensed under the MIT license found in the
+ * LICENSE file in the root directory of this source tree.
+ *
+ * @flow strict
+ */
+
+/**
+ * Type-only smoke test for the hand-maintained `@lexical/extension` Flow
+ * declarations, in the spirit of `packages/lexical/flow/Lexical.flowtest.js.flow`:
+ * `pnpm lint-flow` checks that the names match the generated `.d.ts` and
+ * `pnpm flow` checks that the declarations are internally consistent, but
+ * neither one ever composes the API the way an application does.
+ *
+ * Everything below is what building a nested editor from extensions looks like
+ * downstream. None of it type-checked before: `dependencies` could not hold a
+ * single extension, `configExtension` could not be called, and
+ * `ReactProviderExtension` was declared nowhere at all.
+ *
+ * See that file's header for why the `.js.flow` extension is load-bearing.
+ */
+
+import type {LexicalEditor, LexicalEditorWithDispose} from 'lexical';
+
+import {
+  buildEditorFromExtensions,
+  configExtension,
+  defineExtension,
+  NestedEditorExtension,
+} from '@lexical/extension';
+import {ReactExtension} from '@lexical/react/ReactExtension';
+import {ReactProviderExtension} from '@lexical/react/ReactProviderExtension';
+
+// A dependency list holding a bare extension. `LexicalExtension` was invariant
+// in `Name`, so no concrete extension was a subtype of the
+// `LexicalExtension<any, string, any, any>` the list is declared over, and a
+// single-element `dependencies` was an error.
+const dependsOnAnExtension = defineExtension({
+  dependencies: [ReactProviderExtension],
+  name: '@lexical/flow-smoke-test/DependsOnAnExtension',
+});
+
+// A dependency carrying a config override. `configExtension` returns the
+// `[extension, ...Partial<Config>[]]` tuple type, whose trailing array spread
+// Flow rejects outright ("Cannot spread non-tuple into tuple type"), so the
+// call could not be written at all.
+const configuresItsDependency = defineExtension({
+  dependencies: [configExtension(ReactExtension, {contentEditable: null})],
+  name: '@lexical/flow-smoke-test/ConfiguresItsDependency',
+});
+
+// The same override written inline, which is the tuple the normalized argument
+// type exists to describe.
+const configuresInline = defineExtension({
+  dependencies: [[ReactExtension, {contentEditable: null}]],
+  name: '@lexical/flow-smoke-test/ConfiguresInline',
+});
+
+// `NestedEditorExtension`'s own config, and the editor a nested surface
+// actually builds: the extension's parent hook plus React hosting.
+export function flowBuildsNestedEditor(
+  parentEditor: LexicalEditor,
+): LexicalEditorWithDispose {
+  return buildEditorFromExtensions(
+    defineExtension({
+      dependencies: [
+        ReactProviderExtension,
+        configExtension(ReactExtension, {contentEditable: null}),
+        configExtension(NestedEditorExtension, {
+          $getParentEditor: () => parentEditor,
+          inheritEditableFromParent: true,
+        }),
+      ],
+      name: '@lexical/flow-smoke-test/NestedEditor',
+      namespace: 'flow-smoke-test-nested',
+    }),
+  );
+}
+
+// `buildEditorFromExtensions` is variadic over the same argument type, so a
+// config override passed straight to it has to work too.
+export function flowBuildsFromArguments(): LexicalEditorWithDispose {
+  return buildEditorFromExtensions(
+    ReactProviderExtension,
+    configExtension(ReactExtension, {contentEditable: null}),
+  );
+}
+
+export function flowExtensionNames(): string {
+  return [
+    dependsOnAnExtension.name,
+    configuresItsDependency.name,
+    configuresInline.name,
+  ].join(',');
+}

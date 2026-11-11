@@ -23,7 +23,6 @@ import {
   mergeRegister,
   TextNode,
 } from 'lexical';
-import _ from 'lodash';
 import {useCallback, useEffect, useState} from 'react';
 import {
   PermanentUserData,

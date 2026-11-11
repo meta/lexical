@@ -392,23 +392,31 @@ export function syncLexicalUpdateToYjs(
           nextLexicalRoot,
           prevNodeMap,
         );
-        collabRoot.syncChildrenFromLexical(
-          binding,
-          nextLexicalRoot,
-          prevNodeMap,
-          dirtyElements,
-          dirtyLeaves,
-        );
-        // Slots live outside the linked-list children channel, so the root's
-        // own slot map needs its dedicated diff too (child hosts get theirs
-        // via _syncChildFromLexical).
-        collabRoot.syncSlotsFromLexical(
-          binding,
-          nextLexicalRoot,
-          prevNodeMap,
-          dirtyElements,
-          dirtyLeaves,
-        );
+        const prevMovedNodeKeys = binding._movedNodeKeys;
+        const movedNodes = currEditorState._movedNodes;
+        binding._movedNodeKeys =
+          movedNodes === null ? undefined : movedNodes.get(prevNodeMap);
+        try {
+          collabRoot.syncChildrenFromLexical(
+            binding,
+            nextLexicalRoot,
+            prevNodeMap,
+            dirtyElements,
+            dirtyLeaves,
+          );
+          // Slots live outside the linked-list children channel, so the root's
+          // own slot map needs its dedicated diff too (child hosts get theirs
+          // via _syncChildFromLexical).
+          collabRoot.syncSlotsFromLexical(
+            binding,
+            nextLexicalRoot,
+            prevNodeMap,
+            dirtyElements,
+            dirtyLeaves,
+          );
+        } finally {
+          binding._movedNodeKeys = prevMovedNodeKeys;
+        }
         // If a local edit emptied the root, schedule recovery outside the
         // collaboration/historic tag so the paragraph syncs back to Yjs.
         // Mirrors the $ensureEditorNotEmpty call in syncYjsChangesToLexical's onUpdate.

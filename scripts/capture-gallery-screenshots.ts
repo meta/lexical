@@ -113,12 +113,14 @@ function waitForServer(port: number, timeoutMs = 60000): Promise<void> {
 }
 
 function installDeps(exampleDir: string): void {
-  // --ignore-workspace so pnpm installs this example's own deps
-  // rather than running the monorepo workspace install.
+  // The example's own pnpm-workspace.yaml makes its directory the workspace
+  // root, so this installs the example's own deps rather than running the
+  // monorepo workspace install. --ignore-workspace would suppress that file
+  // along with the example's overrides and build-script decisions.
   // shell: true isolates the child from the tsx loader. @types/node narrows
   // `ExecSyncOptions.shell` to `string`, but Node forwards a boolean to the
   // underlying spawnSync at runtime, so the value is cast to satisfy the types.
-  execSync('pnpm install --ignore-workspace', {
+  execSync('pnpm install', {
     cwd: exampleDir,
     shell: true as unknown as string,
     stdio: 'pipe',

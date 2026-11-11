@@ -7,46 +7,45 @@
  */
 import './styles.css';
 
-import {registerDragonSupport} from '@lexical/dragon';
-import {createEmptyHistoryState, registerHistory} from '@lexical/history';
-import {HeadingNode, QuoteNode, registerRichText} from '@lexical/rich-text';
-import {mergeRegister} from '@lexical/utils';
-import {createEditor, HISTORY_MERGE_TAG} from 'lexical';
+import {DragonExtension} from '@lexical/dragon';
+import {buildEditorFromExtensions} from '@lexical/extension';
+import {HistoryExtension} from '@lexical/history';
+import {RichTextExtension} from '@lexical/rich-text';
+import {defineExtension} from 'lexical';
 
-import prepopulatedRichText from './prepopulatedRichText';
+import $prepopulatedRichText from './prepopulatedRichText';
 
 const template = document.querySelector<HTMLTemplateElement>('#app-template')!;
 const iframe = document.querySelector<HTMLIFrameElement>('#app-iframe')!;
 const iframeDoc = iframe.contentDocument!;
+// The page's stylesheets don't apply inside the iframe, so copy them in.
+for (const style of document.querySelectorAll(
+  'style, link[rel="stylesheet"]',
+)) {
+  iframeDoc.head.appendChild(iframeDoc.importNode(style, true));
+}
 iframeDoc.body.replaceChildren(iframeDoc.importNode(template.content, true));
 const editorRef = iframeDoc.querySelector<HTMLDivElement>('#lexical-editor')!;
 const stateRef =
   iframeDoc.querySelector<HTMLTextAreaElement>('#lexical-state')!;
 
-const initialConfig = {
-  namespace: 'Vanilla JS Demo',
-  // Register nodes specific for @lexical/rich-text
-  nodes: [HeadingNode, QuoteNode],
-  onError: (error: Error) => {
-    throw error;
-  },
-  theme: {
-    // Adding styling to Quote node, see styles.css
-    quote: 'PlaygroundEditorTheme__quote',
-  },
-};
-const editor = createEditor(initialConfig);
-editor.setRootElement(editorRef);
-
-// Registering Plugins
-mergeRegister(
-  registerRichText(editor),
-  registerDragonSupport(editor),
-  registerHistory(editor, createEmptyHistoryState(), 300),
+const editor = buildEditorFromExtensions(
+  defineExtension({
+    $initialEditorState: $prepopulatedRichText,
+    // RichTextExtension registers HeadingNode and QuoteNode
+    dependencies: [RichTextExtension, HistoryExtension, DragonExtension],
+    name: '@lexical/examples/vanilla-js-iframe',
+    namespace: 'Vanilla JS iframe Demo',
+    register: ed =>
+      ed.registerUpdateListener(({editorState}) => {
+        stateRef.value = JSON.stringify(editorState.toJSON(true), undefined, 2);
+      }),
+    theme: {
+      // Adding styling to Quote node, see styles.css
+      quote: 'PlaygroundEditorTheme__quote',
+    },
+  }),
 );
-
-editor.update(prepopulatedRichText, {tag: HISTORY_MERGE_TAG});
-
-editor.registerUpdateListener(({editorState}) => {
-  stateRef!.value = JSON.stringify(editorState.toJSON(), undefined, 2);
-});
+// The root element lives in the iframe's document, so the editor reads the
+// selection and focus from the iframe's window.
+editor.setRootElement(editorRef);

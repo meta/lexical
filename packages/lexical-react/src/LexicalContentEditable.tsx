@@ -47,7 +47,10 @@ export type ContentEditableProps = Omit<ContentEditableElementProps, 'editor'> &
  * {@link PlainTextPlugin}. An optional `placeholder` is shown while the editor
  * is empty. The `ref` is forwarded to the underlying `<div>`.
  */
-export const ContentEditable = forwardRef(ContentEditableImpl);
+// Annotated by hand: React's forwardRef is not a Lexical factory, so the build
+// does not annotate it, and an unannotated module-scope call pins the module
+// into every bundle that imports it.
+export const ContentEditable = /* @__PURE__ */ forwardRef(ContentEditableImpl);
 
 function ContentEditableImpl(
   props: ContentEditableProps,

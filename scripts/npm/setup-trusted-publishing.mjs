@@ -51,7 +51,7 @@ if (typeof workflow !== 'string' || workflow.includes(',')) {
   process.exit(1);
 }
 const replace = !!argv.replace;
-const repo = argv.repo || 'facebook/lexical';
+const repo = argv.repo || 'meta/lexical';
 
 const [repoOwner, repoName] = repo.split('/');
 if (!repoOwner || !repoName) {

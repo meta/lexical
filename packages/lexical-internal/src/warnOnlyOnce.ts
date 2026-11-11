@@ -8,6 +8,13 @@
 
 const __DEV__ = process.env.NODE_ENV !== 'production';
 
+/**
+ * Returns a function that logs `message` with `console.warn` the first time it
+ * is called (and never in production). Creating one has no effect, so the
+ * build annotates module-scope calls and a bundler can drop an unused warning.
+ *
+ * @__NO_SIDE_EFFECTS__
+ */
 /*@__INLINE__*/
 export default function warnOnlyOnce(message: string): () => void {
   if (__DEV__) {

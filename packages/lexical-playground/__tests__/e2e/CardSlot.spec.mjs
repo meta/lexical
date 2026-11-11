@@ -112,6 +112,17 @@ async function bodyText(page) {
   });
 }
 
+async function placeholderBefore(page, selector) {
+  return evaluate(
+    page,
+    sel => {
+      const el = document.querySelector(sel);
+      return el && window.getComputedStyle(el, '::before').content;
+    },
+    selector,
+  );
+}
+
 async function assertCardIntact(page, {title, body}) {
   expect(await cardCount(page)).toBe(1);
   expect(await slotCount(page, 'title')).toBe(1);
@@ -144,8 +155,8 @@ async function selectStartAfterCard(page) {
 }
 
 test.describe('Card slot deletion boundaries', () => {
-  test.beforeEach(async ({isCollab, isPlainText, page}) => {
-    test.skip(isPlainText);
+  test.skip(({isPlainText}) => isPlainText, 'Requires rich text');
+  test.beforeEach(async ({isCollab, page}) => {
     await initialize({isCollab, page});
   });
 
@@ -306,8 +317,8 @@ test.describe('Card slot deletion boundaries', () => {
 });
 
 test.describe('Card HTML serialization round-trip', () => {
-  test.beforeEach(async ({isCollab, isPlainText, page}) => {
-    test.skip(isPlainText);
+  test.skip(({isPlainText}) => isPlainText, 'Requires rich text');
+  test.beforeEach(async ({isCollab, page}) => {
     await initialize({isCollab, page});
   });
 
@@ -346,8 +357,8 @@ test.describe('Card HTML serialization round-trip', () => {
 });
 
 test.describe('Card host data-selected mirroring', () => {
-  test.beforeEach(async ({isCollab, isPlainText, page}) => {
-    test.skip(isPlainText);
+  test.skip(({isPlainText}) => isPlainText, 'Requires rich text');
+  test.beforeEach(async ({isCollab, page}) => {
     await initialize({isCollab, page});
   });
 
@@ -376,8 +387,8 @@ test.describe('Card host data-selected mirroring', () => {
 // keyless, so without the explicit guard $getNearestNodeFromDOMNode would walk
 // past it to the Card and the CLICK_COMMAND would promote.
 test.describe('Card slot wrapper click does not promote', () => {
-  test.beforeEach(async ({isCollab, isPlainText, page}) => {
-    test.skip(isPlainText);
+  test.skip(({isPlainText}) => isPlainText, 'Requires rich text');
+  test.beforeEach(async ({isCollab, page}) => {
     await initialize({isCollab, page});
   });
 
@@ -400,8 +411,8 @@ test.describe('Card slot wrapper click does not promote', () => {
 // placeholders shown only while a field is empty (no seeded TextNodes), so
 // they never appear in the serialized model or in copied text.
 test.describe('Card empty-field placeholders', () => {
-  test.beforeEach(async ({isCollab, isPlainText, page}) => {
-    test.skip(isPlainText);
+  test.skip(({isPlainText}) => isPlainText, 'Requires rich text');
+  test.beforeEach(async ({isCollab, page}) => {
     await initialize({isCollab, page});
   });
 
@@ -417,34 +428,87 @@ test.describe('Card empty-field placeholders', () => {
     expect(await bodyText(page)).toBe('');
 
     // the placeholder text comes from CSS ::before, not from the DOM text
-    const placeholders = await evaluate(page, () => {
-      const titleP = document.querySelector(
-        '.lexical-card-node [data-lexical-slot="title"] p',
-      );
-      const bodyP = document.querySelector('.lexical-card-node > p');
-      const before = el =>
-        el && window.getComputedStyle(el, '::before').content;
-      return {body: before(bodyP), title: before(titleP)};
-    });
-    expect(placeholders.title).toContain('Title');
-    expect(placeholders.body).toContain('Body');
+    const titleSelector = '.lexical-card-node [data-lexical-slot="title"] p';
+    const bodySelector = '.lexical-card-node > p';
+    expect(await placeholderBefore(page, titleSelector)).toContain('Title');
+    expect(await placeholderBefore(page, bodySelector)).toContain('Body');
 
     // typing into the title clears its placeholder but not the body's
     await click(page, '[data-lexical-slot="title"] p');
     await page.keyboard.type('Hi');
     await sleep(120);
-    const afterTyping = await evaluate(page, () => {
-      const titleP = document.querySelector(
-        '.lexical-card-node [data-lexical-slot="title"] p',
-      );
-      const bodyP = document.querySelector('.lexical-card-node > p');
-      const before = el =>
-        el && window.getComputedStyle(el, '::before').content;
-      return {body: before(bodyP), title: before(titleP)};
-    });
-    // a non-empty title no longer matches :has(br:only-child); body still does
-    expect(afterTyping.title === 'none' || afterTyping.title === '').toBe(true);
-    expect(afterTyping.body).toContain('Body');
+    const titleAfterTyping = await placeholderBefore(page, titleSelector);
+    expect(titleAfterTyping === 'none' || titleAfterTyping === '').toBe(true);
+    expect(await placeholderBefore(page, bodySelector)).toContain('Body');
+  });
+
+  test('pasting text into an empty title clears its placeholder immediately (#9126)', async ({
+    page,
+  }) => {
+    await focusEditor(page);
+    await insertEmptyCard(page);
+    await sleep(120);
+
+    await click(page, '[data-lexical-slot="title"] p');
+    await pasteFromClipboard(page, {'text/plain': 'Pasted Title'});
+    await sleep(120);
+
+    expect(await slotText(page, 'title')).toBe('Pasted Title');
+    const before = await placeholderBefore(
+      page,
+      '.lexical-card-node [data-lexical-slot="title"] p',
+    );
+    expect(before === 'none' || before === '').toBe(true);
+  });
+
+  test('pasting text into an empty body clears its placeholder immediately (#9126)', async ({
+    page,
+  }) => {
+    await focusEditor(page);
+    await insertEmptyCard(page);
+    await sleep(120);
+
+    await click(page, '.lexical-card-node > p');
+    await pasteFromClipboard(page, {'text/plain': 'Pasted Body'});
+    await sleep(120);
+
+    expect(await bodyText(page)).toBe('Pasted Body');
+    const before = await placeholderBefore(page, '.lexical-card-node > p');
+    expect(before === 'none' || before === '').toBe(true);
+  });
+
+  test('a soft line break inside non-empty title/body does not resurrect the placeholder', async ({
+    page,
+  }) => {
+    await focusEditor(page);
+    await insertEmptyCard(page);
+    await sleep(120);
+
+    await click(page, '[data-lexical-slot="title"] p');
+    await page.keyboard.type('Hello');
+    await page.keyboard.down('Shift');
+    await page.keyboard.press('Enter');
+    await page.keyboard.up('Shift');
+    await page.keyboard.type('World');
+    await sleep(120);
+
+    expect(await slotText(page, 'title')).toBe('HelloWorld');
+    const titleBefore = await placeholderBefore(
+      page,
+      '.lexical-card-node [data-lexical-slot="title"] p',
+    );
+    expect(titleBefore === 'none' || titleBefore === '').toBe(true);
+
+    await click(page, '.lexical-card-node > p');
+    await page.keyboard.type('Great');
+    await page.keyboard.down('Shift');
+    await page.keyboard.press('Enter');
+    await page.keyboard.up('Shift');
+    await page.keyboard.type('Product');
+    await sleep(120);
+
+    const bodyBefore = await placeholderBefore(page, '.lexical-card-node > p');
+    expect(bodyBefore === 'none' || bodyBefore === '').toBe(true);
   });
 
   test('the body placeholder shows only for a single empty body paragraph', async ({
@@ -489,8 +553,8 @@ test.describe('Card empty-field placeholders', () => {
 // $getSlotNameWithinHost, so a future refactor could regress the caret
 // bridge in either direction without affecting any other surface.
 test.describe('Card Tab / Shift+Tab slot caret navigation', () => {
-  test.beforeEach(async ({isCollab, isPlainText, page}) => {
-    test.skip(isPlainText);
+  test.skip(({isPlainText}) => isPlainText, 'Requires rich text');
+  test.beforeEach(async ({isCollab, page}) => {
     await initialize({isCollab, page});
   });
 
@@ -532,8 +596,8 @@ test.describe('Card Tab / Shift+Tab slot caret navigation', () => {
 // implementation decisions). Typing a single character after Cmd+A in the
 // title slot must replace only the title text, leaving the body intact.
 test.describe('Card SELECT_ALL stays slot-scoped', () => {
-  test.beforeEach(async ({isCollab, isPlainText, page}) => {
-    test.skip(isPlainText);
+  test.skip(({isPlainText}) => isPlainText, 'Requires rich text');
+  test.beforeEach(async ({isCollab, page}) => {
     await initialize({isCollab, page});
   });
 

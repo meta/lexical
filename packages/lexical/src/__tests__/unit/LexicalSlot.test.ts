@@ -25,6 +25,7 @@ import {
   $getNodeByKey,
   $getRoot,
   $getSelection,
+  $getSelectionSlotFrame,
   $getSlot,
   $getSlotFrame,
   $getSlotHost,
@@ -41,15 +42,20 @@ import {
   $selectAll,
   $setSelection,
   $setSlot,
+  booleanValue,
   configExtension,
+  DecoratorNode,
   defineExtension,
   ElementNode,
   getDOMSelection,
   mountSlotContainer,
+  nodeSchema,
   type ParagraphNode,
+  type RangeSelection,
   type SlotName,
   type TextNode,
   unmountSlotContainer,
+  withField,
 } from 'lexical';
 import {afterEach, assert, describe, expect, expectTypeOf, test} from 'vitest';
 
@@ -167,6 +173,35 @@ class WrappedSlotHostNode extends ElementNode {
   }
 }
 
+const slotTextHostNodeSchema = nodeSchema<SlotTextHostNode>()({
+  block: withField(booleanValue(), {field: '__block'}),
+});
+// A decorator host that keeps the base `getTextContent`: its text is its
+// slots' text, so an edit inside a slot changes the host's text size.
+class SlotTextHostNode extends DecoratorNode<null> {
+  __block: boolean = false;
+  $config() {
+    return this.config('slot_text_host', {
+      extends: DecoratorNode,
+      json: slotTextHostNodeSchema,
+    });
+  }
+  isInline(): boolean {
+    return !this.getLatest().__block;
+  }
+  setIsInline(inline: boolean): this {
+    const self = this.getWritable();
+    self.__block = !inline;
+    return self;
+  }
+  createDOM() {
+    return document.createElement(this.__block ? 'div' : 'span');
+  }
+  updateDOM(prevNode: this): boolean {
+    return prevNode.__block !== this.__block;
+  }
+}
+
 const mountedRoots: HTMLElement[] = [];
 afterEach(() => {
   while (mountedRoots.length > 0) {
@@ -195,6 +230,7 @@ function createSlotEditor(): LexicalEditorWithDispose {
         DupDeclaredHostNode,
         ReservedDeclaredHostNode,
         WrappedSlotHostNode,
+        SlotTextHostNode,
       ],
     }),
   );
@@ -1082,6 +1118,78 @@ describe('named-slots: core foundation', () => {
     expect(editor.getElementByKey(titleTextKey)).not.toBe(null);
   });
 
+  test('re-reconciling a decorator-host slot leaves an unchanged contentEditable alone', () => {
+    // In Chrome, writing `contenteditable` on a connected element forces a
+    // synchronous style recalculation even when the value is unchanged,
+    // so the reconciler only writes it when the editable state changes.
+    const descriptor = Object.getOwnPropertyDescriptor(
+      HTMLElement.prototype,
+      'contentEditable',
+    )!;
+    const writes: string[] = [];
+    Object.defineProperty(HTMLElement.prototype, 'contentEditable', {
+      ...descriptor,
+      set(this: HTMLElement, value: string) {
+        if (this.hasAttribute('data-lexical-slot')) {
+          writes.push(value);
+        }
+        descriptor.set!.call(this, value);
+      },
+    });
+    try {
+      using editor = createSlotEditor();
+      let hostKey = '';
+      let slotKey = '';
+      let textKey = '';
+
+      editor.update(
+        () => {
+          const host = $createTestDecoratorNode().setIsInline(false);
+          const title = $createTestShadowRootNode();
+          const text = $createTextNode('Before');
+          title.append($createParagraphNode().append(text));
+          $getRoot().append(host);
+          $setSlot(host, 'title', title);
+          hostKey = host.getKey();
+          slotKey = title.getKey();
+          textKey = text.getKey();
+        },
+        {discrete: true},
+      );
+      const slotContainer = editor.getElementByKey(slotKey)!.parentElement!;
+      expect(slotContainer.contentEditable).toBe('true');
+      expect(writes).toEqual(['true']);
+
+      // Reconcile the host and its slot again with no editable change.
+      editor.update(
+        () => {
+          $getNodeByKey(hostKey)!.markDirty();
+          $assertNodeType($getNodeByKey(textKey), $isTextNode).setTextContent(
+            'After',
+          );
+        },
+        {discrete: true},
+      );
+      expect(editor.getElementByKey(slotKey)!.parentElement).toBe(
+        slotContainer,
+      );
+      expect(slotContainer.textContent).toBe('After');
+      expect(writes).toEqual(['true']);
+
+      // An editable toggle still reaches the container.
+      editor.setEditable(false);
+      editor.update(() => {}, {discrete: true});
+      expect(slotContainer.contentEditable).toBe('false');
+      expect(writes).toEqual(['true', 'false']);
+    } finally {
+      Object.defineProperty(
+        HTMLElement.prototype,
+        'contentEditable',
+        descriptor,
+      );
+    }
+  });
+
   test('editing a decorator-host slot re-reconciles it in place', () => {
     using editor = createSlotEditor();
     let slotKey = '';
@@ -1920,7 +2028,7 @@ describe('named-slots: core foundation', () => {
     });
   });
 
-  // Regression for facebook/lexical#8936: $wrapNodeInElement is
+  // Regression for meta/lexical#8936: $wrapNodeInElement is
   // `node.replace(wrapper); wrapper.append(node)`. Because replace leaves the
   // slot map on the node, the wrapped host keeps its slots when it is
   // reattached in the same update.
@@ -2502,7 +2610,7 @@ describe('named-slots: selection resolution onto a slotted decorator', () => {
     domSelection!.removeAllRanges();
     domSelection!.addRange(range);
 
-    let result: ReturnType<typeof $internalCreateRangeSelection> | undefined;
+    let result: RangeSelection | null | undefined;
     editor.update(
       () => {
         result = $internalCreateRangeSelection(
@@ -2719,6 +2827,97 @@ describe('named-slots: slot-name type hints', () => {
   });
 });
 
+describe('$getSelectionSlotFrame', () => {
+  test('returns null for a null selection', () => {
+    using editor = createSlotEditor();
+    editor.read(() => {
+      expect($getSelectionSlotFrame(null)).toBe(null);
+    });
+  });
+
+  test('returns null for a selection outside any slot', () => {
+    using editor = createSlotEditor();
+    editor.update(
+      () => {
+        const text = $createTextNode('plain');
+        $getRoot().append($createParagraphNode().append(text));
+        text.select(0, 'plain'.length);
+      },
+      {discrete: true},
+    );
+
+    editor.read(() => {
+      expect($getSelectionSlotFrame($getSelection())).toBe(null);
+    });
+  });
+
+  test('returns the slot frame for a RangeSelection inside a slot', () => {
+    using editor = createSlotEditor();
+    let containerKey = '';
+    editor.update(
+      () => {
+        const host = $createParagraphNode();
+        const container = $slotContainer('inside');
+        $getRoot().append(host);
+        $setSlot(host, 'title', container);
+        containerKey = container.getKey();
+        $assertNodeType(
+          container.getFirstChildOrThrow(),
+          $isParagraphNode,
+        ).selectStart();
+      },
+      {discrete: true},
+    );
+
+    editor.read(() => {
+      const frame = $getSelectionSlotFrame($getSelection());
+      expect(frame && frame.getKey()).toBe(containerKey);
+    });
+  });
+
+  test('returns the slot frame for a NodeSelection inside a slot', () => {
+    // A NodeSelection is not a RangeSelection, so the frame has to come from
+    // the nodes it reports rather than from an anchor point. The same path
+    // carries every other BaseSelection implementation (TableSelection, and
+    // anything an app defines).
+    using editor = createSlotEditor();
+    let containerKey = '';
+    editor.update(
+      () => {
+        const host = $createParagraphNode();
+        const container = $slotContainer('inside');
+        $getRoot().append(host);
+        $setSlot(host, 'title', container);
+        containerKey = container.getKey();
+        const nodeSelection = $createNodeSelection();
+        nodeSelection.add(container.getFirstChildOrThrow().getKey());
+        $setSelection(nodeSelection);
+      },
+      {discrete: true},
+    );
+
+    editor.read(() => {
+      const frame = $getSelectionSlotFrame($getSelection());
+      expect(frame && frame.getKey()).toBe(containerKey);
+    });
+  });
+
+  test('returns null for an empty NodeSelection', () => {
+    using editor = createSlotEditor();
+    editor.update(
+      () => {
+        $getRoot().append($createParagraphNode());
+        $setSelection($createNodeSelection());
+      },
+      {discrete: true},
+    );
+
+    editor.read(() => {
+      expect($getSelectionSlotFrame($getSelection())).toBe(null);
+    });
+  });
+});
+
 describe('$getSlotNameWithinHost', () => {
   test('returns the slot name for a node sitting in a named slot', () => {
     using editor = createSlotEditor();
@@ -2848,6 +3047,93 @@ describe('$getSlotNameWithinHost', () => {
 
 // Regression tests for the slot-aware $selectAll path.
 describe('$selectAll boundary cases', () => {
+  test.each([
+    'deleteCharacter',
+    'deleteWord',
+    'deleteLine',
+    'removeText',
+    'node',
+  ] as const)(
+    'deleting a %s selection inside a root slot keeps the selection in that slot',
+    kind => {
+      using editor = createSlotEditor();
+      editor.update(
+        () => {
+          const root = $getRoot();
+          const slot = $slotContainer('Footnote');
+          $setSlot(root, 'footnotes', slot);
+          if (kind === 'node') {
+            const selection = $createNodeSelection();
+            selection.add(slot.getFirstChildOrThrow().getKey());
+            $setSelection(selection);
+            selection.deleteNodes();
+          } else {
+            const selection = $selectAll(slot.selectStart());
+            if (kind === 'removeText') {
+              selection.removeText();
+            } else {
+              selection[kind](true);
+            }
+          }
+          expect($getSelectionSlotFrame($getSelection())).toBe(slot);
+          expect(root.getChildrenSize()).toBe(0);
+        },
+        {discrete: true},
+      );
+    },
+  );
+
+  test.each([
+    'deleteCharacter',
+    'deleteWord',
+    'deleteLine',
+    'removeText',
+    'node',
+  ] as const)(
+    'deleting all children with a %s selection restores a paragraph before root slots',
+    kind => {
+      using editor = createSlotEditor();
+      editor.update(
+        () => {
+          const root = $getRoot();
+          const paragraph = $createParagraphNode().append(
+            $createTextNode('Body'),
+          );
+          root.append(paragraph);
+          const slot = $slotContainer('Footnote');
+          $setSlot(root, 'footnotes', slot);
+          if (kind === 'node') {
+            const selection = $createNodeSelection();
+            selection.add(paragraph.getKey());
+            $setSelection(selection);
+            selection.deleteNodes();
+          } else {
+            const selection = $selectAll();
+            if (kind === 'removeText') {
+              selection.removeText();
+            } else {
+              selection[kind](true);
+            }
+          }
+
+          expect(root.getChildrenSize()).toBe(1);
+          const replacement = root.getFirstChild();
+          assert($isParagraphNode(replacement));
+          expect(replacement.isEmpty()).toBe(true);
+          expect($getSlot(root, 'footnotes')).toBe(slot);
+          expect(slot.getTextContent()).toBe('Footnote');
+          const selection = $getSelection();
+          assert($isRangeSelection(selection));
+          expect(selection.isCollapsed()).toBe(true);
+          expect(selection.anchor.getNode()).toBe(replacement);
+          selection.insertText('Replacement');
+          expect(replacement.getTextContent()).toBe('Replacement');
+        },
+        {discrete: true},
+      );
+    },
+  );
+
   // $selectAll on a selection whose anchor sits on a slot value's own
   // element point. The slot value's getTopLevelElement stops at itself
   // (slot boundary), and its __parent is null (it's reached through
@@ -3064,6 +3350,8 @@ describe('named-slots: canonical slot order', () => {
       // declaration order, not call order and not code-unit order
       // ('body' < 'title')
       expect($getSlotNames(host)).toEqual(['title', 'body']);
+      expect(host.getTextContent()).toBe('TitleBody');
+      expect(host.getTextContentSize()).toBe(9);
     });
   });
 
@@ -3090,6 +3378,8 @@ describe('named-slots: canonical slot order', () => {
       // declared names lead in declaration order; the undeclared rest trail
       // in code-unit order
       expect($getSlotNames(host)).toEqual(['title', 'body', 'alpha', 'zeta']);
+      expect(host.getTextContent()).toBe('TBAZ');
+      expect(host.getTextContentSize()).toBe(4);
     });
   });
 
@@ -3668,7 +3958,7 @@ describe('named-slots: block slot values (virtual shadow root)', () => {
 });
 
 describe('named-slots: hydrate-time normalize (#8712)', () => {
-  // Regression for facebook/lexical#8712: parsed inputs (URL doc payloads,
+  // Regression for meta/lexical#8712: parsed inputs (URL doc payloads,
   // imported JSON, paste round-trips) can carry slot frames whose
   // children violate `getTopLevelElement`'s invariant
   // (`Children of root nodes must be elements or decorators`). Any
@@ -3755,7 +4045,7 @@ describe('named-slots: hydrate-time normalize (#8712)', () => {
 });
 
 describe('named-slots: typing-path paragraph wrap (#8712)', () => {
-  // Regression for facebook/lexical#8712: the in-the-middle branch of
+  // Regression for meta/lexical#8712: the in-the-middle branch of
   // $transferStartingElementPointToTextPoint used to wrap the new text in
   // a paragraph only when the parent was a RootNode. A block-cursor caret
   // before a non-paragraph child of a shadow-root slot frame dropped a
@@ -3805,7 +4095,7 @@ describe('named-slots: typing-path paragraph wrap (#8712)', () => {
 });
 
 describe('named-slots: insertNodes redirect termination (#8712)', () => {
-  // Regression for facebook/lexical#8712: when the slot value's first child
+  // Regression for meta/lexical#8712: when the slot value's first child
   // is a non-element (typically a block decorator like HorizontalRuleNode),
   // `firstChild.selectStart()` resolves back to the slot value's own
   // element-mode caret (no sibling, parent = the slot value root), which
@@ -3861,5 +4151,185 @@ describe('named-slots: insertNodes redirect termination (#8712)', () => {
       const host = $assertNodeType($getNodeByKey(hostKey), $isParagraphNode);
       expect($getSlot(host, 'title')!.is(slot)).toBe(true);
     });
+  });
+});
+
+describe('named-slots: root text after repeated slot edits', () => {
+  // An edit inside a slot marks its host dirty without cloning it. The
+  // children fast path, which engages from four children, splices the
+  // parent's cached text using each dirty child's previous size, so a leaf
+  // host's size has to be right after every edit, not only the first.
+  function $appendHostWithSlot(
+    parent: ElementNode,
+    host: ElementNode | SlotTextHostNode,
+  ): TextNode {
+    const text = $createTextNode('C');
+    parent.append(host);
+    $setSlot(
+      host,
+      'title',
+      $createTestShadowRootNode().append($createParagraphNode().append(text)),
+    );
+    return text;
+  }
+
+  function editSlot(
+    editor: LexicalEditorWithDispose,
+    textKey: string,
+    text: string,
+  ): void {
+    editor.update(
+      () => {
+        $assertNodeType($getNodeByKey(textKey), $isTextNode).setTextContent(
+          text,
+        );
+      },
+      {discrete: true},
+    );
+  }
+
+  function rootText(editor: LexicalEditorWithDispose): string {
+    return editor.read(() => $getRoot().getTextContent());
+  }
+
+  test('an inline decorator host that ends a paragraph of four children', () => {
+    using editor = createSlotEditor();
+    let textKey = '';
+    editor.update(
+      () => {
+        const paragraph = $createParagraphNode().append(
+          $createTextNode('ab'),
+          $createLineBreakNode(),
+          $createTextNode('cd '),
+        );
+        $getRoot().append(paragraph);
+        textKey = $appendHostWithSlot(
+          paragraph,
+          $create(SlotTextHostNode),
+        ).getKey();
+      },
+      {discrete: true},
+    );
+    for (const text of ['CD', 'CDE', 'CDEF']) {
+      editSlot(editor, textKey, text);
+      expect(rootText(editor)).toBe(`ab\ncd ${text}`);
+    }
+  });
+
+  test('a block decorator host that is the last of four blocks', () => {
+    using editor = createSlotEditor();
+    let textKey = '';
+    editor.update(
+      () => {
+        const root = $getRoot();
+        for (const text of ['a', 'b', 'c']) {
+          root.append($createParagraphNode().append($createTextNode(text)));
+        }
+        textKey = $appendHostWithSlot(
+          root,
+          $create(SlotTextHostNode).setIsInline(false),
+        ).getKey();
+      },
+      {discrete: true},
+    );
+    for (const text of ['CD', 'CDE']) {
+      editSlot(editor, textKey, text);
+      expect(rootText(editor)).toBe(`a\n\nb\n\nc\n\n${text}`);
+    }
+  });
+
+  test('a text appended after an edited decorator host', () => {
+    using editor = createSlotEditor();
+    let hostKey = '';
+    let textKey = '';
+    editor.update(
+      () => {
+        const paragraph = $createParagraphNode().append(
+          $createTextNode('ab'),
+          $createLineBreakNode(),
+          $createTextNode('cd '),
+        );
+        $getRoot().append(paragraph);
+        const host = $create(SlotTextHostNode);
+        textKey = $appendHostWithSlot(paragraph, host).getKey();
+        hostKey = host.getKey();
+      },
+      {discrete: true},
+    );
+    editSlot(editor, textKey, 'CD');
+    editor.update(
+      () => {
+        $getNodeByKey(hostKey)!.insertAfter($createTextNode(' ef'));
+      },
+      {discrete: true},
+    );
+    expect(rootText(editor)).toBe('ab\ncd CD ef');
+  });
+
+  test('a text removed after an edited decorator host', () => {
+    using editor = createSlotEditor();
+    let afterKey = '';
+    let textKey = '';
+    editor.update(
+      () => {
+        const paragraph = $createParagraphNode().append(
+          $createTextNode('ab'),
+          $createLineBreakNode(),
+          $createTextNode('cd '),
+        );
+        $getRoot().append(paragraph);
+        textKey = $appendHostWithSlot(
+          paragraph,
+          $create(SlotTextHostNode),
+        ).getKey();
+        const after = $createTextNode(' ef');
+        paragraph.append(after);
+        afterKey = after.getKey();
+      },
+      {discrete: true},
+    );
+    editSlot(editor, textKey, 'CD');
+    expect(rootText(editor)).toBe('ab\ncd CD ef');
+    editor.update(
+      () => {
+        $getNodeByKey(afterKey)!.remove();
+      },
+      {discrete: true},
+    );
+    expect(rootText(editor)).toBe('ab\ncd CD');
+  });
+
+  test.each([
+    [
+      'an inline decorator host that ends a paragraph of three children',
+      () => [$createTextNode('ab'), $createTextNode('cd ')],
+      () => $create(SlotTextHostNode),
+      'abcd ',
+    ],
+    [
+      'an inline element host that ends a paragraph of four children',
+      () => [
+        $createTextNode('ab'),
+        $createLineBreakNode(),
+        $createTextNode('cd '),
+      ],
+      () => $createTestInlineElementNode(),
+      'ab\ncd ',
+    ],
+  ])('%s', (_name, $before, $host, prefix) => {
+    using editor = createSlotEditor();
+    let textKey = '';
+    editor.update(
+      () => {
+        const paragraph = $createParagraphNode().append(...$before());
+        $getRoot().append(paragraph);
+        textKey = $appendHostWithSlot(paragraph, $host()).getKey();
+      },
+      {discrete: true},
+    );
+    for (const text of ['CD', 'CDE', 'CDEF']) {
+      editSlot(editor, textKey, text);
+      expect(rootText(editor)).toBe(`${prefix}${text}`);
+    }
   });
 });

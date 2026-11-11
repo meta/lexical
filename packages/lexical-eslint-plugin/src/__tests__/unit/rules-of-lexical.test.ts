@@ -6,6 +6,8 @@
  *
  */
 
+// @vitest-environment node
+
 import type {RulesOfLexicalOptions} from '../../rules/rules-of-lexical.js';
 
 import prettier from '@prettier/sync';

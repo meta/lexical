@@ -14,21 +14,29 @@ mode.
 
 ## Setting the mode
 
-In order to set the mode, this can be done on creation of the editor:
+In order to set the mode, this can be done on creation of the editor, with the
+`editable` property of your app's extension:
 
 ```js
-const editor = createEditor({
-  editable: true,
-  ...
-})
+import {buildEditorFromExtensions} from '@lexical/extension';
+import {RichTextExtension} from '@lexical/rich-text';
+import {defineExtension} from 'lexical';
+
+const editor = buildEditorFromExtensions(
+  defineExtension({
+    dependencies: [RichTextExtension],
+    editable: false,
+    name: '@my-app/editor',
+  }),
+);
 ```
 
-If you're using `@lexical/react` this can be done on the `initialConfig` passed to `<LexicalComposer>`:
+With React, pass the same extension to `<LexicalExtensionComposer>`:
 
 ```jsx
-<LexicalComposer initialConfig={{editable: true}}>
+<LexicalExtensionComposer extension={appExtension}>
   ...
-</LexicalComposer>
+</LexicalExtensionComposer>
 ```
 
 After an editor is created, the mode can be changed imperatively:
@@ -58,3 +66,8 @@ const removeEditableListener = editor.registerEditableListener(
 // Do not forget to unregister the listener when no longer needed!
 removeEditableListener();
 ```
+
+In an extension, depend on
+[`WatchEditableExtension`](/docs/api/modules/lexical_extension#watcheditableextension),
+whose output is a signal holding the current editable state, instead of
+registering the listener yourself.

@@ -1,0 +1,40 @@
+/**
+ * Copyright (c) Meta Platforms, Inc. and affiliates.
+ *
+ * This source code is licensed under the MIT license found in the
+ * LICENSE file in the root directory of this source tree.
+ *
+ * @flow strict
+ */
+
+import type {LexicalCommand, LexicalEditor, LexicalNode} from 'lexical';
+
+import {MenuOption} from '@lexical/react/LexicalMenuOption';
+
+export type EmbedMatchResult<TEmbedMatchResult = unknown> = {
+  url: string,
+  id: string,
+  data?: TEmbedMatchResult,
+};
+
+export interface EmbedConfig<
+  TEmbedMatchResultData = unknown,
+  TEmbedMatchResult = EmbedMatchResult<TEmbedMatchResultData>,
+> {
+  type: string;
+  parseUrl: (
+    text: string,
+  ) => Promise<TEmbedMatchResult | null> | TEmbedMatchResult | null;
+  insertNode: (editor: LexicalEditor, result: TEmbedMatchResult) => void;
+}
+
+declare export var URL_MATCHER: RegExp;
+declare export var INSERT_EMBED_COMMAND: LexicalCommand<EmbedConfig<>['type']>;
+
+declare export class AutoEmbedOption extends MenuOption {
+  onSelect: (targetNode: LexicalNode | null) => void;
+  constructor(
+    title: string,
+    options: {onSelect: (targetNode: LexicalNode | null) => void},
+  ): void;
+}

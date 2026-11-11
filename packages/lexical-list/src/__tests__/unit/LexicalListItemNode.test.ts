@@ -723,6 +723,68 @@ describe('LexicalListItemNode tests', () => {
         );
       });
 
+      //   - A
+      // - x
+      //   1. B
+      test('both siblings are nested with a different listType', async () => {
+        const {editor} = testEnv;
+        let x: ListItemNode;
+
+        await editor.update(() => {
+          const root = $getRoot();
+          const parent = new ListNode('bullet', 1);
+
+          const A_listItem = new ListItemNode();
+          const A_nestedList = new ListNode('bullet', 1);
+          const A_nestedListItem = new ListItemNode();
+          A_listItem.append(A_nestedList);
+          A_nestedList.append(A_nestedListItem);
+          A_nestedListItem.append(new TextNode('A'));
+
+          x = new ListItemNode();
+          x.append(new TextNode('x'));
+
+          const B_listItem = new ListItemNode();
+          const B_nestedList = new ListNode('number', 1);
+          const B_nestedListItem = new ListItemNode();
+          B_listItem.append(B_nestedList);
+          B_nestedList.append(B_nestedListItem);
+          B_nestedListItem.append(new TextNode('B'));
+
+          parent.append(A_listItem, x, B_listItem);
+          root.append(parent);
+        });
+
+        await editor.update(() => x.remove());
+
+        expectHtmlToBeEqual(
+          testEnv.outerHTML,
+          html`
+            <div
+              contenteditable="true"
+              style="user-select: text; white-space: pre-wrap; word-break: break-word;"
+              data-lexical-editor="true">
+              <ul dir="auto">
+                <li value="1">
+                  <ul>
+                    <li value="1">
+                      <span data-lexical-text="true">A</span>
+                    </li>
+                  </ul>
+                </li>
+                <li value="1">
+                  <ol>
+                    <li value="1">
+                      <span data-lexical-text="true">B</span>
+                    </li>
+                  </ol>
+                </li>
+              </ul>
+            </div>
+          `,
+        );
+      });
+
       //  - A1
       //     - A2
       // - x

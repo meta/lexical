@@ -38,6 +38,27 @@ describe('LexicalGC tests', () => {
       expect(editor.getEditorState()._nodeMap.size).toBe(1);
     });
 
+    for (const parentFirst of [false, true]) {
+      test(`collects newly created dirty subtrees, parent created first: ${parentFirst}`, async () => {
+        const {editor} = testEnv;
+        await editor.update(() => {
+          const first = $createTestElementNode();
+          const second = $createTestElementNode();
+          const parent = parentFirst ? first : second;
+          const child = parentFirst ? second : first;
+          $getRoot().append(
+            parent.append(
+              child.append(
+                $createParagraphNode().append($createTextNode('temporary')),
+              ),
+            ),
+          );
+          parent.remove();
+        });
+        expect([...editor.getEditorState()._nodeMap.keys()]).toEqual(['root']);
+      });
+    }
+
     test('RootNode.clear() with a child and three subchildren', async () => {
       const {editor} = testEnv;
       await editor.update(() => {

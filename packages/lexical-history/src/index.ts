@@ -10,12 +10,14 @@ import {
   batch,
   effect,
   getPeerDependencyFromEditor,
+  type HMRExtension,
   namedSignals,
   type ReadonlySignal,
   type Signal,
   signal,
 } from '@lexical/extension';
 import {
+  $isElementNode,
   $isRangeSelection,
   $isRootNode,
   $isTextNode,
@@ -246,6 +248,36 @@ function isTextNodeUnchanged(
   return false;
 }
 
+function $serializeNode(node: LexicalNode): string {
+  return JSON.stringify([
+    node.exportJSON(),
+    $isElementNode(node) ? node.getChildrenKeys() : null,
+  ]);
+}
+
+function areNodesUnchanged(
+  keys: Set<NodeKey>,
+  prevEditorState: EditorState,
+  nextEditorState: EditorState,
+): boolean {
+  for (const key of keys) {
+    const prevNode = prevEditorState._nodeMap.get(key);
+    const nextNode = nextEditorState._nodeMap.get(key);
+    if (prevNode === nextNode) {
+      continue;
+    }
+    if (
+      !prevNode ||
+      !nextNode ||
+      prevEditorState.read(() => $serializeNode(prevNode)) !==
+        nextEditorState.read(() => $serializeNode(nextNode))
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
+
 function createMergeActionGetter(
   editor: LexicalEditor,
   delayOrStore: number | ReadonlySignal<number>,
@@ -263,6 +295,8 @@ function createMergeActionGetter(
   let compositionStartTime = prevChangeTime;
   let compositionStartChangeType = OTHER;
   let compositionStartState: EditorState | null = null;
+  // Include every update in the composition, not only its final deletion.
+  const compositionDirtyKeys = new Set<NodeKey>();
 
   return (
     prevEditorState,
@@ -278,6 +312,15 @@ function createMergeActionGetter(
       compositionStartTime = prevChangeTime;
       compositionStartChangeType = prevChangeType;
       compositionStartState = prevEditorState;
+      compositionDirtyKeys.clear();
+    }
+    if (compositionStartState !== null) {
+      for (const key of dirtyLeaves) {
+        compositionDirtyKeys.add(key);
+      }
+      for (const key of dirtyElements.keys()) {
+        compositionDirtyKeys.add(key);
+      }
     }
 
     // If applying changes from history stack there's no need
@@ -285,6 +328,8 @@ function createMergeActionGetter(
     if (tags.has(HISTORIC_TAG)) {
       prevChangeType = OTHER;
       prevChangeTime = changeTime;
+      compositionStartState = null;
+      compositionDirtyKeys.clear();
       return DISCARD_HISTORY_CANDIDATE;
     }
 
@@ -313,12 +358,28 @@ function createMergeActionGetter(
             editor.isComposing(),
           );
 
+    let isUnchangedComposition = false;
     const mergeAction = (() => {
       const isSameEditor =
         currentHistoryEntry === null || currentHistoryEntry.editor === editor;
       const shouldPushHistory = tags.has(HISTORY_PUSH_TAG);
       const shouldMergeHistory =
         !shouldPushHistory && isSameEditor && tags.has(HISTORY_MERGE_TAG);
+
+      if (
+        isCompositionEnd &&
+        compositionStartState !== null &&
+        isSameEditor &&
+        !shouldPushHistory &&
+        areNodesUnchanged(
+          compositionDirtyKeys,
+          compositionStartState,
+          nextEditorState,
+        )
+      ) {
+        isUnchangedComposition = true;
+        return HISTORY_MERGE;
+      }
 
       if (shouldMergeHistory) {
         return HISTORY_MERGE;
@@ -356,8 +417,11 @@ function createMergeActionGetter(
       }
 
       // A single node might have been marked as dirty, but not have changed
-      // due to some node transform reverting the change.
-      if (dirtyLeaves.size === 1) {
+      // due to some node transform reverting the change. An explicit
+      // HISTORY_PUSH_TAG always asks for its own entry, so it must not be
+      // merged away here even when the only dirty leaf is an unchanged
+      // TextNode (see #9217).
+      if (!shouldPushHistory && dirtyLeaves.size === 1) {
         const dirtyLeafKey = Array.from(dirtyLeaves)[0];
         if (
           isTextNodeUnchanged(dirtyLeafKey, prevEditorState, nextEditorState)
@@ -369,11 +433,69 @@ function createMergeActionGetter(
       return HISTORY_PUSH;
     })();
 
-    prevChangeTime = changeTime;
-    prevChangeType = changeType;
+    if (isCompositionEnd) {
+      compositionStartState = null;
+      compositionDirtyKeys.clear();
+    }
+    if (!isUnchangedComposition) {
+      prevChangeTime = changeTime;
+      prevChangeType = changeType;
+    }
 
     return mergeAction;
   };
+}
+
+/**
+ * Build the entry that reverses `historyStateEntry` and belongs on the
+ * opposite stack.
+ *
+ * With a single editor this is always `current`, since `current` tracks the
+ * live state of that editor. With a shared {@link HistoryState} the stacks
+ * interleave entries from several editors, so `current` may belong to an
+ * editor that is *not* about to change — pushing it would record a no-op and
+ * lose the state we are about to overwrite. In that case read the live state
+ * off the entry's own editor instead.
+ */
+function getInverseEntry(
+  historyStateEntry: HistoryStateEntry,
+  current: null | HistoryStateEntry,
+): null | HistoryStateEntry {
+  if (current !== null && current.editor === historyStateEntry.editor) {
+    return current;
+  }
+  const {editor} = historyStateEntry;
+  const editorState = editor.getEditorState();
+  // An empty EditorState can not be restored (setEditorState throws), so
+  // there is nothing to reverse to.
+  return editorState.isEmpty() ? null : {editor, editorState};
+}
+
+/**
+ * Build the entry that an update from `editor` pushes onto the undo stack.
+ *
+ * `current` is the state to restore when this update is undone, but with a
+ * shared {@link HistoryState} it may belong to a different editor — one that
+ * is not changing here, so restoring it would be a no-op and the state that is
+ * about to be overwritten would never make it onto the stack. Record this
+ * editor's own pre-update state in that case.
+ */
+function getUndoEntry(
+  editor: LexicalEditor,
+  prevEditorState: EditorState,
+  current: null | HistoryStateEntry,
+): null | HistoryStateEntry {
+  if (current === null) {
+    return null;
+  }
+  if (current.editor === editor) {
+    return {...current};
+  }
+  // An empty EditorState can not be restored (setEditorState throws). Skipping
+  // it mirrors the way the first update of an editor is not undoable.
+  return prevEditorState.isEmpty()
+    ? null
+    : {editor, editorState: prevEditorState};
 }
 
 function redo(
@@ -386,13 +508,16 @@ function redo(
 
   if (redoStack.length !== 0) {
     const current = historyState.current;
-
-    if (current !== null) {
-      undoStack.push(current);
-      editor.dispatchCommand(CAN_UNDO_COMMAND, true);
-    }
-
     const historyStateEntry = redoStack.pop();
+
+    if (historyStateEntry) {
+      const inverseEntry = getInverseEntry(historyStateEntry, current);
+
+      if (inverseEntry !== null) {
+        undoStack.push(inverseEntry);
+        editor.dispatchCommand(CAN_UNDO_COMMAND, true);
+      }
+    }
 
     if (redoStack.length === 0) {
       editor.dispatchCommand(CAN_REDO_COMMAND, false);
@@ -425,9 +550,13 @@ function undo(
     const current = historyState.current;
     const historyStateEntry = undoStack.pop();
 
-    if (current !== null) {
-      redoStack.push(current);
-      editor.dispatchCommand(CAN_REDO_COMMAND, true);
+    if (historyStateEntry) {
+      const inverseEntry = getInverseEntry(historyStateEntry, current);
+
+      if (inverseEntry !== null) {
+        redoStack.push(inverseEntry);
+        editor.dispatchCommand(CAN_REDO_COMMAND, true);
+      }
     }
 
     if (undoStack.length === 0) {
@@ -538,10 +667,10 @@ export function registerHistory(
         editor.dispatchCommand(CAN_REDO_COMMAND, false);
       }
 
-      if (current !== null) {
-        undoStack.push({
-          ...current,
-        });
+      const undoEntry = getUndoEntry(editor, prevEditorState, current);
+
+      if (undoEntry !== null) {
+        undoStack.push(undoEntry);
         const cap = readMaxDepth();
         if (cap !== null && undoStack.length > cap) {
           // FIFO-evict the oldest entries so the stack stays at `cap`.
@@ -725,7 +854,10 @@ export const HistoryExtension = defineExtension({
     delay: 300,
     disabled: typeof window === 'undefined',
     maxDepth: null,
-    now: Date.now,
+    // Wrapped rather than passing `Date.now` itself: a module-scope property
+    // read is a side effect to bundlers, which would pin this extension into
+    // every bundle that imports the module.
+    now: () => Date.now(),
   }),
   init: (): HistoryExtensionInit => ({
     canRedo: signal(false),
@@ -763,6 +895,8 @@ export const HistoryExtension = defineExtension({
   },
 });
 
+const HMR_EXTENSION_NAME = '@lexical/extension/HMR';
+
 function getHistoryPeer(editor: LexicalEditor | null | undefined) {
   return editor
     ? getPeerDependencyFromEditor<typeof HistoryExtension>(
@@ -770,6 +904,29 @@ function getHistoryPeer(editor: LexicalEditor | null | undefined) {
         HistoryExtension.name,
       )
     : null;
+}
+
+/**
+ * Reads `editor`'s HMR restore counter, subscribing the calling effect to it.
+ *
+ * `HMRExtension` restores an editor's `HistoryState` by assigning a rebuilt
+ * one to that editor's signal, which for a shared history would leave this
+ * editor and its parent holding two different histories — this editor's own
+ * restore replacing the shared object, or the parent's leaving this one
+ * pointing at the object the parent no longer uses. Depending on the counter
+ * re-runs the sync below after either, which re-links them.
+ *
+ * A peer lookup by name rather than a dependency: HMRExtension is a
+ * development-time extension that most editors do not have.
+ */
+function hmrRestoreCount(editor: LexicalEditor | null | undefined): number {
+  const peer = editor
+    ? getPeerDependencyFromEditor<typeof HMRExtension>(
+        editor,
+        HMR_EXTENSION_NAME,
+      )
+    : undefined;
+  return peer ? peer.output.restoreCount.value : 0;
 }
 
 export interface SharedHistoryConfig {
@@ -811,6 +968,10 @@ export const SharedHistoryExtension = defineExtension({
       const {disabled, parentEditor} = state.getOutput();
       if (!disabled.value) {
         const {output} = state.getDependency(HistoryExtension);
+        // Subscribe to both restore counters, so that an HMR reload that
+        // rebuilds either editor's history re-links the two.
+        hmrRestoreCount(editor);
+        hmrRestoreCount(parentEditor.value);
         const parentPeer = getHistoryPeer(parentEditor.value);
         if (!parentPeer) {
           return;

@@ -11,10 +11,12 @@ import invariant from '@lexical/internal/invariant';
 import {
   $addUpdateTag,
   $createRangeSelection,
+  $getNodeByKey,
   $getSelection,
+  $isBlockContainer,
+  $isElementNode,
   $isLineBreakNode,
   $isRangeSelection,
-  $isRootOrShadowRoot,
   $isTextNode,
   $setSelection,
   COLLABORATION_TAG,
@@ -27,6 +29,7 @@ import {
   type LexicalEditor,
   type LexicalNode,
   mergeRegister,
+  type PointType,
   TEXT_TYPE_TO_FORMAT,
   type TextNode,
 } from 'lexical';
@@ -40,7 +43,13 @@ import {
   type Transformer,
   TRANSFORMERS,
 } from './MarkdownTransformers';
-import {indexBy, PUNCTUATION_OR_SPACE, transformersByType} from './utils';
+import {
+  characterAt,
+  characterBefore,
+  indexBy,
+  isPunctuationOrSpace,
+  transformersByType,
+} from './utils';
 
 function runElementTransformers(
   parentNode: ElementNode,
@@ -52,7 +61,7 @@ function runElementTransformers(
   const grandParentNode = parentNode.getParent();
 
   if (
-    !$isRootOrShadowRoot(grandParentNode) ||
+    !$isBlockContainer(grandParentNode) ||
     parentNode.getFirstChild() !== anchorNode
   ) {
     return false;
@@ -106,7 +115,7 @@ function runMultilineElementTransformers(
   const grandParentNode = parentNode.getParent();
 
   if (
-    !$isRootOrShadowRoot(grandParentNode) ||
+    !$isBlockContainer(grandParentNode) ||
     parentNode.getFirstChild() !== anchorNode
   ) {
     return false;
@@ -246,12 +255,12 @@ function $runTextFormatTransformers(
     }
 
     // Some tags can not be used within words, hence should have newline/space/punctuation after it
-    const afterCloseTagChar = textContent[closeTagEndIndex + 1];
+    const afterCloseTagChar = characterAt(textContent, closeTagEndIndex + 1);
 
     if (
       matcher.intraword === false &&
       afterCloseTagChar &&
-      !PUNCTUATION_OR_SPACE.test(afterCloseTagChar)
+      !isPunctuationOrSpace(afterCloseTagChar)
     ) {
       continue;
     }
@@ -311,12 +320,15 @@ function $runTextFormatTransformers(
     }
 
     // Some tags can not be used within words, hence should have newline/space/punctuation before it
-    const beforeOpenTagChar = prevOpenNodeText[openTagStartIndex - 1];
+    const beforeOpenTagChar = characterBefore(
+      prevOpenNodeText,
+      openTagStartIndex,
+    );
 
     if (
       matcher.intraword === false &&
       beforeOpenTagChar &&
-      !PUNCTUATION_OR_SPACE.test(beforeOpenTagChar)
+      !isPunctuationOrSpace(beforeOpenTagChar)
     ) {
       continue;
     }
@@ -416,6 +428,47 @@ function getOpenTagStartIndex(
   }
 
   return -1;
+}
+
+/**
+ * Text coordinate of a point, measured in characters from the start of its
+ * parent element rather than from the start of its own node.
+ *
+ * The "did the user type exactly one character?" heuristic compares the anchor
+ * offset before and after an update, but node transforms (hashtags, autolinks,
+ * ...) can split or merge the leaves around the caret within that same update.
+ * The anchor then lands in a different node and the two raw offsets are no
+ * longer comparable, so a single typed character can look like a large jump and
+ * the shortcut is skipped (#5366). Rebasing both offsets on the parent element
+ * keeps them comparable; when the leaves around the caret are unchanged this is
+ * the previous offset plus a constant on both sides, so the comparison is
+ * unaffected.
+ */
+function $getOffsetInParent(point: PointType): number {
+  const node = point.getNode();
+
+  // A text point's offset is already a character count within its own node. An
+  // element point's is a child index, so the characters it stands after are
+  // those of the children before it.
+  let offset = 0;
+
+  if ($isTextNode(node)) {
+    offset = point.offset;
+  } else if ($isElementNode(node)) {
+    for (const child of node.getChildren().slice(0, point.offset)) {
+      offset += child.getTextContentSize();
+    }
+  }
+
+  for (
+    let sibling = node.getPreviousSibling();
+    sibling !== null;
+    sibling = sibling.getPreviousSibling()
+  ) {
+    offset += sibling.getTextContentSize();
+  }
+
+  return offset;
 }
 
 function isEqualSubString(
@@ -574,12 +627,18 @@ export function registerMarkdownShortcuts(
 
         const anchorNode = editorState._nodeMap.get(anchorKey);
 
+        if (!$isTextNode(anchorNode) || !dirtyLeaves.has(anchorKey)) {
+          return;
+        }
+
         if (
-          !$isTextNode(anchorNode) ||
-          !dirtyLeaves.has(anchorKey) ||
-          (!isCompositionEnd &&
-            anchorOffset !== 1 &&
-            anchorOffset > prevSelection.anchor.offset + 1)
+          !isCompositionEnd &&
+          anchorOffset !== 1 &&
+          editorState.read(() => $getOffsetInParent(selection.anchor)) >
+            prevEditorState.read(() =>
+              $getOffsetInParent(prevSelection.anchor),
+            ) +
+              1
         ) {
           return;
         }
@@ -594,17 +653,21 @@ export function registerMarkdownShortcuts(
         }
 
         editor.update(() => {
-          if (!canContainTransformableMarkdown(anchorNode)) {
+          // Read the node again by its key: an update queued before this one
+          // (a collaboration binding reading the document again, say) may
+          // have replaced it, and then there is nothing to transform.
+          const node = $getNodeByKey(anchorKey);
+          if (node === null || !canContainTransformableMarkdown(node)) {
             return;
           }
 
-          const parentNode = anchorNode.getParent();
+          const parentNode = node.getParent();
 
           if (parentNode === null || $isCodeNode(parentNode)) {
             return;
           }
 
-          if ($transform(parentNode, anchorNode, selection.anchor.offset)) {
+          if ($transform(parentNode, node, anchorOffset)) {
             $addUpdateTag(HISTORY_PUSH_TAG);
           }
         });

@@ -245,7 +245,16 @@ function getHashtagRegexString(): string {
   return hashtag;
 }
 
-const REGEX = new RegExp(getHashtagRegexString(), 'i');
+/** @__NO_SIDE_EFFECTS__ */
+function createHashtagRegExp(): RegExp {
+  return new RegExp(getHashtagRegexString(), 'i');
+}
+
+// Built by a function declared side-effect free (so the build annotates the
+// call) rather than inline: the character tables above are most of this
+// package, and a module-scope `new RegExp` pins them into every bundle that
+// imports it.
+const REGEX = createHashtagRegExp();
 
 function getHashtagMatch(text: string) {
   const matchArr = REGEX.exec(text);

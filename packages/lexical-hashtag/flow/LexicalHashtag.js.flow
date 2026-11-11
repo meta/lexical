@@ -23,7 +23,10 @@ declare export class HashtagNode extends TextNode {
   createDOM(config: EditorConfig): HTMLElement;
   canInsertTextBefore(): boolean;
   isTextEntity(): true;
-  exportJSON(): SerializedTextNode;
+  // See LexicalNode.exportJSON: one signature, the legacy form, and `false`
+  // rather than `boolean` so a compact call is refused instead of answered
+  // with a shape the value does not have.
+  exportJSON(compact?: false): SerializedTextNode;
 }
 declare export function $createHashtagNode(text?: string): HashtagNode;
 declare export function $isHashtagNode(

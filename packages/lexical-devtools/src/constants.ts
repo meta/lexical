@@ -7,3 +7,12 @@
  */
 
 export const EXTENSION_NAME = 'lexical-devtools';
+
+/**
+ * Name of the query string parameter used to hand the per-page-load window
+ * messaging namespace from the content script to the injected script.
+ *
+ * The namespace itself is generated at runtime and is deliberately NOT a
+ * constant -- see `entrypoints/content/index.ts`.
+ */
+export const CHANNEL_NAMESPACE_PARAM = 'ns';

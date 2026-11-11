@@ -21,14 +21,13 @@ import {
   test,
 } from '../utils/index.mjs';
 
+test.skip(({isPlainText}) => isPlainText, 'Requires rich text');
+
 test.describe('Regression test #3136', () => {
   test.beforeEach(({isCollab, page}) => initialize({isCollab, page}));
   test('Correctly pastes rich content when the selection is followed by an inline element', async ({
-    isPlainText,
     page,
   }) => {
-    test.skip(isPlainText);
-
     await focusEditor(page);
 
     // Non-link text
@@ -65,11 +64,8 @@ test.describe('Regression test #3136', () => {
   });
 
   test('Correctly pastes rich content when the selection is preceded by an inline element', async ({
-    isPlainText,
     page,
   }) => {
-    test.skip(isPlainText);
-
     await focusEditor(page);
 
     // Link

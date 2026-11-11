@@ -19,13 +19,16 @@ import {
 import {
   $createListItemNode,
   $createListNode,
+  $isListNode,
   ListExtension,
   type ListItemNode,
   type ListNode,
 } from '@lexical/list';
+import {$createQuoteNode, QuoteNode} from '@lexical/rich-text';
 import {
   $caretRangeFromSelection,
   $comparePointCaretNext,
+  $create,
   $createLineBreakNode,
   $createParagraphNode,
   $createRangeSelection,
@@ -34,6 +37,7 @@ import {
   $getCaretInDirection,
   $getRoot,
   $getSelection,
+  $getState,
   $isDecoratorNode,
   $isParagraphNode,
   $isRangeSelection,
@@ -41,14 +45,16 @@ import {
   $selectAll,
   $setCompositionKey,
   $setSelection,
+  $setState,
   $setTextFormat,
+  createState,
   ElementNode,
   getDOMSelection,
   IS_BOLD,
   type LexicalNode,
   type ParagraphNode,
   type RangeSelection,
-  type TextNode,
+  TextNode,
 } from 'lexical';
 import {
   afterEach,
@@ -67,6 +73,7 @@ import {
   $createTestInlineElementNode,
   $createTestShadowRootNode,
   $isTestShadowRootNode,
+  createTestEditor,
   TestDecoratorNode,
   TestInlineElementNode,
   TestShadowRootNode,
@@ -850,6 +857,146 @@ describe('Segmented node composition (#5065)', () => {
     );
   });
 
+  test('insertText without composition types into a segmented node', () => {
+    using editor = buildEditorFromExtensions(selectionTestExtension);
+    editor.update(
+      () => {
+        const segmented = $createTextNode('JohnSmith').setMode('segmented');
+        $getRoot().clear().append($createParagraphNode().append(segmented));
+
+        const sel = segmented.select(4, 4);
+        sel.insertText('X');
+
+        expect(segmented.isAttached()).toBe(false);
+        const allText = $getRoot().getAllTextNodes();
+        expect(allText).toHaveLength(1);
+        expect(allText[0].isSegmented()).toBe(false);
+        expect(allText[0].getTextContent()).toBe('JohnXSmith');
+        const selection = $getSelection();
+        assert($isRangeSelection(selection));
+        expect(selection.isCollapsed()).toBe(true);
+        expect(selection.anchor.key).toBe(allText[0].getKey());
+        expect(selection.anchor.offset).toBe(5);
+      },
+      {discrete: true},
+    );
+  });
+
+  test('insertText without composition keeps the NodeState and detail of the segmented node', () => {
+    const note = createState('note', {
+      parse: v => (typeof v === 'string' ? v : ''),
+    });
+    using editor = buildEditorFromExtensions(selectionTestExtension);
+    editor.update(
+      () => {
+        const segmented = $setState(
+          $createTextNode('JohnSmith').setMode('segmented').toggleUnmergeable(),
+          note,
+          'c1',
+        );
+        $getRoot().clear().append($createParagraphNode().append(segmented));
+
+        segmented.select(4, 4).insertText('X');
+
+        const allText = $getRoot().getAllTextNodes();
+        expect(allText).toHaveLength(1);
+        expect(allText[0].isSegmented()).toBe(false);
+        expect(allText[0].getTextContent()).toBe('JohnXSmith');
+        expect($getState(allText[0], note)).toBe('c1');
+        expect(allText[0].isUnmergeable()).toBe(true);
+      },
+      {discrete: true},
+    );
+  });
+
+  test('a TextNode replacement keeps the NodeState it sets, and takes the rest', () => {
+    const note = createState('note', {
+      parse: v => (typeof v === 'string' ? v : ''),
+    });
+    const other = createState('other', {
+      parse: v => (typeof v === 'string' ? v : ''),
+    });
+    class ReplacementTextNode extends TextNode {
+      $config() {
+        return this.config('test-replacement-text', {extends: TextNode});
+      }
+    }
+    const editor = createTestEditor({
+      nodes: [
+        ReplacementTextNode,
+        {
+          replace: TextNode,
+          with: (node: TextNode) =>
+            $setState(
+              $create(ReplacementTextNode).setTextContent(
+                node.getTextContent(),
+              ),
+              note,
+              'replacement',
+            ),
+          withKlass: ReplacementTextNode,
+        },
+      ],
+    });
+    editor.update(
+      () => {
+        const segmented = $setState(
+          $setState(
+            $create(ReplacementTextNode)
+              .setTextContent('JohnSmith')
+              .setMode('segmented'),
+            note,
+            'c1',
+          ),
+          other,
+          'o1',
+        );
+        $getRoot().clear().append($createParagraphNode().append(segmented));
+        segmented.select(4, 4).insertText('X');
+        const [text] = $getRoot().getAllTextNodes();
+        expect(text.getTextContent()).toBe('JohnXSmith');
+        expect($getState(text, note)).toBe('replacement');
+        expect($getState(text, other)).toBe('o1');
+      },
+      {discrete: true},
+    );
+  });
+
+  test('removing text from inside a segmented node to the next block keeps its NodeState and detail', () => {
+    const note = createState('note', {
+      parse: v => (typeof v === 'string' ? v : ''),
+    });
+    using editor = buildEditorFromExtensions(selectionTestExtension);
+    editor.update(
+      () => {
+        const segmented = $setState(
+          $createTextNode('$AB').setMode('segmented').toggleUnmergeable(),
+          note,
+          'c1',
+        );
+        const next = $createTextNode('z');
+        $getRoot()
+          .clear()
+          .append(
+            $createParagraphNode().append(segmented),
+            $createParagraphNode().append(next),
+          );
+        const selection = $createRangeSelection();
+        selection.anchor.set(segmented.getKey(), 2, 'text');
+        selection.focus.set(next.getKey(), 0, 'text');
+        $setSelection(selection);
+        selection.removeText();
+        const nodes = $getRoot().getAllTextNodes();
+        expect($getRoot().getTextContent()).toBe('$Az');
+        const kept = nodes.find(n => n.getTextContent().startsWith('$A'));
+        expect(kept).toBeDefined();
+        expect($getState(kept!, note)).toBe('c1');
+        expect(kept!.isUnmergeable()).toBe(true);
+      },
+      {discrete: true},
+    );
+  });
+
   test('insertText during composition preserves format and style', () => {
     using editor = buildEditorFromExtensions(selectionTestExtension);
     editor.update(
@@ -1161,6 +1308,325 @@ describe('Regression tests for #8707', () => {
       expect(children).toHaveLength(2);
       assert($isParagraphNode(children[0]));
       assert($isDecoratorNode(children[1]));
+    });
+  });
+});
+
+describe('Regression tests for #8075', () => {
+  test('forward delete removes an empty block before a shadow root', () => {
+    using editor = buildEditorFromExtensions(selectionTestExtension);
+    editor.update(
+      () => {
+        const paragraph = $createParagraphNode();
+        const shadow = $createTestShadowRootNode().append(
+          $createParagraphNode().append($createTextNode('inside')),
+        );
+        $getRoot().clear().append(paragraph, shadow);
+        paragraph.selectStart();
+      },
+      {discrete: true},
+    );
+
+    editor.update(
+      () => {
+        const selection = $getSelection();
+        assert($isRangeSelection(selection), 'Expected RangeSelection');
+        selection.deleteCharacter(false);
+      },
+      {discrete: true},
+    );
+
+    editor.read(() => {
+      const children = $getRoot().getChildren();
+      // The empty paragraph is gone and the shadow root is untouched.
+      expect(children).toHaveLength(1);
+      expect(
+        $assertNodeType(children[0], $isTestShadowRootNode).getTextContent(),
+      ).toBe('inside');
+    });
+  });
+
+  test('forward delete keeps a non-empty block before a shadow root', () => {
+    using editor = buildEditorFromExtensions(selectionTestExtension);
+    editor.update(
+      () => {
+        const paragraph = $createParagraphNode().append(
+          $createTextNode('before'),
+        );
+        const shadow = $createTestShadowRootNode().append(
+          $createParagraphNode().append($createTextNode('inside')),
+        );
+        $getRoot().clear().append(paragraph, shadow);
+        paragraph.selectEnd();
+      },
+      {discrete: true},
+    );
+
+    editor.update(
+      () => {
+        const selection = $getSelection();
+        assert($isRangeSelection(selection), 'Expected RangeSelection');
+        selection.deleteCharacter(false);
+      },
+      {discrete: true},
+    );
+
+    editor.read(() => {
+      const children = $getRoot().getChildren();
+      expect(children).toHaveLength(2);
+      expect(children[0].getTextContent()).toBe('before');
+      expect(
+        $assertNodeType(children[1], $isTestShadowRootNode).getTextContent(),
+      ).toBe('inside');
+    });
+  });
+
+  test('forward delete from an empty block at the end of a shadow root does nothing', () => {
+    using editor = buildEditorFromExtensions(selectionTestExtension);
+    editor.update(
+      () => {
+        const inner = $createParagraphNode();
+        $getRoot()
+          .clear()
+          .append(
+            $createTestShadowRootNode().append(inner),
+            $createTestShadowRootNode().append(
+              $createParagraphNode().append($createTextNode('next')),
+            ),
+          );
+        inner.selectStart();
+      },
+      {discrete: true},
+    );
+
+    editor.update(
+      () => {
+        const selection = $getSelection();
+        assert($isRangeSelection(selection), 'Expected RangeSelection');
+        selection.deleteCharacter(false);
+      },
+      {discrete: true},
+    );
+
+    editor.read(() => {
+      const children = $getRoot().getChildren();
+      expect(children).toHaveLength(2);
+      const shadow = $assertNodeType(children[0], $isTestShadowRootNode);
+      // The empty block still belongs to the first shadow root; the
+      // following shadow root was not pulled into it.
+      expect(shadow.getChildrenSize()).toBe(1);
+      expect(shadow.getTextContent()).toBe('');
+      expect(children[1].getTextContent()).toBe('next');
+    });
+  });
+});
+
+describe('Regression tests for #9095', () => {
+  // insertNodes with block-level content at a collapsed selection first
+  // splits the target paragraph (insertParagraph), then tries to merge the
+  // split-off paragraph into the last inserted block. The merge branch
+  // required $isElementNode(lastInsertedBlock), so a pasted block-level
+  // DecoratorNode (which is its own INTERNAL_$isBlock ancestor) skipped the
+  // cleanup entirely, and a container element such as a ListNode failed the
+  // INTERNAL_$isBlock(lastToInsert) clause instead (its first child is a
+  // ListItemNode). Both left a stray empty paragraph after the pasted node
+  // whenever the caret sat at the end of a paragraph, while pasting a plain
+  // paragraph or quote at the same caret cleaned up correctly. The split-off
+  // paragraph is now also removed when it is empty, which keeps the
+  // mid-paragraph case (where it holds the text after the caret) intact.
+  const insertBlockTestExtension = defineExtension({
+    dependencies: [selectionTestExtension],
+    name: '@test/selection-insert-block',
+    nodes: [QuoteNode],
+  });
+
+  const $placeCaretInFirstText = (offset: number) => {
+    const paragraph = $getRoot().getFirstChildOrThrow();
+    assert($isParagraphNode(paragraph), 'Expected a paragraph');
+    const text = paragraph.getFirstChildOrThrow();
+    assert($isTextNode(text), 'Expected a text node');
+    text.select(offset, offset);
+  };
+
+  const setupParagraph = (
+    editor: LexicalEditorWithDispose,
+    text: string,
+    caretOffset: number,
+  ) => {
+    editor.update(
+      () => {
+        $getRoot()
+          .clear()
+          .append($createParagraphNode().append($createTextNode(text)));
+        $placeCaretInFirstText(caretOffset);
+      },
+      {discrete: true},
+    );
+  };
+
+  const insertBlocks = (
+    editor: LexicalEditorWithDispose,
+    $makeNodes: () => LexicalNode[],
+  ) => {
+    editor.update(
+      () => {
+        const selection = $getSelection();
+        assert($isRangeSelection(selection), 'Expected RangeSelection');
+        selection.insertNodes($makeNodes());
+      },
+      {discrete: true},
+    );
+  };
+
+  const $makeList = () =>
+    $createListNode('bullet').append(
+      $createListItemNode().append($createTextNode('item')),
+    );
+
+  test('pasting a block decorator at the end of a paragraph leaves no empty paragraph', () => {
+    using editor = buildEditorFromExtensions(insertBlockTestExtension);
+    setupParagraph(editor, 'hello', 5);
+    insertBlocks(editor, () => [$createTestDecoratorNode().setIsInline(false)]);
+
+    editor.read(() => {
+      const children = $getRoot().getChildren();
+      expect(children).toHaveLength(2);
+      assert($isParagraphNode(children[0]));
+      expect(children[0].getTextContent()).toBe('hello');
+      assert($isDecoratorNode(children[1]));
+    });
+  });
+
+  test('pasting a block decorator in the middle of a paragraph keeps the trailing text', () => {
+    using editor = buildEditorFromExtensions(insertBlockTestExtension);
+    setupParagraph(editor, 'helloworld', 5);
+    insertBlocks(editor, () => [$createTestDecoratorNode().setIsInline(false)]);
+
+    editor.read(() => {
+      const children = $getRoot().getChildren();
+      expect(children).toHaveLength(3);
+      assert($isParagraphNode(children[0]));
+      expect(children[0].getTextContent()).toBe('hello');
+      assert($isDecoratorNode(children[1]));
+      assert($isParagraphNode(children[2]));
+      expect(children[2].getTextContent()).toBe('world');
+    });
+  });
+
+  test('pasting a block decorator at the start of a paragraph keeps the paragraph after it', () => {
+    using editor = buildEditorFromExtensions(insertBlockTestExtension);
+    setupParagraph(editor, 'hello', 0);
+    insertBlocks(editor, () => [$createTestDecoratorNode().setIsInline(false)]);
+
+    editor.read(() => {
+      const children = $getRoot().getChildren();
+      expect(children).toHaveLength(2);
+      assert($isDecoratorNode(children[0]));
+      assert($isParagraphNode(children[1]));
+      expect(children[1].getTextContent()).toBe('hello');
+    });
+  });
+
+  test('pasting a list at the end of a paragraph leaves no empty paragraph', () => {
+    using editor = buildEditorFromExtensions(insertBlockTestExtension);
+    setupParagraph(editor, 'hello', 5);
+    insertBlocks(editor, () => [$makeList()]);
+
+    editor.read(() => {
+      const children = $getRoot().getChildren();
+      expect(children).toHaveLength(2);
+      assert($isParagraphNode(children[0]));
+      expect(children[0].getTextContent()).toBe('hello');
+      assert($isListNode(children[1]));
+      expect(children[1].getTextContent()).toBe('item');
+    });
+  });
+
+  test('pasting a list in the middle of a paragraph keeps the trailing text', () => {
+    using editor = buildEditorFromExtensions(insertBlockTestExtension);
+    setupParagraph(editor, 'helloworld', 5);
+    insertBlocks(editor, () => [$makeList()]);
+
+    editor.read(() => {
+      const children = $getRoot().getChildren();
+      expect(children).toHaveLength(3);
+      assert($isParagraphNode(children[0]));
+      expect(children[0].getTextContent()).toBe('hello');
+      assert($isListNode(children[1]));
+      assert($isParagraphNode(children[2]));
+      expect(children[2].getTextContent()).toBe('world');
+    });
+  });
+
+  test('pasting a list at the start of a paragraph keeps the paragraph after it', () => {
+    using editor = buildEditorFromExtensions(insertBlockTestExtension);
+    setupParagraph(editor, 'hello', 0);
+    insertBlocks(editor, () => [$makeList()]);
+
+    editor.read(() => {
+      const children = $getRoot().getChildren();
+      expect(children).toHaveLength(2);
+      assert($isListNode(children[0]));
+      assert($isParagraphNode(children[1]));
+      expect(children[1].getTextContent()).toBe('hello');
+    });
+  });
+
+  // Control cases: at the same caret, a leaf block element merges through
+  // the existing branch and never leaves a stray paragraph. This is the
+  // in-function inconsistency the regression tests above pin down.
+  test('pasting a quote at the end of a paragraph merges into it (control)', () => {
+    using editor = buildEditorFromExtensions(insertBlockTestExtension);
+    setupParagraph(editor, 'hello', 5);
+    insertBlocks(editor, () => [
+      $createQuoteNode().append($createTextNode('quoted')),
+    ]);
+
+    editor.read(() => {
+      const children = $getRoot().getChildren();
+      expect(children).toHaveLength(1);
+      assert($isParagraphNode(children[0]));
+      expect(children[0].getTextContent()).toBe('helloquoted');
+    });
+  });
+
+  test('pasting a paragraph at the end of a paragraph merges into it (control)', () => {
+    using editor = buildEditorFromExtensions(insertBlockTestExtension);
+    setupParagraph(editor, 'hello', 5);
+    insertBlocks(editor, () => [
+      $createParagraphNode().append($createTextNode('world')),
+    ]);
+
+    editor.read(() => {
+      const children = $getRoot().getChildren();
+      expect(children).toHaveLength(1);
+      assert($isParagraphNode(children[0]));
+      expect(children[0].getTextContent()).toBe('helloworld');
+    });
+  });
+
+  test('typing after pasting a block decorator at the end creates a paragraph on demand', () => {
+    using editor = buildEditorFromExtensions(insertBlockTestExtension);
+    setupParagraph(editor, 'hello', 5);
+    insertBlocks(editor, () => [$createTestDecoratorNode().setIsInline(false)]);
+
+    editor.update(
+      () => {
+        const selection = $getSelection();
+        assert($isRangeSelection(selection), 'Expected RangeSelection');
+        selection.insertText('x');
+      },
+      {discrete: true},
+    );
+
+    editor.read(() => {
+      const children = $getRoot().getChildren();
+      expect(children).toHaveLength(3);
+      assert($isParagraphNode(children[0]));
+      expect(children[0].getTextContent()).toBe('hello');
+      assert($isDecoratorNode(children[1]));
+      assert($isParagraphNode(children[2]));
+      expect(children[2].getTextContent()).toBe('x');
     });
   });
 });
@@ -2485,6 +2951,76 @@ describe('$setTextFormat (#5518)', () => {
         const node = $assertNodeType(paragraph.getFirstChild(), $isTextNode);
         expect(node.hasFormat('bold')).toBe(true);
         expect(node.hasFormat('italic')).toBe(true);
+      },
+      {discrete: true},
+    );
+  });
+});
+
+describe('insertNodes() selection', () => {
+  /**
+   * Pastes blocks at the start of "asdf" and returns the collapsed selection
+   * as `"textContent"@offset`, where the text content is that of the node the
+   * anchor points at.
+   */
+  function $pasteAtStartAndDescribeSelection(blocks: LexicalNode[]): string {
+    const text = $createTextNode('asdf');
+    $getRoot().clear().append($createParagraphNode().append(text));
+    text.select(0, 0);
+    const selection = $getSelection();
+    assert($isRangeSelection(selection), 'Expected RangeSelection');
+    selection.insertNodes(blocks);
+    const after = $getSelection();
+    assert($isRangeSelection(after), 'Expected RangeSelection');
+    expect(after.isCollapsed()).toBe(true);
+    return `${after.anchor.type}:${JSON.stringify(
+      after.anchor.getNode().getTextContent(),
+    )}@${after.anchor.offset}`;
+  }
+
+  test('leaves the caret where pasted content ending in an empty block joins', () => {
+    using editor = buildEditorFromExtensions(selectionTestExtension);
+    editor.update(
+      () => {
+        // Copying several blocks out of an editor carries a trailing empty
+        // paragraph, which is the node the split-off content is appended into.
+        // Marking the caret after that append put it at the end of the
+        // document instead of at the join. The point type is asserted because
+        // marking it on the still-empty block leaves an element point, which
+        // describes the same position as the text point every other insertion
+        // produces.
+        const selectionDescription = $pasteAtStartAndDescribeSelection([
+          $createParagraphNode().append($createTextNode('AA')),
+          $createParagraphNode().append($createTextNode('BB')),
+          $createParagraphNode(),
+        ]);
+        expect(
+          $getRoot()
+            .getChildren()
+            .map(node => node.getTextContent()),
+        ).toEqual(['AA', 'BB', 'asdf']);
+        expect(selectionDescription).toBe('text:"asdf"@0');
+      },
+      {discrete: true},
+    );
+  });
+
+  test('leaves the caret where pasted content ending in a text block joins', () => {
+    using editor = buildEditorFromExtensions(selectionTestExtension);
+    editor.update(
+      () => {
+        // Unchanged: the split-off content lands beside the text node the
+        // caret is marked on rather than inside it.
+        const selectionDescription = $pasteAtStartAndDescribeSelection([
+          $createParagraphNode().append($createTextNode('AA')),
+          $createParagraphNode().append($createTextNode('BB')),
+        ]);
+        expect(
+          $getRoot()
+            .getChildren()
+            .map(node => node.getTextContent()),
+        ).toEqual(['AA', 'BBasdf']);
+        expect(selectionDescription).toBe('text:"BB"@2');
       },
       {discrete: true},
     );

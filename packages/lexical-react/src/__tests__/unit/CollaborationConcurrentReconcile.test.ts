@@ -6,6 +6,8 @@
  *
  */
 
+// @vitest-environment node
+
 /**
  * Regression tests for binding reconciliation crashes on concurrent collaborative
  * editing, found by fuzzing. Each sequence below drives `syncYjsChangesToLexical`
@@ -23,6 +25,7 @@
  */
 
 import {
+  type Binding,
   createBinding,
   createUndoManager,
   type Provider,
@@ -93,7 +96,7 @@ const makeProvider = (a: Awareness): Provider =>
 type Peer = {
   doc: Y.Doc;
   editor: LexicalEditor;
-  binding: ReturnType<typeof createBinding>;
+  binding: Binding;
   awareness: Awareness;
 };
 function makePeer(name: string, clientID: number): Peer {

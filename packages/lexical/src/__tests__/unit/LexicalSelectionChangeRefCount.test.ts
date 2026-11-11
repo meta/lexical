@@ -7,7 +7,7 @@
  */
 
 import {createEditor} from 'lexical';
-import {afterEach, describe, expect, test, vi} from 'vitest';
+import {afterEach, describe, expect, type MockInstance, test, vi} from 'vitest';
 
 // The shared `selectionchange` listener is reference counted across every
 // editor registered against a document (via createRefCountedRegistry): it is
@@ -20,7 +20,7 @@ describe('selectionchange listener reference counting', () => {
     document.body.replaceChildren();
   });
 
-  function countSelectionChange(spy: ReturnType<typeof vi.spyOn>): number {
+  function countSelectionChange(spy: MockInstance): number {
     return spy.mock.calls.filter(
       (args: unknown[]) => args[0] === 'selectionchange',
     ).length;

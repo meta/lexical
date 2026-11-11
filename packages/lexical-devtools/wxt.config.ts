@@ -14,7 +14,7 @@ import * as path from 'path';
 import {defineConfig, type UserManifest} from 'wxt';
 
 import transformErrorMessages from '../../scripts/error-codes/transform-error-messages.mjs';
-import moduleResolution from '../../scripts/vite/viteModuleResolution';
+import moduleResolution from '../../scripts/vite/viteModuleResolution.ts';
 
 // See https://wxt.dev/api/config.html
 export default defineConfig({
@@ -51,7 +51,7 @@ export default defineConfig({
         48: '/icon/48.png',
       },
       name: 'Lexical Developer Tools',
-      permissions: ['tabs', 'storage'],
+      permissions: ['storage'],
       version: version + `.${buildVersion}`,
       web_accessible_resources: [
         {

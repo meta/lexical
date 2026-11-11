@@ -8,9 +8,11 @@
 
 import {
   $getDocument,
+  $getNodeByKey,
   $getSiblingCaret,
   $isElementNode,
   $rewindSiblingCaret,
+  booleanValue,
   type DOMExportOutput,
   type EditorConfig,
   ElementNode,
@@ -20,30 +22,29 @@ import {
   type LexicalEditor,
   type LexicalNode,
   type NodeKey,
+  nodeSchema,
   type RangeSelection,
-  type SerializedElementNode,
-  type Spread,
 } from 'lexical';
 
 import {setDomHiddenUntilFound} from './CollapsibleUtils';
 
-type SerializedCollapsibleContainerNode = Spread<
-  {
-    open: boolean;
-  },
-  SerializedElementNode
->;
+const collapsibleContainerNodeSchema = nodeSchema<CollapsibleContainerNode>()({
+  open: booleanValue(),
+});
 
 export class CollapsibleContainerNode extends ElementNode {
   __open: boolean;
 
-  constructor(open: boolean, key?: NodeKey) {
+  constructor(open: boolean = false, key?: NodeKey) {
     super(key);
     this.__open = open;
   }
 
   $config() {
-    return this.config('collapsible-container', {extends: ElementNode});
+    return this.config('collapsible-container', {
+      extends: ElementNode,
+      json: collapsibleContainerNodeSchema,
+    });
   }
 
   static clone(node: CollapsibleContainerNode): CollapsibleContainerNode {
@@ -83,10 +84,26 @@ export class CollapsibleContainerNode extends ElementNode {
     } else {
       const detailsDom = $getDocument().createElement('details');
       detailsDom.open = this.__open;
+      // The toggle event is async: by the time it fires the node may have
+      // been removed, or rendered into a new element (a new root element, a
+      // restored editor state). Only the element that renders the node now
+      // syncs it, and it sets the node's open state to its own.
+      const key = this.getKey();
       detailsDom.addEventListener('toggle', () => {
-        const open = editor.read('latest', () => this.getOpen());
-        if (open !== detailsDom.open) {
-          editor.update(() => this.toggleOpen());
+        if (editor.getElementByKey(key) !== detailsDom) {
+          return;
+        }
+        const open = editor.read('latest', () => {
+          const node = $getNodeByKey(key);
+          return $isCollapsibleContainerNode(node) ? node.getOpen() : null;
+        });
+        if (open !== null && open !== detailsDom.open) {
+          editor.update(() => {
+            const node = $getNodeByKey(key);
+            if ($isCollapsibleContainerNode(node)) {
+              node.setOpen(detailsDom.open);
+            }
+          });
         }
       });
       dom = detailsDom;
@@ -126,14 +143,6 @@ export class CollapsibleContainerNode extends ElementNode {
     return false;
   }
 
-  static importJSON(
-    serializedNode: SerializedCollapsibleContainerNode,
-  ): CollapsibleContainerNode {
-    return $createCollapsibleContainerNode(serializedNode.open).updateFromJSON(
-      serializedNode,
-    );
-  }
-
   exportDOM(): DOMExportOutput {
     const element = $getDocument().createElement('details');
     element.classList.add('Collapsible__container');
@@ -145,13 +154,6 @@ export class CollapsibleContainerNode extends ElementNode {
       element.setAttribute('open', '');
     }
     return {element};
-  }
-
-  exportJSON(): SerializedCollapsibleContainerNode {
-    return {
-      ...super.exportJSON(),
-      open: this.__open,
-    };
   }
 
   setOpen(open: boolean): this {

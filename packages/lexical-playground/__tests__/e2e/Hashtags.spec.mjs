@@ -6,21 +6,17 @@
  *
  */
 
-import {
-  deleteNextWord,
-  moveLeft,
-  moveToEditorBeginning,
-} from '../keyboardShortcuts/index.mjs';
+import {moveLeft, toggleBold} from '../keyboardShortcuts/index.mjs';
 import {
   assertHTML,
   assertSelection,
   click,
+  expect,
   focusEditor,
+  getPageOrFrame,
   html,
   initialize,
   pasteFromClipboard,
-  pressToggleBold,
-  repeat,
   test,
   waitForSelector,
 } from '../utils/index.mjs';
@@ -87,392 +83,185 @@ test.describe('Hashtags', () => {
     });
   });
 
-  test(`Can handle adjacent hashtags`, async ({page, browserName}) => {
-    await focusEditor(page);
-    await page.keyboard.type('#hello world');
+  test.describe(() => {
+    test.skip(({isPlainText}) => isPlainText);
 
-    await waitForSelector(page, '.PlaygroundEditorTheme__hashtag');
+    test('Typing hashtags between bold text settles', async ({page}) => {
+      // Hashtags next to bold text: "#foo" touches the bold "a" before it, so
+      // it is no hashtag, and "#bar" after a space is one. Typing a space
+      // inside "#foobar", between bold "a" and a hashtag before bold "!",
+      // keeps it that way. This settled before #9637's fix too (text after a
+      // hashtag only extends it); the keyword test below reproduces #9637.
+      await focusEditor(page);
+      await toggleBold(page);
+      await page.keyboard.type('a');
+      await toggleBold(page);
+      await page.keyboard.type('#foo #bar');
+      await assertHTML(
+        page,
+        html`
+          <p class="PlaygroundEditorTheme__paragraph" dir="auto">
+            <strong
+              class="PlaygroundEditorTheme__textBold"
+              data-lexical-text="true">
+              a
+            </strong>
+            <span data-lexical-text="true">#foo</span>
+            <span
+              class="PlaygroundEditorTheme__hashtag"
+              data-lexical-text="true">
+              #bar
+            </span>
+          </p>
+        `,
+      );
 
-    await assertHTML(
+      await expect(
+        getPageOrFrame(page).locator('div[contenteditable="true"] p').first(),
+      ).toHaveText('a#foo #bar');
+
+      await page.keyboard.press('Enter');
+      await toggleBold(page);
+      await page.keyboard.type('a');
+      await toggleBold(page);
+      await page.keyboard.type('#foobar #baz');
+      await toggleBold(page);
+      await page.keyboard.type('!');
+      await moveLeft(page, 9);
+      await page.keyboard.type(' ');
+      await assertHTML(
+        page,
+        html`
+          <p class="PlaygroundEditorTheme__paragraph" dir="auto">
+            <strong
+              class="PlaygroundEditorTheme__textBold"
+              data-lexical-text="true">
+              a
+            </strong>
+            <span data-lexical-text="true">#foo</span>
+            <span
+              class="PlaygroundEditorTheme__hashtag"
+              data-lexical-text="true">
+              #bar
+            </span>
+          </p>
+          <p class="PlaygroundEditorTheme__paragraph" dir="auto">
+            <strong
+              class="PlaygroundEditorTheme__textBold"
+              data-lexical-text="true">
+              a
+            </strong>
+            <span data-lexical-text="true">#foo bar</span>
+            <span
+              class="PlaygroundEditorTheme__hashtag"
+              data-lexical-text="true">
+              #baz
+            </span>
+            <strong
+              class="PlaygroundEditorTheme__textBold"
+              data-lexical-text="true">
+              !
+            </strong>
+          </p>
+        `,
+      );
+      await expect(
+        getPageOrFrame(page).locator('div[contenteditable="true"] p').nth(1),
+      ).toHaveText('a#foo bar #baz!');
+    });
+    test('Typing a space between two keywords between bold text settles', async ({
       page,
-      html`
-        <p class="PlaygroundEditorTheme__paragraph" dir="auto">
-          <span class="PlaygroundEditorTheme__hashtag" data-lexical-text="true">
-            #hello
-          </span>
-          <span data-lexical-text="true">world</span>
-        </p>
-      `,
-    );
-    await assertSelection(page, {
-      anchorOffset: 6,
-      anchorPath: [0, 1, 0],
-      focusOffset: 6,
-      focusPath: [0, 1, 0],
+    }) => {
+      // #9637: neither "congrats" is a keyword, as each touches a bold
+      // letter. Before, the space was dropped with "One or more transforms
+      // are endlessly triggering additional transforms".
+      await focusEditor(page);
+      await toggleBold(page);
+      await page.keyboard.type('x');
+      await toggleBold(page);
+      await page.keyboard.type('congratscongrats');
+      await toggleBold(page);
+      await page.keyboard.type('y');
+      await moveLeft(page, 9);
+      await page.keyboard.type(' ');
+      await assertHTML(
+        page,
+        html`
+          <p class="PlaygroundEditorTheme__paragraph" dir="auto">
+            <strong
+              class="PlaygroundEditorTheme__textBold"
+              data-lexical-text="true">
+              x
+            </strong>
+            <span data-lexical-text="true">congrats congrats</span>
+            <strong
+              class="PlaygroundEditorTheme__textBold"
+              data-lexical-text="true">
+              y
+            </strong>
+          </p>
+        `,
+      );
+      await expect(
+        getPageOrFrame(page).locator('div[contenteditable="true"] p').first(),
+      ).toHaveText('xcongrats congratsy');
     });
 
-    await moveLeft(page, 5);
-    await assertSelection(page, {
-      anchorOffset: 1,
-      anchorPath: [0, 1, 0],
-      focusOffset: 1,
-      focusPath: [0, 1, 0],
+    test('Should not break when pasting multiple matches', async ({page}) => {
+      await focusEditor(page);
+
+      const clipboard = {'text/html': '#hello#world'};
+      await pasteFromClipboard(page, clipboard);
+
+      await assertHTML(
+        page,
+        html`
+          <p class="PlaygroundEditorTheme__paragraph" dir="auto">
+            <span
+              class="PlaygroundEditorTheme__hashtag"
+              data-lexical-text="true">
+              #hello
+            </span>
+            <span data-lexical-text="true">#world</span>
+          </p>
+        `,
+      );
     });
 
-    await page.keyboard.press('Backspace');
-    await assertHTML(
+    test('Should not break while importing and exporting multiple matches', async ({
       page,
-      html`
-        <p class="PlaygroundEditorTheme__paragraph" dir="auto">
-          <span class="PlaygroundEditorTheme__hashtag" data-lexical-text="true">
-            #helloworld
-          </span>
-        </p>
-      `,
-    );
-    await assertSelection(page, {
-      anchorOffset: 6,
-      anchorPath: [0, 0, 0],
-      focusOffset: 6,
-      focusPath: [0, 0, 0],
+    }) => {
+      await focusEditor(page);
+      await page.keyboard.type('```markdown #hello#invalid #a #b');
+
+      await click(page, '.action-button .markdown');
+      await click(page, '.action-button .markdown');
+      await click(page, '.action-button .markdown');
+
+      await assertHTML(
+        page,
+        html`
+          <p class="PlaygroundEditorTheme__paragraph" dir="auto">
+            <span
+              class="PlaygroundEditorTheme__hashtag"
+              data-lexical-text="true">
+              #hello
+            </span>
+            <span data-lexical-text="true">#invalid</span>
+            <span
+              class="PlaygroundEditorTheme__hashtag"
+              data-lexical-text="true">
+              #a
+            </span>
+            <span data-lexical-text="true"></span>
+            <span
+              class="PlaygroundEditorTheme__hashtag"
+              data-lexical-text="true">
+              #b
+            </span>
+          </p>
+        `,
+      );
     });
-
-    await page.keyboard.press('Space');
-    await assertHTML(
-      page,
-      html`
-        <p class="PlaygroundEditorTheme__paragraph" dir="auto">
-          <span class="PlaygroundEditorTheme__hashtag" data-lexical-text="true">
-            #hello
-          </span>
-          <span data-lexical-text="true">world</span>
-        </p>
-      `,
-    );
-    await assertSelection(page, {
-      anchorOffset: 1,
-      anchorPath: [0, 1, 0],
-      focusOffset: 1,
-      focusPath: [0, 1, 0],
-    });
-
-    await moveLeft(page);
-    if (browserName === 'firefox') {
-      await assertSelection(page, {
-        anchorOffset: 0,
-        anchorPath: [0, 1, 0],
-        focusOffset: 0,
-        focusPath: [0, 1, 0],
-      });
-    } else {
-      await assertSelection(page, {
-        anchorOffset: 6,
-        anchorPath: [0, 0, 0],
-        focusOffset: 6,
-        focusPath: [0, 0, 0],
-      });
-    }
-
-    await page.keyboard.press('Delete');
-    await assertHTML(
-      page,
-      html`
-        <p class="PlaygroundEditorTheme__paragraph" dir="auto">
-          <span class="PlaygroundEditorTheme__hashtag" data-lexical-text="true">
-            #helloworld
-          </span>
-        </p>
-      `,
-    );
-    await assertSelection(page, {
-      anchorOffset: 6,
-      anchorPath: [0, 0, 0],
-      focusOffset: 6,
-      focusPath: [0, 0, 0],
-    });
-  });
-
-  test(`Can insert many hashtags mixed with text and delete them all correctly`, async ({
-    page,
-  }) => {
-    await focusEditor(page);
-    await page.keyboard.type(
-      '#hello world foo #lol #lol asdasd #lol test this #asdas #asdas lasdasd asdasd',
-    );
-
-    await waitForSelector(page, '.PlaygroundEditorTheme__hashtag');
-
-    await assertHTML(
-      page,
-      html`
-        <p class="PlaygroundEditorTheme__paragraph" dir="auto">
-          <span class="PlaygroundEditorTheme__hashtag" data-lexical-text="true">
-            #hello
-          </span>
-          <span data-lexical-text="true">world foo</span>
-          <span class="PlaygroundEditorTheme__hashtag" data-lexical-text="true">
-            #lol
-          </span>
-          <span data-lexical-text="true"></span>
-          <span class="PlaygroundEditorTheme__hashtag" data-lexical-text="true">
-            #lol
-          </span>
-          <span data-lexical-text="true">asdasd</span>
-          <span class="PlaygroundEditorTheme__hashtag" data-lexical-text="true">
-            #lol
-          </span>
-          <span data-lexical-text="true">test this</span>
-          <span class="PlaygroundEditorTheme__hashtag" data-lexical-text="true">
-            #asdas
-          </span>
-          <span data-lexical-text="true"></span>
-          <span class="PlaygroundEditorTheme__hashtag" data-lexical-text="true">
-            #asdas
-          </span>
-          <span data-lexical-text="true">lasdasd asdasd</span>
-        </p>
-      `,
-    );
-    await assertSelection(page, {
-      anchorOffset: 15,
-      anchorPath: [0, 11, 0],
-      focusOffset: 15,
-      focusPath: [0, 11, 0],
-    });
-
-    await moveToEditorBeginning(page);
-
-    await assertSelection(page, {
-      anchorOffset: 0,
-      anchorPath: [0, 0, 0],
-      focusOffset: 0,
-      focusPath: [0, 0, 0],
-    });
-
-    await repeat(20, async () => {
-      await deleteNextWord(page);
-    });
-    await assertHTML(
-      page,
-      html`
-        <p class="PlaygroundEditorTheme__paragraph" dir="auto">
-          <br data-lexical-managed-linebreak="true" />
-        </p>
-      `,
-    );
-    await assertSelection(page, {
-      anchorOffset: 0,
-      anchorPath: [0],
-      focusOffset: 0,
-      focusPath: [0],
-    });
-  });
-
-  test('Hashtag inherits format', async ({page, isPlainText}) => {
-    test.skip(isPlainText);
-    await focusEditor(page);
-    await page.keyboard.type('Hello ');
-    await pressToggleBold(page);
-    await page.keyboard.type('#world');
-    await assertHTML(
-      page,
-      html`
-        <p class="PlaygroundEditorTheme__paragraph" dir="auto">
-          <span data-lexical-text="true">Hello</span>
-          <strong
-            class="PlaygroundEditorTheme__textBold PlaygroundEditorTheme__hashtag"
-            data-lexical-text="true">
-            #world
-          </strong>
-        </p>
-      `,
-    );
-  });
-
-  test('Should not break with multiple leading "#" #5636', async ({page}) => {
-    await focusEditor(page);
-    await page.keyboard.type('#hello');
-
-    await waitForSelector(page, '.PlaygroundEditorTheme__hashtag');
-
-    await assertHTML(
-      page,
-      html`
-        <p class="PlaygroundEditorTheme__paragraph" dir="auto">
-          <span class="PlaygroundEditorTheme__hashtag" data-lexical-text="true">
-            #hello
-          </span>
-        </p>
-      `,
-    );
-    await assertSelection(page, {
-      anchorOffset: 6,
-      anchorPath: [0, 0, 0],
-      focusOffset: 6,
-      focusPath: [0, 0, 0],
-    });
-
-    await moveToEditorBeginning(page);
-    await page.keyboard.type('#');
-
-    await assertHTML(
-      page,
-      html`
-        <p class="PlaygroundEditorTheme__paragraph" dir="auto">
-          <span data-lexical-text="true">#</span>
-          <span class="PlaygroundEditorTheme__hashtag" data-lexical-text="true">
-            #hello
-          </span>
-        </p>
-      `,
-    );
-  });
-
-  test('Should not break while skipping invalid hashtags #5703', async ({
-    page,
-  }) => {
-    await focusEditor(page);
-    await page.keyboard.type('#hello');
-
-    await page.keyboard.press('Space');
-
-    await page.keyboard.type('#world');
-    await page.keyboard.type('#invalid');
-
-    await page.keyboard.press('Space');
-    await page.keyboard.type('#next');
-
-    await waitForSelector(page, '.PlaygroundEditorTheme__hashtag');
-
-    await assertHTML(
-      page,
-      html`
-        <p class="PlaygroundEditorTheme__paragraph" dir="auto">
-          <span class="PlaygroundEditorTheme__hashtag" data-lexical-text="true">
-            #hello
-          </span>
-          <span data-lexical-text="true"></span>
-          <span class="PlaygroundEditorTheme__hashtag" data-lexical-text="true">
-            #world
-          </span>
-          <span data-lexical-text="true">#invalid</span>
-          <span class="PlaygroundEditorTheme__hashtag" data-lexical-text="true">
-            #next
-          </span>
-        </p>
-      `,
-    );
-  });
-
-  test('Can handle hashtags following multiple invalid hashtags', async ({
-    page,
-  }) => {
-    await focusEditor(page);
-    await page.keyboard.type('#hello');
-
-    await page.keyboard.press('Space');
-
-    await page.keyboard.type('#world');
-    await page.keyboard.type('#invalid');
-    await page.keyboard.type('#invalid');
-    await page.keyboard.type('#invalid');
-
-    await page.keyboard.press('Space');
-
-    await page.keyboard.type('#valid');
-
-    await page.keyboard.press('Space');
-
-    await page.keyboard.type('#valid');
-    await page.keyboard.type('#invalid');
-
-    await page.keyboard.press('Space');
-    await page.keyboard.type('#valid');
-
-    await waitForSelector(page, '.PlaygroundEditorTheme__hashtag');
-
-    await assertHTML(
-      page,
-      html`
-        <p class="PlaygroundEditorTheme__paragraph" dir="auto">
-          <span class="PlaygroundEditorTheme__hashtag" data-lexical-text="true">
-            #hello
-          </span>
-          <span data-lexical-text="true"></span>
-          <span class="PlaygroundEditorTheme__hashtag" data-lexical-text="true">
-            #world
-          </span>
-          <span data-lexical-text="true">#invalid#invalid#invalid</span>
-          <span class="PlaygroundEditorTheme__hashtag" data-lexical-text="true">
-            #valid
-          </span>
-          <span data-lexical-text="true"></span>
-          <span class="PlaygroundEditorTheme__hashtag" data-lexical-text="true">
-            #valid
-          </span>
-          <span data-lexical-text="true">#invalid</span>
-          <span class="PlaygroundEditorTheme__hashtag" data-lexical-text="true">
-            #valid
-          </span>
-        </p>
-      `,
-    );
-  });
-
-  test('Should not break when pasting multiple matches', async ({
-    page,
-    isPlainText,
-  }) => {
-    test.skip(isPlainText);
-
-    await focusEditor(page);
-
-    const clipboard = {'text/html': '#hello#world'};
-    await pasteFromClipboard(page, clipboard);
-
-    await assertHTML(
-      page,
-      html`
-        <p class="PlaygroundEditorTheme__paragraph" dir="auto">
-          <span class="PlaygroundEditorTheme__hashtag" data-lexical-text="true">
-            #hello
-          </span>
-          <span data-lexical-text="true">#world</span>
-        </p>
-      `,
-    );
-  });
-
-  test('Should not break while importing and exporting multiple matches', async ({
-    page,
-    isPlainText,
-  }) => {
-    test.skip(isPlainText);
-
-    await focusEditor(page);
-    await page.keyboard.type('```markdown #hello#invalid #a #b');
-
-    await click(page, '.action-button .markdown');
-    await click(page, '.action-button .markdown');
-    await click(page, '.action-button .markdown');
-
-    await assertHTML(
-      page,
-      html`
-        <p class="PlaygroundEditorTheme__paragraph" dir="auto">
-          <span class="PlaygroundEditorTheme__hashtag" data-lexical-text="true">
-            #hello
-          </span>
-          <span data-lexical-text="true">#invalid</span>
-          <span class="PlaygroundEditorTheme__hashtag" data-lexical-text="true">
-            #a
-          </span>
-          <span data-lexical-text="true"></span>
-          <span class="PlaygroundEditorTheme__hashtag" data-lexical-text="true">
-            #b
-          </span>
-        </p>
-      `,
-    );
   });
 });

@@ -10,3 +10,12 @@
 /**
  * LexicalReactProviderExtension
  */
+
+import type {ExtensionConfigBase, LexicalExtension} from 'lexical';
+
+declare export var ReactProviderExtension: LexicalExtension<
+  ExtensionConfigBase,
+  '@lexical/react/ReactProvider',
+  void,
+  void,
+>;

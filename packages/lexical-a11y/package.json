@@ -9,15 +9,15 @@
     "aria"
   ],
   "license": "MIT",
-  "version": "0.49.0",
+  "version": "0.53.0",
   "main": "./dist/LexicalA11y.js",
   "types": "./dist/typescript-too-old.d.ts",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/facebook/lexical.git",
+    "url": "git+https://github.com/meta/lexical.git",
     "directory": "packages/lexical-a11y"
   },
-  "module": "./dist/LexicalA11y.mjs",
+  "module": "./dist/LexicalA11y.js",
   "sideEffects": false,
   "dependencies": {
     "@lexical/extension": "workspace:*",
@@ -48,21 +48,11 @@
   "exports": {
     ".": {
       "source": "./src/index.ts",
-      "import": {
-        "types@<5.2": "./dist/typescript-too-old.d.ts",
-        "types": "./dist/index.d.ts",
-        "development": "./dist/LexicalA11y.dev.mjs",
-        "production": "./dist/LexicalA11y.prod.mjs",
-        "node": "./dist/LexicalA11y.node.mjs",
-        "default": "./dist/LexicalA11y.mjs"
-      },
-      "require": {
-        "types@<5.2": "./dist/typescript-too-old.d.ts",
-        "types": "./dist/index.d.ts",
-        "development": "./dist/LexicalA11y.dev.js",
-        "production": "./dist/LexicalA11y.prod.js",
-        "default": "./dist/LexicalA11y.js"
-      }
+      "types@<5.2": "./dist/typescript-too-old.d.ts",
+      "types": "./dist/index.d.ts",
+      "development": "./dist/LexicalA11y.dev.js",
+      "production": "./dist/LexicalA11y.prod.js",
+      "default": "./dist/LexicalA11y.js"
     }
   },
   "typesVersions": {
@@ -71,5 +61,6 @@
         "./dist/typescript-too-old.d.ts"
       ]
     }
-  }
+  },
+  "type": "module"
 }

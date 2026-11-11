@@ -22,6 +22,7 @@ import {
   $getNodeByKey,
   $getSelection,
   $isRangeSelection,
+  $onUpdate,
   CLICK_COMMAND,
   COMMAND_PRIORITY_HIGH,
   COMMAND_PRIORITY_LOW,
@@ -177,7 +178,7 @@ function FloatingRubyEditor({
         SELECTION_CHANGE_COMMAND,
         () => {
           if (isRubyEditMode) {
-            $positionToSelection();
+            $onUpdate(() => editor.read('latest', $positionToSelection));
           }
           return false;
         },

@@ -46,7 +46,7 @@ function TeamMemberCard({member}: {member: TeamMember}) {
         </Link>
       )}
       <Link
-        to={`https://github.com/facebook/lexical/commits?author=${member.username}`}
+        to={`https://github.com/meta/lexical/commits?author=${member.username}`}
         className="absolute right-3 bottom-3 text-gray-500 transition-colors hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
         aria-label={`View ${member.name}'s commits`}>
         <svg className="h-4 w-4" fill="currentColor" viewBox="0 0 16 16">

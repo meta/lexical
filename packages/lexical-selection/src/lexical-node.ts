@@ -11,15 +11,16 @@ import {
   $caretRangeFromSelection,
   $cloneWithPropertiesEphemeral,
   $createTextNode,
-  $getCharacterOffsets,
   $getNodeByKey,
   $getPreviousSelection,
   $getSelection,
+  $getTextPointCaretSliceForNode,
   $isElementNode,
   $isRangeSelection,
   $isRootNode,
   $isTextNode,
   $isTokenOrSegmented,
+  $splitTextPointCaretSlice,
   type BaseSelection,
   type ElementNode,
   getStyleObjectFromCSS,
@@ -46,50 +47,43 @@ export function $sliceSelectedTextNodeContent<T extends TextNode>(
   textNode: T,
   mutates: 'clone' | 'self' = 'self',
 ): T {
-  const anchorAndFocus = selection.getStartEndPoints();
+  const points = selection.getStartEndPoints();
+  // Only the node of a text point can be cut short; checking that first
+  // keeps a caller that slices every selected node from working out the
+  // selection for each of them.
   if (
+    points !== null &&
+    (points[0].key === textNode.__key || points[1].key === textNode.__key) &&
     textNode.isSelected(selection) &&
-    !$isTokenOrSegmented(textNode) &&
-    anchorAndFocus !== null
+    !$isTokenOrSegmented(textNode)
   ) {
-    const [anchor, focus] = anchorAndFocus;
-    const isBackward = selection.isBackward();
-    const anchorNode = anchor.getNode();
-    const focusNode = focus.getNode();
-    const isAnchor = textNode.is(anchorNode);
-    const isFocus = textNode.is(focusNode);
-
-    if (isAnchor || isFocus) {
-      const [anchorOffset, focusOffset] = $getCharacterOffsets(selection);
-      const isSame = anchorNode.is(focusNode);
-      const isFirst = textNode.is(isBackward ? focusNode : anchorNode);
-      const isLast = textNode.is(isBackward ? anchorNode : focusNode);
-      let startOffset = 0;
-      let endOffset = undefined;
-
-      if (isSame) {
-        startOffset = anchorOffset > focusOffset ? focusOffset : anchorOffset;
-        endOffset = anchorOffset > focusOffset ? anchorOffset : focusOffset;
-      } else if (isFirst) {
-        const offset = isBackward ? focusOffset : anchorOffset;
-        startOffset = offset;
-        endOffset = undefined;
-      } else if (isLast) {
-        const offset = isBackward ? anchorOffset : focusOffset;
-        startOffset = 0;
-        endOffset = offset;
+    const [start, end] = selection.isBackward()
+      ? [points[1], points[0]]
+      : points;
+    // Text endpoints can trim directly. Element endpoints need caret
+    // normalization so equivalent mixed points produce an empty interval.
+    const slice =
+      $isRangeSelection(selection) &&
+      (start.type === 'element' || end.type === 'element')
+        ? $getTextPointCaretSliceForNode(
+            $caretRangeFromSelection(selection).getTextSlices(),
+            textNode,
+          )
+        : undefined;
+    const [startOffset, endOffset] = slice
+      ? slice.getSliceIndices()
+      : [
+          textNode.__key === start.key ? start.offset : 0,
+          textNode.__key === end.key ? end.offset : undefined,
+        ];
+    const text = textNode.__text.slice(startOffset, endOffset);
+    // This may be an ephemeral clone: do not resolve getLatest() or insert
+    // it into the editor state when changing its own text.
+    if (text !== textNode.__text) {
+      if (mutates === 'clone') {
+        textNode = $cloneWithPropertiesEphemeral(textNode);
       }
-
-      // NOTE: This mutates __text directly because the primary use case is to
-      // modify a $cloneWithProperties node that should never be added
-      // to the EditorState so we must not call getWritable via setTextContent
-      const text = textNode.__text.slice(startOffset, endOffset);
-      if (text !== textNode.__text) {
-        if (mutates === 'clone') {
-          textNode = $cloneWithPropertiesEphemeral(textNode);
-        }
-        textNode.__text = text;
-      }
+      textNode.__text = text;
     }
   }
   return textNode;
@@ -139,22 +133,16 @@ export function $trimTextContentFromAnchor(
 
   while (remaining > 0 && currentNode !== null) {
     if ($isElementNode(currentNode)) {
-      // Annotation breaks a circular inference through the loop (TS7022),
-      // remove when the deprecated generic signatures from #8661 are removed
       const lastDescendant: null | LexicalNode =
         currentNode.getLastDescendant();
       if (lastDescendant !== null) {
         currentNode = lastDescendant;
       }
     }
-    // Annotation breaks a circular inference through the loop (TS7022),
-    // remove when the deprecated generic signatures from #8661 are removed
     let nextNode: LexicalNode | null = currentNode.getPreviousSibling();
     let additionalElementWhitespace = 0;
     if (nextNode === null) {
       let parent: LexicalNode | null = currentNode.getParentOrThrow();
-      // Annotation breaks a circular inference through the loop (TS7022),
-      // remove when the deprecated generic signatures from #8661 are removed
       let parentSibling: LexicalNode | null = parent.getPreviousSibling();
 
       while (parentSibling === null) {
@@ -332,7 +320,7 @@ export function $patchStyleText(
       $patchStyle(emptyNode, patch);
     }
   }
-  $forEachSelectedTextNode(textNode => {
+  $forEachSelectedTextNodeInSelection(selection, textNode => {
     $patchStyle(textNode, patch);
   });
 
@@ -359,59 +347,37 @@ export function $patchStyleText(
 export function $forEachSelectedTextNode(
   fn: (textNode: TextNode) => void,
 ): void {
-  const selection = $getSelection();
+  $forEachSelectedTextNodeInSelection($getSelection(), fn);
+}
+
+function $forEachSelectedTextNodeInSelection(
+  selection: BaseSelection | null,
+  fn: (textNode: TextNode) => void,
+): void {
   if (!selection) {
     return;
   }
-
-  const slicedTextNodes = new Map<
-    NodeKey,
-    [startIndex: number, endIndex: number]
-  >();
-  const getSliceIndices = (
-    node: TextNode,
-  ): [startIndex: number, endIndex: number] =>
-    slicedTextNodes.get(node.getKey()) || [0, node.getTextContentSize()];
-
-  if ($isRangeSelection(selection)) {
-    for (const slice of $caretRangeFromSelection(selection).getTextSlices()) {
-      if (slice) {
-        slicedTextNodes.set(
-          slice.caret.origin.getKey(),
-          slice.getSliceIndices(),
-        );
-      }
-    }
-  }
-
-  const selectedNodes = selection.getNodes();
-  for (const selectedNode of selectedNodes) {
-    if (!($isTextNode(selectedNode) && selectedNode.canHaveFormat())) {
+  const slices = $isRangeSelection(selection)
+    ? $caretRangeFromSelection(selection).getTextSlices()
+    : [];
+  for (const node of selection.getNodes()) {
+    if (!$isTextNode(node) || !node.canHaveFormat()) {
       continue;
     }
-    const [startOffset, endOffset] = getSliceIndices(selectedNode);
-    // No actual text is selected, so do nothing.
-    if (endOffset === startOffset) {
+    const slice = $getTextPointCaretSliceForNode(slices, node);
+    if (slice ? slice.distance === 0 : node.getTextContentSize() === 0) {
       continue;
     }
-
-    // The entire node is selected or a token/segment, so just format it
-    if (
-      $isTokenOrSegmented(selectedNode) ||
-      (startOffset === 0 && endOffset === selectedNode.getTextContentSize())
-    ) {
-      fn(selectedNode);
-    } else {
-      // The node is partially selected, so split it into two or three nodes
-      // and style the selected one.
-      const splitNodes = selectedNode.splitText(startOffset, endOffset);
-      const replacement = splitNodes[startOffset === 0 ? 0 : 1];
-      fn(replacement);
-    }
+    fn(
+      slice && !$isTokenOrSegmented(node)
+        ? $splitTextPointCaretSlice(
+            slice,
+            $isRangeSelection(selection) ? selection : null,
+          )!
+        : node,
+    );
   }
-  // Prior to NodeCaret #7046 this would have been a side-effect
-  // so we do this for test compatibility.
-  // TODO: we may want to consider simplifying by removing this
+  // Preserve the existing single-text-node forward selection convention.
   if (
     $isRangeSelection(selection) &&
     selection.anchor.type === 'text' &&

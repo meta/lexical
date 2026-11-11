@@ -6,7 +6,7 @@
  *
  */
 
-import type {ElementNode, LexicalNode} from 'lexical';
+import type {BaseSelection, ElementNode, Klass, LexicalNode} from 'lexical';
 import type {
   BlockContent,
   Nodes as MdastNode,
@@ -16,6 +16,29 @@ import type {
 import type {Extension as FromMarkdownExtension} from 'mdast-util-from-markdown';
 import type {Options as ToMarkdownExtension} from 'mdast-util-to-markdown';
 import type {Extension as MicromarkExtension} from 'micromark-util-types';
+
+/**
+ * How emphasis markers read the punctuation beside them.
+ *
+ * - `'strict-commonmark'` follows CommonMark 0.31.2 and GFM, as micromark
+ *   reads them: a marker between a letter and punctuation, such as the
+ *   closing `**` of `**你好。**世界`, does not open or close, so CJK text
+ *   needs a space or a character reference there. micromark reads a
+ *   character outside the Basic Multilingual Plane, such as an emoji, as a
+ *   letter where CommonMark reads punctuation.
+ * - `'cjk-friendly'` follows the CommonMark CJK-friendly amendment
+ *   (https://github.com/tats-u/markdown-cjk-friendly), as
+ *   `micromark-extension-cjk-friendly` does: it reads markers as CommonMark does
+ *   everywhere except beside Chinese, Japanese and Korean characters and
+ *   punctuation, where they open and close as a writer of those languages
+ *   expects. A variation selector before a marker reads as the character it
+ *   follows, but after whitespace as itself, as
+ *   `micromark-extension-cjk-friendly` reads it, and after a U+0000 (which
+ *   micromark reads as U+FFFD) as that U+FFFD, as `markdown-it-cjk-friendly`
+ *   reads it.
+ * @experimental
+ */
+export type MdastPunctuationMode = 'cjk-friendly' | 'strict-commonmark';
 
 export type {
   FromMarkdownExtension,
@@ -65,6 +88,12 @@ declare module 'mdast' {
  */
 export interface MdastImportContext {
   /**
+   * Import the same node with the next handler in contribution order, or
+   * the generic import fallback when no handlers remain. Returns normalized
+   * output that may be returned directly or modified by this handler.
+   */
+  next(): LexicalNode[];
+  /**
    * The accumulated text-format bitmask for the current inline position
    * (e.g. inside `strong` > `emphasis` this carries the bold + italic bits).
    * Block handlers can ignore this; inline handlers should pass it along to
@@ -103,7 +132,9 @@ export interface MdastImportContext {
 
 /**
  * Converts an mdast node of a particular `type` into one or more Lexical
- * nodes. Returning `null` defers to the next registered handler.
+ * nodes. Returning `null` omits the node and its children from the import.
+ * Call {@link MdastImportContext.next} to delegate to the next handler.
+ * Returning an empty array also omits the node.
  * @experimental
  */
 export type MdastImportHandler<T extends MdastNode = MdastNode> = (
@@ -117,6 +148,13 @@ export type MdastImportHandler<T extends MdastNode = MdastNode> = (
  * @experimental
  */
 export interface MdastExportContext {
+  /**
+   * Export the same node with the next handler: lower-priority rules for its
+   * type, then rules for its ancestors from nearest to farthest, then the
+   * generic export fallback. Returns normalized output that may be returned
+   * directly or modified by this handler.
+   */
+  next(): MdastNode[];
   /**
    * Convert the children of `source` into mdast nodes by dispatching each
    * child through the registered export handlers. `source` is an element
@@ -141,18 +179,26 @@ export interface MdastExportContext {
   exportBlocks(source: ElementNode | readonly LexicalNode[]): BlockContent[];
   /**
    * Whether `node` belongs in the current export: always `true` for a
-   * whole-document export; during a selection export, `true` when the node
-   * or any descendant is selected. The `exportChildren`/`exportInline`/
-   * `exportBlocks` walks apply this automatically — handlers only need it
-   * when they iterate children manually (e.g. list items, table rows) to
-   * skip structural children the selection does not reach.
+   * whole-document export; during a selection export, `true` when the node or
+   * any descendant (named slots included) is selected. The
+   * `exportChildren`/`exportInline`/`exportBlocks` walks apply this
+   * automatically — handlers only need it when they iterate children manually
+   * (e.g. list items, table rows) to skip structural children the selection
+   * does not reach.
    */
   isIncluded(node: LexicalNode): boolean;
+  /**
+   * The selection this export is limited to, or `null` for a
+   * whole-document export (including one run during a selection export).
+   */
+  readonly selection: BaseSelection | null;
 }
 
 /**
  * Converts a Lexical node into one or more mdast nodes. Returning `null`
- * defers to the next registered handler.
+ * uses the default export for the node. Call {@link MdastExportContext.next}
+ * to delegate to the next handler instead. Returning an empty array omits
+ * the node.
  * @experimental
  */
 export type MdastExportHandler<T extends LexicalNode = LexicalNode> = (
@@ -163,7 +209,7 @@ export type MdastExportHandler<T extends LexicalNode = LexicalNode> = (
 /**
  * A single import mapping: which mdast node `type` it handles and how. The
  * unit an extension contributes (alongside the micromark/mdast extensions that
- * tokenize the construct) to {@link MdastImportExtension}'s `importRules` config.
+ * tokenize the construct) to {@link MdastExtension}'s `importRules` config.
  * @experimental
  */
 export interface MdastImportRule {
@@ -178,8 +224,15 @@ export interface MdastImportRule {
  * @experimental
  */
 export interface MdastExportRule {
-  /** The Lexical node `getType()` this rule handles (e.g. `'heading'`). */
-  type: string;
+  /**
+   * A Lexical node type string or class (e.g. `'heading'` or `HeadingNode`).
+   * Applies to that type and its subclasses. The nearest matching ancestor
+   * runs first; rules for the same type use contribution order. Handlers
+   * can delegate to the remaining rules with context.next().
+   * Classes must have their own node type; abstract classes without one
+   * are rejected when the editor is built.
+   */
+  type: string | Klass<LexicalNode>;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   $export: MdastExportHandler<any>;
 }
@@ -190,11 +243,13 @@ export interface MdastExportRule {
  * @experimental
  */
 export interface CompiledMdast {
-  importHandlers: Map<string, MdastImportHandler>;
-  exportHandlers: Map<string, MdastExportHandler>;
+  importHandlers: Map<string, MdastImportHandler[]>;
+  exportHandlers: Map<string, MdastExportHandler[]>;
   micromarkExtensions: MicromarkExtension[];
   mdastExtensions: FromMarkdownExtension[];
   toMarkdownExtensions: ToMarkdownExtension[];
+  /** Which readers export writes emphasis for; see {@link MdastConfig}. */
+  exportPunctuation?: MdastPunctuationMode;
   /** mdast inline `type`s eligible for streaming shortcut materialization. */
   inlineShortcutTypes: Set<string>;
   /** Characters that can close an inline construct and trigger a re-scan. */

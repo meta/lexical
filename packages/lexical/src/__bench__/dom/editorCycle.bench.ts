@@ -7,7 +7,7 @@
  */
 
 import invariant from '@lexical/internal/invariant';
-import {bench, describe} from 'vitest';
+import {test} from 'vitest';
 
 import {
   $createParagraphNode,
@@ -23,7 +23,7 @@ import {attachToDOM, buildLargeDoc} from './_utils';
 const SIZES = [1000, 5000] as const;
 
 for (const size of SIZES) {
-  describe(`size=${size} :: typing 1 char per cycle`, () => {
+  test(`size=${size} :: typing 1 char per cycle`, async ({bench}) => {
     let editor: LexicalEditor;
     let cycle = 0;
 
@@ -40,36 +40,37 @@ for (const size of SIZES) {
       );
     };
 
-    bench(
-      'with children fast path',
-      () => {
-        __benchOnly.skipChildrenFastPath = false;
-        typeOneChar();
-      },
-      {
-        setup: () => {
-          editor = createTestEditor();
-          attachToDOM(editor);
-          buildLargeDoc(editor, size);
-          cycle = 0;
+    await bench.compare(
+      bench(
+        'with children fast path',
+        {
+          beforeAll: () => {
+            editor = createTestEditor();
+            attachToDOM(editor);
+            buildLargeDoc(editor, size);
+            cycle = 0;
+          },
         },
-      },
-    );
-
-    bench(
-      'without children fast path (general path)',
-      () => {
-        __benchOnly.skipChildrenFastPath = true;
-        typeOneChar();
-      },
-      {
-        setup: () => {
-          editor = createTestEditor();
-          attachToDOM(editor);
-          buildLargeDoc(editor, size);
-          cycle = 0;
+        () => {
+          __benchOnly.skipChildrenFastPath = false;
+          typeOneChar();
         },
-      },
+      ),
+      bench(
+        'without children fast path (general path)',
+        {
+          beforeAll: () => {
+            editor = createTestEditor();
+            attachToDOM(editor);
+            buildLargeDoc(editor, size);
+            cycle = 0;
+          },
+        },
+        () => {
+          __benchOnly.skipChildrenFastPath = true;
+          typeOneChar();
+        },
+      ),
     );
   });
 
@@ -78,7 +79,7 @@ for (const size of SIZES) {
   // existing last paragraph is cloned for its `__next` link and the appended
   // paragraph is dirty as new). Mirrors a real "press Enter at the end of
   // the document" or "paste a fresh paragraph" interaction.
-  describe(`size=${size} :: append paragraph at end per cycle`, () => {
+  test(`size=${size} :: append paragraph at end per cycle`, async ({bench}) => {
     let editor: LexicalEditor;
     let cycle = 0;
 
@@ -93,36 +94,37 @@ for (const size of SIZES) {
       );
     };
 
-    bench(
-      'with children fast path',
-      () => {
-        __benchOnly.skipChildrenFastPath = false;
-        appendParagraph();
-      },
-      {
-        setup: () => {
-          editor = createTestEditor();
-          attachToDOM(editor);
-          buildLargeDoc(editor, size);
-          cycle = 0;
+    await bench.compare(
+      bench(
+        'with children fast path',
+        {
+          beforeAll: () => {
+            editor = createTestEditor();
+            attachToDOM(editor);
+            buildLargeDoc(editor, size);
+            cycle = 0;
+          },
         },
-      },
-    );
-
-    bench(
-      'without children fast path (general path)',
-      () => {
-        __benchOnly.skipChildrenFastPath = true;
-        appendParagraph();
-      },
-      {
-        setup: () => {
-          editor = createTestEditor();
-          attachToDOM(editor);
-          buildLargeDoc(editor, size);
-          cycle = 0;
+        () => {
+          __benchOnly.skipChildrenFastPath = false;
+          appendParagraph();
         },
-      },
+      ),
+      bench(
+        'without children fast path (general path)',
+        {
+          beforeAll: () => {
+            editor = createTestEditor();
+            attachToDOM(editor);
+            buildLargeDoc(editor, size);
+            cycle = 0;
+          },
+        },
+        () => {
+          __benchOnly.skipChildrenFastPath = true;
+          appendParagraph();
+        },
+      ),
     );
   });
 
@@ -131,7 +133,7 @@ for (const size of SIZES) {
   // link, the removed paragraph is gone in next). Mirrors a "boundary
   // backspace that collapses the last paragraph" or "delete a trailing
   // empty line" interaction.
-  describe(`size=${size} :: remove last paragraph per cycle`, () => {
+  test(`size=${size} :: remove last paragraph per cycle`, async ({bench}) => {
     let editor: LexicalEditor;
 
     const removeLast = (): void => {
@@ -146,75 +148,76 @@ for (const size of SIZES) {
       );
     };
 
-    bench(
-      'with children fast path',
-      () => {
-        __benchOnly.skipChildrenFastPath = false;
-        removeLast();
-      },
-      {
-        setup: () => {
-          editor = createTestEditor();
-          attachToDOM(editor);
-          // Oversize so the iteration loop has headroom; the bench still
-          // measures the per-cycle remove cost from a multi-thousand-child
-          // root, which is the case the suffix path is meant to cover.
-          buildLargeDoc(editor, size * 4);
+    await bench.compare(
+      bench(
+        'with children fast path',
+        {
+          beforeAll: () => {
+            editor = createTestEditor();
+            attachToDOM(editor);
+            // Oversize so the iteration loop has headroom; the bench still
+            // measures the per-cycle remove cost from a multi-thousand-child
+            // root, which is the case the suffix path is meant to cover.
+            buildLargeDoc(editor, size * 4);
+          },
         },
-      },
-    );
-
-    bench(
-      'without children fast path (general path)',
-      () => {
-        __benchOnly.skipChildrenFastPath = true;
-        removeLast();
-      },
-      {
-        setup: () => {
-          editor = createTestEditor();
-          attachToDOM(editor);
-          buildLargeDoc(editor, size * 4);
+        () => {
+          __benchOnly.skipChildrenFastPath = false;
+          removeLast();
         },
-      },
+      ),
+      bench(
+        'without children fast path (general path)',
+        {
+          beforeAll: () => {
+            editor = createTestEditor();
+            attachToDOM(editor);
+            buildLargeDoc(editor, size * 4);
+          },
+        },
+        () => {
+          __benchOnly.skipChildrenFastPath = true;
+          removeLast();
+        },
+      ),
     );
   });
 
-  describe(`size=${size} :: read-only update (no mutation)`, () => {
+  test(`size=${size} :: read-only update (no mutation)`, async ({bench}) => {
     let editor: LexicalEditor;
 
-    bench(
+    await bench(
       'editor.update with no mutation',
-      () => {
-        editor.update(() => {}, {discrete: true});
-      },
       {
-        setup: () => {
+        beforeAll: () => {
           editor = createTestEditor();
           attachToDOM(editor);
           buildLargeDoc(editor, size);
         },
       },
-    );
+      () => {
+        editor.update(() => {}, {discrete: true});
+      },
+    ).run();
   });
 
-  describe(`size=${size} :: editor.read (pure read)`, () => {
+  test(`size=${size} :: editor.read (pure read)`, async ({bench}) => {
     let editor: LexicalEditor;
 
-    bench(
+    await bench(
       'editor.read',
+      {
+        beforeAll: () => {
+          editor = createTestEditor();
+          attachToDOM(editor);
+          buildLargeDoc(editor, size);
+        },
+      },
       () => {
         editor.read(() => {
           $getRoot().getChildrenSize();
         });
       },
-      {
-        setup: () => {
-          editor = createTestEditor();
-          attachToDOM(editor);
-          buildLargeDoc(editor, size);
-        },
-      },
-    );
+    ).run();
   });
 }

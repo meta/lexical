@@ -16,10 +16,14 @@ import type {
   DOMConversionOutput,
   DOMExportOutput,
   LexicalNode,
+  SerializedPartial,
 } from '../LexicalNode';
-import type {RangeSelection} from '../LexicalSelection';
+import type {BaseSelection, RangeSelection} from '../LexicalSelection';
 
+import {$isBlockFullySelected} from '../caret/LexicalCaretUtils';
 import {ELEMENT_TYPE_TO_FORMAT} from '../LexicalConstants';
+import {GENERATED_PARAGRAPH} from '../LexicalGeneratedJSON';
+import {$isRangeSelection} from '../LexicalSelection';
 import {
   $applyNodeReplacement,
   $getDocument,
@@ -51,7 +55,9 @@ export class ParagraphNode extends ElementNode {
 
   $config() {
     return this.config('paragraph', {
+      children: 'inline',
       extends: ElementNode,
+      generated: GENERATED_PARAGRAPH,
       importDOM: {
         p: () => ({
           conversion: $convertParagraphElement,
@@ -99,21 +105,58 @@ export class ParagraphNode extends ElementNode {
     };
   }
 
-  exportJSON(): SerializedParagraphNode {
-    const json = super.exportJSON();
-    // Provide backwards compatible values, see #7971
+  exportJSON(compact?: false): SerializedParagraphNode;
+  exportJSON(compact: boolean): SerializedPartial<SerializedParagraphNode>;
+  exportJSON(compact = false): SerializedPartial<SerializedParagraphNode> {
+    const json = super.exportJSON(compact);
+    // Provide backwards compatible values, see #7971.
     if (json.textFormat === undefined || json.textStyle === undefined) {
-      // Compute the same value that the reconciler would
       const firstTextNode = this.getChildren().find($isTextNode);
-      if (firstTextNode) {
-        json.textFormat = firstTextNode.getFormat();
-        json.textStyle = firstTextNode.getStyle();
-      } else {
-        json.textFormat = this.getTextFormat();
-        json.textStyle = this.getTextStyle();
+      const textFormat = firstTextNode
+        ? firstTextNode.getFormat()
+        : this.getTextFormat();
+      const textStyle = firstTextNode
+        ? firstTextNode.getStyle()
+        : this.getTextStyle();
+      if (!compact || textFormat !== 0) {
+        json.textFormat = textFormat;
+      }
+      if (!compact || textStyle !== '') {
+        json.textStyle = textStyle;
       }
     }
-    return json as SerializedParagraphNode;
+    return json;
+  }
+
+  extractWithChild(
+    child: LexicalNode,
+    selection: BaseSelection | null,
+    destination: 'clone' | 'html',
+  ): boolean {
+    if (!$isRangeSelection(selection)) {
+      return false;
+    }
+    // Alignment, indent and inline style live on the paragraph element and
+    // nowhere else. Splicing the children up into the payload drops them
+    // silently (#8101), so a paragraph carrying any of that has to travel as a
+    // block. A paragraph carrying none of it serializes identically either
+    // way, so it is left alone and keeps producing inline-only content — the
+    // long-standing shape that clipboard consumers expect.
+    if (
+      this.getFormatType() === '' &&
+      this.getIndent() === 0 &&
+      this.getStyle() === ''
+    ) {
+      return false;
+    }
+    // A partial selection is a fragment of a line rather than a block: that
+    // fragment must merge into the paste target instead of imposing its source
+    // block on it.
+    if ($isBlockFullySelected(this, selection)) {
+      const textContent = this.getTextContent();
+      return textContent !== '' && selection.getTextContent() === textContent;
+    }
+    return false;
   }
 
   // Mutation
@@ -134,12 +177,15 @@ export class ParagraphNode extends ElementNode {
   }
 
   collapseAtStart(): boolean {
-    const children = this.getChildren();
     // If we have an empty (trimmed) first paragraph and try and remove it,
-    // delete the paragraph as long as we have another sibling to go to
+    // delete the paragraph as long as we have another sibling to go to.
+    // Every child has to be blank text: a paragraph that merely starts with
+    // blank text still has content to lose, and a non-text child (an inline
+    // decorator, a line break) is content even when it contributes no text.
     if (
-      children.length === 0 ||
-      ($isTextNode(children[0]) && children[0].getTextContent().trim() === '')
+      this.getChildren().every(
+        node => $isTextNode(node) && !/\S/.test(node.getTextContent()),
+      )
     ) {
       const nextSibling = this.getNextSibling();
       if (nextSibling !== null) {

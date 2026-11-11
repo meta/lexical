@@ -10,6 +10,7 @@ import fs from 'fs-extra';
 import {globSync} from 'glob';
 import path from 'node:path';
 import prettier from 'prettier';
+import ts from 'typescript';
 
 import {packagesManager} from './shared/packagesManager.mjs';
 
@@ -32,7 +33,29 @@ async function updateTsconfig({
   test,
 }) {
   const prevTsconfigContents = fs.readFileSync(jsonFileName, 'utf8');
-  const tsconfig = JSON.parse(prevTsconfigContents);
+  // Parse JSONC and replace only the generated paths object, preserving
+  // comments and all other hand-maintained compiler options.
+  const source = ts.parseJsonText(jsonFileName, prevTsconfigContents);
+  const statement = source.statements[0];
+  if (!statement || !ts.isExpressionStatement(statement)) {
+    throw new Error(`${jsonFileName}: expected a JSON object`);
+  }
+  /** @type {ts.Expression} */
+  let pathsNode = statement.expression;
+  for (const name of ['compilerOptions', 'paths']) {
+    const property =
+      ts.isObjectLiteralExpression(pathsNode) &&
+      pathsNode.properties.find(
+        node =>
+          ts.isPropertyAssignment(node) &&
+          ts.isStringLiteral(node.name) &&
+          node.name.text === name,
+      );
+    if (!property || !ts.isPropertyAssignment(property)) {
+      throw new Error(`${jsonFileName}: missing ${name} object`);
+    }
+    pathsNode = property.initializer;
+  }
   const publicPaths = [];
   const testPaths = [];
   const configDir = path.resolve(path.dirname(jsonFileName));
@@ -53,7 +76,10 @@ async function updateTsconfig({
     if (test) {
       testPaths.push([`${pkg.getNpmName()}/src`, [resolveRelative('src')]]);
       for (const fn of globSync(
-        pkg.resolve('src', '__tests__', 'utils', '*.{ts,tsx,mjs,jsx}'),
+        // Only the directory's index module backs the bare
+        // `<pkg>/src/__tests__/utils` specifier. Matching every file let
+        // glob order pick a sibling module (e.g. assertNodeType.ts) instead.
+        pkg.resolve('src', '__tests__', 'utils', 'index.{ts,tsx,mjs,jsx}'),
         {windowsPathsNoEscape: true},
       )) {
         testPaths.push([
@@ -76,9 +102,11 @@ async function updateTsconfig({
     ...publicPaths,
     ...testPaths,
   ]);
-  tsconfig.compilerOptions.paths = paths;
-  // This is async in future versions of prettier
-  const nextTsconfigContents = await prettier.format(JSON.stringify(tsconfig), {
+  const updatedContents =
+    prevTsconfigContents.slice(0, pathsNode.getStart(source)) +
+    JSON.stringify(paths) +
+    prevTsconfigContents.slice(pathsNode.end);
+  const nextTsconfigContents = await prettier.format(updatedContents, {
     ...prettierConfig,
     filepath: jsonFileName,
   });

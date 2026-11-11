@@ -22,7 +22,7 @@ concurrency:
 
 jobs:
   check_should_run:
-    if: github.repository_owner == 'facebook'
+    if: github.repository_owner == 'meta'
     runs-on: ubuntu-latest
     outputs:
       should_run: ${{ steps.check.outputs.should_run }}
