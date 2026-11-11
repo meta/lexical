@@ -996,4 +996,71 @@ describe('LexicalTypeaheadMenuPlugin', () => {
       ).toBeNull();
     });
   });
+
+  describe('discarded renders', () => {
+    it('does not leak the menu anchor when Suspense discards the first render', async () => {
+      const anchors = () =>
+        document.querySelectorAll('body > [aria-label="Typeahead menu"]')
+          .length;
+
+      let ready = false;
+      let release!: () => void;
+      const gate = new Promise<void>(resolve => {
+        release = resolve;
+      }).then(() => {
+        ready = true;
+      });
+
+      function Suspends(): null {
+        if (!ready) {
+          throw gate;
+        }
+        return null;
+      }
+
+      function App() {
+        return (
+          <React.Suspense fallback={null}>
+            <LexicalComposer
+              initialConfig={{
+                namespace: 'test-typeahead-suspense',
+                onError: err => {
+                  throw err;
+                },
+                theme: {},
+              }}>
+              <RichTextPlugin
+                contentEditable={<ContentEditable />}
+                placeholder={null}
+                ErrorBoundary={LexicalErrorBoundary}
+              />
+              <TypeaheadPluginWithoutMenuRenderFn options={[]} />
+              <Suspends />
+            </LexicalComposer>
+          </React.Suspense>
+        );
+      }
+
+      // React renders the suspended tree without committing it; a discarded
+      // render must not leave an anchor in the page.
+      await act(async () => {
+        reactRoot.render(<App />);
+      });
+      expect(anchors()).toBe(0);
+
+      // Once the tree commits, exactly one anchor is attached.
+      await act(async () => {
+        release();
+        await gate;
+        await new Promise(resolve => setTimeout(resolve, 0));
+      });
+      expect(anchors()).toBe(1);
+
+      // ... and unmounting removes it again.
+      await act(async () => {
+        reactRoot.unmount();
+      });
+      expect(anchors()).toBe(0);
+    });
+  });
 });
