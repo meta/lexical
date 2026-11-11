@@ -1831,7 +1831,21 @@ export class Reader {
         while (j < old.length && old[j].end !== null && old[j].end!.deleted) {
           j++;
         }
-        if (j < old.length && old[j].end !== null && old[j].kind === 'line') {
+        // Merged only where no end item the change inserted lies between:
+        // a line that took the composed line's place (a change of its type
+        // as a new line, with its own marker) holds its text, not the line
+        // after it.
+        let merged = j < old.length && old[j].end !== null;
+        for (
+          let it = old[k].end!.right;
+          merged && it !== null && it !== old[j].end;
+          it = it.right
+        ) {
+          if (isEndItem(it) && !it.deleted && !byEnd.has(it)) {
+            merged = false;
+          }
+        }
+        if (merged && old[j].kind === 'line') {
           composedLine = {into: old[j], key: ck};
         }
       }
