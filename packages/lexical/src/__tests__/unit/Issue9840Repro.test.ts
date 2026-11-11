@@ -242,7 +242,7 @@ test('Issue #9840: Shift-click on an inline decorator keeps the anchor and puts 
   expect(afterSelection?.isCollapsed).toBe(false);
 });
 
-test('Issue #9840: Click without Shift on an embedded input inside a decorator does not start mouseDrag', async () => {
+test('Issue #9840: Shift-click on an embedded input inside a decorator does not start mouseDrag', async () => {
   const root = document.createElement('div');
   root.contentEditable = 'true';
   document.body.append(root);
@@ -274,7 +274,7 @@ test('Issue #9840: Click without Shift on an embedded input inside a decorator d
     button: 0,
     buttons: 1,
     composed: true,
-    shiftKey: false,
+    shiftKey: true,
   };
 
   input.dispatchEvent(

@@ -2491,7 +2491,11 @@ function isEmbeddedInput(target: Node, hostRoot: HTMLElement | null): boolean {
   if (element.nodeName === 'INPUT' || element.nodeName === 'TEXTAREA') {
     return true;
   }
-  const host = element.closest && element.closest('[contenteditable="true"]');
+  const host =
+    element.closest &&
+    element.closest(
+      '[contenteditable="true"], [contenteditable="plaintext-only"]',
+    );
   return host != null && host !== hostRoot;
 }
 
