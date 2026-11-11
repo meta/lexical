@@ -77,21 +77,29 @@ function texts(editor: LexicalEditor): string[] {
 }
 
 describe('typing while a block decorator is node-selected', () => {
-  test('types at the start of the block after it', () => {
+  test('types into a new paragraph after it, before the block that follows', () => {
     using editor = createEditor('after');
 
     type(editor, 'q');
 
-    expect(texts(editor)).toEqual(['before', '<decorator>', 'qafter']);
+    expect(texts(editor)).toEqual(['before', '<decorator>', 'q', 'after']);
     editor.read(() => {
       const selection = $getSelection();
       assert($isRangeSelection(selection));
       expect(selection.isCollapsed()).toBe(true);
       expect(selection.anchor.getNode().getTopLevelElementOrThrow()).toBe(
-        $getRoot().getLastChildOrThrow(),
+        $getRoot().getChildAtIndex(2),
       );
       expect(selection.anchor.offset).toBe(1);
     });
+  });
+
+  test('types into the empty paragraph already after it', () => {
+    using editor = createEditor('');
+
+    type(editor, 'q');
+
+    expect(texts(editor)).toEqual(['before', '<decorator>', 'q']);
   });
 
   test('types into a new paragraph when nothing follows', () => {
