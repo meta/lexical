@@ -177,18 +177,6 @@ export class HeldDeletionError extends Error {
   }
 }
 
-/**
- * Whether transaction `tr` deleted `item`, or noted it as deleted (an item
- * an unread change deleted, see deleteItemIn).
- */
-export function deletedBy(item: Item, tr: Transaction): boolean {
-  if (tr.deleteSet.hasId(item.id)) {
-    return true;
-  }
-  const noted = notedIn.get(tr);
-  return noted !== undefined && noted.hasId(item.id);
-}
-
 /** Bumped by every deleteItemIn (a fold reused only while nothing was deleted). */
 export let deletions = 0;
 
