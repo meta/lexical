@@ -174,7 +174,8 @@ export type YMigrationErrorCode = YKnownMigrationErrorCode | (string & {});
 
 /**
  * @experimental A migration refused or failed. Nothing was written: the
- * caller's document and stored state are as they were.
+ * caller's document and stored state are as they were. When a step threw
+ * (in its read, check or write), `cause` is the error it threw.
  */
 export class YMigrationError extends Error {
   readonly code: YMigrationErrorCode;
