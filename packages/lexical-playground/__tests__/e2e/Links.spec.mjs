@@ -80,6 +80,48 @@ test.describe('Links', () => {
     });
   }
 
+  for (const caretPosition of ['before', 'after']) {
+    test(`Clicking inside a link before selectionchange preserves the caret (${caretPosition})`, async ({
+      page,
+    }) => {
+      await focusEditor(page);
+      await pasteFromClipboard(page, {
+        'text/html':
+          '<p>before <a href="https://example.org/long">longer link</a> after</p>',
+      });
+      if (caretPosition === 'before') {
+        await moveToLineBeginning(page);
+        await assertCaret(page, 'p > span:first-child', 0);
+      } else {
+        await moveToLineEnd(page);
+        await assertCaret(page, 'p > span:last-child', 6);
+      }
+
+      const link = getPageOrFrame(page).getByRole('link', {
+        exact: true,
+        name: 'longer link',
+      });
+      await link.evaluate(element => {
+        const text = element.querySelector(
+          '[data-lexical-text="true"]',
+        ).firstChild;
+        const view = element.ownerDocument.defaultView;
+        view.getSelection().setBaseAndExtent(text, 4, text, 4);
+        element.dispatchEvent(
+          new view.PointerEvent('click', {
+            bubbles: true,
+            button: 0,
+            composed: true,
+            detail: 1,
+            pointerType: 'touch',
+          }),
+        );
+      });
+
+      await assertCaret(page, 'p > a > span', 4);
+    });
+  }
+
   test(`Can convert a text node into a link`, async ({page}) => {
     await focusEditor(page);
     await page.keyboard.type('Hello');

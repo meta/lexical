@@ -516,9 +516,10 @@ function useFloatingLinkEditorToolbar(
         CLICK_COMMAND,
         payload => {
           let selection = $getSelection();
+          const currentEditor = $getEditor();
           const target = getComposedEventTarget(payload);
           if (
-            $getEditor().isEditable() &&
+            currentEditor.isEditable() &&
             payload.button === 0 &&
             !payload.shiftKey &&
             $isRangeSelection(selection) &&
@@ -534,10 +535,22 @@ function useFloatingLinkEditorToolbar(
               !clickedLink.is(anchorNode) &&
               !clickedLink.isParentOf(anchorNode)
             ) {
-              // Browsers can leave a clicked link's caret in neighboring text.
-              selection = anchorNode.isBefore(clickedLink)
-                ? clickedLink.selectStart()
-                : clickedLink.selectEnd();
+              const rootElement = currentEditor.getRootElement();
+              const nativeSelection = getDOMSelection(
+                rootElement?.ownerDocument.defaultView ?? null,
+              );
+              const domAnchorNode = nativeSelection
+                ? getDOMSelectionPoints(nativeSelection, rootElement).anchorNode
+                : null;
+              const linkElement = currentEditor.getElementByKey(
+                clickedLink.getKey(),
+              );
+              // A click can precede selectionchange; the DOM caret may be newer.
+              if (!linkElement?.contains(domAnchorNode)) {
+                selection = anchorNode.isBefore(clickedLink)
+                  ? clickedLink.selectStart()
+                  : clickedLink.selectEnd();
+              }
             }
           }
           if ($isRangeSelection(selection)) {
