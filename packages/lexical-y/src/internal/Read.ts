@@ -3138,7 +3138,7 @@ export class Reader {
         if (end < text.length) {
           parts.push({...piece, text: text.slice(end)});
         }
-        pieces.splice(k, 1, ...parts);
+        spliceAll(pieces, k, 1, parts);
         composedPlaced = true;
         break;
       }
