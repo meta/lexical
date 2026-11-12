@@ -1062,7 +1062,9 @@ export class Cursor {
 
   /**
    * Apply `formats` to the next `n` content units as paired runs. A name
-   * that is not covered is left as it is (the binding owns none). Per key:
+   * that is not covered (a raw writer's, or one starting with U+0002, the
+   * reader's own bookkeeping) is refused: the binding owns none, and no
+   * write of it ever changes one (see covered). Per key:
    *
    * 1. It deletes the runs whose content it wholly formats: any
    *    client's paired run that holds at least one content item of the range
@@ -1098,9 +1100,12 @@ export class Cursor {
   format(n: number, given: Record<string, unknown>): void {
     const formats: Record<string, unknown> = {};
     for (const key in given) {
-      if (covered(key)) {
-        formats[key] = given[key];
-      }
+      invariant(
+        covered(key),
+        '@lexical/y: refused a format change of %s, a name the binding does not own',
+        JSON.stringify(key),
+      );
+      formats[key] = given[key];
     }
     if (n <= 0) {
       return;
