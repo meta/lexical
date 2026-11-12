@@ -11,6 +11,8 @@ import type {
   AnyLexicalExtensionArgument,
   CreateEditorArgs,
   LexicalWarning,
+  SerializedEditorState,
+  SerializedLexicalNode,
 } from 'lexical';
 import type {Doc} from '@y/y';
 import type {
@@ -119,3 +121,31 @@ declare export function readYState<T>(
   config: HeadlessYConfig,
   $read: () => T,
 ): T;
+
+// What a client's edits that did not sync changed (layout 4 spec 11.6),
+// block by block, against the document they were made against (base, null
+// when gone) and the document now.
+export type YUnsyncedReason = 'stale' | 'legacy' | 'expired';
+export type YUnsyncedBlock = {
+  readonly id: string,
+  readonly change: 'added' | 'changed' | 'deleted',
+  readonly yours: SerializedLexicalNode | null,
+  readonly base: SerializedLexicalNode | null,
+  readonly now: SerializedLexicalNode | null,
+  readonly replayable: boolean,
+};
+export type YUnsyncedReport = {
+  readonly reason: YUnsyncedReason,
+  readonly capturedAt: number,
+  readonly baseAvailable: boolean,
+  readonly blocks: ReadonlyArray<YUnsyncedBlock>,
+  readonly fragment: ReadonlyArray<SerializedLexicalNode>,
+};
+declare export function describeUnsyncedEdits(input: {
+  readonly edits: {readonly json: SerializedEditorState, ...} | {readonly state: Uint8Array, ...},
+  readonly base: Uint8Array | null,
+  readonly current: Uint8Array,
+  readonly config: HeadlessYConfig,
+  readonly reason: YUnsyncedReason,
+  readonly capturedAt: number,
+}): YUnsyncedReport;

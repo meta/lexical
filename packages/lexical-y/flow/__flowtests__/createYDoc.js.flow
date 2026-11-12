@@ -137,6 +137,7 @@ declare const configWithExtra: {
   selfCheckSample: C['selfCheckSample'],
   convert: C['convert'],
   layoutUpgrade?: C['layoutUpgrade'],
+  onYStatus?: C['onYStatus'],
   laterOption: boolean,
 };
 const extendedConfig: YCollabConfig = configWithExtra;
