@@ -1197,6 +1197,8 @@ function runStep(
   const own = copy.clientID;
   let epoch: YMigrationEpoch | null = null;
   let counts = {deleted: 0, problems: [] as string[], written: 0};
+  // What the step threw in the transaction (an array: assigned in a callback).
+  const thrown: unknown[] = [];
   copy.clientID = client;
   try {
     copy.transact(tr => {
@@ -1217,6 +1219,7 @@ function runStep(
         };
         root.setAttr(EPOCH_KEY, epoch as never);
       } catch (error) {
+        thrown.push(error);
         problems.push(`the step threw: ${String(error)}`);
       }
       counts = outsideWrites(tr, client, root, step);
@@ -1230,6 +1233,7 @@ function runStep(
       `@lexical/y: step ${step.id} failed on root ${name}: ${problems.join('; ')}`,
       problems,
       name,
+      thrown.length === 0 ? undefined : {cause: thrown[0]},
     );
   }
   const written: YMigrationEpoch = epoch;

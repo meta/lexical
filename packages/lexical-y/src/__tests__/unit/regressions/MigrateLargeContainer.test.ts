@@ -18,8 +18,8 @@
 // limit, not recursion), in the before snapshot of the first step. The
 // limit depends on the stack the code runs on (a Vitest worker's is larger),
 // so the documents here are sized from the limit of the runtime they run
-// in. A read that throws is reported as a YMigrationError whose `cause` is
-// the error it threw.
+// in. A step that throws, in its read or its write, is reported as a
+// YMigrationError whose `cause` is the error it threw.
 
 import * as Y from '@y/y';
 import {$getRoot} from 'lexical';
@@ -135,8 +135,18 @@ describe('a layout 1 root container with more units than a call takes as argumen
   }
 });
 
-describe('a step whose read throws', () => {
-  test('is reported as a YMigrationError whose cause is the error', () => {
+/** The error `migrateYState` throws on `steps`, or null. */
+function migrationError(steps: YLayoutMigration[]): unknown {
+  try {
+    migrateYState(layout1Document(1, 'abc'), steps);
+  } catch (error) {
+    return error;
+  }
+  return null;
+}
+
+describe('a step that throws', () => {
+  test('in its read: a YMigrationError whose cause is the error', () => {
     const thrown = new RangeError('the read threw');
     const throwing: YLayoutMigration = {
       ...step1to2,
@@ -144,18 +154,32 @@ describe('a step whose read throws', () => {
         throw thrown;
       },
     };
-    let caught: unknown = null;
-    try {
-      migrateYState(layout1Document(1, 'abc'), [throwing, step2to3]);
-    } catch (error) {
-      caught = error;
-    }
-    expect(caught).toBeInstanceOf(YMigrationError);
-    const error = caught as YMigrationError;
-    expect(error.code).toBe('post-condition');
-    expect(error.message).toBe(
-      '@lexical/y: a step threw: RangeError: the read threw',
-    );
-    expect(error.cause).toBe(thrown);
+    const error = migrationError([throwing, step2to3]);
+    expect(error).toBeInstanceOf(YMigrationError);
+    expect(error).toMatchObject({
+      code: 'post-condition',
+      message: '@lexical/y: a step threw: RangeError: the read threw',
+    });
+    expect((error as YMigrationError).cause).toBe(thrown);
+  });
+
+  test('in its write: a YMigrationError whose cause is the error', () => {
+    const thrown = new RangeError('the write threw');
+    const throwing: YLayoutMigration = {
+      ...step1to2,
+      migrateContainer: () => {
+        throw thrown;
+      },
+    };
+    const error = migrationError([throwing, step2to3]);
+    expect(error).toBeInstanceOf(YMigrationError);
+    expect(error).toMatchObject({
+      code: 'post-condition',
+      message:
+        '@lexical/y: step lexical-y/layout/1to2 failed on root lexical-y: the step threw: RangeError: the write threw',
+      problems: ['the step threw: RangeError: the write threw'],
+      root: 'lexical-y',
+    });
+    expect((error as YMigrationError).cause).toBe(thrown);
   });
 });
