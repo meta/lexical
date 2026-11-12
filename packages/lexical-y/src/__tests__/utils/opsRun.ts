@@ -31,8 +31,9 @@ import {
   UNDO_COMMAND,
 } from 'lexical';
 
-import {createYCollabConfig, createYDoc, YCollabExtension} from '../..';
+import {createYDoc, YCollabExtension} from '../..';
 import {seedYState} from '../../headless';
+import {createYCollabConfig} from '../../internal/YExtension';
 
 const CONFIG = {extensions: [RichTextExtension], schemaVersion: 1};
 export const KEYS = ['b', 'i', 's'] as const;

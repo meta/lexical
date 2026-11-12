@@ -38,12 +38,6 @@ import {
 } from './internal/constants';
 import {describeStorage} from './internal/Describe';
 import {onYMigrationEpoch, type YMigrationEpoch} from './internal/Layouts';
-import {
-  createYServerLayoutUpgrade,
-  isYLayoutUpgradeHandle,
-  type YClientSession,
-  type YLayoutUpgradeHandle,
-} from './internal/LayoutUpgrade';
 import {type StorageKind} from './internal/Schema';
 import {SUPPORTED_YJS_VERSION} from './internal/SupportedYjs';
 import {
@@ -83,12 +77,7 @@ import {
   type YWarningData,
 } from './internal/Warnings';
 import {createYDoc, type YDoc, type YDocOptions} from './internal/YDoc';
-import {
-  createYCollabConfig,
-  type YCollabConfig,
-  YCollabExtension,
-  type YCollabInput,
-} from './internal/YExtension';
+import {type YCollabConfig, YCollabExtension} from './internal/YExtension';
 import {
   UNSUPPORTED_YJS_ERROR,
   type YUnsupportedYjsData,
@@ -100,10 +89,8 @@ export type {
   StorageKind,
   YBindingOptions,
   YBindingStatus,
-  YClientSession,
   YCollabBinding,
   YCollabConfig,
-  YCollabInput,
   YCollabOptions,
   YCursor,
   YDoc,
@@ -111,7 +98,6 @@ export type {
   YGeneration,
   YHandshake,
   YHistory,
-  YLayoutUpgradeHandle,
   YLocalEdits,
   YMigrationEpoch,
   YNestedFallbackData,
@@ -142,13 +128,10 @@ export type {
 };
 export {
   createYBinding,
-  createYCollabConfig,
   createYDoc,
   createYHandshake,
-  createYServerLayoutUpgrade,
   DEFAULT_ROOT_NAME,
   describeStorage,
-  isYLayoutUpgradeHandle,
   isYWarning,
   LAYOUT_VERSION,
   MIN_LAYOUT,

@@ -3319,7 +3319,7 @@ export class YBinding {
       if (upgrade === undefined) {
         this.warn(
           UNSUPPORTED_CONFIG_WARNING,
-          'no layoutUpgrade was declared, so a document below the floor is read only: create the config with createYCollabConfig and pass layoutUpgrade (a handle from createYServerLayoutUpgrade, or null)',
+          'no layoutUpgrade was declared, so a document below the floor is read only: set the binding up with yCollab or createYBinding, or pass layoutUpgrade (a handle from createYServerLayoutUpgrade, or null)',
           {reason: 'missing-layout-upgrade'},
         );
       }

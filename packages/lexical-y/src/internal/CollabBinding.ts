@@ -41,7 +41,7 @@ import {
 //   provider.onFirstSync(() => binding.markSynced());
 //   fence.onStale(() => store(binding.freeze()));
 //
-// YBinding (the class) and createYCollabConfig keep working; this file adds
+// YBinding (the class) keeps working; this file adds
 // the new entry points beside them.
 
 /**

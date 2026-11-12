@@ -85,8 +85,9 @@ const {collab} = getExtensionDependencyFromEditor(
 collab.markSynced();
 ```
 
-The sections below describe the binding in full, with the earlier setup
-(`createYCollabConfig`, `binding.initialize()`), which keeps working.
+The sections below describe the binding in full. `collab.binding` is the
+`YBinding` underneath, whose `initialize()` is `markSynced()` and whose
+`quiesce()` is what `freeze()` builds on.
 
 ## When to use it
 
@@ -195,9 +196,13 @@ import {
 } from '@lexical/extension';
 import {ListExtension} from '@lexical/list';
 import {RichTextExtension} from '@lexical/rich-text';
-import {createYCollabConfig, createYDoc, YCollabExtension} from '@lexical/y';
+import {createYDoc, yCollab, YCollabExtension, type YStatus} from '@lexical/y';
 import {WebsocketProvider} from '@y/websocket';
 import {defineExtension} from 'lexical';
+
+const showStatus = (status: YStatus) => {
+  // Tell the user when the document is read only, and why (status.cause).
+};
 
 const doc = createYDoc();
 
@@ -206,15 +211,13 @@ const editor = buildEditorFromExtensions(
     dependencies: [
       RichTextExtension,
       ListExtension,
-      // schemaVersion and layoutUpgrade are required: see "Versioning your
-      // schema" and "Layout upgrades". null: no server migrates this
-      // provider's stored documents, so one below the floor opens read
-      // only. An app whose server migrates passes
-      // createYServerLayoutUpgrade() and sends its handshake.
-      createYCollabConfig({
+      // doc, schemaVersion, synced and onStatus are required: see
+      // "Versioning your schema" and Start here.
+      yCollab({
         doc,
-        layoutUpgrade: null,
+        onStatus: status => showStatus(status),
         schemaVersion: 1,
+        synced: false,
       }),
     ],
     name: 'my-app/editor',
@@ -222,7 +225,7 @@ const editor = buildEditorFromExtensions(
 );
 editor.setRootElement(document.getElementById('editor'));
 
-const {binding, status} = getExtensionDependencyFromEditor(
+const {collab, status} = getExtensionDependencyFromEditor(
   editor,
   YCollabExtension,
 ).output;
@@ -231,13 +234,13 @@ const provider = new WebsocketProvider('wss://example.com', 'my-room', doc);
 provider.once('sync', () => {
   // Writes the editor's content if the document is new; otherwise the
   // editor shows the shared content.
-  binding.initialize();
+  collab.markSynced();
 });
 ```
 
 :::warning Initial content must be the same on every client
 
-`binding.initialize()` writes this client's initial content into a new
+`collab.markSynced()` writes this client's initial content into a new
 document. When two clients open a new document at once, each writes its
 own, and the document keeps one copy only if the two are identical: a
 welcome line with the user's name, a template with random block ids, or a
@@ -271,7 +274,7 @@ content with random values" in [Limits](#limits)).
   it cannot store (a slot, see
   [How content is stored](#how-content-is-stored)) leaves later updates as
   they are too.
-- `binding.initialize()`, called after the provider's first sync, writes the
+- `collab.markSynced()`, called after the provider's first sync, writes the
   editor's content into an empty document (an `editor.update()` still
   pending is part of it). Two clients that initialize the same content in a
   document at once write it once, when they would write the same items
@@ -294,7 +297,7 @@ content with random values" in [Limits](#limits)).
   so that state is only ever the content of an empty document. On a
   document that has content (an editor built again on the same document, a
   document loaded from a cache before the editor), the editor shows the
-  document and writes nothing. `binding.initialize()` called before the
+  document and writes nothing. `collab.markSynced()` called before the
   binding starts (from an extension's `register`) runs when it starts. An
   extension that depends on `YCollabExtension` and changes content in its
   own `afterRegistration` makes an edit, as an update made after
@@ -325,19 +328,21 @@ content with random values" in [Limits](#limits)).
 - To seed or convert a document on a server, use `seedYState` (see
   [Server-side editing](./y-server.md)).
 
-Configure the extension with `createYCollabConfig(input)`, whose input
-(`YCollabInput`) requires `doc`, `schemaVersion` and `layoutUpgrade`; every
-other option is optional, so options a later release adds never break it.
-(`YCollabConfig`, what `configExtension(YCollabExtension, ...)` takes,
-keeps its fields; any field a later release adds to it is optional too.)
+Configure the extension with `yCollab(options)` (`YCollabOptions`): `doc`,
+`schemaVersion`, `synced` and `onStatus` are required, `root` and `history`
+optional with their defaults in `Y_DEFAULTS`. The options below without a
+`YCollabOptions` field (`selfCheck`, `selfCheckSample`, `convert`) are
+set with `configExtension(YCollabExtension, {...})` beside
+it; `YCollabConfig` keeps its fields, and any field a later release adds to
+it is optional.
 
 | Option | Default | |
 | -- | -- | -- |
 | `doc` | (required) | The Yjs document, from `createYDoc`. |
-| `layoutUpgrade` | (required) | How documents below `MIN_LAYOUT` are upgraded: `createYServerLayoutUpgrade()` (the document's server migrates them on load) or `null` (they stay read only). See [Layout upgrades](#layout-upgrades). |
+| `onStatus` | (required) | Called with the binding's status (`pending`, `active`, or `readonly` with its cause) when it changes. |
 | `schemaVersion` | (required) | The version of your editor's nodes: registered node classes, their fields and NodeState. Bump it when you add, remove or change one, not on every release. An integer from 1: see [Versioning your schema](#versioning-your-schema). The extension throws without one. |
 | `root` | `doc.get('lexical-y')` | The shared root to bind. |
-| `synced` | `false` | Initialize as soon as the binding starts. |
+| `synced` | (required in `yCollab`) | Whether the document is already synced: `markSynced()` runs as soon as the binding starts. |
 | `captureTimeout` | `500` | Undo capture timeout in ms; `null` turns collaborative undo off. |
 | `selfCheck` | `false` | Reads every local write (and every container a remote change rebuilt) back from Yjs and compares it with the editor; a mismatch is a `'@lexical/y/self-check'` [warning](#warnings). A debugging aid: turn it on in tests and development builds. |
 | `selfCheckSample` | `1` | The fraction of changes the self-check samples: local writes, and remote changes (where a sampled check that finds the editor differing from the shared content also reads those containers again). |
@@ -1917,24 +1922,11 @@ lists include it; a server that passes its own list to `migrateYState` or
 ### Layout upgrades
 
 A document below `MIN_LAYOUT` (stored by an older release) opens read only
-until it is migrated. Every app declares what happens to such documents
-with the required `layoutUpgrade` option of `createYCollabConfig`:
-
-- `createYServerLayoutUpgrade()`: the document's server migrates it on load
-  ([Migrating stored documents](./y-server.md#migrating-stored-documents)).
-  The handle's `handshake({generation, material})` returns the complete
-  handshake the client sends before syncing (`checkYSession`), so the app
-  never builds it by hand.
-- `null`: such documents stay read only (an app without a migrating
-  server).
-
-The editor behaves the same either way: a document below the floor is read
-only, and `UNSUPPORTED_LAYOUT_WARNING` `'older'` says which was declared
-(`upgrade: 'server'`, so the server should have migrated it, or
-`'read-only'`). A config written without the option (plain JavaScript, or
-`configExtension(YCollabExtension, ...)` directly) falls back to read only
-below the floor and also reports `UNSUPPORTED_CONFIG_WARNING`
-`'missing-layout-upgrade'`.
+(status cause `layout-older`) until its server migrates it on load
+([Migrating stored documents](./y-server.md#migrating-stored-documents)).
+`collab.handshake(generation)` returns the complete handshake the client
+sends before syncing (`checkYSession`), so the app never builds it by hand
+and the server can migrate the room before the client reads it.
 
 **Old layouts while `@lexical/y` is experimental.** A new layout is a new
 `LAYOUT_VERSION`, and releases usually keep reading the older ones. While
@@ -1948,7 +1940,7 @@ rooms never seeded (the seed contract, see the
 [server guide](./y-server.md#generations-and-the-handshake)). If your app
 stores rooms, plan for a server-side migration when you take such an
 upgrade; its release notes and changelog say when one is needed. An app
-with `layoutUpgrade: null` keeps such rooms read only unless it migrates
+without a migrating server keeps such rooms read only unless it migrates
 them itself (see "Who migrates" below).
 
 What does not change:
