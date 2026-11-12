@@ -1820,6 +1820,8 @@ export class RangeSelection implements BaseSelection {
               caret: ChildCaret<ElementNode, typeof direction>;
               block: ElementNode;
             } = {type: 'initial'};
+        // An inline boundary can have no text slice even when its next caret is text.
+        let hasTextInDeletionDirection = false;
         for (const caret of initialRange.iterNodeCarets('shadowRoot')) {
           if ($isChildCaret(caret)) {
             if (caret.origin.isInline()) {
@@ -1899,6 +1901,9 @@ export class RangeSelection implements BaseSelection {
               caret.origin.remove();
               return;
             }
+            hasTextInDeletionDirection =
+              $isTextNode(caret.origin) &&
+              caret.origin.getTextContentSize() > 0;
             break;
           }
         }
@@ -1950,7 +1955,10 @@ export class RangeSelection implements BaseSelection {
         // slot link is a virtual shadow root, so this applies whether or not
         // the value is itself a shadow root; an ordinary (non-slotted)
         // shadow root keeps the native behavior.
-        for (let node: LexicalNode | null = anchor.getNode(); node !== null; ) {
+        for (
+          let node: LexicalNode | null = anchor.getNode();
+          !hasTextInDeletionDirection && node !== null;
+        ) {
           if ($getSlotHostKey(node) !== null) {
             return;
           }
