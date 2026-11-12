@@ -50,7 +50,7 @@ import {
 import {runBoundary, type StoredUnit} from './Layout3';
 import {owned} from './Owned';
 import {markBindingWrite} from './RawWrites';
-import {isGoneIn} from './Seen';
+import {type HeldView, isGoneIn, isHiddenIn} from './Shown';
 import {type View} from './Unread';
 
 /**
@@ -273,15 +273,14 @@ export interface FoldIn {
   readonly held: HeldView;
 }
 
-/** Whether `item` is gone in fold `f`'s view (Seen.isGoneIn). */
+/** Whether `item` is gone in fold `f`'s view (Shown.isGoneIn). */
 const goneIn = (f: FoldIn, item: Item): boolean => isGoneIn(f.view, item);
 
-/** A hold a fold reads in (see FoldIn), or null. */
-export type HeldView = {hides(item: Item): boolean} | null;
+export type {HeldView};
 
 /** Whether end `end` pairs nothing: gone, or held back (see FoldIn). */
 const endGone = (f: FoldIn, end: Item): boolean =>
-  goneIn(f, end) || (f.held !== null && f.held.hides(end));
+  isHiddenIn(f.view, end, f.held);
 
 /** The fold of the document as Yjs has it: no view, no hold. */
 export const STORED_FOLD: FoldIn = {held: null, view: null};
@@ -715,7 +714,7 @@ function scanNew(doc: Doc, index: Index): void {
       if (isCoveredEnd(s)) {
         noteHolder(s);
         // Deleted ends too: a write's view keeps an end an unread change
-        // deleted (see Seen.isGoneIn), and its run is paired there (#9719).
+        // deleted (see Shown.isGoneIn), and its run is paired there (#9719).
         noteEnd(doc, s, positions);
       }
     }
