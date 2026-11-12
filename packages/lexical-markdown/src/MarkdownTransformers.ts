@@ -838,7 +838,11 @@ export const QUOTE: ElementTransformer = {
     return output.join('\n');
   },
   regExp: QUOTE_REGEX,
-  replace: (parentNode, children, _match, isImport) => {
+  replace: (parentNode, children, match, isImport) => {
+    if (!isImport && match[0] === '>') {
+      return false;
+    }
+
     if (isImport) {
       const previousNode = parentNode.getPreviousSibling();
       if ($isQuoteNode(previousNode)) {

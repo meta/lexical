@@ -30,6 +30,7 @@ import {
   ITALIC_STAR,
   LINK,
   type MultilineElementTransformer,
+  QUOTE,
   registerMarkdownShortcuts,
   type TextFormatTransformer,
   type TextMatchTransformer,
@@ -2226,6 +2227,46 @@ describe('Markdown', () => {
 
       expect(editor.read(() => $generateHtmlFromNodes(editor))).toBe(
         '<h2><br></h2>',
+      );
+    });
+
+    it('should not transform lone > into quote on Enter', () => {
+      const editor = createTestEditor({
+        nodes: [
+          HeadingNode,
+          ListNode,
+          ListItemNode,
+          QuoteNode,
+          CodeNode,
+          LinkNode,
+        ],
+      });
+
+      registerMarkdownShortcuts(editor, [QUOTE]);
+
+      editor.update(
+        () => {
+          const root = $getRoot();
+          const paragraph = $createParagraphNode();
+          root.append(paragraph);
+          paragraph.selectEnd();
+          const selection = $getSelection();
+          if ($isRangeSelection(selection)) {
+            selection.insertText('>');
+          }
+        },
+        {discrete: true},
+      );
+
+      editor.update(
+        () => {
+          editor.dispatchCommand(KEY_ENTER_COMMAND, null);
+        },
+        {discrete: true},
+      );
+
+      expect(editor.read(() => $generateHtmlFromNodes(editor))).toBe(
+        '<p><span style="white-space: pre-wrap;">></span></p>',
       );
     });
   });
