@@ -52,6 +52,7 @@ import {
   formatFamily,
   MARKER,
   SEGMENT_KEY,
+  SET_MEMBER_SEPARATOR,
   STATE_PREFIX,
   TEXT_FORMAT_PREFIX,
   TYPE_KEY,
@@ -168,6 +169,14 @@ function isNodeTypeOpener(content: ContentFormat): boolean {
 function isOwnEnd(end: Item, client: number): boolean {
   const target = endTarget(end);
   return target !== null && target.client === client;
+}
+
+/** A flat NodeState name: `s:<key>` with no U+001F after `s:`. */
+function isFlatStateName(key: string): boolean {
+  return (
+    key.startsWith(STATE_PREFIX) &&
+    key.indexOf(SET_MEMBER_SEPARATOR, STATE_PREFIX.length) < 0
+  );
 }
 
 /**
@@ -1392,9 +1401,33 @@ export class Cursor {
       const openAt = (after: Item | null, before: Item | null) => {
         open = [after, before];
       };
-      for (let si = firstAt; si <= lastAt; si++) {
+      // A flat NodeState name keeps main's rule for it (where layout 3
+      // wrote it as a plain value): the value covers held content a
+      // collaborator typed inside the range, or right before its first
+      // content, as the plain value did, so text typed concurrently into a
+      // line takes the value its line was given. Other names leave it out.
+      const takesHeld = isFlatStateName(key);
+      /**
+       * Live content in the write's view this change does not count: held
+       * (or left out), the content main's plain value covered (see
+       * Shown.isLiveContent).
+       */
+      const isHeldContent = (x: Item): boolean =>
+        !contentSet.has(x) && isLiveContent(this.view, x);
+      let fromAt = firstAt;
+      if (takesHeld) {
+        for (let si = firstAt - 1; si >= 0; si--) {
+          const s = span[si];
+          if (isHeldContent(s)) {
+            fromAt = si;
+          } else if (isKeyItem(s, key)) {
+            break;
+          }
+        }
+      }
+      for (let si = fromAt; si <= lastAt; si++) {
         const s = span[si];
-        if (contentSet.has(s)) {
+        if (contentSet.has(s) || (takesHeld && isHeldContent(s))) {
           if (open === null) {
             if (reopenAfter === null) {
               openAt(s.left, s);
