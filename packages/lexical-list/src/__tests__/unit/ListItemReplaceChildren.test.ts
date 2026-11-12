@@ -74,8 +74,13 @@ test('replacing a list item preserves a caret inside its text', () => {
   });
 });
 
-for (const includeChildren of [true, false, undefined]) {
-  test(`replacing a list item respects includeChildren=${includeChildren}`, () => {
+for (const [includeChildren, nestedOnly] of [
+  [true, false],
+  [false, false],
+  [undefined, false],
+  [true, true],
+] as const) {
+  test(`replacing ${nestedOnly ? 'a nested-list wrapper' : 'a list item'} respects includeChildren=${includeChildren}`, () => {
     const editor = createEditor({
       nodes: [ListNode, ListItemNode],
       onError(error) {
@@ -95,7 +100,9 @@ for (const includeChildren of [true, false, undefined]) {
         );
         textKey = text.getKey();
         nestedKey = nested.getKey();
-        original = $createListItemNode().append(text, nested);
+        original = $createListItemNode().append(
+          ...(nestedOnly ? [nested] : [text, nested]),
+        );
         $getRoot().append($createListNode('bullet').append(original));
       },
       {discrete: true},
@@ -103,7 +110,10 @@ for (const includeChildren of [true, false, undefined]) {
     editor.update(
       () => {
         original.select(1, 1);
-        replacement = $createListItemNode().append($createTextNode('prefix'));
+        replacement = $createListItemNode();
+        if (!nestedOnly) {
+          replacement.append($createTextNode('prefix'));
+        }
         expect(original.replace(replacement, includeChildren)).toBe(
           replacement,
         );
@@ -118,17 +128,21 @@ for (const includeChildren of [true, false, undefined]) {
       expect(item.is(replacement)).toBe(true);
       expect(original.isAttached()).toBe(false);
       if (includeChildren) {
-        expect(item.getChildren().map(node => node.getKey())).toEqual([
-          item.getFirstChildOrThrow().getKey(),
-          textKey,
-          nestedKey,
-        ]);
-        expect(item.getChildAtIndex(1)?.getTextContent()).toBe('original');
-        expect(item.getChildAtIndex(2)?.getTextContent()).toBe('nested');
+        expect(item.getChildren().map(node => node.getKey())).toEqual(
+          nestedOnly
+            ? [nestedKey]
+            : [item.getFirstChildOrThrow().getKey(), textKey, nestedKey],
+        );
+        if (!nestedOnly) {
+          expect(item.getChildAtIndex(1)?.getTextContent()).toBe('original');
+        }
+        expect(item.getChildAtIndex(nestedOnly ? 0 : 2)?.getTextContent()).toBe(
+          'nested',
+        );
         const selection = $getSelection();
         assert($isRangeSelection(selection));
         expect(selection.anchor.key).toBe(item.getKey());
-        expect(selection.anchor.offset).toBe(2);
+        expect(selection.anchor.offset).toBe(nestedOnly ? 1 : 2);
         expect(selection.anchor.type).toBe('element');
         expect(selection.isCollapsed()).toBe(true);
       } else {
