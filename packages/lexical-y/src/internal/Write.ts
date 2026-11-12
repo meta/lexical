@@ -4104,7 +4104,7 @@ export class Writer {
           }
           add(holders, node.getKey(), k);
           if ($isElementNode(node)) {
-            stack.push(...node.getChildren());
+            pushAll(stack, node.getChildren());
           }
         }
       });

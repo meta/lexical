@@ -2776,6 +2776,33 @@ export function getComposedEventTarget(event: Event): EventTarget | null {
   return target;
 }
 
+// Content can be as long as a user makes it (a pasted text with 300,000 line
+// feeds is one block of that many children), and the number of arguments a
+// call can take is bounded (a RangeError past 131,072 on Node's main
+// thread): lists of content are never spread into a call's arguments whole.
+const ARGUMENTS_CHUNK = 8192;
+
+/**
+ * `parent.append(...nodes)` for any number of nodes: in pieces, each through
+ * the class's own `append`.
+ *
+ * @internal
+ */
+export function $appendAll(
+  parent: ElementNode,
+  nodes: readonly LexicalNode[],
+): void {
+  if (nodes.length <= ARGUMENTS_CHUNK) {
+    // One call, as `append(...nodes)` (which marks the parent writable even
+    // when there is nothing to append).
+    parent.append(...nodes);
+    return;
+  }
+  for (let i = 0; i < nodes.length; i += ARGUMENTS_CHUNK) {
+    parent.append(...nodes.slice(i, i + ARGUMENTS_CHUNK));
+  }
+}
+
 /** Splits an ElementNode at the given child offset, returning [original, newCopy]. The original is mutated (children after offset moved out); the first element may be null per the return type contract. Recursively splits ancestors up to the nearest root or shadow root. */
 export function $splitNode(
   node: ElementNode,
@@ -2815,7 +2842,7 @@ export function $splitNode(
       const [leftTree, rightTree, newParent] = recurse(parent);
       const nextSiblings = currentNode.getNextSiblings();
 
-      newParent.append(nodeToMove, ...nextSiblings);
+      $appendAll(newParent, [nodeToMove, ...nextSiblings]);
       return [leftTree, rightTree, nodeToMove];
     }
   };
