@@ -116,7 +116,7 @@ the stored state reads differently from what the clients show. It is also
 slow with paired runs: loading a 20,000-word document takes about 150 ms with the
 cleanup on, against 19 ms with it off. See
 [Servers](https://lexical.dev/docs/collaboration/y#servers) for the other
-requirements (yrs versions, 32-bit client ids).
+requirements (yrs 0.28 or later).
 
 ## Running the long fuzz
 

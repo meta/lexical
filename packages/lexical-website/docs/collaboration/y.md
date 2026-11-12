@@ -277,7 +277,6 @@ keeps its fields; any field a later release adds to it is optional too.)
 | `root` | `doc.get('lexical-y')` | The shared root to bind. |
 | `synced` | `false` | Initialize as soon as the binding starts. |
 | `captureTimeout` | `500` | Undo capture timeout in ms; `null` turns collaborative undo off. |
-| `clientIDRange` | `'uint53'` | `'uint32'` for servers on yrs before 0.28, see [Servers](#servers). |
 | `selfCheck` | `false` | Reads every local write (and every container a remote change rebuilt) back from Yjs and compares it with the editor; a mismatch is a `'@lexical/y/self-check'` [warning](#warnings). A debugging aid: turn it on in tests and development builds. |
 | `selfCheckSample` | `1` | The fraction of changes the self-check samples: local writes, and remote changes (where a sampled check that finds the editor differing from the shared content also reads those containers again). |
 | `convert` | `false` | Initialize even when a `@lexical/yjs` root has content. |
@@ -1061,9 +1060,7 @@ when they look like a person's:
   update into a document (`createYDoc(readState)`), bind a headless editor
   to it with `YBinding`, apply the edit there, and apply the update it
   produced (`Y.encodeStateAsUpdate(copy, readStateVector)`) to the live
-  document: Yjs merges it with what changed since. The copy's writes go
-  into the live document, so give its `YBinding` the same `clientIDRange`
-  as the other clients (see [Servers](#servers)).
+  document: Yjs merges it with what changed since.
 
 On a server, `readYState` and `editYState` from `@lexical/y/headless` do
 both: check the edit with `readYState` on the latest stored state, then run
@@ -1136,17 +1133,10 @@ the first connection syncs, and store `encodeStateAsUpdate(doc)` (from
 `@y/y`) after the updates it applies, one write at a time per room, so that
 an older snapshot never replaces a newer one.
 
-Servers built on **yrs before 0.28** (y-crdt) read client ids as 32-bit
-numbers, while Yjs 14 draws 53-bit ones: an author can receive its own
-content back as another client's on reconnect (duplicating it), or lose
-offline edits. For such a server, pass `clientIDRange: 'uint32'` on every
-client of the document and in the server's `@lexical/y/headless` config. Give the document a 32-bit client id
-before you create the awareness and the provider, because an awareness takes
-the document's client id when it is created:
-
-```ts
-doc.clientID = crypto.getRandomValues(new Uint32Array(1))[0] || 1;
-```
+Servers built on **yrs** (y-crdt) need **yrs 0.28 or later**. Earlier
+versions read client ids as 32-bit numbers, while Yjs 14 draws 53-bit ones:
+an author can receive its own content back as another client's on reconnect
+(duplicating it), or lose offline edits.
 
 Deliver updates in causal order: each update after every update it depends
 on, from any client. A single relay that every
@@ -1207,14 +1197,13 @@ It reproduces with Yjs alone (a long soak session hit it once). Reload such
 a client from the server's state; a Yjs release that includes the fix
 avoids it.
 
-Use **yrs 0.26 or later**. yrs 0.23.4 through 0.25.0 can drop part of a
+Use **yrs 0.28 or later** (for the 53-bit client ids above). Earlier, yrs
+0.23.4 through 0.25.0 can also drop part of a
 reconnecting client's delete set when a deleted range starts on a block the
 server has already garbage collected: the server keeps content that client
 deleted while its changes did not reach the server (offline, a dropped
 connection, a reload from local storage), and that client then differs from
-everyone else for good, with no warning. 32-bit client ids do not prevent
-it; yrs 0.26.0 fixed it. Before 0.28, the 32-bit client ids above are still
-needed.
+everyone else for good, with no warning (fixed in yrs 0.26.0).
 
 ## Limits
 

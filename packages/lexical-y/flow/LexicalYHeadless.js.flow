@@ -14,7 +14,6 @@ import type {
 } from 'lexical';
 import type {Doc} from '@y/y';
 import type {
-  ClientIDRange,
   YDoc,
   YDocOptions,
   YWarning,
@@ -51,7 +50,6 @@ export type HeadlessYConfig = {
   extensions?: ReadonlyArray<AnyLexicalExtensionArgument>,
   nodes?: CreateEditorArgs['nodes'],
   root?: string,
-  clientIDRange?: ClientIDRange,
   onWarn?: (warning: LexicalWarning) => void,
   selfCheck?: boolean,
 };

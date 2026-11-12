@@ -14,7 +14,7 @@ import {describe, expect, test} from 'vitest';
 import * as yrs028 from 'ywasm';
 import * as yrs023 from 'ywasm-0.23';
 
-import {type ClientIDRange, createYDoc, YBinding, type YDoc} from '../..';
+import {createYDoc, YBinding, type YDoc} from '../..';
 import {
   createYWriter,
   editYState,
@@ -25,7 +25,9 @@ import {$p, $selectIn, NODES} from '../utils/harness';
 
 // A relay on yrs (y-crdt) stores updates and answers a reconnecting client
 // with what it lacks. yrs before 0.28 reads client ids as 32-bit numbers;
-// Yjs 14 draws 53-bit ones.
+// Yjs 14 draws 53-bit ones, so such a relay duplicates content (pinned
+// below): `@lexical/y` needs yrs 0.28 or later (D15: the 32-bit
+// `clientIDRange` is removed).
 
 // The subset of ywasm used here (same in 0.23 and 0.28).
 type Yrs = {
@@ -34,7 +36,7 @@ type Yrs = {
   encodeStateAsUpdate: (doc: never, vector?: Uint8Array) => Uint8Array;
 };
 
-function session(yrs: Yrs, options: {range?: ClientIDRange; doc?: YDoc}) {
+function session(yrs: Yrs, options: {doc?: YDoc}) {
   const relay = new yrs.YDoc({}) as never;
   const doc = options.doc || createYDoc();
   doc.on('update', (u: Uint8Array) => yrs.applyUpdate(relay, u, null));
@@ -46,7 +48,6 @@ function session(yrs: Yrs, options: {range?: ClientIDRange; doc?: YDoc}) {
   });
   editor.update(() => $getRoot().append($p('hello')), {discrete: true});
   const binding = new YBinding(editor, doc, {
-    clientIDRange: options.range,
     schemaVersion: 1,
     selfCheck: true,
   });
@@ -79,41 +80,11 @@ describe('@lexical/y with yrs relays', () => {
     expect(r.author).toBe('hello world\n\nhello world');
   });
 
-  test('yrs 0.23 with clientIDRange uint32: no duplication', () => {
-    const r = session(yrs023, {range: 'uint32'});
-    expect(r.clientID).toBeLessThanOrEqual(0xffffffff);
-    expect(r.author).toBe('hello world');
-    expect(r.fresh).toBe(r.original);
-  });
-
   test('yrs 0.28 handles 53-bit client ids', () => {
     const r = session(yrs028, {});
     expect(r.clientID).toBeGreaterThan(0xffffffff);
     expect(r.author).toBe('hello world');
     expect(r.fresh).toBe(r.original);
-  });
-
-  test('uint32 range survives Yjs drawing a new client id', () => {
-    const doc = createYDoc();
-    const editor = createEditor({
-      nodes: NODES,
-      onError: e => {
-        throw e;
-      },
-    });
-    new YBinding(editor, doc, {
-      clientIDRange: 'uint32',
-      schemaVersion: 1,
-      selfCheck: true,
-    }).start();
-    expect(doc.clientID).toBeLessThanOrEqual(0xffffffff);
-    const other = new Y.Doc();
-    other.clientID = doc.clientID;
-    other.get('lexical-y').setAttr('x', 1);
-    // An update with the doc's own id makes Yjs draw a new (53-bit) one.
-    Y.applyUpdate(doc, Y.encodeStateAsUpdate(other));
-    expect(doc.clientID).not.toBe(other.clientID);
-    expect(doc.clientID).toBeLessThanOrEqual(0xffffffff);
   });
 });
 
@@ -124,13 +95,8 @@ describe('@lexical/y/headless with yrs relays', () => {
       .map(node => node.getTextContent())
       .join(' / ');
 
-  function roundTrip(
-    yrs: Yrs,
-    range: ClientIDRange,
-    direct: boolean,
-    serverRange: ClientIDRange = range,
-  ) {
-    const config = {clientIDRange: serverRange, nodes: NODES, schemaVersion: 1};
+  function roundTrip(yrs: Yrs, direct: boolean) {
+    const config = {nodes: NODES, schemaVersion: 1};
     const relay = new yrs.YDoc({}) as never;
     // The server seeds the document into the relay.
     yrs.applyUpdate(
@@ -153,7 +119,6 @@ describe('@lexical/y/headless with yrs relays', () => {
       },
     });
     const binding = new YBinding(editor, doc, {
-      clientIDRange: range,
       schemaVersion: 1,
       selfCheck: true,
     });
@@ -185,68 +150,50 @@ describe('@lexical/y/headless with yrs relays', () => {
     return {browser, stored};
   }
 
-  for (const [version, yrs] of [
-    ['0.23', yrs023],
-    ['0.28', yrs028],
-  ] as const) {
-    for (const direct of [false, true]) {
-      test(`ywasm ${version} relay round trip, 32-bit ids${
-        direct ? ', update also sent directly' : ''
-      }`, () => {
-        const r = roundTrip(yrs, 'uint32', direct);
-        expect(r.browser).toBe('hello world / from the server');
-        expect(r.stored).toBe(r.browser);
-      });
+  test("a writer continues its client id on a ywasm 0.28 relay's state", () => {
+    const config = {nodes: NODES, schemaVersion: 1};
+    const relay = new yrs028.YDoc({}) as never;
+    yrs028.applyUpdate(
+      relay,
+      seedYState(config, () => $getRoot().append($p('hello'))),
+      null,
+    );
+    const writer = createYWriter('server');
+    const ids = new Set<number>();
+    for (const line of ['one', 'two', 'three']) {
+      const result = editYState(
+        yrs028.encodeStateAsUpdate(relay),
+        config,
+        () => $getRoot().append($p(line)),
+        {writer},
+      );
+      expect(result.warnings).toEqual([]);
+      ids.add(result.clientID);
+      yrs028.applyUpdate(relay, result.update!, null);
     }
-  }
+    expect(ids.size).toBe(1);
+    expect(readYState(yrs028.encodeStateAsUpdate(relay), config, $text)).toBe(
+      'hello / one / two / three',
+    );
+  });
 
-  for (const [version, yrs] of [
-    ['0.23', yrs023],
-    ['0.28', yrs028],
-  ] as const) {
-    test(`a writer continues its 32-bit client id on a ywasm ${version} relay's state`, () => {
-      const config = {
-        clientIDRange: 'uint32' as const,
-        nodes: NODES,
-        schemaVersion: 1,
-      };
-      const relay = new yrs.YDoc({}) as never;
-      yrs.applyUpdate(
-        relay,
-        seedYState(config, () => $getRoot().append($p('hello'))),
-        null,
-      );
-      const writer = createYWriter('server');
-      const ids = new Set<number>();
-      for (const line of ['one', 'two', 'three']) {
-        const result = editYState(
-          yrs.encodeStateAsUpdate(relay),
-          config,
-          () => $getRoot().append($p(line)),
-          {writer},
-        );
-        expect(result.warnings).toEqual([]);
-        ids.add(result.clientID);
-        yrs.applyUpdate(relay, result.update!, null);
-      }
-      expect(ids.size).toBe(1);
-      expect([...ids][0]).toBeLessThanOrEqual(0xffffffff);
-      expect(readYState(yrs.encodeStateAsUpdate(relay), config, $text)).toBe(
-        'hello / one / two / three',
-      );
+  for (const direct of [false, true]) {
+    test(`ywasm 0.28 relay round trip, 53-bit ids${
+      direct ? ', update also sent directly' : ''
+    }`, () => {
+      const r = roundTrip(yrs028, direct);
+      expect(r.browser).toBe('hello world / from the server');
+      expect(r.stored).toBe(r.browser);
     });
   }
 
-  test('ywasm 0.28 relay round trip, 53-bit ids', () => {
-    const r = roundTrip(yrs028, 'uint53', true);
-    expect(r.browser).toBe('hello world / from the server');
-    expect(r.stored).toBe(r.browser);
-  });
-
-  test('ywasm 0.23 relay with 53-bit server ids duplicates a direct update', () => {
-    // The relay stores the server's content under a truncated id, so a
-    // browser that also received the update directly gets it twice.
-    const r = roundTrip(yrs023, 'uint32', true, 'uint53');
-    expect(r.browser).toBe('hello world / from the server / from the server');
+  test('ywasm 0.23 relay duplicates 53-bit content', () => {
+    // The relay stores the browser's and the server's content under
+    // truncated ids, so the browser gets its own typing back, and a direct
+    // update twice.
+    const r = roundTrip(yrs023, true);
+    expect(r.browser).toBe(
+      'hello world world / from the server / from the server',
+    );
   });
 });

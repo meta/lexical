@@ -25,7 +25,6 @@ import {
 } from '@y/y';
 
 import {pushAll} from './Arrays';
-import {type ClientIDRange} from './ClientID';
 import {
   DEFAULT_ROOT_NAME,
   EPOCH_KEY,
@@ -266,11 +265,6 @@ export interface YMigrateOptions {
    */
   readonly to?: number;
   /**
-   * The range of the hashed client ids (default `'uint53'`; `'uint32'` for
-   * servers that read client ids as 32-bit numbers).
-   */
-  readonly clientIDRange?: ClientIDRange;
-  /**
    * An allocator of guaranteed-unique client ids, one per step run (default:
    * the hash of the inputs). Its id must not be one the document holds.
    */
@@ -322,8 +316,6 @@ export type YMigrationLoaders = {
   readonly [from: number]: () => Promise<unknown>;
 };
 
-const MAX_UINT32 = 0xffffffff;
-
 /**
  * FNV-1a, 32 bits, from `basis` (frozen: part of the wire contract), over
  * the seed (4 bytes, little endian), the encoded state, a 0 byte, and
@@ -355,9 +347,9 @@ function fnv1a32(
 /**
  * @internal The client id a step writes with: a hash of every input (the
  * copy's re-encoded state; the UTF-8 JSON of `[root, step id, revision,
- * target layout, gc]`). `'uint53'`: two FNV-1a 32 hashes (bases 0x811c9dc5
- * and 0x050c5d1f), the second's high 21 bits above the first's 32;
- * `'uint32'`: the first. Hashed again with the next seed while it is 0 or a
+ * target layout, gc]`): two FNV-1a 32 hashes (bases 0x811c9dc5 and
+ * 0x050c5d1f), the second's high 21 bits above the first's 32 (Yjs 14's
+ * 53-bit range). Hashed again with the next seed while it is 0 or a
  * client the document holds (`taken`).
  */
 export function migrationClientID(
@@ -369,7 +361,6 @@ export function migrationClientID(
     readonly to: number;
     readonly gc: boolean;
   },
-  range: ClientIDRange,
   taken: (client: number) => boolean,
 ): number {
   const text = new TextEncoder().encode(
@@ -378,9 +369,7 @@ export function migrationClientID(
   for (let seed = 0; ; seed++) {
     const low = fnv1a32(0x811c9dc5, seed, state, text);
     const client =
-      range === 'uint32'
-        ? low
-        : (fnv1a32(0x050c5d1f, seed, state, text) >>> 11) * 0x100000000 + low;
+      (fnv1a32(0x050c5d1f, seed, state, text) >>> 11) * 0x100000000 + low;
     if (client !== 0 && !taken(client)) {
       return client;
     }
@@ -1158,7 +1147,6 @@ function runStep(
   // the copy no longer holds) and every client an earlier step wrote: an
   // id the migration takes must name nothing of the input's history.
   const taken = (c: number) => copy.store.clients.has(c) || reserved.has(c);
-  const range = options.clientIDRange ?? 'uint53';
   let client: number;
   if (options.clientID !== undefined) {
     client = options.clientID({
@@ -1167,12 +1155,7 @@ function runStep(
       step: step.id,
       to: step.to,
     });
-    if (
-      !Number.isSafeInteger(client) ||
-      client < 1 ||
-      (range === 'uint32' && client > MAX_UINT32) ||
-      taken(client)
-    ) {
+    if (!Number.isSafeInteger(client) || client < 1 || taken(client)) {
       throw new YMigrationError(
         'post-condition',
         `@lexical/y: the clientID allocator gave ${client}, which is not a free client id of this document`,
@@ -1190,7 +1173,6 @@ function runStep(
         root: name,
         to: step.to,
       },
-      range,
       taken,
     );
   }

@@ -16,7 +16,6 @@ import {
   type YCursor,
   type YQuiescedState,
 } from './internal/Binding';
-import {type ClientIDRange} from './internal/ClientID';
 import {
   DEFAULT_ROOT_NAME,
   LAYOUT_VERSION,
@@ -84,7 +83,6 @@ import {
 } from './internal/YjsContract';
 
 export type {
-  ClientIDRange,
   StorageKind,
   YBindingOptions,
   YBindingStatus,

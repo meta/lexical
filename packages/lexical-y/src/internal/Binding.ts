@@ -91,7 +91,6 @@ import {
 import {ARGUMENTS_CHUNK, pushAll, spliceAll} from './Arrays';
 import {$unsettledAfterWrite} from './BlockIds';
 import {$caretOnMovingBoundary, $foreseesMove, composedMoved} from './Boundary';
-import {type ClientIDRange, constrainClientID} from './ClientID';
 import {
   BASE_LAYOUT_VERSION,
   DEFAULT_ROOT_NAME,
@@ -818,12 +817,6 @@ export interface YBindingOptions {
    * UNSUPPORTED_CONFIG_WARNING `'missing-layout-upgrade'`.
    */
   layoutUpgrade?: YLayoutUpgradeHandle | null;
-  /**
-   * The range of the document's client ids: `'uint53'` (default, Yjs 14's
-   * ids, left as they are) or `'uint32'` (kept in 32 bits, for servers on
-   * yrs before 0.28; see {@link ClientIDRange}).
-   */
-  clientIDRange?: ClientIDRange;
 }
 
 /**
@@ -1736,9 +1729,6 @@ export class YBinding {
     // The copy fix-up and index of paired runs, while this binding runs
     // (see Ident.installIdentity).
     this.disposers.push(installIdentity(this._doc));
-    if (this.options.clientIDRange === 'uint32') {
-      this.disposers.push(constrainClientID(this._doc));
-    }
     // With block ids, a line without a marker gets an id derived from the
     // document (see Reader#$materialize).
     const blockIds = getPeerDependencyFromEditor<typeof BlockIdExtension>(
@@ -2648,10 +2638,6 @@ export class YBinding {
     finishSeedRuns(tr);
   }
 
-  private clientIDRange(): ClientIDRange {
-    return this.options.clientIDRange === 'uint32' ? 'uint32' : 'uint53';
-  }
-
   /**
    * The initial content of the root as a Yjs update, written once: into a
    * scratch document under a fixed client id, with this binding's
@@ -2761,7 +2747,6 @@ export class YBinding {
               byteString(baseVector) +
               '\u0000' +
               content,
-        this.clientIDRange(),
       ),
     );
   }
@@ -10436,13 +10421,11 @@ function changedKeys(
 /**
  * A client id derived from content (the initial content's, see
  * YBinding#seedUpdate): a hash of `seed` in the document's client id range
- * (see {@link ClientIDRange}), 53 bits under `'uint53'` (Yjs 14's own range)
- * and 32 bits under `'uint32'`. Invariant: equal seeds give equal ids. Why:
+ * (53 bits, Yjs 14's own range). Invariant: equal seeds give equal ids. Why:
  * clients writing the same items from the same inputs write them once.
  * Different seeds share an id only with the probability of a collision in
  * that range (a shared id with different items would diverge), the same odds
- * as two random client ids; so every client of a document must use the same
- * range.
+ * as two random client ids.
  */
 /** `bytes` as a string of one char per byte (see initClientID). */
 function byteString(bytes: Uint8Array): string {
@@ -10471,7 +10454,7 @@ function storedTypeOf(doc: Doc, client: number, clock: number): YNode {
   return item.content.type as YNode;
 }
 
-function initClientID(seed: string, range: ClientIDRange = 'uint53'): number {
+function initClientID(seed: string): number {
   // cyrb53 (public domain).
   let h1 = 0xdeadbeef;
   let h2 = 0x41c6ce57;
@@ -10484,10 +10467,7 @@ function initClientID(seed: string, range: ClientIDRange = 'uint53'): number {
   h1 ^= Math.imul(h2 ^ (h2 >>> 13), 3266489909);
   h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507);
   h2 ^= Math.imul(h1 ^ (h1 >>> 13), 3266489909);
-  const id =
-    range === 'uint53'
-      ? 0x100000000 * (h2 & 0x1fffff) + (h1 >>> 0)
-      : (h1 ^ h2) >>> 0;
+  const id = 0x100000000 * (h2 & 0x1fffff) + (h1 >>> 0);
   return id === 0 ? 1 : id;
 }
 

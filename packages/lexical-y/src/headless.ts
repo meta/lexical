@@ -207,8 +207,7 @@ function requireInitialized(opened: OpenedHeadlessYEditor): void {
  * into an empty root: the documented way to seed a document (from a
  * template, an import, or a converter's editor). The content is written as
  * a client's `initialize()` writes its initial content: with a client id
- * derived from the content (53 bits under `'uint53'`, 32 under `'uint32'`)
- * and outside any undo history, with the config's `schemaVersion` recorded.
+ * derived from the content and outside any undo history, with the config's `schemaVersion` recorded.
  * Seeding identical content twice (with the same `schemaVersion`) gives the
  * same bytes, and the two seeds merge into one copy; content with random
  * parts (such as ids an extension draws for new blocks) is not identical.

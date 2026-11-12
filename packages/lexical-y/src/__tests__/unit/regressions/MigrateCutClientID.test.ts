@@ -55,49 +55,44 @@ const firstClient = (r: ReturnType<typeof migrateYState>) =>
 
 describe.skipIf(SEED !== 1)('cut client ids', () => {
   for (const gc of [false, true]) {
-    for (const clientIDRange of ['uint53', 'uint32'] as const) {
-      test(`gc ${gc}, ${clientIDRange}: the hash of the kept prefix, held by cut material, is not taken`, () => {
-        const S = base(gc);
-        const options = {clientIDRange, gc, to: 2};
-        const oldClient = firstClient(migrateYState(S, [step1to2], options));
-        const author = createYDoc(S, {gc});
-        author.clientID = oldClient;
-        const updates: Uint8Array[] = [];
-        author.on('update', (u: Uint8Array) => updates.push(u));
-        author.get('unseen').insert(0, 'm');
-        author.get('lexical-y').insert(4, 'LATE');
-        const stored = createYDoc(S, {gc});
-        Y.applyUpdate(stored, updates[1]);
-        const peer = createYDoc(Y.encodeStateAsUpdate(stored), {gc});
-        peer.clientID = oldClient === 333 ? 334 : 333;
-        const more: Uint8Array[] = [];
-        peer.on('update', (u: Uint8Array) => more.push(u));
-        peer.get('lexical-y').insert(4, 'G');
-        peer.get('side').insert(0, 'S');
-        more.forEach(u => Y.applyUpdate(stored, u));
-        expect(stored.store.skips.isEmpty()).toBe(false);
-        const input = Y.encodeStateAsUpdate(stored);
-        const result = migrateYState(input, [step1to2], options);
-        const client = firstClient(result);
-        expect(client).not.toBe(oldClient);
-        expect(stored.store.clients.has(client)).toBe(false);
-        if (clientIDRange === 'uint32') {
-          expect(client).toBeLessThanOrEqual(0xffffffff);
-        }
-        const out = createYDoc(result.state, {gc});
-        expect(out.store.clients.has(oldClient)).toBe(false);
-        Y.applyUpdate(out, result.pending!);
-        Y.applyUpdate(out, updates[0]);
-        const control = createYDoc(input, {gc});
-        Y.applyUpdate(control, updates[0]);
-        expect(unitDump(out)).toEqual(unitDump(control));
-        expect(textOf(out.get('lexical-y'))).toBe(
-          textOf(control.get('lexical-y')),
-        );
-        expect(textOf(out.get('unseen'))).toBe('m');
-        [author, stored, peer, out, control].forEach(d => d.destroy());
-      });
-    }
+    test(`gc ${gc}: the hash of the kept prefix, held by cut material, is not taken`, () => {
+      const S = base(gc);
+      const options = {gc, to: 2};
+      const oldClient = firstClient(migrateYState(S, [step1to2], options));
+      const author = createYDoc(S, {gc});
+      author.clientID = oldClient;
+      const updates: Uint8Array[] = [];
+      author.on('update', (u: Uint8Array) => updates.push(u));
+      author.get('unseen').insert(0, 'm');
+      author.get('lexical-y').insert(4, 'LATE');
+      const stored = createYDoc(S, {gc});
+      Y.applyUpdate(stored, updates[1]);
+      const peer = createYDoc(Y.encodeStateAsUpdate(stored), {gc});
+      peer.clientID = oldClient === 333 ? 334 : 333;
+      const more: Uint8Array[] = [];
+      peer.on('update', (u: Uint8Array) => more.push(u));
+      peer.get('lexical-y').insert(4, 'G');
+      peer.get('side').insert(0, 'S');
+      more.forEach(u => Y.applyUpdate(stored, u));
+      expect(stored.store.skips.isEmpty()).toBe(false);
+      const input = Y.encodeStateAsUpdate(stored);
+      const result = migrateYState(input, [step1to2], options);
+      const client = firstClient(result);
+      expect(client).not.toBe(oldClient);
+      expect(stored.store.clients.has(client)).toBe(false);
+      const out = createYDoc(result.state, {gc});
+      expect(out.store.clients.has(oldClient)).toBe(false);
+      Y.applyUpdate(out, result.pending!);
+      Y.applyUpdate(out, updates[0]);
+      const control = createYDoc(input, {gc});
+      Y.applyUpdate(control, updates[0]);
+      expect(unitDump(out)).toEqual(unitDump(control));
+      expect(textOf(out.get('lexical-y'))).toBe(
+        textOf(control.get('lexical-y')),
+      );
+      expect(textOf(out.get('unseen'))).toBe('m');
+      [author, stored, peer, out, control].forEach(d => d.destroy());
+    });
 
     test(`gc ${gc}: a completed pending record of the cut client is actionable against the migrated state`, () => {
       const S = base(gc);
