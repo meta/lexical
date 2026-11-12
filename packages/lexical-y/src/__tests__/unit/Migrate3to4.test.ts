@@ -543,7 +543,7 @@ describe('@lexical/y/migrate/3to4 golden fixtures', () => {
         "fixtures": "b001406ac2fd92f91a4cc20a191f568cbf808554a1044e49992ac11de4876df8",
         "layout4": "87bb2e34b8e77c9dc6f387a1259708295ffcdb57ce95b5f6a49d7d008a45f352",
         "read3": "11ecea07409dfd97c05e89f86bdac92204488236df47075d9bde96e0a0868413",
-        "step": "079f61e8cc1e6d099008565608edc0e82410b06726e5f85d83df77b4f942b6f2",
+        "step": "08c911f8540674f777b9e6c014b2a94606fdb672064e68a5881c71cf9adca2f0",
       }
     `);
     expect(step3to4).toMatchObject({
