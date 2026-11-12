@@ -1641,7 +1641,7 @@ export class YBinding {
 
   /**
    * After each transaction: where a local transaction deleted the live
-   * layout 3 record, write it again in a transaction of its own with an
+   * layout record (IDENTITY_LAYOUT_VERSION), write it again in a transaction of its own with an
    * origin no UndoManager tracks (IdentityLayoutOrigin; a record this
    * client wrote first is protected by Ident.protectRecordAfter). Never on
    * the remote-apply path: the client whose transaction deleted it records

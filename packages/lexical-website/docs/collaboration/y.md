@@ -1103,8 +1103,8 @@ reads differently from what the clients show. The cleanup also costs time
 with paired runs: loading a stored document (one `Y.applyUpdate` of its
 state into a new `Doc`) takes about 150 ms for 20,000 words with the cleanup
 on, against about 19 ms with it off, and about 60 ms against 8 ms for 5,000
-words. With the cleanup off, a layout-3 document loads about as fast as a
-layout-1 one.
+words. With the cleanup off, a document loads about as fast as a layout-1
+one.
 
 **A relay for `@y/websocket` clients.** The published
 `@y/websocket-server` does not fit: its latest version, 0.1.5, depends on

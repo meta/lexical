@@ -188,11 +188,11 @@ export function ensureIdentityRecord(root: YNode): void {
  */
 export class IdentityLayoutOrigin {}
 
-/** Per transaction, the roots whose layout 3 record it wrote and protects. */
+/** Per transaction, the roots whose layout record it wrote and protects. */
 const pendingRecords = new WeakMap<Transaction, Set<YNode>>();
 
 /**
- * After transaction `tr` (which wrote `root`'s layout 3 record): write the
+ * After transaction `tr` (which wrote `root`'s layout record): write the
  * record again in a transaction of its own with an origin no UndoManager
  * tracks (IdentityLayoutOrigin), so an app UndoManager that later undoes
  * `tr` (also an app's outer transaction the write joined) deletes only the
@@ -351,7 +351,7 @@ function holdsLayoutRecord(type: YNode): boolean {
 let rootOfType = new WeakMap<object, YNode>();
 /**
  * The root `type` is under: the nearest type holding a layout record (every
- * bound root records layout 1 when it is initialized; stored, so a decoded
+ * bound root records its layout when it is initialized; stored, so a decoded
  * document knows its nested roots before any binding registers them), or a
  * bound root, else its top type.
  */

@@ -475,5 +475,7 @@ document keeps its earlier records and adds `lexical-y:4`. Nothing records
   nothing) is migrated by what it showed: a value that read as open to the
   end of its container becomes a paired run ending at the container's last
   unit. An array a raw writer stored under a flat NodeState name is stored
-  as the value it showed (`{json}`).
+  as the value it showed (`{json}`). A container that holds no live item of
+  a flat NodeState name and already meets layout 4's pairing invariant is
+  left as it is (its bytes are kept): it reads the same under both layouts.
 
