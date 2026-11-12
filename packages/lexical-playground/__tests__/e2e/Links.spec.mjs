@@ -24,8 +24,10 @@ import {
   assertHTML,
   assertSelection,
   click,
+  expect,
   focus,
   focusEditor,
+  getPageOrFrame,
   html,
   initialize,
   insertSampleImage,
@@ -41,6 +43,43 @@ test.skip(({isPlainText}) => isPlainText, 'Requires rich text');
 
 test.describe('Links', () => {
   test.beforeEach(({isCollab, page}) => initialize({isCollab, page}));
+
+  for (const precedingText of [' before', '']) {
+    test(`Clicking a one-character link after ${precedingText ? 'text' : 'another link'} targets that link`, async ({
+      page,
+    }) => {
+      await focusEditor(page);
+      await pasteFromClipboard(page, {
+        'text/html': `<p><a href="https://example.org/first">First</a>${precedingText}<a href="https://example.org/one">x</a> after <a href="https://example.org/last">Last</a></p>`,
+      });
+      const frame = getPageOrFrame(page);
+      const editor = frame.locator('[contenteditable="true"]').first();
+      const link = editor.getByRole('link', {exact: true, name: 'x'});
+      await link.click();
+      await expect(frame.locator('.link-view a')).toHaveAttribute(
+        'href',
+        'https://example.org/one',
+      );
+      await click(page, '.link-edit');
+      const input = frame.locator('.link-input');
+      await expect(input).toHaveValue('https://example.org/one');
+      await input.fill('https://example.org/changed');
+      await input.press('Enter');
+      await expect(link).toHaveAttribute('href', 'https://example.org/changed');
+
+      await link.click();
+      await click(page, '.link-trash');
+      await expect(link).toHaveCount(0);
+      await expect(editor).toHaveText(`First${precedingText}x after Last`);
+      await expect(
+        editor.getByRole('link', {exact: true, name: 'First'}),
+      ).toHaveAttribute('href', 'https://example.org/first');
+      await expect(
+        editor.getByRole('link', {exact: true, name: 'Last'}),
+      ).toHaveAttribute('href', 'https://example.org/last');
+    });
+  }
+
   test(`Can convert a text node into a link`, async ({page}) => {
     await focusEditor(page);
     await page.keyboard.type('Hello');
