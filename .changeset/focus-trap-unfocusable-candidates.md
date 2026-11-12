@@ -1,0 +1,7 @@
+---
+'@lexical/a11y': patch
+---
+
+[fix] `FocusTrapExtension` passes over descendants that can't take focus (hidden, `inert`, in a disabled `<fieldset>`, or a link inside an editor), so Tab no longer gets stuck
+
+Verify: Tab, Shift+Tab and the initial focus in trapped dialogs that contain hidden or disabled controls, or an editor with links. A control whose focus handler moves focus back to the previously focused element is now passed over, where Tab used to stay put.

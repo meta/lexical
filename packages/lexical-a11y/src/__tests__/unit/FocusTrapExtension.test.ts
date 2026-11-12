@@ -144,4 +144,55 @@ describe('FocusTrapExtension', () => {
     );
     expect(document.activeElement).toBe(second);
   });
+
+  test('Tab passes over a button in a disabled fieldset', () => {
+    using editor = buildEditorFromExtensions(
+      defineExtension({
+        dependencies: [FocusTrapExtension, RichTextExtension],
+        name: '[root]',
+      }),
+    );
+    const container = createContainer();
+    const [first, second] = Array.from(
+      container.querySelectorAll<HTMLButtonElement>('button'),
+    );
+    // The selector matches the button, but it can't take focus.
+    const fieldset = document.createElement('fieldset');
+    fieldset.disabled = true;
+    fieldset.append(document.createElement('button'));
+    second.before(fieldset);
+    onTestFinished(getRegistry(editor).register(container));
+
+    first.focus();
+    first.dispatchEvent(
+      new KeyboardEvent('keydown', {bubbles: true, key: 'Tab'}),
+    );
+    expect(document.activeElement).toBe(second);
+  });
+
+  test('Tab and Shift+Tab in a container with no candidates are prevented', () => {
+    using editor = buildEditorFromExtensions(
+      defineExtension({
+        dependencies: [FocusTrapExtension, RichTextExtension],
+        name: '[root]',
+      }),
+    );
+    const container = document.createElement('div');
+    container.tabIndex = -1;
+    document.body.appendChild(container);
+    onTestFinished(getRegistry(editor).register(container));
+    expect(document.activeElement).toBe(container);
+
+    for (const shiftKey of [false, true]) {
+      const event = new KeyboardEvent('keydown', {
+        bubbles: true,
+        cancelable: true,
+        key: 'Tab',
+        shiftKey,
+      });
+      container.dispatchEvent(event);
+      expect(event.defaultPrevented).toBe(true);
+      expect(document.activeElement).toBe(container);
+    }
+  });
 });
