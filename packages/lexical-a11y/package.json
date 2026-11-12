@@ -9,7 +9,7 @@
     "aria"
   ],
   "license": "MIT",
-  "version": "0.53.0",
+  "version": "0.53.1-nightly.20261112.0",
   "main": "./dist/LexicalA11y.js",
   "types": "./dist/typescript-too-old.d.ts",
   "repository": {
