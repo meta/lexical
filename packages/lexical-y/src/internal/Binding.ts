@@ -2215,7 +2215,7 @@ export class YBinding {
               }
             } else if (!isEndValue(s.content.value)) {
               // A paired run's own ends, by id (no end is guessed).
-              ends.push(...endsOf(s));
+              pushAll(ends, endsOf(s));
             }
           }
         });
@@ -3864,7 +3864,7 @@ export class YBinding {
     if (replies.length === 0) {
       return;
     }
-    this.replies.push(...replies);
+    pushAll(this.replies, replies);
     for (const update of editor._updates.slice(0, queued)) {
       this.queuedBeforeReplies.add(update);
     }
@@ -3892,7 +3892,7 @@ export class YBinding {
       at--;
     }
     this.queuedBeforeReplies.clear();
-    updates.splice(at, 0, ...this.replies.splice(0));
+    spliceAll(updates, at, 0, this.replies.splice(0));
   }
 
   /**
@@ -3964,7 +3964,10 @@ export class YBinding {
       const refusals = this.pendingWarnings.filter(isReadOnlyRefusal);
       if (refusals.length > 0) {
         const rest = this.pendingWarnings.filter(w => !isReadOnlyRefusal(w));
-        this.pendingWarnings.splice(0, Infinity, ...rest, ...refusals);
+        spliceAll(this.pendingWarnings, 0, this.pendingWarnings.length, [
+          ...rest,
+          ...refusals,
+        ]);
       }
     }
     this.flushingWarnings = true;
@@ -5149,7 +5152,7 @@ export class YBinding {
       // the read where the editor is idle, else right after it: refused and
       // warned about while read only, and, while still opening, part of what
       // the read replaces.
-      this.replies.unshift(...editor._updates.splice(0));
+      spliceAll(this.replies, 0, 0, editor._updates.splice(0));
       this.pending.add('replies');
       this.schedulePending();
     }
