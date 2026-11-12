@@ -12,7 +12,8 @@
 // input is layout 3 bytes with the layout 3 release's own read beside it
 // (editor JSON, derived fields, list numbering; written by main 8b119693c,
 // the last release whose floor was 3):
-// - `from-2to3/*`: every output of the 2to3 golden fixtures (gc off);
+// - `from-2to3/*` and `from-2to3-gc-on/*`: every output of the 2to3 golden
+//   fixtures, gc off and on;
 // - `catalog/*`: documents that together hold every node shape of the
 //   catalog, seeded by that release;
 // - `flat/*`: flat NodeState on text (strings, numbers, booleans, objects,
@@ -24,7 +25,15 @@
 //   reserved shape under a name of each family, dangling openers (a value,
 //   a `[]`, a plain null, an opener whose end is deleted), dangling ends
 //   (naming no item, an item of another name, a deleted opener), arrays
-//   under a flat NodeState name, and Y.Node#format's plain items.
+//   under a flat NodeState name, and Y.Node#format's plain items;
+// - more `flat/*` and `raw/*` documents written by that release: the 3.12
+//   example (seeded and edited), row 10's overlap as layout 3 stored it,
+//   values set, overwritten and cleared, on a line break and in a table
+//   cell, a dangling flat run, a flat raw array value, reserved shapes under
+//   both families, a foreign name, and an end naming a deleted opener.
+// Step 0: a container with no live flat NodeState item that already meets
+// layout 4's pairing invariant keeps its bytes; every other container is
+// rewritten.
 // Gc off and on: each migrates to its frozen bytes; reads as the release
 // before read it; meets layout 4's invariants (checkAfter) where a step
 // that only records the layout does not; keeps every content id, every
@@ -58,7 +67,12 @@ import step2to3 from '../../migrate/2to3';
 import step3to4 from '../../migrate/3to4';
 import {$snapshot, catalogHeadlessConfig} from '../catalog/bind';
 import {blockIdsOf, containersOf, withoutBlockIds} from '../utils/migrate2to3';
-import {contentIds, formatItems, layout4Problems} from '../utils/migrate3to4';
+import {
+  containerStates,
+  contentIds,
+  formatItems,
+  layout4Problems,
+} from '../utils/migrate3to4';
 
 /** The layout `doc`'s root records (see getYLayoutInfo), or null. */
 const recordedLayout = (doc: Y.Doc, root = 'lexical-y'): number | null => {
@@ -195,6 +209,40 @@ describe('@lexical/y/migrate/3to4 golden fixtures', () => {
         "raw/dangling-ends",
         "raw/flat-arrays",
         "raw/plain-values",
+        "from-2to3-gc-on/l1-block-ids",
+        "from-2to3-gc-on/l1-breaks-tabs",
+        "from-2to3-gc-on/l1-decorators",
+        "from-2to3-gc-on/l1-edited-formats",
+        "from-2to3-gc-on/l1-empty",
+        "from-2to3-gc-on/l1-link",
+        "from-2to3-gc-on/l1-nested",
+        "from-2to3-gc-on/l1-node-keys",
+        "from-2to3-gc-on/l1-p-fields",
+        "from-2to3-gc-on/l1-raw-arrays",
+        "from-2to3-gc-on/l1-raw-date-array",
+        "from-2to3-gc-on/l1-raw-tojson-undefined",
+        "from-2to3-gc-on/l1-slots",
+        "from-2to3-gc-on/l1-tab-merged",
+        "from-2to3-gc-on/l1-tab-open",
+        "from-2to3-gc-on/l1-table",
+        "from-2to3-gc-on/l1-text-formats",
+        "from-2to3-gc-on/l1-two-roots",
+        "from-2to3-gc-on/l2-comment-raw",
+        "from-2to3-gc-on/l2-comment-table",
+        "from-2to3-gc-on/l2-comments",
+        "flat/3.12-example",
+        "flat/3.12-example-edited",
+        "flat/set",
+        "flat/overwrite-inside",
+        "flat/clear-part",
+        "flat/row10-overlap",
+        "flat/line-break-and-cell",
+        "raw/flat-dangling",
+        "raw/flat-array-value",
+        "raw/reserved-shapes-flat-and-format",
+        "raw/foreign-name",
+        "raw/end-names-deleted-opener",
+        "flat/set-clear-set",
       ]
     `);
     for (const f of FIXTURES) {
@@ -209,6 +257,8 @@ describe('@lexical/y/migrate/3to4 golden fixtures', () => {
     for (const f of from2to3) {
       const mine = FIXTURES.find(x => x.name === `from-2to3/${f.name}`);
       expect(mine?.input, f.name).toBe(f.output!.gcOff);
+      const gcOn = FIXTURES.find(x => x.name === `from-2to3-gc-on/${f.name}`);
+      expect(gcOn?.input, f.name).toBe(f.output!.gcOn);
     }
   });
 
@@ -270,13 +320,43 @@ describe('@lexical/y/migrate/3to4 golden fixtures', () => {
           foreign += formatItems(unb64(f.input)).filter(
             it => !it.covered,
           ).length;
-          // Everything else it wrote itself: one client, the epoch's.
+          // Everything else in a container it rewrote it wrote itself: one
+          // client, the epoch's (a skipped container keeps its items, see
+          // step 0 below).
           const doc = createRawYDoc(migrate(f, gc), {gc});
           const info = getYLayoutInfo(doc, 'lexical-y');
           const client = 'epoch' in info ? info.epoch?.client : undefined;
-          for (const it of formatItems(migrate(f, gc))) {
-            if (it.covered && !it.reserved) {
-              expect(it.id.split('.')[0], f.name).toBe(String(client));
+          const ins = containerStates(unb64(f.input), gc);
+          for (const [at, out] of containerStates(migrate(f, gc), gc)) {
+            if (
+              JSON.stringify(out.items) === JSON.stringify(ins.get(at)?.items)
+            ) {
+              continue;
+            }
+            for (const item of out.items) {
+              const space = item.indexOf(' ');
+              const eq = item.indexOf('=', space);
+              const id = item.slice(0, space);
+              const key = item.slice(space + 1, eq);
+              const value = JSON.parse(item.slice(eq + 1));
+              const reservedShape =
+                Array.isArray(value) &&
+                value.length > 0 &&
+                !(
+                  (value.length === 1 &&
+                    Number.isSafeInteger(value[0]) &&
+                    value[0] > 0) ||
+                  (value.length === 2 &&
+                    value.every(
+                      (x: unknown) =>
+                        Number.isSafeInteger(x) && (x as number) >= 0,
+                    ))
+                );
+              if (step3to4.rewrites(key) && !reservedShape) {
+                expect(id.split('.')[0], `${f.name} ${at}`).toBe(
+                  String(client),
+                );
+              }
             }
           }
         }
@@ -320,6 +400,34 @@ describe('@lexical/y/migrate/3to4 golden fixtures', () => {
           expect(problems.length, f.name).toBeGreaterThan(0);
         }
         expect(rewritten).toBeGreaterThanOrEqual(8);
+      });
+
+      test('step 0: a container with no live flat item that meets the pairing invariant keeps its bytes; every other is rewritten', () => {
+        let skipped = 0;
+        let rewritten = 0;
+        for (const f of FIXTURES) {
+          for (const root of rootsOf(f) ?? ['lexical-y']) {
+            const ins = containerStates(unb64(f.input), gc, root);
+            const outs = containerStates(migrate(f, gc), gc, root);
+            for (const [at, input] of ins) {
+              const out = outs.get(at)!;
+              const kept =
+                JSON.stringify(out.items) === JSON.stringify(input.items);
+              if (!input.flat && input.problems.length === 0) {
+                expect(kept, `${f.name} ${at}`).toBe(true);
+                skipped++;
+              } else {
+                // (A rewrite of an already canonical container can give its
+                // own items back only under another client: never kept.)
+                expect(kept, `${f.name} ${at}`).toBe(false);
+                rewritten++;
+              }
+              expect(out.problems, `${f.name} ${at}`).toEqual([]);
+            }
+          }
+        }
+        expect(skipped).toBeGreaterThan(50);
+        expect(rewritten).toBeGreaterThanOrEqual(20);
       });
 
       test('idempotent: a migrated document is a no-op', () => {
@@ -432,10 +540,10 @@ describe('@lexical/y/migrate/3to4 golden fixtures', () => {
       step: file('migrate', '3to4.ts'),
     }).toMatchInlineSnapshot(`
       {
-        "fixtures": "220241a3fd30b68a431eb7ec3613e07621dd95231cc2b253e5c4606e78eceb22",
+        "fixtures": "b001406ac2fd92f91a4cc20a191f568cbf808554a1044e49992ac11de4876df8",
         "layout4": "87bb2e34b8e77c9dc6f387a1259708295ffcdb57ce95b5f6a49d7d008a45f352",
         "read3": "11ecea07409dfd97c05e89f86bdac92204488236df47075d9bde96e0a0868413",
-        "step": "ae69551f49cb6a66b27687b9a11d3b72ee4febe198ff08c591253c14977223f1",
+        "step": "079f61e8cc1e6d099008565608edc0e82410b06726e5f85d83df77b4f942b6f2",
       }
     `);
     expect(step3to4).toMatchObject({

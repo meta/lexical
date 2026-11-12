@@ -62,8 +62,11 @@ const KNOWN: Readonly<Record<string, string>> = {
  * array there as an end (one naming nothing: a clearer).
  */
 const KNOWN_3TO4: Readonly<Record<string, string>> = {
+  'raw/flat-array-value': 'a raw array under a flat NodeState name',
   'raw/flat-arrays': 'a raw array under a flat NodeState name',
   'raw/reserved-shapes': 'a raw array under a flat NodeState name',
+  'raw/reserved-shapes-flat-and-format':
+    'a raw array under a flat NodeState name',
 };
 const GOLDEN_3TO4 = path.join(__dirname, 'golden', 'migrate-3to4-r1.json');
 const GOLDEN = path.join(__dirname, 'golden', 'migrate-2to3-r1.json');

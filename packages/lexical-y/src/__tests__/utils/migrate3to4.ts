@@ -82,3 +82,38 @@ export function contentIds(state: Uint8Array, root = 'lexical-y'): string[] {
   }
   return out;
 }
+
+/**
+ * Per container under `root` (by its id, `root` for the root): its live
+ * format items as "client.clock key=value", whether it holds a live item
+ * of a flat NodeState name, and checkAfter's problems on it.
+ */
+export function containerStates(
+  state: Uint8Array,
+  gc: boolean,
+  root = 'lexical-y',
+): Map<string, {items: string[]; flat: boolean; problems: string[]}> {
+  const doc = new Y.Doc({gc});
+  Y.applyUpdate(doc, state);
+  const out = new Map<
+    string,
+    {items: string[]; flat: boolean; problems: string[]}
+  >();
+  for (const c of containersOf(doc.get(root))) {
+    const items: string[] = [];
+    let flat = false;
+    for (let it = c._start; it !== null; it = it.right as Y.Item | null) {
+      if (!it.deleted && it.content instanceof Y.ContentFormat) {
+        const {key, value} = it.content;
+        items.push(
+          `${it.id.client}.${it.id.clock} ${key}=${JSON.stringify(value)}`,
+        );
+        flat ||= key.startsWith('s:') && !key.includes('\u001f');
+      }
+    }
+    const at =
+      c._item === null ? 'root' : `${c._item.id.client}.${c._item.id.clock}`;
+    out.set(at, {flat, items, problems: [...step3to4.checkAfter(c)]});
+  }
+  return out;
+}
