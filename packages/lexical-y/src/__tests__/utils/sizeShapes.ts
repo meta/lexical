@@ -9,8 +9,8 @@
 // Documents with more content in one container than a call can take as
 // arguments, through every path that reads or writes a whole container:
 // the binding's first write (writer), a fresh binding's load (reader), an
-// edit both ways, the headless read, seed and edit, and a migration from
-// layout 1. The `unit-size` project runs this file on a child process's main
+// edit both ways, the headless read, seed and edit, a migration from
+// layout 1, and 3to4 on a layout 3 document with flat NodeState. The `unit-size` project runs this file on a child process's main
 // thread, whose argument limit (131,072 on Node) is the one production code
 // runs under; the documents are sized past the limit of the runtime they run
 // in, and past 130,000 units in any case. A list of content spread into a
@@ -19,7 +19,8 @@
 
 //
 // Each file under __tests__/size/ registers one shape or one migration
-// (describeShape, describeMigration), so the project runs them in parallel.
+// (describeShape, describeMigration, describeMigration3to4), so the project
+// runs them in parallel.
 
 import {$createLinkNode} from '@lexical/link';
 import * as Y from '@y/y';
@@ -42,9 +43,11 @@ import {
   readYState,
   seedYState,
 } from '../../headless';
+import {createRawYDoc} from '../../internal/RawYDoc';
 import {migrateYState} from '../../migrate';
 import step1to2 from '../../migrate/1to2';
 import step2to3 from '../../migrate/2to3';
+import step3to4 from '../../migrate/3to4';
 import {freshReader, NODES, setup} from './harness';
 
 /**
@@ -321,8 +324,66 @@ export function describeMigration(lines: number, text: string): void {
     for (const gc of [false, true]) {
       test(`${name} (gc ${gc ? 'on' : 'off'})`, () => {
         const input = layout1Document(lines, text);
-        const result = migrateYState(input, [step1to2, step2to3], {gc});
+        const result = migrateYState(input, [step1to2, step2to3, step3to4], {
+          gc,
+        });
         expect(result.receipt.changed).toBe(true);
+        const read = readYState(result.state, CONFIG, () =>
+          $getRoot()
+            .getChildren()
+            .map(p => p.getTextContent()),
+        );
+        expect(read.length).toBe(lines);
+        expect(read.every(p => p === text)).toBe(true);
+      }, 600_000);
+    }
+  });
+}
+
+/**
+ * A layout 3 document of `lines` lines of `text` (2to3's output, gc off),
+ * with a raw writer's flat NodeState (`s:color`, plain values, as layout 3
+ * stored it) over a stretch of 50 units every 997 units.
+ */
+function layout3Document(lines: number, text: string): Uint8Array {
+  const three = migrateYState(
+    layout1Document(lines, text),
+    [step1to2, step2to3],
+    {gc: false, to: 3},
+  ).state;
+  const doc = createRawYDoc(three, {gc: false});
+  doc.clientID = 4244;
+  const root = doc.get('lexical-y');
+  const n = root.length;
+  doc.transact(() => {
+    for (let at = 1; at + 50 < n; at += 997) {
+      root.format(at, 50, {'s:color': at % 2 === 0 ? 'red' : 'blue'});
+    }
+  });
+  return Y.encodeStateAsUpdate(doc);
+}
+
+/**
+ * Registers 3to4's tests: a layout 3 document of `lines` lines of `text`
+ * with flat NodeState over it, rewritten as paired runs.
+ */
+export function describeMigration3to4(lines: number, text: string): void {
+  const name =
+    lines === 1
+      ? `one line of ${text.length} characters`
+      : `${lines} lines of ${text.length} characters`;
+  describe('a layout 3 document past the limit migrates to layout 4 on the main thread', () => {
+    test('the runtime takes no more arguments than a main thread', () => {
+      expect(LIMIT).toBeLessThanOrEqual(131_072);
+      expect(UNITS).toBeGreaterThan(130_000);
+    });
+    const input = layout3Document(lines, text);
+    for (const gc of [false, true]) {
+      test(`${name}, flat NodeState (gc ${gc ? 'on' : 'off'})`, () => {
+        const result = migrateYState(input, [step3to4], {gc});
+        expect(result.receipt.roots[0].steps.map(s => s.id)).toEqual([
+          'lexical-y/layout/3to4',
+        ]);
         const read = readYState(result.state, CONFIG, () =>
           $getRoot()
             .getChildren()
