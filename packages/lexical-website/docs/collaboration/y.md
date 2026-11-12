@@ -1686,11 +1686,11 @@ not merge as a user might expect:
   - An object such code stores as a format's value reads as that value, as
     before layout 3, also one keyed by array indices or a typed array (a
     binary update keeps a typed array's bytes, not its other properties).
-  - Text typed at the very end of a code highlight token while another
-    client re-segments the token can read, in one client id order, as two
-    highlight tokens of the same type on every peer. It renders the same;
-    code that inspects the document sees two nodes, and an installed code
-    highlighter merges them on its next pass.
+  - Text typed right next to a format that an undo removed takes the
+    format's leftmost edge when a redo (or the undo of that removal) brings
+    it back: typed right after it, it joins the format; typed right before,
+    it stays outside. Where the typing and the redo are concurrent, which
+    edge it takes depends on the client ids.
 - **Other races.** A split racing a change of the line's type gives the
   first half the splitter's type. A join (Backspace at the start of a line,
   or undoing a split) while a collaborator inserts or moves a block to the

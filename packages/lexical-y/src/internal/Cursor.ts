@@ -745,10 +745,30 @@ export class Cursor {
    * a concurrent format change of that content puts its own item, and the
    * client ids decided which one held (a comment resolved while a peer typed
    * plain text came back on the next character).
+   * For typed content (`typed`), the cursor stops at a format item that is
+   * deleted in its view: an undo or a redo brings such an item back as a
+   * copy directly before it, so text typed right after a format's last unit
+   * joins the format when it comes back, and text typed right before its
+   * first unit stays outside it, the leftmost rule of Word, Google Docs,
+   * ProseMirror and Yjs (DECISIONS.md D105).
    */
-  private minimizeFormatChanges(formats: Record<string, unknown>): void {
+  private minimizeFormatChanges(
+    formats: Record<string, unknown>,
+    typed = false,
+  ): void {
     while (this.right !== null) {
       const r = this.right;
+      if (
+        typed &&
+        r.deleted &&
+        // a format item, whose content garbage collection may have
+        // replaced: it never counts
+        !r.countable &&
+        isGoneIn(this.view, r) &&
+        !this.isHeldFormat(r)
+      ) {
+        break;
+      }
       if (isGoneIn(this.view, r) || this.isHeldFormat(r)) {
         // a deleted item has no length, and a held format is not there:
         // step over it
@@ -1279,7 +1299,7 @@ export class Cursor {
         f[key] = null;
       }
     });
-    this.minimizeFormatChanges(f);
+    this.minimizeFormatChanges(f, true);
     // (Seeding, which writes no paired runs, owns no node keys: it writes
     // into an empty container, where the content's covered values are the
     // cursor's, see insert.)
