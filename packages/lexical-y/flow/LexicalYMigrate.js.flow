@@ -57,6 +57,7 @@ declare export class YMigrationError extends Error {
     message: string,
     problems?: ReadonlyArray<string>,
     root?: string | null,
+    options?: {cause?: unknown, ...},
   ): void;
 }
 

@@ -853,7 +853,8 @@ client's document with `createYDoc` from `@lexical/y`.
    or a feature requirement is malformed (`'malformed'`); every root is
    checked before any root runs. On a `YMigrationError` (the class
    `@lexical/y/migrate` exports, which `@lexical/y/server` uses), store
-   nothing, keep the room stuck (it applies nothing), and alert.
+   nothing, keep the room stuck (it applies nothing), and alert (with the
+   error's `cause` when it has one: the error a step threw, with its stack).
 4. **Commit atomically**, compare-and-set on the version read:
    `{state, generation}` of the result, the immutable base of the old
    generation (`base.state` under `base.generation`, never overwritten), and,

@@ -1943,8 +1943,10 @@ same update), and the runner checks the result before it returns or applies
 anything: every character, node and line marker kept, every attribute and
 untouched format kept, the document reading the same before and after, and
 the encoded result read again. A failed check throws a `YMigrationError`
-(`code: 'post-condition'`) and nothing is returned. The transaction records
-the new layout and an epoch (`lexical-y-epoch`, see the wire format).
+(`code: 'post-condition'`) and nothing is returned; when a step threw (in its
+read, check or write), the error's `cause` is the error it threw. The
+transaction records the new layout and an epoch (`lexical-y-epoch`, see the
+wire format).
 
 **Who migrates.** A shared room is migrated by the server that stores it,
 when it loads the room, with every session out: see

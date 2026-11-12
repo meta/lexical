@@ -24,6 +24,7 @@ import {
   type Transaction,
 } from '@y/y';
 
+import {pushAll} from './Arrays';
 import {type ClientIDRange} from './ClientID';
 import {
   DEFAULT_ROOT_NAME,
@@ -173,7 +174,8 @@ export type YMigrationErrorCode = YKnownMigrationErrorCode | (string & {});
 
 /**
  * @experimental A migration refused or failed. Nothing was written: the
- * caller's document and stored state are as they were.
+ * caller's document and stored state are as they were. When a step threw
+ * (in its read, check or write), `cause` is the error it threw.
  */
 export class YMigrationError extends Error {
   readonly code: YMigrationErrorCode;
@@ -186,8 +188,9 @@ export class YMigrationError extends Error {
     message: string,
     problems: readonly string[] = [],
     root: string | null = null,
+    options?: {cause?: unknown},
   ) {
-    super(message);
+    super(message, options);
     this.name = 'YMigrationError';
     this.code = code;
     this.problems = problems;
@@ -859,7 +862,7 @@ function containerState(
         `the read of container ${keyOf(node, root)} gave ${strings.length} strings for ${units.length} units`,
       );
     }
-    perUnit.push(...strings);
+    pushAll(perUnit, strings);
   }
   if (check !== null) {
     for (const problem of check(node)) {
@@ -920,7 +923,10 @@ function stateProblems(
       );
       continue;
     }
-    out.push(...y.problems.map(p => `${what}: ${p}`));
+    pushAll(
+      out,
+      y.problems.map(p => `${what}: ${p}`),
+    );
     if (x.units.join('\n') !== y.units.join('\n')) {
       const i = x.units.findIndex((u, n) => y.units[n] !== u);
       out.push(
@@ -1141,7 +1147,9 @@ function runStep(
     problems,
     'before',
   );
-  problems.push(...[...before.values()].flatMap(c => c.problems));
+  for (const c of before.values()) {
+    pushAll(problems, c.problems);
+  }
   const othersBefore = documentState(copy, root);
   const recordsBefore = Object.keys(root.getAttrs()).filter(k =>
     k.startsWith(LAYOUT_PREFIX),
@@ -1190,6 +1198,8 @@ function runStep(
   const own = copy.clientID;
   let epoch: YMigrationEpoch | null = null;
   let counts = {deleted: 0, problems: [] as string[], written: 0};
+  // What the step threw in the transaction (an array: assigned in a callback).
+  const thrown: unknown[] = [];
   copy.clientID = client;
   try {
     copy.transact(tr => {
@@ -1210,6 +1220,7 @@ function runStep(
         };
         root.setAttr(EPOCH_KEY, epoch as never);
       } catch (error) {
+        thrown.push(error);
         problems.push(`the step threw: ${String(error)}`);
       }
       counts = outsideWrites(tr, client, root, step);
@@ -1223,10 +1234,11 @@ function runStep(
       `@lexical/y: step ${step.id} failed on root ${name}: ${problems.join('; ')}`,
       problems,
       name,
+      thrown.length === 0 ? undefined : {cause: thrown[0]},
     );
   }
   const written: YMigrationEpoch = epoch;
-  problems.push(...counts.problems);
+  pushAll(problems, counts.problems);
   const after = rootState(
     copy,
     root,
@@ -1236,7 +1248,7 @@ function runStep(
     problems,
     'after',
   );
-  problems.push(...stateProblems(before, after, 'result', true));
+  pushAll(problems, stateProblems(before, after, 'result', true));
   for (const key of documentDiff(othersBefore, documentState(copy, root))) {
     problems.push(`result: container ${key} outside the root changed`);
   }
@@ -1252,11 +1264,17 @@ function runStep(
   if (JSON.stringify(epochOf(root)) !== JSON.stringify(written)) {
     problems.push('the root does not record a well-formed epoch');
   }
-  problems.push(...heldProblems(copy).map(p => `result: ${p}`));
+  pushAll(
+    problems,
+    heldProblems(copy).map(p => `result: ${p}`),
+  );
   // The encoded result, read again by a fresh document, reads the same.
   const reread = createYDoc(encodeStateAsUpdate(copy), {gc: copy.gc});
   try {
-    problems.push(...heldProblems(reread).map(p => `re-read: ${p}`));
+    pushAll(
+      problems,
+      heldProblems(reread).map(p => `re-read: ${p}`),
+    );
     const rroot = reread.get(name) as YNode;
     const rstate = rootState(
       reread,
@@ -1276,7 +1294,7 @@ function runStep(
       [],
       'after',
     );
-    problems.push(...stateProblems(astate, rstate, 're-read', true));
+    pushAll(problems, stateProblems(astate, rstate, 're-read', true));
     if (JSON.stringify(epochOf(rroot)) !== JSON.stringify(written)) {
       problems.push('re-read: the epoch differs');
     }
@@ -1487,6 +1505,8 @@ function runOnCopy(
       'post-condition',
       `@lexical/y: a step threw: ${String(error)}`,
       [`the step threw: ${String(error)}`],
+      null,
+      {cause: error},
     );
   }
 }
