@@ -249,6 +249,37 @@ export function recordsIdentityLayout(root: {
   return root.getAttr(LAYOUT_PREFIX + IDENTITY_LAYOUT_VERSION) === true;
 }
 
+/**
+ * The layout whose paired names apply to `root`'s stored ends, for the copy
+ * repair (see repairCopies): 4 where it records layout 4; 3 where
+ * it records layout 3 but not 4 (a layout 3 root a layout 4 runtime holds:
+ * read only, nested, or on a server before its migration); null below.
+ */
+function pairedLayoutOf(root: {getAttr: (k: string) => unknown}): 3 | 4 | null {
+  if (recordsIdentityLayout(root)) {
+    return 4;
+  }
+  return root.getAttr(LAYOUT_PREFIX + 3) === true ? 3 : null;
+}
+
+/**
+ * Whether a copy of an end of `key` in `root` is repaired: in a layout 4
+ * root, every covered name; in a layout 3 root, layout 3's covered names
+ * only. A flat NodeState name (`s:<key>`, no U+001F) was plain in layout 3,
+ * so an array under it there is a value, never an end, and is left as
+ * stored.
+ */
+function repairsIn(root: YNode, key: string): boolean {
+  const layout = pairedLayoutOf(root);
+  return layout === 4 || (layout === 3 && !isFlatStateName(key));
+}
+
+/** A flat NodeState name: `s:<key>` with no U+001F after `s:`. */
+const isFlatStateName = (key: string): boolean =>
+  key.charCodeAt(0) === 115 /* s */ &&
+  key.charCodeAt(1) === 58 /* : */ &&
+  key.indexOf('\u001f', 2) < 0;
+
 const __DEV__ = process.env.NODE_ENV !== 'production';
 
 /**
@@ -864,8 +895,9 @@ const HOLDER = Symbol('holder');
 type Held = {[HOLDER]?: Item};
 /**
  * Holders kept off the array: an array a client froze (or sealed), and every
- * array of a document below layout 4, whose values are left untouched (a raw
- * writer's own arrays, as main keeps them).
+ * array that is not an end where it is stored (below layout 3, or under a
+ * flat NodeState name in a layout 3 root, see repairsIn), whose values are
+ * left untouched (a raw writer's own arrays, as main keeps them).
  */
 const heldBy = new WeakMap<object, Item>();
 /** The item that first held value array `v` (see noteHolder), if noted. */
@@ -879,12 +911,12 @@ export const noteHolder = (item: Item): void => {
   // A non-enumerable symbol property on the array itself (a WeakMap entry
   // per end cost a hash insertion per incoming end): Yjs encodes values as
   // JSON, which never sees it, and equality checks skip it.
-  // On the array only in a document that records layout 4: an array a raw
+  // On the array only where it is an end (see repairsIn): an array a raw
   // writer stored elsewhere stays as stored.
   if (
     Object.isExtensible(v) &&
     item.parent instanceof YNode &&
-    recordsIdentityLayout(rootOf(item.parent))
+    repairsIn(rootOf(item.parent), (item.content as ContentFormat).key)
   ) {
     Object.defineProperty(v, HOLDER, {value: item});
   } else {
@@ -979,7 +1011,8 @@ export function takePairingChanges(doc: Doc): boolean {
 
 /**
  * Before observers, the UndoManager's capture, gc and the update's
- * encoding: in roots that record layout 3, each copy of an end the transaction
+ * encoding: in roots that record layout 3 or 4 (see repairsIn), each copy
+ * of an end the transaction
  * inserted (see repairedTarget) gets new content naming its repaired target
  * (never the shared array: a new ContentFormat); then the transaction's ends
  * go into the index.
@@ -1018,11 +1051,11 @@ function repairCopies(tr: Transaction): void {
       noteHolder(s);
     } else if (
       s.parent instanceof YNode &&
-      recordsIdentityLayout(rootOf(s.parent))
+      repairsIn(rootOf(s.parent), (s.content as ContentFormat).key)
     ) {
-      // A copy of an end (an undo's), in a root that records layout 4 (a
-      // root below it is left as stored, as main keeps it; nested roots by
-      // their own record).
+      // A copy of an end (an undo's), in a root that records layout 4, or
+      // layout 3 for layout 3's names (a root below it is left as stored,
+      // as main keeps it; nested roots by their own record).
       const target = repairedTarget(doc, first, s);
       if (target !== null) {
         const {key} = s.content as ContentFormat;

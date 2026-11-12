@@ -93,7 +93,8 @@ for (const gc of [false, true]) {
           Array.isArray(it.content.value)
         )
           value = it.content.value;
-      if (version < 4) expect(value).toEqual([1]);
+      // Layouts 3 and 4 both repair.
+      if (version < 3) expect(value).toEqual([1]);
       else expect(value).toEqual([2]);
       app.destroy();
       doc.destroy();
