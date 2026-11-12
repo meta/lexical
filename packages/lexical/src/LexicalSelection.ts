@@ -69,6 +69,7 @@ import {
 } from './LexicalEvents';
 import {getIsProcessingMutations} from './LexicalMutations';
 import {insertRangeAfter, type LexicalNode, type NodeKey} from './LexicalNode';
+import {$carryNodeState} from './LexicalNodeState';
 import {$normalizeSelection} from './LexicalNormalization';
 import {
   $getSelectionSlotFrame,
@@ -78,6 +79,7 @@ import {
   $getSlotHostKey,
   $getSlotNames,
 } from './LexicalSlot';
+import {$isBlockContainer} from './LexicalStructure';
 import {
   getActiveEditor,
   getActiveEditorState,
@@ -131,6 +133,8 @@ import {
 import {$createTabNode} from './nodes/LexicalTabNode';
 import {
   $isInlineFormattable,
+  $recordDeleted,
+  $recordTextInserted,
   type TextFormatType,
 } from './nodes/LexicalTextNode';
 
@@ -451,6 +455,9 @@ function $insertText(
         const replacement = $createTextNode(anchorNode.getTextContent());
         replacement.setFormat(format);
         replacement.setStyle(style);
+        replacement.setDetail(anchorNode.getDetail());
+        // The characters keep their NodeState (comment ids, for example)
+        $carryNodeState(anchorNode, replacement);
         const isCurrentSelection = $getSelection() === selection;
         anchorNode.replace(replacement);
         // replace() installs a clone of the active selection, so this
@@ -502,6 +509,8 @@ function $insertText(
     const newNode = $createTextNode(text);
     newNode.setFormat(format);
     newNode.setStyle(style);
+    $recordDeleted(anchorNode);
+    $recordTextInserted(newNode);
     anchorNode.replace(newNode);
     newNode.select();
     return;
@@ -511,19 +520,11 @@ function $insertText(
     return;
   }
 
-  const atStartOfInline =
-    anchorParent.isInline() && offset === 0 && !anchorNode.__prev;
-  const atEndOfInline =
-    anchorParent.isInline() && offset === anchorSize && !anchorNode.__next;
-  const formatDiffers =
-    anchorNode.getFormat() !== format || anchorNode.getStyle() !== style;
-
-  if (atStartOfInline || atEndOfInline || formatDiffers) {
-    if (
-      anchorNode.getTextContent() === '' &&
-      !atStartOfInline &&
-      !atEndOfInline
-    ) {
+  // A boundary of an inline parent that refuses text was already handled by
+  // needsRedirect above, so the parent accepts text at this point and it is
+  // inserted in place.
+  if (anchorNode.getFormat() !== format || anchorNode.getStyle() !== style) {
+    if (anchorNode.getTextContent() === '') {
       anchorNode.setFormat(format);
       anchorNode.setStyle(style);
     } else {
@@ -552,13 +553,15 @@ function $insertTextAtPoint(
   invariant($isTextNode(anchorNode), 'insertText: anchor is not a text node');
   const offset = selection.anchor.offset;
   const textNode = $createTextNode(text).setFormat(format).setStyle(style);
+  $recordTextInserted(textNode);
   const parent = anchorNode.getParentOrThrow();
   const before = offset === 0;
   const atBoundary = before || offset === anchorNode.getTextContentSize();
   if (
     atBoundary &&
     parent.isInline() &&
-    !(before ? anchorNode.__prev : anchorNode.__next)
+    !(before ? anchorNode.__prev : anchorNode.__next) &&
+    !(before ? parent.canInsertTextBefore() : parent.canInsertTextAfter())
   ) {
     $getSiblingCaret(parent, before ? 'previous' : 'next').insert(textNode);
   } else {
@@ -1202,8 +1205,9 @@ export class RangeSelection implements BaseSelection {
       }
     }
 
-    // The anchor is an element point directly on a root or shadow root that is
-    // not a named-slot host (handled above). This includes the document root
+    // The anchor is an element point directly on a block container (a root, a
+    // shadow root that is not a named-slot host, handled above, or a declared
+    // container, see $isBlockContainer). This includes the document root
     // (e.g. an empty editor) and shadow roots that hold block-level children
     // directly — for instance the block cursor between or after the children of
     // a decorator-only container or the playground CollapsibleContentNode.
@@ -1211,7 +1215,7 @@ export class RangeSelection implements BaseSelection {
     // the nodes in at the anchor offset: a block node (such as a pasted
     // DecoratorNode) goes in as-is, while inline runs are wrapped in a block
     // first since a root/shadow root cannot contain inline children.
-    if (this.anchor.type === 'element' && $isRootOrShadowRoot(anchorNode)) {
+    if (this.anchor.type === 'element' && $isBlockContainer(anchorNode)) {
       const blocksParent = $wrapInlineNodes(nodes);
       const nodeToSelect = blocksParent.getLastDescendant();
       anchorNode.splice(this.anchor.offset, 0, blocksParent.getChildren());
@@ -1293,14 +1297,15 @@ export class RangeSelection implements BaseSelection {
     // CASE 3b: the block cannot receive block siblings. A slot value's
     // virtual root holds exactly one block; a block inside an inline-only
     // element cannot introduce nested blocks either (#8724). Flatten the
-    // incoming content in both cases, like pasting into an <input>.
+    // incoming content in both cases, like pasting into an <input>. A block
+    // in a block container (see $isBlockContainer) can.
     // Parent-required nodes such as ListItemNode can relocate inserted
     // siblings to a valid parent, so keep their normal paste behavior.
     if (
       $isElementNode(firstBlock) &&
       ($getSlotHostKey(firstBlock) !== null ||
         (!firstBlock.isParentRequired() &&
-          !$isRootOrShadowRoot(firstBlock.getParentOrThrow())))
+          !$isBlockContainer(firstBlock.getParentOrThrow())))
     ) {
       const [, index] = $removeTextAndSplitBlock(this);
       const inlineNodes = $extractInlineFromBlocks(nodes);
@@ -1434,7 +1439,7 @@ export class RangeSelection implements BaseSelection {
       this.removeText();
     }
     const anchorNode = this.anchor.getNode();
-    if (this.anchor.type === 'element' && $isRootOrShadowRoot(anchorNode)) {
+    if (this.anchor.type === 'element' && $isBlockContainer(anchorNode)) {
       const paragraph = $createParagraphNode();
       anchorNode.splice(this.anchor.offset, 0, [paragraph]);
       paragraph.select();
@@ -1960,7 +1965,7 @@ export class RangeSelection implements BaseSelection {
       const focus = this.focus;
       // Extend the selection in the model rather than with the native
       // modify('extend'), which would clobber the X11 PRIMARY selection.
-      // See https://github.com/facebook/lexical/issues/8766
+      // See https://github.com/meta/lexical/issues/8766
       $extendSelectionForDeletion(this, isBackward, 'character');
 
       if (!this.isCollapsed()) {
@@ -2489,7 +2494,7 @@ function $shrinkSelectionToRoot(
  * during a user gesture to the PRIMARY selection (the middle-click paste
  * buffer), so a deletion must never pass through a transient non-collapsed
  * DOM selection or every Backspace/Delete overwrites the user's paste
- * buffer (https://github.com/facebook/lexical/issues/8766). A collapsed
+ * buffer (https://github.com/meta/lexical/issues/8766). A collapsed
  * caret never takes PRIMARY ownership, so the DOM caret is moved with the
  * native `modify('move')` to measure where the engine places the unit
  * boundary, and the `[original .. landed]` range is constructed in the

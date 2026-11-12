@@ -1764,3 +1764,140 @@ describe('$toggleLink with a NodeSelection', () => {
     });
   });
 });
+
+describe('$toggleLink(null) with a selection touching a link boundary', () => {
+  const extension = defineExtension({
+    dependencies: [LinkExtension],
+    name: '[test-unlink-link-boundary]',
+  });
+
+  type Layout = (string | string[])[];
+
+  function $buildParagraph(layout: Layout): void {
+    const paragraph = $createParagraphNode();
+    layout.forEach((part, i) => {
+      if (typeof part === 'string') {
+        paragraph.append($createTextNode(part));
+      } else {
+        const link = $createLinkNode(`https://example.com/${i}`);
+        // Alternate formats so adjacent text nodes are not merged
+        part.forEach((text, j) =>
+          link.append($createTextNode(text).setFormat(j % 2 ? 'bold' : 0)),
+        );
+        paragraph.append(link);
+      }
+    });
+    $getRoot().clear().append(paragraph);
+  }
+
+  function $getTextNode(text: string): TextNode {
+    const node = $getRoot()
+      .getAllTextNodes()
+      .find(n => n.getTextContent() === text);
+    assert(node !== undefined, `Expected a TextNode with text ${text}`);
+    return node;
+  }
+
+  function $describeParagraph(): Layout {
+    const paragraph = $assertNodeType(
+      $getRoot().getFirstChildOrThrow(),
+      $isParagraphNode,
+    );
+    return paragraph
+      .getChildren()
+      .map(child =>
+        $isLinkNode(child)
+          ? child.getChildren().map(c => c.getTextContent())
+          : child.getTextContent(),
+      );
+  }
+
+  test.each<{
+    name: string;
+    layout: Layout;
+    anchor: [string, number];
+    focus: [string, number];
+    expected: Layout;
+    selectedText: string;
+  }>([
+    {
+      anchor: ['ab', 1],
+      expected: ['ab', ['cd'], 'ef'],
+      focus: ['cd', 0],
+      layout: ['ab', ['cd'], 'ef'],
+      name: 'forward selection ending at offset 0 of the link text',
+      selectedText: 'b',
+    },
+    {
+      anchor: ['cd', 0],
+      expected: ['ab', ['cd'], 'ef'],
+      focus: ['ab', 1],
+      layout: ['ab', ['cd'], 'ef'],
+      name: 'backward selection ending at offset 0 of the link text',
+      selectedText: 'b',
+    },
+    {
+      anchor: ['cd', 2],
+      expected: ['ab', ['cd'], 'ef'],
+      focus: ['ef', 1],
+      layout: ['ab', ['cd'], 'ef'],
+      name: 'forward selection starting at the end of the link text',
+      selectedText: 'e',
+    },
+    {
+      anchor: ['ef', 1],
+      expected: ['ab', ['cd'], 'ef'],
+      focus: ['cd', 2],
+      layout: ['ab', ['cd'], 'ef'],
+      name: 'backward selection starting at the end of the link text',
+      selectedText: 'e',
+    },
+    {
+      anchor: ['ab', 1],
+      expected: ['ab', ['cd', 'ef']],
+      focus: ['cd', 0],
+      layout: ['ab', ['cd', 'ef']],
+      name: 'selection ending at offset 0 of a multi-child link',
+      selectedText: 'b',
+    },
+    {
+      anchor: ['cd', 2],
+      expected: [['ab', 'cd'], 'ef'],
+      focus: ['ef', 1],
+      layout: [['ab', 'cd'], 'ef'],
+      name: 'selection starting at the end of a multi-child link',
+      selectedText: 'e',
+    },
+    {
+      anchor: ['ab', 1],
+      expected: [['a'], 'bcd', ['ef']],
+      focus: ['ef', 0],
+      layout: [['ab'], 'cd', ['ef']],
+      name: 'unlinks a selected link while leaving a boundary-touching link intact',
+      selectedText: 'bcd',
+    },
+  ])('$name', ({layout, anchor, focus, expected, selectedText}) => {
+    using editor = buildEditorFromExtensions(extension);
+    editor.update(() => $buildParagraph(layout), {discrete: true});
+    editor.update(
+      () => {
+        const selection = $createRangeSelection();
+        selection.anchor.set(
+          $getTextNode(anchor[0]).getKey(),
+          anchor[1],
+          'text',
+        );
+        selection.focus.set($getTextNode(focus[0]).getKey(), focus[1], 'text');
+        $setSelection(selection);
+        $toggleLink(null);
+      },
+      {discrete: true},
+    );
+    editor.read(() => {
+      expect($describeParagraph()).toEqual(expected);
+      const selection = $getSelection();
+      assert($isRangeSelection(selection), 'Expected a RangeSelection');
+      expect(selection.getTextContent()).toBe(selectedText);
+    });
+  });
+});

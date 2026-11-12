@@ -53,6 +53,7 @@ import {
   $createLineBreakNode,
   $createParagraphNode,
   $createTextNode,
+  $getEditor,
   $getState,
   $isDecoratorNode,
   $isElementNode,
@@ -60,6 +61,7 @@ import {
   $isParagraphNode,
   $isTextNode,
   $setState,
+  INTERNAL_isNodeStructureEnforced,
   IS_BOLD,
   IS_CODE,
   IS_ITALIC,
@@ -109,13 +111,27 @@ export function $isBlockLevelNode(node: LexicalNode): boolean {
   return ($isElementNode(node) || $isDecoratorNode(node)) && !node.isInline();
 }
 
+/**
+ * Whether a paragraph boundary is written after `last` (the last node
+ * imported into an inline container, a quote or a list item): always after
+ * inline content. After a nested block only when the editor does not enforce
+ * declared node structure; when it does (`NodeStructureExtension`), the block
+ * is lifted out of the container and a break there would be left at the
+ * start of the rest as an empty line.
+ */
+function $breakAfter(last: LexicalNode): boolean {
+  return (
+    !$isBlockLevelNode(last) || !INTERNAL_isNodeStructureEnforced($getEditor())
+  );
+}
+
 /** A `LineBreakNode` marking a paragraph boundary inside a container. */
 function $createParagraphBreakNode(): LineBreakNode {
   return $setState($createLineBreakNode(), paragraphBreakState, true);
 }
 
 /** Reads the first source character of `node` (an inline delimiter, if any). */
-function inlineMarker(
+export function inlineMarker(
   ctx: MdastImportContext,
   node: {position?: {start: {offset?: number}}},
 ): string | undefined {
@@ -179,7 +195,7 @@ export const $importBlockquote: MdastImportHandler<Blockquote> = (
   const children: LexicalNode[] = [];
   for (const child of node.children) {
     if (child.type === 'paragraph') {
-      if (children.length > 0) {
+      if (children.length > 0 && $breakAfter(children[children.length - 1])) {
         children.push($createParagraphBreakNode());
       }
       children.push(...ctx.importChildren(child));
@@ -299,7 +315,8 @@ export const $importListItem: MdastImportHandler<ListItem> = (node, ctx) => {
       // child is the nested ListNode, appended as a sibling of this item.
       extraItems.push($append($createListItemNode(), ctx.importNode(child)));
     } else if (child.type === 'paragraph') {
-      if (item.getChildrenSize() > 0) {
+      const last = item.getLastChild();
+      if (last !== null && $breakAfter(last)) {
         $append(item, [$createParagraphBreakNode()]);
       }
       $append(item, ctx.importChildren(child));
@@ -618,7 +635,10 @@ export const $exportList: MdastExportHandler = (node, ctx) => {
 
 /**
  * Wraps a plain string in the mdast phrasing nodes implied by a Lexical text
- * format bitmask (code span innermost, then emphasis, strong, strikethrough).
+ * format bitmask (code span innermost, then strong, emphasis, strikethrough:
+ * emphasis around strong is how CommonMark reads `***x***`, which
+ * mdast-util-to-markdown writes back as `***x***` when both markers are
+ * `*`).
  * The emphasis/strong *delimiter* (`*` vs `_`) is a document-level to-markdown
  * option (see the exporter) rather than per-node, because mixing delimiters in
  * one document desyncs to-markdown's character escaping.
@@ -629,11 +649,11 @@ export function phrasingFromFormattedText(
 ): PhrasingContent {
   let content: PhrasingContent =
     format & FORMAT_CODE ? {type: 'inlineCode', value} : {type: 'text', value};
-  if (format & FORMAT_ITALIC) {
-    content = {children: [content], type: 'emphasis'};
-  }
   if (format & FORMAT_BOLD) {
     content = {children: [content], type: 'strong'};
+  }
+  if (format & FORMAT_ITALIC) {
+    content = {children: [content], type: 'emphasis'};
   }
   if (format & FORMAT_STRIKETHROUGH) {
     content = {children: [content], type: 'delete'};
@@ -650,18 +670,18 @@ export interface TextRun {
 /**
  * Emphasis-family format bits eligible for cross-run grouping, in tie-break
  * order matching the single-run nesting of {@link phrasingFromFormattedText}
- * (strong outside emphasis).
+ * (emphasis outside strong).
  */
 const EMPHASIS_FORMATS: readonly [number, 'strong' | 'emphasis'][] = [
-  [FORMAT_BOLD, 'strong'],
   [FORMAT_ITALIC, 'emphasis'],
+  [FORMAT_BOLD, 'strong'],
 ];
 
 /**
  * Converts a segment of strikethrough-free (or strikethrough-stripped) runs
  * into nested emphasis/strong phrasing. At each position the wrapper is
  * chosen greedily: the format bit shared by the longest stretch of upcoming
- * runs becomes the outer container (ties fall back to strong-outside-emphasis,
+ * runs becomes the outer container (ties fall back to emphasis-outside-strong,
  * matching the single-run nesting), and the covered runs recurse with that
  * bit cleared. Overlap is not always fully expressible as nesting — the
  * format that extends furthest keeps a single pair of delimiters and the

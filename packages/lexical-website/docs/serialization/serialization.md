@@ -250,8 +250,9 @@ off the common path, so an element with nothing to persist never calls it. The
 predicate must be pure and take no arguments: the walk calls it once per
 property that names it, while generated code hoists one that several properties
 share and calls it once. This is how `ElementNode` persists `textFormat` and
-`textStyle` only for an element with no `TextNode` child, without either
-property leaving the direct-field path.
+`textStyle` only for an element with no text to derive them from (no
+`TextNode` child, and for an inline element such as a link no `TextNode`
+anywhere inside it), without either property leaving the direct-field path.
 
 `withField(schema, {field, when})` declares the same for a property that is the
 field in both directions. Either way the gate belongs to the export direction,
@@ -545,6 +546,172 @@ export and `editorState.toJSON()` all start from the node map, which only ever
 holds current versions. This matters only for a node reference you kept across
 a mutation and then exported by hand.
 
+
+### Node structure: `inline`, `children`, `mergeAdjacent`, `derived` {#node-structure}
+
+:::warning Experimental
+
+These keys and `NodeStructureExtension` are experimental.
+
+:::
+
+`$config()` can also state facts about a node's structure: whether it is
+inline, what it may hold, and when two adjacent siblings are the same thing.
+They do not change serialization. On their own they change nothing at
+runtime: the opt-in
+[`NodeStructureExtension`](/docs/api/modules/lexical_extension#nodestructureextension)
+enforces them, and tools read them with
+[`getDeclaredNodeStructure`](/docs/api/modules/lexical#getdeclarednodestructure).
+
+```ts
+import {ElementNode, nodeSchema, stringValue, withField} from 'lexical';
+
+const mentionSchema = nodeSchema<MentionNode>()({
+  userId: withField(stringValue(), {field: '__userId'}),
+});
+
+class MentionNode extends ElementNode {
+  __userId = '';
+
+  $config() {
+    return this.config('mention', {
+      children: 'inline',
+      extends: ElementNode,
+      inline: true,
+      json: mentionSchema,
+      // Two adjacent mentions of the same user become one.
+      mergeAdjacent: {by: ['userId']},
+    });
+  }
+}
+```
+
+- `inline: boolean`: whether a node of the class is inline. A class that
+  declares it and does not write its own `isInline()` gets one that returns
+  it.
+- `children`: what the class may hold. `'inline'` (inline content, like a
+  paragraph), `'block'` (blocks, like a table cell), or a list of `'inline'`
+  and classes (a list holds list items; a list item holds inline content and
+  lists). With the extension, inline content in a node that holds blocks is
+  wrapped in a paragraph, and a child a list does not allow is wrapped in the
+  first listed class. Inside a block that holds inline content (a quote, a
+  list item), a plain paragraph becomes lines of that block: its content is
+  joined to its neighbours with line breaks, so a quote holding two
+  paragraphs stays one quote, as markdown and HTML import it. Any other block
+  (a heading, a code block, a nested quote, a table, a horizontal rule) is
+  lifted out and the node is split around it, so the block keeps its type;
+  it goes on up until it reaches a node that may hold it. Out of an inline
+  element (a link, a mark), the block's inline content, and that of every
+  block it holds (list items, table cells), is first wrapped in a copy of the
+  element, so its URL or comment ids stay on all of it. A horizontal rule
+  in a list item splits the list, wherever it sits in the item, and an
+  ordered list's second part starts at the next number. A list item that
+  holds a nested list holds nothing else, as indent and HTML import build it:
+  next to other content (left by a paste into a nested list item), the
+  nested list is lifted out the same way and wrapped in an item of its own,
+  so what came before it, the list, and what came after it become
+  consecutive items. An update lifts it only out of an item it creates or
+  changes; `INTERNAL_$normalizeNodeStructure` lifts it out of every item.
+- `mergeAdjacent: {by}`: adjacent siblings of the class whose named schema
+  fields (or `StateConfig`s) are equal are the same thing. NodeState counts
+  only when named. With the
+  extension they are merged, for the class that declares it in its own
+  `$config()` only: a subclass that inherits the declaration is merged by its
+  own code, so a merge method it overrides (`LinkNode`'s
+  `shouldMergeAdjacentLink`, which compares what `by` names) stays the
+  authority. `false` turns off a declaration an ancestor made
+  (`AutoLinkNode`). Lists merge as `mergeLists` merges them, joining the two
+  items that meet when each holds a nested list of one type, but only when
+  that list is all each holds, so nothing else in them is removed or moved.
+- `derived: true` on a field (`withField(schema, {derived: true, field})` or
+  `withAccessors(schema, {derived: true})`) or a state
+  (`createState(key, {derived: true, parse})`): the node's own code
+  recomputes the value (a list item's `value` and `indent`), so
+  `mergeAdjacent` cannot name it, and tools that copy or compare a node's
+  data can leave it out. It is still serialized.
+
+To enforce the declarations, add the extension:
+
+```ts
+import {
+  buildEditorFromExtensions,
+  NodeStructureExtension,
+} from '@lexical/extension';
+import {RichTextExtension} from '@lexical/rich-text';
+
+const editor = buildEditorFromExtensions({
+  dependencies: [RichTextExtension, NodeStructureExtension],
+  name: 'my-editor',
+});
+```
+
+It normalizes the whole document when it is added (or turned back on), and
+then repairs each change in the same update, visiting only what changed. It
+only moves content, never deleting it; the one thing it removes is an inline
+element left with nothing in it (a link, a mark, the character limit's
+`OverflowNode`), which Lexical removes anyway, so that whether something
+removed it first never changes the result. Since what did not change is
+already normalized, the result depends on the document alone, never on which
+nodes changed or in which order their transforms ran. Updates applied with
+`skipTransforms` are not normalized: code that applies updates that way calls
+the normalization itself. Where it is registered, the link's and
+list item's own transforms leave lifting blocks to it, the link's and the
+list's leave merging to it, and core's shadow root transform leaves wrapping
+inline content in a paragraph to it (it wraps the root's on every update, as
+that transform does). Classes that declare
+nothing keep whatever they hold, and `isInline()` stays per instance for
+classes that compute it. The `OverflowNode` the character limit wraps around
+overflowing text is allowed anywhere, so it stays in its paragraph although
+its `isInline()` is false. Each editor enforces its own registration: a
+nested editor (an image caption) needs the extension too. For an editor
+built without extensions, `registerNodeStructure(editor)` does the same.
+
+Where the declarations are enforced (the extension, `registerNodeStructure`,
+or a `@lexical/y` binding, which always enforces them), a class that
+declares `children: 'block'` (a callout, a box) is also a block container
+for the structural commands, as the root and shadow roots are: turning one
+of its paragraphs into a list (`$insertList`, or a markdown shortcut),
+wrapping it (`$wrapNodes`), pasting several blocks into it (`insertNodes`),
+inserting a block such as a table or a horizontal rule
+(`$insertNodeToNearestRoot`), or pressing Enter in an empty list item acts
+on the blocks inside it and keeps the container, where otherwise the
+container itself would be replaced, split or left. Converting a block's type
+(`$setBlocksType`) and indenting already act on the block in place in any
+container; with the selection in an empty container, `$setBlocksType` puts
+the new block in it. Unlike a shadow root
+(`isShadowRoot()`), a declared container is not a selection boundary:
+select-all, the arrow keys, and Backspace or Delete at its edges treat it
+like any other element, so Backspace at the start of its first paragraph
+still joins that paragraph to the block before the container.
+[`$isBlockContainer(node)`](/docs/api/modules/lexical#isblockcontainer)
+tells whether a node is one. A container that declares nothing keeps the
+usual behavior, where `$insertList` replaces the whole container with the
+list; but if it also holds a block a list item cannot hold (a quote,
+another box), the paragraph (or heading, or quote) holding the selected
+text becomes a list in place, inside the container, instead of the list
+being dropped.
+
+```ts
+class CalloutNode extends ElementNode {
+  $config() {
+    return this.config('callout', {children: 'block', extends: ElementNode});
+  }
+}
+```
+
+Each key is inherited by subclasses that do not declare it. In development,
+the keys a class declares in its own `$config()` are checked when an editor
+is created: `by` must name known, non-derived values, a declared `inline`
+must agree with an overridden `isInline()`, and a merging class that lists
+child classes must list classes that hold inline content. Inherited
+declarations are never refused: where a subclass contradicts one, or may (a
+`LinkNode` subclass whose `isInline()` returns `false`, or reads instance
+state; a `mergeAdjacent` whose `by` does not fit it), the key reads as
+undeclared for that subclass.
+
+Tools read the declarations with
+[`getDeclaredNodeStructure(klass)`](/docs/api/modules/lexical#getdeclarednodestructure),
+which also lists the values a class declares `derived`.
 
 ### Versioning & Breaking Changes
 

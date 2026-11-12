@@ -5,7 +5,7 @@
  * LICENSE file in the root directory of this source tree.
  *
  */
-import type {ContextRecord} from '../types';
+import type {ContextRecord} from '../internal/types';
 import type {CompiledOverlayRules} from './defineOverlayRules';
 import type {DOMImportExtension} from './DOMImportExtension';
 import type {
@@ -24,13 +24,16 @@ import {
   type LexicalEditor,
 } from 'lexical';
 
-import {DOMImportContextSymbol, DOMImportExtensionName} from '../constants';
+import {
+  DOMImportContextSymbol,
+  DOMImportExtensionName,
+} from '../internal/constants';
 import {
   $withContext,
   createContextState,
   getContextRecord,
   getContextValue,
-} from '../ContextRecord';
+} from '../internal/ContextRecord';
 
 type ImportContextRecord = ContextRecord<typeof DOMImportContextSymbol>;
 

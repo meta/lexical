@@ -21,10 +21,11 @@ import {
   $getNodeByKeyOrThrow,
   $getRoot,
   $isElementNode,
+  $isTextNode,
   defineExtension,
-  type ElementNode,
-  type TextNode,
+  type LexicalNode,
 } from 'lexical';
+import {$assertNodeType} from 'lexical/src/__tests__/utils';
 import {describe, expect, onTestFinished, test} from 'vitest';
 import {applyUpdate, Doc, encodeStateAsUpdate, encodeStateVector} from 'yjs';
 
@@ -221,19 +222,19 @@ describe('syncChildrenFromLexical: moving children among siblings', () => {
   test.each([
     [
       'insertAfter',
-      (children: ElementNode[]) => children[4].insertAfter(children[3]),
+      (children: LexicalNode[]) => children[4].insertAfter(children[3]),
     ],
     [
       'insertBefore',
-      (children: ElementNode[]) => children[3].insertBefore(children[4]),
+      (children: LexicalNode[]) => children[3].insertBefore(children[4]),
     ],
     [
       'splice',
-      (children: ElementNode[]) => $getRoot().splice(5, 0, [children[3]]),
+      (children: LexicalNode[]) => $getRoot().splice(5, 0, [children[3]]),
     ],
     [
       'remove and insert',
-      (children: ElementNode[]) => {
+      (children: LexicalNode[]) => {
         children[3].remove();
         children[4].insertAfter(children[3]);
       },
@@ -248,15 +249,18 @@ describe('syncChildrenFromLexical: moving children among siblings', () => {
       const editedIndex = name === 'insertBefore' ? 3 : 4;
       const before = rootChildren(a);
 
-      a.editor.update(() => move($getRoot().getChildren<ElementNode>()), {
+      a.editor.update(() => move($getRoot().getChildren()), {
         discrete: true,
       });
       b.editor.update(
         () => {
-          $getRoot()
-            .getChildAtIndex<ElementNode>(editedIndex)!
-            .getFirstChildOrThrow<TextNode>()
-            .setTextContent(`P${editedIndex} edited`);
+          $assertNodeType(
+            $assertNodeType(
+              $getRoot().getChildAtIndex(editedIndex),
+              $isElementNode,
+            ).getFirstChildOrThrow(),
+            $isTextNode,
+          ).setTextContent(`P${editedIndex} edited`);
         },
         {discrete: true},
       );
@@ -290,10 +294,13 @@ describe('syncChildrenFromLexical: moving children among siblings', () => {
     );
     b.editor.update(
       () => {
-        $getRoot()
-          .getChildAtIndex<ElementNode>(1)!
-          .getFirstChildOrThrow<TextNode>()
-          .setTextContent('P1 edited');
+        $assertNodeType(
+          $assertNodeType(
+            $getRoot().getChildAtIndex(1),
+            $isElementNode,
+          ).getFirstChildOrThrow(),
+          $isTextNode,
+        ).setTextContent('P1 edited');
       },
       {discrete: true},
     );
@@ -330,14 +337,20 @@ describe('syncChildrenFromLexical: moving children among siblings', () => {
     );
     b.editor.update(
       () => {
-        $getRoot()
-          .getChildAtIndex<ElementNode>(4)!
-          .getFirstChildOrThrow<TextNode>()
-          .setTextContent('P4 edited');
-        $getRoot()
-          .getChildAtIndex<ElementNode>(6)!
-          .getFirstChildOrThrow<TextNode>()
-          .setTextContent('P6 edited');
+        $assertNodeType(
+          $assertNodeType(
+            $getRoot().getChildAtIndex(4),
+            $isElementNode,
+          ).getFirstChildOrThrow(),
+          $isTextNode,
+        ).setTextContent('P4 edited');
+        $assertNodeType(
+          $assertNodeType(
+            $getRoot().getChildAtIndex(6),
+            $isElementNode,
+          ).getFirstChildOrThrow(),
+          $isTextNode,
+        ).setTextContent('P6 edited');
       },
       {discrete: true},
     );
@@ -449,10 +462,13 @@ describe('syncChildrenFromLexical: moving children among siblings', () => {
       a.editor.update(() => $move(3, 4), {discrete: true});
       b.editor.update(
         () => {
-          $getRoot()
-            .getChildAtIndex<ElementNode>(4)!
-            .getFirstChildOrThrow<TextNode>()
-            .setTextContent('P4 edited');
+          $assertNodeType(
+            $assertNodeType(
+              $getRoot().getChildAtIndex(4),
+              $isElementNode,
+            ).getFirstChildOrThrow(),
+            $isTextNode,
+          ).setTextContent('P4 edited');
         },
         {discrete: true},
       );
@@ -474,10 +490,13 @@ describe('syncChildrenFromLexical: moving children among siblings', () => {
       // A subsequent remote edit must still target the live collab node.
       b.editor.update(
         () => {
-          $getRoot()
-            .getChildAtIndex<ElementNode>(3)!
-            .getFirstChildOrThrow<TextNode>()
-            .setTextContent('P4 edited again');
+          $assertNodeType(
+            $assertNodeType(
+              $getRoot().getChildAtIndex(3),
+              $isElementNode,
+            ).getFirstChildOrThrow(),
+            $isTextNode,
+          ).setTextContent('P4 edited again');
         },
         {discrete: true},
       );
@@ -503,9 +522,15 @@ describe('syncChildrenFromLexical: moving children among siblings', () => {
     a.editor.update(() => $move(19, 0), {discrete: true});
     b.editor.update(
       () => {
-        const paragraph = $getRoot().getChildAtIndex<ElementNode>(7)!;
+        const paragraph = $assertNodeType(
+          $getRoot().getChildAtIndex(7),
+          $isElementNode,
+        );
         expect($isElementNode(paragraph)).toBe(true);
-        paragraph.getFirstChildOrThrow<TextNode>().setTextContent('P7 edited');
+        $assertNodeType(
+          paragraph.getFirstChildOrThrow(),
+          $isTextNode,
+        ).setTextContent('P7 edited');
       },
       {discrete: true},
     );

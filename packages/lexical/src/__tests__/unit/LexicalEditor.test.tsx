@@ -1082,7 +1082,7 @@ describe('LexicalEditor tests', () => {
   });
 
   it('transforms do not discard unintentional dirtyElements', () => {
-    // See https://github.com/facebook/lexical/issues/7333
+    // See https://github.com/meta/lexical/issues/7333
     // We are assuming that ListNode automatically registers a transform
     // to merge adjacent lists
     init(undefined, [ListItemNode, ListNode]);
@@ -1520,16 +1520,16 @@ describe('LexicalEditor tests', () => {
     // Unbounded: flips the text content again on every commit, forever.
     const unregisterUpdate = editor.registerUpdateListener(() => {
       editor.update(() => {
-        const text = $getNodeByKey<TextNode>(textKey);
-        if (text !== null) {
+        const text = $getNodeByKey(textKey);
+        if ($isTextNode(text)) {
           text.setTextContent(text.getTextContent() === 'a' ? 'b' : 'a');
         }
       });
     });
 
     editor.update(() => {
-      const text = $getNodeByKey<TextNode>(textKey);
-      if (text !== null) {
+      const text = $getNodeByKey(textKey);
+      if ($isTextNode(text)) {
         text.setTextContent('b');
       }
     });

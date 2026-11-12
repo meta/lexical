@@ -49,6 +49,7 @@ export const PURE_FACTORY_FUNCTIONS = [
   // The combinators that build a node's serialization schema at module
   // scope, nested inside each other and inside createState.
   'aliasedValue',
+  'arraySetValue',
   'arrayValue',
   'booleanValue',
   'configExtension',
@@ -62,6 +63,7 @@ export const PURE_FACTORY_FUNCTIONS = [
   'declarePeerDependency',
   'defineExtension',
   'defineImportRule',
+  'defineMarkExtension',
   'defineOverlayRules',
   'domOverride',
   'enumValue',
@@ -934,8 +936,10 @@ function pureDeclaredNamesOfFile(filename, parserPlugins) {
 
 /**
  * What a module next to this one declares: the functions it says are
- * side-effect free, and the objects it marks as pure namespaces. Parsed
- * once per file for the life of the process — see the cache note above.
+ * side-effect free, and the objects it marks as pure namespaces, including
+ * those it re-exports by name from a relative module (a package's root entry
+ * re-exports them from where they are declared). Parsed once per file for
+ * the life of the process — see the cache note above.
  *
  * @param {string} filename
  * @param {undefined | ReadonlyArray<any>} parserPlugins
@@ -946,6 +950,11 @@ function declarationsOfFile(filename, parserPlugins) {
   if (cached !== undefined) {
     return cached;
   }
+  // A re-export cycle finds this file empty rather than recursing forever.
+  declarationCache.set(filename, {
+    functions: new Map(),
+    namespaces: new Set(),
+  });
   /** @type {null | any} */
   let program = null;
   try {
@@ -966,6 +975,41 @@ function declarationsOfFile(filename, parserPlugins) {
           functions: pureDeclaredNames(program, filename),
           namespaces: namespaceDeclaredNames(program),
         };
+  for (const statement of program === null ? [] : program.body) {
+    if (
+      statement.type !== 'ExportNamedDeclaration' ||
+      !statement.source ||
+      statement.exportKind === 'type' ||
+      !statement.source.value.startsWith('.')
+    ) {
+      continue;
+    }
+    const resolved = resolveRelativeSpecifier(filename, statement.source.value);
+    if (resolved === null) {
+      continue;
+    }
+    const {functions, namespaces} = declarationsOfFile(resolved, parserPlugins);
+    for (const spec of statement.specifiers) {
+      if (
+        spec.type !== 'ExportSpecifier' ||
+        spec.exportKind === 'type' ||
+        spec.local.type !== 'Identifier'
+      ) {
+        continue;
+      }
+      const exported =
+        spec.exported.type === 'Identifier'
+          ? spec.exported.name
+          : spec.exported.value;
+      const form = functions.get(spec.local.name);
+      if (form !== undefined) {
+        declarations.functions.set(exported, form);
+      }
+      if (namespaces.has(spec.local.name)) {
+        declarations.namespaces.add(exported);
+      }
+    }
+  }
   declarationCache.set(filename, declarations);
   return declarations;
 }

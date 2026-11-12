@@ -147,7 +147,7 @@ test.describe('Autocomplete', () => {
     test.skip(({isCollab, isPlainText}) => isPlainText);
     test.skip(({isCollab, isPlainText}) => isCollab);
     test('Undo does not cause an exception', async ({page}) => {
-      // Autocomplete has known issues in collab https://github.com/facebook/lexical/issues/6844
+      // Autocomplete has known issues in collab https://github.com/meta/lexical/issues/6844
 
       await focusEditor(page);
       await toggleBold(page);

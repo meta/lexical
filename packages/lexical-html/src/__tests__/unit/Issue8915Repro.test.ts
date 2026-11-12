@@ -24,7 +24,7 @@ import {
 } from 'lexical';
 import {assert, describe, expect, test} from 'vitest';
 
-// Reproduction for https://github.com/facebook/lexical/issues/8915
+// Reproduction for https://github.com/meta/lexical/issues/8915
 //
 // TextNode.exportDOM writes `text-transform: uppercase|lowercase|capitalize`
 // for the three capitalization formats, but no importer read it back, so the

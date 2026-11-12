@@ -1,0 +1,54 @@
+/**
+ * Copyright (c) Meta Platforms, Inc. and affiliates.
+ *
+ * This source code is licensed under the MIT license found in the
+ * LICENSE file in the root directory of this source tree.
+ *
+ * @flow strict
+ */
+
+// Checked by `pnpm run flow` (not shipped): YUnsupportedYjsError's data is
+// typed, and its reasons are exhaustive.
+
+import type {YUnsupportedYjsData} from '@lexical/y';
+
+import {
+  SUPPORTED_YJS_VERSION,
+  UNSUPPORTED_YJS_ERROR,
+  YUnsupportedYjsError,
+} from '@lexical/y';
+import {YUnsupportedYjsError as HeadlessYUnsupportedYjsError} from '@lexical/y/headless';
+
+// The headless entry re-exports the same class.
+const SameClass: typeof YUnsupportedYjsError = HeadlessYUnsupportedYjsError;
+void SameClass;
+
+function fixFor(error: unknown): string | null {
+  if (!(error instanceof YUnsupportedYjsError)) {
+    return null;
+  }
+  const code: '@lexical/y/unsupported-yjs' = error.code;
+  const data: YUnsupportedYjsData = error.data;
+  switch (data.reason) {
+    case 'changed-internals':
+      return `install @y/y@${data.supported} (found: ${data.found.join(', ')}; ${code})`;
+    case 'other-copy':
+      return `dedupe @y/y@${data.supported}`;
+    default:
+      data.reason as empty;
+      return null;
+  }
+}
+
+const supported: string = SUPPORTED_YJS_VERSION;
+const errorCode: '@lexical/y/unsupported-yjs' = UNSUPPORTED_YJS_ERROR;
+fixFor(
+  new YUnsupportedYjsError({
+    found: ['Item#parentSub'],
+    reason: 'changed-internals',
+    supported,
+  }),
+);
+// $FlowExpectedError[incompatible-type] the reasons are a closed set
+new YUnsupportedYjsError({found: [], reason: 'newer', supported});
+void errorCode;

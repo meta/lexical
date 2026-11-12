@@ -51,7 +51,7 @@ function type(editor: LexicalEditor, text: string): void {
   }
 }
 
-// https://github.com/facebook/lexical/issues/5366
+// https://github.com/meta/lexical/issues/5366
 describe('Issue #5366: hashtags block the heading shortcut', () => {
   it.each([
     ['# ', 'h1'],

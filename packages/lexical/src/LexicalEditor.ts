@@ -54,6 +54,7 @@ import {
 } from './LexicalNode';
 import {createSharedNodeState, type SharedNodeState} from './LexicalNodeState';
 import {$isCompactExport} from './LexicalSerializedExport';
+import {validateNodeStructure} from './LexicalStructure';
 import {
   $commitPendingUpdates,
   $fullReconcile,
@@ -512,6 +513,10 @@ export interface CreateEditorArgs {
    * route them to telemetry at warn severity without raising an error alarm.
    * Defaults to a handler that throws in development (so the condition is
    * impossible to miss) and only `console.warn`s in production.
+   *
+   * Packages that report a condition with a stable code pass a
+   * `LexicalWarning`: check `error instanceof LexicalWarning` to read its
+   * `code` and `data`.
    */
   onWarn?: ErrorHandler;
   parentEditor?: LexicalEditor;
@@ -1090,6 +1095,9 @@ export function createEditor(editorConfig?: CreateEditorArgs): LexicalEditor {
           }
         }
       }
+      if (__DEV__) {
+        validateNodeStructure(klass);
+      }
       const type = klass.getType();
       const transforms = getTransformSetFromKlass(klass);
       registeredNodes.set(type, {
@@ -1175,6 +1183,13 @@ export class LexicalEditor {
    * shifted siblings. Once enabled, persists for the lifetime of this editor.
    */
   _recordNodeMoves: boolean;
+  /**
+   * @internal Enabled by the Yjs 14 binding (`@lexical/y`) while it is bound:
+   * every update records its text splits and text edits (see
+   * EditorState#_splitNodes and EditorState#_textEdits). Off by default, so
+   * an editor without that binding records nothing.
+   */
+  _recordTextEdits: boolean;
   /** @internal */
   _parentEditor: null | LexicalEditor;
   /** @internal */
@@ -1185,6 +1200,12 @@ export class LexicalEditor {
   _pendingEditorState: null | EditorState;
   /** @internal */
   _compositionKey: null | NodeKey;
+  /**
+   * @internal The composition key for which an update tagged
+   * DEFER_COMPOSITION_MERGE_TAG held back a text merge; merges stay held back
+   * until the composition key changes.
+   */
+  _compositionMergeHeld: null | NodeKey;
   /** @internal */
   _deferred: (() => void)[];
   /** @internal */
@@ -1277,6 +1298,7 @@ export class LexicalEditor {
     this._pendingEditorState = null;
     // Used to help co-ordinate selection and events
     this._compositionKey = null;
+    this._compositionMergeHeld = null;
     this._deferred = [];
     // Used during reconciliation
     this._keyToDOMMap = new GenMap();
@@ -1319,6 +1341,7 @@ export class LexicalEditor {
     this._editable = editable;
     this._headless = parentEditor !== null && parentEditor._headless;
     this._recordNodeMoves = false;
+    this._recordTextEdits = false;
     this._window = null;
     this._blockCursorElement = null;
     this._slotsUsed = false;

@@ -11,14 +11,11 @@ The easiest way to debug websites built with Lexical is to install the Lexical D
 
 [link-chrome]: https://chromewebstore.google.com/detail/lexical-developer-tools/kgljmdocanfjckcgfpcpdoklodllfdpc 'Version published on Chrome Web Store'
 [link-firefox]: https://addons.mozilla.org/en-US/firefox/addon/lexical-developer-tools/ 'Version published on Mozilla Add-ons'
-[link-safari]: https://apps.apple.com/us/app/lexical-developer-tools/id6502753400 'Version published on Mac App Store'
 
 [<img src="https://cdnjs.cloudflare.com/ajax/libs/browser-logos/74.1.0/chrome/chrome.svg" width="48" alt="Chrome" valign="middle"/>][link-chrome] [<img valign="middle" src="https://img.shields.io/chrome-web-store/v/kgljmdocanfjckcgfpcpdoklodllfdpc?style=flat&label=%20
 "/>][link-chrome]
 
 [<img src="https://cdnjs.cloudflare.com/ajax/libs/browser-logos/74.1.0/firefox/firefox.svg" width="48" alt="Firefox" valign="middle"/>][link-firefox] [<img valign="middle" src="https://img.shields.io/amo/v/lexical-developer-tools.svg?label=%20"/>][link-firefox]
-
-[<img src="https://cdnjs.cloudflare.com/ajax/libs/browser-logos/74.1.0/safari/safari.svg" width="48" alt="Safari logo" valign="middle"/>][link-safari] [<img valign="middle" src="https://img.shields.io/itunes/v/6502753400?label=%20"/>][link-safari]
 
 Now, if you visit a website built with Lexical (such as [https://playground.lexical.dev/](https://playground.lexical.dev/)), you will see the _Lexical_ panel in your browser Inspector window.
 

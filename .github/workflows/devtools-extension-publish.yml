@@ -24,7 +24,7 @@ permissions: {}
 
 jobs:
   release:
-    if: github.repository_owner == 'facebook'
+    if: github.repository_owner == 'meta'
     runs-on: ubuntu-latest
     concurrency:
       # Manual and npm release calls must not publish to the stores concurrently.

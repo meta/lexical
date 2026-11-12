@@ -1,7 +1,7 @@
 {
   "name": "@lexical/shadow-dom-web-component-example",
   "private": true,
-  "version": "0.52.0",
+  "version": "0.53.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -11,10 +11,10 @@
     "test": "playwright install chromium && playwright test"
   },
   "dependencies": {
-    "@lexical/extension": "0.52.0",
-    "@lexical/history": "0.52.0",
-    "@lexical/rich-text": "0.52.0",
-    "lexical": "0.52.0"
+    "@lexical/extension": "0.53.0",
+    "@lexical/history": "0.53.0",
+    "@lexical/rich-text": "0.53.0",
+    "lexical": "0.53.0"
   },
   "devDependencies": {
     "@playwright/test": "^1.62.1",

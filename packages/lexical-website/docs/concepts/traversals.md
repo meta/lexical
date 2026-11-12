@@ -13,6 +13,22 @@ should be less than 3kB in a production environment.
 
 The NodeCaret API was introduced in lexical v0.25.0.
 
+## Narrowing traversal results
+
+Node traversal and key lookup methods return base node types. Use a type guard
+before accessing subclass-specific methods:
+
+```ts
+import {$isTextNode} from 'lexical';
+
+const child = element.getFirstChild();
+if ($isTextNode(child)) {
+  child.setTextContent('Updated text');
+}
+
+const textChildren = element.getChildren().filter($isTextNode);
+```
+
 ## Concepts
 
 The core concept with `NodeCaret` is that you can represent any specific

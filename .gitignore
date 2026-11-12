@@ -23,6 +23,8 @@ playwright-report
 __screenshots__
 .vitest-attachments
 /SOURCE_CODE_REVIEW.md
+# Copied from the root by scripts/npm/prepare-release.mjs at publish time
+/packages/lexical/CHANGELOG.md
 /playwright.local.config.mjs
 
 npm-debug.log*

@@ -440,5 +440,16 @@
   "438": "$doDrop: drop position was removed by source deletion",
   "439": "%s is not supported in headless mode",
   "440": "HeadlessExtension: setRootElement is not supported in headless mode",
-  "441": "MdastExtension: export rule node classes must have their own type."
+  "441": "MdastExtension: export rule node classes must have their own type.",
+  "442": "Lexical node does not exist in active editor state (key %s, type %s). The reference was probably kept from another read or update, for example in a closure, event handler or component state, and the node has since been removed or is not part of this editor state. Before using a node reference that may be stale, check node.isAttached() or look the node up again with $getNodeByKey(node.getKey()), inside the read or update where it is used.",
+  "443": "%s: mergeAdjacent.by names %s, which is not a schema field of the class",
+  "444": "%s: mergeAdjacent.by names %s, which is derived",
+  "445": "%s: mergeAdjacent.by names the derived NodeState %s",
+  "446": "%s: a merging class that lists child classes must list classes that hold inline content (%s does not)",
+  "447": "%s: $config inline is %s but isInline() returns %s",
+  "448": "%s: arraySetValue can only be the whole value of a createState, not part of another schema or a node property",
+  "449": "arraySetValue: the item schema must produce strings",
+  "450": "generateBlockId: crypto.getRandomValues is not available; configure BlockIdExtension with a generateId of your own",
+  "451": "BlockIdExtension: generateId returned %s ids in a row that were invalid or already in use",
+  "452": "MarkStateExtension: invalid mark id %s, ids must be non-empty strings without whitespace"
 }

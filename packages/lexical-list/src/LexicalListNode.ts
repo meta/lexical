@@ -9,6 +9,7 @@
 import {
   $applyNodeReplacement,
   $getDocument,
+  $getEditor,
   $isElementNode,
   $setDirectionFromDOM,
   addClassNamesToElement,
@@ -20,7 +21,10 @@ import {
   type EditorThemeClasses,
   ElementNode,
   enumValue,
+  getDeclaredNodeStructure,
+  INTERNAL_isNodeStructureEnforced,
   isHTMLElement,
+  type Klass,
   type LexicalEditor,
   type LexicalNode,
   type LexicalParseJSON,
@@ -36,13 +40,26 @@ import {
   withField,
 } from 'lexical';
 
-import {$createListItemNode, $isListItemNode, type ListItemNode} from '.';
+import {$createListItemNode, $isListItemNode} from '.';
 import {
+  mergeNestedListsAtSeam,
   mergeNextSiblingListIfSameType,
   updateChildrenListItemValue,
 } from './formatList';
 import {GENERATED_LIST} from './LexicalListGeneratedJSON';
+import {ListItemNode} from './LexicalListItemNode';
 import {$getListDepth} from './utils';
+
+function $structureMerges(list: ListNode): boolean {
+  const klass = list.constructor as Klass<ListNode>;
+  const next = list.getNextSibling();
+  return (
+    next !== null &&
+    next.constructor === klass &&
+    INTERNAL_isNodeStructureEnforced($getEditor()) &&
+    getDeclaredNodeStructure(klass).declaredBy.mergeAdjacent === klass
+  );
+}
 
 export type SerializedListNode = Spread<
   {
@@ -108,9 +125,16 @@ export class ListNode extends ElementNode {
   $config() {
     return this.config('list', {
       $transform: (node: ListNode): void => {
-        mergeNextSiblingListIfSameType(node);
+        // Where NodeStructureExtension enforces declared structure, it merges
+        // adjacent lists itself (by mergeAdjacent below, joining nested lists
+        // at the seam as mergeLists does), the same way whichever list is
+        // dirty.
+        if (!$structureMerges(node)) {
+          mergeNextSiblingListIfSameType(node);
+        }
         updateChildrenListItemValue(node);
       },
+      children: [ListItemNode],
       extends: ElementNode,
       generated: GENERATED_LIST,
       importDOM: buildImportMap({
@@ -124,6 +148,8 @@ export class ListNode extends ElementNode {
         }),
       }),
       json: listNodeSchema,
+      // What mergeNextSiblingListIfSameType compares (start is not).
+      mergeAdjacent: {by: ['listType']},
     });
   }
 
@@ -221,6 +247,45 @@ export class ListNode extends ElementNode {
 
   canBeEmpty(): false {
     return false;
+  }
+
+  /**
+   * @internal Not public API: called by the node structure normalization
+   * (`NodeStructureExtension`), which `lexical` implements and so cannot
+   * import list code, on this list once it has merged the next one into it
+   * (`last` was this list's last item, `first` the other's first): joins
+   * nested lists at the seam, as mergeLists does, but only items whose only
+   * child is the nested list, so that nothing else in them is removed or
+   * moved.
+   */
+  INTERNAL_$afterStructureMerge(
+    last: LexicalNode | null,
+    first: LexicalNode | null,
+  ): void {
+    mergeNestedListsAtSeam(last, first, true);
+  }
+
+  /**
+   * @internal Not public API: called by the node structure normalization
+   * (`NodeStructureExtension`) on each later part of a list it splits around
+   * a block it lifts out: an ordered list continues the numbering of the
+   * items that precede the part, so the part starts at the next number.
+   */
+  INTERNAL_$afterStructureSplit(
+    original: ListNode,
+    preceding: readonly LexicalNode[],
+  ): void {
+    if (this.getListType() === 'number') {
+      let start = original.getStart();
+      for (const node of preceding) {
+        // As updateChildrenListItemValue counts: an item that only wraps a
+        // nested list has no number of its own.
+        if ($isListItemNode(node) && !$isListNode(node.getFirstChild())) {
+          start++;
+        }
+      }
+      this.setStart(start);
+    }
   }
 
   canIndent(): false {

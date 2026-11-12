@@ -29,7 +29,7 @@ const STORAGE_KEY = '@lexical/dev-mdast-editor-example/document';
 
 const DEMO_MARKDOWN = `# Mdast Editor
 
-This is a **WYSIWYG** editor built on [@lexical/mdast](https://github.com/facebook/lexical),
+This is a **WYSIWYG** editor built on [@lexical/mdast](https://github.com/meta/lexical),
 which parses with *micromark* — the same CommonMark + GFM parser used by remark —
 and keeps the markdown on the right in sync as you type.
 
@@ -40,12 +40,12 @@ and keeps the markdown on the right in sync as you type.
 - Wrap text in \`backticks\` for inline code
 - \`[text](url)\` for links
 - \`- \` or \`1. \` for lists, \`- [ ] \` / \`- [x] \` for check lists
-- \`> \` for a blockquote, \`\`\`\`\`js\`\`\` + Enter for a code block
+- \`> \` for a blockquote, \` \`\`\`js \` + Enter for a code block
 
 ## Round-trip fidelity
 
-The original syntax is preserved on the nodes, so what you paste is what
-you export — bullet styles, code fences, setext headings, hard breaks:
+The original syntax is preserved on the nodes, so most of what you paste
+comes back as written — bullet styles, code fences, setext headings, hard breaks:
 
 > Blockquotes survive round-trips,
 > including *inline formatting*.
@@ -58,17 +58,25 @@ Footnotes[^1] live in a \`footnotes\` slot on the RootNode — outside the
 document's children — and serialize to the end of the Markdown[^details].
 Type \`[^another]\` to mint one.
 
-[^1]: The reference is an inline node; this definition body is editable
-    in the section below.
-
-[^details]: Definitions hold *block* content, so lists and code work here.
-
 1. Ordered list item one
 2. Ordered list item two
 
 - [x] Streaming shortcuts share the import grammar
 - [x] Syntax preserved via NodeState
 - [ ] Ship it
+
+## Tables
+
+GFM tables round-trip as tables: the first row is the header, a line
+break in a cell is written as \`<br>\`, and a column is written with the
+alignment of its header cell's content (Table > Align left, center or
+right in the header). Merged cells (from a pasted HTML table) are written
+as near as GFM allows, and a body cell's own alignment is dropped:
+
+| Syntax    | Description           | Width |
+| --------- | --------------------- | ----: |
+| Header    | Title<br>on two lines |     6 |
+| Paragraph | \`a \\| b\` and **bold** |    10 |
 
 ## Alerts
 
@@ -81,13 +89,14 @@ to pick another type or convert back to a blockquote:
 > Useful information that users should know, even when skimming.
 
 > [!WARNING]
-> Critical content demanding immediate attention — with *inline
-> formatting* and other **Markdown** intact.
+> Critical content demanding immediate attention — with
+> *inline formatting* and other **Markdown** intact.
 
 ## Collapsible sections
 
 Raw HTML blocks import through the editor's HTML import rules — with
-the Markdown inside them intact, GitHub-style — so GFM-style
+the Markdown blocks inside them intact, GitHub-style, and Markdown in the
+text between the tags too, which GitHub leaves raw — so GFM-style
 \`<details>\` blocks map to a collapsible node whose summary line is
 edited in a named slot:
 
@@ -103,10 +112,18 @@ This is the *collapsed content* that's only visible when open
 \`\`\`ts
 const editor = buildEditorFromExtensions({
   name: 'editor',
-  dependencies: [MdastShortcutsExtension],
+  dependencies: [
+    MdastCommonMarkExtension,
+    MdastGfmExtension,
+    MdastShortcutsExtension,
+  ],
 });
 \`\`\`
-`;
+
+[^1]: The reference is an inline node; this definition body is editable
+    in the section below.
+
+[^details]: Definitions hold *block* content, so lists and code work here.`;
 
 const theme = {
   code: 'my-2 block rounded-md bg-zinc-100 p-3 font-mono text-sm whitespace-pre dark:bg-zinc-900',
@@ -132,6 +149,14 @@ const theme = {
   paragraph: 'my-1',
   quote:
     'my-2 border-l-4 border-solid border-zinc-300 pl-3 text-zinc-600 dark:border-zinc-600 dark:text-zinc-300',
+  table: 'my-2 border-collapse',
+  tableCell:
+    'min-w-16 border border-solid border-zinc-300 px-2 py-1 text-start align-top dark:border-zinc-600',
+  tableCellHeader: 'bg-zinc-100 font-semibold dark:bg-zinc-800',
+  // Over tableCellHeader's background.
+  tableCellSelected: 'bg-blue-100! dark:bg-blue-900/40!',
+  tableScrollableWrapper: 'overflow-x-auto',
+  tableSelection: 'table-selection',
   text: {
     bold: 'font-bold',
     code: 'rounded bg-zinc-200/70 px-1 py-0.5 font-mono text-[0.9em] dark:bg-zinc-700/60',

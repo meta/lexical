@@ -10,7 +10,7 @@
 
 /**
  * This script was used to seed the initial data for
- * https://github.com/facebook/lexical/pull/8270
+ * https://github.com/meta/lexical/pull/8270
  * and may be removed later
  */
 
@@ -51,7 +51,7 @@ async function findAllPRReviewers() {
 
     const afterClause = cursor ? `, after: "${cursor}"` : '';
     const query = `{
-      repository(owner: "facebook", name: "lexical") {
+      repository(owner: "meta", name: "lexical") {
         pullRequests(states: MERGED, first: 100${afterClause}) {
           pageInfo {
             hasNextPage

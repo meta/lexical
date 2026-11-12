@@ -14,4 +14,4 @@
  * version by scripts/updateVersion.mjs (`pnpm run update-version`); the
  * published build replaces `process.env.LEXICAL_VERSION` instead.
  */
-export const SOURCE_VERSION = '0.52.0+source';
+export const SOURCE_VERSION = '0.53.0+source';

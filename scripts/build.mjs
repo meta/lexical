@@ -25,6 +25,7 @@ import {subpathImports} from '../packages/lexical-compiler/src/passes/subpathImp
 import {
   getBuildBabelOptions,
   productionTerserOptions,
+  shouldExtractCodes,
 } from './shared/buildOptions.mjs';
 import {exec} from './shared/childProcess.mjs';
 import {packagesManager} from './shared/packagesManager.mjs';
@@ -47,7 +48,12 @@ const headerTemplate = fs.readFileSync(
 const isProduction = argv.prod;
 const isRelease = argv.release;
 const isWWW = argv.www;
-const extractCodes = argv.codes;
+const extractCodes = shouldExtractCodes(argv.codes);
+if (isRelease && !extractCodes) {
+  console.log(
+    'Not assigning new error codes: messages missing from codes.json stay unminified. Set LEXICAL_EXTRACT_CODES=true or run `pnpm run extract-codes` to assign them.',
+  );
+}
 
 // @lexical/internal is a published package (so its source resolves for the
 // `source` export condition and for direct consumers), but within the
@@ -153,6 +159,7 @@ const thirdPartyExternals = [
   'react',
   'react-dom',
   'yjs',
+  '@y/y',
   'y-websocket',
   'happy-dom',
   'jsdom',
@@ -192,6 +199,8 @@ const thirdPartyExternals = [
         'mdast-util-gfm-strikethrough',
         'mdast-util-gfm-table',
         'mdast-util-gfm-task-list-item',
+        'micromark',
+        'micromark-core-commonmark',
         'micromark-extension-gfm-autolink-literal',
         'micromark-extension-gfm-strikethrough',
         'micromark-extension-gfm-table',

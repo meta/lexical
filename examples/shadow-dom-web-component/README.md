@@ -4,9 +4,9 @@ A framework-free [Vite](https://vitejs.dev/) app that packages a Lexical
 rich-text editor as a **custom element** (`<lexical-editor>`) whose toolbar,
 styles, and `contentEditable` all live inside an **open `ShadowRoot`** —
 the scenario from
-[facebook/lexical#2119](https://github.com/facebook/lexical/issues/2119),
-[#6709](https://github.com/facebook/lexical/issues/6709), and
-[#8125](https://github.com/facebook/lexical/issues/8125).
+[meta/lexical#2119](https://github.com/meta/lexical/issues/2119),
+[#6709](https://github.com/meta/lexical/issues/6709), and
+[#8125](https://github.com/meta/lexical/issues/8125).
 
 Where the sibling [`shadow-dom`](../shadow-dom) example demonstrates a React
 app with the editor in a shadow root and the toolbar outside it, this one

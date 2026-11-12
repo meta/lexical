@@ -57,11 +57,11 @@ import {
   $insertNodes,
   $isDecoratorNode,
   $isElementNode,
+  $isEventFromEmbeddedInput,
   $isNodeSelection,
   $isRangeSelection,
   $isRootNode,
   $isRootOrShadowRoot,
-  $isSelectionCapturedInDecoratorInput,
   $isShadowRootNode,
   $isSiblingCaret,
   $isTextNode,
@@ -77,11 +77,13 @@ import {
   $setState,
   $setTextFormat,
   addClassNamesToElement,
+  BEFORE_INPUT_COMMAND,
   booleanValue,
   CAN_USE_BEFORE_INPUT,
   type CaretDirection,
   CLICK_COMMAND,
   COMMAND_PRIORITY_EDITOR,
+  COMMAND_PRIORITY_LOW,
   type CommandPayloadType,
   CONTROLLED_TEXT_INSERTION_COMMAND,
   COPY_COMMAND,
@@ -111,7 +113,6 @@ import {
   IS_APPLE_WEBKIT,
   IS_IOS,
   IS_SAFARI,
-  isDOMNode,
   isHTMLElement,
   KEY_ARROW_DOWN_COMMAND,
   KEY_ARROW_LEFT_COMMAND,
@@ -206,6 +207,8 @@ export interface QuoteNode {
 export class QuoteNode extends ElementNode {
   $config() {
     return this.config('quote', {
+      // A shadow root quote (opt-in state) holds blocks instead.
+      children: 'inline',
       extends: ElementNode,
       generated: GENERATED_QUOTE,
       importDOM: {
@@ -364,6 +367,7 @@ export class HeadingNode extends ElementNode {
 
   $config() {
     return this.config('heading', {
+      children: 'inline',
       extends: ElementNode,
       generated: GENERATED_HEADING,
       importDOM: {
@@ -1300,7 +1304,7 @@ export function registerRichText(
           // node (its own click handler may select it, open an editor, …),
           // not a deselect gesture. Keep the selection when the click target
           // is inside the selected node's DOM; clicking anywhere else still
-          // deselects (facebook/lexical#8907).
+          // deselects (meta/lexical#8907).
           const eventTarget = event.target;
           if (isHTMLElement(eventTarget)) {
             for (const node of selection.getNodes()) {
@@ -1450,6 +1454,42 @@ export function registerRichText(
         return true;
       },
       COMMAND_PRIORITY_EDITOR,
+    ),
+    editor.registerCommand(
+      BEFORE_INPUT_COMMAND,
+      event => {
+        const selection = $getSelection();
+        // A node selection has no DOM caret, so the browser would put typed
+        // text at the top of the document. Move the caret into a line of its
+        // own right after the decorator (an empty block already there, such
+        // as the empty heading inserting a rule after a heading leaves, or a
+        // new paragraph) and let the default handler take it from there: the
+        // text does not join the start of the block after it.
+        if ($isNodeSelection(selection) && event.inputType === 'insertText') {
+          const nodes = selection.getNodes();
+          if (
+            nodes.length === 1 &&
+            $isDecoratorNode(nodes[0]) &&
+            !nodes[0].isInline()
+          ) {
+            const next = nodes[0].getNextSibling();
+            if (
+              $isElementNode(next) &&
+              !next.isInline() &&
+              next.isEmpty() &&
+              next.canBeEmpty()
+            ) {
+              next.select();
+            } else {
+              const paragraph = $createParagraphNode();
+              nodes[0].insertAfter(paragraph);
+              paragraph.select();
+            }
+          }
+        }
+        return false;
+      },
+      COMMAND_PRIORITY_LOW,
     ),
     editor.registerCommand(
       INSERT_LINE_BREAK_COMMAND,
@@ -1755,7 +1795,7 @@ export function registerRichText(
           // after Backspace. Returning false here skips event.preventDefault()
           // on keydown; the beforeinput deleteContentBackward handler still runs
           // and performs the deletion, so editing behavior is unchanged.
-          // See https://github.com/facebook/lexical/issues/5841
+          // See https://github.com/meta/lexical/issues/5841
           if (IS_IOS && CAN_USE_BEFORE_INPUT) {
             return false;
           }
@@ -1985,6 +2025,12 @@ export function registerRichText(
     editor.registerCommand(
       COPY_COMMAND,
       event => {
+        // A copy in an input embedded in a node's DOM, such as a decorator's,
+        // is the input's, as are a cut and a paste below: the editor's
+        // selection is still the one it had before the input took the focus.
+        if ($isEventFromEmbeddedInput(event)) {
+          return false;
+        }
         copyToClipboard(
           editor,
           objectKlassEquals(event, ClipboardEvent) ? event : null,
@@ -1996,6 +2042,9 @@ export function registerRichText(
     editor.registerCommand(
       CUT_COMMAND,
       event => {
+        if ($isEventFromEmbeddedInput(event)) {
+          return false;
+        }
         onCutForRichText(event, editor);
         return true;
       },
@@ -2013,10 +2062,7 @@ export function registerRichText(
         }
 
         // if inputs then paste within the input ignore creating a new node on paste event
-        if (
-          isDOMNode(event.target) &&
-          $isSelectionCapturedInDecoratorInput(event.target)
-        ) {
+        if ($isEventFromEmbeddedInput(event)) {
           return false;
         }
 

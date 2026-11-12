@@ -13,17 +13,23 @@ import {$getNearestNodeOfType} from '@lexical/utils';
 import {
   $copyNode,
   $createParagraphNode,
+  $findMatchingParent,
   $getChildCaretAtIndex,
+  $getEditor,
   $getSelection,
   $getSlotHost,
+  $isBlockContainer,
   $isElementNode,
   $isLeafNode,
+  $isParagraphNode,
   $isRangeSelection,
-  $isRootOrShadowRoot,
   $isTextNode,
   $normalizeCaret,
   $setPointFromCaret,
-  type ElementNode,
+  ElementNode,
+  INTERNAL_$isBlock,
+  INTERNAL_isInlineContent,
+  INTERNAL_isNodeStructureEnforced,
   type LexicalNode,
   type NodeKey,
   type ParagraphNode,
@@ -75,11 +81,12 @@ function $newListFrom(list: ElementNode, listType: ListType): ListNode {
 
 /**
  * Inserts a new ListNode. If the selection's anchor node is an empty ListItemNode and is a child of
- * the root/shadow root, it will replace the ListItemNode with a ListNode and the old ListItemNode.
+ * a block container (the root, a shadow root, or a declared container, see {@link lexical!$isBlockContainer}),
+ * it will replace the ListItemNode with a ListNode and the old ListItemNode.
  * Otherwise it will replace its parent with a new ListNode and re-insert the ListItemNode and any previous children.
  * If the selection's anchor node is not an empty ListItemNode, it will add a new ListNode or merge an existing ListNode,
  * unless the node is a leaf node, in which case it will attempt to find a ListNode up the branch and replace it with
- * a new ListNode, or create a new ListNode at the nearest root/shadow root.
+ * a new ListNode, or create a new ListNode at the nearest block container.
  * @param listType - The type of list, "number" | "bullet" | "check".
  */
 export function $insertList(listType: ListType): void {
@@ -92,7 +99,7 @@ export function $insertList(listType: ListType): void {
       const anchorNode = anchor.getNode();
       const anchorNodeParent = anchorNode.getParent();
 
-      if ($isRootOrShadowRoot(anchorNode)) {
+      if ($isBlockContainer(anchorNode)) {
         const firstChild = anchorNode.getFirstChild();
         if (firstChild) {
           nodes = firstChild.selectStart().getNodes();
@@ -102,7 +109,7 @@ export function $insertList(listType: ListType): void {
           nodes = paragraph.select().getNodes();
         }
       } else if ($isSelectingEmptyListItem(anchorNode, nodes)) {
-        if ($isRootOrShadowRoot(anchorNodeParent)) {
+        if ($isBlockContainer(anchorNodeParent)) {
           const list = $createListNode(listType);
           anchorNode.replace(list);
           const listItem = $createListItemNode();
@@ -129,6 +136,7 @@ export function $insertList(listType: ListType): void {
     }
 
     const handled = new Set();
+    const kept = $keptTops(nodes);
     for (let i = 0; i < nodes.length; i++) {
       const node = nodes[i];
 
@@ -136,6 +144,8 @@ export function $insertList(listType: ListType): void {
         $isElementNode(node) &&
         node.isEmpty() &&
         !$isListItemNode(node) &&
+        // An empty container the selection passes over stays a container.
+        !$isBlockContainer(node) &&
         // A named-slot value's slot assignment is managed by the node or
         // extension that owns the slot, so it is not eligible for list
         // conversion (see $setBlocksType).
@@ -153,6 +163,11 @@ export function $insertList(listType: ListType): void {
           : null;
 
       while (parent != null) {
+        if ($isBlockContainer(parent)) {
+          // A block in a container (a decorator selected in a callout) is
+          // not converted, and neither is its container.
+          break;
+        }
         const parentKey = parent.getKey();
 
         if ($isListNode(parent)) {
@@ -170,9 +185,12 @@ export function $insertList(listType: ListType): void {
         } else {
           const nextParent = parent.getParent();
 
-          if ($isRootOrShadowRoot(nextParent) && !handled.has(parentKey)) {
-            handled.add(parentKey);
-            $createListOrMerge(parent, listType);
+          if ($isBlockContainer(nextParent)) {
+            const target = $listTarget(parent, node, kept);
+            if (target !== null && !handled.has(target.getKey())) {
+              handled.add(target.getKey());
+              $createListOrMerge(target, listType);
+            }
             break;
           }
 
@@ -181,6 +199,87 @@ export function $insertList(listType: ListType): void {
       }
     }
   }
+}
+
+/**
+ * Whether a list item can hold `node` where NodeStructureExtension enforces
+ * declared structure: inline content as the normalization counts it, a
+ * list, or a plain paragraph (which becomes a line of the item). Anything
+ * else is lifted out of the item.
+ */
+function $isListItemContent(node: LexicalNode): boolean {
+  return (
+    INTERNAL_isInlineContent(node) ||
+    $isListNode(node) ||
+    ($isParagraphNode(node) && !node.isShadowRoot())
+  );
+}
+
+/**
+ * Where NodeStructureExtension enforces declared structure: for the node in
+ * the nearest block container that holds each selected node, whether it
+ * stays and only the blocks holding the selected text inside it become lists
+ * (see {@link $listTarget}). Decided for the whole command before anything
+ * is converted, so that every selected block of one node is treated alike,
+ * whichever is converted first.
+ */
+function $keptTops(nodes: LexicalNode[]): Map<NodeKey, boolean> {
+  const kept = new Map<NodeKey, boolean>();
+  if (!INTERNAL_isNodeStructureEnforced($getEditor())) {
+    return kept;
+  }
+  for (const node of nodes) {
+    let top: LexicalNode | null = node;
+    while (top !== null && !$isBlockContainer(top.getParent())) {
+      top = top.getParent();
+    }
+    if (
+      $isElementNode(top) &&
+      !$isBlockContainer(top) &&
+      !kept.has(top.getKey())
+    ) {
+      kept.set(top.getKey(), !top.getChildren().every($isListItemContent));
+    }
+  }
+  return kept;
+}
+
+/**
+ * The node `$insertList` turns into a list item for the selected `leaf`,
+ * where `top` is its ancestor in the nearest block container, or null for
+ * none.
+ *
+ * Usually `top` itself. But where NodeStructureExtension enforces declared
+ * structure and `top` also holds a block a list item cannot hold (a quote, a
+ * box), as decided in `kept` (see {@link $keptTops}), turning `top` into a
+ * list item would not work: the normalization lifts that block back out of
+ * the item, with the selected text, and drops the empty list. So `top` stays
+ * where it is, and the block holding the selected text (a paragraph, a
+ * heading, a quote) becomes the list instead, in place, inside `top`.
+ */
+function $listTarget(
+  top: ElementNode,
+  leaf: LexicalNode,
+  kept: Map<NodeKey, boolean>,
+): ElementNode | null {
+  if (!INTERNAL_isNodeStructureEnforced($getEditor())) {
+    return top;
+  }
+  let keep = kept.get(top.getKey());
+  if (keep === undefined) {
+    keep = !top.getChildren().every($isListItemContent);
+    kept.set(top.getKey(), keep);
+  }
+  if (!keep) {
+    return top;
+  }
+  // The block that holds the selected text, never inline content (the
+  // character limit's OverflowNode is a block to INTERNAL_$isBlock).
+  const block = $findMatchingParent(
+    leaf,
+    n => INTERNAL_$isBlock(n) && !INTERNAL_isInlineContent(n),
+  );
+  return $isElementNode(block) ? block : null;
 }
 
 function append(node: ElementNode, nodesToAppend: LexicalNode[]) {
@@ -252,22 +351,15 @@ function $createListOrMerge(node: ElementNode, listType: ListType): ListNode {
  * @param list2 - The second list to be merged.
  */
 export function mergeLists(list1: ListNode, list2: ListNode): void {
-  const listItem1 = list1.getLastChild();
-  const listItem2 = list2.getFirstChild();
+  joinLists(list1, list2, false);
+}
 
-  if (
-    listItem1 &&
-    listItem2 &&
-    $isNestedListNode(listItem1) &&
-    $isNestedListNode(listItem2) &&
-    // A nested <ul> must not swallow a nested <ol>, same rule as
-    // mergeNextSiblingListIfSameType applies at the top level.
-    listItem1.getFirstChild().getListType() ===
-      listItem2.getFirstChild().getListType()
-  ) {
-    mergeLists(listItem1.getFirstChild(), listItem2.getFirstChild());
-    listItem2.remove();
-  }
+function joinLists(list1: ListNode, list2: ListNode, onlyChild: boolean): void {
+  mergeNestedListsAtSeam(
+    list1.getLastChild(),
+    list2.getFirstChild(),
+    onlyChild,
+  );
 
   const toMerge = list2.getChildren();
   if (toMerge.length > 0) {
@@ -275,6 +367,51 @@ export function mergeLists(list1: ListNode, list2: ListNode): void {
   }
 
   list2.remove();
+}
+
+/**
+ * Where two lists meet (`listItem1` the last item of the first, `listItem2`
+ * the first item of the second), join two items that only wrap nested lists
+ * of the same type into one.
+ *
+ * With `onlyChild` (the node structure normalization, `NodeStructureExtension`),
+ * an item counts as one that only wraps a nested list when that list is its
+ * only child. Without it, as `mergeLists` has always done, an item whose first
+ * child is a list counts too: what follows that list in the second item is
+ * then removed with it, and the second list's items go before what follows it
+ * in the first.
+ *
+ * @internal
+ */
+export function mergeNestedListsAtSeam(
+  listItem1: LexicalNode | null,
+  listItem2: LexicalNode | null,
+  onlyChild = false,
+): void {
+  if (
+    listItem1 &&
+    listItem2 &&
+    $isNestedListNode(listItem1) &&
+    $isNestedListNode(listItem2) &&
+    (!onlyChild ||
+      (listItem1.getChildrenSize() === 1 &&
+        listItem2.getChildrenSize() === 1)) &&
+    // A nested <ul> must not swallow a nested <ol>, same rule as
+    // mergeNextSiblingListIfSameType applies at the top level.
+    listItem1.getFirstChild().getListType() ===
+      listItem2.getFirstChild().getListType()
+  ) {
+    joinLists(listItem1.getFirstChild(), listItem2.getFirstChild(), onlyChild);
+    if (!onlyChild) {
+      listItem2.remove();
+      return;
+    }
+    // ElementNode's own remove. The normalization calls this once the second
+    // list's items are already in the first, so ListItemNode.remove would
+    // also join the item after this one, which mergeLists (joining at the
+    // seam before it moves them) never does.
+    ElementNode.prototype.remove.call(listItem2);
+  }
 }
 
 /**
@@ -507,6 +644,23 @@ export function $handleOutdent(listItemNode: ListItemNode): void {
     $isListItemNode(grandparentListItem) &&
     $isListNode(parentList)
   ) {
+    // The general outdent below assumes the wrapper item holds only the
+    // nested list: it removes or replaces the wrapper when the item is the
+    // list's only item or a middle one, which would delete what else the
+    // wrapper holds. Only those cases take the outdent that keeps it.
+    if (
+      grandparentListItem.getChildrenSize() > 1 &&
+      (parentList.getChildrenSize() === 1 ||
+        (!listItemNode.is(parentList.getFirstChild()) &&
+          !listItemNode.is(parentList.getLastChild())))
+    ) {
+      $outdentFromItemWithContent(
+        listItemNode,
+        parentList,
+        grandparentListItem,
+      );
+      return;
+    }
     // if it's the first child in it's parent list, insert it into the
     // great grandparent list before the grandparent
     const firstChild = parentList ? parentList.getFirstChild() : undefined;
@@ -544,6 +698,46 @@ export function $handleOutdent(listItemNode: ListItemNode): void {
       // replace the grandparent list item (now between the siblings) with the outdented list item.
       grandparentListItem.replace(listItemNode);
     }
+  }
+}
+
+/**
+ * Outdents `listItemNode` out of `parentList` when the item that wraps that
+ * list (`wrapper`) also holds other content (text beside the nested list, as a
+ * paste into a nested list item can leave, or another nested list). The
+ * general outdent assumes the wrapper holds only the nested list and
+ * replaces or removes it, which would delete that content; here the wrapper
+ * keeps what comes before the item, and the rest follows it in reading
+ * order: the item, then its next siblings in a new nested list, then the
+ * wrapper's content after `parentList` in a new item.
+ */
+function $outdentFromItemWithContent(
+  listItemNode: ListItemNode,
+  parentList: ListNode,
+  wrapper: ListItemNode,
+): void {
+  const nextSiblings = listItemNode.getNextSiblings();
+  const after = parentList.getNextSiblings();
+  wrapper.insertAfter(listItemNode);
+  let last: ListItemNode = listItemNode;
+  if (nextSiblings.length > 0) {
+    const nextSiblingsListItem = $copyNode(listItemNode);
+    const nextSiblingsList = $copyNode(parentList);
+    nextSiblingsListItem.append(nextSiblingsList);
+    append(nextSiblingsList, nextSiblings);
+    last.insertAfter(nextSiblingsListItem);
+    last = nextSiblingsListItem;
+  }
+  if (after.length > 0) {
+    const afterListItem = $copyNode(wrapper);
+    last.insertAfter(afterListItem);
+    append(afterListItem, after);
+  }
+  if (parentList.isEmpty()) {
+    parentList.remove();
+  }
+  if (wrapper.isEmpty()) {
+    wrapper.remove();
   }
 }
 
@@ -601,7 +795,7 @@ export function $handleListInsertParagraph(
 
   let replacementNode: ParagraphNode | ListItemNode;
 
-  if ($isRootOrShadowRoot(grandparent)) {
+  if ($isBlockContainer(grandparent)) {
     replacementNode = $createParagraphNode();
     topListNode.insertAfter(replacementNode);
   } else if ($isListItemNode(grandparent)) {

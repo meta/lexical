@@ -119,6 +119,7 @@ export class CodeNode extends ElementNode {
 
   $config() {
     return this.config('code', {
+      children: 'inline',
       extends: ElementNode,
       generated: GENERATED_CODE,
       importDOM: {

@@ -7,7 +7,7 @@
  */
 
 /**
- * Regression test for facebook/lexical#8391.
+ * Regression test for meta/lexical#8391.
  *
  * The reporter wants this HTML
  *

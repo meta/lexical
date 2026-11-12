@@ -741,7 +741,7 @@ describe('shared HistoryState across editors', () => {
     return target.getEditorState().read(() => $getRoot().getTextContent());
   }
 
-  // https://github.com/facebook/lexical/issues/8623
+  // https://github.com/meta/lexical/issues/8623
   test('undo and redo apply to the editor that changed', async () => {
     const parentEditor = createTestEditor({namespace: 'parent'});
     const nestedEditor = createTestEditor({namespace: 'nested'});

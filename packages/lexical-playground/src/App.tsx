@@ -46,6 +46,7 @@ import {
   CollaborationPluginV2__EXPERIMENTAL,
 } from '@lexical/react/LexicalCollaborationPlugin';
 import {LexicalExtensionComposer} from '@lexical/react/LexicalExtensionComposer';
+import {LexicalExtensionEditorComposer} from '@lexical/react/LexicalExtensionEditorComposer';
 import {
   $createHeadingNode,
   $createQuoteNode,
@@ -61,7 +62,7 @@ import {
   configExtension,
   defineExtension,
 } from 'lexical';
-import {type JSX, useMemo} from 'react';
+import {type JSX, type ReactNode, Suspense, use, useMemo} from 'react';
 import {Doc} from 'yjs';
 
 import {isDevPlayground} from './appSettings';
@@ -174,7 +175,7 @@ function $prepopulatedRichText() {
       ),
       $createListItemNode().append(
         $createTextNode(`Check out the code on our `),
-        $createLinkNode('https://github.com/facebook/lexical').append(
+        $createLinkNode('https://github.com/meta/lexical').append(
           $createTextNode('GitHub repository'),
         ),
         $createTextNode(`.`),
@@ -182,7 +183,7 @@ function $prepopulatedRichText() {
       $createListItemNode().append(
         $createTextNode(`Playground code can be found `),
         $createLinkNode(
-          'https://github.com/facebook/lexical/tree/main/packages/lexical-playground',
+          'https://github.com/meta/lexical/tree/main/packages/lexical-playground',
         ).append($createTextNode('here')),
         $createTextNode(`.`),
       ),
@@ -261,7 +262,8 @@ const AppExtension = defineExtension({
     // Exposes editor.isEditable() as a signal; consumed by
     // registerSettingsSynchronization to drive ClickableLinkExtension.
     WatchEditableExtension,
-    HistoryExtension,
+    // HistoryExtension is added by buildExtensionFromSettings: collab Y's
+    // YCollabExtension provides undo and conflicts with it.
     HistoryAnnounceExtension,
     EditorModeAnnounceExtension,
     KeywordsExtension,
@@ -326,19 +328,31 @@ interface DynamicSettings {
   isCollab: boolean;
   emptyEditor: boolean;
   isRichText: boolean;
+  /**
+   * Collab Y (`@lexical/y`): its YCollabExtension (added by
+   * `collaborationY.tsx`) provides undo, so HistoryExtension is left out.
+   */
+  isCollabY?: boolean;
 }
 
 function buildExtensionFromSettings(settings: DynamicSettings) {
-  const {isCollab, emptyEditor, isRichText} = settings;
+  const {isCollab, emptyEditor, isRichText, isCollabY = false} = settings;
   return defineExtension({
-    $initialEditorState: isCollab
-      ? null
-      : emptyEditor
-        ? undefined
-        : $prepopulatedRichText,
+    // Collab v1/v2 bootstrap an empty document from the plugin. Collab Y's
+    // binding writes the editor's initial state (an empty paragraph) into an
+    // empty document, once even when several clients do it at the same time.
+    $initialEditorState: isCollabY
+      ? undefined
+      : isCollab
+        ? null
+        : emptyEditor
+          ? undefined
+          : $prepopulatedRichText,
     dependencies: [
       AppExtension,
-      /* @__PURE__ */ configExtension(HistoryExtension, {disabled: isCollab}),
+      ...(isCollabY
+        ? []
+        : [configExtension(HistoryExtension, {disabled: isCollab})]),
       isRichText ? PlaygroundRichTextExtension : PlainTextExtension,
     ],
     name: '@lexical/playground/dynamic-config',
@@ -354,12 +368,14 @@ function App(): JSX.Element {
     settings: {
       isCollab,
       useCollabV2,
+      useCollabY,
       emptyEditor,
       isRichText,
       isShadowDOM,
       measureTypingPerf,
     },
   } = useSettings();
+  const isCollabY = isRichText && isCollab && useCollabY;
 
   // Only the editor-recreating settings belong in this memo's deps. Table
   // behavior toggles (and other live-reconfigurable settings) are applied
@@ -370,50 +386,88 @@ function App(): JSX.Element {
     [emptyEditor, isCollab, isRichText],
   );
 
+  const shell = (
+    <ToolbarContext>
+      <header>
+        <a href="https://lexical.dev" target="_blank" rel="noreferrer">
+          <span className="logo" role="img" aria-label="Lexical Logo" />
+        </a>
+      </header>
+      {isRichText && isCollab && !isCollabY ? (
+        useCollabV2 ? (
+          <CollabV2
+            id={COLLAB_DOC_ID}
+            shouldBootstrap={!skipCollaborationInit}
+          />
+        ) : (
+          <CollaborationPlugin
+            id={COLLAB_DOC_ID}
+            providerFactory={createWebsocketProvider}
+            shouldBootstrap={!skipCollaborationInit}
+            selectionHighlight={true}
+          />
+        )
+      ) : null}
+      {isShadowDOM ? (
+        <ShadowDomWrapper>
+          <div className="editor-shell">
+            <Editor />
+          </div>
+        </ShadowDomWrapper>
+      ) : (
+        <div className="editor-shell">
+          <Editor />
+        </div>
+      )}
+      <Settings />
+      {isDevPlayground ? <DocsPlugin /> : null}
+      {isDevPlayground ? <PasteLogPlugin /> : null}
+      {isDevPlayground ? <TestRecorderPlugin /> : null}
+
+      {measureTypingPerf ? <TypingPerfPlugin /> : null}
+    </ToolbarContext>
+  );
+
   return (
     <LexicalCollaboration>
-      <LexicalExtensionComposer extension={app} contentEditable={null}>
-        <ToolbarContext>
-          <header>
-            <a href="https://lexical.dev" target="_blank" rel="noreferrer">
-              <span className="logo" role="img" aria-label="Lexical Logo" />
-            </a>
-          </header>
-          {isRichText && isCollab ? (
-            useCollabV2 ? (
-              <CollabV2
-                id={COLLAB_DOC_ID}
-                shouldBootstrap={!skipCollaborationInit}
-              />
-            ) : (
-              <CollaborationPlugin
-                id={COLLAB_DOC_ID}
-                providerFactory={createWebsocketProvider}
-                shouldBootstrap={!skipCollaborationInit}
-                selectionHighlight={true}
-              />
-            )
-          ) : null}
-          {isShadowDOM ? (
-            <ShadowDomWrapper>
-              <div className="editor-shell">
-                <Editor />
-              </div>
-            </ShadowDomWrapper>
-          ) : (
-            <div className="editor-shell">
-              <Editor />
-            </div>
-          )}
-          <Settings />
-          {isDevPlayground ? <DocsPlugin /> : null}
-          {isDevPlayground ? <PasteLogPlugin /> : null}
-          {isDevPlayground ? <TestRecorderPlugin /> : null}
-
-          {measureTypingPerf ? <TypingPerfPlugin /> : null}
-        </ToolbarContext>
-      </LexicalExtensionComposer>
+      {isCollabY ? (
+        <Suspense fallback={null}>
+          <CollabY>{shell}</CollabY>
+        </Suspense>
+      ) : (
+        <LexicalExtensionComposer extension={app} contentEditable={null}>
+          {shell}
+        </LexicalExtensionComposer>
+      )}
     </LexicalCollaboration>
+  );
+}
+
+let collabYModule: Promise<typeof import('./collaborationY')> | null = null;
+
+/**
+ * Collab Y (`@lexical/y` on Yjs 14). Loaded on demand, so the default
+ * playground does not ship a second Yjs.
+ */
+function CollabY({children}: {children: ReactNode}) {
+  const {CollabYPlugin, getCollabYSession} = use(
+    (collabYModule ??= import('./collaborationY')),
+  );
+  const {editor, provider, readOnlyWarning} = getCollabYSession(
+    COLLAB_DOC_ID,
+    () =>
+      buildExtensionFromSettings({
+        emptyEditor: true,
+        isCollab: true,
+        isCollabY: true,
+        isRichText: true,
+      }),
+  );
+  return (
+    <LexicalExtensionEditorComposer initialEditor={editor}>
+      <CollabYPlugin provider={provider} readOnlyWarning={readOnlyWarning} />
+      {children}
+    </LexicalExtensionEditorComposer>
   );
 }
 
@@ -452,7 +506,7 @@ export default function PlaygroundApp(): JSX.Element {
         <App />
       </FlashMessageContext>
       <a
-        href="https://github.com/facebook/lexical/tree/main/packages/lexical-playground"
+        href="https://github.com/meta/lexical/tree/main/packages/lexical-playground"
         className="github-corner"
         aria-label="View source on GitHub">
         <svg

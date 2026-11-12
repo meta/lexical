@@ -27,7 +27,7 @@ import {
 } from 'lexical/src/__tests__/utils';
 import {assert, describe, expect, test} from 'vitest';
 
-// Regression for facebook/lexical#8936: $wrapNodeInElement is implemented as
+// Regression for meta/lexical#8936: $wrapNodeInElement is implemented as
 // `node.replace(wrapper); wrapper.append(node)`. replace() must not strip or
 // re-home named slots — they are bound to the node — so wrapping a slot host
 // preserves its slots.

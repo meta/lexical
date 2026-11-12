@@ -1,6 +1,6 @@
 {
   "name": "lexical-playground",
-  "version": "0.52.0",
+  "version": "0.53.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -40,9 +40,12 @@
     "@lexical/table": "workspace:*",
     "@lexical/text": "workspace:*",
     "@lexical/utils": "workspace:*",
+    "@lexical/y": "workspace:*",
     "@lexical/yjs": "workspace:*",
     "@vercel/analytics": "^2.0.1",
     "@vercel/speed-insights": "^2.0.0",
+    "@y/websocket": "4.0.0-rc.2",
+    "@y/y": "14.0.0-rc.29",
     "date-fns": "^4.4.0",
     "katex": "^0.16.10",
     "lexical": "workspace:*",
@@ -63,10 +66,13 @@
     "@types/lodash": "^4.17.25",
     "@types/lodash-es": "^4.14.182",
     "@vitejs/plugin-react": "^6.1.1",
+    "@y/protocols": "1.0.6-rc.1",
+    "lib0": "1.0.0-rc.36",
     "rollup-plugin-copy": "^3.5.0",
     "terser": "^5.51.2",
     "vite": "^8.3.3",
-    "vite-plugin-static-copy": "^4.1.1"
+    "vite-plugin-static-copy": "^4.1.1",
+    "ws": "^8.20.0"
   },
   "sideEffects": false
 }

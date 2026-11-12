@@ -259,6 +259,11 @@ Use [TableExtension](/docs/api/modules/lexical_table#tableextension) when using 
 
 :::
 
+Table commands (inserting or deleting rows and columns, merging and
+unmerging cells, pasting a table into a table) first pad the short rows of a
+ragged table, such as one left by concurrent collaborative edits, with empty
+cells; see [`$padTableRows`](/docs/api/modules/lexical_table#padtablerows).
+
 ### `LexicalHorizontalRulePlugin`
 
 Registers a command handler for `INSERT_HORIZONTAL_RULE_COMMAND`. When dispatched, it inserts a `HorizontalRuleNode` at the current selection.

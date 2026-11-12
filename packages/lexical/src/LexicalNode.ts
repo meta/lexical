@@ -40,6 +40,7 @@ import {
 import {DOMSlot} from './LexicalDOMSlot';
 import {
   $updateStateFromJSON,
+  type AnyStateConfig,
   type NodeState,
   type NodeStateJSON,
   type Prettify,
@@ -75,6 +76,7 @@ import {
   $getEditorDOMRenderConfig,
   $getNodeByKey,
   $hasAncestor,
+  $isKeyInSelectionNodes,
   $isRootOrShadowRoot,
   $maybeMoveChildrenSelectionToParent,
   $setCompositionKey,
@@ -85,6 +87,7 @@ import {
   getStaticNodeConfig,
   getSuperclassOf,
   internalMarkNodeAsDirty,
+  internalStopExportMemo,
 } from './LexicalUtils';
 
 const __DEV__ = process.env.NODE_ENV !== 'production';
@@ -125,6 +128,27 @@ export type SerializedLexicalNode = {
    */
   $slots?: Record<string, SerializedLexicalNode>;
 };
+
+/**
+ * @experimental node-structure
+ *
+ * What an element may hold; see {@link StaticNodeConfigValue.children}.
+ */
+export type NodeChildrenConfig =
+  | 'inline'
+  | 'block'
+  | readonly ('inline' | Klass<LexicalNode>)[];
+
+/**
+ * @experimental node-structure
+ *
+ * When adjacent siblings merge; see
+ * {@link StaticNodeConfigValue.mergeAdjacent}.
+ */
+export interface MergeAdjacentConfig {
+  /** Schema field names of the class, or NodeState configs. */
+  readonly by: readonly (string | AnyStateConfig)[];
+}
 
 /**
  * EXPERIMENTAL
@@ -224,6 +248,71 @@ export interface StaticNodeConfigValue<
    * concurrency instead of racing on attribute creation.
    */
   readonly slots?: readonly string[];
+  /**
+   * @experimental node-structure
+   *
+   * Whether a node of this class is inline (it sits among text, like a link)
+   * rather than a block. A class that declares it in its own `$config()` and
+   * does not write its own `isInline()` gets one that returns it; a class
+   * that writes one must agree with it (checked when an editor is created, in
+   * development). Inherited by subclasses that do not declare it, unless a
+   * subclass's own `isInline()` may return something else.
+   */
+  readonly inline?: boolean;
+  /**
+   * @experimental node-structure
+   *
+   * What an {@link ElementNode} of this class may hold:
+   *
+   * - `'inline'`: inline content only (text, line breaks, inline elements and
+   *   decorators), like a paragraph. A plain paragraph child becomes lines of
+   *   the node: its content is joined to the inline content next to it with
+   *   line breaks, as importers build a quote or list item from several
+   *   paragraphs. Any other block child is lifted out: the node is split
+   *   around it, so the block keeps its type and sits between the two parts.
+   *   Out of an inline element (a link), the block's content is first wrapped
+   *   in a copy of the element.
+   * - `'block'`: blocks only, like a table cell. Each run of inline children
+   *   is wrapped in a paragraph. With the extension, the node is also a block
+   *   container for structural commands (see `$isBlockContainer`): they
+   *   convert, wrap, split and insert blocks inside it and never replace or
+   *   split the node itself.
+   * - a list of `'inline'` and classes: only those (a class allows its
+   *   subclasses). When the list names no `'inline'` (a list holds list
+   *   items), a child the first listed class can hold is wrapped in one (a
+   *   run of inline content in one), a plain paragraph becomes one holding
+   *   its content, and any other block is lifted out. Otherwise blocks are
+   *   handled as for `'inline'`.
+   *
+   * A block lifted out of a node goes on up until it reaches a node that may
+   * hold it, or one whose class declares nothing. A root or shadow root
+   * always holds blocks, whatever its class declares.
+   *
+   * The opt-in `NodeStructureExtension` enforces it in the same update as a
+   * change, and only moves content (it also removes an inline element left
+   * with nothing in it, which Lexical removes anyway); without the extension
+   * it changes nothing. Inherited by subclasses that do not declare it.
+   */
+  readonly children?: NodeChildrenConfig;
+  /**
+   * @experimental node-structure
+   *
+   * Adjacent siblings of this class are the same thing when the values `by`
+   * names are equal: schema fields of the class or {@link StateConfig}s
+   * (NodeState counts only when named; a derived value cannot be named).
+   * Tools that read the declarations can treat such siblings as one.
+   *
+   * `NodeStructureExtension` merges them, the later one's children appended
+   * to the earlier one, whose values win, for the class that declares it in
+   * its own `$config()` only. A subclass that merely inherits the declaration
+   * is never merged by the extension, so a merge method it overrides (such as
+   * `LinkNode`'s `shouldMergeAdjacentLink`) stays the authority. A class
+   * whose own transform merges must merge the same siblings the same way
+   * (`ListNode`'s leaves it to the extension where it is registered). `false`
+   * turns off a declaration an ancestor made. Inherited by subclasses that do
+   * not declare it.
+   */
+  readonly mergeAdjacent?: MergeAdjacentConfig | false;
   /**
    * The exact superclass of the node. Always name it.
    *
@@ -1205,8 +1294,6 @@ export class LexicalNode {
         return true;
       }
 
-      // Annotation breaks a circular inference through the loop (TS7022),
-      // remove when the deprecated generic signatures from #8661 are removed
       const node: LexicalNode | null = $getNodeByKey(nodeKey);
 
       if (node === null) {
@@ -1231,11 +1318,9 @@ export class LexicalNode {
       return false;
     }
 
-    const isSelected = targetSelection
-      .getNodes()
-      .some(n => n.__key === this.__key);
+    const isSelected = $isKeyInSelectionNodes(targetSelection, this.__key);
 
-    if ($isTextNode(this)) {
+    if (!isSelected || $isTextNode(this)) {
       return isSelected;
     }
     // For inline images inside of element nodes.
@@ -1298,14 +1383,6 @@ export class LexicalNode {
   /**
    * Returns the parent of this node, or null if none is found.
    */
-  getParent(): ElementNode | null;
-  /**
-   * @deprecated The type parameter is an unchecked and unsafe cast,
-   * equivalent to `node.getParent() as T | null`, and will be removed
-   * in a future release. Call this method without a type argument and
-   * narrow the result with a type guard instead.
-   */
-  getParent<T extends ElementNode>(): T | null;
   getParent(): ElementNode | null {
     const parent = this.getLatest().__parent;
     if (parent === null) {
@@ -1318,14 +1395,6 @@ export class LexicalNode {
   /**
    * Returns the parent of this node, or throws if none is found.
    */
-  getParentOrThrow(): ElementNode;
-  /**
-   * @deprecated The type parameter is an unchecked and unsafe cast,
-   * equivalent to `node.getParentOrThrow() as T`, and will be removed
-   * in a future release. Call this method without a type argument and
-   * narrow the result with a type guard instead.
-   */
-  getParentOrThrow<T extends ElementNode>(): T;
   getParentOrThrow(): ElementNode {
     const parent = this.getParent();
     if (parent === null) {
@@ -1342,8 +1411,6 @@ export class LexicalNode {
   getTopLevelElement(): ElementNode | DecoratorNode<unknown> | null {
     let node: ElementNode | this | null = this;
     while (node !== null) {
-      // Annotation breaks a circular inference through the loop (TS7022),
-      // remove when the deprecated generic signatures from #8661 are removed
       const parent: ElementNode | null = node.getParent();
       // A slot value's host acts as a shadow root, so the slot boundary is
       // the top of the isolated scope and this node is its top-level element.
@@ -1410,14 +1477,6 @@ export class LexicalNode {
    * Returns the node before this one in the same parent, or null
    * if there is no such node.
    */
-  getPreviousSibling(): LexicalNode | null;
-  /**
-   * @deprecated The type parameter is an unchecked and unsafe cast,
-   * equivalent to `node.getPreviousSibling() as T | null`, and will be
-   * removed in a future release. Call this method without a type argument
-   * and narrow the result with a type guard instead.
-   */
-  getPreviousSibling<T extends LexicalNode>(): T | null;
   getPreviousSibling(): LexicalNode | null {
     const self = this.getLatest();
     const prevKey = self.__prev;
@@ -1428,14 +1487,6 @@ export class LexicalNode {
    * Returns all nodes before this one in the same parent,
    * in document order.
    */
-  getPreviousSiblings(): LexicalNode[];
-  /**
-   * @deprecated The type parameter is an unchecked and unsafe cast,
-   * equivalent to `node.getPreviousSiblings() as T[]`, and will be
-   * removed in a future release. Call this method without a type argument
-   * and narrow the results with a type guard instead.
-   */
-  getPreviousSiblings<T extends LexicalNode>(): T[];
   getPreviousSiblings(): LexicalNode[] {
     return $collectSiblingNodes(
       this.getPreviousSibling(),
@@ -1447,14 +1498,6 @@ export class LexicalNode {
    * Returns the node after this one in the same parent, or null
    * if there is no such node.
    */
-  getNextSibling(): LexicalNode | null;
-  /**
-   * @deprecated The type parameter is an unchecked and unsafe cast,
-   * equivalent to `node.getNextSibling() as T | null`, and will be
-   * removed in a future release. Call this method without a type argument
-   * and narrow the result with a type guard instead.
-   */
-  getNextSibling<T extends LexicalNode>(): T | null;
   getNextSibling(): LexicalNode | null {
     const self = this.getLatest();
     const nextKey = self.__next;
@@ -1465,14 +1508,6 @@ export class LexicalNode {
    * Returns all nodes after this one in the same parent,
    * in document order.
    */
-  getNextSiblings(): LexicalNode[];
-  /**
-   * @deprecated The type parameter is an unchecked and unsafe cast,
-   * equivalent to `node.getNextSiblings() as T[]`, and will be
-   * removed in a future release. Call this method without a type argument
-   * and narrow the results with a type guard instead.
-   */
-  getNextSiblings<T extends LexicalNode>(): T[];
   getNextSiblings(): LexicalNode[] {
     return $collectSiblingNodes(this.getNextSibling(), 'next');
   }
@@ -1612,6 +1647,9 @@ export class LexicalNode {
       return this;
     }
     errorOnReadOnly();
+    // Before the clone, whose hooks may read: a node that changes ends an
+    // export walk's memo (see INTERNAL_$withExportMemo).
+    internalStopExportMemo();
     const editorState = getActiveEditorState();
     const editor = getActiveEditor();
     const key = this.__key;

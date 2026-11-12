@@ -86,6 +86,16 @@ header h1 {
   margin: 20px 0 0 0;
 }
 
+.collab-y-notice {
+  margin: 20px auto 0;
+  max-width: 1128px;
+  padding: 8px 12px;
+  border-radius: 4px;
+  background-color: #fff4e5;
+  color: #663c00;
+  font-size: 14px;
+}
+
 .editor-shell {
   margin: 20px auto;
   border-radius: 2px;

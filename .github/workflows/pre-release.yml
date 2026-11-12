@@ -62,7 +62,7 @@ jobs:
     needs: guard
     # prevents this workflow from running on forks (matters most for the
     # scheduled trigger; manual dispatch is already gated to maintainers)
-    if: ${{ !failure() && !cancelled() && github.repository_owner == 'facebook' }}
+    if: ${{ !failure() && !cancelled() && github.repository_owner == 'meta' }}
     uses: ./.github/workflows/call-release.yml
     secrets: inherit
     with:

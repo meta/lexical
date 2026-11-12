@@ -33,7 +33,11 @@ export const IS_COLLAB_V1 =
   process.env.E2E_EDITOR_MODE === 'rich-text-with-collab';
 export const IS_COLLAB_V2 =
   process.env.E2E_EDITOR_MODE === 'rich-text-with-collab-v2';
-export const IS_COLLAB = IS_COLLAB_V1 || IS_COLLAB_V2;
+// Collab Y: `@lexical/y` (Yjs 14). Runs the specs listed in
+// playwright.config.mjs, against `pnpm run collab:y`.
+export const IS_COLLAB_Y =
+  process.env.E2E_EDITOR_MODE === 'rich-text-with-collab-y';
+export const IS_COLLAB = IS_COLLAB_V1 || IS_COLLAB_V2 || IS_COLLAB_Y;
 const IS_RICH_TEXT = process.env.E2E_EDITOR_MODE !== 'plain-text';
 const IS_PLAIN_TEXT = process.env.E2E_EDITOR_MODE === 'plain-text';
 export const IS_TABLE_HORIZONTAL_SCROLL =
@@ -115,6 +119,7 @@ async function initializePlayground({
   if (isCollab) {
     appSettings.isCollab = !!isCollab;
     appSettings.useCollabV2 = isCollab === 2;
+    appSettings.useCollabY = isCollab === 'y';
     appSettings.collabId = randomUUID();
   }
   if (showNestedEditorTreeView === undefined) {
@@ -351,7 +356,10 @@ export const test = base.extend({
   // Editor mode is fixed by the worker's environment. Worker-scoped fixtures
   // let skip callbacks run before any parent beforeEach hook creates a page
   // or initializes the playground, including skips in nested describe blocks.
-  isCollab: [IS_COLLAB_V1 ? 1 : IS_COLLAB_V2 ? 2 : false, {scope: 'worker'}],
+  isCollab: [
+    IS_COLLAB_V1 ? 1 : IS_COLLAB_V2 ? 2 : IS_COLLAB_Y ? 'y' : false,
+    {scope: 'worker'},
+  ],
   isMaxLength: false,
   isPlainText: [IS_PLAIN_TEXT, {scope: 'worker'}],
   isRichText: [IS_RICH_TEXT, {scope: 'worker'}],
@@ -1007,14 +1015,18 @@ export async function advanceHistoryClock(page, overheadMs = 50) {
       const editor = document.querySelector(
         '[data-lexical-editor="true"]',
       ).__lexicalEditor;
-      // Collab: reset the Yjs UndoManager's capture window.
-      const undoManager = editor[Symbol.for('@lexical/yjs/UndoManager')];
+      const builder = editor[Symbol.for('@lexical/extension/LexicalBuilder')];
+      // Collab: reset the Yjs UndoManager's capture window (collab v1/v2
+      // publish it on the editor; collab Y keeps it on its binding).
+      const undoManager =
+        editor[Symbol.for('@lexical/yjs/UndoManager')] ||
+        builder?.extensionNameMap.get('@lexical/y/Collab')?.state?.output
+          ?.binding.undoManager;
       if (undoManager) {
         undoManager.stopCapturing();
         return;
       }
       // Local history: freeze `now` past the merge delay.
-      const builder = editor[Symbol.for('@lexical/extension/LexicalBuilder')];
       const output = builder?.extensionNameMap.get('@lexical/history/History')
         ?.state?.output;
       if (output && !output.disabled.value) {
@@ -1072,7 +1084,12 @@ export async function freezeCollabUndoGrouping(page) {
     const editor = document.querySelector(
       '[data-lexical-editor="true"]',
     )?.__lexicalEditor;
-    const undoManager = editor?.[Symbol.for('@lexical/yjs/UndoManager')];
+    const undoManager =
+      editor?.[Symbol.for('@lexical/yjs/UndoManager')] ||
+      editor?.[
+        Symbol.for('@lexical/extension/LexicalBuilder')
+      ]?.extensionNameMap.get('@lexical/y/Collab')?.state?.output?.binding
+        .undoManager;
     if (!undoManager) {
       return false;
     }

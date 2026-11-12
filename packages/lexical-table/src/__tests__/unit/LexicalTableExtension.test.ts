@@ -1023,7 +1023,7 @@ describe('TableExtension', () => {
       // root element is mounted. Regression test for the bug where the
       // pointerdown listener on editorWindow was never attached because
       // editor.getRootElement() was null at register() time, breaking drag
-      // selection. See https://github.com/facebook/lexical/issues/8491
+      // selection. See https://github.com/meta/lexical/issues/8491
       const container = document.createElement('div');
       document.body.appendChild(container);
       try {

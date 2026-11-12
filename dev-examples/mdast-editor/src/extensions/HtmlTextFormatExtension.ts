@@ -105,14 +105,15 @@ const $exportHtmlFormattedText: MdastExportHandler = node => {
   if (tags.length === 0 && css === '') {
     return null;
   }
+  // Nested as the core text serialization nests (emphasis around strong).
   let content: PhrasingContent = node.hasFormat('code')
     ? {type: 'inlineCode', value: node.getTextContent()}
     : {type: 'text', value: node.getTextContent()};
-  if (node.hasFormat('italic')) {
-    content = {children: [content], type: 'emphasis'};
-  }
   if (node.hasFormat('bold')) {
     content = {children: [content], type: 'strong'};
+  }
+  if (node.hasFormat('italic')) {
+    content = {children: [content], type: 'emphasis'};
   }
   if (node.hasFormat('strikethrough')) {
     content = {children: [content], type: 'delete'};

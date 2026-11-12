@@ -27,7 +27,7 @@ Lexical version:
 Link to code example:
 
 <!--
-  Please provide a CodeSandbox (https://codesandbox.io/s/new) or (https://stackblitz.com/github/facebook/lexical/tree/main/examples/react-plain-text?file=src%2FApp.tsx&terminalHeight=0&ctl=1&showSidebar=0&devtoolsheight=0&view=preview), a link to a
+  Please provide a CodeSandbox (https://codesandbox.io/s/new) or (https://stackblitz.com/github/meta/lexical/tree/main/examples/react-plain-text?file=src%2FApp.tsx&terminalHeight=0&ctl=1&showSidebar=0&devtoolsheight=0&view=preview), a link to a
   repository on GitHub, or provide a minimal code example that reproduces the
   problem. You may provide a screenshot of the application if you think it is
   relevant to your bug report. Here are some tips for providing a minimal

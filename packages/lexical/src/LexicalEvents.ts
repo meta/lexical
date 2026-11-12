@@ -133,6 +133,8 @@ import {
   $getDOMTextNode,
   $getNearestNodeFromDOMNode,
   $getNodeByKey,
+  $isEventFromEmbeddedInput,
+  $isSelectionCapturedInDecoratorInput,
   $isTokenOrSegmented,
   $isTokenOrTab,
   $setSelection,
@@ -655,7 +657,7 @@ const FOCUSABLE_SELECTOR =
 // iOS answers that focus by opening the keyboard and scrolling to reveal the
 // caret. A decorator is selected with a NodeSelection, which leaves no DOM
 // caret, so iOS reveals the top of the editor instead and the page jumps
-// (facebook/lexical#9112). Cancelling the mousedown keeps the keyboard closed;
+// (meta/lexical#9112). Cancelling the mousedown keeps the keyboard closed;
 // the click still follows, so CLICK_COMMAND handlers select the node as usual.
 //
 // When the editor did not have focus, it is focused from code instead, with
@@ -1180,12 +1182,20 @@ export function registerDefaultCommandHandlers(editor: LexicalEditor) {
  * such an event into a Lexical command would insert text into the editor
  * instead of the focused control.
  *
+ * A focused `<input>`, `<textarea>` or foreign contentEditable in any node's
+ * DOM owns its input events too, as
+ * {@link $isSelectionCapturedInDecoratorInput} decides, even in unmanaged DOM
+ * that wasn't marked with `captureSelection`: an `<input>` that a render
+ * override adds beside a paragraph's children, say. Firefox gives the
+ * `insertFromPaste` input event of a paste there the pasted text as its data,
+ * which would otherwise be inserted at the editor's selection as well.
+ *
  * Two signals are checked because Firefox 152 changed how it dispatches
  * `beforeinput` for these controls (#8738): the event is retargeted off of the
  * focused control, so its composed target no longer points at it. The deep
  * active element still does, and is used as a fallback.
  */
-function isInputEventTargetingCapturedSelection(
+function $isInputEventTargetingCapturedSelection(
   event: InputEvent,
   editor: LexicalEditor,
 ): boolean {
@@ -1209,7 +1219,8 @@ function isInputEventTargetingCapturedSelection(
   return (
     activeElement !== null &&
     rootElement.contains(activeElement) &&
-    isDOMCapturingSelection(activeElement, editor)
+    (isDOMCapturingSelection(activeElement, editor) ||
+      $isSelectionCapturedInDecoratorInput(rootElement, activeElement))
   );
 }
 
@@ -1239,7 +1250,7 @@ function onBeforeInput(event: InputEvent, editor: LexicalEditor): void {
   updateEditorSync(
     editor,
     () => {
-      if (!isInputEventTargetingCapturedSelection(event, editor)) {
+      if (!$isInputEventTargetingCapturedSelection(event, editor)) {
         dispatchCommand(editor, BEFORE_INPUT_COMMAND, event);
       }
     },
@@ -1659,8 +1670,8 @@ function onInput(event: InputEvent, editor: LexicalEditor): void {
   // Note that the MutationObserver may or may not have already fired,
   // but the DOM and selection may have already changed.
   // See also:
-  // - https://github.com/facebook/lexical/issues/7028
-  // - https://github.com/facebook/lexical/pull/794
+  // - https://github.com/meta/lexical/issues/7028
+  // - https://github.com/meta/lexical/pull/794
 
   // We don't want the onInput to bubble, in the case of nested editors.
   event.stopPropagation();
@@ -1674,7 +1685,7 @@ function onInput(event: InputEvent, editor: LexicalEditor): void {
   updateEditorSync(
     editor,
     () => {
-      if (!isInputEventTargetingCapturedSelection(event, editor)) {
+      if (!$isInputEventTargetingCapturedSelection(event, editor)) {
         editor.dispatchCommand(INPUT_COMMAND, event);
       }
     },
@@ -2031,9 +2042,12 @@ function onKeyDown(event: KeyboardEvent, editor: LexicalEditor): void {
     // The virtual keyboard emits Shift events for manual toggles, but not for
     // automatic capitalization. Other key events may clear this state, never
     // set it, since their shiftKey flag also reflects automatic capitalization.
+    // Opening the #+= symbols plane sends the same Shift keydown and keeps
+    // shiftKey set through the symbols until after the next Return, so Shift
+    // only counts for an Enter pressed right after it: any other key clears it.
     inputState.isShiftKeyDown =
       event.key === 'Shift' ||
-      (inputState.isShiftKeyDown && event.shiftKey && event.key !== 'CapsLock');
+      (inputState.isShiftKeyDown && event.shiftKey && event.key === 'Enter');
   }
   inputState.lastKeyDownTimeStamp = event.timeStamp;
   inputState.lastKeyCode = event.key;
@@ -2131,7 +2145,13 @@ function buildKeyDownShortcuts(): KeyDownShortcut[] {
     modifiers: CONTROL_OR_META,
     onMatch: (event, editor) => {
       const prevSelection = editor._editorState._selection;
-      if (prevSelection !== null && !$isRangeSelection(prevSelection)) {
+      // A copy or cut in an input embedded in a node's DOM is the input's.
+      // Preventing the keydown would stop the browser from firing it at all.
+      if (
+        prevSelection !== null &&
+        !$isRangeSelection(prevSelection) &&
+        !$isEventFromEmbeddedInput(event)
+      ) {
         event.preventDefault();
         dispatchCommand(editor, command, event);
       }
@@ -2303,7 +2323,16 @@ function $selectMouseDown(
 const activeNestedEditorsMap: Map<string, LexicalEditor> = new Map();
 
 function onDocumentSelectionChange(event: Event): void {
-  const domSelection = getDOMSelectionFromTarget(event.target);
+  const target = event.target;
+  // Text controls have their own selection. Their bubbling selectionchange
+  // events do not indicate a change to the document's selection.
+  if (
+    isHTMLElement(target) &&
+    (target.nodeName === 'INPUT' || target.nodeName === 'TEXTAREA')
+  ) {
+    return;
+  }
+  const domSelection = getDOMSelectionFromTarget(target);
   if (domSelection === null) {
     return;
   }
@@ -2324,7 +2353,7 @@ function onDocumentSelectionChange(event: Event): void {
   // landing inside outer's tree) never wins because we have already broken
   // out of the loop.
 
-  const ownerDocument = getDOMOwnerDocument(event.target);
+  const ownerDocument = getDOMOwnerDocument(target);
   let nextActiveEditor: LexicalEditor | null = null;
   const registration =
     ownerDocument !== null

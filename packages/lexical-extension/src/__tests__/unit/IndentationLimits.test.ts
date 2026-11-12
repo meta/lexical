@@ -20,6 +20,7 @@ import {
   $createTextNode,
   $getRoot,
   $isElementNode,
+  $isParagraphNode,
   $selectAll,
   configExtension,
   defineExtension,
@@ -27,9 +28,8 @@ import {
   type LexicalEditor,
   type LexicalNode,
   OUTDENT_CONTENT_COMMAND,
-  type ParagraphNode,
 } from 'lexical';
-import {expect, test} from 'vitest';
+import {assert, expect, test} from 'vitest';
 
 import {buildEditorFromExtensions, TabIndentationExtension} from '../../index';
 
@@ -66,6 +66,12 @@ function $items(
   return $isElementNode(node) ? node.getChildren().flatMap($items) : [];
 }
 
+function $getParagraphIndent(): number {
+  const paragraph = $getRoot().getFirstChildOrThrow();
+  assert($isParagraphNode(paragraph));
+  return paragraph.getIndent();
+}
+
 test.each(['', 'World'])('caps paragraph indentation for %j', text => {
   using editor = createEditor();
   editor.update(
@@ -79,11 +85,7 @@ test.each(['', 'World'])('caps paragraph indentation for %j', text => {
   );
   for (let i = 1; i <= 14; i++) {
     indent(editor, 1);
-    expect(
-      editor.read(() =>
-        $getRoot().getFirstChildOrThrow<ParagraphNode>().getIndent(),
-      ),
-    ).toBe(Math.min(i, 6));
+    expect(editor.read($getParagraphIndent)).toBe(Math.min(i, 6));
   }
 });
 
@@ -167,11 +169,7 @@ test.each([0, 0.025, 0.05, 0.075, 1, 6])(
         },
         {discrete: true},
       );
-      expect(
-        editor.read(() =>
-          $getRoot().getFirstChildOrThrow<ParagraphNode>().getIndent(),
-        ),
-      ).toBe(Math.max(0, initial - i));
+      expect(editor.read($getParagraphIndent)).toBe(Math.max(0, initial - i));
     }
   },
 );

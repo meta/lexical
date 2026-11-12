@@ -6,8 +6,6 @@
  *
  */
 
-import type {SelectionDetails} from '@zag-js/combobox';
-
 import './StyleViewPlugin.css';
 
 import {
@@ -641,7 +639,7 @@ function useSuggestedStylesCombobox(props: CSSPropertyComboBoxProps) {
         .join('\n'),
     );
   };
-  const handleSelect = (details: SelectionDetails) => {
+  const handleSelect = (details: Combobox.SelectionDetails) => {
     props.onAddProperty(details.itemValue as keyof StyleObject);
     combobox.setInputValue('');
   };

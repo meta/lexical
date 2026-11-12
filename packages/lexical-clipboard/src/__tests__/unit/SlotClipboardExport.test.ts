@@ -341,7 +341,7 @@ describe('slot clipboard export', () => {
     });
   });
 
-  // Regression for facebook/lexical#8712: the slot-frame redirect that lets
+  // Regression for meta/lexical#8712: the slot-frame redirect that lets
   // a selection inside a slot subtree export through its frame (instead of
   // root, which is shadow-isolated from the slot) only ran for
   // RangeSelection. A NodeSelection on a node nested inside a slot

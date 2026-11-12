@@ -1,0 +1,104 @@
+name: '@lexical/y lanes (nightly)'
+
+# Randomized lanes for @lexical/y's composition hold and what runs when it
+# ends (packages/lexical-y/src/__tests__/unit/LaneFuzz.test.ts), run on many
+# more histories than the unit tests' smoke slice. Each night takes a new seed
+# range derived from the date (printed in the job summary, with each
+# known-open class's count and ceiling); a failure, or a known-open class
+# past its ceiling, fails the job, and a failure prints a minimized repro
+# with its replay command. Every job uploads its known-open counts, its
+# findings and any repros as artifacts.
+
+on:
+  schedule:
+    - cron: '17 6 * * *'
+  workflow_dispatch:
+    inputs:
+      histories:
+        description: 'Histories per lane and gc setting'
+        required: true
+        default: '3000'
+        type: string
+      seed-start:
+        description: 'First seed (empty: the date-derived nightly range)'
+        required: false
+        default: ''
+        type: string
+      strict:
+        description: 'Fail the known-open classes too'
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  lanes:
+    # Forks do not run the nightly schedule.
+    if: github.repository_owner == 'meta'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        lane: [blockconv, carry, nohold]
+        gc: ['0', '1']
+    env:
+      CI: true
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup-pnpm
+        with:
+          node-version: 24.x
+      - name: Pick the seed range
+        id: seeds
+        env:
+          INPUT_HISTORIES: ${{ inputs.histories }}
+          INPUT_SEED_START: ${{ inputs.seed-start }}
+        run: |
+          n="${INPUT_HISTORIES:-3000}"
+          # Plain decimal integers only, checked before any arithmetic (the
+          # shell evaluates an expression in an arithmetic context).
+          if ! [[ "$n" =~ ^[1-9][0-9]{0,5}$ ]]; then
+            echo "::error::histories must be an integer from 1 to 999999, got '$n'"
+            exit 1
+          fi
+          if [ -n "$INPUT_SEED_START" ] && ! [[ "$INPUT_SEED_START" =~ ^[1-9][0-9]{0,8}$ ]]; then
+            echo "::error::seed-start must be an integer from 1 to 999999999, got '$INPUT_SEED_START'"
+            exit 1
+          fi
+          if [ -n "$INPUT_SEED_START" ]; then
+            start="$INPUT_SEED_START"
+          else
+            # A new range each day, cycling every 1000 days.
+            day=$(( $(date -u +%s) / 86400 ))
+            start=$(( (day % 1000) * n + 1 ))
+          fi
+          echo "start=$start" >> "$GITHUB_OUTPUT"
+          echo "n=$n" >> "$GITHUB_OUTPUT"
+          echo "Lane ${{ matrix.lane }}, gc ${{ matrix.gc }}: seeds $start to $(( start + n - 1 ))" | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: Run the lane
+        env:
+          LANES: ${{ matrix.lane }}
+          LANE_GC: ${{ matrix.gc }}
+          LANE_SEED_START: ${{ steps.seeds.outputs.start }}
+          LANE_SEEDS: ${{ steps.seeds.outputs.n }}
+          LANE_STRICT: ${{ inputs.strict && '1' || '' }}
+          LANE_OUT: ${{ runner.temp }}/lane-repros
+        run: pnpm exec vitest run --project unit packages/lexical-y/src/__tests__/unit/LaneFuzz.test.ts
+      # Every run: known-open-<lane>-gc<n>.json (each class's count and
+      # ceiling), findings.jsonl (one line per history with a finding,
+      # known-open ones included) and, on failure, the minimized repros.
+      - name: Upload the findings and minimized repros
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: lane-findings-${{ matrix.lane }}-gc${{ matrix.gc }}
+          path: ${{ runner.temp }}/lane-repros
+          if-no-files-found: ignore
+          retention-days: 30

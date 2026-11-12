@@ -95,6 +95,7 @@ export {
   $mergeCells,
   $moveTableColumn,
   $moveTableRow,
+  $padTableRows,
   $removeTableRowAtIndex,
   $setTableColumnIsHeader,
   $setTableRowIsHeader,

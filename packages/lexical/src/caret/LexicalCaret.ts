@@ -15,6 +15,7 @@ import {$getSlotHost, $getSlotHostKey, $getSlotMap} from '../LexicalSlot';
 import {$getRoot, $isRootOrShadowRoot} from '../LexicalUtils';
 import {$isElementNode, type ElementNode} from '../nodes/LexicalElementNode';
 import {$isRootNode} from '../nodes/LexicalRootNode';
+import {$setTextContentSpliced} from '../nodes/LexicalTextNode';
 
 /**
  * The direction of a caret, 'next' points towards the end of the document
@@ -1089,9 +1090,8 @@ class TextPointCaretSliceImpl<
       caret: {origin, direction},
     } = this;
     const [indexStart, indexEnd] = this.getSliceIndices();
-    const text = origin.getTextContent();
     return $getTextPointCaret(
-      origin.setTextContent(text.slice(0, indexStart) + text.slice(indexEnd)),
+      $setTextContentSpliced(origin, indexStart, indexEnd - indexStart, ''),
       direction,
       indexStart,
     );

@@ -32,6 +32,7 @@ import {
   getActiveEditorState,
 } from '../LexicalUpdates';
 import {errorOnInsertTextNodeOnRoot} from '../LexicalUtils';
+import {$textEditLog} from '../nodes/LexicalTextNode';
 
 /**
  * Connect the two sides of a child-list gap. Null denotes the parent's
@@ -59,8 +60,13 @@ function $linkSiblings(
 
 // Record the operation rather than infer it from changed sibling pointers:
 // shifted siblings also have different pointers, but must keep their identity.
-function $recordNodeMove(node: LexicalNode): void {
+// The removal is also an entry of the text edits (EditorState#_textEdits),
+// while the editor records those.
+function $recordNodeMove(node: LexicalNode, parent: ElementNode): void {
   const editor = getActiveEditor();
+  if (editor._recordTextEdits) {
+    $textEditLog(editor).push(['detach', node.__key, parent.__key]);
+  }
   if (!editor._recordNodeMoves) {
     return;
   }
@@ -99,6 +105,18 @@ export function $insertNodeBetween(
     writablePrevious === null ? null : writablePrevious.__key;
   writableNode.__next = writableNext === null ? null : writableNext.__key;
   writableNode.__parent = writableParent.__key;
+  const editor = getActiveEditor();
+  if (editor._recordTextEdits) {
+    // An entry of the text edits (EditorState#_textEdits).
+    $textEditLog(editor).push([
+      'attach',
+      key,
+      writableParent.__key,
+      writableNode.__prev,
+      writableNode.__next,
+      $isTextNode(writableNode) ? writableNode.__text : null,
+    ]);
+  }
 }
 
 /**
@@ -116,7 +134,7 @@ export function $detachNode(writableNode: LexicalNode): void {
   const parent = writableNode.getParent();
   if (parent !== null) {
     const writableParent = parent.getWritable();
-    $recordNodeMove(writableNode);
+    $recordNodeMove(writableNode, writableParent);
     const previous = writableNode.getPreviousSibling();
     const next = writableNode.getNextSibling();
     $linkSiblings(
@@ -155,7 +173,7 @@ export function $detachSiblingRange(
   $linkSiblings(writableParent, previous, next);
   writableParent.__size -= nodes.length;
   return nodes.map(writable => {
-    $recordNodeMove(writable);
+    $recordNodeMove(writable, writableParent);
     writable.__prev = null;
     writable.__next = null;
     writable.__parent = null;

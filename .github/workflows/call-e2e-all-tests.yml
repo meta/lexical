@@ -180,6 +180,19 @@ jobs:
       browser: ${{ matrix.browser }}
       editor-mode: 'rich-text-with-collab-v2'
 
+  collab-y-linux:
+    needs: [build-ubuntu]
+    strategy:
+      matrix:
+        node-version: [24.x]
+        browser: ['chromium', 'firefox']
+    uses: ./.github/workflows/call-e2e-test.yml
+    with:
+      os: 'ubuntu-latest'
+      node-version: ${{ matrix.node-version }}
+      browser: ${{ matrix.browser }}
+      editor-mode: 'rich-text-with-collab-y'
+
   collab-windows:
     needs: [build-windows]
     strategy:

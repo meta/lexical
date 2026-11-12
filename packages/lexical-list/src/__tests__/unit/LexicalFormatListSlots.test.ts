@@ -56,7 +56,7 @@ function $createHostWithSlottedList(): {
 // A named-slot value has no __parent (its up-link is __slotHost), so it is not
 // eligible for generic list conversion: the slot assignment is managed by the
 // node or extension that owns the slot. See the review discussion on
-// facebook/lexical#8901 ($setBlocksType has the same rule).
+// meta/lexical#8901 ($setBlocksType has the same rule).
 describe('$insertList and named slots', () => {
   test('no-ops on a non-empty bare-block slot value', () => {
     runInEditor(() => {

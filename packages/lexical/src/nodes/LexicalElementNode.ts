@@ -69,10 +69,12 @@ import {
   $getSlotsTextContent,
   $getSlotsTextContentSize,
 } from '../LexicalSlot';
+import {INTERNAL_isNodeStructureEnforced} from '../LexicalStructure';
 import {errorOnReadOnly, getActiveEditor} from '../LexicalUpdates';
 import {
   $getDOMSlot,
   $getNodeByKey,
+  $getTextInsideCache,
   $isRootOrShadowRoot,
   getNodeKeyFromDOMNode,
   isDOMUnmanaged,
@@ -166,8 +168,8 @@ const elementNodeSchema = nodeSchema<ElementNode>()({
   indent: withField(numberValue(0, {integer: true, min: 0}), {
     field: '__indent',
   }),
-  // Persisted only for an element with no TextNode child (see #7968), which
-  // `shouldSerializeTextStyles` decides. Declaring that as the field it is
+  // Persisted only for an element with no text to derive them from (see
+  // #7968), which `shouldSerializeTextStyles` decides. Declaring that as the field it is
   // plus the predicate that gates it — rather than reading through
   // `getSerializedTextFormat`/`getSerializedTextStyle` — keeps both on the
   // direct-field path, and lets generated code call the shared predicate once
@@ -224,7 +226,14 @@ export type ElementFormatType =
  * @internal
  */
 function $normalizeShadowRootChildren(node: ElementNode): void {
-  if ($isRootOrShadowRoot(node)) {
+  // Where NodeStructureExtension enforces declared structure, it wraps these
+  // children itself (a root or shadow root holds blocks), after their own
+  // repairs: an empty inline element it removes is then never wrapped, which
+  // it would be here if this transform ran first.
+  if (
+    $isRootOrShadowRoot(node) &&
+    !INTERNAL_isNodeStructureEnforced(getActiveEditor())
+  ) {
     let block: ElementNode | null = null;
     for (const child of node.getChildren()) {
       block = child.isInline()
@@ -379,14 +388,6 @@ export class ElementNode
   /**
    * Returns the children of this node, in document order.
    */
-  getChildren(): LexicalNode[];
-  /**
-   * @deprecated The type parameter is an unchecked and unsafe cast,
-   * equivalent to `element.getChildren() as T[]`, and will be
-   * removed in a future release. Call this method without a type argument
-   * and narrow the results with a type guard instead.
-   */
-  getChildren<T extends LexicalNode>(): T[];
   getChildren(): LexicalNode[] {
     return $collectSiblingNodes(this.getFirstChild(), 'next');
   }
@@ -458,14 +459,6 @@ export class ElementNode
    * Descendant navigation is children-only by design: it feeds selectStart /
    * selectEnd and selection, which must not see slots (slots are isolated).
    */
-  getFirstDescendant(): null | LexicalNode;
-  /**
-   * @deprecated The type parameter is an unchecked and unsafe cast,
-   * equivalent to `element.getFirstDescendant() as T | null`, and will be
-   * removed in a future release. Call this method without a type argument
-   * and narrow the result with a type guard instead.
-   */
-  getFirstDescendant<T extends LexicalNode>(): null | T;
   getFirstDescendant(): null | LexicalNode {
     let node = this.getFirstChild();
     while ($isElementNode(node)) {
@@ -481,14 +474,6 @@ export class ElementNode
    * Returns the deepest last descendant of this node,
    * or null if it has no children.
    */
-  getLastDescendant(): null | LexicalNode;
-  /**
-   * @deprecated The type parameter is an unchecked and unsafe cast,
-   * equivalent to `element.getLastDescendant() as T | null`, and will be
-   * removed in a future release. Call this method without a type argument
-   * and narrow the result with a type guard instead.
-   */
-  getLastDescendant<T extends LexicalNode>(): null | T;
   getLastDescendant(): null | LexicalNode {
     let node = this.getLastChild();
     while ($isElementNode(node)) {
@@ -504,14 +489,6 @@ export class ElementNode
    * Returns the deepest descendant corresponding to the child at the given
    * index, or null if this node has no children.
    */
-  getDescendantByIndex(index: number): null | LexicalNode;
-  /**
-   * @deprecated The type parameter is an unchecked and unsafe cast,
-   * equivalent to `element.getDescendantByIndex(index) as T | null`, and
-   * will be removed in a future release. Call this method without a type
-   * argument and narrow the result with a type guard instead.
-   */
-  getDescendantByIndex<T extends LexicalNode>(index: number): null | T;
   getDescendantByIndex(index: number): null | LexicalNode {
     const atEnd = index >= this.getChildrenSize();
     const child = atEnd ? this.getLastChild() : this.getChildAtIndex(index);
@@ -524,14 +501,6 @@ export class ElementNode
   /**
    * Returns the first child of this node, or null if it has no children.
    */
-  getFirstChild(): null | LexicalNode;
-  /**
-   * @deprecated The type parameter is an unchecked and unsafe cast,
-   * equivalent to `element.getFirstChild() as T | null`, and will be
-   * removed in a future release. Call this method without a type argument
-   * and narrow the result with a type guard instead.
-   */
-  getFirstChild<T extends LexicalNode>(): null | T;
   getFirstChild(): null | LexicalNode {
     const self = this.getLatest();
     const firstKey = self.__first;
@@ -540,14 +509,6 @@ export class ElementNode
   /**
    * Returns the first child of this node, or throws if it has no children.
    */
-  getFirstChildOrThrow(): LexicalNode;
-  /**
-   * @deprecated The type parameter is an unchecked and unsafe cast,
-   * equivalent to `element.getFirstChildOrThrow() as T`, and will be
-   * removed in a future release. Call this method without a type argument
-   * and narrow the result with a type guard instead.
-   */
-  getFirstChildOrThrow<T extends LexicalNode>(): T;
   getFirstChildOrThrow(): LexicalNode {
     const firstChild = this.getFirstChild();
     if (firstChild === null) {
@@ -558,14 +519,6 @@ export class ElementNode
   /**
    * Returns the last child of this node, or null if it has no children.
    */
-  getLastChild(): null | LexicalNode;
-  /**
-   * @deprecated The type parameter is an unchecked and unsafe cast,
-   * equivalent to `element.getLastChild() as T | null`, and will be
-   * removed in a future release. Call this method without a type argument
-   * and narrow the result with a type guard instead.
-   */
-  getLastChild<T extends LexicalNode>(): null | T;
   getLastChild(): null | LexicalNode {
     const self = this.getLatest();
     const lastKey = self.__last;
@@ -574,14 +527,6 @@ export class ElementNode
   /**
    * Returns the last child of this node, or throws if it has no children.
    */
-  getLastChildOrThrow(): LexicalNode;
-  /**
-   * @deprecated The type parameter is an unchecked and unsafe cast,
-   * equivalent to `element.getLastChildOrThrow() as T`, and will be
-   * removed in a future release. Call this method without a type argument
-   * and narrow the result with a type guard instead.
-   */
-  getLastChildOrThrow<T extends LexicalNode>(): T;
   getLastChildOrThrow(): LexicalNode {
     const lastChild = this.getLastChild();
     if (lastChild === null) {
@@ -593,14 +538,6 @@ export class ElementNode
    * Returns the child of this node at the given index, or null if
    * the index is out of range.
    */
-  getChildAtIndex(index: number): null | LexicalNode;
-  /**
-   * @deprecated The type parameter is an unchecked and unsafe cast,
-   * equivalent to `element.getChildAtIndex(index) as T | null`, and will
-   * be removed in a future release. Call this method without a type
-   * argument and narrow the result with a type guard instead.
-   */
-  getChildAtIndex<T extends LexicalNode>(index: number): null | T;
   getChildAtIndex(index: number): null | LexicalNode {
     const size = this.getChildrenSize();
     let node: null | LexicalNode;
@@ -942,7 +879,7 @@ export class ElementNode
         // to use `padding-right` in RTL languages, `padding-left` in `LTR` languages, or
         // `text-indent` if you are ok with first-line indents.
         // We recommend keeping multiples of 40px to maintain consistency with list-items
-        // (see https://github.com/facebook/lexical/pull/4025)
+        // (see https://github.com/meta/lexical/pull/4025)
         element.style.paddingInlineStart = `${indent * 40}px`;
         // Authoritative round-trip signal. padding-inline-start can be a
         // non-40px multiple (custom `--lexical-indent-base-value`) or a
@@ -960,8 +897,12 @@ export class ElementNode
   }
   // JSON serialization
   /**
-   * Whether `textFormat`/`textStyle` are persisted at all: only when there are
-   * no TextNode children from which they would be set on reconcile (#7968).
+   * Whether `textFormat`/`textStyle` are persisted at all: only when there is
+   * no text from which they would be set on reconcile (#7968). That is a
+   * TextNode child, and for an inline element (a link, a mark) a TextNode
+   * anywhere inside it (a mark in a link), whose first text a reconcile takes
+   * them from as well. A block keeps the direct-children check, so its JSON
+   * is unchanged.
    *
    * @internal
    */
@@ -969,20 +910,7 @@ export class ElementNode
     if ($isRootOrShadowRoot(this)) {
       return false;
     }
-    // Walked rather than materialized with getChildren(), and it exits at the
-    // first TextNode. Both callers below test their own value first, so an
-    // element with a default textFormat/textStyle — every element that has
-    // many non-text children in practice — never reaches this at all.
-    for (
-      let child = this.getFirstChild();
-      child !== null;
-      child = child.getNextSibling()
-    ) {
-      if ($isTextNode(child)) {
-        return false;
-      }
-    }
-    return true;
+    return !$hasTextChild(this, this.isInline());
   }
 
   /** @internal Serialized `textFormat`, or undefined to omit it. */
@@ -1150,6 +1078,59 @@ export function $isElementNode(
   node: LexicalNode | null | undefined,
 ): node is ElementNode {
   return node instanceof ElementNode;
+}
+
+/**
+ * Whether `element` has a TextNode child or, when `deep`, a TextNode at any
+ * depth inside it. Walked rather than materialized with getChildren(), and it
+ * exits at the first TextNode. Both callers of shouldSerializeTextStyles test
+ * their own value first, so an element with a default textFormat/textStyle
+ * (every element that has many non-text children in practice) never reaches
+ * this at all.
+ */
+function $hasTextChild(element: ElementNode, deep: boolean): boolean {
+  if (deep) {
+    return $hasTextInside(element, $getTextInsideCache());
+  }
+  for (
+    let child = element.getFirstChild();
+    child !== null;
+    child = child.getNextSibling()
+  ) {
+    if ($isTextNode(child)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * $hasTextChild's deep walk; with a cache (see $getTextInsideCache), every
+ * element it visits is cached.
+ */
+function $hasTextInside(
+  element: ElementNode,
+  cache: Map<NodeKey, boolean> | null,
+): boolean {
+  const key = element.getKey();
+  const cached = cache !== null ? cache.get(key) : undefined;
+  if (cached !== undefined) {
+    return cached;
+  }
+  let found = false;
+  for (
+    let child = element.getFirstChild();
+    child !== null && !found;
+    child = child.getNextSibling()
+  ) {
+    found =
+      $isTextNode(child) ||
+      ($isElementNode(child) && $hasTextInside(child, cache));
+  }
+  if (cache !== null) {
+    cache.set(key, found);
+  }
+  return found;
 }
 
 function isPointRemoved(

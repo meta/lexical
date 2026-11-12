@@ -13,6 +13,7 @@ import type {
   MdastExportRule,
   MdastImportHandler,
   MdastImportRule,
+  MdastPunctuationMode,
   MicromarkExtension,
   ToMarkdownExtension,
 } from './types';
@@ -57,10 +58,9 @@ import {
   gfmTaskListItemToMarkdown,
 } from 'mdast-util-gfm-task-list-item';
 import {gfmAutolinkLiteral} from 'micromark-extension-gfm-autolink-literal';
-import {gfmStrikethrough} from 'micromark-extension-gfm-strikethrough';
 import {gfmTaskListItem} from 'micromark-extension-gfm-task-list-item';
 
-import {compileMdast} from './compile';
+import {compileMdast, getStrikethroughSyntax} from './compile';
 import {
   $exportCode,
   $exportHeading,
@@ -125,6 +125,30 @@ export interface MdastConfig {
    * (e.g. `'='` for `==highlight==`).
    */
   readonly inlineShortcutTriggers: readonly string[];
+  /**
+   * How import reads emphasis and strikethrough markers beside punctuation.
+   * Defaults to `'cjk-friendly'`, which reads Markdown such as
+   * `**你好。**世界` as its CJK writer meant and everything else as
+   * CommonMark does.
+   */
+  readonly importPunctuation?: MdastPunctuationMode;
+  /**
+   * Which readers export writes emphasis and strikethrough markers for.
+   * Defaults to `'strict-commonmark'`, which writes a character reference where
+   * a marker beside punctuation would otherwise not open or close
+   * (`**你好。**&#x4E16;界`), so that every CommonMark, GFM and CJK-friendly reader
+   * reads it the same way, but for a run of three or more markers that a pair
+   * uses only part of (`***a*b*c***`, `***x****y*`), which commonmark.js and markdown-it read
+   * differently from micromark, and a selector after a tab, a line ending, a
+   * vertical tab or a form feed that ends a run (`**。\v︎**`), which
+   * `markdown-it-cjk-friendly` reads as that whitespace, leaving those
+   * markers literal, and a vertical tab beside a marker (`p\v**.**\vq`),
+   * which cmark and cmark-gfm don't read as whitespace and no reference can
+   * stand for. `'cjk-friendly'` writes such CJK text as typed
+   * (`**你好。**世界`, `**你好。**abc`), for readers that follow the
+   * CJK-friendly amendment, such as a CJK-friendly import.
+   */
+  readonly exportPunctuation?: MdastPunctuationMode;
 }
 
 /**
@@ -178,15 +202,17 @@ export interface MdastExtensionOutput {
    */
   $convertToMdast(node?: ElementNode): Root;
   /**
-   * Serializes only the selected content (defaulting to the current
-   * selection) to a Markdown string: leaves outside the selection are
-   * skipped, partially selected text nodes are sliced to the selected
-   * range, and elements are kept when they or any descendant are selected.
-   * Returns `''` for a null or collapsed selection. Must be called inside
-   * an `editor.read()` or `editor.update()`. The export runs under
+   * Serializes only the selected content (defaulting to the current selection)
+   * to a Markdown string: leaves outside the selection are skipped, partially
+   * selected text nodes are sliced to the selected range, and elements are
+   * kept when they or any descendant are selected (export rules may write
+   * less: a GFM table writes a text or node selection within one of its cells
+   * as that cell's blocks, as copying in a cell does). Returns `''` for a null
+   * or collapsed selection. Must be called inside an `editor.read()` or
+   * `editor.update()`. The export runs under
    * {@link RenderContextMarkdownSelection} carrying the selection, so
-   * contributed export rules and to-markdown handlers can scope their
-   * output to a selection export.
+   * contributed export rules and to-markdown handlers can scope their output
+   * to a selection export.
    */
   $convertSelectionToMarkdownString(selection?: BaseSelection | null): string;
   /**
@@ -267,7 +293,9 @@ export const MdastExtension = defineExtension<
     };
   },
   config: safeCast<MdastConfig>({
+    exportPunctuation: 'strict-commonmark',
     exportRules: CORE_EXPORT_RULES,
+    importPunctuation: 'cjk-friendly',
     importRules: CORE_IMPORT_RULES,
     // Core CommonMark inline formatting; feature extensions contribute
     // their own types/triggers (links add 'link'/')', strikethrough adds
@@ -290,7 +318,9 @@ export const MdastExtension = defineExtension<
       return contributed ? [...contributed, ...existing] : existing;
     }
     return shallowMergeConfig(config, {
+      exportPunctuation: partial.exportPunctuation || config.exportPunctuation,
       exportRules: mergeArray(partial.exportRules, config.exportRules),
+      importPunctuation: partial.importPunctuation || config.importPunctuation,
       importRules: mergeArray(partial.importRules, config.importRules),
       inlineShortcutTriggers: mergeArray(
         partial.inlineShortcutTriggers,
@@ -544,7 +574,7 @@ export const MdastStrikethroughExtension = defineExtension({
       inlineShortcutTriggers: ['~'],
       inlineShortcutTypes: ['delete'],
       mdastExtensions: [/* @__PURE__ */ gfmStrikethroughFromMarkdown()],
-      micromarkExtensions: [/* @__PURE__ */ gfmStrikethrough()],
+      micromarkExtensions: [getStrikethroughSyntax()],
       toMarkdownExtensions: [/* @__PURE__ */ gfmStrikethroughToMarkdown()],
     }),
   ],

@@ -302,6 +302,25 @@ describe('which calls count as a factory', () => {
     ).toBeNull();
   });
 
+  it('follows a relative import through a re-export', () => {
+    const result = transformPureAnnotations(
+      [
+        `import {definePureThingAgain, defineImpureThing, pureThings} from './fixtures/reexports';`,
+        `export const pure = definePureThingAgain({name: 'pure'});`,
+        `export const impure = defineImpureThing({name: 'impure'});`,
+        `export const one = pureThings.of(1);`,
+      ].join('\n'),
+      {
+        filename: path.join(__dirname, 'virtual.ts'),
+        functions: ['definePureThingAgain', 'defineImpureThing'],
+      },
+    );
+    expect(result!.code).toContain(`= ${PURE}definePureThingAgain(`);
+    expect(result!.code).toContain(`= defineImpureThing(`);
+    expect(result!.code).toContain(`= ${PURE}pureThings.of(1)`);
+    expect(result!.count).toBe(2);
+  });
+
   it('follows a relative import to an overloaded declaration', () => {
     // The annotation is on the first signature (a TSDeclareFunction), not on
     // the implementation that follows it.

@@ -192,7 +192,7 @@ test('IME composition inserts Korean text', async () => {
 });
 ```
 
-For a complete working setup with vitest browser mode configured from scratch, see the [`website-toolbar` example](https://github.com/facebook/lexical/tree/main/examples/website-toolbar).
+For a complete working setup with vitest browser mode configured from scratch, see the [`website-toolbar` example](https://github.com/meta/lexical/tree/main/examples/website-toolbar).
 
 ## End-to-end (E2E) tests
 

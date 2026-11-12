@@ -18,12 +18,13 @@ import type {
   LexicalNode,
   StateConfig,
 } from 'lexical';
+import type {Signal} from '@lexical/extension';
 
 // ContextRecord types
 
 type AnyContextSymbol = symbol;
 
-type ContextRecord<K extends symbol> = {readonly [string | symbol]: unknown};
+type ContextRecord<K extends symbol> = {readonly [key: string | symbol]: unknown};
 
 type ContextConfig<Sym extends symbol, V> = StateConfig<symbol, V>;
 

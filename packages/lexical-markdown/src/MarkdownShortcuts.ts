@@ -11,11 +11,12 @@ import invariant from '@lexical/internal/invariant';
 import {
   $addUpdateTag,
   $createRangeSelection,
+  $getNodeByKey,
   $getSelection,
+  $isBlockContainer,
   $isElementNode,
   $isLineBreakNode,
   $isRangeSelection,
-  $isRootOrShadowRoot,
   $isTextNode,
   $setSelection,
   COLLABORATION_TAG,
@@ -42,7 +43,13 @@ import {
   type Transformer,
   TRANSFORMERS,
 } from './MarkdownTransformers';
-import {indexBy, PUNCTUATION_OR_SPACE, transformersByType} from './utils';
+import {
+  characterAt,
+  characterBefore,
+  indexBy,
+  isPunctuationOrSpace,
+  transformersByType,
+} from './utils';
 
 function runElementTransformers(
   parentNode: ElementNode,
@@ -54,7 +61,7 @@ function runElementTransformers(
   const grandParentNode = parentNode.getParent();
 
   if (
-    !$isRootOrShadowRoot(grandParentNode) ||
+    !$isBlockContainer(grandParentNode) ||
     parentNode.getFirstChild() !== anchorNode
   ) {
     return false;
@@ -108,7 +115,7 @@ function runMultilineElementTransformers(
   const grandParentNode = parentNode.getParent();
 
   if (
-    !$isRootOrShadowRoot(grandParentNode) ||
+    !$isBlockContainer(grandParentNode) ||
     parentNode.getFirstChild() !== anchorNode
   ) {
     return false;
@@ -248,12 +255,12 @@ function $runTextFormatTransformers(
     }
 
     // Some tags can not be used within words, hence should have newline/space/punctuation after it
-    const afterCloseTagChar = textContent[closeTagEndIndex + 1];
+    const afterCloseTagChar = characterAt(textContent, closeTagEndIndex + 1);
 
     if (
       matcher.intraword === false &&
       afterCloseTagChar &&
-      !PUNCTUATION_OR_SPACE.test(afterCloseTagChar)
+      !isPunctuationOrSpace(afterCloseTagChar)
     ) {
       continue;
     }
@@ -313,12 +320,15 @@ function $runTextFormatTransformers(
     }
 
     // Some tags can not be used within words, hence should have newline/space/punctuation before it
-    const beforeOpenTagChar = prevOpenNodeText[openTagStartIndex - 1];
+    const beforeOpenTagChar = characterBefore(
+      prevOpenNodeText,
+      openTagStartIndex,
+    );
 
     if (
       matcher.intraword === false &&
       beforeOpenTagChar &&
-      !PUNCTUATION_OR_SPACE.test(beforeOpenTagChar)
+      !isPunctuationOrSpace(beforeOpenTagChar)
     ) {
       continue;
     }
@@ -643,17 +653,21 @@ export function registerMarkdownShortcuts(
         }
 
         editor.update(() => {
-          if (!canContainTransformableMarkdown(anchorNode)) {
+          // Read the node again by its key: an update queued before this one
+          // (a collaboration binding reading the document again, say) may
+          // have replaced it, and then there is nothing to transform.
+          const node = $getNodeByKey(anchorKey);
+          if (node === null || !canContainTransformableMarkdown(node)) {
             return;
           }
 
-          const parentNode = anchorNode.getParent();
+          const parentNode = node.getParent();
 
           if (parentNode === null || $isCodeNode(parentNode)) {
             return;
           }
 
-          if ($transform(parentNode, anchorNode, selection.anchor.offset)) {
+          if ($transform(parentNode, node, anchorOffset)) {
             $addUpdateTag(HISTORY_PUSH_TAG);
           }
         });

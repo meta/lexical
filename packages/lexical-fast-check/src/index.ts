@@ -185,6 +185,11 @@ function metaArbitrary(meta: SerializationSchemaMeta): fc.Arbitrary<unknown> {
       return fc.constantFrom(...meta.values);
     case 'array':
       return fc.array(schemaArbitrary(meta.item));
+    case 'set':
+      // An `arraySetValue` reads any array of its items, in any order and
+      // with duplicates, so that is the input domain. It is only ever the
+      // whole value of a NodeState, never part of a node schema.
+      return fc.array(schemaArbitrary(meta.item));
     case 'nullable':
       return fc.option(schemaArbitrary(meta.inner), {nil: null});
     case 'optional':

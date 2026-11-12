@@ -9,12 +9,12 @@
     "aria"
   ],
   "license": "MIT",
-  "version": "0.52.0",
+  "version": "0.53.0",
   "main": "./dist/LexicalA11y.js",
   "types": "./dist/typescript-too-old.d.ts",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/facebook/lexical.git",
+    "url": "git+https://github.com/meta/lexical.git",
     "directory": "packages/lexical-a11y"
   },
   "module": "./dist/LexicalA11y.js",

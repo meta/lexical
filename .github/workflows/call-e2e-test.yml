@@ -46,8 +46,8 @@ jobs:
         shell: bash
         run: |
           pnpm exec concurrently -k -s first \
-            "pnpm run collab" \
-            "pnpm run test-e2e-collab-${{ inputs.editor-mode == 'rich-text-with-collab-v2' && 'v2-' || '' }}${{ inputs.prod && 'prod-' || '' }}${{ inputs.browser }} --shard=${{ inputs.shard-index }}/${{ inputs.shard-total }}"
+            "pnpm run ${{ inputs.editor-mode == 'rich-text-with-collab-y' && 'collab:y' || 'collab' }}" \
+            "pnpm run test-e2e-collab-${{ inputs.editor-mode == 'rich-text-with-collab-v2' && 'v2-' || inputs.editor-mode == 'rich-text-with-collab-y' && 'y-' || '' }}${{ inputs.prod && 'prod-' || '' }}${{ inputs.browser }} --shard=${{ inputs.shard-index }}/${{ inputs.shard-total }}"
       - name: Upload Artifacts
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v7

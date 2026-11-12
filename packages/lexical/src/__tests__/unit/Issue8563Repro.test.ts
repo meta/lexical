@@ -11,7 +11,7 @@ import {RichTextExtension} from '@lexical/rich-text';
 import {$createParagraphNode, $createTextNode, $getRoot} from 'lexical';
 import {describe, expect, test} from 'vitest';
 
-// Regression test for https://github.com/facebook/lexical/issues/8563
+// Regression test for https://github.com/meta/lexical/issues/8563
 //
 // Undo applies the previous editor state via `setEditorState`, which runs a
 // FULL_RECONCILE without routing any structural change through

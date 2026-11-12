@@ -217,7 +217,7 @@ function connect(clients: TestClient[]): void {
  * break). Returns the paragraph's key.
  *
  * This is the shape that triggered the bug fixed in
- * https://github.com/facebook/lexical/pull/8652: the caret's relative position
+ * https://github.com/meta/lexical/pull/8652: the caret's relative position
  * decodes to an index past the element's last child, which previously
  * collapsed to the start of the element.
  */
