@@ -26,6 +26,68 @@ package). It is separate from `@lexical/yjs`, the Yjs 13 binding that the
 [React guide](./react.md) uses: the two use different Yjs libraries and
 different document layouts, and a document uses one or the other.
 
+## Start here
+
+1. `const doc = createYDoc()`: the shared document, for your provider.
+2. `yCollab({doc, schemaVersion, synced, onStatus})` in the editor's
+   `dependencies` (`createYBinding(editor, {...})` for an editor built
+   without extensions).
+3. Connect your provider, sending `collab.handshake(generation)` before any
+   sync message.
+4. `collab.markSynced()` after its first sync.
+5. `collab.freeze()` when the server says the room moved on (a stale
+   generation): store what it returns before any reload.
+
+```ts
+import {
+  buildEditorFromExtensions,
+  getExtensionDependencyFromEditor,
+} from '@lexical/extension';
+import {RichTextExtension} from '@lexical/rich-text';
+import {
+  createYDoc,
+  Y_DEFAULTS,
+  yCollab,
+  YCollabExtension,
+  type YStatus,
+} from '@lexical/y';
+import {defineExtension} from 'lexical';
+
+// Bump it when you add, remove or change a node class or its fields.
+const SCHEMA_VERSION = 1;
+const showStatus = (status: YStatus) => {
+  // Tell the user when the document is read only, and why (status.cause).
+};
+
+const doc = createYDoc();
+const editor = buildEditorFromExtensions(
+  defineExtension({
+    dependencies: [
+      RichTextExtension,
+      yCollab({
+        doc,
+        history: Y_DEFAULTS.history, // the default
+        onStatus: status => showStatus(status),
+        root: Y_DEFAULTS.root, // the default
+        schemaVersion: SCHEMA_VERSION,
+        synced: false, // markSynced() after the provider's first sync
+      }),
+    ],
+    name: 'app',
+  }),
+);
+const {collab} = getExtensionDependencyFromEditor(
+  editor,
+  YCollabExtension,
+).output;
+// Connect `doc` to a Yjs 14 provider, sending collab.handshake(generation)
+// (null for a client with no local state) first; then, after its first sync:
+collab.markSynced();
+```
+
+The sections below describe the binding in full, with the earlier setup
+(`createYCollabConfig`, `binding.initialize()`), which keeps working.
+
 ## When to use it
 
 Use `@lexical/y` for a **new** collaborative editor that can run Yjs 14 on

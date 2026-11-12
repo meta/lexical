@@ -280,6 +280,7 @@ export function yjsMembers() {
       doc: (u: UndoManager) => isObject(u.doc),
       emit: (u: UndoManager) => isFunction(u.emit),
       lastChange: (u: UndoManager) => typeof u.lastChange === 'number',
+      off: (u: UndoManager) => isFunction(u.off),
       on: (u: UndoManager) => isFunction(u.on),
       redo: (u: UndoManager) => isFunction(u.redo),
       redoStack: (u: UndoManager) => Array.isArray(u.redoStack),
