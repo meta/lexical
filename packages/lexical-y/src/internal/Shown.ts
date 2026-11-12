@@ -108,7 +108,9 @@ const HELD = 8;
 /** A stored inline element the editor does not show (D116). */
 const LEFT_OUT = 16;
 /** Gone in the view (see isGoneIn). */
-const GONE = UNREAD | DELETED;
+// A literal: a computed module-scope value (UNREAD | DELETED) pins the
+// module into every bundle that imports it (see treeShakingSource.test.ts).
+const GONE = 3; // UNREAD | DELETED
 
 /**
  * What is known of `item`, of the facts `want` names: the one decision every
@@ -144,6 +146,25 @@ function facts(
     found |= LEFT_OUT;
   }
   return found;
+}
+
+// The lanes below ask each fact only where their answer still depends on it
+// (a gone item is not asked of the hold, a live one not of its keeps), as
+// the conditions they replaced did: the hold's lookups walk its ranges.
+
+/** Whether `hidden` holds `item` back (Hidden#hides). */
+function isHeldBy(hidden: Hidden | null, item: Item): boolean {
+  return hidden !== null && hidden.hides(item);
+}
+
+/** Whether `hidden` keeps showing deleted `item` (Hidden#keeps). */
+function isKeptBy(hidden: Hidden | null, item: Item): boolean {
+  return hidden !== null && hidden.keeps(item);
+}
+
+/** Whether countable `item` is one `leftOut` names (live items only). */
+function isLeftOutBy(leftOut: LeftOut, item: Item): boolean {
+  return leftOut !== null && item.countable && leftOut(item);
 }
 
 /** UNREAD, DELETED or 0: how `item` is gone in `view` (see scopedView). */
@@ -229,20 +250,15 @@ export function whyNotShown(
   hidden: Hidden | null,
   leftOut: LeftOut = null,
 ): NotShown | null {
-  const found = facts(
-    view,
-    item,
-    hidden,
-    leftOut,
-    GONE | KEPT | HELD | LEFT_OUT,
-  );
-  if ((found & GONE) !== 0 && (found & KEPT) === 0) {
-    return (found & UNREAD) !== 0 ? 'unread' : 'deleted';
+  // Each fact looked up only where the answer still depends on it.
+  const gone = goneIn(view, item);
+  if (gone !== 0 && !isKeptBy(hidden, item)) {
+    return gone === UNREAD ? 'unread' : 'deleted';
   }
-  if ((found & HELD) !== 0) {
+  if (isHeldBy(hidden, item)) {
     return 'held';
   }
-  return (found & LEFT_OUT) !== 0 ? 'left-out' : null;
+  return gone === 0 && isLeftOutBy(leftOut, item) ? 'left-out' : null;
 }
 
 // ---------------------------------------------------------------------------
@@ -282,7 +298,8 @@ export function isHeldFormatIn(
 ): boolean {
   return (
     item.content instanceof ContentFormat &&
-    facts(view, item, hidden, null, GONE | HELD) === HELD
+    goneIn(view, item) === 0 &&
+    isHeldBy(hidden, item)
   );
 }
 
@@ -308,13 +325,12 @@ export function wasShownBefore(
   hidden: Hidden | null,
   change: ChangeSets | null,
 ): boolean {
-  const found = facts(null, item, hidden, null, GONE | KEPT | HELD);
-  if ((found & HELD) !== 0) {
+  if (isHeldBy(hidden, item)) {
     return false;
   }
-  if ((found & GONE) !== 0) {
+  if (goneIn(null, item) !== 0) {
     return (
-      (found & KEPT) !== 0 ||
+      isKeptBy(hidden, item) ||
       (change !== null && change.deleteSet.hasId(item.id))
     );
   }
@@ -333,13 +349,8 @@ export function isPassedIn(
   hidden: Hidden | null,
 ): boolean {
   return (
-    facts(
-      view,
-      item,
-      hidden,
-      null,
-      item.content instanceof ContentFormat ? GONE | HELD : GONE,
-    ) !== 0
+    goneIn(view, item) !== 0 ||
+    (item.content instanceof ContentFormat && isHeldBy(hidden, item))
   );
 }
 
@@ -361,7 +372,7 @@ export function isHiddenIn(
   hidden: HeldView,
 ): boolean {
   // (Only what the hold holds back is asked of it.)
-  return facts(view, item, hidden as Hidden | null, null, GONE | HELD) !== 0;
+  return goneIn(view, item) !== 0 || isHeldBy(hidden as Hidden | null, item);
 }
 
 /**
@@ -374,8 +385,7 @@ export function isGoneFromLineIn(
   item: Item,
   hidden: Hidden | null,
 ): boolean {
-  const found = facts(view, item, hidden, null, GONE | KEPT);
-  return (found & GONE) !== 0 && (found & KEPT) === 0;
+  return goneIn(view, item) !== 0 && !isKeptBy(hidden, item);
 }
 
 /**
@@ -413,7 +423,9 @@ export function isStoredIn(
   item: Item,
   hidden: Hidden | null,
 ): boolean {
-  return facts(view, item, hidden, null, GONE | KEPT) === 0;
+  // (A live item is not asked of the hold's keeps, which hold only deleted
+  // items.)
+  return goneIn(view, item) === 0 && !(item.deleted && isKeptBy(hidden, item));
 }
 
 /**

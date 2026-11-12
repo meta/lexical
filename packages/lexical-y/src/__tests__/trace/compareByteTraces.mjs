@@ -12,9 +12,12 @@
 //
 // Prints the test files traced in both runs, how many are identical in
 // every hash and count, and each one that differs with the fields that do.
-// Exits with 1 where any differs. `--allow <file>` (a path as the records
-// hold it, `packages/...`) names a test file known not to be deterministic
-// on the base itself: its difference is printed and not counted.
+// Exits with 1 where any differs, or where a test file was traced in one
+// run only (its worker died before it wrote the record, or the file was
+// added or removed). `--allow <file>` (a path as the records hold it,
+// `packages/...`) names a test file known not to be deterministic on the
+// base itself, or one the change adds or removes: its difference is printed
+// and not counted.
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 
@@ -64,11 +67,14 @@ let identical = 0;
 const different = [];
 const known = [];
 const single = [];
+const singleAllowed = [];
 for (const file of files) {
   const a = before.get(file);
   const b = after.get(file);
   if (a === undefined || b === undefined) {
-    single.push(`${file} (${a === undefined ? 'after' : 'before'} only)`);
+    (allowed.has(file) ? singleAllowed : single).push(
+      `${file} (${a === undefined ? 'after' : 'before'} only)`,
+    );
     continue;
   }
   both++;
@@ -97,4 +103,7 @@ for (const line of known) {
 for (const line of single) {
   print(`one run only: ${line}`);
 }
-process.exit(different.length === 0 ? 0 : 1);
+for (const line of singleAllowed) {
+  print(`one run only (allowed): ${line}`);
+}
+process.exit(different.length === 0 && single.length === 0 ? 0 : 1);

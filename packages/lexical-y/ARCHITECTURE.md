@@ -117,7 +117,7 @@ asks the filter (`isGoneIn`, `isHiddenIn`). Before step 1 this was a cycle
 goes when the fold takes that question as an argument (`FoldIn` already
 carries the view and the hold), with step 3.
 
-The diagram is the target. Today's imports differ from it in six more
+The diagram is the target. Today's imports differ from it in seven more
 places, none of which needs a step of its own:
 
 - Four are for a type only. `State` and `Hidden` import `Formats` from
@@ -297,9 +297,8 @@ Step 1 left the call sites passing `(view, hidden, leftOut)` separately,
 because some callers take the view once and others at every step
 (`Reader#liveView` is a function because a read can start a hold while it
 runs), and replacing the triple must not change when each input is read.
-A second implementation of step 1, compared with this one on every gate
-of section 6 and identical on all of them, did the replacement and kept
-that timing. Its design is the one to use:
+A second implementation of step 1 did the replacement and kept that
+timing. Its design is the one to use:
 
 ```ts
 /** What an editor shows of the stored document. */

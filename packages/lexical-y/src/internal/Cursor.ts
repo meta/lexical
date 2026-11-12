@@ -1709,8 +1709,9 @@ export class Cursor {
     const spanIndex = new Map<Item, number>();
     span.forEach((x, i) => spanIndex.set(x, i));
     /** Whether `x` is a live item of `key`, as this write sees it. */
+    // (The key first: the hold is asked only about items of `key`.)
     const isKeyItem = (x: Item, key: string): boolean =>
-      !this.passes(x) && isFormat(x) && keyOf(x) === key;
+      isFormat(x) && keyOf(x) === key && !this.passes(x);
     /** An unpaired item or an invalid end of its key: a boundary. */
     const isBoundary = (x: Item): boolean => {
       const v = valueOf(x);

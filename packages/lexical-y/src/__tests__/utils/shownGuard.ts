@@ -20,8 +20,10 @@
 //
 // Comments and formatting are not syntax, so neither hides a use nor makes
 // one. What the scan does not see: two lanes asked in separate statements
-// (`if (a(x)) { if (b(x)) ... }`), and a use behind a computed property
-// name.
+// (`if (a(x)) { if (b(x)) ... }`) or through locals that hold their answers
+// (`const a = isGoneIn(...), b = isHeld(...); return a || b`), a lane called
+// through a local alias of it (`const g = isGoneIn; g(...) || isHeld(...)`),
+// and a use behind a computed property name.
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as ts from 'typescript';
