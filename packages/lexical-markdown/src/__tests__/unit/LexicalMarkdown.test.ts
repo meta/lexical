@@ -2266,7 +2266,7 @@ describe('Markdown', () => {
       );
 
       expect(editor.read(() => $generateHtmlFromNodes(editor))).toBe(
-        '<p><span style="white-space: pre-wrap;">></span></p>',
+        '<p><span style="white-space: pre-wrap;">&gt;</span></p>',
       );
     });
   });
