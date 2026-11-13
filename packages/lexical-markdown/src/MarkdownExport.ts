@@ -16,7 +16,6 @@ import {
   $isLineBreakNode,
   $isParagraphNode,
   $isRangeSelection,
-  $isRootNode,
   $isTextNode,
   type BaseSelection,
   type ElementNode,
@@ -623,7 +622,7 @@ function $exportTextFormat(
     if ($isAtParagraphLineStart(node)) {
       output = output.replace(/^>/, '\\>');
     }
-    if (shouldPreserveNewLines && output.includes('\n>')) {
+    if (output.includes('\n>')) {
       output = output.replace(/\n>/g, '\n\\>');
     }
   }
@@ -2032,7 +2031,7 @@ function $isAtParagraphLineStart(node: TextNode): boolean {
       return false;
     }
     if ($isParagraphNode(parent)) {
-      return $isRootNode(parent.getParent());
+      return true;
     }
     if (!$isElementNode(parent) || !parent.isInline()) {
       return false;
@@ -2044,11 +2043,7 @@ function $isAtParagraphLineStart(node: TextNode): boolean {
   while (ancestor !== null && $isElementNode(ancestor) && ancestor.isInline()) {
     ancestor = ancestor.getParent();
   }
-  return (
-    ancestor !== null &&
-    $isParagraphNode(ancestor) &&
-    $isRootNode(ancestor.getParent())
-  );
+  return ancestor !== null && $isParagraphNode(ancestor);
 }
 
 function getTextSibling(node: TextNode, backward: boolean): TextNode | null {

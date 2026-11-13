@@ -6659,9 +6659,9 @@ describe('quote lines with optional space (#9442)', () => {
         $isParagraphNode($getRoot().getFirstChild()),
       ),
     ).toBe(true);
-    expect(
-      editor2.read('latest', () => $getRoot().getTextContent()),
-    ).toBe('>a');
+    expect(editor2.read('latest', () => $getRoot().getTextContent())).toBe(
+      '>a',
+    );
   });
 
   it('round-trips paragraph starting with >=5 items as escaped markdown', () => {
@@ -6691,8 +6691,40 @@ describe('quote lines with optional space (#9442)', () => {
         $isParagraphNode($getRoot().getFirstChild()),
       ),
     ).toBe(true);
+    expect(editor2.read('latest', () => $getRoot().getTextContent())).toBe(
+      '>=5 items',
+    );
+  });
+
+  it('escapes newline followed by > within paragraph text when exported', () => {
+    const editor = createTestEditor();
+    editor.update(
+      () => {
+        const root = $getRoot();
+        const paragraph = $createParagraphNode();
+        paragraph.append($createTextNode('a\n>b'));
+        root.append(paragraph);
+      },
+      {discrete: true},
+    );
     expect(
-      editor2.read('latest', () => $getRoot().getTextContent()),
-    ).toBe('>=5 items');
+      editor.read('latest', () => $convertToMarkdownString(TRANSFORMERS)),
+    ).toBe('a\n\\>b');
+
+    const editor2 = createTestEditor();
+    editor2.update(
+      () => {
+        $convertFromMarkdownString('a\n\\>b', TRANSFORMERS);
+      },
+      {discrete: true},
+    );
+    expect(
+      editor2.read('latest', () =>
+        $isParagraphNode($getRoot().getFirstChild()),
+      ),
+    ).toBe(true);
+    expect(editor2.read('latest', () => $getRoot().getTextContent())).toBe(
+      'a\n>b',
+    );
   });
 });
