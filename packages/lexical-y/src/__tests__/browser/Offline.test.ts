@@ -394,6 +394,46 @@ describe('a session on a real IndexedDB', () => {
     expect(tab(remaining.state).blocks()[0]).toEqual(['b1', 'B, second']);
   });
 
+  test('two connections recovering the same stale slot at once make one capture, replayed once', async () => {
+    const name = newDatabase();
+    const store = await open(name);
+    const state = seed();
+    const left = tab(state);
+    const old = attachYOfflineSession({
+      binding: left.binding,
+      epoch: 'e1',
+      key: 'doc',
+      onError: error => {
+        throw new Error(error.message);
+      },
+      stage: 'replay',
+      store,
+    });
+    old.markSynced();
+    left.edit('b1', 'one, mine');
+    unwrap(await old.flush());
+    old.dispose();
+    await new Promise(resolve => setTimeout(resolve, 0));
+    const other = await open(name);
+    const a = tab(state);
+    const b = tab(state);
+    const recover = (t: ReturnType<typeof tab>, s: YOfflineStore) =>
+      recoverYOfflineEdits({
+        binding: t.binding,
+        config,
+        epoch: 'e2',
+        key: 'doc',
+        stage: 'replay',
+        store: s,
+      });
+    const [ra, rb] = await Promise.all([recover(a, store), recover(b, other)]);
+    const applied = [...unwrap(ra), ...unwrap(rb)].filter(
+      r => r.replay !== null && r.replay.applied.length > 0,
+    );
+    expect(applied.length).toBe(1);
+    expect(unwrap(await store.captures('doc')).length).toBe(1);
+  });
+
   test('edits persist across a reload, and a moved epoch captures them for recovery', async () => {
     const name = newDatabase();
     const state = seed();

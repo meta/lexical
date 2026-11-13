@@ -6,6 +6,8 @@
  *
  */
 
+// @vitest-environment node
+
 // Regressions from the independent review of meta/lexical#9899
 // (@lexical/y/offline), each an edit that was neither on the server, in a
 // stored slot, nor in a capture, or a limit counted wrong:
@@ -29,7 +31,14 @@
 // 8. (the same) recovery captured a live tab's rows at an older epoch on
 //    every call;
 // 9. (the same) a document loaded with nothing unsynced was stored again
-//    as unsynced.
+//    as unsynced;
+// 10. (the review of e81ad88c0) two tabs recovering the same stale slot at
+//    once made two captures, and each replayed one (the block twice);
+// 11. (the same) a moved epoch's capture was checked against bytesPerKey
+//    with the rows it replaces still counted, so a key needed room for
+//    three documents;
+// 12. (the same) a corrupt slot at another epoch failed recovery with no
+//    epoch to clear.
 //
 // Run with gc off and on (LEXICAL_Y_GC=1).
 
@@ -593,4 +602,122 @@ test('9. a document loaded with nothing unsynced is stored as its base', async (
   expect(unwrap(await loadYOffline({key: 'doc', store})).hasUnsyncedEdits).toBe(
     false,
   );
+});
+
+test('10. two tabs recovering the same stale slot at once make one capture, replayed once', async () => {
+  const fake = createFakeIndexedDB();
+  const store = unwrap(
+    await openYOfflineStore({idb: fake.idb, locks: fake.locks}),
+  );
+  const initial = seed();
+  const left = client(initial);
+  const old = session(left.binding, store);
+  old.s.markSynced();
+  left.edit('one, mine');
+  unwrap(await old.s.flush());
+  old.s.dispose();
+  await new Promise(resolve => setTimeout(resolve, 0));
+  const other = unwrap(
+    await openYOfflineStore({idb: fake.idb, locks: fake.locks}),
+  );
+  const a = client(initial);
+  const b = client(initial);
+  const recover = (c: ReturnType<typeof client>, s: YOfflineStore) =>
+    recoverYOfflineEdits({
+      binding: c.binding,
+      config,
+      epoch: 'e2',
+      key: 'doc',
+      stage: 'replay',
+      store: s,
+    });
+  const [ra, rb] = await Promise.all([recover(a, store), recover(b, other)]);
+  const replays = [...unwrap(ra), ...unwrap(rb)].filter(
+    r => r.replay !== null && r.replay.applied.length > 0,
+  );
+  expect(replays.length).toBe(1);
+  expect(unwrap(await store.captures('doc')).length).toBe(1);
+  // The two documents sync: the block once.
+  Y.applyUpdate(a.doc, Y.encodeStateAsUpdate(b.doc));
+  Y.applyUpdate(b.doc, Y.encodeStateAsUpdate(a.doc));
+  expect(a.text()).toBe('one, mine');
+  expect(b.text()).toBe('one, mine');
+});
+
+test("11. a moved epoch's capture fits when it fits without the rows it replaces", async () => {
+  const fake = createFakeIndexedDB();
+  const probe = unwrap(
+    await openYOfflineStore({
+      databaseName: 'probe',
+      idb: fake.idb,
+      locks: fake.locks,
+    }),
+  );
+  // How big the document is stored.
+  const state = seed();
+  const sized = client(state);
+  const p = session(sized.binding, probe);
+  p.s.markSynced();
+  sized.edit('one, mine');
+  unwrap(await p.s.flush());
+  const doc = Y.encodeStateAsUpdate(sized.doc).byteLength;
+  p.s.dispose();
+  // Room for 2.5 documents: rows plus a capture (state and base) did not fit.
+  const store = unwrap(
+    await openYOfflineStore({
+      idb: fake.idb,
+      limits: {bytesPerKey: Math.floor(doc * 2.5)},
+      locks: fake.locks,
+    }),
+  );
+  const tab = client(state);
+  const s = session(tab.binding, store);
+  s.s.markSynced();
+  tab.edit('one, mine');
+  unwrap(await s.s.flush());
+  const verdict = await s.s.serverEpoch('e2');
+  expect(verdict.kind === 'moved' && verdict.saved).toEqual({
+    ok: true,
+    value: undefined,
+  });
+  expect(s.errors).toEqual([]);
+  expect(unwrap(await store.captures('doc')).length).toBe(1);
+  expect(unwrap(await store.slots('doc'))).toEqual([]);
+});
+
+test('12. a corrupt slot at another epoch fails recovery with its epoch, and clearing it lets recovery go on', async () => {
+  const fake = createFakeIndexedDB();
+  const store = unwrap(
+    await openYOfflineStore({idb: fake.idb, locks: fake.locks}),
+  );
+  const initial = seed();
+  const left = client(initial);
+  const old = session(left.binding, store);
+  old.s.markSynced();
+  left.edit('one, mine');
+  unwrap(await old.s.flush());
+  old.s.dispose();
+  await new Promise(resolve => setTimeout(resolve, 0));
+  const records = fake.records('lexical-y-offline', 'updates');
+  records[records.length - 1].value = 'damaged';
+  const fresh = client(initial);
+  const recover = () =>
+    recoverYOfflineEdits({
+      binding: fresh.binding,
+      config,
+      epoch: 'e2',
+      key: 'doc',
+      stage: 'persist',
+      store,
+    });
+  const failed = await recover();
+  expect(failed.ok).toBe(false);
+  if (!failed.ok) {
+    expect(failed.error.code).toBe('corrupt');
+    expect(failed.error.epoch).toBe('e1');
+    unwrap(
+      await store.clear('doc', {captures: false, epoch: failed.error.epoch}),
+    );
+  }
+  expect(unwrap(await recover())).toEqual([]);
 });

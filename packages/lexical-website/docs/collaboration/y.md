@@ -1501,9 +1501,10 @@ happened:
 | `'unavailable'` | No IndexedDB (a private window, Node without a fake), or the open did not answer within `openTimeout` (10 s) | Run at stage `'off'` and tell the user edits live in this tab only                                     |
 | `'blocked'`     | Another tab holds an older version of the database                | Ask the user to close the other tabs, then open the store again                                        |
 | `'quota'`       | The origin's storage is full                                      | Tell the user edits are not saved on this device; editing goes on and the next write stores everything |
-| `'corrupt'`     | A stored row is not what the store wrote, or does not decode      | Offer `error.salvage.state` (the readable rows), then `store.clear(key, {epoch, captures: false})`     |
+| `'corrupt'`     | A stored row is not what the store wrote, or does not decode      | Offer `error.salvage.state` (the readable rows), then `store.clear(key, {epoch: error.epoch, captures: false})`     |
 | `'closed'`      | `store.close()` ran, or another tab deleted the database          | Open a new store                                                                                       |
 | `'limit'`       | The write would pass one of the store's `limits` (`error.limit`)  | Tell the user edits are not saved on this device, or clear documents no longer needed                  |
+| `'newer'`       | A stored row was written by a newer release (`error.epoch` names its slot) | Keep it: this tab runs an older release; reload to update it                                           |
 | `'failed'`      | Any other IndexedDB failure (`error.cause`)                       | Retry, or tell the user                                                                                |
 
 The session passes each failure to `onError` and keeps what it could not
@@ -1516,11 +1517,15 @@ with `captures: true`).
 A capture's report compares three documents: the user's, the **base** their
 edits were made against, and the current one. The session's base is the
 document at the last `markSynced()`: call it whenever the server is known to
-hold everything the document holds (an acknowledgement of every update,
-where your provider counts them; with a relay that acknowledges nothing,
-the provider's sync on connect, which leaves a window: an edit sent in that
-sync that never arrived is in the base, so a later capture does not list
-it). A base that is older than it could be costs nothing but precision: an edit that did reach the server is in
+hold everything the document holds: persisted by the copy a reload or
+replace of the room is seeded from (for a relay in front of a product's
+store, the product's save, not the relay's acknowledgement), with nothing
+newer in the document since. The document at the call becomes the base, so
+an edit made after what was persisted would fold into it, and a later
+capture would not list it. Where your provider reports what is persisted,
+call it when nothing is left above that; with a relay that acknowledges
+nothing, call it on the provider's sync on connect, which leaves a window
+(an edit sent in that sync that never arrived is in the base). A base that is older than it could be costs nothing but precision: an edit that did reach the server is in
 the current document as the user had it, and such blocks are left out of the
 report; a block someone else changed since is not replayable either way.
 Without any `markSynced()` the base is unknown, the report judges against the

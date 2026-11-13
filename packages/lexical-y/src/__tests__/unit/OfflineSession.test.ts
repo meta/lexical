@@ -6,6 +6,8 @@
  *
  */
 
+// @vitest-environment node
+
 // The offline session of @lexical/y/offline, end to end over the fake
 // IndexedDB and bound editors: edits made with no connection persist and
 // merge on a reconnect at the same epoch; a moved epoch freezes and captures

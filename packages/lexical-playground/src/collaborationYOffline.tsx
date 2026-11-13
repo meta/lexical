@@ -497,7 +497,6 @@ export function CollabYOfflinePanel({
     <div className="collab-y-offline" data-test-id="collab-y-offline">
       <div
         className="collab-y-offline-status"
-        role="status"
         data-test-id="collab-y-offline-status"
         data-unsynced={status.hasUnsyncedEdits}
         data-persisted={status.persisted}>
@@ -513,7 +512,9 @@ export function CollabYOfflinePanel({
         </button>
       </div>
       {status.problem !== null ? (
-        <div className="collab-y-offline-problem">{status.problem}</div>
+        <div className="collab-y-offline-problem" role="status">
+          {status.problem}
+        </div>
       ) : null}
       {(recovered ?? []).map(entry => (
         <CaptureView key={entry.capture.id} entry={entry} offline={offline} />

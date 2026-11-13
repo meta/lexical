@@ -540,10 +540,6 @@ describe('errors as typed results', () => {
       },
     ],
     ['a value of another shape', () => 'not a row'],
-    [
-      'a row of a later format',
-      (value: {u: Uint8Array}) => ({...value, v: 99}),
-    ],
   ])(
     'a corrupted store (%s): corrupt, with what is readable',
     async (_name, damage) => {
@@ -562,6 +558,7 @@ describe('errors as typed results', () => {
       expect(loaded.ok).toBe(false);
       if (!loaded.ok) {
         expect(loaded.error.code).toBe('corrupt');
+        expect(loaded.error.epoch).toBe('e1');
         expect(loaded.error.message).toMatch(/store\.clear\(key/);
         expect(loaded.error.salvage).toMatchObject({
           readableRows: 1,
@@ -574,6 +571,30 @@ describe('errors as typed results', () => {
       expect(unwrap(await store.slot('doc', 'e1').load())).toBeNull();
     },
   );
+
+  test("a row of a later format: 'newer', with the slot's epoch, and nothing to clear", async () => {
+    const fake = createFakeIndexedDB();
+    const store = await open(fake);
+    const slot = store.slot('doc', 'e1');
+    const a = typingDoc();
+    a.type('good');
+    a.type(' newer');
+    for (const update of a.updates) {
+      unwrap(await slot.append(update));
+    }
+    const records = fake.records(DB, 'updates');
+    records[1].value = {...(records[1].value as object), v: 99};
+    const loaded = await (await open(fake)).slot('doc', 'e1').load();
+    expect(loaded.ok).toBe(false);
+    if (!loaded.ok) {
+      expect(loaded.error.code).toBe('newer');
+      expect(loaded.error.epoch).toBe('e1');
+      expect(loaded.error.message).toMatch(/Keep them \(do not clear/);
+      expect(loaded.error.salvage).toBeUndefined();
+    }
+    // Nothing was removed.
+    expect(fake.records(DB, 'updates').length).toBe(2);
+  });
 
   test('a compaction leaves a row it cannot read for load() to report', async () => {
     const fake = createFakeIndexedDB();

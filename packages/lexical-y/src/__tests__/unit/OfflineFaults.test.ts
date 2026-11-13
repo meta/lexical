@@ -6,6 +6,8 @@
  *
  */
 
+// @vitest-environment node
+
 // Faults injected between two specific transactions of @lexical/y/offline,
 // for the fixes its review made that no end-to-end test reaches: a
 // compaction while a confirmation is queued, a merge that throws in the
@@ -101,7 +103,7 @@ async function storedText(
 /** `store`, with some of its slot or capture calls replaced. */
 function withFaults(
   store: YOfflineStore,
-  slotFaults: Partial<Pick<YOfflineSlot, 'confirm'>>,
+  slotFaults: Partial<Pick<YOfflineSlot, 'confirm' | 'moveIntoCapture'>>,
   storeFaults: Partial<Pick<YOfflineStore, 'putCapture'>> = {},
 ): YOfflineStore {
   return {
@@ -119,6 +121,12 @@ function withFaults(
         get(target, name, receiver) {
           if (name === 'confirm' && slotFaults.confirm !== undefined) {
             return slotFaults.confirm;
+          }
+          if (
+            name === 'moveIntoCapture' &&
+            slotFaults.moveIntoCapture !== undefined
+          ) {
+            return slotFaults.moveIntoCapture;
           }
           const value = Reflect.get(target, name, receiver);
           return typeof value === 'function' ? value.bind(target) : value;
@@ -216,10 +224,11 @@ describe('faults between transactions', () => {
     const fake = createFakeIndexedDB();
     const store = await open(fake);
     const {binding, type} = tab(text => text.insert(text.length, ' (held)'));
+    const refuse = () => Promise.resolve({error: quota, ok: false} as const);
     const faulty = withFaults(
       store,
-      {},
-      {putCapture: () => Promise.resolve({error: quota, ok: false} as const)},
+      {moveIntoCapture: refuse},
+      {putCapture: refuse},
     );
     const errors: YOfflineError[] = [];
     const session = attachYOfflineSession({

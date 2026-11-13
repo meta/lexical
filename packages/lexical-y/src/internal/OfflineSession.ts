@@ -298,14 +298,18 @@ export interface YOfflineSession {
     readonly reason?: YOfflineCapture['reason'];
   }): Promise<YOfflineVerdict>;
   /**
-   * The server holds everything this document holds: the document becomes
-   * the base later edits are judged against, and what is stored since is
-   * replaced by it. Call it when the server acknowledged every update (a
-   * provider that counts unsynced changes reports none), or, with a relay
-   * that acknowledges nothing, when the provider has synced. That leaves a
-   * window: an edit sent in the sync that never arrived is in the base, so
-   * a capture made later does not list it. Never call it for a document
-   * the server has not received.
+   * The authoritative copy holds everything this document holds: the
+   * document as it is now becomes the base later edits are judged against,
+   * and what is stored since is replaced by it (with `keep: 'unsynced'`,
+   * deleted). "Holds" means persisted by the copy a reload or replace of
+   * the room is seeded from: for a relay in front of a product's store
+   * (a connector), the product's save, not the relay's acknowledgement. A
+   * reload drops what the relay holds above that copy. Call it only when
+   * that copy holds every update this document has (nothing newer since):
+   * an edit made after what was persisted would fold into the base, and a
+   * later capture would not list it. With a relay that acknowledges
+   * nothing, call it when the provider has synced; that leaves a window (an
+   * edit sent in that sync that never arrived is in the base).
    */
   markSynced(): void;
   /** Resolves once everything queued so far is stored (or failed to be). */
@@ -811,6 +815,31 @@ class Session implements YOfflineSession {
       return {capture, kind: 'moved', saved: DONE};
     }
     let saved: YOfflineResult<void> = DONE;
+    const slot = this.slot;
+    if (slot !== null && slot.moveIntoCapture !== undefined) {
+      // One transaction: the capture in, this page's rows out (only its
+      // own: another tab at the old epoch may hold edits it has not
+      // captured yet), the capture's room counted without those rows.
+      // What is still queued (what the freeze committed) stays queued
+      // until the capture is in.
+      await this.writing;
+      saved = await slot.moveIntoCapture(capture);
+      if (saved.ok) {
+        this.pending = [];
+        this.confirmed = null;
+        this.adopting = null;
+        this.clearing = false;
+        this.startPending = false;
+      } else {
+        // Nothing changed: the rows keep the edits, and what the freeze
+        // committed is stored now, for the next page to capture.
+        this.isPersisted = false;
+        this.report(saved.error);
+        await this.flush();
+      }
+      slot.close();
+      return {capture, kind: 'moved', saved};
+    }
     if (capture !== null) {
       saved = await store.putCapture(capture);
       if (!saved.ok) {
@@ -1420,9 +1449,31 @@ export async function recoverYOfflineEdits(input: {
     if (info.epoch === epoch) {
       continue;
     }
-    // Through a handle, which then owns exactly the rows it read: only
-    // rows whose writer is gone. A tab still open at that epoch keeps its
-    // rows, and captures them itself when it learns the epoch moved.
+    // Only rows whose writer is gone: a tab still open at that epoch keeps
+    // its rows, and captures them itself when it learns the epoch moved.
+    // In one transaction where the store can, so two tabs recovering at
+    // once make one capture (the second finds no rows).
+    if (store.captureSlot !== undefined) {
+      const staleEpoch = info.epoch;
+      const made = await store.captureSlot(key, staleEpoch, stored => ({
+        base: stored.base,
+        capturedAt: now(),
+        claimed: false,
+        differs: false,
+        epoch: staleEpoch,
+        id: newCaptureId(now()),
+        json: null,
+        key,
+        reason: 'stale',
+        state: stored.state,
+        text: null,
+      }));
+      if (!made.ok) {
+        // Left as it is, for the app to salvage or clear (error.epoch).
+        return made;
+      }
+      continue;
+    }
     const stale = store.slot(key, info.epoch);
     const stored = await stale.load({writers: 'gone'});
     if (!stored.ok) {

@@ -33,6 +33,7 @@ export type YOfflineErrorCode =
   | 'corrupt'
   | 'closed'
   | 'limit'
+  | 'newer'
   | 'failed';
 export type YOfflineSalvage = {
   readonly state: Uint8Array | null,
@@ -45,6 +46,7 @@ export type YOfflineError = {
   readonly cause?: unknown,
   readonly salvage?: YOfflineSalvage,
   readonly limit?: 'keys' | 'bytes',
+  readonly epoch?: string | null,
 };
 export type YOfflineLimits = {
   readonly keys?: number,
@@ -92,6 +94,9 @@ export interface YOfflineSlot {
   readonly rowsSinceCompaction: number;
   adopt(epoch: string): Promise<YOfflineResult<void>>;
   close(): void;
+  moveIntoCapture?: (
+    capture: YOfflineCapture | null,
+  ) => Promise<YOfflineResult<void>>;
 }
 export interface YOfflineStore {
   slot(key: string, epoch: string | null): YOfflineSlot;
@@ -104,6 +109,11 @@ export interface YOfflineStore {
     key: string,
     what: {readonly epoch?: string | null, readonly captures: boolean},
   ): Promise<YOfflineResult<void>>;
+  captureSlot?: (
+    key: string,
+    epoch: string | null,
+    build: (stored: YOfflineStored) => YOfflineCapture,
+  ) => Promise<YOfflineResult<YOfflineCapture | null>>;
   keys(): Promise<YOfflineResult<Array<string>>>;
   close(): void;
 }
