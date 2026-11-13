@@ -584,6 +584,7 @@ describe('nodes the transforms run again move between lines', () => {
           });
           await new Promise(resolve => setTimeout(resolve, 20));
           armed = false;
+          expect(swapped).toBe(true);
           await t.sync();
           await t.sync();
           await expectConverged(t.peers);
@@ -837,6 +838,7 @@ describe('text the transforms run again move within the line or remake across li
           });
           await new Promise(resolve => setTimeout(resolve, 20));
           armed = false;
+          expect(swapped).toBe(true);
           await t.sync();
           await t.sync();
           await expectConverged(t.peers);
@@ -862,6 +864,255 @@ describe('text the transforms run again move within the line or remake across li
             ).toBe(true);
           }
         });
+
+        test(`a re-typing the transforms run again write, a hashtag made in the heading B made the held line, keeps B's ${kind} inside its characters (gc ${gc ? 'on' : 'off'}, ids ${ids})`, async () => {
+          const t = await setup(
+            () =>
+              $getRoot().append(
+                $createParagraphNode().append($createTextNode('#tag')),
+              ),
+            {gc, ids, nodes: [...HOLD_NODES, HashtagNode], withBlockIds: false},
+          );
+          onTestFinished(() => t.peers.forEach(p => p.stop()));
+          let armed = false;
+          let made = false;
+          onTestFinished(
+            t.a.editor.registerNodeTransform(TextNode, node => {
+              if (
+                !armed ||
+                node.getType() !== 'text' ||
+                node.getParent()?.getKey() !== $lineAt(0).getKey()
+              ) {
+                return;
+              }
+              if (node.getParent()?.getType() === 'heading') {
+                made = true;
+              }
+              node.replace($createHashtagNode(node.getTextContent()));
+            }),
+          );
+          t.a.update(() => {
+            const text = $lineAt(0).getFirstChildOrThrow() as TextNode;
+            text.select(3, 3);
+            $setCompositionKey(text.getKey());
+            text.spliceText(3, 0, 'xyz');
+          });
+          await t.sync();
+          t.b.update(() => {
+            const line = $lineAt(0);
+            line.replace(
+              $createHeadingNode('h2').append(...line.getChildren()),
+            );
+            $setSelection(null);
+          });
+          await t.sync();
+          expect(
+            (t.a.binding as unknown as {state: {hidden: unknown}}).state.hidden,
+          ).not.toBe(null);
+          t.offline();
+          t.b.update(() => {
+            $race($lineAt(0).getFirstChildOrThrow() as TextNode, kind);
+            $setSelection(null);
+          });
+          armed = true;
+          t.a.update(() => {
+            $setCompositionKey(null);
+            ($lineAt(0).getFirstChildOrThrow() as TextNode).markDirty();
+            $setSelection(null);
+          });
+          await new Promise(resolve => setTimeout(resolve, 20));
+          armed = false;
+          expect(made).toBe(true);
+          await t.sync();
+          await t.sync();
+          await expectConverged(t.peers);
+          // The hashtag is written, and B's edit stays inside its characters.
+          for (const peer of t.peers) {
+            expect(
+              peer.read(() =>
+                $lineAt(0)
+                  .getChildren()
+                  .map(n => n.getType())
+                  .join(','),
+              ),
+            ).toBe('hashtag');
+            expect(peer.read(() => $lineAt(0).getTextContent())).toBe(
+              kind === 'insert' ? '#taREMOTExyzg' : '#taxyzg',
+            );
+          }
+          if (kind === 'format') {
+            expect(
+              t.a.read(() =>
+                $lineAt(0)
+                  .getAllTextNodes()
+                  .every(n => n.hasFormat('bold')),
+              ),
+            ).toBe(true);
+          }
+          if (kind === 'state') {
+            expect(
+              t.a.read(() =>
+                $lineAt(0)
+                  .getAllTextNodes()
+                  .every(n => $getState(n, note) === 'B'),
+              ),
+            ).toBe(true);
+          }
+        });
+
+        for (const move of [
+          'swap',
+          'swap through a new node',
+          'copy and remove',
+          'take out and put back in order',
+        ] as const) {
+          // A move made as a copy attached before the original is removed
+          // is still written (#9897's known limit): the copy stands for
+          // nothing in the update's record, so B's edit is left behind.
+          (move === 'copy and remove' ? test.fails : test)(
+            `${move === 'take out and put back in order' ? "a re-run that takes the line's two text nodes out and puts them back in order is written" : `a ${move} of two text nodes of equal text within the line is not written`}, and keeps B's ${kind} in place (gc ${gc ? 'on' : 'off'}, ids ${ids})`,
+            async () => {
+              const t = await setup(
+                () =>
+                  $getRoot().append(
+                    $createParagraphNode().append(
+                      $createTextNode('#ab').toggleFormat('bold'),
+                      $createTextNode('#abx'),
+                    ),
+                  ),
+                {
+                  gc,
+                  ids,
+                  nodes: [...HOLD_NODES, HashtagNode],
+                  withBlockIds: false,
+                },
+              );
+              onTestFinished(() => t.peers.forEach(p => p.stop()));
+              let armed = false;
+              let swapped = false;
+              onTestFinished(
+                t.a.editor.registerNodeTransform(TextNode, node => {
+                  if (
+                    !armed ||
+                    node.getType() !== 'text' ||
+                    node.getParent()?.getKey() !== $lineAt(0).getKey()
+                  ) {
+                    return;
+                  }
+                  if (!swapped && node.getParent()?.getType() === 'heading') {
+                    // The two nodes hold the same text: a swap leaves the line's
+                    // text as it was.
+                    swapped = true;
+                    const [first, second] = $lineAt(0).getChildren();
+                    if (move === 'swap') {
+                      second.insertAfter(first);
+                    } else if (move === 'copy and remove') {
+                      const copy = $createTextNode(first.getTextContent());
+                      copy.setFormat((first as TextNode).getFormat());
+                      second.insertAfter(copy);
+                      first.remove();
+                    } else if (move === 'swap through a new node') {
+                      // Never attached next to the other node of before.
+                      const temporary = $createTextNode('TEMP');
+                      second.insertAfter(temporary);
+                      temporary.insertAfter(first);
+                      temporary.remove();
+                    } else {
+                      $lineAt(0).append(first, second);
+                    }
+                  }
+                  node.replace($createHashtagNode(node.getTextContent()));
+                }),
+              );
+              t.a.update(() => {
+                const text = $lineAt(0).getFirstChildOrThrow() as TextNode;
+                text.select(3, 3);
+                $setCompositionKey(text.getKey());
+                text.spliceText(3, 0, 'x');
+              });
+              await t.sync();
+              t.b.update(() => {
+                const line = $lineAt(0);
+                line.replace(
+                  $createHeadingNode('h2').append(...line.getChildren()),
+                );
+                $setSelection(null);
+              });
+              await t.sync();
+              expect(
+                (t.a.binding as unknown as {state: {hidden: unknown}}).state
+                  .hidden,
+              ).not.toBe(null);
+              t.offline();
+              t.b.update(() => {
+                const bold = $lineAt(0).getFirstChildOrThrow() as TextNode;
+                if (kind === 'insert') {
+                  bold.spliceText(1, 0, 'REMOTE');
+                } else if (kind === 'format') {
+                  // A format the node does not have yet.
+                  bold.toggleFormat('italic');
+                } else {
+                  $race(bold, kind);
+                }
+                $setSelection(null);
+              });
+              armed = true;
+              t.a.update(() => {
+                $setCompositionKey(null);
+                ($lineAt(0).getFirstChildOrThrow() as TextNode).markDirty();
+                $setSelection(null);
+              });
+              await new Promise(resolve => setTimeout(resolve, 20));
+              armed = false;
+              expect(swapped).toBe(true);
+              await t.sync();
+              await t.sync();
+              await expectConverged(t.peers);
+              if (move === 'take out and put back in order') {
+                // Written: the hashtags, with B's edit where it was typed.
+                for (const peer of t.peers) {
+                  expect(
+                    peer.read(() =>
+                      $lineAt(0)
+                        .getChildren()
+                        .map(n => n.getType())
+                        .join(','),
+                    ),
+                  ).toBe('hashtag,hashtag');
+                  expect(peer.read(() => $lineAt(0).getTextContent())).toBe(
+                    kind === 'insert' ? '#REMOTEabx#abx' : '#abx#abx',
+                  );
+                }
+              } else {
+                // Not written: B's edit stays in the bold node, as stored.
+                const bold = t.a.read(() =>
+                  $lineAt(0)
+                    .getAllTextNodes()
+                    .filter(n => n.hasFormat('bold'))
+                    .map(n => n.getTextContent())
+                    .join(''),
+                );
+                expect(bold).toBe(kind === 'insert' ? '#REMOTEabx' : '#abx');
+                if (kind !== 'insert') {
+                  // B's format or NodeState stays on the bold node's characters.
+                  expect(
+                    t.a.read(() =>
+                      $lineAt(0)
+                        .getAllTextNodes()
+                        .filter(n =>
+                          kind === 'format'
+                            ? n.hasFormat('italic')
+                            : $getState(n, note) === 'B',
+                        )
+                        .map(n => n.getTextContent())
+                        .join(''),
+                    ),
+                  ).toBe('#abx');
+                }
+              }
+            },
+          );
+        }
 
         test(`a swap, as new nodes, of text equal but for case between the two headings B split the held line into is not written, and keeps B's ${kind} in the second (gc ${gc ? 'on' : 'off'}, ids ${ids})`, async () => {
           const t = await setup(
@@ -936,6 +1187,7 @@ describe('text the transforms run again move within the line or remake across li
           });
           await new Promise(resolve => setTimeout(resolve, 20));
           armed = false;
+          expect(swapped).toBe(true);
           await t.sync();
           await t.sync();
           await expectConverged(t.peers);
