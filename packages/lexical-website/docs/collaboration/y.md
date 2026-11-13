@@ -1692,6 +1692,11 @@ not merge as a user might expect:
     highlight tokens of the same type on every peer. It renders the same;
     code that inspects the document sees two nodes, and an installed code
     highlighter merges them on its next pass.
+  - Text typed right next to a format that an undo removed, when a redo (or
+    the undo of that removal) brings the format back, takes the reverse of
+    the edge most editors give: typed right after the format, it stays
+    outside; typed right before, it joins the format. No text is lost and
+    every peer agrees.
 - **Other races.** A split racing a change of the line's type gives the
   first half the splitter's type. A join (Backspace at the start of a line,
   or undoing a split) while a collaborator inserts or moves a block to the
