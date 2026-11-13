@@ -215,6 +215,22 @@ function findLastLineStartOffset(domText: Text): number {
   return wrapOffset;
 }
 
+/**
+ * The offset at which the text soft-wraps onto its second visual line: the
+ * first offset whose following character renders on a line other than the
+ * first one's.
+ */
+function findSecondLineStartOffset(domText: Text): number {
+  const firstTop = nextCharLineTop(domText, 0);
+  const {length} = domText.data;
+  for (let offset = 0; offset + 1 < length; offset++) {
+    if (Math.abs(nextCharLineTop(domText, offset) - firstTop) > 4) {
+      return offset;
+    }
+  }
+  throw new Error('the cell text does not soft-wrap');
+}
+
 async function setUpC4Caret(
   editor: LexicalEditor,
   c4Key: string,
@@ -311,11 +327,10 @@ describe('arrow keys across soft-wrapped cell text', () => {
     await probeKeyboardDelivery(ctx);
     const {c4Key, editor} = await setUpWithC4();
     const domText = getDomText(editor, c4Key);
-    // The ArrowUp variant below only manifests when the wrapped cell has
-    // exactly two lines: the caret's stale rect is then the end of the
-    // *first* line, which reads as "on the first line" to the exit
-    // detection. Keep this text at two rendered lines.
-    expect(visualLineTops(domText)).toHaveLength(2);
+    // The offsets are measured per line (start of the last line here, start
+    // of line 2 in the ArrowUp variant below) so the tests do not depend on
+    // the font deciding how many lines the text renders on.
+    expect(visualLineTops(domText).length).toBeGreaterThanOrEqual(2);
     const offset = findLastLineStartOffset(domText);
     await setUpC4Caret(editor, c4Key, offset);
 
@@ -326,17 +341,18 @@ describe('arrow keys across soft-wrapped cell text', () => {
     expect(anchorText(editor)).toBe('c7');
   });
 
-  test('ArrowUp from the start of the last visual line stays in the cell', async ctx => {
+  test('ArrowUp from the start of the second visual line stays in the cell', async ctx => {
     await probeKeyboardDelivery(ctx);
     const {c4Key, editor} = await setUpWithC4();
     const domText = getDomText(editor, c4Key);
-    expect(visualLineTops(domText)).toHaveLength(2);
-    const offset = findLastLineStartOffset(domText);
+    expect(visualLineTops(domText).length).toBeGreaterThanOrEqual(2);
+    const offset = findSecondLineStartOffset(domText);
     await setUpC4Caret(editor, c4Key, offset);
 
-    // The stale rect reads as "on the first line", so every engine used to
-    // hijack the caret out of the table (to the header cell above) instead
-    // of letting it move up one visual line within c4.
+    // The caret sits at a wrap boundary, and the stale rect reads as "on the
+    // previous line", so every engine used to hijack the caret out of the
+    // table (to the header cell above) instead of letting it move up one
+    // visual line within c4.
     await press('{ArrowUp}');
     expect(anchorText(editor)).toBe(C4_TEXT);
   });
