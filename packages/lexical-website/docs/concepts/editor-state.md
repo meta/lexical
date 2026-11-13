@@ -332,7 +332,7 @@ returns a summary of each top-level block:
 ```js
 import {$getRoot} from 'lexical';
 
-const blocks = editor.getEditorState().read(() =>
+const blocks = editor.read('latest', () =>
   $getRoot()
     .getChildren()
     .map(node => ({
@@ -374,6 +374,10 @@ The type check also handles a node that was removed before the update:
 `$getNodeByKey()` returns `null` when the key is no longer in the active
 state. Keys are specific to an editor and are not included in serialized
 editor state, so do not use them as persistent document identifiers.
+
+A text node's key may later refer to different text when nodes are merged or
+split. Check the node's current text before replacing it if its previous
+contents matter. See [Key Management](./key-management.md) for key behavior.
 
 To insert nodes at the current selection instead, see
 [Inserting nodes](./selection.md#inserting-nodes).

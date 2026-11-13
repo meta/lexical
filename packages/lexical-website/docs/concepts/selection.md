@@ -132,6 +132,7 @@ editor.update(() => {
 Use `$insertNodes()` inside an update or command listener to insert new
 nodes at the current selection. With a `RangeSelection`, it replaces
 selected content or inserts at the caret when the selection is collapsed.
+With a `NodeSelection`, it replaces the selected nodes.
 
 This example inserts text:
 
