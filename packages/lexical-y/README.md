@@ -15,6 +15,65 @@ release may stop reading an older one, and rooms stored in it then open read
 only until their server migrates them (see
 [Layout upgrades](https://lexical.dev/docs/collaboration/y#layout-upgrades)).
 
+## Start here
+
+1. `const doc = createYDoc()`: the shared document, for your provider.
+2. `yCollab({doc, schemaVersion, synced, onStatus})` in the editor's
+   `dependencies` (`createYBinding(editor, {...})` for an editor built
+   without extensions).
+3. Connect your provider, sending `collab.handshake(generation)` before any
+   sync message.
+4. `collab.markSynced()` after its first sync.
+5. `collab.freeze()` when the server says the room moved on (a stale
+   generation): store what it returns before any reload.
+
+```ts
+import {
+  buildEditorFromExtensions,
+  getExtensionDependencyFromEditor,
+} from '@lexical/extension';
+import {RichTextExtension} from '@lexical/rich-text';
+import {
+  createYDoc,
+  Y_DEFAULTS,
+  yCollab,
+  YCollabExtension,
+  type YStatus,
+} from '@lexical/y';
+import {defineExtension} from 'lexical';
+
+// Bump it when you add, remove or change a node class or its fields.
+const SCHEMA_VERSION = 1;
+const showStatus = (status: YStatus) => {
+  // Tell the user when the document is read only, and why (status.cause).
+};
+
+const doc = createYDoc();
+const editor = buildEditorFromExtensions(
+  defineExtension({
+    dependencies: [
+      RichTextExtension,
+      yCollab({
+        doc,
+        history: Y_DEFAULTS.history, // the default
+        onStatus: status => showStatus(status),
+        root: Y_DEFAULTS.root, // the default
+        schemaVersion: SCHEMA_VERSION,
+        synced: false, // markSynced() after the provider's first sync
+      }),
+    ],
+    name: 'app',
+  }),
+);
+const {collab} = getExtensionDependencyFromEditor(
+  editor,
+  YCollabExtension,
+).output;
+// Connect `doc` to a Yjs 14 provider, sending collab.handshake(generation)
+// (null for a client with no local state) first; then, after its first sync:
+collab.markSynced();
+```
+
 ## Install
 
 ```sh
@@ -47,48 +106,9 @@ as a relay either (see
 
 ## Usage
 
-```ts
-import {
-  buildEditorFromExtensions,
-  getExtensionDependencyFromEditor,
-} from '@lexical/extension';
-import {RichTextExtension} from '@lexical/rich-text';
-import {
-  createYCollabConfig,
-  createYDoc,
-  YCollabExtension,
-} from '@lexical/y';
-import {defineExtension} from 'lexical';
-
-// Yjs's format cleanup off (createYDoc(stored) for a stored state): the
-// binding takes no other document.
-const doc = createYDoc();
-const editor = buildEditorFromExtensions(
-  defineExtension({
-    dependencies: [
-      RichTextExtension,
-      // Required: the version of your editor's nodes (bump it when you add,
-      // remove or change one), and how documents below MIN_LAYOUT are
-      // upgraded. null: no server migrates this provider's stored
-      // documents, so one below the floor opens read only. An app whose
-      // server migrates passes createYServerLayoutUpgrade() and sends its
-      // handshake.
-      createYCollabConfig({
-        doc,
-        layoutUpgrade: null,
-        schemaVersion: 1,
-      }),
-    ],
-    name: 'app',
-  }),
-);
-const {binding} = getExtensionDependencyFromEditor(
-  editor,
-  YCollabExtension,
-).output;
-// Connect `doc` to any Yjs 14 provider, then after its first sync:
-binding.initialize();
-```
+See [Start here](#start-here). The earlier setup (`createYCollabConfig`,
+`binding.initialize()`) keeps working; [the guide](https://lexical.dev/docs/collaboration/y)
+covers both.
 
 ## Documentation
 

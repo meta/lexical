@@ -36,7 +36,6 @@ import {ReactExtension} from '@lexical/react/ReactExtension';
 import {ReactProviderExtension} from '@lexical/react/ReactProviderExtension';
 import {useSignalValue} from '@lexical/react/useExtensionSignalValue';
 import {
-  createYCollabConfig,
   createYDoc,
   isYWarning,
   STORAGE_MISMATCH_WARNING,
@@ -45,8 +44,11 @@ import {
   UNSUPPORTED_LAYOUT_WARNING,
   UNSUPPORTED_SCHEMA_WARNING,
   UNSUPPORTED_SLOTS_WARNING,
+  Y_DEFAULTS,
+  yCollab,
   YCollabExtension,
   type YDoc,
+  type YStatus,
   type YWarning,
 } from '@lexical/y';
 import {CONNECTED_COMMAND, TOGGLE_CONNECT_COMMAND} from '@lexical/yjs';
@@ -119,6 +121,14 @@ function reasonOf(warning: YWarning): string | undefined {
     : undefined;
 }
 
+/**
+ * The binding's status, for debugging (`window.lexicalYStatus`): the
+ * read-only notice reads the binding's warnings, which carry more detail.
+ */
+function showStatus(status: YStatus): void {
+  (globalThis as {lexicalYStatus?: YStatus}).lexicalYStatus = status;
+}
+
 let session: CollabYSession | null = null;
 
 /**
@@ -155,19 +165,25 @@ export function getCollabYSession(
           ReactProviderExtension,
           configExtension(ReactExtension, {contentEditable: null}),
           buildApp(),
+          // The canonical setup (the same in the package README and y.md).
+          yCollab({
+            doc,
+            history: Y_DEFAULTS.history, // the default
+            onStatus: status => showStatus(status),
+            root: Y_DEFAULTS.root, // the default
+            schemaVersion: SCHEMA_VERSION,
+            synced: false, // markSynced() after the provider's first sync
+          }),
           // The binding's self-check (off by default) reads its writes
           // back in development builds: a mismatch is a warning, which the
           // collab Y e2e specs fail on. It is keyed on the build mode, as
           // Lexical's own `__DEV__` is (scripts/vite/lexicalMonorepoPlugin.ts),
           // and not on `import.meta.env.DEV`, which Vite derives from
           // NODE_ENV: `vite build --mode development`, the build the e2e CI
-          // job tests, has NODE_ENV production and DEV false.
-          createYCollabConfig({
-            doc,
-            // The playground's relay does not migrate stored documents:
-            // one below the floor stays read only.
-            layoutUpgrade: null,
-            schemaVersion: SCHEMA_VERSION,
+          // job tests, has NODE_ENV production and DEV false. The
+          // playground's relay does not migrate stored documents: one below
+          // the floor stays read only.
+          configExtension(YCollabExtension, {
             selfCheck: import.meta.env?.MODE !== 'production',
           }),
         ],
@@ -208,7 +224,7 @@ export function CollabYPlugin({
   readOnlyWarning: Signal<YWarning | null>;
 }): JSX.Element | null {
   const [editor] = useLexicalComposerContext();
-  const {binding, status} = getExtensionDependencyFromEditor(
+  const {collab, status} = getExtensionDependencyFromEditor(
     editor,
     YCollabExtension,
   ).output;
@@ -219,7 +235,7 @@ export function CollabYPlugin({
     const onSync = (isSynced: boolean) => {
       if (isSynced) {
         // A no-op after the first time.
-        binding.initialize();
+        collab.markSynced();
       }
     };
     const onStatus = ({status: value}: {status: string}) => {
@@ -249,7 +265,7 @@ export function CollabYPlugin({
       provider.off('status', onStatus);
       provider.disconnect();
     };
-  }, [binding, editor, provider]);
+  }, [collab, editor, provider]);
 
   // The binding keeps the editor non-editable until it has read the
   // document, and while it is read only (a layout it cannot write). Anything
@@ -260,11 +276,11 @@ export function CollabYPlugin({
   useEffect(
     () =>
       editor.registerEditableListener(editable => {
-        if (editable && binding.status !== 'active') {
+        if (editable && collab.status.kind !== 'active') {
           editor.setEditable(false);
         }
       }),
-    [binding, editor],
+    [collab, editor],
   );
 
   // The editor is read only until the binding has read the document, so

@@ -487,6 +487,16 @@ function sameSchemaRecords(a: SchemaRecords, b: SchemaRecords): boolean {
  */
 const undoAdmits = new WeakMap<BindingUndoManager, () => boolean>();
 
+/** Codes of the warnings that can say why the binding is read only. */
+const READ_ONLY_CAUSE_CODES: ReadonlySet<string> = new Set([
+  UNSUPPORTED_LAYOUT_WARNING,
+  UNSUPPORTED_SCHEMA_WARNING,
+  UNKNOWN_NODE_TYPES_WARNING,
+  STORAGE_MISMATCH_WARNING,
+  UNSUPPORTED_CONFIG_WARNING,
+  UNSUPPORTED_SLOTS_WARNING,
+]);
+
 /** A warning that says why the binding is read only. */
 const isReadOnlyCause = (w: LexicalWarning): boolean =>
   w.code === UNSUPPORTED_LAYOUT_WARNING ||
@@ -1908,6 +1918,8 @@ export class YBinding {
     Klass<LexicalNode>,
     Set<Transform<LexicalNode>>
   >();
+  /** See readOnlyWarning. */
+  private _readOnlyWarning: LexicalWarning | null = null;
   /** Warnings not passed to the editor's onWarn yet (see flushWarnings). */
   private readonly pendingWarnings: LexicalWarning[] = [];
   /** Depth of the binding's own work in progress (see guard). */
@@ -3912,6 +3924,7 @@ export class YBinding {
     }
     if (status === 'active') {
       this.warnedEdit = false;
+      this._readOnlyWarning = null;
     }
     if (this._status !== status && this.options.onStatus) {
       // Reported with the warnings, once Yjs is idle (see flushWarnings).
@@ -3999,7 +4012,26 @@ export class YBinding {
     message: string,
     data: YEmittedWarningData<C> | YOtherWarningData,
   ): void {
-    this.pendingWarnings.push(new LexicalWarning(code, message, data));
+    const warning = new LexicalWarning(code, message, data);
+    // The first since the binding was last active: the binding warns the
+    // cause that explains the others first (a newer schema before what its
+    // content does).
+    if (READ_ONLY_CAUSE_CODES.has(code) && this._readOnlyWarning === null) {
+      this._readOnlyWarning = warning;
+    }
+    this.pendingWarnings.push(warning);
+  }
+
+  /**
+   * @internal The first warning since the binding was last active that can
+   * say why it is read only
+   * (a layout, schema, node type, storage, configuration or slot problem),
+   * null while it is active: what YCollabBinding#status reports as the
+   * cause. Set when the warning is queued, so a status listener sees it
+   * before the warning reaches `onWarn`.
+   */
+  get readOnlyWarning(): LexicalWarning | null {
+    return this._status === 'readonly' ? this._readOnlyWarning : null;
   }
 
   /** Run the binding's own work; queued warnings are passed on after it. */
