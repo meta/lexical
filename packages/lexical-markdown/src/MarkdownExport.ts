@@ -619,7 +619,7 @@ function $exportTextFormat(
       );
     }
 
-    if ($isAtParagraphLineStart(node, selection)) {
+    if ($startsExportedLine(node, selection)) {
       output = output.replace(/^>/, '\\>');
     }
     if (output.includes('\n>')) {
@@ -2016,7 +2016,11 @@ function $lineStateBefore(
   return state;
 }
 
-function $isAtParagraphLineStart(
+/**
+ * Whether `node` starts an exported line: at the start of a paragraph (including
+ * partial selection export) or immediately following a line break in any block.
+ */
+function $startsExportedLine(
   node: TextNode,
   selection: BaseSelection | null = null,
 ): boolean {
