@@ -43,13 +43,11 @@
 // changed the line's tokens.
 //
 // Once the hold has ended and A has read the line again, A's transforms run
-// again on it as A's own edit, and the writer writes what they change where
-// that is only how the line's characters are typed, which keeps each where it
-// is stored (see DECISIONS.md D115): a hashtag made again in a line B made a
-// heading, A's highlighter's tokens in a line B made a code block, an app's
-// transform's bold on the line as it now is. Where they change the line's
-// text (an app's transform that upper-cases it), nothing is written: neither
-// that nor a hashtag made with it, which main writes.
+// again on it as A's own edit, and the writer writes what they change (see
+// DECISIONS.md D115): a hashtag made again in a line B made a heading, A's
+// highlighter's tokens in a line B made a code block, an app's transform
+// applied to the line as it now is, the tokens a composition that ends by
+// inserting its text wrote taken out of a line B made a paragraph.
 
 import {
   $createCodeHighlightNode,
@@ -3002,7 +3000,7 @@ for (const gc of [false, true]) {
     }
 
     for (const transform of ['bold', 'capitals'] as const) {
-      test(`an app's transform that sets ${transform} on text in a heading ${transform === 'bold' ? 'applies to the line a collaborator made a heading, as the transforms run again on the line read as stored once the composition held there ends' : 'changes the text of the line a collaborator made a heading, as the transforms run again on it, which is not written, nor the hashtag made with it (main writes the hashtag)'} (${variant})`, async () => {
+      test(`an app's transform that sets ${transform} on text in a heading applies to the line a collaborator made a heading, as the transforms run again on the line read as stored once the composition held there ends (${variant})`, async () => {
         const t = await setup(
           () => {
             $getRoot().append(
@@ -3038,14 +3036,13 @@ for (const gc of [false, true]) {
         await converged(t);
         const fresh = await freshReader(t.a);
         onTestFinished(() => fresh.stop());
-        // The hashtag, and the bold the app's transform sets on the text in
-        // the heading; capitals change the text, so nothing is written and
-        // the line stays as stored.
+        // The hashtag, and the app's transform's work on the text in the
+        // heading.
         for (const peer of [...t.peers, fresh]) {
           expect(blocks(peer)).toBe(
             transform === 'bold'
               ? 'heading[text:before /1/|hashtag:#tag/0/]'
-              : 'heading[text:before #tag/0/]',
+              : 'heading[text:BEFORE /0/|hashtag:#tag/0/]',
           );
         }
       });
@@ -3243,7 +3240,7 @@ for (const gc of [false, true]) {
     }
 
     for (const into of ['quote', 'code block'] as const) {
-      test(`an app's transform that makes the heading a collaborator made of a held line a ${into}, as the transforms run again on the line read as stored, leaves the line as stored (${variant})`, async () => {
+      test(`an app's transform that makes the heading a collaborator made of a held line a ${into}, as the transforms run again on the line read as stored, is written (${variant})`, async () => {
         const t = await setup(
           () => {
             $getRoot().append(
@@ -3274,10 +3271,14 @@ for (const gc of [false, true]) {
         await converged(t);
         const fresh = await freshReader(t.a);
         onTestFinished(() => fresh.stop());
-        // The block stays as stored (what else the transforms changed is
-        // read again).
+        // What the transforms make of the line as stored: the app's block,
+        // with the hashtag (or the highlighter's tokens in a code block).
         for (const peer of [...t.peers, fresh]) {
-          expect(blocks(peer)).toBe('heading[text:before #tag/0/]');
+          expect(blocks(peer)).toBe(
+            into === 'quote'
+              ? 'quote[text:before /0/|hashtag:#tag/0/]'
+              : 'code[code-highlight:before #tag/0/]',
+          );
         }
       });
     }
@@ -3286,7 +3287,7 @@ for (const gc of [false, true]) {
       'split over two quotes',
       'its first part moved into the next paragraph',
     ] as const) {
-      test(`an app's transform that replaces the heading a collaborator made of a held line, ${how}, as the transforms run again on the line read as stored, leaves the line as stored (${variant})`, async () => {
+      test(`an app's transform that replaces the heading a collaborator made of a held line, ${how}, as the transforms run again on the line read as stored, is written (${variant})`, async () => {
         const t = await setup(
           () => {
             $getRoot().append(
@@ -3336,7 +3337,9 @@ for (const gc of [false, true]) {
         onTestFinished(() => fresh.stop());
         for (const peer of [...t.peers, fresh]) {
           expect(blocks(peer)).toBe(
-            'heading[text:before #tag/0/] paragraph[text:other/0/]',
+            how === 'split over two quotes'
+              ? 'quote[text:before /0/] quote[hashtag:#tag/0/] paragraph[text:other/0/]'
+              : 'quote[hashtag:#tag/0/] paragraph[text:otherbefore /0/]',
           );
         }
       });
@@ -3347,7 +3350,7 @@ for (const gc of [false, true]) {
       'wrapped in a quote after a token with the same text',
       'wrapped in brackets in a quote, after a long word',
     ] as const) {
-      test(`an app's transform that restructures the heading a collaborator made of a held line, ${shape}, as the transforms run again on the line read as stored, leaves the line as stored (${variant})`, async () => {
+      test(`an app's transform that restructures the heading a collaborator made of a held line, ${shape}, as the transforms run again on the line read as stored, is written (${variant})`, async () => {
         const word = shape.startsWith('wrapped in brackets')
           ? 'a'.repeat(1000) + ' '
           : 'before ';
@@ -3411,10 +3414,11 @@ for (const gc of [false, true]) {
         onTestFinished(() => fresh.stop());
         for (const peer of [...t.peers, fresh]) {
           expect(blocks(peer)).toBe(
-            `heading[text:${word}#tag/0/]` +
-              (shape.startsWith('split')
-                ? ' paragraph[text:before #tag/0/]'
-                : ''),
+            shape.startsWith('split')
+              ? 'quote[text:before /0/] quote[hashtag:#tag/0/] paragraph[text:before #tag/0/]'
+              : shape.startsWith('wrapped in a quote')
+                ? 'quote[text:before #tag/0/|text:|before /0/|hashtag:#tag/0/]'
+                : `quote[text:[${word}/0/|hashtag:#tag/0/|text:]/0/]`,
           );
         }
       });
@@ -3455,7 +3459,7 @@ for (const gc of [false, true]) {
     });
 
     for (const after of ['', ' after'] as const) {
-      test(`an app's transform that upper-cases text in a heading, as the transforms run again on the line a collaborator made a heading, changes its text, so nothing is written: ${after === '' ? 'nor the hashtag at the end of the line (main writes the hashtag)' : 'the line stays as stored, as on main'} (${variant})`, async () => {
+      test(`an app's transform that upper-cases text in a heading, as the transforms run again on the line a collaborator made a heading, gets the text ${after === '' ? 'before the hashtag at the end of the line' : 'around the hashtag'} upper-cased and the hashtag written (${variant})`, async () => {
         const t = await setup(
           () => {
             $getRoot().append(
@@ -3498,8 +3502,8 @@ for (const gc of [false, true]) {
         for (const peer of [...t.peers, fresh]) {
           expect(blocks(peer)).toBe(
             after === ''
-              ? 'heading[text:before #tag/0/]'
-              : 'heading[text:before #tag after/0/]',
+              ? 'heading[text:BEFORE /0/|hashtag:#tag/0/]'
+              : 'heading[text:BEFORE /0/|hashtag:#tag/0/|text: AFTER/0/]',
           );
         }
       });
@@ -3626,16 +3630,19 @@ for (const gc of [false, true]) {
       }
     });
 
-    test(`a composition that ends in the update inserting its text, as Firefox's input and WebKit's insertFromComposition end one, is written with the highlighter's tokens, each keeping the NodeState of the text it covers (${variant})`, async () => {
+    test(`a composition that ends in the update inserting its text, as Firefox's input and WebKit's insertFromComposition end one, is written, and the highlighter's tokens it wrote in the line a collaborator made a paragraph are taken out as the transforms run again on that line, the text keeping each token's NodeState (${variant})`, async () => {
       const t = await setupJoin('paragraph', gc, ids);
       const composed = startComposing(t.a);
       await t.sync();
       joinCode(t.b);
       await t.sync();
+      // What is stored before the update that ends the composition.
+      const before = show(t.b);
       // One update inserts the composed text and ends the composition: the
-      // line's text changes, so its re-typing is written as main writes it
-      // (an accepted limit, see DECISIONS.md D115); the highlighter's tokens
-      // keep each word's comment mark.
+      // line's text changes, so its re-typing is written as main writes it;
+      // once the hold has ended, the transforms run again on the line read
+      // as stored, a paragraph, and take the highlighter's tokens out of it
+      // (each word keeps its comment mark).
       t.a.update(() => {
         const n = $getNodeByKey(composed);
         if ($isTextNode(n) && n.isAttached()) {
@@ -3649,8 +3656,12 @@ for (const gc of [false, true]) {
         $setSelection(null);
       });
       expect(await converged(t)).toBe(
-        'paragraph[hl:aa bb|hl: cc/c5|hl: dd/c6|l|hl:zz|et x = 1;]',
+        'paragraph[aa bb| cc/c5| dd/c6|lzzet x = 1;]',
       );
+      // One undo takes back that update together with the transforms run
+      // again on the line.
+      t.a.undo();
+      expect(await converged(t)).toBe(before);
     });
 
     for (const highlighter of ['Prism', 'Shiki'] as const) {
