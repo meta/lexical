@@ -131,6 +131,7 @@ import {
   writeIdentityRecord,
   writesPairedRuns,
 } from './Ident';
+import {UndoKeeps} from './Keeps';
 import {
   epochRecordIn,
   isGateKey,
@@ -682,28 +683,6 @@ const MAX_PENDING_COMMITS = 16;
  * after every commit reaches it.
  */
 const MAX_REGISTRATION_RUNS = 100;
-
-/**
- * The bindings that keep an item from garbage collection (D88), per item, and
- * whether it was kept already when the first of them did (by an UndoManager's
- * step): the item is released when the last of them releases it, and only
- * if nothing else kept it before.
- */
-const keepOwners = new WeakMap<
-  Item,
-  {external: boolean; owners: Set<object>}
->();
-
-/**
- * The items bindings kept again after their UndoManager let them go (a clear
- * of a stack releases what its steps kept, parents included), with the
- * binding lifetimes (the owners in keepOwners) that hold each such keep: the
- * lifetimes that kept it again, or relied on it when another had, or held
- * it when the last of those stopped. The keep is released when the last of
- * them stops. And per lifetime, the items it holds so.
- */
-const rekeepHolders = new WeakMap<Item, Set<object>>();
-const rekeptByOwner = new WeakMap<object, Set<Item>>();
 
 /**
  * Fields Lexical derives as it renders a commit (see $writeReadEdits): the
@@ -2031,65 +2010,10 @@ export class YBinding {
       // content until the document reloads, as Yjs leaves the items an
       // UndoManager step kept (any UndoManager on the document may still
       // restore it).
-      const kept = new Set<Item>();
       // This listening lifetime: a binding started again after a dispose
       // owns its keeps anew, apart from a release the old one queued.
-      const owner = {};
-      const rekept = new Set<Item>();
-      rekeptByOwner.set(owner, rekept);
-      const hold = (it: Item, by: object) => {
-        let holders = rekeepHolders.get(it);
-        if (holders === undefined) {
-          holders = new Set();
-          rekeepHolders.set(it, holders);
-        }
-        holders.add(by);
-        const theirs = rekeptByOwner.get(by);
-        if (theirs !== undefined) {
-          theirs.add(it);
-        }
-      };
-      // When this lifetime ends: each keep it holds goes to the other
-      // lifetimes that hold it, or that keep the item for a step of theirs,
-      // or is released by the last of them.
-      const releaseRekept = () => {
-        for (const it of rekept) {
-          const holders = rekeepHolders.get(it);
-          if (holders !== undefined) {
-            holders.delete(owner);
-            if (holders.size > 0) {
-              continue;
-            }
-            rekeepHolders.delete(it);
-          }
-          const entry = keepOwners.get(it);
-          if (entry !== undefined && entry.owners.size > 0) {
-            for (const other of entry.owners) {
-              hold(it, other);
-            }
-            continue;
-          }
-          it.keep = false;
-        }
-        rekept.clear();
-      };
-      const keep = (item: Item | null) => {
-        for (let it = item; it !== null; it = (it.parent as YNode)._item) {
-          let entry = keepOwners.get(it);
-          if (entry === undefined) {
-            // `external`: kept already (by an UndoManager's step), which
-            // this leaves to whoever kept it.
-            entry = {external: it.keep, owners: new Set()};
-            keepOwners.set(it, entry);
-          } else if (entry.owners.has(owner)) {
-            // Its parents are this lifetime's already.
-            break;
-          }
-          entry.owners.add(owner);
-          it.keep = true;
-          kept.add(it);
-        }
-      };
+      const keeps = new UndoKeeps();
+      const keep = (item: Item | null) => keeps.keep(item);
       // Released only between transactions: inside one (another
       // UndoManager's stack event, a listener) the transaction's own
       // collection, which runs after its listeners, would still collect an
@@ -2103,39 +2027,14 @@ export class YBinding {
         this._doc._transaction !== null ||
         this._doc._transactionCleanups.length > 0;
       const releaseNow = () => {
-        for (const it of kept) {
-          const entry = keepOwners.get(it);
-          if (entry !== undefined) {
-            entry.owners.delete(owner);
-            if (entry.owners.size > 0) {
-              continue;
-            }
-            keepOwners.delete(it);
-            if (entry.external) {
-              continue;
-            }
-          }
-          // A keep this lifetime set again after a clear goes with it; one
-          // another lifetime holds stays.
-          const holders = rekeepHolders.get(it);
-          if (holders !== undefined) {
-            holders.delete(owner);
-            rekept.delete(it);
-            if (holders.size > 0) {
-              continue;
-            }
-            rekeepHolders.delete(it);
-          }
-          it.keep = false;
-        }
-        kept.clear();
+        keeps.release();
         if (disposed) {
           this._doc.off('destroy', onDestroy);
-          releaseRekept();
+          keeps.releaseRekept();
         }
       };
       const release = (onlyWhenEmpty: boolean) => {
-        if (kept.size === 0 && (!disposed || rekept.size === 0)) {
+        if (!keeps.keepsAny && (!disposed || !keeps.rekeepsAny)) {
           if (disposed) {
             this._doc.off('destroy', onDestroy);
           }
@@ -2171,20 +2070,7 @@ export class YBinding {
       const releaseWhenEmpty = () => release(true);
       um.on('stack-cleared', () => {
         releaseWhenEmpty();
-        // A clear of one stack makes the UndoManager release what that
-        // stack's steps kept, parents included: keep what this binding
-        // still relies on (another UndoManager on the document may rely on
-        // it too: Yjs's keep is one flag). Released when this binding stops
-        // (see releaseRekept), not before.
-        for (const it of kept) {
-          if (!it.keep) {
-            it.keep = true;
-            hold(it, owner);
-          } else if (rekeepHolders.has(it)) {
-            // Kept again by another binding: held by this one too.
-            hold(it, owner);
-          }
-        }
+        keeps.keepAgain();
       });
       this.disposers.push(() => {
         disposed = true;
