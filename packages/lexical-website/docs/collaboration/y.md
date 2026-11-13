@@ -441,7 +441,7 @@ for developers (what happened and what to do): render your own text from
 | `UNSUPPORTED_CONFIG_WARNING` | `BlockIdExtension` with `repairTransforms: true`, or a document with Yjs's format cleanup on (not from `createYDoc`), see [Set up an editor](#set-up-an-editor); or a document below `MIN_LAYOUT` with no `layoutUpgrade` declared (`'missing-layout-upgrade'`, with the `'older'` layout warning, see [Layout upgrades](#layout-upgrades)). Nothing is written; read only. | `'repair-transforms'`: `options`; `'cleanup-formatting'`; `'missing-layout-upgrade'` |
 | `NESTED_FALLBACK_WARNING` | A class that declares a line, format or group is stored as a node of its own (see [How content is stored](#how-content-is-stored)). Once per binding, class and reason. | `'merge-override'`: `type`, `method`; `'undeclared-properties'`: `type`, `properties`; `'inline-slots'`, `'inline-incomplete-schema'`, `'type-name'`, `'merge-incomplete-schema'`, `'merge-slots'`, `'group-children'`, `'group-state-merge'`, `'group-incomplete-schema'`: `type` |
 | `UNSYNCED_VALUE_WARNING` | A property or NodeState value is not plain JSON, so it is not synchronized. Once per binding and property. | `'not-json'`: `property` |
-| `UNSUPPORTED_EDIT_WARNING` | A local update changed the editor while the binding is read only (`'read-only'`, reported once each time it goes read only), or, on an active binding, a write refused at write time because the layout or schema record changed inside its transaction (`'refused-at-write'`, each such write, not retried; the binding may stay active, so it is not a read-only state). Not written; what it changed is read again, or, once the document cannot be read, the editor shows again the last state it showed before the update. With `'held-composition'`, the binding stays active: a local change that inserts no character would have deleted or left behind text a collaborator wrote in the line being composed with an IME, which the composition holds back; it is not written and is read again (undone): every non-character change in the refused update, including NodeState, is undone, and the composition goes on. A change that inserts a character is always written. With `'unstorable'`, a written local update left an empty text node Lexical keeps (not mergeable simple text), which the document does not store (each such update): the update is written, and the container holding the empty node is read again. With `'other'` and `detailCode: 'held-line-retokenize'`, the binding stays active: a local update re-typed the line being composed (a transform's tokens for it, such as a code highlighter's) while the composition's hold shows that line as a block its shared counterpart no longer is (a collaborator changed its type, or joined it into the line before it); the re-typing is not written, the rest of the update is, and the line is read again as stored; its transforms then run again on it as the composer's own edit, and what they change in that line, in place, is saved (once per composition; see [Limits](#limits)). | `'read-only'`; `'refused-at-write'`: `record` (`'layout'` or `'schema'`, see below); `'held-composition'`; `'unstorable'`; `'other'`: `detailCode` (`'held-line-retokenize'`) |
+| `UNSUPPORTED_EDIT_WARNING` | A local update changed the editor while the binding is read only (`'read-only'`, reported once each time it goes read only), or, on an active binding, a write refused at write time because the layout or schema record changed inside its transaction (`'refused-at-write'`, each such write, not retried; the binding may stay active, so it is not a read-only state). Not written; what it changed is read again, or, once the document cannot be read, the editor shows again the last state it showed before the update. With `'held-composition'`, the binding stays active: a local change that inserts no character would have deleted or left behind text a collaborator wrote in the line being composed with an IME, which the composition holds back; it is not written and is read again (undone): every non-character change in the refused update, including NodeState, is undone, and the composition goes on. A change that inserts a character is always written. With `'unstorable'`, a written local update left an empty text node Lexical keeps (not mergeable simple text), which the document does not store (each such update): the update is written, and the container holding the empty node is read again. With `'other'` and `detailCode: 'held-line-retokenize'`, the binding stays active: a local update re-typed the line being composed (a transform's tokens for it, such as a code highlighter's) while the composition's hold shows that line as a block its shared counterpart no longer is (a collaborator changed its type, or joined it into the line before it); the re-typing is not written, the rest of the update is, and the line is read again as stored; once the hold ends, its transforms run again on it as the composer's own edit, and what they change is saved (once per composition; see [Limits](#limits)). | `'read-only'`; `'refused-at-write'`: `record` (`'layout'` or `'schema'`, see below); `'held-composition'`; `'unstorable'`; `'other'`: `detailCode` (`'held-line-retokenize'`) |
 | `SELF_CHECK_WARNING` | The self-check (`selfCheck`) found the editor and the document disagree. | `'local'`, `'remote'`: `problems` |
 | `RECOVERED_READ_WARNING` | A change could not be read; the editor was rebuilt from the document. | `'remote-change'`, `'reread'`: `error` |
 | `RAW_YJS_WRITE_WARNING` | Development builds only: a local transaction that is not the binding's (nor a Y.UndoManager's) changed the Yjs content under the binding's root, which is private and unsupported for direct writes (see [Wire format](#wire-format)), or another client's insertions appeared inside one of the binding's own write transactions, which is unsupported (see [Wire format](#wire-format); remote deletions there, and updates applied inside an app's outer `doc.transact`, are not detected). Once per binding and origin (once per binding for the second); nothing else happens. | `'raw-write'`: `root`, `kind` (`'format'`, `'attribute'`, `'content'`), `key`, `origin` (the origin's constructor name); `'remote-in-write'`: `root`, `kind` `'content'`, `key` null, `origin` (the other client's id) |
@@ -1322,29 +1322,51 @@ not merge as a user might expect:
   highlighter other than @lexical/code-prism's and @lexical/code-shiki's merges
   characters of several nodes into one token, extending a value within that
   token, onto characters next to others of it that had the value already, isn't
-  written in that update either. When a held composition
-  ends, the line is read as stored and its transforms run again on it as the
-  composer's own edit; what they change in that line, in place, is saved: a
-  hashtag made again in a line a collaborator made a heading, a block a
-  collaborator made a code block tokenized by the composing editor's
-  highlighter (formats follow the highlighter, NodeState stays), an app
-  transform that bolds text in a heading. This joins the undo
-  step of the composer's update, whatever `captureTimeout` is, unless an edit
-  of the composer's own came in between. Where they would restructure the
-  document (an app transform that converts, splits or moves the line), change
-  or move the line's text (an app transform that upper-cases it, which a
-  collaborator's concurrent edit of those characters would not survive),
-  change another block, remove a decorator or a link, or leave a text format
-  no reader shows, nothing is saved and what is stored stays. An entity the composing
-  editor had in its held view of a line a collaborator turned into a code
-  block (a hashtag) does not stay; the formats and NodeState set in that
-  update stay on plain text and follow the highlighter on its tokens. When the
-  update that ends the
-  composition also changes the line's text (as Firefox's input and WebKit's
-  `insertFromComposition` do, inserting the composed text in it), the
-  re-tokenization is written, as on `main`. The binding reports the skip with
+  written in that update either. When a held composition ends, whether the
+  update that ended it was written (as one that also inserts the composed
+  text is, as Firefox's input and WebKit's `insertFromComposition` do),
+  refused or left out of the write, the line is read as stored and its
+  transforms run again on it as the composer's own edit; what they change in
+  that line, and in the lines they make of it or move its content into, is
+  saved. Where they would take a node out of another line (a swap with it),
+  only restyle another line (a code block after it, which a change of the
+  line marks dirty, tokenized), would remove an inline decorator or link (in a line a
+  collaborator made a code block, a code highlighter turns a decorator into
+  text and takes a link's text out of it), or would leave a text format no
+  reader shows, nothing is saved.
+  So a code highlighter's tokens come out of a line a collaborator made
+  a paragraph, a hashtag is made again in a line made a heading, a block a
+  collaborator made a code block is tokenized by the composing editor's
+  highlighter (formats follow the highlighter, NodeState stays), and an app
+  transform applies to the line as it now is (for example, one that converts,
+  splits or upper-cases blocks of that type). A move or a change of text this
+  makes deletes and inserts those characters, as any local edit that moves
+  text does, so a collaborator's edit of them at that moment can move or be
+  lost (Yjs has no move). Where the composer's update
+  wrote something, this joins its undo step, whatever `captureTimeout` is,
+  unless an edit of the composer's own came in between; otherwise it is an
+  undo step of its own. The binding reports the skip with
   `UNSUPPORTED_EDIT_WARNING` (`reason: 'other'`, `detailCode:
   'held-line-retokenize'`), once per composition.
+- **What the update that ends a composition does in a line a collaborator
+  changed meanwhile.** That update is made on the line the composing editor
+  showed, so what depends on that line's shape is made on it (DECISIONS.md
+  D119 to D124). Enter makes the new line from the shown line: its type, a
+  line break where a collaborator made a code block (or a new block where the
+  shown block was code), and a code block's indent. An app transform that
+  converts, splits or moves the line acts on the shown line: a conversion is
+  written over a collaborator's change of the type (the last write wins; in a
+  line a collaborator made a code block, the highlighter's tokens then become
+  plain text in the converted line), and after a collaborator's split it lands
+  on the half that keeps the line's marker. Where that update also inserts the
+  composed text and an app transform moves the line, a collaborator's text
+  typed in the line stays where the line was. A format set on the whole line
+  applies to the line as shown: to both halves of a line a collaborator split,
+  and not to the text of the line a collaborator joined it into. A token
+  typed against a word a collaborator's split cuts is written over the
+  characters on the collaborator's half too, which take its formats. A line a
+  collaborator deletes after receiving the composing text takes that text with
+  it. No text is lost otherwise, and every client converges.
 - **A line replaced next to a new line.** A line a collaborator replaces with
   a new block (holding the same text, or its own nodes with its text changed),
   or splits by setting its text and adding the rest as a new line, while adding

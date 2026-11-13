@@ -615,7 +615,7 @@ describe('nodes the transforms run again move between lines', () => {
   }
 
   for (const gc of [false, true]) {
-    test(`text moved from the second heading B split off the held line into the first is not written (gc ${gc ? 'on' : 'off'})`, async () => {
+    test(`text moved from the second heading B split off the held line into the first is written, both holding the composed line's characters (gc ${gc ? 'on' : 'off'})`, async () => {
       const t = await setup(
         () =>
           $getRoot().append(
@@ -671,7 +671,12 @@ describe('nodes the transforms run again move between lines', () => {
       await t.sync();
       await t.sync();
       await expectConverged(t.peers);
-      expect(t.a.read(() => $lineAt(1).getTextContent())).toBe(' one');
+      expect(
+        t.a.read(() => [
+          $lineAt(0).getTextContent(),
+          $lineAt(1).getTextContent(),
+        ]),
+      ).toEqual(['#taxyzg one', '']);
     });
   }
 });
@@ -742,6 +747,12 @@ describe('a line B made a list item, made bold in the update that ends the compo
   }
 });
 
+// The re-run is the composer's own edit, written as one: a move or a change
+// of text it makes deletes and inserts those characters (Yjs has no move),
+// so a collaborator's concurrent insertion there stays where its characters
+// were, and a concurrent format or NodeState on them is kept or lost by the
+// order Yjs gives the two edits (DECISIONS.md D115). Nothing diverges and no
+// text is lost.
 describe('text the transforms run again move within the line or remake across lines, while B edits it', () => {
   const $lineAt = (index: number): ElementNode => {
     const line = $getRoot().getChildAtIndex(index);
@@ -768,7 +779,7 @@ describe('text the transforms run again move within the line or remake across li
         [1, 2],
         [2, 1],
       ]) {
-        test(`a swap of equal text between the line and an inline element in it is not written, and keeps B's ${kind} in the inline element (gc ${gc ? 'on' : 'off'}, ids ${ids})`, async () => {
+        test(`a swap of equal text between the line and an inline element in it is written as the composer's edit, with B's concurrent ${kind} in the inline element: every peer converges and no text is lost (gc ${gc ? 'on' : 'off'}, ids ${ids})`, async () => {
           const $box = (): ElementNode =>
             $lineAt(0)
               .getChildren()
@@ -840,30 +851,15 @@ describe('text the transforms run again move within the line or remake across li
           await t.sync();
           await t.sync();
           await expectConverged(t.peers);
-          expect(t.a.read(() => $box().getTextContent())).toBe(
-            kind === 'insert' ? '#taREMOTExyzg' : '#taxyzg',
+          const fresh = await freshReader(t.a);
+          onTestFinished(() => fresh.stop());
+          expect(fresh.json()).toEqual(t.a.json());
+          expect(t.a.read(() => $getRoot().getTextContent())).toContain(
+            kind === 'insert' ? 'REMOTE' : '#taxyzg',
           );
-          if (kind === 'format') {
-            expect(
-              t.a.read(() =>
-                $box()
-                  .getAllTextNodes()
-                  .every(n => n.hasFormat('bold')),
-              ),
-            ).toBe(true);
-          }
-          if (kind === 'state') {
-            expect(
-              t.a.read(() =>
-                $box()
-                  .getAllTextNodes()
-                  .every(n => $getState(n, note) === 'B'),
-              ),
-            ).toBe(true);
-          }
         });
 
-        test(`a swap, as new nodes, of text equal but for case between the two headings B split the held line into is not written, and keeps B's ${kind} in the second (gc ${gc ? 'on' : 'off'}, ids ${ids})`, async () => {
+        test(`a swap, as new nodes, of text equal but for case between the two headings B split the held line into is written as the composer's edit, with B's concurrent ${kind} in the second: every peer converges and no text is lost (gc ${gc ? 'on' : 'off'}, ids ${ids})`, async () => {
           const t = await setup(
             () =>
               $getRoot().append(
@@ -939,27 +935,12 @@ describe('text the transforms run again move within the line or remake across li
           await t.sync();
           await t.sync();
           await expectConverged(t.peers);
-          expect(t.a.read(() => $lineAt(1).getTextContent())).toBe(
-            kind === 'insert' ? '#TAREMOTEXYZG' : '#TAXYZG',
+          const fresh = await freshReader(t.a);
+          onTestFinished(() => fresh.stop());
+          expect(fresh.json()).toEqual(t.a.json());
+          expect(t.a.read(() => $getRoot().getTextContent())).toContain(
+            kind === 'insert' ? 'REMOTE' : '#TAXYZG',
           );
-          if (kind === 'format') {
-            expect(
-              t.a.read(() =>
-                $lineAt(1)
-                  .getAllTextNodes()
-                  .every(n => n.hasFormat('bold')),
-              ),
-            ).toBe(true);
-          }
-          if (kind === 'state') {
-            expect(
-              t.a.read(() =>
-                $lineAt(1)
-                  .getAllTextNodes()
-                  .every(n => $getState(n, note) === 'B'),
-              ),
-            ).toBe(true);
-          }
         });
       }
     }
