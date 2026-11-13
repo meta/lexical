@@ -234,6 +234,11 @@ const CHECK_LIST_REGEX = /^(\s*)(?:[-*+]\s)?\s?(\[(\s|x)?\])\s/i;
 const HEADING_REGEX = /^(#{1,6})\s/;
 const QUOTE_REGEX = /^>\s/;
 const CODE_START_REGEX = /^([ \t]*`{3,})([\w-]+)?[ \t]?/;
+// Import reads the whole opening line, so whitespace may come between the
+// fence and the language (``` js). The shortcut keeps CODE_START_REGEX: it
+// fires only when the match ends at the caret, which this one would run past
+// when ``` and a space are typed in front of existing text.
+const CODE_INFO_START_REGEX = /^([ \t]*`{3,})[ \t]*([\w-]+)?[ \t]?/;
 const CODE_END_REGEX = /^[ \t]*`{3,}$/;
 const CODE_SINGLE_LINE_REGEX =
   /^[ \t]*```[^`]+(?:(?:`{1,2}|`{4,})[^`]+)*```(?:[^`]|$)/;
@@ -895,11 +900,21 @@ export const CODE: MultilineElementTransformer = {
     lines,
     rootNode,
     startLineIndex,
-    startMatch,
+    startMatch: regExpStartMatch,
+    transformer,
   }) => {
+    const currentLine = lines[startLineIndex];
+    // A transformer composed from CODE with its own regExpStart keeps that
+    // expression's match. A backtick fence's info string can't contain
+    // backticks, so a line such as ``` a``b ``` tail (which export writes for
+    // a paragraph starting with inline code) keeps the old reading too.
+    const startMatch =
+      transformer.regExpStart === CODE_START_REGEX &&
+      !currentLine.includes('`', regExpStartMatch[1].length)
+        ? (currentLine.match(CODE_INFO_START_REGEX) ?? regExpStartMatch)
+        : regExpStartMatch;
     const fence = startMatch[1];
     const fenceLength = fence.trim().length;
-    const currentLine = lines[startLineIndex];
     const afterFenceIndex = startMatch.index! + fence.length;
     const afterFence = currentLine.slice(afterFenceIndex);
 
@@ -937,8 +952,9 @@ export const CODE: MultilineElementTransformer = {
         // and must not be prepended to the block's content.
         // https://spec.commonmark.org/0.31.2/#fenced-code-blocks
         //
-        // With no language captured the fence carries no info string, so the
-        // remainder is kept as content (``` code) as before.
+        // Whitespace may come between the fence and the language (``` js), so
+        // ``` code is read as a `code` block, as in CommonMark. With no
+        // language captured, the remainder is kept as content.
         //
         // Either way the slot itself is always occupied: `replace` follows the
         // default $importMultiline contract, where linesInBetween[0] is the
@@ -967,10 +983,16 @@ export const CODE: MultilineElementTransformer = {
       }
     }
 
+    // An unclosed fence runs to the end of the document, and its info string
+    // is read the same way as a closed fence's.
+    const meta = startMatch[2]
+      ? currentLine.slice(startMatch[0].length).trim()
+      : '';
     const linesInBetween = lines.slice(startLineIndex + 1);
-    linesInBetween.unshift(currentLine.slice(startMatch[0].length));
+    linesInBetween.unshift(meta ? '' : currentLine.slice(startMatch[0].length));
 
     CODE.replace(rootNode, null, startMatch, null, linesInBetween, true);
+    $setCodeMeta(rootNode, meta);
     return [true, lines.length - 1];
   },
 

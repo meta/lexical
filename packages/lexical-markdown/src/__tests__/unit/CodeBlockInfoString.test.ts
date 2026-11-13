@@ -13,6 +13,7 @@ import {buildEditorFromExtensions} from '@lexical/extension';
 import {
   $convertFromMarkdownString,
   $convertToMarkdownString,
+  CODE,
   TRANSFORMERS,
 } from '@lexical/markdown';
 import {$getRoot} from 'lexical';
@@ -75,10 +76,31 @@ describe('fenced code block info string', () => {
     });
   });
 
-  it('keeps content that follows a fence with no language', () => {
+  it('reads a language that follows whitespace after the fence', () => {
+    expect(importCodeBlock('``` js\ncode\n```')).toEqual({
+      language: 'js',
+      text: 'code',
+    });
     expect(importCodeBlock('``` code\nmore\n```')).toEqual({
+      language: 'code',
+      text: 'more',
+    });
+  });
+
+  it('keeps the metadata of a fence with whitespace before the language', () => {
+    expect(importCodeBlock('``` js title=x\ncode\n```')).toEqual({
+      language: 'js',
+      text: 'code',
+    });
+    expect(roundTrip('``` js title=x\ncode\n```')).toBe(
+      '```js title=x\ncode\n```',
+    );
+  });
+
+  it('keeps content that follows a fence with no language', () => {
+    expect(importCodeBlock('``` {1,3}\nmore\n```')).toEqual({
       language: undefined,
-      text: 'code\nmore',
+      text: '{1,3}\nmore',
     });
   });
 
@@ -104,10 +126,60 @@ describe('fenced code block info string', () => {
     expect(roundTrip('```\ncode\n```')).toBe('```\ncode\n```');
   });
 
-  it('leaves an unterminated fence unchanged', () => {
+  it('reads the info string of an unterminated fence', () => {
     expect(importCodeBlock('```javascript Incomplete tag')).toEqual({
       language: 'javascript',
-      text: 'Incomplete tag',
+      text: '',
+    });
+    expect(importCodeBlock('```js title=x\ncode')).toEqual({
+      language: 'js',
+      text: 'code',
+    });
+    expect(roundTrip('```js title=x\ncode')).toBe('```js title=x\ncode\n```');
+  });
+
+  it('keeps the match of a regExpStart composed from CODE', () => {
+    const CPP_CODE = {
+      ...CODE,
+      regExpStart: /^([ \t]*`{3,})([\w+#.-]+)?[ \t]?/,
+    };
+    const transformers = [
+      CPP_CODE,
+      ...TRANSFORMERS.filter(transformer => transformer !== CODE),
+    ];
+    using editor = buildEditorFromExtensions([MarkdownTestExtension]);
+    editor.update(
+      () => {
+        $convertFromMarkdownString('```c++\ncode\n```', transformers);
+      },
+      {discrete: true},
+    );
+    expect(
+      editor.read(() => {
+        const first = $getRoot().getFirstChild();
+        return $isCodeNode(first)
+          ? {language: first.getLanguage(), text: first.getTextContent()}
+          : null;
+      }),
+    ).toEqual({language: 'c++', text: 'code'});
+    expect(editor.read(() => $convertToMarkdownString(transformers))).toBe(
+      '```c++\ncode\n```',
+    );
+  });
+
+  it('keeps a fence-like line whose info string has a backtick as content', () => {
+    // A backtick fence's info string can't contain backticks. Export writes
+    // this line for a paragraph that starts with inline code holding ``.
+    expect(importCodeBlock('``` a``b ``` tail')).toEqual({
+      language: undefined,
+      text: 'a``b ``` tail',
+    });
+  });
+
+  it('reads the language of an unterminated fence after whitespace', () => {
+    expect(importCodeBlock('``` js\ncode')).toEqual({
+      language: 'js',
+      text: 'code',
     });
   });
 });
