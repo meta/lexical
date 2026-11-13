@@ -102,6 +102,8 @@ export type TableNextFocus = {
 export type TablePendingVerticalExit = {
   direction: 'up' | 'down';
   tableKey: NodeKey;
+  /** The cell the arrow key was pressed in. */
+  cellKey: NodeKey;
   x: number;
   y: number;
 };

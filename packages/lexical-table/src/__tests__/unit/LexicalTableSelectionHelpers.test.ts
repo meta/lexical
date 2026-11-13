@@ -546,6 +546,7 @@ describe('LexicalTableSelectionHelpers', () => {
       onTestFinished(registerTableWindowHandlers(editor, tableObservers));
 
       tableObservers.setPendingVerticalExit({
+        cellKey: '2',
         direction: 'down',
         tableKey: '1',
         x: 0,

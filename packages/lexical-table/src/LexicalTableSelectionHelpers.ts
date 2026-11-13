@@ -1364,23 +1364,34 @@ export function $handleTableSelectionChangeCommand(
     );
     if ($isTableNode(tableNode) && observerAndTable !== undefined) {
       const [tableObserver] = observerAndTable;
-      const anchorCellNode = $findCellNode(selection.anchor.getNode());
-      const leftTheColumn =
-        !(
-          $isTableCellNode(anchorCellNode) &&
-          tableNode.is($findTableNode(anchorCellNode))
-        ) ||
-        tableNode.getCordsFromCellNode(anchorCellNode, tableObserver.table)
-          .x !== pendingVerticalExit.x;
-      if (leftTheColumn) {
-        selectTableNodeInDirection(
-          tableObserver,
-          tableNode,
-          pendingVerticalExit.x,
-          pendingVerticalExit.y,
-          pendingVerticalExit.direction,
-        );
-        return true;
+      // A native landing inside the armed cell's own subtree (a nested
+      // table under the cell's text, for example) is a line of the same
+      // cell: trust it like a same-column landing.
+      const originCellNode = $getNodeByKey(pendingVerticalExit.cellKey);
+      const anchorInOriginCell =
+        $isTableCellNode(originCellNode) &&
+        $findMatchingParent(selection.anchor.getNode(), node =>
+          node.is(originCellNode),
+        ) !== null;
+      if (!anchorInOriginCell) {
+        const anchorCellNode = $findCellNode(selection.anchor.getNode());
+        const leftTheColumn =
+          !(
+            $isTableCellNode(anchorCellNode) &&
+            tableNode.is($findTableNode(anchorCellNode))
+          ) ||
+          tableNode.getCordsFromCellNode(anchorCellNode, tableObserver.table)
+            .x !== pendingVerticalExit.x;
+        if (leftTheColumn) {
+          selectTableNodeInDirection(
+            tableObserver,
+            tableNode,
+            pendingVerticalExit.x,
+            pendingVerticalExit.y,
+            pendingVerticalExit.direction,
+          );
+          return true;
+        }
       }
     }
   }
@@ -2803,6 +2814,7 @@ function $handleArrowKey(
             tableObserver.table,
           );
           tableObservers.setPendingVerticalExit({
+            cellKey: anchorCellNode.getKey(),
             direction,
             tableKey: tableNode.getKey(),
             x: cords.x,

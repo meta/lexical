@@ -357,6 +357,45 @@ describe('arrow keys across soft-wrapped cell text', () => {
     expect(anchorText(editor)).toBe(C4_TEXT);
   });
 
+  test('ArrowDown from the start of the last visual line descends into a nested table below the text', async ctx => {
+    await probeKeyboardDelivery(ctx);
+    let c4Key = '';
+    const editor = setUpEditor(() => {
+      const {c4TextKey, table} = $createNumberedTable();
+      $getRoot().clear().append(table);
+      // c4 gets a nested table under its paragraph: descending into it is
+      // moving within the same cell, not leaving its column.
+      const nestedTable = $createTableNodeWithDimensions(1, 1, false);
+      const nestedRow = nestedTable.getFirstChild();
+      if (!$isTableRowNode(nestedRow)) {
+        throw new Error('malformed nested table');
+      }
+      const nestedCell = nestedRow.getFirstChild();
+      if (!$isTableCellNode(nestedCell)) {
+        throw new Error('malformed nested table');
+      }
+      nestedCell
+        .clear()
+        .append($createParagraphNode().append($createTextNode('nested')));
+      const c4Text = $getNodeByKey(c4TextKey);
+      if (!$isTextNode(c4Text)) {
+        throw new Error('missing c4 text');
+      }
+      c4Text.getParentOrThrow().getParentOrThrow().append(nestedTable);
+      c4Key = c4TextKey;
+    });
+    editor.focus();
+    await new Promise(resolve => setTimeout(resolve, 60));
+    const offset = findLastLineStartOffset(getDomText(editor, c4Key));
+    await setUpC4Caret(editor, c4Key, offset);
+
+    // The native movement descends into the nested table, which is inside
+    // the original cell: the correction must keep it, like a same-column
+    // landing, instead of pulling the caret to the cell below the table.
+    await press('{ArrowDown}');
+    expect(anchorText(editor)).toBe('nested');
+  });
+
   test('ArrowDown from the end of the first visual line stays in the cell', async ctx => {
     await probeKeyboardDelivery(ctx);
     const {c4Key, editor} = await setUpWithC4();
