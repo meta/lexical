@@ -38,7 +38,10 @@
 //    with the rows it replaces still counted, so a key needed room for
 //    three documents;
 // 12. (the same) a corrupt slot at another epoch failed recovery with no
-//    epoch to clear.
+//    epoch to clear;
+// 13. (the review of cec038b3c) a writeDelay timer pending when the epoch
+//    moved fired during the move and left one delta row at the old epoch,
+//    which recovery turned into a capture whose report always failed.
 //
 // Run with gc off and on (LEXICAL_Y_GC=1).
 
@@ -721,3 +724,34 @@ test('12. a corrupt slot at another epoch fails recovery with its epoch, and cle
   }
   expect(unwrap(await recover())).toEqual([]);
 });
+
+test.each([0, 1, 2, 3, 4, 5, 6, 8, 12])(
+  '13. an epoch that moves %i ms after an edit under writeDelay leaves no row behind',
+  async after => {
+    const {store} = await open();
+    const initial = seed();
+    const tab = client(initial);
+    const s = session(tab.binding, store, {writeDelay: 8});
+    s.s.markSynced();
+    unwrap(await s.s.flush());
+    tab.edit('one, mine');
+    await new Promise(resolve => setTimeout(resolve, after));
+    const verdict = await s.s.serverEpoch('e2');
+    expect(verdict.kind === 'moved' && verdict.saved.ok).toBe(true);
+    await new Promise(resolve => setTimeout(resolve, 30));
+    expect(unwrap(await store.slots('doc'))).toEqual([]);
+    const fresh = client(initial);
+    const recovered = unwrap(
+      await recoverYOfflineEdits({
+        binding: fresh.binding,
+        config,
+        epoch: 'e2',
+        key: 'doc',
+        stage: 'persist',
+        store,
+      }),
+    );
+    expect(recovered.length).toBe(1);
+    expect(recovered[0].report.ok).toBe(true);
+  },
+);

@@ -795,6 +795,13 @@ class Session implements YOfflineSession {
     const wasUnsynced = this.unsynced;
     this.isEnded = true;
     this.stop();
+    // A delayed write must not run while the rows are moved into the
+    // capture: what it holds is in the capture (or, on failure, flush()
+    // stores it below).
+    if (this.timer !== null) {
+      clearTimeout(this.timer);
+      this.timer = null;
+    }
     const capture: YOfflineCapture | null =
       wasUnsynced || edits.differs
         ? {
