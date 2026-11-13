@@ -1397,7 +1397,9 @@ not merge as a user might expect:
   or move the line's text (an app transform that upper-cases it, which a
   collaborator's concurrent edit of those characters would not survive),
   change another block, remove a decorator or a link, or leave a text format
-  no reader shows, nothing is saved and what is stored stays. An entity the composing
+  no reader shows, nothing is saved and what is stored stays (a move of a
+  word made as a copy before the original is removed is saved, and a
+  collaborator's concurrent edit of that word stays where the word was). An entity the composing
   editor had in its held view of a line a collaborator turned into a code
   block (a hashtag) does not stay; the formats and NodeState set in that
   update stay on plain text and follow the highlighter on its tokens. When the

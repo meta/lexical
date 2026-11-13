@@ -1198,8 +1198,9 @@ function $sameStructure(
  * container or stored node it changed (one only marked dirty is not
  * changed); and in each of the lines, the same text in the line and in
  * each inline element it holds, the same inline elements and decorators
- * where they were, and no text node of before stored elsewhere now: what
- * is written there is attributes of the characters (formats, the node each
+ * where they were, and no text node of before stored elsewhere now or moved
+ * past another text node of before in its element: what is written there is
+ * attributes of the characters (formats, the node each
  * is in, NodeState), which keeps each character where it is stored, so a
  * collaborator's concurrent edit of it stays. A change of the text (an
  * app's transform that sets capitals) is not written.
@@ -1304,7 +1305,197 @@ function $staysInLines(
       }
     }
   }
+  // No text node of before that the update moved past another node of
+  // before, even within its holder and where the text it takes the place of
+  // is the same (a transform that swaps two equal words): the writer stores
+  // a move as a delete and an insert, which would leave a collaborator's
+  // concurrent edit inside it where the node was.
+  const textEdits = plan.textEdits;
+  if (
+    textEdits !== null &&
+    textEdits !== undefined &&
+    $reordersTextOfBefore(textEdits, lines, prevEditorState)
+  ) {
+    return false;
+  }
   return true;
+}
+
+/**
+ * Whether the update's text edits leave the text nodes of before in a line
+ * of `lines` in another order within their element than before. The edits
+ * are replayed over each element's children as they were: every attach and
+ * detach with where it happened, a node that takes another's place (a
+ * replace detaches one and attaches the other there; a text entity records
+ * the retype) standing for the node it replaced, and a node made in the
+ * update that a node of before is merged into standing for that node. So a
+ * node taken out and put
+ * back in order (a highlighter that rebuilds a line's tokens, an append of
+ * the children as they were) is not a move, and a move through a node made
+ * and removed in the same update is.
+ */
+function $reordersTextOfBefore(
+  textEdits: TextEditLog,
+  lines: ReadonlySet<NodeKey>,
+  prevEditorState: EditorState,
+): boolean {
+  const prevMap = prevEditorState._nodeMap;
+  // The text nodes of before in the lines, by the element they were in, in
+  // their order there.
+  const before = new Map<NodeKey, NodeKey[]>();
+  prevEditorState.read(() => {
+    const visit = (el: ElementNode) => {
+      const texts: NodeKey[] = [];
+      for (const child of el.getChildren()) {
+        if ($isElementNode(child)) {
+          visit(child);
+        } else if ($isTextNode(child)) {
+          texts.push(child.getKey());
+        }
+      }
+      if (texts.length > 1) {
+        before.set(el.getKey(), texts);
+      }
+    };
+    for (const key of lines) {
+      const line = $getNodeByKey(key);
+      if ($isElementNode(line)) {
+        visit(line);
+      }
+    }
+  });
+  if (before.size === 0) {
+    return false;
+  }
+  const children = new Map<NodeKey, NodeKey[]>();
+  const childrenOf = (parent: NodeKey): NodeKey[] => {
+    let list = children.get(parent);
+    if (list === undefined) {
+      const el = prevMap.get(parent);
+      list = [];
+      if ($isElementNode(el)) {
+        for (let k = el.__first; k !== null; ) {
+          list.push(k);
+          const next = prevMap.get(k);
+          k = next === undefined ? null : next.__next;
+        }
+      }
+      children.set(parent, list);
+    }
+    return list;
+  };
+  // The node of before each node stands for.
+  const origin = new Map<NodeKey, NodeKey>();
+  const originOf = (key: NodeKey): NodeKey | undefined =>
+    origin.has(key) ? origin.get(key) : prevMap.has(key) ? key : undefined;
+  let detached: [NodeKey, NodeKey] | null = null;
+  // The nodes attached so far.
+  const attached = new Set<NodeKey>();
+  // Two nodes of before merged: the kept one, the merged one, and whether
+  // the merged one was before it.
+  const merges: [NodeKey, NodeKey, boolean][] = [];
+  for (const edit of textEdits) {
+    if (edit[0] === 'detach') {
+      const list = childrenOf(edit[2]);
+      const at = list.indexOf(edit[1]);
+      if (at !== -1) {
+        list.splice(at, 1);
+      }
+      detached = [edit[1], edit[2]];
+      continue;
+    }
+    if (edit[0] === 'attach') {
+      const [, key, parent, prev, next] = edit;
+      const list = childrenOf(parent);
+      const prevAt = prev === null ? -1 : list.indexOf(prev);
+      const nextAt = next === null ? -1 : list.indexOf(next);
+      const at =
+        prev === null
+          ? 0
+          : prevAt !== -1
+            ? prevAt + 1
+            : nextAt !== -1
+              ? nextAt
+              : list.length;
+      list.splice(at, 0, key);
+      if (prevMap.has(key)) {
+        // A node of before attached again stands for itself: a node that
+        // took its place in the meantime no longer does.
+        for (const [other, was] of origin) {
+          if (was === key && other !== key) {
+            origin.delete(other);
+          }
+        }
+      }
+      if (
+        detached !== null &&
+        detached[1] === parent &&
+        !prevMap.has(key) &&
+        !attached.has(key) &&
+        originOf(detached[0]) !== undefined
+      ) {
+        // A replace: this node, attached for the first time, takes the
+        // detached one's place (one attached before is moved, not made).
+        origin.set(key, originOf(detached[0]) as NodeKey);
+      }
+      attached.add(key);
+    } else if (edit[0] === 'merge') {
+      // The kept node holds the merged node's characters too: a node made
+      // in the update that a node of before is merged into stands for it,
+      // and two nodes of before merge in order only where they were
+      // neighbours on that side.
+      const kept = originOf(edit[1]);
+      const merged = originOf(edit[2]);
+      if (merged !== undefined && kept === undefined) {
+        origin.set(edit[1], merged);
+      } else if (merged !== undefined && kept !== undefined) {
+        merges.push([kept, merged, edit[3]]);
+      }
+    } else if (edit[0] === 'retype') {
+      const was = originOf(edit[1]);
+      if (was !== undefined) {
+        origin.set(edit[2], was);
+      }
+    }
+    detached = null;
+  }
+  // Each merge in order: the merged node's run of nodes of before (what was
+  // merged into it before) next to the kept node's run, on its side.
+  const runs = new Map<NodeKey, [number, number]>();
+  for (const [kept, merged, mergedBefore] of merges) {
+    for (const texts of before.values()) {
+      const keptAt = texts.indexOf(kept);
+      const mergedAt = texts.indexOf(merged);
+      if (keptAt === -1 || mergedAt === -1) {
+        continue;
+      }
+      const [keptLo, keptHi] = runs.get(kept) || [keptAt, keptAt];
+      const [mergedLo, mergedHi] = runs.get(merged) || [mergedAt, mergedAt];
+      if (mergedBefore ? mergedHi !== keptLo - 1 : mergedLo !== keptHi + 1) {
+        return true;
+      }
+      runs.set(kept, [Math.min(keptLo, mergedLo), Math.max(keptHi, mergedHi)]);
+    }
+  }
+  for (const [parent, texts] of before) {
+    const list = children.get(parent);
+    if (list === undefined) {
+      continue;
+    }
+    const wanted = new Set(texts);
+    const now: NodeKey[] = [];
+    for (const key of list) {
+      const was = originOf(key);
+      if (was !== undefined && wanted.has(was) && !now.includes(was)) {
+        now.push(was);
+      }
+    }
+    const kept = texts.filter(key => now.includes(key));
+    if (now.join('\u0000') !== kept.join('\u0000')) {
+      return true;
+    }
+  }
+  return false;
 }
 
 /**
