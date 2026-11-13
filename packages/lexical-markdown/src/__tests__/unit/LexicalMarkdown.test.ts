@@ -6655,7 +6655,9 @@ describe('quote lines with optional space (#9442)', () => {
       {discrete: true},
     );
     expect(
-      editor2.read('latest', () => $isParagraphNode($getRoot().getFirstChild())),
+      editor2.read('latest', () =>
+        $isParagraphNode($getRoot().getFirstChild()),
+      ),
     ).toBe(true);
     expect(
       editor2.read('latest', () => $getRoot().getTextContent()),
@@ -6685,7 +6687,9 @@ describe('quote lines with optional space (#9442)', () => {
       {discrete: true},
     );
     expect(
-      editor2.read('latest', () => $isParagraphNode($getRoot().getFirstChild())),
+      editor2.read('latest', () =>
+        $isParagraphNode($getRoot().getFirstChild()),
+      ),
     ).toBe(true);
     expect(
       editor2.read('latest', () => $getRoot().getTextContent()),

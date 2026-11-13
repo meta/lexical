@@ -2018,12 +2018,36 @@ function $lineStateBefore(
 }
 
 function $isAtParagraphLineStart(node: TextNode): boolean {
-  const previous = node.getPreviousSibling();
-  const parent = node.getParent();
+  let current: LexicalNode = node;
+  while (true) {
+    const previous = current.getPreviousSibling();
+    if (previous !== null) {
+      if (!$isLineBreakNode(previous)) {
+        return false;
+      }
+      break;
+    }
+    const parent = current.getParent();
+    if (parent === null) {
+      return false;
+    }
+    if ($isParagraphNode(parent)) {
+      return $isRootNode(parent.getParent());
+    }
+    if (!$isElementNode(parent) || !parent.isInline()) {
+      return false;
+    }
+    current = parent;
+  }
+
+  let ancestor: LexicalNode | null = current.getParent();
+  while (ancestor !== null && $isElementNode(ancestor) && ancestor.isInline()) {
+    ancestor = ancestor.getParent();
+  }
   return (
-    (previous === null || $isLineBreakNode(previous)) &&
-    $isParagraphNode(parent) &&
-    $isRootNode(parent.getParent())
+    ancestor !== null &&
+    $isParagraphNode(ancestor) &&
+    $isRootNode(ancestor.getParent())
   );
 }
 
