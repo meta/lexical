@@ -8,14 +8,18 @@
 
 // @vitest-environment node
 
-// The layout 3 seed (D22 under layout 3): the seed's own pass writes each
-// container's covered formats as canonical runs interleaved with its content
-// (Cursor#insert, Ident.seedRunsOf). It is the one layout 3 seed path, so its
-// bytes are golden: every admitted seeder at a seed layout writes the same
-// bytes for the same content, and a change to them needs a seed-format bump.
-// Each golden is stored with its input (golden/seed-layout3.json): the nodes
-// its shape's builder makes, as the seed reads them, so the bytes come again
-// from that input whatever the builders become. It is structurally identical to writeLayout3Formats's output for the same
+// The layout 4 seed (D22): the seed's own pass writes each container's
+// formats, flat NodeState included, as canonical runs interleaved with its
+// content (Cursor#insert, Ident.seedRunsOf). It is the one seed path, so its
+// bytes are golden per SEED_LAYOUT: every admitted seeder at a seed layout
+// writes the same bytes for the same content, and a change to them needs a
+// seed-format bump. Layout 4 is one: its seed records `lexical-y:4` alone
+// and writes flat NodeState as runs, so these goldens replace layout 3's
+// (golden/seed-layout3.json, the same inputs but the last shape). Each
+// golden is stored with its input (golden/seed-layout4.json): the nodes its
+// shape's builder makes, as the seed reads them, so the bytes come again
+// from that input whatever the builders become. It is structurally
+// identical to the 3to4 step's writeLayout4Formats's output for the same
 // values: the same openers and ends at the same places relative to the
 // content, every end naming the same opener, the same reads (only clocks,
 // origins and end distances differ).
@@ -38,9 +42,12 @@ import {
   $getRoot,
   $isElementNode,
   $parseSerializedNode,
+  $setState,
+  createState,
   ElementNode,
   type LexicalNode,
   type SerializedLexicalNode,
+  type StateConfig,
 } from 'lexical';
 import {createHash} from 'node:crypto';
 import * as fs from 'node:fs';
@@ -50,7 +57,10 @@ import {describe, expect, test} from 'vitest';
 import {createYDoc} from '../..';
 import {readYState, seedYState} from '../../headless';
 import {covered} from '../../internal/Ident';
-import {readLayout3Formats, writeLayout3Formats} from '../../internal/Layout3';
+import {
+  readLayout4Formats,
+  writeLayout4Formats,
+} from '../../migrate/3to4/frozen/layout4';
 import {
   $createNumericFieldWrapper,
   NumericFieldWrapperNode,
@@ -67,6 +77,32 @@ const $t = (text: string, format = 0, style = '') =>
   $createTextNode(text).setFormat(format).setStyle(style);
 const BOLD = 1;
 const ITALIC = 2;
+
+const tone = createState('tone', {
+  parse: v => (typeof v === 'string' ? v : ''),
+});
+const rank = createState('rank', {
+  parse: v => (typeof v === 'number' ? v : 0),
+});
+const flag = createState('flag', {parse: v => v === true});
+const meta = createState('meta', {
+  parse: (v): unknown => (v !== null && typeof v === 'object' ? v : null),
+});
+const tags = createState('tags', {
+  parse: (v): unknown[] => (Array.isArray(v) ? v : []),
+});
+function $stated<N extends LexicalNode, V>(
+  node: N,
+  state: StateConfig<string, V>,
+  value: V,
+): N {
+  $setState(node, state, value);
+  return node;
+}
+const $toned = <N extends LexicalNode>(node: N, value: string) =>
+  $stated(node, tone, value);
+const $ranked = <N extends LexicalNode>(node: N, value: number) =>
+  $stated(node, rank, value);
 
 const SHAPES: [string, () => LexicalNode[]][] = [
   [
@@ -152,6 +188,26 @@ const SHAPES: [string, () => LexicalNode[]][] = [
       ),
     ],
   ],
+  // Flat NodeState on text and on a line break (layout 4's covered names):
+  // a string, a number, a boolean, an object and an array, alone, together
+  // and under a text format.
+  [
+    'flat NodeState',
+    () => [
+      $createParagraphNode().append(
+        $t('plain '),
+        $toned($t('warm'), 'warm'),
+        $toned($t(' bold-cold', BOLD), 'cold'),
+        $ranked($t(' ranked'), 3),
+        $ranked($toned($t(' both'), 'warm'), 7),
+        $stated($createLineBreakNode(), tone, 'break'),
+        $stated($t('flagged'), flag, true),
+        $stated($t(' object'), meta, {a: 'x', b: [1, 2]}),
+        $stated($t(' array'), tags, ['z', 'a']),
+        $t(' tail'),
+      ),
+    ],
+  ],
 ];
 
 /** Every container under `node`, in document order (sequence, then map). */
@@ -228,7 +284,7 @@ const fresh = (state: Uint8Array) =>
  * (SEED_GOLDEN_WRITE=1 adds a shape that has none, then format the file with
  * prettier and pin its new hash below), never regenerated.
  */
-const GOLDEN = path.join(__dirname, 'golden', 'seed-layout3.json');
+const GOLDEN = path.join(__dirname, 'golden', 'seed-layout4.json');
 
 type Golden = {name: string; input: SerializedLexicalNode[]; bytes: string};
 
@@ -289,12 +345,12 @@ function load(): Golden[] {
 
 const FIXTURES = load();
 
-describe('the layout 3 seed', () => {
+describe('the layout 4 seed', () => {
   test('one stored input and golden per shape, unchanged', () => {
     expect(FIXTURES.map(f => f.name)).toEqual(SHAPES.map(([name]) => name));
     expect(
       createHash('sha256').update(fs.readFileSync(GOLDEN)).digest('hex'),
-    ).toBe('360deeb469789ecda5f6a3d0663ef6f0c6fa5a156ccbccd450326fa333ad8526');
+    ).toBe('7708ee53e92b5dd307b9889b9bc65fcaa373bc5c67c52fbfa4da3b7257e79e8c');
   });
 
   for (const [name, $build] of SHAPES) {
@@ -313,7 +369,7 @@ describe('the layout 3 seed', () => {
       expect(b64(built)).toBe(golden.bytes);
     });
 
-    test(`${name}: structurally identical to writeLayout3Formats`, () => {
+    test(`${name}: structurally identical to writeLayout4Formats`, () => {
       const seed = seedYState(config, () => $getRoot().append(...$build()));
       const doc = createYDoc(seed, {gc: false});
       const copy = createYDoc(seed, {gc: false});
@@ -324,9 +380,9 @@ describe('the layout 3 seed', () => {
       let covering = 0;
       copy.transact(tr => {
         mine.forEach((c, i) => {
-          const values = readLayout3Formats(c);
+          const values = readLayout4Formats(c);
           covering += values.filter(v => v.size > 0).length;
-          writeLayout3Formats(tr, theirs[i], values);
+          writeLayout4Formats(tr, theirs[i], values);
         });
       });
       expect(covering).toBeGreaterThan(0);
@@ -336,7 +392,7 @@ describe('the layout 3 seed', () => {
           console.log('STRUCT', name, i, structure(c).join(' '));
         }
         expect(structure(theirs[i])).toEqual(structure(c));
-        expect(readLayout3Formats(theirs[i])).toEqual(readLayout3Formats(c));
+        expect(readLayout4Formats(theirs[i])).toEqual(readLayout4Formats(c));
       });
       // The binding's read of both documents is the same.
       expect(fresh(Y.encodeStateAsUpdate(copy))).toBe(

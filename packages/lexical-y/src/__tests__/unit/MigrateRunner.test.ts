@@ -846,47 +846,31 @@ describe.each([false, true])('migration runner, gc %s', gc => {
         to: 2,
       };
       const none = () => false;
-      const id = migrationClientID(state, input, 'uint53', none);
-      const id32 = migrationClientID(state, input, 'uint32', none);
+      const id = migrationClientID(state, input, none);
       // Frozen (wire contract).
-      expect([id, id32]).toMatchInlineSnapshot(`
-        [
-          2477915295484220,
-          2633533756,
-        ]
-      `);
-      expect(id % 0x100000000).toBe(id32);
-      expect(migrationClientID(state.slice(), input, 'uint53', none)).toBe(id);
+      expect(id).toMatchInlineSnapshot(`2477915295484220`);
+      expect(migrationClientID(state.slice(), input, none)).toBe(id);
       const others = [
-        migrationClientID(new Uint8Array([1, 2, 4]), input, 'uint53', none),
-        migrationClientID(state, {...input, root: 'B'}, 'uint53', none),
-        migrationClientID(state, {...input, id: 'x'}, 'uint53', none),
-        migrationClientID(state, {...input, revision: 2}, 'uint53', none),
-        migrationClientID(state, {...input, to: 3}, 'uint53', none),
-        migrationClientID(state, {...input, gc: false}, 'uint53', none),
+        migrationClientID(new Uint8Array([1, 2, 4]), input, none),
+        migrationClientID(state, {...input, root: 'B'}, none),
+        migrationClientID(state, {...input, id: 'x'}, none),
+        migrationClientID(state, {...input, revision: 2}, none),
+        migrationClientID(state, {...input, to: 3}, none),
+        migrationClientID(state, {...input, gc: false}, none),
       ];
       expect(new Set([id, ...others]).size).toBe(7);
-      const next = migrationClientID(state, input, 'uint53', c => c === id);
+      const next = migrationClientID(state, input, c => c === id);
       expect(next).not.toBe(id);
       expect(
-        migrationClientID(state, input, 'uint53', c => c === id || c === next),
+        migrationClientID(state, input, c => c === id || c === next),
       ).not.toBe(next);
       for (const c of [id, next, ...others]) {
         expect(Number.isSafeInteger(c) && c > 0).toBe(true);
       }
-      expect(id32).toBeLessThanOrEqual(0xffffffff);
     });
 
-    test("clientIDRange 'uint32' writes 32-bit ids; a clientID allocator's free id is used, a taken one refused", () => {
+    test("a clientID allocator's free id is used, a taken one refused", () => {
       const state = stateOf(RSEED);
-      const r32 = migrateYState(state, [STAMP], {
-        clientIDRange: 'uint32',
-        gc,
-        ...TO2,
-      });
-      expect(r32.receipt.roots[0].steps[0].client).toBeLessThanOrEqual(
-        0xffffffff,
-      );
       const seen: unknown[] = [];
       const own = migrateYState(state, [STAMP, REWRITE], {
         clientID: input => {
@@ -927,8 +911,7 @@ describe.each([false, true])('migration runner, gc %s', gc => {
       expectRefused(
         () =>
           migrateYState(state, [STAMP], {
-            clientID: () => 2 ** 40,
-            clientIDRange: 'uint32',
+            clientID: () => 0.5,
             gc,
             ...TO2,
           }),

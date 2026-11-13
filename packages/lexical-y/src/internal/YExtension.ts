@@ -6,7 +6,6 @@
  *
  */
 
-import type {ClientIDRange} from './ClientID';
 import type {YDoc} from './YDoc';
 import type {Node as YNode} from '@y/y';
 
@@ -67,7 +66,6 @@ export interface YCollabInput {
   readonly root?: YNode | null;
   readonly synced?: boolean;
   readonly captureTimeout?: number | null;
-  readonly clientIDRange?: ClientIDRange;
   readonly selfCheck?: boolean | null;
   readonly selfCheckSample?: number | null;
   readonly convert?: boolean;
@@ -107,8 +105,6 @@ export interface YCollabConfig {
   synced: boolean;
   /** Undo capture timeout in ms; null disables collaborative undo. */
   captureTimeout: number | null;
-  /** See YBindingOptions.clientIDRange (default 'uint53'). */
-  clientIDRange: ClientIDRange;
   /**
    * See YBindingOptions.selfCheck; null keeps the default (off). Warnings
    * go to the editor's `onWarn`.
@@ -182,7 +178,6 @@ export const YCollabExtension = defineExtension({
     return {
       binding: new YBinding(editor, config.doc, {
         captureTimeout: config.captureTimeout,
-        clientIDRange: config.clientIDRange,
         convert: config.convert,
         layoutUpgrade: config.layoutUpgrade,
         onStatus: value => {
@@ -228,7 +223,6 @@ export const YCollabExtension = defineExtension({
   },
   config: safeCast<YCollabConfig>({
     captureTimeout: 500,
-    clientIDRange: 'uint53',
     convert: false,
     doc: null,
     root: null,

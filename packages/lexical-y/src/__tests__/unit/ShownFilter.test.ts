@@ -573,8 +573,8 @@ describe('no other module decides what is shown', () => {
       // key (isHeldFormatIn), or at an item of the key the cursor does not
       // pass (isPassedIn) that is a boundary or a clearer (isGoneIn, of an
       // end's opener). Each lane's answer is used whole.
-      'Cursor.ts Cursor#formatCovered: isGoneIn + isHeldFormatIn + isPassedIn',
-      'Cursor.ts Cursor#formatCovered: isGoneIn + isHeldFormatIn + isPassedIn',
+      'Cursor.ts Cursor#format: isGoneIn + isHeldFormatIn + isPassedIn',
+      'Cursor.ts Cursor#format: isGoneIn + isHeldFormatIn + isPassedIn',
     ]);
   }, 120_000);
 

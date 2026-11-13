@@ -164,12 +164,6 @@ function aliveFormats(state: Uint8Array): string[] {
   return out;
 }
 
-/** Client ids of every struct an update carries. */
-function clientsOf(update: Uint8Array): number[] {
-  const {structs} = Y.decodeUpdate(update);
-  return [...new Set(structs.map(s => s.id.client))];
-}
-
 function applyTo(peers: Peer[], update: Uint8Array) {
   for (const peer of peers) {
     Y.applyUpdate(peer.doc, update, 'server');
@@ -820,30 +814,6 @@ describe('@lexical/y/headless', () => {
     expect(update).not.toBeNull();
   });
 
-  test("clientIDRange 'uint32' keeps every client id in 32 bits", () => {
-    const state = seedYState({...config, clientIDRange: 'uint32'}, () =>
-      $getRoot().append($p('a')),
-    );
-    expect(clientsOf(state).every(id => id <= 0xffffffff)).toBe(true);
-    for (let i = 0; i < 20; i++) {
-      const {update} = editYState(
-        state,
-        {...config, clientIDRange: 'uint32'},
-        () => $getRoot().append($p(`edit ${i}`)),
-        {writer: null},
-      );
-      expect(clientsOf(update!).every(id => id <= 0xffffffff)).toBe(true);
-    }
-    // Yjs 14's default ids are 53-bit.
-    const {update} = editYState(
-      state,
-      config,
-      () => $getRoot().append($p('wide')),
-      {writer: null},
-    );
-    expect(clientsOf(update!).some(id => id > 0xffffffff)).toBe(true);
-  });
-
   test('a document with a newer layout is read only and refused', () => {
     const doc = new Y.Doc();
     Y.applyUpdate(doc, seed('future'));
@@ -956,7 +926,7 @@ describe('@lexical/y/headless', () => {
     const state = seed('a');
     editYState(
       state,
-      {...config, clientIDRange: 'uint32'},
+      config,
       () => {
         editors.push($getEditor());
         $getRoot().append($p('b'));

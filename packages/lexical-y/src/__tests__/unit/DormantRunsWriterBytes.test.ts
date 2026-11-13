@@ -18,9 +18,14 @@ import {expect, test} from 'vitest';
 import {$p, $selectIn, flush, freshReader, setup} from '../utils/harness';
 import {prepareMarkState} from '../utils/sizeOps';
 
+// Layout 4: the session's documents record `lexical-y:4` alone (layout 3's
+// recorded 1, 2 and 3), which moves every clock after the records. The
+// writer's items are otherwise the same: layout 3's writer, made to write
+// layout 4's records and nothing else, gives this digest too (it was
+// 31116590…f72b8 with layout 3's records).
 const DIGEST: Record<string, string> = {
-  false: '31116590bbee00af87fd6bb84cceab39a3a5df7ec32ad8c6757437affd4f72b8',
-  true: '31116590bbee00af87fd6bb84cceab39a3a5df7ec32ad8c6757437affd4f72b8',
+  false: 'edb39fc57daaf30d151edd61a946b1793f9a09495367bb0de698f0c49c7cf334',
+  true: 'edb39fc57daaf30d151edd61a946b1793f9a09495367bb0de698f0c49c7cf334',
 };
 
 for (const gc of [false, true])

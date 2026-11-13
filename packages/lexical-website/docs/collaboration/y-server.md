@@ -70,8 +70,7 @@ const json = readYState(next, config, () =>
 Each function takes a config with the editor's `extensions` (or `nodes`),
 a required `schemaVersion` (the version of the app's schema this code has,
 see [Versioning your schema](./y.md#versioning-your-schema)), and
-optionally `root` (default `'lexical-y'`), `clientIDRange` (see
-[Servers](./y.md#servers)), `onWarn` and `selfCheck`. `editYState` also
+optionally `root` (default `'lexical-y'`), `onWarn` and `selfCheck`. `editYState` also
 takes options with a required `writer` (see [Writers](#writers)).
 
 A seed records its config's `schemaVersion`, and so does an edit that
@@ -246,7 +245,6 @@ warning's `data.reason` says why:
 | --- | --- | --- |
 | `'stale-state'` | The state was read before the writer's last update to the document, or that update was never stored. | Run the writer's edits one after another, each on a state that holds its last update, and store every update it returns. |
 | `'busy'` | `editYState` was called with the writer from inside another call with it (its `$edit`, `transact` or `onWarn`). | Run a writer's edits one after another. |
-| `'range'` | The writer's client id does not fit `clientIDRange: 'uint32'`. | Use the same `clientIDRange` in every config the writer edits a document with. |
 | `'foreign-writes'` | Something else wrote under the writer's client id: an app assigned `result.clientID` to a `Y.Doc`. The writer stops using that id. | Never assign a writer's client id to a document. |
 
 A state that holds none of the writer's client ids (another document, or

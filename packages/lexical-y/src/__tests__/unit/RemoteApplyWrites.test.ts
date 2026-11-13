@@ -69,7 +69,6 @@ function peer(id: number, state: Uint8Array, blockIds: boolean) {
             ]
           : []),
         configExtension(YCollabExtension, {
-          clientIDRange: 'uint32',
           doc,
           schemaVersion: 1,
           selfCheck: true,

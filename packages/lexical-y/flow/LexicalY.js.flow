@@ -30,8 +30,6 @@ declare export var SEED_LAYOUT: number;
 
 export type YBindingStatus = 'pending' | 'active' | 'readonly';
 
-export type ClientIDRange = 'uint53' | 'uint32';
-
 declare export var UNSUPPORTED_LAYOUT_WARNING: '@lexical/y/unsupported-layout';
 declare export var UNKNOWN_NODE_TYPES_WARNING: '@lexical/y/unknown-node-types';
 declare export var STORAGE_MISMATCH_WARNING: '@lexical/y/storage-mismatch';
@@ -219,7 +217,6 @@ export type YBindingOptions = {
   selfCheck?: boolean,
   selfCheckSample?: number,
   convert?: boolean,
-  clientIDRange?: ClientIDRange,
   // How documents below MIN_LAYOUT are upgraded: a handle, or null (read
   // only). Left out: read only, plus UNSUPPORTED_CONFIG_WARNING
   // 'missing-layout-upgrade' for such a document.
@@ -367,7 +364,6 @@ export type YCollabInput = {
   readonly root?: YNode | null,
   readonly synced?: boolean,
   readonly captureTimeout?: number | null,
-  readonly clientIDRange?: ClientIDRange,
   readonly selfCheck?: boolean | null,
   readonly selfCheckSample?: number | null,
   readonly convert?: boolean,
@@ -386,7 +382,6 @@ export type YCollabConfig = {
   root: YNode | null,
   synced: boolean,
   captureTimeout: number | null,
-  clientIDRange: ClientIDRange,
   selfCheck: boolean | null,
   selfCheckSample: number | null,
   convert: boolean,

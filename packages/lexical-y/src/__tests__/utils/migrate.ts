@@ -6,13 +6,16 @@
  *
  */
 
-// Test-only: migrate a document written before layout 3 (a capture) the way
-// the 2-to-3 step does: per container, the stored values today's plain fold
-// finds (covered keys), rewritten by writeLayout3Formats; then the record.
+// Test-only: migrate a document written before paired runs (a capture) the way
+// the migration steps do: per container, the stored values today's plain fold
+// finds (covered keys), rewritten by writeLayout4Formats; then the record.
 
 import * as Y from '@y/y';
 
-import {isCoveredKey, writeLayout3Formats} from '../../internal/Layout3';
+import {
+  isCoveredKey,
+  writeLayout4Formats,
+} from '../../migrate/3to4/frozen/layout4';
 
 function legacyValues(container: Y.Node): Map<string, unknown>[] {
   const formats = new Map<string, unknown>();
@@ -82,13 +85,13 @@ function containers(node: Y.Node, out: Y.Node[]): Y.Node[] {
   return out;
 }
 
-/** Migrate `root` of `doc` to layout 3 (see the header). */
-export function migrateToLayout3(doc: Y.Doc, root: Y.Node): void {
+/** Migrate `root` of `doc` to layout 4 (see the header). */
+export function migrateToLayout4(doc: Y.Doc, root: Y.Node): void {
   doc.transact(tr => {
     for (const c of containers(root, [])) {
-      writeLayout3Formats(tr, c, legacyValues(c));
+      writeLayout4Formats(tr, c, legacyValues(c));
     }
-    root.setAttr('lexical-y:3', true);
+    root.setAttr('lexical-y:4', true);
   });
 }
 
@@ -96,9 +99,9 @@ export function migrateToLayout3(doc: Y.Doc, root: Y.Node): void {
 export const MIGRATOR_ID = 999_999_937;
 
 /**
- * A state captured below layout 3, migrated to layout 3 (see
- * migrateToLayout3) under MIGRATOR_ID: for repro cells that replay such a
- * capture, which a layout 3 binding opens read only. Updates captured after it (a
+ * A state captured before paired runs, migrated to layout 4 (see
+ * migrateToLayout4) under MIGRATOR_ID: for repro cells that replay such a
+ * capture, which the binding opens read only. Updates captured after it (a
  * legacy client's) apply on top as a raw writer's.
  */
 export function migratedState(
@@ -109,7 +112,7 @@ export function migratedState(
   (doc as unknown as {cleanupFormatting: boolean}).cleanupFormatting = false;
   doc.clientID = MIGRATOR_ID;
   Y.applyUpdate(doc, update);
-  migrateToLayout3(doc, doc.get(rootName));
+  migrateToLayout4(doc, doc.get(rootName));
   const out = Y.encodeStateAsUpdate(doc) as Uint8Array<ArrayBuffer>;
   doc.destroy();
   return out;

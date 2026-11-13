@@ -12,6 +12,7 @@
 
 import {
   applyUpdate,
+  ContentDeleted,
   createID,
   createIdSet,
   decodeUpdate,
@@ -43,6 +44,7 @@ import {
  * (YJS_EXPORTS).
  */
 export const MIGRATION_YJS_EXPORTS = [
+  'ContentDeleted',
   'diffUpdate',
   'encodeStateVectorFromUpdate',
   'intersectUpdateWithContentIds',
@@ -90,6 +92,7 @@ export function migrationYjsMembers() {
 /** The exports this probe calls. */
 function migrationYjsExports() {
   return {
+    ContentDeleted,
     Doc,
     Item,
     Node: YNode,

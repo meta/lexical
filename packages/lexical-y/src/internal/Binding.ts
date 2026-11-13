@@ -26,9 +26,6 @@ import {
   encodeStateAsUpdate,
   encodeStateVector,
   findIndexSS,
-  getItemCleanStart,
-  type ID,
-  type IdSet,
   Item,
   iterateStructsByIdSet,
   mergeIdSets,
@@ -94,7 +91,6 @@ import {
 import {ARGUMENTS_CHUNK, pushAll, spliceAll} from './Arrays';
 import {$unsettledAfterWrite} from './BlockIds';
 import {$caretOnMovingBoundary, $foreseesMove, composedMoved} from './Boundary';
-import {type ClientIDRange, constrainClientID} from './ClientID';
 import {
   BASE_LAYOUT_VERSION,
   DEFAULT_ROOT_NAME,
@@ -103,19 +99,11 @@ import {
   LEGACY_ROOTS,
   MIN_LAYOUT,
   SCHEMA_PREFIX,
-  SET_MEMBERS_LAYOUT_VERSION,
 } from './constants';
-import {
-  changeEnd,
-  equalFormatValue,
-  isFormatCloser,
-  markFormatCloser,
-} from './Cursor';
 import {$canonicalizeGroup, $switchesWrapper} from './Groups';
 import {$heldDecision} from './HoldGuard';
 import {
   attrsOf,
-  covered,
   endsOf,
   finishSeedRuns,
   IdentityLayoutOrigin,
@@ -129,7 +117,6 @@ import {
   takePairingChanges,
   withSeeding,
   writeIdentityRecord,
-  writesPairedRuns,
 } from './Ident';
 import {UndoKeeps} from './Keeps';
 import {
@@ -165,7 +152,6 @@ import {
   getGroupSpec,
   identityOf,
   isMergeableText,
-  isSetMemberEntryName,
   LAYOUT_PREFIX,
   LAYOUT_VERSION,
   MARKER,
@@ -831,12 +817,6 @@ export interface YBindingOptions {
    * UNSUPPORTED_CONFIG_WARNING `'missing-layout-upgrade'`.
    */
   layoutUpgrade?: YLayoutUpgradeHandle | null;
-  /**
-   * The range of the document's client ids: `'uint53'` (default, Yjs 14's
-   * ids, left as they are) or `'uint32'` (kept in 32 bits, for servers on
-   * yrs before 0.28; see {@link ClientIDRange}).
-   */
-  clientIDRange?: ClientIDRange;
 }
 
 /**
@@ -932,7 +912,7 @@ function gatingSchemaKeys(root: YNode, supported: number): string[] {
  * grows: undo never deletes it (see YBinding#isKeptByUndo).
  *
  * Invariant: called in a `finally` inside every transaction that writes a
- * local edit (as recordSetMembersLayout). Why: Yjs commits and sends what a
+ * local edit. Why: Yjs commits and sends what a
  * transaction wrote even when its callback throws.
  */
 function recordSchema(
@@ -952,24 +932,6 @@ function recordSchema(
   if (wrote) {
     root.setAttr(key, true);
   }
-}
-
-/**
- * Whether live format item `item` changes its key's value: the nearest live
- * item of its key before it gives another value (none gives null).
- */
-function opensRun(item: Item): boolean {
-  const {key, value} = item.content as ContentFormat;
-  for (let it = item.left; it !== null; it = it.left) {
-    if (
-      !it.deleted &&
-      it.content instanceof ContentFormat &&
-      it.content.key === key
-    ) {
-      return !equalFormatValue(it.content.value, value);
-    }
-  }
-  return value !== null;
 }
 
 /**
@@ -1031,62 +993,6 @@ function newestIn(attrs: RootAttrs): number | null {
     }
   }
   return version;
-}
-
-/**
- * Whether `tr` wrote a member entry of a set-valued NodeState: a text format
- * or a node attribute named `s:<key>\u001f…` set to true (see
- * SET_MEMBERS_LAYOUT_VERSION).
- */
-function wroteSetMember(tr: Transaction): boolean {
-  let found = false;
-  iterateStructsByIdSet(tr, tr.insertSet, s => {
-    if (found || !(s instanceof Item) || s.deleted) {
-      return;
-    }
-    const content = s.content;
-    if (content instanceof ContentFormat) {
-      found = content.value === true && isSetMemberEntryName(content.key);
-    } else if (
-      typeof s.parentSub === 'string' &&
-      isSetMemberEntryName(s.parentSub)
-    ) {
-      found = content.getContent()[0] === true;
-    }
-  });
-  return found;
-}
-
-/**
- * Record layout `version` on `root` (see LAYOUT_PREFIX), unless it is
- * recorded already: in the transaction that wrote the first content that
- * needs it, so that no client receives one without the other. The record
- * only grows: undo never deletes it (see YBinding#isKeptByUndo).
- */
-function recordLayout(root: YNode, version: number): void {
-  const key = LAYOUT_PREFIX + version;
-  if (root.getAttr(key) !== true) {
-    root.setAttr(key, true);
-  }
-}
-
-/**
- * Record layout SET_MEMBERS_LAYOUT_VERSION on `root` when `tr` wrote a member
- * entry of a set-valued NodeState (see wroteSetMember), unless the document
- * records it already (then `tr` is not scanned).
- *
- * Invariant: called in a `finally` inside every transaction that writes
- * content. Why: Yjs commits and sends what a transaction wrote even when its
- * callback throws, so a write that fails part way must carry the version
- * too; the recovery's rewrite is a later transaction, which may never come.
- */
-function recordSetMembersLayout(root: YNode, tr: Transaction): void {
-  if (
-    root.getAttr(LAYOUT_PREFIX + SET_MEMBERS_LAYOUT_VERSION) !== true &&
-    wroteSetMember(tr)
-  ) {
-    recordLayout(root, SET_MEMBERS_LAYOUT_VERSION);
-  }
 }
 
 /**
@@ -1415,18 +1321,10 @@ export class YBinding {
   private remoteSeq = 0;
   /** Origin of read-only scans (no changes). */
   private readonly scanOrigin = {binding: this, scan: true};
-  /**
-   * The origin of the nulls an undo or redo writes to end the runs it
-   * brings back (see closeRestoredRuns): read into the editor as a
-   * collaborator's change is, and not part of the undo stack.
-   */
-  private readonly runEndOrigin = {binding: this, runEnd: true};
   /** Stored nodes the running undo/redo restores (see isKeptByUndo). */
   private restoring: Set<string> | null = null;
   /** Stored nodes the running undo/redo deletes (it inserted them). */
   private removing: Set<Item> | null = null;
-  /** The ids of the items the running undo/redo deletes (see isKeptByUndo). */
-  private undoing: IdSet | null = null;
   private wasEditable = true;
   private undoCache = new WeakMap<YNode, Set<number>>();
   private readonly afterTransaction: (tr: Transaction) => void;
@@ -1742,17 +1640,8 @@ export class YBinding {
   }
 
   /**
-   * Whether this binding's writes and undo steps treat `key` as paired runs
-   * (see Ident.covered and writesPairedRuns): then none of the rules that
-   * keep or close plain values for it run.
-   */
-  private pairsKey(key: string): boolean {
-    return covered(key) && writesPairedRuns(this._doc, this._root);
-  }
-
-  /**
    * After each transaction: where a local transaction deleted the live
-   * layout 3 record, write it again in a transaction of its own with an
+   * layout record (IDENTITY_LAYOUT_VERSION), write it again in a transaction of its own with an
    * origin no UndoManager tracks (IdentityLayoutOrigin; a record this
    * client wrote first is protected by Ident.protectRecordAfter). Never on
    * the remote-apply path: the client whose transaction deleted it records
@@ -1807,7 +1696,6 @@ export class YBinding {
         this.initOrigin,
         this.followUpOrigin,
         this.scanOrigin,
-        this.runEndOrigin,
       ]);
     }
     this.afterTransaction = tr =>
@@ -1841,9 +1729,6 @@ export class YBinding {
     // The copy fix-up and index of paired runs, while this binding runs
     // (see Ident.installIdentity).
     this.disposers.push(installIdentity(this._doc));
-    if (this.options.clientIDRange === 'uint32') {
-      this.disposers.push(constrainClientID(this._doc));
-    }
     // With block ids, a line without a marker gets an id derived from the
     // document (see Reader#$materialize).
     const blockIds = getPeerDependencyFromEditor<typeof BlockIdExtension>(
@@ -1995,8 +1880,8 @@ export class YBinding {
       );
       this._undoManager = um;
       // Undo reads the format items of the changes on its stacks, and the
-      // end each of them gave a run it deleted (see isKeptByUndo,
-      // closeRestoredRuns, changeEnd), after a collaborator deleted them:
+      // ends of each run it deleted (see Ident.endsOf), after a
+      // collaborator deleted them:
       // keep those from garbage collection (Item.keep, as UndoManager keeps
       // the items a change deletes) so a collected item's key and value
       // stay readable (#9623). The flag is local; while an item is kept,
@@ -2097,12 +1982,7 @@ export class YBinding {
             s.content instanceof ContentFormat &&
             s.content.value !== null
           ) {
-            if (!this.pairsKey(s.content.key)) {
-              const end = changeEnd(this._doc, s);
-              if (end !== null) {
-                ends.push(end);
-              }
-            } else if (!isEndValue(s.content.value)) {
+            if (!isEndValue(s.content.value)) {
               // A paired run's own ends, by id (no end is guessed).
               pushAll(ends, endsOf(s));
             }
@@ -2637,7 +2517,7 @@ export class YBinding {
         // read back like any document's content, so the editor shows what
         // is stored (and the state maps it), with its selection kept.
         // Inside an app's outer transaction (which an app UndoManager may
-        // track), its layout 3 record is protected after that transaction,
+        // track), its layout record is protected after that transaction,
         // the seed's bytes unchanged (see Ident.protectRecordAfter). Outside
         // one, the initialization's own origin is never tracked.
         const outer = this._doc._transaction;
@@ -2679,7 +2559,7 @@ export class YBinding {
             markBindingWrite(tr);
           }
           seeded = true;
-          // The canonical layout 3 seed (see Ident.withSeeding).
+          // The canonical seed (see Ident.withSeeding).
           withSeeding(this._doc, () =>
             this.$writeInitial(this.state, this._root, tr, editorState),
           );
@@ -2716,8 +2596,7 @@ export class YBinding {
   /**
    * Write the layout record, the schema record (see SCHEMA_PREFIX) and the
    * editor's content into an empty root, the records first (see
-   * LAYOUT_PREFIX), and layout 2 when the content holds a
-   * member entry of a set (see recordSetMembersLayout).
+   * LAYOUT_PREFIX).
    */
   private $writeInitial(
     state: State,
@@ -2725,46 +2604,38 @@ export class YBinding {
     tr: Transaction,
     editorState: EditorState,
   ): void {
-    root.setAttr(LAYOUT_PREFIX + BASE_LAYOUT_VERSION, true);
-    // Layout 3 only: a new document records it from the start, and its
-    // content's covered formats are written as canonical paired runs,
-    // interleaved with the content (see Ident.withSeeding).
+    // A new document records its layout from the start, and only that one
+    // (IDENTITY_LAYOUT_VERSION); its content's formats are written as
+    // canonical paired runs, interleaved with the content (see
+    // Ident.withSeeding).
     writeIdentityRecord(root);
     root.setAttr(SCHEMA_PREFIX + this.options.schemaVersion, true);
-    try {
-      // Every element type of the initial content (into `root`, which may
-      // be a scratch document's: this._pins is filled when the real one is
-      // read).
-      this.recordPins(root, editorState, null, new Map());
-      editorState.read(() => {
-        const roles = new Roles(state);
-        const cs = state.newCS(root, 'root', 'b');
-        const writer = new Writer(
-          state,
-          roles,
-          tr,
-          editorState,
-          {
-            attrs: new Set(),
-            inline: new Set(),
-            lines: new Set(),
-            removedText: new Map(),
-            structural: new Set(['root']),
-          },
-          this.seer,
-        );
-        writer.$writeContainer(cs, $getRoot());
-      });
-      // The seed's runs still open at their container's end (see
-      // Ident.finishSeedRuns).
-      finishSeedRuns(tr);
-    } finally {
-      recordSetMembersLayout(root, tr);
-    }
-  }
-
-  private clientIDRange(): ClientIDRange {
-    return this.options.clientIDRange === 'uint32' ? 'uint32' : 'uint53';
+    // Every element type of the initial content (into `root`, which may
+    // be a scratch document's: this._pins is filled when the real one is
+    // read).
+    this.recordPins(root, editorState, null, new Map());
+    editorState.read(() => {
+      const roles = new Roles(state);
+      const cs = state.newCS(root, 'root', 'b');
+      const writer = new Writer(
+        state,
+        roles,
+        tr,
+        editorState,
+        {
+          attrs: new Set(),
+          inline: new Set(),
+          lines: new Set(),
+          removedText: new Map(),
+          structural: new Set(['root']),
+        },
+        this.seer,
+      );
+      writer.$writeContainer(cs, $getRoot());
+    });
+    // The seed's runs still open at their container's end (see
+    // Ident.finishSeedRuns).
+    finishSeedRuns(tr);
   }
 
   /**
@@ -2876,7 +2747,6 @@ export class YBinding {
               byteString(baseVector) +
               '\u0000' +
               content,
-        this.clientIDRange(),
       ),
     );
   }
@@ -4233,7 +4103,6 @@ export class YBinding {
       tr.origin === this.initOrigin ||
       tr.origin === this.followUpOrigin ||
       tr.origin === this.scanOrigin ||
-      tr.origin === this.runEndOrigin ||
       (this._undoManager !== null && tr.origin === this._undoManager)
     ) {
       return false;
@@ -4448,7 +4317,7 @@ export class YBinding {
       return;
     }
     if (tr.origin instanceof IdentityLayoutOrigin) {
-      // The layout 3 record this client wrote again (see
+      // The layout record this client wrote again (see
       // keepIdentityRecord): nothing the editor shows changed, and reading
       // does not depend on the record (every document reads as paired
       // runs).
@@ -4554,13 +4423,9 @@ export class YBinding {
     const committed = this._editor.getEditorState();
     let cursor: YCursor | null = null;
     // An undo puts back the selection of its step (a range, after typing
-    // over one); any other read keeps the user's caret a caret. The nulls an
-    // undo writes after itself (see closeRestoredRuns) are read as part of
-    // it: their read puts back the same selection, which the editor may not
-    // have committed yet (an undo run inside an update).
+    // over one); any other read keeps the user's caret a caret.
     const undoing =
-      (tr.origin === this._undoManager && this._undoManager !== null) ||
-      tr.origin === this.runEndOrigin;
+      tr.origin === this._undoManager && this._undoManager !== null;
     let rebuilt: ReadonlySet<CS> = new Set();
     let naming = false;
     this.guardedRead({
@@ -4618,9 +4483,7 @@ export class YBinding {
         cursor = this.pendingCursor;
         this.pendingCursor = null;
         if (undoing) {
-          if (tr.origin !== this.runEndOrigin) {
-            this.undoneCursor = cursor;
-          }
+          this.undoneCursor = cursor;
           cursor = this.stepCursor ?? cursor;
         }
         // A re-read of a naming update's change is tagged as that update
@@ -7414,11 +7277,6 @@ export class YBinding {
                   this.isUnderRoot(t),
                 );
               }
-              // In the same transaction as the first member entry of a set, even
-              // when the write throws part way: clients that only read layout 1
-              // never get one without the version that tells them they cannot
-              // read it.
-              recordSetMembersLayout(this._root, tr);
               // A write D08 permits may record this client's own schema version
               // (its first write at it): its pins and its recovery are admitted
               // on the records it was admitted on plus exactly that record, and
@@ -7570,7 +7428,6 @@ export class YBinding {
                 this.isUnderRoot(t),
               );
             }
-            recordSetMembersLayout(this._root, tr);
           }
         }, origin);
       } catch (e2) {
@@ -9006,27 +8863,6 @@ export class YBinding {
    * leave a malformed container).
    */
   private isKeptByUndo(item: Item): boolean {
-    // A null a format change wrote after its range to end its value there:
-    // kept where without it the content after it would take a value (that
-    // of a collaborator's change that ended inside the range, closed with
-    // the value this change gave), and where a collaborator removed this
-    // change's own opener (an undo of that removal brings it back).
-    if (isFormatCloser(item) && this.undoing !== null) {
-      const {key} = item.content as ContentFormat;
-      for (let it = item.left; it !== null; it = it.left) {
-        if (!(it.content instanceof ContentFormat) || it.content.key !== key) {
-          continue;
-        }
-        if (this.undoing.hasId(it.id)) {
-          if (it.deleted) {
-            return true;
-          }
-        } else if (!it.deleted) {
-          return it.content.value !== null;
-        }
-      }
-      return false;
-    }
     // The layout and schema records only grow.
     if (
       item.parent === this._root &&
@@ -9157,8 +8993,6 @@ export class YBinding {
       const base = opposite().length;
       const popped = undo ? um.undo() : um.redo();
       if (popped !== null) {
-        this.carryCloserMarks(popped);
-        this.closeRestoredRuns(popped);
         // Read inside the running update (see undoOrRedo): what the
         // binding writes of it, in that update's commit, is part of the
         // step (see stepFold).
@@ -9178,7 +9012,6 @@ export class YBinding {
     } finally {
       this.restoring = null;
       this.removing = null;
-      this.undoing = null;
       this.stepCursor = null;
     }
   }
@@ -9229,195 +9062,6 @@ export class YBinding {
   }
 
   /**
-   * Give the copies the undo or redo of `step` made of format closers (see
-   * isKeptByUndo) the closers' mark: a redo makes a new item of each item
-   * its undo deleted, and without the mark the next undo of that change
-   * deleted a closer it would have kept, so the value it ended ran on (a
-   * bold made, undone and redone, then a collaborator's removal of it undone
-   * after its undo, left the rest of the document bold).
-   */
-  private carryCloserMarks(step: UndoManager['undoStack'][number]): void {
-    const store = this._doc.store;
-    this._doc.transact(tr => {
-      iterateStructsByIdSet(tr, step.deletes, s => {
-        if (s instanceof Item && s.redone !== null && isFormatCloser(s)) {
-          const copy = store.getItem(s.redone);
-          if (copy instanceof Item) {
-            markFormatCloser(copy);
-          }
-        }
-      });
-    }, this.scanOrigin);
-  }
-
-  /**
-   * End each run that a format item the undo or redo of `step` brought back
-   * opens with an item of this client's own, where the item that ended it is
-   * another client's: right before a live null of another client's that ends
-   * it, or right after the end the original's own change gave its run (see
-   * changeEnd), where that is gone and nothing ends the run before it. An
-   * undo brings back the items its change deleted, and the closer that ended
-   * such a run was not among them: a collaborator's concurrent undo of the
-   * change that wrote it removed it, and the value ran on to the end of the
-   * document (a comment added, undone while a collaborator resolved it and
-   * undid the resolve, put the comment on everything after it; bold removed
-   * from a collaborator's bold text while the collaborator undid it, and that
-   * removal undone, made everything after it bold). Invariant: a run an undo
-   * or redo brings back ends where a closer ended it for this client,
-   * whatever another client removes at the same time. A run that another
-   * value ends is left as it is: where that value's change is undone, the run
-   * going on over its text is what it had before (a copy of that value kept
-   * it there after its own undo). A copy inside a run of its own value (see
-   * opensRun) opens no run: the run it is in ends where it ends.
-   */
-  private closeRestoredRuns(step: UndoManager['undoStack'][number]): void {
-    const doc = this._doc;
-    const store = doc.store;
-    const client = doc.clientID;
-    // Where to write each null: after the item that ends at `leftEnd`,
-    // before the item that starts at `right` (null: at that end of the
-    // list). Ids, not items: the scan's
-    // transaction splits items and its cleanup merges them back, so an item
-    // object it saw can be a piece no longer in the store by the time the
-    // null is written (an item linked to such a piece breaks the list's
-    // links).
-    const ends: [leftEnd: ID | null, right: ID | null, key: string][] = [];
-    doc.transact(tr => {
-      const copies: [original: Item, copy: Item][] = [];
-      iterateStructsByIdSet(tr, step.deletes, s => {
-        if (
-          s instanceof Item &&
-          s.redone !== null &&
-          s.content instanceof ContentFormat
-        ) {
-          const copy = store.getItem(s.redone);
-          if (
-            copy instanceof Item &&
-            !copy.deleted &&
-            copy.content instanceof ContentFormat &&
-            copy.content.value !== null &&
-            !this.pairsKey(copy.content.key)
-          ) {
-            copies.push([s, copy]);
-          }
-        }
-      });
-      for (const [original, copy] of copies) {
-        const {key} = copy.content as ContentFormat;
-        // The end of the run the original opened in its own write (see
-        // changeEnd): where that is gone (the undo of that write), the
-        // copy's run ends there.
-        const gone = opensRun(copy) ? changeEnd(doc, original) : null;
-        let shown = false;
-        for (let it = copy.right; it !== null; it = it.right) {
-          if (it === gone && it.deleted) {
-            if (shown) {
-              ends.push([it.lastId, it.right && it.right.id, key]);
-            }
-            break;
-          }
-          if (it.deleted) {
-            continue;
-          }
-          if (it.content instanceof ContentFormat) {
-            if (it.content.key === key) {
-              if (
-                shown &&
-                it.id.client !== client &&
-                it.content.value === null
-              ) {
-                ends.push([it.left && it.left.lastId, it.id, key]);
-              }
-              break;
-            }
-          } else if (it.countable) {
-            shown = true;
-          }
-        }
-      }
-    }, this.scanOrigin);
-    if (ends.length > 0) {
-      doc.transact(tr => {
-        // Development builds: the binding's own write, even when it joined
-        // an app's transaction (see noteRawWrite).
-        if (__DEV__) {
-          markBindingWrite(tr);
-        }
-        // The nulls this loop writes: two keys can need an end in the same
-        // gap, and the second must not take the first's null for a change
-        // of the gap.
-        const written = new Set<Item>();
-        for (const [leftEnd, rightStart, key] of ends) {
-          // The items as the store holds them now, split at those ids.
-          const right =
-            rightStart === null ? null : getItemCleanStart(tr, rightStart);
-          let left: Item | null = null;
-          if (leftEnd !== null) {
-            const at = store.getItem(leftEnd);
-            if (
-              at instanceof Item &&
-              at.id.clock + at.length - 1 > leftEnd.clock
-            ) {
-              getItemCleanStart(
-                tr,
-                createID(leftEnd.client, leftEnd.clock + 1),
-              );
-            }
-            const found = store.getItem(leftEnd);
-            left = found instanceof Item ? found : null;
-          }
-          if (
-            (rightStart !== null && !(right instanceof Item)) ||
-            (leftEnd !== null && left === null) ||
-            (left === null && right === null) ||
-            (left !== null && right !== null && left.parent !== right.parent)
-          ) {
-            continue;
-          }
-          // Still next to each other but for the nulls written here, in one
-          // type (never next to an item of another type: see checkLinkable
-          // in Cursor). The null goes right before `right`, after those.
-          let before: Item | null;
-          if (right !== null) {
-            let l = right.left;
-            while (l !== null && written.has(l)) {
-              l = l.left;
-            }
-            if (l !== left) {
-              continue;
-            }
-            before = right.left;
-          } else {
-            let last = left as Item;
-            let r = last.right;
-            while (r !== null && written.has(r)) {
-              last = r;
-              r = r.right;
-            }
-            if (r !== null) {
-              continue;
-            }
-            before = last;
-          }
-          const item = new Item(
-            createID(client, store.getClock(client)),
-            before,
-            before && before.lastId,
-            right,
-            right && right.id,
-            (left ?? right)!.parent,
-            null,
-            new ContentFormat(key, null as unknown as object),
-          );
-          item.integrate(tr, 0);
-          written.add(item);
-          markFormatCloser(item);
-        }
-      }, this.runEndOrigin);
-    }
-  }
-
-  /**
    * The stored nodes the next stack item restores (by name) and deletes
    * (items), for the undo delete filter.
    */
@@ -9425,7 +9069,6 @@ export class YBinding {
     const top = stack[stack.length - 1];
     this.restoring = null;
     this.removing = null;
-    this.undoing = null;
     if (top === undefined) {
       return;
     }
@@ -9454,7 +9097,6 @@ export class YBinding {
     this.removing = removing;
     // By id: this scan's transaction splits items and merges them back, so
     // the item objects it saw need not be those the undo meets.
-    this.undoing = top.inserts;
   }
 
   // -------------------------------------------------------------------------
@@ -10779,13 +10421,11 @@ function changedKeys(
 /**
  * A client id derived from content (the initial content's, see
  * YBinding#seedUpdate): a hash of `seed` in the document's client id range
- * (see {@link ClientIDRange}), 53 bits under `'uint53'` (Yjs 14's own range)
- * and 32 bits under `'uint32'`. Invariant: equal seeds give equal ids. Why:
+ * (53 bits, Yjs 14's own range). Invariant: equal seeds give equal ids. Why:
  * clients writing the same items from the same inputs write them once.
  * Different seeds share an id only with the probability of a collision in
  * that range (a shared id with different items would diverge), the same odds
- * as two random client ids; so every client of a document must use the same
- * range.
+ * as two random client ids.
  */
 /** `bytes` as a string of one char per byte (see initClientID). */
 function byteString(bytes: Uint8Array): string {
@@ -10814,7 +10454,7 @@ function storedTypeOf(doc: Doc, client: number, clock: number): YNode {
   return item.content.type as YNode;
 }
 
-function initClientID(seed: string, range: ClientIDRange = 'uint53'): number {
+function initClientID(seed: string): number {
   // cyrb53 (public domain).
   let h1 = 0xdeadbeef;
   let h2 = 0x41c6ce57;
@@ -10827,10 +10467,7 @@ function initClientID(seed: string, range: ClientIDRange = 'uint53'): number {
   h1 ^= Math.imul(h2 ^ (h2 >>> 13), 3266489909);
   h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507);
   h2 ^= Math.imul(h1 ^ (h1 >>> 13), 3266489909);
-  const id =
-    range === 'uint53'
-      ? 0x100000000 * (h2 & 0x1fffff) + (h1 >>> 0)
-      : (h1 ^ h2) >>> 0;
+  const id = 0x100000000 * (h2 & 0x1fffff) + (h1 >>> 0);
   return id === 0 ? 1 : id;
 }
 

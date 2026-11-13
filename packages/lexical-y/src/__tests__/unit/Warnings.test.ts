@@ -398,8 +398,7 @@ describe('@lexical/y warnings: every code and its data', () => {
     src.binding.initialize();
     const stripped = new Y.Doc();
     Y.applyUpdate(stripped, Y.encodeStateAsUpdate(src.doc));
-    stripped.get('lexical-y').deleteAttr('lexical-y:1');
-    stripped.get('lexical-y').deleteAttr('lexical-y:3');
+    stripped.get('lexical-y').deleteAttr('lexical-y:4');
     const noVersion = peer(6);
     Y.applyUpdate(noVersion.doc, Y.encodeStateAsUpdate(stripped));
     noVersion.binding.initialize();
@@ -410,11 +409,12 @@ describe('@lexical/y warnings: every code and its data', () => {
       supported: LAYOUT_VERSION,
     });
 
-    // Layout 3 only: a document that records only layout 1 is read only,
-    // reason 'older' (the app migrates it).
+    // Layout 4 only: a document that records only an older layout is read
+    // only, reason 'older' (the app migrates it).
     const onlyOne = new Y.Doc();
     Y.applyUpdate(onlyOne, Y.encodeStateAsUpdate(src.doc));
-    onlyOne.get('lexical-y').deleteAttr('lexical-y:3');
+    onlyOne.get('lexical-y').deleteAttr('lexical-y:4');
+    onlyOne.get('lexical-y').setAttr('lexical-y:1', true);
     const older = peer(8, {
       layoutUpgrade: null,
       schemaVersion: 1,
@@ -426,7 +426,7 @@ describe('@lexical/y warnings: every code and its data', () => {
     expect(older.codes()).toEqual([UNSUPPORTED_LAYOUT_WARNING]);
     expect(older.seen[0].warning.data).toEqual({
       found: 1,
-      min: 3,
+      min: 4,
       reason: 'older',
       supported: LAYOUT_VERSION,
       upgrade: 'read-only',

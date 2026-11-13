@@ -42,7 +42,7 @@ import {
 import {describe, expect, test} from 'vitest';
 
 import {createYDoc, YCollabExtension, type YDoc} from '../../..';
-import {migrateToLayout3} from '../../utils/migrate';
+import {migrateToLayout4} from '../../utils/migrate';
 
 // A document whose code block line is
 // `const t44z = fetch(t45z); // t46z note t47zt48z t49z t50z t51z`, its
@@ -116,7 +116,7 @@ describe('#9577: composing in a code token split by NodeState', () => {
       doc.clientID = 777;
       Y.applyUpdate(doc, b64(DOC), 'load');
       // (A capture from before layout 3, migrated as the 2-to-3 step does.)
-      migrateToLayout3(doc, doc.get('lexical-y'));
+      migrateToLayout4(doc, doc.get('lexical-y'));
       const editor = client(doc);
       await idle();
       expect(codeLine(editor)).toBe(LINE);

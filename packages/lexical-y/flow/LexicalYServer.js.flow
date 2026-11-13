@@ -9,7 +9,6 @@
 
 import type {Doc} from '@y/y';
 import type {
-  ClientIDRange,
   YClientSession,
   YDoc,
   YDocOptions,
@@ -54,7 +53,6 @@ export type YPrepareRoomOptions = {
   readonly roots?: ReadonlyArray<string>,
   readonly gc?: boolean,
   readonly to?: number,
-  readonly clientIDRange?: ClientIDRange,
   readonly clientID?: (input: YMigrationStepInput) => number,
   ...
 };

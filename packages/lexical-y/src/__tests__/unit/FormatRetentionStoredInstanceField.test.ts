@@ -21,7 +21,10 @@ import {
 import {expect, test} from 'vitest';
 
 import {createYDoc, YBinding} from '../..';
-import {readLayout3Formats, writeLayout3Formats} from '../../internal/Layout3';
+import {
+  readLayout4Formats,
+  writeLayout4Formats,
+} from '../../migrate/3to4/frozen/layout4';
 import {flush} from '../utils/harness';
 
 class Enabled extends TextNode {
@@ -63,9 +66,9 @@ for (const gc of [false, true])
     b.initialize();
     await flush();
     const root = b.root;
-    const values = readLayout3Formats(root);
+    const values = readLayout4Formats(root);
     doc.transact(tr =>
-      writeLayout3Formats(
+      writeLayout4Formats(
         tr,
         root,
         values.map((v, i) =>

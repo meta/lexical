@@ -28,7 +28,7 @@ import {keepShown, unkeepShown} from './Keeps';
  * that removes something the editor shows (a deletion, a join) is read at
  * once and whole, held items still skipped: Yjs does not keep what it
  * removed, so the editor cannot go on showing it. Format items are the
- * exception, in documents read as paired runs (layout 3): a format item a
+ * exception, in documents read as paired runs: a format item a
  * change deletes in the line is kept (see `keeps`), so the line goes on
  * showing it until the hold ends (a change that retokenizes the line, or an
  * identity write, deletes the line's format items and writes others). A kept

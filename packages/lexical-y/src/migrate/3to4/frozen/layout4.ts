@@ -6,12 +6,15 @@
  *
  */
 
+// FROZEN (@lexical/y/migrate/3to4): never edited after release; a change to
+// what it writes or reads is a new revision of the step, with new golden
+// fixtures.
+
 /*
- * Layout 3 writer for whole containers (the 2-to-3 migration step, and core's
- * whole-container writes: seeding). Self-contained and pure, so a migration
- * step can vendor a frozen copy pinned by golden bytes: it imports only
- * @y/y, keeps no module state (no caches, maps, latches or warnings), reads
- * no time or randomness, and iterates keys sorted by code unit.
+ * Layout 4's paired grammar for whole containers, as the 3to4 step writes
+ * and reads it. Self-contained and pure: it imports only @y/y, keeps no
+ * module state (no caches, maps, latches or warnings), reads no time or
+ * randomness, and iterates keys sorted by code unit.
  *
  * Countable: a live item whose content Yjs counts, `item.length` times
  * (each UTF-16 unit of a string, `\n` and `\t` included; each child type;
@@ -27,6 +30,11 @@
  * then the openers of the run starting there, each in key order (see
  * runBoundary). The openers at the container's start go before its first
  * item; everything else goes right after the unit before it.
+ *
+ * Reserved shapes (a non-empty array that is no well-formed end: another
+ * length, an element that is not such an integer, a nested array) are kept
+ * where they are: they name no run, so among paired runs they change
+ * nothing a unit shows.
  */
 
 import {
@@ -38,16 +46,14 @@ import {
   type Transaction,
 } from '@y/y';
 
-import {owned} from './Owned';
-
 /** Covered key → stored value for one countable unit. */
 export type StoredFormats = ReadonlyMap<string, unknown>;
 
 /**
- * Whether `key` is governed by layout 3's paired grammar: `t` and `k` (a
- * text node's type and segment key), `f:` text format bits, `p:` fields on
- * text, `w:` wrappers, and `s:<state>\u001f<member>` set members. Flat
- * NodeState keys (`s:<key>` without U+001F) keep main's rules.
+ * Whether `key` is governed by layout 4's paired grammar, every name the
+ * binding writes on text: `t` and `k` (a text node's type and segment
+ * key), `f:` text format bits, `p:` fields on text, `w:` wrappers, and
+ * `s:` NodeState (a flat value, or a member entry of a set).
  */
 export function isCoveredKey(key: string): boolean {
   if (key.length === 1) {
@@ -59,10 +65,9 @@ export function isCoveredKey(key: string): boolean {
   switch (key.charCodeAt(0)) {
     case 102: // f
     case 112: // p
+    case 115: // s
     case 119: // w
       return true;
-    case 115: // s
-      return key.indexOf('\u001f', 2) >= 0;
     default:
       return false;
   }
@@ -136,16 +141,12 @@ export type StoredUnit = ReadonlyMap<string, readonly [string, unknown]>;
 /**
  * A unit's covered values as written (see storedValue), each with its
  * signature (its JSON, keys sorted), in key order. Throws, before anything
- * is written, for an uncovered key (by `keys`, default isCoveredKey) or a
- * value JSON cannot store.
+ * is written, for an uncovered key or a value JSON cannot store.
  */
-export function storedUnit(
-  values: StoredFormats,
-  keys: (key: string) => boolean = isCoveredKey,
-): StoredUnit {
+export function storedUnit(values: StoredFormats): StoredUnit {
   const unit = new Map<string, [string, unknown]>();
   for (const key of [...values.keys()].sort(byCodeUnit)) {
-    if (!keys(key)) {
+    if (!isCoveredKey(key)) {
       throw new Error(`@lexical/y: ${JSON.stringify(key)} is not covered`);
     }
     const stored = storedValue(values.get(key));
@@ -183,19 +184,17 @@ export function runBoundary(
 
 /**
  * Rewrite the covered format items of `container`'s own sequence as pure
- * layout 3 runs that reproduce `values`, in `tr`, under tr.doc.clientID
+ * layout 4 runs that reproduce `values`, in `tr`, under tr.doc.clientID
  * from its current clock: delete every live covered format item of the
- * container, then write the canonical runs (see the header). Touches
- * nothing else. Throws, before writing, when `values.length` differs from
+ * container but the reserved shapes (see isReserved), then write the
+ * canonical runs (see the header). Touches nothing else. Throws, before writing, when `values.length` differs from
  * the container's countable length, a key is not covered, a value cannot
- * be JSON-encoded, or the container is not in `tr.doc`. `keys` tells the
- * covered keys (default isCoveredKey).
+ * be JSON-encoded, or the container is not in `tr.doc`.
  */
-export function writeLayout3Formats(
+export function writeLayout4Formats(
   tr: Transaction,
   container: YNode,
   values: readonly StoredFormats[],
-  keys: (key: string) => boolean = isCoveredKey,
 ): {written: number; deleted: number} {
   const doc = tr.doc;
   if ((container as unknown as {doc: unknown}).doc !== doc) {
@@ -210,15 +209,16 @@ export function writeLayout3Formats(
   // Each unit's covered keys → [signature, stored value], in key order.
   const units: StoredUnit[] = [];
   for (const map of values) {
-    units.push(storedUnit(map, keys));
+    units.push(storedUnit(map));
   }
-  // Delete every live covered format item.
+  // Delete every live covered format item but the reserved shapes.
   let deleted = 0;
   for (let it = container._start; it !== null; it = it.right as Item | null) {
     if (
       !it.deleted &&
       it.content instanceof ContentFormat &&
-      keys(it.content.key)
+      isCoveredKey(it.content.key) &&
+      !isReserved(it)
     ) {
       it.delete(tr);
       deleted++;
@@ -258,7 +258,7 @@ export function writeLayout3Formats(
       null,
       new ContentFormat(key, value(clock) as object),
     );
-    owned(doc, () => item.integrate(tr, 0));
+    item.integrate(tr, 0);
     written++;
     return item;
   };
@@ -308,9 +308,10 @@ export function writeLayout3Formats(
 }
 
 /**
- * What a layout 3 read of `container`'s own sequence shows, per countable
- * unit: covered key → stored value, by the paired grammar exactly as the
- * binding reads it (Ident's stepPaired), outside any transaction:
+ * What the paired grammar shows of `container`'s own sequence for the names
+ * `keys` covers, per countable unit: name → stored value, exactly as the
+ * binding reads a covered name (Ident's stepPaired), outside any
+ * transaction:
  * - an end is any non-empty array; it names an opener when it is `[d]`
  *   (this client's clock − d) or `[client, clock]`, else it names nothing;
  * - an opener (any other value, `[]` and null included) is paired when a
@@ -324,12 +325,11 @@ export function writeLayout3Formats(
  *   it; otherwise it drops the unpaired runs above the topmost paired run,
  *   and where it names a run below, that run goes too, with the unpaired
  *   runs between it and the top (the paired runs above it stay).
- * The top run's value shows; null and `[]` show none. `keys` tells the
- * covered keys (default isCoveredKey).
+ * The top run's value shows; null and `[]` show none.
  */
-export function readLayout3Formats(
+export function readPairedFormats(
   container: YNode,
-  keys: (key: string) => boolean = isCoveredKey,
+  keys: (key: string) => boolean,
 ): Map<string, unknown>[] {
   // Pass 1: the paired openers ("client:clock").
   const before = new Map<string, Item>();
@@ -444,15 +444,41 @@ export function readLayout3Formats(
   return out;
 }
 
+/**
+ * What a layout 4 read of `container`'s own sequence shows, per countable
+ * unit: covered name → stored value (see readPairedFormats).
+ */
+export function readLayout4Formats(container: YNode): Map<string, unknown>[] {
+  return readPairedFormats(container, isCoveredKey);
+}
+
 /** Whether a stored value is an end (any non-empty array). */
 const isEnd = (v: unknown): boolean => Array.isArray(v) && v.length > 0;
+
+/**
+ * Whether format item `it` holds a reserved shape: a non-empty array that
+ * is neither `[d]` (d a positive safe integer) nor `[client, clock]`
+ * (non-negative safe integers).
+ */
+export function isReserved(it: Item): boolean {
+  const v = (it.content as ContentFormat).value as unknown;
+  if (!Array.isArray(v) || v.length === 0) {
+    return false;
+  }
+  const count = (x: unknown, min: number) =>
+    typeof x === 'number' && Number.isSafeInteger(x) && x >= min;
+  return !(
+    (v.length === 1 && count(v[0], 1)) ||
+    (v.length === 2 && count(v[0], 0) && count(v[1], 0))
+  );
+}
 
 /**
  * The opener an end names ("client:clock"), or null where its value is
  * malformed: `[d]` (d a positive safe integer, this client's clock − d,
  * not below 0) or `[client, clock]` (non-negative safe integers).
  */
-function endTargetOf(it: Item): string | null {
+export function endTargetOf(it: Item): string | null {
   const v = (it.content as ContentFormat).value as unknown as unknown[];
   const count = (x: unknown, min: number) =>
     typeof x === 'number' && Number.isSafeInteger(x) && x >= min;

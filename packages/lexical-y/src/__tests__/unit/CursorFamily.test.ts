@@ -9,28 +9,23 @@
 // @vitest-environment node
 
 import * as Y from '@y/y';
-import {describe, expect, test, vi} from 'vitest';
+import {describe, expect, test} from 'vitest';
 
 import {Cursor} from '../../internal/Cursor';
+import {readLayout4Formats} from '../../migrate/3to4/frozen/layout4';
 
-// The write cursor's placement rules for plain format items, as main
-// places them; paired runs place as the layout 3 cells cover.
+// A set-valued NodeState is stored one format key per member
+// (`s:<key>\u001f<member>` = true), and those keys are one family (see
+// formatFamily). The write cursor's rules for format items then hold for the
+// attribute as they hold for a key stored whole (see Cursor#format and
+// Cursor#minimizeFormatChanges). The documents here start from plain items
+// (Y.Node#insert with attributes, a raw writer's), which the cursor's paired
+// runs meet. (Before layout 4 these cells ran on a mocked family of names
+// the binding does not own, `m|<member>`, through the plain-value writer;
+// layout 4 writes covered names only, D120.)
 
-// A layout that stores one attribute under several format keys (here a set
-// stored one key per member, `m|<member>` = true) names them one family
-// (see formatFamily). The write cursor's rules for format items then hold
-// for the attribute as they hold for a key stored whole (see
-// Cursor#format and Cursor#minimizeFormatChanges).
-
-vi.mock('../../internal/Schema', async importOriginal => {
-  const actual = await importOriginal<typeof import('../../internal/Schema')>();
-  return {
-    ...actual,
-    formatFamily: (key: string) => (key.startsWith('m|') ? 'm' : key),
-  };
-});
-
-const m = (member: string) => `m|${member}`;
+const PREFIX = 's:m\u001f';
+const m = (member: string) => PREFIX + member;
 
 function doc(id: number): Y.Doc {
   const d = new Y.Doc();
@@ -58,18 +53,21 @@ function exchange(docs: Y.Doc[]) {
   }
 }
 
-/** Each character with the members it holds. */
+/** Each character with the members it holds, by the paired fold. */
 function members(d: Y.Doc): string[] {
   const out: string[] = [];
-  const {children} = d.get('t').toDelta().toJSON() as {
-    children: {insert: string; format?: Record<string, unknown>}[];
-  };
-  for (const op of children) {
-    const held = Object.entries(op.format ?? {})
-      .filter(([k, v]) => k.startsWith('m|') && v === true)
-      .map(([k]) => k.slice(2))
-      .sort();
-    for (const ch of op.insert) {
+  const t = d.get('t');
+  const values = readLayout4Formats(t);
+  let at = 0;
+  for (let it = t._start; it !== null; it = it.right) {
+    if (it.deleted || !(it.content instanceof Y.ContentString)) {
+      continue;
+    }
+    for (const ch of it.content.str) {
+      const held = [...values[at++]]
+        .filter(([k, v]) => k.startsWith(PREFIX) && v === true)
+        .map(([k]) => k.slice(PREFIX.length))
+        .sort();
       out.push(held.length > 0 ? `${ch}[${held.join(',')}]` : ch);
     }
   }
@@ -91,28 +89,21 @@ describe('a set stored one format key per member', () => {
     [1, 2, 3],
     [3, 2, 1],
   ]) {
-    // Layout 3: the raw cursor writes paired runs, and a family stored one
-    // uncovered key per member (`m|`) takes the paired placement: the space
-    // gets C3 back for ids 1,2,3. The binding's covered member keys keep it
-    // plain (Formats, R24B-F1); open for raw families.
-    (ids[0] === 1 ? test.fails : test)(
-      `a comment resolved over "b " ‖ plain "x" typed between them: the space stays without it (ids ${ids})`,
-      () => {
-        const [a, b, c] = ids.map(doc);
-        const t = a.get('t');
-        t.insert(0, 'a');
-        t.insert(1, 'b', {[m('C3')]: true, [m('S0')]: true});
-        t.insert(2, ' ', {[m('C3')]: true});
-        t.insert(3, 'cd');
-        exchange([a, b, c]);
-        write(b, 1, cursor => cursor.format(2, {[m('C3')]: null}));
-        write(c, 2, cursor => cursor.insert(new Y.ContentString('x'), {}));
-        exchange([a, b, c]);
-        for (const d of [a, b, c]) {
-          expect(members(d)).toEqual(['a', 'b[S0]', 'x', ' ', 'c', 'd']);
-        }
-      },
-    );
+    test(`a comment resolved over "b " ‖ plain "x" typed between them: the space stays without it (ids ${ids})`, () => {
+      const [a, b, c] = ids.map(doc);
+      const t = a.get('t');
+      t.insert(0, 'a');
+      t.insert(1, 'b', {[m('C3')]: true, [m('S0')]: true});
+      t.insert(2, ' ', {[m('C3')]: true});
+      t.insert(3, 'cd');
+      exchange([a, b, c]);
+      write(b, 1, cursor => cursor.format(2, {[m('C3')]: null}));
+      write(c, 2, cursor => cursor.insert(new Y.ContentString('x'), {}));
+      exchange([a, b, c]);
+      for (const d of [a, b, c]) {
+        expect(members(d)).toEqual(['a', 'b[S0]', 'x', ' ', 'c', 'd']);
+      }
+    });
   }
 
   test('words of new members typed and deleted again at one place leave two format items each', () => {
