@@ -5,7 +5,8 @@ on [Yjs 14](https://github.com/yjs/yjs) (`@y/y`). It is separate from
 `@lexical/yjs` (Yjs 13): the two use different Yjs libraries and document
 layouts, and a document uses one or the other. Entries: `@lexical/y`,
 `@lexical/y/headless`, `@lexical/y/migrate` (with a step per layout,
-`@lexical/y/migrate/<n>to<n+1>`) and `@lexical/y/server`. Every export is
+`@lexical/y/migrate/<n>to<n+1>`), `@lexical/y/offline` and
+`@lexical/y/server`. Every export is
 `@experimental`, and `@y/y` is a release candidate. `@experimental` is not
 an exception to API compatibility: once released, the public API and its types
 change only additively. No export is removed or renamed, and no published
@@ -119,6 +120,11 @@ covers both.
   `createYWriter` for who the server's edits are by, and `createYDoc` for a
   relay's copy of a document), and migrating stored documents
   (`@lexical/y/server`).
+- [Offline](https://lexical.dev/docs/collaboration/y#offline-local-persistence-and-edits-that-did-not-sync)
+  (EXPERIMENTAL): `@lexical/y/offline`, a local store for Yjs 14 documents
+  on IndexedDB (`openYOfflineStore`) and the offline session
+  (`attachYOfflineSession`, `recoverYOfflineEdits`, `replayUnsyncedEdits`)
+  with its rollout stages `'off'`, `'persist'` and `'replay'`.
 - Layout migrations (EXPERIMENTAL): `@lexical/y/migrate` (the runner) and
   one frozen step per layout (`@lexical/y/migrate/1to2`); see
   [Changing the layout and migrating](https://lexical.dev/docs/collaboration/y#changing-the-layout-and-migrating).
