@@ -182,10 +182,6 @@ import {
   Folder,
   frontierOf,
   HeldDeletionError,
-  isGoneIn,
-  isShownEndIn,
-  prevLiveEnd,
-  shownLengthIn,
   unitLeftEnd,
 } from './Seen';
 import {
@@ -194,6 +190,14 @@ import {
   $followUpDifference,
   checkContainer,
 } from './SelfCheck';
+import {
+  countShown,
+  isGoneIn,
+  isKept,
+  isShownEndIn,
+  prevShownEnd,
+  shownLengthIn,
+} from './Shown';
 import {
   $readSlots,
   $unstorableSlotHosts,
@@ -1586,8 +1590,7 @@ export class YBinding {
    * Hidden#keeps).
    */
   private readonly keepsShown = (item: Item): boolean => {
-    const hidden = this.state.hidden;
-    return hidden !== null && hidden.keeps(item);
+    return isKept(item, this.state.hidden);
   };
   /** A write deleted a kept item again (see Hidden#drop). */
   private readonly dropKept = (item: Item): void => {
@@ -8104,7 +8107,7 @@ export class YBinding {
       const prevEnd = idx > 0 ? units[idx - 1].end : null;
       let left = prevEnd;
       while (left !== null && !isShownEndIn(view, left, state.hidden)) {
-        left = prevLiveEnd(view, left, state.hidden);
+        left = prevShownEnd(view, left, state.hidden);
       }
       start = left === null ? unit.cs.y._start : left.right;
       // (Before the copy: a stale start is folded again, see frontierOf.)
@@ -10178,7 +10181,7 @@ export class YBinding {
       const idx = units.indexOf(unit);
       let left = idx > 0 ? units[idx - 1].end : null;
       while (left !== null && !isShownEndIn(view, left, state.hidden)) {
-        left = prevLiveEnd(view, left, state.hidden);
+        left = prevShownEnd(view, left, state.hidden);
       }
       start = left === null ? unit.cs.y._start : left.right;
     } else {
@@ -10406,7 +10409,7 @@ export class YBinding {
     ) {
       // Captured in an empty line (see emptyLinePositions): the start of
       // that line, before what was typed into it since.
-      const left = prevLiveEnd(view, found, hidden);
+      const left = prevShownEnd(view, found, hidden);
       item = left === null ? (found.parent as YNode)._start : left.right;
       diff = 0;
     } else if (rel.assoc < 0) {
@@ -10439,7 +10442,7 @@ export class YBinding {
           ? null
           : implicitUnitAt(cs, undefined);
       if (implicit !== null) {
-        const left = prevLiveEnd(view, found, hidden);
+        const left = prevShownEnd(view, found, hidden);
         return this.$pointInLine(
           implicit.key!,
           left === null ? (found.parent as YNode)._start : left.right,
@@ -10467,7 +10470,7 @@ export class YBinding {
       const left =
         unit.end === end
           ? unitLeftEnd(view, unit.cs.units, unit, hidden)
-          : prevLiveEnd(view, end, hidden);
+          : prevShownEnd(view, end, hidden);
       start = left === null ? parentY._start : left.right;
     } else {
       const cs = this.state.containers.get(parentY);
@@ -10479,8 +10482,8 @@ export class YBinding {
       if (implicit !== null) {
         const left =
           end === null
-            ? prevLiveEnd(view, item, hidden)
-            : prevLiveEnd(view, end, hidden);
+            ? prevShownEnd(view, item, hidden)
+            : prevShownEnd(view, end, hidden);
         return this.$pointInLine(
           implicit.key!,
           left === null ? parentY._start : left.right,
@@ -10499,10 +10502,7 @@ export class YBinding {
       ownerKey = cs.key;
       start = parentY._start;
     }
-    let offset = 0;
-    for (let it = start; it !== null && it !== item; it = it.right) {
-      offset += shownLengthIn(view, it, hidden);
-    }
+    let offset = countShown(view, start, item, hidden);
     offset +=
       item === end
         ? 0

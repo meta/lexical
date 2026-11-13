@@ -30,9 +30,9 @@ import {expectConverged, setup} from '../../utils/harness';
 
 const counter = vi.hoisted(() => ({on: false, visits: 0}));
 
-vi.mock('../../../internal/Seen', async importOriginal => {
+vi.mock('../../../internal/Shown', async importOriginal => {
   const original =
-    await importOriginal<typeof import('../../../internal/Seen')>();
+    await importOriginal<typeof import('../../../internal/Shown')>();
   return {
     ...original,
     isGoneIn: (...args: Parameters<typeof original.isGoneIn>) => {
