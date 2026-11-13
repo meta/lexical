@@ -8,6 +8,7 @@
 
 import type {
   LexicalNode,
+  NodeKey,
   ParsableSerializedNode,
   SerializedLexicalNode,
   SerializedPartialNode,
@@ -59,6 +60,7 @@ import {
   $updateDOMSelection,
   applySelectionTransforms,
   type BaseSelection,
+  type RangeSelection,
 } from './LexicalSelection';
 import {$isSlotHost, $setSlot} from './LexicalSlot';
 import {
@@ -1305,6 +1307,28 @@ function $discardPendingUpdate(
   updates.length = kept;
 }
 
+function $clampTextPoints(
+  pendingSelection: RangeSelection,
+  pendingNodeMap: Map<NodeKey, LexicalNode>,
+): void {
+  const anchorNode = pendingNodeMap.get(pendingSelection.anchor.key);
+  const focusNode = pendingNodeMap.get(pendingSelection.focus.key);
+
+  for (const [point, node] of [
+    [pendingSelection.anchor, anchorNode],
+    [pendingSelection.focus, focusNode],
+  ] as const) {
+    if (node !== undefined && point.type === 'text' && $isTextNode(node)) {
+      const size = node.getTextContentSize();
+      if (point.offset > size) {
+        point.set(point.key, size, 'text');
+      } else if (point.offset < 0) {
+        point.set(point.key, 0, 'text');
+      }
+    }
+  }
+}
+
 function $beginUpdate(
   editor: LexicalEditor,
   updateFn: () => void,
@@ -1372,6 +1396,12 @@ function $beginUpdate(
     const startingCompositionKey = editor._compositionKey;
     updateFn();
     skipTransforms = $processNestedUpdates(editor, skipTransforms);
+    if ($isRangeSelection(pendingEditorState._selection)) {
+      $clampTextPoints(
+        pendingEditorState._selection,
+        pendingEditorState._nodeMap,
+      );
+    }
     applySelectionTransforms(pendingEditorState, editor);
 
     if (editor._dirtyType !== NO_DIRTY_NODES) {
@@ -1409,17 +1439,18 @@ function $beginUpdate(
       const pendingNodeMap = pendingEditorState._nodeMap;
       const anchorKey = pendingSelection.anchor.key;
       const focusKey = pendingSelection.focus.key;
+      const anchorNode = pendingNodeMap.get(anchorKey);
+      const focusNode = pendingNodeMap.get(focusKey);
 
-      if (
-        pendingNodeMap.get(anchorKey) === undefined ||
-        pendingNodeMap.get(focusKey) === undefined
-      ) {
+      if (anchorNode === undefined || focusNode === undefined) {
         invariant(
           false,
           'updateEditor: selection has been lost because the previously selected nodes have been removed and ' +
             "selection wasn't moved to another node. Ensure selection changes after removing/replacing a selected node.",
         );
       }
+
+      $clampTextPoints(pendingSelection, pendingNodeMap);
     } else if ($isNodeSelection(pendingSelection)) {
       // TODO: we should also validate node selection?
       if (pendingSelection._nodes.size === 0) {
