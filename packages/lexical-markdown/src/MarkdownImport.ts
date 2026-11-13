@@ -300,10 +300,10 @@ function $normalizeMarkdownTextNode(textNode: TextNode): void {
   if (!text.includes('\t')) {
     return;
   }
-  // Copy the node, so each part keeps its format, style, mode, detail and
-  // NodeState.
+  // Copy the node without resetting it, so each part keeps its format, style,
+  // mode, detail and NodeState, as the parts of `splitText` do.
   const $createPart = (partText: string) =>
-    $copyNode(textNode).setTextContent(partText);
+    $copyNode(textNode, true).setTextContent(partText);
   const nodes: LexicalNode[] = [];
   let start = 0;
   for (

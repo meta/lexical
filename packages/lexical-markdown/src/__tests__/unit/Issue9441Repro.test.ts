@@ -17,12 +17,13 @@ import {
 import {
   $getRoot,
   $getState,
+  $isElementNode,
   $isTextNode,
   $setState,
   createState,
   type TextNode,
 } from 'lexical';
-import {describe, expect, it} from 'vitest';
+import {assert, describe, expect, it} from 'vitest';
 
 // https://github.com/facebook/lexical/issues/9441
 describe('Issue #9441: Markdown import preserves NodeState, mode and detail of text nodes with tabs', () => {
@@ -63,8 +64,8 @@ describe('Issue #9441: Markdown import preserves NodeState, mode and detail of t
     editor.read(() => {
       const root = $getRoot();
       const paragraph = root.getFirstChild();
-      expect(paragraph).not.toBeNull();
-      const children = paragraph!.getChildren();
+      assert($isElementNode(paragraph));
+      const children = paragraph.getChildren();
 
       const summary = children.map(n => [
         n.getType(),
