@@ -2,4 +2,6 @@
 'lexical': patch
 ---
 
-[fix] Clamp RangeSelection points to the TextNode size when shrinking via `spliceText` or `setTextContent`, preventing out-of-bounds selection points from causing subsequent operations to throw.
+[fix] A text selection point left past the end of its node, after the node is shortened with `setTextContent` or `spliceText` (without `moveSelection`), is clamped to the node's end when the update commits, so later operations such as `splitText` no longer throw
+
+Verify: after shrinking a text node with `spliceText` (without `moveSelection`) or `setTextContent` while the selection is inside it, the committed selection offsets stay within the node's text.

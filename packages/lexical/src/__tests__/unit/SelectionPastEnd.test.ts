@@ -26,6 +26,8 @@ const ext = defineExtension({
   name: '[selection-past-end]',
 });
 
+// Paragraph with a bold "ab" followed by a plain "cde" (so they never merge),
+// and a selection from offset 1 of "ab" to offset 3 (the end) of "cde".
 function setup(): LexicalEditor {
   const editor = buildEditorFromExtensions(ext);
   editor.update(
@@ -49,7 +51,7 @@ const $first = (): TextNode => {
   return t;
 };
 
-const $text = (): TextNode => {
+const $last = (): TextNode => {
   const t = $getRoot().getLastDescendant();
   if (!$isTextNode(t)) {
     throw new Error('no text');
@@ -57,66 +59,71 @@ const $text = (): TextNode => {
   return t;
 };
 
+function readSelection(editor: LexicalEditor) {
+  return editor.getEditorState().read(() => {
+    const s = $getSelection();
+    if (!$isRangeSelection(s)) {
+      return null;
+    }
+    const first = $first().getKey();
+    const name = (key: string) => (key === first ? 'first' : 'last');
+    return {
+      anchor: [name(s.anchor.key), s.anchor.offset],
+      focus: [name(s.focus.key), s.focus.offset],
+      isBackward: s.isBackward(),
+    };
+  });
+}
+
 const shrink = {
-  setTextContent: () => $text().setTextContent('a'),
-  spliceText: () => $text().spliceText(1, 2, ''),
-  'spliceText, moveSelection (control)': () =>
-    $text().spliceText(1, 2, '', true),
+  setTextContent: () => $last().setTextContent('c'),
+  spliceText: () => $last().spliceText(1, 2, ''),
 } as const;
 
-describe.each(Object.entries(shrink))('%s', (name, $shrink) => {
-  test('the committed selection stays inside the node', () => {
+describe.each(Object.entries(shrink))('%s', (_name, $shrink) => {
+  test('the committed focus is clamped to the end of the shrunk node', () => {
     const editor = setup();
     editor.update($shrink, {discrete: true});
-    const out = editor.getEditorState().read(() => {
-      const s = $getSelection();
-      return $isRangeSelection(s)
-        ? {focus: s.focus.offset, size: $text().getTextContentSize()}
-        : null;
+    expect(readSelection(editor)).toEqual({
+      anchor: ['first', 1],
+      focus: ['last', 1],
+      isBackward: false,
     });
-    expect(out).not.toBeNull();
-    expect(out!.focus).toBeLessThanOrEqual(out!.size);
+  });
+
+  test('a backward selection collapsed by the clamp is not backward', () => {
+    const editor = setup();
+    editor.update(
+      () => {
+        const s = $last().select(3, 1);
+        // Populate the cached direction before the node shrinks.
+        expect(s.isBackward()).toBe(true);
+        $shrink();
+      },
+      {discrete: true},
+    );
+    expect(readSelection(editor)).toEqual({
+      anchor: ['last', 1],
+      focus: ['last', 1],
+      isBackward: false,
+    });
   });
 
   test('a later splitText on the node does not throw', () => {
     const editor = setup();
     editor.update($shrink, {discrete: true});
-    let error: unknown = null;
-    editor.update(
-      () => {
-        try {
-          $first().splitText(1);
-        } catch (e) {
-          error = e;
-        }
-      },
-      {discrete: true},
-    );
-    expect(String(error)).toBe('null');
-    void name;
+    expect(() =>
+      editor.update(() => $first().splitText(1), {discrete: true}),
+    ).not.toThrow();
   });
 });
 
-test('control: an in-bounds selection and the same splitText', () => {
+test('control: spliceText with moveSelection places the caret itself', () => {
   const editor = setup();
-  editor.update(
-    () => {
-      const s = $text().select(1, 1);
-      s.anchor.set($first().getKey(), 1, 'text');
-    },
-    {discrete: true},
-  );
-  editor.update(() => $text().spliceText(1, 2, ''), {discrete: true});
-  let error: unknown = null;
-  editor.update(
-    () => {
-      try {
-        $first().splitText(1);
-      } catch (e) {
-        error = e;
-      }
-    },
-    {discrete: true},
-  );
-  expect(String(error)).toBe('null');
+  editor.update(() => $last().spliceText(1, 2, '', true), {discrete: true});
+  expect(readSelection(editor)).toEqual({
+    anchor: ['last', 1],
+    focus: ['last', 1],
+    isBackward: false,
+  });
 });

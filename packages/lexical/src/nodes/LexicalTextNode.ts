@@ -1156,21 +1156,6 @@ export class TextNode extends LexicalNode implements InlineFormattableNode {
     const self = this.getWritable();
     $recordTextContent(self, text);
     self.__text = text;
-    const selection = $getSelection();
-    if ($isRangeSelection(selection)) {
-      const key = self.__key;
-      const newSize = text.length;
-      if (selection.anchor.key === key && selection.anchor.type === 'text') {
-        if (selection.anchor.offset > newSize) {
-          selection.anchor.offset = newSize;
-        }
-      }
-      if (selection.focus.key === key && selection.focus.type === 'text') {
-        if (selection.focus.offset > newSize) {
-          selection.focus.offset = newSize;
-        }
-      }
-    }
     return self;
   }
 
@@ -1259,34 +1244,19 @@ export class TextNode extends LexicalNode implements InlineFormattableNode {
         index = 0;
       }
     }
+    const selection = $getSelection();
+    if (moveSelection && $isRangeSelection(selection)) {
+      const newOffset = offset + handledTextLength;
+      selection.setTextNodeRange(
+        writableSelf,
+        newOffset,
+        writableSelf,
+        newOffset,
+      );
+    }
+
     const updatedText =
       text.slice(0, index) + newText + text.slice(index + delCount);
-
-    const selection = $getSelection();
-    if ($isRangeSelection(selection)) {
-      if (moveSelection) {
-        const newOffset = offset + handledTextLength;
-        selection.setTextNodeRange(
-          writableSelf,
-          newOffset,
-          writableSelf,
-          newOffset,
-        );
-      } else {
-        const key = writableSelf.__key;
-        const newSize = updatedText.length;
-        if (selection.anchor.key === key && selection.anchor.type === 'text') {
-          if (selection.anchor.offset > newSize) {
-            selection.anchor.offset = newSize;
-          }
-        }
-        if (selection.focus.key === key && selection.focus.type === 'text') {
-          if (selection.focus.offset > newSize) {
-            selection.focus.offset = newSize;
-          }
-        }
-      }
-    }
 
     const editor = getActiveEditor();
     if (editor._recordTextEdits) {

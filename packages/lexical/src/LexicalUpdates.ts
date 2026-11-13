@@ -1420,16 +1420,20 @@ function $beginUpdate(
         );
       }
 
-      if (pendingSelection.anchor.type === 'text' && $isTextNode(anchorNode)) {
-        const max = anchorNode.getTextContentSize();
-        if (pendingSelection.anchor.offset > max) {
-          pendingSelection.anchor.offset = max;
+      // A text point can be left past the end of its node when the node
+      // shrinks (e.g. setTextContent or spliceText without moveSelection).
+      // Clamp it at commit time so the committed selection is always valid.
+      const {anchor, focus} = pendingSelection;
+      if (anchor.type === 'text' && $isTextNode(anchorNode)) {
+        const size = anchorNode.getTextContentSize();
+        if (anchor.offset > size) {
+          anchor.set(anchorKey, size, 'text');
         }
       }
-      if (pendingSelection.focus.type === 'text' && $isTextNode(focusNode)) {
-        const max = focusNode.getTextContentSize();
-        if (pendingSelection.focus.offset > max) {
-          pendingSelection.focus.offset = max;
+      if (focus.type === 'text' && $isTextNode(focusNode)) {
+        const size = focusNode.getTextContentSize();
+        if (focus.offset > size) {
+          focus.set(focusKey, size, 'text');
         }
       }
     } else if ($isNodeSelection(pendingSelection)) {
