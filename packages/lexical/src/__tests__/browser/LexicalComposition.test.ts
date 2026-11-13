@@ -18,11 +18,13 @@ import {
   $getState,
   $isParagraphNode,
   $isRangeSelection,
+  $isTextNode,
   $setState,
   COMPOSITION_END_COMMAND,
   COMPOSITION_END_TAG,
   COMPOSITION_START_TAG,
   createState,
+  FORMAT_TEXT_COMMAND,
   type LexicalEditor,
   type LexicalNodeConfig,
   TextNode,
@@ -711,6 +713,56 @@ describe('Composition into a TextNode subclass (#9289)', () => {
       ).getChildren();
       expect(children.map(node => node.getType())).toEqual(['text']);
       expect(children[0].getTextContent()).toBe('John仮名Smith');
+    });
+  });
+
+  test('composing in the middle of a segmented subclass after toggling bold ends as plain text', async () => {
+    let key = '';
+    const editor = createEditor({
+      initialState: () => {
+        const mention = $createHighlightNode('JohnSmith').setMode('segmented');
+        key = mention.getKey();
+        $getRoot().append($createParagraphNode().append(mention));
+      },
+      nodes: [HighlightNode],
+    });
+    const rootElement = editor.getRootElement()!;
+    await waitForRender();
+    const mentionText = editor.getElementByKey(key)!.firstChild;
+    assert(mentionText instanceof Text);
+    rootElement.focus();
+    document.getSelection()!.collapse(mentionText, 4);
+    await waitForRender();
+    editor.dispatchCommand(FORMAT_TEXT_COMMAND, 'bold');
+
+    await compose(
+      {editor, rootElement},
+      {
+        commitText: '仮名',
+        steps: [{text: 'か'}, {text: 'かな'}, {text: '仮名'}],
+      },
+    );
+
+    editor.read(() => {
+      const children = $assertNodeType(
+        $getRoot().getFirstChildOrThrow(),
+        $isParagraphNode,
+      ).getChildren();
+      expect(children.map(node => node.getType())).toEqual([
+        'text',
+        'text',
+        'text',
+      ]);
+      expect(
+        children.map(node => [
+          node.getTextContent(),
+          $isTextNode(node) && node.hasFormat('bold'),
+        ]),
+      ).toEqual([
+        ['John', false],
+        ['仮名', true],
+        ['Smith', false],
+      ]);
     });
   });
 });
