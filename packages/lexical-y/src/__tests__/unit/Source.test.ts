@@ -20,6 +20,7 @@ import {PUBLISHED_STEPS} from '../../internal/StepTable';
 import * as migrateEntry from '../../migrate';
 import * as step1to2Entry from '../../migrate/1to2';
 import * as step2to3Entry from '../../migrate/2to3';
+import * as offlineEntry from '../../offline';
 import * as serverEntry from '../../server';
 
 // Bundlers replace only process.env.NODE_ENV: any other process.env read in
@@ -172,6 +173,7 @@ test('internal writes of node attributes go through Seen', () => {
 // `@lexical/y/migrate` (the runner), one frozen step per layout
 // (`@lexical/y/migrate/<n>to<n+1>`, a default export), and
 // `@lexical/y/server` (the authority's side of the fence).
+// `@lexical/y/offline`: the local store and the offline session.
 test('public entries', () => {
   const pkg = JSON.parse(
     fs.readFileSync(path.resolve(__dirname, '../../../package.json'), 'utf8'),
@@ -186,6 +188,8 @@ test('public entries', () => {
     './migrate/1to2.js',
     './migrate/2to3',
     './migrate/2to3.js',
+    './offline',
+    './offline.js',
     './server',
     './server.js',
   ]);
@@ -197,6 +201,16 @@ test('public entries', () => {
   ]);
   expect(Object.keys(step1to2Entry)).toEqual(['default']);
   expect(Object.keys(step2to3Entry)).toEqual(['default']);
+  expect(Object.keys(offlineEntry).sort()).toEqual([
+    'Y_OFFLINE_DEFAULTS',
+    'Y_OFFLINE_STAGES',
+    'attachYOfflineSession',
+    'describeYOfflineCapture',
+    'loadYOffline',
+    'openYOfflineStore',
+    'recoverYOfflineEdits',
+    'replayUnsyncedEdits',
+  ]);
   expect(Object.keys(serverEntry).sort()).toEqual([
     'LAYOUT_VERSION',
     'MIN_LAYOUT',
@@ -238,13 +252,18 @@ test('public entries', () => {
     'YBinding',
     'YCollabExtension',
     'YUnsupportedYjsError',
+    'Y_DEFAULTS',
+    'createYBinding',
     'createYCollabConfig',
     'createYDoc',
+    'createYHandshake',
     'createYServerLayoutUpgrade',
     'describeStorage',
     'isYLayoutUpgradeHandle',
     'isYWarning',
     'onYMigrationEpoch',
+    'parseYGeneration',
+    'yCollab',
   ]);
   expect(Object.keys(headlessEntry).sort()).toEqual([
     'EDITOR_WARNING',
@@ -254,6 +273,7 @@ test('public entries', () => {
     'YUnsupportedYjsError',
     'createYDoc',
     'createYWriter',
+    'describeUnsyncedEdits',
     'editYState',
     'readYState',
     'seedYState',

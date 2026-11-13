@@ -131,6 +131,7 @@ import {
   writeIdentityRecord,
   writesPairedRuns,
 } from './Ident';
+import {UndoKeeps} from './Keeps';
 import {
   epochRecordIn,
   isGateKey,
@@ -182,10 +183,6 @@ import {
   Folder,
   frontierOf,
   HeldDeletionError,
-  isGoneIn,
-  isShownEndIn,
-  prevLiveEnd,
-  shownLengthIn,
   unitLeftEnd,
 } from './Seen';
 import {
@@ -194,6 +191,14 @@ import {
   $followUpDifference,
   checkContainer,
 } from './SelfCheck';
+import {
+  countShown,
+  isGoneIn,
+  isKept,
+  isShownEndIn,
+  prevShownEnd,
+  shownLengthIn,
+} from './Shown';
 import {
   $readSlots,
   $unstorableSlotHosts,
@@ -494,6 +499,16 @@ function sameSchemaRecords(a: SchemaRecords, b: SchemaRecords): boolean {
  */
 const undoAdmits = new WeakMap<BindingUndoManager, () => boolean>();
 
+/** Codes of the warnings that can say why the binding is read only. */
+const READ_ONLY_CAUSE_CODES: ReadonlySet<string> = new Set([
+  UNSUPPORTED_LAYOUT_WARNING,
+  UNSUPPORTED_SCHEMA_WARNING,
+  UNKNOWN_NODE_TYPES_WARNING,
+  STORAGE_MISMATCH_WARNING,
+  UNSUPPORTED_CONFIG_WARNING,
+  UNSUPPORTED_SLOTS_WARNING,
+]);
+
 /** A warning that says why the binding is read only. */
 const isReadOnlyCause = (w: LexicalWarning): boolean =>
   w.code === UNSUPPORTED_LAYOUT_WARNING ||
@@ -678,28 +693,6 @@ const MAX_PENDING_COMMITS = 16;
  * after every commit reaches it.
  */
 const MAX_REGISTRATION_RUNS = 100;
-
-/**
- * The bindings that keep an item from garbage collection (D88), per item, and
- * whether it was kept already when the first of them did (by an UndoManager's
- * step): the item is released when the last of them releases it, and only
- * if nothing else kept it before.
- */
-const keepOwners = new WeakMap<
-  Item,
-  {external: boolean; owners: Set<object>}
->();
-
-/**
- * The items bindings kept again after their UndoManager let them go (a clear
- * of a stack releases what its steps kept, parents included), with the
- * binding lifetimes (the owners in keepOwners) that hold each such keep: the
- * lifetimes that kept it again, or relied on it when another had, or held
- * it when the last of those stopped. The keep is released when the last of
- * them stops. And per lifetime, the items it holds so.
- */
-const rekeepHolders = new WeakMap<Item, Set<object>>();
-const rekeptByOwner = new WeakMap<object, Set<Item>>();
 
 /**
  * Fields Lexical derives as it renders a commit (see $writeReadEdits): the
@@ -1586,8 +1579,7 @@ export class YBinding {
    * Hidden#keeps).
    */
   private readonly keepsShown = (item: Item): boolean => {
-    const hidden = this.state.hidden;
-    return hidden !== null && hidden.keeps(item);
+    return isKept(item, this.state.hidden);
   };
   /** A write deleted a kept item again (see Hidden#drop). */
   private readonly dropKept = (item: Item): void => {
@@ -1694,6 +1686,8 @@ export class YBinding {
     Klass<LexicalNode>,
     Set<Transform<LexicalNode>>
   >();
+  /** See readOnlyWarning. */
+  private _readOnlyWarning: LexicalWarning | null = null;
   /** Warnings not passed to the editor's onWarn yet (see flushWarnings). */
   private readonly pendingWarnings: LexicalWarning[] = [];
   /** Depth of the binding's own work in progress (see guard). */
@@ -2028,65 +2022,10 @@ export class YBinding {
       // content until the document reloads, as Yjs leaves the items an
       // UndoManager step kept (any UndoManager on the document may still
       // restore it).
-      const kept = new Set<Item>();
       // This listening lifetime: a binding started again after a dispose
       // owns its keeps anew, apart from a release the old one queued.
-      const owner = {};
-      const rekept = new Set<Item>();
-      rekeptByOwner.set(owner, rekept);
-      const hold = (it: Item, by: object) => {
-        let holders = rekeepHolders.get(it);
-        if (holders === undefined) {
-          holders = new Set();
-          rekeepHolders.set(it, holders);
-        }
-        holders.add(by);
-        const theirs = rekeptByOwner.get(by);
-        if (theirs !== undefined) {
-          theirs.add(it);
-        }
-      };
-      // When this lifetime ends: each keep it holds goes to the other
-      // lifetimes that hold it, or that keep the item for a step of theirs,
-      // or is released by the last of them.
-      const releaseRekept = () => {
-        for (const it of rekept) {
-          const holders = rekeepHolders.get(it);
-          if (holders !== undefined) {
-            holders.delete(owner);
-            if (holders.size > 0) {
-              continue;
-            }
-            rekeepHolders.delete(it);
-          }
-          const entry = keepOwners.get(it);
-          if (entry !== undefined && entry.owners.size > 0) {
-            for (const other of entry.owners) {
-              hold(it, other);
-            }
-            continue;
-          }
-          it.keep = false;
-        }
-        rekept.clear();
-      };
-      const keep = (item: Item | null) => {
-        for (let it = item; it !== null; it = (it.parent as YNode)._item) {
-          let entry = keepOwners.get(it);
-          if (entry === undefined) {
-            // `external`: kept already (by an UndoManager's step), which
-            // this leaves to whoever kept it.
-            entry = {external: it.keep, owners: new Set()};
-            keepOwners.set(it, entry);
-          } else if (entry.owners.has(owner)) {
-            // Its parents are this lifetime's already.
-            break;
-          }
-          entry.owners.add(owner);
-          it.keep = true;
-          kept.add(it);
-        }
-      };
+      const keeps = new UndoKeeps();
+      const keep = (item: Item | null) => keeps.keep(item);
       // Released only between transactions: inside one (another
       // UndoManager's stack event, a listener) the transaction's own
       // collection, which runs after its listeners, would still collect an
@@ -2100,39 +2039,14 @@ export class YBinding {
         this._doc._transaction !== null ||
         this._doc._transactionCleanups.length > 0;
       const releaseNow = () => {
-        for (const it of kept) {
-          const entry = keepOwners.get(it);
-          if (entry !== undefined) {
-            entry.owners.delete(owner);
-            if (entry.owners.size > 0) {
-              continue;
-            }
-            keepOwners.delete(it);
-            if (entry.external) {
-              continue;
-            }
-          }
-          // A keep this lifetime set again after a clear goes with it; one
-          // another lifetime holds stays.
-          const holders = rekeepHolders.get(it);
-          if (holders !== undefined) {
-            holders.delete(owner);
-            rekept.delete(it);
-            if (holders.size > 0) {
-              continue;
-            }
-            rekeepHolders.delete(it);
-          }
-          it.keep = false;
-        }
-        kept.clear();
+        keeps.release();
         if (disposed) {
           this._doc.off('destroy', onDestroy);
-          releaseRekept();
+          keeps.releaseRekept();
         }
       };
       const release = (onlyWhenEmpty: boolean) => {
-        if (kept.size === 0 && (!disposed || rekept.size === 0)) {
+        if (!keeps.keepsAny && (!disposed || !keeps.rekeepsAny)) {
           if (disposed) {
             this._doc.off('destroy', onDestroy);
           }
@@ -2168,20 +2082,7 @@ export class YBinding {
       const releaseWhenEmpty = () => release(true);
       um.on('stack-cleared', () => {
         releaseWhenEmpty();
-        // A clear of one stack makes the UndoManager release what that
-        // stack's steps kept, parents included: keep what this binding
-        // still relies on (another UndoManager on the document may rely on
-        // it too: Yjs's keep is one flag). Released when this binding stops
-        // (see releaseRekept), not before.
-        for (const it of kept) {
-          if (!it.keep) {
-            it.keep = true;
-            hold(it, owner);
-          } else if (rekeepHolders.has(it)) {
-            // Kept again by another binding: held by this one too.
-            hold(it, owner);
-          }
-        }
+        keeps.keepAgain();
       });
       this.disposers.push(() => {
         disposed = true;
@@ -2215,7 +2116,7 @@ export class YBinding {
               }
             } else if (!isEndValue(s.content.value)) {
               // A paired run's own ends, by id (no end is guessed).
-              ends.push(...endsOf(s));
+              pushAll(ends, endsOf(s));
             }
           }
         });
@@ -3819,6 +3720,7 @@ export class YBinding {
     }
     if (status === 'active') {
       this.warnedEdit = false;
+      this._readOnlyWarning = null;
     }
     if (this._status !== status && this.options.onStatus) {
       // Reported with the warnings, once Yjs is idle (see flushWarnings).
@@ -3864,7 +3766,7 @@ export class YBinding {
     if (replies.length === 0) {
       return;
     }
-    this.replies.push(...replies);
+    pushAll(this.replies, replies);
     for (const update of editor._updates.slice(0, queued)) {
       this.queuedBeforeReplies.add(update);
     }
@@ -3892,7 +3794,7 @@ export class YBinding {
       at--;
     }
     this.queuedBeforeReplies.clear();
-    updates.splice(at, 0, ...this.replies.splice(0));
+    spliceAll(updates, at, 0, this.replies.splice(0));
   }
 
   /**
@@ -3906,7 +3808,26 @@ export class YBinding {
     message: string,
     data: YEmittedWarningData<C> | YOtherWarningData,
   ): void {
-    this.pendingWarnings.push(new LexicalWarning(code, message, data));
+    const warning = new LexicalWarning(code, message, data);
+    // The first since the binding was last active: the binding warns the
+    // cause that explains the others first (a newer schema before what its
+    // content does).
+    if (READ_ONLY_CAUSE_CODES.has(code) && this._readOnlyWarning === null) {
+      this._readOnlyWarning = warning;
+    }
+    this.pendingWarnings.push(warning);
+  }
+
+  /**
+   * @internal The first warning since the binding was last active that can
+   * say why it is read only
+   * (a layout, schema, node type, storage, configuration or slot problem),
+   * null while it is active: what YCollabBinding#status reports as the
+   * cause. Set when the warning is queued, so a status listener sees it
+   * before the warning reaches `onWarn`.
+   */
+  get readOnlyWarning(): LexicalWarning | null {
+    return this._status === 'readonly' ? this._readOnlyWarning : null;
   }
 
   /** Run the binding's own work; queued warnings are passed on after it. */
@@ -3964,7 +3885,10 @@ export class YBinding {
       const refusals = this.pendingWarnings.filter(isReadOnlyRefusal);
       if (refusals.length > 0) {
         const rest = this.pendingWarnings.filter(w => !isReadOnlyRefusal(w));
-        this.pendingWarnings.splice(0, Infinity, ...rest, ...refusals);
+        spliceAll(this.pendingWarnings, 0, this.pendingWarnings.length, [
+          ...rest,
+          ...refusals,
+        ]);
       }
     }
     this.flushingWarnings = true;
@@ -5149,7 +5073,7 @@ export class YBinding {
       // the read where the editor is idle, else right after it: refused and
       // warned about while read only, and, while still opening, part of what
       // the read replaces.
-      this.replies.unshift(...editor._updates.splice(0));
+      spliceAll(this.replies, 0, 0, editor._updates.splice(0));
       this.pending.add('replies');
       this.schedulePending();
     }
@@ -8101,7 +8025,7 @@ export class YBinding {
       const prevEnd = idx > 0 ? units[idx - 1].end : null;
       let left = prevEnd;
       while (left !== null && !isShownEndIn(view, left, state.hidden)) {
-        left = prevLiveEnd(view, left, state.hidden);
+        left = prevShownEnd(view, left, state.hidden);
       }
       start = left === null ? unit.cs.y._start : left.right;
       // (Before the copy: a stale start is folded again, see frontierOf.)
@@ -10175,7 +10099,7 @@ export class YBinding {
       const idx = units.indexOf(unit);
       let left = idx > 0 ? units[idx - 1].end : null;
       while (left !== null && !isShownEndIn(view, left, state.hidden)) {
-        left = prevLiveEnd(view, left, state.hidden);
+        left = prevShownEnd(view, left, state.hidden);
       }
       start = left === null ? unit.cs.y._start : left.right;
     } else {
@@ -10403,7 +10327,7 @@ export class YBinding {
     ) {
       // Captured in an empty line (see emptyLinePositions): the start of
       // that line, before what was typed into it since.
-      const left = prevLiveEnd(view, found, hidden);
+      const left = prevShownEnd(view, found, hidden);
       item = left === null ? (found.parent as YNode)._start : left.right;
       diff = 0;
     } else if (rel.assoc < 0) {
@@ -10436,7 +10360,7 @@ export class YBinding {
           ? null
           : implicitUnitAt(cs, undefined);
       if (implicit !== null) {
-        const left = prevLiveEnd(view, found, hidden);
+        const left = prevShownEnd(view, found, hidden);
         return this.$pointInLine(
           implicit.key!,
           left === null ? (found.parent as YNode)._start : left.right,
@@ -10464,7 +10388,7 @@ export class YBinding {
       const left =
         unit.end === end
           ? unitLeftEnd(view, unit.cs.units, unit, hidden)
-          : prevLiveEnd(view, end, hidden);
+          : prevShownEnd(view, end, hidden);
       start = left === null ? parentY._start : left.right;
     } else {
       const cs = this.state.containers.get(parentY);
@@ -10476,8 +10400,8 @@ export class YBinding {
       if (implicit !== null) {
         const left =
           end === null
-            ? prevLiveEnd(view, item, hidden)
-            : prevLiveEnd(view, end, hidden);
+            ? prevShownEnd(view, item, hidden)
+            : prevShownEnd(view, end, hidden);
         return this.$pointInLine(
           implicit.key!,
           left === null ? parentY._start : left.right,
@@ -10496,10 +10420,7 @@ export class YBinding {
       ownerKey = cs.key;
       start = parentY._start;
     }
-    let offset = 0;
-    for (let it = start; it !== null && it !== item; it = it.right) {
-      offset += shownLengthIn(view, it, hidden);
-    }
+    let offset = countShown(view, start, item, hidden);
     offset +=
       item === end
         ? 0

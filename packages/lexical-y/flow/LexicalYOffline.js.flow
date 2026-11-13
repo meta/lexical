@@ -1,0 +1,258 @@
+/**
+ * Copyright (c) Meta Platforms, Inc. and affiliates.
+ *
+ * This source code is licensed under the MIT license found in the
+ * LICENSE file in the root directory of this source tree.
+ *
+ * @flow strict
+ */
+
+import type {YBinding, YLocalEdits, YStatus} from '@lexical/y';
+import type {
+  HeadlessYConfig,
+  YUnsyncedReason,
+  YUnsyncedReport,
+} from '@lexical/y/headless';
+
+/**
+ * @lexical/y/offline: EXPERIMENTAL local persistence for Yjs 14 documents
+ * (IndexedDB, by document key and epoch) and the offline session on top of
+ * it: capture on a moved epoch, the report, the replay.
+ */
+
+declare export var Y_OFFLINE_DEFAULTS: {
+  readonly databaseName: string,
+  readonly compactAfter: number,
+  readonly openTimeout: number,
+};
+
+export type YOfflineErrorCode =
+  | 'unavailable'
+  | 'blocked'
+  | 'quota'
+  | 'corrupt'
+  | 'closed'
+  | 'limit'
+  | 'newer'
+  | 'failed';
+export type YOfflineSalvage = {
+  readonly state: Uint8Array | null,
+  readonly readableRows: number,
+  readonly unreadableRows: number,
+};
+export type YOfflineError = {
+  readonly code: YOfflineErrorCode,
+  readonly message: string,
+  readonly cause?: unknown,
+  readonly salvage?: YOfflineSalvage,
+  readonly limit?: 'keys' | 'bytes',
+  readonly epoch?: string | null,
+};
+export type YOfflineLimits = {
+  readonly keys?: number,
+  readonly bytesPerKey?: number,
+  readonly group?: (key: string) => string,
+};
+export type YOfflineResult<T> =
+  | {readonly ok: true, readonly value: T}
+  | {readonly ok: false, readonly error: YOfflineError};
+export type YOfflineStored = {
+  readonly state: Uint8Array,
+  readonly base: Uint8Array | null,
+  readonly hasUnsyncedEdits: boolean,
+};
+export type YOfflineSlotInfo = {
+  readonly key: string,
+  readonly epoch: string | null,
+  readonly updatedAt: number,
+  readonly hasUnsyncedEdits: boolean,
+  readonly rows: number,
+};
+export type YOfflineCapture = {
+  readonly id: string,
+  readonly key: string,
+  readonly epoch: string | null,
+  readonly reason: YUnsyncedReason,
+  readonly capturedAt: number,
+  readonly state: Uint8Array,
+  readonly json: unknown | null,
+  readonly text: string | null,
+  readonly differs: boolean,
+  readonly base: Uint8Array | null,
+  readonly claimed: boolean,
+};
+export interface YOfflineSlot {
+  readonly key: string;
+  readonly epoch: string | null;
+  load(options?: {
+    readonly writers?: 'all' | 'gone',
+  }): Promise<YOfflineResult<YOfflineStored | null>>;
+  append(update: Uint8Array): Promise<YOfflineResult<void>>;
+  confirm(state: Uint8Array): Promise<YOfflineResult<void>>;
+  compact(since?: Uint8Array): Promise<YOfflineResult<void>>;
+  discard(): Promise<YOfflineResult<void>>;
+  readonly rowsSinceCompaction: number;
+  adopt(epoch: string): Promise<YOfflineResult<void>>;
+  close(): void;
+  moveIntoCapture?: (
+    capture: YOfflineCapture | null,
+  ) => Promise<YOfflineResult<void>>;
+}
+export interface YOfflineStore {
+  slot(key: string, epoch: string | null): YOfflineSlot;
+  slots(key: string): Promise<YOfflineResult<Array<YOfflineSlotInfo>>>;
+  captures(key: string): Promise<YOfflineResult<Array<YOfflineCapture>>>;
+  putCapture(capture: YOfflineCapture): Promise<YOfflineResult<void>>;
+  claimCapture(key: string, id: string): Promise<YOfflineResult<boolean>>;
+  deleteCapture(key: string, id: string): Promise<YOfflineResult<void>>;
+  clear(
+    key: string,
+    what: {readonly epoch?: string | null, readonly captures: boolean},
+  ): Promise<YOfflineResult<void>>;
+  captureSlot?: (
+    key: string,
+    epoch: string | null,
+    build: (stored: YOfflineStored) => YOfflineCapture,
+  ) => Promise<YOfflineResult<YOfflineCapture | null>>;
+  keys(): Promise<YOfflineResult<Array<string>>>;
+  close(): void;
+}
+export type YOfflineStoreOptions = {
+  readonly idb: {
+    readonly indexedDB: IDBFactory | void,
+    readonly IDBKeyRange: typeof IDBKeyRange | void,
+  },
+  readonly databaseName?: string,
+  readonly now?: () => number,
+  readonly openTimeout?: number,
+  readonly limits?: YOfflineLimits,
+  readonly locks?: YOfflineLocks | null,
+};
+export interface YOfflineLocks {
+  request(
+    name: string,
+    callback: (lock: unknown) => Promise<unknown>,
+  ): Promise<unknown>;
+  query(): Promise<{
+    readonly held?: ReadonlyArray<{readonly name?: string}>,
+  }>;
+}
+declare export function openYOfflineStore(
+  options: YOfflineStoreOptions,
+): Promise<YOfflineResult<YOfflineStore>>;
+
+export type YOfflineStage = 'off' | 'persist' | 'replay';
+export interface YOfflineBinding {
+  readonly binding: YBinding;
+  readonly status: YStatus;
+  freeze(): YLocalEdits;
+}
+declare export var Y_OFFLINE_STAGES: ReadonlyArray<YOfflineStage>;
+
+export type YOfflineLoaded = {
+  readonly epoch: string | null,
+  readonly state: Uint8Array | null,
+  readonly base: Uint8Array | null,
+  readonly hasUnsyncedEdits: boolean,
+  readonly slot: YOfflineSlot | null,
+};
+declare export function loadYOffline(input: {
+  readonly store: YOfflineStore,
+  readonly key: string,
+  readonly epoch?: string,
+}): Promise<YOfflineResult<YOfflineLoaded>>;
+
+export type YOfflineSessionOptions = {
+  readonly binding: YOfflineBinding,
+  readonly store: YOfflineStore | null,
+  readonly key: string,
+  readonly epoch: string | null,
+  readonly stage: YOfflineStage,
+  readonly persistEdits?: boolean,
+  readonly keep?: 'document' | 'unsynced',
+  readonly writeDelay?: number,
+  readonly onError: (error: YOfflineError) => void,
+  readonly loaded?: YOfflineLoaded,
+  readonly compactAfter?: number,
+  readonly now?: () => number,
+};
+export type YOfflineVerdict =
+  | {readonly kind: 'off'}
+  | {readonly kind: 'same'}
+  | {
+      readonly kind: 'moved',
+      readonly capture: YOfflineCapture | null,
+      readonly saved: YOfflineResult<void>,
+    };
+export interface YOfflineSession {
+  readonly stage: YOfflineStage;
+  readonly epoch: string | null;
+  readonly hasUnsyncedEdits: boolean;
+  readonly persisted: boolean;
+  readonly ended: boolean;
+  serverEpoch(
+    epoch: string,
+    options?: {readonly reason?: YUnsyncedReason},
+  ): Promise<YOfflineVerdict>;
+  freeze(options?: {readonly reason?: YUnsyncedReason}): Promise<YOfflineVerdict>;
+  markSynced(): void;
+  flush(): Promise<YOfflineResult<void>>;
+  dispose(): void;
+}
+declare export function attachYOfflineSession(
+  options: YOfflineSessionOptions,
+): YOfflineSession;
+
+export type YOfflineReport = {
+  ...YUnsyncedReport,
+  readonly captureId: string,
+  readonly order: ReadonlyArray<string>,
+  readonly inDocument: ReadonlyArray<string>,
+  readonly orderDiffers: boolean,
+};
+export type YOfflineDescribeOptions = {
+  readonly current: Uint8Array,
+  readonly config: HeadlessYConfig,
+  readonly migrate?: (state: Uint8Array) => Uint8Array,
+};
+declare export function describeYOfflineCapture(
+  capture: YOfflineCapture,
+  options: YOfflineDescribeOptions,
+): YOfflineResult<YOfflineReport>;
+
+export type YReplaySkipReason =
+  | 'not-replayable'
+  | 'changed-since'
+  | 'no-block-ids'
+  | 'unreadable'
+  | 'not-in-report'
+  | 'not-written';
+export type YReplayResult = {
+  readonly applied: ReadonlyArray<string>,
+  readonly notApplied: ReadonlyArray<{
+    readonly id: string,
+    readonly reason: YReplaySkipReason,
+  }>,
+};
+declare export function replayUnsyncedEdits(input: {
+  readonly binding: YOfflineBinding,
+  readonly report: YOfflineReport | YUnsyncedReport,
+  readonly only?: ReadonlyArray<string>,
+}): YReplayResult;
+
+export type YOfflineRecovered = {
+  readonly capture: YOfflineCapture,
+  readonly report: YOfflineResult<YOfflineReport>,
+  readonly replay: YReplayResult | null,
+};
+declare export function recoverYOfflineEdits(input: {
+  readonly binding: YOfflineBinding,
+  readonly store: YOfflineStore | null,
+  readonly key: string,
+  readonly epoch: string,
+  readonly stage: YOfflineStage,
+  readonly config: HeadlessYConfig,
+  readonly migrate?: (state: Uint8Array) => Uint8Array,
+  readonly session?: YOfflineSession,
+  readonly now?: () => number,
+}): Promise<YOfflineResult<Array<YOfflineRecovered>>>;

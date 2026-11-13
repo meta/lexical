@@ -9,7 +9,7 @@
 // @vitest-environment node
 
 // A start formats map the writer folds as stored (a held insertion counts,
-// a deleted item the hold keeps showing does not, see Seen.isStoredIn) is
+// a deleted item the hold keeps showing does not, see Shown.isStoredIn) is
 // noted with that lane: when its fold point goes stale and the map is
 // folded again (see Seen.frontierOf), the refold leaves the kept deletions
 // out as the first fold did. It refolded over what the write's view shows,
@@ -19,7 +19,8 @@ import {expect, test} from 'vitest';
 
 import {Hidden} from '../../../internal/Hidden';
 import {writeLayout3Formats} from '../../../internal/Layout3';
-import {frontierOf, isStoredIn, noteFolded} from '../../../internal/Seen';
+import {frontierOf, noteFolded} from '../../../internal/Seen';
+import {isStoredIn} from '../../../internal/Shown';
 import {emptyView} from '../../../internal/Unread';
 
 for (const gc of [false, true]) {

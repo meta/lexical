@@ -34,6 +34,14 @@ import {
 
 import {isSchemaVersion, YBinding, type YBindingStatus} from './Binding';
 import {
+  attachCollabBinding,
+  collabBindingOf,
+  detachCollabBinding,
+  hasState,
+  type YCollabBinding,
+  type YStatus,
+} from './CollabBinding';
+import {
   isYLayoutUpgradeHandle,
   type YLayoutUpgradeHandle,
 } from './LayoutUpgrade';
@@ -71,6 +79,7 @@ export interface YCollabInput {
   readonly selfCheck?: boolean | null;
   readonly selfCheckSample?: number | null;
   readonly convert?: boolean;
+  readonly onYStatus?: ((status: YStatus) => void) | null;
 }
 
 /**
@@ -124,6 +133,11 @@ export interface YCollabConfig {
    * also brings UNSUPPORTED_CONFIG_WARNING `'missing-layout-upgrade'`.
    */
   layoutUpgrade?: YLayoutUpgradeHandle | null;
+  /**
+   * Called with the binding's {@link YStatus} when it changes (what
+   * yCollab's required `onStatus` sets). Default: none.
+   */
+  onYStatus?: ((status: YStatus) => void) | null;
 }
 
 /**
@@ -179,20 +193,33 @@ export const YCollabExtension = defineExtension({
       '@lexical/y: layoutUpgrade is a handle from createYServerLayoutUpgrade(), or null',
     );
     const status = signal<YBindingStatus>('pending');
+    const onYStatus = config.onYStatus ?? null;
+    const hadState = hasState(config.doc);
+    let collab: YCollabBinding | null = null;
+    const binding = new YBinding(editor, config.doc, {
+      captureTimeout: config.captureTimeout,
+      clientIDRange: config.clientIDRange,
+      convert: config.convert,
+      layoutUpgrade: config.layoutUpgrade,
+      onStatus: value => {
+        status.value = value;
+        if (onYStatus !== null && collab !== null) {
+          onYStatus(collab.status);
+        }
+      },
+      root: config.root || undefined,
+      schemaVersion: config.schemaVersion,
+      selfCheck: config.selfCheck ?? undefined,
+      selfCheckSample: config.selfCheckSample ?? undefined,
+    });
+    // The extension starts and stops the binding (afterRegistration);
+    // collab.dispose() disposes it too.
+    // It listens from afterRegistration, when the binding starts.
+    collab = collabBindingOf(binding, hadState, null, onYStatus, false);
     return {
-      binding: new YBinding(editor, config.doc, {
-        captureTimeout: config.captureTimeout,
-        clientIDRange: config.clientIDRange,
-        convert: config.convert,
-        layoutUpgrade: config.layoutUpgrade,
-        onStatus: value => {
-          status.value = value;
-        },
-        root: config.root || undefined,
-        schemaVersion: config.schemaVersion,
-        selfCheck: config.selfCheck ?? undefined,
-        selfCheckSample: config.selfCheckSample ?? undefined,
-      }),
+      binding,
+      /** The binding's public API (see YCollabBinding). */
+      collab,
       status: status as ReadonlySignal<YBindingStatus>,
     };
   },
@@ -205,6 +232,7 @@ export const YCollabExtension = defineExtension({
   // eslint-disable-next-line sort-keys-fix/sort-keys-fix -- `build` comes first: TypeScript infers the output type from it in order
   afterRegistration(editor, config, state) {
     const {binding} = state.getOutput();
+    attachCollabBinding(binding);
     const stop = binding.start();
     const um = binding.undoManager;
     if (um !== null) {
@@ -224,13 +252,17 @@ export const YCollabExtension = defineExtension({
     if (config.synced) {
       binding.initialize();
     }
-    return stop;
+    return () => {
+      detachCollabBinding(binding);
+      stop();
+    };
   },
   config: safeCast<YCollabConfig>({
     captureTimeout: 500,
     clientIDRange: 'uint53',
     convert: false,
     doc: null,
+    onYStatus: null,
     root: null,
     // Not a version: the app must set its own (see build).
     schemaVersion: 0,

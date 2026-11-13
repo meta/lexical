@@ -8,7 +8,7 @@
 
 // @vitest-environment node
 
-// A start folded as stored (see Seen.FoldLane) up to a format item: once a
+// A start folded as stored (see Shown.FoldLane) up to a format item: once a
 // change deletes that item and the hold keeps showing it, the item is no
 // fold point of the stored start any more (a kept deletion is not stored).
 // Its frontier check took it for live (what the write's view shows), and
@@ -20,7 +20,8 @@ import {createYDoc} from '../../..';
 import {Hidden} from '../../../internal/Hidden';
 import {stepFormat, STORED_FOLD} from '../../../internal/Ident';
 import {writeLayout3Formats} from '../../../internal/Layout3';
-import {frontierOf, isStoredIn, noteFolded} from '../../../internal/Seen';
+import {frontierOf, noteFolded} from '../../../internal/Seen';
+import {isStoredIn} from '../../../internal/Shown';
 import {emptyView} from '../../../internal/Unread';
 
 for (const gc of [false, true]) {

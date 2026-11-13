@@ -37,7 +37,8 @@ import {
   TYPE_KEY,
   WRAPPER_FIELDS_KEY,
 } from './Schema';
-import {isShownEndIn, shownAttrs} from './Seen';
+import {shownAttrs} from './Seen';
+import {isShownEndIn} from './Shown';
 import {$inNamedSlot} from './Slots';
 import {type CS, type State, typeOf, type Unit, type UnitKind} from './State';
 import {type View} from './Unread';

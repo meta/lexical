@@ -10,9 +10,12 @@
 // `@lexical/y` stays an external sibling.
 import {type Doc, encodeStateAsUpdate, mergeUpdates} from '@y/y';
 import {
+  $getEditor,
   $getRoot,
   COLLABORATION_TAG,
   type LexicalWarning,
+  type SerializedEditorState,
+  type SerializedLexicalNode,
   SKIP_COLLAB_TAG,
 } from 'lexical';
 
@@ -373,4 +376,185 @@ export function readYState<T>(
   } finally {
     closeHeadlessYEditor(opened);
   }
+}
+
+/** @experimental Why a client's edits did not sync (see describeUnsyncedEdits). */
+export type YUnsyncedReason = 'stale' | 'legacy' | 'expired';
+
+/** @experimental One block a user changed (see YUnsyncedReport). */
+export interface YUnsyncedBlock {
+  /** The block id (BlockIdExtension), or `'#<index>'` where blocks have none. */
+  readonly id: string;
+  readonly change: 'added' | 'changed' | 'deleted';
+  /** The block as the user had it, null when they deleted it. */
+  readonly yours: SerializedLexicalNode | null;
+  /** The block in the document the edits were made against. */
+  readonly base: SerializedLexicalNode | null;
+  /** The block in the document as it is now. */
+  readonly now: SerializedLexicalNode | null;
+  /**
+   * Whether the current document still matches the base for this block (the
+   * check an edit by block id uses, D94): informational until a replay ships.
+   * Always false without a base or without block ids.
+   */
+  readonly replayable: boolean;
+}
+
+/** @experimental What describeUnsyncedEdits reports (layout 4 spec 11.6). */
+export interface YUnsyncedReport {
+  readonly reason: YUnsyncedReason;
+  readonly capturedAt: number;
+  /**
+   * False when `base` was null: changes are judged against the current
+   * document only, and nothing is replayable.
+   */
+  readonly baseAvailable: boolean;
+  /** One entry per block the user changed, in their document's order. */
+  readonly blocks: readonly YUnsyncedBlock[];
+  /** Every block the user added or changed, as they saw it. */
+  readonly fragment: readonly SerializedLexicalNode[];
+}
+
+/** The top-level blocks of a state, as JSON. */
+function blocksOfState(
+  state: Uint8Array,
+  config: HeadlessYConfig,
+): SerializedLexicalNode[] {
+  return readYState(
+    state,
+    config,
+    () => $getEditor().getEditorState().toJSON().root.children,
+  );
+}
+
+/** A serialized block's id (BlockIdExtension's `blockId` NodeState), or null. */
+function blockIdOf(node: SerializedLexicalNode): string | null {
+  const state = (node as {$?: {blockId?: unknown}}).$;
+  const id = state === undefined ? undefined : state.blockId;
+  return typeof id === 'string' && id !== '' ? id : null;
+}
+
+/** `blocks` by id, or null when any block lacks one. */
+function byId(
+  blocks: readonly SerializedLexicalNode[],
+): Map<string, SerializedLexicalNode> | null {
+  const map = new Map<string, SerializedLexicalNode>();
+  for (const block of blocks) {
+    const id = blockIdOf(block);
+    if (id === null || map.has(id)) {
+      return null;
+    }
+    map.set(id, block);
+  }
+  return map;
+}
+
+const sameJSON = (
+  a: SerializedLexicalNode | null | undefined,
+  b: SerializedLexicalNode | null | undefined,
+) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
+
+/**
+ * @experimental What a client's edits that did not sync changed (layout 4
+ * spec 11.6): the edits (what `freeze()` handed the app, or a captured
+ * state) compared with the document they were made against (`base`, null
+ * when it is no longer kept) and the document as it is now, block by block.
+ * With block ids (BlockIdExtension) blocks are matched by id; without, by
+ * position, and nothing is replayable. Each state is read with `config`, at
+ * a layout this release reads: migrate a state below MIN_LAYOUT first
+ * (`migrateYState` on `@lexical/y/migrate`).
+ *
+ * @example
+ * ```ts
+ * const report = describeUnsyncedEdits({
+ *   edits: binding.freeze(), base, current, config,
+ *   reason: 'stale', capturedAt: Date.now(),
+ * });
+ * for (const block of report.blocks) show(block);
+ * ```
+ */
+export function describeUnsyncedEdits(input: {
+  /** What the stale client held: `freeze()`'s YLocalEdits, or a captured state. */
+  readonly edits:
+    | {readonly json: SerializedEditorState}
+    | {readonly state: Uint8Array};
+  /** The document the edits were made against, or null when it is gone. */
+  readonly base: Uint8Array | null;
+  /** The document as it is now. */
+  readonly current: Uint8Array;
+  readonly config: HeadlessYConfig;
+  readonly reason: YUnsyncedReason;
+  /** When the edits were captured (Unix ms). */
+  readonly capturedAt: number;
+}): YUnsyncedReport {
+  const {config} = input;
+  // What the user saw: the editor's JSON when given (it holds edits the
+  // document refused), else the captured state.
+  const yours =
+    'json' in input.edits
+      ? input.edits.json.root.children
+      : blocksOfState(input.edits.state, config);
+  const base = input.base === null ? null : blocksOfState(input.base, config);
+  const now = blocksOfState(input.current, config);
+  const against = base ?? now;
+  const blocks: YUnsyncedBlock[] = [];
+  const yoursById = byId(yours);
+  const againstById = byId(against);
+  const nowById = byId(now);
+  if (yoursById !== null && againstById !== null && nowById !== null) {
+    for (const [id, block] of yoursById) {
+      const was = againstById.get(id) ?? null;
+      if (was === null || !sameJSON(was, block)) {
+        const current = nowById.get(id) ?? null;
+        blocks.push({
+          base: base === null ? null : was,
+          change: was === null ? 'added' : 'changed',
+          id,
+          now: current,
+          replayable: base !== null && sameJSON(current, was),
+          yours: block,
+        });
+      }
+    }
+    for (const [id, was] of againstById) {
+      if (!yoursById.has(id)) {
+        const current = nowById.get(id) ?? null;
+        blocks.push({
+          base: base === null ? null : was,
+          change: 'deleted',
+          id,
+          now: current,
+          replayable: base !== null && sameJSON(current, was),
+          yours: null,
+        });
+      }
+    }
+  } else {
+    // Without ids: by position.
+    const length = Math.max(yours.length, against.length);
+    for (let i = 0; i < length; i++) {
+      const block = yours[i] ?? null;
+      const was = against[i] ?? null;
+      if (!sameJSON(block, was)) {
+        blocks.push({
+          base: base === null ? null : was,
+          change:
+            was === null ? 'added' : block === null ? 'deleted' : 'changed',
+          id: `#${i}`,
+          now: now[i] ?? null,
+          replayable: false,
+          yours: block,
+        });
+      }
+    }
+  }
+  return {
+    baseAvailable: base !== null,
+    blocks,
+    capturedAt: input.capturedAt,
+    fragment: blocks.flatMap(block =>
+      block.yours === null ? [] : [block.yours],
+    ),
+    reason: input.reason,
+  };
 }

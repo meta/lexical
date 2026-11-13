@@ -41,6 +41,7 @@ const everyOption: Record<keyof YCollabConfig, keyof YCollabInput> = {
   convert: 'convert',
   doc: 'doc',
   layoutUpgrade: 'layoutUpgrade',
+  onYStatus: 'onYStatus',
   root: 'root',
   schemaVersion: 'schemaVersion',
   selfCheck: 'selfCheck',
@@ -93,7 +94,7 @@ test('a YCollabInput with only its required keys configures the extension; the i
     'layoutUpgrade',
     'schemaVersion',
   ]);
-  expect(Object.keys(everyOption)).toHaveLength(10);
+  expect(Object.keys(everyOption)).toHaveLength(11);
   expect(Object.keys(configRequired)).toHaveLength(9);
   const input: YCollabInput = {
     doc: createYDoc(),
