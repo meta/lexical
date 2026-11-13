@@ -267,6 +267,12 @@ export function registerTableWindowHandlers(
 
     const pointerDownCallback = (event: PointerEvent) => {
       tableObservers.touchTapCellKey = null;
+      // A pointer interaction invalidates a pending vertical exit armed by a
+      // vertical arrow key at a soft wrap: if the deferred native movement
+      // never happened, the next selection change is this pointer one and
+      // must not be corrected. Cleared before the checks so any button and
+      // any target invalidate it.
+      tableObservers.pendingVerticalExit = null;
       // Listener is on editorWindow; the composed target is needed so the
       // rootElement.contains check below sees the shadow-internal target.
       const target = getComposedEventTarget(event);

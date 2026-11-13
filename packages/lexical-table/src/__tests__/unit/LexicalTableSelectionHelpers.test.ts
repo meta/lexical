@@ -47,6 +47,9 @@ import {
   test,
 } from 'vitest';
 
+import {TableObservers} from '../../LexicalTableObserver';
+import {registerTableWindowHandlers} from '../../LexicalTableSelectionHelpers';
+
 const TableTestThemeExtension = defineExtension({
   dependencies: [TableExtension],
   name: 'TableTestThemeExtension',
@@ -523,6 +526,33 @@ describe('LexicalTableSelectionHelpers', () => {
         ),
       ).not.toThrow();
       $assertCaretUnmoved();
+    });
+  });
+
+  describe('pending vertical exit invalidation', () => {
+    // A pending vertical exit is armed by a vertical arrow key at an
+    // ambiguous soft wrap boundary and consumed by the next selection
+    // change. If the deferred native movement never happened (a modifier
+    // combo that does not move the caret), the next selection change is
+    // unrelated and must not be corrected: any pointer interaction
+    // invalidates the armed intent.
+    test('pointerdown clears the pending vertical exit', () => {
+      using editor = buildEditorFromExtensions(TableTestThemeExtension);
+      const container = document.createElement('div');
+      document.body.append(container);
+      onTestFinished(() => container.remove());
+      editor.setRootElement(container);
+      const tableObservers = new TableObservers();
+      onTestFinished(registerTableWindowHandlers(editor, tableObservers));
+
+      tableObservers.setPendingVerticalExit({
+        direction: 'down',
+        tableKey: '1',
+        x: 0,
+        y: 1,
+      });
+      window.dispatchEvent(new MouseEvent('pointerdown'));
+      expect(tableObservers.getAndClearPendingVerticalExit()).toBeNull();
     });
   });
 });
