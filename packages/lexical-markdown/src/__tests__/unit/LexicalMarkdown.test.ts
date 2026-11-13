@@ -6631,4 +6631,64 @@ describe('quote lines with optional space (#9442)', () => {
       editor.read('latest', () => $convertToMarkdownString(TRANSFORMERS)),
     ).toBe('> a\n> b');
   });
+
+  it('round-trips paragraph starting with > as escaped markdown', () => {
+    const editor = createTestEditor();
+    editor.update(
+      () => {
+        const root = $getRoot();
+        const paragraph = $createParagraphNode();
+        paragraph.append($createTextNode('>a'));
+        root.append(paragraph);
+      },
+      {discrete: true},
+    );
+    expect(
+      editor.read('latest', () => $convertToMarkdownString(TRANSFORMERS)),
+    ).toBe('\\>a');
+
+    const editor2 = createTestEditor();
+    editor2.update(
+      () => {
+        $convertFromMarkdownString('\\>a', TRANSFORMERS);
+      },
+      {discrete: true},
+    );
+    expect(
+      editor2.read('latest', () => $isParagraphNode($getRoot().getFirstChild())),
+    ).toBe(true);
+    expect(
+      editor2.read('latest', () => $getRoot().getTextContent()),
+    ).toBe('>a');
+  });
+
+  it('round-trips paragraph starting with >=5 items as escaped markdown', () => {
+    const editor = createTestEditor();
+    editor.update(
+      () => {
+        const root = $getRoot();
+        const paragraph = $createParagraphNode();
+        paragraph.append($createTextNode('>=5 items'));
+        root.append(paragraph);
+      },
+      {discrete: true},
+    );
+    expect(
+      editor.read('latest', () => $convertToMarkdownString(TRANSFORMERS)),
+    ).toBe('\\>=5 items');
+
+    const editor2 = createTestEditor();
+    editor2.update(
+      () => {
+        $convertFromMarkdownString('\\>=5 items', TRANSFORMERS);
+      },
+      {discrete: true},
+    );
+    expect(
+      editor2.read('latest', () => $isParagraphNode($getRoot().getFirstChild())),
+    ).toBe(true);
+    expect(
+      editor2.read('latest', () => $getRoot().getTextContent()),
+    ).toBe('>=5 items');
+  });
 });

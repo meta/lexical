@@ -14,7 +14,9 @@ import {
   $isDecoratorNode,
   $isElementNode,
   $isLineBreakNode,
+  $isParagraphNode,
   $isRangeSelection,
+  $isRootNode,
   $isTextNode,
   type BaseSelection,
   type ElementNode,
@@ -616,6 +618,13 @@ function $exportTextFormat(
         ),
         selection,
       );
+    }
+
+    if ($isAtParagraphLineStart(node)) {
+      output = output.replace(/^>/, '\\>');
+    }
+    if (shouldPreserveNewLines && output.includes('\n>')) {
+      output = output.replace(/\n>/g, '\n\\>');
     }
   }
 
@@ -2006,6 +2015,16 @@ function $lineStateBefore(
     state = next;
   }
   return state;
+}
+
+function $isAtParagraphLineStart(node: TextNode): boolean {
+  const previous = node.getPreviousSibling();
+  const parent = node.getParent();
+  return (
+    (previous === null || $isLineBreakNode(previous)) &&
+    $isParagraphNode(parent) &&
+    $isRootNode(parent.getParent())
+  );
 }
 
 function getTextSibling(node: TextNode, backward: boolean): TextNode | null {
