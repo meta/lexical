@@ -55,7 +55,8 @@ test.describe('Links', () => {
       const frame = getPageOrFrame(page);
       const editor = frame.locator('[contenteditable="true"]').first();
       const link = editor.getByRole('link', {exact: true, name: 'x'});
-      await link.click();
+      const box = await link.boundingBox();
+      await link.click({position: {x: 1, y: box.height / 2}});
       await expect(frame.locator('.link-view a')).toHaveAttribute(
         'href',
         'https://example.org/one',
