@@ -103,6 +103,16 @@ export function TreeView({
   }, [editor, treeElementRef]);
 
   const editableBeforeTimeTravel = useRef(true);
+  const isTimeTraveling = useRef(false);
+
+  useEffect(() => {
+    return () => {
+      if (isTimeTraveling.current) {
+        editor.setEditable(editableBeforeTimeTravel.current);
+        isTimeTraveling.current = false;
+      }
+    };
+  }, [editor]);
 
   /**
    * Handles toggling the readonly state of the editor.
@@ -111,18 +121,23 @@ export function TreeView({
    * `contentEditable` from {@link LexicalEditor.isEditable}, which is also what
    * gates input events, `aria-readonly` and `tabIndex`. Writing the attribute
    * directly leaves the editor believing it is editable and lets the surface
-   * re-derive the attribute from that state on its next mount, unfreezing a
+   * re-derive the attribute from its state on its next mount, unfreezing a
    * historical editor state. Exiting therefore restores the state captured on
    * entry rather than assuming editable.
    *
-   * @param {boolean} isReadonly - Whether the editor should be set to readonly.
+   * @param isReadonly - Whether the editor should be set to readonly.
    */
   const handleEditorReadOnly = (isReadonly: boolean) => {
     if (isReadonly) {
-      editableBeforeTimeTravel.current = editor.isEditable();
+      if (!isTimeTraveling.current) {
+        editableBeforeTimeTravel.current = editor.isEditable();
+      }
+      isTimeTraveling.current = true;
       editor.setEditable(false);
       return;
     }
+
+    isTimeTraveling.current = false;
     editor.setEditable(editableBeforeTimeTravel.current);
   };
 

@@ -148,7 +148,7 @@ describe('TreeView', () => {
       const button = Array.from(container.querySelectorAll('button')).find(
         el => el.textContent === label,
       );
-      expect(button, `${label} button`).not.toBe(null);
+      expect(button, `${label} button`).toBeDefined();
       await act(async () => {
         (button as HTMLButtonElement).click();
       });
@@ -204,6 +204,33 @@ describe('TreeView', () => {
       expect(remounted).not.toBe(first);
 
       expect(remounted.contentEditable).toBe('false');
+    });
+
+    it('restores the editor when the tree view unmounts during time travel', async () => {
+      const editor = makeEditorWithoutRoot();
+      const rootElement = await renderSurfaceAndTree(editor);
+      await recordEditorStates(editor, 2);
+
+      await clickButton('Time Travel');
+      await act(async () => {
+        reactRoot.render(<ContentEditableElement editor={editor} />);
+      });
+
+      expect(editor.isEditable()).toBe(true);
+      expect(rootElement.contentEditable).toBe('true');
+    });
+
+    it('restores the previous editor when the tree view changes editors', async () => {
+      const previousEditor = makeEditorWithoutRoot();
+      const nextEditor = makeEditorWithoutRoot();
+      await renderSurfaceAndTree(previousEditor);
+      await recordEditorStates(previousEditor, 2);
+
+      await clickButton('Time Travel');
+      await renderSurfaceAndTree(nextEditor);
+
+      expect(previousEditor.isEditable()).toBe(true);
+      expect(nextEditor.isEditable()).toBe(true);
     });
   });
 });
