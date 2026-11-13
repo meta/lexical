@@ -93,6 +93,20 @@ export type TableNextFocus = {
 };
 
 /**
+ * A vertical arrow key was pressed with the caret at an ambiguous soft wrap
+ * boundary (where "end of line N" and "start of line N+1" are the same DOM
+ * position and the caret's affinity is not exposed in the DOM), so the
+ * native movement was allowed to run. If the resulting selection leaves the
+ * original cell's column it must be corrected to the cell at x,y.
+ */
+export type TablePendingVerticalExit = {
+  direction: 'up' | 'down';
+  tableKey: NodeKey;
+  x: number;
+  y: number;
+};
+
+/**
  * Tracks table selection state that sits across all tables.
  */
 export class TableObservers {
@@ -102,6 +116,7 @@ export class TableObservers {
   >;
   nextFocus: TableNextFocus | null;
   shouldCheckSelectionForTable: NodeKey | null;
+  pendingVerticalExit: TablePendingVerticalExit | null;
   /** The last touch-tapped cell, retained after pointerup for native word selection. */
   touchTapCellKey: NodeKey | null;
 
@@ -112,6 +127,7 @@ export class TableObservers {
     >();
     this.nextFocus = null;
     this.shouldCheckSelectionForTable = null;
+    this.pendingVerticalExit = null;
     this.touchTapCellKey = null;
   }
 
@@ -155,6 +171,24 @@ export class TableObservers {
     if (shouldCheckSelectionForTable) {
       this.shouldCheckSelectionForTable = null;
       return shouldCheckSelectionForTable;
+    }
+    return null;
+  }
+
+  /**
+   * @internal
+   */
+  setPendingVerticalExit(pendingVerticalExit: TablePendingVerticalExit): void {
+    this.pendingVerticalExit = pendingVerticalExit;
+  }
+  /**
+   * @internal
+   */
+  getAndClearPendingVerticalExit(): TablePendingVerticalExit | null {
+    const {pendingVerticalExit} = this;
+    if (pendingVerticalExit !== null) {
+      this.pendingVerticalExit = null;
+      return pendingVerticalExit;
     }
     return null;
   }

@@ -33,16 +33,26 @@ import {userEvent} from 'vitest/browser';
 //
 // $handleArrowKey decides whether a vertical arrow key leaves the cell by
 // comparing the caret's rect with the cell's edge child box. At a soft wrap
-// the caret sits between two visual lines, and a collapsed DOM range there
-// reports its bounding rect at the end of the *previous* line in every
-// engine (it is the first of the client rects). With the caret logically at
-// the start of a cell's last visual line that stale rect made
+// the caret sits between two visual lines: "end of line N" and "start of
+// line N+1" are the same DOM position, and the only thing that tells them
+// apart, the caret's affinity, is not exposed in the DOM. A collapsed range
+// there reports its bounding rect at the end of the *previous* line in every
+// engine (it is the first of the client rects). That stale rect made
 //
-// - ArrowDown keep the native movement on Chromium, which lands in the cell
-//   to the right (document order) instead of the one below; Gecko happens
-//   to move below on its own, masking the bug.
+// - ArrowDown keep the native movement on Chromium when the caret is at the
+//   start of the last visual line, landing in the cell to the right
+//   (document order) instead of the one below; Gecko happens to move below
+//   on its own, masking the bug.
 // - ArrowUp hijack the caret out of the table on every engine, instead of
 //   moving up one visual line within the cell.
+//
+// The affinity cannot be guessed, only detected as ambiguous: when the
+// collapsed range's rect and its adjacent character's rect sit on different
+// lines, the native movement runs (the engine knows the affinity) and a
+// landing outside the original cell's column is corrected to the cell the
+// exit detection would have chosen. Away from the boundary the caret rect
+// decision is unchanged, so a caret placed at the end of a wrapped line
+// (End key, or a click past the line's last word) keeps exiting the cell.
 //
 // The engine's vertical caret movement is layout-driven, so these tests run
 // in a real browser (see the `browser` project in vitest.config.mts) against
@@ -240,6 +250,31 @@ function visualLineTops(domText: Text): number[] {
 }
 
 /**
+ * Places the caret at the end of c4's first visual line, which is the same
+ * DOM position as the start of the second one. Selection.modify moving
+ * forward to the line boundary keeps the caret's end-of-line-one affinity,
+ * which a plain collapsed range placement cannot express; the End key is
+ * not portable (macOS scrolls instead). Skipped where Selection.modify is
+ * unavailable.
+ */
+async function setUpC4CaretAtEndOfFirstLine(
+  ctx: {skip: {(condition: boolean, note?: string): void}},
+  editor: LexicalEditor,
+  c4Key: string,
+): Promise<void> {
+  const domSelection = window.getSelection();
+  if (domSelection === null || typeof domSelection.modify !== 'function') {
+    ctx.skip(true, 'Selection.modify is not available in this engine');
+    return;
+  }
+  await setUpC4Caret(editor, c4Key, 2);
+  domSelection.modify('move', 'forward', 'lineboundary');
+  // Let the resulting selectionchange reconcile into the editor state.
+  await new Promise(resolve => setTimeout(resolve, 60));
+  expect(anchorText(editor)).toBe(C4_TEXT);
+}
+
+/**
  * Whether this browser environment actually delivers trusted keyboard input.
  * Some playwright + Firefox combinations (observed on macOS) swallow
  * synthesized input entirely, which would make every expectation below fail
@@ -304,6 +339,33 @@ describe('arrow keys across soft-wrapped cell text', () => {
     // of letting it move up one visual line within c4.
     await press('{ArrowUp}');
     expect(anchorText(editor)).toBe(C4_TEXT);
+  });
+
+  test('ArrowDown from the end of the first visual line stays in the cell', async ctx => {
+    await probeKeyboardDelivery(ctx);
+    const {c4Key, editor} = await setUpWithC4();
+    await setUpC4CaretAtEndOfFirstLine(ctx, editor, c4Key);
+
+    // The caret's end-of-line-one affinity is invisible to the DOM: its
+    // collapsed rect and the adjacent character's rect sit on different
+    // lines. The ambiguity must let the native movement run, which moves
+    // down one visual line within c4; forcing the adjacent character's line
+    // instead would treat the caret as on the second line and exit to c7.
+    await press('{ArrowDown}');
+    expect(anchorText(editor)).toBe(C4_TEXT);
+  });
+
+  test('ArrowUp from the end of the first visual line exits to the cell above', async ctx => {
+    await probeKeyboardDelivery(ctx);
+    const {c4Key, editor} = await setUpWithC4();
+    await setUpC4CaretAtEndOfFirstLine(ctx, editor, c4Key);
+
+    // Same ambiguity, upward: the caret is on the first line, so it must
+    // leave the cell to c1. Chromium's native movement lands in c3 (the
+    // previous line box in document order) and must be corrected to the
+    // cell the exit detection would have chosen.
+    await press('{ArrowUp}');
+    expect(anchorText(editor)).toBe('c1');
   });
 
   test('ArrowDown from the middle of the first visual line stays in the cell', async ctx => {
