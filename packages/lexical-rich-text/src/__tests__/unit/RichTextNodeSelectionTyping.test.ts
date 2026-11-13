@@ -21,7 +21,10 @@ import {
   $isRangeSelection,
   $setSelection,
   BEFORE_INPUT_COMMAND,
+  COMMAND_PRIORITY_LOW,
   type ElementNode,
+  KEY_DOWN_COMMAND,
+  KEY_SPACE_COMMAND,
   type LexicalEditor,
   ParagraphNode,
 } from 'lexical';
@@ -91,6 +94,73 @@ function texts(editor: LexicalEditor): string[] {
 }
 
 describe('typing while a block decorator is node-selected', () => {
+  test.for(['altKey', 'ctrlKey', 'metaKey'] as const)(
+    'leaves a printable key with %s to its modifier shortcut',
+    modifier => {
+      using editor = createEditor('after');
+      const event = new KeyboardEvent('keydown', {
+        cancelable: true,
+        key: 'q',
+        [modifier]: true,
+      });
+      editor.update(() => editor.dispatchCommand(KEY_DOWN_COMMAND, event), {
+        discrete: true,
+      });
+
+      expect(texts(editor)).toEqual(['before', '<decorator>', 'after']);
+      expect(event.defaultPrevented).toBe(false);
+    },
+  );
+
+  test.for([true, false])(
+    'dispatches Space before default insertion handled=%s',
+    handled => {
+      using editor = createEditor('after');
+      let calls = 0;
+      editor.registerCommand(
+        KEY_SPACE_COMMAND,
+        event => {
+          calls++;
+          if (handled) {
+            event.preventDefault();
+          }
+          return handled;
+        },
+        COMMAND_PRIORITY_LOW,
+      );
+      const event = new KeyboardEvent('keydown', {cancelable: true, key: ' '});
+      editor.update(() => editor.dispatchCommand(KEY_DOWN_COMMAND, event), {
+        discrete: true,
+      });
+
+      expect(calls).toBe(1);
+      expect(texts(editor)).toEqual(
+        handled
+          ? ['before', '<decorator>', 'after']
+          : ['before', '<decorator>', ' ', 'after'],
+      );
+      expect(event.defaultPrevented).toBe(true);
+    },
+  );
+
+  test('leaves typing in the selected decorator input to the input', () => {
+    using editor = createEditor('after');
+    const key = editor.read(() => $getRoot().getChildAtIndex(1)!.getKey());
+    const input = document.createElement('input');
+    editor.getElementByKey(key)!.appendChild(input);
+    input.focus();
+    const event = new KeyboardEvent('keydown', {
+      bubbles: true,
+      cancelable: true,
+      key: 'q',
+    });
+
+    input.dispatchEvent(event);
+
+    expect(texts(editor)).toEqual(['before', '<decorator>', 'after']);
+    expect(event.defaultPrevented).toBe(false);
+  });
+
   test('types into a new paragraph after it, before the block that follows', () => {
     using editor = createEditor('after');
 
