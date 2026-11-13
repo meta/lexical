@@ -1856,6 +1856,10 @@ describe('Markdown', () => {
         {discrete: true},
       );
       editor.read('latest', () => {
+        const list = $getRoot().getFirstChild();
+        assert($isListNode(list));
+        expect(list.getListType()).toBe('number');
+        expect(list.getChildrenSize()).toBe(2);
         const markdownString = $convertToMarkdownString(
           [...TRANSFORMERS],
           undefined,
@@ -1864,6 +1868,31 @@ describe('Markdown', () => {
         expect(markdownString).toBe('1) Hello\n2) world');
       });
     });
+
+    it.each([
+      ['bullet', '- a'],
+      ['check', '- [ ] a'],
+    ] as const)(
+      'should export a parenthesis list changed to a %s list with a valid marker',
+      (listType, expected) => {
+        const transformers = [CHECK_LIST, ...TRANSFORMERS];
+        const editor = createTestEditor({
+          nodes: [ListNode, ListItemNode],
+        });
+        editor.update(
+          () => {
+            $convertFromMarkdownString('1) a', transformers);
+            const list = $getRoot().getFirstChild();
+            assert($isListNode(list));
+            list.setListType(listType);
+          },
+          {discrete: true},
+        );
+        editor.read('latest', () => {
+          expect($convertToMarkdownString(transformers)).toBe(expected);
+        });
+      },
+    );
   });
 
   describe('Enter key triggers', () => {
