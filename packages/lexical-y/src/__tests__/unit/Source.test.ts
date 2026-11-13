@@ -191,9 +191,11 @@ test('public entries', () => {
     './server.js',
   ]);
   expect(Object.keys(migrateEntry).sort()).toEqual([
+    'MIGRATION_ORIGIN',
     'YMigrationError',
     'getYLayoutInfo',
     'loadYMigrationSteps',
+    'migrateYDoc',
     'migrateYState',
   ]);
   expect(Object.keys(step1to2Entry)).toEqual(['default']);

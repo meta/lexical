@@ -14,16 +14,19 @@
 // an observer-free copy, each in one transaction under a client id hashed
 // from every input, recording the new layout (`lexical-y:<N + 1>`) and the
 // epoch (`lexical-y-epoch`); it checks every result before anything is
-// stored or applied. Only an authority migrates a shared document (a server
-// or relay that owns its storage, with every session evicted, or a reseed
-// tool). The binding never imports this entry or a step.
+// stored or applied. A server migrates stored bytes (migrateYState); an
+// editor tab may migrate the live room it has open (migrateYDoc), whose
+// update syncs to the other peers. The binding never imports this entry or a
+// step.
 
 import {MIN_LAYOUT} from './internal/constants';
 import {type YMigrationEpoch} from './internal/Layouts';
 import {
   getYLayoutInfo,
   loadStepsWith,
+  migrateYDoc,
   migrateYState,
+  MIGRATION_ORIGIN,
   type YLayoutInfo,
   type YLayoutMigration,
   type YMigrateOptions,
@@ -75,4 +78,10 @@ export type {
   YMigrationStepInput,
   YMigrationStepReceipt,
 };
-export {getYLayoutInfo, migrateYState, YMigrationError};
+export {
+  getYLayoutInfo,
+  migrateYDoc,
+  migrateYState,
+  MIGRATION_ORIGIN,
+  YMigrationError,
+};

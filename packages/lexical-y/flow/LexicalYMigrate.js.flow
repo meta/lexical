@@ -135,6 +135,16 @@ declare export function migrateYState(
   options?: YMigrateStateOptions,
 ): YMigrationResult;
 
+// Migrates a live document in place (an editor tab's own room): the checked
+// update is applied with MIGRATION_ORIGIN and syncs to the other peers.
+declare export function migrateYDoc(
+  doc: Doc,
+  steps: ReadonlyArray<YLayoutMigration>,
+  options?: YMigrateOptions,
+): YMigrationReceipt;
+
+declare export var MIGRATION_ORIGIN: symbol;
+
 export type YLoadYMigrationStepsOptions = {
   readonly loaders?: YMigrationLoaders,
   ...
