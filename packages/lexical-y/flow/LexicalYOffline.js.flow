@@ -82,7 +82,9 @@ export type YOfflineCapture = {
 export interface YOfflineSlot {
   readonly key: string;
   readonly epoch: string | null;
-  load(): Promise<YOfflineResult<YOfflineStored | null>>;
+  load(options?: {
+    readonly writers?: 'all' | 'gone',
+  }): Promise<YOfflineResult<YOfflineStored | null>>;
   append(update: Uint8Array): Promise<YOfflineResult<void>>;
   confirm(state: Uint8Array): Promise<YOfflineResult<void>>;
   compact(since?: Uint8Array): Promise<YOfflineResult<void>>;
@@ -147,6 +149,7 @@ export type YOfflineLoaded = {
 declare export function loadYOffline(input: {
   readonly store: YOfflineStore,
   readonly key: string,
+  readonly epoch?: string,
 }): Promise<YOfflineResult<YOfflineLoaded>>;
 
 export type YOfflineSessionOptions = {
@@ -181,6 +184,7 @@ export interface YOfflineSession {
     epoch: string,
     options?: {readonly reason?: YUnsyncedReason},
   ): Promise<YOfflineVerdict>;
+  freeze(options?: {readonly reason?: YUnsyncedReason}): Promise<YOfflineVerdict>;
   markSynced(): void;
   flush(): Promise<YOfflineResult<void>>;
   dispose(): void;

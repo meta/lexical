@@ -475,6 +475,86 @@ async function staleTab(
   return {...attached, room, store, tab};
 }
 
+describe('sync, then bind (the server document and epoch before the editor)', () => {
+  test('a slot at the same epoch merges into the server document; the live binding is never frozen', async () => {
+    const fake = createFakeIndexedDB();
+    const store = await open(fake);
+    const room = client(seed(THREE));
+    await flush();
+    // An earlier page at e1 edited with no connection, then closed.
+    const earlier = client(Y.encodeStateAsUpdate(room.doc));
+    await flush();
+    const first = attach(earlier, store, {epoch: 'e1'});
+    first.session.markSynced();
+    earlier.edit('b1', 'one, offline');
+    unwrap(await first.session.flush());
+    first.session.dispose();
+    await flush();
+    // This page syncs first: the room is still at e1.
+    const serverState = Y.encodeStateAsUpdate(room.doc);
+    const loaded = unwrap(await loadYOffline({epoch: 'e1', key: 'doc', store}));
+    expect(loaded.epoch).toBe('e1');
+    expect(loaded.hasUnsyncedEdits).toBe(true);
+    const doc = createYDoc(serverState, {gc: WITH_GC});
+    Y.applyUpdate(doc, loaded.state!);
+    const tab = client(Y.encodeStateAsUpdate(doc));
+    await flush();
+    const {session} = attach(tab, store, {epoch: loaded.epoch, loaded});
+    expect(tab.binding.status).toEqual({kind: 'active'});
+    expect(tab.blocks()[0]).toEqual(['b1', 'one, offline']);
+    expect(await session.serverEpoch('e1')).toEqual({kind: 'same'});
+    sync(tab.doc, room.doc);
+    session.markSynced();
+    expect(room.blocks()[0]).toEqual(['b1', 'one, offline']);
+    session.dispose();
+  });
+
+  test('a slot at an older epoch is not loaded: the live binding stays active, and recovery captures it', async () => {
+    const fake = createFakeIndexedDB();
+    const store = await open(fake);
+    const state = seed(THREE);
+    const earlier = client(state);
+    await flush();
+    const first = attach(earlier, store, {epoch: 'e1'});
+    first.session.markSynced();
+    earlier.edit('b2', 'two, offline');
+    unwrap(await first.session.flush());
+    first.session.dispose();
+    await flush();
+    // The room was replaced (e2) while the page was away; it syncs first.
+    const loaded = unwrap(await loadYOffline({epoch: 'e2', key: 'doc', store}));
+    expect(loaded).toMatchObject({epoch: 'e2', slot: null, state: null});
+    const tab = client(state);
+    await flush();
+    const {session} = attach(tab, store, {epoch: loaded.epoch, loaded});
+    session.markSynced();
+    expect(tab.binding.status).toEqual({kind: 'active'});
+    const recovered = unwrap(
+      await recoverYOfflineEdits({
+        binding: tab.binding,
+        config,
+        epoch: 'e2',
+        key: 'doc',
+        session,
+        stage: 'replay',
+        store,
+      }),
+    );
+    expect(recovered.length).toBe(1);
+    expect(recovered[0].replay!.applied).toEqual(['b2']);
+    expect(tab.binding.status).toEqual({kind: 'active'});
+    expect(tab.blocks()[1]).toEqual(['b2', 'two, offline']);
+    session.dispose();
+  });
+
+  test("loadYOffline's epoch is checked, naming the fix", async () => {
+    const store = await open(createFakeIndexedDB());
+    await expect(
+      loadYOffline({epoch: 3 as never, key: 'doc', store}),
+    ).rejects.toThrow(/String\(epoch\) for a number/);
+  });
+});
+
 describe("keep: 'unsynced' and writeDelay", () => {
   test("keep 'unsynced': nothing stored while synced, base and since from the first local edit, deleted on markSynced", async () => {
     const fake = createFakeIndexedDB();
@@ -676,6 +756,34 @@ describe('a moved epoch captures', () => {
     // Capture only: no document rows were ever stored.
     expect(fake.records(DB, 'updates')).toEqual([]);
     expect(fake.records(DB, 'captures').length).toBe(1);
+  });
+
+  test('freeze(): the room was replaced and its new epoch is not known yet', async () => {
+    const fake = createFakeIndexedDB();
+    const {room, session, store, tab} = await staleTab(fake);
+    tab.edit('b2', 'two, unsynced');
+    const verdict = await session.freeze();
+    expect(verdict.kind).toBe('moved');
+    expect(verdict.kind === 'moved' && verdict.saved.ok).toBe(true);
+    expect(session.ended).toBe(true);
+    expect(tab.binding.status).toMatchObject({kind: 'readonly'});
+    // On the new document, once its epoch is known.
+    const fresh = client(Y.encodeStateAsUpdate(room.doc));
+    await flush();
+    const recovered = unwrap(
+      await recoverYOfflineEdits({
+        binding: fresh.binding,
+        config,
+        epoch: 'e2',
+        key: 'doc',
+        stage: 'persist',
+        store,
+      }),
+    );
+    expect(
+      unwrap(recovered[0].report).blocks.map(block => [block.id, block.change]),
+    ).toEqual([['b2', 'changed']]);
+    await expect(session.freeze()).rejects.toThrow(/has ended/);
   });
 
   test('with nothing unsynced there is nothing to capture', async () => {

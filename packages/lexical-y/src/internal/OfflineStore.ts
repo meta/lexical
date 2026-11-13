@@ -180,9 +180,14 @@ export interface YOfflineSlot {
   readonly epoch: string | null;
   /**
    * Read the slot: null when it holds nothing. The rows read become this
-   * handle's (create the document from `state`, so it holds them).
+   * handle's (create the document from `state`, so it holds them). With
+   * `{writers: 'gone'}`, only rows whose writer is gone (no live tab holds
+   * them): what recovery captures, leaving a live tab's rows to that tab.
+   * Without Web Locks (`locks: null`) that is every row.
    */
-  load(): Promise<YOfflineResult<YOfflineStored | null>>;
+  load(options?: {
+    readonly writers?: 'all' | 'gone';
+  }): Promise<YOfflineResult<YOfflineStored | null>>;
   /** Store one update the document made or received. */
   append(update: Uint8Array): Promise<YOfflineResult<void>>;
   /**
@@ -1019,14 +1024,27 @@ class Slot implements YOfflineSlot {
     };
   }
 
-  async load(): Promise<YOfflineResult<YOfflineStored | null>> {
-    const read = await this.store.rows(
+  async load(options?: {
+    readonly writers?: 'all' | 'gone';
+  }): Promise<YOfflineResult<YOfflineStored | null>> {
+    const all = await this.store.rows(
       [this.key, epochKey(this.epochValue)],
       'loading the document',
     );
-    if (!read.ok) {
-      return read;
+    if (!all.ok) {
+      return all;
     }
+    let rows: [RowKey, unknown][] = all.value;
+    if (options !== undefined && options.writers === 'gone') {
+      const live = await this.store.liveWriters();
+      // Without Web Locks nothing tells a live tab: every row is read (a
+      // capture that repeats is better than one never made).
+      rows = rows.filter(
+        ([key]) =>
+          key[3] !== this.writer && (live === null || !live.has(key[3])),
+      );
+    }
+    const read = {value: rows};
     if (read.value.length === 0) {
       return ok(null);
     }

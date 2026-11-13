@@ -23,7 +23,13 @@
 // 5. putting a capture again under its id counted its old bytes too;
 // 6. (the automated review) a replay with the caret inside a block it
 //    replaced threw (the selection stayed on removed nodes), and in a
-//    recovery the capture stayed claimed, so it was never replayed again.
+//    recovery the capture stayed claimed, so it was never replayed again;
+// 7. (the same) a replay whose editor update failed under an onError that
+//    does not throw kept the capture claimed;
+// 8. (the same) recovery captured a live tab's rows at an older epoch on
+//    every call;
+// 9. (the same) a document loaded with nothing unsynced was stored again
+//    as unsynced.
 //
 // Run with gc off and on (LEXICAL_Y_GC=1).
 
@@ -475,4 +481,116 @@ test('6b. a replay that throws in a recovery is a typed failure, and the capture
   const second = unwrap(await recover());
   expect(second[0].replay!.applied).toEqual(['b1']);
   expect(fresh.text()).toBe('mine');
+});
+
+test('7. a replay whose editor update fails under a non-throwing onError releases the claim', async () => {
+  const {store} = await open();
+  const initial = seed();
+  const stale = client(initial);
+  const old = session(stale.binding, store);
+  old.s.markSynced();
+  stale.edit('mine');
+  unwrap(await old.s.flush());
+  await old.s.serverEpoch('e2');
+  const fresh = client(initial);
+  // The editor's onError swallows; the next update fails inside.
+  let failNext = true;
+  const editor = new Proxy(fresh.editor, {
+    get(target, name) {
+      if (name === 'update' && failNext) {
+        return (fn: () => void, options: object) => {
+          failNext = false;
+          try {
+            target.update(() => {
+              fn();
+              throw new Error('injected: the update failed');
+            }, options);
+          } catch {
+            // The editor's onError would have swallowed it.
+          }
+        };
+      }
+      const value = Reflect.get(target, name);
+      return typeof value === 'function' ? value.bind(target) : value;
+    },
+  });
+  const binding = {
+    binding: new Proxy(fresh.binding.binding, {
+      get(target, name) {
+        return name === 'editor' ? editor : Reflect.get(target, name);
+      },
+    }),
+    freeze: () => fresh.binding.freeze(),
+    get status() {
+      return fresh.binding.status;
+    },
+  } as YOfflineBinding;
+  const recover = () =>
+    recoverYOfflineEdits({
+      binding,
+      config,
+      epoch: 'e2',
+      key: 'doc',
+      stage: 'replay',
+      store,
+    });
+  const first = unwrap(await recover());
+  expect(first[0].replay!.applied).toEqual([]);
+  expect(first[0].replay!.notApplied).toEqual([
+    {id: 'b1', reason: 'not-written'},
+  ]);
+  expect(unwrap(await store.captures('doc'))[0].claimed).toBe(false);
+  expect(unwrap(await recover())[0].replay!.applied).toEqual(['b1']);
+  expect(fresh.text()).toBe('mine');
+});
+
+test("8. recovery leaves a live tab's rows at an older epoch, and captures them once that tab is gone", async () => {
+  const {store} = await open();
+  const initial = seed();
+  const left = client(initial);
+  const old = session(left.binding, store);
+  old.s.markSynced();
+  left.edit('left open');
+  unwrap(await old.s.flush());
+  const fresh = client(initial);
+  const recover = () =>
+    recoverYOfflineEdits({
+      binding: fresh.binding,
+      config,
+      epoch: 'e2',
+      key: 'doc',
+      stage: 'persist',
+      store,
+    });
+  expect(unwrap(await recover())).toEqual([]);
+  expect(unwrap(await recover())).toEqual([]);
+  expect(unwrap(await store.captures('doc'))).toEqual([]);
+  // The tab closes.
+  old.s.dispose();
+  await new Promise(resolve => setTimeout(resolve, 0));
+  expect(unwrap(await recover()).length).toBe(1);
+  expect(unwrap(await recover()).length).toBe(1);
+  expect(unwrap(await store.captures('doc')).length).toBe(1);
+});
+
+test('9. a document loaded with nothing unsynced is stored as its base', async () => {
+  const {store} = await open();
+  const first = client(seed());
+  const a = session(first.binding, store);
+  a.s.markSynced();
+  unwrap(await a.s.flush());
+  a.s.dispose();
+  await new Promise(resolve => setTimeout(resolve, 0));
+  for (let reload = 0; reload < 2; reload++) {
+    const loaded = unwrap(await loadYOffline({key: 'doc', store}));
+    expect(loaded.hasUnsyncedEdits).toBe(false);
+    const again = client(loaded.state);
+    const s = session(again.binding, store, {loaded});
+    unwrap(await s.s.flush());
+    s.s.dispose();
+    await new Promise(resolve => setTimeout(resolve, 0));
+  }
+  expect(unwrap(await loadYOffline({key: 'doc', store})).hasUnsyncedEdits).toBe(
+    false,
+  );
 });

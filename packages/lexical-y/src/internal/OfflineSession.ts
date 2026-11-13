@@ -113,30 +113,54 @@ export interface YOfflineLoaded {
 }
 
 /**
- * @experimental Read the document stored for `key`, to start with no
- * connection: the newest slot (a key has more than one only when a tab was
- * left at an earlier epoch; {@link recoverYOfflineEdits} turns those into
- * captures once the server's epoch is known). Create the document from
- * `state` and pass the result to {@link attachYOfflineSession} as `loaded`.
+ * @experimental Read the document stored for `key`. Pass the result to
+ * {@link attachYOfflineSession} as `loaded`, with `epoch: loaded.epoch`.
+ *
+ * - Without `epoch` (bind, then sync: the page starts from the store, with
+ *   no connection): the newest slot. Create the document from `state`, and
+ *   call `session.serverEpoch(epoch)` when the server names its epoch.
+ * - With `epoch`, the server's (sync, then bind: the page has the server's
+ *   document and epoch before it binds): only the slot at that epoch.
+ *   Apply its `state` to the server's document (the same lineage, so it
+ *   merges: the edits that did not sync go out on the next sync), and bind.
+ *   A slot at another epoch is never loaded: {@link recoverYOfflineEdits}
+ *   turns it into a capture. There is nothing to ask `serverEpoch` until
+ *   the server replaces the room.
+ *
+ * A key has more than one slot only when a tab was left at an earlier
+ * epoch.
  */
 export async function loadYOffline(input: {
   readonly store: YOfflineStore;
   readonly key: string;
+  /** The epoch the server's room is at, when the page knows it before binding. */
+  readonly epoch?: string;
 }): Promise<YOfflineResult<YOfflineLoaded>> {
+  const wanted = input.epoch;
+  requireOption(
+    wanted === undefined || (typeof wanted === 'string' && wanted !== ''),
+    `loadYOffline's epoch is the epoch your server's room is at, as a non-empty string (String(epoch) for a number), or left out to load the newest slot; got ${
+      wanted === '' ? "''" : typeof wanted
+    }.`,
+  );
   const slots = await input.store.slots(input.key);
   if (!slots.ok) {
     return slots;
   }
-  if (slots.value.length === 0) {
+  const found =
+    wanted === undefined
+      ? slots.value[0]
+      : slots.value.find(info => info.epoch === wanted);
+  if (found === undefined) {
     return ok({
       base: null,
-      epoch: null,
+      epoch: wanted === undefined ? null : wanted,
       hasUnsyncedEdits: false,
       slot: null,
       state: null,
     });
   }
-  const {epoch} = slots.value[0];
+  const {epoch} = found;
   const slot = input.store.slot(input.key, epoch);
   const stored = await slot.load();
   if (!stored.ok) {
@@ -264,6 +288,16 @@ export interface YOfflineSession {
     options?: {readonly reason?: YOfflineCapture['reason']},
   ): Promise<YOfflineVerdict>;
   /**
+   * The server says the room was replaced, and the new epoch is not known
+   * yet: the same as `serverEpoch` with a new epoch. The binding is frozen
+   * before this returns its promise, what it holds is captured into the
+   * store (for `recoverYOfflineEdits` on the new document), and the
+   * session ends. Call it on the live session, before disposing it.
+   */
+  freeze(options?: {
+    readonly reason?: YOfflineCapture['reason'];
+  }): Promise<YOfflineVerdict>;
+  /**
    * The server holds everything this document holds: the document becomes
    * the base later edits are judged against, and what is stored since is
    * replaced by it. Call it when the server acknowledged every update (a
@@ -372,7 +406,21 @@ class Session implements YOfflineSession {
         doc.store.clients.size > 0 &&
         (!this.keepUnsyncedOnly || this.started)
       ) {
-        this.pending.push(encodeStateAsUpdate(doc));
+        if (
+          loaded !== undefined &&
+          loaded.state !== null &&
+          !loaded.hasUnsyncedEdits &&
+          loaded.base !== null
+        ) {
+          // Loaded with nothing unsynced: the document is its base, stored
+          // as one (a later load reports nothing unsynced).
+          this.confirmed = {
+            state: encodeStateAsUpdate(doc),
+            vector: encodeStateVector(doc),
+          };
+        } else {
+          this.pending.push(encodeStateAsUpdate(doc));
+        }
         void this.write();
       }
     }
@@ -706,8 +754,36 @@ class Session implements YOfflineSession {
       }
       return {kind: 'same'};
     }
-    // Moved. Freeze first, synchronously: from here nothing is written to
-    // the document, and what the editor holds is in the capture.
+    return this.moveOn(reason);
+  }
+
+  async freeze(options?: {
+    readonly reason?: YOfflineCapture['reason'];
+  }): Promise<YOfflineVerdict> {
+    const reason = options === undefined ? undefined : options.reason;
+    requireOption(
+      reason === undefined || REASONS.has(reason),
+      `freeze's reason is 'stale' (the default: the room moved on), 'legacy' or 'expired'; got ${String(
+        reason,
+      )}.`,
+    );
+    if (this.options.stage === 'off') {
+      return {kind: 'off'};
+    }
+    if (this.isEnded) {
+      throw new Error(
+        '@lexical/y/offline: this session has ended (its epoch moved, or it was disposed): freeze() runs on the live session, when the server says the room was replaced.',
+      );
+    }
+    return this.moveOn(reason);
+  }
+
+  /** The room moved on: freeze, capture into the store, end the session. */
+  private async moveOn(
+    reason: YOfflineCapture['reason'] | undefined,
+  ): Promise<YOfflineVerdict> {
+    // Freeze first, synchronously: from here nothing is written to the
+    // document, and what the editor holds is in the capture.
     const from = this.epochValue;
     const {binding, key, store} = this.options;
     const edits = binding.freeze();
@@ -1344,10 +1420,11 @@ export async function recoverYOfflineEdits(input: {
     if (info.epoch === epoch) {
       continue;
     }
-    // Through a handle, which then owns exactly the rows it read: what a
-    // tab still open at that epoch writes afterwards is not removed.
+    // Through a handle, which then owns exactly the rows it read: only
+    // rows whose writer is gone. A tab still open at that epoch keeps its
+    // rows, and captures them itself when it learns the epoch moved.
     const stale = store.slot(key, info.epoch);
-    const stored = await stale.load();
+    const stored = await stale.load({writers: 'gone'});
     if (!stored.ok) {
       // Left as it is, for the app to salvage or clear.
       return stored;
@@ -1408,6 +1485,21 @@ export async function recoverYOfflineEdits(input: {
         if (report.ok) {
           try {
             replay = replayUnsyncedEdits({binding, report: report.value});
+            if (
+              replay.applied.length === 0 &&
+              replay.notApplied.some(skip => skip.reason === 'not-written')
+            ) {
+              // The editor update failed (its onError did not throw):
+              // nothing was applied, so the claim is released for a later
+              // call to replay it.
+              const released = await store.putCapture({
+                ...capture,
+                claimed: false,
+              });
+              if (!released.ok) {
+                return released;
+              }
+            }
             report = describe(capture);
           } catch (error) {
             // Nothing was applied: the claim is released, so a later call

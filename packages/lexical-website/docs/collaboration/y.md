@@ -1325,6 +1325,40 @@ here (`String(epoch)` for a number); two are compared, never parsed.
    `await recoverYOfflineEdits({...})`, whose result is the Offline edits
    panel.
 
+That order binds, then syncs: the page starts from the store and learns the
+epoch from the server afterwards. An app that syncs, then binds (it has the
+server's document and epoch before the editor exists) asks for the slot at
+that epoch instead, and never meets a moved epoch at attach:
+
+```ts
+const loaded = await loadYOffline({epoch: serverEpoch, key, store});
+const doc = createYDoc(serverState);
+if (loaded.ok && loaded.value.state !== null) {
+  // The same epoch: the edits this device stored merge into the room.
+  applyUpdate(doc, loaded.value.state);
+}
+const binding = createYBinding(editor, {doc, synced: true /* ... */});
+const session = attachYOfflineSession({
+  binding,
+  epoch: serverEpoch,
+  key,
+  loaded: loaded.ok ? loaded.value : undefined,
+  onError,
+  stage,
+  store,
+});
+// A slot at an older epoch was not loaded: it becomes a capture here.
+const recovered = await recoverYOfflineEdits({/* ... */ epoch: serverEpoch, session});
+```
+
+`serverEpoch` is then for the room being replaced while the page is open.
+When the server says the room was replaced without naming the new epoch,
+call `session.freeze()` on the live session instead: it freezes the
+binding and captures what it holds into the store, as a moved epoch does,
+for `recoverYOfflineEdits` on the new document.
+Never call it with the epoch of a document the page has not bound: a
+different epoch freezes the binding it is given.
+
 Whether the editor is editable before the server answers (offline editing)
 is your app's choice, made when it binds: `synced: true` on a stored
 document makes it editable at once; `synced: false` waits for the
@@ -1541,10 +1575,12 @@ and a capture that has no editor JSON returns an error that names `migrate`.
   read** (a decorator whose nested editor fills in an empty paragraph
   locally) is never replayed: the check against the base fails
   (`'changed-since'`). Its text is in the panel.
-- **A tab left open at an earlier epoch while another tab recovers** is
-  captured twice: once from its stored slot and once when it freezes. The
-  second capture's blocks are left out of its report where the first was
-  reapplied.
+- **A tab left open at an earlier epoch while another tab recovers** keeps
+  its stored rows (recovery captures only rows whose tab is gone), and
+  captures what it holds when it learns the epoch moved. Without Web Locks
+  nothing tells a live tab, so recovery captures every row it finds (it
+  removes none of another tab's), and each call captures them again; the
+  repeats show nothing once their blocks are in the document.
 - **The offline entry imports `@lexical/y/headless`**, so a page that uses
   the session ships the headless editor too. A bundler drops it from a page
   that imports the store alone.
