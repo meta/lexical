@@ -180,9 +180,9 @@ export type HeldDecision = {
    * The update re-types the text of the line composed in, which the hold
    * shows as a block its shared counterpart no longer is (see
    * $reshapesRestyledLine): that line is not written, and is read again as
-   * stored, where its transforms run again and only what agrees with the
-   * update is written (see Writer#heldResult); the rest of the update is
-   * written (see Writer#skippedLine).
+   * stored, where its transforms run again as the author's own edit, written
+   * where it stays in that line, in place (see YBinding#heldIds); the rest
+   * of the update is written (see Writer#skippedLine).
    */
   quiet: boolean;
   /**
@@ -331,11 +331,12 @@ function $showsRestyled(
  * stored, and written, its nodes (code highlight tokens, which drop formats
  * and join NodeState) would land on text that storage keeps outside that
  * type. That line is not written: it is read again as stored and the hold
- * ends, and Lexical's transforms then run on it again as stored, of which
- * only what agrees with what the update made of each character is written
- * (a hashtag again in a heading; nothing of a code highlighter's in a
- * paragraph, nor in a block a collaborator made a code block, see
- * Writer#heldResult); the rest of the update is written. An edit that
+ * ends, and Lexical's transforms then run on it again as stored, as the
+ * author's own edit, and what they change in that line, in place, is
+ * written (a hashtag again in a heading; the highlighter's tokens in a block
+ * a collaborator made a code block; nothing where they would restructure
+ * the document or change another block, see Writer#heldIds,
+ * YBinding#heldIds); the rest of the update is written. An edit that
  * keeps the type of every node holding the line's characters (a format
  * applied to part of a word, which splits its node; a link around a word)
  * is not one, nor is one that changes the line's text (typing, a
