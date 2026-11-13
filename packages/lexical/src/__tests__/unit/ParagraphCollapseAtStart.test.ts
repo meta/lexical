@@ -151,7 +151,11 @@ describe('ParagraphNode.collapseAtStart', () => {
     expect(() => backspace(editor)).not.toThrow();
 
     editor.read(() => {
-      expect($getRoot().getChildren().map(n => n.getType())).toEqual(['paragraph']);
+      expect(
+        $getRoot()
+          .getChildren()
+          .map(n => n.getType()),
+      ).toEqual(['paragraph']);
     });
   });
 });
