@@ -550,7 +550,7 @@ class Session implements YOfflineSession {
     if (slot === null) {
       return DONE;
     }
-    while (this.hasQueued()) {
+    while (!this.moving && this.hasQueued()) {
       let result: YOfflineResult<void>;
       if (this.adopting !== null) {
         // In the queue, so no write lands under the old key meanwhile.
@@ -638,6 +638,8 @@ class Session implements YOfflineSession {
     return DONE;
   }
 
+  /** While a moved epoch moves the rows into the capture: no write runs. */
+  private moving = false;
   /** Counts markSynced() calls: a batch whose append failed across one is covered. */
   private syncs = 0;
   /** keep 'unsynced': the slot's first write since a sync is due. */
@@ -684,7 +686,7 @@ class Session implements YOfflineSession {
   flush(): Promise<YOfflineResult<void>> {
     return this.write().then(result =>
       // Queued while it ran.
-      result.ok && this.hasQueued() ? this.flush() : result,
+      result.ok && !this.moving && this.hasQueued() ? this.flush() : result,
     );
   }
 
@@ -795,13 +797,14 @@ class Session implements YOfflineSession {
     const wasUnsynced = this.unsynced;
     this.isEnded = true;
     this.stop();
-    // A delayed write must not run while the rows are moved into the
-    // capture: what it holds is in the capture (or, on failure, flush()
-    // stores it below).
+    // No write may run while the rows are moved into the capture (a
+    // delayed one, or a flush() the app calls meanwhile): what is queued is
+    // in the capture, or, on failure, stored below once the move is over.
     if (this.timer !== null) {
       clearTimeout(this.timer);
       this.timer = null;
     }
+    this.moving = true;
     const capture: YOfflineCapture | null =
       wasUnsynced || edits.differs
         ? {
@@ -819,6 +822,7 @@ class Session implements YOfflineSession {
           }
         : null;
     if (store === null) {
+      this.moving = false;
       return {capture, kind: 'moved', saved: DONE};
     }
     let saved: YOfflineResult<void> = DONE;
@@ -842,8 +846,10 @@ class Session implements YOfflineSession {
         // committed is stored now, for the next page to capture.
         this.isPersisted = false;
         this.report(saved.error);
+        this.moving = false;
         await this.flush();
       }
+      this.moving = false;
       slot.close();
       return {capture, kind: 'moved', saved};
     }
@@ -854,6 +860,7 @@ class Session implements YOfflineSession {
         // freeze just committed: the next page captures them from it.
         this.isPersisted = false;
         this.report(saved.error);
+        this.moving = false;
         await this.flush();
         return {capture, kind: 'moved', saved};
       }
@@ -874,6 +881,7 @@ class Session implements YOfflineSession {
       }
       this.slot.close();
     }
+    this.moving = false;
     return {capture, kind: 'moved', saved};
   }
 

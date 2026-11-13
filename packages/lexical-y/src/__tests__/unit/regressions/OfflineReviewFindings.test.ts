@@ -41,7 +41,9 @@
 //    epoch to clear;
 // 13. (the review of cec038b3c) a writeDelay timer pending when the epoch
 //    moved fired during the move and left one delta row at the old epoch,
-//    which recovery turned into a capture whose report always failed.
+//    which recovery turned into a capture whose report always failed;
+// 14. (the review of #9902) a flush() the app called during the move (on
+//    pagehide, say) wrote the same row.
 //
 // Run with gc off and on (LEXICAL_Y_GC=1).
 
@@ -725,33 +727,99 @@ test('12. a corrupt slot at another epoch fails recovery with its epoch, and cle
   expect(unwrap(await recover())).toEqual([]);
 });
 
-test.each([0, 1, 2, 3, 4, 5, 6, 8, 12])(
-  '13. an epoch that moves %i ms after an edit under writeDelay leaves no row behind',
-  async after => {
-    const {store} = await open();
-    const initial = seed();
-    const tab = client(initial);
-    const s = session(tab.binding, store, {writeDelay: 8});
-    s.s.markSynced();
-    unwrap(await s.s.flush());
-    tab.edit('one, mine');
-    await new Promise(resolve => setTimeout(resolve, after));
-    const verdict = await s.s.serverEpoch('e2');
-    expect(verdict.kind === 'moved' && verdict.saved.ok).toBe(true);
-    await new Promise(resolve => setTimeout(resolve, 30));
-    expect(unwrap(await store.slots('doc'))).toEqual([]);
-    const fresh = client(initial);
-    const recovered = unwrap(
-      await recoverYOfflineEdits({
-        binding: fresh.binding,
-        config,
-        epoch: 'e2',
-        key: 'doc',
-        stage: 'persist',
-        store,
-      }),
-    );
-    expect(recovered.length).toBe(1);
-    expect(recovered[0].report.ok).toBe(true);
-  },
-);
+/**
+ * `store`, whose slots' moveIntoCapture has chosen and moved the rows, then
+ * waits `hold` before it returns (the move then spans a timer or a
+ * flush()); `started` resolves when the rows are moved.
+ */
+function slowMove(store: YOfflineStore, hold: () => Promise<void>) {
+  let entered = () => {};
+  const started = new Promise<void>(resolve => (entered = resolve));
+  const slow = new Proxy(store, {
+    get(target, name) {
+      if (name === 'slot') {
+        return (key: string, epoch: string | null) => {
+          const slot = target.slot(key, epoch);
+          return new Proxy(slot, {
+            get(s, n) {
+              if (n === 'moveIntoCapture') {
+                return async (capture: YOfflineCapture | null) => {
+                  const result = await s.moveIntoCapture!(capture);
+                  entered();
+                  await hold();
+                  return result;
+                };
+              }
+              const value = Reflect.get(s, n);
+              return typeof value === 'function' ? value.bind(s) : value;
+            },
+          });
+        };
+      }
+      const value = Reflect.get(target, name);
+      return typeof value === 'function' ? value.bind(target) : value;
+    },
+  });
+  return {slow, started};
+}
+
+async function expectNothingLeftAndOneCapture(
+  store: YOfflineStore,
+  initial: Uint8Array,
+) {
+  expect(unwrap(await store.slots('doc'))).toEqual([]);
+  const fresh = client(initial);
+  const recovered = unwrap(
+    await recoverYOfflineEdits({
+      binding: fresh.binding,
+      config,
+      epoch: 'e2',
+      key: 'doc',
+      stage: 'persist',
+      store,
+    }),
+  );
+  expect(recovered.length).toBe(1);
+  expect(recovered[0].report.ok).toBe(true);
+}
+
+test('13. a writeDelay timer pending when the epoch moves does not run during the move', async () => {
+  const {store} = await open();
+  const initial = seed();
+  // The move outlasts the delay.
+  const {slow} = slowMove(
+    store,
+    () => new Promise(resolve => setTimeout(resolve, 40)),
+  );
+  const tab = client(initial);
+  const s = session(tab.binding, slow, {writeDelay: 8});
+  s.s.markSynced();
+  unwrap(await s.s.flush());
+  tab.edit('one, mine');
+  const verdict = await s.s.serverEpoch('e2');
+  expect(verdict.kind === 'moved' && verdict.saved.ok).toBe(true);
+  await new Promise(resolve => setTimeout(resolve, 20));
+  await expectNothingLeftAndOneCapture(store, initial);
+});
+
+test('14. a flush() called during the move writes nothing the move then leaves behind', async () => {
+  const {store} = await open();
+  const initial = seed();
+  let release = () => {};
+  const held = new Promise<void>(resolve => (release = resolve));
+  const {slow, started} = slowMove(store, () => held);
+  const tab = client(initial);
+  const s = session(tab.binding, slow, {writeDelay: 8});
+  s.s.markSynced();
+  unwrap(await s.s.flush());
+  tab.edit('one, mine');
+  const moving = s.s.serverEpoch('e2');
+  await started;
+  // The app flushes (pagehide) while the rows are being moved.
+  const flushed = s.s.flush();
+  release();
+  const verdict = await moving;
+  unwrap(await flushed);
+  expect(verdict.kind === 'moved' && verdict.saved.ok).toBe(true);
+  await expectNothingLeftAndOneCapture(store, initial);
+});
