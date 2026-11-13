@@ -58,7 +58,19 @@ import {
   TYPE_KEY,
   WRAPPER_PREFIX,
 } from './Schema';
-import {deletedBy, deleteItemIn, isGoneIn} from './Seen';
+import {deletedBy, deleteItemIn} from './Seen';
+import {
+  heldRuns,
+  isGoneIn,
+  isHeldFormat,
+  isHeldFormatIn,
+  isKept,
+  isLeftOutIn,
+  isLiveContent,
+  isPassedIn,
+  isShownContent,
+  type LeftOut,
+} from './Shown';
 
 /*
  * Anchored editing of a Y.Node's children.
@@ -326,29 +338,6 @@ export function runOpener(doc: Doc, item: Item): Item {
   return current;
 }
 
-/** A live countable item: text, a child node, an embed. */
-export const isLiveContent = (view: View | null, item: Item): boolean =>
-  !isGoneIn(view, item) && item.countable;
-
-/**
- * Names a stored element the editor does not show (see $isLeftOutInline),
- * or null where none is left out.
- */
-export type LeftOut = ((item: Item) => boolean) | null;
-
-/**
- * Whether `item` is content the editor shows: live content (see
- * isLiveContent) that `leftOut` does not name. The one rule the writer counts
- * positions by: the cursor's moves and deletes, a removed line's delete (see
- * countLive), the stored atoms a format pass compares (readAtomsLimited), and
- * whether an element holds content (hasLiveContent).
- */
-export const isShownContent = (
-  view: View | null,
-  item: Item,
-  leftOut: LeftOut,
-): boolean => isLiveContent(view, item) && !(leftOut !== null && leftOut(item));
-
 /** An opener of a node type key (`t`) or segment key (`k`). */
 function isNodeTypeOpener(content: ContentFormat): boolean {
   // An end or a `[]` opener of a paired run closes a type, as null does.
@@ -550,7 +539,15 @@ export class Cursor {
 
   /** Whether `item` is a format the editor holds back (see hidden). */
   private isHeldFormat(item: Item): boolean {
-    return this.hidden !== null && isFormat(item) && this.hidden.hides(item);
+    return isHeldFormat(item, this.hidden);
+  }
+
+  /**
+   * Whether the cursor passes over `item` as not there: gone in the write's
+   * view, or a format the editor holds back (see Shown.isPassedIn).
+   */
+  private passes(item: Item): boolean {
+    return isPassedIn(this.view, item, this.hidden);
   }
 
   /**
@@ -573,9 +570,8 @@ export class Cursor {
     for (
       let it = item.right;
       it !== null &&
-      !isGoneIn(this.view, it) &&
+      !this.passes(it) &&
       isFormat(it) &&
-      !this.isHeldFormat(it) &&
       formatFamily(keyOf(it)) === family &&
       !keys.has(keyOf(it));
       it = it.right
@@ -668,7 +664,7 @@ export class Cursor {
     if (hidden === null) {
       return true;
     }
-    const [len, isHidden] = hidden.runs(item)[0];
+    const [len, isHidden] = heldRuns(item, hidden)[0];
     if (len < item.length) {
       getItemCleanStart(this.tr, createID(item.id.client, item.id.clock + len));
     }
@@ -749,7 +745,7 @@ export class Cursor {
   private minimizeFormatChanges(formats: Record<string, unknown>): void {
     while (this.right !== null) {
       const r = this.right;
-      if (isGoneIn(this.view, r) || this.isHeldFormat(r)) {
+      if (this.passes(r)) {
         // a deleted item has no length, and a held format is not there:
         // step over it
       } else if (
@@ -831,7 +827,7 @@ export class Cursor {
     let unpaired = false;
     for (let x = this.right; x !== null; x = x.right) {
       n++;
-      if (isGoneIn(this.view, x) || this.isHeldFormat(x)) {
+      if (this.passes(x)) {
         continue;
       }
       if (!isFormat(x)) {
@@ -1034,7 +1030,7 @@ export class Cursor {
     const reusedEnds: string[] = [];
     while (this.right !== null) {
       const r = this.right;
-      if (!isGoneIn(this.view, r) && !this.isHeldFormat(r)) {
+      if (!this.passes(r)) {
         if (
           !isFormat(r) ||
           this.openers.has(keyOf(r)) ||
@@ -1344,7 +1340,7 @@ export class Cursor {
     // deleted (see Hidden#keep): once the hold ends, that value is gone.
     if (hidden.keepsAny()) {
       this.sources.forEach((source, key) => {
-        if (hidden.keeps(source)) {
+        if (isKept(source, hidden)) {
           over.add(key);
         }
       });
@@ -1398,7 +1394,7 @@ export class Cursor {
       it !== null && it !== this.right;
       it = it.right as Item | null
     ) {
-      if (!isFormat(it) || !hidden.hides(it)) {
+      if (!isHeldFormat(it, hidden)) {
         continue;
       }
       if (isEndValue(valueOf(it))) {
@@ -1450,11 +1446,7 @@ export class Cursor {
         }
         n -= item.length;
         deleteItemIn(this.view, item, this.tr);
-      } else if (
-        this.leftOut !== null &&
-        isLiveContent(this.view, item) &&
-        this.leftOut(item)
-      ) {
+      } else if (isLeftOutIn(this.view, item, this.leftOut)) {
         deleteItemIn(this.view, item, this.tr);
       }
       this.forward();
@@ -1473,7 +1465,7 @@ export class Cursor {
       return;
     }
     for (let it = this.right; it !== null && it !== stop; it = it.right) {
-      if (isLiveContent(this.view, it) && leftOut(it)) {
+      if (isLeftOutIn(this.view, it, leftOut)) {
         deleteItemIn(this.view, it, this.tr);
       }
     }
@@ -1717,11 +1709,9 @@ export class Cursor {
     const spanIndex = new Map<Item, number>();
     span.forEach((x, i) => spanIndex.set(x, i));
     /** Whether `x` is a live item of `key`, as this write sees it. */
+    // (The key first: the hold is asked only about items of `key`.)
     const isKeyItem = (x: Item, key: string): boolean =>
-      !isGoneIn(this.view, x) &&
-      isFormat(x) &&
-      keyOf(x) === key &&
-      !this.isHeldFormat(x);
+      isFormat(x) && keyOf(x) === key && !this.passes(x);
     /** An unpaired item or an invalid end of its key: a boundary. */
     const isBoundary = (x: Item): boolean => {
       const v = valueOf(x);
@@ -1779,8 +1769,7 @@ export class Cursor {
     const isHeldKeyItem = (x: Item, key: string): boolean =>
       isFormat(x) &&
       keyOf(x) === key &&
-      !isGoneIn(this.view, x) &&
-      this.isHeldFormat(x);
+      isHeldFormatIn(this.view, x, this.hidden);
     /** A clearer, or an invalid end (which names no open run either). */
     const isClearer = (x: Item): boolean =>
       clearers.has(x) ||
@@ -1876,11 +1865,7 @@ export class Cursor {
       let differs = false;
       for (const s of span) {
         if (isFormat(s)) {
-          if (
-            keyOf(s) === key &&
-            !isGoneIn(this.view, s) &&
-            !this.isHeldFormat(s)
-          ) {
+          if (keyOf(s) === key && !this.passes(s)) {
             this.stepShown(sim, s);
           }
         } else if (

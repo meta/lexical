@@ -54,7 +54,8 @@ import {
   TYPE_KEY,
   WRAPPER_PREFIX,
 } from './Schema';
-import {Folder, frontierOf, prevLiveEnd} from './Seen';
+import {Folder, frontierOf} from './Seen';
+import {prevShownEnd} from './Shown';
 import {type CS, EMPTY_FORMATS, State} from './State';
 
 // The opt-in self-check (YBindingOptions.selfCheck): the lines a local
@@ -130,7 +131,7 @@ export function $checkWrite(writer: Writer): string[] {
       get: key => writer.state.segments.get(key),
     };
     $pushInline(want, nodes, ctx);
-    const left = prevLiveEnd(writer.view, end, writer.state.hidden);
+    const left = prevShownEnd(writer.view, end, writer.state.hidden);
     const have = new Atoms();
     readAtoms(
       writer.view,
