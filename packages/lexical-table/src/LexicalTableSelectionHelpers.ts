@@ -2459,28 +2459,15 @@ function $isSelectionBeforeTable(
 
 /**
  * Returns the rect of the visual line the caret's adjacent character renders
- * on, or null when it cannot be measured.
- *
- * At a soft wrap the caret sits between two visual lines, and a collapsed
- * range there reports its bounding rect at the end of the *previous* line
- * (it is the first of the client rects, which getBoundingClientRect keeps),
- * while the character to the right renders on the next line: comparing the
- * two rects detects the ambiguous wrap boundary, where the caret's affinity
- * (not exposed in the DOM) is the only thing that tells "end of line N" from
- * "start of line N+1" apart. The rect of the character to the right is used,
- * falling back to the one to the left when the caret ends its text node. The
- * last client rect is kept so that a range spanning a wrap boundary reports
- * the line it ends on. Engines without layout, such as jsdom, implement
- * neither Range.getClientRects nor the line boxes it would measure; for
- * those, the function returns null so the caller falls back to the collapsed
- * range's own rect.
- *
+ * on, or null when it cannot be measured. A collapsed range at a soft wrap
+ * reports its rect at the end of the previous line while the adjacent
+ * character renders on the next one, so comparing the two detects the
+ * ambiguous wrap boundary, where only the caret's affinity (not exposed in
+ * the DOM) tells the two positions apart. The character to the left is
+ * measured when the caret ends its text node; engines without layout (such
+ * as jsdom) get null and the caller keeps the collapsed range's own rect.
  * The measurement stays within the start container, so a wrap whose next
- * line starts a new text node (a formatted word, for example) is not
- * detected as ambiguous: the caret lands normalized to the end of the
- * previous text node, whose last character (often a collapsible space)
- * stays on the previous line, and the collapsed range's own rect decides
- * there.
+ * line starts a new text node is not detected as ambiguous.
  */
 function getVisualLineRectAtCaret(range: Range): DOMRect | null {
   if (typeof range.getClientRects !== 'function') {
