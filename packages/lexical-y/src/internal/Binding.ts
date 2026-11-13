@@ -9491,8 +9491,6 @@ export class YBinding {
     }, this.scanOrigin);
     this.restoring = names;
     this.removing = removing;
-    // By id: this scan's transaction splits items and merges them back, so
-    // the item objects it saw need not be those the undo meets.
   }
 
   // -------------------------------------------------------------------------
