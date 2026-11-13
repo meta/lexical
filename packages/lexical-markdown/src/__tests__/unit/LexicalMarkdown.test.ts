@@ -6763,4 +6763,41 @@ describe('quote lines with optional space (#9442)', () => {
       'a\n>b',
     );
   });
+
+  it('escapes > at start of exported selection even when preceded by unselected text in paragraph', () => {
+    const editor = createTestEditor();
+    editor.update(
+      () => {
+        const root = $getRoot();
+        const paragraph = $createParagraphNode();
+        const boldX = $createTextNode('x').toggleFormat('bold');
+        const textNode = $createTextNode('>a');
+        paragraph.append(boldX, textNode);
+        root.append(paragraph);
+        textNode.select(0, 2);
+      },
+      {discrete: true},
+    );
+    const selection = editor.read('latest', () => $getSelection());
+    const exported = editor.read('latest', () =>
+      $convertSelectionToMarkdownString(TRANSFORMERS, selection),
+    );
+    expect(exported).toBe('\\>a');
+
+    const editor2 = createTestEditor();
+    editor2.update(
+      () => {
+        $convertFromMarkdownString(exported, TRANSFORMERS);
+      },
+      {discrete: true},
+    );
+    expect(
+      editor2.read('latest', () =>
+        $isParagraphNode($getRoot().getFirstChild()),
+      ),
+    ).toBe(true);
+    expect(editor2.read('latest', () => $getRoot().getTextContent())).toBe(
+      '>a',
+    );
+  });
 });

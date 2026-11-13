@@ -619,7 +619,7 @@ function $exportTextFormat(
       );
     }
 
-    if ($isAtParagraphLineStart(node)) {
+    if ($isAtParagraphLineStart(node, selection)) {
       output = output.replace(/^>/, '\\>');
     }
     if (output.includes('\n>')) {
@@ -2016,25 +2016,19 @@ function $lineStateBefore(
   return state;
 }
 
-function $isAtParagraphLineStart(node: TextNode): boolean {
-  let current: LexicalNode = node;
-  while (true) {
-    const previous = current.getPreviousSibling();
-    if (previous !== null) {
-      return $isLineBreakNode(previous);
-    }
-    const parent = current.getParent();
-    if (parent === null) {
-      return false;
-    }
-    if ($isParagraphNode(parent)) {
-      return true;
-    }
-    if (!$isElementNode(parent) || !parent.isInline()) {
-      return false;
-    }
-    current = parent;
+function $isAtParagraphLineStart(
+  node: TextNode,
+  selection: BaseSelection | null = null,
+): boolean {
+  const prevLeaf = $previousLeaf(node, selection);
+  if (prevLeaf !== null) {
+    return $isLineBreakNode(prevLeaf);
   }
+  let parent = node.getParent();
+  while (parent !== null && $isElementNode(parent) && parent.isInline()) {
+    parent = parent.getParent();
+  }
+  return parent !== null && $isParagraphNode(parent);
 }
 
 function getTextSibling(node: TextNode, backward: boolean): TextNode | null {
