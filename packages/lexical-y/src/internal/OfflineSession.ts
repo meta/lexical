@@ -550,7 +550,10 @@ class Session implements YOfflineSession {
     if (slot === null) {
       return DONE;
     }
-    while (!this.moving && this.hasQueued()) {
+    // A write already in flight when a move starts finishes its queue: the
+    // move awaits it before it chooses the rows, and nothing new starts
+    // during the move (the timer is cleared, a flush() waits for it).
+    while (this.hasQueued()) {
       let result: YOfflineResult<void>;
       if (this.adopting !== null) {
         // In the queue, so no write lands under the old key meanwhile.
