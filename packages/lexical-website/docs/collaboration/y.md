@@ -1650,6 +1650,10 @@ not merge as a user might expect:
   NodeState with its keys in sorted order, which every client builds the
   same way, not in the order the author's editor exported them (a Yjs map
   does not keep one). Compare node JSON without relying on key order.
+- **Migrating a live room in place.** A format or NodeState change that a
+  tab of an older build made before a tab's migration reached it can lose
+  to the value the migration restated there (D123): see
+  [Migrating a live room in place](#migrating-a-live-room-in-place).
 - **Migrating a nested root.** The migration runner migrates top-level
   roots only: a root inside another shared type stays read only below
   `MIN_LAYOUT`. Export its content and reseed it into a top-level root with
@@ -1983,11 +1987,33 @@ runs `migrateYDoc` on the bound document between transactions (not inside
 an editor update):
 
 ```ts
-import {loadYMigrationSteps, migrateYDoc} from '@lexical/y/migrate';
+import {
+  loadYMigrationSteps,
+  migrateYDoc,
+  YMigrationError,
+} from '@lexical/y/migrate';
 
-const steps = await loadYMigrationSteps(found); // `data.found` of the warning
-migrateYDoc(doc, steps);
+async function migrateInPlace(doc: YDoc, found: number) {
+  const steps = await loadYMigrationSteps(found); // `data.found` of the warning
+  const attempt = () => {
+    try {
+      migrateYDoc(doc, steps);
+    } catch (error) {
+      if (error instanceof YMigrationError && error.code === 'pending') {
+        // Updates it depends on have not arrived: try again after the next.
+        doc.once('update', () => setTimeout(attempt, 0));
+        return;
+      }
+      reportError(error); // your own reporting
+    }
+  };
+  attempt();
+}
 ```
+
+The binding reports `'older'` once per read-only period, so the retry is
+the app's: a live document can hold pending structs or skipped ranges for a
+while (`'pending'`), until the updates they depend on arrive.
 
 The migration's update only adds items and deletes old format items (every
 character, node and line marker keeps its Yjs id), and the runner checks
@@ -1998,7 +2024,11 @@ the app's providers like any update:
   read the room again and become editable when the update reaches them, with
   no rebind. Their undo histories are cleared (see above).
 - A tab of an older build reads a newer layout (`UNSUPPORTED_LAYOUT_WARNING`,
-  `'newer'`) and turns read only, keeping what it shows.
+  `'newer'`) and turns read only, with its text intact. It reads the room
+  again with its own reader, so its formatting can show wrongly (a layout
+  3 build shows a NodeState run's end as a value), as for the older clients
+  of a server migration (see
+  [Changing the layout and migrating](#changing-the-layout-and-migrating)).
 - Two tabs that migrate the same state write the same update (the client id
   is hashed from the input), so the second is a no-op.
 - A layout 1 or 2 room reaches the floor the same way, through every step in
