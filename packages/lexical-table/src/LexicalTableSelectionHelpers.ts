@@ -2454,8 +2454,16 @@ function $isSelectionBeforeTable(
  * falling back to the one to the left when the caret ends its text node. The
  * last client rect is kept so that a range spanning a wrap boundary reports
  * the line it ends on. Engines without layout, such as jsdom, implement
- * neither Range.getClientRects nor the line boxes it would measure, and
- * return null so the caller falls back to the collapsed range's own rect.
+ * neither Range.getClientRects nor the line boxes it would measure; for
+ * those, the function returns null so the caller falls back to the collapsed
+ * range's own rect.
+ *
+ * The measurement stays within the start container, so a wrap whose next
+ * line starts a new text node (a formatted word, for example) is not
+ * detected as ambiguous: the caret lands normalized to the end of the
+ * previous text node, whose last character (often a collapsible space)
+ * stays on the previous line, and the collapsed range's own rect decides
+ * there.
  */
 function getVisualLineRectAtCaret(range: Range): DOMRect | null {
   if (typeof range.getClientRects !== 'function') {
@@ -2773,7 +2781,10 @@ function $handleArrowKey(
         // renders on a different line the position is ambiguous: rather
         // than guess the affinity, let the native movement run and correct
         // the landing if it leaves the cell's column (see
-        // $handleTableSelectionChangeCommand).
+        // $handleTableSelectionChangeCommand). This deferral is
+        // collapsed-caret only: with shift, the keypress extends the
+        // selection and the correction cannot repair a non-collapsed
+        // landing, so the pre-existing caret-rect behavior is kept there.
         const caretRect = range.getBoundingClientRect();
         const adjacentCharacterRect = getVisualLineRectAtCaret(range);
         if (
