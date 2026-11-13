@@ -11,10 +11,11 @@
 // Faults injected between two specific transactions of @lexical/y/offline,
 // for the fixes its review made that no end-to-end test reaches: a
 // compaction while a confirmation is queued, a merge that throws in the
-// write queue, a capture the store refuses after the freeze committed more,
-// and a request callback that throws inside a transaction. Each test fails
-// on the code before its fix. The session runs over a plain document and a
-// stand-in binding (the session reads `binding.binding.doc` and calls
+// write queue, a capture the store refuses after the freeze committed more
+// (with writeDelay too, and a flush() during that move), a store of the
+// app's own that throws during the move, and a request callback that throws
+// inside a transaction. Each test fails on the code before its fix. The
+// session runs over a plain document and a stand-in binding (the session reads `binding.binding.doc` and calls
 // `freeze()`, nothing else here). Run with gc off and on (LEXICAL_Y_GC=1).
 
 import * as Y from '@y/y';
@@ -220,42 +221,113 @@ describe('faults between transactions', () => {
     session.dispose();
   });
 
-  test('when the store refuses the capture, what the freeze committed is stored before serverEpoch returns', async () => {
+  test.each([0, 8])(
+    'when the store refuses the capture (writeDelay %i), what the freeze committed is stored before serverEpoch returns',
+    async writeDelay => {
+      const fake = createFakeIndexedDB();
+      const store = await open(fake);
+      const {binding, type} = tab(text => text.insert(text.length, ' (held)'));
+      const refuse = () => Promise.resolve({error: quota, ok: false} as const);
+      const faulty = withFaults(
+        store,
+        {moveIntoCapture: refuse},
+        {putCapture: refuse},
+      );
+      const errors: YOfflineError[] = [];
+      const session = attachYOfflineSession({
+        binding,
+        epoch: 'e1',
+        key: 'doc',
+        onError: error => errors.push(error),
+        stage: 'persist',
+        store: faulty,
+        writeDelay,
+      });
+      type('typed');
+      unwrap(await session.flush());
+      const verdict = await session.serverEpoch('e2');
+      expect(verdict.kind).toBe('moved');
+      if (verdict.kind === 'moved') {
+        expect(verdict.saved.ok).toBe(false);
+        expect(verdict.capture).not.toBeNull();
+      }
+      // Committed rows, read at once (the page may close on 'moved'): the
+      // slot holds what the freeze committed, for the next page to capture.
+      const rows = fake.records(DB, 'updates').map(record => record.value);
+      const doc = new Y.Doc({gc: WITH_GC});
+      for (const row of rows) {
+        Y.applyUpdate(doc, (row as {u: Uint8Array}).u);
+      }
+      expect(doc.get('t').toString()).toBe('typed (held)');
+      expect(errors.map(error => error.code)).toEqual(['quota']);
+    },
+  );
+
+  test.each([0, 8])(
+    'when the store refuses the capture (writeDelay %i), what the freeze committed is stored, and a flush() during the move resolves after it is',
+    async writeDelay => {
+      const fake = createFakeIndexedDB();
+      const store = await open(fake);
+      const {binding, type} = tab(text => text.insert(text.length, ' (held)'));
+      // Refused a little later, so a flush() lands during the move.
+      const refuse = () =>
+        new Promise<YOfflineResult<void>>(resolve =>
+          setTimeout(() => resolve({error: quota, ok: false}), 15),
+        );
+      const faulty = withFaults(
+        store,
+        {moveIntoCapture: refuse},
+        {putCapture: refuse},
+      );
+      const errors: YOfflineError[] = [];
+      const session = attachYOfflineSession({
+        binding,
+        epoch: 'e1',
+        key: 'doc',
+        onError: error => errors.push(error),
+        stage: 'persist',
+        store: faulty,
+        writeDelay,
+      });
+      type('typed');
+      unwrap(await session.flush());
+      const moving = session.serverEpoch('e2');
+      // The app flushes (pagehide) during the move: it resolves once what
+      // the freeze committed is stored, not before.
+      await session.flush();
+      expect(await storedText(store, 'e1')).toBe('typed (held)');
+      const verdict = await moving;
+      expect(verdict.kind === 'moved' && verdict.saved.ok).toBe(false);
+      expect(errors.map(error => error.code)).toEqual(['quota']);
+    },
+  );
+
+  test('a store of your own that throws during the move does not leave the write queue held', async () => {
     const fake = createFakeIndexedDB();
     const store = await open(fake);
     const {binding, type} = tab(text => text.insert(text.length, ' (held)'));
-    const refuse = () => Promise.resolve({error: quota, ok: false} as const);
     const faulty = withFaults(
       store,
-      {moveIntoCapture: refuse},
-      {putCapture: refuse},
+      {
+        moveIntoCapture: () => Promise.reject(new Error('injected: a throw')),
+      },
+      {},
     );
-    const errors: YOfflineError[] = [];
     const session = attachYOfflineSession({
       binding,
       epoch: 'e1',
       key: 'doc',
-      onError: error => errors.push(error),
+      onError: () => {},
       stage: 'persist',
       store: faulty,
+      writeDelay: 8,
     });
     type('typed');
     unwrap(await session.flush());
-    const verdict = await session.serverEpoch('e2');
-    expect(verdict.kind).toBe('moved');
-    if (verdict.kind === 'moved') {
-      expect(verdict.saved.ok).toBe(false);
-      expect(verdict.capture).not.toBeNull();
-    }
-    // Committed rows, read at once (the page may close on 'moved'): the
-    // slot holds what the freeze committed, for the next page to capture.
-    const rows = fake.records(DB, 'updates').map(record => record.value);
-    const doc = new Y.Doc({gc: WITH_GC});
-    for (const row of rows) {
-      Y.applyUpdate(doc, (row as {u: Uint8Array}).u);
-    }
-    expect(doc.get('t').toString()).toBe('typed (held)');
-    expect(errors.map(error => error.code)).toEqual(['quota']);
+    await expect(session.serverEpoch('e2')).rejects.toThrow(/injected/);
+    // The queue is not held: what the freeze committed is stored.
+    unwrap(await session.flush());
+    expect(await storedText(store, 'e1')).toBe('typed (held)');
   });
 
   test('a request callback that throws aborts its transaction with an error, and leaves the rows', async () => {
