@@ -285,6 +285,7 @@ export function yjsMembers() {
       redo: (u: UndoManager) => isFunction(u.redo),
       redoStack: (u: UndoManager) => Array.isArray(u.redoStack),
       redoing: (u: UndoManager) => u.redoing === false,
+      stopCapturing: (u: UndoManager) => isFunction(u.stopCapturing),
       undo: (u: UndoManager) => isFunction(u.undo),
       undoStack: (u: UndoManager) => Array.isArray(u.undoStack),
       undoing: (u: UndoManager) => u.undoing === false,
