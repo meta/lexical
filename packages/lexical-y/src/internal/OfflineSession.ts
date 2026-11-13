@@ -640,6 +640,8 @@ class Session implements YOfflineSession {
 
   /** While a moved epoch moves the rows into the capture: no write runs. */
   private moving = false;
+  /** Resolves when that move is over (null when none is under way). */
+  private moveDone: Promise<void> | null = null;
   /** Counts markSynced() calls: a batch whose append failed across one is covered. */
   private syncs = 0;
   /** keep 'unsynced': the slot's first write since a sync is due. */
@@ -684,9 +686,21 @@ class Session implements YOfflineSession {
   }
 
   flush(): Promise<YOfflineResult<void>> {
+    if (this.moveDone !== null) {
+      // A moved epoch is moving the rows: what is queued is in its capture,
+      // or stored by the move's own failure path. Resolve after it.
+      return this.moveDone.then(() => this.flush());
+    }
+    return this.storeQueued();
+  }
+
+  /** Store what is queued now, including what is queued while it runs. */
+  private storeQueued(): Promise<YOfflineResult<void>> {
     return this.write().then(result =>
       // Queued while it ran.
-      result.ok && !this.moving && this.hasQueued() ? this.flush() : result,
+      result.ok && !this.moving && this.hasQueued()
+        ? this.storeQueued()
+        : result,
     );
   }
 
@@ -804,7 +818,6 @@ class Session implements YOfflineSession {
       clearTimeout(this.timer);
       this.timer = null;
     }
-    this.moving = true;
     const capture: YOfflineCapture | null =
       wasUnsynced || edits.differs
         ? {
@@ -822,9 +835,28 @@ class Session implements YOfflineSession {
           }
         : null;
     if (store === null) {
-      this.moving = false;
       return {capture, kind: 'moved', saved: DONE};
     }
+    // Held for the whole move, whatever a store of the app's own does
+    // (released in finally, so a throw cannot leave it held); a flush()
+    // the app calls meanwhile waits for the move.
+    this.moving = true;
+    let moved = () => {};
+    this.moveDone = new Promise<void>(resolve => (moved = resolve));
+    try {
+      return await this.moveRows(capture, store);
+    } finally {
+      this.moving = false;
+      this.moveDone = null;
+      moved();
+    }
+  }
+
+  /** moveOn's store work, with the write queue held. */
+  private async moveRows(
+    capture: YOfflineCapture | null,
+    store: YOfflineStore,
+  ): Promise<YOfflineVerdict> {
     let saved: YOfflineResult<void> = DONE;
     const slot = this.slot;
     if (slot !== null && slot.moveIntoCapture !== undefined) {
@@ -847,9 +879,8 @@ class Session implements YOfflineSession {
         this.isPersisted = false;
         this.report(saved.error);
         this.moving = false;
-        await this.flush();
+        await this.storeQueued();
       }
-      this.moving = false;
       slot.close();
       return {capture, kind: 'moved', saved};
     }
@@ -861,7 +892,7 @@ class Session implements YOfflineSession {
         this.isPersisted = false;
         this.report(saved.error);
         this.moving = false;
-        await this.flush();
+        await this.storeQueued();
         return {capture, kind: 'moved', saved};
       }
     }
@@ -881,7 +912,6 @@ class Session implements YOfflineSession {
       }
       this.slot.close();
     }
-    this.moving = false;
     return {capture, kind: 'moved', saved};
   }
 
