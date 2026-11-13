@@ -43,6 +43,7 @@ import {
   $createNodeSelection,
   $createPoint,
   $createRangeSelection,
+  $exportNodeJSON,
   $flushSyncAfterUpdate,
   $getNodeByKey,
   $getRoot,
@@ -50,6 +51,7 @@ import {
   $getSlot,
   $getSlotNames,
   $hasUpdateTag,
+  $isDecoratorNode,
   $isElementNode,
   $isNodeSelection,
   $isRangeSelection,
@@ -223,7 +225,7 @@ import {
   type YUnsupportedConfigData,
   type YUnsupportedSchemaData,
 } from './Warnings';
-import {$holdsLines, type WritePlan, Writer} from './Write';
+import {$holdsLines, $holdsText, type WritePlan, Writer} from './Write';
 import {createYDoc, type YDoc} from './YDoc';
 import {assertOwnYjsDoc, assertSupportedYjs} from './YjsContract';
 
@@ -1091,6 +1093,335 @@ function registerBoundRoot(doc: Doc, root: YNode, binding: object): () => void {
  */
 export const MAX_RECOVERY_ATTEMPTS = 5;
 
+/** `node` and every node below it, as their keys and JSON. */
+function $subtreeJSON(node: LexicalNode): unknown {
+  const json = $exportNodeJSON(node) as Record<string, unknown>;
+  delete json.children;
+  return {
+    children: $isElementNode(node)
+      ? node.getChildren().map($subtreeJSON)
+      : null,
+    json,
+    key: node.getKey(),
+  };
+}
+
+/**
+ * Whether the node `key` and everything below it are as they were in
+ * `prevEditorState`, the same nodes with the same JSON (marked dirty
+ * without a change; two nodes of equal JSON swapped are a change).
+ */
+function $sameAsBefore(key: NodeKey, prevEditorState: EditorState): boolean {
+  const node = $getNodeByKey(key);
+  if (node === null) {
+    return false;
+  }
+  const now = JSON.stringify($subtreeJSON(node));
+  return (
+    prevEditorState.read(() => {
+      const prev = $getNodeByKey(key);
+      return prev === null ? null : JSON.stringify($subtreeJSON(prev));
+    }) === now
+  );
+}
+
+/**
+ * Whether the container `key` has the same structure as in
+ * `prevEditorState`: the same nodes below it, in the same order, with the
+ * same fields, down to its lines, whose content is not structure (but the
+ * lines a line holds, a nested group, are).
+ */
+function $sameStructure(
+  key: NodeKey,
+  roles: Roles,
+  prevEditorState: EditorState,
+): boolean {
+  const node = $getNodeByKey(key);
+  if (node === null) {
+    return false;
+  }
+  const lineKeys = new Set<NodeKey>();
+  const collect = (el: ElementNode) => {
+    for (const child of el.getChildren()) {
+      if ($isElementNode(child)) {
+        if (roles.$role(child) === 'line') {
+          lineKeys.add(child.getKey());
+        }
+        collect(child);
+      }
+    }
+  };
+  if ($isElementNode(node)) {
+    collect(node);
+  }
+  const shape = (n: LexicalNode): unknown => {
+    if (!$isElementNode(n)) {
+      return {key: n.getKey(), own: $exportNodeJSON(n)};
+    }
+    if (lineKeys.has(n.getKey())) {
+      return {
+        key: n.getKey(),
+        nested: n
+          .getChildren()
+          .filter(c => $isElementNode(c) && !c.isInline())
+          .map(shape),
+      };
+    }
+    const own = $exportNodeJSON(n) as Record<string, unknown>;
+    delete own.children;
+    return {children: n.getChildren().map(shape), key: n.getKey(), own};
+  };
+  const now = JSON.stringify(shape(node));
+  return (
+    prevEditorState.read(() => {
+      const prev = $getNodeByKey(key);
+      return prev === null ? null : JSON.stringify(shape(prev));
+    }) === now
+  );
+}
+
+/**
+ * Whether `plan`, the write of the author's normalization of the lines
+ * `lines` names (see YBinding#heldIds), changes nothing but how those
+ * lines' characters are typed, in place: no container's structure (no line
+ * made, removed or moved; see $sameStructure); no other line, inline
+ * container or stored node it changed (one only marked dirty is not
+ * changed); and in each of the lines, the same text in the line and in
+ * each inline element it holds, the same inline elements and decorators
+ * where they were, and no text node of before stored elsewhere now: what
+ * is written there is attributes of the characters (formats, the node each
+ * is in, NodeState), which keeps each character where it is stored, so a
+ * collaborator's concurrent edit of it stays. A change of the text (an
+ * app's transform that sets capitals) is not written.
+ */
+function $staysInLines(
+  plan: WritePlan,
+  lines: ReadonlySet<NodeKey>,
+  roles: Roles,
+  prevEditorState: EditorState,
+): boolean {
+  // A container the plan rewrites (an intentionally dirty group is
+  // planned so, unchanged): nothing may have moved, been made or removed.
+  for (const key of plan.structural) {
+    if (!$sameStructure(key, roles, prevEditorState)) {
+      return false;
+    }
+  }
+  // A node the update marked dirty without changing it: nothing to write
+  // there.
+  const unchanged = (key: NodeKey): boolean =>
+    $sameAsBefore(key, prevEditorState);
+  const inLines = (key: NodeKey): boolean => {
+    let node: LexicalNode | null = $getNodeByKey(key);
+    while (node !== null) {
+      if ($isElementNode(node) && roles.$role(node) === 'line') {
+        return lines.has(node.getKey());
+      }
+      node = node.getParent();
+    }
+    return false;
+  };
+  for (const keys of [plan.lines, plan.inline, plan.attrs]) {
+    for (const key of keys) {
+      if (!inLines(key) && !unchanged(key)) {
+        return false;
+      }
+    }
+  }
+  const prevMap = prevEditorState._nodeMap;
+  // A line's content: its text, with each inline element (and what it holds)
+  // and each decorator as its key.
+  const contentOf = (el: ElementNode): string => {
+    let out = '';
+    for (const child of el.getChildren()) {
+      if ($isElementNode(child)) {
+        out += '\ufffc' + child.getKey() + '[' + contentOf(child) + ']\ufffc';
+      } else if ($isDecoratorNode(child)) {
+        out += '\ufffc' + child.getKey() + '\ufffc';
+      } else {
+        out += child.getTextContent();
+      }
+    }
+    return out;
+  };
+  // Each text node below `line`, with what it is stored in: the nearest
+  // inline element above it, or the line.
+  const holders = (line: ElementNode): Map<NodeKey, NodeKey> => {
+    const out = new Map<NodeKey, NodeKey>();
+    const walk = (el: ElementNode, holder: NodeKey) => {
+      for (const child of el.getChildren()) {
+        if ($isElementNode(child)) {
+          walk(child, child.isInline() ? child.getKey() : holder);
+        } else if ($isTextNode(child)) {
+          out.set(child.getKey(), holder);
+        }
+      }
+    };
+    walk(line, line.getKey());
+    return out;
+  };
+  for (const key of lines) {
+    const line = $getNodeByKey(key);
+    if (!$isElementNode(line) || !line.isAttached()) {
+      return false;
+    }
+    const was = prevEditorState.read(() => {
+      const prev = $getNodeByKey(key);
+      return $isElementNode(prev)
+        ? {content: contentOf(prev), holders: holders(prev)}
+        : null;
+    });
+    // The same text in each of its holders, the same inline elements and
+    // decorators where they were, and no text node of before stored
+    // elsewhere now (in another line, or another holder of this one): a
+    // write of attributes only, which keeps every character where it is
+    // stored.
+    if (was === null || was.content !== contentOf(line)) {
+      return false;
+    }
+    const now = holders(line);
+    for (const [nodeKey, holder] of now) {
+      if (prevMap.has(nodeKey) && was.holders.get(nodeKey) !== holder) {
+        return false;
+      }
+    }
+    for (const nodeKey of was.holders.keys()) {
+      if (!now.has(nodeKey)) {
+        const node = $getNodeByKey(nodeKey);
+        if (node !== null && node.isAttached()) {
+          return false;
+        }
+      }
+    }
+  }
+  return true;
+}
+
+/**
+ * Whether an update removed a decorator or an inline element (a link, a
+ * mark) from the document, at any depth of what it removed: one that was,
+ * before it, a child of an element it marked dirty, or below such a child
+ * that it removed, and is no longer attached (one it moved elsewhere is not
+ * removed). One replaced by a new one counts as removed.
+ */
+function $removesNonText(
+  dirtyElements: ReadonlyMap<NodeKey, boolean>,
+  prevEditorState: EditorState,
+): boolean {
+  const prevMap = prevEditorState._nodeMap;
+  const gone = (key: NodeKey): boolean => {
+    const now = $getNodeByKey(key);
+    return now === null || !now.isAttached();
+  };
+  const childrenBefore = (el: ElementNode): LexicalNode[] => {
+    const out: LexicalNode[] = [];
+    for (
+      let child = el.__first === null ? undefined : prevMap.get(el.__first);
+      child !== undefined;
+      child = child.__next === null ? undefined : prevMap.get(child.__next)
+    ) {
+      out.push(child);
+    }
+    return out;
+  };
+  // A node of the state before, removed with everything below it.
+  const losesBelow = (node: LexicalNode): boolean => {
+    if (
+      ($isDecoratorNode(node) || ($isElementNode(node) && node.isInline())) &&
+      gone(node.__key)
+    ) {
+      return true;
+    }
+    return (
+      $isElementNode(node) &&
+      childrenBefore(node).some(child => losesBelow(child))
+    );
+  };
+  for (const key of dirtyElements.keys()) {
+    const prev = prevMap.get(key);
+    if (!$isElementNode(prev)) {
+      continue;
+    }
+    for (const child of childrenBefore(prev)) {
+      if (gone(child.__key) && losesBelow(child)) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+/**
+ * Whether an update gives an element it marked dirty a text format or style
+ * that Lexical serializes (the element has no text of its own, see
+ * ElementNode#shouldSerializeTextStyles) but the writer does not store (text
+ * is below it, in an inline element: derived there, see $holdsText), that it
+ * did not have before: its own, or that of the first text below it, which
+ * Lexical's reconciler gives the element when it renders it again (a client
+ * with a DOM), so that its author would show a value no reader shows: a
+ * paragraph a transform makes around a link of a line made bold. One it had
+ * before the update is not the update's.
+ */
+function $leavesUnstoredTextFields(
+  dirtyElements: ReadonlyMap<NodeKey, boolean>,
+  prevEditorState: EditorState,
+): boolean {
+  for (const key of dirtyElements.keys()) {
+    const node = $getNodeByKey(key);
+    if (
+      !$isElementNode(node) ||
+      $isRootNode(node) ||
+      !node.isAttached() ||
+      node.isInline() ||
+      !node.shouldSerializeTextStyles() ||
+      !$holdsText(node) ||
+      // Marked dirty without a change: what the reconciler gives it now,
+      // it gave it before.
+      $sameAsBefore(key, prevEditorState)
+    ) {
+      continue;
+    }
+    // The first text below it, in document order, through inline elements:
+    // what the reconciler takes the element's text fields from.
+    const firstText = (el: ElementNode): TextNode | null => {
+      for (const child of el.getChildren()) {
+        if ($isTextNode(child)) {
+          return child;
+        }
+        if ($isElementNode(child)) {
+          const text = firstText(child);
+          if (text !== null) {
+            return text;
+          }
+        }
+      }
+      return null;
+    };
+    // Its own text fields, and those of the first text below it.
+    const fields = (el: ElementNode): [string, string | null] => {
+      const first = firstText(el);
+      return [
+        el.getTextFormat() + '|' + el.getTextStyle(),
+        first === null ? null : first.getFormat() + '|' + first.getStyle(),
+      ];
+    };
+    const [own, derived] = fields(node);
+    const before = prevEditorState.read(() => {
+      const prev = $getNodeByKey(key);
+      return $isElementNode(prev) ? fields(prev) : null;
+    });
+    if (
+      (own !== '0|' && (before === null || own !== before[0])) ||
+      (derived !== null &&
+        derived !== '0|' &&
+        (before === null || derived !== before[1]))
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
 /**
  * @experimental A Yjs 14 binding for one editor and one shared root.
  *
@@ -1137,31 +1468,34 @@ export class YBinding {
    */
   private readonly untransformedText = new Set<NodeKey>();
   /**
-   * What the update that ended a composition would have written of the
-   * characters of a line a transform re-typed that was not written (see
-   * Writer#skippedLine, Writer#heldResult), by their stored ids, for the
+   * The characters of a line a transform re-typed that was not written (see
+   * Writer#skippedLine, Writer#heldIds), by their stored ids, for the
    * author's normalization once the hold ends (see $normalize): the line is
    * read as stored, and Lexical's transforms run again on the lines that
-   * hold those characters. Of what they make, only what agrees with this is
-   * written, once, by the author, as part of its edit (a hashtag made again
-   * where a collaborator made the block a heading). Where they make
-   * something else, what is stored stays (a code highlighter makes no tokens
-   * in a line a collaborator made a paragraph; in a line made a code block,
-   * its tokens are not the update's), as it does for characters deleted
-   * since.
+   * hold those characters, as an ordinary local edit, which the writer
+   * writes, once, by the author, as part of its edit, where it stays in
+   * those lines, in place (a hashtag made again where a collaborator made
+   * the block a heading; a code highlighter's tokens taken out of a line a
+   * collaborator made a paragraph, or made in one made a code block; an
+   * app's transform that bolds text in a heading). Where they restructure
+   * the document (an app's transform that converts, splits or moves the
+   * line), change or move its text (see $staysInLines), change another
+   * block, remove a decorator or an inline
+   * element (a code highlighter turns a decorator into its text, and takes a
+   * link's text out of the link), or leave text fields stored nowhere (see
+   * $leavesUnstoredTextFields), nothing is written and what is stored stays,
+   * as before.
    */
-  private heldResult = new Map<string, Attrs>();
+  private readonly heldIds = new Set<string>();
   /**
-   * The author's normalization of those lines, in the update running it
-   * (see $normalize, $writeCommit).
+   * The lines that normalization runs the transforms again on, for the
+   * commit that writes it (see $normalize, $writeCommit), where only what
+   * stays in those lines, in place, is written (see $staysInLines).
    */
-  private releasing: {
-    lines: ReadonlySet<NodeKey>;
-    record: ReadonlyMap<string, Attrs>;
-  } | null = null;
+  private rerunScope: ReadonlySet<NodeKey> | null = null;
   /**
    * The undo step holding the write of the update that ended a composition
-   * whose re-typing was not written (see heldResult): the author's
+   * whose re-typing was not written (see heldIds): the author's
    * normalization of its line joins that step, whatever captureTimeout is,
    * while it is the last step on the undo stack; after an edit of the
    * author's own in between, it is a step of its own (see $writeCommit).
@@ -2423,8 +2757,8 @@ export class YBinding {
     this.toSettle.clear();
     this.untransformed.clear();
     this.untransformedText.clear();
-    this.heldResult.clear();
-    this.releasing = null;
+    this.heldIds.clear();
+    this.rerunScope = null;
     this.releaseStep = null;
     this.storedHoles.clear();
     this.registrationPasses.length = 0;
@@ -5753,7 +6087,7 @@ export class YBinding {
     }
     state.hidden = null;
     hidden.releaseKeeps();
-    if (this.heldResult.size > 0) {
+    if (this.heldIds.size > 0) {
       // The lines whose re-typing was not written: normalized once read.
       this.pending.add('normalize');
     }
@@ -6525,13 +6859,53 @@ export class YBinding {
     plan.textEdits =
       textEdits === null ? null : textEdits.get(prevEditorState._nodeMap);
     // The author's normalization of the lines holding characters of a line
-    // whose re-typing was not written (see heldResult): only what agrees is
-    // written, and everything the update changed is read again as stored.
-    const release = commit.normalize ? this.releasing : null;
+    // whose re-typing was not written (see heldIds), which joins the undo
+    // step of the update that ended the composition (see releaseStep).
+    const rerunScope = commit.normalize ? this.rerunScope : null;
     if (commit.normalize) {
-      this.releasing = null;
+      this.rerunScope = null;
     }
-    plan.release = release;
+    const rerun = rerunScope !== null;
+    if (
+      rerunScope !== null &&
+      (!$staysInLines(plan, rerunScope, roles, prevEditorState) ||
+        $removesNonText(dirtyElements, prevEditorState) ||
+        $leavesUnstoredTextFields(dirtyElements, prevEditorState))
+    ) {
+      // What the transforms make is written only where it stays in those
+      // lines, as an edit of their content in place: where they restructure
+      // the document (convert, split, move or remove a line, or change
+      // another block: a code block after the line, which a change of the
+      // line marks dirty, tokenized), remove a decorator or an inline
+      // element at any depth (a code highlighter turns a decorator into its
+      // text, and takes the text out of a link, which loses its NodeState),
+      // or leave text fields stored nowhere, nothing is written, and what
+      // they changed is read again as stored.
+      this.releaseStep = null;
+      this.$refuseChanged(
+        dirtyElements,
+        dirtyLeaves,
+        editorState,
+        prevEditorState,
+      );
+      return;
+    }
+    if (rerunScope !== null && plan.unwritable !== undefined) {
+      // A change of an element's text format or style where it is derived
+      // (text below it), which the writer does not write (see
+      // WritePlan#unwritable): read again as stored, as a follow-up's is
+      // (see Writer#$run).
+      for (const key of plan.unwritable) {
+        const node = $getNodeByKey(key);
+        if (node !== null && node.isAttached()) {
+          const cs = state.csByKey.get(roles.$containerOf(node).getKey());
+          if (cs !== undefined) {
+            this.refused.add(cs);
+            this.pending.add('reread');
+          }
+        }
+      }
+    }
     if (
       plan.structural.size === 0 &&
       plan.inline.size === 0 &&
@@ -6582,7 +6956,7 @@ export class YBinding {
     // captureTimeout is, while that step is the last one (see releaseStep).
     let captureTimeout: number | null = null;
     if (
-      release !== null &&
+      rerun &&
       um !== null &&
       origin === this &&
       this.releaseStep !== null &&
@@ -6594,7 +6968,7 @@ export class YBinding {
         um.lastChange = Date.now();
       }
     }
-    if (release !== null) {
+    if (rerun) {
       this.releaseStep = null;
     }
     let written: Writer | null | Refusal | 'held';
@@ -6648,15 +7022,6 @@ export class YBinding {
       return;
     }
     const writer = written;
-    if (release !== null) {
-      this.$refuseChanged(
-        dirtyElements,
-        dirtyLeaves,
-        editorState,
-        prevEditorState,
-      );
-      return;
-    }
     if (writer !== null) {
       this.noteWriteRefusals(
         state,
@@ -6677,11 +7042,10 @@ export class YBinding {
         // hold shows it as a block its shared counterpart no longer is, was
         // not written (see Writer#skippedLine). It is read again as stored
         // and the hold ends, as for an edit refused for the hold, and its
-        // transforms run again on what is stored, of which what agrees with
-        // this update is written (see heldResult). The rest of the update is
-        // written.
-        for (const [id, attrs] of writer.heldResult) {
-          this.heldResult.set(id, attrs);
+        // transforms run again on what is stored, as the author's own edit
+        // (see heldIds). The rest of the update is written.
+        for (const id of writer.heldIds) {
+          this.heldIds.add(id);
         }
         // The undo step holding this write, if it wrote anything.
         if (um !== null) {
@@ -6720,7 +7084,7 @@ export class YBinding {
           this.retypeReported = true;
           this.warn(
             UNSUPPORTED_EDIT_WARNING,
-            "a local update re-typed the line being composed (a transform's tokens for it, such as a code highlighter's) while the composition's hold shows that line as a block its shared counterpart no longer is (a collaborator changed its type, or joined it into the line before it): the re-typing is not written, the rest of the update is, and the line is read again as stored; its transforms then run again, and only changes that agree with what that update would have written are saved",
+            "a local update re-typed the line being composed (a transform's tokens for it, such as a code highlighter's) while the composition's hold shows that line as a block its shared counterpart no longer is (a collaborator changed its type, or joined it into the line before it): the re-typing is not written, the rest of the update is, and the line is read again as stored; its transforms then run again on it as the composer's own edit, and what they change in that line, in place, is saved (see DECISIONS.md D115)",
             {detailCode: 'held-line-retokenize', reason: 'other'},
           );
         }
@@ -8251,8 +8615,8 @@ export class YBinding {
       this.toSettle.clear();
       this.untransformed.clear();
       this.untransformedText.clear();
-      this.heldResult.clear();
-      this.releasing = null;
+      this.heldIds.clear();
+      this.rerunScope = null;
       this.releaseStep = null;
       this.storedHoles.clear();
       this.registrationPasses.length = 0;
@@ -8638,18 +9002,18 @@ export class YBinding {
   }
 
   /**
-   * The lines that hold the stored characters `record` names (see
-   * heldResult), where any of them is still there: a character belongs to
+   * The lines that hold the stored characters `ids` names (see heldIds),
+   * where any of them is still there: a character belongs to
    * the line whose marker is the next one after it in its container (a
    * character in an inline node, to the line holding that node). None for
    * characters a collaborator deleted since, nor for any outside a line.
    */
-  private $linesHolding(record: ReadonlyMap<string, Attrs>): ElementNode[] {
+  private $linesHolding(ids: Iterable<string>): ElementNode[] {
     const state = this.state;
     const store = this._doc.store;
     const found = new Set<ElementNode>();
     const seen = new Set<Item>();
-    for (const id of record.keys()) {
+    for (const id of ids) {
       const colon = id.indexOf(':');
       const client = Number(id.slice(0, colon));
       const clock = Number(id.slice(colon + 1));
@@ -8693,14 +9057,14 @@ export class YBinding {
 
   /** The author's normalization itself, inside an update. */
   private $normalize(): void {
-    this.releasing = null;
+    this.rerunScope = null;
     // The lines holding characters of a line whose re-typing was not
-    // written, once its hold has ended: in an update of their own, in which
-    // nothing else is written (see heldResult).
-    if (this.state.hidden === null && this.heldResult.size > 0) {
-      const record = this.heldResult;
-      this.heldResult = new Map();
-      const lines = this.writesEdits() ? this.$linesHolding(record) : [];
+    // written, once its hold has ended: their transforms run again, in an
+    // update of their own (see heldIds).
+    if (this.state.hidden === null && this.heldIds.size > 0) {
+      const ids = [...this.heldIds];
+      this.heldIds.clear();
+      const lines = this.writesEdits() ? this.$linesHolding(ids) : [];
       if (lines.length === 0) {
         this.releaseStep = null;
       } else {
@@ -8720,7 +9084,7 @@ export class YBinding {
             text.markDirty();
           }
         }
-        this.releasing = {lines: keys, record};
+        this.rerunScope = keys;
         if (
           this.untransformed.size > 0 ||
           this.untransformedText.size > 0 ||

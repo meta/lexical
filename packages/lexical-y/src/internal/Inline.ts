@@ -74,7 +74,7 @@ export class Atoms {
   /**
    * The id of the stored character each atom is (`client:clock`), where set
    * to an array before old atoms are read (see readAtoms): what identifies a
-   * character wherever it moves (see Writer#heldResult).
+   * character wherever it moves (see Writer#heldIds).
    */
   ids: string[] | null = null;
   /**
