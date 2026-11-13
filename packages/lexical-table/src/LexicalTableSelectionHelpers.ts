@@ -2453,9 +2453,14 @@ function $isSelectionBeforeTable(
  * "start of line N+1" apart. The rect of the character to the right is used,
  * falling back to the one to the left when the caret ends its text node. The
  * last client rect is kept so that a range spanning a wrap boundary reports
- * the line it ends on.
+ * the line it ends on. Engines without layout, such as jsdom, implement
+ * neither Range.getClientRects nor the line boxes it would measure, and
+ * return null so the caller falls back to the collapsed range's own rect.
  */
 function getVisualLineRectAtCaret(range: Range): DOMRect | null {
+  if (typeof range.getClientRects !== 'function') {
+    return null;
+  }
   const {startContainer, startOffset} = range;
   if (!isDOMTextNode(startContainer)) {
     return null;

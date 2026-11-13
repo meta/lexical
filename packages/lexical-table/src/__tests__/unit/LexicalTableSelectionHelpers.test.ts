@@ -33,6 +33,7 @@ import {
   defineExtension,
   DELETE_LINE_COMMAND,
   KEY_ARROW_DOWN_COMMAND,
+  KEY_ARROW_UP_COMMAND,
   type LexicalEditorWithDispose,
   SELECTION_CHANGE_COMMAND,
 } from 'lexical';
@@ -445,6 +446,83 @@ describe('LexicalTableSelectionHelpers', () => {
       editor.dispatchCommand(DELETE_LINE_COMMAND, false);
       expect(propagated).toBe(true);
       unregister();
+    });
+  });
+
+  describe('vertical arrow keys over cell text in engines without Range.getClientRects', () => {
+    let editor: LexicalEditorWithDispose;
+    let container: HTMLDivElement;
+
+    beforeEach(() => {
+      container = document.createElement('div');
+      document.body.appendChild(container);
+      editor = buildEditorFromExtensions(TableTestThemeExtension);
+      editor.setRootElement(container);
+    });
+
+    afterEach(() => {
+      editor.dispose();
+      document.body.removeChild(container);
+    });
+
+    function $selectCellTextCaret() {
+      const table = $createTableNodeWithDimensions(2, 2, false);
+      $getRoot().clear().append(table);
+      const firstRow = $assertNodeType(
+        table.getFirstChildOrThrow(),
+        $isTableRowNode,
+      );
+      const firstCell = $assertNodeType(
+        firstRow.getFirstChildOrThrow(),
+        $isTableCellNode,
+      );
+      const paragraph = $assertNodeType(
+        firstCell.getFirstChildOrThrow(),
+        $isParagraphNode,
+      );
+      const text = $createTextNode('hello world');
+      paragraph.clear().append(text);
+      text.select(2, 2);
+    }
+
+    function $assertCaretUnmoved() {
+      editor.read(() => {
+        const selection = $getSelection();
+        if (!$isRangeSelection(selection)) {
+          throw new Error('Expected RangeSelection');
+        }
+        expect(selection.isCollapsed()).toBe(true);
+        expect(selection.anchor.getNode().getTextContent()).toBe('hello world');
+      });
+    }
+
+    // jsdom implements neither Range.getClientRects nor
+    // Range.getBoundingClientRect (the latter is stubbed to a zero rect in
+    // vitest.setup.mts). Should jsdom ever grow getClientRects, this suite
+    // stops exercising the fallback and needs a stub to stay honest.
+    test('ArrowDown and ArrowUp fall back to the caret rect instead of throwing', () => {
+      editor.update($selectCellTextCaret, {discrete: true});
+      editor.focus();
+      expect(typeof Range.prototype.getClientRects).toBe('undefined');
+
+      // Downstream jsdom setups stub only what the caret rect path needs:
+      // dispatching a vertical arrow key with the caret in cell text must
+      // not require Range.getClientRects.
+      expect(() =>
+        editor.dispatchCommand(
+          KEY_ARROW_DOWN_COMMAND,
+          new KeyboardEvent('keydown', {key: 'ArrowDown'}),
+        ),
+      ).not.toThrow();
+      $assertCaretUnmoved();
+
+      expect(() =>
+        editor.dispatchCommand(
+          KEY_ARROW_UP_COMMAND,
+          new KeyboardEvent('keydown', {key: 'ArrowUp'}),
+        ),
+      ).not.toThrow();
+      $assertCaretUnmoved();
     });
   });
 });
