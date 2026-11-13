@@ -88,13 +88,9 @@ export const UNSUPPORTED_CONFIG_WARNING = '@lexical/y/unsupported-config';
  *   hold shows that line as a block its shared counterpart no longer is (a
  *   collaborator changed its type, or joined it into the line before it).
  *   The re-typing is not written, the rest of the update is, and the line
- *   is read again as stored; its transforms then run again on it as the
- *   composer's own edit, and what they change in that line, in place, is
- *   saved (nothing where they would restructure the document, change or
- *   move the line's text, change another block, remove a decorator or an
- *   inline element, or leave a text format no reader shows; see
- *   DECISIONS.md D115).
- *   Reported once per composition.
+ *   is read again as stored; once the hold ends, its transforms run again
+ *   on it as the composer's own edit, and what they change is saved (see
+ *   DECISIONS.md D115). Reported once per composition.
  */
 export const UNSUPPORTED_EDIT_WARNING = '@lexical/y/unsupported-edit';
 /**

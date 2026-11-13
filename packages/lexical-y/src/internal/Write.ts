@@ -3297,8 +3297,6 @@ export class Writer {
     const startFormats = unit.start || EMPTY_FORMATS;
     const frontier = frontierOf(this.view, unit.start, left, unit.cs.y, null);
     const old = new Atoms();
-    const ids: string[] = [];
-    old.ids = ids;
     readAtoms(
       this.view,
       left === null ? unit.cs.y._start : left.right,
@@ -3315,13 +3313,6 @@ export class Writer {
     );
     if (old.text !== atoms.text) {
       return;
-    }
-    // The line's characters, by their stored ids: once the hold ends, the
-    // line is read as stored and its transforms run again (see heldIds).
-    for (const id of ids) {
-      if (id !== undefined) {
-        this.heldIds.add(id);
-      }
     }
     // The nodes holding the line's atoms that the update kept (or split off
     // one it kept), with their type: what changed on them is the update's
@@ -5888,18 +5879,10 @@ export class Writer {
    * counterpart no longer is and the update only re-typed its text (see
    * $heldDecision): not written, so that what a transform made of the shown
    * line does not land on what is stored there. The binding reads it again,
-   * ends the hold, and runs its transforms again on what is stored (see
-   * heldIds).
+   * ends the hold, and runs its transforms again on what is stored, as the
+   * author's own edit (see YBinding#$release).
    */
   skippedLine: NodeKey | null = null;
-
-  /**
-   * The characters of the skipped line (see skippedLine), by their stored
-   * ids (see Atoms.ids), where its content matches what is stored: once the
-   * hold ends, the line is read as stored and its transforms run again, as
-   * the author's own edit (see YBinding#heldIds).
-   */
-  readonly heldIds = new Set<string>();
 
   /**
    * Decide as `decision` (the recovery of a write taken under it): an update
