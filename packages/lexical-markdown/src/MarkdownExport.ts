@@ -2021,10 +2021,7 @@ function $isAtParagraphLineStart(node: TextNode): boolean {
   while (true) {
     const previous = current.getPreviousSibling();
     if (previous !== null) {
-      if (!$isLineBreakNode(previous)) {
-        return false;
-      }
-      break;
+      return $isLineBreakNode(previous);
     }
     const parent = current.getParent();
     if (parent === null) {
@@ -2038,12 +2035,6 @@ function $isAtParagraphLineStart(node: TextNode): boolean {
     }
     current = parent;
   }
-
-  let ancestor: LexicalNode | null = current.getParent();
-  while (ancestor !== null && $isElementNode(ancestor) && ancestor.isInline()) {
-    ancestor = ancestor.getParent();
-  }
-  return ancestor !== null && $isParagraphNode(ancestor);
 }
 
 function getTextSibling(node: TextNode, backward: boolean): TextNode | null {

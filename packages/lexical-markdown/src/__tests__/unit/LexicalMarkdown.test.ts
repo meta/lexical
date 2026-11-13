@@ -6727,4 +6727,40 @@ describe('quote lines with optional space (#9442)', () => {
       'a\n>b',
     );
   });
+
+  it('escapes > after soft line break in list item so it round-trips within the item', () => {
+    const editor = createTestEditor();
+    editor.update(
+      () => {
+        const root = $getRoot();
+        const list = $createListNode('bullet');
+        const item = $createListItemNode();
+        item.append(
+          $createTextNode('a'),
+          $createLineBreakNode(),
+          $createTextNode('>b'),
+        );
+        list.append(item);
+        root.append(list);
+      },
+      {discrete: true},
+    );
+    expect(
+      editor.read('latest', () => $convertToMarkdownString(TRANSFORMERS)),
+    ).toBe('- a\n\\>b');
+
+    const editor2 = createTestEditor();
+    editor2.update(
+      () => {
+        $convertFromMarkdownString('- a\n\\>b', TRANSFORMERS);
+      },
+      {discrete: true},
+    );
+    expect(
+      editor2.read('latest', () => $isListNode($getRoot().getFirstChild())),
+    ).toBe(true);
+    expect(editor2.read('latest', () => $getRoot().getTextContent())).toBe(
+      'a\n>b',
+    );
+  });
 });
