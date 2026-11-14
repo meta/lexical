@@ -31,13 +31,16 @@ import {
   type HeadingTagType,
   QuoteNode,
 } from '@lexical/rich-text';
+import {$sliceSelectedTextNodeContent} from '@lexical/selection';
 import {
   $createLineBreakNode,
   $createTextNode,
   $findMatchingParent,
   $generateNodesFromRawText,
   $getState,
+  $isElementNode,
   $isLineBreakNode,
+  $isNodeSelection,
   $isTextNode,
   $setState,
   type BaseSelection,
@@ -863,13 +866,36 @@ export const QUOTE: ElementTransformer = {
   type: 'element',
 };
 
+function $getSelectedCodeTextContent(
+  node: LexicalNode,
+  selection: BaseSelection,
+): string {
+  if ($isNodeSelection(selection) && node.isSelected(selection)) {
+    return node.getTextContent();
+  }
+  if ($isElementNode(node)) {
+    return node
+      .getChildren()
+      .map(child => $getSelectedCodeTextContent(child, selection))
+      .join('');
+  }
+  if (!node.isSelected(selection)) {
+    return '';
+  }
+  return $isTextNode(node)
+    ? $sliceSelectedTextNodeContent(selection, node, 'clone').getTextContent()
+    : node.getTextContent();
+}
+
 export const CODE: MultilineElementTransformer = {
   dependencies: [CodeNode],
-  export: (node: LexicalNode) => {
+  export: (node: LexicalNode, _exportChildren, selection) => {
     if (!$isCodeNode(node)) {
       return null;
     }
-    const textContent = node.getTextContent();
+    const textContent = selection
+      ? $getSelectedCodeTextContent(node, selection)
+      : node.getTextContent();
     let fence = $getState(node, codeFenceState);
 
     if (textContent.indexOf(fence) > -1) {
