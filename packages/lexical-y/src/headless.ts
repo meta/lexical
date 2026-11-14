@@ -12,7 +12,13 @@ import {type Doc, encodeStateAsUpdate, mergeUpdates} from '@y/y';
 import {
   $getEditor,
   $getRoot,
+  $isDecoratorNode,
+  $isElementNode,
+  $isLineBreakNode,
+  $isTabNode,
+  $isTextNode,
   COLLABORATION_TAG,
+  type LexicalNode,
   type LexicalWarning,
   type SerializedEditorState,
   type SerializedLexicalNode,
@@ -20,6 +26,13 @@ import {
 } from 'lexical';
 
 import {createYDoc, DEFAULT_ROOT_NAME, YUnsupportedYjsError} from '.';
+import {
+  describeBlocks,
+  type NodeKind,
+  type YUnsyncedBlock,
+  type YUnsyncedConflict,
+  type YUnsyncedResolution,
+} from './internal/BlockMerge';
 import {
   closeHeadlessYEditor,
   EDITOR_WARNING,
@@ -44,6 +57,9 @@ export type {
   HeadlessYConfig,
   YHeadlessErrorCode,
   YHeadlessWarningCode,
+  YUnsyncedBlock,
+  YUnsyncedConflict,
+  YUnsyncedResolution,
   YWriter,
 };
 export {
@@ -380,25 +396,6 @@ export function readYState<T>(
 /** @experimental Why a client's edits did not sync (see describeUnsyncedEdits). */
 export type YUnsyncedReason = 'stale' | 'legacy' | 'expired';
 
-/** @experimental One block a user changed (see YUnsyncedReport). */
-export interface YUnsyncedBlock {
-  /** The block id (BlockIdExtension), or `'#<index>'` where blocks have none. */
-  readonly id: string;
-  readonly change: 'added' | 'changed' | 'deleted';
-  /** The block as the user had it, null when they deleted it. */
-  readonly yours: SerializedLexicalNode | null;
-  /** The block in the document the edits were made against. */
-  readonly base: SerializedLexicalNode | null;
-  /** The block in the document as it is now. */
-  readonly now: SerializedLexicalNode | null;
-  /**
-   * Whether the current document still matches the base for this block (the
-   * check an edit by block id uses, D94): informational until a replay ships.
-   * Always false without a base or without block ids.
-   */
-  readonly replayable: boolean;
-}
-
 /** @experimental What describeUnsyncedEdits reports (layout 4 spec 11.6). */
 export interface YUnsyncedReport {
   readonly reason: YUnsyncedReason;
@@ -414,44 +411,53 @@ export interface YUnsyncedReport {
   readonly fragment: readonly SerializedLexicalNode[];
 }
 
-/** The top-level blocks of a state, as JSON. */
+/** What a node is to the block merge (see NodeKinds). */
+function $kindOf(node: LexicalNode): NodeKind {
+  return $isTabNode(node)
+    ? 'tab'
+    : $isTextNode(node)
+      ? 'text'
+      : $isLineBreakNode(node)
+        ? 'linebreak'
+        : $isElementNode(node)
+          ? node.isInline()
+            ? 'inline-element'
+            : 'block-element'
+          : $isDecoratorNode(node)
+            ? node.isInline()
+              ? 'inline-leaf'
+              : 'block-leaf'
+            : 'mixed';
+}
+
+/**
+ * The top-level blocks of a state, as JSON, and what each node type in it
+ * is, into `kinds` (a type whose nodes differ, some inline and some not, is
+ * `'mixed'`).
+ */
 function blocksOfState(
   state: Uint8Array,
   config: HeadlessYConfig,
+  kinds: Map<string, NodeKind>,
 ): SerializedLexicalNode[] {
-  return readYState(
-    state,
-    config,
-    () => $getEditor().getEditorState().toJSON().root.children,
-  );
-}
-
-/** A serialized block's id (BlockIdExtension's `blockId` NodeState), or null. */
-function blockIdOf(node: SerializedLexicalNode): string | null {
-  const state = (node as {$?: {blockId?: unknown}}).$;
-  const id = state === undefined ? undefined : state.blockId;
-  return typeof id === 'string' && id !== '' ? id : null;
-}
-
-/** `blocks` by id, or null when any block lacks one. */
-function byId(
-  blocks: readonly SerializedLexicalNode[],
-): Map<string, SerializedLexicalNode> | null {
-  const map = new Map<string, SerializedLexicalNode>();
-  for (const block of blocks) {
-    const id = blockIdOf(block);
-    if (id === null || map.has(id)) {
-      return null;
+  return readYState(state, config, () => {
+    const stack: LexicalNode[] = $getRoot().getChildren();
+    for (let node = stack.pop(); node !== undefined; node = stack.pop()) {
+      const kind = $kindOf(node);
+      const known = kinds.get(node.getType());
+      kinds.set(
+        node.getType(),
+        known === undefined || known === kind ? kind : 'mixed',
+      );
+      if ($isElementNode(node)) {
+        for (const child of node.getChildren()) {
+          stack.push(child);
+        }
+      }
     }
-    map.set(id, block);
-  }
-  return map;
+    return $getEditor().getEditorState().toJSON().root.children;
+  });
 }
-
-const sameJSON = (
-  a: SerializedLexicalNode | null | undefined,
-  b: SerializedLexicalNode | null | undefined,
-) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
 
 /**
  * @experimental What a client's edits that did not sync changed (layout 4
@@ -462,6 +468,12 @@ const sameJSON = (
  * position, and nothing is replayable. Each state is read with `config`, at
  * a layout this release reads: migrate a state below MIN_LAYOUT first
  * (`migrateYState` on `@lexical/y/migrate`).
+ *
+ * A block both sides changed is merged three ways (base, yours, now) when
+ * their changes do not overlap: its entry has resolution `'merged'` and the
+ * block in `merged`. Changes that overlap or touch, and any block the merge
+ * cannot show to be safe, stay a conflict (resolution `'conflict'`, with
+ * why in `conflict`). `blockMerge: false` turns the merge off.
  *
  * @example
  * ```ts
@@ -485,68 +497,33 @@ export function describeUnsyncedEdits(input: {
   readonly reason: YUnsyncedReason;
   /** When the edits were captured (Unix ms). */
   readonly capturedAt: number;
+  /**
+   * Whether a block both sides changed is merged three ways where their
+   * changes do not overlap. `false`: every such block is a conflict,
+   * except one the document already holds as the user had it (`'merged'`,
+   * with `merged` equal to `now`).
+   * @defaultValue true
+   */
+  readonly blockMerge?: boolean;
 }): YUnsyncedReport {
   const {config} = input;
+  const kinds = new Map<string, NodeKind>();
   // What the user saw: the editor's JSON when given (it holds edits the
   // document refused), else the captured state.
   const yours =
     'json' in input.edits
       ? input.edits.json.root.children
-      : blocksOfState(input.edits.state, config);
-  const base = input.base === null ? null : blocksOfState(input.base, config);
-  const now = blocksOfState(input.current, config);
-  const against = base ?? now;
-  const blocks: YUnsyncedBlock[] = [];
-  const yoursById = byId(yours);
-  const againstById = byId(against);
-  const nowById = byId(now);
-  if (yoursById !== null && againstById !== null && nowById !== null) {
-    for (const [id, block] of yoursById) {
-      const was = againstById.get(id) ?? null;
-      if (was === null || !sameJSON(was, block)) {
-        const current = nowById.get(id) ?? null;
-        blocks.push({
-          base: base === null ? null : was,
-          change: was === null ? 'added' : 'changed',
-          id,
-          now: current,
-          replayable: base !== null && sameJSON(current, was),
-          yours: block,
-        });
-      }
-    }
-    for (const [id, was] of againstById) {
-      if (!yoursById.has(id)) {
-        const current = nowById.get(id) ?? null;
-        blocks.push({
-          base: base === null ? null : was,
-          change: 'deleted',
-          id,
-          now: current,
-          replayable: base !== null && sameJSON(current, was),
-          yours: null,
-        });
-      }
-    }
-  } else {
-    // Without ids: by position.
-    const length = Math.max(yours.length, against.length);
-    for (let i = 0; i < length; i++) {
-      const block = yours[i] ?? null;
-      const was = against[i] ?? null;
-      if (!sameJSON(block, was)) {
-        blocks.push({
-          base: base === null ? null : was,
-          change:
-            was === null ? 'added' : block === null ? 'deleted' : 'changed',
-          id: `#${i}`,
-          now: now[i] ?? null,
-          replayable: false,
-          yours: block,
-        });
-      }
-    }
-  }
+      : blocksOfState(input.edits.state, config, kinds);
+  const base =
+    input.base === null ? null : blocksOfState(input.base, config, kinds);
+  const now = blocksOfState(input.current, config, kinds);
+  const blocks = describeBlocks({
+    base,
+    blockMerge: input.blockMerge !== false,
+    kinds,
+    now,
+    yours,
+  });
   return {
     baseAvailable: base !== null,
     blocks,

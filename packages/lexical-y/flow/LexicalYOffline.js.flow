@@ -214,6 +214,7 @@ export type YOfflineDescribeOptions = {
   readonly current: Uint8Array,
   readonly config: HeadlessYConfig,
   readonly migrate?: (state: Uint8Array) => Uint8Array,
+  readonly blockMerge?: boolean,
 };
 declare export function describeYOfflineCapture(
   capture: YOfflineCapture,
@@ -238,6 +239,7 @@ declare export function replayUnsyncedEdits(input: {
   readonly binding: YOfflineBinding,
   readonly report: YOfflineReport | YUnsyncedReport,
   readonly only?: ReadonlyArray<string>,
+  readonly blockMerge?: boolean,
 }): YReplayResult;
 
 export type YOfflineRecovered = {
@@ -253,6 +255,7 @@ declare export function recoverYOfflineEdits(input: {
   readonly stage: YOfflineStage,
   readonly config: HeadlessYConfig,
   readonly migrate?: (state: Uint8Array) => Uint8Array,
+  readonly blockMerge?: boolean,
   readonly session?: YOfflineSession,
   readonly now?: () => number,
 }): Promise<YOfflineResult<Array<YOfflineRecovered>>>;

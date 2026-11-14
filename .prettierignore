@@ -29,3 +29,6 @@ pnpm-lock.yaml
 **/.next/**
 # Verbatim clipboard payloads — preserved exactly as the source app emitted.
 dev-examples/dom-import/src/fixtures/
+
+# Vendored third-party source, kept as published (see its header).
+packages/lexical-y/src/internal/Diff3.ts

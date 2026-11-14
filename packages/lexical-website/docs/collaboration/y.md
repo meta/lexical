@@ -1296,7 +1296,8 @@ use the first alone:
   made, lets them sync on a reconnect at the same epoch, and on a moved epoch
   freezes the document (`binding.freeze()`), stores it with its base, and
   reports what changed block by block (`describeUnsyncedEdits`), with a
-  replay of the blocks nobody else touched.
+  replay of the blocks nobody else touched, and of the blocks someone else
+  did touch where their changes and the user's do not overlap.
 
 One path serves every way a client comes back. A **reconnect** at the same
 epoch syncs the stored document. A room that was **replaced** (reloaded,
@@ -1444,7 +1445,7 @@ Every call that acts takes the stage, so one flag rolls the feature out:
 | ----------- | -------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
 | `'off'`     | Adds no listener, stores nothing; `serverEpoch` answers `{kind: 'off'}`                      | Returns an empty list and touches nothing                                           |
 | `'persist'` | Stores every edit as it is made, and freezes and stores a capture when the epoch moved       | Lists each capture with its report: the panel's preview, Copy and Reapply per block |
-| `'replay'`  | The same                                                                                     | Also applies each capture's replayable blocks, once across tabs, as one undo step   |
+| `'replay'`  | The same                                                                                     | Also applies each capture's replayable and merged blocks, once across tabs, as one undo step |
 
 Three options shape what `'persist'` stores:
 
@@ -1557,11 +1558,101 @@ position and nothing is replayable, so the panel offers Copy only.
 in one editor update, which the binding writes as one undo step: a changed
 block replaces the current one, an added block goes after the nearest block
 before it that the document holds (before the nearest after it when none is
-left), a deleted block is removed. Call it outside an editor update. Each block is
+left), a deleted block is removed, and a block the report merged (below) is
+replaced by the merge. Call it outside an editor update. Each block is
 checked again against the editor as it is at that moment, so a block someone
 changed after the report was made comes back in `notApplied`
 (`'changed-since'`) instead of being overwritten. `only` limits it to the
 ids given, for a Reapply button.
+
+### A block both sides changed
+
+When the user and someone else both changed a block, the report merges the
+three copies of it (the base, the user's, the document's) inside the block,
+as a version control system merges two branches of one file, and the replay
+writes the result:
+
+| Copy   | The block                                        |
+| ------ | ------------------------------------------------ |
+| Base   | `The quick brown fox jumps over the lazy dog`    |
+| Yours  | `The quick red fox jumps over the lazy dog`      |
+| Now    | `The quick brown fox jumps over the sleepy dog!` |
+| Merged | `The quick red fox jumps over the sleepy dog!`   |
+
+Each entry of `report.blocks` says what a replay does with it in
+`resolution`:
+
+- `'whole'`: only the user changed the block (`replayable`). `yours`
+  replaces the current block.
+- `'merged'`: both sides changed it and the merge is in `merged`, which
+  replaces the current block. Where the document already holds the user's
+  changes (an edit that did reach the server, or a merge already replayed),
+  `merged` equals `now`, nothing is written, and `recoverYOfflineEdits`
+  lists the block in `inDocument` instead.
+- `'conflict'`: left for the panel, exactly as before the merge existed,
+  with why in `conflict` and a sentence for your logs in `conflictDetail`.
+
+The merge runs on the JSON the report reads, so it is the same for every
+layout and stores nothing. Its rules lean towards a conflict: a wrong merge
+would be silent, and a conflict is shown.
+
+- **Text** is merged with diff3, the algorithm version control systems
+  merge files with (node-diff3's, vendored in the package): over the
+  block's words instead of a file's lines. A word is a run of letters and
+  digits (in a script written without spaces, such as Chinese, Japanese or
+  Thai, each character is its own); a space, a punctuation mark, a line break, a tab, a decorator and
+  a token-mode text node such as a mention are one unit each, and an
+  accented letter or a joined emoji stays one character. Words are compared
+  by their text only, so a format change is not an edit of the word. A
+  change one side made is taken. The same change on both sides is taken
+  once: it is read as the user's edit having arrived. Changes of the two
+  sides to one word, or that overlap or touch, are a conflict. Inside a word
+  one side changed, the letters it kept keep the other side's formatting
+  (a letter typed into a word the other side made bold is bold).
+- **Formatting, style and NodeState** of text merge in a second pass, for
+  each character both sides kept, one property at a time,
+  and a format one bit at a time: bold by one side and italic by the other
+  is bold italic; two colors for the same text are a conflict. Text one side
+  typed between two characters the other side changed alike takes that
+  change (a word typed into a range made bold is bold; a word typed into a
+  link whose URL changed is in that link); at the edge of such a range it
+  keeps its own. Text one side removed that the other reformatted is a
+  conflict, since it may have moved to another block.
+- **Element properties** (the block's type, alignment, indent, direction,
+  NodeState) merge one at a time. The type changed by one side and any other
+  property by the other is a conflict.
+- **Blocks that hold blocks** (a list, a table) are merged with diff3 too,
+  over their children's block ids; a wrapper without one (a table row, a
+  cell) is followed by the first block with an id inside it. Items added by
+  each side at different places merge, as do an item added by one side and
+  another edited by the other; items added by both sides at one place, an
+  item removed or moved by one side and edited by the other, and a nested
+  block without an id that both sides changed are a conflict.
+- **Checked before it is offered.** Text with a word twice can be
+  compared with its base in more than one way. The merge is made again by
+  word read from the end, and by character from the start and from the end,
+  and dropped (`'unverified'`) unless every reading makes the same block,
+  merging the user's block into the result again changes nothing, and no
+  block id is in it twice.
+
+| `conflict`           | Why the block is left for the panel                                                     |
+| -------------------- | --------------------------------------------------------------------------------------- |
+| `'no-base'`          | The base is gone (no `markSynced()`, or a layout below the floor with no `migrate`)       |
+| `'no-block-ids'`     | Blocks have no ids, so they are matched by position                                       |
+| `'block-merge-off'`  | Both sides changed the block and `blockMerge` is `false`                                  |
+| `'added-or-deleted'` | One side added or deleted the block and the other changed it                              |
+| `'overlap'`          | Both sides changed the same content, or content that touches                              |
+| `'format'`           | Both sides changed the formatting, style, state or link of the same content               |
+| `'property'`         | Both sides changed the same property of an element                                        |
+| `'structure'`        | Both sides changed which blocks a container holds, or one removed a block the other changed |
+| `'unsupported'`      | The block holds what the merge does not read: a node type whose instances are sometimes inline, text beside blocks, an empty text node, more than 10,000 characters, or more than 5,000 added or removed by one side |
+| `'unverified'`       | A merge was made and failed a check, so it was dropped                                    |
+
+`blockMerge: false` on `describeUnsyncedEdits`, `describeYOfflineCapture` or
+`recoverYOfflineEdits` turns the merge off (every block both sides changed
+is a conflict, except one the document already holds as the user had it),
+and on `replayUnsyncedEdits` it leaves a report's merged
+blocks unapplied.
 
 ### Layouts
 
@@ -1576,10 +1667,20 @@ and a capture that has no editor JSON returns an error that names `migrate`.
 ### Limits of the offline layer
 
 - **A replayed block replaces the current one.** Formatting, comments and
-  nested content come from the user's copy of the block; an edit a
+  nested content come from the user's copy of the block, or from the merge
+  of it with the document's; an edit a
   collaborator makes to that block in the instant between the check and the
   write is not merged into it (the check runs in the same task as the write,
   so this needs their update to arrive inside the editor update).
+- **The merge inside a block prefers a conflict.** Edits by two people to
+  one word or that touch, a removal beside the other's reformatting, and two
+  people adding blocks at one place in a list or table are left for the
+  panel although a person could merge them. Two edits that leave a block reading the same count as
+  one, as when whole blocks are compared: text (or a nested block) both
+  sides took out of a block is out of it once, also when one of them moved
+  it to another block (a split, a join), where it stays.
+- **Text the user moved between blocks** is a removal in one block and an
+  addition in another: each block is merged or replayed alone.
 - **A node that serializes differently in a live editor than in a headless
   read** (a decorator whose nested editor fills in an empty paragraph
   locally) is never replayed: the check against the base fails

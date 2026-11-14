@@ -53,6 +53,7 @@ import {
   type YUnsyncedBlock,
   type YUnsyncedReport,
 } from '../headless';
+import {canonical} from './BlockMerge';
 import {
   offlineFail as fail,
   offlineOk as ok,
@@ -1062,13 +1063,21 @@ export interface YOfflineDescribeOptions {
    * (nothing replayable) and such a capture without JSON cannot be read.
    */
   readonly migrate?: (state: Uint8Array) => Uint8Array;
+  /**
+   * Whether a block both sides changed is merged three ways where their
+   * changes do not overlap (see `describeUnsyncedEdits`). `false`: every
+   * such block is a conflict, as before the merge existed.
+   * @defaultValue true
+   */
+  readonly blockMerge?: boolean;
 }
 
 /**
  * @experimental What a capture changed, block by block
  * (`describeUnsyncedEdits`), against the document as it is now. Blocks the
  * document already holds as the user had them are left out (an edit that
- * did reach the server, or one already reapplied): an empty `blocks` with
+ * did reach the server, or one already reapplied, whole or merged into
+ * what someone else made of the block): an empty `blocks` with
  * `orderDiffers` false means the capture can be deleted.
  */
 export function describeYOfflineCapture(
@@ -1082,6 +1091,7 @@ export function describeYOfflineCapture(
   ) =>
     describeUnsyncedEdits({
       base: against,
+      blockMerge: options.blockMerge,
       capturedAt: capture.capturedAt,
       config,
       current,
@@ -1177,7 +1187,13 @@ export function describeYOfflineCapture(
   const inDocument: string[] = [];
   const blocks: YUnsyncedBlock[] = [];
   for (const block of report.blocks) {
-    if (sameJSON(block.yours, block.now)) {
+    // As the user had it, or holding their changes beside someone else's
+    // (the merge of the three is the block as it is).
+    if (
+      sameJSON(block.yours, block.now) ||
+      (block.resolution === 'merged' &&
+        canonical(block.merged) === canonical(block.now))
+    ) {
       inDocument.push(block.id);
     } else {
       blocks.push(block);
@@ -1253,10 +1269,14 @@ export interface YReplayResult {
  * replaces the current one, an added block is inserted after the nearest
  * block before it that the document holds (before the nearest after it when
  * there is none; at the end for a plain `YUnsyncedReport`, which does not
- * carry the user's order), a deleted block is removed. Each
+ * carry the user's order), a deleted block is removed. A block the
+ * report merged (resolution `'merged'`: both sides changed it, and their
+ * changes do not overlap) is replaced by the merge. Each
  * is checked again against the editor as it is now (the block still equals
- * the base, an added block's id is still absent), so a block someone else
+ * the base, or for a merge the block the merge was made from; an added
+ * block's id is still absent), so a block someone else
  * changed is never overwritten: it comes back in `notApplied`.
+ * `blockMerge: false` applies no merge (`'not-replayable'`).
  *
  * `only` limits it to those block ids (the panel's Reapply button). Call it
  * outside an editor update (not from an update listener or a command
@@ -1271,6 +1291,8 @@ export function replayUnsyncedEdits(input: {
   readonly binding: YOfflineBinding;
   readonly report: YOfflineReport | YUnsyncedReport;
   readonly only?: readonly string[];
+  /** Whether the report's merged blocks are applied. @defaultValue true */
+  readonly blockMerge?: boolean;
 }): YReplayResult {
   const {binding, only, report} = input;
   if (binding.status.kind !== 'active') {
@@ -1307,19 +1329,33 @@ export function replayUnsyncedEdits(input: {
     liveIds.forEach((id, i) => liveIndex.set(id as string, i));
   }
   const order = 'order' in report ? report.order : [];
-  const todo: YUnsyncedBlock[] = [];
+  // What to write for each block: the user's (null: remove it), or the
+  // merge of theirs and the document's.
+  const todo: {block: YUnsyncedBlock; write: SerializedLexicalNode | null}[] =
+    [];
   for (const block of candidates) {
-    if (!block.replayable) {
+    // A merge the document already holds leaves nothing to write.
+    const merged =
+      input.blockMerge !== false &&
+      block.resolution === 'merged' &&
+      block.merged != null &&
+      canonical(block.merged) !== canonical(block.now)
+        ? block.merged
+        : null;
+    if (!block.replayable && merged === null) {
       notApplied.push({id: block.id, reason: 'not-replayable'});
     } else if (!hasIds) {
       notApplied.push({id: block.id, reason: 'no-block-ids'});
     } else {
       const at = liveIndex.get(block.id);
       const now = at === undefined ? null : live[at];
-      if (!sameJSON(now, block.base)) {
+      // The check that makes the write safe: the block is still what the
+      // report compared (the base for a whole block, the document's block
+      // for a merge).
+      if (!sameJSON(now, block.replayable ? block.base : block.now)) {
         notApplied.push({id: block.id, reason: 'changed-since'});
       } else {
-        todo.push(block);
+        todo.push({block, write: block.replayable ? block.yours : merged});
       }
     }
   }
@@ -1342,11 +1378,11 @@ export function replayUnsyncedEdits(input: {
           byId.set(id as string, nodes[i]);
         }
       });
-      for (const block of todo) {
+      for (const {block, write} of todo) {
         let made: LexicalNode | null = null;
-        if (block.yours !== null) {
+        if (write !== null) {
           try {
-            made = $parseSerializedNode(block.yours);
+            made = $parseSerializedNode(write);
           } catch {
             notApplied.push({id: block.id, reason: 'unreadable'});
             continue;
@@ -1447,7 +1483,8 @@ export interface YOfflineRecovered {
  *    replayable), becomes a capture;
  * 2. each capture is described against the document as it is now;
  * 3. at stage `'replay'`, each capture this call claims (once, across tabs)
- *    has its replayable blocks applied as one undo step;
+ *    has its replayable blocks, and the blocks merged with someone else's
+ *    changes, applied as one undo step;
  * 4. a capture with nothing left to show is deleted once the server holds
  *    the document: only with `session`, the document's offline session,
  *    reporting no unsynced edits (after its `markSynced()`). Without it,
@@ -1469,6 +1506,12 @@ export async function recoverYOfflineEdits(input: {
   readonly stage: YOfflineStage;
   readonly config: HeadlessYConfig;
   readonly migrate?: (state: Uint8Array) => Uint8Array;
+  /**
+   * Whether a block both sides changed is merged three ways and replayed
+   * where their changes do not overlap. `false`: it stays in the panel.
+   * @defaultValue true
+   */
+  readonly blockMerge?: boolean;
   /**
    * The fresh document's offline session: with it, a capture the server
    * already holds (its session reports no unsynced edits) is deleted.
@@ -1559,6 +1602,7 @@ export async function recoverYOfflineEdits(input: {
   const doc = binding.binding.doc;
   const describe = (capture: YOfflineCapture) =>
     describeYOfflineCapture(capture, {
+      blockMerge: input.blockMerge,
       config,
       current: encodeStateAsUpdate(doc),
       migrate,
@@ -1572,7 +1616,9 @@ export async function recoverYOfflineEdits(input: {
       report.ok &&
       !capture.claimed &&
       binding.status.kind === 'active' &&
-      report.value.blocks.some(block => block.replayable)
+      report.value.blocks.some(
+        block => block.replayable || block.resolution === 'merged',
+      )
     ) {
       const claimed = await store.claimCapture(key, capture.id);
       if (!claimed.ok) {
@@ -1583,7 +1629,11 @@ export async function recoverYOfflineEdits(input: {
         report = describe(capture);
         if (report.ok) {
           try {
-            replay = replayUnsyncedEdits({binding, report: report.value});
+            replay = replayUnsyncedEdits({
+              binding,
+              blockMerge: input.blockMerge,
+              report: report.value,
+            });
             if (
               replay.applied.length === 0 &&
               replay.notApplied.some(skip => skip.reason === 'not-written')
