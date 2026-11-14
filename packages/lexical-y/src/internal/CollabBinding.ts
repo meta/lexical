@@ -128,12 +128,17 @@ export type YReadOnlyCause =
   | {readonly code: 'malformed-record'; readonly key: string}
   /** The document holds node types the editor does not register. */
   | {readonly code: 'unknown-node-types'; readonly types: readonly string[]}
-  /** A node type is stored in another way than the editor declares it. */
+  /**
+   * A node type is stored in another way than the editor declares it; with
+   * `replacement`, the type this editor builds its nodes as (a node
+   * replacement).
+   */
   | {
       readonly code: 'storage-mismatch';
       readonly type: string;
       readonly stored: string;
       readonly declared: string;
+      readonly replacement?: string;
     }
   /** The document was not made with `createYDoc`, or the editor's configuration cannot write it. */
   | {readonly code: 'unsupported-doc'}
@@ -306,6 +311,9 @@ function causeOf(warning: LexicalWarning | null): YReadOnlyCause {
           declared: kind(data.declared),
           stored: kind(data.stored),
           type: String(data.type),
+          ...(typeof data.replacement === 'string'
+            ? {replacement: data.replacement}
+            : null),
         };
       }
       return {code: 'malformed-record', key: key(data.key, 'storage')};

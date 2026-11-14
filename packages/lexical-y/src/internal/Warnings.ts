@@ -269,12 +269,18 @@ export type YStorageMismatchData =
       readonly key: string;
       readonly found: unknown;
     }
-  /** The class of `type` cannot be stored as the document stores it. */
+  /**
+   * The class of `type` cannot be stored as the document stores it. With
+   * `replacement`: this editor built a stored node of `type` as that type
+   * (a node replacement), whose class cannot be stored as `stored` (it is
+   * stored as `declared`), so edits to it could not be written.
+   */
   | {
       readonly reason: 'declaration-changed';
       readonly type: string;
       readonly stored: YStoredAs;
       readonly declared: YStoredAs;
+      readonly replacement?: string;
     };
 
 /**

@@ -94,6 +94,7 @@ export type YStorageMismatchData =
       readonly type: string,
       readonly stored: YStoredAs,
       readonly declared: YStoredAs,
+      readonly replacement?: string,
     };
 export type YUnknownNodeTypesData = {
   readonly reason: 'unregistered' | 'malformed-slot',
@@ -453,7 +454,13 @@ export type YReadOnlyCause =
   | {readonly code: 'requires-feature', readonly features: ReadonlyArray<string>}
   | {readonly code: 'malformed-record', readonly key: string}
   | {readonly code: 'unknown-node-types', readonly types: ReadonlyArray<string>}
-  | {readonly code: 'storage-mismatch', readonly type: string, readonly stored: string, readonly declared: string}
+  | {
+      readonly code: 'storage-mismatch',
+      readonly type: string,
+      readonly stored: string,
+      readonly declared: string,
+      readonly replacement?: string,
+    }
   | {readonly code: 'unsupported-doc'}
   | {readonly code: 'unreadable-content', readonly type: string}
   | {readonly code: 'unstorable-change', readonly type: string}

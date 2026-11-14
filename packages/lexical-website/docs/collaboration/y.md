@@ -500,7 +500,7 @@ for developers (what happened and what to do): render your own text from
 | `UNSUPPORTED_SCHEMA_WARNING` | A client of a newer version of your app (a higher `schemaVersion`) wrote to the document, on open or mid-session; see [Versioning your schema](#versioning-your-schema). Read only. | `'newer'`: `found`; `'malformed'`: `key`, `found`. All: `supported` (your `schemaVersion`) |
 | `UNSUPPORTED_LAYOUT_WARNING` | The layout is one this version cannot read, or one below `MIN_LAYOUT` (`'older'`, once per read-only period: an expected state for an app whose server migrates, so handle it in `onWarn`), or the root requires a feature this version does not support (`'requires'`, see the wire format). Read only. | `'newer'`: `found`; `'older'`: `found`, `min`, `upgrade`; `'requires'`: `features`; `'malformed'`: `key`, `found`; `'missing'`, `'removed'`; `'legacy-roots'`: `roots`. All: `supported` |
 | `UNKNOWN_NODE_TYPES_WARNING` | The document has node types the editor cannot build: types it does not register, however they are stored (a link class it lacks too), or content its classes throw on; or the document could not be read at all (`'unreadable'` with empty `types`, the cause in `error`). Read only. | `'unregistered'`, `'malformed-slot'`: `types`; `'unreadable'`: `types`, `error` |
-| `STORAGE_MISMATCH_WARNING` | A node type is stored in a way its class cannot be (one warning per type). Read only. | `'declaration-changed'`: `type`, `stored`, `declared`; `'malformed'`: `type`, `key`, `found` |
+| `STORAGE_MISMATCH_WARNING` | A node type is stored in a way its class cannot be (one warning per type), including a stored line that a node replacement builds as a class that cannot be stored as a line: the binding could not write edits to it. Read only. | `'declaration-changed'`: `type`, `stored`, `declared`, and `replacement` (the replacement's type) when a node replacement causes it; `'malformed'`: `type`, `key`, `found` |
 | `UNSUPPORTED_SLOTS_WARNING` | Named slots where the document cannot store them. Not written; read only. | `'stored-host'`, `'root'`: `types` |
 | `UNSUPPORTED_CONFIG_WARNING` | `BlockIdExtension` with `repairTransforms: true`, or a document with Yjs's format cleanup on (not from `createYDoc`), see [Set up an editor](#set-up-an-editor); or a document below `MIN_LAYOUT` with no `layoutUpgrade` declared (`'missing-layout-upgrade'`, with the `'older'` layout warning, see [Layout upgrades](#layout-upgrades)). Nothing is written; read only. | `'repair-transforms'`: `options`; `'cleanup-formatting'`; `'missing-layout-upgrade'` |
 | `NESTED_FALLBACK_WARNING` | A class that declares a line, format or group is stored as a node of its own (see [How content is stored](#how-content-is-stored)). Once per binding, class and reason. | `'merge-override'`: `type`, `method`; `'undeclared-properties'`: `type`, `properties`; `'inline-slots'`, `'inline-incomplete-schema'`, `'type-name'`, `'merge-incomplete-schema'`, `'merge-slots'`, `'group-children'`, `'group-state-merge'`, `'group-incomplete-schema'`: `type` |
@@ -740,7 +740,16 @@ declares a line, a format or a group, the binding warns about such
 properties on its instances and stores it as a node of its own.
 `describeStorage(editor)` lists how each node type is stored. The first write
 of a type records its kind, so a later client whose class declares something
-else keeps the recorded kind or opens read only. The stored names are
+else keeps the recorded kind or opens read only. A node replacement
+(`{replace, with, withKlass}`) builds stored nodes as another class: where a
+read builds a stored line as a class that cannot be stored as a line (a
+container class, such as a quote that holds blocks, replacing a quote stored
+as a line, or a replacement written the classic way, with a hand-written
+`exportJSON`, which is stored as a nested node), the document opens read only (`STORAGE_MISMATCH_WARNING`, with
+`replacement`), since edits to it could not be written. Migrate the stored
+content before such a replacement reaches its clients: reseed it from its
+JSON, which stores the replacement's own type, and bump `schemaVersion` so
+older clients stop writing. The stored names are
 specified in the
 [package README](https://github.com/meta/lexical/tree/main/packages/lexical-y#wire-format-layout-1).
 
