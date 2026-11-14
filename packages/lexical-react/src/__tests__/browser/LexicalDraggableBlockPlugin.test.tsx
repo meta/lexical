@@ -14,21 +14,31 @@ import {
   ListNode,
 } from '@lexical/list';
 import {LexicalComposer} from '@lexical/react/LexicalComposer';
+import {useLexicalComposerContext} from '@lexical/react/LexicalComposerContext';
 import {ContentEditable} from '@lexical/react/LexicalContentEditable';
-import {DraggableBlockPlugin_EXPERIMENTAL} from '@lexical/react/LexicalDraggableBlockPlugin';
+import {
+  type DraggableBlockBehavior,
+  DraggableBlockPlugin_EXPERIMENTAL,
+} from '@lexical/react/LexicalDraggableBlockPlugin';
 import {EditorRefPlugin} from '@lexical/react/LexicalEditorRefPlugin';
 import {ListPlugin} from '@lexical/react/LexicalListPlugin';
 import {RichTextPlugin} from '@lexical/react/LexicalRichTextPlugin';
 import {
+  $create,
   $createParagraphNode,
   $createTextNode,
   $getRoot,
+  $getSlot,
+  $getSlotNames,
   $isElementNode,
+  $setSlot,
+  ElementNode,
   type LexicalEditor,
   type LexicalNode,
+  mountSlotContainer,
 } from 'lexical';
 import * as React from 'react';
-import {act, createRef} from 'react';
+import {act, createRef, useEffect} from 'react';
 import {createRoot} from 'react-dom/client';
 import {describe, expect, onTestFinished, test} from 'vitest';
 
@@ -41,7 +51,11 @@ const TARGET_LINE_CLASS = 'draggable-block-target-line';
 
 type Structure = string | [string, ...Structure[]];
 
-/** The document as nested text: a paragraph is its text, a list is its type followed by its items (a nested list is the item itself). */
+/**
+ * The document as nested text: a paragraph is its text, a list is its type
+ * followed by its items (a nested list is the item itself), any other block
+ * that holds blocks is its type followed by its named slots and its children.
+ */
 function $structure(node: LexicalNode): Structure {
   if ($isListNode(node)) {
     return [
@@ -52,7 +66,87 @@ function $structure(node: LexicalNode): Structure {
       }),
     ];
   }
+  const nested = [
+    ...$getSlotNames(node).map(name => $getSlot(node, name)),
+    ...($isElementNode(node) ? node.getChildren() : []),
+  ].filter(
+    (child): child is ElementNode => $isElementNode(child) && !child.isInline(),
+  );
+  if (nested.length > 0) {
+    return [node.getType(), ...nested.map($structure)];
+  }
   return node.getTextContent();
+}
+
+/** A div with a class, so that a test can find its element. */
+class TestBlockNode extends ElementNode {
+  createDOM(): HTMLElement {
+    const div = document.createElement('div');
+    div.className = this.getType();
+    return div;
+  }
+  updateDOM(): false {
+    return false;
+  }
+}
+
+/** Shaped like a collapsible: a shadow root that holds a title and a body. */
+class SectionNode extends TestBlockNode {
+  $config() {
+    return this.config('test-section', {extends: ElementNode});
+  }
+  isShadowRoot(): true {
+    return true;
+  }
+}
+
+class SectionTitleNode extends TestBlockNode {
+  $config() {
+    return this.config('test-section-title', {extends: ElementNode});
+  }
+}
+
+/** A shadow root that holds any blocks: the body of a section, or a multi-block slot value. */
+class RegionNode extends TestBlockNode {
+  $config() {
+    return this.config('test-region', {extends: ElementNode});
+  }
+  isShadowRoot(): true {
+    return true;
+  }
+}
+
+/** A host of two named slots: a single-line `caption` and a multi-block `content`. */
+class FigureNode extends TestBlockNode {
+  $config() {
+    return this.config('test-figure', {
+      extends: ElementNode,
+      slots: ['caption', 'content'],
+    });
+  }
+}
+
+/** Reveals the slots of every figure inside the figure's own element. */
+function FigureSlotsPlugin(): null {
+  const [editor] = useLexicalComposerContext();
+  useEffect(
+    () =>
+      editor.registerMutationListener(
+        FigureNode,
+        mutations => {
+          for (const [nodeKey, mutation] of mutations) {
+            const hostDom = editor.getElementByKey(nodeKey);
+            if (mutation !== 'destroyed' && hostDom !== null) {
+              mountSlotContainer(editor, nodeKey, 'caption', hostDom);
+              mountSlotContainer(editor, nodeKey, 'content', hostDom);
+            }
+          }
+        },
+        {skipInitialization: false},
+      ),
+    [editor],
+  );
+  return null;
 }
 
 function $block(text: string) {
@@ -74,7 +168,9 @@ interface Harness {
   lastElement: () => HTMLElement | null;
 }
 
-function render(): Harness {
+function render(
+  $getBlockBehavior?: (node: LexicalNode) => DraggableBlockBehavior | null,
+): Harness {
   const scroller = document.createElement('div');
   scroller.style.width = '600px';
   scroller.style.padding = '20px';
@@ -95,7 +191,14 @@ function render(): Harness {
       <LexicalComposer
         initialConfig={{
           namespace: 'draggable-block',
-          nodes: [ListNode, ListItemNode],
+          nodes: [
+            ListNode,
+            ListItemNode,
+            SectionNode,
+            SectionTitleNode,
+            RegionNode,
+            FigureNode,
+          ],
           onError: (error: Error) => {
             throw error;
           },
@@ -106,6 +209,7 @@ function render(): Harness {
           ErrorBoundary={({children}) => <>{children}</>}
         />
         <ListPlugin />
+        <FigureSlotsPlugin />
         <DraggableBlockPlugin_EXPERIMENTAL
           anchorElem={anchorElem}
           menuRef={menuRef}
@@ -118,6 +222,7 @@ function render(): Harness {
           onElementChanged={element => {
             lastElement = element;
           }}
+          $getBlockBehavior={$getBlockBehavior}
         />
       </LexicalComposer>
     );
@@ -203,12 +308,18 @@ function hover({scroller}: Harness, elem: HTMLElement): void {
 
 /**
  * Drags the block under `from` by its handle and drops it at the bottom edge
- * of `to`, which the plugin reads as "after `to`".
+ * of `to`, which the plugin reads as "after `to`". `dragged` is the block
+ * that the handle over `from` belongs to, when that is not `from` itself.
  */
-function dragAfter(harness: Harness, from: HTMLElement, to: HTMLElement): void {
+function dragAfter(
+  harness: Harness,
+  from: HTMLElement,
+  to: HTMLElement,
+  dragged: HTMLElement = from,
+): void {
   const {anchorElem, editor} = harness;
   hover(harness, from);
-  expect(harness.lastElement()).toBe(from);
+  expect(harness.lastElement()).toBe(dragged);
   const handle = anchorElem.querySelector<HTMLElement>(`.${MENU_CLASS}`)!;
   const dataTransfer = new DataTransfer();
   act(() => {
@@ -342,6 +453,49 @@ describe('DraggableBlockPlugin_EXPERIMENTAL with lists', () => {
     ]);
   });
 
+  test('a list does not stay behind empty when its only item is dragged out', () => {
+    const harness = render();
+    const {editor} = harness;
+    act(() => {
+      editor.update(
+        () => {
+          $getRoot()
+            .clear()
+            .append(
+              $createListNode('number').append(
+                $item('One'),
+                $nested($createListNode('bullet').append($item('Only'))),
+              ),
+              $block('After'),
+              $createListNode('check').append($item('Alone')),
+            );
+        },
+        {discrete: true},
+      );
+    });
+
+    dragAfter(
+      harness,
+      elementWithText(editor, 'Only'),
+      elementWithText(editor, 'One'),
+    );
+    expect(structure(editor)).toEqual([
+      ['number', 'One', 'Only'],
+      'After',
+      ['check', 'Alone'],
+    ]);
+
+    dragAfter(
+      harness,
+      elementWithText(editor, 'Alone'),
+      elementWithText(editor, 'Only'),
+    );
+    expect(structure(editor)).toEqual([
+      ['number', 'One', 'Only', 'Alone'],
+      'After',
+    ]);
+  });
+
   test('a paragraph dropped on a list item lands next to the whole list', () => {
     const harness = render();
     const {editor} = harness;
@@ -398,5 +552,293 @@ describe('DraggableBlockPlugin_EXPERIMENTAL with lists', () => {
     act(() => {
       handle.dispatchEvent(new DragEvent('dragend', {bubbles: true}));
     });
+  });
+});
+
+/** Paragraph, section (title, body of two paragraphs), paragraph. */
+function populateSection(editor: LexicalEditor): void {
+  act(() => {
+    editor.update(
+      () => {
+        $getRoot()
+          .clear()
+          .append(
+            $block('Before'),
+            $create(SectionNode).append(
+              $create(SectionTitleNode).append($createTextNode('Title')),
+              $create(RegionNode).append(
+                $block('Body one'),
+                $block('Body two'),
+              ),
+            ),
+            $block('After'),
+          );
+      },
+      {discrete: true},
+    );
+  });
+}
+
+/** A section is dragged from its title, the blocks of its body on their own. */
+function $sectionBehavior(node: LexicalNode): DraggableBlockBehavior | null {
+  if (node instanceof SectionNode) {
+    return 'draggable';
+  }
+  if (node instanceof SectionTitleNode) {
+    return 'ignored';
+  }
+  if (node instanceof RegionNode) {
+    return 'transparent';
+  }
+  return null;
+}
+
+function elementWithClass(editor: LexicalEditor, className: string) {
+  const elem = editor
+    .getRootElement()!
+    .querySelector<HTMLElement>(`.${className}`);
+  expect(elem).not.toBeNull();
+  return elem!;
+}
+
+describe('DraggableBlockPlugin_EXPERIMENTAL with $getBlockBehavior', () => {
+  test('by default a shadow root is one unit', () => {
+    const harness = render();
+    const {editor} = harness;
+    populateSection(editor);
+    const section = elementWithClass(editor, 'test-section');
+
+    hover(harness, elementWithClass(editor, 'test-section-title'));
+    expect(harness.lastElement()).toBe(section);
+
+    hover(harness, elementWithText(editor, 'Body one'));
+    expect(harness.lastElement()).toBe(section);
+  });
+
+  test('an ignored block and the gaps of a transparent block belong to the enclosing block', () => {
+    const harness = render($sectionBehavior);
+    const {editor} = harness;
+    populateSection(editor);
+    const section = elementWithClass(editor, 'test-section');
+    const region = elementWithClass(editor, 'test-region');
+    region.style.paddingBottom = '30px';
+
+    hover(harness, elementWithClass(editor, 'test-section-title'));
+    expect(harness.lastElement()).toBe(section);
+
+    hover(harness, elementWithText(editor, 'Body two'));
+    expect(harness.lastElement()).toBe(elementWithText(editor, 'Body two'));
+
+    const rect = region.getBoundingClientRect();
+    act(() => {
+      harness.scroller.dispatchEvent(
+        new MouseEvent('mousemove', {
+          bubbles: true,
+          clientX: rect.left + 1,
+          clientY: rect.bottom - 10,
+        }),
+      );
+    });
+    expect(harness.lastElement()).toBe(section);
+  });
+
+  test('an atomic block hides the blocks nested in it', () => {
+    const harness = render(node => ($isListNode(node) ? 'atomic' : null));
+    const {editor} = harness;
+    populate(editor);
+
+    hover(harness, elementWithText(editor, 'Two'));
+    expect(harness.lastElement()).toBe(
+      elementWithText(editor, 'Two').closest('ol'),
+    );
+  });
+
+  test('reorders the blocks of a transparent shadow root', () => {
+    const harness = render($sectionBehavior);
+    const {editor} = harness;
+    populateSection(editor);
+
+    dragAfter(
+      harness,
+      elementWithText(editor, 'Body one'),
+      elementWithText(editor, 'Body two'),
+    );
+
+    expect(structure(editor)).toEqual([
+      'Before',
+      ['test-section', 'Title', ['test-region', 'Body two', 'Body one']],
+      'After',
+    ]);
+  });
+
+  test('moves blocks into and out of a transparent shadow root', () => {
+    const harness = render($sectionBehavior);
+    const {editor} = harness;
+    populateSection(editor);
+
+    dragAfter(
+      harness,
+      elementWithText(editor, 'Before'),
+      elementWithText(editor, 'Body one'),
+    );
+    expect(structure(editor)).toEqual([
+      [
+        'test-section',
+        'Title',
+        ['test-region', 'Body one', 'Before', 'Body two'],
+      ],
+      'After',
+    ]);
+
+    dragAfter(
+      harness,
+      elementWithText(editor, 'Body two'),
+      elementWithText(editor, 'After'),
+    );
+    expect(structure(editor)).toEqual([
+      ['test-section', 'Title', ['test-region', 'Body one', 'Before']],
+      'After',
+      'Body two',
+    ]);
+  });
+
+  test('a list item dropped in a shadow root gets a list of the same type', () => {
+    const harness = render($sectionBehavior);
+    const {editor} = harness;
+    populateSection(editor);
+    act(() => {
+      editor.update(
+        () => {
+          $getRoot().append($createListNode('number').append($item('One')));
+        },
+        {discrete: true},
+      );
+    });
+
+    dragAfter(
+      harness,
+      elementWithText(editor, 'One'),
+      elementWithText(editor, 'Body one'),
+    );
+
+    expect(structure(editor)).toEqual([
+      'Before',
+      [
+        'test-section',
+        'Title',
+        ['test-region', 'Body one', ['number', 'One'], 'Body two'],
+      ],
+      'After',
+    ]);
+  });
+
+  test('a shadow root keeps a block when its last block is dragged out', () => {
+    const harness = render($sectionBehavior);
+    const {editor} = harness;
+    populateSection(editor);
+
+    dragAfter(
+      harness,
+      elementWithText(editor, 'Body one'),
+      elementWithText(editor, 'After'),
+    );
+    dragAfter(
+      harness,
+      elementWithText(editor, 'Body two'),
+      elementWithText(editor, 'After'),
+    );
+
+    expect(structure(editor)).toEqual([
+      'Before',
+      ['test-section', 'Title', ['test-region', '']],
+      'After',
+      'Body two',
+      'Body one',
+    ]);
+  });
+});
+
+/** Paragraph, figure (caption slot, content slot of two paragraphs), paragraph. */
+function populateFigure(editor: LexicalEditor): void {
+  act(() => {
+    editor.update(
+      () => {
+        const figure = $create(FigureNode);
+        $setSlot(figure, 'caption', $block('Caption'));
+        $setSlot(
+          figure,
+          'content',
+          $create(RegionNode).append($block('Slot one'), $block('Slot two')),
+        );
+        $getRoot().clear().append($block('Before'), figure, $block('After'));
+      },
+      {discrete: true},
+    );
+  });
+}
+
+describe('DraggableBlockPlugin_EXPERIMENTAL with named slots', () => {
+  test('the blocks of a multi-block slot get a handle, a single-line slot does not', () => {
+    const harness = render();
+    const {editor} = harness;
+    populateFigure(editor);
+
+    hover(harness, elementWithText(editor, 'Slot two'));
+    expect(harness.lastElement()).toBe(elementWithText(editor, 'Slot two'));
+
+    hover(harness, elementWithText(editor, 'Caption'));
+    expect(harness.lastElement()).toBe(elementWithClass(editor, 'test-figure'));
+  });
+
+  test('reorders the blocks of a slot and moves blocks into it', () => {
+    const harness = render();
+    const {editor} = harness;
+    populateFigure(editor);
+
+    dragAfter(
+      harness,
+      elementWithText(editor, 'Slot one'),
+      elementWithText(editor, 'Slot two'),
+    );
+    dragAfter(
+      harness,
+      elementWithText(editor, 'After'),
+      elementWithText(editor, 'Slot two'),
+    );
+
+    expect(structure(editor)).toEqual([
+      'Before',
+      [
+        'test-figure',
+        'Caption',
+        ['test-region', 'Slot two', 'After', 'Slot one'],
+      ],
+    ]);
+  });
+
+  test('a host is not dropped into its own slot, and nothing is dropped beside a single-line slot value', () => {
+    const harness = render();
+    const {editor} = harness;
+    populateFigure(editor);
+    const before = structure(editor);
+
+    dragAfter(
+      harness,
+      elementWithText(editor, 'Caption'),
+      elementWithText(editor, 'Slot one'),
+      elementWithClass(editor, 'test-figure'),
+    );
+    expect(structure(editor)).toEqual(before);
+
+    dragAfter(
+      harness,
+      elementWithText(editor, 'Before'),
+      elementWithText(editor, 'Caption'),
+    );
+    expect(structure(editor)).toEqual([
+      ['test-figure', 'Caption', ['test-region', 'Slot one', 'Slot two']],
+      'Before',
+      'After',
+    ]);
   });
 });

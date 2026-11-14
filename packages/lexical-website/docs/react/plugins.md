@@ -500,7 +500,7 @@ function createProvider(id, yjsDocMap) {
 
 ### `LexicalDraggableBlockPlugin`
 
-Adds a draggable block handle that appears next to top-level block nodes when hovered. Users can drag and drop blocks to reorder them. A target line indicates the drop position.
+Adds a draggable block handle that appears next to the block under the pointer: a top-level block, or a block nested in one (a list item at any depth, a block inside a multi-block [named slot](../concepts/named-slots.md)). Users can drag and drop blocks to reorder them. A target line indicates the drop position.
 
 > Note: This plugin is experimental.
 
@@ -517,6 +517,35 @@ const targetLineRef = useRef(null);
   menuComponent={<div ref={menuRef} className="drag-handle">::</div>}
   targetLineComponent={<div ref={targetLineRef} className="target-line" />}
   isOnMenu={(el) => menuRef.current?.contains(el) ?? false}
+/>
+```
+
+By default a shadow root (a table, a layout container, ...) is dragged as one unit and nothing inside it gets a handle. The optional `$getBlockBehavior` prop decides this per node. It returns one of:
+
+- `'draggable'`: the block gets a handle, and so can the blocks nested in it.
+- `'atomic'`: the block gets a handle; nothing inside it does.
+- `'transparent'`: the block gets no handle, but the blocks nested in it can.
+- `'ignored'`: neither the block nor anything inside it gets a handle.
+
+Return `null` to keep the default for a node. Pass a stable function (module level or `useCallback`):
+
+```jsx
+function $getBlockBehavior(node) {
+  if ($isCollapsibleContainerNode(node)) {
+    return 'draggable';
+  }
+  if ($isCollapsibleTitleNode(node)) {
+    return 'ignored';
+  }
+  if ($isCollapsibleContentNode(node)) {
+    return 'transparent';
+  }
+  return null;
+}
+
+<DraggableBlockPlugin_EXPERIMENTAL
+  {/* ... */}
+  $getBlockBehavior={$getBlockBehavior}
 />
 ```
 

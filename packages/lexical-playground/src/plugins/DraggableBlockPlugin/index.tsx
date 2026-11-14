@@ -9,7 +9,10 @@
 import './index.css';
 
 import {useLexicalComposerContext} from '@lexical/react/LexicalComposerContext';
-import {DraggableBlockPlugin_EXPERIMENTAL} from '@lexical/react/LexicalDraggableBlockPlugin';
+import {
+  type DraggableBlockBehavior,
+  DraggableBlockPlugin_EXPERIMENTAL,
+} from '@lexical/react/LexicalDraggableBlockPlugin';
 import {
   $createParagraphNode,
   $createTextNode,
@@ -18,6 +21,7 @@ import {
   $isParagraphNode,
   $isTextNode,
   getComposedEventTarget,
+  type LexicalNode,
   type NodeKey,
   registerEventListener,
 } from 'lexical';
@@ -32,6 +36,9 @@ import {
 import * as ReactDOM from 'react-dom';
 
 import useModal from '../../hooks/useModal';
+import {$isCollapsibleContainerNode} from '../CollapsibleExtension/CollapsibleContainerNode';
+import {$isCollapsibleContentNode} from '../CollapsibleExtension/CollapsibleContentNode';
+import {$isCollapsibleTitleNode} from '../CollapsibleExtension/CollapsibleTitleNode';
 import {
   ComponentPickerMenuItem,
   type ComponentPickerOption,
@@ -45,6 +52,23 @@ type PickerState = {
   insertBefore: boolean;
   targetNodeKey: NodeKey;
 };
+
+/**
+ * A collapsible is dragged as a whole from its title, and the blocks of its
+ * content are dragged on their own. Everything else keeps the default.
+ */
+function $getBlockBehavior(node: LexicalNode): DraggableBlockBehavior | null {
+  if ($isCollapsibleContainerNode(node)) {
+    return 'draggable';
+  }
+  if ($isCollapsibleTitleNode(node)) {
+    return 'ignored';
+  }
+  if ($isCollapsibleContentNode(node)) {
+    return 'transparent';
+  }
+  return null;
+}
 
 function isOnMenu(element: HTMLElement): boolean {
   return !!element.closest(`.${DRAGGABLE_BLOCK_MENU_CLASSNAME}`);
@@ -292,6 +316,7 @@ export default function DraggableBlockPlugin({
         }
         isOnMenu={isOnMenu}
         onElementChanged={setDraggableElement}
+        $getBlockBehavior={$getBlockBehavior}
       />
     </>
   );

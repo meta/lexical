@@ -12,12 +12,17 @@ import {eventFiles} from '@lexical/rich-text';
 import {calculateZoomLevel} from '@lexical/utils';
 import {
   $copyNode,
+  $createParagraphNode,
   $getNearestNodeFromDOMNode,
   $getNodeByKey,
   $getRoot,
   $getSelection,
+  $getSlot,
+  $getSlotHost,
+  $getSlotNames,
+  $isDecoratorNode,
   $isElementNode,
-  $isRootNode,
+  $isRootOrShadowRoot,
   $onUpdate,
   BLUR_COMMAND,
   COMMAND_PRIORITY_HIGH,
@@ -152,55 +157,169 @@ function containsEvent(
 }
 
 /**
+ * How the plugin treats a block it meets while it walks down from a top-level
+ * block to the block under the pointer:
+ *
+ * - `'draggable'`: the block gets its own handle, and the blocks nested in it
+ *   (its block children and the values of its named slots) are looked at too.
+ * - `'atomic'`: the block gets its own handle and is dragged as one unit;
+ *   nothing inside it gets a handle.
+ * - `'transparent'`: the block gets no handle of its own, but the blocks
+ *   nested in it do. Over the parts of it that no nested block covers, the
+ *   handle belongs to the nearest enclosing block that has one.
+ * - `'ignored'`: neither the block nor anything inside it gets a handle; the
+ *   pointer over it counts as being over the enclosing block.
+ *
+ * A top-level block always has a handle, so for it `'transparent'` reads as
+ * `'draggable'` and `'ignored'` as `'atomic'`.
+ *
+ * @experimental The API may change in a future release.
+ */
+export type DraggableBlockBehavior =
+  | 'draggable'
+  | 'atomic'
+  | 'transparent'
+  | 'ignored';
+
+type $GetBlockBehavior = (node: LexicalNode) => DraggableBlockBehavior;
+
+/**
+ * The behavior of a block when `$getBlockBehavior` does not decide it. The
+ * value of a named slot cannot leave its slot, so it never gets a handle: a
+ * shadow-root value (a multi-block region) is transparent, any other value (a
+ * single-line field) is ignored. Any other shadow root (a table, a layout
+ * container, ...) is one unit. Everything else is draggable.
+ */
+function $getDefaultBlockBehavior(node: LexicalNode): DraggableBlockBehavior {
+  const isShadowRoot = $isElementNode(node) && node.isShadowRoot();
+  if ($getSlotHost(node) !== null) {
+    return isShadowRoot ? 'transparent' : 'ignored';
+  }
+  return isShadowRoot ? 'atomic' : 'draggable';
+}
+
+/**
+ * The blocks directly inside `node`: the values of its named slots, then its
+ * block children.
+ */
+function $getNestedBlocks(node: LexicalNode): LexicalNode[] {
+  const blocks: LexicalNode[] = [];
+  if (!$isElementNode(node) && !$isDecoratorNode(node)) {
+    return blocks;
+  }
+  for (const name of $getSlotNames(node)) {
+    const value = $getSlot(node, name);
+    if (value !== null) {
+      blocks.push(value);
+    }
+  }
+  if ($isElementNode(node)) {
+    for (const child of node.getChildren()) {
+      if (
+        ($isElementNode(child) || $isDecoratorNode(child)) &&
+        !child.isInline()
+      ) {
+        blocks.push(child);
+      }
+    }
+  }
+  return blocks;
+}
+
+/** The parent of `node`, or the host of the named slot it is the value of. */
+function $getParentOrSlotHost(node: LexicalNode): LexicalNode | null {
+  return node.getParent() || $getSlotHost(node);
+}
+
+/** Whether `event` is within the columns that `elem` itself occupies. */
+function isWithinColumns(elem: HTMLElement, event: MouseEvent): boolean {
+  const x = event.x / calculateZoomLevel(elem);
+  const {left, right} = elem.getBoundingClientRect();
+  return x >= left && x <= right;
+}
+
+/**
  * Walks down from a top-level block to the deepest nested block under the
- * pointer, so that a list item (at any depth) gets its own handle instead of
- * the whole list. Descent stops at shadow roots (tables, layout containers,
- * collapsibles, ...), which stay one draggable unit, and at blocks with only
- * inline content. When no child block is under the pointer (for example the
- * margin band of a list) the block itself is returned, so a whole list can
- * still be dragged from its edge.
+ * pointer that has a handle of its own, so that a list item (at any depth)
+ * or a paragraph inside a named slot gets its own handle instead of the whole
+ * top-level block. `$getBehavior` decides how each block met on the way is
+ * treated, see {@link DraggableBlockBehavior}. When no nested block is under
+ * the pointer (for example the margin band of a list) the enclosing block is
+ * returned, so a whole list can still be dragged from its edge.
  */
 function $getNestedBlockElement(
   editor: LexicalEditor,
   elem: HTMLElement,
   anchorElementRect: DOMRect,
   event: MouseEvent,
+  $getBehavior: $GetBlockBehavior,
 ): HTMLElement {
   let node = $getNearestNodeFromDOMNode(elem);
   let blockElem = elem;
-  descend: while ($isElementNode(node) && !node.isShadowRoot()) {
-    for (const child of node.getChildren()) {
-      if (!$isElementNode(child) || child.isInline()) {
+  if (node !== null) {
+    const behavior = $getBehavior(node);
+    if (behavior === 'atomic' || behavior === 'ignored') {
+      return blockElem;
+    }
+  }
+  while (node !== null) {
+    // Blocks are matched by the rows they occupy, so that the gutter counts.
+    // Of several blocks on the same rows (the columns of a layout) the one
+    // whose columns the pointer is in wins.
+    let match: {
+      behavior: DraggableBlockBehavior;
+      elem: HTMLElement;
+      node: LexicalNode;
+    } | null = null;
+    for (const child of $getNestedBlocks(node)) {
+      const behavior = $getBehavior(child);
+      if (behavior === 'ignored') {
         continue;
       }
       const childElem = editor.getElementByKey(child.getKey());
       if (
-        childElem !== null &&
-        containsEvent(childElem, anchorElementRect, event).result
+        childElem === null ||
+        !containsEvent(childElem, anchorElementRect, event).result
       ) {
-        node = child;
-        blockElem = childElem;
-        continue descend;
+        continue;
+      }
+      if (isWithinColumns(childElem, event)) {
+        match = {behavior, elem: childElem, node: child};
+        break;
+      }
+      if (match === null) {
+        match = {behavior, elem: childElem, node: child};
       }
     }
-    break;
+    if (match === null) {
+      break;
+    }
+    if (match.behavior !== 'transparent') {
+      blockElem = match.elem;
+    }
+    if (match.behavior === 'atomic') {
+      break;
+    }
+    node = match.node;
   }
   return blockElem;
 }
 
 /**
- * Whether `dragged` may become a sibling of `target`. Under the root anything
- * goes. A node that requires a parent (a list item) may only sit beside nodes
- * whose parent has the same type as its own, so items move between lists of
- * any type and depth. Any other block may not sit beside such nodes: inside a
- * list it would be turned into a list item or break the list.
+ * Whether `dragged` may become a sibling of `target`. Under the root or a
+ * shadow root (the content of a collapsible, a multi-block named slot)
+ * anything goes. The value of a named slot has no siblings. A node that
+ * requires a parent (a list item) may only sit beside nodes whose parent has
+ * the same type as its own, so items move between lists of any type and
+ * depth. Any other block may not sit beside such nodes: inside a list it
+ * would be turned into a list item or break the list.
  */
 function $canDropAsSibling(dragged: LexicalNode, target: LexicalNode): boolean {
   const parent = target.getParent();
   if (parent === null) {
     return false;
   }
-  if ($isRootNode(parent)) {
+  if ($isRootOrShadowRoot(parent)) {
     return true;
   }
   if (dragged.isParentRequired()) {
@@ -218,7 +337,7 @@ function $canDropAsSibling(dragged: LexicalNode, target: LexicalNode): boolean {
  * `dragged` as a sibling. This is how a paragraph dragged over a list item
  * targets the enclosing list, so the drop line is only shown where the drop
  * will happen. Returns null when there is no such ancestor, or when the drop
- * would move `dragged` into itself.
+ * would move `dragged` into itself (into its children or its named slots).
  */
 function $resolveDropTarget(
   dragged: LexicalNode,
@@ -226,15 +345,51 @@ function $resolveDropTarget(
 ): LexicalNode | null {
   let target = $getNearestNodeFromDOMNode(hoveredElem);
   while (target !== null && !$canDropAsSibling(dragged, target)) {
-    target = target.getParent();
+    target = $getParentOrSlotHost(target);
   }
-  if (
-    target === null ||
-    ($isElementNode(dragged) && dragged.isParentOf(target))
+  for (
+    let ancestor = target !== null ? $getParentOrSlotHost(target) : null;
+    ancestor !== null;
+    ancestor = $getParentOrSlotHost(ancestor)
   ) {
-    return null;
+    if (ancestor.is(dragged)) {
+      return null;
+    }
   }
   return target;
+}
+
+/**
+ * Tidies up `parent` after its last child was dragged out of it. A parent
+ * that may not be empty (a list) is removed, and so is each ancestor that
+ * this leaves empty (the item that held a nested list). A shadow root (the
+ * content of a collapsible, a multi-block named slot) stays and gets an
+ * empty paragraph, so that there is a block to type in.
+ */
+function $cleanUpEmptiedParent(parent: LexicalNode | null): void {
+  let node = parent;
+  let removeEmpty = false;
+  while (
+    $isElementNode(node) &&
+    node.isAttached() &&
+    node.isEmpty() &&
+    !$isRootOrShadowRoot(node) &&
+    $getSlotHost(node) === null &&
+    (removeEmpty || !node.canBeEmpty())
+  ) {
+    const next: LexicalNode | null = node.getParent();
+    node.remove(true);
+    node = next;
+    removeEmpty = true;
+  }
+  if (
+    $isElementNode(node) &&
+    node.isAttached() &&
+    node.isShadowRoot() &&
+    node.getChildrenSize() === 0
+  ) {
+    node.append($createParagraphNode());
+  }
 }
 
 function $getDropTargetElement(
@@ -255,6 +410,7 @@ function getBlockElement(
   anchorElem: HTMLElement,
   editor: LexicalEditor,
   event: MouseEvent,
+  $getBehavior: $GetBlockBehavior,
   useEdgeAsDefault = false,
 ): HTMLElement | null {
   const anchorElementRect = anchorElem.getBoundingClientRect();
@@ -309,6 +465,7 @@ function getBlockElement(
           elem,
           anchorElementRect,
           event,
+          $getBehavior,
         );
         prevIndex = index;
         break;
@@ -448,7 +605,16 @@ function useDraggableBlockMenu(
   targetLineComponent: ReactNode,
   isOnMenu: (element: HTMLElement) => boolean,
   onElementChanged?: (element: HTMLElement | null) => void,
+  $getBlockBehavior?: (
+    node: LexicalNode,
+  ) => DraggableBlockBehavior | null | undefined,
 ): JSX.Element {
+  const $getBehavior = useCallback(
+    (node: LexicalNode): DraggableBlockBehavior =>
+      ($getBlockBehavior && $getBlockBehavior(node)) ||
+      $getDefaultBlockBehavior(node),
+    [$getBlockBehavior],
+  );
   const scrollerElem = getParentElement(anchorElem);
 
   const isDraggingBlockRef = useRef<boolean>(false);
@@ -481,7 +647,12 @@ function useDraggableBlockMenu(
         return;
       }
 
-      const _draggableBlockElem = getBlockElement(anchorElem, editor, event);
+      const _draggableBlockElem = getBlockElement(
+        anchorElem,
+        editor,
+        event,
+        $getBehavior,
+      );
 
       setDraggableBlockElem(_draggableBlockElem);
     }
@@ -496,7 +667,14 @@ function useDraggableBlockMenu(
         mousemove: onMouseMove,
       });
     }
-  }, [scrollerElem, anchorElem, editor, isOnMenu, setDraggableBlockElem]);
+  }, [
+    scrollerElem,
+    anchorElem,
+    editor,
+    isOnMenu,
+    setDraggableBlockElem,
+    $getBehavior,
+  ]);
 
   useEffect(() => {
     const zoomLevel = calculateZoomLevel(editor.getRootElement(), true);
@@ -526,7 +704,13 @@ function useDraggableBlockMenu(
       if (!isHTMLElement(target)) {
         return false;
       }
-      const hoveredBlockElem = getBlockElement(anchorElem, editor, event, true);
+      const hoveredBlockElem = getBlockElement(
+        anchorElem,
+        editor,
+        event,
+        $getBehavior,
+        true,
+      );
       const targetLineElem = targetLineRef.current;
       if (hoveredBlockElem === null || targetLineElem === null) {
         return false;
@@ -572,7 +756,13 @@ function useDraggableBlockMenu(
       if (!isHTMLElement(target)) {
         return false;
       }
-      const hoveredBlockElem = getBlockElement(anchorElem, editor, event, true);
+      const hoveredBlockElem = getBlockElement(
+        anchorElem,
+        editor,
+        event,
+        $getBehavior,
+        true,
+      );
       if (!hoveredBlockElem) {
         return false;
       }
@@ -610,6 +800,7 @@ function useDraggableBlockMenu(
       } else {
         targetNode.insertBefore(nodeToInsert);
       }
+      $cleanUpEmptiedParent(draggedParent);
       setDraggableBlockElem(null);
 
       // Firefox-specific fix: Use editor.focus() after drop to properly restore
@@ -640,7 +831,7 @@ function useDraggableBlockMenu(
         COMMAND_PRIORITY_HIGH,
       ),
     );
-  }, [anchorElem, editor, targetLineRef, setDraggableBlockElem]);
+  }, [anchorElem, editor, targetLineRef, setDraggableBlockElem, $getBehavior]);
 
   // Firefox-specific: Prevent blur when clicking on drag handle to maintain cursor visibility.
   // Firefox fires blur before dragstart, causing focus loss. We detect this by checking if
@@ -756,8 +947,10 @@ function useDraggableBlockMenu(
 /**
  * Renders a draggable handle and drop-target line that let users reorder
  * blocks by dragging: top-level blocks, and the blocks nested in them (list
- * items at any depth) on their own. Descent stops at shadow roots (tables,
- * layout containers, ...), which are dragged as one unit. A list item can be
+ * items at any depth, the blocks of a multi-block named slot) on their own.
+ * By default a shadow root (a table, a layout container, ...) is dragged as
+ * one unit and nothing inside it gets a handle; `$getBlockBehavior` changes
+ * that per node, see {@link DraggableBlockBehavior}. A list item can be
  * dropped into any list, or outside a list where it gets its own list of the
  * same type; any other block dragged over a list lands next to that list.
  * You supply the handle and target-line elements
@@ -777,6 +970,7 @@ export function DraggableBlockPlugin_EXPERIMENTAL({
   targetLineComponent,
   isOnMenu,
   onElementChanged,
+  $getBlockBehavior,
 }: {
   anchorElem?: HTMLElement;
   menuRef: React.RefObject<HTMLElement | null>;
@@ -785,6 +979,15 @@ export function DraggableBlockPlugin_EXPERIMENTAL({
   targetLineComponent: ReactNode;
   isOnMenu: (element: HTMLElement) => boolean;
   onElementChanged?: (element: HTMLElement | null) => void;
+  /**
+   * Decides how the plugin treats a block, see {@link DraggableBlockBehavior}.
+   * Return `null` or `undefined` to keep the default for that block. Called
+   * with the editor state active. Pass a stable function (module level or
+   * `useCallback`).
+   */
+  $getBlockBehavior?: (
+    node: LexicalNode,
+  ) => DraggableBlockBehavior | null | undefined;
 }): JSX.Element {
   const [editor] = useLexicalComposerContext();
   // Subscribed rather than read off the editor, so that setEditable() actually
@@ -801,5 +1004,6 @@ export function DraggableBlockPlugin_EXPERIMENTAL({
     targetLineComponent,
     isOnMenu,
     onElementChanged,
+    $getBlockBehavior,
   );
 }
