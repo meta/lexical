@@ -333,6 +333,25 @@ export function getEditorPropertyFromDOMNode(node: Node | null): unknown {
   return node ? node.__lexicalEditor : null;
 }
 
+/**
+ * @internal
+ *
+ * Whether `element` is one of `editor`'s own editing hosts: its root element,
+ * or an editable island inside it, such as a named slot's container or any
+ * other element marked with {@link $markSlotEditable}.
+ */
+export function isEditorFocusHost(
+  editor: LexicalEditor,
+  rootElement: HTMLElement,
+  element: Element | null,
+): boolean {
+  return (
+    element !== null &&
+    rootElement.contains(element) &&
+    getEditorPropertyFromDOMNode(element) === editor
+  );
+}
+
 /** Returns the text direction ('ltr' or 'rtl') of the given string, or null if it contains no strong directional characters. */
 export function getTextDirection(text: string): 'ltr' | 'rtl' | null {
   if (RTL_REGEX.test(text)) {
