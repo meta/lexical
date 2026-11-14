@@ -111,6 +111,14 @@ export class MarkdownStreamScanner {
   }
 
   /**
+   * Materializes an mdast block node into Lexical nodes using the same
+   * import handlers as the full-document importer.
+   */
+  importBlock(node: MdastNode): LexicalNode[] {
+    return this.importNode(node, 0);
+  }
+
+  /**
    * Recognizes a block-level construct at the start of `line`. Returns the
    * matched construct together with the marker length, or `null`.
    */

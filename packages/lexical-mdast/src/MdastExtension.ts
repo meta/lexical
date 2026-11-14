@@ -504,7 +504,9 @@ export const MdastAutolinkLiteralExtension = defineExtension({
  * dependencies: [MdastCommonMarkExtension, MdastShadowRootQuoteExtension]
  * ```
  * The quote *export* handler supports both forms per node, so legacy quotes
- * (e.g. created by the `> ` shortcut) and shadow root quotes can coexist.
+ * and shadow root quotes can coexist. The `> ` shortcut of
+ * {@link MdastShortcutsExtension} makes the same kind of quote as the import,
+ * so with this extension it makes shadow root quotes too.
  * @experimental
  */
 export const MdastShadowRootQuoteExtension = defineExtension({

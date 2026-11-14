@@ -78,7 +78,7 @@ describe('QuoteNode shadow root opt-in', () => {
     );
   });
 
-  test('collapseAtStart() lifts blocks out of a shadow root quote', () => {
+  test('collapseAtStart() lifts the first block out of a shadow root quote', () => {
     using editor = buildEditor();
     editor.update(
       () => {
@@ -92,8 +92,10 @@ describe('QuoteNode shadow root opt-in', () => {
         quoteNode.collapseAtStart();
         const children = root.getChildren();
         expect(children.length).toBe(2);
-        expect(children.every($isParagraphNode)).toBe(true);
-        expect(children.map(node => node.getTextContent())).toEqual(['a', 'b']);
+        expect($isParagraphNode(children[0])).toBe(true);
+        expect(children[0].getTextContent()).toBe('a');
+        expect(children[1].is(quoteNode)).toBe(true);
+        expect(quoteNode.getTextContent()).toBe('b');
       },
       {discrete: true},
     );
