@@ -7,6 +7,7 @@
  */
 
 import type {Hidden} from './Hidden';
+import type {YStorageMismatchData} from './Warnings';
 
 import invariant from '@lexical/internal/invariant';
 import {ContentType, type Doc, type Item, type Node as YNode} from '@y/y';
@@ -173,6 +174,16 @@ export class State {
    */
   readonly unreadable = new Map<string, unknown>();
   /**
+   * Stored types whose nodes this editor builds as a class that cannot be
+   * stored that way (a node replacement; see Reader#$lineFromMarker): edits
+   * to them could not be written, so, as with unknownTypes, the binding
+   * goes read only.
+   */
+  readonly replacedStorage = new Map<
+    string,
+    Extract<YStorageMismatchData, {reason: 'declaration-changed'}>
+  >();
+  /**
    * Of unknownTypes, the slots that are not a block node: a slot's key, or
    * the type of the inline node in it (see Slots).
    */
@@ -209,7 +220,8 @@ export class State {
     return (
       this.hidden !== null ||
       this.unknownTypes.size > 0 ||
-      this.unreadable.size > 0
+      this.unreadable.size > 0 ||
+      this.replacedStorage.size > 0
     );
   }
 
@@ -231,7 +243,9 @@ export class State {
    * client's clock (each written key comes before the items written after
    * it, so a later state of this client, an editor bound again to the same
    * document or a read recovery, never reuses one) and above every key of
-   * this client read (see setSegment).
+   * this client read (see setSegment). A value derived from the client id
+   * must also be relabeled in SeedRelabel's relabelSeed (seeds are written
+   * under client 1, then relabeled).
    */
   newSegment(key: NodeKey): string {
     const n = Math.max(
@@ -394,6 +408,7 @@ export class State {
     // again makes finds it anew (read only again where it is still there).
     this.unknownTypes.clear();
     this.unreadable.clear();
+    this.replacedStorage.clear();
     this.malformedSlots.clear();
     this.csByKey.clear();
     this.unitByEnd.clear();

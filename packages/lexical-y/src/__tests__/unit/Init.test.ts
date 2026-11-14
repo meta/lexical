@@ -96,6 +96,14 @@ function client(doc: YDoc, text: string | null, root?: Y.Node) {
  */
 const PRISTINE_SEED_ID = 1240003256392311;
 
+/**
+ * The id a layout 4 client derives for 'Same seed' written into a root that
+ * held text, deleted since, by client 5 (see the test that uses it): the
+ * hash covers the document's state vector and the seed's bytes, so a change
+ * to either part of the hash would make two versions write such a root twice.
+ */
+const REUSED_ROOT_SEED_ID = 4230486353891027;
+
 const text = (editor: ReturnType<typeof createEditor>) =>
   editor.getEditorState().read(() => $getRoot().getTextContent());
 
@@ -252,6 +260,24 @@ describe('@lexical/y initialization', () => {
       c.binding.dispose();
     });
   }
+
+  test('a root that held text, deleted since, is still written under the same id', () => {
+    // The room's own writes under a fixed client id, so that its state
+    // vector, which the id is derived from with the seed's bytes, is fixed.
+    const base = createYDoc(null, {gc: false});
+    base.clientID = 5;
+    const root = base.get('lexical-y');
+    root.insert(0, 'gone');
+    root.delete(0, 4);
+    const doc = createYDoc(null, {gc: false});
+    Y.applyUpdate(doc, Y.encodeStateAsUpdate(base));
+    const c = client(doc, 'Same seed');
+    c.binding.initialize();
+    const ids = [...doc.store.clients.keys()].filter(
+      id => id !== doc.clientID && id !== base.clientID,
+    );
+    expect(ids).toEqual([REUSED_ROOT_SEED_ID]);
+  });
 
   test('a pristine root is still written under the same id (every layout 4 client shares it)', () => {
     const doc = createYDoc();

@@ -94,6 +94,7 @@ export type YStorageMismatchData =
       readonly type: string,
       readonly stored: YStoredAs,
       readonly declared: YStoredAs,
+      readonly replacement?: string,
     };
 export type YUnknownNodeTypesData = {
   readonly reason: 'unregistered' | 'malformed-slot',
@@ -367,6 +368,7 @@ export type YCollabInput = {
   readonly selfCheck?: boolean | null,
   readonly selfCheckSample?: number | null,
   readonly convert?: boolean,
+  readonly onYStatus?: ((status: YStatus) => void) | null,
   ...
 };
 
@@ -386,6 +388,7 @@ export type YCollabConfig = {
   selfCheckSample: number | null,
   convert: boolean,
   layoutUpgrade?: YLayoutUpgradeHandle | null,
+  onYStatus?: ((status: YStatus) => void) | null,
   // Inexact: a field a later release adds is optional (see above).
   ...
 };
@@ -393,7 +396,7 @@ export type YCollabConfig = {
 declare export var YCollabExtension: LexicalExtension<
   YCollabConfig,
   '@lexical/y/Collab',
-  {binding: YBinding, status: ReadonlySignal<YBindingStatus>},
+  {binding: YBinding, collab: YCollabBinding, status: ReadonlySignal<YBindingStatus>},
   unknown,
 >;
 
@@ -423,6 +426,90 @@ declare export function createYCollabConfig(
 ): NormalizedLexicalExtensionArgument<
   YCollabConfig,
   '@lexical/y/Collab',
-  {binding: YBinding, status: ReadonlySignal<YBindingStatus>},
+  {binding: YBinding, collab: YCollabBinding, status: ReadonlySignal<YBindingStatus>},
+  unknown,
+>;
+
+// The binding's public API (layout 4 spec, section 11). Start here:
+// createYDoc() -> createYBinding(editor, {doc, schemaVersion, synced,
+// onStatus}) or yCollab({...}) -> send binding.handshake(generation) ->
+// binding.markSynced() after the first sync -> binding.freeze() when the
+// server's fence says the room moved on.
+declare export var Y_DEFAULTS: {
+  readonly root: string,
+  readonly history: {readonly captureTimeout: number},
+};
+declare export opaque type YGeneration: string;
+declare export function parseYGeneration(value: unknown): YGeneration | null;
+export type YHandshake = YSessionHandshake;
+declare export function createYHandshake(input: {
+  readonly generation: YGeneration | null,
+  readonly hasLocalEdits: boolean,
+  readonly features?: ReadonlyArray<string>,
+}): YHandshake;
+export type YReadOnlyCause =
+  | {readonly code: 'layout-older', readonly layout: number}
+  | {readonly code: 'layout-newer', readonly layout: number}
+  | {readonly code: 'schema-newer', readonly schemaVersion: number}
+  | {readonly code: 'requires-feature', readonly features: ReadonlyArray<string>}
+  | {readonly code: 'malformed-record', readonly key: string}
+  | {readonly code: 'unknown-node-types', readonly types: ReadonlyArray<string>}
+  | {
+      readonly code: 'storage-mismatch',
+      readonly type: string,
+      readonly stored: string,
+      readonly declared: string,
+      readonly replacement?: string,
+    }
+  | {readonly code: 'unsupported-doc'}
+  | {readonly code: 'unreadable-content', readonly type: string}
+  | {readonly code: 'unstorable-change', readonly type: string}
+  | {readonly code: 'frozen'};
+export type YStatus =
+  | {readonly kind: 'pending'}
+  | {readonly kind: 'active'}
+  | {readonly kind: 'readonly', readonly cause: YReadOnlyCause};
+export type YCollabOptions = {
+  readonly doc: YDoc,
+  readonly schemaVersion: number,
+  readonly synced: boolean,
+  readonly onStatus: (status: YStatus) => void,
+  readonly root?: string,
+  readonly history?: {readonly captureTimeout: number} | false,
+};
+export interface YHistory {
+  undo(): boolean;
+  redo(): boolean;
+  clear(): void;
+  readonly canUndo: boolean;
+  readonly canRedo: boolean;
+  subscribe(listener: () => void): () => void;
+}
+export type YLocalEdits = {
+  readonly state: Uint8Array,
+  readonly json: SerializedEditorState,
+  readonly text: string,
+  readonly differs: boolean,
+};
+export interface YCollabBinding {
+  readonly status: YStatus;
+  markSynced(): void;
+  handshake(generation: YGeneration | null): YHandshake;
+  readonly history: YHistory | null;
+  getCursor(): YCursor | null;
+  freeze(): YLocalEdits;
+  dispose(): void;
+  readonly binding: YBinding;
+}
+declare export function createYBinding(
+  editor: LexicalEditor,
+  options: YCollabOptions,
+): YCollabBinding;
+declare export function yCollab(
+  options: YCollabOptions,
+): NormalizedLexicalExtensionArgument<
+  YCollabConfig,
+  '@lexical/y/Collab',
+  {binding: YBinding, collab: YCollabBinding, status: ReadonlySignal<YBindingStatus>},
   unknown,
 >;

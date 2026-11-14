@@ -941,10 +941,10 @@ describe('@lexical/y/headless', () => {
     handle.dispose();
     // Idempotent.
     handle.dispose();
-    // The seed's document (with the two scratch documents of its
-    // initialization and the one that compacts its state), the edit's (and
-    // its compaction), the read's and the handle's.
-    expect(atDestroy.length).toBe(8);
+    // The seed's document (with the scratch document of its initialization
+    // and the one that compacts its state), the edit's (and its compaction),
+    // the read's and the handle's.
+    expect(atDestroy.length).toBe(7);
     // A document createYDoc made keeps its copy repair for its lifetime
     // (Ident.installCopyRepair): one listener of its own, not the binding's.
     const lifetime = docListeners(createYDoc()).filter(
