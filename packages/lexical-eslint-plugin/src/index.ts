@@ -15,6 +15,7 @@ import type {Rule} from 'eslint';
 
 import jsPlugin from './LexicalEslintPlugin.js';
 
+export type {NoNestedEditorUpdatesOptions} from './rules/no-nested-editor-updates.js';
 export type {RulesOfLexicalOptions} from './rules/rules-of-lexical.js';
 
 // Flat config format (ESLint 9+)
@@ -23,6 +24,7 @@ export interface FlatConfig {
     '@lexical': Plugin;
   };
   rules: {
+    '@lexical/no-nested-editor-updates': 'warn' | 'error' | 'off';
     '@lexical/rules-of-lexical': 'warn' | 'error' | 'off';
   };
 }
@@ -34,6 +36,7 @@ export interface Plugin {
   };
   rules: {
     'no-document-in-dom-methods': Rule.RuleModule;
+    'no-nested-editor-updates': Rule.RuleModule;
     'rules-of-lexical': Rule.RuleModule;
   };
   configs: {

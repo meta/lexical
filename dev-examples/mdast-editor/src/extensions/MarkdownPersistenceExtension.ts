@@ -258,11 +258,9 @@ export const MarkdownPersistenceExtension = defineExtension({
           if (hasStorage) {
             window.localStorage.removeItem(storageKey);
           }
-          editor.update(() => {
-            // Document replacement, like the repro-link path above.
-            editor.dispatchCommand(CLEAR_EDITOR_COMMAND);
-            $convertFromMarkdownString(defaultMarkdown);
-          });
+          // Document replacement, like the repro-link path above.
+          editor.dispatchCommand(CLEAR_EDITOR_COMMAND);
+          $convertFromMarkdownString(defaultMarkdown);
           return true;
         },
         COMMAND_PRIORITY_EDITOR,

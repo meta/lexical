@@ -180,6 +180,7 @@ describe.each(MODES)('an update that throws, onError %s', mode => {
       editor.update(
         () => {
           $first().setTextContent('ONE');
+          // eslint-disable-next-line @lexical/no-nested-editor-updates -- This test verifies rollback when a nested update throws.
           editor.update(() => {
             $last().setTextContent('TWO');
             throw new Error('app bug');
@@ -293,6 +294,7 @@ describe.each(MODES)(
         editor.update(
           () => {
             $first().setTextContent('ONE');
+            // eslint-disable-next-line @lexical/no-nested-editor-updates -- This test verifies that a failed update discards its queued nested updates.
             editor.update(() => void $last().setTextContent('TWO'));
             throw new Error('app bug');
           },
