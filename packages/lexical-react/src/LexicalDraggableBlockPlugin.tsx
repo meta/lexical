@@ -26,7 +26,9 @@ import {
   getComposedEventTarget,
   getParentElement,
   getRootOwnerDocument,
+  IS_APPLE_WEBKIT,
   IS_FIREFOX,
+  IS_IOS,
   isHTMLElement,
   type LexicalEditor,
   mergeRegister,
@@ -44,6 +46,7 @@ import {
 } from 'react';
 import {createPortal} from 'react-dom';
 
+import {createDragAutoScroller} from './shared/dragAutoScroll';
 import {Point} from './shared/point';
 import {Rectangle} from './shared/rect';
 
@@ -123,7 +126,7 @@ function getCollapsedMargins(elem: HTMLElement): {
 function getBlockElement(
   anchorElem: HTMLElement,
   editor: LexicalEditor,
-  event: MouseEvent,
+  event: Pick<MouseEvent, 'x' | 'y'>,
   useEdgeAsDefault = false,
 ): HTMLElement | null {
   const anchorElementRect = anchorElem.getBoundingClientRect();
@@ -310,11 +313,15 @@ function useDraggableBlockMenu(
   menuComponent: ReactNode,
   targetLineComponent: ReactNode,
   isOnMenu: (element: HTMLElement) => boolean,
+  autoScroll: boolean,
   onElementChanged?: (element: HTMLElement | null) => void,
 ): JSX.Element {
   const scrollerElem = getParentElement(anchorElem);
 
   const isDraggingBlockRef = useRef<boolean>(false);
+  const autoScrollerRef = useRef<ReturnType<
+    typeof createDragAutoScroller
+  > | null>(null);
   const [draggableBlockElem, setDraggableBlockElemState] =
     useState<HTMLElement | null>(null);
 
@@ -370,6 +377,66 @@ function useDraggableBlockMenu(
   }, [editor, anchorElem, draggableBlockElem, menuRef]);
 
   useEffect(() => {
+    if (!autoScroll || !isEditable) {
+      return;
+    }
+    return editor.registerRootListener(root => {
+      if (root === null) {
+        return;
+      }
+      const ownerDocument = root.ownerDocument;
+      const view = ownerDocument.defaultView;
+      const controller = createDragAutoScroller(root, (x, y) => {
+        const block = getBlockElement(anchorElem, editor, {x, y}, true);
+        const line = targetLineRef.current;
+        if (block && line) {
+          setTargetLine(line, block, y / calculateZoomLevel(block), anchorElem);
+        }
+      });
+      autoScrollerRef.current = controller;
+      const finish = () => {
+        controller.stop();
+        isDraggingBlockRef.current = false;
+        hideTargetLine(targetLineRef.current);
+      };
+      return mergeRegister(
+        () => {
+          finish();
+          autoScrollerRef.current = null;
+        },
+        registerEventListeners(
+          ownerDocument,
+          {
+            dragover: event => {
+              if (isDraggingBlockRef.current && !eventFiles(event)[0]) {
+                controller.update(event.clientX, event.clientY);
+              }
+            },
+            // Stop before any drop handler runs, including rejected/external drops.
+            drop: controller.stop,
+          },
+          true,
+        ),
+        registerEventListeners(ownerDocument, {
+          dragend: finish,
+          dragleave: event => {
+            const target = getComposedEventTarget(event);
+            if (
+              event.relatedTarget === null &&
+              (target === ownerDocument.documentElement ||
+                target === ownerDocument.body)
+            ) {
+              controller.stop();
+            }
+          },
+          drop: finish,
+        }),
+        ...(view ? [registerEventListener(view, 'blur', finish)] : []),
+      );
+    });
+  }, [anchorElem, autoScroll, editor, isEditable, targetLineRef]);
+
+  useEffect(() => {
     function onDragover(event: DragEvent): boolean {
       if (!isDraggingBlockRef.current) {
         return false;
@@ -378,7 +445,7 @@ function useDraggableBlockMenu(
       if (isFileTransfer) {
         return false;
       }
-      const pageY = event.pageY;
+      const clientY = event.clientY;
       // Composed target so the zoom level is read from the real element rather
       // than the shadow host when the editor is in a shadow tree.
       const target = getComposedEventTarget(event);
@@ -393,7 +460,7 @@ function useDraggableBlockMenu(
       setTargetLine(
         targetLineElem,
         targetBlockElem,
-        pageY / calculateZoomLevel(target),
+        clientY / calculateZoomLevel(target),
         anchorElem,
       );
       // Prevent default event to be able to trigger onDrop events
@@ -409,7 +476,7 @@ function useDraggableBlockMenu(
       if (isFileTransfer) {
         return false;
       }
-      const {dataTransfer, pageY} = event;
+      const {dataTransfer, clientY} = event;
       // Composed target so the zoom level is read from the real element rather
       // than the shadow host when the editor is in a shadow tree.
       const target = getComposedEventTarget(event);
@@ -438,7 +505,7 @@ function useDraggableBlockMenu(
         return true;
       }
       const targetBlockElemTop = targetBlockElem.getBoundingClientRect().top;
-      if (pageY / calculateZoomLevel(target) >= targetBlockElemTop) {
+      if (clientY / calculateZoomLevel(target) >= targetBlockElemTop) {
         targetNode.insertAfter(draggedNode);
       } else {
         targetNode.insertBefore(draggedNode);
@@ -565,6 +632,9 @@ function useDraggableBlockMenu(
   }
 
   function onDragEnd(): void {
+    if (autoScrollerRef.current) {
+      autoScrollerRef.current.stop();
+    }
     isDraggingBlockRef.current = false;
     hideTargetLine(targetLineRef.current);
 
@@ -597,6 +667,7 @@ function useDraggableBlockMenu(
 export function DraggableBlockPlugin_EXPERIMENTAL({
   // eslint-disable-next-line no-restricted-syntax
   anchorElem = document.body,
+  autoScroll = IS_APPLE_WEBKIT && !IS_IOS,
   menuRef,
   targetLineRef,
   menuComponent,
@@ -605,6 +676,13 @@ export function DraggableBlockPlugin_EXPERIMENTAL({
   onElementChanged,
 }: {
   anchorElem?: HTMLElement;
+  /**
+   * Scroll vertically near viewport/container edges during a block drag.
+   * Defaults to desktop Apple WebKit, where native drag autoscroll is missing.
+   * Set false to opt out, or true to enable it in other environments (which
+   * may also scroll natively).
+   */
+  autoScroll?: boolean;
   menuRef: React.RefObject<HTMLElement | null>;
   targetLineRef: React.RefObject<HTMLElement | null>;
   menuComponent: ReactNode;
@@ -626,6 +704,7 @@ export function DraggableBlockPlugin_EXPERIMENTAL({
     menuComponent,
     targetLineComponent,
     isOnMenu,
+    autoScroll,
     onElementChanged,
   );
 }
