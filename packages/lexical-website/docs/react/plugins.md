@@ -520,6 +520,8 @@ const targetLineRef = useRef(null);
 />
 ```
 
+`onElementChanged` reports the block the handle belongs to, which can be a nested block such as a list item. If you insert content next to that block, check where it sits: a paragraph inserted after a list item ends up inside the list.
+
 By default a shadow root (a table, a layout container, ...) is dragged as one unit and nothing inside it gets a handle. The optional `$getBlockBehavior` prop decides this per node. It returns one of:
 
 - `'draggable'`: the block gets a handle, and so can the blocks nested in it.
@@ -527,7 +529,7 @@ By default a shadow root (a table, a layout container, ...) is dragged as one un
 - `'transparent'`: the block gets no handle, but the blocks nested in it can.
 - `'ignored'`: neither the block nor anything inside it gets a handle.
 
-Return `null` to keep the default for a node. Pass a stable function (module level or `useCallback`):
+Return `null` to keep the default for a node. To keep the handle on top-level blocks only, pass `$getBlockBehavior={() => 'atomic'}`. Pass a stable function (module level or `useCallback`):
 
 ```jsx
 function $getBlockBehavior(node) {

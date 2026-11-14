@@ -496,6 +496,82 @@ describe('DraggableBlockPlugin_EXPERIMENTAL with lists', () => {
     ]);
   });
 
+  test('an item dropped on the upper half of the first nested item becomes the first nested item', () => {
+    const harness = render();
+    const {anchorElem, editor} = harness;
+    populate(editor);
+    const from = elementWithText(editor, 'Three');
+    const to = elementWithText(editor, 'Nested one');
+
+    hover(harness, from);
+    const handle = anchorElem.querySelector<HTMLElement>(`.${MENU_CLASS}`)!;
+    const dataTransfer = new DataTransfer();
+    act(() => {
+      handle.dispatchEvent(
+        new DragEvent('dragstart', {bubbles: true, dataTransfer}),
+      );
+    });
+    const rect = to.getBoundingClientRect();
+    const init = {
+      bubbles: true,
+      cancelable: true,
+      clientX: rect.left + 5,
+      clientY: rect.top + 2,
+      dataTransfer,
+    };
+    const rootElement = editor.getRootElement()!;
+    act(() => {
+      rootElement.dispatchEvent(new DragEvent('dragover', init));
+    });
+    act(() => {
+      rootElement.dispatchEvent(new DragEvent('drop', init));
+    });
+    act(() => {
+      handle.dispatchEvent(new DragEvent('dragend', {bubbles: true}));
+    });
+
+    expect(structure(editor)).toEqual([
+      'Before',
+      ['number', 'One', 'Two', ['bullet', 'Three', 'Nested one', 'Nested two']],
+      'After',
+    ]);
+  });
+
+  test('finds the item under the pointer in a long list, from the gutter too', () => {
+    const harness = render();
+    const {anchorElem, editor, scroller} = harness;
+    act(() => {
+      editor.update(
+        () => {
+          const list = $createListNode('bullet');
+          for (let i = 0; i < 200; i++) {
+            list.append($item(`Item ${i}`));
+          }
+          $getRoot().clear().append($block('Before'), list, $block('After'));
+        },
+        {discrete: true},
+      );
+    });
+
+    for (const text of ['Item 0', 'Item 1', 'Item 137', 'Item 199']) {
+      const item = elementWithText(editor, text);
+      hover(harness, item);
+      expect(harness.lastElement()).toBe(item);
+
+      const rect = item.getBoundingClientRect();
+      act(() => {
+        scroller.dispatchEvent(
+          new MouseEvent('mousemove', {
+            bubbles: true,
+            clientX: anchorElem.getBoundingClientRect().left + 1,
+            clientY: rect.top + rect.height / 2,
+          }),
+        );
+      });
+      expect(harness.lastElement()).toBe(item);
+    }
+  });
+
   test('a paragraph dropped on a list item lands next to the whole list', () => {
     const harness = render();
     const {editor} = harness;
@@ -640,6 +716,17 @@ describe('DraggableBlockPlugin_EXPERIMENTAL with $getBlockBehavior', () => {
       );
     });
     expect(harness.lastElement()).toBe(section);
+  });
+
+  test("returning 'atomic' for every block keeps the handle on top-level blocks", () => {
+    const harness = render(() => 'atomic');
+    const {editor} = harness;
+    populate(editor);
+
+    hover(harness, elementWithText(editor, 'Nested two'));
+    expect(harness.lastElement()).toBe(
+      editor.getRootElement()!.querySelector('ol'),
+    );
   });
 
   test('an atomic block hides the blocks nested in it', () => {

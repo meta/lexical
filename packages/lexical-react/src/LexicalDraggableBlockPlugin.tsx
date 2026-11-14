@@ -22,6 +22,7 @@ import {
   $getSlotNames,
   $isDecoratorNode,
   $isElementNode,
+  $isRootNode,
   $isRootOrShadowRoot,
   $onUpdate,
   BLUR_COMMAND,
@@ -238,6 +239,45 @@ function isWithinColumns(elem: HTMLElement, event: MouseEvent): boolean {
   return x >= left && x <= right;
 }
 
+// Up to this many sibling blocks are checked one by one, which also copes
+// with siblings that are not laid out top to bottom (the columns of a
+// layout) or not laid out at all (a named slot that is not shown).
+const LINEAR_SCAN_MAX_BLOCKS = 16;
+
+/**
+ * Where to start looking for the block under the pointer among `blocks`,
+ * the blocks directly inside one block. A long run of siblings (the items of
+ * a long list) is laid out top to bottom, so the search bisects it for the
+ * last block that ends above the pointer; the block under the pointer is
+ * that one (its bottom margin counts as part of it) or the next. This keeps
+ * a mousemove over a list of thousands of items to a handful of layout
+ * reads.
+ */
+function getFirstBlockIndexNearEvent(
+  editor: LexicalEditor,
+  blocks: LexicalNode[],
+  event: MouseEvent,
+): number {
+  if (blocks.length <= LINEAR_SCAN_MAX_BLOCKS) {
+    return 0;
+  }
+  let low = 0;
+  let high = blocks.length - 1;
+  while (low < high) {
+    const middle = (low + high) >> 1;
+    const elem = editor.getElementByKey(blocks[middle].getKey());
+    if (
+      elem !== null &&
+      elem.getBoundingClientRect().bottom < event.y / calculateZoomLevel(elem)
+    ) {
+      low = middle + 1;
+    } else {
+      high = middle;
+    }
+  }
+  return Math.max(0, low - 1);
+}
+
 /**
  * Walks down from a top-level block to the deepest nested block under the
  * pointer that has a handle of its own, so that a list item (at any depth)
@@ -271,7 +311,11 @@ function $getNestedBlockElement(
       elem: HTMLElement;
       node: LexicalNode;
     } | null = null;
-    for (const child of $getNestedBlocks(node)) {
+    const blocks = $getNestedBlocks(node);
+    const start = getFirstBlockIndexNearEvent(editor, blocks, event);
+    const isLongRun = blocks.length > LINEAR_SCAN_MAX_BLOCKS;
+    for (let i = start; i < blocks.length; i++) {
+      const child = blocks[i];
       const behavior = $getBehavior(child);
       if (behavior === 'ignored') {
         continue;
@@ -281,6 +325,12 @@ function $getNestedBlockElement(
         childElem === null ||
         !containsEvent(childElem, anchorElementRect, event).result
       ) {
+        if (isLongRun && childElem !== null && i > start) {
+          // In a long run of blocks (see getFirstBlockIndexNearEvent) the
+          // block after the one just above the pointer is the last one that
+          // can be under it.
+          break;
+        }
         continue;
       }
       if (isWithinColumns(childElem, event)) {
@@ -392,18 +442,42 @@ function $cleanUpEmptiedParent(parent: LexicalNode | null): void {
   }
 }
 
+/**
+ * Whether a drop at `mouseY` goes after the target rather than before it. A
+ * top-level target takes a drop before it only from above its top edge (its
+ * top margin), as it always did. A nested target (a list item, a block in a
+ * shadow root) may have no margin to point at, so its upper half means
+ * before; otherwise the place before the first item of a nested list could
+ * not be reached.
+ */
+function isDropAfter(
+  targetBlockElem: HTMLElement,
+  mouseY: number,
+  isNested: boolean,
+): boolean {
+  const {top, height} = targetBlockElem.getBoundingClientRect();
+  return mouseY >= (isNested ? top + height / 2 : top);
+}
+
+function $isNestedBlock(node: LexicalNode): boolean {
+  return !$isRootNode(node.getParent());
+}
+
 function $getDropTargetElement(
   editor: LexicalEditor,
   draggedNodeKey: NodeKey | null,
   hoveredElem: HTMLElement,
-): HTMLElement | null {
+): {elem: HTMLElement; isNested: boolean} | null {
   const dragged =
     draggedNodeKey !== null ? $getNodeByKey(draggedNodeKey) : null;
   if (dragged === null) {
     return null;
   }
   const target = $resolveDropTarget(dragged, hoveredElem);
-  return target !== null ? editor.getElementByKey(target.getKey()) : null;
+  const elem = target !== null ? editor.getElementByKey(target.getKey()) : null;
+  return target !== null && elem !== null
+    ? {elem, isNested: $isNestedBlock(target)}
+    : null;
 }
 
 function getBlockElement(
@@ -552,6 +626,7 @@ function setTargetLine(
   targetBlockElem: HTMLElement,
   mouseY: number,
   anchorElem: HTMLElement,
+  isNested: boolean,
 ) {
   const {
     top: targetBlockElemTop,
@@ -565,7 +640,7 @@ function setTargetLine(
   } = anchorElem.getBoundingClientRect();
   const {marginTop, marginBottom} = getCollapsedMargins(targetBlockElem);
   let lineTop = targetBlockElemTop;
-  if (mouseY >= targetBlockElemTop) {
+  if (isDropAfter(targetBlockElem, mouseY, isNested)) {
     lineTop += targetBlockElemHeight + marginBottom / 2;
   } else {
     lineTop -= marginTop / 2;
@@ -715,20 +790,21 @@ function useDraggableBlockMenu(
       if (hoveredBlockElem === null || targetLineElem === null) {
         return false;
       }
-      const targetBlockElem = $getDropTargetElement(
+      const dropTarget = $getDropTargetElement(
         editor,
         draggedNodeKeyRef.current,
         hoveredBlockElem,
       );
-      if (targetBlockElem === null) {
+      if (dropTarget === null) {
         hideTargetLine(targetLineElem);
         return false;
       }
       setTargetLine(
         targetLineElem,
-        targetBlockElem,
+        dropTarget.elem,
         pageY / calculateZoomLevel(target),
         anchorElem,
+        dropTarget.isNested,
       );
       // Prevent default event to be able to trigger onDrop events
       event.preventDefault();
@@ -794,8 +870,13 @@ function useDraggableBlockMenu(
         draggedParent.getType() !== targetParent.getType()
           ? $copyNode(draggedParent).append(draggedNode)
           : draggedNode;
-      const targetBlockElemTop = targetBlockElem.getBoundingClientRect().top;
-      if (pageY / calculateZoomLevel(target) >= targetBlockElemTop) {
+      if (
+        isDropAfter(
+          targetBlockElem,
+          pageY / calculateZoomLevel(target),
+          $isNestedBlock(targetNode),
+        )
+      ) {
         targetNode.insertAfter(nodeToInsert);
       } else {
         targetNode.insertBefore(nodeToInsert);

@@ -19,6 +19,7 @@ import {
   $getNearestNodeFromDOMNode,
   $getNodeByKey,
   $isParagraphNode,
+  $isRootOrShadowRoot,
   $isTextNode,
   getComposedEventTarget,
   type LexicalNode,
@@ -45,6 +46,8 @@ import {
   getBaseOptions,
   getDynamicOptions,
 } from '../ComponentPickerPlugin';
+import {$isPageContentNode} from '../PagesExtension/PageContentNode';
+import {$isPageNode} from '../PagesExtension/PageNode';
 
 const DRAGGABLE_BLOCK_MENU_CLASSNAME = 'draggable-block-menu';
 
@@ -55,7 +58,9 @@ type PickerState = {
 
 /**
  * A collapsible is dragged as a whole from its title, and the blocks of its
- * content are dragged on their own. Everything else keeps the default.
+ * content are dragged on their own. In pages mode the blocks of a page are
+ * dragged on their own; the content of a page never leaves its page.
+ * Everything else keeps the default.
  */
 function $getBlockBehavior(node: LexicalNode): DraggableBlockBehavior | null {
   if ($isCollapsibleContainerNode(node)) {
@@ -64,7 +69,11 @@ function $getBlockBehavior(node: LexicalNode): DraggableBlockBehavior | null {
   if ($isCollapsibleTitleNode(node)) {
     return 'ignored';
   }
-  if ($isCollapsibleContentNode(node)) {
+  if (
+    $isCollapsibleContentNode(node) ||
+    $isPageNode(node) ||
+    $isPageContentNode(node)
+  ) {
     return 'transparent';
   }
   return null;
@@ -161,9 +170,19 @@ export default function DraggableBlockPlugin({
       }
       setIsPickerOpen(false);
       editor.update(() => {
-        const node = $getNodeByKey(pickerState.targetNodeKey);
+        let node = $getNodeByKey(pickerState.targetNodeKey);
         if (!node) {
           return;
+        }
+        // The handle can belong to a nested block (a list item). The new
+        // block goes next to the nearest block that sits under the root or
+        // a shadow root, where any block can go: next to the whole list.
+        for (
+          let parent = node.getParent();
+          parent !== null && !$isRootOrShadowRoot(parent);
+          parent = node.getParent()
+        ) {
+          node = parent;
         }
         const placeholder = $createParagraphNode();
         const textNode = $createTextNode('');
