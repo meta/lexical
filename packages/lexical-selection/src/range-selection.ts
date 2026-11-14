@@ -534,37 +534,6 @@ export function $wrapNodesImpl(
   const blockOf = new Map<NodeKey, ElementNode | null>();
   const childOf = new Map<NodeKey, LexicalNode>();
   const blockLeafParents = new Map<NodeKey, boolean>();
-  const firstNodeBlock = $wrappedBlock(firstNode, blockOf);
-  if (firstNodeBlock === null) {
-    return;
-  }
-  // For inline content directly in a block container, its run (see
-  // $inlineRun) stands for the block, and a block leaf there for itself.
-  let target: LexicalNode = firstNodeBlock;
-  if ($isBlockContainer(firstNodeBlock)) {
-    const child = $childIn(firstNodeBlock, firstNode, childOf);
-    target = INTERNAL_isInlineContent(child) ? $inlineRun(child)[0] : child;
-  } else if ($isBlockLeafInElement(firstNode, blockLeafParents)) {
-    target = firstNode;
-  }
-
-  let targetIsPrevSibling = false;
-  while (target !== null) {
-    const prevSibling: LexicalNode | null = target.getPreviousSibling();
-
-    if (prevSibling !== null) {
-      target = prevSibling;
-      targetIsPrevSibling = true;
-      break;
-    }
-
-    target = target.getParentOrThrow();
-
-    if ($isBlockContainer(target)) {
-      break;
-    }
-  }
-
   const emptyElements = new Set();
 
   // Find any top level empty elements
@@ -624,6 +593,80 @@ export function $wrapNodesImpl(
       }
     }
     units.push(unit);
+  }
+
+  // Direct text in a mixed block moves all of that block's children. Its
+  // nested blocks must not move separately, or the insertion anchor can
+  // move inside a new element and the children can change order (#9665).
+  const wholeBlocks = new Map<NodeKey, Unit>();
+  for (let i = 0; i < nodesLength; i++) {
+    const unit = units[i];
+    if (unit !== null && unit.run === null && $isLeafNode(nodes[i])) {
+      wholeBlocks.set(unit.key, unit);
+    }
+  }
+  const coveringBlocks = new Map<NodeKey, Unit | null>();
+  const $coveringBlock = (start: LexicalNode): Unit | null => {
+    const walked: NodeKey[] = [];
+    let node: LexicalNode | null = start;
+    let covering: Unit | null = null;
+    while (node !== null && !$isBlockContainer(node)) {
+      const key = node.getKey();
+      if (coveringBlocks.has(key)) {
+        covering = coveringBlocks.get(key) ?? null;
+        break;
+      }
+      walked.push(key);
+      node = node.getParent();
+    }
+    for (let i = walked.length - 1; i >= 0; i--) {
+      const key = walked[i];
+      covering = covering ?? wholeBlocks.get(key) ?? null;
+      coveringBlocks.set(key, covering);
+    }
+    return covering;
+  };
+  for (let i = 0; i < nodesLength; i++) {
+    const unit = units[i];
+    if (unit !== null) {
+      units[i] = $coveringBlock(unit.block) ?? unit;
+    }
+    if (emptyElements.has(nodes[i].getKey()) && $coveringBlock(nodes[i])) {
+      emptyElements.delete(nodes[i].getKey());
+    }
+  }
+
+  const firstUnit = emptyElements.has(firstNode.getKey())
+    ? null
+    : units[nodes.indexOf(firstNode)];
+  const firstNodeBlock =
+    firstUnit == null ? $wrappedBlock(firstNode, blockOf) : firstUnit.block;
+  if (firstNodeBlock === null) {
+    return;
+  }
+  // Choose the anchor from the whole unit that actually moves, not a
+  // descendant whose preceding sibling may move along with that unit.
+  let target: LexicalNode =
+    firstUnit != null && firstUnit.run !== null
+      ? firstUnit.run[0]
+      : firstNodeBlock;
+  if (firstUnit == null && $isBlockContainer(firstNodeBlock)) {
+    const child = $childIn(firstNodeBlock, firstNode, childOf);
+    target = INTERNAL_isInlineContent(child) ? $inlineRun(child)[0] : child;
+  }
+
+  let targetIsPrevSibling = false;
+  while (target !== null) {
+    const prevSibling: LexicalNode | null = target.getPreviousSibling();
+    if (prevSibling !== null) {
+      target = prevSibling;
+      targetIsPrevSibling = true;
+      break;
+    }
+    target = target.getParentOrThrow();
+    if ($isBlockContainer(target)) {
+      break;
+    }
   }
 
   // Move out all leaf nodes into our elements array.
