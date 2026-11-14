@@ -330,18 +330,31 @@ function flushMutations(
  * With `ifRecorded` nothing runs when there are none, for a commit that is
  * about to disconnect the observer, which drops them: a change made inside an
  * update, or in the same task as an update whose commit was queued first.
+ * With `skipTransforms` the revert runs no node transforms: the commit of a
+ * pending state an update made with that option, which the revert joins.
  */
 export function flushRootMutations(
   editor: LexicalEditor,
   rerenderText?: boolean,
   ifRecorded?: boolean,
+  skipTransforms?: boolean,
 ): void {
   const observer = editor._observer;
 
   if (observer !== null) {
     const mutations = observer.takeRecords();
     if (!ifRecorded || mutations.length > 0) {
-      flushMutations(editor, mutations, observer, rerenderText);
+      if (skipTransforms) {
+        // The revert's own update runs inside this one (see
+        // updateEditorSync), which skips transforms.
+        updateEditorSync(
+          editor,
+          () => flushMutations(editor, mutations, observer, rerenderText),
+          {skipTransforms},
+        );
+      } else {
+        flushMutations(editor, mutations, observer, rerenderText);
+      }
     }
   }
 }

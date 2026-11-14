@@ -101,11 +101,10 @@ const editorsDispatchingCommitListeners = new Set<LexicalEditor>();
 let infiniteTransformCount = 0;
 
 /**
- * Pending editor states an update made with `skipTransforms`. The option
- * holds for the update cycle (until the state commits), so an update that
- * joins one of them (one queued after it in the same task, or the revert of
- * DOM mutations that runs as the state commits) runs no transforms either,
- * as an update nested in it does not (see $processNestedUpdates).
+ * Pending editor states an update made with `skipTransforms`: the revert of
+ * DOM mutations that runs as such a state commits (see
+ * $commitPendingUpdates) joins it, and runs no transforms either, so that it
+ * does not transform what that update left untransformed.
  */
 const pendingStatesSkippingTransforms =
   /* @__PURE__ */ new WeakSet<EditorState>();
@@ -637,8 +636,16 @@ export function $commitPendingUpdates(
   // the flush would run against the failed editor state.
   if (editor._pendingEditorState !== null && activeEditor !== editor) {
     // The commit disconnects the observer, which drops the DOM changes it has
-    // recorded but not reported yet, so they are reverted first.
-    flushRootMutations(editor, false, true);
+    // recorded but not reported yet, so they are reverted first. The revert
+    // joins the pending state: after an update made with skipTransforms, it
+    // runs none either, which would otherwise run over everything that
+    // update changed (a collaborator's change a binding read).
+    flushRootMutations(
+      editor,
+      false,
+      true,
+      pendingStatesSkippingTransforms.has(editor._pendingEditorState),
+    );
   }
   // Save and restore rather than set and clear because the reconciler error
   // recovery path re-enters $commitPendingUpdates, and the enqueued update
@@ -1349,9 +1356,6 @@ function $beginUpdate(
     editorStateWasCloned = true;
   }
   pendingEditorState._flushSync = discrete;
-  if (pendingStatesSkippingTransforms.has(pendingEditorState)) {
-    skipTransforms = true;
-  }
   // The updates queued before this one (see $discardPendingUpdate).
   const queuedBefore =
     editor._updates.length === 0 ? null : new Set(editor._updates);
