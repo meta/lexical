@@ -232,7 +232,7 @@ const ORDERED_LIST_REGEX = /^(\s*)(\d{1,})\.\s/;
 const UNORDERED_LIST_REGEX = /^(\s*)[-*+]\s/;
 const CHECK_LIST_REGEX = /^(\s*)(?:[-*+]\s)?\s?(\[(\s|x)?\])\s/i;
 const HEADING_REGEX = /^(#{1,6})\s/;
-const QUOTE_REGEX = /^>\s/;
+const QUOTE_REGEX = /^>[ \t]?/;
 const CODE_START_REGEX = /^([ \t]*`{3,})([\w-]+)?[ \t]?/;
 const CODE_END_REGEX = /^[ \t]*`{3,}$/;
 const CODE_SINGLE_LINE_REGEX =
@@ -833,12 +833,16 @@ export const QUOTE: ElementTransformer = {
     const lines = exportChildren(node).split('\n');
     const output = [];
     for (const line of lines) {
-      output.push('> ' + line);
+      output.push(line ? '> ' + line : '>');
     }
     return output.join('\n');
   },
   regExp: QUOTE_REGEX,
-  replace: (parentNode, children, _match, isImport) => {
+  replace: (parentNode, children, match, isImport) => {
+    if (!isImport && match[0] === '>') {
+      return false;
+    }
+
     if (isImport) {
       const previousNode = parentNode.getPreviousSibling();
       if ($isQuoteNode(previousNode)) {

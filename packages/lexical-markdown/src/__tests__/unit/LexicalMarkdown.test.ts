@@ -30,6 +30,7 @@ import {
   ITALIC_STAR,
   LINK,
   type MultilineElementTransformer,
+  QUOTE,
   registerMarkdownShortcuts,
   type TextFormatTransformer,
   type TextMatchTransformer,
@@ -2226,6 +2227,46 @@ describe('Markdown', () => {
 
       expect(editor.read(() => $generateHtmlFromNodes(editor))).toBe(
         '<h2><br></h2>',
+      );
+    });
+
+    it('should not transform lone > into quote on Enter', () => {
+      const editor = createTestEditor({
+        nodes: [
+          HeadingNode,
+          ListNode,
+          ListItemNode,
+          QuoteNode,
+          CodeNode,
+          LinkNode,
+        ],
+      });
+
+      registerMarkdownShortcuts(editor, [QUOTE]);
+
+      editor.update(
+        () => {
+          const root = $getRoot();
+          const paragraph = $createParagraphNode();
+          root.append(paragraph);
+          paragraph.selectEnd();
+          const selection = $getSelection();
+          if ($isRangeSelection(selection)) {
+            selection.insertText('>');
+          }
+        },
+        {discrete: true},
+      );
+
+      editor.update(
+        () => {
+          editor.dispatchCommand(KEY_ENTER_COMMAND, null);
+        },
+        {discrete: true},
+      );
+
+      expect(editor.read(() => $generateHtmlFromNodes(editor))).toBe(
+        '<p><span style="white-space: pre-wrap;">&gt;</span></p>',
       );
     });
   });
@@ -6551,5 +6592,212 @@ describe('decimal character references that name no character', () => {
     expect(
       importLinks('[x](https://example.com/&#9999999; "t&#1114112;")'),
     ).toEqual([{title: 't\uFFFD', url: 'https://example.com/\uFFFD'}]);
+  });
+});
+
+describe('quote lines with optional space (#9442)', () => {
+  it('imports and exports quotes with blank quote lines without duplicating delimiters', () => {
+    const editor = createTestEditor();
+    const md = '> a\n>\n> b';
+    editor.update(() => $convertFromMarkdownString(md, TRANSFORMERS), {
+      discrete: true,
+    });
+    expect(
+      editor.read('latest', () => $convertToMarkdownString(TRANSFORMERS)),
+    ).toBe('> a\n>\n> b');
+  });
+
+  it('imports quote lines without space after > and exports with standard spacing', () => {
+    const editor = createTestEditor();
+    const md = '>a';
+    editor.update(() => $convertFromMarkdownString(md, TRANSFORMERS), {
+      discrete: true,
+    });
+    expect(
+      editor.read('latest', () => $isQuoteNode($getRoot().getFirstChild())),
+    ).toBe(true);
+    expect(
+      editor.read('latest', () => $convertToMarkdownString(TRANSFORMERS)),
+    ).toBe('> a');
+  });
+
+  it('imports multi-line quote with unspaced lines', () => {
+    const editor = createTestEditor();
+    const md = '> a\n>b';
+    editor.update(() => $convertFromMarkdownString(md, TRANSFORMERS), {
+      discrete: true,
+    });
+    expect(
+      editor.read('latest', () => $convertToMarkdownString(TRANSFORMERS)),
+    ).toBe('> a\n> b');
+  });
+
+  it('round-trips paragraph starting with > as escaped markdown', () => {
+    const editor = createTestEditor();
+    editor.update(
+      () => {
+        const root = $getRoot();
+        const paragraph = $createParagraphNode();
+        paragraph.append($createTextNode('>a'));
+        root.append(paragraph);
+      },
+      {discrete: true},
+    );
+    expect(
+      editor.read('latest', () => $convertToMarkdownString(TRANSFORMERS)),
+    ).toBe('\\>a');
+
+    const editor2 = createTestEditor();
+    editor2.update(
+      () => {
+        $convertFromMarkdownString('\\>a', TRANSFORMERS);
+      },
+      {discrete: true},
+    );
+    expect(
+      editor2.read('latest', () =>
+        $isParagraphNode($getRoot().getFirstChild()),
+      ),
+    ).toBe(true);
+    expect(editor2.read('latest', () => $getRoot().getTextContent())).toBe(
+      '>a',
+    );
+  });
+
+  it('round-trips paragraph starting with >=5 items as escaped markdown', () => {
+    const editor = createTestEditor();
+    editor.update(
+      () => {
+        const root = $getRoot();
+        const paragraph = $createParagraphNode();
+        paragraph.append($createTextNode('>=5 items'));
+        root.append(paragraph);
+      },
+      {discrete: true},
+    );
+    expect(
+      editor.read('latest', () => $convertToMarkdownString(TRANSFORMERS)),
+    ).toBe('\\>=5 items');
+
+    const editor2 = createTestEditor();
+    editor2.update(
+      () => {
+        $convertFromMarkdownString('\\>=5 items', TRANSFORMERS);
+      },
+      {discrete: true},
+    );
+    expect(
+      editor2.read('latest', () =>
+        $isParagraphNode($getRoot().getFirstChild()),
+      ),
+    ).toBe(true);
+    expect(editor2.read('latest', () => $getRoot().getTextContent())).toBe(
+      '>=5 items',
+    );
+  });
+
+  it('escapes newline followed by > within paragraph text when exported', () => {
+    const editor = createTestEditor();
+    editor.update(
+      () => {
+        const root = $getRoot();
+        const paragraph = $createParagraphNode();
+        paragraph.append($createTextNode('a\n>b'));
+        root.append(paragraph);
+      },
+      {discrete: true},
+    );
+    expect(
+      editor.read('latest', () => $convertToMarkdownString(TRANSFORMERS)),
+    ).toBe('a\n\\>b');
+
+    const editor2 = createTestEditor();
+    editor2.update(
+      () => {
+        $convertFromMarkdownString('a\n\\>b', TRANSFORMERS);
+      },
+      {discrete: true},
+    );
+    expect(
+      editor2.read('latest', () =>
+        $isParagraphNode($getRoot().getFirstChild()),
+      ),
+    ).toBe(true);
+    expect(editor2.read('latest', () => $getRoot().getTextContent())).toBe(
+      'a\n>b',
+    );
+  });
+
+  it('escapes > after soft line break in list item so it round-trips within the item', () => {
+    const editor = createTestEditor();
+    editor.update(
+      () => {
+        const root = $getRoot();
+        const list = $createListNode('bullet');
+        const item = $createListItemNode();
+        item.append(
+          $createTextNode('a'),
+          $createLineBreakNode(),
+          $createTextNode('>b'),
+        );
+        list.append(item);
+        root.append(list);
+      },
+      {discrete: true},
+    );
+    expect(
+      editor.read('latest', () => $convertToMarkdownString(TRANSFORMERS)),
+    ).toBe('- a\n\\>b');
+
+    const editor2 = createTestEditor();
+    editor2.update(
+      () => {
+        $convertFromMarkdownString('- a\n\\>b', TRANSFORMERS);
+      },
+      {discrete: true},
+    );
+    expect(
+      editor2.read('latest', () => $isListNode($getRoot().getFirstChild())),
+    ).toBe(true);
+    expect(editor2.read('latest', () => $getRoot().getTextContent())).toBe(
+      'a\n>b',
+    );
+  });
+
+  it('escapes > at start of exported selection even when preceded by unselected text in paragraph', () => {
+    const editor = createTestEditor();
+    editor.update(
+      () => {
+        const root = $getRoot();
+        const paragraph = $createParagraphNode();
+        const boldX = $createTextNode('x').toggleFormat('bold');
+        const textNode = $createTextNode('>a');
+        paragraph.append(boldX, textNode);
+        root.append(paragraph);
+        textNode.select(0, 2);
+      },
+      {discrete: true},
+    );
+    const selection = editor.read('latest', () => $getSelection());
+    const exported = editor.read('latest', () =>
+      $convertSelectionToMarkdownString(TRANSFORMERS, selection),
+    );
+    expect(exported).toBe('\\>a');
+
+    const editor2 = createTestEditor();
+    editor2.update(
+      () => {
+        $convertFromMarkdownString(exported, TRANSFORMERS);
+      },
+      {discrete: true},
+    );
+    expect(
+      editor2.read('latest', () =>
+        $isParagraphNode($getRoot().getFirstChild()),
+      ),
+    ).toBe(true);
+    expect(editor2.read('latest', () => $getRoot().getTextContent())).toBe(
+      '>a',
+    );
   });
 });

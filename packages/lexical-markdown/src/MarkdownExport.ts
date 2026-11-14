@@ -14,6 +14,7 @@ import {
   $isDecoratorNode,
   $isElementNode,
   $isLineBreakNode,
+  $isParagraphNode,
   $isRangeSelection,
   $isTextNode,
   type BaseSelection,
@@ -616,6 +617,13 @@ function $exportTextFormat(
         ),
         selection,
       );
+    }
+
+    if ($startsExportedLine(node, selection)) {
+      output = output.replace(/^>/, '\\>');
+    }
+    if (output.includes('\n>')) {
+      output = output.replace(/\n>/g, '\n\\>');
     }
   }
 
@@ -2006,6 +2014,25 @@ function $lineStateBefore(
     state = next;
   }
   return state;
+}
+
+/**
+ * Whether `node` starts an exported line: at the start of a paragraph (including
+ * partial selection export) or immediately following a line break in any block.
+ */
+function $startsExportedLine(
+  node: TextNode,
+  selection: BaseSelection | null = null,
+): boolean {
+  const prevLeaf = $previousLeaf(node, selection);
+  if (prevLeaf !== null) {
+    return $isLineBreakNode(prevLeaf);
+  }
+  let parent = node.getParent();
+  while (parent !== null && $isElementNode(parent) && parent.isInline()) {
+    parent = parent.getParent();
+  }
+  return parent !== null && $isParagraphNode(parent);
 }
 
 function getTextSibling(node: TextNode, backward: boolean): TextNode | null {
