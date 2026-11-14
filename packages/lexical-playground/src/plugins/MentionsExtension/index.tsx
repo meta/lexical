@@ -532,7 +532,10 @@ const dummyLookupService = {
   },
 };
 
-function useMentionLookupService(mentionString: string | null) {
+function useMentionLookupService(mentionString: string | null): {
+  results: string[];
+  loading: boolean;
+} {
   const [results, setResults] = useState<string[]>([]);
 
   useEffect(() => {
@@ -558,7 +561,12 @@ function useMentionLookupService(mentionString: string | null) {
     });
   }, [mentionString]);
 
-  return results;
+  // null in the cache means a lookup is in flight. undefined means it has
+  // not started. Either way the names are not here yet.
+  const cached = mentionString == null ? [] : mentionsCache.get(mentionString);
+  const loading = mentionString != null && !Array.isArray(cached);
+
+  return {loading, results};
 }
 
 function checkForAtSignMentions(
@@ -612,7 +620,7 @@ export function MentionsPlugin(): JSX.Element | null {
 
   const [queryString, setQueryString] = useState<string | null>(null);
 
-  const results = useMentionLookupService(queryString);
+  const {results, loading} = useMentionLookupService(queryString);
 
   const checkForSlashTriggerMatch = useBasicTypeaheadTriggerMatch('/', {
     minLength: 0,
@@ -660,10 +668,12 @@ export function MentionsPlugin(): JSX.Element | null {
 
   return (
     <LexicalTypeaheadMenuPlugin<MentionTypeaheadOption>
+      menuAriaLabel="Mentions"
       onQueryChange={setQueryString}
       onSelectOption={onSelectOption}
       triggerFn={checkForMentionMatch}
       options={options}
+      loading={loading}
     />
   );
 }

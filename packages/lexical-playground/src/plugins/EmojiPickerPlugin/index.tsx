@@ -29,12 +29,14 @@ class EmojiOption extends MenuOption {
     title: string,
     emoji: string,
     options: {
+      ariaLabel?: string;
       keywords?: string[];
     },
   ) {
     super(title);
     this.title = title;
     this.emoji = emoji;
+    this.ariaLabel = options.ariaLabel;
     this.keywords = options.keywords || [];
   }
 }
@@ -67,6 +69,17 @@ export default function EmojiPickerPlugin() {
         ? emojis.map(
             ({emoji, aliases, tags}) =>
               new EmojiOption(`${emoji} ${aliases[0]}`, emoji, {
+                // Announce the shortcode, not the glyph and not the
+                // dataset description.
+                //
+                // The glyph is announced from the screen reader's own
+                // dictionary, so leaving it in the name says the same emoji
+                // twice. The description reads well ("face savoring food") but
+                // is NOT searchable - only aliases and tags are matched - so a
+                // screen-reader user would hear a name they cannot type. The
+                // shortcode is what you search by, so it is what should be
+                // read; underscores become spaces so it is intelligible.
+                ariaLabel: aliases[0].replace(/_/g, ' '),
                 keywords: [...aliases, ...tags],
               }),
           )
@@ -123,6 +136,7 @@ export default function EmojiPickerPlugin() {
 
   return (
     <LexicalTypeaheadMenuPlugin
+      menuAriaLabel="Emojis"
       onQueryChange={setQueryString}
       onSelectOption={onSelectOption}
       triggerFn={checkForTriggerMatch}

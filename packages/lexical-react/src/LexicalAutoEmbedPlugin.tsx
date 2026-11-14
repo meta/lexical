@@ -87,6 +87,12 @@ type LexicalAutoEmbedPluginProps<TEmbedConfig extends EmbedConfig> = {
    */
   menuRenderFn?: MenuRenderFn<AutoEmbedOption>;
   /**
+   * Accessible label for the menu.
+   * Screen readers will announce this when the menu opens.
+   * @default 'Typeahead menu'
+   */
+  menuAriaLabel?: string;
+  /**
    * Priority for key handling in the menu. The default is `COMMAND_PRIORITY_LOW`
    */
   menuCommandPriority?: CommandListenerPriority;
@@ -157,6 +163,7 @@ export function LexicalAutoEmbedPlugin<TEmbedConfig extends EmbedConfig>({
   onOpenEmbedModalForConfig,
   getMenuOptions,
   menuRenderFn,
+  menuAriaLabel,
   menuCommandPriority = COMMAND_PRIORITY_LOW,
   $disableMenuFor,
 }: LexicalAutoEmbedPluginProps<TEmbedConfig>): JSX.Element | null {
@@ -332,6 +339,7 @@ export function LexicalAutoEmbedPlugin<TEmbedConfig extends EmbedConfig>({
       onSelectOption={onSelectOption}
       options={options}
       menuRenderFn={menuRenderFn}
+      menuAriaLabel={menuAriaLabel}
       commandPriority={menuCommandPriority}
     />
   ) : null;

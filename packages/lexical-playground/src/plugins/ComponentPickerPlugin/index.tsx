@@ -411,6 +411,7 @@ export default function ComponentPickerMenuPlugin(): JSX.Element {
     <>
       {modal}
       <LexicalTypeaheadMenuPlugin<ComponentPickerOption>
+        menuAriaLabel="Blocks"
         onQueryChange={setQueryString}
         onSelectOption={onSelectOption}
         triggerFn={checkForTriggerMatch}
