@@ -3910,6 +3910,19 @@ export class YBinding {
       this.setStatus('readonly');
       return;
     }
+    const replaced = this.state.replacedStorage;
+    if (replaced.size > 0) {
+      for (const type of [...replaced.keys()].sort()) {
+        const m = replaced.get(type)!;
+        this.warn(
+          STORAGE_MISMATCH_WARNING,
+          `${m.type} is stored as ${m.stored.kind}, and this editor builds its nodes as ${m.replacement} (a node replacement), whose class cannot be stored as ${m.stored.kind} (it is stored as ${m.declared.kind}). Edits to those nodes could not be written, so this editor is read only: migrate the stored content first (reseed it into a new room with seedYState, or upgrade it where the document is stored), or replace ${m.type} with a class that can be stored as ${m.stored.kind}`,
+          m,
+        );
+      }
+      this.setStatus('readonly');
+      return;
+    }
     const unknown = this.state.unknownTypes;
     if (unknown.size > 0) {
       const slots = this.state.malformedSlots;
@@ -4100,6 +4113,7 @@ export class YBinding {
       this.schemaGate !== null ||
       this.state.unknownTypes.size > 0 ||
       this.state.unreadable.size > 0 ||
+      this.state.replacedStorage.size > 0 ||
       this.keepsUnstored ||
       this.unreadable ||
       this.quiesced
