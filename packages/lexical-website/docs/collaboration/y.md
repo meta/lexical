@@ -2298,6 +2298,10 @@ lists include it; a server that passes its own list to `migrateYState` or
   writes formats straight into Yjs (`Y.Node#format`) writes plain items,
   which a room reads beside its paired runs. Write through an
   editor or `editYState` instead (see "Format runs" in the limits).
+  `@lexical/y/migrate/4to5` drops such items inside the quotes it
+  rewrites: in their paragraphs, items of names layout 4 does not cover,
+  and everywhere it writes anew, items of a covered name in a reserved
+  shape.
 
 - **Changes that keep the layout:** additions older clients can ignore, such
   as a new optional attribute. Rooms keep working in old and new clients.

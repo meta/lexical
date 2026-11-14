@@ -566,6 +566,11 @@ earlier records and adds `lexical-y:5`.
     keep their markers;
   - each run of text no block holds becomes a line;
   - formats are written in layout 4's canonical form per new container.
+    Format items only raw writes store (unsupported, D109) are dropped in
+    the lines written from the quote's inline content when their name is
+    not covered (`zz:raw`), and wherever the step writes anew when a
+    covered name holds a reserved shape (`f:bold` = `[1,2,3]`); in blocks
+    copied whole, uncovered names keep their place.
 
   The old line's items are deleted. A line of this kind inside a node (a
   third level of quotes, a quote in a table cell) is rewritten in place
