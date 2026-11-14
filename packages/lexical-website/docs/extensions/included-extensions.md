@@ -58,6 +58,7 @@ Framework-agnostic accessibility extensions. See [Keyboard Accessibility](/docs/
 - [SelectBlockExtension](/docs/api/modules/lexical_extension#selectblockextension) - Select all (Ctrl/Cmd+A) selects the nearest block element first, pressing it again selects the whole document
 - [SelectionAlwaysOnDisplayExtension](/docs/api/modules/lexical_extension#selectionalwaysondisplayextension) - Highlights selected content even when the editor is not focused
 - [TabIndentationExtension](/docs/api/modules/lexical_extension#tabindentationextension) - Changes Tab key to insert tabs and indent instead of natively focusing the next field
+- [TextSubstitutionExtension](/docs/api/modules/lexical_extension#textsubstitutionextension) - Auto-replaces text aliases as they are typed (Word/Google Docs style: `--` → `—`, `(c)` → `©`), with custom substitutions supported; Ctrl+Z or Backspace right after a substitution restores the alias. To disable a single default, map it to itself (e.g. `{'--': '--'}`)
 - [WatchEditableExtension](/docs/api/modules/lexical_extension#watcheditableextension) - Exposes the editor's editable state as a reactive `Signal<boolean>`
 
 [@lexical/hashtag](/docs/api/modules/lexical_hashtag)
