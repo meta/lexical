@@ -119,14 +119,16 @@ export default function ContextMenuPlugin({
               data.setData(type, dataString);
             }
 
-            const event = new ClipboardEvent('paste', {
-              clipboardData: data,
-            });
+            const event = new ClipboardEvent('paste');
+            // Firefox ignores clipboardData in ClipboardEventInit.
+            Object.defineProperty(event, 'clipboardData', {value: data});
 
             editor.dispatchCommand(PASTE_COMMAND, event);
           } catch (error: unknown) {
             if (error instanceof Error && error.name === 'NotAllowedError') {
               alert('Not allowed to paste from clipboard.');
+            } else {
+              console.error(error);
             }
           }
         },
@@ -147,13 +149,16 @@ export default function ContextMenuPlugin({
             const data = new DataTransfer();
             data.setData('text/plain', clipboardText);
 
-            const event = new ClipboardEvent('paste', {
-              clipboardData: data,
-            });
+            const event = new ClipboardEvent('paste');
+            // Firefox ignores clipboardData in ClipboardEventInit.
+            Object.defineProperty(event, 'clipboardData', {value: data});
+
             editor.dispatchCommand(PASTE_COMMAND, event);
           } catch (error: unknown) {
             if (error instanceof Error && error.name === 'NotAllowedError') {
               alert('Not allowed to paste from clipboard.');
+            } else {
+              console.error(error);
             }
           }
         },

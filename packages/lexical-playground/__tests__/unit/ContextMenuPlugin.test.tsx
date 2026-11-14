@@ -14,6 +14,7 @@ import {
   COMMAND_PRIORITY_CRITICAL,
   type LexicalEditor,
   PASTE_COMMAND,
+  type PasteCommandType,
 } from 'lexical';
 import * as React from 'react';
 import {act} from 'react';
@@ -96,7 +97,7 @@ describe('ContextMenuPlugin Clipboard', () => {
   }
 
   it('pastes successfully when navigator.permissions.query throws (e.g. Firefox)', async () => {
-    const mockPasteHandler = vi.fn(() => true);
+    const mockPasteHandler = vi.fn((_event: PasteCommandType) => true);
 
     const mockClipboardItem = {
       getType: vi.fn(
@@ -143,7 +144,7 @@ describe('ContextMenuPlugin Clipboard', () => {
   });
 
   it('pastes plain text successfully when navigator.permissions.query throws (e.g. Firefox)', async () => {
-    const mockPasteHandler = vi.fn(() => true);
+    const mockPasteHandler = vi.fn((_event: PasteCommandType) => true);
 
     vi.stubGlobal('navigator', {
       clipboard: {
@@ -180,7 +181,7 @@ describe('ContextMenuPlugin Clipboard', () => {
   });
 
   it('shows alert and blocks paste when clipboard-read permission is denied', async () => {
-    const mockPasteHandler = vi.fn(() => true);
+    const mockPasteHandler = vi.fn((_event: PasteCommandType) => true);
 
     vi.stubGlobal('navigator', {
       clipboard: {
@@ -211,7 +212,7 @@ describe('ContextMenuPlugin Clipboard', () => {
   });
 
   it('handles NotAllowedError when clipboard.read() rejects with permission denial', async () => {
-    const mockPasteHandler = vi.fn(() => true);
+    const mockPasteHandler = vi.fn((_event: PasteCommandType) => true);
 
     vi.stubGlobal('navigator', {
       clipboard: {
