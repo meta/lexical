@@ -122,18 +122,18 @@ import {
   wrappersFromAttrs,
   type WrapperValue,
 } from './Schema';
+import {copyStart, Folder, frontierOf, shownAttrs} from './Seen';
 import {
-  copyStart,
-  Folder,
-  frontierOf,
+  heldRuns,
   isGoneIn,
   isHeld,
+  isHiddenIn,
   isShownEndIn,
   isShownIn,
-  prevLiveEnd,
-  shownAttrs,
+  prevShownEnd,
   shownText,
-} from './Seen';
+  wasShownBefore,
+} from './Shown';
 import {$holds, $readSlots, $replaceStored, SLOT_PREFIX} from './Slots';
 import {
   type CS,
@@ -252,15 +252,25 @@ function parseRange(
   let pending = false;
   for (let it = start; it !== null && it !== stop; it = it.right) {
     last = it;
-    if (it.deleted) {
-      continue;
-    }
     const content = it.content;
     if (content instanceof ContentFormat) {
-      folder.step(it);
+      if (!it.deleted) {
+        folder.step(it);
+      }
       continue;
     }
-    if (!it.countable || isHeld(it, hidden)) {
+    // Content and end items as each line's read shows them (see $pieces),
+    // in the read's view: what a change not read yet inserted is not there,
+    // and what it deleted is (see Unread). Before, these were Yjs's own:
+    // a read that runs before such a change is read (the reread of a line
+    // whose write was refused, while a collaborator's removal of that line
+    // waited to be read) parsed the removed line as gone, and read its
+    // text, still shown, into the line after it, where the next write
+    // stored it again. Only content and ends: a line kept by the view alone
+    // (its marker deleted by the unread change) reads its attributes from
+    // that deleted marker, so as a paragraph until the change is read, and
+    // unit start formats still fold in the raw lane.
+    if (!it.countable || isHiddenIn(view, it, hidden)) {
       continue;
     }
     if (isEndItem(it)) {
@@ -1256,24 +1266,11 @@ export class Reader {
   }
 
   /**
-   * Whether item `p` showed before the change being read: live and neither
-   * held back nor inserted by the change, or deleted by the change or kept
-   * by the hold (an item deleted before that the hold does not keep shows
-   * nowhere, though an undo manager may keep it findable).
+   * Whether item `p` showed before the change being read (see
+   * wasShownBefore).
    */
   private shownBefore(p: Item): boolean {
-    const change = this.change;
-    const hidden = this.state.hidden;
-    if (isHeld(p, hidden)) {
-      return false;
-    }
-    if (p.deleted) {
-      return (
-        (hidden !== null && hidden.keeps(p)) ||
-        (change !== null && change.deleteSet.hasId(p.id))
-      );
-    }
-    return change === null || !change.insertSet.hasId(p.id);
+    return wasShownBefore(p, this.state.hidden, this.change);
   }
 
   /**
@@ -1327,7 +1324,7 @@ export class Reader {
     const hidden = this.state.hidden;
     const view = this.view;
     const start =
-      unit.end === null ? null : prevLiveEnd(view, unit.end, hidden);
+      unit.end === null ? null : prevShownEnd(view, unit.end, hidden);
     if (start === null || !items.has(start) || start.deleted) {
       return null;
     }
@@ -1626,7 +1623,7 @@ export class Reader {
       this.$derivedFor(u.cs, group),
       this.attrChanged.has(u),
     );
-    const left = prevLiveEnd(this.view, u.end, hidden);
+    const left = prevShownEnd(this.view, u.end, hidden);
     const first = left === null ? u.cs.y._start : left.right;
     // The line being composed reads as it shows (see Reader#held); every
     // other line, and what this one hands on (below), as stored.
@@ -1821,7 +1818,21 @@ export class Reader {
         while (j < old.length && old[j].end !== null && old[j].end!.deleted) {
           j++;
         }
-        if (j < old.length && old[j].end !== null && old[j].kind === 'line') {
+        // Merged only where no end item the change inserted lies between:
+        // a line that took the composed line's place (a change of its type
+        // as a new line, with its own marker) holds its text, not the line
+        // after it.
+        let merged = j < old.length && old[j].end !== null;
+        for (
+          let it = old[k].end!.right;
+          merged && it !== null && it !== old[j].end;
+          it = it.right
+        ) {
+          if (isEndItem(it) && !it.deleted && !byEnd.has(it)) {
+            merged = false;
+          }
+        }
+        if (merged && old[j].kind === 'line') {
           composedLine = {into: old[j], key: ck};
         }
       }
@@ -2877,7 +2888,7 @@ export class Reader {
     }
     let pos = 0;
     let shown = 0;
-    for (const [len, isHidden] of hidden.runs(it)) {
+    for (const [len, isHidden] of heldRuns(it, hidden)) {
       if (offset < pos + len) {
         return isHidden ? -1 : shown + offset - pos;
       }
@@ -3114,7 +3125,7 @@ export class Reader {
         if (end < text.length) {
           parts.push({...piece, text: text.slice(end)});
         }
-        pieces.splice(k, 1, ...parts);
+        spliceAll(pieces, k, 1, parts);
         composedPlaced = true;
         break;
       }
@@ -4448,7 +4459,7 @@ function attrsAtItems(
         ) {
           continue;
         }
-        const left = prevLiveEnd(view, unit.end!, hidden);
+        const left = prevShownEnd(view, unit.end!, hidden);
         start = unit.start;
         folded = frontierOf(view, unit.start, left, unit.cs.y, null);
         from = left === null ? unit.cs.y._start : left.right;
@@ -4477,7 +4488,7 @@ function attrsAtItems(
  * U+001F), a value other than what its stored format attributes `tattrs`
  * give it: a reader's comparison of stored attributes leaves member entries
  * that are not `true` out, so a node that kept one from an earlier read (an
- * array a raw writer stored, read as a value before the layout 3 record) is
+ * array a raw writer stored, read as a value before the layout record) is
  * built again. It compares the node with what is stored there.
  */
 function $coveredStateDiffers(node: LexicalNode, tattrs: Attrs): boolean {

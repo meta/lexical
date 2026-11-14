@@ -5,7 +5,8 @@ on [Yjs 14](https://github.com/yjs/yjs) (`@y/y`). It is separate from
 `@lexical/yjs` (Yjs 13): the two use different Yjs libraries and document
 layouts, and a document uses one or the other. Entries: `@lexical/y`,
 `@lexical/y/headless`, `@lexical/y/migrate` (with a step per layout,
-`@lexical/y/migrate/<n>to<n+1>`) and `@lexical/y/server`. Every export is
+`@lexical/y/migrate/<n>to<n+1>`), `@lexical/y/offline` and
+`@lexical/y/server`. Every export is
 `@experimental`, and `@y/y` is a release candidate. `@experimental` is not
 an exception to API compatibility: once released, the public API and its types
 change only additively. No export is removed or renamed, and no published
@@ -14,6 +15,65 @@ below stays frozen once released, but while the package is experimental a
 release may stop reading an older one, and rooms stored in it then open read
 only until their server migrates them (see
 [Layout upgrades](https://lexical.dev/docs/collaboration/y#layout-upgrades)).
+
+## Start here
+
+1. `const doc = createYDoc()`: the shared document, for your provider.
+2. `yCollab({doc, schemaVersion, synced, onStatus})` in the editor's
+   `dependencies` (`createYBinding(editor, {...})` for an editor built
+   without extensions).
+3. Connect your provider, sending `collab.handshake(generation)` before any
+   sync message.
+4. `collab.markSynced()` after its first sync.
+5. `collab.freeze()` when the server says the room moved on (a stale
+   generation): store what it returns before any reload.
+
+```ts
+import {
+  buildEditorFromExtensions,
+  getExtensionDependencyFromEditor,
+} from '@lexical/extension';
+import {RichTextExtension} from '@lexical/rich-text';
+import {
+  createYDoc,
+  Y_DEFAULTS,
+  yCollab,
+  YCollabExtension,
+  type YStatus,
+} from '@lexical/y';
+import {defineExtension} from 'lexical';
+
+// Bump it when you add, remove or change a node class or its fields.
+const SCHEMA_VERSION = 1;
+const showStatus = (status: YStatus) => {
+  // Tell the user when the document is read only, and why (status.cause).
+};
+
+const doc = createYDoc();
+const editor = buildEditorFromExtensions(
+  defineExtension({
+    dependencies: [
+      RichTextExtension,
+      yCollab({
+        doc,
+        history: Y_DEFAULTS.history, // the default
+        onStatus: status => showStatus(status),
+        root: Y_DEFAULTS.root, // the default
+        schemaVersion: SCHEMA_VERSION,
+        synced: false, // markSynced() after the provider's first sync
+      }),
+    ],
+    name: 'app',
+  }),
+);
+const {collab} = getExtensionDependencyFromEditor(
+  editor,
+  YCollabExtension,
+).output;
+// Connect `doc` to a Yjs 14 provider, sending collab.handshake(generation)
+// (null for a client with no local state) first; then, after its first sync:
+collab.markSynced();
+```
 
 ## Install
 
@@ -47,48 +107,9 @@ as a relay either (see
 
 ## Usage
 
-```ts
-import {
-  buildEditorFromExtensions,
-  getExtensionDependencyFromEditor,
-} from '@lexical/extension';
-import {RichTextExtension} from '@lexical/rich-text';
-import {
-  createYCollabConfig,
-  createYDoc,
-  YCollabExtension,
-} from '@lexical/y';
-import {defineExtension} from 'lexical';
-
-// Yjs's format cleanup off (createYDoc(stored) for a stored state): the
-// binding takes no other document.
-const doc = createYDoc();
-const editor = buildEditorFromExtensions(
-  defineExtension({
-    dependencies: [
-      RichTextExtension,
-      // Required: the version of your editor's nodes (bump it when you add,
-      // remove or change one), and how documents below MIN_LAYOUT are
-      // upgraded. null: no server migrates this provider's stored
-      // documents, so one below the floor opens read only. An app whose
-      // server migrates passes createYServerLayoutUpgrade() and sends its
-      // handshake.
-      createYCollabConfig({
-        doc,
-        layoutUpgrade: null,
-        schemaVersion: 1,
-      }),
-    ],
-    name: 'app',
-  }),
-);
-const {binding} = getExtensionDependencyFromEditor(
-  editor,
-  YCollabExtension,
-).output;
-// Connect `doc` to any Yjs 14 provider, then after its first sync:
-binding.initialize();
-```
+See [Start here](#start-here). The earlier setup (`createYCollabConfig`,
+`binding.initialize()`) keeps working; [the guide](https://lexical.dev/docs/collaboration/y)
+covers both.
 
 ## Documentation
 
@@ -99,6 +120,11 @@ binding.initialize();
   `createYWriter` for who the server's edits are by, and `createYDoc` for a
   relay's copy of a document), and migrating stored documents
   (`@lexical/y/server`).
+- [Offline](https://lexical.dev/docs/collaboration/y#offline-local-persistence-and-edits-that-did-not-sync)
+  (EXPERIMENTAL): `@lexical/y/offline`, a local store for Yjs 14 documents
+  on IndexedDB (`openYOfflineStore`) and the offline session
+  (`attachYOfflineSession`, `recoverYOfflineEdits`, `replayUnsyncedEdits`)
+  with its rollout stages `'off'`, `'persist'` and `'replay'`.
 - Layout migrations (EXPERIMENTAL): `@lexical/y/migrate` (the runner) and
   one frozen step per layout (`@lexical/y/migrate/1to2`); see
   [Changing the layout and migrating](https://lexical.dev/docs/collaboration/y#changing-the-layout-and-migrating).
@@ -113,10 +139,10 @@ of its own. A relay that cannot import it sets
 `doc.cleanupFormatting = false` on a new `Doc` before it applies updates.
 Otherwise Yjs's format cleanup deletes format items the clients keep, and
 the stored state reads differently from what the clients show. It is also
-slow on layout 3: loading a 20,000-word document takes about 150 ms with the
+slow with paired runs: loading a 20,000-word document takes about 150 ms with the
 cleanup on, against 19 ms with it off. See
 [Servers](https://lexical.dev/docs/collaboration/y#servers) for the other
-requirements (yrs versions, 32-bit client ids).
+requirements (yrs 0.28 or later).
 
 ## Running the long fuzz
 
@@ -187,11 +213,11 @@ local transaction of another origin that changes it
 (`RAW_YJS_WRITE_WARNING`).
 
 Each layout adds to the one before and is frozen once released: layout 1
-is the base, layout 2 adds member entries of set-valued NodeState, and
-layout 3 stores format runs as paired runs. This release writes layout 3
-(`MIN_LAYOUT` and `LAYOUT_VERSION`); a document that records only an older
-layout opens read only until its migration (see
-[layout 3](#wire-format-layout-3)).
+is the base, layout 2 adds member entries of set-valued NodeState, layout 3
+stores format runs as paired runs, and layout 4 stores flat NodeState on
+text as paired runs too. This release writes layout 4 (`MIN_LAYOUT` and
+`LAYOUT_VERSION`); a document that records only an older layout opens read
+only until its migration (see [layout 4](#wire-format-layout-4)).
 
 ### Wire format: layout 1
 
@@ -379,12 +405,12 @@ clients keep editing them.
 ### Wire format: layout 3
 
 Layout 3 is layout 2 with paired format runs, and is frozen the same way.
-It is the only layout this release writes: `MIN_LAYOUT`, `LAYOUT_VERSION`
-and `SEED_LAYOUT` are 3. A new document records `lexical-y:1` and
-`lexical-y:3` (and `lexical-y:2` when it holds a member entry) with its
-first content. A document that records only an older layout opens read
-only until the frozen step `@lexical/y/migrate/2to3` (after `1to2` for
-layout 1) rewrites its format runs, in place, keeping every content id.
+The release that wrote it recorded `lexical-y:1` and `lexical-y:3` (and
+`lexical-y:2` when the document held a member entry) with a new document's
+first content. The frozen step `@lexical/y/migrate/2to3` (after `1to2` for
+layout 1) rewrites the format runs of an older document, in place, keeping
+every content id. This release reads layout 3 only to show it (see
+[layout 4](#wire-format-layout-4)).
 
 - **Covered names.** The names whose runs are paired, by stored name: `t`
   and `k` (a text node's type and segment key), `f:<format>`, `p:<field>`
@@ -438,3 +464,44 @@ layout 1) rewrites its format runs, in place, keeping every content id.
   restored copy), before the transaction's update is encoded, so every peer
   receives a correct end. A copy of an end of a reserved shape (see Reading)
   keeps its value as it is.
+
+### Wire format: layout 4
+
+Layout 4 is layout 3 with one mechanism for every name the binding writes
+on text, and is frozen the same way. It is the only layout this release
+writes: `MIN_LAYOUT`, `LAYOUT_VERSION` and `SEED_LAYOUT` are 4. A new
+document records only `lexical-y:4`, before its first content; a migrated
+document keeps its earlier records and adds `lexical-y:4`. Nothing records
+`lexical-y:2` any more (layout 4 includes member entries).
+
+- **Covered names.** Layout 3's, and flat NodeState: `t`, `k`,
+  `f:<format>`, `p:<field>`, `w:<type>` and every `s:` name, a flat value
+  `s:<key>` as well as a member entry `s:<key>\u001f<member>`. A flat
+  value is written as a paired run, read by the run stack, and removed with
+  a `[]` run, exactly as a text format is: two collaborators' overlapping
+  values nest, and a value's undo removes exactly its own run. Its value
+  encoding does not change (a primitive as is, an object or an array as
+  `{json}`).
+- **Any other name** is not the binding's: it reads by the plain-value
+  rules, and the binding never writes, changes or deletes an item of it.
+  Text typed next to such an item takes the value the name has there.
+- **Reading a layout 3 document.** A document that records layout 3 opens
+  read only (`'older'`) and is shown by the same reader: its flat NodeState
+  items have no ends, so they read as unpaired values, which is how layout
+  3 read them. The one difference is an array a raw writer stored under a
+  flat NodeState name (unsupported, D109): layout 3 read it as a value,
+  and the read-only display reads it as an end that names nothing.
+- **Migration.** The frozen step `@lexical/y/migrate/3to4` takes no
+  parameters. Per container it reads each countable unit's values as
+  layout 3 read them (flat NodeState by the plain fold), deletes every live
+  format item of a covered name except reserved shapes, which stay where
+  they are, and writes the values in the canonical whole-container form.
+  Every content id is kept, and the document reads the same before and
+  after. A run left dangling (an opener whose end is gone, an end naming
+  nothing) is migrated by what it showed: a value that read as open to the
+  end of its container becomes a paired run ending at the container's last
+  unit. An array a raw writer stored under a flat NodeState name is stored
+  as the value it showed (`{json}`). A container that holds no live item of
+  a flat NodeState name and already meets layout 4's pairing invariant is
+  left as it is (its bytes are kept): it reads the same under both layouts.
+

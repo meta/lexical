@@ -8,19 +8,21 @@
 
 // @vitest-environment node
 
-// Render equivalence of the 2to3 step over stored corpora: each state was
-// written by the release before layout 3 (layout 1 or 2), and its
+// Render equivalence of the migration chain over stored corpora:
+// each state was written by an earlier release (layout 1, 2 or 3), and its
 // `<name>.main.json` holds that release's own read (editor JSON, derived
 // fields, list numbering), the configuration it used and its layout root.
-// The chain 1to2 + 2to3 migrates it in place (the runner's checks pass:
-// ids, content, order, parents, attributes, per-unit reads, checkAfter,
-// re-read); the migrated state then reads the same here, block ids
-// compared separately; layout 3's invariants hold on every container; a
-// second migration is a no-op. An entry whose read is null (an app whose
-// nodes are not here) is checked by the runner alone.
-// MIGRATE_2TO3_CORPORA lists directories (comma separated); with none, the
-// test is skipped. MIGRATE_2TO3_OUT writes one JSON line per state
-// (timings and sizes); MIGRATE_2TO3_SHARD/SHARDS split the entries.
+// The chain 1to2 + 2to3 + 3to4 migrates it in place from the layout it
+// records (the runner's checks pass: ids, content, order, parents,
+// attributes, per-unit reads, checkAfter, re-read); the migrated state then
+// reads the same here, block ids compared separately; layout 4's invariants
+// hold on every container; a second migration is a no-op. An entry whose
+// read is null (an app whose nodes are not here) is checked by the runner
+// alone. MIGRATE_CORPORA (or MIGRATE_2TO3_CORPORA, its name while the floor
+// was 3) lists directories (comma separated); with none, the test is
+// skipped. MIGRATE_2TO3_OUT writes one JSON line per state (timings and
+// sizes, of the last step that ran); MIGRATE_2TO3_SHARD/SHARDS split the
+// entries.
 
 import * as Y from '@y/y';
 import * as fs from 'node:fs';
@@ -32,12 +34,10 @@ import {createRawYDoc} from '../../internal/RawYDoc';
 import {getYLayoutInfo, migrateYState} from '../../migrate';
 import step1to2 from '../../migrate/1to2';
 import step2to3 from '../../migrate/2to3';
+import step3to4 from '../../migrate/3to4';
 import {$snapshot} from '../catalog/bind';
-import {
-  blockIdsOf,
-  layout3Problems,
-  withoutBlockIds,
-} from '../utils/migrate2to3';
+import {blockIdsOf, withoutBlockIds} from '../utils/migrate2to3';
+import {layout4Problems} from '../utils/migrate3to4';
 import {type CorpusConfig, corpusConfig} from '../utils/noteApp';
 
 /** The layout `doc`'s root records (see getYLayoutInfo), or null. */
@@ -46,13 +46,17 @@ const recordedLayout = (doc: Y.Doc, root = 'lexical-y'): number | null => {
   return 'layout' in info ? info.layout : null;
 };
 
-const DIRS = (process.env.MIGRATE_2TO3_CORPORA ?? '')
+const DIRS = (
+  process.env.MIGRATE_CORPORA ??
+  process.env.MIGRATE_2TO3_CORPORA ??
+  ''
+)
   .split(',')
   .filter(d => d !== '');
 const OUT = process.env.MIGRATE_2TO3_OUT ?? null;
 const SHARD = Number(process.env.MIGRATE_2TO3_SHARD ?? 0);
 const SHARDS = Number(process.env.MIGRATE_2TO3_SHARDS ?? 1);
-const STEPS = [step1to2, step2to3];
+const STEPS = [step1to2, step2to3, step3to4];
 
 type Entry = {
   name: string;
@@ -95,10 +99,10 @@ function check(
     return `${id}: migrate threw ${String(e).slice(0, 400)}`;
   }
   const ms = performance.now() - t0;
-  if (recordedLayout(createRawYDoc(result.state, {gc}), root) !== 3) {
-    return `${id}: not at layout 3 after the migration`;
+  if (recordedLayout(createRawYDoc(result.state, {gc}), root) !== 4) {
+    return `${id}: not at layout 4 after the migration`;
   }
-  const problems = layout3Problems(result.state, gc, root);
+  const problems = layout4Problems(result.state, gc, root);
   if (problems.length > 0) {
     return `${id}: checkAfter ${problems.slice(0, 3).join('; ')}`;
   }
@@ -106,7 +110,7 @@ function check(
   if (again.receipt.changed || again.update !== null) {
     return `${id}: a second migration changed it`;
   }
-  const step = result.receipt.roots[0]?.steps.find(s => s.id === step2to3.id);
+  const step = result.receipt.roots[0]?.steps.find(s => s.id === step3to4.id);
   const line: Line = {
     bytesAfter: result.receipt.bytesAfter,
     bytesBaseline: Y.encodeStateAsUpdate(createRawYDoc(state, {gc})).length,
@@ -147,51 +151,54 @@ function check(
   return line;
 }
 
-describe.skipIf(DIRS.length === 0)('2to3 over stored corpora', () => {
-  test(
-    'migrated states read as the release before layout 3 read them',
-    {timeout: 3_600_000},
-    () => {
-      const failures: string[] = [];
-      const lines: Line[] = [];
-      let n = 0;
-      let k = 0;
-      for (const dir of DIRS) {
-        for (const file of fs.readdirSync(dir).sort()) {
-          if (!file.endsWith('.main.json') || k++ % SHARDS !== SHARD) {
-            continue;
-          }
-          const entry = JSON.parse(
-            fs.readFileSync(path.join(dir, file), 'utf8'),
-          ) as Entry;
-          const state = new Uint8Array(
-            fs.readFileSync(
-              path.join(dir, file.replace(/\.main\.json$/, '.bin')),
-            ),
-          );
-          for (const gc of entry.gc === null ? [false, true] : [entry.gc]) {
-            n++;
-            const id = `${path.basename(dir)}/${entry.name} gc ${gc ? 'on' : 'off'}`;
-            const out = check(entry, state, gc, id);
-            if (typeof out === 'string') {
-              failures.push(out);
-            } else {
-              lines.push(out);
+describe.skipIf(DIRS.length === 0)(
+  'the migration chain over stored corpora',
+  () => {
+    test(
+      'migrated states read as the release that wrote them read them',
+      {timeout: 3_600_000},
+      () => {
+        const failures: string[] = [];
+        const lines: Line[] = [];
+        let n = 0;
+        let k = 0;
+        for (const dir of DIRS) {
+          for (const file of fs.readdirSync(dir).sort()) {
+            if (!file.endsWith('.main.json') || k++ % SHARDS !== SHARD) {
+              continue;
+            }
+            const entry = JSON.parse(
+              fs.readFileSync(path.join(dir, file), 'utf8'),
+            ) as Entry;
+            const state = new Uint8Array(
+              fs.readFileSync(
+                path.join(dir, file.replace(/\.main\.json$/, '.bin')),
+              ),
+            );
+            for (const gc of entry.gc === null ? [false, true] : [entry.gc]) {
+              n++;
+              const id = `${path.basename(dir)}/${entry.name} gc ${gc ? 'on' : 'off'}`;
+              const out = check(entry, state, gc, id);
+              if (typeof out === 'string') {
+                failures.push(out);
+              } else {
+                lines.push(out);
+              }
             }
           }
         }
-      }
-      if (OUT !== null) {
-        fs.writeFileSync(
-          OUT,
-          lines.map(l => JSON.stringify(l)).join('\n') + '\n',
-        );
-      }
-      expect({
-        failures: failures.slice(0, 40),
-        n,
-        nFailed: failures.length,
-      }).toEqual({failures: [], n, nFailed: 0});
-    },
-  );
-});
+        if (OUT !== null) {
+          fs.writeFileSync(
+            OUT,
+            lines.map(l => JSON.stringify(l)).join('\n') + '\n',
+          );
+        }
+        expect({
+          failures: failures.slice(0, 40),
+          n,
+          nFailed: failures.length,
+        }).toEqual({failures: [], n, nFailed: 0});
+      },
+    );
+  },
+);

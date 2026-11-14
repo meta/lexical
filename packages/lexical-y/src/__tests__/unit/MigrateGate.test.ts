@@ -160,7 +160,12 @@ describe.each([false, true])('the older gate, gc %s', gc => {
     const remote = createYDoc(Y.encodeStateAsUpdate(local), {gc});
     remote.clientID = 80;
     const sv = Y.encodeStateVector(remote);
-    remote.transact(() => remote.get(ROOT).deleteAttr(`lexical-y:${FLOOR}`));
+    // (A new document records its own layout only, so the record below
+    // the floor is written here: an older release's.)
+    remote.transact(() => {
+      remote.get(ROOT).deleteAttr(`lexical-y:${FLOOR}`);
+      remote.get(ROOT).setAttr(`lexical-y:${FLOOR - 1}`, true);
+    });
     Y.applyUpdate(local, Y.encodeStateAsUpdate(remote, sv), 'remote');
     await flush();
     const dropped = recordedLayout(local);

@@ -71,31 +71,32 @@ for (const gc of [false, true]) {
       Y.applyUpdate(doc, Y.encodeStateAsUpdate(rdoc, sv), 'remote');
       rdoc.destroy();
     };
-    incoming(r => r.setAttr('lexical-y:3', true));
+    incoming(r => r.setAttr('lexical-y:4', true));
     expect(b.status).toBe('active');
     incoming(r => r.setAttr('lexical-y:999', true));
     expect(b.status).toBe('readonly');
     incoming(r => {
       r.deleteAttr('lexical-y:999');
-      r.deleteAttr('lexical-y:3');
+      r.deleteAttr('lexical-y:4');
     });
     await flush();
     expect(olderOf(warned)).toEqual([
-      [1, 3],
-      [1, 3],
+      [1, 4],
+      [1, 4],
     ]);
     b.dispose();
     doc.destroy();
   });
-  for (const layout of [1, 2]) {
+  for (const layout of [1, 2, 3]) {
     test(`remote layout downgrade closes active writer layout=${layout} gc=${gc}`, async () => {
       const t = await setup(() => $getRoot().append($p('abc')), {gc});
       const remote = createYDoc(Y.encodeStateAsUpdate(t.a.doc), {gc});
       remote.clientID = 80;
       const sv = Y.encodeStateVector(remote);
       remote.transact(() => {
-        remote.get('lexical-y').deleteAttr('lexical-y:3');
-        if (layout === 2) remote.get('lexical-y').setAttr('lexical-y:2', true);
+        // A new document records layout 4 only: the older record is set.
+        remote.get('lexical-y').deleteAttr('lexical-y:4');
+        remote.get('lexical-y').setAttr('lexical-y:' + layout, true);
       });
       Y.applyUpdate(t.a.doc, Y.encodeStateAsUpdate(remote, sv), t.a.net);
       await flush();
@@ -146,7 +147,7 @@ for (const gc of [false, true]) {
       b.undoManager?.redo();
       await flush();
       expect(b.status).toBe('readonly');
-      expect(olderOf(warnings)).toEqual([[layout, 3]]);
+      expect(olderOf(warnings)).toEqual([[layout, 4]]);
       expect(Y.encodeStateAsUpdate(doc)).toEqual(before);
       expect(() =>
         editYState(
@@ -163,18 +164,18 @@ for (const gc of [false, true]) {
 }
 
 for (const gc of [false, true]) {
-  test(`an edit inside an app transaction that removed the layout 3 record is not written gc=${gc}`, async () => {
+  test(`an edit inside an app transaction that removed the layout record is not written gc=${gc}`, async () => {
     const t = await setup(() => $getRoot().append($p('abc')), {gc});
     const root = t.a.doc.get('lexical-y');
     t.a.doc.transact(() => {
-      root.deleteAttr('lexical-y:3');
+      root.deleteAttr('lexical-y:4');
       t.a.update(() => $getRoot().append($p('forbidden')));
     }, 'app');
     await flush();
     await t.sync();
     // The record is written again (a local transaction removed it, see
     // keepIdentityRecord); the edit made without it is not stored.
-    expect(root.getAttr('lexical-y:3')).toBe(true);
+    expect(root.getAttr('lexical-y:4')).toBe(true);
     expect(JSON.stringify(root.toJSON())).not.toContain('forbidden');
     expect(t.b.describe()).not.toContain('forbidden');
   });

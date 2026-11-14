@@ -34,7 +34,6 @@ declare const state: Uint8Array;
 function configOf(doc: YDoc): YCollabConfig {
   return {
     captureTimeout: 500,
-    clientIDRange: 'uint53',
     convert: false,
     doc,
     root: null,
@@ -120,7 +119,6 @@ declare const bindingOptionsWithExtra: {
   selfCheck?: B['selfCheck'],
   selfCheckSample?: B['selfCheckSample'],
   convert?: B['convert'],
-  clientIDRange?: B['clientIDRange'],
   layoutUpgrade?: B['layoutUpgrade'],
   laterOption: boolean,
 };
@@ -132,11 +130,11 @@ declare const configWithExtra: {
   root: C['root'],
   synced: C['synced'],
   captureTimeout: C['captureTimeout'],
-  clientIDRange: C['clientIDRange'],
   selfCheck: C['selfCheck'],
   selfCheckSample: C['selfCheckSample'],
   convert: C['convert'],
   layoutUpgrade?: C['layoutUpgrade'],
+  onYStatus?: C['onYStatus'],
   laterOption: boolean,
 };
 const extendedConfig: YCollabConfig = configWithExtra;

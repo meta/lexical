@@ -96,6 +96,66 @@ header h1 {
   font-size: 14px;
 }
 
+.collab-y-offline {
+  margin: 12px auto 0;
+  max-width: 1128px;
+  font-size: 14px;
+  color: #1c1e21;
+}
+
+.collab-y-offline button {
+  margin-left: 8px;
+  padding: 2px 8px;
+  border: 1px solid #ccd0d5;
+  border-radius: 4px;
+  background: #fff;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.collab-y-offline button:disabled {
+  color: #8d949e;
+  cursor: not-allowed;
+}
+
+.collab-y-offline-status,
+.collab-y-offline-capture,
+.collab-y-offline-problem {
+  padding: 8px 12px;
+  border-radius: 4px;
+  background-color: #eef3fb;
+}
+
+.collab-y-offline-capture {
+  margin-top: 8px;
+  background-color: #fff4e5;
+}
+
+.collab-y-offline-problem {
+  margin-top: 8px;
+  background-color: #fdecea;
+  color: #611a15;
+}
+
+.collab-y-offline-block {
+  display: flex;
+  align-items: center;
+  margin-top: 6px;
+}
+
+.collab-y-offline-change {
+  flex: none;
+  width: 72px;
+  font-weight: 600;
+}
+
+.collab-y-offline-preview {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .editor-shell {
   margin: 20px auto;
   border-radius: 2px;

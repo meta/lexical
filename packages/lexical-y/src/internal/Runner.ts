@@ -24,7 +24,7 @@ import {
   type Transaction,
 } from '@y/y';
 
-import {type ClientIDRange} from './ClientID';
+import {pushAll} from './Arrays';
 import {
   DEFAULT_ROOT_NAME,
   EPOCH_KEY,
@@ -173,7 +173,8 @@ export type YMigrationErrorCode = YKnownMigrationErrorCode | (string & {});
 
 /**
  * @experimental A migration refused or failed. Nothing was written: the
- * caller's document and stored state are as they were.
+ * caller's document and stored state are as they were. When a step threw
+ * (in its read, check or write), `cause` is the error it threw.
  */
 export class YMigrationError extends Error {
   readonly code: YMigrationErrorCode;
@@ -186,8 +187,9 @@ export class YMigrationError extends Error {
     message: string,
     problems: readonly string[] = [],
     root: string | null = null,
+    options?: {cause?: unknown},
   ) {
-    super(message);
+    super(message, options);
     this.name = 'YMigrationError';
     this.code = code;
     this.problems = problems;
@@ -263,11 +265,6 @@ export interface YMigrateOptions {
    */
   readonly to?: number;
   /**
-   * The range of the hashed client ids (default `'uint53'`; `'uint32'` for
-   * servers that read client ids as 32-bit numbers).
-   */
-  readonly clientIDRange?: ClientIDRange;
-  /**
    * An allocator of guaranteed-unique client ids, one per step run (default:
    * the hash of the inputs). Its id must not be one the document holds.
    */
@@ -319,8 +316,6 @@ export type YMigrationLoaders = {
   readonly [from: number]: () => Promise<unknown>;
 };
 
-const MAX_UINT32 = 0xffffffff;
-
 /**
  * FNV-1a, 32 bits, from `basis` (frozen: part of the wire contract), over
  * the seed (4 bytes, little endian), the encoded state, a 0 byte, and
@@ -352,9 +347,9 @@ function fnv1a32(
 /**
  * @internal The client id a step writes with: a hash of every input (the
  * copy's re-encoded state; the UTF-8 JSON of `[root, step id, revision,
- * target layout, gc]`). `'uint53'`: two FNV-1a 32 hashes (bases 0x811c9dc5
- * and 0x050c5d1f), the second's high 21 bits above the first's 32;
- * `'uint32'`: the first. Hashed again with the next seed while it is 0 or a
+ * target layout, gc]`): two FNV-1a 32 hashes (bases 0x811c9dc5 and
+ * 0x050c5d1f), the second's high 21 bits above the first's 32 (Yjs 14's
+ * 53-bit range). Hashed again with the next seed while it is 0 or a
  * client the document holds (`taken`).
  */
 export function migrationClientID(
@@ -366,7 +361,6 @@ export function migrationClientID(
     readonly to: number;
     readonly gc: boolean;
   },
-  range: ClientIDRange,
   taken: (client: number) => boolean,
 ): number {
   const text = new TextEncoder().encode(
@@ -375,9 +369,7 @@ export function migrationClientID(
   for (let seed = 0; ; seed++) {
     const low = fnv1a32(0x811c9dc5, seed, state, text);
     const client =
-      range === 'uint32'
-        ? low
-        : (fnv1a32(0x050c5d1f, seed, state, text) >>> 11) * 0x100000000 + low;
+      (fnv1a32(0x050c5d1f, seed, state, text) >>> 11) * 0x100000000 + low;
     if (client !== 0 && !taken(client)) {
       return client;
     }
@@ -859,7 +851,7 @@ function containerState(
         `the read of container ${keyOf(node, root)} gave ${strings.length} strings for ${units.length} units`,
       );
     }
-    perUnit.push(...strings);
+    pushAll(perUnit, strings);
   }
   if (check !== null) {
     for (const problem of check(node)) {
@@ -920,7 +912,10 @@ function stateProblems(
       );
       continue;
     }
-    out.push(...y.problems.map(p => `${what}: ${p}`));
+    pushAll(
+      out,
+      y.problems.map(p => `${what}: ${p}`),
+    );
     if (x.units.join('\n') !== y.units.join('\n')) {
       const i = x.units.findIndex((u, n) => y.units[n] !== u);
       out.push(
@@ -1141,7 +1136,9 @@ function runStep(
     problems,
     'before',
   );
-  problems.push(...[...before.values()].flatMap(c => c.problems));
+  for (const c of before.values()) {
+    pushAll(problems, c.problems);
+  }
   const othersBefore = documentState(copy, root);
   const recordsBefore = Object.keys(root.getAttrs()).filter(k =>
     k.startsWith(LAYOUT_PREFIX),
@@ -1150,7 +1147,6 @@ function runStep(
   // the copy no longer holds) and every client an earlier step wrote: an
   // id the migration takes must name nothing of the input's history.
   const taken = (c: number) => copy.store.clients.has(c) || reserved.has(c);
-  const range = options.clientIDRange ?? 'uint53';
   let client: number;
   if (options.clientID !== undefined) {
     client = options.clientID({
@@ -1159,12 +1155,7 @@ function runStep(
       step: step.id,
       to: step.to,
     });
-    if (
-      !Number.isSafeInteger(client) ||
-      client < 1 ||
-      (range === 'uint32' && client > MAX_UINT32) ||
-      taken(client)
-    ) {
+    if (!Number.isSafeInteger(client) || client < 1 || taken(client)) {
       throw new YMigrationError(
         'post-condition',
         `@lexical/y: the clientID allocator gave ${client}, which is not a free client id of this document`,
@@ -1182,7 +1173,6 @@ function runStep(
         root: name,
         to: step.to,
       },
-      range,
       taken,
     );
   }
@@ -1190,6 +1180,8 @@ function runStep(
   const own = copy.clientID;
   let epoch: YMigrationEpoch | null = null;
   let counts = {deleted: 0, problems: [] as string[], written: 0};
+  // What the step threw in the transaction (an array: assigned in a callback).
+  const thrown: unknown[] = [];
   copy.clientID = client;
   try {
     copy.transact(tr => {
@@ -1210,6 +1202,7 @@ function runStep(
         };
         root.setAttr(EPOCH_KEY, epoch as never);
       } catch (error) {
+        thrown.push(error);
         problems.push(`the step threw: ${String(error)}`);
       }
       counts = outsideWrites(tr, client, root, step);
@@ -1223,10 +1216,11 @@ function runStep(
       `@lexical/y: step ${step.id} failed on root ${name}: ${problems.join('; ')}`,
       problems,
       name,
+      thrown.length === 0 ? undefined : {cause: thrown[0]},
     );
   }
   const written: YMigrationEpoch = epoch;
-  problems.push(...counts.problems);
+  pushAll(problems, counts.problems);
   const after = rootState(
     copy,
     root,
@@ -1236,7 +1230,7 @@ function runStep(
     problems,
     'after',
   );
-  problems.push(...stateProblems(before, after, 'result', true));
+  pushAll(problems, stateProblems(before, after, 'result', true));
   for (const key of documentDiff(othersBefore, documentState(copy, root))) {
     problems.push(`result: container ${key} outside the root changed`);
   }
@@ -1252,11 +1246,17 @@ function runStep(
   if (JSON.stringify(epochOf(root)) !== JSON.stringify(written)) {
     problems.push('the root does not record a well-formed epoch');
   }
-  problems.push(...heldProblems(copy).map(p => `result: ${p}`));
+  pushAll(
+    problems,
+    heldProblems(copy).map(p => `result: ${p}`),
+  );
   // The encoded result, read again by a fresh document, reads the same.
   const reread = createYDoc(encodeStateAsUpdate(copy), {gc: copy.gc});
   try {
-    problems.push(...heldProblems(reread).map(p => `re-read: ${p}`));
+    pushAll(
+      problems,
+      heldProblems(reread).map(p => `re-read: ${p}`),
+    );
     const rroot = reread.get(name) as YNode;
     const rstate = rootState(
       reread,
@@ -1276,7 +1276,7 @@ function runStep(
       [],
       'after',
     );
-    problems.push(...stateProblems(astate, rstate, 're-read', true));
+    pushAll(problems, stateProblems(astate, rstate, 're-read', true));
     if (JSON.stringify(epochOf(rroot)) !== JSON.stringify(written)) {
       problems.push('re-read: the epoch differs');
     }
@@ -1487,6 +1487,8 @@ function runOnCopy(
       'post-condition',
       `@lexical/y: a step threw: ${String(error)}`,
       [`the step threw: ${String(error)}`],
+      null,
+      {cause: error},
     );
   }
 }

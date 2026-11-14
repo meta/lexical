@@ -8,7 +8,7 @@
 
 // @vitest-environment node
 
-// A start folded as stored (see Seen.FoldLane) up to a format item: once a
+// A start folded as stored (see Shown.FoldLane) up to a format item: once a
 // change deletes that item and the hold keeps showing it, the item is no
 // fold point of the stored start any more (a kept deletion is not stored).
 // Its frontier check took it for live (what the write's view shows), and
@@ -19,20 +19,21 @@ import {expect, test} from 'vitest';
 import {createYDoc} from '../../..';
 import {Hidden} from '../../../internal/Hidden';
 import {stepFormat, STORED_FOLD} from '../../../internal/Ident';
-import {writeLayout3Formats} from '../../../internal/Layout3';
-import {frontierOf, isStoredIn, noteFolded} from '../../../internal/Seen';
+import {frontierOf, noteFolded} from '../../../internal/Seen';
+import {isStoredIn} from '../../../internal/Shown';
 import {emptyView} from '../../../internal/Unread';
+import {writeLayout4Formats} from '../../../migrate/3to4/frozen/layout4';
 
 for (const gc of [false, true]) {
   test(`a stored start's fold point that only the hold shows is folded again (gc ${gc})`, () => {
     const doc = createYDoc(null, {gc});
     const root = doc.get('lexical-y');
-    root.setAttr('lexical-y:3', true);
+    root.setAttr('lexical-y:4', true);
     root.insert(0, 'abcd');
     const boundary = new Y.Node('¶');
     root.insert(0, [boundary]);
     doc.transact(tr =>
-      writeLayout3Formats(tr, root, [
+      writeLayout4Formats(tr, root, [
         new Map(),
         ...Array.from({length: 4}, () => new Map([['f:bold', true]])),
       ]),

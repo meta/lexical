@@ -21,7 +21,6 @@
 // error. From its tip, every write under an id extends the one chain of
 // writes under it, which nothing else writes to.
 
-import type {ClientIDRange} from '..';
 import type {Doc} from '@y/y';
 
 import {LexicalWarning} from 'lexical';
@@ -51,21 +50,16 @@ export interface YWriter {
  * @experimental A writer could not continue its client id on the state an
  * edit was given, so the edit was written under a new one, and the document
  * now carries one more client id. `data`: `{author: string, clientID: number,
- * previousClientID: number, reason: 'stale-state' | 'busy' | 'range' |
+ * previousClientID: number, reason: 'stale-state' | 'busy' |
  * 'foreign-writes'}`: the state was read before the writer's last update
  * under that id (or the update was never stored); another call with the
- * writer was writing under it (a call made from inside another call); the id
- * does not fit `clientIDRange: 'uint32'`; or something else wrote under it,
- * and the writer stops using it.
+ * writer was writing under it (a call made from inside another call); or
+ * something else wrote under it, and the writer stops using it.
  */
 export const WRITER_NEW_CLIENT_ID_WARNING = '@lexical/y/writer-new-client-id';
 
 /** Why a writer did not continue a client id that the state holds. */
-export type WriterNewClientIDReason =
-  | 'stale-state'
-  | 'busy'
-  | 'range'
-  | 'foreign-writes';
+export type WriterNewClientIDReason = 'stale-state' | 'busy' | 'foreign-writes';
 
 /**
  * The client ids a writer remembers. The least recently used is forgotten
@@ -73,8 +67,6 @@ export type WriterNewClientIDReason =
  * belonged to gets a new client id on its next edit by the writer.
  */
 export const MAX_WRITER_CLIENT_IDS = 10000;
-
-const MAX_UINT32 = 0xffffffff;
 
 interface WriterState {
   readonly author: string;
@@ -140,7 +132,8 @@ interface Blocked {
   readonly tip: number;
 }
 
-function randomClientID(range: ClientIDRange): number {
+/** A random client id in Yjs 14's range (53 bits, never 0). */
+function randomClientID(): number {
   const words = new Uint32Array(2);
   const c = globalThis.crypto;
   if (c !== undefined && typeof c.getRandomValues === 'function') {
@@ -149,10 +142,7 @@ function randomClientID(range: ClientIDRange): number {
     words[0] = Math.floor(Math.random() * 0x100000000);
     words[1] = Math.floor(Math.random() * 0x100000000);
   }
-  const id =
-    range === 'uint32'
-      ? words[0]
-      : (words[0] & 0x1fffff) * 0x100000000 + words[1];
+  const id = (words[0] & 0x1fffff) * 0x100000000 + words[1];
   return id === 0 ? 1 : id;
 }
 
@@ -167,9 +157,7 @@ function newClientIDWarning(
       ? `the state holds its client id ${previous} up to clock ${clock}, but its last update under that id reached clock ${tip} (the state was read before that update, or the update was never stored). To keep one client id per document, run this writer's edits one after another, each on a state that holds its last update, and store every update it returns.`
       : reason === 'busy'
         ? `its client id ${previous} is in use by another call with this writer (editYState called from inside another call's $edit, transact or onWarn). Run a writer's edits one after another, never from inside another edit.`
-        : reason === 'range'
-          ? `its client id ${previous} does not fit config.clientIDRange 'uint32'. Use the same clientIDRange in every config this writer edits a document with.`
-          : `the state holds writes under its client id ${previous} up to clock ${clock} that it did not make (its last update reached clock ${tip}), so something else writes under that id, and the writer stops using it. Never assign a writer's client id (result.clientID) to a Y.Doc.`;
+        : `the state holds writes under its client id ${previous} up to clock ${clock} that it did not make (its last update reached clock ${tip}), so something else writes under that id, and the writer stops using it. Never assign a writer's client id (result.clientID) to a Y.Doc.`;
   return new LexicalWarning(
     WRITER_NEW_CLIENT_ID_WARNING,
     `@lexical/y: writer ${JSON.stringify(author)} wrote this edit under a new client id, ${clientID}: ${why}`,
@@ -185,11 +173,7 @@ function newClientIDWarning(
  * otherwise a client id the writer drew and never wrote under, or a new one
  * (not in the state). The lease is in use until `commit` or `release`.
  */
-export function leaseWriterClientID(
-  writer: YWriter,
-  doc: Doc,
-  range: ClientIDRange,
-): WriterLease {
+export function leaseWriterClientID(writer: YWriter, doc: Doc): WriterLease {
   const state = writerStates.get(writer);
   if (state === undefined) {
     throw new TypeError(
@@ -209,8 +193,6 @@ export function leaseWriterClientID(
       reason = clock < tip ? 'stale-state' : 'foreign-writes';
     } else if (busy.has(clientID)) {
       reason = 'busy';
-    } else if (range === 'uint32' && clientID > MAX_UINT32) {
-      reason = 'range';
     } else if (clock > 0) {
       // Later entries were used more recently.
       chosen = clientID;
@@ -234,7 +216,7 @@ export function leaseWriterClientID(
     // Not in the state, not one of the writer's, and not the new id of a
     // call in progress (which is not in `tips` until it commits).
     do {
-      clientID = randomClientID(range);
+      clientID = randomClientID();
     } while (
       doc.store.clients.has(clientID) ||
       tips.has(clientID) ||

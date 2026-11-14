@@ -8,23 +8,24 @@
 
 // @vitest-environment node
 
-// A NodeState value stored flat (`s:<key>`, see Ident.covered) is not a
-// paired run: it is written by main's format rules, which no covered key
-// reaches any more. The issues' repros of those rules, with a flat NodeState
-// value in place of the format, link, color or comment of the original
-// (see OwnFormatItems), with garbage collection on and off and every client
-// id order:
-// - #9671: a format write removes the null and the restore its own earlier
-//   insert left inside its range (Cursor#formatPlain, isOwnInsertFormat).
-// - A range end that restates another client's opener ends it where that
-//   opener's run ended (rule 3, #9622's family: formatPlain's copied ends,
-//   changeEnd).
+// A NodeState value stored flat (`s:<key>`) is a covered name in layout 4
+// (D120): it is written as a paired run, as a format, link, color or
+// comment is. The issues' repros of main's plain-value rules, with a flat
+// NodeState value in place of the format, link, color or comment of the
+// original (see OwnFormatItems), with garbage collection on and off and
+// every client id order, keep their outcomes under paired runs:
+// - #9671: text typed into a run and then given its value, undone, leaves
+//   the rest of the run as it was.
+// - A range end next to another client's run ends where that run ended
+//   (#9622's family).
 // - #9623: an undo that restores another client's value ends the copy's run
-//   where the original's run ended (YBinding#closeRestoredRuns, opensRun).
+//   where the original's run ended.
 // And the rest of those rules' cases, each by what it does to the text (the
-// second describe), and the one case where main's undo rule shows a value on
-// text nobody gave it, kept for flat keys and pinned as a known failure (the
-// third).
+// second describe); the one case where main's undo rule showed a value on
+// text nobody gave it, which flat keys kept in layout 3 as a known failure
+// and paired runs fix (the third); and two concurrent cases for flat
+// NodeState (the fourth: overlapping values of one key, which layout 4
+// changes so that they nest, and one whose outcome it keeps).
 
 import {
   $createParagraphNode,
@@ -105,7 +106,7 @@ const TRIPLES = [
   [3, 1, 2],
 ];
 
-describe('a flat NodeState value keeps main format rules', () => {
+describe('a flat NodeState value keeps the outcomes of main format rules', () => {
   for (const gc of GC) {
     for (const ids of PAIRS) {
       // "abcdef" (tone a) "ghi" (tone x). B types an untoned "Z" inside
@@ -388,29 +389,25 @@ describe("a flat NodeState value keeps main's undo of a value whose text its aut
       // its typing; A undoes its clear. A's undo restores B's opener, but the
       // end of B's run left with B's undo and no text of the run is left, so
       // no null ends it (YBinding#closeRestoredRuns): the tone runs on over
-      // "two two", which nobody toned. Main does this for every format;
-      // paired runs (text formats, styles, links, comments) end at their own
-      // ends, so only a flat key keeps it.
-      test.fails(
-        `an undo that restores a value whose text its author's undo removed leaves the text after alone (fails: main's rule for flat keys) (gc ${gc ? 'on' : 'off'}, ids ${ids})`,
-        async () => {
-          const t = await setup(() => $getRoot().append($p('two two two')), {
-            gc,
-            ids,
-          });
-          const [a, b] = t.peers;
-          b.update($typeToned);
-          await t.sync();
-          a.update(() => $tone(0, 4, 6, ''));
-          await t.sync();
-          b.undo();
-          await t.sync();
-          a.undo();
-          await t.sync();
-          await expectConverged(t.peers);
-          expect(a.read(() => $show(0))).toBe('two two two');
-        },
-      );
+      // "two two", which nobody toned. Main did this for every format, and
+      // layout 3 for a flat key; a paired run ends at its own end.
+      test(`an undo that restores a value whose text its author's undo removed leaves the text after alone (gc ${gc ? 'on' : 'off'}, ids ${ids})`, async () => {
+        const t = await setup(() => $getRoot().append($p('two two two')), {
+          gc,
+          ids,
+        });
+        const [a, b] = t.peers;
+        b.update($typeToned);
+        await t.sync();
+        a.update(() => $tone(0, 4, 6, ''));
+        await t.sync();
+        b.undo();
+        await t.sync();
+        a.undo();
+        await t.sync();
+        await expectConverged(t.peers);
+        expect(a.read(() => $show(0))).toBe('two two two');
+      });
       // The control: without B's undo, A's undo brings the tone back on "XY"
       // only.
       test(`an undo that restores a value whose text stays brings it back on that text only (gc ${gc ? 'on' : 'off'}, ids ${ids})`, async () => {
@@ -427,6 +424,67 @@ describe("a flat NodeState value keeps main's undo of a value whose text its aut
         await t.sync();
         await expectConverged(t.peers);
         expect(a.read(() => $show(0))).toBe('two |XY:x|two two');
+        expect((await freshReader(a)).describe()).toBe(a.describe());
+      });
+    }
+  }
+});
+
+describe('two concurrent cases for a flat NodeState value: overlapping values set at once, and a value undone while a collaborator types inside it', () => {
+  for (const gc of GC) {
+    for (const ids of PAIRS) {
+      // Row 10. "abcdefgh": A tones "abcde" red while B tones "defgh" blue.
+      // Layout 3 (plain values): B's opener cut A's run short and A's
+      // closing null cut B's, so "fgh" lost its tone or "de" took the
+      // other's by client id order. Paired runs nest: on the overlap the run
+      // opened later in the text shows, and nothing spreads past either
+      // range.
+      test(`two overlapping values set at once: each range keeps its value, the later opener shows on the overlap (gc ${gc ? 'on' : 'off'}, ids ${ids})`, async () => {
+        const t = await setup(() => $getRoot().append($p('abcdefgh')), {
+          gc,
+          ids,
+        });
+        const [a, b] = t.peers;
+        t.offline();
+        a.update(() => $tone(0, 0, 5, 'red'));
+        b.update(() => $tone(0, 3, 8, 'blue'));
+        await t.sync();
+        await expectConverged(t.peers);
+        expect(a.read(() => $show(0))).toBe('abc:red|defgh:blue');
+        expect((await freshReader(a)).describe()).toBe(a.describe());
+        // Nothing spreads: text typed after the line's end has no tone.
+        a.update(() => $typePlain(0, 8, '!'));
+        await t.sync();
+        await expectConverged(t.peers);
+        expect(a.read(() => $show(0))).toBe('abc:red|defgh:blue|!');
+      });
+
+      // Row 11. "abcdefgh", all toned red by A. A undoes the tone while B
+      // types "X" after "d" with the tone the text around it has (typed
+      // text inherits it): the undo removes exactly A's run, and the text
+      // typed inside it loses the value with it (D64's open cell). The spec
+      // lists this as changed by layout 4; this cell has the same outcome on
+      // main `8b119693c` (typed text that inherits a value writes no item
+      // there either), so it pins the outcome, not a change.
+      test(`a value undone while a collaborator types inside it with that value: no text keeps it (gc ${gc ? 'on' : 'off'}, ids ${ids})`, async () => {
+        const t = await setup(() => $getRoot().append($p('abcdefgh')), {
+          gc,
+          ids,
+        });
+        const [a, b] = t.peers;
+        a.update(() => $tone(0, 0, 8, 'red'));
+        await t.sync();
+        expect(b.read(() => $show(0))).toBe('abcdefgh:red');
+        t.offline();
+        b.update(() => {
+          $selectIn([0], 4, 4).insertText('X');
+          $setSelection(null);
+        });
+        expect(b.read(() => $show(0))).toBe('abcdXefgh:red');
+        a.undo();
+        await t.sync();
+        await expectConverged(t.peers);
+        expect(a.read(() => $show(0))).toBe('abcdXefgh');
         expect((await freshReader(a)).describe()).toBe(a.describe());
       });
     }

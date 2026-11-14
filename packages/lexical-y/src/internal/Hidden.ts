@@ -12,6 +12,8 @@ import type {NodeKey} from 'lexical';
 
 import {type Item} from '@y/y';
 
+import {keepShown, unkeepShown} from './Keeps';
+
 /*
  * Remote changes held back while the local editor composes.
  *
@@ -26,7 +28,7 @@ import {type Item} from '@y/y';
  * that removes something the editor shows (a deletion, a join) is read at
  * once and whole, held items still skipped: Yjs does not keep what it
  * removed, so the editor cannot go on showing it. Format items are the
- * exception, in documents read as paired runs (layout 3): a format item a
+ * exception, in documents read as paired runs: a format item a
  * change deletes in the line is kept (see `keeps`), so the line goes on
  * showing it until the hold ends (a change that retokenizes the line, or an
  * identity write, deletes the line's format items and writes others). A kept
@@ -51,8 +53,8 @@ import {type Item} from '@y/y';
  *   from the line's shown start.
  * - I2: every other line reads as a fresh read of the stored document. What
  *   the composed line hands on to the lines after it is folded from its
- *   stored items: held insertions in, kept deletions out (Seen.isStoredIn).
- *   Fold notes carry the lane they were folded in (Seen.FoldLane).
+ *   stored items: held insertions in, kept deletions out (Shown.isStoredIn).
+ *   Fold notes carry the lane they were folded in (Shown.FoldLane).
  * - I3: when the hold ends, the line reads what is stored.
  * - I4: the composer's own writes in the line are made, and self-checked,
  *   against its display, without bringing kept items back or dropping held
@@ -114,7 +116,7 @@ export class Hidden {
 
   /**
    * Show deleted format item `item` until the hold ends: every reader and
-   * writer of the line sees it live (see Seen.isGoneIn and isShownIn). It is
+   * writer of the line sees it live (see Shown.isGoneIn and isShownIn). It is
    * kept from the deleting transaction's garbage collection, which runs
    * after the change is read (Item.keep; a format item never merges with
    * its neighbours, so the flag changes nothing else).
@@ -123,11 +125,7 @@ export class Hidden {
     if (this.kept.has(item)) {
       return;
     }
-    const set = !item.keep;
-    if (set) {
-      item.keep = true;
-    }
-    this.kept.set(item, set);
+    this.kept.set(item, keepShown(item));
   }
 
   /**
@@ -143,7 +141,7 @@ export class Hidden {
       return;
     }
     if (set) {
-      item.keep = false;
+      unkeepShown(item);
     }
     this.kept.delete(item);
   }
@@ -167,7 +165,7 @@ export class Hidden {
   releaseKeeps(): void {
     for (const [item, set] of this.kept) {
       if (set) {
-        item.keep = false;
+        unkeepShown(item);
       }
     }
   }

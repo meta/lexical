@@ -37,10 +37,10 @@ const required: Record<RequiredKeys<YCollabInput>, true> = {
 // option to one without the other fails to compile here.
 const everyOption: Record<keyof YCollabConfig, keyof YCollabInput> = {
   captureTimeout: 'captureTimeout',
-  clientIDRange: 'clientIDRange',
   convert: 'convert',
   doc: 'doc',
   layoutUpgrade: 'layoutUpgrade',
+  onYStatus: 'onYStatus',
   root: 'root',
   schemaVersion: 'schemaVersion',
   selfCheck: 'selfCheck',
@@ -53,7 +53,6 @@ const everyOption: Record<keyof YCollabConfig, keyof YCollabInput> = {
 // the extension). A complete object written for the old type compiles.
 const configRequired: Record<RequiredKeys<YCollabConfig>, true> = {
   captureTimeout: true,
-  clientIDRange: true,
   convert: true,
   doc: true,
   root: true,
@@ -65,7 +64,6 @@ const configRequired: Record<RequiredKeys<YCollabConfig>, true> = {
 export function oldFullConfig(doc: YCollabInput['doc']): YCollabConfig {
   return {
     captureTimeout: 500,
-    clientIDRange: 'uint53',
     convert: false,
     doc,
     root: null,
@@ -94,7 +92,7 @@ test('a YCollabInput with only its required keys configures the extension; the i
     'schemaVersion',
   ]);
   expect(Object.keys(everyOption)).toHaveLength(10);
-  expect(Object.keys(configRequired)).toHaveLength(9);
+  expect(Object.keys(configRequired)).toHaveLength(8);
   const input: YCollabInput = {
     doc: createYDoc(),
     layoutUpgrade: null,

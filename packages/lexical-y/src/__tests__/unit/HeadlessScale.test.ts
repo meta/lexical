@@ -20,7 +20,6 @@ import {createHeadlessYEditor} from '../../internal/HeadlessEditor';
 import {$block, $p, NODES} from '../utils/harness';
 
 const config = {
-  clientIDRange: 'uint32' as const,
   nodes: NODES,
   schemaVersion: 1,
 };

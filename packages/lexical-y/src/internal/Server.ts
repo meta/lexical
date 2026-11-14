@@ -23,7 +23,6 @@ import {
   type YLayoutMigration,
   type YMigrationReceipt,
 } from '../migrate';
-import {type ClientIDRange} from './ClientID';
 import {DEFAULT_ROOT_NAME, MIN_LAYOUT, SCHEMA_PREFIX} from './constants';
 import {
   epochRecordOf,
@@ -105,7 +104,6 @@ export interface YPrepareRoomOptions {
   readonly gc?: boolean;
   /** The target (default MIN_LAYOUT: only roots below the floor migrate). */
   readonly to?: number;
-  readonly clientIDRange?: ClientIDRange;
   readonly clientID?: (input: {
     readonly root: string;
     readonly step: string;
@@ -152,7 +150,6 @@ export function prepareYRoom(
   const gc = options.gc ?? true;
   const result = migrateYState(stored, options.steps ?? PUBLISHED_STEPS, {
     clientID: options.clientID,
-    clientIDRange: options.clientIDRange,
     gc,
     roots,
     to: options.to ?? MIN_LAYOUT,

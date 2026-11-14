@@ -15,13 +15,13 @@ import {
   ContentString,
   ContentType,
   createID,
-  type Doc,
   getItemCleanStart,
   Item,
   type Node as YNode,
   type Transaction,
 } from '@y/y';
 
+import {runBoundary, type StoredUnit, storedUnit} from './Canonical';
 import {
   covered,
   endTarget,
@@ -32,6 +32,7 @@ import {
   isIdentityValue,
   isOnStack,
   isPaired,
+  isSeeding,
   isShadowKey,
   isValidEnd,
   keySlice,
@@ -44,21 +45,32 @@ import {
   seedRunsOf,
   stepPaired,
   unmarkPending,
-  writesPairedRuns,
 } from './Ident';
-import {runBoundary, type StoredUnit, storedUnit} from './Layout3';
 import {owned} from './Owned';
 import {
   decodeFormatValue,
   formatFamily,
   MARKER,
   SEGMENT_KEY,
+  SET_MEMBER_SEPARATOR,
   STATE_PREFIX,
   TEXT_FORMAT_PREFIX,
   TYPE_KEY,
   WRAPPER_PREFIX,
 } from './Schema';
-import {deletedBy, deleteItemIn, isGoneIn} from './Seen';
+import {deleteItemIn} from './Seen';
+import {
+  heldRuns,
+  isGoneIn,
+  isHeldFormat,
+  isHeldFormatIn,
+  isKept,
+  isLeftOutIn,
+  isLiveContent,
+  isPassedIn,
+  isShownContent,
+  type LeftOut,
+} from './Shown';
 
 /*
  * Anchored editing of a Y.Node's children.
@@ -76,11 +88,10 @@ import {deletedBy, deleteItemIn, isGoneIn} from './Seen';
  * Y.Node#applyDelta), but the items differ: a delete keeps every format item
  * in the run of deleted content and format items it leaves, which Yjs removes
  * as redundant and concurrent writers rely on (see delete), and a format
- * change keeps the items that bound the content around its range, opens its
- * value next to its content and closes it where the change that gave the
- * range its old value ends (see format), all per family of keys (see
- * formatFamily); an undo keeps some of the closers a
- * format change wrote (see YBinding#isKeptByUndo).
+ * change writes paired runs (see format). Every name the binding writes is
+ * covered (see Ident's covered): a value is only ever written as a paired
+ * run, and an item of any other name (a raw writer's) is never written,
+ * changed or deleted.
  */
 
 export type Formats = Map<string, unknown>;
@@ -121,62 +132,6 @@ const keyOf = (item: Item): string => (item.content as ContentFormat).key;
 const valueOf = (item: Item): unknown => (item.content as ContentFormat).value;
 
 /**
- * Whether live format item `item`, right after `prev`, the last item of
- * `unit`, belongs to that unit (see unitFrom).
- */
-function continuesUnit(unit: Item[], prev: Item, item: Item): boolean {
-  const key = keyOf(item);
-  return (
-    prev.id.client === item.id.client &&
-    prev.id.clock + prev.length === item.id.clock &&
-    formatFamily(keyOf(prev)) === formatFamily(key) &&
-    !unit.some(u => keyOf(u) === key)
-  );
-}
-
-/**
- * The items one write made together at one place for one family (see
- * formatFamily), from live format item `item` on: the following items, one
- * after the other with no other item between, of other keys of its family,
- * that its client made right after it. As a whole value's one item would,
- * they change the family's value there together. An item of a key that is
- * a family of its own is a unit of its own.
- */
-function unitFrom(view: View | null, item: Item): Item[] {
-  const unit = [item];
-  for (
-    let prev = item, it = item.right;
-    it !== null &&
-    !isGoneIn(view, it) &&
-    isFormat(it) &&
-    continuesUnit(unit, prev, it);
-    prev = it, it = it.right
-  ) {
-    unit.push(it);
-  }
-  return unit;
-}
-
-/**
- * The null items a format change wrote after its range to end its value
- * there (see Cursor#format): an undo of the change keeps one where without
- * it the content after it would take a value, or where a collaborator
- * removed the change's own opener (see YBinding#isKeptByUndo).
- */
-const formatClosers = new WeakSet<Item>();
-
-/** Whether `item` is one of the items in `formatClosers`. */
-export const isFormatCloser = (item: Item): boolean => formatClosers.has(item);
-
-/**
- * Add `item` to `formatClosers`: the copy an undo or redo makes of an item
- * in it, which ends the same value at the same place.
- */
-export const markFormatCloser = (item: Item): void => {
-  formatClosers.add(item);
-};
-
-/**
  * Refuse to link a new item next to `left` and `right` unless both are in
  * `parent`, the type it is written to. An item whose neighbour sits in
  * another type is malformed: its own document links it into that type's list
@@ -200,155 +155,6 @@ function checkLinkable(
   }
 }
 
-/**
- * The item that ends the run `item`, a format item, opened in the write that
- * made it: the first item of its key, with another value, in the same shared
- * type, that its client made after it (one write's items are one after the
- * other in its client's clock order; looked for among the next 64). A run
- * cannot end in another type: a write's items in other containers are
- * passed over. Null when none is found.
- */
-export function changeEnd(doc: Doc, item: Item): Item | null {
-  const {key, value} = item.content as ContentFormat;
-  const {client} = item.id;
-  const end = doc.store.getClock(client);
-  let clock = item.id.clock + item.length;
-  for (let steps = 0; clock < end && steps < 64; steps++) {
-    const next = doc.store.getItem(createID(client, clock));
-    if (!(next instanceof Item)) {
-      return null;
-    }
-    if (
-      next.parent === item.parent &&
-      next.content instanceof ContentFormat &&
-      next.content.key === key &&
-      !equalFormatValue(next.content.value, value)
-    ) {
-      return next;
-    }
-    clock = next.id.clock + next.length;
-  }
-  return null;
-}
-
-/**
- * The item its client made last before `item` (looked for among the 64
- * structs before it, in clock order) of the key `key` in the same shared
- * type, or null.
- */
-function lastOwnItemBefore(doc: Doc, item: Item, key: string): Item | null {
-  const {client} = item.id;
-  let clock = item.id.clock - 1;
-  for (let steps = 0; clock >= 0 && steps < 64; steps++) {
-    const prev = doc.store.getItem(createID(client, clock));
-    if (!(prev instanceof Item)) {
-      return null;
-    }
-    if (
-      prev.parent === item.parent &&
-      prev.content instanceof ContentFormat &&
-      prev.content.key === key
-    ) {
-      return prev;
-    }
-    clock = prev.id.clock - 1;
-  }
-  return null;
-}
-
-/**
- * Whether null `item` is the end its client gave a run it opened in the
- * same write (see changeEnd): the item of its key its client made last
- * before it opens a run that ends at `item`.
- */
-function isChangeEnd(doc: Doc, item: Item): boolean {
-  const opener = lastOwnItemBefore(doc, item, keyOf(item));
-  return (
-    opener !== null &&
-    valueOf(opener) !== null &&
-    changeEnd(doc, opener) === item
-  );
-}
-
-/** The nearest live item of `key` before `item`, among the 4096 before it. */
-function liveItemBefore(item: Item, key: string): Item | null {
-  let steps = 0;
-  for (let it = item.left; it !== null && steps < 4096; it = it.left, steps++) {
-    if (!it.deleted && isFormat(it) && keyOf(it) === key) {
-      return it;
-    }
-  }
-  return null;
-}
-
-/**
- * The item that opened the run live format item `item` gives its value in:
- * `item` itself, or, where it is a restore (its client wrote it after text
- * it inserted inside the run, with a null of the key before that text), the
- * opener of the run that restore restates, and so on.
- */
-export function runOpener(doc: Doc, item: Item): Item {
-  const {key, value} = item.content as ContentFormat;
-  let current = item;
-  for (let depth = 0; depth < 16; depth++) {
-    const negation = lastOwnItemBefore(doc, current, key);
-    if (negation === null || valueOf(negation) !== null) {
-      return current;
-    }
-    let found = false;
-    let steps = 0;
-    for (
-      let it = current.left;
-      it !== null && steps < 512;
-      it = it.left, steps++
-    ) {
-      if (it === negation) {
-        found = true;
-        break;
-      }
-      if (!it.deleted && isFormat(it) && keyOf(it) === key) {
-        break;
-      }
-      // A restore follows text its own client inserted inside the run,
-      // after the null (see insertNegatedFormats): content of another
-      // client between them means `current` opens a run of its own (its
-      // client's earlier end and later opener, #9599).
-      if (!isFormat(it) && it.id.client !== current.id.client) {
-        break;
-      }
-    }
-    const source = found ? liveItemBefore(negation, key) : null;
-    if (source === null || !equalFormatValue(valueOf(source), value)) {
-      return current;
-    }
-    current = source;
-  }
-  return current;
-}
-
-/** A live countable item: text, a child node, an embed. */
-export const isLiveContent = (view: View | null, item: Item): boolean =>
-  !isGoneIn(view, item) && item.countable;
-
-/**
- * Names a stored element the editor does not show (see $isLeftOutInline),
- * or null where none is left out.
- */
-export type LeftOut = ((item: Item) => boolean) | null;
-
-/**
- * Whether `item` is content the editor shows: live content (see
- * isLiveContent) that `leftOut` does not name. The one rule the writer counts
- * positions by: the cursor's moves and deletes, a removed line's delete (see
- * countLive), the stored atoms a format pass compares (readAtomsLimited), and
- * whether an element holds content (hasLiveContent).
- */
-export const isShownContent = (
-  view: View | null,
-  item: Item,
-  leftOut: LeftOut,
-): boolean => isLiveContent(view, item) && !(leftOut !== null && leftOut(item));
-
 /** An opener of a node type key (`t`) or segment key (`k`). */
 function isNodeTypeOpener(content: ContentFormat): boolean {
   // An end or a `[]` opener of a paired run closes a type, as null does.
@@ -365,40 +171,22 @@ function isOwnEnd(end: Item, client: number): boolean {
   return target !== null && target.client === client;
 }
 
+/** A flat NodeState name: `s:<key>` with no U+001F after `s:`. */
+function isFlatStateName(key: string): boolean {
+  return (
+    key.startsWith(STATE_PREFIX) &&
+    key.indexOf(SET_MEMBER_SEPARATOR, STATE_PREFIX.length) < 0
+  );
+}
+
 /**
  * Whether a paired run of `key` that a format change writes ends after the
  * format items following its last content (text formats, set members such as
  * comment ids), rather than right after the content (a node's own keys and
- * wrappers: see Cursor#formatCovered).
+ * wrappers: see Cursor#format).
  */
 function extendsPastContent(key: string): boolean {
   return key.startsWith(TEXT_FORMAT_PREFIX) || key.startsWith(STATE_PREFIX);
-}
-
-/**
- * Whether live format item `item` is part of a node's opener: a node type or
- * segment key opener, or an item of the write that wrote one right after it
- * (one client, consecutive format items).
- */
-function opensNodeRun(item: Item): boolean {
-  let prev: Item | null = null;
-  for (
-    let it: Item | null = item;
-    it !== null && isFormat(it);
-    prev = it, it = it.right
-  ) {
-    if (
-      prev !== null &&
-      (it.id.client !== prev.id.client ||
-        it.id.clock !== prev.id.clock + prev.length)
-    ) {
-      return false;
-    }
-    if (!it.deleted && isNodeTypeOpener(it.content as ContentFormat)) {
-      return true;
-    }
-  }
-  return false;
 }
 
 export class Cursor {
@@ -426,32 +214,23 @@ export class Cursor {
   private readonly sources = new Map<string, Item>();
   /** The openers of paired runs the running insert wrote, by key. */
   private readonly openers = new Map<string, Item>();
-  /** Whether this document gets paired runs (see writesPairedRuns). */
-  private paired: boolean | null = null;
 
-  /** The shared root of the cursor's container. */
+  /** The shared root of the cursor's container (see Ident.rootOf). */
   private root: YNode | null = null;
-  /** Whether this client's layout 3 record is known to be written. */
+  /** Whether this client's layout record is known to be written. */
   private recorded = false;
+  /** Whether the cursor's document is being seeded (see isSeeding). */
+  private seed: boolean | null = null;
 
-  /** Whether this write stores `key` as paired runs (see covered). */
-  private pairs(key: string): boolean {
-    return this.writesPaired() && covered(key);
+  /**
+   * Whether this cursor writes a seed (see Ident.withSeeding): the content
+   * of a pristine root, whose runs are written in the canonical form (see
+   * insert) instead of one run per write.
+   */
+  private seeding(): boolean {
+    return (this.seed ??= isSeeding(this.tr.doc));
   }
 
-  /** Whether this cursor writes paired runs (see writesPairedRuns). */
-  private writesPaired(): boolean {
-    if (this.paired === null) {
-      // Its binding's root (nested or not, see Ident.rootOf).
-      const root = rootOf(this.parent);
-      this.root = root;
-      this.paired = writesPairedRuns(this.tr.doc, root);
-    }
-    return this.paired;
-  }
-
-  /** The fold of this cursor's steps (see stepperFor). */
-  private step: ((formats: Formats, it: Item, f: FoldIn) => void) | null = null;
   /**
    * Whether opener `it` is paired as the editor shows it: an end the hold
    * holds back pairs nothing (see Reader#held).
@@ -488,17 +267,14 @@ export class Cursor {
    * what the editor shows (held formats are passed over, see isHeldFormat).
    */
   private stepShown(formats: Formats, it: Item): void {
-    const step = (this.step ??= stepPaired);
-    step(formats, it, this.shownFold());
+    stepPaired(formats, it, this.shownFold());
   }
 
   /** Before this write's first paired item (see ensureIdentityRecord). */
   private beforePairedItem(): void {
     if (!this.recorded) {
       this.recorded = true;
-      ensureIdentityRecord(this.root!);
-      // The document may read as paired runs from here on.
-      this.step = null;
+      ensureIdentityRecord((this.root ??= rootOf(this.parent)));
     }
   }
 
@@ -517,16 +293,10 @@ export class Cursor {
     return end;
   }
   /**
-   * While a format change walks its range (see format, rule 3): the key
-   * and client of each format item the cursor passed that this transaction
-   * did not make, and the value of those deleted before it.
-   */
-  private passed: Set<string> | null = null;
-  /**
    * Where `formats` was folded up to, when past `left` (see Seen.frontierOf):
    * until the cursor passes it, the format items it steps over are in
-   * `formats` already, so a paired run is not stepped twice; plain values,
-   * which set themselves again, still step (main's order of sources).
+   * `formats` already, so a paired run is not stepped twice; an item of
+   * a name that is not covered, which sets itself again, still steps.
    */
   private frontier: Item | null;
   constructor(
@@ -550,32 +320,36 @@ export class Cursor {
 
   /** Whether `item` is a format the editor holds back (see hidden). */
   private isHeldFormat(item: Item): boolean {
-    return this.hidden !== null && isFormat(item) && this.hidden.hides(item);
+    return isHeldFormat(item, this.hidden);
   }
 
   /**
-   * The unit of format items from live format item `item` on (see
-   * unitFrom). Where this write stores its key as paired runs: by position, never by which
-   * write made them: the items right after it, one after the other, of its
-   * family, up to the first item of another family, a held or gone item,
-   * content, or a second item of a key the unit already has (whoever wrote
-   * them, whatever their clocks: a closer and the next run's opener of one
-   * key are two units, as one write's items of one key never are one). Elsewhere (below layout 3, and
-   * uncovered keys), main's unit.
+   * Whether the cursor passes over `item` as not there: gone in the write's
+   * view, or a format the editor holds back (see Shown.isPassedIn).
+   */
+  private passes(item: Item): boolean {
+    return isPassedIn(this.view, item, this.hidden);
+  }
+
+  /**
+   * The unit of format items from live format item `item` on, by position,
+   * never by which write made them: the items right after it, one after the
+   * other, of its family (see formatFamily), up to the first item of
+   * another family, a held or gone item, content, or a second item of a key
+   * the unit already has (whoever wrote them, whatever their clocks: a
+   * closer and the next run's opener of one key are two units, as one
+   * write's items of one key never are one). As a whole value's one item
+   * would, they change the family's value there together.
    */
   private unitAt(item: Item): Item[] {
-    if (!this.pairs(keyOf(item))) {
-      return unitFrom(this.view, item);
-    }
     const family = formatFamily(keyOf(item));
     const unit = [item];
     const keys = new Set([keyOf(item)]);
     for (
       let it = item.right;
       it !== null &&
-      !isGoneIn(this.view, it) &&
+      !this.passes(it) &&
       isFormat(it) &&
-      !this.isHeldFormat(it) &&
       formatFamily(keyOf(it)) === family &&
       !keys.has(keyOf(it));
       it = it.right
@@ -587,18 +361,13 @@ export class Cursor {
   }
 
   /**
-   * Whether live format item `item` is part of a node's opener (see
-   * opensNodeRun). Where this write stores its key as paired runs: by position and stored
-   * pairing, never by which write made the items: the openers from `item`
-   * on, before the next content (gone items aside; a held item, an end or a
-   * plain null ends the search), reach a live node type or segment opener,
-   * paired or not (a pre-upgrade header).
-   * Elsewhere, main's test.
+   * Whether live format item `item` is part of a node's opener, by position
+   * and stored pairing, never by which write made the items: the openers
+   * from `item` on, before the next content (gone items aside; a held item,
+   * an end or a plain null ends the search), reach a live node type or
+   * segment opener.
    */
   private opensNode(item: Item): boolean {
-    if (!this.pairs(keyOf(item))) {
-      return opensNodeRun(item);
-    }
     for (let it: Item | null = item; it !== null; it = it.right) {
       if (isGoneIn(this.view, it)) {
         continue;
@@ -630,19 +399,6 @@ export class Cursor {
       this.right = item.right;
       return;
     }
-    if (
-      !isLiveContent(this.view, item) &&
-      this.passed !== null &&
-      isFormat(item) &&
-      !this.tr.insertSet.hasId(item.id)
-    ) {
-      const of = `${keyOf(item)}\u0000${item.id.client}`;
-      this.passed.add(
-        !isGoneIn(this.view, item) || this.tr.deleteSet.hasId(item.id)
-          ? of
-          : `${of}\u0000${JSON.stringify(valueOf(item))}`,
-      );
-    }
     if (item === this.frontier) {
       this.frontier = null;
     }
@@ -668,7 +424,7 @@ export class Cursor {
     if (hidden === null) {
       return true;
     }
-    const [len, isHidden] = hidden.runs(item)[0];
+    const [len, isHidden] = heldRuns(item, hidden)[0];
     if (len < item.length) {
       getItemCleanStart(this.tr, createID(item.id.client, item.id.clock + len));
     }
@@ -738,7 +494,7 @@ export class Cursor {
    * Step over the items before the cursor's content that already give it
    * `formats`. Invariant: the cursor steps over an item only where its
    * family (see formatFamily) has, after the items of its unit (see
-   * unitFrom), the value `formats` gives every key of it. Why: an item that
+   * unitAt), the value `formats` gives every key of it. Why: an item that
    * only changes another member of a family (a comment ending where another
    * goes on) is where a whole value's item would be that does not match;
    * written past it, a restore of the family after the content landed where
@@ -749,12 +505,12 @@ export class Cursor {
   private minimizeFormatChanges(formats: Record<string, unknown>): void {
     while (this.right !== null) {
       const r = this.right;
-      if (isGoneIn(this.view, r) || this.isHeldFormat(r)) {
+      if (this.passes(r)) {
         // a deleted item has no length, and a held format is not there:
         // step over it
       } else if (
         isFormat(r) &&
-        this.pairs(keyOf(r)) &&
+        covered(keyOf(r)) &&
         isEndValue(valueOf(r)) &&
         isOwnEnd(r, this.tr.doc.clientID) &&
         equalFormatValue(
@@ -831,7 +587,7 @@ export class Cursor {
     let unpaired = false;
     for (let x = this.right; x !== null; x = x.right) {
       n++;
-      if (isGoneIn(this.view, x) || this.isHeldFormat(x)) {
+      if (this.passes(x)) {
         continue;
       }
       if (!isFormat(x)) {
@@ -845,7 +601,7 @@ export class Cursor {
         !(isEndValue(v) || v === null) ||
         (!key.startsWith(WRAPPER_PREFIX) && this.opensNode(x)) ||
         (!allowOwn &&
-          this.pairs(key) &&
+          covered(key) &&
           isEndValue(valueOf(x)) &&
           isOwnEnd(x, this.tr.doc.clientID) &&
           equalFormatValue(sim.get(key) ?? null, formats[key] ?? null))
@@ -919,20 +675,14 @@ export class Cursor {
   private unitGives(item: Item, formats: Record<string, unknown>): boolean {
     const after = new Map<string, unknown>();
     const unit = this.unitAt(item);
-    if (this.writesPaired() && unit.some(it => covered(keyOf(it)))) {
-      // Paired runs: the value a key has after the unit is what the
-      // stack of its runs shows, not the items' raw values.
-      const sim = new Map(this.formats);
-      for (const it of unit) {
-        this.stepShown(sim, it);
-      }
-      for (const it of unit) {
-        after.set(keyOf(it), sim.get(keyOf(it)) ?? null);
-      }
-    } else {
-      for (const it of unit) {
-        after.set(keyOf(it), valueOf(it));
-      }
+    // The value a key has after the unit is what the stack of its runs
+    // shows, not the items' raw values.
+    const sim = new Map(this.formats);
+    for (const it of unit) {
+      this.stepShown(sim, it);
+    }
+    for (const it of unit) {
+      after.set(keyOf(it), sim.get(keyOf(it)) ?? null);
     }
     for (const [key, value] of after) {
       if (!equalFormatValue(formats[key] ?? null, value)) {
@@ -985,199 +735,49 @@ export class Cursor {
       : new Set([SEGMENT_KEY]);
   }
 
-  private insertFormats(
+  /**
+   * Before inserted content: open a paired run of its own for each covered
+   * key whose value in `formats` is not the one the cursor shows, and for
+   * each key in `own` (see ownNodeKeys, addHeldOver). Each is ended after
+   * the content (see endInsertRuns). A name that is not covered is never
+   * written: the content takes the value the name has at the cursor.
+   */
+  private openInsertRuns(
     formats: Record<string, unknown>,
-    own: Set<string> | null = null,
-  ): Formats {
-    const negated: Formats = new Map();
+    own: Set<string> | null,
+  ): void {
     for (const key in formats) {
+      if (!covered(key)) {
+        continue;
+      }
       const val = formats[key];
       const current = this.formats.get(key) ?? null;
       if (!equalFormatValue(current, val) || (own !== null && own.has(key))) {
-        negated.set(key, current);
-        if (this.pairs(key)) {
-          // Paired runs: a run of its own, ended after the content (see
-          // insertNegatedFormats).
-          this.beforePairedItem();
-          const opener = this.newItem(
-            new ContentFormat(key, (val === null ? NULL_RUN : val) as object),
-          );
-          this.openers.set(key, opener);
-          markPending(opener);
-          this.right = opener;
-        } else {
-          this.right = this.newItem(new ContentFormat(key, val as object));
-        }
+        this.beforePairedItem();
+        const opener = this.newItem(
+          new ContentFormat(key, (val === null ? NULL_RUN : val) as object),
+        );
+        this.openers.set(key, opener);
+        markPending(opener);
+        this.right = opener;
         this.forward();
       }
     }
-    return negated;
   }
 
   /**
-   * Restore `negated` after inserted content, reusing the items there that
-   * already restore a key. Invariant: the restore of a family (see
-   * formatFamily) is never written after the items of a unit of it there
-   * (see unitFrom), where a concurrent format change of the content after
-   * puts its own item: it is written before them (see
-   * minimizeFormatChanges). A restore of a value whose run another client's
-   * change opened gets an end of this client's own after that change's end
-   * (see format, rule 5).
+   * After inserted content: end each run the insert opened (see
+   * openInsertRuns) with an end naming its opener, in the order they were
+   * opened, past the gone and held items right after the content.
    */
-  private insertNegatedFormats(negated: Formats, closers = false): void {
-    // Paired runs: each run this insert opened ends with an end naming
-    // its opener, never a reused item, written among the other closers in
-    // main's order (the order of `negated`), so where later content stops
-    // among the closers is what it is on main for every other key.
-    // The keys whose run, which this write opens, ends at another client's
-    // change end it reuses (see format, rule 5).
-    const reusedEnds: string[] = [];
-    while (this.right !== null) {
-      const r = this.right;
-      if (!isGoneIn(this.view, r) && !this.isHeldFormat(r)) {
-        if (
-          !isFormat(r) ||
-          this.openers.has(keyOf(r)) ||
-          !equalFormatValue(negated.get(keyOf(r)), valueOf(r))
-        ) {
-          break;
-        }
-        const unit = this.unitAt(r);
-        if (
-          unit.every(it =>
-            equalFormatValue(negated.get(keyOf(it)), valueOf(it)),
-          )
-        ) {
-          const family = formatFamily(keyOf(r));
-          const reused = new Set(unit.map(keyOf));
-          let rest = false;
-          for (const key of negated.keys()) {
-            rest = rest || (!reused.has(key) && formatFamily(key) === family);
-          }
-          if (rest) {
-            break;
-          }
-        }
-        // (Main's rule, which infers a write from its client's clocks: never
-        // for a key this write stores as paired runs, whose runs end at
-        // their own ends.)
-        if (
-          valueOf(r) === null &&
-          !this.pairs(keyOf(r)) &&
-          r.id.client !== this.tr.doc.clientID &&
-          isChangeEnd(this.tr.doc, r)
-        ) {
-          reusedEnds.push(keyOf(r));
-        }
-        negated.delete(keyOf(r));
-      }
+  private endInsertRuns(): void {
+    while (this.right !== null && this.passes(this.right)) {
       this.forward();
     }
-    for (const key of reusedEnds) {
-      this.right = this.newItem(
-        new ContentFormat(key, null as unknown as object),
-      );
-      if (closers) {
-        formatClosers.add(this.right);
-      }
-      this.forward();
-    }
-    const ends: Item[] = [];
-    for (const [key, val] of negated) {
-      const opener = this.openers.get(key);
-      if (opener !== undefined) {
-        this.writeEnd(key, opener);
-        continue;
-      }
-      // (Main's restated-value rule infers the restated run's write from
-      // clocks: only for keys this write does not store as paired runs.)
-      const end =
-        val === null || this.pairs(key) ? null : this.restatedEnd(key, val);
-      if (end !== null) {
-        ends.push(end);
-      }
-      this.right = this.newItem(new ContentFormat(key, val as object));
-      if (closers && val === null) {
-        formatClosers.add(this.right);
-      }
-      this.forward();
-    }
-    for (const end of ends) {
-      this.insertAfter(
-        end,
-        new ContentFormat(keyOf(end), null as unknown as object),
-      );
+    for (const [key, opener] of this.openers) {
+      this.writeEnd(key, opener);
     }
     this.openers.clear();
-  }
-
-  /**
-   * For a restore of `key` to `value` written at the cursor: where the run it
-   * restates was opened by another client's change (see runOpener; the item
-   * that gave the content the value before this write is the nearest item of
-   * the key before the cursor that this write did not make), and the next
-   * live item of the key after the cursor with another value is that change's
-   * own end of the run (see changeEnd), that end, after which the restore's
-   * run gets an end of this client's own (see format, rule 5). Null
-   * otherwise.
-   */
-  private restatedEnd(key: string, value: unknown): Item | null {
-    const doc = this.tr.doc;
-    let source: Item | null = null;
-    let steps = 0;
-    for (
-      let it = this.left;
-      it !== null && steps < 4096;
-      it = it.left, steps++
-    ) {
-      if (
-        isFormat(it) &&
-        keyOf(it) === key &&
-        !this.tr.insertSet.hasId(it.id) &&
-        (!isGoneIn(this.view, it) || deletedBy(it, this.tr))
-      ) {
-        source = it;
-        break;
-      }
-    }
-    if (source === null || !equalFormatValue(valueOf(source), value)) {
-      return null;
-    }
-    const opener = runOpener(doc, source);
-    if (opener.id.client === doc.clientID) {
-      return null;
-    }
-    for (let it = this.right; it !== null; it = it.right) {
-      if (
-        isGoneIn(this.view, it) ||
-        !isFormat(it) ||
-        keyOf(it) !== key ||
-        equalFormatValue(valueOf(it), value)
-      ) {
-        continue;
-      }
-      return valueOf(it) === null && changeEnd(doc, opener) === it ? it : null;
-    }
-    return null;
-  }
-
-  /** Write `content` right after `left`, away from the cursor. */
-  private insertAfter(left: Item, content: ContentFormat): Item {
-    const doc = this.tr.doc;
-    const right = left.right;
-    checkLinkable(left, right, this.parent);
-    const item = new Item(
-      createID(doc.clientID, doc.store.getClock(doc.clientID)),
-      left,
-      left.lastId,
-      right,
-      right && right.id,
-      this.parent,
-      null,
-      content,
-    );
-    owned(doc, () => item.integrate(this.tr, 0));
-    return item;
   }
 
   /**
@@ -1190,30 +790,27 @@ export class Cursor {
     formats: Record<string, unknown>,
     fresh = false,
   ): Item {
-    if (this.writesPaired()) {
+    if (!this.seeding()) {
       return this.insertWithFormats(content, formats, fresh);
     }
-    // Seeding (see Ident.withSeeding): covered formats as canonical layout
-    // 3 runs, written in this pass where the unit's values change (see
-    // seedBoundary); the rest as main writes them.
+    // Seeding (see Ident.withSeeding): the unit's values as canonical runs,
+    // written in this pass where the values change (see seedBoundary). Into
+    // an empty container, so nothing follows the cursor.
     const seeded = new Map<string, unknown>();
-    const rest: Record<string, unknown> = {};
     for (const key in formats) {
-      if (!covered(key)) {
-        rest[key] = formats[key];
-      } else if (formats[key] !== null) {
+      if (covered(key) && formats[key] !== null) {
         seeded.set(key, formats[key]);
       }
     }
-    this.seedBoundary(storedUnit(seeded));
-    // The covered keys the boundary left open hold exactly these values:
-    // given as the cursor holds them, they write nothing more.
-    this.formats.forEach((value, key) => {
-      if (!isShadowKey(key) && covered(key)) {
-        rest[key] = value;
-      }
-    });
-    const item = this.insertWithFormats(content, rest);
+    this.seedBoundary(storedUnit(seeded, covered));
+    return this.seedUnit(content);
+  }
+
+  /** Seeding: write `content` at the cursor, the seed's last unit so far. */
+  private seedUnit(content: ContentString | ContentType): Item {
+    const item = this.newItem(content);
+    this.right = item;
+    this.forward();
     seedRunsOf(this.parent).last = item;
     return item;
   }
@@ -1221,7 +818,7 @@ export class Cursor {
   /**
    * Seeding: before a unit with covered values `unit`, at the cursor, the
    * ends of the seed's runs that stop there and the openers of the runs
-   * that start there (Layout3's runBoundary, the canonical form's rule).
+   * that start there (Canonical's runBoundary, the canonical form's rule).
    */
   private seedBoundary(unit: StoredUnit): void {
     const runs = seedRunsOf(this.parent);
@@ -1273,6 +870,7 @@ export class Cursor {
     this.formats.forEach((_v, key) => {
       if (
         !isShadowKey(key) &&
+        covered(key) &&
         !(key in f) &&
         !(plainText && (key === TYPE_KEY || key === SEGMENT_KEY))
       ) {
@@ -1280,22 +878,20 @@ export class Cursor {
       }
     });
     this.minimizeFormatChanges(f);
-    // (Seeding, which writes no paired runs, owns no node keys: it writes
-    // into an empty container, where the content's covered values are the
-    // cursor's, see insert.)
-    let own = this.pairs(SEGMENT_KEY) ? this.ownNodeKeys(f) : null;
+    let own = this.ownNodeKeys(f);
     if (fresh) {
       own = this.addHeldOver(f, own);
     }
-    const negated = this.insertFormats(f, own);
+    this.openInsertRuns(f, own);
     const item = this.newItem(content);
     this.right = item;
     this.forward();
     if (marker) {
-      negated.delete(TYPE_KEY);
-      negated.delete(SEGMENT_KEY);
+      // The marker closes the tab's type for good: its `[]` runs get no end.
+      this.openers.delete(TYPE_KEY);
+      this.openers.delete(SEGMENT_KEY);
     }
-    this.insertNegatedFormats(negated);
+    this.endInsertRuns();
     return item;
   }
 
@@ -1329,7 +925,7 @@ export class Cursor {
       const val = f[key];
       if (
         val !== null &&
-        this.pairs(key) &&
+        covered(key) &&
         equalFormatValue(this.formats.get(key) ?? null, val)
       ) {
         candidate = true;
@@ -1344,7 +940,7 @@ export class Cursor {
     // deleted (see Hidden#keep): once the hold ends, that value is gone.
     if (hidden.keepsAny()) {
       this.sources.forEach((source, key) => {
-        if (hidden.keeps(source)) {
+        if (isKept(source, hidden)) {
           over.add(key);
         }
       });
@@ -1354,7 +950,7 @@ export class Cursor {
       const val = key in f ? f[key] : null;
       if (
         val === null ||
-        !this.pairs(key) ||
+        !covered(key) ||
         !equalFormatValue(this.formats.get(key) ?? null, val)
       ) {
         continue;
@@ -1398,7 +994,7 @@ export class Cursor {
       it !== null && it !== this.right;
       it = it.right as Item | null
     ) {
-      if (!isFormat(it) || !hidden.hides(it)) {
+      if (!isHeldFormat(it, hidden)) {
         continue;
       }
       if (isEndValue(valueOf(it))) {
@@ -1419,16 +1015,14 @@ export class Cursor {
    * Insert content with the formats current at the cursor (no format items).
    */
   insertPlain(content: ContentString | ContentType): Item {
-    if (!this.writesPaired()) {
-      // Seeding: a unit with no covered value (see insert).
+    if (this.seeding()) {
+      // A unit with no covered value (see insert).
       this.seedBoundary(new Map());
+      return this.seedUnit(content);
     }
     const item = this.newItem(content);
     this.right = item;
     this.forward();
-    if (!this.writesPaired()) {
-      seedRunsOf(this.parent).last = item;
-    }
     return item;
   }
 
@@ -1450,11 +1044,7 @@ export class Cursor {
         }
         n -= item.length;
         deleteItemIn(this.view, item, this.tr);
-      } else if (
-        this.leftOut !== null &&
-        isLiveContent(this.view, item) &&
-        this.leftOut(item)
-      ) {
+      } else if (isLeftOutIn(this.view, item, this.leftOut)) {
         deleteItemIn(this.view, item, this.tr);
       }
       this.forward();
@@ -1473,180 +1063,17 @@ export class Cursor {
       return;
     }
     for (let it = this.right; it !== null && it !== stop; it = it.right) {
-      if (isLiveContent(this.view, it) && leftOut(it)) {
+      if (isLeftOutIn(this.view, it, leftOut)) {
         deleteItemIn(this.view, it, this.tr);
       }
     }
   }
 
   /**
-   * Whether format item `item` is one this client wrote, before this
-   * transaction, right next to text of its own in the same insert: the null
-   * right before the text (`before`: the text's origin is the null) or the
-   * restore right after it (the restore's origin is the text's last unit).
-   */
-  private isOwnInsertFormat(item: Item, before: boolean): boolean {
-    const doc = this.tr.doc;
-    const client = doc.clientID;
-    if (item.id.client !== client || this.tr.insertSet.hasId(item.id)) {
-      return false;
-    }
-    const clock = before ? item.id.clock + item.length : item.id.clock - 1;
-    if (clock < 0 || clock >= doc.store.getClock(client)) {
-      return false;
-    }
-    const text = doc.store.getItem(createID(client, clock));
-    if (!(text instanceof Item) || text.content instanceof ContentFormat) {
-      return false;
-    }
-    const origin = before ? text.origin : item.origin;
-    const want = before ? item.id.clock + item.length - 1 : clock;
-    return origin !== null && origin.client === client && origin.clock === want;
-  }
-
-  /**
-   * Whether `last` may end the format change `first` was written by: one
-   * client wrote both, `first` before this transaction and before `last`,
-   * and no content between them (a format change writes format items only).
-   */
-  private oneFormatWrite(first: Item, last: Item): boolean {
-    const {client} = first.id;
-    if (
-      last.id.client !== client ||
-      last.id.clock <= first.id.clock ||
-      this.tr.insertSet.hasId(first.id)
-    ) {
-      return false;
-    }
-    const store = this.tr.doc.store;
-    let steps = 0;
-    for (let clock = first.id.clock + first.length; clock < last.id.clock; ) {
-      const struct = store.getItem(createID(client, clock));
-      if (
-        !(struct instanceof Item) ||
-        !(struct.content instanceof ContentFormat) ||
-        ++steps > 64
-      ) {
-        return false;
-      }
-      clock = struct.id.clock + struct.length;
-    }
-    return true;
-  }
-
-  /**
-   * Apply `formats` to the next `n` content units, as Yjs' formatText does,
-   * except that the range is bounded by items of its own, next to its content.
-   * The rules:
-   *
-   * 1. Inside the range, it removes the items of the keys it changes and no
-   *    other item. Before the range's first content it removes only the earlier
-   *    items of a key whose value it opens there, which the last one overrides.
-   * 2. It keeps the closer of the content before the range (Yjs removes it
-   *    to extend that run over the range), and, of each key whose value it
-   *    opens before the range's first content, the last item there, and opens
-   *    that value right after it, before the content (Yjs removes that item
-   *    too). Why: a peer that typed before the range without its format
-   *    restores the format it saw after its text, and an opener where the
-   *    range's old items were, before that text, was overridden by that restore
-   *    (a comment resolved while a peer typed before a space put another
-   *    comment on the space); and an undo of the change brought a removed item
-   *    back before what a collaborator wrote after it meanwhile (a
-   *    collaborator's removal of the value before the range restores it right
-   *    before the opener, and once the undo brought the removed item back
-   *    before that restore, the range's content took that value).
-   * 3. At the end, it keeps an item after the range that gives the content
-   *    after it the range's value (Yjs removes it to join the two runs), and
-   *    closes the range where its value ends: with the value from before (Yjs'
-   *    restore), except where the next item of the key, before the content
-   *    after the range, ends another change: one whose client wrote the live
-   *    item that gave the range its old value there, with no content between
-   *    that item and the next one (a format change writes format items only),
-   *    or one of whose items of the key the walk over the range passed, live
-   *    before this write (this write may delete it) or deleted before it with
-   *    that next item's value (a change that removed a value by deleting its
-   *    opener restores it after its range). There it closes with that item's
-   *    value in an item of its own, with that item itself where its value is
-   *    the value from before, or not at all where it is the range's value. Why:
-   *    the range or its neighbour relies on an item the other's writer may
-   *    remove (bold removed from a word while a peer typed plain text inside it
-   *    came back on everything after the word when the removal dropped the
-   *    word's closer), and a restore of the value another change gave must not
-   *    outlive that change's undo (a color undone after a collaborator
-   *    recolored the end of its range came back on the text after). The client
-   *    id stands for the change, and the cursor cannot tell two changes of one
-   *    client apart; the rest is what tells them apart: an item before the
-   *    range with content written after it, an item this write made, or one
-   *    deleted before it with another value is no evidence (a format change of
-   *    the space between two runs one client wrote, by the client that wrote
-   *    the run after it, or past a comment that client had resolved, closed
-   *    with nothing or with that run's value, and a collaborator's removal of
-   *    that value from the run left it there).
-   * 4. Where a key it changes is one of several of a family (see
-   *    formatFamily), it writes the key's value again right before the content
-   *    after each boundary of another key of the family inside the range, after
-   *    every item there, where the key's old value there is not null and
-   *    another. Why: a peer that typed at such a boundary without the key
-   *    restores the key's old value after its text, before the family's items
-   *    there (see minimizeFormatChanges), so a comment resolved over two
-   *    characters while a peer typed plain text between them came back on the
-   *    second. A key whose old value there is null is restored by no one.
-   * 5. Where it restores a value (at the end of the range, as after
-   *    inserted text, see insertNegatedFormats) whose run another client's
-   *    change opened (see runOpener), and the item that ends the restored run
-   *    is that change's own end of the run (see changeEnd), it writes a null
-   *    of its own right after that end. Why: that end can go while the
-   *    restore stays, as the undo of that change deletes it and a concurrent
-   *    delete could drop it (before deletes kept every item they leave, see
-   *    delete), and the restored value ran on to the end of the
-   *    document (a format undone while a collaborator typed plain text inside
-   *    it, pasted a list there or removed it from part of the range; a
-   *    comment undone while a collaborator typed right after it where another
-   *    comment ended; a comment whose end a long offline peer's delete
-   *    dropped while a collaborator pasted inside it). Right after the end,
-   *    not before it: text a collaborator types at the end of the run at the
-   *    same time lands before the end, inside the run, and keeps the run's
-   *    value. A null by which a change made text inside the run plain (typed
-   *    plain text, a removal) is no such end: the undo of that change brings
-   *    the value back after it. Likewise, where the run this write opens (its
-   *    range's value, or inserted text's) ends at another client's change end
-   *    that it reuses as its own closer, it writes a null of its own right
-   *    after it (a link a collaborator undid while another linked the text
-   *    up to its end ran on to the end of the document).
-   */
-  format(n: number, formats: Record<string, unknown>): void {
-    let cov: Record<string, unknown> | null = null;
-    let unc: Record<string, unknown> | null = null;
-    for (const key in formats) {
-      if (this.pairs(key)) {
-        (cov ??= {})[key] = formats[key];
-      } else {
-        (unc ??= {})[key] = formats[key];
-      }
-    }
-    if (cov === null) {
-      this.formatPlain(n, formats);
-      return;
-    }
-    // Paired runs: the uncovered keys as main writes them, then, from the
-    // same start, the covered keys as paired runs.
-    if (unc !== null) {
-      const startLeft = this.left;
-      const startFormats = new Map(this.formats);
-      const startSources = new Map(this.sources);
-      this.formatPlain(n, unc);
-      this.left = startLeft;
-      this.right = startLeft === null ? this.parent._start : startLeft.right;
-      this.formats = new Map(startFormats);
-      this.sources.clear();
-      startSources.forEach((v, k) => this.sources.set(k, v));
-    }
-    this.formatCovered(n, cov);
-  }
-
-  /**
-   * Apply covered `formats` to the next `n` content units as paired runs
-   * (layout 3). Per key:
+   * Apply `formats` to the next `n` content units as paired runs. A name
+   * that is not covered (a raw writer's, or one starting with U+0002, the
+   * reader's own bookkeeping) is refused: the binding owns none, and no
+   * write of it ever changes one (see covered). Per key:
    *
    * 1. It deletes the runs whose content it wholly formats: any
    *    client's paired run that holds at least one content item of the range
@@ -1679,7 +1106,16 @@ export class Cursor {
    *    wrapper end right after the content (with the same stops), or where a
    *    run this change deleted ended. Only paired items are written.
    */
-  private formatCovered(n: number, formats: Record<string, unknown>): void {
+  format(n: number, given: Record<string, unknown>): void {
+    const formats: Record<string, unknown> = {};
+    for (const key in given) {
+      invariant(
+        covered(key),
+        '@lexical/y: refused a format change of %s, a name the binding does not own',
+        JSON.stringify(key),
+      );
+      formats[key] = given[key];
+    }
     if (n <= 0) {
       return;
     }
@@ -1717,11 +1153,9 @@ export class Cursor {
     const spanIndex = new Map<Item, number>();
     span.forEach((x, i) => spanIndex.set(x, i));
     /** Whether `x` is a live item of `key`, as this write sees it. */
+    // (The key first: the hold is asked only about items of `key`.)
     const isKeyItem = (x: Item, key: string): boolean =>
-      !isGoneIn(this.view, x) &&
-      isFormat(x) &&
-      keyOf(x) === key &&
-      !this.isHeldFormat(x);
+      isFormat(x) && keyOf(x) === key && !this.passes(x);
     /** An unpaired item or an invalid end of its key: a boundary. */
     const isBoundary = (x: Item): boolean => {
       const v = valueOf(x);
@@ -1730,12 +1164,10 @@ export class Cursor {
       }
       return v === null || !this.pairedShown(x);
     };
-    // The before-fold, per key (one snapshot before any mutation),
-    // as the document reads once it records layout 3 (this change writes
-    // the record before its first paired item): with run stacks, also in a
-    // document still below layout 3. It gives the unpaired items whose entry
-    // leaves the stack inside the region (deleted, step 1) and the
-    // clearers (ends naming no run open at their position, kept).
+    // The before-fold, per key (one snapshot before any mutation). It
+    // gives the unpaired items whose entry leaves the stack inside the
+    // region (deleted, step 1) and the clearers (ends naming no run open at
+    // their position, kept).
     const leaving = new Map<string, Set<Item>>();
     const clearers = new Set<Item>();
     for (const key of keys) {
@@ -1779,8 +1211,7 @@ export class Cursor {
     const isHeldKeyItem = (x: Item, key: string): boolean =>
       isFormat(x) &&
       keyOf(x) === key &&
-      !isGoneIn(this.view, x) &&
-      this.isHeldFormat(x);
+      isHeldFormatIn(this.view, x, this.hidden);
     /** A clearer, or an invalid end (which names no open run either). */
     const isClearer = (x: Item): boolean =>
       clearers.has(x) ||
@@ -1876,11 +1307,7 @@ export class Cursor {
       let differs = false;
       for (const s of span) {
         if (isFormat(s)) {
-          if (
-            keyOf(s) === key &&
-            !isGoneIn(this.view, s) &&
-            !this.isHeldFormat(s)
-          ) {
+          if (keyOf(s) === key && !this.passes(s)) {
             this.stepShown(sim, s);
           }
         } else if (
@@ -1974,9 +1401,33 @@ export class Cursor {
       const openAt = (after: Item | null, before: Item | null) => {
         open = [after, before];
       };
-      for (let si = firstAt; si <= lastAt; si++) {
+      // A flat NodeState name keeps main's rule for it (where layout 3
+      // wrote it as a plain value): the value covers held content a
+      // collaborator typed inside the range, or right before its first
+      // content, as the plain value did, so text typed concurrently into a
+      // line takes the value its line was given. Other names leave it out.
+      const takesHeld = isFlatStateName(key);
+      /**
+       * Live content in the write's view this change does not count: held
+       * (or left out), the content main's plain value covered (see
+       * Shown.isLiveContent).
+       */
+      const isHeldContent = (x: Item): boolean =>
+        !contentSet.has(x) && isLiveContent(this.view, x);
+      let fromAt = firstAt;
+      if (takesHeld) {
+        for (let si = firstAt - 1; si >= 0; si--) {
+          const s = span[si];
+          if (isHeldContent(s)) {
+            fromAt = si;
+          } else if (isKeyItem(s, key)) {
+            break;
+          }
+        }
+      }
+      for (let si = fromAt; si <= lastAt; si++) {
         const s = span[si];
-        if (contentSet.has(s)) {
+        if (contentSet.has(s) || (takesHeld && isHeldContent(s))) {
           if (open === null) {
             if (reopenAfter === null) {
               openAt(s.left, s);
@@ -2158,268 +1609,5 @@ export class Cursor {
     );
     owned(doc, () => item.integrate(this.tr, 0));
     return item;
-  }
-
-  private formatPlain(n: number, formats: Record<string, unknown>): void {
-    const passed = new Set<string>();
-    this.passed = n > 0 ? passed : null;
-    this.minimizeFormatChanges(formats);
-    const before = new Map(this.formats);
-    // The keys whose value the range opens, before its first content.
-    const open = new Set<string>();
-    // The value of each key to restore after the range.
-    const negated: Formats = new Map();
-    for (const key in formats) {
-      const current = this.formats.get(key) ?? null;
-      if (!equalFormatValue(current, formats[key])) {
-        negated.set(key, current);
-        open.add(key);
-      }
-    }
-    // Keys whose value at the start of the range this write opens.
-    const opened = new Set(open);
-    // Of each key this write changes, the live item that gave it its value
-    // before this write, up to the range's end (see rule 3).
-    const oldSource = new Map<string, Item>();
-    for (const key in formats) {
-      const source = this.sources.get(key);
-      if (source !== undefined) {
-        oldSource.set(key, source);
-      }
-    }
-    // Keys whose value this write writes again at a boundary in the range,
-    // and the value each key changed had at the cursor before this write.
-    const restate = new Set<string>();
-    const old = new Map<string, unknown>();
-    for (const key in formats) {
-      old.set(key, before.get(key) ?? null);
-    }
-    let inRange = false;
-    // The last item of each key this write changes before the range's first
-    // content: kept.
-    const atStart = new Map<string, Item>();
-    loop: while (
-      this.right !== null &&
-      (n > 0 ||
-        (negated.size > 0 &&
-          (isGoneIn(this.view, this.right) || isFormat(this.right))))
-    ) {
-      const r = this.right;
-      if (this.isHeldFormat(r)) {
-        this.forward();
-        continue;
-      }
-      if (!isGoneIn(this.view, r)) {
-        if (isFormat(r)) {
-          const {key, value} = r.content as ContentFormat;
-          const attr = formats[key];
-          if (attr !== undefined) {
-            old.set(key, value);
-            if (n > 0) {
-              oldSource.set(key, r);
-            }
-            const prev = before.get(key) ?? null;
-            if (!inRange && n > 0 && opened.has(key)) {
-              // Rules 1 and 2. Before the range's first content, of a key
-              // whose value this write opens there: kept, the last of its
-              // key there (an earlier one, which it overrides, is removed),
-              // and the range's value opened after it, before that content.
-              const earlier = atStart.get(key);
-              if (earlier !== undefined) {
-                deleteItemIn(this.view, earlier, this.tr);
-              }
-              atStart.set(key, r);
-              if (equalFormatValue(attr, value)) {
-                negated.delete(key);
-              } else {
-                negated.set(key, value);
-              }
-              this.forward();
-              continue;
-            }
-            if (
-              !inRange &&
-              n > 0 &&
-              !opened.has(key) &&
-              prev !== null &&
-              equalFormatValue(prev, attr) &&
-              this.isOwnInsertFormat(r, true)
-            ) {
-              // The null this client's own earlier insert wrote before its
-              // text, which the range covers with the value before it:
-              // removed, as Yjs' formatText does, so the run goes on over
-              // the range and no one relies on it (#9671).
-              deleteItemIn(this.view, r, this.tr);
-              negated.set(key, value);
-              this.forward();
-              continue;
-            }
-            if (
-              !inRange &&
-              !opened.has(key) &&
-              prev !== null &&
-              !equalFormatValue(prev, value)
-            ) {
-              // Rule 2. The closer of the content before the range: kept,
-              // and the range's value opened before its content.
-              opened.add(key);
-              open.add(key);
-              this.forward();
-              negated.set(key, value);
-              continue;
-            }
-            if (equalFormatValue(attr, value)) {
-              if (n === 0) {
-                if (attr !== null) {
-                  if (this.isOwnInsertFormat(r, false)) {
-                    // The restore this client's own earlier insert wrote
-                    // after its text, with the range's value: removed, as
-                    // Yjs' formatText does, the runs joined (#9671).
-                    negated.delete(key);
-                    deleteItemIn(this.view, r, this.tr);
-                    this.forward();
-                    continue;
-                  }
-                  // Rule 3. The opener of the content after the range: kept,
-                  // and the range closed before it.
-                  break loop;
-                }
-                // A closer that ends the content before it: kept.
-                negated.delete(key);
-                this.forward();
-                continue;
-              }
-              negated.delete(key);
-            } else {
-              if (n === 0) {
-                break loop;
-              }
-              negated.set(key, value);
-            }
-            deleteItemIn(this.view, r, this.tr);
-          } else {
-            if (inRange && n > 0) {
-              // Rule 4. A boundary of another key of a family this write
-              // changes, inside the range: the value of a key whose old
-              // value there was not null, and was another, is written there
-              // again.
-              const family = formatFamily(key);
-              for (const changed in formats) {
-                if (changed !== key && formatFamily(changed) === family) {
-                  restate.add(changed);
-                }
-              }
-            }
-          }
-        } else if (isLiveContent(this.view, r)) {
-          if (!inRange) {
-            inRange = true;
-            // Rule 2. The range's value, opened right before its first
-            // content.
-            for (const key of open) {
-              const attr = formats[key];
-              if (!equalFormatValue(this.formats.get(key) ?? null, attr)) {
-                this.right = this.newItem(
-                  new ContentFormat(key, attr as object),
-                );
-                this.forward();
-              }
-            }
-          } else if (restate.size > 0) {
-            // Right before the content after that boundary, after every
-            // item there.
-            for (const key of restate) {
-              const was = old.get(key) ?? null;
-              if (was !== null && !equalFormatValue(was, formats[key])) {
-                this.right = this.newItem(
-                  new ContentFormat(key, formats[key] as object),
-                );
-                this.forward();
-              }
-            }
-            restate.clear();
-          }
-          if (this.counts(r)) {
-            if (n < r.length) {
-              getItemCleanStart(this.tr, createID(r.id.client, r.id.clock + n));
-            }
-            n -= Math.min(n, r.length);
-            if (n === 0) {
-              this.passed = null;
-            }
-          }
-        }
-      }
-      this.forward();
-    }
-    // Rule 3, the range's end. Where the next item of a key there, before the
-    // content after the range, ends another change (see oldSource and
-    // `passed`; that change's own end: the item gives the content after the
-    // range the value it had before that change),
-    // the range closes with that item's value, in an item of its own (an
-    // undo of that change removes it with the rest of that change), or not
-    // at all where that is the range's value, or with that item itself
-    // where its value is the value from before (the restore reuses it).
-    const ahead = new Map<string, Item>();
-    const copiedEnds: Item[] = [];
-    for (
-      let it = this.right;
-      it !== null && !isLiveContent(this.view, it);
-      it = it.right
-    ) {
-      if (!isGoneIn(this.view, it) && isFormat(it) && !ahead.has(keyOf(it))) {
-        ahead.set(keyOf(it), it);
-      }
-    }
-    for (const key of [...negated.keys()]) {
-      const next = ahead.get(key);
-      if (next === undefined) {
-        continue;
-      }
-      const value = valueOf(next);
-      const of = `${key}\u0000${next.id.client}`;
-      const source = oldSource.get(key);
-      if (
-        passed.has(of) ||
-        passed.has(`${of}\u0000${JSON.stringify(value)}`) ||
-        (source !== undefined && this.oneFormatWrite(source, next))
-      ) {
-        if (equalFormatValue(value, formats[key] ?? null)) {
-          negated.delete(key);
-        } else if (!equalFormatValue(value, negated.get(key) ?? null)) {
-          negated.delete(key);
-          this.right = this.newItem(new ContentFormat(key, value as object));
-          if (value === null) {
-            formatClosers.add(this.right);
-          }
-          this.forward();
-          // Rule 5 for this copy of another client's opener: it restates
-          // that opener's run, whose change's undo deletes the opener and
-          // the run's end (see changeEnd) but not the copy, which would run
-          // on over the text after it (#9622). End it right after that end
-          // too, with a null of this write's own.
-          if (value !== null && next.id.client !== this.tr.doc.clientID) {
-            const end = changeEnd(this.tr.doc, next);
-            if (
-              end !== null &&
-              !isGoneIn(this.view, end) &&
-              valueOf(end) === null
-            ) {
-              copiedEnds.push(end);
-            }
-          }
-        }
-      }
-    }
-    this.passed = null;
-    this.insertNegatedFormats(negated, true);
-    for (const end of copiedEnds) {
-      formatClosers.add(
-        this.insertAfter(
-          end,
-          new ContentFormat(keyOf(end), null as unknown as object),
-        ),
-      );
-    }
   }
 }

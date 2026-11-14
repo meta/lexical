@@ -41,40 +41,31 @@ import {
   type Transaction,
 } from '@y/y';
 
+import {runBoundary, type StoredUnit} from './Canonical';
 import {
   BASE_LAYOUT_VERSION,
   IDENTITY_LAYOUT_VERSION,
   LAYOUT_PREFIX,
   LAYOUT_VERSION,
 } from './constants';
-import {runBoundary, type StoredUnit} from './Layout3';
 import {owned} from './Owned';
 import {markBindingWrite} from './RawWrites';
-import {isGoneIn} from './Seen';
+import {type HeldView, isGoneIn, isHiddenIn} from './Shown';
 import {type View} from './Unread';
 
-/**
- * Whether writes into `doc` store covered keys as paired runs: always, but
- * while the document is seeded (see withSeeding). Layout 3 only: every
- * document this binding writes records layout IDENTITY_LAYOUT_VERSION (a
- * document below it binds read only, see YBinding#evaluate).
- */
-export function writesPairedRuns(
-  doc: Doc,
-  _root?: {getAttr: (k: string) => unknown},
-): boolean {
-  return !seedingDocs.has(doc);
+/** Whether `doc` is being seeded (see withSeeding). */
+export function isSeeding(doc: Doc): boolean {
+  return seedingDocs.has(doc);
 }
 
 /**
- * Seeding a pristine root (binding initialization, seedYState; D22, under
- * layout 3): content and uncovered formats as main writes them, covered
- * formats as canonical layout 3 runs, interleaved with the content in the
- * seed's own pass (see seedRunsOf, Cursor#insert): every client derives the
- * same seed bytes, and so the same seed client id, for the same content,
- * and a client that seeded it differently would write it a second time.
- * The seed bytes are pinned by golden tests: a change to them at layout 3
- * needs a seed-format bump. Scoped to `doc`: a write to another document
+ * Seeding a pristine root (binding initialization, seedYState; D22): its
+ * formats as canonical runs (see Canonical), interleaved with the content
+ * in the seed's own pass (see seedRunsOf, Cursor#insert): every client
+ * derives the same seed bytes, and so the same seed client id, for the same
+ * content, and a client that seeded it differently would write it a second
+ * time. The seed bytes are pinned by golden tests per SEED_LAYOUT: a change
+ * to them needs a seed-format bump. Scoped to `doc`: a write to another document
  * during the seed (an app listener that edits another room) writes as that
  * document says.
  */
@@ -96,7 +87,7 @@ export function withSeeding<T>(doc: Doc, fn: () => T): T {
 
 /**
  * A container's covered runs while it is seeded: the values of the last
- * unit written (see Layout3's storedUnit), the opener of each run still
+ * unit written (see Canonical's storedUnit), the opener of each run still
  * open, and the last unit's item (where the runs open at the end close).
  */
 export type SeedRuns = {
@@ -124,8 +115,7 @@ export function seedRunsOf(container: YNode): SeedRuns {
 
 /**
  * The seed's last step, in `tr`: close every run still open, right after
- * its container's last unit, ends in key order (Layout3's runBoundary), as
- * writeLayout3Formats places them.
+ * its container's last unit, ends in key order (Canonical's runBoundary).
  */
 export function finishSeedRuns(tr: Transaction): void {
   const byContainer = seedRuns.get(tr.doc);
@@ -191,18 +181,18 @@ export function ensureIdentityRecord(root: YNode): void {
 }
 
 /**
- * The origin of the transaction in which a layout 3 record is written again
+ * The origin of the transaction in which a layout record is written again
  * (see protectRecordAfter, YBinding#keepIdentityRecord): an instance of a
  * class nothing outside this package holds, so no UndoManager tracks it
  * (Yjs matches tracked origins by identity and by `origin.constructor`).
  */
 export class IdentityLayoutOrigin {}
 
-/** Per transaction, the roots whose layout 3 record it wrote and protects. */
+/** Per transaction, the roots whose layout record it wrote and protects. */
 const pendingRecords = new WeakMap<Transaction, Set<YNode>>();
 
 /**
- * After transaction `tr` (which wrote `root`'s layout 3 record): write the
+ * After transaction `tr` (which wrote `root`'s layout record): write the
  * record again in a transaction of its own with an origin no UndoManager
  * tracks (IdentityLayoutOrigin), so an app UndoManager that later undoes
  * `tr` (also an app's outer transaction the write joined) deletes only the
@@ -259,6 +249,37 @@ export function recordsIdentityLayout(root: {
   return root.getAttr(LAYOUT_PREFIX + IDENTITY_LAYOUT_VERSION) === true;
 }
 
+/**
+ * The layout whose paired names apply to `root`'s stored ends, for the copy
+ * repair (see repairCopies): 4 where it records layout 4; 3 where
+ * it records layout 3 but not 4 (a layout 3 root a layout 4 runtime holds:
+ * read only, nested, or on a server before its migration); null below.
+ */
+function pairedLayoutOf(root: {getAttr: (k: string) => unknown}): 3 | 4 | null {
+  if (recordsIdentityLayout(root)) {
+    return 4;
+  }
+  return root.getAttr(LAYOUT_PREFIX + 3) === true ? 3 : null;
+}
+
+/**
+ * Whether a copy of an end of `key` in `root` is repaired: in a layout 4
+ * root, every covered name; in a layout 3 root, layout 3's covered names
+ * only. A flat NodeState name (`s:<key>`, no U+001F) was plain in layout 3,
+ * so an array under it there is a value, never an end, and is left as
+ * stored.
+ */
+function repairsIn(root: YNode, key: string): boolean {
+  const layout = pairedLayoutOf(root);
+  return layout === 4 || (layout === 3 && !isFlatStateName(key));
+}
+
+/** A flat NodeState name: `s:<key>` with no U+001F after `s:`. */
+const isFlatStateName = (key: string): boolean =>
+  key.charCodeAt(0) === 115 /* s */ &&
+  key.charCodeAt(1) === 58 /* : */ &&
+  key.indexOf('\u001f', 2) < 0;
+
 const __DEV__ = process.env.NODE_ENV !== 'production';
 
 /**
@@ -273,15 +294,14 @@ export interface FoldIn {
   readonly held: HeldView;
 }
 
-/** Whether `item` is gone in fold `f`'s view (Seen.isGoneIn). */
+/** Whether `item` is gone in fold `f`'s view (Shown.isGoneIn). */
 const goneIn = (f: FoldIn, item: Item): boolean => isGoneIn(f.view, item);
 
-/** A hold a fold reads in (see FoldIn), or null. */
-export type HeldView = {hides(item: Item): boolean} | null;
+export type {HeldView};
 
 /** Whether end `end` pairs nothing: gone, or held back (see FoldIn). */
 const endGone = (f: FoldIn, end: Item): boolean =>
-  goneIn(f, end) || (f.held !== null && f.held.hides(end));
+  isHiddenIn(f.view, end, f.held);
 
 /** The fold of the document as Yjs has it: no view, no hold. */
 export const STORED_FOLD: FoldIn = {held: null, view: null};
@@ -331,7 +351,7 @@ function holdsLayoutRecord(type: YNode): boolean {
 let rootOfType = new WeakMap<object, YNode>();
 /**
  * The root `type` is under: the nearest type holding a layout record (every
- * bound root records layout 1 when it is initialized; stored, so a decoded
+ * bound root records its layout when it is initialized; stored, so a decoded
  * document knows its nested roots before any binding registers them), or a
  * bound root, else its top type.
  */
@@ -351,16 +371,14 @@ export function rootOf(type: YNode): YNode {
   return root;
 }
 
-const SET_MEMBER_SEPARATOR = '\u001f';
-
 /**
- * The keys whose runs are paired, by stored name (the frozen list, the same
- * for every reader): text formats (`f:`), wrappers (`w:`: links), fields
- * (`p:`: style, color), node type (`t`) and segment (`k`) keys, and every
- * `s:` name holding U+001F (set-valued NodeState member entries: comment
- * ids). Not covered: a NodeState value stored flat (`s:<key>` with no
- * U+001F), which apps may read and write raw, and any other name (a raw
- * writer's own keys); they keep the plain-value rules.
+ * The names whose runs are paired, by stored name (the frozen list, the same
+ * for every reader): every name the binding writes on text. Text formats
+ * (`f:`), wrappers (`w:`: links), fields (`p:`: style, color), NodeState
+ * (`s:`: a flat value, or a member entry of a set-valued one such as a
+ * comment id), and the node type (`t`) and segment (`k`) keys. Any other
+ * name is not the binding's: it reads by the plain-value rules, and no
+ * write of the binding stores, changes or deletes an item of it.
  */
 function isCoveredName(key: string): boolean {
   if (key.length === 1) {
@@ -372,10 +390,9 @@ function isCoveredName(key: string): boolean {
   switch (key.charCodeAt(0)) {
     case 102: // f
     case 112: // p
+    case 115: // s
     case 119: // w
       return true;
-    case 115: // s
-      return key.indexOf(SET_MEMBER_SEPARATOR, 2) >= 0;
     default:
       return false;
   }
@@ -432,10 +449,10 @@ export const isShadowKey = (k: string): boolean => k.charCodeAt(0) === 2;
  * release does not read): it names no run, so it reads as an end whose run
  * is not open (a clearer, see stepPaired), and no write of the binding
  * rewrites, re-points or deletes it (see repairCopies,
- * Cursor#formatCovered). Every value that is not an array is a value, an
- * object keyed by array indices and a typed array included. Layout 3
+ * Cursor#format). Every value that is not an array is a value, an
+ * object keyed by array indices and a typed array included. The binding
  * stores no raw array as a value (a whole-container write stores one as
- * `{json}`, see Layout3's storedValue).
+ * `{json}`, see Canonical's storedValue).
  */
 export const isEndValue = (v: unknown): v is unknown[] =>
   Array.isArray(v) && v.length > 0;
@@ -715,7 +732,7 @@ function scanNew(doc: Doc, index: Index): void {
       if (isCoveredEnd(s)) {
         noteHolder(s);
         // Deleted ends too: a write's view keeps an end an unread change
-        // deleted (see Seen.isGoneIn), and its run is paired there (#9719).
+        // deleted (see Shown.isGoneIn), and its run is paired there (#9719).
         noteEnd(doc, s, positions);
       }
     }
@@ -878,8 +895,9 @@ const HOLDER = Symbol('holder');
 type Held = {[HOLDER]?: Item};
 /**
  * Holders kept off the array: an array a client froze (or sealed), and every
- * array of a document below layout 3, whose values are left untouched (a raw
- * writer's own arrays, as main keeps them).
+ * array that is not an end where it is stored (below layout 3, or under a
+ * flat NodeState name in a layout 3 root, see repairsIn), whose values are
+ * left untouched (a raw writer's own arrays, as main keeps them).
  */
 const heldBy = new WeakMap<object, Item>();
 /** The item that first held value array `v` (see noteHolder), if noted. */
@@ -893,12 +911,12 @@ export const noteHolder = (item: Item): void => {
   // A non-enumerable symbol property on the array itself (a WeakMap entry
   // per end cost a hash insertion per incoming end): Yjs encodes values as
   // JSON, which never sees it, and equality checks skip it.
-  // On the array only in a document that records layout 3: an array a raw
+  // On the array only where it is an end (see repairsIn): an array a raw
   // writer stored elsewhere stays as stored.
   if (
     Object.isExtensible(v) &&
     item.parent instanceof YNode &&
-    recordsIdentityLayout(rootOf(item.parent))
+    repairsIn(rootOf(item.parent), (item.content as ContentFormat).key)
   ) {
     Object.defineProperty(v, HOLDER, {value: item});
   } else {
@@ -993,7 +1011,8 @@ export function takePairingChanges(doc: Doc): boolean {
 
 /**
  * Before observers, the UndoManager's capture, gc and the update's
- * encoding: in roots that record layout 3, each copy of an end the transaction
+ * encoding: in roots that record layout 3 or 4 (see repairsIn), each copy
+ * of an end the transaction
  * inserted (see repairedTarget) gets new content naming its repaired target
  * (never the shared array: a new ContentFormat); then the transaction's ends
  * go into the index.
@@ -1032,11 +1051,11 @@ function repairCopies(tr: Transaction): void {
       noteHolder(s);
     } else if (
       s.parent instanceof YNode &&
-      recordsIdentityLayout(rootOf(s.parent))
+      repairsIn(rootOf(s.parent), (s.content as ContentFormat).key)
     ) {
-      // A copy of an end (an undo's), in a root that records layout 3 (a
-      // root below it is left as stored, as main keeps it; nested roots by
-      // their own record).
+      // A copy of an end (an undo's), in a root that records layout 4, or
+      // layout 3 for layout 3's names (a root below it is left as stored,
+      // as main keeps it; nested roots by their own record).
       const target = repairedTarget(doc, first, s);
       if (target !== null) {
         const {key} = s.content as ContentFormat;

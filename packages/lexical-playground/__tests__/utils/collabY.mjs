@@ -470,9 +470,14 @@ class Session {
    *   status?: string,
    *   timeout?: number,
    *   beforeLoad?: (context: import('@playwright/test').BrowserContext) => Promise<void>,
-   * }} [options]
+   *   params?: Record<string, string>,
+   * }} [options] `params` are added to the page's URL (offline mode's
+   * `collabYOffline`, for example)
    */
-  async open(name, {status = 'active', timeout, beforeLoad} = {}) {
+  async open(
+    name,
+    {status = 'active', timeout, beforeLoad, params: extra} = {},
+  ) {
     const context = await this.browser.newContext();
     // Keep the pages off the network: third-party scripts (analytics) that
     // fail to load fire window errors, which are not what these specs check.
@@ -509,6 +514,7 @@ class Session {
       selectBlock: 'false',
       showTreeView: 'false',
       useCollabY: 'true',
+      ...extra,
     });
     await page.goto(`http://localhost:${E2E_PORT}/?${params}`);
     await client.waitReady(status, timeout);
@@ -551,21 +557,26 @@ class Session {
  * each initializes the new document.
  *
  * @param {import('@playwright/test').Browser} browser
- * @param {{n?: number, together?: boolean}} [options]
+ * @param {{n?: number, together?: boolean, params?: Record<string, string>}} [options]
  */
-export async function openClients(browser, {n = 2, together = false} = {}) {
+export async function openClients(
+  browser,
+  {n = 2, together = false, params} = {},
+) {
   const info = test.info();
   const room = `y-${info.project.name}-${info.testId}-${Date.now()}`;
   const session = new Session(browser, room);
   sessions.add(session);
   const names = [...'ABC'.slice(0, n)];
   if (together) {
-    const clients = await Promise.all(names.map(name => session.open(name)));
+    const clients = await Promise.all(
+      names.map(name => session.open(name, {params})),
+    );
     return {clients, session};
   }
   const clients = [];
   for (const name of names) {
-    clients.push(await session.open(name));
+    clients.push(await session.open(name, {params}));
   }
   return {clients, session};
 }

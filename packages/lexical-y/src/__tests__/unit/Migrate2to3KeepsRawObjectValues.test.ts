@@ -22,16 +22,12 @@ import {$getRoot, type ElementNode} from 'lexical';
 import {describe, expect, test} from 'vitest';
 
 import {readYState} from '../../headless';
-import {writeLayout3Formats as liveWrite} from '../../internal/Layout3';
 import {createRawYDoc} from '../../internal/RawYDoc';
-import {
-  getYLayoutInfo,
-  migrateYState,
-  type YLayoutMigration,
-} from '../../migrate';
+import {getYLayoutInfo, migrateYState} from '../../migrate';
 import step1to2 from '../../migrate/1to2';
 import step2to3 from '../../migrate/2to3';
 import {foldLayout2Units} from '../../migrate/2to3/frozen/fold2';
+import step3to4 from '../../migrate/3to4';
 import {NumericFieldWrapperNode} from '../catalog/coveredValues';
 import {NODES} from '../utils/harness';
 import {layout3Problems} from '../utils/migrate2to3';
@@ -44,10 +40,6 @@ const recordedLayout = (doc: Y.Doc, root = 'lexical-y'): number | null => {
 };
 
 const STEPS = [step1to2, step2to3];
-const LIVE: YLayoutMigration = {
-  ...step2to3,
-  migrateContainer: (tr, c) => liveWrite(tr, c, foldLayout2Units(c)),
-};
 const CONFIG = {
   nodes: [...NODES, NumericFieldWrapperNode],
   onWarn: () => {},
@@ -103,18 +95,16 @@ describe('a layout 2 document holding objects keyed by array indices', () => {
 
   for (const gc of [false, true]) {
     test(`migrates with 2to3 and reads as the same values on the live reader (gc ${gc ? 'on' : 'off'})`, () => {
-      const {state} = migrateYState(input, STEPS, {gc});
+      const {state} = migrateYState(input, STEPS, {gc, to: 3});
       expect(recordedLayout(createRawYDoc(state, {gc}))).toBe(3);
       expect(layout3Problems(state, gc)).toEqual([]);
       const root = createRawYDoc(state, {gc}).get('lexical-y');
       expect(asJSON(pureRead(root))).toEqual(before);
       expect(asJSON(coreRead(root))).toEqual(before);
-      // The live layout 3 writer writes the bytes the frozen step writes.
-      expect(
-        Buffer.from(migrateYState(input, [step1to2, LIVE], {gc}).state),
-      ).toEqual(Buffer.from(state));
-      // An editor reads the wrapper with its field.
-      const read = readYState(state, CONFIG, () => {
+      // An editor reads the wrapper with its field (after 3to4: layout 3
+      // is below this release's floor, and a headless read refuses it).
+      const four = migrateYState(state, [step3to4], {gc}).state;
+      const read = readYState(four, CONFIG, () => {
         const paragraph = $getRoot().getFirstChildOrThrow() as ElementNode;
         const wrapper = paragraph
           .getChildren()

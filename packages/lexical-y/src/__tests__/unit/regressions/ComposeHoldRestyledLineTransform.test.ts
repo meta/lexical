@@ -41,6 +41,15 @@
 // app's tokenizer, and the stock ones alike), is written; so is a value set
 // there on a code token that the highlighter replaces, the join having
 // changed the line's tokens.
+//
+// Once the hold has ended and A has read the line again, A's transforms run
+// again on it as A's own edit, and the writer writes what they change where
+// that is only how the line's characters are typed, which keeps each where it
+// is stored (see DECISIONS.md D115): a hashtag made again in a line B made a
+// heading, A's highlighter's tokens in a line B made a code block, an app's
+// transform's bold on the line as it now is. Where they change the line's
+// text (an app's transform that upper-cases it), nothing is written: neither
+// that nor a hashtag made with it, which main writes.
 
 import {
   $createCodeHighlightNode,
@@ -2620,7 +2629,7 @@ for (const gc of [false, true]) {
       ['Prism', true],
       ['Shiki', true],
     ] as const) {
-      test(`a hashtag typed with an input method in a line a collaborator makes a code block, with bold and a NodeState value set on the line in the update that ends the composition, is stored ${every ? "as the collaborator's highlighter's tokens, which keep the NodeState value and whose formats follow the highlighter, where every client highlights" : 'as plain text with both where only the composing client highlights: its tokens are not what that update would have written'} (${highlighter}, ${variant})`, async () => {
+      test(`a hashtag typed with an input method in a line a collaborator makes a code block, with bold and a NodeState value set on the line in the update that ends the composition, is stored as the highlighter's tokens, which keep the NodeState value and whose formats follow the highlighter, ${every ? 'where every client highlights' : 'where only the composing client highlights: its transforms run again on the line read as stored'} (${highlighter}, ${variant})`, async () => {
         const t = await setup(
           () => {
             $getRoot().append(
@@ -2672,10 +2681,10 @@ for (const gc of [false, true]) {
         const fresh = await freshReader(t.a);
         onTestFinished(() => fresh.stop());
         for (const peer of [...t.peers, fresh]) {
-          // A's highlighter's tokens are not written: in a paragraph, its
-          // update made a hashtag. What is stored stays, with the bold and
-          // the note that update set: B's tokens, which keep the note (code
-          // highlight nodes keep no format), or plain text.
+          // The highlighter's tokens (B's, or A's once its transforms run
+          // again on the line read as stored), which keep the note that the
+          // update that ends the composition set (code highlight nodes keep
+          // no format).
           expect(
             peer.read(() =>
               $getRoot()
@@ -2688,11 +2697,7 @@ for (const gc of [false, true]) {
                 )
                 .join(','),
             ),
-          ).toBe(
-            Array(8)
-              .fill(every ? 'code-highlight:saved' : 'text/b:saved')
-              .join(','),
-          );
+          ).toBe(Array(8).fill('code-highlight:saved').join(','));
         }
       });
     }
@@ -2997,7 +3002,7 @@ for (const gc of [false, true]) {
     }
 
     for (const transform of ['bold', 'capitals'] as const) {
-      test(`an app's transform that sets ${transform} on text in a heading leaves the text a held composition did not change as stored, where a collaborator made its line a heading (${variant})`, async () => {
+      test(`an app's transform that sets ${transform} on text in a heading ${transform === 'bold' ? 'applies to the line a collaborator made a heading, as the transforms run again on the line read as stored once the composition held there ends' : 'changes the text of the line a collaborator made a heading, as the transforms run again on it, which is not written, nor the hashtag made with it (main writes the hashtag)'} (${variant})`, async () => {
         const t = await setup(
           () => {
             $getRoot().append(
@@ -3033,10 +3038,15 @@ for (const gc of [false, true]) {
         await converged(t);
         const fresh = await freshReader(t.a);
         onTestFinished(() => fresh.stop());
-        // As on main: the hashtag the update that ends the composition
-        // made, and the rest as stored.
+        // The hashtag, and the bold the app's transform sets on the text in
+        // the heading; capitals change the text, so nothing is written and
+        // the line stays as stored.
         for (const peer of [...t.peers, fresh]) {
-          expect(blocks(peer)).toBe('heading[text:before /0/|hashtag:#tag/0/]');
+          expect(blocks(peer)).toBe(
+            transform === 'bold'
+              ? 'heading[text:before /1/|hashtag:#tag/0/]'
+              : 'heading[text:before #tag/0/]',
+          );
         }
       });
     }
@@ -3445,7 +3455,7 @@ for (const gc of [false, true]) {
     });
 
     for (const after of ['', ' after'] as const) {
-      test(`an app's transform that upper-cases text in a heading, as the transforms run again on the line a collaborator made a heading, ${after === '' ? 'still gets the hashtag at the end of the line written, as on main' : 'leaves a hashtag between rewritten parts as stored, and the text as stored'} (${variant})`, async () => {
+      test(`an app's transform that upper-cases text in a heading, as the transforms run again on the line a collaborator made a heading, changes its text, so nothing is written: ${after === '' ? 'nor the hashtag at the end of the line (main writes the hashtag)' : 'the line stays as stored, as on main'} (${variant})`, async () => {
         const t = await setup(
           () => {
             $getRoot().append(
@@ -3488,7 +3498,7 @@ for (const gc of [false, true]) {
         for (const peer of [...t.peers, fresh]) {
           expect(blocks(peer)).toBe(
             after === ''
-              ? 'heading[text:before /0/|hashtag:#tag/0/]'
+              ? 'heading[text:before #tag/0/]'
               : 'heading[text:before #tag after/0/]',
           );
         }
@@ -3496,7 +3506,7 @@ for (const gc of [false, true]) {
     }
 
     for (const value of ['bold', 'a note'] as const) {
-      test(`${value} that a collaborator's own transforms set on the text of the heading it made of a held line, also made a code block, stays when the composition ends with no edit of the composer's own (${variant})`, async () => {
+      test(`${value} that a collaborator's own transforms set on the text of the heading it made of a held line, also made a code block, gives way to the composing client's highlighter's tokens${value === 'a note' ? ', which keep the note,' : ''} when the composition ends, as the transforms run again on the line read as stored (${variant})`, async () => {
         const t = await setup(
           () => {
             $getRoot().append(
@@ -3550,20 +3560,19 @@ for (const gc of [false, true]) {
         await converged(t);
         const fresh = await freshReader(t.a);
         onTestFinished(() => fresh.stop());
-        // B's value stays on every character. (Main stores A's hashtag on
-        // `#tag` too; a block a collaborator made a code block keeps what it
-        // stored, see DECISIONS.md D115.)
+        // A's highlighter tokenizes the code block it reads (code highlight
+        // nodes keep no format; they keep B's note).
         for (const peer of [...t.peers, fresh]) {
           expect(blocks(peer)).toBe(
             value === 'bold'
-              ? 'code[text:see #tag after/1/]'
-              : 'code[text:see #tag after/0/N]',
+              ? 'code[code-highlight:see #tag after/0/]'
+              : 'code[code-highlight:see /0/N|code-highlight:#tag/0/N|code-highlight: after/0/N]',
           );
         }
       });
     }
 
-    test(`a style set on the line in the update that ends a composition, where a collaborator's held change made the line a heading and set another style, is not written on the hashtag the transform makes, which keeps the stored style, while the text before it takes the style, as on main (${variant})`, async () => {
+    test(`a style set on the line in the update that ends a composition, where a collaborator's held change made the line a heading and set another style, is cleared with the collaborator's by the app's transform that clears the style of text in a heading, as the transforms run again on the line read as stored (${variant})`, async () => {
       const t = await setup(
         () => {
           $getRoot().append(
@@ -3613,7 +3622,7 @@ for (const gc of [false, true]) {
               .getAllTextNodes()
               .map(n => `${n.getType()}:${n.getTextContent()}=${n.getStyle()}`),
           ),
-        ).toEqual(['text:before =color:green', 'hashtag:#tag=color:blue']);
+        ).toEqual(['text:before =', 'hashtag:#tag=']);
       }
     });
 

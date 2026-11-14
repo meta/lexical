@@ -83,10 +83,11 @@ describe('@lexical/y storage', () => {
       ),
     );
     const root = t.a.binding.root;
-    // A new document records layout 1 (and 2 once it holds a member entry
-    // of a set-valued NodeState).
-    expect(root.getAttr('lexical-y:1')).toBe(true);
+    // A new document records layout 4, and no older layout.
+    expect(root.getAttr('lexical-y:4')).toBe(true);
+    expect(root.getAttr('lexical-y:1')).toBeUndefined();
     expect(root.getAttr('lexical-y:2')).toBeUndefined();
+    expect(root.getAttr('lexical-y:3')).toBeUndefined();
     const children = root.toDelta().toJSON().children as {insert: unknown}[];
     expect(
       children.map(c => (typeof c.insert === 'string' ? c.insert : '¶')),

@@ -89,12 +89,12 @@ function client(doc: YDoc, text: string | null, root?: Y.Node) {
 }
 
 /**
- * The id a layout 3 client derives for a pristine root seeded with 'Same
- * seed' (the release before layout 3 derived 4267184775731454; its seed
- * recorded layout 1 only, and an older client opens a layout 3 document read
- * only anyway).
+ * The id a layout 4 client derives for a pristine root seeded with 'Same
+ * seed' (layout 3's release derived 144324623100807: its seed recorded
+ * `lexical-y:1` and `lexical-y:3` where layout 4's records `lexical-y:4`
+ * alone, and an older client opens a layout 4 document read only anyway).
  */
-const PRISTINE_SEED_ID = 144324623100807;
+const PRISTINE_SEED_ID = 1240003256392311;
 
 const text = (editor: ReturnType<typeof createEditor>) =>
   editor.getEditorState().read(() => $getRoot().getTextContent());
@@ -105,13 +105,13 @@ describe('@lexical/y initialization', () => {
     expect(t.a.binding.undoManager!.canUndo()).toBe(false);
     t.a.binding.undo();
     expect(t.a.describe()).toBe('paragraph("initial content")');
-    expect(t.a.binding.root.getAttr('lexical-y:1')).toBe(true);
+    expect(t.a.binding.root.getAttr('lexical-y:4')).toBe(true);
     t.a.update(() => $selectIn([0], 7).insertText('!'));
     t.a.undo();
     t.a.undo();
     await t.sync();
     expect(t.b.describe()).toBe('paragraph("initial content")');
-    expect(t.b.binding.root.getAttr('lexical-y:1')).toBe(true);
+    expect(t.b.binding.root.getAttr('lexical-y:4')).toBe(true);
   });
 
   test('two clients initializing with the same content write one copy', () => {
@@ -253,7 +253,7 @@ describe('@lexical/y initialization', () => {
     });
   }
 
-  test('a pristine root is still written under the same id (every layout 3 client shares it)', () => {
+  test('a pristine root is still written under the same id (every layout 4 client shares it)', () => {
     const doc = createYDoc();
     const c = client(doc, 'Same seed');
     c.binding.initialize();

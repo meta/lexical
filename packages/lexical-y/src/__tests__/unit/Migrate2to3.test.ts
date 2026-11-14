@@ -14,8 +14,7 @@
 // fields, list numbering). Gc off and on: each migrates (chain 1to2 + 2to3)
 // to its frozen bytes; reads as the release before read it; meets layout
 // 3's invariants (checkAfter) where a step that only records the layout
-// does not; writes the same bytes as the live layout 3 writer; is a no-op
-// once migrated; gives the same bytes in another process; equals 1to2 then
+// does not; is a no-op once migrated; gives the same bytes in another process; equals 1to2 then
 // 2to3; and two roots of one document get different clients. Reads are
 // compared per countable unit (a raw writer's single item mixing a tab
 // and text under a tab's open range migrates unit by unit). Golden
@@ -35,7 +34,6 @@ import * as path from 'node:path';
 import {describe, expect, test} from 'vitest';
 
 import {readYState} from '../../headless';
-import {writeLayout3Formats as liveWrite} from '../../internal/Layout3';
 import {createRawYDoc} from '../../internal/RawYDoc';
 import {
   getYLayoutInfo,
@@ -44,7 +42,7 @@ import {
 } from '../../migrate';
 import step1to2 from '../../migrate/1to2';
 import step2to3 from '../../migrate/2to3';
-import {foldLayout2Units} from '../../migrate/2to3/frozen/fold2';
+import step3to4 from '../../migrate/3to4';
 import {$snapshot, catalogHeadlessConfig} from '../catalog/bind';
 import {
   blockIdsOf,
@@ -97,8 +95,8 @@ function load(): Golden[] {
       if (f.output === null && !f.name.startsWith('x-')) {
         const input = unb64(f.input);
         f.output = {
-          gcOff: b64(migrateYState(input, STEPS, {gc: false}).state),
-          gcOn: b64(migrateYState(input, STEPS, {gc: true}).state),
+          gcOff: b64(migrateYState(input, STEPS, {gc: false, to: 3}).state),
+          gcOn: b64(migrateYState(input, STEPS, {gc: true, to: 3}).state),
         };
       }
     }
@@ -110,12 +108,19 @@ function load(): Golden[] {
 const FIXTURES = load();
 const MIGRATING = FIXTURES.filter(f => !f.name.startsWith('x-'));
 
-/** What a reader of `state`'s root `root` shows, as JSON. */
+/**
+ * What a reader of `state`'s root `root` shows, as JSON. Layout 3 is below
+ * this release's floor (a headless read refuses it), so the state is read
+ * after the frozen 3to4 step, which shows what layout 3 showed (see
+ * Migrate3to4.test.ts).
+ */
 function readOf(state: Uint8Array, f: Golden, root?: string): unknown {
   return JSON.parse(
     JSON.stringify(
       readYState(
-        state,
+        migrateYState(state, [step3to4], {
+          roots: root === undefined ? undefined : ['lexical-y', root],
+        }).state,
         catalogHeadlessConfig(f.cfg, root === undefined ? {} : {root}),
         $snapshot,
       ),
@@ -197,7 +202,7 @@ describe('@lexical/y/migrate/2to3 golden fixtures', () => {
       test('every fixture migrates to its frozen bytes', () => {
         for (const f of MIGRATING) {
           expect(f.output, `${f.name}: no golden output yet`).not.toBeNull();
-          const out = migrateYState(unb64(f.input), STEPS, {gc}).state;
+          const out = migrateYState(unb64(f.input), STEPS, {gc, to: 3}).state;
           expect(b64(out), f.name).toBe(gc ? f.output!.gcOn : f.output!.gcOff);
         }
       });
@@ -206,7 +211,11 @@ describe('@lexical/y/migrate/2to3 golden fixtures', () => {
         for (const f of MIGRATING) {
           const roots =
             f.mainNotes === undefined ? undefined : ['lexical-y', 'notes'];
-          const out = migrateYState(unb64(f.input), STEPS, {gc, roots}).state;
+          const out = migrateYState(unb64(f.input), STEPS, {
+            gc,
+            roots,
+            to: 3,
+          }).state;
           const mine = readOf(out, f);
           expect(withoutBlockIds(mine), f.name).toEqual(
             withoutBlockIds(f.main),
@@ -221,7 +230,7 @@ describe('@lexical/y/migrate/2to3 golden fixtures', () => {
       test('layout 3 everywhere: checkAfter is empty on every container; marker and container attributes untouched', () => {
         for (const f of MIGRATING) {
           const input = unb64(f.input);
-          const out = migrateYState(input, STEPS, {gc}).state;
+          const out = migrateYState(input, STEPS, {gc, to: 3}).state;
           expect(recordedLayout(createRawYDoc(out, {gc})), f.name).toBe(3);
           expect(layout3Problems(out, gc), f.name).toEqual([]);
           expect(typeAttrs(out), f.name).toEqual(typeAttrs(input));
@@ -249,7 +258,7 @@ describe('@lexical/y/migrate/2to3 golden fixtures', () => {
           let problems: readonly string[];
           try {
             problems = layout3Problems(
-              migrateYState(input, [step1to2, noop], {gc}).state,
+              migrateYState(input, [step1to2, noop], {gc, to: 3}).state,
               gc,
             );
           } catch (e) {
@@ -261,24 +270,10 @@ describe('@lexical/y/migrate/2to3 golden fixtures', () => {
         expect(withCovered).toBeGreaterThanOrEqual(12);
       });
 
-      test('the frozen writer writes the bytes the live layout 3 writer writes', () => {
-        const live: YLayoutMigration = {
-          ...step2to3,
-          migrateContainer: (tr, c) => liveWrite(tr, c, foldLayout2Units(c)),
-        };
-        for (const f of MIGRATING) {
-          const input = unb64(f.input);
-          expect(
-            b64(migrateYState(input, [step1to2, live], {gc}).state),
-            f.name,
-          ).toBe(b64(migrateYState(input, STEPS, {gc}).state));
-        }
-      });
-
       test('idempotent: a migrated document is a no-op', () => {
         for (const f of MIGRATING) {
-          const out = migrateYState(unb64(f.input), STEPS, {gc}).state;
-          const again = migrateYState(out, STEPS, {gc});
+          const out = migrateYState(unb64(f.input), STEPS, {gc, to: 3}).state;
+          const again = migrateYState(out, STEPS, {gc, to: 3});
           expect(again.receipt.changed, f.name).toBe(false);
           expect(again.update, f.name).toBeNull();
           expect(again.state, f.name).toBe(out);
@@ -292,7 +287,7 @@ describe('@lexical/y/migrate/2to3 golden fixtures', () => {
           expect(recordedLayout(createRawYDoc(two, {gc})), f.name).toBe(2);
           const three = migrateYState(two, [step2to3], {gc, to: 3}).state;
           expect(b64(three), f.name).toBe(
-            b64(migrateYState(input, STEPS, {gc}).state),
+            b64(migrateYState(input, STEPS, {gc, to: 3}).state),
           );
         }
       });
@@ -302,6 +297,7 @@ describe('@lexical/y/migrate/2to3 golden fixtures', () => {
         const result = migrateYState(unb64(f.input), STEPS, {
           gc,
           roots: ['lexical-y', 'notes'],
+          to: 3,
         });
         const clients = result.receipt.roots.map(r =>
           r.steps.map(s => s.client),
@@ -335,7 +331,7 @@ describe('@lexical/y/migrate/2to3 golden fixtures', () => {
         `for (const f of fixtures) {`,
         `  if (f.name.startsWith('x-')) continue;`,
         `  for (const gc of [false, true]) {`,
-        `    h.update(migrateYState(new Uint8Array(Buffer.from(f.input, 'base64')), [step1to2, step2to3], {gc}).state);`,
+        `    h.update(migrateYState(new Uint8Array(Buffer.from(f.input, 'base64')), [step1to2, step2to3], {gc, to: 3}).state);`,
         `  }`,
         `}`,
         `process.stdout.write(h.digest('hex'));`,
@@ -349,7 +345,7 @@ describe('@lexical/y/migrate/2to3 golden fixtures', () => {
     const h = createHash('sha256');
     for (const f of MIGRATING) {
       for (const gc of GCS) {
-        h.update(migrateYState(unb64(f.input), STEPS, {gc}).state);
+        h.update(migrateYState(unb64(f.input), STEPS, {gc, to: 3}).state);
       }
     }
     fs.rmSync(dir, {force: true, recursive: true});
@@ -362,8 +358,9 @@ describe('@lexical/y/migrate/2to3 golden fixtures', () => {
       'utf8',
     );
     // The whole file, its header included: a change to it is a new
-    // revision of the step. The live module (internal/Layout3.ts) may
-    // change after the freeze; the step keeps this copy.
+    // revision of the step. The live module it was copied from is gone
+    // (layout 4 keeps only the canonical form's rules, internal/Canonical.ts);
+    // the step keeps this copy.
     expect(sha(frozen)).toBe(
       'c1f901ac7069145291d97c6506021837ea7bd21e404e6752b22e7cec109a4d8b',
     );
@@ -397,6 +394,7 @@ describe('@lexical/y/migrate/2to3 golden fixtures', () => {
         for (const gc of GCS) {
           const out = migrateYState(unb64(f.input), [step1to2, step], {
             gc,
+            to: 3,
           }).state;
           expect(b64(out), f.name).toBe(gc ? f.output.gcOn : f.output.gcOff);
         }

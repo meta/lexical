@@ -601,10 +601,12 @@ describe('members that are not well-formed UTF-16', () => {
 });
 
 describe('the layout record', () => {
+  // Layout 4 (D120): a new document records only layout 4, from its
+  // creation, and a member entry needs no record of its own (layout 2's
+  // lazy record is gone: every reader of layout 4 reads member entries).
   const record = (doc: Y.Doc): string[] =>
     Object.keys(doc.get('lexical-y').getAttrs())
-      // (Layout 3 only: every document records 3 from its creation.)
-      .filter(key => key.startsWith('lexical-y:') && key !== 'lexical-y:3')
+      .filter(key => key.startsWith('lexical-y:'))
       .sort();
   const docOf = (...updates: Uint8Array[]): Y.Doc => {
     const doc = new Y.Doc();
@@ -613,42 +615,20 @@ describe('the layout record', () => {
     }
     return doc;
   };
-  const hasMember = (doc: Y.Doc, name: string): boolean =>
-    JSON.stringify(doc.get('lexical-y').toDelta().toJSON()).includes(
-      JSON.stringify(name).slice(1, -1),
-    );
 
-  test('the first member entry records layout 2 in its own update, and undo keeps it', async () => {
+  test('a member entry adds no record, and undo keeps the layout record', async () => {
     const t = await setup($init, {prepare});
-    // A set stored whole (on a line marker) is layout 1.
     t.a.update(() => $tag($leaves().paragraph, 'p'));
     await t.sync();
     for (const peer of t.peers) {
-      expect(record(peer.doc)).toEqual(['lexical-y:1']);
+      expect(record(peer.doc)).toEqual(['lexical-y:4']);
     }
-    const before = Y.encodeStateAsUpdate(t.a.doc);
-    const updates: Uint8Array[] = [];
-    const onUpdate = (update: Uint8Array) => {
-      updates.push(update);
-    };
-    t.a.doc.on('update', onUpdate);
     t.a.update(() => $tag($leaves().text, 'a'));
-    t.a.doc.off('update', onUpdate);
-    // Each update applied on its own: the one that holds the member entry
-    // holds the version too.
-    const withMember = updates.filter(update =>
-      hasMember(docOf(before, update), 's:tags\u001fa'),
-    );
-    expect(withMember.length).toBe(1);
-    expect(record(docOf(before, withMember[0]))).toEqual([
-      'lexical-y:1',
-      'lexical-y:2',
-    ]);
     await t.sync();
     for (const peer of t.peers) {
-      expect(record(peer.doc)).toEqual(['lexical-y:1', 'lexical-y:2']);
+      expect(record(peer.doc)).toEqual(['lexical-y:4']);
     }
-    // Undo removes the member, not the version.
+    // Undo removes the member, not the record.
     t.a.undo();
     await t.sync();
     await expectConverged(t.peers);
@@ -656,12 +636,12 @@ describe('the layout record', () => {
       expect(
         peer.read(() => [...$getState($leaves().text, tagsState)]),
       ).toEqual([]);
-      expect(record(peer.doc)).toEqual(['lexical-y:1', 'lexical-y:2']);
+      expect(record(peer.doc)).toEqual(['lexical-y:4']);
       expect(peer.warnings).toEqual([]);
     }
   });
 
-  test('the headless API records layout 2 with the first member entry only', () => {
+  test('the headless API records layout 4 only, with or without a member entry', () => {
     const config = {nodes: NODES, schemaVersion: 1, selfCheck: true};
     const $hText = () => {
       const text = $getRoot().getFirstDescendant();
@@ -671,83 +651,30 @@ describe('the layout record', () => {
       return text;
     };
     const plain = seedYState(config, () => $getRoot().append($p('x')));
-    expect(record(docOf(plain))).toEqual(['lexical-y:1']);
-    const typed = editYState(
-      plain,
-      config,
-      () => $hText().spliceText(0, 0, 'y'),
-      {writer: null},
-    );
-    expect(record(docOf(typed.state))).toEqual(['lexical-y:1']);
+    expect(record(docOf(plain))).toEqual(['lexical-y:4']);
     const tagged = editYState(
-      typed.state,
+      plain,
       config,
       () => $setState($hText(), tagsState, ['a']),
       {writer: null},
     );
     expect(tagged.update).not.toBeNull();
-    // The update alone carries the version with the member.
-    expect(record(docOf(typed.state, tagged.update!))).toEqual([
-      'lexical-y:1',
-      'lexical-y:2',
-    ]);
+    expect(record(docOf(plain, tagged.update!))).toEqual(['lexical-y:4']);
     const seeded = seedYState(config, () => {
       $getRoot().append($p('x'));
       $setState($hText(), tagsState, ['a']);
     });
-    expect(record(docOf(seeded))).toEqual(['lexical-y:1', 'lexical-y:2']);
+    expect(record(docOf(seeded))).toEqual(['lexical-y:4']);
     expect(
       readYState(seeded, config, () => [...$getState($hText(), tagsState)]),
     ).toEqual(['a']);
   });
 
-  // Yjs commits and sends what a transaction wrote even when its callback
-  // throws: the version goes in the same transaction whatever happens.
-  test('a write that throws part way still sends layout 2 with the member entries it wrote, in development and production', async () => {
-    const env = process.env.NODE_ENV;
-    const proto = Writer.prototype as unknown as {$run: () => void};
-    const run = proto.$run;
-    try {
-      for (const nodeEnv of ['development', 'production']) {
-        process.env.NODE_ENV = nodeEnv;
-        const t = await setup($init, {prepare});
-        const before = Y.encodeStateAsUpdate(t.a.doc);
-        const updates: Uint8Array[] = [];
-        const onUpdate = (update: Uint8Array) => {
-          updates.push(update);
-        };
-        t.a.doc.on('update', onUpdate);
-        // The write, and the rewrite that recovers from it, each write
-        // everything, then throw.
-        proto.$run = function (this: Writer) {
-          run.call(this);
-          throw new Error('simulated writer failure');
-        };
-        try {
-          t.a.update(() => $tag($leaves().text, 'a'));
-        } catch (_e) {
-          // The rewrite's failure goes to the editor's onError, which
-          // rethrows.
-        } finally {
-          proto.$run = run;
-          t.a.doc.off('update', onUpdate);
-        }
-        expect(updates.length).toBeGreaterThan(0);
-        const first = docOf(before, updates[0]);
-        expect(hasMember(first, 's:tags\u001fa')).toBe(true);
-        expect(record(first)).toEqual(['lexical-y:1', 'lexical-y:2']);
-      }
-    } finally {
-      proto.$run = run;
-      process.env.NODE_ENV = env;
-    }
-  });
-
   test('an initial write that throws part way sends nothing', () => {
     // A root inside another shared type is written as a seed built in a copy
     // of the document first (see YBinding#seedUpdate): a write that throws
-    // there never reaches the document, so no member entry is sent without
-    // layout 2.
+    // there never reaches the document, so nothing is sent without its
+    // layout record.
     const doc = createYDoc();
     const root = new Y.Node('editor-root');
     doc.get('app').setAttr('editor', root);

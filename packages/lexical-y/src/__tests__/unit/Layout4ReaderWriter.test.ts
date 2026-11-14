@@ -25,11 +25,9 @@ import {
   STORED_FOLD,
 } from '../../internal/Ident';
 import {
-  isCoveredKey,
-  readLayout3Formats,
-  storedUnit,
-  writeLayout3Formats,
-} from '../../internal/Layout3';
+  readLayout4Formats,
+  writeLayout4Formats,
+} from '../../migrate/3to4/frozen/layout4';
 import {$p, $selectIn, setup} from '../utils/harness';
 
 const obj = (m: ReadonlyMap<string, unknown>) => Object.fromEntries(m);
@@ -104,7 +102,7 @@ for (const gc of [false, true]) {
     });
     await t.sync();
     const root = t.a.doc.get('lexical-y');
-    expect(readLayout3Formats(root).map(obj)).toEqual(coreRead(root));
+    expect(readLayout4Formats(root).map(obj)).toEqual(coreRead(root));
   });
   test(`orphan and malformed ends: pure/core agreement gc=${gc}`, () => {
     const results: unknown[] = [];
@@ -118,40 +116,11 @@ for (const gc of [false, true]) {
       });
       results.push({
         core: coreRead(root),
-        pure: readLayout3Formats(root).map(obj),
+        pure: readLayout4Formats(root).map(obj),
       });
     }
     for (const result of results as {pure: unknown; core: unknown}[])
       expect(result.pure).toEqual(result.core);
-  });
-  test(`the covered keys can be narrowed; by default they are isCoveredKey's gc=${gc}`, () => {
-    const doc = rawDoc(gc);
-    const root = doc.get('c');
-    root.format(0, 3, {'f:italic': true});
-    const bold = (key: string) => key === 'f:bold';
-    doc.transact(tr =>
-      writeLayout3Formats(
-        tr,
-        root,
-        Array.from({length: 3}, () => new Map([['f:bold', true]])),
-        bold,
-      ),
-    );
-    // The italic items are not the narrowed writer's: they stay, and only
-    // the default read shows them.
-    expect(readLayout3Formats(root, bold).map(obj)).toEqual(
-      Array.from({length: 3}, () => ({'f:bold': true})),
-    );
-    expect(readLayout3Formats(root).map(obj)).toEqual(
-      Array.from({length: 3}, () => ({'f:bold': true, 'f:italic': true})),
-    );
-    expect(readLayout3Formats(root, isCoveredKey)).toEqual(
-      readLayout3Formats(root),
-    );
-    expect(() => storedUnit(new Map([['f:italic', true]]), bold)).toThrow();
-    expect(storedUnit(new Map([['f:italic', true]]))).toEqual(
-      new Map([['f:italic', ['true', true]]]),
-    );
   });
   test(`undefined refused before any write gc=${gc}`, () => {
     const doc = rawDoc(gc);
@@ -162,7 +131,7 @@ for (const gc of [false, true]) {
     const clock = doc.store.getClock(7);
     try {
       doc.transact(tr =>
-        writeLayout3Formats(
+        writeLayout4Formats(
           tr,
           root,
           Array.from({length: 3}, () => new Map([['p:meta', undefined]])),
@@ -196,7 +165,7 @@ for (const gc of [false, true]) {
       const before = Y.encodeStateAsUpdate(doc);
       expect(() =>
         doc.transact(tr =>
-          writeLayout3Formats(
+          writeLayout4Formats(
             tr,
             root,
             Array.from(
@@ -214,13 +183,13 @@ for (const gc of [false, true]) {
     const root = doc.get('c');
     const v = Array(2);
     doc.transact(tr =>
-      writeLayout3Formats(
+      writeLayout4Formats(
         tr,
         root,
         Array.from({length: 3}, () => new Map([['p:meta', v]])),
       ),
     );
-    const encoded = readLayout3Formats(root)[0].get('p:meta') as {json: string};
+    const encoded = readLayout4Formats(root)[0].get('p:meta') as {json: string};
     expect(JSON.parse(encoded.json)).toEqual([null, null]);
   });
   test(`all countable content and stored key classes roundtrip gc=${gc}`, () => {
@@ -247,8 +216,8 @@ for (const gc of [false, true]) {
       ['k', 'segment'],
     ]);
     const values = Array.from({length: 9}, () => new Map(fields));
-    doc.transact(tr => writeLayout3Formats(tr, root, values));
-    expect(readLayout3Formats(root).map(obj)).toEqual(values.map(obj));
+    doc.transact(tr => writeLayout4Formats(tr, root, values));
+    expect(readLayout4Formats(root).map(obj)).toEqual(values.map(obj));
     expect(coreRead(root)).toEqual(values.map(obj));
     expect(marker.getAttrs()).toEqual(attrs);
     expect(child._start).toBe(nested);
@@ -266,7 +235,7 @@ for (const gc of [false, true]) {
       ];
       if (reverse) entries.reverse();
       doc.transact(tr =>
-        writeLayout3Formats(tr, root, [
+        writeLayout4Formats(tr, root, [
           new Map(entries),
           new Map(entries),
           new Map(),
@@ -290,7 +259,7 @@ for (const gc of [false, true]) {
       ]),
       new Map<string, unknown>([['f:italic', true]]),
     ];
-    doc.transact(tr => writeLayout3Formats(tr, root, values));
+    doc.transact(tr => writeLayout4Formats(tr, root, values));
     expect(liveFormats(root)).toEqual([
       ['f:bold', true],
       ['f:bold', [1]],
@@ -301,14 +270,14 @@ for (const gc of [false, true]) {
       ['f:italic', true],
       ['f:italic', [1]],
     ]);
-    expect(readLayout3Formats(root).map(obj)).toEqual(values.map(obj));
+    expect(readLayout4Formats(root).map(obj)).toEqual(values.map(obj));
   });
   test(`one-shot live insert canonical order gc=${gc}`, () => {
     const doc = new Y.Doc({gc});
     doc.cleanupFormatting = false;
     doc.clientID = 7;
     const root = doc.get('c');
-    root.setAttr('lexical-y:3', true);
+    root.setAttr('lexical-y:4', true);
     doc.transact(tr =>
       new Cursor(tr, root, null, new Map()).insert(new Y.ContentString('ab'), {
         'f:bold': true,
@@ -323,10 +292,10 @@ for (const gc of [false, true]) {
     other.cleanupFormatting = false;
     other.clientID = 7;
     const target = other.get('c');
-    target.setAttr('lexical-y:3', true);
+    target.setAttr('lexical-y:4', true);
     target.insert(0, 'ab');
     other.transact(tr =>
-      writeLayout3Formats(tr, target, [
+      writeLayout4Formats(tr, target, [
         new Map([
           ['f:bold', true],
           ['f:italic', true],
@@ -344,8 +313,8 @@ for (const gc of [false, true]) {
     // The live writer keeps its own (full-map) order for typed text, which
     // is not canonical: the same items in another order, the same read.
     expect([...pure].sort()).toEqual([...live].sort());
-    expect(readLayout3Formats(target).map(obj)).toEqual(
-      readLayout3Formats(root).map(obj),
+    expect(readLayout4Formats(target).map(obj)).toEqual(
+      readLayout4Formats(root).map(obj),
     );
   });
   test(`live consecutive inserts compared with whole-container canonical gc=${gc}`, () => {
@@ -353,7 +322,7 @@ for (const gc of [false, true]) {
     doc.cleanupFormatting = false;
     doc.clientID = 7;
     const root = doc.get('c');
-    root.setAttr('lexical-y:3', true);
+    root.setAttr('lexical-y:4', true);
     doc.transact(tr => {
       const c = new Cursor(tr, root, null, new Map());
       c.insert(new Y.ContentString('a'), {'f:bold': true});
@@ -364,14 +333,14 @@ for (const gc of [false, true]) {
       k,
       Array.isArray(v) ? 'end' : v,
     ]);
-    const values = readLayout3Formats(root);
-    doc.transact(tr => writeLayout3Formats(tr, root, values));
+    const values = readLayout4Formats(root);
+    doc.transact(tr => writeLayout4Formats(tr, root, values));
     const after = liveFormats(root).map(([k, v]) => [
       k,
       Array.isArray(v) ? 'end' : v,
     ]);
     // Rewritten canonical: the live writer's own form, the same read.
     expect(after).toEqual(before);
-    expect(readLayout3Formats(root).map(obj)).toEqual(values.map(obj));
+    expect(readLayout4Formats(root).map(obj)).toEqual(values.map(obj));
   });
 }
