@@ -36,6 +36,7 @@ import {
   $getChildCaret,
   $getChildCaretOrSelf,
   $getCollapsedCaretRange,
+  $getNodeByKey,
   $getPreviousSelection,
   $getRoot,
   $getSelection,
@@ -743,21 +744,25 @@ function $hasContentAfter(caret: PointCaret<'next'>): boolean {
 export function $insertNodeToNearestRoot<T extends LexicalNode>(node: T): T {
   const selection = $getSelection() || $getPreviousSelection();
   let initialCaret: undefined | PointCaret<'next'>;
-  if ($isRangeSelection(selection)) {
-    initialCaret = $caretFromPoint(selection.focus, 'next');
-  } else {
-    if (selection != null) {
+  if (selection !== null) {
+    const points = selection.getStartEndPoints();
+    const focusNode = points && $getNodeByKey(points[1].key);
+    if ($isRangeSelection(selection)) {
+      initialCaret = $caretFromPoint(selection.focus, 'next');
+    } else if ($isBlockContainer(focusNode)) {
+      initialCaret = $getChildCaret(focusNode, 'previous').getFlipped();
+    } else {
       const nodes = selection.getNodes();
       const lastNode = nodes[nodes.length - 1];
       if (lastNode) {
         initialCaret = $getSiblingCaret(lastNode, 'next');
       }
     }
-    initialCaret =
-      initialCaret ||
-      $getChildCaret($getRoot(), 'previous')
-        .getFlipped()
-        .insert($createParagraphNode());
+  }
+  if (initialCaret === undefined) {
+    initialCaret = $getChildCaret($getRoot(), 'previous')
+      .getFlipped()
+      .insert($createParagraphNode());
   }
   // Splitting at the end of a block would otherwise leave an empty copy of
   // that block after the inserted node. That empty block is only useful when
