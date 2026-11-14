@@ -8,7 +8,12 @@
 
 import * as ComposerContext from '@lexical/react/LexicalComposerContext';
 import {type LexicalComposerContextWithEditor} from '@lexical/react/LexicalComposerContext';
-import {KEY_ENTER_COMMAND, type LexicalEditor} from 'lexical';
+import {
+  KEY_ARROW_DOWN_COMMAND,
+  KEY_ARROW_UP_COMMAND,
+  KEY_ENTER_COMMAND,
+  type LexicalEditor,
+} from 'lexical';
 import {createTestEditor} from 'lexical/src/__tests__/utils';
 import * as React from 'react';
 import {act} from 'react';
@@ -323,6 +328,144 @@ describe('LexicalMenu', () => {
 
       const text = anchorElement.querySelector('.text');
       expect(text?.textContent).toBe('With Icon');
+    });
+
+    describe('pointer highlighting', () => {
+      type Position = {clientX: number; clientY: number};
+
+      async function renderDefaultMenu() {
+        await act(async () => {
+          reactRoot.render(
+            <LexicalMenu<TestOption>
+              close={vi.fn()}
+              editor={editor}
+              anchorElementRef={{current: anchorElement}}
+              resolution={createTestResolution('test')}
+              options={[
+                new TestOption('Option A'),
+                new TestOption('Option B'),
+                new TestOption('Option C'),
+              ]}
+              onSelectOption={vi.fn()}
+              preselectFirstItem={true}
+            />,
+          );
+        });
+        const items = Array.from(
+          anchorElement.querySelectorAll<HTMLElement>('li[role="option"]'),
+        );
+        // jsdom has no layout, so record the scroll instead of performing it.
+        const scrollIntoView = vi.fn();
+        for (const item of items) {
+          item.scrollIntoView = scrollIntoView;
+        }
+        return items;
+      }
+
+      function highlightedIndex(items: HTMLElement[]) {
+        return items.findIndex(item => item.classList.contains('selected'));
+      }
+
+      // What a browser dispatches when another option comes under the
+      // pointer, whether the pointer moved there or the list moved under it.
+      function enter(
+        items: HTMLElement[],
+        to: number,
+        position: Position,
+        from: number | null = null,
+      ) {
+        act(() => {
+          if (from !== null) {
+            items[from].dispatchEvent(
+              new MouseEvent('mouseout', {
+                bubbles: true,
+                relatedTarget: items[to],
+                ...position,
+              }),
+            );
+          }
+          items[to].dispatchEvent(
+            new MouseEvent('mouseover', {
+              bubbles: true,
+              relatedTarget: from !== null ? items[from] : null,
+              ...position,
+            }),
+          );
+        });
+      }
+
+      function move(item: HTMLElement, position: Position) {
+        act(() => {
+          item.dispatchEvent(
+            new MouseEvent('mousemove', {bubbles: true, ...position}),
+          );
+        });
+      }
+
+      async function press(
+        command: typeof KEY_ARROW_DOWN_COMMAND | typeof KEY_ARROW_UP_COMMAND,
+      ) {
+        await act(async () => {
+          editor.dispatchCommand(
+            command,
+            new KeyboardEvent('keydown', {cancelable: true}),
+          );
+        });
+      }
+
+      it('highlights the option the pointer moves to', async () => {
+        const items = await renderDefaultMenu();
+
+        enter(items, 2, {clientX: 50, clientY: 70});
+        move(items[2], {clientX: 50, clientY: 70});
+        expect(highlightedIndex(items)).toBe(2);
+
+        enter(items, 1, {clientX: 50, clientY: 50}, 2);
+        move(items[1], {clientX: 50, clientY: 50});
+        expect(highlightedIndex(items)).toBe(1);
+      });
+
+      it('keeps the keyboard highlight when the list scrolls under a still pointer', async () => {
+        const items = await renderDefaultMenu();
+        const pointer = {clientX: 50, clientY: 30};
+        enter(items, 0, pointer);
+        move(items[0], pointer);
+
+        await press(KEY_ARROW_DOWN_COMMAND);
+        expect(items[1].scrollIntoView).toHaveBeenCalled();
+        expect(highlightedIndex(items)).toBe(1);
+
+        // The scroll brings option C under the pointer. Chromium and Firefox
+        // only report the pointer entering it; WebKit adds a mousemove at the
+        // position the pointer never left.
+        enter(items, 2, pointer, 0);
+        expect(highlightedIndex(items)).toBe(1);
+        move(items[2], pointer);
+        expect(highlightedIndex(items)).toBe(1);
+
+        move(items[2], {clientX: 52, clientY: 31});
+        expect(highlightedIndex(items)).toBe(2);
+      });
+
+      for (const [name, command, highlighted, underPointer] of [
+        ['ArrowDown', KEY_ARROW_DOWN_COMMAND, 1, 2],
+        ['ArrowUp', KEY_ARROW_UP_COMMAND, 2, 1],
+      ] as const) {
+        it(`keeps the ${name} highlight when the menu opened under a still pointer`, async () => {
+          const items = await renderDefaultMenu();
+          const pointer = {clientX: 50, clientY: 30};
+
+          await press(command);
+          expect(highlightedIndex(items)).toBe(highlighted);
+
+          enter(items, underPointer, pointer);
+          move(items[underPointer], pointer);
+          expect(highlightedIndex(items)).toBe(highlighted);
+
+          move(items[underPointer], {clientX: 52, clientY: 31});
+          expect(highlightedIndex(items)).toBe(underPointer);
+        });
+      }
     });
   });
 
