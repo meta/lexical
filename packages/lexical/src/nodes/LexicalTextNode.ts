@@ -389,8 +389,8 @@ export function $isInlineFormattable(
 
 /**
  * Record which node the parts of a split came from (see
- * EditorState#_splitNodes), and the split, while the editor records text
- * edits.
+ * EditorState#_splitNodes), when requested by a split-provenance consumer
+ * or the full text-edit recorder. Only the latter appends an edit log.
  */
 function $recordTextSplit(
   source: NodeKey,
@@ -398,11 +398,40 @@ function $recordTextSplit(
   textBefore: string,
 ): void {
   const editor = getActiveEditor();
-  if (!editor._recordTextEdits) {
+  if (!editor._recordTextEdits && editor._recordTextSplits === 0) {
     return;
   }
   const prevNodeMap = editor._editorState._nodeMap;
   const editorState = getActiveEditorState();
+  const starts: number[] = [];
+  let offset = 0;
+  for (const part of parts) {
+    starts.push(offset);
+    offset += part.__text.length;
+  }
+  if (editor._recordTextSplits > 0) {
+    const origins = (editorState._splitTextOrigins ||= new WeakMap());
+    let records = origins.get(prevNodeMap);
+    if (records === undefined) {
+      records = new Map();
+      origins.set(prevNodeMap, records);
+    }
+    const original = records.get(source) || {
+      offset: 0,
+      source,
+      text: textBefore,
+    };
+    for (let i = 0; i < parts.length; i++) {
+      records.set(parts[i].__key, {
+        offset: original.offset + starts[i],
+        source: original.source,
+        text: original.text,
+      });
+    }
+  }
+  if (!editor._recordTextEdits) {
+    return;
+  }
   const splitNodes = (editorState._splitNodes ||= new WeakMap());
   let splits = splitNodes.get(prevNodeMap);
   if (splits === undefined) {
@@ -411,17 +440,16 @@ function $recordTextSplit(
   }
   // A part of a part this update made counts from the node first cut.
   const from = splits.get(source);
-  const starts: number[] = [];
-  let offset = 0;
-  for (const part of parts) {
+  for (let i = 0; i < parts.length; i++) {
+    const part = parts[i];
     if (part.__key !== source) {
       splits.set(
         part.__key,
-        from === undefined ? [source, offset] : [from[0], from[1] + offset],
+        from === undefined
+          ? [source, starts[i]]
+          : [from[0], from[1] + starts[i]],
       );
     }
-    starts.push(offset);
-    offset += part.__text.length;
   }
   $textEditLog(editor).push([
     'split',
@@ -633,6 +661,24 @@ export function INTERNAL_$recordTextRetype(
   next: TextNode,
 ): void {
   const editor = getActiveEditor();
+  if (editor._recordTextSplits > 0) {
+    const p = prev.getLatest();
+    const n = next.getLatest();
+    const state = getActiveEditorState();
+    const origins = state._splitTextOrigins;
+    const records =
+      origins === null ? undefined : origins.get(editor._editorState._nodeMap);
+    const original = records && records.get(p.__key);
+    if (
+      original !== undefined &&
+      p.__key !== n.__key &&
+      p.__text === n.__text &&
+      p.__parent === null &&
+      n.__parent !== null
+    ) {
+      records!.set(n.__key, original);
+    }
+  }
   if (!editor._recordTextEdits) {
     return;
   }
