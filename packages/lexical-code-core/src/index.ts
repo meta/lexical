@@ -19,6 +19,10 @@ export {
   CodeIndentExtension,
   registerCodeIndentation,
 } from './CodeIndentation';
+export {
+  type CodeLineNumbersConfig,
+  CodeLineNumbersExtension,
+} from './CodeLineNumbers';
 export type {SerializedCodeNode} from './CodeNode';
 export {
   $createCodeNode,

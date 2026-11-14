@@ -8,6 +8,7 @@
 
 import type {AnyLexicalExtension, LexicalEditor} from 'lexical';
 
+import {CodeLineNumbersExtension} from '@lexical/code';
 import {
   batch,
   effect,
@@ -54,9 +55,9 @@ function output<Extension extends AnyLexicalExtension>(
 
 /**
  * Output of an extension that may be absent: the rich-text-only extensions
- * (`List`, `Table`, `CheckList`, and the playground `CodeHighlight`) don't
- * exist in plain-text mode, so resolve them with the optional (peer) form and
- * skip them when not built.
+ * (`List`, `Table`, `CheckList`, `CodeLineNumbers`, and the playground
+ * `CodeHighlight`) don't exist in plain-text mode, so resolve them with the
+ * optional (peer) form and skip them when not built.
  */
 function peerOutput<Extension extends AnyLexicalExtension>(
   editor: LexicalEditor,
@@ -90,6 +91,10 @@ export function synchronizeSettingsToSignals(
     output(editor, VisibleNonPrintingExtension).disabled.value =
       !settings.isVisibleNonPrinting;
     output(editor, MaxLengthExtension).disabled.value = !settings.isMaxLength;
+    const codeLineNumbers = peerOutput(editor, CodeLineNumbersExtension);
+    if (codeLineNumbers) {
+      codeLineNumbers.onlyWordWrapped.value = !settings.isCodeLineNumbers;
+    }
     const codeHighlight = peerOutput(editor, CodeHighlightExtension);
     if (codeHighlight) {
       codeHighlight.mode.value = !settings.isCodeHighlighted

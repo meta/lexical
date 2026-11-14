@@ -61,6 +61,7 @@ function numC(
 export function afterCloneCodeNode(node: CodeNode, prevNode: CodeNode): void {
   node.__language = prevNode.__language;
   node.__theme = prevNode.__theme;
+  node.__wordWrap = prevNode.__wordWrap;
 }
 
 /** CodeNode's generated implementations, for its `$config`. @internal */
@@ -100,6 +101,7 @@ export const GENERATED_CODE: GeneratedJSONFactory = fields => {
       children: [],
       language: node.__language,
       theme: node.__theme,
+      wordWrap: node.__wordWrap,
       direction: node.__dir,
       format: CODE_FORMAT_GETTER[node.__format],
       indent: node.__indent,
@@ -127,6 +129,10 @@ export const GENERATED_CODE: GeneratedJSONFactory = fields => {
     const theme = node.__theme;
     if (theme !== undefined) {
       json.theme = theme;
+    }
+    const wordWrap = node.__wordWrap;
+    if (wordWrap !== undefined) {
+      json.wordWrap = wordWrap;
     }
     const direction = node.__dir;
     if (direction != null) {
@@ -188,6 +194,11 @@ export const GENERATED_CODE: GeneratedJSONFactory = fields => {
     node.setTheme(
       theme === undefined ? undefined : typeof theme === 'string' ? theme : '',
     );
+    const wordWrap = json.wordWrap;
+    node.__wordWrap =
+      typeof wordWrap === 'boolean' && wordWrap !== false
+        ? wordWrap
+        : undefined;
     return node;
   }
 

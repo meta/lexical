@@ -22,6 +22,8 @@ export {
   CodeHighlightNode,
   type CodeIndentConfig,
   CodeIndentExtension,
+  type CodeLineNumbersConfig,
+  CodeLineNumbersExtension,
   CodeNode,
   DEFAULT_CODE_LANGUAGE,
   getDefaultCodeLanguage,
