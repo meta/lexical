@@ -21,9 +21,10 @@
 // stored as a container of lines), the same edits are one marker inserted or
 // deleted, and the typing stays in its text.
 //
-// The quote cases are open (found by #9905): the follow-up layout 5 pull
-// request stores a shadow-root instance of a line class as a container of
-// lines, as table cells are stored.
+// The quote cases fail as an accepted limit (found by #9905; D131 and y.md's
+// Limits): a shadow-root QuoteNode keeps its storage, and a quote that holds
+// blocks uses QuoteContainerNode, which passes these cases
+// (QuoteContainerSplitJoin.test.ts).
 
 import {$getBlockById, $getBlockId} from '@lexical/extension';
 import {$createQuoteNode} from '@lexical/rich-text';

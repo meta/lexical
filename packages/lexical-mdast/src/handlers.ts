@@ -45,6 +45,7 @@ import {
 } from '@lexical/list';
 import {
   $createHeadingNode,
+  $createQuoteContainerNode,
   $createQuoteNode,
   $isHeadingNode,
   $isQuoteNode,
@@ -192,6 +193,10 @@ export const $importBlockquote: MdastImportHandler<Blockquote> = (
   ctx,
 ) => {
   const quote = $createQuoteNode();
+  if (quote.isShadowRoot()) {
+    // QuoteNode is replaced by QuoteContainerNode, which holds blocks.
+    return $append(quote, $importBlockChildren(node, ctx));
+  }
   const children: LexicalNode[] = [];
   for (const child of node.children) {
     if (child.type === 'paragraph') {
@@ -256,6 +261,19 @@ export const $importShadowRootBlockquote: MdastImportHandler<Blockquote> = (
     $createQuoteNode({shadowRoot: true}),
     $importBlockChildren(node, ctx),
   );
+
+/**
+ * Opt-in replacement for {@link $importBlockquote} that imports the quote as a
+ * `QuoteContainerNode`, a quote that holds blocks, so structured blockquotes
+ * (several paragraphs, nested lists, code, nested quotes) round-trip. See
+ * `MdastQuoteContainerExtension`.
+ *
+ * @experimental
+ */
+export const $importQuoteContainerBlockquote: MdastImportHandler<Blockquote> = (
+  node,
+  ctx,
+) => $append($createQuoteContainerNode(), $importBlockChildren(node, ctx));
 
 /** Maps an mdast `list` node to the Lexical {@link ListType} it represents. */
 export function $listTypeFromMdast(node: List): ListType {
