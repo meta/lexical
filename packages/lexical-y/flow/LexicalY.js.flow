@@ -17,7 +17,10 @@ import type {
 import {LexicalWarning} from 'lexical';
 import type {Doc, Node as YNode, UndoManager} from '@y/y';
 import type {ReadonlySignal} from '@lexical/extension';
-import type {YSessionHandshake} from '@lexical/y/server';
+import type {
+  YLayoutUpgradeHandle,
+  YSessionHandshake,
+} from '@lexical/y/server';
 
 /**
  * @lexical/y: EXPERIMENTAL Yjs 14 binding (block-marker layout).
@@ -351,27 +354,6 @@ declare export function describeStorage(
   },
 ): {[type: string]: StorageKind | 'text'};
 
-// What an app writes: doc and schemaVersion required, every option with a
-// default optional (later options are additive). Type configs with it.
-export type YCollabInput = {
-  readonly doc: YDoc,
-  // Required: how documents below MIN_LAYOUT are upgraded (see y.md "Layout
-  // upgrades"): createYServerLayoutUpgrade(), or null (read only).
-  readonly layoutUpgrade: YLayoutUpgradeHandle | null,
-  // The version of your editor's nodes: registered node classes, their
-  // fields and NodeState. Bump it when you add, remove or change one, not on
-  // every release.
-  readonly schemaVersion: number,
-  readonly root?: YNode | null,
-  readonly synced?: boolean,
-  readonly captureTimeout?: number | null,
-  readonly selfCheck?: boolean | null,
-  readonly selfCheckSample?: number | null,
-  readonly convert?: boolean,
-  readonly onYStatus?: ((status: YStatus) => void) | null,
-  ...
-};
-
 // The extension's configuration (what configExtension takes, partially).
 // Its fields stay; a field a later release adds is optional, its default
 // resolved inside the extension, so a complete object keeps type-checking.
@@ -400,35 +382,6 @@ declare export var YCollabExtension: LexicalExtension<
   unknown,
 >;
 
-// What a client sends before any sync message (see checkYSession).
-export type YClientSession = {
-  readonly generation: string | null,
-  readonly material: boolean,
-  ...
-};
-// How documents below MIN_LAYOUT are upgraded. Opaque: only
-// createYServerLayoutUpgrade makes one (the runtime brands it with a
-// registered symbol); its public fields are readable, and later releases
-// may add kinds and fields.
-declare export opaque type YLayoutUpgradeHandle: {
-  readonly kind: string,
-  handshake(session: YClientSession): YSessionHandshake,
-  ...
-};
-declare export function createYServerLayoutUpgrade(): YLayoutUpgradeHandle;
-declare export function isYLayoutUpgradeHandle(
-  value: unknown,
-): value is YLayoutUpgradeHandle;
-// The configured YCollabExtension: the way to configure it (its input
-// requires layoutUpgrade).
-declare export function createYCollabConfig(
-  input: YCollabInput,
-): NormalizedLexicalExtensionArgument<
-  YCollabConfig,
-  '@lexical/y/Collab',
-  {binding: YBinding, collab: YCollabBinding, status: ReadonlySignal<YBindingStatus>},
-  unknown,
->;
 
 // The binding's public API (layout 4 spec, section 11). Start here:
 // createYDoc() -> createYBinding(editor, {doc, schemaVersion, synced,
