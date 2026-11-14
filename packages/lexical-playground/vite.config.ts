@@ -8,6 +8,7 @@
 
 import babel from '@rollup/plugin-babel';
 import react from '@vitejs/plugin-react';
+import {fileURLToPath} from 'node:url';
 import {defineConfig, type PluginOption, type UserConfig} from 'vite';
 
 import transformErrorMessages from '../../scripts/error-codes/transform-error-messages.mjs';
@@ -30,8 +31,11 @@ export default defineConfig(
       outDir: 'build',
       rollupOptions: {
         input: {
-          main: new URL('./index.html', import.meta.url).pathname,
-          split: new URL('./split/index.html', import.meta.url).pathname,
+          // fileURLToPath, not URL.pathname: pathname is a URI path, so it keeps
+          // the percent-encoding of a checkout under a space, `#`, `%`, `~` or a
+          // non-ASCII directory, and the entries then resolve to nothing.
+          main: fileURLToPath(new URL('./index.html', import.meta.url)),
+          split: fileURLToPath(new URL('./split/index.html', import.meta.url)),
         },
       },
       target: 'es2022',
