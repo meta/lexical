@@ -619,6 +619,45 @@ function handleDEVOnlyPendingUpdateGuarantees(
   };
 }
 
+/**
+ * A text point can be left past the end of its node when the node shrinks
+ * (e.g. setTextContent or spliceText without moveSelection). It is clamped
+ * when the pending state is committed, so the committed selection is always
+ * valid while the updates that share the pending state still see the offsets
+ * they set.
+ */
+function clampPendingTextPoints(editor: LexicalEditor): void {
+  const pendingEditorState = editor._pendingEditorState;
+  if (pendingEditorState === null || pendingEditorState._readOnly) {
+    return;
+  }
+  const selection = pendingEditorState._selection;
+  if (!$isRangeSelection(selection)) {
+    return;
+  }
+  const previousActiveEditorState = activeEditorState;
+  const previousReadOnlyMode = isReadOnlyMode;
+  const previousActiveEditor = activeEditor;
+  activeEditorState = pendingEditorState;
+  isReadOnlyMode = false;
+  activeEditor = editor;
+  try {
+    for (const point of [selection.anchor, selection.focus]) {
+      const node = pendingEditorState._nodeMap.get(point.key);
+      if (point.type === 'text' && $isTextNode(node)) {
+        const size = node.getTextContentSize();
+        if (point.offset > size) {
+          point.set(point.key, size, 'text');
+        }
+      }
+    }
+  } finally {
+    activeEditorState = previousActiveEditorState;
+    isReadOnlyMode = previousReadOnlyMode;
+    activeEditor = previousActiveEditor;
+  }
+}
+
 export function $commitPendingUpdates(
   editor: LexicalEditor,
   recoveryEditorState?: EditorState,
@@ -636,7 +675,10 @@ export function $commitPendingUpdates(
   const previouslyCommitting = isCommittingPendingUpdates;
   isCommittingPendingUpdates = true;
   try {
+    clampPendingTextPoints(editor);
     const notificationResult = $notifyPendingSelectionChange(editor);
+    // Selection change listeners can shrink a selected node again.
+    clampPendingTextPoints(editor);
     $commitPendingUpdatesImpl(editor, recoveryEditorState);
     if (notificationResult) {
       // Report only after preserving the pending edit. Update error recovery
