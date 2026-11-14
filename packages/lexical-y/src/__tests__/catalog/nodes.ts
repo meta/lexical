@@ -613,6 +613,20 @@ export const NODE_SHAPES: readonly NodeShape[] = [
   block('quote/text', 'block', [QuoteNode], '@lexical/*', [], () =>
     $createQuoteNode().append($t('quoted')),
   ),
+  // A quote that is a shadow root (NodeState `shadowRoot`): it holds
+  // paragraphs, as a container does, although its class is a line class.
+  block(
+    'quote/shadow-root',
+    'container',
+    [QuoteNode],
+    '@lexical/*',
+    ['shadow-root'],
+    () =>
+      $createQuoteNode({shadowRoot: true}).append(
+        $p($t('quoted paragraph')),
+        $p($t('second paragraph')),
+      ),
+  ),
   block(
     'code/highlighted',
     'block',
