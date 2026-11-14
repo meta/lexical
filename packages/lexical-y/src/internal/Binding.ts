@@ -166,6 +166,7 @@ import {
   wrapperFieldsOf,
   wrappersFromAttrs,
 } from './Schema';
+import {relabelSeed} from './SeedRelabel';
 import {
   attrsBeforeIn,
   Folder,
@@ -3188,6 +3189,9 @@ export class YBinding {
    *   attribute) is written into an empty scratch document; the hash covers
    *   the layout version, the root's name and the bytes. So two clients
    *   share an id only when they write the same bytes into the same root.
+   *   Its scratch document holds nothing but the first write, which is
+   *   relabeled to that id in place (see relabelSeed) rather than written
+   *   a second time: the same bytes.
    * - Any other root (inside another shared type, or one that held content,
    *   deleted since) is written into a copy of the document, and the update
    *   is what that write added. Its items name what they were written next
@@ -3239,7 +3243,8 @@ export class YBinding {
     // The document as it is, which the write of any other root goes on.
     const base = pristine ? null : encodeStateAsUpdate(this._doc);
     const baseVector = pristine ? null : encodeStateVector(this._doc);
-    const write = (clientID: number) => {
+    // The scratch document a write goes into, and the write itself.
+    const scratchFor = (clientID: number) => {
       const scratch = createYDoc(base, {gc: false});
       const before = base === null ? null : encodeStateVector(scratch);
       scratch.clientID = clientID;
@@ -3253,39 +3258,47 @@ export class YBinding {
           this.$writeInitial(sstate, sroot, tr, editorState),
         ),
       );
-      // The editor's selection, as positions on the items written (and a
-      // node selection's nodes, as those items): the same ids in the
-      // document once the bytes are applied.
+      const encode = () =>
+        before === null
+          ? encodeStateAsUpdate(scratch)
+          : encodeStateAsUpdate(scratch, before);
+      return {encode, scratch, sstate};
+    };
+    // The editor's selection, as positions on the items written (and a
+    // node selection's nodes, as those items): the same ids in the
+    // document once the bytes are applied.
+    const result = ({
+      encode,
+      scratch,
+      sstate,
+    }: ReturnType<typeof scratchFor>) => {
       const cursor = editorState.read(() => this.$cursorBeforeRead(sstate));
       const items = editorState.read(() =>
         this.$selectedAnchors(sstate, selected),
       );
-      const bytes =
-        before === null
-          ? encodeStateAsUpdate(scratch)
-          : encodeStateAsUpdate(scratch, before);
+      const bytes = encode();
       scratch.destroy();
       return {bytes, cursor, items};
     };
-    const {bytes} = write(1);
-    const content = byteString(bytes);
-    return write(
-      initClientID(
-        baseVector === null
-          ? BASE_LAYOUT_VERSION +
-              '\u0000' +
-              'r:' +
-              rootName +
-              '\u0000' +
-              content
-          : BASE_LAYOUT_VERSION +
-              '\u0000' +
-              'd:' +
-              byteString(baseVector) +
-              '\u0000' +
-              content,
-      ),
+    const first = scratchFor(1);
+    const content = first.encode();
+    const clientID = initClientID(
+      baseVector === null
+        ? [BASE_LAYOUT_VERSION + '\u0000' + 'r:' + rootName + '\u0000', content]
+        : [
+            BASE_LAYOUT_VERSION + '\u0000' + 'd:',
+            baseVector,
+            '\u0000',
+            content,
+          ],
     );
+    // A pristine root's first write, relabeled to the derived id (see
+    // relabelSeed): the bytes a second write under that id gives.
+    if (base === null && relabelSeed(first.scratch, 1, clientID)) {
+      return result(first);
+    }
+    first.scratch.destroy();
+    return result(scratchFor(clientID));
   }
 
   /** Older layouts' roots that hold content. */
@@ -11005,23 +11018,40 @@ function changedKeys(
 
 /**
  * A client id derived from content (the initial content's, see
- * YBinding#seedUpdate): a hash of `seed` in the document's client id range
- * (53 bits, Yjs 14's own range). Invariant: equal seeds give equal ids. Why:
- * clients writing the same items from the same inputs write them once.
- * Different seeds share an id only with the probability of a collision in
- * that range (a shared id with different items would diverge), the same odds
- * as two random client ids.
+ * YBinding#seedUpdate): a hash (cyrb53, public domain) of `parts` read as
+ * one string, each byte of a `Uint8Array` part as one char, in the
+ * document's client id range (53 bits, Yjs 14's own range). Invariant: equal
+ * seeds give equal ids. Why: clients writing the same items from the same
+ * inputs write them once. Different seeds share an id only with the
+ * probability of a collision in that range (a shared id with different
+ * items would diverge), the same odds as two random client ids. The bytes
+ * are read where they are: a string made of them hashes the same, but
+ * reading a long string built by concatenation costs far more.
  */
-/** `bytes` as a string of one char per byte (see initClientID). */
-function byteString(bytes: Uint8Array): string {
-  let out = '';
-  for (let i = 0; i < bytes.length; i += 4096) {
-    out += String.fromCharCode.apply(
-      null,
-      Array.from(bytes.subarray(i, i + 4096)),
-    );
+function initClientID(parts: readonly (string | Uint8Array)[]): number {
+  let h1 = 0xdeadbeef;
+  let h2 = 0x41c6ce57;
+  for (const part of parts) {
+    if (typeof part === 'string') {
+      for (let i = 0; i < part.length; i++) {
+        const ch = part.charCodeAt(i);
+        h1 = Math.imul(h1 ^ ch, 2654435761);
+        h2 = Math.imul(h2 ^ ch, 1597334677);
+      }
+    } else {
+      for (let i = 0; i < part.length; i++) {
+        const ch = part[i];
+        h1 = Math.imul(h1 ^ ch, 2654435761);
+        h2 = Math.imul(h2 ^ ch, 1597334677);
+      }
+    }
   }
-  return out;
+  h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507);
+  h1 ^= Math.imul(h2 ^ (h2 >>> 13), 3266489909);
+  h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507);
+  h2 ^= Math.imul(h1 ^ (h1 >>> 13), 3266489909);
+  const id = 0x100000000 * (h2 & 0x1fffff) + (h1 >>> 0);
+  return id === 0 ? 1 : id;
 }
 
 /**
@@ -11037,23 +11067,6 @@ function storedTypeOf(doc: Doc, client: number, clock: number): YNode {
     '@lexical/y: the copy of the document does not hold the root',
   );
   return item.content.type as YNode;
-}
-
-function initClientID(seed: string): number {
-  // cyrb53 (public domain).
-  let h1 = 0xdeadbeef;
-  let h2 = 0x41c6ce57;
-  for (let i = 0; i < seed.length; i++) {
-    const ch = seed.charCodeAt(i);
-    h1 = Math.imul(h1 ^ ch, 2654435761);
-    h2 = Math.imul(h2 ^ ch, 1597334677);
-  }
-  h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507);
-  h1 ^= Math.imul(h2 ^ (h2 >>> 13), 3266489909);
-  h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507);
-  h2 ^= Math.imul(h1 ^ (h1 >>> 13), 3266489909);
-  const id = 0x100000000 * (h2 & 0x1fffff) + (h1 >>> 0);
-  return id === 0 ? 1 : id;
 }
 
 /**

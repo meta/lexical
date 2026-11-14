@@ -468,7 +468,12 @@ export const isIdentityValue = (v: unknown): boolean => Array.isArray(v);
 
 export const NULL_RUN: unknown[] = [];
 
-/** The value of an end with id `endId` that closes the run `opener` opened. */
+/**
+ * The value of an end with id `endId` that closes the run `opener` opened.
+ * A value derived from the client id must also be relabeled in SeedRelabel's
+ * relabelSeed (seeds are written under client 1, then relabeled): a seed's
+ * ends name openers of their own client, so they hold no client id.
+ */
 export function endValue(endId: ID, opener: ID): number[] {
   return opener.client === endId.client
     ? [endId.clock - opener.clock]
