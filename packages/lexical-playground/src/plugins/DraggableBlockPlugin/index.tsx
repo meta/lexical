@@ -9,15 +9,20 @@
 import './index.css';
 
 import {useLexicalComposerContext} from '@lexical/react/LexicalComposerContext';
-import {DraggableBlockPlugin_EXPERIMENTAL} from '@lexical/react/LexicalDraggableBlockPlugin';
+import {
+  type DraggableBlockBehavior,
+  DraggableBlockPlugin_EXPERIMENTAL,
+} from '@lexical/react/LexicalDraggableBlockPlugin';
 import {
   $createParagraphNode,
   $createTextNode,
   $getNearestNodeFromDOMNode,
   $getNodeByKey,
   $isParagraphNode,
+  $isRootOrShadowRoot,
   $isTextNode,
   getComposedEventTarget,
+  type LexicalNode,
   type NodeKey,
   registerEventListener,
 } from 'lexical';
@@ -32,12 +37,17 @@ import {
 import * as ReactDOM from 'react-dom';
 
 import useModal from '../../hooks/useModal';
+import {$isCollapsibleContainerNode} from '../CollapsibleExtension/CollapsibleContainerNode';
+import {$isCollapsibleContentNode} from '../CollapsibleExtension/CollapsibleContentNode';
+import {$isCollapsibleTitleNode} from '../CollapsibleExtension/CollapsibleTitleNode';
 import {
   ComponentPickerMenuItem,
   type ComponentPickerOption,
   getBaseOptions,
   getDynamicOptions,
 } from '../ComponentPickerPlugin';
+import {$isPageContentNode} from '../PagesExtension/PageContentNode';
+import {$isPageNode} from '../PagesExtension/PageNode';
 
 const DRAGGABLE_BLOCK_MENU_CLASSNAME = 'draggable-block-menu';
 
@@ -45,6 +55,29 @@ type PickerState = {
   insertBefore: boolean;
   targetNodeKey: NodeKey;
 };
+
+/**
+ * A collapsible is dragged as a whole from its title, and the blocks of its
+ * content are dragged on their own. In pages mode the blocks of a page are
+ * dragged on their own; the content of a page never leaves its page.
+ * Everything else keeps the default.
+ */
+function $getBlockBehavior(node: LexicalNode): DraggableBlockBehavior | null {
+  if ($isCollapsibleContainerNode(node)) {
+    return 'draggable';
+  }
+  if ($isCollapsibleTitleNode(node)) {
+    return 'ignored';
+  }
+  if (
+    $isCollapsibleContentNode(node) ||
+    $isPageNode(node) ||
+    $isPageContentNode(node)
+  ) {
+    return 'transparent';
+  }
+  return null;
+}
 
 function isOnMenu(element: HTMLElement): boolean {
   return !!element.closest(`.${DRAGGABLE_BLOCK_MENU_CLASSNAME}`);
@@ -137,9 +170,19 @@ export default function DraggableBlockPlugin({
       }
       setIsPickerOpen(false);
       editor.update(() => {
-        const node = $getNodeByKey(pickerState.targetNodeKey);
+        let node = $getNodeByKey(pickerState.targetNodeKey);
         if (!node) {
           return;
+        }
+        // The handle can belong to a nested block (a list item). The new
+        // block goes next to the nearest block that sits under the root or
+        // a shadow root, where any block can go: next to the whole list.
+        for (
+          let parent = node.getParent();
+          parent !== null && !$isRootOrShadowRoot(parent);
+          parent = node.getParent()
+        ) {
+          node = parent;
         }
         const placeholder = $createParagraphNode();
         const textNode = $createTextNode('');
@@ -292,6 +335,7 @@ export default function DraggableBlockPlugin({
         }
         isOnMenu={isOnMenu}
         onElementChanged={setDraggableElement}
+        $getBlockBehavior={$getBlockBehavior}
       />
     </>
   );
