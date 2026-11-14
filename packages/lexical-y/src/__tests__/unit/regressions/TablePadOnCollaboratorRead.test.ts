@@ -168,7 +168,22 @@ function renderBadge(peer: Peer, key: NodeKey) {
  * that renders synchronously on commit does), so that the next commit in the
  * same task finds it.
  */
-type Render = 'before-arrival' | 'every-commit';
+type Render =
+  | 'before-arrival'
+  | 'every-commit'
+  | 'text-before-arrival'
+  | 'text-every-commit';
+
+/**
+ * Render the badge again by changing the value of its text node, as React
+ * re-renders a decorator's text (a characterData change in DOM the editor
+ * does not manage).
+ */
+let textRenders = 0;
+function renderBadgeText(peer: Peer, key: NodeKey) {
+  const element = peer.editor.getElementByKey(key)!;
+  (element.firstChild as Text).nodeValue = `text render ${++textRenders}`;
+}
 
 /** Deliver what each peer sent to the other. */
 function exchange(
@@ -183,6 +198,8 @@ function exchange(
   ]) {
     if (render === 'before-arrival') {
       renderBadge(to, badges.get(to)!);
+    } else if (render === 'text-before-arrival') {
+      renderBadgeText(to, badges.get(to)!);
     }
     for (const update of from.outbox.splice(0)) {
       Y.applyUpdate(to.doc, update, 'network');
@@ -190,7 +207,12 @@ function exchange(
   }
 }
 
-test.each<Render>(['before-arrival', 'every-commit'])(
+test.each<Render>([
+  'before-arrival',
+  'every-commit',
+  'text-before-arrival',
+  'text-every-commit',
+])(
   'a table a collaborator left ragged is shown as stored, and words typed into it reach every client (DOM change %s)',
   async render => {
     const a = createPeer(1);
@@ -242,12 +264,24 @@ test.each<Render>(['before-arrival', 'every-commit'])(
       [a, badgeKey(a)],
       [b, badgeKey(b)],
     ]);
-    if (render === 'every-commit') {
+    if (render.startsWith('text-')) {
+      // Rendered once already (a childList change), processed.
+      for (const peer of [a, b]) {
+        renderBadge(peer, badges.get(peer)!);
+      }
+      await flush();
+    }
+    if (render === 'every-commit' || render === 'text-every-commit') {
       let renders = 0;
       for (const peer of [a, b]) {
         peer.editor.registerUpdateListener(() => {
           const element = peer.editor.getElementByKey(badges.get(peer)!);
-          if (element !== null) {
+          if (element === null) {
+            return;
+          }
+          if (render === 'text-every-commit') {
+            renderBadgeText(peer, badges.get(peer)!);
+          } else {
             element.textContent = `render ${++renders}`;
           }
         });

@@ -132,6 +132,27 @@ function $getNearestManagedNodePairFromDOMNode(
   }
 }
 
+/**
+ * Whether a change to `dom`'s text is one the revert applies: the text of a
+ * TextNode the editor renders, not DOM a decorator renders or DOM marked
+ * unmanaged, which it leaves alone.
+ */
+function isManagedTextDOM(dom: Node, editor: LexicalEditor): boolean {
+  const nodeMap = editor._editorState._nodeMap;
+  for (
+    let el: Node | null = dom;
+    el && !isDOMUnmanaged(el);
+    el = getParentElement(el)
+  ) {
+    const key = getNodeKeyFromDOMNode(el, editor);
+    const node = key === undefined ? undefined : nodeMap.get(key);
+    if (node !== undefined) {
+      return $isTextNode(node) && isHTMLElement(el);
+    }
+  }
+  return false;
+}
+
 function flushMutations(
   editor: LexicalEditor,
   mutations: MutationRecord[],
@@ -149,15 +170,24 @@ function flushMutations(
   // The revert's update joins a pending state when there is one (whether a
   // commit, the observer or setEditorState starts it). After an update made
   // with skipTransforms, it runs none either: they would run over what that
-  // update left untransformed. Not when it may bring text typed in the DOM
-  // into the editor state (spellcheck, autocorrect, an IME), which the
-  // transforms would otherwise never see.
+  // update left untransformed. Not when it applies a change to the text of a
+  // TextNode's DOM (spellcheck, autocorrect, an IME), which the transforms
+  // would otherwise never see.
   const pending = editor._pendingEditorState;
   const skipTransforms =
     !editor._updating &&
     pending !== null &&
     isPendingStateSkippingTransforms(pending) &&
-    !mutations.some(mutation => mutation.type === 'characterData');
+    !(
+      shouldFlushTextMutations &&
+      !rerenderText &&
+      mutations.some(
+        mutation =>
+          mutation.type === 'characterData' &&
+          isDOMTextNode(mutation.target) &&
+          isManagedTextDOM(mutation.target, editor),
+      )
+    );
   try {
     updateEditorSync(
       editor,
@@ -349,8 +379,6 @@ function flushMutations(
  * With `ifRecorded` nothing runs when there are none, for a commit that is
  * about to disconnect the observer, which drops them: a change made inside an
  * update, or in the same task as an update whose commit was queued first.
- * With `skipTransforms` the revert runs no node transforms: the commit of a
- * pending state an update made with that option, which the revert joins.
  */
 export function flushRootMutations(
   editor: LexicalEditor,

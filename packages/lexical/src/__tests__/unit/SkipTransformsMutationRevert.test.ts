@@ -21,18 +21,35 @@
  */
 
 import {
+  $create,
   $createParagraphNode,
   $createTextNode,
   $getRoot,
   $isParagraphNode,
   COMMAND_PRIORITY_EDITOR,
   createEditor,
+  DecoratorNode,
   type LexicalEditor,
   ParagraphNode,
   SELECTION_CHANGE_COMMAND,
   TextNode,
 } from 'lexical';
 import {afterEach, describe, expect, test} from 'vitest';
+
+class BadgeNode extends DecoratorNode<null> {
+  $config() {
+    return this.config('test_skip_transforms_badge', {extends: DecoratorNode});
+  }
+  createDOM(): HTMLElement {
+    return document.createElement('span');
+  }
+  updateDOM(): false {
+    return false;
+  }
+  decorate(): null {
+    return null;
+  }
+}
 
 let cleanup: (() => void)[] = [];
 afterEach(() => {
@@ -46,7 +63,7 @@ afterEach(() => {
 function mount(): {editor: LexicalEditor; seen: string[]} {
   const editor = createEditor({
     namespace: 'skip-transforms-mutation-revert',
-    nodes: [ParagraphNode, TextNode],
+    nodes: [ParagraphNode, TextNode, BadgeNode],
     onError: e => {
       throw e;
     },
@@ -128,7 +145,33 @@ describe('the revert of recorded DOM changes in a commit', () => {
     expect(seen).toEqual([]);
   });
 
-  test('runs them when it brings text typed in the DOM into the editor state', () => {
+  test("runs no transforms for a text change in a decorator's DOM", async () => {
+    const {editor, seen} = mount();
+    let badge = '';
+    editor.update(
+      () => {
+        const node = $create(BadgeNode);
+        badge = node.getKey();
+        $getRoot().append($createParagraphNode().append(node));
+      },
+      {discrete: true},
+    );
+    // The decorator renders (a childList change), which is processed.
+    editor.getElementByKey(badge)!.textContent = 'render 1';
+    await new Promise(resolve => setTimeout(resolve, 0));
+    seen.length = 0;
+    // It renders again, changing its text node's value (a characterData
+    // change), as React does, just before the update.
+    (editor.getElementByKey(badge)!.firstChild as Text).nodeValue = 'render 2';
+    editor.update(() => $setText('remote'), {
+      discrete: true,
+      skipTransforms: true,
+    });
+    expect(editor.read(() => $getRoot().getTextContent())).toContain('remote');
+    expect(seen).toEqual([]);
+  });
+
+  test("runs them when it applies a change to the text of a TextNode's DOM", () => {
     const {editor, seen} = mount();
     editor.update(
       () => {
