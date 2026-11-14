@@ -176,6 +176,9 @@ describe('LexicalEditor listeners', () => {
     test('an update listener may return a non-function value', () => {
       using editor = buildRichTextEditor();
       const seen: string[] = [];
+      // Extensions in the editor may keep update listeners of their own, so
+      // compare against what was registered before rather than against zero.
+      const before = editor._listeners.update.size;
       // `Array.prototype.push` returns a number; assignable to `=> void`.
       const unregister = editor.registerUpdateListener(() => seen.push('x'));
 
@@ -184,7 +187,7 @@ describe('LexicalEditor listeners', () => {
       unregister();
 
       expect(seen).toEqual(['x', 'x']);
-      expect(editor._listeners.update.size).toBe(0);
+      expect(editor._listeners.update.size).toBe(before);
     });
 
     test('a text content listener may return a non-function value', () => {

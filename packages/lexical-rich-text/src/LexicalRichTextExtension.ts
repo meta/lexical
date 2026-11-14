@@ -32,6 +32,7 @@ import {
   type ShouldHandlePasteAsFiles,
   type TriggerConfig,
 } from './index';
+import {QuoteAnnounceExtension} from './QuoteAnnounceExtension';
 import {RichTextImportRules} from './RichTextImportExtension';
 
 /**
@@ -114,6 +115,7 @@ export const RichTextExtension = defineExtension({
   conflictsWith: ['@lexical/plain-text'],
   dependencies: [
     HeadingAnnounceExtension,
+    QuoteAnnounceExtension,
     DragonExtension,
     NormalizeInlineElementsExtension,
     NormalizeTripleClickSelectionExtension,
