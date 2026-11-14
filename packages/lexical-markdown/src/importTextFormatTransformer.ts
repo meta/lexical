@@ -567,6 +567,59 @@ function processEmphasis(
   return outermost;
 }
 
+/**
+ * Whether `text`, read as the end of a line, leaves a code span or an
+ * emphasis open: a backtick that no code span holds, or a delimiter that can
+ * open emphasis and was not paired. The next line may close it, since a line
+ * ending is only whitespace inside a paragraph. It reads delimiters as the
+ * import does, so a literal `*` between spaces or `_` inside a word is not
+ * taken for one. A backtick is always taken for one, unless it is escaped.
+ */
+export function leavesFormatOpen(
+  text: string,
+  textFormatTransformersIndex: TextFormatTransformersIndex,
+): boolean {
+  const tags = Object.keys(textFormatTransformersIndex.transformersByTag);
+  const codeSpans = tags.includes('`')
+    ? scanCodeSpans(text).map(span => ({...span, tag: '`'}))
+    : [];
+  if (tags.includes('`')) {
+    let span = 0;
+    for (let i = 0; i < text.length; i++) {
+      if (text[i] !== '`') {
+        continue;
+      }
+      while (span < codeSpans.length && codeSpans[span].endIndex <= i) {
+        span++;
+      }
+      if (span < codeSpans.length && i >= codeSpans[span].startIndex) {
+        i = codeSpans[span].endIndex - 1;
+        continue;
+      }
+      const runEnd = getDelimiterRunEdge(text, i + 1, 1);
+      if (runEnd - i > 1 || !isEscaped(text, i)) {
+        return true;
+      }
+      i = runEnd - 1;
+    }
+  }
+  const delimiterChars = new Set(
+    tags.filter(tag => tag[0] !== '`').map(tag => tag[0]),
+  );
+  const delimiters = scanDelimiters(
+    text,
+    delimiterChars,
+    codeSpans,
+    undefined,
+    undefined,
+  );
+  // Pairing the delimiters leaves the ones that nothing closed still active.
+  processEmphasis(text, delimiters, textFormatTransformersIndex);
+  return delimiters.some(
+    delimiter => delimiter.active && delimiter.canOpen && delimiter.length > 0,
+  );
+}
+
 export function importTextFormatTransformer(
   textNode: TextNode,
   startIndex: number,
