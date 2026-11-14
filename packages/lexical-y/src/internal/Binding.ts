@@ -3182,7 +3182,8 @@ export class YBinding {
    * configuration (with or without block ids, and which blocks are
    * identified, change the items), hashed into a client id, and written
    * again under that id the same way (the writer gives the same items for
-   * the same input). It is the scratch state's first write, so its segment
+   * the same input), or relabeled to it for a pristine root (see
+   * relabelSeed). It is the scratch state's first write, so its segment
    * keys are that id and a counter from the id's clock on every client.
    *
    * - A pristine top-level root (one that has never held an item or an

@@ -6,6 +6,8 @@
  *
  */
 
+// @vitest-environment node
+
 // A seed is written once and relabeled to the client id derived from it
 // (SeedRelabel), where it was written a second time under that id. A
 // refactor of what is stored: the bytes must be the ones the second write
