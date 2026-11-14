@@ -243,8 +243,8 @@ const TABLE_ROW_REG_EXP = /^(?:\|)(.+)(?:\|)\s?$/;
 /**
  * Whether `line` is a Markdown table delimiter row such as `| --- | :--: |`.
  *
- * This is the linear-time equivalent of `/^(\| ?:?-*:? ?)+\|\s?$/`. That
- * pattern nests `-*` inside a `(...)+` group, a shape that backtracking regexp
+ * This is the linear-time equivalent of `/^(\| ?:?-+:? ?)+\|\s?$/`. That
+ * pattern nests `-+` inside a `(...)+` group, a shape that backtracking regexp
  * engines (e.g. Safari/JavaScriptCore) may run in super-linear time. A manual
  * scan is guaranteed O(n).
  */
@@ -256,7 +256,7 @@ export function isTableRowDivider(line: string): boolean {
   const {length} = line;
   let i = 1;
   let cells = 0;
-  // Each iteration consumes one ` ?:?-*:? ?\|` cell-and-pipe unit. Cell
+  // Each iteration consumes one ` ?:?-+:? ?\|` cell-and-pipe unit. Cell
   // characters (space, colon, dash) are disjoint from the `|` delimiter, so a
   // greedy scan never needs to backtrack.
   while (i < length) {
@@ -266,6 +266,11 @@ export function isTableRowDivider(line: string): boolean {
     }
     if (line[j] === ':') {
       j++;
+    }
+    // A delimiter cell needs at least one hyphen (GFM, delimiter row), so a
+    // row of empty cells is a header or body row, not a delimiter row.
+    if (line[j] !== '-') {
+      break;
     }
     while (line[j] === '-') {
       j++;
