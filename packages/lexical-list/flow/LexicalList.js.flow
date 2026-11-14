@@ -32,6 +32,13 @@ declare export function $createListNode(
   start?: number,
 ): ListNode;
 declare export function $getListDepth(listNode: ListNode): number;
+declare export function $getTaskListItemChecked(
+  listItem: ListItemNode,
+): boolean | void;
+declare export function $setTaskListItemChecked(
+  listItem: ListItemNode,
+  checked: boolean | void,
+): ListItemNode;
 declare export function $handleListInsertParagraph(): boolean;
 declare export function $isListItemNode(
   node: ?LexicalNode,

@@ -39,7 +39,12 @@ import {
 } from 'lexical';
 
 import {$insertList} from './formatList';
-import {$isListItemNode, type ListItemNode} from './LexicalListItemNode';
+import {
+  $getTaskListItemChecked,
+  $isListItemNode,
+  $setTaskListItemChecked,
+  type ListItemNode,
+} from './LexicalListItemNode';
 import {$isListNode} from './LexicalListNode';
 
 // What a focused check list item's own key handlers use: Space toggles it,
@@ -227,7 +232,7 @@ export function registerCheckList(
 
             if ($isListItemNode(listItemNode)) {
               event.preventDefault();
-              listItemNode.toggleChecked();
+              $toggleTaskListItem(listItemNode);
             }
           });
           return true;
@@ -267,7 +272,8 @@ export function registerCheckList(
                 const parent = elementNode.getParent();
                 if (
                   $isListNode(parent) &&
-                  parent.getListType() === 'check' &&
+                  // A check list item, or a task item of a bullet or number list
+                  $getTaskListItemChecked(elementNode) !== undefined &&
                   (isElement || elementNode.getFirstDescendant() === anchorNode)
                 ) {
                   const domNode = editor.getElementByKey(elementNode.__key);
@@ -399,10 +405,7 @@ function handleCheckItemEvent(
     return;
   }
 
-  const parentNode = target.parentNode;
-
-  // @ts-ignore internal field
-  if (!parentNode || parentNode.__lexicalListType !== 'check') {
+  if (!isCheckListItem(target)) {
     return;
   }
   let clientX: number | null = null;
@@ -473,7 +476,7 @@ function handleClick(
             } else {
               domNode.focus();
             }
-            node.toggleChecked();
+            $toggleTaskListItem(node);
           }
         });
       }
@@ -526,6 +529,25 @@ function returnFocusToRoot(editor: LexicalEditor): void {
   }
 }
 
+/**
+ * Ticks or unticks an item with a checkbox: an item of a check list, or a task
+ * item of a bullet or number list.
+ */
+function $toggleTaskListItem(listItem: ListItemNode): void {
+  const parent = listItem.getParent();
+  if ($isListNode(parent) && parent.getListType() === 'check') {
+    // As before, so a ListItemNode subclass that overrides toggleChecked()
+    // still sees the toggle.
+    listItem.toggleChecked();
+  } else {
+    $setTaskListItemChecked(listItem, !$getTaskListItemChecked(listItem));
+  }
+}
+
+/**
+ * Whether `dom` is an item with a checkbox: an item of a check list, or a task
+ * item in any other list, which gets `aria-checked` the same way.
+ */
 function isCheckListItem(dom: HTMLElement): boolean {
   const parentNode = dom.parentNode;
 
@@ -533,7 +555,8 @@ function isCheckListItem(dom: HTMLElement): boolean {
     dom.tagName === 'LI' &&
     parentNode != null &&
     // @ts-ignore internal field
-    parentNode.__lexicalListType === 'check'
+    (parentNode.__lexicalListType === 'check' ||
+      dom.hasAttribute('aria-checked'))
   );
 }
 
