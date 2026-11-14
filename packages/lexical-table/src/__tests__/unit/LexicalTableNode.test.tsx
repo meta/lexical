@@ -11,6 +11,7 @@ import type {TableNode} from '@lexical/table';
 import {$insertDataTransferForRichText} from '@lexical/clipboard';
 import {$generateHtmlFromNodes, $generateNodesFromDOM} from '@lexical/html';
 import {TablePlugin} from '@lexical/react/LexicalTablePlugin';
+import {registerRichText} from '@lexical/rich-text';
 import {
   $createTableCellNode,
   $createTableNode,
@@ -46,7 +47,7 @@ import {
   polyfillContentEditable,
 } from 'lexical/src/__tests__/utils';
 import {act, useState} from 'react';
-import {assert, beforeEach, describe, expect, test} from 'vitest';
+import {assert, beforeEach, describe, expect, test, vi} from 'vitest';
 
 const editorConfig = Object.freeze({
   namespace: '',
@@ -854,8 +855,11 @@ describe('LexicalTableNode tests', () => {
             );
           }, 15000);
 
-          test('Cut table in the middle of a range selection', () => {
+          test('Cut table in the middle of a range selection', async () => {
             const {editor} = testEnv;
+            // A range with both ends outside the table is cut by the editor's
+            // own cut handler, not by the table
+            const unregisterRichText = registerRichText(editor);
 
             editor.update(
               () => {
@@ -888,12 +892,16 @@ describe('LexicalTableNode tests', () => {
               {discrete: true},
             );
 
-            expectHtmlToBeEqual(
-              testEnv.innerHTML,
-              html`
-                <p dir="auto"><br data-lexical-managed-linebreak="true" /></p>
-              `,
+            // Rich text removes the range after its copy to the clipboard resolves
+            await vi.waitFor(() =>
+              expectHtmlToBeEqual(
+                testEnv.innerHTML,
+                html`
+                  <p dir="auto"><br data-lexical-managed-linebreak="true" /></p>
+                `,
+              ),
             );
+            unregisterRichText();
           });
 
           test('Cut table as last node in range selection ', () => {

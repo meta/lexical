@@ -967,6 +967,14 @@ export function applyTableHandlers(
           if (!($isTableSelection(selection) || $isRangeSelection(selection))) {
             return false;
           }
+          // A range with no end in this table is not the table's to cut
+          if (
+            $isRangeSelection(selection) &&
+            !tableNode.isParentOf(selection.anchor.getNode()) &&
+            !tableNode.isParentOf(selection.focus.getNode())
+          ) {
+            return false;
+          }
           // Copying to the clipboard is async so we must capture the data
           // before we delete it
           void copyToClipboard(
