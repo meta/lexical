@@ -118,6 +118,18 @@ describe.each(Object.entries(shrink))('%s', (_name, $shrink) => {
   });
 });
 
+test('queued updates that shrink and regrow the node keep the caret', async () => {
+  const editor = setup();
+  editor.update(() => $last().setTextContent('c'));
+  editor.update(() => $last().setTextContent('cde'));
+  await Promise.resolve();
+  expect(readSelection(editor)).toEqual({
+    anchor: ['first', 1],
+    focus: ['last', 3],
+    isBackward: false,
+  });
+});
+
 test('control: spliceText with moveSelection places the caret itself', () => {
   const editor = setup();
   editor.update(() => $last().spliceText(1, 2, '', true), {discrete: true});

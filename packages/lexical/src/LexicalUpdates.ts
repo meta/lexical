@@ -619,6 +619,45 @@ function handleDEVOnlyPendingUpdateGuarantees(
   };
 }
 
+/**
+ * A text point can be left past the end of its node when the node shrinks
+ * (e.g. setTextContent or spliceText without moveSelection). It is clamped
+ * when the pending state is committed, so the committed selection is always
+ * valid while the updates that share the pending state still see the offsets
+ * they set.
+ */
+function clampPendingTextPoints(editor: LexicalEditor): void {
+  const pendingEditorState = editor._pendingEditorState;
+  if (pendingEditorState === null || pendingEditorState._readOnly) {
+    return;
+  }
+  const selection = pendingEditorState._selection;
+  if (!$isRangeSelection(selection)) {
+    return;
+  }
+  const previousActiveEditorState = activeEditorState;
+  const previousReadOnlyMode = isReadOnlyMode;
+  const previousActiveEditor = activeEditor;
+  activeEditorState = pendingEditorState;
+  isReadOnlyMode = false;
+  activeEditor = editor;
+  try {
+    for (const point of [selection.anchor, selection.focus]) {
+      const node = pendingEditorState._nodeMap.get(point.key);
+      if (point.type === 'text' && $isTextNode(node)) {
+        const size = node.getTextContentSize();
+        if (point.offset > size) {
+          point.set(point.key, size, 'text');
+        }
+      }
+    }
+  } finally {
+    activeEditorState = previousActiveEditorState;
+    isReadOnlyMode = previousReadOnlyMode;
+    activeEditor = previousActiveEditor;
+  }
+}
+
 export function $commitPendingUpdates(
   editor: LexicalEditor,
   recoveryEditorState?: EditorState,
@@ -636,7 +675,10 @@ export function $commitPendingUpdates(
   const previouslyCommitting = isCommittingPendingUpdates;
   isCommittingPendingUpdates = true;
   try {
+    clampPendingTextPoints(editor);
     const notificationResult = $notifyPendingSelectionChange(editor);
+    // Selection change listeners can shrink a selected node again.
+    clampPendingTextPoints(editor);
     $commitPendingUpdatesImpl(editor, recoveryEditorState);
     if (notificationResult) {
       // Report only after preserving the pending edit. Update error recovery
@@ -1409,32 +1451,16 @@ function $beginUpdate(
       const pendingNodeMap = pendingEditorState._nodeMap;
       const anchorKey = pendingSelection.anchor.key;
       const focusKey = pendingSelection.focus.key;
-      const anchorNode = pendingNodeMap.get(anchorKey);
-      const focusNode = pendingNodeMap.get(focusKey);
 
-      if (anchorNode === undefined || focusNode === undefined) {
+      if (
+        pendingNodeMap.get(anchorKey) === undefined ||
+        pendingNodeMap.get(focusKey) === undefined
+      ) {
         invariant(
           false,
           'updateEditor: selection has been lost because the previously selected nodes have been removed and ' +
             "selection wasn't moved to another node. Ensure selection changes after removing/replacing a selected node.",
         );
-      }
-
-      // A text point can be left past the end of its node when the node
-      // shrinks (e.g. setTextContent or spliceText without moveSelection).
-      // Clamp it at commit time so the committed selection is always valid.
-      const {anchor, focus} = pendingSelection;
-      if (anchor.type === 'text' && $isTextNode(anchorNode)) {
-        const size = anchorNode.getTextContentSize();
-        if (anchor.offset > size) {
-          anchor.set(anchorKey, size, 'text');
-        }
-      }
-      if (focus.type === 'text' && $isTextNode(focusNode)) {
-        const size = focusNode.getTextContentSize();
-        if (focus.offset > size) {
-          focus.set(focusKey, size, 'text');
-        }
       }
     } else if ($isNodeSelection(pendingSelection)) {
       // TODO: we should also validate node selection?
