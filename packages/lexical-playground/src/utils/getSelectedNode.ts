@@ -9,7 +9,12 @@ import type {ElementNode, RangeSelection, TextNode} from 'lexical';
 
 import {$isAtNodeEnd} from '@lexical/selection';
 
-export function getSelectedNode(
+/**
+ * Resolve the node a {@link RangeSelection} points at, biased towards the
+ * endpoint that is not at a node boundary. Reads the active editor state, so
+ * it must be called from a read or update context.
+ */
+export function $getSelectedNode(
   selection: RangeSelection,
 ): TextNode | ElementNode {
   const anchor = selection.anchor;

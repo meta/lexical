@@ -38,7 +38,7 @@ import {
 } from 'lexical';
 
 import {DEFAULT_FONT_SIZE} from '../../context/ToolbarContext';
-import {getSelectedNode} from '../../utils/getSelectedNode';
+import {$getSelectedNode} from '../../utils/getSelectedNode';
 import {sanitizeUrl} from '../../utils/url';
 import {INSERT_INLINE_COMMAND} from '../CommentPlugin';
 import {
@@ -221,7 +221,7 @@ export const ShortcutsExtension = defineExtension({
         const selection = $getSelection();
         let isLink = false;
         if ($isRangeSelection(selection)) {
-          const node = getSelectedNode(selection);
+          const node = $getSelectedNode(selection);
           isLink = $isLinkNode(node) || $isLinkNode(node.getParent());
         }
         isLinkEditMode.value = !isLink;

@@ -24,8 +24,11 @@ import {
   assertHTML,
   assertSelection,
   click,
+  evaluate,
+  expect,
   focus,
   focusEditor,
+  getPageOrFrame,
   html,
   initialize,
   insertSampleImage,
@@ -41,6 +44,165 @@ test.skip(({isPlainText}) => isPlainText, 'Requires rich text');
 
 test.describe('Links', () => {
   test.beforeEach(({isCollab, page}) => initialize({isCollab, page}));
+  for (const boundary of ['paragraph', 'root']) {
+    for (const autoLink of [false, true]) {
+      test(`keeps the ${autoLink ? 'autolink' : 'link'} toolbar active for ${boundary} element points (#9137)`, async ({
+        page,
+      }) => {
+        await focusEditor(page);
+        if (autoLink) {
+          await page.keyboard.type('https://lexical.dev ');
+          await deleteBackward(page);
+        } else {
+          await page.keyboard.type('Hello');
+          await selectAll(page);
+          await click(page, '.link');
+          await click(page, '.link-confirm');
+        }
+        await selectAll(page);
+
+        // Preserve element points to cover browsers that represent select-all
+        // this way, instead of normalizing them to the linked text.
+        await evaluate(
+          page,
+          selectedBoundary => {
+            const editor = window.lexicalEditor;
+            return new Promise(resolve => {
+              editor.update(
+                () => {
+                  const root = editor.getEditorState()._nodeMap.get('root');
+                  const element =
+                    selectedBoundary === 'root'
+                      ? root
+                      : root.getFirstChildOrThrow();
+                  element.select(0, element.getChildrenSize());
+                },
+                {onUpdate: resolve, tag: 'skip-dom-selection'},
+              );
+            });
+          },
+          boundary,
+        );
+
+        const frame = getPageOrFrame(page);
+        await expect(
+          frame.locator('.toolbar button[aria-label="Insert link"]'),
+        ).toHaveClass(/active/);
+        await expect(frame.locator('.link-editor .link-edit')).toBeVisible();
+        await expect(
+          frame.locator('.link-editor .link-view a'),
+        ).toHaveAttribute(
+          'href',
+          autoLink ? 'https://lexical.dev' : 'https://',
+        );
+        await expect(frame.locator('.floating-text-format-popup')).toBeHidden();
+      });
+    }
+  }
+
+  test.describe('text point selections around a link (#9137)', () => {
+    test.beforeEach(async ({page}) => {
+      await focusEditor(page);
+      await page.keyboard.type('pre hello tail');
+      await moveToLineBeginning(page);
+      await moveRight(page, 4);
+      await selectCharacters(page, 'right', 5);
+      await click(page, '.link');
+      await click(page, '.link-confirm');
+    });
+
+    const cases = [
+      {
+        active: true,
+        select: async page => {
+          await moveToLineBeginning(page);
+          await moveRight(page, 6);
+        },
+        title: 'a caret inside the link',
+      },
+      {
+        active: true,
+        select: async page => {
+          await moveToLineBeginning(page);
+          await moveRight(page, 4);
+          await selectCharacters(page, 'right', 5);
+        },
+        title:
+          'a selection of exactly the link, forward from the end of the preceding text',
+      },
+      {
+        active: true,
+        select: async page => {
+          await moveToLineEnd(page);
+          await moveLeft(page, 5);
+          await selectCharacters(page, 'left', 5);
+        },
+        title:
+          'a selection of exactly the link, backward from the start of the following text',
+      },
+      {
+        active: false,
+        select: async page => {
+          await moveToLineBeginning(page);
+          await moveRight(page, 4);
+          await selectCharacters(page, 'right', 8);
+        },
+        title: 'a selection from the start of the link into the following text',
+      },
+      {
+        active: false,
+        select: async page => {
+          await moveToLineBeginning(page);
+          await moveRight(page, 9);
+          await selectCharacters(page, 'right', 3);
+        },
+        title: 'a selection from the end of the link into the following text',
+      },
+      {
+        active: false,
+        select: async page => {
+          await moveToLineBeginning(page);
+          await moveRight(page, 1);
+          await selectCharacters(page, 'right', 6);
+        },
+        title: 'a selection from the preceding text into the link',
+      },
+      {
+        active: false,
+        select: async page => {
+          await moveToLineEnd(page);
+          await moveLeft(page, 2);
+          await selectCharacters(page, 'left', 5);
+        },
+        title: 'a selection backward from the following text into the link',
+      },
+    ];
+
+    for (const {active, select, title} of cases) {
+      test(`${active ? 'keeps' : 'does not keep'} the link toolbar active for ${title}`, async ({
+        page,
+      }) => {
+        await select(page);
+
+        const frame = getPageOrFrame(page);
+        const linkButton = frame.locator(
+          '.toolbar button[aria-label="Insert link"]',
+        );
+        const linkEditor = frame.locator('.link-editor .link-edit');
+        const formatPopup = frame.locator('.floating-text-format-popup');
+        if (active) {
+          await expect(linkButton).toHaveClass(/active/);
+          await expect(linkEditor).toBeVisible();
+          await expect(formatPopup).toBeHidden();
+        } else {
+          await expect(linkButton).not.toHaveClass(/active/);
+          await expect(linkEditor).toBeHidden();
+          await expect(formatPopup).toBeVisible();
+        }
+      });
+    }
+  });
+
   test(`Can convert a text node into a link`, async ({page}) => {
     await focusEditor(page);
     await page.keyboard.type('Hello');
