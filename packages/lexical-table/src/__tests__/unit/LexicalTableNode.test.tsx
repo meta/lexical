@@ -11,6 +11,7 @@ import type {TableNode} from '@lexical/table';
 import {$insertDataTransferForRichText} from '@lexical/clipboard';
 import {$generateHtmlFromNodes, $generateNodesFromDOM} from '@lexical/html';
 import {TablePlugin} from '@lexical/react/LexicalTablePlugin';
+import {registerRichText} from '@lexical/rich-text';
 import {
   $createTableCellNode,
   $createTableNode,
@@ -46,7 +47,14 @@ import {
   polyfillContentEditable,
 } from 'lexical/src/__tests__/utils';
 import {act, useState} from 'react';
-import {assert, beforeEach, describe, expect, test} from 'vitest';
+import {
+  assert,
+  beforeEach,
+  describe,
+  expect,
+  onTestFinished,
+  test,
+} from 'vitest';
 
 const editorConfig = Object.freeze({
   namespace: '',
@@ -854,8 +862,11 @@ describe('LexicalTableNode tests', () => {
             );
           }, 15000);
 
-          test('Cut table in the middle of a range selection', () => {
+          test('Cut table in the middle of a range selection', async () => {
             const {editor} = testEnv;
+            // Neither end of the range is in the table, so the cut is the
+            // editor's own, not the table's
+            onTestFinished(registerRichText(editor));
 
             editor.update(
               () => {
@@ -883,10 +894,17 @@ describe('LexicalTableNode tests', () => {
             );
             editor.update(
               () => {
-                editor.dispatchCommand(CUT_COMMAND, new ClipboardEvent('cut'));
+                editor.dispatchCommand(
+                  CUT_COMMAND,
+                  new ClipboardEvent('cut', {
+                    clipboardData: new DataTransfer(),
+                  }),
+                );
               },
               {discrete: true},
             );
+            // Rich text removes the range once its copy has resolved
+            await new Promise(resolve => setTimeout(resolve, 0));
 
             expectHtmlToBeEqual(
               testEnv.innerHTML,
