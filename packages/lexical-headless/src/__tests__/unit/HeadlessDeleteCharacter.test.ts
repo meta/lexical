@@ -17,6 +17,8 @@ import {
   $createParagraphNode,
   $createTextNode,
   $getRoot,
+  $getSelection,
+  $isRangeSelection,
   DELETE_CHARACTER_COMMAND,
 } from 'lexical';
 import {describe, expect, test} from 'vitest';
@@ -68,4 +70,32 @@ describe('DELETE_CHARACTER_COMMAND in a headless editor (no DOM)', () => {
       unregister();
     },
   );
+
+  test('RangeSelection.modify does nothing without a window', () => {
+    const editor = createHeadlessEditor({
+      onError: error => {
+        throw error;
+      },
+    });
+    editor.update(
+      () => {
+        const text = $createTextNode('hello');
+        $getRoot().append($createParagraphNode().append(text));
+        text.select(5, 5);
+      },
+      {discrete: true},
+    );
+    editor.update(
+      () => {
+        const selection = $getSelection();
+        if (!$isRangeSelection(selection)) {
+          throw new Error('Expected a RangeSelection');
+        }
+        selection.modify('move', true, 'character');
+        expect(selection.anchor.offset).toBe(5);
+        expect(selection.focus.offset).toBe(5);
+      },
+      {discrete: true},
+    );
+  });
 });
