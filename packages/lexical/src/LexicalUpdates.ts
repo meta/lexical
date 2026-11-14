@@ -59,6 +59,7 @@ import {
   $updateDOMSelection,
   applySelectionTransforms,
   type BaseSelection,
+  type PointType,
 } from './LexicalSelection';
 import {$isSlotHost, $setSlot} from './LexicalSlot';
 import {
@@ -1319,6 +1320,21 @@ function $discardPendingUpdate(
   updates.length = kept;
 }
 
+function $clampPointToNode(point: PointType, node: LexicalNode): boolean {
+  if (point.type === 'text' && $isTextNode(node)) {
+    const maxOffset = node.getTextContentSize();
+    const originalOffset = point.offset;
+    if (originalOffset > maxOffset) {
+      point.set(point.key, maxOffset, 'text');
+      return true;
+    } else if (originalOffset < 0) {
+      point.set(point.key, 0, 'text');
+      return true;
+    }
+  }
+  return false;
+}
+
 function $beginUpdate(
   editor: LexicalEditor,
   updateFn: () => void,
@@ -1427,15 +1443,21 @@ function $beginUpdate(
       const anchorKey = pendingSelection.anchor.key;
       const focusKey = pendingSelection.focus.key;
 
-      if (
-        pendingNodeMap.get(anchorKey) === undefined ||
-        pendingNodeMap.get(focusKey) === undefined
-      ) {
+      const anchorNode = pendingNodeMap.get(anchorKey);
+      const focusNode = pendingNodeMap.get(focusKey);
+
+      if (anchorNode === undefined || focusNode === undefined) {
         invariant(
           false,
           'updateEditor: selection has been lost because the previously selected nodes have been removed and ' +
             "selection wasn't moved to another node. Ensure selection changes after removing/replacing a selected node.",
         );
+      }
+      if ($clampPointToNode(pendingSelection.anchor, anchorNode)) {
+        pendingSelection.dirty = true;
+      }
+      if ($clampPointToNode(pendingSelection.focus, focusNode)) {
+        pendingSelection.dirty = true;
       }
     } else if ($isNodeSelection(pendingSelection)) {
       // TODO: we should also validate node selection?
