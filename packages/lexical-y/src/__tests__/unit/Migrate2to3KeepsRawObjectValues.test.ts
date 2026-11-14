@@ -28,6 +28,7 @@ import step1to2 from '../../migrate/1to2';
 import step2to3 from '../../migrate/2to3';
 import {foldLayout2Units} from '../../migrate/2to3/frozen/fold2';
 import step3to4 from '../../migrate/3to4';
+import step4to5 from '../../migrate/4to5';
 import {NumericFieldWrapperNode} from '../catalog/coveredValues';
 import {NODES} from '../utils/harness';
 import {layout3Problems} from '../utils/migrate2to3';
@@ -103,7 +104,7 @@ describe('a layout 2 document holding objects keyed by array indices', () => {
       expect(asJSON(coreRead(root))).toEqual(before);
       // An editor reads the wrapper with its field (after 3to4: layout 3
       // is below this release's floor, and a headless read refuses it).
-      const four = migrateYState(state, [step3to4], {gc}).state;
+      const four = migrateYState(state, [step3to4, step4to5], {gc}).state;
       const read = readYState(four, CONFIG, () => {
         const paragraph = $getRoot().getFirstChildOrThrow() as ElementNode;
         const wrapper = paragraph

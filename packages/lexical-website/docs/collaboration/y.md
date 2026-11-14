@@ -703,6 +703,22 @@ block-beta
 _A table: the table, its rows and its cells are nodes of their own, and each
 cell holds a sequence._
 
+**A quote that holds paragraphs is a container.** A quote made with
+`$createQuoteNode({shadowRoot: true})` (`QuoteNode`'s per-instance flat
+`shadowRoot` state), where blocks go, is stored as a cell is: a node of its
+own whose paragraphs are lines of its sequence. Enter and Backspace in it
+then insert or delete one marker, so text a collaborator types in the
+paragraph at the same time stays where they typed it. A quote that holds
+text directly is a line, like a paragraph, and so is a block of any other
+line class that is a shadow root (a class whose `isShadowRoot()` is always
+true, or that keeps its flag in a NodeState that is not flat): its
+paragraphs are nodes of their own inside the line, where a concurrent split
+or join of one of them misplaces or loses a collaborator's typing. Turning
+`shadowRoot` on or off for an existing quote replaces it in place, a move
+(see Limits: Moves): text a collaborator types in it at the same time is
+lost (turning it off) or joined onto the start of the block after it
+(turning it on).
+
 **Named slots go with the node that holds them.** A block decorator or
 custom container that holds content in [named slots](/docs/concepts/named-slots)
 (`$setSlot`, as a callout's body or a figure's caption) keeps each slot on
@@ -812,7 +828,7 @@ block-beta
 _A heading, a paragraph with a link, a bold word and a NodeState value, and
 a custom container (`callout`) that holds a paragraph, in layout 1._
 
-**Layout 4** (what this release writes) stores format runs as pairs. A
+**Layout 4** stores format runs as pairs. A
 write's run of a text format, a link, a text field, a text node's type, a
 comment id or a NodeState value on text is an opener (the value, or `[]` for "no value") and an end that
 names its opener by id, so a reader knows which write each end belongs to.
@@ -824,6 +840,11 @@ binding writes on text has one mechanism. The package README specifies it:
 [layout 3](https://github.com/meta/lexical/tree/main/packages/lexical-y#wire-format-layout-3)
 and
 [layout 4](https://github.com/meta/lexical/tree/main/packages/lexical-y#wire-format-layout-4).
+
+**Layout 5** (what this release writes) stores a quote that holds
+paragraphs as a container of lines (see above), instead of a line whose
+paragraphs are nodes of their own:
+[layout 5](https://github.com/meta/lexical/tree/main/packages/lexical-y#wire-format-layout-5).
 
 ## What changes when you turn on collaboration
 
@@ -1601,7 +1622,10 @@ not merge as a user might expect:
   there shares it itself.
 - **Moves.** Moving a block is a delete and a re-insert, so text a
   collaborator types into the moved block at the same time is lost or lands
-  at its old position, a collaborator's caret in it stays at that position,
+  where the block was (in a moved line, joined onto the start of the block
+  that followed it; turning a quote's `shadowRoot` on while a collaborator
+  presses Enter in it leaves an empty quote after the new one), a
+  collaborator's caret in it stays at that position,
   and two collaborators moving the same block at once can duplicate it.
   Undoing the move restores the block as it was before the move: what
   collaborators typed in it since is lost or, in a moved line, stays where
@@ -2044,6 +2068,55 @@ not merge as a user might expect:
   `MIN_LAYOUT`. Export its content and reseed it into a top-level root with
   a release that reads its layout, or keep a release that reads the stored
   layout.
+- **Migrating quotes to layout 5.** `@lexical/y/migrate/4to5` has no node
+  classes, so it decides from storage:
+  - In a quote that holds paragraphs, it takes a node alone between two
+    blocks for a block when it holds nothing or only inline content: an
+    inline decorator or an inline element (a mark) a concurrent
+    edit left there (layout 4 showed it in a paragraph of its own) becomes
+    a direct child of the quote. In turn, an element whose class declares
+    no `children` (a box of text) a concurrent edit left beside text that
+    no marker ends becomes inline content of the paragraph around that
+    text (layout 4 showed it as a block of its own; that paragraph shows a
+    new derived id). And it takes a node holding
+    nothing inside a paragraph's inline content for inline content: a
+    block decorator a concurrent edit left there keeps its place, but shows
+    a new derived id (and, where its stored id repeats another block's,
+    which of the two keeps it can change).
+  - A link run a concurrent edit stretched over a paragraph stored as a
+    node in such a quote (layout 4 shows the link around the paragraph)
+    cannot be stored around a block of a container: the step refuses the
+    room rather than drop the link. A server then stores nothing and keeps
+    the room behind its barrier, with no sessions, and alerts (see
+    [the server guide](./y-server.md)): the room is unavailable, not read
+    only, until it is repaired. It is rare (one room in about 2,000 random
+    two-peer sessions over such quotes in testing). To recover, an operator
+    removes that `w:` run (the link's format items around the paragraph
+    node) before migrating, or a later revision of the step moves the run
+    onto the paragraph's text.
+  - Block ids follow BlockIdExtension's default `$isIdentifiedBlock`: an app
+    whose predicate gives ids to more blocks (a list, a nested quote) sees
+    new derived ids on them, as does text a concurrent edit left without a
+    marker inside a list in the quote. They are kept where the room stores
+    a block id anywhere: in a room that stores none, readers with
+    BlockIdExtension show other derived ids after the migration (store any
+    one block id before migrating to keep them all). In a room that stores
+    one, readers without BlockIdExtension see `$.blockId` appear on the
+    blocks the step rewrote, which an app with a NodeState of its own named
+    `blockId` would read as its own. In named slots, where BlockIdExtension
+    renames a repeated id itself, a repeated stored id, or one of a derived
+    id's shape, can show differently after the migration.
+  - Every migrated quote that holds a list keeps it stored as a node until
+    the first Enter, join or indent in it moves its items into the quote's
+    sequence, once per list: what a collaborator types in that item at the
+    same time is lost.
+  - Only a `QuoteNode` with the flat `shadowRoot` state becomes a container;
+    another line class that is a shadow root stays a line, with the
+    misplaced or lost typing of a concurrent split or join of its
+    paragraphs. Such a class may show a block id it did not show (or a
+    different derived id after concurrent toggles of its flag) when it sits
+    in a container inside such a quote: storage does not say it is a shadow
+    root.
 - **Format runs.** Each change only formats what it covers, and concurrent
   formats of one key nest; from layout 4 on, so do NodeState values on
   text (two collaborators' overlapping values of one state: on the overlap
@@ -2167,15 +2240,41 @@ in the package README is the contract for what a room stores: the markers,
 attributes and records, and their names. Every room records the layout
 versions it needs (`lexical-y:<n>: true`, a record that only grows), and a
 client reads the highest. A client reads and writes the layouts from
-`MIN_LAYOUT` to `LAYOUT_VERSION` (currently 4 to 4: paired runs for every
-name the binding writes on text). A new room records `SEED_LAYOUT`
-(currently 4) and no older layout. A room that records only an
+`MIN_LAYOUT` to `LAYOUT_VERSION` (currently 5 to 5: paired runs for every
+name the binding writes on text, and quotes that hold paragraphs stored as
+containers). A new room records `SEED_LAYOUT` (currently 5) and no older
+layout. A room that records only an
 older layout opens read only (`'older'`) until it is migrated (see
 [Migrating stored documents](#migrating-stored-documents)).
 
-**Moving to layout 4.** This release reads and writes layout 4 only. A room
-stored at layout 1, 2 or 3 opens read only in it, showing its content, until
-it is migrated with `@lexical/y/migrate/3to4` (after
+**Moving to layout 5.** This release reads and writes layout 5 only. A room
+stored at layout 4 opens read only in it, showing its content, until it is
+migrated with `@lexical/y/migrate/4to5`, a whole-root step: each quote
+that holds paragraphs, a quote nested in it included, becomes the
+container layout 5 stores, in every container and named slot, keeping
+every block's type, fields, NodeState and the block id it showed, stored
+or derived (the paragraphs' text is written anew, since a Yjs item cannot
+move to another sequence, so every block written anew stores the id it
+showed, a block whose stored id repeats an earlier one's included), and
+every other part of the room is left as it is. Only quotes stored with
+the flat `shadowRoot` state are rewritten; other line classes that are
+shadow roots stay lines, as layout 5 stores them. Two limits: an inline
+decorator a concurrent edit left alone between two blocks of such a quote
+(shown as a paragraph holding it) becomes a block of its own, and a list in
+it stays stored as a node until the first Enter, join or indent in it moves
+its items into the quote's own sequence, once per list in every migrated
+quote that holds one, which loses what a collaborator types in that item at
+the same time (see the README's layout 5 section and Limits).
+In a room that stores no block id, a client with BlockIdExtension shows
+other derived ids after the migration (no client with it wrote to the
+room, so none was stored). The default step lists include it;
+a server that passes its own list adds `@lexical/y/migrate/4to5` after
+`@lexical/y/migrate/3to4`. Older clients open a layout 5 room read only
+(`'newer'`).
+
+**Moving to layout 4.** The release before this one read and wrote layout 4
+only. A room stored at layout 1, 2 or 3 opens read only, showing its
+content, until it is migrated with `@lexical/y/migrate/3to4` (after
 `@lexical/y/migrate/2to3` for layout 2, and `@lexical/y/migrate/1to2`
 before that for layout 1): the server that stores a room migrates it on load (see the
 [server guide](./y-server.md#migrating-stored-documents)). The step keeps every character, node and line marker with its Yjs
@@ -2211,7 +2310,7 @@ lists include it; a server that passes its own list to `migrateYState` or
   `MIN_LAYOUT` only through an explicitly selected target, and the default
   seed and target do not move to it (see [Layout upgrades](#layout-upgrades)).
 - **Changes that raise `MIN_LAYOUT`:** a release that stops reading older
-  layouts, as layout 3's and layout 4's did (their rooms are migrated,
+  layouts, as layout 3's, layout 4's and layout 5's did (their rooms are migrated,
   below). While
   `@lexical/y` is experimental, a later release may do it again: see
   [Layout upgrades](#layout-upgrades).
@@ -2261,7 +2360,7 @@ below the floor and also reports `UNSUPPORTED_CONFIG_WARNING`
 `LAYOUT_VERSION`, and releases usually keep reading the older ones. While
 the package is experimental, though, a release may stop reading an older
 layout (it raises `MIN_LAYOUT`), as layout 3's release did for layouts 1
-and 2 and layout 4's did for layout 3. Rooms stored in that layout then open read only until their server
+and 2, layout 4's did for layout 3 and layout 5's did for layout 4. Rooms stored in that layout then open read only until their server
 migrates them with the published steps (`@lexical/y/migrate`, see
 [Migrating stored documents](#migrating-stored-documents)). Such a release
 raises `SEED_LAYOUT` with it, so servers also issue new incarnations for
@@ -2281,8 +2380,8 @@ What does not change:
 - An app may raise its own floor. Its server migrates its rooms to layout
   N + 1 and stops admitting clients that cannot read N + 1 (the handshake's
   `layouts` says what a client reads).
-- Every published step and revision stays available, `1to2`, `2to3` and
-  `3to4` included (`@lexical/y/migrate/<n>to<n+1>`).
+- Every published step and revision stays available, `1to2`, `2to3`,
+  `3to4` and `4to5` included (`@lexical/y/migrate/<n>to<n+1>`).
 - A step's default revision never changes what it writes (see Migration
   identity below).
 

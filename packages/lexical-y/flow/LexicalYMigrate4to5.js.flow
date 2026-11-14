@@ -1,0 +1,16 @@
+/**
+ * Copyright (c) Meta Platforms, Inc. and affiliates.
+ *
+ * This source code is licensed under the MIT license found in the
+ * LICENSE file in the root directory of this source tree.
+ *
+ * @flow strict
+ */
+
+import type {YLayoutRootMigration} from '@lexical/y/migrate';
+
+/**
+ * @lexical/y/migrate/4to5: EXPERIMENTAL frozen step from layout 4 to 5.
+ */
+
+declare export default YLayoutRootMigration;

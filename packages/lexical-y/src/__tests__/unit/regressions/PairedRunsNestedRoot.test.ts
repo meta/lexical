@@ -87,8 +87,8 @@ for (const gc of [false, true]) {
       },
       {discrete: true},
     );
-    expect(root.getAttr('lexical-y:4')).toBe(true);
-    expect(doc.get('app').getAttr('lexical-y:4')).toBeUndefined();
+    expect(root.getAttr('lexical-y:5')).toBe(true);
+    expect(doc.get('app').getAttr('lexical-y:5')).toBeUndefined();
     // A reader of the same root, and of a reload, reads the paired runs.
     const reload = createYDoc(Y.encodeStateAsUpdate(doc), {gc});
     const again = reload.get('app').getAttr('editor') as Y.Node;

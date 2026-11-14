@@ -20,7 +20,7 @@ import {
 // YMigrationError class for an app that imports both entries.
 import {
   migrateYState,
-  type YLayoutMigration,
+  type YLayoutStep,
   type YMigrationReceipt,
 } from '../migrate';
 import {DEFAULT_ROOT_NAME, MIN_LAYOUT, SCHEMA_PREFIX} from './constants';
@@ -95,7 +95,7 @@ export interface YPrepareRoomOptions {
    * The steps the authority runs (default: every published step,
    * statically imported with the server entry).
    */
-  readonly steps?: readonly YLayoutMigration[];
+  readonly steps?: readonly YLayoutStep[];
   /** The room's incarnation (see getYGeneration). */
   readonly incarnation: string;
   /** The roots it serves (default `['lexical-y']`). */

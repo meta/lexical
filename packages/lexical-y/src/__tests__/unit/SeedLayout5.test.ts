@@ -8,15 +8,16 @@
 
 // @vitest-environment node
 
-// The layout 4 seed (D22): the seed's own pass writes each container's
+// The layout 5 seed (D22): the seed's own pass writes each container's
 // formats, flat NodeState included, as canonical runs interleaved with its
 // content (Cursor#insert, Ident.seedRunsOf). It is the one seed path, so its
 // bytes are golden per SEED_LAYOUT: every admitted seeder at a seed layout
 // writes the same bytes for the same content, and a change to them needs a
-// seed-format bump. Layout 4 is one: its seed records `lexical-y:4` alone
-// and writes flat NodeState as runs, so these goldens replace layout 3's
-// (golden/seed-layout3.json, the same inputs but the last shape). Each
-// golden is stored with its input (golden/seed-layout4.json): the nodes its
+// seed-format bump. Layout 5 is one: its seed records `lexical-y:5` alone
+// and stores a quote that holds paragraphs as a container, so these goldens
+// replace layout 4's (golden/seed-layout4.json, the same inputs but the last
+// shape). Each
+// golden is stored with its input (golden/seed-layout5.json): the nodes its
 // shape's builder makes, as the seed reads them, so the bytes come again
 // from that input whatever the builders become. It is structurally
 // identical to the 3to4 step's writeLayout4Formats's output for the same
@@ -208,6 +209,17 @@ const SHAPES: [string, () => LexicalNode[]][] = [
       ),
     ],
   ],
+  [
+    // A quote that holds paragraphs (layout 5's container of lines): its
+    // paragraphs' formats are runs of its own sequence.
+    'a quote that holds paragraphs',
+    () => [
+      $createQuoteNode({shadowRoot: true}).append(
+        $createParagraphNode().append($t('quoted '), $t('bold', BOLD)),
+        $createParagraphNode().append($t('second')),
+      ),
+    ],
+  ],
 ];
 
 /** Every container under `node`, in document order (sequence, then map). */
@@ -280,11 +292,11 @@ const fresh = (state: Uint8Array) =>
  * Golden seed bytes per shape (base64), the canonical (full-map) form, each
  * stored beside its input: the nodes its shape's builder made, as the seed
  * reads them (see $inputJSON), which the bytes are seeded from. A change to
- * the bytes at layout 3 needs a seed-format bump. Written once
+ * the bytes at layout 5 needs a seed-format bump. Written once
  * (SEED_GOLDEN_WRITE=1 adds a shape that has none, then format the file with
  * prettier and pin its new hash below), never regenerated.
  */
-const GOLDEN = path.join(__dirname, 'golden', 'seed-layout4.json');
+const GOLDEN = path.join(__dirname, 'golden', 'seed-layout5.json');
 
 type Golden = {name: string; input: SerializedLexicalNode[]; bytes: string};
 
@@ -345,12 +357,12 @@ function load(): Golden[] {
 
 const FIXTURES = load();
 
-describe('the layout 4 seed', () => {
+describe('the layout 5 seed', () => {
   test('one stored input and golden per shape, unchanged', () => {
     expect(FIXTURES.map(f => f.name)).toEqual(SHAPES.map(([name]) => name));
     expect(
       createHash('sha256').update(fs.readFileSync(GOLDEN)).digest('hex'),
-    ).toBe('7708ee53e92b5dd307b9889b9bc65fcaa373bc5c67c52fbfa4da3b7257e79e8c');
+    ).toBe('cc3ffccdf7dac32e0db22170d8153d6c1b9d00cf0f9385bb584e5a12696fa61f');
   });
 
   for (const [name, $build] of SHAPES) {

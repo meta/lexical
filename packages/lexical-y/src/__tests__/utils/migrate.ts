@@ -92,6 +92,9 @@ export function migrateToLayout4(doc: Y.Doc, root: Y.Node): void {
       writeLayout4Formats(tr, c, legacyValues(c));
     }
     root.setAttr('lexical-y:4', true);
+    // These documents hold no quote that holds paragraphs, which is all that
+    // layout 5 stores apart from layout 4: they are layout 5 documents too.
+    root.setAttr('lexical-y:5', true);
   });
 }
 

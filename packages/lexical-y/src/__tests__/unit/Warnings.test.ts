@@ -398,7 +398,7 @@ describe('@lexical/y warnings: every code and its data', () => {
     src.binding.initialize();
     const stripped = new Y.Doc();
     Y.applyUpdate(stripped, Y.encodeStateAsUpdate(src.doc));
-    stripped.get('lexical-y').deleteAttr('lexical-y:4');
+    stripped.get('lexical-y').deleteAttr('lexical-y:5');
     const noVersion = peer(6);
     Y.applyUpdate(noVersion.doc, Y.encodeStateAsUpdate(stripped));
     noVersion.binding.initialize();
@@ -413,7 +413,7 @@ describe('@lexical/y warnings: every code and its data', () => {
     // only, reason 'older' (the app migrates it).
     const onlyOne = new Y.Doc();
     Y.applyUpdate(onlyOne, Y.encodeStateAsUpdate(src.doc));
-    onlyOne.get('lexical-y').deleteAttr('lexical-y:4');
+    onlyOne.get('lexical-y').deleteAttr('lexical-y:5');
     onlyOne.get('lexical-y').setAttr('lexical-y:1', true);
     const older = peer(8, {
       layoutUpgrade: null,
@@ -426,7 +426,7 @@ describe('@lexical/y warnings: every code and its data', () => {
     expect(older.codes()).toEqual([UNSUPPORTED_LAYOUT_WARNING]);
     expect(older.seen[0].warning.data).toEqual({
       found: 1,
-      min: 4,
+      min: 5,
       reason: 'older',
       supported: LAYOUT_VERSION,
       upgrade: 'read-only',

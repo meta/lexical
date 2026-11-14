@@ -181,47 +181,57 @@ const recovered = (warnings: unknown[]) =>
     ]);
 
 describe.each([false, true])('blockIds %s', blockIds => {
-  test('a block inserted before a quote whose paragraph a skipped update moved out (S7-25)', async () => {
-    const [a, b] = clients(2, blockIds);
-    b.editor.update(
-      () => {
-        $getRoot()
-          .clear()
-          .append(
-            $p('one'),
-            $createQuoteNode({shadowRoot: true}).append($p('inner')),
+  // Layout 4 stored the quote's paragraph in the quote's line, and the read
+  // of the root moved it back; from layout 5 the quote is a container, as a
+  // box is: the read of the root finds the moved paragraph in no unit of the
+  // root, its self-check reports the editor apart from the document, and the
+  // binding reads the document again, exactly as for a box.
+  for (const container of ['quote', 'box'] as const) {
+    test(`a block inserted before a ${container} whose paragraph a skipped update moved out (S7-25)`, async () => {
+      const [a, b] = clients(2, blockIds);
+      b.editor.update(
+        () => {
+          $getRoot()
+            .clear()
+            .append(
+              $p('one'),
+              (container === 'quote'
+                ? $createQuoteNode({shadowRoot: true})
+                : $createBoxNode()
+              ).append($p('inner')),
+            );
+        },
+        {discrete: true},
+      );
+      b.binding.initialize();
+      await flush();
+      const type = container === 'quote' ? 'quote' : 'test_box';
+      expect(show(a)).toBe(`paragraph("one") / ${type}(paragraph("inner"))`);
+      a.editor.update(
+        () => {
+          const quote = $getRoot().getChildAtIndex(1) as ElementNode;
+          quote.insertBefore(quote.getFirstChildOrThrow());
+        },
+        {discrete: true, tag: SKIP_COLLAB_TAG},
+      );
+      expect(show(a)).toBe(`paragraph("one") / paragraph("inner") / ${type}()`);
+      b.editor.update(
+        () => {
+          ($getRoot().getChildAtIndex(1) as ElementNode).insertBefore(
+            $p('before'),
           );
-      },
-      {discrete: true},
-    );
-    b.binding.initialize();
-    await flush();
-    expect(show(a)).toBe('paragraph("one") / quote(paragraph("inner"))');
-    a.editor.update(
-      () => {
-        const quote = $getRoot().getChildAtIndex(1) as ElementNode;
-        quote.insertBefore(quote.getFirstChildOrThrow());
-      },
-      {discrete: true, tag: SKIP_COLLAB_TAG},
-    );
-    expect(show(a)).toBe('paragraph("one") / paragraph("inner") / quote()');
-    b.editor.update(
-      () => {
-        ($getRoot().getChildAtIndex(1) as ElementNode).insertBefore(
-          $p('before'),
-        );
-      },
-      {discrete: true},
-    );
-    await flush();
-    const expected =
-      'paragraph("one") / paragraph("before") / quote(paragraph("inner"))';
-    expect(show(b)).toBe(expected);
-    expect(show(a)).toBe(expected);
-    expect(a.warnings).toEqual([]);
-    a.editor.dispose();
-    b.editor.dispose();
-  });
+        },
+        {discrete: true},
+      );
+      await flush();
+      const expected = `paragraph("one") / paragraph("before") / ${type}(paragraph("inner"))`;
+      expect(show(b)).toBe(expected);
+      expect(show(a)).toBe(expected);
+      expect(recovered(a.warnings)).toEqual([['remote-change', false]]);
+      a.editor.dispose();
+      b.editor.dispose();
+    });
+  }
 
   test('a block inserted before a box that a skipped update made hold the box storing it: read again, with a warning', async () => {
     const [a, b] = clients(2, blockIds);

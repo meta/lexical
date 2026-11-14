@@ -48,14 +48,16 @@ import {
   getYLayoutInfo,
   migrateYState,
   type YLayoutMigration,
+  type YLayoutStep,
   YMigrationError,
 } from '../../../migrate';
 import step1to2 from '../../../migrate/1to2';
 import step2to3 from '../../../migrate/2to3';
 import step3to4 from '../../../migrate/3to4';
+import step4to5 from '../../../migrate/4to5';
 import {NODES} from '../../utils/harness';
 
-const STEPS = [step1to2, step2to3, step3to4];
+const STEPS = [step1to2, step2to3, step3to4, step4to5];
 const CONFIG = {nodes: NODES, onWarn: () => {}, schemaVersion: 1};
 
 /** The layout `doc`'s root records (see getYLayoutInfo), or null. */
@@ -136,15 +138,16 @@ describe('a layout 1 root container with more units than a call takes as argumen
       expect(rootLength(input)).toBeGreaterThan(limit);
     });
     for (const gc of [false, true]) {
-      test(`${name}: migrates to layout 4 and reads the same (gc ${gc ? 'on' : 'off'})`, () => {
+      test(`${name}: migrates to layout 5 and reads the same (gc ${gc ? 'on' : 'off'})`, () => {
         const result = migrateYState(input, STEPS, {gc});
         expect(result.receipt.changed).toBe(true);
         expect(result.receipt.roots[0].steps.map(s => s.id)).toEqual([
           'lexical-y/layout/1to2',
           'lexical-y/layout/2to3',
           'lexical-y/layout/3to4',
+          'lexical-y/layout/4to5',
         ]);
-        expect(recordedLayout(createRawYDoc(result.state, {gc}))).toBe(4);
+        expect(recordedLayout(createRawYDoc(result.state, {gc}))).toBe(5);
         expect(rootLength(result.state)).toBe(rootLength(input));
         const read = paragraphs(result.state);
         expect(read.length).toBe(lines);
@@ -222,11 +225,12 @@ describe('3to4 on a layout 3 root container with more units than a call takes', 
         test(`${name}, ${what}: migrates to layout 4, reads the same, and edits (gc ${gc ? 'on' : 'off'})`, () => {
           expect(recordedLayout(createRawYDoc(input))).toBe(3);
           expect(rootLength(input)).toBeGreaterThan(limit);
-          const result = migrateYState(input, [step3to4], {gc});
+          const result = migrateYState(input, [step3to4, step4to5], {gc});
           expect(result.receipt.roots[0].steps.map(s => s.id)).toEqual([
             'lexical-y/layout/3to4',
+            'lexical-y/layout/4to5',
           ]);
-          expect(recordedLayout(createRawYDoc(result.state, {gc}))).toBe(4);
+          expect(recordedLayout(createRawYDoc(result.state, {gc}))).toBe(5);
           expect(rootLength(result.state)).toBe(rootLength(input));
           const read = paragraphs(result.state);
           expect(read.length).toBe(lines);
@@ -266,7 +270,7 @@ describe('3to4 on a layout 3 root container with more units than a call takes', 
 });
 
 /** The error `migrateYState` throws on `steps`, or null. */
-function migrationError(steps: YLayoutMigration[]): unknown {
+function migrationError(steps: YLayoutStep[]): unknown {
   try {
     migrateYState(layout1Document(1, 'abc'), steps);
   } catch (error) {
@@ -284,7 +288,7 @@ describe('a step that throws', () => {
         throw thrown;
       },
     };
-    const error = migrationError([throwing, step2to3, step3to4]);
+    const error = migrationError([throwing, step2to3, step3to4, step4to5]);
     expect(error).toBeInstanceOf(YMigrationError);
     expect(error).toMatchObject({
       code: 'post-condition',
@@ -301,7 +305,7 @@ describe('a step that throws', () => {
         throw thrown;
       },
     };
-    const error = migrationError([throwing, step2to3, step3to4]);
+    const error = migrationError([throwing, step2to3, step3to4, step4to5]);
     expect(error).toBeInstanceOf(YMigrationError);
     expect(error).toMatchObject({
       code: 'post-condition',

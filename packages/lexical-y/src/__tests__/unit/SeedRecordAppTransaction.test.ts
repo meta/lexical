@@ -47,7 +47,7 @@ for (const gc of [false, true])
     );
     const app = new Y.UndoManager(doc, {
       captureTimeout: 0,
-      deleteFilter: i => i.parentSub === 'lexical-y:4',
+      deleteFilter: i => i.parentSub === 'lexical-y:5',
       trackedOrigins: new Set(['outer']),
     });
     doc.transact(() => b.initialize(), 'outer');
@@ -61,14 +61,14 @@ for (const gc of [false, true])
     const seen: unknown[] = [];
     for (const u of updates) {
       Y.applyUpdate(receiver, u, 'remote');
-      seen.push(receiver.get('lexical-y').getAttr('lexical-y:4') ?? null);
+      seen.push(receiver.get('lexical-y').getAttr('lexical-y:5') ?? null);
     }
     // Every update the undo emits keeps the record (the undo may emit none:
     // the record it captured was already written again), and so does the
     // receiver at the end.
     expect(seen.every(v => v === true)).toBe(true);
-    expect(receiver.get('lexical-y').getAttr('lexical-y:4')).toBe(true);
-    expect(doc.get('lexical-y').getAttr('lexical-y:4')).toBe(true);
+    expect(receiver.get('lexical-y').getAttr('lexical-y:5')).toBe(true);
+    expect(doc.get('lexical-y').getAttr('lexical-y:5')).toBe(true);
     app.destroy();
     b.dispose();
     doc.destroy();

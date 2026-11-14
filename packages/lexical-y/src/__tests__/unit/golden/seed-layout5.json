@@ -1,0 +1,412 @@
+[
+  {
+    "bytes": "ARWd1b319ux6ACgBCWxleGljYWwteQtsZXhpY2FsLXk6NQF4KAEJbGV4aWNhbC15EmxleGljYWwteS1zY2hlbWE6MQF4KAEJbGV4aWNhbC15C2s6cGFyYWdyYXBoAXcEbGluZQYBCWxleGljYWwteQZmOmJvbGQEdHJ1ZYSd1b319ux6AwJhYoad1b319ux6BQZmOmJvbGQDWzNdhp3VvfX27HoGBmY6Ym9sZAR0cnVlhp3VvfX27HoHCGY6aXRhbGljBHRydWWEndW99fbseggCY2SGndW99fbsegoGZjpib2xkA1s0XYad1b319ux6CwhmOml0YWxpYwNbNF2GndW99fbsegwIZjppdGFsaWMEdHJ1ZYad1b319ux6DQdwOnN0eWxlDCJjb2xvcjogcmVkIoSd1b319ux6DgJlZoad1b319ux6EAhmOml0YWxpYwNbNF2GndW99fbsehEHcDpzdHlsZQNbNF2GndW99fbsehIHcDpzdHlsZQwiY29sb3I6IHJlZCKEndW99fbsehMCZ2iGndW99fbsehUHcDpzdHlsZQNbM12EndW99fbsehYCaWqHndW99fbsehgDAsK2AA==",
+    "input": [
+      {
+        "type": "paragraph",
+        "children": [
+          {
+            "type": "text",
+            "format": 1,
+            "text": "ab"
+          },
+          {
+            "type": "text",
+            "format": 3,
+            "text": "cd"
+          },
+          {
+            "type": "text",
+            "format": 2,
+            "style": "color: red",
+            "text": "ef"
+          },
+          {
+            "type": "text",
+            "style": "color: red",
+            "text": "gh"
+          },
+          {
+            "type": "text",
+            "text": "ij"
+          }
+        ]
+      }
+    ],
+    "name": "overlapping keys and styles"
+  },
+  {
+    "bytes": "ARXv6f3A//2/AgAoAQlsZXhpY2FsLXkLbGV4aWNhbC15OjUBeCgBCWxleGljYWwteRJsZXhpY2FsLXktc2NoZW1hOjEBeCgBCWxleGljYWwteQtrOnBhcmFncmFwaAF3BGxpbmUoAQlsZXhpY2FsLXkGazpsaW5rAXcbZm9ybWF0fHVybCx0YXJnZXQscmVsLHRpdGxlKAEJbGV4aWNhbC15Bms6bWFyawF3Bm5lc3RlZAYBCWxleGljYWwteQZ3OmxpbmsYeyJ1cmwiOiJodHRwczovL3gudGVzdCJ9hO/p/cD//b8CBQJhYobv6f3A//2/AgcGdzpsaW5rA1szXYbv6f3A//2/AggGZjpib2xkBHRydWWG7+n9wP/9vwIJBnc6bGluaxh7InVybCI6Imh0dHBzOi8veC50ZXN0In2E7+n9wP/9vwIKAmNkhu/p/cD//b8CDAZmOmJvbGQDWzRdhu/p/cD//b8CDQZ3OmxpbmsDWzRdh+/p/cD//b8CDgMGaTptYXJrKADv6f3A//2/Ag8FcDppZHMBdQF3AmMxKADv6f3A//2/Ag8BYwF3AWkGAO/p/cD//b8CDwZmOmJvbGQEdHJ1ZYTv6f3A//2/AhICZWaE7+n9wP/9vwIPAmdoh+/p/cD//b8CFgMCwraG7+n9wP/9vwIUBmY6Ym9sZANbNl0A",
+    "input": [
+      {
+        "type": "paragraph",
+        "children": [
+          {
+            "type": "link",
+            "children": [
+              {
+                "type": "text",
+                "text": "ab"
+              },
+              {
+                "type": "text",
+                "format": 1,
+                "text": "cd"
+              }
+            ],
+            "url": "https://x.test"
+          },
+          {
+            "type": "mark",
+            "children": [
+              {
+                "type": "text",
+                "format": 1,
+                "text": "ef"
+              }
+            ],
+            "ids": ["c1"]
+          },
+          {
+            "type": "text",
+            "text": "gh"
+          }
+        ]
+      }
+    ],
+    "name": "wrappers and marks"
+  },
+  {
+    "bytes": "ASqx9L25wN31AQAoAQlsZXhpY2FsLXkLbGV4aWNhbC15OjUBeCgBCWxleGljYWwteRJsZXhpY2FsLXktc2NoZW1hOjEBeCgBCWxleGljYWwteQlrOmhlYWRpbmcBdwRsaW5lKAEJbGV4aWNhbC15B2s6cXVvdGUBdwRsaW5lKAEJbGV4aWNhbC15Bms6bGlzdAF3Dmdyb3VwfGxpc3RUeXBlKAEJbGV4aWNhbC15Cms6bGlzdGl0ZW0BdwRsaW5lKAEJbGV4aWNhbC15Cms6dGVzdF9ib3gBdwZuZXN0ZWQoAQlsZXhpY2FsLXkLazpwYXJhZ3JhcGgBdwRsaW5lBgEJbGV4aWNhbC15CGY6aXRhbGljBHRydWWEsfS9ucDd9QEIBXRpdGxlhrH0vbnA3fUBDQhmOml0YWxpYwNbNl2HsfS9ucDd9QEOAwLCtoax9L25wN31AQ8IZjppdGFsaWMEdHJ1ZYSx9L25wN31ARABcYax9L25wN31AREIZjppdGFsaWMDWzJdhLH0vbnA3fUBEgFyh7H0vbnA3fUBEwMCwraGsfS9ucDd9QEUBmY6Ym9sZAR0cnVlhLH0vbnA3fUBFQNvbmWGsfS9ucDd9QEYBmY6Ym9sZANbNF2HsfS9ucDd9QEZAwLCtoax9L25wN31ARoGZjpib2xkBHRydWWEsfS9ucDd9QEbA3R3b4ax9L25wN31AR4GZjpib2xkA1s0XYex9L25wN31AR8DAsK2KACx9L25wN31AQ8BdAF3B2hlYWRpbmcoALH0vbnA3fUBFAF0AXcFcXVvdGUoALH0vbnA3fUBGgF0AXcIbGlzdGl0ZW0oALH0vbnA3fUBGgFnAXcEbGlzdCgAsfS9ucDd9QEaCmc6bGlzdFR5cGUBdwZidWxsZXQoALH0vbnA3fUBGgFsAX0AKACx9L25wN31ASABdAF3CGxpc3RpdGVtKACx9L25wN31ASABZwF3BGxpc3QoALH0vbnA3fUBIApnOmxpc3RUeXBlAXcGYnVsbGV0KACx9L25wN31ASABbAF9AIex9L25wN31ASADCmI6dGVzdF9ib3goALH0vbnA3fUBKwZwOnRvbmUBdwRibHVlKACx9L25wN31ASsBYwF3AWIGALH0vbnA3fUBKwZmOmJvbGQEdHJ1ZYSx9L25wN31AS4GaW4gYm94hrH0vbnA3fUBNAZmOmJvbGQDWzddh7H0vbnA3fUBNQMCwrYA",
+    "input": [
+      {
+        "type": "heading",
+        "children": [
+          {
+            "type": "text",
+            "format": 2,
+            "text": "title"
+          }
+        ]
+      },
+      {
+        "type": "quote",
+        "children": [
+          {
+            "type": "text",
+            "format": 2,
+            "text": "q"
+          },
+          {
+            "type": "text",
+            "text": "r"
+          }
+        ]
+      },
+      {
+        "type": "list",
+        "children": [
+          {
+            "type": "listitem",
+            "children": [
+              {
+                "type": "text",
+                "format": 1,
+                "text": "one"
+              }
+            ]
+          },
+          {
+            "type": "listitem",
+            "children": [
+              {
+                "type": "text",
+                "format": 1,
+                "text": "two"
+              }
+            ]
+          }
+        ],
+        "listType": "bullet"
+      },
+      {
+        "type": "test_box",
+        "children": [
+          {
+            "type": "paragraph",
+            "children": [
+              {
+                "type": "text",
+                "format": 1,
+                "text": "in box"
+              }
+            ]
+          }
+        ],
+        "tone": "blue"
+      }
+    ],
+    "name": "nested containers"
+  },
+  {
+    "bytes": "ASK++6HAxJP0BwAoAQlsZXhpY2FsLXkLbGV4aWNhbC15OjUBeCgBCWxleGljYWwteRJsZXhpY2FsLXktc2NoZW1hOjEBeCgBCWxleGljYWwteQdrOnRhYmxlAXcGbmVzdGVkKAEJbGV4aWNhbC15Cms6dGFibGVyb3cBdwZuZXN0ZWQoAQlsZXhpY2FsLXkLazp0YWJsZWNlbGwBdwZuZXN0ZWQoAQlsZXhpY2FsLXkLazpwYXJhZ3JhcGgBdwRsaW5lBwEJbGV4aWNhbC15AwdiOnRhYmxlKAC++6HAxJP0BwYBYwF3AWIHAL77ocDEk/QHBgMKYjp0YWJsZXJvdygAvvuhwMST9AcIAWMBdwFiBwC++6HAxJP0BwgDC2I6dGFibGVjZWxsKAC++6HAxJP0BwoBYwF3AWIGAL77ocDEk/QHCgZmOmJvbGQEdHJ1ZYS++6HAxJP0BwwCYTGGvvuhwMST9AcOBmY6Ym9sZANbM12HvvuhwMST9AcPAwLCtoe++6HAxJP0BwoDC2I6dGFibGVjZWxsKAC++6HAxJP0BxEBYwF3AWIGAL77ocDEk/QHEQZmOmJvbGQEdHJ1ZYS++6HAxJP0BxMCYTKGvvuhwMST9AcVBmY6Ym9sZANbM12HvvuhwMST9AcWAwLCtoe++6HAxJP0BwgDCmI6dGFibGVyb3coAL77ocDEk/QHGAFjAXcBYgcAvvuhwMST9AcYAwtiOnRhYmxlY2VsbCgAvvuhwMST9AcaAWMBdwFiBAC++6HAxJP0BxoCYjGHvvuhwMST9AcdAwLCtoe++6HAxJP0BxoDC2I6dGFibGVjZWxsKAC++6HAxJP0Bx8BYwF3AWIGAL77ocDEk/QHHwhmOml0YWxpYwR0cnVlhL77ocDEk/QHIQJiMoa++6HAxJP0ByMIZjppdGFsaWMDWzNdh777ocDEk/QHJAMCwrYA",
+    "input": [
+      {
+        "type": "table",
+        "children": [
+          {
+            "type": "tablerow",
+            "children": [
+              {
+                "type": "tablecell",
+                "children": [
+                  {
+                    "type": "paragraph",
+                    "children": [
+                      {
+                        "type": "text",
+                        "format": 1,
+                        "text": "a1"
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "type": "tablecell",
+                "children": [
+                  {
+                    "type": "paragraph",
+                    "children": [
+                      {
+                        "type": "text",
+                        "format": 1,
+                        "text": "a2"
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "type": "tablerow",
+            "children": [
+              {
+                "type": "tablecell",
+                "children": [
+                  {
+                    "type": "paragraph",
+                    "children": [
+                      {
+                        "type": "text",
+                        "text": "b1"
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "type": "tablecell",
+                "children": [
+                  {
+                    "type": "paragraph",
+                    "children": [
+                      {
+                        "type": "text",
+                        "format": 2,
+                        "text": "b2"
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "name": "table"
+  },
+  {
+    "bytes": "ARW2vuPtt4/+AwAoAQlsZXhpY2FsLXkLbGV4aWNhbC15OjUBeCgBCWxleGljYWwteRJsZXhpY2FsLXktc2NoZW1hOjEBeCgBCWxleGljYWwteQtrOnBhcmFncmFwaAF3BGxpbmUGAQlsZXhpY2FsLXkGZjpib2xkBHRydWWEtr7j7beP/gMDAXiGtr7j7beP/gMEBmY6Ym9sZANbMl2Gtr7j7beP/gMFBmY6Ym9sZAR0cnVlhra+4+23j/4DBgFrDiJtMzlsY2JhdGttLjMihra+4+23j/4DBwF0BSJ0YWIihLa+4+23j/4DCAEJhra+4+23j/4DCQZmOmJvbGQDWzRdhra+4+23j/4DCgFrA1s0XYa2vuPtt4/+AwsBdANbNF2Gtr7j7beP/gMMBmY6Ym9sZAR0cnVlhLa+4+23j/4DDQF5hra+4+23j/4DDgZmOmJvbGQDWzJdhLa+4+23j/4DDwEKhra+4+23j/4DEAZmOmJvbGQEdHJ1ZYS2vuPtt4/+AxEBeoa2vuPtt4/+AxIGZjpib2xkA1syXYe2vuPtt4/+AxMDAsK2AA==",
+    "input": [
+      {
+        "type": "paragraph",
+        "children": [
+          {
+            "type": "text",
+            "format": 1,
+            "text": "x"
+          },
+          {
+            "type": "tab",
+            "format": 1
+          },
+          {
+            "type": "text",
+            "format": 1,
+            "text": "y"
+          },
+          {
+            "type": "linebreak"
+          },
+          {
+            "type": "text",
+            "format": 1,
+            "text": "z"
+          }
+        ]
+      }
+    ],
+    "name": "a tab and a line break"
+  },
+  {
+    "bytes": "AQ+KkO3DhfyYDQAoAQlsZXhpY2FsLXkLbGV4aWNhbC15OjUBeCgBCWxleGljYWwteRJsZXhpY2FsLXktc2NoZW1hOjEBeCgBCWxleGljYWwteQtrOnBhcmFncmFwaAF3BGxpbmUoAQlsZXhpY2FsLXkXazpudW1lcmljX2ZpZWxkX3dyYXBwZXIBdwhmb3JtYXR8MAQBCWxleGljYWwteQdiZWZvcmUghoqQ7cOF/JgNChd3Om51bWVyaWNfZmllbGRfd3JhcHBlcgd7IjAiOjN9hIqQ7cOF/JgNCwJhYoaKkO3DhfyYDQ0XdzpudW1lcmljX2ZpZWxkX3dyYXBwZXIDWzNdhoqQ7cOF/JgNDgZmOmJvbGQEdHJ1ZYaKkO3DhfyYDQ8XdzpudW1lcmljX2ZpZWxkX3dyYXBwZXIHeyIwIjozfYSKkO3DhfyYDRABY4aKkO3DhfyYDREGZjpib2xkA1szXYaKkO3DhfyYDRIXdzpudW1lcmljX2ZpZWxkX3dyYXBwZXIDWzNdhIqQ7cOF/JgNEwYgYWZ0ZXKHipDtw4X8mA0ZAwLCtgA=",
+    "input": [
+      {
+        "type": "paragraph",
+        "children": [
+          {
+            "type": "text",
+            "text": "before "
+          },
+          {
+            "0": 3,
+            "type": "numeric_field_wrapper",
+            "children": [
+              {
+                "type": "text",
+                "text": "ab"
+              },
+              {
+                "type": "text",
+                "format": 1,
+                "text": "c"
+              }
+            ]
+          },
+          {
+            "type": "text",
+            "text": " after"
+          }
+        ]
+      }
+    ],
+    "name": "a wrapper with a numeric field name"
+  },
+  {
+    "bytes": "ASKx5cCg4YYmACgBCWxleGljYWwteQtsZXhpY2FsLXk6NQF4KAEJbGV4aWNhbC15EmxleGljYWwteS1zY2hlbWE6MQF4KAEJbGV4aWNhbC15C2s6cGFyYWdyYXBoAXcEbGluZQQBCWxleGljYWwteQZwbGFpbiCGseXAoOGGJggGczp0b25lBiJ3YXJtIoSx5cCg4YYmCQR3YXJthrHlwKDhhiYNBnM6dG9uZQNbNV2GseXAoOGGJg4GZjpib2xkBHRydWWGseXAoOGGJg8Gczp0b25lBiJjb2xkIoSx5cCg4YYmEAogYm9sZC1jb2xkhrHlwKDhhiYaBmY6Ym9sZARbMTJdhrHlwKDhhiYbBnM6dG9uZQRbMTJdhrHlwKDhhiYcBnM6cmFuawEzhLHlwKDhhiYdByByYW5rZWSGseXAoOGGJiQGczpyYW5rA1s4XYax5cCg4YYmJQZzOnJhbmsBN4ax5cCg4YYmJgZzOnRvbmUGIndhcm0ihLHlwKDhhiYnBSBib3RohrHlwKDhhiYsBnM6cmFuawNbN12GseXAoOGGJi0Gczp0b25lA1s3XYax5cCg4YYmLgZzOnRvbmUHImJyZWFrIoSx5cCg4YYmLwEKhrHlwKDhhiYwBnM6dG9uZQNbMl2GseXAoOGGJjEGczpmbGFnBHRydWWEseXAoOGGJjIHZmxhZ2dlZIax5cCg4YYmOQZzOmZsYWcDWzhdhrHlwKDhhiY6BnM6bWV0YSR7Impzb24iOiJ7XCJhXCI6XCJ4XCIsXCJiXCI6WzEsMl19In2EseXAoOGGJjsHIG9iamVjdIax5cCg4YYmQgZzOm1ldGEDWzhdhrHlwKDhhiZDBnM6dGFncxh7Impzb24iOiJbXCJ6XCIsXCJhXCJdIn2EseXAoOGGJkQGIGFycmF5hrHlwKDhhiZKBnM6dGFncwNbN12EseXAoOGGJksFIHRhaWyHseXAoOGGJlADAsK2AA==",
+    "input": [
+      {
+        "type": "paragraph",
+        "children": [
+          {
+            "type": "text",
+            "text": "plain "
+          },
+          {
+            "type": "text",
+            "text": "warm",
+            "$": {
+              "tone": "warm"
+            }
+          },
+          {
+            "type": "text",
+            "format": 1,
+            "text": " bold-cold",
+            "$": {
+              "tone": "cold"
+            }
+          },
+          {
+            "type": "text",
+            "text": " ranked",
+            "$": {
+              "rank": 3
+            }
+          },
+          {
+            "type": "text",
+            "text": " both",
+            "$": {
+              "tone": "warm",
+              "rank": 7
+            }
+          },
+          {
+            "type": "linebreak",
+            "$": {
+              "tone": "break"
+            }
+          },
+          {
+            "type": "text",
+            "text": "flagged",
+            "$": {
+              "flag": true
+            }
+          },
+          {
+            "type": "text",
+            "text": " object",
+            "$": {
+              "meta": {
+                "a": "x",
+                "b": [1, 2]
+              }
+            }
+          },
+          {
+            "type": "text",
+            "text": " array",
+            "$": {
+              "tags": ["z", "a"]
+            }
+          },
+          {
+            "type": "text",
+            "text": " tail"
+          }
+        ]
+      }
+    ],
+    "name": "flat NodeState"
+  },
+  {
+    "bytes": "AQ6135KOw+viAQAoAQlsZXhpY2FsLXkLbGV4aWNhbC15OjUBeCgBCWxleGljYWwteRJsZXhpY2FsLXktc2NoZW1hOjEBeCgBCWxleGljYWwteQdrOnF1b3RlAXcEbGluZSgBCWxleGljYWwteQtrOnBhcmFncmFwaAF3BGxpbmUHAQlsZXhpY2FsLXkDB2I6cXVvdGUoALXfko7D6+IBBAxwOnNoYWRvd1Jvb3QBeCgAtd+SjsPr4gEEAWMBdwFiBAC135KOw+viAQQHcXVvdGVkIIa135KOw+viAQ0GZjpib2xkBHRydWWEtd+SjsPr4gEOBGJvbGSGtd+SjsPr4gESBmY6Ym9sZANbNV2Htd+SjsPr4gETAwLCtoS135KOw+viARQGc2Vjb25kh7Xfko7D6+IBGgMCwrYA",
+    "input": [
+      {
+        "type": "quote",
+        "children": [
+          {
+            "type": "paragraph",
+            "children": [
+              {
+                "type": "text",
+                "text": "quoted "
+              },
+              {
+                "type": "text",
+                "format": 1,
+                "text": "bold"
+              }
+            ]
+          },
+          {
+            "type": "paragraph",
+            "children": [
+              {
+                "type": "text",
+                "text": "second"
+              }
+            ]
+          }
+        ],
+        "shadowRoot": true
+      }
+    ],
+    "name": "a quote that holds paragraphs"
+  }
+]

@@ -189,6 +189,8 @@ test('public entries', () => {
     './migrate/2to3.js',
     './migrate/3to4',
     './migrate/3to4.js',
+    './migrate/4to5',
+    './migrate/4to5.js',
     './offline',
     './offline.js',
     './server',
@@ -314,11 +316,11 @@ test('policy: raising the floor is deliberate, and the runner targets it by defa
   // bound, the docs and its changelog together. Published steps stay
   // published either way, and an app may raise its own floor (its server
   // stops admitting clients that cannot read the next layout).
-  expect(mainEntry.MIN_LAYOUT).toBeLessThanOrEqual(4);
+  expect(mainEntry.MIN_LAYOUT).toBeLessThanOrEqual(5);
   expect(serverEntry.MIN_LAYOUT).toBe(mainEntry.MIN_LAYOUT);
   // Published steps stay published: this list only grows (add a step here
   // when you publish it; removing one fails).
-  const everPublished = ['1to2', '2to3', '3to4'];
+  const everPublished = ['1to2', '2to3', '3to4', '4to5'];
   const manifest = JSON.parse(
     fs.readFileSync(
       path.resolve(__dirname, '../../migrate/manifest.json'),
@@ -443,6 +445,7 @@ test('the core, the runner, the steps and the server entry stay apart', () => {
             '@lexical/y/migrate/1to2',
             '@lexical/y/migrate/2to3',
             '@lexical/y/migrate/3to4',
+            '@lexical/y/migrate/4to5',
             '@y/y',
           ]
         : ['@y/y'],

@@ -16,4 +16,5 @@ export const STEP_LOADERS: YMigrationLoaders = {
   1: () => import('@lexical/y/migrate/1to2'),
   2: () => import('@lexical/y/migrate/2to3'),
   3: () => import('@lexical/y/migrate/3to4'),
+  4: () => import('@lexical/y/migrate/4to5'),
 };

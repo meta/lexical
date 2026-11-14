@@ -38,6 +38,7 @@ import {describe, expect, test} from 'vitest';
 import {createYDoc, yCollab, YCollabExtension} from '../..';
 import {migrateYState} from '../../migrate';
 import step3to4 from '../../migrate/3to4';
+import step4to5 from '../../migrate/4to5';
 import {
   attachYOfflineSession,
   describeYOfflineCapture,
@@ -73,7 +74,8 @@ const fixtures = (
 const RAW = /^raw\//;
 
 const flush = () => new Promise(resolve => setTimeout(resolve, 0));
-const migrate = (state: Uint8Array) => migrateYState(state, [step3to4]).state;
+const migrate = (state: Uint8Array) =>
+  migrateYState(state, [step3to4, step4to5]).state;
 
 function unwrap<T>(
   result: {ok: true; value: T} | {ok: false; error: {message: string}},

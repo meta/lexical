@@ -10,14 +10,18 @@
 
 // A quote that holds paragraphs (a shadow root, as Meta Artifacts' quote is)
 // holds only blocks. One client turns a paragraph into such a quote (the
-// paragraph moves into it) while another types into the paragraph: the typed
-// text lands next to the moved paragraph (a move, see Limits), and every
-// client and fresh reader show it in a paragraph of its own, never as text
+// paragraph moves into it) while another types into the paragraph: the
+// typed text stays at the paragraph's old position (a move, see Limits),
+// which is outside the quote: from layout 5 the quote is a container, and a
+// move into it behaves as a move into any other container (the box control
+// below). Every client and fresh reader show the same, and never text
 // directly inside the quote (which apps reading the tree throw on).
 
 import {$createQuoteNode, $isQuoteNode, QuoteNode} from '@lexical/rich-text';
+import * as Y from '@y/y';
 import {
   $createParagraphNode,
+  $createTextNode,
   $getRoot,
   $getSlot,
   $isElementNode,
@@ -29,6 +33,7 @@ import {describe, expect, test} from 'vitest';
 
 import {
   $block,
+  $createBoxNode,
   $p,
   $selectIn,
   expectConverged,
@@ -38,11 +43,14 @@ import {
 } from '../utils/harness';
 import {$body, $caretAt, $component, SLOT_NODES} from '../utils/slots';
 
-function $moveIntoQuote(path: number[]) {
+function $moveIntoQuote(
+  path: number[],
+  $container: () => ElementNode = () => $createQuoteNode({shadowRoot: true}),
+) {
   // What a container quote's `> ` shortcut does: the paragraph moves into a
   // new quote in its place.
   const p = $block(path);
-  const quote = $createQuoteNode({shadowRoot: true});
+  const quote = $container();
   p.insertBefore(quote);
   quote.append(p);
   p.selectEnd();
@@ -102,21 +110,37 @@ describe('a quote that holds paragraphs ‖ typing in the paragraph it takes', (
         await t.sync();
         const fresh = await freshReader(t.a);
         for (const peer of [t.a, t.b, fresh]) {
-          expect(quoteChildren(peer)).toEqual([['paragraph', 'paragraph']]);
+          expect(quoteChildren(peer)).toEqual([['paragraph']]);
         }
-        await expectConverged(t.peers);
-        // A later edit in the paragraph the read made stores it.
+        await expectConverged(
+          t.peers,
+          'paragraph("one") / quote(paragraph("Lorem ipsum")) / paragraph("qaend")',
+        );
+        // A later edit in the quote's paragraph reaches every client.
         t.b.update(() => {
           $selectIn([1, 0], 2).insertText('!');
         });
         await t.sync();
         await expectConverged(t.peers);
-        expect(t.a.read(() => $getRoot().getTextContent())).toContain('qa!');
-        for (const peer of [t.a, t.b]) {
-          expect(quoteChildren(peer)).toEqual([['paragraph', 'paragraph']]);
-        }
+        expect(t.a.read(() => $getRoot().getTextContent())).toContain('Lo!rem');
       });
     }
+    test(`ids ${ids}, control: moved into a box`, async () => {
+      const t = await setup(
+        () => $getRoot().append($p('one'), $p('Lorem ipsum'), $p('end')),
+        {ids},
+      );
+      t.offline();
+      t.a.update(() => $moveIntoQuote([1], () => $createBoxNode()));
+      t.b.update(() => {
+        $selectIn([1], 5).insertText('qa');
+      });
+      await t.sync();
+      await expectConverged(
+        t.peers,
+        'paragraph("one") / test_box(paragraph("Lorem ipsum")) / paragraph("qaend")',
+      );
+    });
   }
 });
 
@@ -237,11 +261,78 @@ describe('a paragraph in a named slot made a quote that holds paragraphs', () =>
         expect(quotes[0].every(c => c === 'paragraph')).toBe(true);
       }
       await expectConverged(t.peers);
-      // The typed text lands next to the moved paragraph (a move, see
-      // Limits), in a paragraph of its own.
-      const body = t.a.read(() => $bodyParagraph().getTextContent());
-      expect(body).toContain('qa');
-      expect(body).toContain('Lorem ipsum');
+      // The typed text stays at the paragraph's old position (a move, see
+      // Limits): in the body, in a paragraph of its own after the quote.
+      expect(
+        t.a.read(() =>
+          ($getSlot($getRoot().getChildAtIndex(1)!, 'body') as ElementNode)
+            .getChildren()
+            .map(c => `${c.getType()}:${c.getTextContent()}`),
+        ),
+      ).toEqual(['quote:Lorem ipsum', 'paragraph:qa']);
     });
   }
+});
+
+// Turning `shadowRoot` on or off for a quote that exists changes how it is
+// stored (a container of lines, or a line): the binding writes it as a
+// replace in place, as it writes a type change. Every client and a fresh
+// reader show the same quote, its text kept, and the store holds the shape
+// the new state stores.
+describe('turning a quote shadow root on or off', () => {
+  const stored = (peer: Peer): string[] =>
+    (peer.binding.root.toArray() as unknown[])
+      .filter(c => c instanceof Y.Node)
+      .map(c => (c as Y.Node).name ?? '');
+  test('on: a quote that holds text becomes a container of its paragraph', async () => {
+    const t = await setup(() =>
+      $getRoot().append(
+        $p('one'),
+        $createQuoteNode().append($createTextNode('Lorem ipsum')),
+        $p('end'),
+      ),
+    );
+    expect(stored(t.a)).not.toContain('b:quote');
+    t.a.update(() => {
+      ($block([1]) as QuoteNode).setIsShadowRoot(true);
+    });
+    await t.sync();
+    await expectConverged(
+      t.peers,
+      'paragraph("one") / quote(paragraph("Lorem ipsum")) / paragraph("end")',
+    );
+    expect(stored(t.a)).toContain('b:quote');
+    // An edit in the quote's paragraph reaches the other client.
+    t.b.update(() => {
+      $selectIn([1, 0], 5).insertText('!');
+    });
+    await t.sync();
+    await expectConverged(
+      t.peers,
+      'paragraph("one") / quote(paragraph("Lorem! ipsum")) / paragraph("end")',
+    );
+  });
+  test('off: a quote that holds a paragraph becomes a line', async () => {
+    const t = await setup(() =>
+      $getRoot().append(
+        $p('one'),
+        $createQuoteNode({shadowRoot: true}).append($p('Lorem ipsum')),
+        $p('end'),
+      ),
+    );
+    expect(stored(t.a)).toContain('b:quote');
+    t.a.update(() => {
+      const quote = $block([1]) as QuoteNode;
+      quote.setIsShadowRoot(false);
+      const inner = quote.getFirstChildOrThrow() as ElementNode;
+      quote.append(...inner.getChildren());
+      inner.remove();
+    });
+    await t.sync();
+    await expectConverged(
+      t.peers,
+      'paragraph("one") / quote("Lorem ipsum") / paragraph("end")',
+    );
+    expect(stored(t.a)).not.toContain('b:quote');
+  });
 });

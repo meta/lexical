@@ -27,7 +27,7 @@ for (const gc of [false, true]) {
   test(`a stored start folded again leaves the hold's kept deletions out (gc ${gc})`, () => {
     const doc = new Y.Doc({gc});
     const root = doc.get('lexical-y');
-    root.setAttr('lexical-y:4', true);
+    root.setAttr('lexical-y:5', true);
     root.insert(0, 'abcd');
     const oldBoundary = new Y.Node('\u00b6');
     root.insert(4, [oldBoundary]);

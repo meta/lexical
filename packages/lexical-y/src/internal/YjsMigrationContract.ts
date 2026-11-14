@@ -12,6 +12,7 @@
 
 import {
   applyUpdate,
+  type ContentAny,
   ContentDeleted,
   createID,
   createIdSet,
@@ -63,7 +64,11 @@ type ContentIds = Parameters<typeof intersectUpdateWithContentIds>[1];
 export function migrationYjsMembers() {
   return {
     AbstractContent: {
+      copy: (c: AbstractContent) => isFunction(c.copy),
       getRef: (c: AbstractContent) => isFunction(c.getRef),
+    },
+    ContentAny: {
+      arr: (c: ContentAny) => Array.isArray(c.arr),
     },
     ContentIds: {
       deletes: (c: ContentIds) => isObject(c.deletes),
@@ -77,6 +82,12 @@ export function migrationYjsMembers() {
     },
     IdSet: {
       isEmpty: (s: IdSet) => isFunction(s.isEmpty),
+    },
+    // The frozen whole-root steps write items themselves (see
+    // migrate/4to5/frozen): `new Item(id, left, origin, right, rightOrigin,
+    // parent, parentSub, content)`, then `integrate(transaction, 0)`.
+    Item: {
+      integrate: (it: Item) => isFunction(it.integrate),
     },
     Skip: {
       length: (k: Skip) => isNumber(k.length),
@@ -182,6 +193,11 @@ export function probeMigrationYjs(
     });
     const first = t._start;
     sample('AbstractContent', first === null ? null : first.content);
+    sample('Item', first);
+    if (y.Item.length !== 8) {
+      // The constructor's parameters, which the frozen steps pass in order.
+      found.push('Item (constructor parameters)');
+    }
     if (
       first === null ||
       first.right === null ||

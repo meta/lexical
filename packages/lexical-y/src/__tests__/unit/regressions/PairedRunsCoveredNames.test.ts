@@ -65,7 +65,7 @@ for (const gc of [false, true]) {
     });
     await t.sync();
     const root = t.a.doc.get('lexical-y');
-    expect(root.getAttr('lexical-y:4')).toBe(true);
+    expect(root.getAttr('lexical-y:5')).toBe(true);
     // An array on a name the list does not cover is a plain value: stored
     // as written, and the null after "a" ends it.
     t.a.doc.transact(() => root.format(0, 1, {foreign: [1]}), 'raw');

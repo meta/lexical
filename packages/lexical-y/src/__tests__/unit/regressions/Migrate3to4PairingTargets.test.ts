@@ -105,7 +105,7 @@ describe('3to4 step 0 reads the pairing invariant from the container itself', ()
       const {state} = layout3((tr, root) => {
         formatAfter(tr, root, text(root), 'f:bold', [999999, 0]);
       });
-      const result = migrateYState(state, [step3to4], {gc});
+      const result = migrateYState(state, [step3to4], {gc, to: 4});
       expect(result.receipt.changed).toBe(true);
       expect(formats(result.state, gc)).toEqual([]);
     });
@@ -115,7 +115,7 @@ describe('3to4 step 0 reads the pairing invariant from the container itself', ()
         const t = text(root);
         formatAfter(tr, root, t, 'f:bold', [t.id.client, t.id.clock]);
       });
-      const result = migrateYState(state, [step3to4], {gc});
+      const result = migrateYState(state, [step3to4], {gc, to: 4});
       expect(formats(result.state, gc)).toEqual([]);
     });
 
@@ -134,7 +134,7 @@ describe('3to4 step 0 reads the pairing invariant from the container itself', ()
         expect(second.deleted).toBe(false);
         end.delete(tr);
       });
-      const result = migrateYState(state, [step3to4], {gc});
+      const result = migrateYState(state, [step3to4], {gc, to: 4});
       // The opener's run was open to the end of the container (its end is
       // deleted): the step writes it as a paired run of its own.
       expect(formats(result.state, gc).every(i => i.startsWith('step '))).toBe(
@@ -150,7 +150,7 @@ describe('3to4 step 0 reads the pairing invariant from the container itself', ()
         formatAfter(tr, root, t, 'f:bold', [opener.id.client, opener.id.clock]);
         opener.delete(tr);
       });
-      const result = migrateYState(state, [step3to4], {gc});
+      const result = migrateYState(state, [step3to4], {gc, to: 4});
       expect(formats(result.state, gc)).toEqual(['raw f:bold=[42,8]']);
       expect(result.state).not.toBe(state);
     });

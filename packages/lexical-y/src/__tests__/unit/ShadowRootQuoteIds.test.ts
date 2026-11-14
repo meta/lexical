@@ -9,8 +9,9 @@
 // @vitest-environment node
 
 // Block ids in a quote that holds paragraphs (a shadow root). Text that lands
-// directly in such a quote (typed into a paragraph a collaborator moved into
-// it) is shown in a paragraph of its own, which is no unit. That paragraph
+// directly in such a quote (typed into its last paragraph while a
+// collaborator removes it) is shown in a paragraph of its own, which has no
+// marker. That paragraph
 // gets the id derived from the first item of its text, as a line without a
 // marker does, on every client and every read: BlockIdExtension has nothing
 // to name (its naming, a follow-up that changes the quote, was not written,
@@ -63,23 +64,19 @@ import {
 
 delete process.env.LEXICAL_Y_BLOCK_ID;
 
-function $moveIntoQuote(path: number[]) {
-  const p = $block(path);
-  const quote = $createQuoteNode({shadowRoot: true});
-  p.insertBefore(quote);
-  quote.append(p);
+// Text lands directly in a quote that holds paragraphs when a collaborator
+// types into the quote's last paragraph while another removes it: what was
+// typed has no marker of its own, after the quote's other lines.
+function $removeFromQuote(path: number[]) {
+  $block(path).remove();
 }
 
-function $replaceWithQuote(path: number[]) {
-  const p = $block(path);
-  const quote = $createQuoteNode({shadowRoot: true});
-  const inner = $createParagraphNode();
-  for (const child of p.getChildren()) {
-    inner.append(child);
-  }
-  quote.append(inner);
-  p.replace(quote);
-}
+const $quoteDoc = (start: string) => () =>
+  $getRoot().append(
+    $p('one'),
+    $createQuoteNode({shadowRoot: true}).append($p('kept'), $p(start)),
+    $p('end'),
+  );
 
 /** Every top-level block and quote child: its text and block id. */
 function ids(peer: Peer): string {
@@ -133,8 +130,7 @@ describe('a paragraph a read makes around text in a quote that holds paragraphs'
   for (const n of [2, 3, 33]) {
     for (const order of ['asc', 'desc']) {
       for (const [how, $wrap] of [
-        ['moved into', $moveIntoQuote],
-        ['replaced by', $replaceWithQuote],
+        ['removed from', $removeFromQuote],
       ] as const) {
         for (const start of ['', 'Lorem']) {
           const who =
@@ -146,13 +142,10 @@ describe('a paragraph a read makes around text in a quote that holds paragraphs'
             if (order === 'desc') {
               clientIds.reverse();
             }
-            const t = await setup(
-              () => $getRoot().append($p('one'), $p(start), $p('end')),
-              {ids: clientIds},
-            );
+            const t = await setup($quoteDoc(start), {ids: clientIds});
             const watch = watchWrites(t.peers);
             t.offline();
-            t.a.update(() => $wrap([1]));
+            t.a.update(() => $wrap([1, 1]));
             if (n === 33) {
               t.c.update(() => {
                 $selectIn([2], 3).insertText('!');
@@ -160,9 +153,9 @@ describe('a paragraph a read makes around text in a quote that holds paragraphs'
             }
             t.b.update(() => {
               if (start === '') {
-                $block([1]).select(0, 0).insertText('qa');
+                $block([1, 1]).select(0, 0).insertText('qa');
               } else {
-                $selectIn([1], start.length).insertText('qa');
+                $selectIn([1, 1], start.length).insertText('qa');
               }
             });
             watch.on = true;
@@ -234,23 +227,17 @@ describe("the typist's caret", () => {
     [1, 2],
     [2, 1],
   ]) {
-    for (const [how, $wrap] of [
-      ['moved into', $moveIntoQuote],
-      ['replaced by', $replaceWithQuote],
-    ] as const) {
+    for (const [how, $wrap] of [['removed from', $removeFromQuote]] as const) {
       for (const start of ['', 'Lorem']) {
         test(`the paragraph ${how} a quote while a peer types${start === '' ? ' into it empty' : ''} (client ids ${clientIds}): the caret stays in the typed text`, async () => {
-          const t = await setup(
-            () => $getRoot().append($p('one'), $p(start), $p('end')),
-            {ids: clientIds},
-          );
+          const t = await setup($quoteDoc(start), {ids: clientIds});
           t.offline();
-          t.a.update(() => $wrap([1]));
+          t.a.update(() => $wrap([1, 1]));
           t.b.update(() => {
             if (start === '') {
-              $block([1]).select(0, 0).insertText('qa');
+              $block([1, 1]).select(0, 0).insertText('qa');
             } else {
-              $selectIn([1], start.length).insertText('qa');
+              $selectIn([1, 1], start.length).insertText('qa');
             }
           });
           await t.sync();
@@ -275,7 +262,7 @@ describe("the typist's caret", () => {
                     .map(c => c.getTextContent()),
                 )
                 .sort(),
-            ).toEqual([start, 'qa!'].sort());
+            ).toEqual(['kept', 'qa!'].sort());
           }
           await expectConverged(t.peers);
         });
@@ -327,7 +314,8 @@ describe('a copy of the id such a paragraph shows', () => {
       const a = mixedPeer(1, false, null);
       a.editor.update(
         () => {
-          $getRoot().clear().append($p('one'), $p('Lorem'), $p('end'));
+          $getRoot().clear();
+          $quoteDoc('Lorem')();
         },
         {discrete: true},
       );
@@ -335,10 +323,10 @@ describe('a copy of the id such a paragraph shows', () => {
       await idle();
       const b = mixedPeer(2, false, Y.encodeStateAsUpdate(a.doc));
       await idle();
-      a.editor.update(() => $moveIntoQuote([1]), {discrete: true});
+      a.editor.update(() => $removeFromQuote([1, 1]), {discrete: true});
       b.editor.update(
         () => {
-          $selectIn([1], 5).insertText('qa');
+          $selectIn([1, 1], 5).insertText('qa');
         },
         {discrete: true},
       );

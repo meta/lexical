@@ -214,10 +214,12 @@ local transaction of another origin that changes it
 
 Each layout adds to the one before and is frozen once released: layout 1
 is the base, layout 2 adds member entries of set-valued NodeState, layout 3
-stores format runs as paired runs, and layout 4 stores flat NodeState on
-text as paired runs too. This release writes layout 4 (`MIN_LAYOUT` and
-`LAYOUT_VERSION`); a document that records only an older layout opens read
-only until its migration (see [layout 4](#wire-format-layout-4)).
+stores format runs as paired runs, layout 4 stores flat NodeState on text
+as paired runs too, and layout 5 stores a quote that holds paragraphs (a
+shadow-root instance of a line class) as a container of lines. This
+release writes layout 5 (`MIN_LAYOUT` and `LAYOUT_VERSION`); a document
+that records only an older layout opens read only until its migration (see
+[layout 5](#wire-format-layout-5)).
 
 ### Wire format: layout 1
 
@@ -468,11 +470,11 @@ every content id. This release reads layout 3 only to show it (see
 ### Wire format: layout 4
 
 Layout 4 is layout 3 with one mechanism for every name the binding writes
-on text, and is frozen the same way. It is the only layout this release
-writes: `MIN_LAYOUT`, `LAYOUT_VERSION` and `SEED_LAYOUT` are 4. A new
-document records only `lexical-y:4`, before its first content; a migrated
-document keeps its earlier records and adds `lexical-y:4`. Nothing records
-`lexical-y:2` any more (layout 4 includes member entries).
+on text, and is frozen the same way. The release that wrote it recorded
+only `lexical-y:4` in a new document, before its first content; a migrated
+document kept its earlier records and added `lexical-y:4`. Nothing records
+`lexical-y:2` any more (layout 4 includes member entries). This release
+reads layout 4 only to show it (see [layout 5](#wire-format-layout-5)).
 
 - **Covered names.** Layout 3's, and flat NodeState: `t`, `k`,
   `f:<format>`, `p:<field>`, `w:<type>` and every `s:` name, a flat value
@@ -505,3 +507,134 @@ document keeps its earlier records and adds `lexical-y:4`. Nothing records
   a flat NodeState name and already meets layout 4's pairing invariant is
   left as it is (its bytes are kept): it reads the same under both layouts.
 
+### Wire format: layout 5
+
+Layout 5 is layout 4 with one storage rule changed, and is frozen the same
+way. It is the only layout this release writes: `MIN_LAYOUT`,
+`LAYOUT_VERSION` and `SEED_LAYOUT` are 5. A new document records only
+`lexical-y:5`, before its first content; a migrated document keeps its
+earlier records and adds `lexical-y:5`.
+
+- **A quote that holds paragraphs.** A `QuoteNode` whose per-instance
+  flat `shadowRoot` NodeState is `true` (`$createQuoteNode({shadowRoot:
+  true})`) and sits where blocks go (the root, a container that holds
+  blocks; not as a group's item) is stored as a block node: `b:quote` with
+  `c` = `'b'` and the node's attributes (`p:` fields, the flat
+  `p:shadowRoot` among them, `s:` NodeState, its block id), the same shape
+  a table cell has. Its paragraphs and other blocks are stored in its own
+  sequence: each paragraph as a line (its text, then a `¶` marker with its
+  type, fields, NodeState and block id), each other block as it is stored
+  in any container of blocks. Text that no paragraph holds (a collaborator
+  typed into a paragraph another removed) is inline content no marker
+  ends, read as a paragraph, as in any container. Only that stored state
+  decides it (the binding checks the node's type, `isShadowRoot()` and the
+  flat state's value): a quote that is not a shadow root, and any other
+  line class that is a shadow root (one whose `isShadowRoot()` is always
+  true, or that keeps its flag in a NodeState that is not flat), is a line
+  as in layout 4, with layout 4's limits on a split or a join of its
+  paragraphs. Turning `shadowRoot` on or off for an existing quote
+  replaces it in place by the other shape.
+- **Why.** Layout 4 stored such a quote as a line whose blocks were nodes
+  of their own in its inline content (`i:paragraph`, `c` = `'i'`), so each
+  paragraph's text was a sequence of its own: a split (Enter) or a join
+  (Backspace at a paragraph's start) moved text from one paragraph's node
+  to another's, and a collaborator typing in the moved text at the same
+  time lost it, or saw it land in another paragraph. In a container of
+  lines, a split is one marker inserted and a join one marker deleted.
+- **Reading a layout 4 document.** A document that records layout 4 opens
+  read only (`'older'`) and is shown by the same reader: a line that holds
+  blocks is read as before (its blocks, and a paragraph per run of text
+  between them).
+- **Migration.** The frozen step `@lexical/y/migrate/4to5` takes no
+  parameters and is a whole-root step (step contract 2): it writes new
+  items, since a Yjs item cannot move to another sequence. For each line
+  whose marker holds `t` = `'quote'` and `s:shadowRoot` = `true` (group
+  keys or not: wrapping a paragraph in such a quote while a collaborator
+  turns it into a list item leaves `g` on the quote's marker; readers show
+  a quote, which the binding stores as a container),
+  in every container and every named slot, the line becomes a `b:quote`
+  node in its place: `c` = `'b'`, the marker's attributes (`t` and group
+  keys aside), and
+  the shadow root flag where a node stores it (`p:shadowRoot`). In it:
+  - each block of the line's inline content stored as a node of a line
+    class (the root records the type's kind as `line`) that does not hold
+    blocks becomes a line: its text and inline nodes, then a marker with
+    the node's attributes (its type as `t`, left out for a paragraph);
+  - every other block node is copied whole as a `b:` node: a decorator, a
+    table, a list stored as a node, and a quote that holds paragraphs
+    stored as a node (`c` = `'b'`, a quote in such a quote), whose lines
+    keep their markers;
+  - each run of text no block holds becomes a line;
+  - formats are written in layout 4's canonical form per new container.
+
+  The old line's items are deleted. A line of this kind inside a node (a
+  third level of quotes, a quote in a table cell) is rewritten in place
+  first, so a copy holds its result. A list in such a quote is copied as a
+  list stored as a node (`b:list`), as layout 4 stored it, not as the items
+  of a group a new layout 5 quote holds; both read the same, and the first
+  Enter, join or indent in the list moves its items into the quote's own
+  sequence, a move that loses what a collaborator types in that item at
+  the same time: once per list, in every migrated quote that holds one
+  (y.md, Limits).
+
+  Block ids: where the root stores a block id anywhere (`s:blockId`), the
+  step first computes the id every block shows, by the rule readers apply
+  in document order (a block shows its stored id unless a block before it
+  shows that id, else the id derived from its own item, else that id
+  followed by `_d`s; a block in a named slot shows its stored id, else the
+  derived one, outside that order), and every block it writes anew that
+  shows an id stores that id: content no marker ends in a node that holds
+  blocks and is not a group gets a marker that stores it, and a list item
+  that holds only a nested list where lists are group lines (it has no
+  marker) stores it in `o[level]['@'].$` of the nested list's line that
+  records its fields, where readers read it. So every block shows the id
+  it showed, a block whose stored id repeats an earlier one's included.
+  Which blocks show an id is BlockIdExtension's default
+  `$isIdentifiedBlock` as the step models it from storage, written down in
+  [DECISIONS.md](./DECISIONS.md) D129 ("Which blocks readers identify"):
+  every child of the root; nested, every line, every paragraph a layout 4
+  quote shows around a run of inline content, every node of a line class,
+  every leaf, a quote of text stored as a node (no `p:shadowRoot` or
+  `s:shadowRoot`), and every list item that holds only a nested list; not
+  a nested group, another node that holds blocks, or a node of another
+  class that holds inline content. An app whose predicate identifies more
+  of them shows a newly derived id on those, and content no marker ends in
+  a list stored as a node keeps no id. In a room that stores no block id, nothing is stored, and readers
+  with BlockIdExtension show other derived ids after the migration (store
+  any one block id before migrating to keep them all: the check is
+  room-wide). In a room that stores one, readers without BlockIdExtension
+  see `$.blockId` appear on the blocks the step rewrote, and change on the
+  later holder of a repeated stored id; an app that keeps a NodeState of
+  its own named `blockId` would read it as its own. In named slots, where
+  BlockIdExtension renames a repeated id itself, a repeated stored id or
+  one of a derived id's shape can show differently after the migration.
+  Derived ids are `y`, the client, `_` and the clock, in base 36: from a
+  marker or a node's item; `_l` for a line no marker ends whose first item
+  is a node; `_g` (`_g<level>` when nested) for a group, from its first
+  line's marker; `_w` (`_w<level>`) for a list item that holds only a
+  nested list, from that list's first line's marker. The step leaves out
+  of the new quote node the group keys (`g`, `g:<field>`, `l`, `o`) its
+  marker carried.
+
+  Without node classes, a node in the line's inline content is a block
+  when the root records its type as a line or a group, when it holds
+  blocks (`c` = `'b'`), or when it is a leaf or holds only inline content
+  (`c` = `'i'`, an element whose class declares no `children`) with no
+  text in the same run. An inline decorator or inline element left alone
+  between two blocks by a concurrent edit (layout 4 read it as a paragraph
+  holding it) is therefore migrated as a block of its own, a direct child
+  of the quote; an element whose class declares no `children` (a box of
+  text) left beside text that no marker ends becomes inline content of the
+  paragraph around that text (layout 4 showed it as a block; that
+  paragraph shows a new derived id); and a block decorator
+  left inside a paragraph's inline content stays inline content (it shows
+  a new derived id). A link run a concurrent edit stretched over a
+  paragraph stored as a node (readers show the link around the paragraph)
+  has no layout 5 form: the step refuses such a room rather than drop the
+  link, and a server keeps it unavailable (behind its barrier, no
+  sessions) and alerts; an operator removes that run before migrating. A
+  line class other than `QuoteNode` that is a shadow root, in a container
+  inside such a quote, may show a block id it did not show (or another
+  derived id after concurrent toggles of its flag): storage does not say
+  it is a shadow root. A root without such a line gets only its layout
+  record and epoch.

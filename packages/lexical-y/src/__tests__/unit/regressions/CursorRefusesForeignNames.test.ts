@@ -23,7 +23,7 @@ function doc(): Y.Doc {
   const d = new Y.Doc();
   d.clientID = 1;
   d.cleanupFormatting = false;
-  d.get('lexical-y').setAttr('lexical-y:4', true);
+  d.get('lexical-y').setAttr('lexical-y:5', true);
   return d;
 }
 

@@ -152,7 +152,7 @@ for (const gc of [false, true]) {
           .join('');
         const start = flat.indexOf('one');
         const value =
-          b.doc.get('lexical-y').getAttr('lexical-y:4') === true
+          b.doc.get('lexical-y').getAttr('lexical-y:5') === true
             ? [opener.id.client, opener.id.clock]
             : null;
         p.format(start + 13, 1, {'f:bold': value});

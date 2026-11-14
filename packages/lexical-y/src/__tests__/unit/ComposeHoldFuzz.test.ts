@@ -1117,7 +1117,7 @@ async function session(
         const at = Math.min(op.at, Math.max(0, len - 1));
         if (len - at > 0) {
           // A layout 2 document has no ends: there the writer closes.
-          const paired = p.doc.get('lexical-y').getAttr('lexical-y:4') === true;
+          const paired = p.doc.get('lexical-y').getAttr('lexical-y:5') === true;
           p.doc.transact(
             () =>
               root.format(at, 1, {

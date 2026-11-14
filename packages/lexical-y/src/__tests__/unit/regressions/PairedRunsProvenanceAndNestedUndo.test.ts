@@ -77,7 +77,7 @@ const states = (e: LexicalEditor) =>
       .join('|'),
   );
 const records = (p: Peer) =>
-  p.doc.get('lexical-y').getAttr('lexical-y:4') === true;
+  p.doc.get('lexical-y').getAttr('lexical-y:5') === true;
 function $text(token: string): TextNode {
   const n = $getRoot()
     .getAllTextNodes()
@@ -217,7 +217,7 @@ for (const gc of [false, true]) {
       initUm.undo();
       initUm.destroy();
       expect(child.getAttr('lexical-y:1')).toBeUndefined();
-      expect(child.getAttr('lexical-y:4')).toBe(true);
+      expect(child.getAttr('lexical-y:5')).toBe(true);
       const encoded = Y.encodeStateAsUpdate(doc as never);
       binding.dispose();
       const d = createYDoc(null, {gc});

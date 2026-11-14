@@ -45,7 +45,7 @@ for (const gc of [false, true]) {
       const doc = createYDoc(null, {gc});
       doc.clientID = 7;
       const parent = doc.get('app');
-      parent.setAttr('lexical-y:4', true);
+      parent.setAttr('lexical-y:5', true);
       const root = new Y.Node('editor-root');
       parent.setAttr('editor', root);
       root.setAttr('lexical-y:' + version, true);
@@ -104,7 +104,7 @@ for (const gc of [false, true]) {
     const doc = createYDoc(null, {gc});
     doc.clientID = 7;
     const parent = doc.get('app');
-    parent.setAttr('lexical-y:4', true);
+    parent.setAttr('lexical-y:5', true);
     const root = new Y.Node('editor-root');
     parent.setAttr('editor', root);
     root.setAttr('lexical-y:1', true);
@@ -172,7 +172,7 @@ for (const gc of [false, true]) {
       },
       {
         transact: doc => {
-          doc.get('lexical-y').deleteAttr('lexical-y:4');
+          doc.get('lexical-y').deleteAttr('lexical-y:5');
           e!.update(() => $getRoot().append($p('forbidden')), {discrete: true});
         },
         writer: null,
@@ -202,7 +202,7 @@ for (const gc of [false, true]) {
       doc.cleanupFormatting = false;
       doc.clientID = 17;
       const root = doc.get('c');
-      root.setAttr('lexical-y:4', true);
+      root.setAttr('lexical-y:5', true);
       const formats: Y.Item[] = [];
       doc.transact(tr => {
         let left: Y.Item | null = null;

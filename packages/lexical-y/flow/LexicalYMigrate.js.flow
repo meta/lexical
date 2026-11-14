@@ -36,6 +36,22 @@ export type YLayoutMigration = {
   ...
 };
 
+export type YLayoutRootMigration = {
+  readonly v: 2,
+  readonly id: string,
+  readonly revision: number,
+  readonly from: number,
+  readonly to: number,
+  migrateRoot(tr: unknown, root: YNode): {readonly written: number} | void,
+  readBefore(root: YNode): ReadonlyArray<string>,
+  readAfter(root: YNode): ReadonlyArray<string>,
+  checkAfter(root: YNode): ReadonlyArray<string>,
+  // Inexact: a step module may carry fields of its own.
+  ...
+};
+
+export type YLayoutStep = YLayoutMigration | YLayoutRootMigration;
+
 type YKnownMigrationErrorCode =
   | 'missing-step'
   | 'invalid-steps'
@@ -131,7 +147,7 @@ export type YMigrationLoaders = {
 
 declare export function migrateYState(
   state: Uint8Array,
-  steps: ReadonlyArray<YLayoutMigration>,
+  steps: ReadonlyArray<YLayoutStep>,
   options?: YMigrateStateOptions,
 ): YMigrationResult;
 
@@ -144,7 +160,7 @@ declare export function loadYMigrationSteps(
   from: number,
   to?: number,
   options?: YLoadYMigrationStepsOptions,
-): Promise<Array<YLayoutMigration>>;
+): Promise<Array<YLayoutStep>>;
 
 // The layout state of a root. Its statuses and 'unsupported' reasons are
 // fixed (exhaustive switches stay valid); later detail goes into additive

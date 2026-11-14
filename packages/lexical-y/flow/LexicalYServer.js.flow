@@ -15,7 +15,7 @@ import type {
   YLayoutUpgradeHandle,
 } from '@lexical/y';
 import type {
-  YLayoutMigration,
+  YLayoutStep,
   YMigrationReceipt,
   YMigrationStepInput,
 } from '@lexical/y/migrate';
@@ -48,7 +48,7 @@ declare export function getYGeneration(
 
 export type YPrepareRoomOptions = {
   // Default: every published step.
-  readonly steps?: ReadonlyArray<YLayoutMigration>,
+  readonly steps?: ReadonlyArray<YLayoutStep>,
   readonly incarnation: string,
   readonly roots?: ReadonlyArray<string>,
   readonly gc?: boolean,

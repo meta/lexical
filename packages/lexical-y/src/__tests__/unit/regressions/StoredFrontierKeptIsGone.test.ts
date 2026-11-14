@@ -28,7 +28,7 @@ for (const gc of [false, true]) {
   test(`a stored start's fold point that only the hold shows is folded again (gc ${gc})`, () => {
     const doc = createYDoc(null, {gc});
     const root = doc.get('lexical-y');
-    root.setAttr('lexical-y:4', true);
+    root.setAttr('lexical-y:5', true);
     root.insert(0, 'abcd');
     const boundary = new Y.Node('¶');
     root.insert(0, [boundary]);

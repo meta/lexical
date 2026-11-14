@@ -621,12 +621,12 @@ describe('the layout record', () => {
     t.a.update(() => $tag($leaves().paragraph, 'p'));
     await t.sync();
     for (const peer of t.peers) {
-      expect(record(peer.doc)).toEqual(['lexical-y:4']);
+      expect(record(peer.doc)).toEqual(['lexical-y:5']);
     }
     t.a.update(() => $tag($leaves().text, 'a'));
     await t.sync();
     for (const peer of t.peers) {
-      expect(record(peer.doc)).toEqual(['lexical-y:4']);
+      expect(record(peer.doc)).toEqual(['lexical-y:5']);
     }
     // Undo removes the member, not the record.
     t.a.undo();
@@ -636,7 +636,7 @@ describe('the layout record', () => {
       expect(
         peer.read(() => [...$getState($leaves().text, tagsState)]),
       ).toEqual([]);
-      expect(record(peer.doc)).toEqual(['lexical-y:4']);
+      expect(record(peer.doc)).toEqual(['lexical-y:5']);
       expect(peer.warnings).toEqual([]);
     }
   });
@@ -651,7 +651,7 @@ describe('the layout record', () => {
       return text;
     };
     const plain = seedYState(config, () => $getRoot().append($p('x')));
-    expect(record(docOf(plain))).toEqual(['lexical-y:4']);
+    expect(record(docOf(plain))).toEqual(['lexical-y:5']);
     const tagged = editYState(
       plain,
       config,
@@ -659,12 +659,12 @@ describe('the layout record', () => {
       {writer: null},
     );
     expect(tagged.update).not.toBeNull();
-    expect(record(docOf(plain, tagged.update!))).toEqual(['lexical-y:4']);
+    expect(record(docOf(plain, tagged.update!))).toEqual(['lexical-y:5']);
     const seeded = seedYState(config, () => {
       $getRoot().append($p('x'));
       $setState($hText(), tagsState, ['a']);
     });
-    expect(record(docOf(seeded))).toEqual(['lexical-y:4']);
+    expect(record(docOf(seeded))).toEqual(['lexical-y:5']);
     expect(
       readYState(seeded, config, () => [...$getState($hText(), tagsState)]),
     ).toEqual(['a']);

@@ -37,7 +37,7 @@ for (const gc of [false, true]) {
   test(`a fold point merged into the item before it is resolved by its id (gc ${gc ? 'on' : 'off'})`, () => {
     const doc = createYDoc(null, {gc});
     const root = doc.get('lexical-y');
-    root.setAttr('lexical-y:4', true);
+    root.setAttr('lexical-y:5', true);
     const start = new Map<string, unknown>([['f:bold', true]]);
     let b: Y.Item | null = null;
     doc.transact(() => {
@@ -64,7 +64,7 @@ for (const gc of [false, true]) {
 test('the order test is exact both ways, per left asked', () => {
   const doc = createYDoc(null, {gc: false});
   const root = doc.get('lexical-y');
-  root.setAttr('lexical-y:4', true);
+  root.setAttr('lexical-y:5', true);
   // 6,000 items that do not merge (each inserted before the previous one).
   for (let i = 0; i < 6000; i++) {
     root.insert(0, String.fromCharCode(97 + (i % 26)));
@@ -88,7 +88,7 @@ test('the order test is exact both ways, per left asked', () => {
 test('a fold point at the container start answers a later left at once', () => {
   const doc = createYDoc(null, {gc: false});
   const root = doc.get('lexical-y');
-  root.setAttr('lexical-y:4', true);
+  root.setAttr('lexical-y:5', true);
   for (let i = 0; i < 60_000; i++) {
     root.insert(0, String.fromCharCode(97 + (i % 26)));
   }

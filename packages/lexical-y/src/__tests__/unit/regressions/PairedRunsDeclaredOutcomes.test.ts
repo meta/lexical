@@ -37,7 +37,7 @@ import {
   setup,
 } from '../../utils/harness';
 
-const LAYOUT_3 = 'lexical-y:4'; // the layout record (named when it was 3)
+const LAYOUT_3 = 'lexical-y:5'; // the layout record (named when it was 3)
 
 const $line = (...nodes: ReturnType<typeof $createTextNode>[]) =>
   $getRoot().append($createParagraphNode().append(...nodes));

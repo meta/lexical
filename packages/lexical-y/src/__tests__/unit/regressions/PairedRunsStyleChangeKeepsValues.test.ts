@@ -119,7 +119,7 @@ async function windowRun(
   a.update($change);
   await flush();
   await t.sync();
-  expect(a.doc.get('lexical-y').getAttr('lexical-y:4')).toBe(true);
+  expect(a.doc.get('lexical-y').getAttr('lexical-y:5')).toBe(true);
   return {a, fresh: await freshReader(a)};
 }
 
