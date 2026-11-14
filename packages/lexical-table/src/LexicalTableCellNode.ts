@@ -18,6 +18,7 @@ import {
   type DOMConversionOutput,
   type DOMExportOutput,
   type EditorConfig,
+  type ElementDOMSlot,
   ElementNode,
   enumValue,
   isHTMLElement,
@@ -40,6 +41,10 @@ import {
 
 import {COLUMN_WIDTH, PIXEL_VALUE_REG_EXP} from './constants';
 import {GENERATED_TABLECELL} from './LexicalTableGeneratedJSON';
+
+/** @internal */
+export const EMPTY_CELL_OVERLAY_ATTRIBUTE =
+  'data-lexical-table-empty-cell-overlay';
 
 // Declared as bindings and collected into the exported object, rather than
 // written as literals inside it, so that the schema below can name one without
@@ -200,6 +205,16 @@ export class TableCellNode extends ElementNode {
     );
 
     return element;
+  }
+
+  getDOMSlot(element: HTMLElement): ElementDOMSlot<HTMLElement> {
+    const slot = super.getDOMSlot(element);
+    // Keep the cell's children before the iOS empty cell overlay, so DOM child
+    // offsets still match the node's children.
+    const last = element.lastElementChild;
+    return last !== null && last.hasAttribute(EMPTY_CELL_OVERLAY_ATTRIBUTE)
+      ? slot.withBefore(last)
+      : slot;
   }
 
   exportDOM(editor: LexicalEditor): DOMExportOutput {
