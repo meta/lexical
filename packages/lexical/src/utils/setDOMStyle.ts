@@ -37,6 +37,12 @@ export function getStyleObjectFromCSS(css: string): Record<string, string> {
   // pending. The run is flushed whenever a character is dropped (a comment) or
   // acts as a delimiter (`:` or `;`).
   let chunkStart = -1;
+  // Whether the text kept just before the current comment ends with `/`. It
+  // is set when a comment directly follows kept text and carried across
+  // consecutive comments. Dropping a comment between that `/` and a following
+  // `*` would glue them into a new `/*`. (When it is stale after `:` or `;`,
+  // the space lands at the start of a property or value and is trimmed.)
+  let keptEndsWithSlash = false;
 
   for (let i = 0; i < length; i++) {
     const char = css[i];
@@ -45,6 +51,13 @@ export function getStyleObjectFromCSS(css: string): Record<string, string> {
       if (char === '*' && css[i + 1] === '/') {
         inComment = false;
         i++;
+        if (keptEndsWithSlash && css[i + 1] === '*') {
+          if (isParsingValue) {
+            currentValue += ' ';
+          } else {
+            currentProperty += ' ';
+          }
+        }
       }
       continue;
     }
@@ -74,6 +87,7 @@ export function getStyleObjectFromCSS(css: string): Record<string, string> {
     if (char === '/' && css[i + 1] === '*') {
       // The comment is dropped, so flush everything accumulated before it.
       if (chunkStart !== -1) {
+        keptEndsWithSlash = css[i - 1] === '/';
         if (isParsingValue) {
           currentValue += css.slice(chunkStart, i);
         } else {
@@ -148,11 +162,23 @@ export function getStyleObjectFromCSS(css: string): Record<string, string> {
   }
 
   if (chunkStart !== -1) {
+    // A backslash at the very end escapes nothing, so a string ending there
+    // drops it, as CSS does.
+    const end = isEscaped ? length - 1 : length;
     if (isParsingValue) {
-      currentValue += css.slice(chunkStart, length);
+      currentValue += css.slice(chunkStart, end);
     } else {
-      currentProperty += css.slice(chunkStart, length);
+      currentProperty += css.slice(chunkStart, end);
     }
+  }
+  // CSS closes a string or parentheses still open at the end of the input.
+  // Close them here too, so that serializing the value and appending another
+  // declaration doesn't put that declaration inside them.
+  if (isParsingValue) {
+    if (currentQuote !== null) {
+      currentValue += currentQuote;
+    }
+    currentValue += ')'.repeat(parenthesisDepth);
   }
 
   const property = currentProperty.trim();
