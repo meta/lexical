@@ -14,6 +14,7 @@ import {
   $isDecoratorNode,
   $isElementNode,
   $isLineBreakNode,
+  $isParagraphNode,
   $isRangeSelection,
   $isTextNode,
   type BaseSelection,
@@ -406,7 +407,7 @@ function $exportTopLevelElements(
   }
 
   if ($isElementNode(node)) {
-    return $exportChildren(
+    const markdown = $exportChildren(
       node,
       textTransformersIndex,
       textMatchTransformers,
@@ -414,11 +415,25 @@ function $exportTopLevelElements(
       undefined,
       shouldPreserveNewLines,
     );
+    return $isParagraphNode(node) ? escapeBlockMarkers(markdown) : markdown;
   } else if ($isDecoratorNode(node)) {
     return node.getTextContent();
   } else {
     return null;
   }
+}
+
+/**
+ * A line of a paragraph that starts with a block marker would be read back as
+ * that block, so the marker is escaped the way `$listExport` escapes `1.`.
+ * Only the markers the import recognizes are escaped: each needs whitespace
+ * after it, and a heading or a quote takes no indent.
+ */
+function escapeBlockMarkers(markdown: string): string {
+  return markdown
+    .replace(/^(#{1,6}|>)(?=\s)/gm, '\\$1')
+    .replace(/^([ \t]*)([-+])(?=\s)/gm, '$1\\$2')
+    .replace(/^([ \t]*\d+)\.(?=\s)/gm, '$1\\.');
 }
 
 function $exportChildren(
