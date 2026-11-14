@@ -1857,6 +1857,17 @@ not merge as a user might expect:
     commands, its paste and `NodeStructureExtension`, which every
     `@lexical/y` editor runs, give a nested list an item of its own; only
     writers without that normalization store this shape.
+  - A remote change read while the editor's DOM holds a text edit in one of
+    its text nodes (a spellcheck or autocorrect replacement, an input
+    method), made in the same task, is transformed in that editor: Lexical
+    applies that DOM edit as the read commits, and runs node transforms over
+    what the read changed too. A table a collaborator left ragged is then
+    padded in that editor only, and words typed into the padding cells reach
+    no one. Text Firefox pasted natively as new nodes in that task is applied
+    without node transforms (no hashtag or autolink for it), and nothing
+    transforms it later; a paste that also edits an existing text node's text
+    is transformed, with the read, as above. Without such an edit, the read's
+    commit runs no transforms.
 - **Content written without Lexical's normalization** (an update with
   `skipTransforms`, or `setEditorState` with a state the editor did not
   build) is normalized by its author right after, as part of the same edit
