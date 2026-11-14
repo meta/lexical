@@ -38,7 +38,17 @@ import {
   BLOCK_EQUATION,
   EQUATION,
   IMAGE,
+  PLAYGROUND_TRANSFORMERS,
+  TABLE,
 } from '../../src/plugins/MarkdownTransformers';
+import {
+  $isTableCellNode,
+  $isTableNode,
+  $isTableRowNode,
+  TableCellNode,
+  TableNode,
+  TableRowNode,
+} from '@lexical/table';
 
 const EQUATION_TRANSFORMERS = [BLOCK_EQUATION, EQUATION];
 const MarkdownShortcutTestExtension = defineExtension({
@@ -296,3 +306,61 @@ describe('playground IMAGE markdown transformer', () => {
     });
   });
 });
+
+const TableMarkdownTestExtension = defineExtension({
+  dependencies: [RichTextExtension],
+  name: 'TableMarkdownTest',
+  nodes: [TableNode, TableRowNode, TableCellNode],
+});
+
+describe('playground TABLE markdown transformer', () => {
+  it('imports table cell starting with > as text rather than a quote block', () => {
+    using editor = buildEditorFromExtensions(TableMarkdownTestExtension);
+
+    editor.update(
+      () => {
+        $convertFromMarkdownString('|>100ms|x|', PLAYGROUND_TRANSFORMERS);
+      },
+      {discrete: true},
+    );
+
+    editor.read(() => {
+      const table = $getRoot().getFirstChildOrThrow();
+      expect($isTableNode(table)).toBe(true);
+      if (!$isTableNode(table)) {
+        return;
+      }
+      const row = table.getFirstChildOrThrow();
+      expect($isTableRowNode(row)).toBe(true);
+      if (!$isTableRowNode(row)) {
+        return;
+      }
+      const cell = row.getFirstChildOrThrow();
+      expect($isTableCellNode(cell)).toBe(true);
+      if (!$isTableCellNode(cell)) {
+        return;
+      }
+      const paragraph = cell.getFirstChildOrThrow();
+      expect($isParagraphNode(paragraph)).toBe(true);
+      expect(paragraph.getTextContent()).toBe('>100ms');
+    });
+  });
+
+  it('exports table cell starting with > as escaped markdown rather than a quote line', () => {
+    using editor = buildEditorFromExtensions(TableMarkdownTestExtension);
+
+    editor.update(
+      () => {
+        $convertFromMarkdownString('|>100ms|x|', PLAYGROUND_TRANSFORMERS);
+      },
+      {discrete: true},
+    );
+
+    const markdown = editor
+      .getEditorState()
+      .read(() => $convertToMarkdownString(PLAYGROUND_TRANSFORMERS));
+
+    expect(markdown).toBe('| \\>100ms | x |');
+  });
+});
+
