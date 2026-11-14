@@ -34,7 +34,7 @@ import {
   SELECTION_CHANGE_COMMAND,
   TextNode,
 } from 'lexical';
-import {afterEach, describe, expect, test} from 'vitest';
+import {afterEach, describe, expect, test, vi} from 'vitest';
 
 class BadgeNode extends DecoratorNode<null> {
   $config() {
@@ -180,6 +180,12 @@ describe('the revert of recorded DOM changes in a commit', () => {
       {discrete: true},
     );
     seen.length = 0;
+    // The revert applies DOM text only once the last text entry is more than
+    // TEXT_MUTATION_VARIANCE (100 ms) ago, and that time starts at 0: past
+    // it, whatever the worker's clock reads when this test runs.
+    const now = performance.now() + 1000;
+    const clock = vi.spyOn(performance, 'now').mockReturnValue(now);
+    cleanup.push(() => clock.mockRestore());
     // An autocorrect or spellcheck replaced the first text in the DOM.
     const key = editor.read(() => $getRoot().getFirstDescendant()!.getKey());
     (editor.getElementByKey(key)!.firstChild as Text).data = 'start typed';

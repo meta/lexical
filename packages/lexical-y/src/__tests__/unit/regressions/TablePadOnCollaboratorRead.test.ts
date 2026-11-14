@@ -47,7 +47,7 @@ import {
   type ElementNode,
   type NodeKey,
 } from 'lexical';
-import {expect, test} from 'vitest';
+import {expect, onTestFinished, test, vi} from 'vitest';
 
 import {createYDoc, YCollabExtension, type YDoc} from '../../..';
 import {readYState} from '../../../headless';
@@ -172,7 +172,23 @@ type Render =
   | 'before-arrival'
   | 'every-commit'
   | 'text-before-arrival'
-  | 'text-every-commit';
+  | 'text-every-commit'
+  | 'spellcheck-before-arrival';
+
+/**
+ * A spellcheck or autocorrect edit of the DOM text of the last paragraph, a
+ * TextNode the editor renders: the revert applies it to the editor state,
+ * so it runs transforms (D130).
+ */
+function spellcheck(peer: Peer) {
+  const key = peer.editor.read(() =>
+    ($getRoot().getLastChildOrThrow() as ElementNode)
+      .getFirstChildOrThrow()
+      .getKey(),
+  );
+  const text = peer.editor.getElementByKey(key)!.firstChild as Text;
+  text.data += ' fixed';
+}
 
 /**
  * Render the badge again by changing the value of its text node, as React
@@ -200,6 +216,8 @@ function exchange(
       renderBadge(to, badges.get(to)!);
     } else if (render === 'text-before-arrival') {
       renderBadgeText(to, badges.get(to)!);
+    } else if (render === 'spellcheck-before-arrival') {
+      spellcheck(to);
     }
     for (const update of from.outbox.splice(0)) {
       Y.applyUpdate(to.doc, update, 'network');
@@ -207,157 +225,184 @@ function exchange(
   }
 }
 
-test.each<Render>([
+const RENDERS: readonly Render[] = [
   'before-arrival',
   'every-commit',
   'text-before-arrival',
   'text-every-commit',
-])(
-  'a table a collaborator left ragged is shown as stored, and words typed into it reach every client (DOM change %s)',
-  async render => {
-    const a = createPeer(1);
-    const b = createPeer(2);
-    a.editor.update(
-      () => {
-        $getRoot()
-          .clear()
-          .append(
-            $createParagraphNode().append($create(BadgeNode)),
-            $createTableNode()
-              .setColWidths([120, 80, 100])
-              .append(
-                $createTableRowNode().append(
-                  $cell('h0', true),
-                  $cell('h1', true),
-                  $cell('h2', true),
-                ),
-                $createTableRowNode().append(
-                  $cell('merged', false, 2),
-                  $cell('r1', false),
-                ),
-                $createTableRowNode().append(
-                  $cell('a', false),
-                  $cell('b', false),
-                  $cell('c', false),
-                ),
+];
+
+/**
+ * The known limit (D130): a DOM text edit in a TextNode of the editor
+ * (spellcheck) reverted in the same flush as the read makes the revert run
+ * every transform over what the read changed, so the table is padded in
+ * that editor, as on main.
+ */
+const LIMITS: readonly Render[] = ['spellcheck-before-arrival'];
+
+async function raggedTable(render: Render) {
+  const a = createPeer(1);
+  const b = createPeer(2);
+  a.editor.update(
+    () => {
+      $getRoot()
+        .clear()
+        .append(
+          $createParagraphNode().append($create(BadgeNode)),
+          $createTableNode()
+            .setColWidths([120, 80, 100])
+            .append(
+              $createTableRowNode().append(
+                $cell('h0', true),
+                $cell('h1', true),
+                $cell('h2', true),
               ),
-            $createParagraphNode(),
-          );
-      },
-      {discrete: true},
-    );
-    getExtensionDependencyFromEditor(
-      a.editor,
-      YCollabExtension,
-    ).output.binding.initialize();
-    await flush();
-    Y.applyUpdate(b.doc, Y.encodeStateAsUpdate(a.doc), 'network');
-    a.outbox.length = 0;
-    await flush();
-    const badgeKey = (peer: Peer) =>
-      peer.editor.read(() =>
-        ($getRoot().getFirstChildOrThrow() as ElementNode)
-          .getFirstChildOrThrow()
-          .getKey(),
-      );
-    const badges = new Map([
-      [a, badgeKey(a)],
-      [b, badgeKey(b)],
-    ]);
-    if (render.startsWith('text-')) {
-      // Rendered once already (a childList change), processed.
-      for (const peer of [a, b]) {
-        renderBadge(peer, badges.get(peer)!);
-      }
-      await flush();
-    }
-    if (render === 'every-commit' || render === 'text-every-commit') {
-      let renders = 0;
-      for (const peer of [a, b]) {
-        peer.editor.registerUpdateListener(() => {
-          const element = peer.editor.getElementByKey(badges.get(peer)!);
-          if (element === null) {
-            return;
-          }
-          if (render === 'text-every-commit') {
-            renderBadgeText(peer, badges.get(peer)!);
-          } else {
-            element.textContent = `render ${++renders}`;
-          }
-        });
-      }
-      // An edit of each, so that each has rendered once.
-      for (const [peer, word] of [
-        [a, 'note'],
-        [b, 'memo'],
-      ] as const) {
-        peer.editor.update(
-          () => {
-            ($getRoot().getLastChildOrThrow() as ElementNode).append(
-              $createTextNode(word),
-            );
-          },
-          {discrete: true},
+              $createTableRowNode().append(
+                $cell('merged', false, 2),
+                $cell('r1', false),
+              ),
+              $createTableRowNode().append(
+                $cell('a', false),
+                $cell('b', false),
+                $cell('c', false),
+              ),
+            ),
+          render === 'spellcheck-before-arrival'
+            ? $createParagraphNode().append($createTextNode('tail'))
+            : $createParagraphNode(),
         );
-      }
-    }
-    // Concurrently: A deletes the middle column, B adds a row after the
-    // header row.
-    a.editor.update(
-      () => {
-        $selectCellEnd($cellAt(2, 1));
-        $deleteTableColumnAtSelection();
-      },
-      {discrete: true},
+    },
+    {discrete: true},
+  );
+  if (render === 'spellcheck-before-arrival') {
+    // The revert applies DOM text only once the last text entry is more
+    // than 100 ms ago (TEXT_MUTATION_VARIANCE), which starts at 0.
+    const clock = vi
+      .spyOn(performance, 'now')
+      .mockReturnValue(performance.now() + 1000);
+    onTestFinished(() => clock.mockRestore());
+  }
+  getExtensionDependencyFromEditor(
+    a.editor,
+    YCollabExtension,
+  ).output.binding.initialize();
+  await flush();
+  Y.applyUpdate(b.doc, Y.encodeStateAsUpdate(a.doc), 'network');
+  a.outbox.length = 0;
+  await flush();
+  const badgeKey = (peer: Peer) =>
+    peer.editor.read(() =>
+      ($getRoot().getFirstChildOrThrow() as ElementNode)
+        .getFirstChildOrThrow()
+        .getKey(),
     );
-    b.editor.update(
-      () => {
-        $selectCellEnd($cellAt(0, 0));
-        $insertTableRowAtSelection(true);
-      },
-      {discrete: true},
-    );
-    exchange(a, b, badges, render);
-    await flush();
-    // Ragged, as stored (D55): the new row has B's three cells.
+  const badges = new Map([
+    [a, badgeKey(a)],
+    [b, badgeKey(b)],
+  ]);
+  if (render.startsWith('text-')) {
+    // Rendered once already (a childList change), processed.
     for (const peer of [a, b]) {
-      expect(widths(peer)).toEqual([2, 3, 2, 2]);
-      expect(shown(peer)).toBe(stored(peer));
+      renderBadge(peer, badges.get(peer)!);
     }
-    // Each types a word at the end of every row.
+    await flush();
+  }
+  if (render === 'every-commit' || render === 'text-every-commit') {
+    let renders = 0;
+    for (const peer of [a, b]) {
+      peer.editor.registerUpdateListener(() => {
+        const element = peer.editor.getElementByKey(badges.get(peer)!);
+        if (element === null) {
+          return;
+        }
+        if (render === 'text-every-commit') {
+          renderBadgeText(peer, badges.get(peer)!);
+        } else {
+          element.textContent = `render ${++renders}`;
+        }
+      });
+    }
+    // An edit of each, so that each has rendered once.
     for (const [peer, word] of [
-      [a, 'AA'],
-      [b, 'BB'],
+      [a, 'note'],
+      [b, 'memo'],
     ] as const) {
-      const rows = peer.editor.read(() => $table().getChildrenSize());
-      for (let row = 0; row < rows; row++) {
-        peer.editor.update(
-          () => {
-            $selectCellEnd(
-              (
-                $table().getChildAtIndex(row) as TableRowNode
-              ).getLastChildOrThrow() as TableCellNode,
-            );
-            $getSelection()!.insertText(` ${word}${row}`);
-          },
-          {discrete: true},
-        );
-      }
+      peer.editor.update(
+        () => {
+          ($getRoot().getLastChildOrThrow() as ElementNode).append(
+            $createTextNode(word),
+          );
+        },
+        {discrete: true},
+      );
     }
-    exchange(a, b, badges, render);
-    await flush();
-    for (const peer of [a, b]) {
-      expect(shown(peer)).toBe(stored(peer));
-      const text = peer.editor.read(() => $table().getTextContent());
-      for (let row = 0; row < 4; row++) {
-        expect(text).toContain(`AA${row}`);
-        expect(text).toContain(`BB${row}`);
-      }
+  }
+  // Concurrently: A deletes the middle column, B adds a row after the
+  // header row.
+  a.editor.update(
+    () => {
+      $selectCellEnd($cellAt(2, 1));
+      $deleteTableColumnAtSelection();
+    },
+    {discrete: true},
+  );
+  b.editor.update(
+    () => {
+      $selectCellEnd($cellAt(0, 0));
+      $insertTableRowAtSelection(true);
+    },
+    {discrete: true},
+  );
+  exchange(a, b, badges, render);
+  await flush();
+  // Ragged, as stored (D55): the new row has B's three cells.
+  for (const peer of [a, b]) {
+    expect(widths(peer)).toEqual([2, 3, 2, 2]);
+    expect(shown(peer)).toBe(stored(peer));
+  }
+  // Each types a word at the end of every row.
+  for (const [peer, word] of [
+    [a, 'AA'],
+    [b, 'BB'],
+  ] as const) {
+    const rows = peer.editor.read(() => $table().getChildrenSize());
+    for (let row = 0; row < rows; row++) {
+      peer.editor.update(
+        () => {
+          $selectCellEnd(
+            (
+              $table().getChildAtIndex(row) as TableRowNode
+            ).getLastChildOrThrow() as TableCellNode,
+          );
+          $getSelection()!.insertText(` ${word}${row}`);
+        },
+        {discrete: true},
+      );
     }
-    expect(shown(a)).toBe(shown(b));
-    for (const peer of [a, b]) {
-      peer.editor.dispose();
-      peer.root.remove();
+  }
+  exchange(a, b, badges, render);
+  await flush();
+  for (const peer of [a, b]) {
+    expect(shown(peer)).toBe(stored(peer));
+    const text = peer.editor.read(() => $table().getTextContent());
+    for (let row = 0; row < 4; row++) {
+      expect(text).toContain(`AA${row}`);
+      expect(text).toContain(`BB${row}`);
     }
-  },
+  }
+  expect(shown(a)).toBe(shown(b));
+  for (const peer of [a, b]) {
+    peer.editor.dispose();
+    peer.root.remove();
+  }
+}
+
+test.each(RENDERS)(
+  'a table a collaborator left ragged is shown as stored, and words typed into it reach every client (DOM change %s)',
+  raggedTable,
+);
+
+test.fails.each(LIMITS)(
+  'a table a collaborator left ragged is shown as stored, and words typed into it reach every client (DOM change %s): known limit D130',
+  raggedTable,
 );
