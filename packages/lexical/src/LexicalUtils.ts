@@ -756,25 +756,26 @@ export function markNodesWithTypesAsDirty(
   if (dirtyNodeMaps.length === 0) {
     return;
   }
-  editor.update(
-    () => {
-      for (const nodeMap of dirtyNodeMaps) {
-        for (const nodeKey of nodeMap.keys()) {
-          // We are only concerned with nodes that are still in the latest NodeMap,
-          // if they no longer exist then markDirty would raise an exception
-          const latest = $getNodeByKey(nodeKey);
-          if (latest) {
-            latest.markDirty();
-          }
+  editor.update(() => {
+    // Tagged from inside the update, rather than via update options, so that
+    // the tag still applies when this call lands inside an update that is
+    // already in progress (e.g. a plugin registering a transform from an
+    // effect that runs alongside another plugin's editor.focus() call). This
+    // is re-validating existing content against a newly registered transform,
+    // not a real edit, so it must never be reported as one -- to update
+    // listeners such as OnChangePlugin, or to history.
+    $addUpdateTag(HISTORY_MERGE_TAG);
+    for (const nodeMap of dirtyNodeMaps) {
+      for (const nodeKey of nodeMap.keys()) {
+        // We are only concerned with nodes that are still in the latest NodeMap,
+        // if they no longer exist then markDirty would raise an exception
+        const latest = $getNodeByKey(nodeKey);
+        if (latest) {
+          latest.markDirty();
         }
       }
-    },
-    editor._pendingEditorState === null
-      ? {
-          tag: HISTORY_MERGE_TAG,
-        }
-      : undefined,
-  );
+    }
+  });
 }
 
 /** Returns the RootNode of the active EditorState. */
