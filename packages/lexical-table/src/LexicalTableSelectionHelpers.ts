@@ -65,6 +65,7 @@ import {
   isDOMDocumentNode,
   isDOMNode,
   isDOMShadowRoot,
+  isDOMTextNode,
   isHTMLElement,
   KEY_ARROW_DOWN_COMMAND,
   KEY_ARROW_LEFT_COMMAND,
@@ -266,6 +267,12 @@ export function registerTableWindowHandlers(
 
     const pointerDownCallback = (event: PointerEvent) => {
       tableObservers.touchTapCellKey = null;
+      // A pointer interaction invalidates a pending vertical exit armed by a
+      // vertical arrow key at a soft wrap: if the deferred native movement
+      // never happened, the next selection change is this pointer one and
+      // must not be corrected. Cleared before the checks so any button and
+      // any target invalidate it.
+      tableObservers.pendingVerticalExit = null;
       // Listener is on editorWindow; the composed target is needed so the
       // rootElement.contains check below sees the shadow-internal target.
       const target = getComposedEventTarget(event);
@@ -1342,6 +1349,57 @@ export function $handleTableSelectionChangeCommand(
       }
     }
   }
+  const pendingVerticalExit = tableObservers.getAndClearPendingVerticalExit();
+  // A vertical arrow key was pressed with the caret at an ambiguous soft
+  // wrap boundary, so the native movement ran with the engine's own
+  // affinity. If the caret left the original cell's column it was placed
+  // outside the cell (or outside the table): move it to the cell the exit
+  // detection would have chosen. Within the column the native movement
+  // found a line of the same cell, which is correct.
+  if (
+    pendingVerticalExit !== null &&
+    $isRangeSelection(selection) &&
+    selection.isCollapsed()
+  ) {
+    // The table may have been removed before this selection change was
+    // dispatched, in which case there is nothing to correct
+    const tableNode = $getNodeByKey(pendingVerticalExit.tableKey);
+    const observerAndTable = tableObservers.observers.get(
+      pendingVerticalExit.tableKey,
+    );
+    if ($isTableNode(tableNode) && observerAndTable !== undefined) {
+      const [tableObserver] = observerAndTable;
+      // A native landing inside the armed cell's own subtree (a nested
+      // table under the cell's text, for example) is a line of the same
+      // cell: trust it like a same-column landing.
+      const originCellNode = $getNodeByKey(pendingVerticalExit.cellKey);
+      const anchorInOriginCell =
+        $isTableCellNode(originCellNode) &&
+        $findMatchingParent(selection.anchor.getNode(), node =>
+          node.is(originCellNode),
+        ) !== null;
+      if (!anchorInOriginCell) {
+        const anchorCellNode = $findCellNode(selection.anchor.getNode());
+        const leftTheColumn =
+          !(
+            $isTableCellNode(anchorCellNode) &&
+            tableNode.is($findTableNode(anchorCellNode))
+          ) ||
+          tableNode.getCordsFromCellNode(anchorCellNode, tableObserver.table)
+            .x !== pendingVerticalExit.x;
+        if (leftTheColumn) {
+          selectTableNodeInDirection(
+            tableObserver,
+            tableNode,
+            pendingVerticalExit.x,
+            pendingVerticalExit.y,
+            pendingVerticalExit.direction,
+          );
+          return true;
+        }
+      }
+    }
+  }
 
   if ($isTableSelection(selection)) {
     $fixTableSelectionForSelectedTable(editor, selection);
@@ -2405,6 +2463,46 @@ function $isSelectionBeforeTable(
   );
 }
 
+/**
+ * Returns the rect of the visual line the caret's adjacent character renders
+ * on, or null when it cannot be measured. A collapsed range at a soft wrap
+ * reports its rect at the end of the previous line while the adjacent
+ * character renders on the next one, so comparing the two detects the
+ * ambiguous wrap boundary, where only the caret's affinity (not exposed in
+ * the DOM) tells the two positions apart. The character to the left is
+ * measured when the caret ends its text node; engines without layout (such
+ * as jsdom) get null and the caller keeps the collapsed range's own rect.
+ * The measurement stays within the start container, so a wrap whose next
+ * line starts a new text node is not detected as ambiguous.
+ */
+function getVisualLineRectAtCaret(range: Range): DOMRect | null {
+  if (typeof range.getClientRects !== 'function') {
+    return null;
+  }
+  const {startContainer, startOffset} = range;
+  if (!isDOMTextNode(startContainer)) {
+    return null;
+  }
+  const {length} = startContainer.data;
+  // The range may alias the live selection, so mutate a clone only
+  const characterRange = range.cloneRange();
+  for (const [start, end] of [
+    [startOffset, startOffset + 1],
+    [startOffset - 1, startOffset],
+  ]) {
+    if (start < 0 || end > length || start >= end) {
+      continue;
+    }
+    characterRange.setStart(startContainer, start);
+    characterRange.setEnd(startContainer, end);
+    const rects = characterRange.getClientRects();
+    if (rects.length > 0) {
+      return rects[rects.length - 1];
+    }
+  }
+  return null;
+}
+
 function $handleArrowKey(
   editor: LexicalEditor,
   event: KeyboardEvent,
@@ -2685,7 +2783,39 @@ function $handleArrowKey(
         if (range === null) {
           return false;
         }
-        edgeSelectionRect = range.getBoundingClientRect();
+        // A collapsed range at a soft wrap sits between two visual lines:
+        // "end of line N" and "start of line N+1" are the same DOM position,
+        // and only the caret's affinity, which the DOM does not expose,
+        // tells them apart. The collapsed range always reports its rect at
+        // the end of the previous line, so when the adjacent character
+        // renders on a different line the position is ambiguous: rather
+        // than guess the affinity, let the native movement run and correct
+        // the landing if it leaves the cell's column (see
+        // $handleTableSelectionChangeCommand). This deferral is
+        // collapsed-caret only: with shift, the keypress extends the
+        // selection and the correction cannot repair a non-collapsed
+        // landing, so the pre-existing caret-rect behavior is kept there.
+        const caretRect = range.getBoundingClientRect();
+        const adjacentCharacterRect = getVisualLineRectAtCaret(range);
+        if (
+          !event.shiftKey &&
+          adjacentCharacterRect !== null &&
+          Math.abs(adjacentCharacterRect.top - caretRect.top) > 4
+        ) {
+          const cords = tableNode.getCordsFromCellNode(
+            anchorCellNode,
+            tableObserver.table,
+          );
+          tableObservers.setPendingVerticalExit({
+            cellKey: anchorCellNode.getKey(),
+            direction,
+            tableKey: tableNode.getKey(),
+            x: cords.x,
+            y: cords.y,
+          });
+          return false;
+        }
+        edgeSelectionRect = caretRect;
       }
 
       const edgeChild =
