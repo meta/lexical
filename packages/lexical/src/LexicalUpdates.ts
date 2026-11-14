@@ -100,6 +100,16 @@ const editorsWithPendingSelectionChange = new Set<LexicalEditor>();
 const editorsDispatchingCommitListeners = new Set<LexicalEditor>();
 let infiniteTransformCount = 0;
 
+/**
+ * Pending editor states an update made with `skipTransforms`. The option
+ * holds for the update cycle (until the state commits), so an update that
+ * joins one of them (one queued after it in the same task, or the revert of
+ * DOM mutations that runs as the state commits) runs no transforms either,
+ * as an update nested in it does not (see $processNestedUpdates).
+ */
+const pendingStatesSkippingTransforms =
+  /* @__PURE__ */ new WeakSet<EditorState>();
+
 const observerOptions = {
   characterData: true,
   childList: true,
@@ -1339,6 +1349,9 @@ function $beginUpdate(
     editorStateWasCloned = true;
   }
   pendingEditorState._flushSync = discrete;
+  if (pendingStatesSkippingTransforms.has(pendingEditorState)) {
+    skipTransforms = true;
+  }
   // The updates queued before this one (see $discardPendingUpdate).
   const queuedBefore =
     editor._updates.length === 0 ? null : new Set(editor._updates);
@@ -1372,6 +1385,9 @@ function $beginUpdate(
     const startingCompositionKey = editor._compositionKey;
     updateFn();
     skipTransforms = $processNestedUpdates(editor, skipTransforms);
+    if (skipTransforms) {
+      pendingStatesSkippingTransforms.add(pendingEditorState);
+    }
     applySelectionTransforms(pendingEditorState, editor);
 
     if (editor._dirtyType !== NO_DIRTY_NODES) {
