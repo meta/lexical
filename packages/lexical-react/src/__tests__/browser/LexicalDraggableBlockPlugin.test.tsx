@@ -537,6 +537,73 @@ describe('DraggableBlockPlugin_EXPERIMENTAL with lists', () => {
     ]);
   });
 
+  test('the upper half of a nested item still means "before" when the window is scrolled', () => {
+    const spacer = document.createElement('div');
+    spacer.style.height = '3000px';
+    document.body.prepend(spacer);
+    const tail = document.createElement('div');
+    tail.style.height = '3000px';
+    document.body.append(tail);
+    onTestFinished(() => {
+      spacer.remove();
+      tail.remove();
+      window.scrollTo(0, 0);
+    });
+    const harness = render();
+    const {anchorElem, editor} = harness;
+    populate(editor);
+    window.scrollTo(0, 2900);
+    expect(window.scrollY).toBe(2900);
+    const from = elementWithText(editor, 'Three');
+    const to = elementWithText(editor, 'Nested one');
+
+    hover(harness, from);
+    const handle = anchorElem.querySelector<HTMLElement>(`.${MENU_CLASS}`)!;
+    const dataTransfer = new DataTransfer();
+    act(() => {
+      handle.dispatchEvent(
+        new DragEvent('dragstart', {bubbles: true, dataTransfer}),
+      );
+    });
+    const rect = to.getBoundingClientRect();
+    const init = {
+      bubbles: true,
+      cancelable: true,
+      clientX: rect.left + 5,
+      clientY: rect.top + 2,
+      dataTransfer,
+    };
+    // A real event reports pageY with the scroll offset added; a synthetic
+    // one may not, so it is set here.
+    const scrolledEvent = (type: string) => {
+      const event = new DragEvent(type, init);
+      Object.defineProperty(event, 'pageY', {
+        value: init.clientY + window.scrollY,
+      });
+      return event;
+    };
+    const rootElement = editor.getRootElement()!;
+    act(() => {
+      rootElement.dispatchEvent(scrolledEvent('dragover'));
+    });
+    const line = anchorElem.querySelector<HTMLElement>(
+      `.${TARGET_LINE_CLASS}`,
+    )!;
+    expect(line.getBoundingClientRect().top).toBeLessThan(rect.top + 2);
+    act(() => {
+      rootElement.dispatchEvent(scrolledEvent('drop'));
+    });
+    act(() => {
+      handle.dispatchEvent(new DragEvent('dragend', {bubbles: true}));
+    });
+
+    expect(structure(editor)).toEqual([
+      'Before',
+      ['number', 'One', 'Two', ['bullet', 'Three', 'Nested one', 'Nested two']],
+      'After',
+    ]);
+  });
+
   test('finds the item under the pointer in a long list, from the gutter too', () => {
     const harness = render();
     const {anchorElem, editor, scroller} = harness;
@@ -716,6 +783,92 @@ describe('DraggableBlockPlugin_EXPERIMENTAL with $getBlockBehavior', () => {
       );
     });
     expect(harness.lastElement()).toBe(section);
+  });
+
+  test('a transparent top-level block has no handle and is not a drop target', () => {
+    const harness = render(node =>
+      node instanceof SectionNode || node instanceof RegionNode
+        ? 'transparent'
+        : node instanceof SectionTitleNode
+          ? 'ignored'
+          : null,
+    );
+    const {anchorElem, editor} = harness;
+    act(() => {
+      editor.update(
+        () => {
+          $getRoot()
+            .clear()
+            .append(
+              $block('Before'),
+              $create(SectionNode).append(
+                $create(SectionTitleNode).append($createTextNode('Title')),
+                $create(RegionNode).append(
+                  $block('Body one'),
+                  $block('Body two'),
+                ),
+              ),
+            );
+        },
+        {discrete: true},
+      );
+    });
+    const section = elementWithClass(editor, 'test-section');
+    section.style.paddingBottom = '30px';
+
+    hover(harness, elementWithText(editor, 'Body one'));
+    expect(harness.lastElement()).toBe(elementWithText(editor, 'Body one'));
+    hover(harness, elementWithClass(editor, 'test-section-title'));
+    expect(harness.lastElement()).toBeNull();
+
+    // Dropped on the empty lower part of the section, and below the last
+    // top-level block: nothing may land next to the section.
+    const sectionRect = section.getBoundingClientRect();
+    for (const clientY of [sectionRect.bottom - 10, sectionRect.bottom + 40]) {
+      hover(harness, elementWithText(editor, 'Before'));
+      const handle = anchorElem.querySelector<HTMLElement>(`.${MENU_CLASS}`)!;
+      const dataTransfer = new DataTransfer();
+      act(() => {
+        handle.dispatchEvent(
+          new DragEvent('dragstart', {bubbles: true, dataTransfer}),
+        );
+      });
+      const init = {
+        bubbles: true,
+        cancelable: true,
+        clientX: sectionRect.left + 5,
+        clientY,
+        dataTransfer,
+      };
+      const rootElement = editor.getRootElement()!;
+      act(() => {
+        rootElement.dispatchEvent(new DragEvent('dragover', init));
+      });
+      act(() => {
+        rootElement.dispatchEvent(new DragEvent('drop', init));
+      });
+      act(() => {
+        handle.dispatchEvent(new DragEvent('dragend', {bubbles: true}));
+      });
+      expect(structure(editor)).toEqual([
+        'Before',
+        ['test-section', 'Title', ['test-region', 'Body one', 'Body two']],
+      ]);
+    }
+
+    // The blocks of the section still take a drop.
+    dragAfter(
+      harness,
+      elementWithText(editor, 'Before'),
+      elementWithText(editor, 'Body two'),
+    );
+    expect(structure(editor)).toEqual([
+      [
+        'test-section',
+        'Title',
+        ['test-region', 'Body one', 'Body two', 'Before'],
+      ],
+    ]);
   });
 
   test("returning 'atomic' for every block keeps the handle on top-level blocks", () => {

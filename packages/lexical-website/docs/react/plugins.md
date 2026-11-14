@@ -520,7 +520,7 @@ const targetLineRef = useRef(null);
 />
 ```
 
-`onElementChanged` reports the block the handle belongs to, which can be a nested block such as a list item. If you insert content next to that block, check where it sits: a paragraph inserted after a list item ends up inside the list.
+`onElementChanged` reports the block the handle belongs to, which can be a nested block such as a list item. If you insert content next to that block, check where it sits: inserting a paragraph after a list item splits its list or, for an item of a nested list, puts the paragraph inside the parent list item.
 
 By default a shadow root (a table, a layout container, ...) is dragged as one unit and nothing inside it gets a handle. The optional `$getBlockBehavior` prop decides this per node. It returns one of:
 

@@ -171,8 +171,9 @@ function containsEvent(
  * - `'ignored'`: neither the block nor anything inside it gets a handle; the
  *   pointer over it counts as being over the enclosing block.
  *
- * A top-level block always has a handle, so for it `'transparent'` reads as
- * `'draggable'` and `'ignored'` as `'atomic'`.
+ * This holds for top-level blocks too: a top-level `'transparent'` block (a
+ * page of a paged document) cannot be dragged or dropped next to, only the
+ * blocks nested in it can.
  *
  * @experimental The API may change in a future release.
  */
@@ -285,7 +286,9 @@ function getFirstBlockIndexNearEvent(
  * top-level block. `$getBehavior` decides how each block met on the way is
  * treated, see {@link DraggableBlockBehavior}. When no nested block is under
  * the pointer (for example the margin band of a list) the enclosing block is
- * returned, so a whole list can still be dragged from its edge.
+ * returned, so a whole list can still be dragged from its edge. Returns null
+ * when no block with a handle encloses the pointer either (the top-level
+ * block is `'transparent'` or `'ignored'`).
  */
 function $getNestedBlockElement(
   editor: LexicalEditor,
@@ -293,13 +296,19 @@ function $getNestedBlockElement(
   anchorElementRect: DOMRect,
   event: MouseEvent,
   $getBehavior: $GetBlockBehavior,
-): HTMLElement {
+): HTMLElement | null {
   let node = $getNearestNodeFromDOMNode(elem);
-  let blockElem = elem;
+  let blockElem: HTMLElement | null = elem;
   if (node !== null) {
     const behavior = $getBehavior(node);
-    if (behavior === 'atomic' || behavior === 'ignored') {
+    if (behavior === 'ignored') {
+      return null;
+    }
+    if (behavior === 'atomic') {
       return blockElem;
+    }
+    if (behavior === 'transparent') {
+      blockElem = null;
     }
   }
   while (node !== null) {
@@ -507,10 +516,21 @@ function getBlockElement(
       if (firstNodeRect && lastNodeRect) {
         const firstNodeZoom = calculateZoomLevel(firstNode);
         const lastNodeZoom = calculateZoomLevel(lastNode);
+        let edgeElem: HTMLElement | null = null;
         if (event.y / firstNodeZoom < firstNodeRect.top) {
-          blockElem = firstNode;
+          edgeElem = firstNode;
         } else if (event.y / lastNodeZoom > lastNodeRect.bottom) {
-          blockElem = lastNode;
+          edgeElem = lastNode;
+        }
+        if (edgeElem !== null) {
+          // A top-level block without a handle of its own is not a drop
+          // target either.
+          const edgeNode = $getNearestNodeFromDOMNode(edgeElem);
+          const behavior =
+            edgeNode !== null ? $getBehavior(edgeNode) : 'draggable';
+          if (behavior === 'draggable' || behavior === 'atomic') {
+            blockElem = edgeElem;
+          }
         }
 
         if (blockElem) {
@@ -772,7 +792,8 @@ function useDraggableBlockMenu(
       if (isFileTransfer) {
         return false;
       }
-      const pageY = event.pageY;
+      // The pointer in viewport coordinates, like the rects it is compared to.
+      const clientY = event.clientY;
       // Composed target so the zoom level is read from the real element rather
       // than the shadow host when the editor is in a shadow tree.
       const target = getComposedEventTarget(event);
@@ -802,7 +823,7 @@ function useDraggableBlockMenu(
       setTargetLine(
         targetLineElem,
         dropTarget.elem,
-        pageY / calculateZoomLevel(target),
+        clientY / calculateZoomLevel(target),
         anchorElem,
         dropTarget.isNested,
       );
@@ -819,7 +840,7 @@ function useDraggableBlockMenu(
       if (isFileTransfer) {
         return false;
       }
-      const {dataTransfer, pageY} = event;
+      const {dataTransfer, clientY} = event;
       // Composed target so the zoom level is read from the real element rather
       // than the shadow host when the editor is in a shadow tree.
       const target = getComposedEventTarget(event);
@@ -873,7 +894,7 @@ function useDraggableBlockMenu(
       if (
         isDropAfter(
           targetBlockElem,
-          pageY / calculateZoomLevel(target),
+          clientY / calculateZoomLevel(target),
           $isNestedBlock(targetNode),
         )
       ) {

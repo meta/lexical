@@ -4,7 +4,7 @@
 
 [feature] `DraggableBlockPlugin_EXPERIMENTAL` drags nested blocks on their own (list items, the blocks of a named slot) and takes a `$getBlockBehavior` prop to decide this per node
 
-The handle targets the block under the pointer at any depth (a list item in a nested list, not the whole list), so `onElementChanged` now reports nested blocks too. Code that inserts next to the reported block should check where it is: a paragraph inserted after a list item ends up inside the list. Pass `$getBlockBehavior={() => 'atomic'}` to keep the handle on top-level blocks only.
+The handle targets the block under the pointer at any depth (a list item in a nested list, not the whole list), so `onElementChanged` now reports nested blocks too. Code that inserts next to the reported block should check where it is: inserting a paragraph after a list item splits its list or, for an item of a nested list, puts the paragraph inside the parent list item. Pass `$getBlockBehavior={() => 'atomic'}` to keep the handle on top-level blocks only.
 
 A list item can be dropped into any list or outside a list (where it gets a new list of the same type), and a block that is not a list item dragged over a list lands next to that list, so the drop line only shows where the drop will happen. The drop line is indented to the target's left edge. On a nested target the upper half means "before" and the lower half "after"; a top-level target behaves as before. A list whose last item is dragged out is removed.
 
