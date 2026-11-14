@@ -26,6 +26,8 @@ import {
 import {useLexicalComposerContext} from '@lexical/react/LexicalComposerContext';
 import {
   $findMatchingParent,
+  $getEditor,
+  $getNearestNodeFromDOMNode,
   $getSelection,
   $isDecoratorNode,
   $isLineBreakNode,
@@ -38,11 +40,13 @@ import {
   COMMAND_PRIORITY_HIGH,
   COMMAND_PRIORITY_LOW,
   getActiveElementDeep,
+  getComposedEventTarget,
   getDOMSelection,
   getDOMSelectionPoints,
   getDOMSelectionRangeAndPoints,
   getParentElement,
   getRootOwnerDocument,
+  isDOMNode,
   KEY_ESCAPE_COMMAND,
   type LexicalEditor,
   mergeRegister,
@@ -511,7 +515,44 @@ function useFloatingLinkEditorToolbar(
       editor.registerCommand(
         CLICK_COMMAND,
         payload => {
-          const selection = $getSelection();
+          let selection = $getSelection();
+          const currentEditor = $getEditor();
+          const target = getComposedEventTarget(payload);
+          if (
+            currentEditor.isEditable() &&
+            payload.button === 0 &&
+            !payload.shiftKey &&
+            $isRangeSelection(selection) &&
+            selection.isCollapsed() &&
+            isDOMNode(target)
+          ) {
+            const clickedNode = $getNearestNodeFromDOMNode(target);
+            const clickedLink =
+              clickedNode && $findMatchingParent(clickedNode, $isLinkNode);
+            const anchorNode = selection.anchor.getNode();
+            if (
+              clickedLink &&
+              !clickedLink.is(anchorNode) &&
+              !clickedLink.isParentOf(anchorNode)
+            ) {
+              const rootElement = currentEditor.getRootElement();
+              const nativeSelection = getDOMSelection(
+                rootElement?.ownerDocument.defaultView ?? null,
+              );
+              const domAnchorNode = nativeSelection
+                ? getDOMSelectionPoints(nativeSelection, rootElement).anchorNode
+                : null;
+              const linkElement = currentEditor.getElementByKey(
+                clickedLink.getKey(),
+              );
+              // A click can precede selectionchange; the DOM caret may be newer.
+              if (!linkElement?.contains(domAnchorNode)) {
+                selection = anchorNode.isBefore(clickedLink)
+                  ? clickedLink.selectStart()
+                  : clickedLink.selectEnd();
+              }
+            }
+          }
           if ($isRangeSelection(selection)) {
             const node = getSelectedNode(selection);
             const linkNode = $findMatchingParent(node, $isLinkNode);
