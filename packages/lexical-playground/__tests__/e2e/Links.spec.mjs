@@ -6,6 +6,8 @@
  *
  */
 
+import {expect} from '@playwright/test';
+
 import {
   deleteBackward,
   moveLeft,
@@ -1030,6 +1032,86 @@ test.describe('Links', () => {
         </p>
       `,
     );
+  });
+
+  test('Insert link does nothing with a collapsed selection outside a link (#5305)', async ({
+    page,
+  }) => {
+    await focusEditor(page);
+    await page.keyboard.type('A link');
+    await selectAll(page);
+    await click(page, '.link');
+    await click(page, '.link-confirm');
+    await moveToLineEnd(page);
+    await page.keyboard.type('. Try typing in');
+
+    // Caret inside the word "typing", nothing selected.
+    await moveLeft(page, 5);
+    await click(page, '.link');
+
+    await assertHTML(
+      page,
+      html`
+        <p class="PlaygroundEditorTheme__paragraph" dir="auto">
+          <a
+            class="PlaygroundEditorTheme__link"
+            href="https://"
+            rel="noreferrer">
+            <span data-lexical-text="true">A link</span>
+          </a>
+          <span data-lexical-text="true">. Try typing in</span>
+        </p>
+      `,
+    );
+
+    // The click did not leave the link editor in edit mode: moving into the
+    // existing link shows its URL, not an input.
+    await focusEditor(page);
+    await moveToLineBeginning(page);
+    await moveRight(page, 1);
+    await expect(page.locator('.link-editor .link-view')).toBeVisible();
+    await expect(page.locator('.link-editor .link-input')).toHaveCount(0);
+  });
+
+  test('Ctrl/Cmd+K does nothing with a collapsed selection outside a link (#5305)', async ({
+    page,
+  }) => {
+    await focusEditor(page);
+    await page.keyboard.type('A link');
+    await selectAll(page);
+    await click(page, '.link');
+    await click(page, '.link-confirm');
+    await moveToLineEnd(page);
+    await page.keyboard.type('. Try typing in');
+
+    // Caret inside the word "typing", nothing selected.
+    await moveLeft(page, 5);
+    await keyDownCtrlOrMeta(page);
+    await page.keyboard.press('k');
+    await keyUpCtrlOrMeta(page);
+
+    await assertHTML(
+      page,
+      html`
+        <p class="PlaygroundEditorTheme__paragraph" dir="auto">
+          <a
+            class="PlaygroundEditorTheme__link"
+            href="https://"
+            rel="noreferrer">
+            <span data-lexical-text="true">A link</span>
+          </a>
+          <span data-lexical-text="true">. Try typing in</span>
+        </p>
+      `,
+    );
+
+    // The shortcut did not leave the link editor in edit mode: moving into the
+    // existing link shows its URL, not an input.
+    await focusEditor(page);
+    await moveToLineBeginning(page);
+    await moveRight(page, 1);
+    await expect(page.locator('.link-editor .link-view')).toBeVisible();
+    await expect(page.locator('.link-editor .link-input')).toHaveCount(0);
   });
 
   test('Can edit link with collapsed selection', async ({page}) => {
