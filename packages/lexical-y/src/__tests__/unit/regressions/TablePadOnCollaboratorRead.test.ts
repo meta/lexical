@@ -8,12 +8,13 @@
 
 // A collaborator's change is read while the editor's DOM holds a change it
 // has not processed yet (here, a decorator rendering into its element, as
-// React renders decorators). Lexical reverts such changes before the read
-// commits, in an update that joins the read's pending state. That update ran
-// node transforms, which the read itself skips, over everything the read
-// changed: the table transform padded the rows a concurrent column delete
-// and row insert left ragged, in this editor only. Its document lacks the
-// padding cells, so words typed into them never reached anyone.
+// React renders decorators: just before the change arrives, or in every
+// commit). Lexical reverts such changes before the read commits, in an
+// update that joins the read's pending state. That update ran node
+// transforms, which the read itself skips, over everything the read changed:
+// the table transform padded the rows a concurrent column delete and row
+// insert left ragged, in this editor only. Its document lacks the padding
+// cells, so words typed into them never reached anyone.
 
 import {
   buildEditorFromExtensions,
@@ -161,127 +162,168 @@ function renderBadge(peer: Peer, key: NodeKey) {
   peer.editor.getElementByKey(key)!.textContent = 'rendered';
 }
 
+/**
+ * When the editor's DOM holds a change it has not processed: rendered just
+ * before each update arrives, or rendered in every commit (as a decorator
+ * that renders synchronously on commit does), so that the next commit in the
+ * same task finds it.
+ */
+type Render = 'before-arrival' | 'every-commit';
+
 /** Deliver what each peer sent to the other. */
-function exchange(a: Peer, b: Peer, badges: Map<Peer, NodeKey>) {
+function exchange(
+  a: Peer,
+  b: Peer,
+  badges: Map<Peer, NodeKey>,
+  render: Render,
+) {
   for (const [from, to] of [
     [a, b],
     [b, a],
   ]) {
-    // The receiver's DOM holds a change it has not processed when the
-    // update arrives.
-    renderBadge(to, badges.get(to)!);
+    if (render === 'before-arrival') {
+      renderBadge(to, badges.get(to)!);
+    }
     for (const update of from.outbox.splice(0)) {
       Y.applyUpdate(to.doc, update, 'network');
     }
   }
 }
 
-test('a table a collaborator left ragged is shown as stored, and words typed into it reach every client', async () => {
-  const a = createPeer(1);
-  const b = createPeer(2);
-  a.editor.update(
-    () => {
-      $getRoot()
-        .clear()
-        .append(
-          $createParagraphNode().append($create(BadgeNode)),
-          $createTableNode()
-            .setColWidths([120, 80, 100])
-            .append(
-              $createTableRowNode().append(
-                $cell('h0', true),
-                $cell('h1', true),
-                $cell('h2', true),
+test.each<Render>(['before-arrival', 'every-commit'])(
+  'a table a collaborator left ragged is shown as stored, and words typed into it reach every client (DOM change %s)',
+  async render => {
+    const a = createPeer(1);
+    const b = createPeer(2);
+    a.editor.update(
+      () => {
+        $getRoot()
+          .clear()
+          .append(
+            $createParagraphNode().append($create(BadgeNode)),
+            $createTableNode()
+              .setColWidths([120, 80, 100])
+              .append(
+                $createTableRowNode().append(
+                  $cell('h0', true),
+                  $cell('h1', true),
+                  $cell('h2', true),
+                ),
+                $createTableRowNode().append(
+                  $cell('merged', false, 2),
+                  $cell('r1', false),
+                ),
+                $createTableRowNode().append(
+                  $cell('a', false),
+                  $cell('b', false),
+                  $cell('c', false),
+                ),
               ),
-              $createTableRowNode().append(
-                $cell('merged', false, 2),
-                $cell('r1', false),
-              ),
-              $createTableRowNode().append(
-                $cell('a', false),
-                $cell('b', false),
-                $cell('c', false),
-              ),
-            ),
-          $createParagraphNode(),
-        );
-    },
-    {discrete: true},
-  );
-  getExtensionDependencyFromEditor(
-    a.editor,
-    YCollabExtension,
-  ).output.binding.initialize();
-  await flush();
-  Y.applyUpdate(b.doc, Y.encodeStateAsUpdate(a.doc), 'network');
-  a.outbox.length = 0;
-  await flush();
-  const badgeKey = (peer: Peer) =>
-    peer.editor.read(() =>
-      ($getRoot().getFirstChildOrThrow() as ElementNode)
-        .getFirstChildOrThrow()
-        .getKey(),
-    );
-  const badges = new Map([
-    [a, badgeKey(a)],
-    [b, badgeKey(b)],
-  ]);
-  // Concurrently: A deletes the middle column, B adds a row after the
-  // header row.
-  a.editor.update(
-    () => {
-      $selectCellEnd($cellAt(2, 1));
-      $deleteTableColumnAtSelection();
-    },
-    {discrete: true},
-  );
-  b.editor.update(
-    () => {
-      $selectCellEnd($cellAt(0, 0));
-      $insertTableRowAtSelection(true);
-    },
-    {discrete: true},
-  );
-  exchange(a, b, badges);
-  await flush();
-  // Ragged, as stored (D55): the new row has B's three cells.
-  for (const peer of [a, b]) {
-    expect(widths(peer)).toEqual([2, 3, 2, 2]);
-    expect(shown(peer)).toBe(stored(peer));
-  }
-  // Each types a word at the end of every row.
-  for (const [peer, word] of [
-    [a, 'AA'],
-    [b, 'BB'],
-  ] as const) {
-    const rows = peer.editor.read(() => $table().getChildrenSize());
-    for (let row = 0; row < rows; row++) {
-      peer.editor.update(
-        () => {
-          $selectCellEnd(
-            (
-              $table().getChildAtIndex(row) as TableRowNode
-            ).getLastChildOrThrow() as TableCellNode,
+            $createParagraphNode(),
           );
-          $getSelection()!.insertText(` ${word}${row}`);
-        },
-        {discrete: true},
+      },
+      {discrete: true},
+    );
+    getExtensionDependencyFromEditor(
+      a.editor,
+      YCollabExtension,
+    ).output.binding.initialize();
+    await flush();
+    Y.applyUpdate(b.doc, Y.encodeStateAsUpdate(a.doc), 'network');
+    a.outbox.length = 0;
+    await flush();
+    const badgeKey = (peer: Peer) =>
+      peer.editor.read(() =>
+        ($getRoot().getFirstChildOrThrow() as ElementNode)
+          .getFirstChildOrThrow()
+          .getKey(),
       );
+    const badges = new Map([
+      [a, badgeKey(a)],
+      [b, badgeKey(b)],
+    ]);
+    if (render === 'every-commit') {
+      let renders = 0;
+      for (const peer of [a, b]) {
+        peer.editor.registerUpdateListener(() => {
+          const element = peer.editor.getElementByKey(badges.get(peer)!);
+          if (element !== null) {
+            element.textContent = `render ${++renders}`;
+          }
+        });
+      }
+      // An edit of each, so that each has rendered once.
+      for (const [peer, word] of [
+        [a, 'note'],
+        [b, 'memo'],
+      ] as const) {
+        peer.editor.update(
+          () => {
+            ($getRoot().getLastChildOrThrow() as ElementNode).append(
+              $createTextNode(word),
+            );
+          },
+          {discrete: true},
+        );
+      }
     }
-  }
-  exchange(a, b, badges);
-  await flush();
-  for (const peer of [a, b]) {
-    expect(shown(peer)).toBe(stored(peer));
-    const text = peer.editor.read(() => $table().getTextContent());
-    for (let row = 0; row < 4; row++) {
-      expect(text).toContain(`AA${row}`);
-      expect(text).toContain(`BB${row}`);
+    // Concurrently: A deletes the middle column, B adds a row after the
+    // header row.
+    a.editor.update(
+      () => {
+        $selectCellEnd($cellAt(2, 1));
+        $deleteTableColumnAtSelection();
+      },
+      {discrete: true},
+    );
+    b.editor.update(
+      () => {
+        $selectCellEnd($cellAt(0, 0));
+        $insertTableRowAtSelection(true);
+      },
+      {discrete: true},
+    );
+    exchange(a, b, badges, render);
+    await flush();
+    // Ragged, as stored (D55): the new row has B's three cells.
+    for (const peer of [a, b]) {
+      expect(widths(peer)).toEqual([2, 3, 2, 2]);
+      expect(shown(peer)).toBe(stored(peer));
     }
-  }
-  expect(shown(a)).toBe(shown(b));
-  for (const peer of [a, b]) {
-    peer.editor.dispose();
-    peer.root.remove();
-  }
-});
+    // Each types a word at the end of every row.
+    for (const [peer, word] of [
+      [a, 'AA'],
+      [b, 'BB'],
+    ] as const) {
+      const rows = peer.editor.read(() => $table().getChildrenSize());
+      for (let row = 0; row < rows; row++) {
+        peer.editor.update(
+          () => {
+            $selectCellEnd(
+              (
+                $table().getChildAtIndex(row) as TableRowNode
+              ).getLastChildOrThrow() as TableCellNode,
+            );
+            $getSelection()!.insertText(` ${word}${row}`);
+          },
+          {discrete: true},
+        );
+      }
+    }
+    exchange(a, b, badges, render);
+    await flush();
+    for (const peer of [a, b]) {
+      expect(shown(peer)).toBe(stored(peer));
+      const text = peer.editor.read(() => $table().getTextContent());
+      for (let row = 0; row < 4; row++) {
+        expect(text).toContain(`AA${row}`);
+        expect(text).toContain(`BB${row}`);
+      }
+    }
+    expect(shown(a)).toBe(shown(b));
+    for (const peer of [a, b]) {
+      peer.editor.dispose();
+      peer.root.remove();
+    }
+  },
+);

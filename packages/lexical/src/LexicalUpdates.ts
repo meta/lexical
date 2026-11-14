@@ -101,13 +101,17 @@ const editorsDispatchingCommitListeners = new Set<LexicalEditor>();
 let infiniteTransformCount = 0;
 
 /**
- * Pending editor states an update made with `skipTransforms`: the revert of
- * DOM mutations that runs as such a state commits (see
- * $commitPendingUpdates) joins it, and runs no transforms either, so that it
- * does not transform what that update left untransformed.
+ * Pending editor states an update made with `skipTransforms`, until they
+ * commit: the revert of recorded DOM mutations that joins one runs no
+ * transforms either (see flushMutations).
  */
 const pendingStatesSkippingTransforms =
   /* @__PURE__ */ new WeakSet<EditorState>();
+
+/** Whether an update made pending `state` with `skipTransforms`. */
+export function isPendingStateSkippingTransforms(state: EditorState): boolean {
+  return pendingStatesSkippingTransforms.has(state);
+}
 
 const observerOptions = {
   characterData: true,
@@ -636,16 +640,8 @@ export function $commitPendingUpdates(
   // the flush would run against the failed editor state.
   if (editor._pendingEditorState !== null && activeEditor !== editor) {
     // The commit disconnects the observer, which drops the DOM changes it has
-    // recorded but not reported yet, so they are reverted first. The revert
-    // joins the pending state: after an update made with skipTransforms, it
-    // runs none either, which would otherwise run over everything that
-    // update changed (a collaborator's change a binding read).
-    flushRootMutations(
-      editor,
-      false,
-      true,
-      pendingStatesSkippingTransforms.has(editor._pendingEditorState),
-    );
+    // recorded but not reported yet, so they are reverted first.
+    flushRootMutations(editor, false, true);
   }
   // Save and restore rather than set and clear because the reconciler error
   // recovery path re-enters $commitPendingUpdates, and the enqueued update
@@ -756,6 +752,7 @@ function $commitPendingUpdatesImpl(
 
   if (!pendingEditorState._readOnly) {
     pendingEditorState._readOnly = true;
+    pendingStatesSkippingTransforms.delete(pendingEditorState);
     if (__DEV__) {
       handleDEVOnlyPendingUpdateGuarantees(pendingEditorState);
       if ($isRangeSelection(pendingSelection)) {

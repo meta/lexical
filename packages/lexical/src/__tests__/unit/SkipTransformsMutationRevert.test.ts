@@ -7,14 +7,17 @@
  */
 
 /**
- * A commit first reverts the DOM changes the mutation observer recorded but
- * had not reported, in an update that joins the pending state. After an
- * update made with `skipTransforms`, that revert runs no node transforms
- * either; before, it ran every transform over what the skipping update had
- * changed. Every other update that joins such a state (one queued after it
- * in the same task, `registerNodeTransform`'s pass over existing nodes,
- * edits a `SELECTION_CHANGE_COMMAND` handler makes as it commits) runs
- * transforms as before.
+ * The revert of DOM changes the mutation observer recorded runs in an update
+ * that joins the pending state, when there is one: a commit starts it first,
+ * the observer's own callback can run before a queued commit, and
+ * setEditorState starts one. After an update made with `skipTransforms`,
+ * that revert runs no node transforms either; before, it ran every transform
+ * over what the skipping update had changed. It still runs them when it
+ * brings text typed in the DOM into the editor state, which they would
+ * otherwise never see. Every other update that joins such a state (one
+ * queued after it in the same task, `registerNodeTransform`'s pass over
+ * existing nodes, edits a `SELECTION_CHANGE_COMMAND` handler makes as it
+ * commits) runs transforms as before.
  */
 
 import {
@@ -102,6 +105,50 @@ describe('the revert of recorded DOM changes in a commit', () => {
     changeDOM(editor);
     editor.update(() => $setText('local'), {discrete: true});
     expect(seen).toContain('local');
+  });
+
+  test("started by the observer's callback before the update commits, runs no transforms", async () => {
+    const {editor, seen} = mount();
+    // Recorded first: the observer's callback runs before the commit the
+    // update queues, and its revert joins the pending state.
+    changeDOM(editor);
+    editor.update(() => $setText('remote'), {skipTransforms: true});
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(editor.getRootElement()!.querySelector('.stray')).toBe(null);
+    expect(editor.read(() => $getRoot().getTextContent())).toBe('remote');
+    expect(seen).toEqual([]);
+  });
+
+  test('started by setEditorState while the update is pending, runs no transforms', async () => {
+    const {editor, seen} = mount();
+    const saved = editor.getEditorState();
+    editor.update(() => $setText('remote'), {skipTransforms: true});
+    editor.setEditorState(saved);
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(seen).toEqual([]);
+  });
+
+  test('runs them when it brings text typed in the DOM into the editor state', () => {
+    const {editor, seen} = mount();
+    editor.update(
+      () => {
+        $getRoot().append($createParagraphNode().append($createTextNode('b')));
+      },
+      {discrete: true},
+    );
+    seen.length = 0;
+    // An autocorrect or spellcheck replaced the first text in the DOM.
+    const key = editor.read(() => $getRoot().getFirstDescendant()!.getKey());
+    (editor.getElementByKey(key)!.firstChild as Text).data = 'start typed';
+    editor.update(
+      () =>
+        ($getRoot().getLastDescendant() as TextNode).setTextContent('remote'),
+      {discrete: true, skipTransforms: true},
+    );
+    expect(editor.read(() => $getRoot().getTextContent())).toBe(
+      'start typed\n\nremote',
+    );
+    expect(seen).toContain('start typed');
   });
 });
 
