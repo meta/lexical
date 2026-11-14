@@ -805,7 +805,11 @@ see [Layout upgrades](./y.md#layout-upgrades)), rooms stored at an older
 layout open read only in it until they are migrated. The server that
 stores a room migrates it when it loads it, before
 it serves it, with the published steps, which `@lexical/y/server` imports
-statically (clients that have a server carry no migration code).
+statically (clients that have a server carry no migration code). An
+editor tab can instead migrate the live room it has open, with no server
+step (see
+[Migrating a live room in place](./y.md#migrating-a-live-room-in-place)
+for what that keeps and what it does not).
 `@lexical/y/server` has the pieces (no Lexical import):
 
 ```ts

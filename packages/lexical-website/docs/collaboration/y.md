@@ -2077,6 +2077,10 @@ not merge as a user might expect:
   only where the document still equals the block's base, and never merges
   inside a block (D126): see
   [Limits of the offline layer](#limits-of-the-offline-layer).
+- **Migrating a live room in place.** A format or NodeState change that a
+  tab of an older build made before a tab's migration reached it can lose
+  to the value the migration restated there (D123): see
+  [Migrating a live room in place](#migrating-a-live-room-in-place).
 - **Migrating a nested root.** The migration runner migrates top-level
   roots only: a root inside another shared type stays read only below
   `MIN_LAYOUT`. Export its content and reseed it into a top-level root with
@@ -2343,6 +2347,10 @@ derived block ids survive. Each step is its own frozen module that the core
 never imports, `@lexical/y/migrate/<n>to<n+1>` (a default export), and the
 runner is `@lexical/y/migrate`:
 
+- `migrateYDoc(doc, steps, options)`: migrates a live document in place
+  (an editor tab's own room, see
+  [Migrating a live room in place](#migrating-a-live-room-in-place)) and
+  returns its receipt. The update is applied with `MIGRATION_ORIGIN`.
 - `migrateYState(state, steps, options)`: migrates a stored state (for a
   server); returns `{state, update, pending, receipt}`, or the input bytes
   with `update: null` when no root is below the target (`to`, default
@@ -2382,27 +2390,96 @@ read, check or write), the error's `cause` is the error it threw. The
 transaction records the new layout and an epoch (`lexical-y-epoch`, see the
 wire format).
 
-**Who migrates.** A shared room is migrated by the server that stores it,
-when it loads the room, with every session out: see
+**Who migrates.** Either the server that stores a room, when it loads it,
+with every session out (see
 [Migrating stored documents](./y-server.md#migrating-stored-documents) in
-the server guide (`@lexical/y/server`), which also covers clients that held
-edits from before the migration. Never migrate a shared room in a browser.
-A binding-managed client-side migration path is deferred (a later release
-may add one). Manual single-writer migration remains usable: an app whose
-documents only one client writes (local storage, no server) migrates their
-stored bytes with `migrateYState` before it loads and binds them.
+the server guide, `@lexical/y/server`, which also covers clients that held
+edits from before the migration), or an editor tab of the room itself,
+live (see [Migrating a live room in place](#migrating-a-live-room-in-place)).
+An app whose documents only one client writes (local storage, no server)
+migrates their stored bytes with `migrateYState` before it loads and binds
+them.
 
-**Undo, and what a client of a migrated room does.** A migration is never
-synced into a replica of the old generation. A fenced client (its
-generation is not the room's) hands off its material (see
-`binding.quiesce()` below) and bootstraps a new document from the server;
-see the server guide. When the epoch of a bound document legitimately
-changes (for example a single writer that migrated its own state and
-loaded it again), the binding clears its undo history once that
-transaction has been captured, and an app `UndoManager` should be cleared
-at the same point with `onYMigrationEpoch(doc, fn, root?)`: its stack names
-items the migration replaced. The hook does not make it valid to apply a
-migration's update to an old-generation replica.
+**Undo, and what a client of a migrated room does.** With a server
+migration, a fenced client (its generation is not the room's) hands off its
+material (see `binding.quiesce()` below) and bootstraps a new document from
+the server; see the server guide. Whenever the epoch of a bound document
+changes (a tab's own migration, one that reached it from a peer, or a single
+writer that migrated its own state and loaded it again), the binding clears
+its undo history once that transaction has been captured, and an app
+`UndoManager` must be cleared at the same point with
+`onYMigrationEpoch(doc, fn, root?)`: its stack names items the migration
+replaced. Leave `MIGRATION_ORIGIN` out of its tracked origins.
+
+### Migrating a live room in place
+
+An editor tab can migrate the room it has open: when its binding reports
+`UNSUPPORTED_LAYOUT_WARNING` with `reason: 'older'`, it loads the steps and
+runs `migrateYDoc` on the bound document between transactions (not inside
+an editor update):
+
+```ts
+import {
+  loadYMigrationSteps,
+  migrateYDoc,
+  YMigrationError,
+} from '@lexical/y/migrate';
+
+async function migrateInPlace(doc: YDoc, found: number) {
+  const steps = await loadYMigrationSteps(found); // `data.found` of the warning
+  const attempt = () => {
+    try {
+      migrateYDoc(doc, steps);
+    } catch (error) {
+      if (error instanceof YMigrationError && error.code === 'pending') {
+        // Updates it depends on have not arrived: try again after the next.
+        doc.once('update', () => setTimeout(attempt, 0));
+        return;
+      }
+      reportError(error); // your own reporting
+    }
+  };
+  attempt();
+}
+```
+
+The binding reports `'older'` once per read-only period, so the retry is
+the app's: a live document can hold pending structs or skipped ranges for a
+while (`'pending'`), until the updates they depend on arrive.
+
+The migration's update only adds items and deletes old format items (every
+character, node and line marker keeps its Yjs id), and the runner checks
+that it brings the document it read to the migrated one. It syncs through
+the app's providers like any update:
+
+- The migrating tab, and every tab of the same build bound below the floor,
+  read the room again and become editable when the update reaches them, with
+  no rebind. Their undo histories are cleared (see above).
+- A tab of an older build reads a newer layout (`UNSUPPORTED_LAYOUT_WARNING`,
+  `'newer'`) and turns read only, with its text intact. It reads the room
+  again with its own reader, so its formatting can show wrongly (a layout
+  3 build shows a NodeState run's end as a value), as for the older clients
+  of a server migration (see
+  [Changing the layout and migrating](#changing-the-layout-and-migrating)).
+- Two tabs that migrate the same state write the same update (the client id
+  is hashed from the input), so the second is a no-op.
+- A layout 1 or 2 room reaches the floor the same way, through every step in
+  one call (`loadYMigrationSteps(found)` loads them).
+
+**What it does not keep.** Text, nodes and edits made after a tab sees the
+migration are kept. A format or NodeState change that a tab of an older
+build made before the update reached it (while offline, or in flight) to a
+container the migration rewrote can lose to the value the migration
+restated there, or reach text next to it: the migration writes the old
+values again as paired runs, and the older tab's change meets them as a
+concurrent write of the same key. The same holds when two tabs migrate
+different states (one had received such a change, the other had not). `3to4`
+rewrites only containers that hold NodeState values on text; `2to3` rewrites
+every container's format runs. To narrow the window, migrate from one tab
+only once every connected peer runs a build that reads the target layout
+(publish the build's `LAYOUT_VERSION` in awareness, and treat a peer that
+publishes none as older). A room whose older tabs may hold such changes
+offline is migrated more safely by its server, behind the generation fence.
 
 **Handing a replica off.** `binding.quiesce()` ends a composition, commits
 what the editor holds into the document, and turns the binding read only

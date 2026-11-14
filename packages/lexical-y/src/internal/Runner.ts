@@ -298,10 +298,10 @@ export interface YMigrationResult {
 }
 
 /**
- * @internal (not exported from @lexical/y/migrate). The origin of the
- * transaction that applies a migration to a
- * document (migrateYDoc). A registered symbol, so every copy of the package
- * (the binding's bundle and the runner's) names the same one.
+ * @experimental The origin of the transaction that applies a migration to a
+ * document (migrateYDoc): an app's own UndoManager leaves it out of its
+ * tracked origins. A registered symbol, so every copy of the package (the
+ * binding's bundle and the runner's) names the same one.
  */
 export const MIGRATION_ORIGIN: unique symbol = Symbol.for(
   '@lexical/y/migration',
@@ -1505,11 +1505,13 @@ function unchanged(plans: readonly RootPlan[]): YMigrationRootReceipt[] {
 }
 
 /**
- * @experimental Migrate a stored state (synchronous; for an authority with
- * every session out, behind its barrier and compare-and-set over exactly
- * these bytes). Every root below the target runs its chain of steps on an
- * observer-free copy, each step checked there; any refusal or failed check
- * throws a YMigrationError and nothing is returned. Pending structs, a
+ * @experimental Migrate a stored state (synchronous): a server's stored
+ * bytes, or a client's state before it loads it. Every root below the
+ * target runs its chain of steps on an observer-free copy, each step
+ * checked there; any refusal or failed check throws a YMigrationError and
+ * nothing is returned. `update` brings the input's integrated state to
+ * `state` (checked: applied to the input, it gives `state`), so a peer that
+ * holds the input can apply it (see migrateYDoc for a live room). Pending structs, a
  * pending delete set and skipped ranges (with everything after the gap and
  * everything that depends on it) are split out (`pending`), never migrated
  * or kept in `state`. When no root needs a step, the input bytes come back as `state`,
@@ -1572,14 +1574,21 @@ export function migrateYState(
 }
 
 /**
- * @internal (not exported from @lexical/y/migrate: servers migrate stored
- * bytes with migrateYState). Migrate a live document in place: the steps run
- * and are
+ * @experimental Migrate a live document in place: the steps run and are
  * checked on an observer-free copy of its integrated state, and only then
  * is their update applied to `doc` in one transaction with
- * MIGRATION_ORIGIN (pending material stays pending in `doc`). Only for a
- * document no other client or server writes (or an authority's own copy
- * with every session out). Refused inside a transaction of `doc`
+ * MIGRATION_ORIGIN. The update only adds items and deletes old format items
+ * (every content id is kept), so it syncs to the room's other peers as an
+ * ordinary Yjs update: an editor tab may migrate the room it has open
+ * (y.md "Migrating a live room in place"). A tab of this build bound below
+ * the floor becomes editable when the update reaches it; a tab of an older
+ * build reads a newer layout and turns read only. Two tabs that migrate the
+ * same state write the same update (the client id is hashed from the
+ * input). Not kept: a format or NodeState change that a peer reading only
+ * older layouts made before the update reached it, to a container the
+ * migration rewrote, can lose to the value the migration restated there
+ * (text is kept). Refused on a document holding pending structs or skipped
+ * ranges (`'pending'`) and inside a transaction of `doc`
  * (`'in-transaction'`: an outer transaction would give the migration its
  * origin and its undo capture).
  */
