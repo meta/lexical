@@ -2483,6 +2483,22 @@ function hasStoppedLexicalPropagation(event: Event): boolean {
 
 export type EventHandler = (event: Event, editor: LexicalEditor) => void;
 
+function isEmbeddedInput(target: Node, hostRoot: HTMLElement | null): boolean {
+  const element = isHTMLElement(target) ? target : getParentElement(target);
+  if (element === null) {
+    return false;
+  }
+  if (element.nodeName === 'INPUT' || element.nodeName === 'TEXTAREA') {
+    return true;
+  }
+  const host =
+    element.closest &&
+    element.closest(
+      '[contenteditable="true"], [contenteditable="plaintext-only"]',
+    );
+  return host != null && host !== hostRoot;
+}
+
 export function addRootElementEvents(
   rootElement: HTMLElement,
   editor: LexicalEditor,
@@ -2558,8 +2574,6 @@ export function addRootElementEvents(
   }
   // The latest pointerdown in the root element.
   let press: PointerEvent | undefined;
-  // Follows a mouse press that can start a selection drag: not on a decorator,
-  // nor a double or triple click, which selects by words or paragraphs.
   const endMouseDrag = () => {
     editor._inputState.mouseDrag = null;
   };
@@ -2677,6 +2691,7 @@ export function addRootElementEvents(
         endMouseDrag(),
       mousedown: event => {
         const inputState = editor._inputState;
+        const target = getComposedEventTarget(event) as Node;
         inputState.mouseDrag =
           event.button === 0 &&
           event.detail === 1 &&
@@ -2684,10 +2699,8 @@ export function addRootElementEvents(
           inputState.lastPointerType === 'mouse' &&
           editor.isEditable() &&
           !editor.isComposing() &&
-          !isDOMCapturingSelection(
-            getComposedEventTarget(event) as Node,
-            editor,
-          )
+          (!isDOMCapturingSelection(target, editor) ||
+            (event.shiftKey && !isEmbeddedInput(target, rootElement)))
             ? event
             : null;
       },
