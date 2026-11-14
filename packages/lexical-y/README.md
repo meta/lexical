@@ -591,7 +591,7 @@ earlier records and adds `lexical-y:5`.
   it showed, a block whose stored id repeats an earlier one's included.
   Which blocks show an id is BlockIdExtension's default
   `$isIdentifiedBlock` as the step models it from storage, written down in
-  [DECISIONS.md](./DECISIONS.md) D129 ("Which blocks readers identify"):
+  [DECISIONS.md](https://github.com/meta/lexical/blob/main/packages/lexical-y/DECISIONS.md) D129 ("Which blocks readers identify"):
   every child of the root; nested, every line, every paragraph a layout 4
   quote shows around a run of inline content, every node of a line class,
   every leaf, a quote of text stored as a node (no `p:shadowRoot` or
