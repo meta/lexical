@@ -12,14 +12,20 @@ import './types';
 
 import {createCommand, type LexicalCommand} from 'lexical';
 import {
+  ContentString,
+  ContentType,
   type Doc,
+  Map as YMap,
   type RelativePosition,
   type Snapshot,
   type UndoManager,
   UndoManager as YjsUndoManager,
-  type XmlElement,
-  type XmlText,
+  XmlElement,
+  XmlText,
 } from 'yjs';
+
+import {CollabElementNode} from './CollabElementNode';
+import {CollabTextNode} from './CollabTextNode';
 
 export type UserState = {
   anchorPos: null | RelativePosition;
@@ -101,6 +107,41 @@ export function createUndoManager(
     // become an undo entry (matching a non-collab editor, where the initial
     // state is applied with HISTORY_MERGE_TAG). See #7110.
     captureTransaction: () => !binding.isBootstrapping,
+
+    deleteFilter: item => {
+      // Initial V1 node properties must survive as long as the node does.
+      if (
+        item.left === null &&
+        item.parentSub !== null &&
+        ((item.parent instanceof YMap &&
+          item.parent._collabNode instanceof CollabTextNode) ||
+          (item.parent instanceof XmlText &&
+            item.parent._collabNode instanceof CollabElementNode &&
+            item.parentSub === '__type'))
+      ) {
+        return false;
+      }
+      if (item.content instanceof ContentType) {
+        const type = item.content.type;
+        // Children are undone first; remaining content belongs to another edit.
+        if (type instanceof XmlText || type instanceof XmlElement) {
+          return type.length === 0;
+        }
+        if (
+          type instanceof YMap &&
+          type._collabNode instanceof CollabTextNode
+        ) {
+          let next = item.right;
+          while (next !== null) {
+            if (!next.deleted && next.countable) {
+              return !(next.content instanceof ContentString);
+            }
+            next = next.right;
+          }
+        }
+      }
+      return true;
+    },
     trackedOrigins: new Set([binding, null]),
   });
 }
