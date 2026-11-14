@@ -604,6 +604,65 @@ describe('DraggableBlockPlugin_EXPERIMENTAL with lists', () => {
     ]);
   });
 
+  test('a drop above the first top-level block goes before it when the window is scrolled', () => {
+    const spacer = document.createElement('div');
+    spacer.style.height = '3000px';
+    document.body.prepend(spacer);
+    const tail = document.createElement('div');
+    tail.style.height = '3000px';
+    document.body.append(tail);
+    onTestFinished(() => {
+      spacer.remove();
+      tail.remove();
+      window.scrollTo(0, 0);
+    });
+    const harness = render();
+    const {anchorElem, editor} = harness;
+    populate(editor);
+    window.scrollTo(0, 2900);
+    expect(window.scrollY).toBe(2900);
+
+    hover(harness, elementWithText(editor, 'After'));
+    const handle = anchorElem.querySelector<HTMLElement>(`.${MENU_CLASS}`)!;
+    const dataTransfer = new DataTransfer();
+    act(() => {
+      handle.dispatchEvent(
+        new DragEvent('dragstart', {bubbles: true, dataTransfer}),
+      );
+    });
+    const rect = elementWithText(editor, 'Before').getBoundingClientRect();
+    const init = {
+      bubbles: true,
+      cancelable: true,
+      clientX: rect.left + 5,
+      clientY: rect.top - 2,
+      dataTransfer,
+    };
+    const scrolledEvent = (type: string) => {
+      const event = new DragEvent(type, init);
+      Object.defineProperty(event, 'pageY', {
+        value: init.clientY + window.scrollY,
+      });
+      return event;
+    };
+    const rootElement = editor.getRootElement()!;
+    act(() => {
+      rootElement.dispatchEvent(scrolledEvent('dragover'));
+    });
+    act(() => {
+      rootElement.dispatchEvent(scrolledEvent('drop'));
+    });
+    act(() => {
+      handle.dispatchEvent(new DragEvent('dragend', {bubbles: true}));
+    });
+
+    expect(structure(editor)).toEqual([
+      'After',
+      'Before',
+      ['number', 'One', 'Two', ['bullet', 'Nested one', 'Nested two'], 'Three'],
+    ]);
+  });
+
   test('finds the item under the pointer in a long list, from the gutter too', () => {
     const harness = render();
     const {anchorElem, editor, scroller} = harness;
