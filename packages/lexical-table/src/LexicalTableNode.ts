@@ -45,8 +45,12 @@ import {
   withAccessors,
 } from 'lexical';
 
-import {PIXEL_VALUE_REG_EXP} from './constants';
-import {$isTableCellNode, type TableCellNode} from './LexicalTableCellNode';
+import {COLUMN_WIDTH, PIXEL_VALUE_REG_EXP} from './constants';
+import {
+  $isTableCellNode,
+  TableCellHeaderStates,
+  type TableCellNode,
+} from './LexicalTableCellNode';
 import {GENERATED_TABLE} from './LexicalTableGeneratedJSON';
 import {$isTableRowNode} from './LexicalTableRowNode';
 import {
@@ -667,9 +671,6 @@ export class TableNode extends ElementNode {
         >();
         for (const mapRow of tableMap) {
           for (const mapValue of mapRow) {
-            if (mapValue === undefined) {
-              continue; // no cell here in a ragged table
-            }
             const key = mapValue.cell.getKey();
             if (!cellValues.has(key)) {
               cellValues.set(key, {
@@ -698,6 +699,24 @@ export class TableNode extends ElementNode {
               }
             }
           }
+        }
+
+        // A ragged table (#9453) can reach this point when its rows were never
+        // padded in the model, e.g. after a collaboration update or in an
+        // editor without the table transform. Pad the export so that the HTML
+        // is a rectangle either way. Only a whole-table export is padded: when
+        // a selection exports part of the table, cellValues still holds the
+        // cells that were left out and the rows no longer line up with the map.
+        if (cellValues.size === 0) {
+          $padExportedTableRows(
+            this,
+            editor,
+            tableElement,
+            tableMap.map(row =>
+              row.reduce((acc, cell) => (cell ? 1 + acc : acc), 0),
+            ),
+            tableMap.reduce((w, row) => Math.max(w, row.length), 0),
+          );
         }
 
         // Compute the colgroup and columns in the export
@@ -942,6 +961,63 @@ export function $convertTableElement(
 
 export function $createTableNode(): TableNode {
   return $applyNodeReplacement(new TableNode());
+}
+
+/**
+ * Appends empty cells to the exported rows of a ragged table so that every
+ * row covers `maxRowLength` grid columns. This mirrors $padTableRows,
+ * including how a padding cell inherits the row-header bit from the row's
+ * last cell, but it only touches the exported DOM and never the editor
+ * state, so it is safe to run on any export, including during collaboration.
+ */
+function $padExportedTableRows(
+  tableNode: TableNode,
+  editor: LexicalEditor,
+  tableElement: HTMLTableElement,
+  rowLengths: number[],
+  maxRowLength: number,
+): void {
+  const rowElements = tableElement.querySelectorAll(':scope > tr');
+  const rowNodes = tableNode.getChildren().filter($isTableRowNode);
+  if (
+    rowElements.length !== rowLengths.length ||
+    rowNodes.length !== rowLengths.length
+  ) {
+    return;
+  }
+  const theme = editor._config.theme;
+  const doc = $getDocument();
+  rowLengths.forEach((rowLength, i) => {
+    if (rowLength >= maxRowLength) {
+      return;
+    }
+    const lastCell = rowNodes[i].getLastChild();
+    const isHeaderRow =
+      $isTableCellNode(lastCell) &&
+      (lastCell.getHeaderStyles() & TableCellHeaderStates.ROW) !== 0;
+    for (let column = rowLength; column < maxRowLength; ++column) {
+      const cellElement = doc.createElement(isHeaderRow ? 'th' : 'td');
+      addClassNamesToElement(
+        cellElement,
+        theme.tableCell,
+        isHeaderRow && theme.tableCellHeader,
+      );
+      // The inline styles TableCellNode.exportDOM writes for a new cell, as
+      // $padTableRows would create: no width of its own (COLUMN_WIDTH), and
+      // the default header background in a header row.
+      cellElement.style.border = '1px solid black';
+      cellElement.style.width = `${COLUMN_WIDTH}px`;
+      cellElement.style.verticalAlign = 'top';
+      cellElement.style.textAlign = 'start';
+      if (isHeaderRow) {
+        cellElement.style.backgroundColor = '#f2f3f5';
+      }
+      const paragraph = doc.createElement('p');
+      paragraph.appendChild(doc.createElement('br'));
+      cellElement.appendChild(paragraph);
+      rowElements[i].appendChild(cellElement);
+    }
+  });
 }
 
 export function $isTableNode(
