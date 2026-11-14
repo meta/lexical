@@ -71,6 +71,31 @@ test.describe('MaxLength', () => {
     );
   });
 
+  test(`keeps the start of an over-limit paste after existing text`, async ({
+    page,
+  }) => {
+    await focusEditor(page);
+    await page.keyboard.type('lorem ipsum ');
+    await pasteFromClipboard(page, {
+      'text/plain': 'dolor sit amet, consectetuer adipiscing elit',
+    });
+
+    await assertHTML(
+      page,
+      html`
+        <p class="PlaygroundEditorTheme__paragraph" dir="auto">
+          <span data-lexical-text="true">lorem ipsum dolor sit amet, co</span>
+        </p>
+      `,
+    );
+    await assertSelection(page, {
+      anchorOffset: 30,
+      anchorPath: [0, 0, 0],
+      focusOffset: 30,
+      focusPath: [0, 0, 0],
+    });
+  });
+
   test(`can restrict emojis on boundaries`, async ({page}) => {
     await focusEditor(page);
     await pasteFromClipboard(page, {
