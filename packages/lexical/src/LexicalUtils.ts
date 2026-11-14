@@ -2205,6 +2205,57 @@ function $createBlockCursorElement(editorConfig: EditorConfig): HTMLDivElement {
   return element;
 }
 
+/** Restores the position that positionDOMBlockCursorElement cleared on the container. */
+function restoreDOMBlockCursorContainer(container: HTMLElement): void {
+  if (container.dataset.lexicalBlockCursorPositioned === 'true') {
+    delete container.dataset.lexicalBlockCursorPositioned;
+    container.style.removeProperty('position');
+  }
+}
+
+/**
+ * The cursor relies on the CSS static position to sit next to the adjacent
+ * block, which only holds for block containers: a grid or flex container
+ * resolves an absolutely positioned child to its padding edge corner. In that
+ * case position it explicitly next to the adjacent block, relative to the
+ * container.
+ */
+function positionDOMBlockCursorElement(
+  cursorElement: HTMLElement,
+  containerElement: HTMLElement,
+  adjacentBlockElement: null | HTMLElement,
+  afterAdjacentBlock: boolean,
+): void {
+  // A reused cursor element keeps stale coordinates from a previous placement.
+  cursorElement.style.removeProperty('top');
+  cursorElement.style.removeProperty('left');
+  const containerStyle = getComputedStyle(containerElement);
+  if (!/^(inline-)?(grid|flex)$/.test(containerStyle.display)) {
+    return;
+  }
+  if (adjacentBlockElement === null) {
+    return;
+  }
+  if (containerStyle.position === 'static') {
+    // Coordinates resolve against the nearest positioned ancestor; make the
+    // container the containing block so they are relative to it.
+    containerElement.dataset.lexicalBlockCursorPositioned = 'true';
+    containerElement.style.position = 'relative';
+  }
+  const blockRect = adjacentBlockElement.getBoundingClientRect();
+  const containerRect = containerElement.getBoundingClientRect();
+  cursorElement.style.top = `${
+    (afterAdjacentBlock ? blockRect.bottom : blockRect.top) -
+    containerRect.top -
+    parseFloat(containerStyle.borderTopWidth)
+  }px`;
+  cursorElement.style.left = `${
+    blockRect.left -
+    containerRect.left -
+    parseFloat(containerStyle.borderLeftWidth)
+  }px`;
+}
+
 /**
  * Returns true if the given node needs a block cursor given an adjacent selection,
  * the node must be non-inline and one of:
@@ -2238,6 +2289,7 @@ export function removeDOMBlockCursorElement(
   editor._blockCursorElement = null;
   const parentElement = blockCursorElement.parentElement;
   if (parentElement !== null) {
+    restoreDOMBlockCursorContainer(parentElement);
     parentElement.removeChild(blockCursorElement);
   }
 }
@@ -2263,17 +2315,20 @@ export function $updateDOMBlockCursorElement(
     const elementNodeSize = elementNode.getChildrenSize();
     let isBlockCursor = false;
     let insertBeforeElement: null | HTMLElement = null;
+    let adjacentBlockElement: null | HTMLElement = null;
 
     if (offset === elementNodeSize) {
       const child = elementNode.getChildAtIndex(offset - 1);
-      if ($needsBlockCursorBeside(child)) {
+      if (child !== null && $needsBlockCursorBeside(child)) {
         isBlockCursor = true;
+        adjacentBlockElement = editor.getElementByKey(child.__key);
       }
     } else {
       const child = elementNode.getChildAtIndex(offset);
       if (child !== null && $needsBlockCursorBeside(child)) {
         isBlockCursor = true;
         insertBeforeElement = editor.getElementByKey(child.__key);
+        adjacentBlockElement = insertBeforeElement;
       }
     }
     if (isBlockCursor) {
@@ -2304,6 +2359,12 @@ export function $updateDOMBlockCursorElement(
       } else {
         elementDOM.insertBefore(blockCursorElement, insertBeforeElement);
       }
+      positionDOMBlockCursorElement(
+        blockCursorElement,
+        elementDOM,
+        adjacentBlockElement,
+        insertBeforeElement === null,
+      );
       return;
     }
   }
