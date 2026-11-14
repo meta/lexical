@@ -627,6 +627,25 @@ export const NODE_SHAPES: readonly NodeShape[] = [
         $p($t('second paragraph')),
       ),
   ),
+  // Such a quote inside another (nested blockquotes, imported as nested
+  // shadow-root quotes), with a list among its blocks.
+  block(
+    'quote/shadow-root-nested',
+    'container',
+    [QuoteNode],
+    '@lexical/*',
+    ['shadow-root', 'list', 'derived'],
+    () =>
+      $createQuoteNode({shadowRoot: true}).append(
+        $p($t('outer paragraph')),
+        $createQuoteNode({shadowRoot: true}).append(
+          $p($t('inner paragraph')),
+          $catalogList('bullet'),
+          $p($t('inner last')),
+        ),
+        $p($t('outer last')),
+      ),
+  ),
   block(
     'code/highlighted',
     'block',
@@ -795,6 +814,26 @@ export const NODE_SHAPES: readonly NodeShape[] = [
     () =>
       $createDownstreamComponent('callout', {
         body: [$p($t('in the callout')), $catalogList('number', 7)],
+        title: [$p($t('Note'))],
+      }),
+  ),
+  // A quote that holds paragraphs in a component's body slot.
+  block(
+    'downstream/component-slots-quote',
+    'slot-host',
+    [DownstreamComponentNode, DownstreamComponentSlotNode, QuoteNode],
+    'downstream stand-in',
+    ['slots', 'shadow-root', 'node-state'],
+    () =>
+      $createDownstreamComponent('callout', {
+        body: [
+          $p($t('before the quote')),
+          $createQuoteNode({shadowRoot: true}).append(
+            $p($t('quoted in a slot')),
+            $p($t('second in a slot')),
+          ),
+          $p($t('after the quote')),
+        ],
         title: [$p($t('Note'))],
       }),
   ),

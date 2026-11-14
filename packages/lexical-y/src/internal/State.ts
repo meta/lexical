@@ -461,14 +461,20 @@ export class Roles {
       p !== 'group' &&
       p !== 'level' &&
       $isLine(node) &&
-      node.isShadowRoot()
+      $isQuoteHoldingBlocks(node)
     ) {
-      // A shadow-root instance of a line class (a quote that holds
-      // paragraphs) is stored as a container of blocks (layout 5), as a
-      // table cell is. Invariant: never as a line whose blocks are nodes of
-      // their own in its inline content. Why: a split or a join of one of
-      // its paragraphs would move text from one node to another, and a
-      // collaborator's typing in the moved text would be lost.
+      // A quote that holds paragraphs (QuoteNode's per-instance flat
+      // `shadowRoot` state) is stored as a container of blocks (layout 5),
+      // as a table cell is. Invariant: never as a line whose blocks are
+      // nodes of their own in its inline content. Why: a split or a join of
+      // one of its paragraphs would move text from one node to another, and
+      // a collaborator's typing in the moved text would be lost.
+      // Invariant: only that stored state decides it, the one the 4to5
+      // migration step reads (a marker with `t` = 'quote' and
+      // `s:shadowRoot` = true); any other shadow root of a line class stays
+      // a line. Why: a line the step left as a line, which the binding then
+      // stores as a container on its first edit, is a move: collaborators'
+      // concurrent typing in it would be lost.
       return 'container';
     }
     if (blocksAllowed && $isLine(node)) {
@@ -535,6 +541,29 @@ export class Roles {
     }
     invariant(false, '@lexical/y: node is not attached');
   }
+}
+
+/**
+ * Whether `node` is a quote that holds blocks as layout 5 stores them (see
+ * Roles#$compute): of type `quote`, a shadow root, and holding the flat
+ * `shadowRoot` NodeState as `true` (what its stored form records), read
+ * from its NodeState directly.
+ */
+function $isQuoteHoldingBlocks(node: ElementNode): boolean {
+  if (node.getType() !== 'quote' || !node.isShadowRoot()) {
+    return false;
+  }
+  const state = node.getLatest().__state;
+  if (state === undefined) {
+    return false;
+  }
+  const {flatKeys, sharedConfigMap} = state.sharedNodeState;
+  const config = sharedConfigMap.get('shadowRoot');
+  return (
+    flatKeys.has('shadowRoot') &&
+    config !== undefined &&
+    state.getValue(config) === true
+  );
 }
 
 /**

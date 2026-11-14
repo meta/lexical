@@ -377,7 +377,7 @@ export function describeMigration3to4(lines: number, text: string): void {
     lines === 1
       ? `one line of ${text.length} characters`
       : `${lines} lines of ${text.length} characters`;
-  describe('a layout 3 document past the limit migrates to layout 4 on the main thread', () => {
+  describe('a layout 3 document past the limit migrates to layout 5 on the main thread', () => {
     test('the runtime takes no more arguments than a main thread', () => {
       expect(LIMIT).toBeLessThanOrEqual(131_072);
       expect(UNITS).toBeGreaterThan(130_000);
@@ -385,9 +385,12 @@ export function describeMigration3to4(lines: number, text: string): void {
     const input = layout3Document(lines, text);
     for (const gc of [false, true]) {
       test(`${name}, flat NodeState (gc ${gc ? 'on' : 'off'})`, () => {
+        // To the floor (layout 5): 3to4 rewrites the runs of the long
+        // container, 4to5 records layout 5 (it holds no quote).
         const result = migrateYState(input, [step3to4, step4to5], {gc});
         expect(result.receipt.roots[0].steps.map(s => s.id)).toEqual([
           'lexical-y/layout/3to4',
+          'lexical-y/layout/4to5',
         ]);
         const read = readYState(result.state, CONFIG, () =>
           $getRoot()

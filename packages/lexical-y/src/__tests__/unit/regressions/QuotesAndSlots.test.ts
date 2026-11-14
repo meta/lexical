@@ -25,15 +25,18 @@ import {describe, expect, test} from 'vitest';
 import {expectConverged, freshReader, setup} from '../../utils/harness';
 
 // S4-8: an outside writer's link run (a plain Yjs client, formats not
-// cleaned up) over the root sequence that opens before a shadow-root quote's
-// paragraph and closes after the next quote's paragraph. A client then
-// deletes the first quote: its write must delete only that quote's text. In
-// layout 4 it deleted and inserted the second quote's paragraph again, so a
-// peer's concurrent typing there was lost and its delete undone, for the
-// runs that reach the second quote (#9571; `@lexical/y`'s own writers do
-// not leave such runs); the run inside the first quote is a control. From
-// layout 5 each quote is a container of its own, so a run in the root's
-// sequence covers none of its text, and every cell passes.
+// cleaned up) that opens before a shadow-root quote's paragraph and closes
+// after the next quote's paragraph. A client then deletes the first quote:
+// its write must delete only that quote's text. In layout 4, where both
+// quotes were lines of the root and the run was over their paragraphs in
+// the root's sequence, it deleted and inserted the second quote's paragraph
+// again, so a peer's concurrent typing there was lost and its delete undone,
+// for the runs that reach the second quote (#9571; `@lexical/y`'s own
+// writers do not leave such runs); the run inside the first quote is a
+// control. From layout 5 each quote is a node of the root holding its own
+// sequence: the run is over the root's sequence from the title (or the first
+// quote's node) to the second quote's node, or, for the control, over the
+// first quote's own sequence. Every cell passes.
 describe('S4-8: an outside link run over two quotes, then a client deletes the first quote', () => {
   const runs = [
     'title to second quote end',
@@ -43,7 +46,6 @@ describe('S4-8: an outside link run over two quotes, then a client deletes the f
   const peerEdits = ['nothing', 'empties q2', 'types in q2'] as const;
   for (const run of runs) {
     for (const peerEdit of peerEdits) {
-      const open = run !== 'first quote paragraph only';
       test(`S4-8 run: ${run}; peer: ${peerEdit}: only the first quote's text is deleted`, async () => {
         const t = await setup(() => {
           $getRoot().append(
@@ -62,8 +64,11 @@ describe('S4-8: an outside link run over two quotes, then a client deletes the f
         Y.applyUpdate(outside, Y.encodeStateAsUpdate(t.a.doc));
         const sv = Y.encodeStateVector(outside);
         const root = outside.get('lexical-y');
-        // The indices of the quotes' paragraph items in the root sequence.
-        const paragraphs: number[] = [];
+        // The quotes are nodes of the root (`b:quote`, layout 5), each
+        // holding its paragraph in its own sequence: the indices of their
+        // items in the root sequence.
+        const quotes: number[] = [];
+        const quoteNodes: Y.Node[] = [];
         let index = 0;
         for (let item = root._start; item !== null; item = item.right) {
           if (item.deleted || !item.countable) {
@@ -71,19 +76,35 @@ describe('S4-8: an outside link run over two quotes, then a client deletes the f
           }
           if (
             item.content instanceof Y.ContentType &&
-            String(item.content.type.name).startsWith('i:')
+            String(item.content.type.name) === 'b:quote'
           ) {
-            paragraphs.push(index);
+            quotes.push(index);
+            quoteNodes.push(item.content.type as Y.Node);
           }
           index += item.length;
         }
-        const from = run === 'title to second quote end' ? 2 : paragraphs[0];
-        const to = (open ? paragraphs[1] : paragraphs[0]) + 1;
-        outside.transact(() =>
-          root.format(from, to - from, {
-            'w:link': {url: 'https://o.example'},
-          }),
-        );
+        expect(quotes.length).toBe(2);
+        const link = {'w:link': {url: 'https://o.example'}};
+        outside.transact(() => {
+          if (run === 'first quote paragraph only') {
+            // Inside the first quote: its paragraph, text and marker.
+            quoteNodes[0].format(0, quoteNodes[0].length, link);
+          } else {
+            const from = run === 'title to second quote end' ? 2 : quotes[0];
+            root.format(from, quotes[1] + 1 - from, link);
+          }
+        });
+        // The run was written (an outside writer's plain items).
+        const formats = [root, ...quoteNodes].flatMap(node => {
+          const out: unknown[] = [];
+          for (let item = node._start; item !== null; item = item.right) {
+            if (!item.deleted && item.content instanceof Y.ContentFormat) {
+              out.push(item.content.key);
+            }
+          }
+          return out;
+        });
+        expect(formats).toContain('w:link');
         const update = Y.encodeStateAsUpdate(outside, sv);
         Y.applyUpdate(t.a.doc, update, 'net');
         Y.applyUpdate(t.b.doc, update, 'net');
