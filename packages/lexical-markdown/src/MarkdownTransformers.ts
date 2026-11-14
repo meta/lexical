@@ -35,6 +35,7 @@ import {
   $createLineBreakNode,
   $createTextNode,
   $findMatchingParent,
+  $generateNodesFromRawText,
   $getState,
   $isLineBreakNode,
   $isTextNode,
@@ -1034,8 +1035,12 @@ export const CODE: MultilineElementTransformer = {
 
       $setState(codeBlockNode, codeFenceState, fence);
 
-      const textNode = $createTextNode(code);
-      codeBlockNode.append(textNode);
+      // The shape the editor writes in a code block (CodeNode.insertNewAfter,
+      // paste, HTML import, the highlighters): one TextNode per run of text,
+      // a LineBreakNode per line feed and a TabNode per tab. Spliced as a
+      // list, not spread: a block can hold more nodes than a call takes
+      // arguments.
+      codeBlockNode.splice(0, 0, $generateNodesFromRawText(code));
       rootNode.append(codeBlockNode);
     } else if (children) {
       if (!isImport && $isUnreplaceableBlock(rootNode)) {
