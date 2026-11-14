@@ -28,6 +28,25 @@ import {type JSX, useMemo} from 'react';
 
 import {PLAYGROUND_TRANSFORMERS} from '../MarkdownTransformers';
 
+async function isClipboardReadDenied(): Promise<boolean> {
+  if (
+    navigator.permissions &&
+    typeof navigator.permissions.query === 'function'
+  ) {
+    try {
+      const permission = await navigator.permissions.query({
+        // @ts-expect-error These types are incorrect.
+        name: 'clipboard-read',
+      });
+      return permission.state === 'denied';
+    } catch {
+      // navigator.permissions.query with 'clipboard-read' is not supported in all browsers (e.g. Firefox)
+      return false;
+    }
+  }
+  return false;
+}
+
 export default function ContextMenuPlugin({
   shouldPreserveNewLinesInMarkdown,
 }: {
@@ -81,37 +100,37 @@ export default function ContextMenuPlugin({
         ),
       }),
       new NodeContextMenuOption(`Paste`, {
-        $onSelect: () => {
-          navigator.clipboard.read().then(async function (...args) {
-            const data = new DataTransfer();
+        $onSelect: async () => {
+          if (await isClipboardReadDenied()) {
+            alert('Not allowed to paste from clipboard.');
+            return;
+          }
 
+          try {
             const readClipboardItems = await navigator.clipboard.read();
             const item = readClipboardItems[0];
-
-            if (navigator.permissions) {
-              const permission = await navigator.permissions.query({
-                // @ts-expect-error These types are incorrect.
-                name: 'clipboard-read',
-              });
-              if (permission.state === 'denied') {
-                alert('Not allowed to paste from clipboard.');
-                return;
-              }
-
-              for (const type of item.types) {
-                const dataString = await (await item.getType(type)).text();
-                data.setData(type, dataString);
-              }
-
-              const event = new ClipboardEvent('paste', {
-                clipboardData: data,
-              });
-
-              editor.dispatchCommand(PASTE_COMMAND, event);
-            } else {
-              alert('Your browser does not support navigator.permissions');
+            if (!item) {
+              return;
             }
-          });
+
+            const data = new DataTransfer();
+            for (const type of item.types) {
+              const dataString = await (await item.getType(type)).text();
+              data.setData(type, dataString);
+            }
+
+            const event = new ClipboardEvent('paste');
+            // Firefox ignores clipboardData in ClipboardEventInit.
+            Object.defineProperty(event, 'clipboardData', {value: data});
+
+            editor.dispatchCommand(PASTE_COMMAND, event);
+          } catch (error: unknown) {
+            if (error instanceof Error && error.name === 'NotAllowedError') {
+              alert('Not allowed to paste from clipboard.');
+            } else {
+              console.error(error);
+            }
+          }
         },
         disabled: false,
         icon: (
@@ -119,31 +138,29 @@ export default function ContextMenuPlugin({
         ),
       }),
       new NodeContextMenuOption(`Paste as Plain Text`, {
-        $onSelect: () => {
-          navigator.clipboard.read().then(async function (...args) {
-            if (navigator.permissions) {
-              const permission = await navigator.permissions.query({
-                // @ts-expect-error These types are incorrect.
-                name: 'clipboard-read',
-              });
+        $onSelect: async () => {
+          if (await isClipboardReadDenied()) {
+            alert('Not allowed to paste from clipboard.');
+            return;
+          }
 
-              if (permission.state === 'denied') {
-                alert('Not allowed to paste from clipboard.');
-                return;
-              }
+          try {
+            const clipboardText = await navigator.clipboard.readText();
+            const data = new DataTransfer();
+            data.setData('text/plain', clipboardText);
 
-              const data = new DataTransfer();
-              const clipboardText = await navigator.clipboard.readText();
-              data.setData('text/plain', clipboardText);
+            const event = new ClipboardEvent('paste');
+            // Firefox ignores clipboardData in ClipboardEventInit.
+            Object.defineProperty(event, 'clipboardData', {value: data});
 
-              const event = new ClipboardEvent('paste', {
-                clipboardData: data,
-              });
-              editor.dispatchCommand(PASTE_COMMAND, event);
+            editor.dispatchCommand(PASTE_COMMAND, event);
+          } catch (error: unknown) {
+            if (error instanceof Error && error.name === 'NotAllowedError') {
+              alert('Not allowed to paste from clipboard.');
             } else {
-              alert('Your browser does not support navigator.permissions');
+              console.error(error);
             }
-          });
+          }
         },
         disabled: false,
         icon: (
