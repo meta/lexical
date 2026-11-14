@@ -233,6 +233,7 @@ const ORDERED_LIST_REGEX = /^(\s*)(\d{1,})\.\s/;
 const UNORDERED_LIST_REGEX = /^(\s*)[-*+]\s/;
 const CHECK_LIST_REGEX = /^(\s*)(?:[-*+]\s)?\s?(\[(\s|x)?\])\s/i;
 const HEADING_REGEX = /^(#{1,6})\s/;
+const HEADING_CLOSING_SEQUENCE_REGEX = /(?:^|[ \t]+)#+[ \t]*$/;
 const QUOTE_REGEX = /^>\s/;
 const CODE_START_REGEX = /^([ \t]*`{3,})([\w-]+)?[ \t]?/;
 const CODE_END_REGEX = /^[ \t]*`{3,}$/;
@@ -817,6 +818,20 @@ export const HEADING: ElementTransformer = {
   replace: (parentNode, children, match, isImport) => {
     if (!isImport && $isUnreplaceableBlock(parentNode)) {
       return false;
+    }
+    if (isImport) {
+      // An ATX heading may end with a closing sequence of `#`s, which is not
+      // part of the content: `## Hello ##` is a heading reading "Hello".
+      // The sequence must be preceded by a space or tab (or be the whole
+      // content); `# C#` keeps its `#`.
+      const lastChild = children[children.length - 1];
+      if ($isTextNode(lastChild)) {
+        const text = lastChild.getTextContent();
+        const stripped = text.replace(HEADING_CLOSING_SEQUENCE_REGEX, '');
+        if (stripped !== text) {
+          lastChild.setTextContent(stripped);
+        }
+      }
     }
     return $replaceWithHeading(parentNode, children, match, isImport);
   },
