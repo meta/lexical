@@ -14,6 +14,7 @@ import {
   defineExtension,
   type ElementNode,
   type LexicalNode,
+  type NodeKey,
   type RangeSelection,
   type TextNode,
 } from 'lexical';
@@ -38,6 +39,17 @@ export function $unwrapMarkNode(node: MarkNode): void {
     target = child;
   }
   node.remove();
+}
+
+function $isFullySelected(node: ElementNode, selectedKeys: Set<NodeKey>) {
+  // extract() splits text at the selection boundaries, so an element is fully
+  // selected when its first and last descendants are both in the selection.
+  const first = node.getFirstDescendant();
+  const last = node.getLastDescendant();
+  return (
+    (first === null || selectedKeys.has(first.getKey())) &&
+    (last === null || selectedKeys.has(last.getKey()))
+  );
 }
 
 export function $wrapSelectionInMarkNode(
@@ -65,6 +77,7 @@ export function $wrapSelectionInMarkNode(
 
   // Note that extract will split text nodes at the boundaries
   const nodes = forwardSelection.extract();
+  const selectedKeys = new Set(nodes.map(node => node.getKey()));
   // We only want wrap adjacent text nodes, line break nodes
   // and inline element nodes. For decorator nodes and block
   // element nodes, we step out of their boundary and start
@@ -90,10 +103,18 @@ export function $wrapSelectionInMarkNode(
       // codebase.
       continue;
     } else if (
+      $isElementNode(node) &&
+      node.isInline() &&
+      !$isFullySelected(node, selectedKeys)
+    ) {
+      // Case 3: a partly selected inline element node (eg. a link) is not
+      // wrapped whole. Its selected children are wrapped instead, inside it.
+      continue;
+    } else if (
       ($isElementNode(node) || $isDecoratorNode(node)) &&
       node.isInline()
     ) {
-      // Case 3: inline element/decorator nodes can be added in their entirety
+      // Case 4: inline element/decorator nodes can be added in their entirety
       // to the new mark
       targetNode = node;
     }
