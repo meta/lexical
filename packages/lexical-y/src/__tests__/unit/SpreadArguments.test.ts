@@ -35,8 +35,6 @@ const ALLOWED: Record<string, Record<string, string>> = {
       '$appendAll: a chunk of at most ARGUMENTS_CHUNK nodes',
   },
   'internal/Binding.ts': {
-    'String.fromCharCode.apply( null, Array.from(bytes.subarray(i, i + 4096)), )':
-      'byteString: a chunk of at most 4,096 bytes',
     'head.splitText( ...offsets.slice(Math.max(0, end - ARGUMENTS_CHUNK), end), )':
       'a chunk of at most ARGUMENTS_CHUNK offsets',
     'super.emit(...args)': "an event's argument tuple (forwarded)",

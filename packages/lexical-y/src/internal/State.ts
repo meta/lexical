@@ -231,7 +231,9 @@ export class State {
    * client's clock (each written key comes before the items written after
    * it, so a later state of this client, an editor bound again to the same
    * document or a read recovery, never reuses one) and above every key of
-   * this client read (see setSegment).
+   * this client read (see setSegment). A value derived from the client id
+   * must also be relabeled in SeedRelabel's relabelSeed (seeds are written
+   * under client 1, then relabeled).
    */
   newSegment(key: NodeKey): string {
     const n = Math.max(
