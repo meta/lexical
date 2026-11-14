@@ -448,14 +448,21 @@ function $insertText(
     // Segmented node with cursor in the middle: convert to normal
     // text node so that the recursive insertText can proceed.
     if (anchorNode.isSegmented() && offset !== 0 && offset !== anchorSize) {
-      if ($getCompositionKey() !== null) {
-        anchorNode.setMode('normal').setFormat(format).setStyle(style);
+      // While composing, keep the node (and so the composition key) only when
+      // the caret format matches. Otherwise the composition lands in a new
+      // node either way, so replace the segmented node with plain text.
+      if (
+        $getCompositionKey() !== null &&
+        anchorNode.getFormat() === format &&
+        anchorNode.getStyle() === style
+      ) {
+        anchorNode.setMode('normal');
         getActiveEditor()._inputState.composedSegmentedKey =
           anchorNode.getKey();
       } else {
         const replacement = $createTextNode(anchorNode.getTextContent());
-        replacement.setFormat(format);
-        replacement.setStyle(style);
+        replacement.setFormat(anchorNode.getFormat());
+        replacement.setStyle(anchorNode.getStyle());
         replacement.setDetail(anchorNode.getDetail());
         // The characters keep their NodeState (comment ids, for example)
         $carryNodeState(anchorNode, replacement);
