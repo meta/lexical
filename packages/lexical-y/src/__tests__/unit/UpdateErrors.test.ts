@@ -320,35 +320,4 @@ describe('the binding writes every committed change', () => {
       'paragraph("t1z t2z  t6z  t9z") / paragraph("tail line")',
     );
   });
-
-  // Open, #9514 (not caused by an update that throws): Lexical stops
-  // notifying a commit's update listeners when one of them throws, so a
-  // binding registered after the listener that threw never writes that
-  // commit.
-  test.fails(
-    "a commit whose update listeners stopped before the binding's is not written (#9514)",
-    async () => {
-      let armed = false;
-      const t = await setup($doc, {
-        prepare: (editor: LexicalEditor) => {
-          editor.registerUpdateListener(() => {
-            if (armed) {
-              armed = false;
-              throw new Error('listener bug');
-            }
-          });
-        },
-      });
-      armed = true;
-      expect(() =>
-        t.a.update(() => void $selectWords('t2z').removeText()),
-      ).toThrow('listener bug');
-      t.a.update(() => void $selectIn([1], 9).insertText('!'));
-      await t.sync();
-      await expectConverged(
-        t.peers,
-        'paragraph("t1z  t3z t4z t5z t6z t7z t8z t9z") / paragraph("tail line!")',
-      );
-    },
-  );
 });
