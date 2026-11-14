@@ -334,7 +334,7 @@ for (const nested of [false, true]) {
     doc.clientID = 700;
     const root = doc.get('lexical-y');
     root.setAttr('lexical-y:1', true);
-    root.setAttr('lexical-y:4', true);
+    root.setAttr('lexical-y:5', true);
     root.setAttr('k:unregistered_line', 'line');
     if (!nested) {
       root.insert(0, 'secret');
@@ -393,7 +393,7 @@ test('removing the layout record while the root is empty makes the binding read 
     remote.clientID = 902;
     remote.transact(() => {
       remote.get('lexical-y').deleteAttr('lexical-y:1');
-      remote.get('lexical-y').deleteAttr('lexical-y:4');
+      remote.get('lexical-y').deleteAttr('lexical-y:5');
     });
     Y.applyUpdate(c.doc, Y.encodeStateAsUpdate(remote), 'net');
     await idle();

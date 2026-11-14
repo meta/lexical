@@ -402,13 +402,13 @@ describe.each([false, true])('migration runner, gc %s', gc => {
             return false;
           },
         }),
-        v: 2,
+        v: 3,
       } as unknown as YLayoutMigration;
       const state = stateOf(RSEED);
       expectRefused(
         () => migrateYState(state, [later], {gc, ...TO2}),
         'invalid-steps',
-        'step contract 2',
+        'step contract 3',
       );
       await expect(
         loadYMigrationSteps(SEED, SEED + 1, {

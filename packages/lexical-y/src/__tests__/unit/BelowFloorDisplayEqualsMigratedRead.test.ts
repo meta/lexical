@@ -38,11 +38,12 @@ import {migrateYState} from '../../migrate';
 import step1to2 from '../../migrate/1to2';
 import step2to3 from '../../migrate/2to3';
 import step3to4 from '../../migrate/3to4';
+import step4to5 from '../../migrate/4to5';
 import {$snapshot, catalogHeadlessConfig, snapshot} from '../catalog/bind';
 import {flush} from '../utils/harness';
 import {type CorpusConfig, corpusConfig} from '../utils/noteApp';
 
-const STEPS = [step1to2, step2to3, step3to4];
+const STEPS = [step1to2, step2to3, step3to4, step4to5];
 
 /**
  * The one exception (D103): a raw array stored under a covered name (here a

@@ -132,6 +132,50 @@ export interface YLayoutMigration {
 }
 
 /**
+ * @experimental A whole-root layout step (step contract 2), for a layout
+ * whose change moves content between containers: a Yjs item cannot change
+ * its parent, so such a step writes new items and deletes old ones, which a
+ * per-container step (contract 1) may not. The runner checks that it writes
+ * only under the root it migrates (and the root's layout record and
+ * epoch), changes no attribute of the root and no node it did not write or
+ * delete, and that `readBefore` before equals `readAfter` after.
+ */
+export interface YLayoutRootMigration {
+  /** The execution contract: 2, the methods below as this runner calls them. */
+  readonly v: 2;
+  /** `lexical-y/layout/<from>to<to>`. */
+  readonly id: string;
+  /** From 1; bumped on any change to what the step writes (hashed into the client). */
+  readonly revision: number;
+  /** The layout the step migrates from. */
+  readonly from: number;
+  /** `from + 1`, always. */
+  readonly to: number;
+  /**
+   * Migrate the root, inside the runner's transaction on an observer-free
+   * copy (the runner records the layout before and the epoch after).
+   * Returns nothing, or what it wrote (informational and ignored).
+   */
+  migrateRoot(tr: Transaction, root: YNode): {readonly written: number} | void;
+  /**
+   * Frozen read of layout `from` of the whole root, as layout `to` stores
+   * it: one normalized string per block, in document order. Compared with
+   * `readAfter` of the result.
+   */
+  readBefore(root: YNode): readonly string[];
+  /** Frozen read of layout `to`, in the same shape as `readBefore`. */
+  readAfter(root: YNode): readonly string[];
+  /** The target layout's own invariants on the migrated root (problems). */
+  checkAfter(root: YNode): readonly string[];
+}
+
+/**
+ * @experimental A layout migration step: per container (contract 1,
+ * YLayoutMigration) or whole-root (contract 2, YLayoutRootMigration).
+ */
+export type YLayoutStep = YLayoutMigration | YLayoutRootMigration;
+
+/**
  * Internal (not exported from @lexical/y/migrate): the codes of
  * {@link YMigrationError} this version throws. It grows when a code is
  * added, so it is not public. Codes are never renamed or reused.
@@ -376,7 +420,7 @@ export function migrationClientID(
   }
 }
 
-function isStep(value: unknown): value is YLayoutMigration {
+function isStep(value: unknown): value is YLayoutStep {
   if (value === null || typeof value !== 'object') {
     return false;
   }
@@ -386,11 +430,13 @@ function isStep(value: unknown): value is YLayoutMigration {
     Number.isSafeInteger(s.revision) &&
     Number.isSafeInteger(s.from) &&
     Number.isSafeInteger(s.to) &&
-    typeof s.migrateContainer === 'function' &&
     typeof s.readBefore === 'function' &&
     typeof s.readAfter === 'function' &&
     typeof s.checkAfter === 'function' &&
-    typeof s.rewrites === 'function'
+    (s.v === 2
+      ? typeof s.migrateRoot === 'function'
+      : typeof s.migrateContainer === 'function' &&
+        typeof s.rewrites === 'function')
   );
 }
 
@@ -403,9 +449,9 @@ function stepProblems(steps: readonly unknown[]): string[] {
       problems.push('not a layout migration step');
       continue;
     }
-    if (step.v !== 1) {
+    if (step.v !== 1 && step.v !== 2) {
       problems.push(
-        `${step.id} is written for step contract ${String(step.v)}, this runner runs 1`,
+        `${step.id} is written for step contract ${String(step.v)}, this runner runs 1 and 2`,
       );
     }
     if (step.from < 1 || step.to !== step.from + 1) {
@@ -431,14 +477,14 @@ function stepProblems(steps: readonly unknown[]): string[] {
  * one step.
  */
 function chainOf(
-  steps: readonly YLayoutMigration[],
+  steps: readonly YLayoutStep[],
   from: number,
   to: number,
   root: string | null,
-): YLayoutMigration[] {
+): YLayoutStep[] {
   const invalid = stepProblems(steps);
   const missing: string[] = [];
-  const out: YLayoutMigration[] = [];
+  const out: YLayoutStep[] = [];
   for (let n = from; n < to && invalid.length === 0; n++) {
     const links = steps.filter(s => s.from === n);
     if (links.length === 0) {
@@ -480,7 +526,7 @@ export async function loadStepsWith(
   loaders: YMigrationLoaders,
   from: number,
   to: number,
-): Promise<YLayoutMigration[]> {
+): Promise<YLayoutStep[]> {
   const wanted: number[] = [];
   for (let n = from; n < to; n++) {
     wanted.push(n);
@@ -497,7 +543,7 @@ export async function loadStepsWith(
         typeof loaded === 'object' &&
         'default' in loaded &&
         isStep((loaded as {default: unknown}).default)
-          ? (loaded as {default: YLayoutMigration}).default
+          ? (loaded as {default: YLayoutStep}).default
           : loaded;
       return isStep(step) && step.from === n ? step : 'invalid';
     }),
@@ -518,15 +564,15 @@ export async function loadStepsWith(
       );
     }
   }
-  chainOf(steps as YLayoutMigration[], from, to, null);
-  return steps as YLayoutMigration[];
+  chainOf(steps as YLayoutStep[], from, to, null);
+  return steps as YLayoutStep[];
 }
 
 /** What a root needs: the layout found and the steps to run (maybe none). */
 type RootPlan = {
   root: string;
   from: number | null;
-  steps: YLayoutMigration[];
+  steps: YLayoutStep[];
 };
 
 /**
@@ -536,7 +582,7 @@ type RootPlan = {
  */
 function planOf(
   doc: Doc,
-  steps: readonly YLayoutMigration[],
+  steps: readonly YLayoutStep[],
   options: YMigrateOptions,
 ): RootPlan[] {
   const to = options.to ?? MIN_LAYOUT;
@@ -1113,36 +1159,233 @@ function checkedUpdate(
 }
 
 /**
- * Run `step` on root `name` of `copy` (observer-free, the caller's alone)
- * in one transaction, then check the result. Throws a 'post-condition'
- * YMigrationError with every problem (the copy is then the caller's to
- * discard).
+ * What a whole-root step's transaction wrote and deleted, and every write
+ * outside what it may change: items of the migration's client only, under
+ * the root, where an attribute is written or deleted only on a node the
+ * transaction wrote or deleted (the root: its layout record and epoch).
  */
-function runStep(
+function outsideRootWrites(
+  tr: Transaction,
+  client: number,
+  root: YNode,
+  step: YLayoutRootMigration,
+): {written: number; deleted: number; problems: string[]} {
+  const problems: string[] = [];
+  const touched = (node: YNode): boolean => {
+    const own = node._item;
+    return (
+      own !== null && (tr.insertSet.hasId(own.id) || tr.deleteSet.hasId(own.id))
+    );
+  };
+  const allowed = (it: Item, deleting: boolean): boolean => {
+    const parent = it.parent as YNode | null;
+    if (parent === null || typeof parent !== 'object') {
+      return false;
+    }
+    if (typeof it.parentSub === 'string') {
+      if (parent === root) {
+        return (
+          it.parentSub === EPOCH_KEY ||
+          (!deleting && it.parentSub === LAYOUT_PREFIX + step.to)
+        );
+      }
+      return isUnder(parent, root) && touched(parent);
+    }
+    return isUnder(parent, root);
+  };
+  let written = 0;
+  let deleted = 0;
+  iterateStructsByIdSet(tr, tr.insertSet, s => {
+    if (s instanceof Item) {
+      written++;
+      if (s.id.client !== client) {
+        problems.push(`an item of client ${s.id.client} was written`);
+      } else if (!allowed(s, false)) {
+        problems.push(`item ${idOf(s)} was written outside the root's content`);
+      }
+    }
+  });
+  iterateStructsByIdSet(tr, tr.deleteSet, s => {
+    if (s instanceof Item) {
+      deleted++;
+      if (
+        !(s.id.client === client && tr.insertSet.hasId(s.id)) &&
+        !allowed(s, true)
+      ) {
+        problems.push(`item ${idOf(s)} was deleted outside the root's content`);
+      }
+    }
+  });
+  return {deleted, problems: problems.slice(0, 20), written};
+}
+
+/** The live attributes of `root` but its layout records and epoch. */
+function rootAttrs(root: YNode): string {
+  const parts: string[] = [];
+  for (const key of [...root._map.keys()].sort()) {
+    const it = root._map.get(key)!;
+    if (!it.deleted && !key.startsWith(LAYOUT_PREFIX) && key !== EPOCH_KEY) {
+      parts.push(`${JSON.stringify(key)}:${idOf(it)}=${valueOf(it)}`);
+    }
+  }
+  return parts.join('\n');
+}
+
+/** Where two reads differ first (null: they are equal). */
+function readDifference(
+  a: readonly string[],
+  b: readonly string[],
+): string | null {
+  const n = Math.max(a.length, b.length);
+  for (let i = 0; i < n; i++) {
+    if (a[i] !== b[i]) {
+      return `block ${i}: ${String(a[i]).slice(0, 200)} != ${String(b[i]).slice(0, 200)}`;
+    }
+  }
+  return null;
+}
+
+/**
+ * Run whole-root `step` (contract 2) on root `name` of `copy` in one
+ * transaction, then check the result (see YLayoutRootMigration). Throws a
+ * 'post-condition' YMigrationError with every problem.
+ */
+function runRootStep(
   copy: Doc,
   name: string,
-  step: YLayoutMigration,
+  step: YLayoutRootMigration,
   options: YMigrateOptions,
   reserved: ReadonlySet<number>,
 ): YMigrationStepReceipt & {epoch: YMigrationEpoch} {
   const root = copy.get(name) as YNode;
   const problems: string[] = [];
-  const before = rootState(
-    copy,
-    root,
-    step.rewrites,
-    step.readBefore,
-    null,
-    problems,
-    'before',
-  );
-  for (const c of before.values()) {
-    pushAll(problems, c.problems);
-  }
+  const before = [...step.readBefore(root)];
+  const attrsBefore = rootAttrs(root);
   const othersBefore = documentState(copy, root);
   const recordsBefore = Object.keys(root.getAttrs()).filter(k =>
     k.startsWith(LAYOUT_PREFIX),
   );
+  const client = migrationClient(copy, name, step, options, reserved);
+  const own = copy.clientID;
+  let epoch: YMigrationEpoch | null = null;
+  let counts = {deleted: 0, problems: [] as string[], written: 0};
+  const thrown: unknown[] = [];
+  copy.clientID = client;
+  try {
+    copy.transact(tr => {
+      try {
+        const clock = copy.store.getClock(client);
+        root.setAttr(LAYOUT_PREFIX + step.to, true);
+        step.migrateRoot(tr, root);
+        epoch = {
+          client,
+          clock,
+          kind: 'layout',
+          layout: step.to,
+          revision: step.revision,
+          step: step.id,
+          v: 1,
+        };
+        root.setAttr(EPOCH_KEY, epoch as never);
+      } catch (error) {
+        thrown.push(error);
+        problems.push(`the step threw: ${String(error)}`);
+      }
+      counts = outsideRootWrites(tr, client, root, step);
+    }, MIGRATION_ORIGIN);
+  } finally {
+    copy.clientID = own;
+  }
+  if (epoch === null) {
+    throw new YMigrationError(
+      'post-condition',
+      `@lexical/y: step ${step.id} failed on root ${name}: ${problems.join('; ')}`,
+      problems,
+      name,
+      thrown.length === 0 ? undefined : {cause: thrown[0]},
+    );
+  }
+  const written: YMigrationEpoch = epoch;
+  pushAll(problems, counts.problems);
+  const after = step.readAfter(root);
+  const d = readDifference(before, after);
+  if (d !== null) {
+    problems.push(`result: the read differs at ${d}`);
+  }
+  for (const problem of step.checkAfter(root)) {
+    problems.push(`result: ${problem}`);
+  }
+  if (rootAttrs(root) !== attrsBefore) {
+    problems.push('result: an attribute of the root changed');
+  }
+  for (const key of documentDiff(othersBefore, documentState(copy, root))) {
+    problems.push(`result: container ${key} outside the root changed`);
+  }
+  for (const key of recordsBefore) {
+    if (root.getAttr(key) !== true) {
+      problems.push(`the layout record ${key} was removed`);
+    }
+  }
+  const record = layoutRecordOf(root);
+  if (record.kind !== 'layout' || record.layout !== step.to) {
+    problems.push(`the root does not record layout ${step.to}`);
+  }
+  if (JSON.stringify(epochOf(root)) !== JSON.stringify(written)) {
+    problems.push('the root does not record a well-formed epoch');
+  }
+  pushAll(
+    problems,
+    heldProblems(copy).map(p => `result: ${p}`),
+  );
+  const reread = createYDoc(encodeStateAsUpdate(copy), {gc: copy.gc});
+  try {
+    pushAll(
+      problems,
+      heldProblems(reread).map(p => `re-read: ${p}`),
+    );
+    const rroot = reread.get(name) as YNode;
+    const rd = readDifference(after, step.readAfter(rroot));
+    if (rd !== null) {
+      problems.push(`re-read: the read differs at ${rd}`);
+    }
+    for (const problem of step.checkAfter(rroot)) {
+      problems.push(`re-read: ${problem}`);
+    }
+    if (JSON.stringify(epochOf(rroot)) !== JSON.stringify(written)) {
+      problems.push('re-read: the epoch differs');
+    }
+  } finally {
+    reread.destroy();
+  }
+  if (problems.length > 0) {
+    throw new YMigrationError(
+      'post-condition',
+      `@lexical/y: step ${step.id} failed its checks on root ${name}: ${problems.slice(0, 5).join('; ')}`,
+      problems,
+      name,
+    );
+  }
+  return {
+    client,
+    deleted: counts.deleted,
+    epoch: written,
+    id: step.id,
+    revision: step.revision,
+    written: counts.written,
+  };
+}
+
+/**
+ * The client id a step's transaction takes on root `name`: the app's
+ * allocator's, or the one hashed from the input and the step.
+ */
+function migrationClient(
+  copy: Doc,
+  name: string,
+  step: YLayoutStep,
+  options: YMigrateOptions,
+  reserved: ReadonlySet<number>,
+): number {
   // Every client of the complete input (split material included, which
   // the copy no longer holds) and every client an earlier step wrote: an
   // id the migration takes must name nothing of the input's history.
@@ -1176,6 +1419,41 @@ function runStep(
       taken,
     );
   }
+  return client;
+}
+
+/**
+ * Run `step` on root `name` of `copy` (observer-free, the caller's alone)
+ * in one transaction, then check the result. Throws a 'post-condition'
+ * YMigrationError with every problem (the copy is then the caller's to
+ * discard).
+ */
+function runStep(
+  copy: Doc,
+  name: string,
+  step: YLayoutMigration,
+  options: YMigrateOptions,
+  reserved: ReadonlySet<number>,
+): YMigrationStepReceipt & {epoch: YMigrationEpoch} {
+  const root = copy.get(name) as YNode;
+  const problems: string[] = [];
+  const before = rootState(
+    copy,
+    root,
+    step.rewrites,
+    step.readBefore,
+    null,
+    problems,
+    'before',
+  );
+  for (const c of before.values()) {
+    pushAll(problems, c.problems);
+  }
+  const othersBefore = documentState(copy, root);
+  const recordsBefore = Object.keys(root.getAttrs()).filter(k =>
+    k.startsWith(LAYOUT_PREFIX),
+  );
+  const client = migrationClient(copy, name, step, options, reserved);
   const containers = traverse(root);
   const own = copy.clientID;
   let epoch: YMigrationEpoch | null = null;
@@ -1457,13 +1735,10 @@ function runOnCopy(
       const ran: YMigrationStepReceipt[] = [];
       let epoch: YMigrationEpoch | null = null;
       for (const step of plan.steps) {
-        const {epoch: e, ...receipt} = runStep(
-          copy,
-          plan.root,
-          step,
-          options,
-          reserved,
-        );
+        const {epoch: e, ...receipt} =
+          step.v === 2
+            ? runRootStep(copy, plan.root, step, options, reserved)
+            : runStep(copy, plan.root, step, options, reserved);
         ran.push(receipt);
         epoch = e;
       }
@@ -1517,7 +1792,7 @@ function unchanged(plans: readonly RootPlan[]): YMigrationRootReceipt[] {
  */
 export function migrateYState(
   state: Uint8Array,
-  steps: readonly YLayoutMigration[],
+  steps: readonly YLayoutStep[],
   options: YMigrateStateOptions = {},
 ): YMigrationResult {
   const t0 = Date.now();
@@ -1585,7 +1860,7 @@ export function migrateYState(
  */
 export function migrateYDoc(
   doc: Doc,
-  steps: readonly YLayoutMigration[],
+  steps: readonly YLayoutStep[],
   options: YMigrateOptions = {},
 ): YMigrationReceipt {
   assertSupportedMigrationYjs();

@@ -94,7 +94,7 @@ for (const gc of [false, true]) {
       },
       {discrete: true},
     );
-    expect(root.getAttr('lexical-y:4')).toBe(true);
+    expect(root.getAttr('lexical-y:5')).toBe(true);
     // 3: decode, without a binding.
     const decoded = createYDoc(Y.encodeStateAsUpdate(doc), {gc});
     const nested = decoded.get('app').getAttr('editor') as Y.Node;

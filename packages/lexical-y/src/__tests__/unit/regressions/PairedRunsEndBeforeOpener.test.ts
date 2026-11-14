@@ -48,7 +48,7 @@ for (const gc of [false, true]) {
       $setSelection(null);
     });
     await t.sync();
-    expect(rootOf(t.a).getAttr('lexical-y:4')).toBe(true);
+    expect(rootOf(t.a).getAttr('lexical-y:5')).toBe(true);
     // A raw writer: an unpaired bold opener O on "y" (with the null after
     // it), then an end before "x" that names O (with the null after "x").
     const raw = new Y.Doc({gc});

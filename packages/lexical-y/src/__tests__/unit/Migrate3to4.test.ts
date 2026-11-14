@@ -65,6 +65,7 @@ import {
 import step1to2 from '../../migrate/1to2';
 import step2to3 from '../../migrate/2to3';
 import step3to4 from '../../migrate/3to4';
+import step4to5 from '../../migrate/4to5';
 import {$snapshot, catalogHeadlessConfig} from '../catalog/bind';
 import {blockIdsOf, containersOf, withoutBlockIds} from '../utils/migrate2to3';
 import {
@@ -117,8 +118,12 @@ function load(): Golden[] {
         const input = unb64(f.input);
         const roots = rootsOf(f);
         f.output = {
-          gcOff: b64(migrateYState(input, STEPS, {gc: false, roots}).state),
-          gcOn: b64(migrateYState(input, STEPS, {gc: true, roots}).state),
+          gcOff: b64(
+            migrateYState(input, STEPS, {gc: false, roots, to: 4}).state,
+          ),
+          gcOn: b64(
+            migrateYState(input, STEPS, {gc: true, roots, to: 4}).state,
+          ),
         };
       }
     }
@@ -129,14 +134,18 @@ function load(): Golden[] {
 
 const FIXTURES = load();
 const migrate = (f: Golden, gc: boolean, steps = STEPS) =>
-  migrateYState(unb64(f.input), steps, {gc, roots: rootsOf(f)}).state;
+  migrateYState(unb64(f.input), steps, {gc, roots: rootsOf(f), to: 4}).state;
 
 /** What a reader of `state`'s root `root` shows, as JSON. */
 function readOf(state: Uint8Array, f: Golden, root?: string): unknown {
+  // A layout 4 state binds read only from layout 5 on: the read is of the
+  // state 4to5 makes of it (these documents hold no quote that holds
+  // paragraphs, so it only records layout 5).
+  const five = migrateYState(state, [step4to5], {roots: rootsOf(f)}).state;
   return JSON.parse(
     JSON.stringify(
       readYState(
-        state,
+        five,
         catalogHeadlessConfig(f.cfg, root === undefined ? {} : {root}),
         $snapshot,
       ),
@@ -433,7 +442,11 @@ describe('@lexical/y/migrate/3to4 golden fixtures', () => {
       test('idempotent: a migrated document is a no-op', () => {
         for (const f of FIXTURES) {
           const out = migrate(f, gc);
-          const again = migrateYState(out, STEPS, {gc, roots: rootsOf(f)});
+          const again = migrateYState(out, STEPS, {
+            gc,
+            roots: rootsOf(f),
+            to: 4,
+          });
           expect(again.receipt.changed, f.name).toBe(false);
           expect(again.update, f.name).toBeNull();
           expect(again.state, f.name).toBe(out);
@@ -456,10 +469,13 @@ describe('@lexical/y/migrate/3to4 golden fixtures', () => {
           gc,
           to: 3,
         }).state;
-        const four = migrateYState(three, [step3to4], {gc}).state;
+        const four = migrateYState(three, [step3to4], {gc, to: 4}).state;
         expect(recordedLayout(createRawYDoc(four, {gc})), f.name).toBe(4);
         expect(
-          b64(migrateYState(input, [step1to2, step2to3, step3to4], {gc}).state),
+          b64(
+            migrateYState(input, [step1to2, step2to3, step3to4], {gc, to: 4})
+              .state,
+          ),
           f.name,
         ).toBe(b64(four));
         expect(layout4Problems(four, gc), f.name).toEqual([]);
@@ -482,7 +498,7 @@ describe('@lexical/y/migrate/3to4 golden fixtures', () => {
         `for (const f of fixtures) {`,
         `  const roots = f.mainNotes === undefined ? undefined : ['lexical-y', 'notes'];`,
         `  for (const gc of [false, true]) {`,
-        `    h.update(migrateYState(new Uint8Array(Buffer.from(f.input, 'base64')), [step3to4], {gc, roots}).state);`,
+        `    h.update(migrateYState(new Uint8Array(Buffer.from(f.input, 'base64')), [step3to4], {gc, roots, to: 4}).state);`,
         `  }`,
         `}`,
         `process.stdout.write(h.digest('hex'));`,

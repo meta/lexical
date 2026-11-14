@@ -214,10 +214,12 @@ local transaction of another origin that changes it
 
 Each layout adds to the one before and is frozen once released: layout 1
 is the base, layout 2 adds member entries of set-valued NodeState, layout 3
-stores format runs as paired runs, and layout 4 stores flat NodeState on
-text as paired runs too. This release writes layout 4 (`MIN_LAYOUT` and
-`LAYOUT_VERSION`); a document that records only an older layout opens read
-only until its migration (see [layout 4](#wire-format-layout-4)).
+stores format runs as paired runs, layout 4 stores flat NodeState on text
+as paired runs too, and layout 5 stores a quote that holds paragraphs (a
+shadow-root instance of a line class) as a container of lines. This
+release writes layout 5 (`MIN_LAYOUT` and `LAYOUT_VERSION`); a document
+that records only an older layout opens read only until its migration (see
+[layout 5](#wire-format-layout-5)).
 
 ### Wire format: layout 1
 
@@ -468,11 +470,11 @@ every content id. This release reads layout 3 only to show it (see
 ### Wire format: layout 4
 
 Layout 4 is layout 3 with one mechanism for every name the binding writes
-on text, and is frozen the same way. It is the only layout this release
-writes: `MIN_LAYOUT`, `LAYOUT_VERSION` and `SEED_LAYOUT` are 4. A new
-document records only `lexical-y:4`, before its first content; a migrated
-document keeps its earlier records and adds `lexical-y:4`. Nothing records
-`lexical-y:2` any more (layout 4 includes member entries).
+on text, and is frozen the same way. The release that wrote it recorded
+only `lexical-y:4` in a new document, before its first content; a migrated
+document kept its earlier records and added `lexical-y:4`. Nothing records
+`lexical-y:2` any more (layout 4 includes member entries). This release
+reads layout 4 only to show it (see [layout 5](#wire-format-layout-5)).
 
 - **Covered names.** Layout 3's, and flat NodeState: `t`, `k`,
   `f:<format>`, `p:<field>`, `w:<type>` and every `s:` name, a flat value
@@ -505,3 +507,59 @@ document keeps its earlier records and adds `lexical-y:4`. Nothing records
   a flat NodeState name and already meets layout 4's pairing invariant is
   left as it is (its bytes are kept): it reads the same under both layouts.
 
+### Wire format: layout 5
+
+Layout 5 is layout 4 with one storage rule changed, and is frozen the same
+way. It is the only layout this release writes: `MIN_LAYOUT`,
+`LAYOUT_VERSION` and `SEED_LAYOUT` are 5. A new document records only
+`lexical-y:5`, before its first content; a migrated document keeps its
+earlier records and adds `lexical-y:5`.
+
+- **A shadow root of a line class.** An element of a line class (one
+  declared with `children: 'inline'`, such as `QuoteNode`) that is a
+  shadow root (`isShadowRoot()`, for a quote `$createQuoteNode({shadowRoot:
+  true})`) and sits where blocks go (the root, a container that holds
+  blocks; not as a group's item) is stored as a block node: `b:<type>` with
+  `c` = `'b'` and the node's attributes (`p:` fields, `s:` NodeState, its
+  block id; `shadowRoot` included), the same shape a table cell has. Its
+  paragraphs and other blocks are stored in its own sequence: each
+  paragraph as a line (its text, then a `¶` marker with its type, fields,
+  NodeState and block id), each other block as it is stored in any
+  container of blocks. Text that no paragraph holds (a collaborator typed
+  into a paragraph another removed) is inline content no marker ends, read
+  as a paragraph, as in any container. A quote that is not a shadow root is
+  a line, as before. Turning `shadowRoot` on or off for an existing quote
+  replaces it in place by the other shape.
+- **Why.** Layout 4 stored such a quote as a line whose blocks were nodes
+  of their own in its inline content (`i:paragraph`, `c` = `'i'`), so each
+  paragraph's text was a sequence of its own: a split (Enter) or a join
+  (Backspace at a paragraph's start) moved text from one paragraph's node
+  to another's, and a collaborator typing in the moved text at the same
+  time lost it, or saw it land in another paragraph. In a container of
+  lines, a split is one marker inserted and a join one marker deleted.
+- **Reading a layout 4 document.** A document that records layout 4 opens
+  read only (`'older'`) and is shown by the same reader: a line that holds
+  blocks is read as before (its blocks, and a paragraph per run of text
+  between them).
+- **Migration.** The frozen step `@lexical/y/migrate/4to5` takes no
+  parameters and is a whole-root step (step contract 2): it writes new
+  items, since a Yjs item cannot move to another sequence. For each line
+  whose marker holds `s:shadowRoot` = `true` and no `g`, in every
+  container: the line becomes a `b:<type>` node with the marker's
+  attributes (`t` aside) in its place; each block of its inline content
+  stored as a node of a line class (the root records the type's kind as
+  `line`) becomes a line of the new node, its text and inline nodes
+  followed by a marker with the node's attributes (its type as `t`, left
+  out for a paragraph); every other block node is copied whole into it as a
+  `b:` node; each run of text no block holds becomes a line whose marker
+  holds no attribute; formats are written in layout 4's canonical form per
+  new container; the old line's items are deleted. Where the root stores a
+  block id anywhere (`s:blockId`), each line it makes stores the id readers
+  derived for it (a run's from its first unit, a node that stored none from
+  its own item: `y`, the client, `_`, the clock, in base 36), so every block
+  keeps its id. Without node classes, a node in the line's inline content
+  is a block when the root records its type as a line or a group, when it
+  holds blocks (`c` = `'b'`), or when it is a leaf with no text in the same
+  run; an inline decorator left alone between two blocks by a concurrent
+  edit is therefore migrated as a block. A root without such a line gets
+  only its layout record and epoch.

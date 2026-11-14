@@ -48,6 +48,7 @@ import {migrateYState} from '../../migrate';
 import step1to2 from '../../migrate/1to2';
 import step2to3 from '../../migrate/2to3';
 import step3to4 from '../../migrate/3to4';
+import step4to5 from '../../migrate/4to5';
 import {freshReader, NODES, setup} from './harness';
 
 /**
@@ -324,9 +325,13 @@ export function describeMigration(lines: number, text: string): void {
     for (const gc of [false, true]) {
       test(`${name} (gc ${gc ? 'on' : 'off'})`, () => {
         const input = layout1Document(lines, text);
-        const result = migrateYState(input, [step1to2, step2to3, step3to4], {
-          gc,
-        });
+        const result = migrateYState(
+          input,
+          [step1to2, step2to3, step3to4, step4to5],
+          {
+            gc,
+          },
+        );
         expect(result.receipt.changed).toBe(true);
         const read = readYState(result.state, CONFIG, () =>
           $getRoot()
@@ -380,7 +385,7 @@ export function describeMigration3to4(lines: number, text: string): void {
     const input = layout3Document(lines, text);
     for (const gc of [false, true]) {
       test(`${name}, flat NodeState (gc ${gc ? 'on' : 'off'})`, () => {
-        const result = migrateYState(input, [step3to4], {gc});
+        const result = migrateYState(input, [step3to4, step4to5], {gc});
         expect(result.receipt.roots[0].steps.map(s => s.id)).toEqual([
           'lexical-y/layout/3to4',
         ]);

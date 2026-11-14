@@ -8,8 +8,8 @@
 
 // @vitest-environment node
 
-// B's text left directly in a shadow-root quote (A moves the paragraph into
-// the quote while B types into it), which every reader shows as a paragraph
+// B's text left directly in a shadow-root quote (A removes the quote's last
+// paragraph while B types into it), which every reader shows as a paragraph
 // of its own; then B's follow-up moves the next root paragraph into the
 // quote, before its first child, which is refused. The re-read shows what a
 // fresh read shows: it reused the moved paragraph for the text left in the
@@ -39,35 +39,32 @@ const tree = (p: Peer) =>
   p.read(() => $getRoot().getChildren().map(describeNode).join(' / '));
 
 describe('a refused follow-up re-reads a quote holding text without a paragraph', () => {
-  for (const side of ['after', 'before'] as const) {
+  // Text left before a paragraph of the quote is that paragraph's (a line is
+  // the content before its marker), so only text after the last one is left
+  // without a paragraph. (Layout 4, which stored the quote as a line, left
+  // text before its paragraph too, when the paragraph was moved into it.)
+  for (const side of ['after'] as const) {
     for (const next of ['nothing', 'types elsewhere'] as const) {
       test(`text ${side} the quote's paragraph; then the author ${next === 'nothing' ? 'does nothing' : next}`, async () => {
         const t = await setup(() => {
           $getRoot().append(
             $createParagraphNode().append($createTextNode('Title')),
-            $createParagraphNode().append($createTextNode('t1z ')),
+            $createQuoteNode({shadowRoot: true}).append(
+              $createParagraphNode().append($createTextNode('t1z ')),
+              $createParagraphNode(),
+            ),
             $createParagraphNode().append($createTextNode('end')),
           );
         });
         t.offline();
         t.a.update(() => {
-          const para = $block([1]);
-          const quote = $createQuoteNode({shadowRoot: true});
-          para.insertBefore(quote);
-          quote.append(para);
+          $block([1, 1]).remove();
         });
         t.b.update(() => {
-          const sel =
-            side === 'before'
-              ? $block([1]).selectStart()
-              : $block([1]).selectEnd();
-          sel.insertText('t5z ');
+          $block([1, 1]).selectEnd().insertText('t5z ');
         });
         await t.sync();
-        const both =
-          side === 'before'
-            ? 'quote(paragraph("t5z ") paragraph("t1z "))'
-            : 'quote(paragraph("t1z ") paragraph("t5z "))';
+        const both = 'quote(paragraph("t1z ") paragraph("t5z "))';
         expect(tree(t.b)).toBe(
           `paragraph("Title") / ${both} / paragraph("end")`,
         );

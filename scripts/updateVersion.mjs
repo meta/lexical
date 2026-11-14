@@ -237,12 +237,12 @@ async function regenerateMigrationStepTables() {
     '};\n';
   const table =
     header +
-    "\nimport type {YLayoutMigration} from './Runner';\n\n" +
+    "\nimport type {YLayoutStep} from './Runner';\n\n" +
     names
       .map(n => `import step${n} from '@lexical/y/migrate/${n}';\n`)
       .join('') +
     "\n/** The published steps, statically imported (prepareYRoom's default). */\n" +
-    'export const PUBLISHED_STEPS: readonly YLayoutMigration[] = [\n' +
+    'export const PUBLISHED_STEPS: readonly YLayoutStep[] = [\n' +
     names.map(n => `  step${n},\n`).join('') +
     '];\n';
   for (const [relPath, source] of [

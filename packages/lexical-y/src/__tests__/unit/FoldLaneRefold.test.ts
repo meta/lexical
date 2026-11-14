@@ -81,7 +81,7 @@ for (let seed = 1; seed <= SEEDS; seed++) {
     const r = rng(seed);
     const doc = new Y.Doc({gc: r.chance(0.5)});
     const root = doc.get('lexical-y');
-    root.setAttr('lexical-y:4', true);
+    root.setAttr('lexical-y:5', true);
     const n = r.int(6, 14);
     root.insert(0, 'abcdefghijklmnop'.slice(0, n));
     // Block boundaries (stored nodes) at random places.

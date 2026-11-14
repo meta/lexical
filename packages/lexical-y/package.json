@@ -121,6 +121,22 @@
       "production": "./dist/LexicalYMigrate3to4.prod.js",
       "default": "./dist/LexicalYMigrate3to4.js"
     },
+    "./migrate/4to5": {
+      "source": "./src/migrate/4to5.ts",
+      "types@<5.2": "./dist/typescript-too-old.d.ts",
+      "types": "./dist/migrate/4to5.d.ts",
+      "development": "./dist/LexicalYMigrate4to5.dev.js",
+      "production": "./dist/LexicalYMigrate4to5.prod.js",
+      "default": "./dist/LexicalYMigrate4to5.js"
+    },
+    "./migrate/4to5.js": {
+      "source": "./src/migrate/4to5.ts",
+      "types@<5.2": "./dist/typescript-too-old.d.ts",
+      "types": "./dist/migrate/4to5.d.ts",
+      "development": "./dist/LexicalYMigrate4to5.dev.js",
+      "production": "./dist/LexicalYMigrate4to5.prod.js",
+      "default": "./dist/LexicalYMigrate4to5.js"
+    },
     "./offline": {
       "source": "./src/offline.ts",
       "types@<5.2": "./dist/typescript-too-old.d.ts",

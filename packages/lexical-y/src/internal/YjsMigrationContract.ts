@@ -12,6 +12,7 @@
 
 import {
   applyUpdate,
+  type ContentAny,
   ContentDeleted,
   createID,
   createIdSet,
@@ -63,7 +64,11 @@ type ContentIds = Parameters<typeof intersectUpdateWithContentIds>[1];
 export function migrationYjsMembers() {
   return {
     AbstractContent: {
+      copy: (c: AbstractContent) => isFunction(c.copy),
       getRef: (c: AbstractContent) => isFunction(c.getRef),
+    },
+    ContentAny: {
+      arr: (c: ContentAny) => Array.isArray(c.arr),
     },
     ContentIds: {
       deletes: (c: ContentIds) => isObject(c.deletes),

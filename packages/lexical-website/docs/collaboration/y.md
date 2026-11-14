@@ -703,6 +703,15 @@ block-beta
 _A table: the table, its rows and its cells are nodes of their own, and each
 cell holds a sequence._
 
+**A quote that holds paragraphs is a container.** A block of a line class
+that is a shadow root where blocks go (a quote made with
+`$createQuoteNode({shadowRoot: true})`) is stored as a cell is: a node of
+its own whose paragraphs are lines of its sequence. Enter and Backspace in
+it then insert or delete one marker, so text a collaborator types in the
+paragraph at the same time stays where they typed it. A quote that holds
+text directly is a line, like a paragraph. Turning `shadowRoot` on or off
+for an existing quote replaces it in place.
+
 **Named slots go with the node that holds them.** A block decorator or
 custom container that holds content in [named slots](/docs/concepts/named-slots)
 (`$setSlot`, as a callout's body or a figure's caption) keeps each slot on
@@ -812,7 +821,7 @@ block-beta
 _A heading, a paragraph with a link, a bold word and a NodeState value, and
 a custom container (`callout`) that holds a paragraph, in layout 1._
 
-**Layout 4** (what this release writes) stores format runs as pairs. A
+**Layout 4** stores format runs as pairs. A
 write's run of a text format, a link, a text field, a text node's type, a
 comment id or a NodeState value on text is an opener (the value, or `[]` for "no value") and an end that
 names its opener by id, so a reader knows which write each end belongs to.
@@ -824,6 +833,11 @@ binding writes on text has one mechanism. The package README specifies it:
 [layout 3](https://github.com/meta/lexical/tree/main/packages/lexical-y#wire-format-layout-3)
 and
 [layout 4](https://github.com/meta/lexical/tree/main/packages/lexical-y#wire-format-layout-4).
+
+**Layout 5** (what this release writes) stores a quote that holds
+paragraphs as a container of lines (see above), instead of a line whose
+paragraphs are nodes of their own:
+[layout 5](https://github.com/meta/lexical/tree/main/packages/lexical-y#wire-format-layout-5).
 
 ## What changes when you turn on collaboration
 
@@ -2167,15 +2181,27 @@ in the package README is the contract for what a room stores: the markers,
 attributes and records, and their names. Every room records the layout
 versions it needs (`lexical-y:<n>: true`, a record that only grows), and a
 client reads the highest. A client reads and writes the layouts from
-`MIN_LAYOUT` to `LAYOUT_VERSION` (currently 4 to 4: paired runs for every
-name the binding writes on text). A new room records `SEED_LAYOUT`
-(currently 4) and no older layout. A room that records only an
+`MIN_LAYOUT` to `LAYOUT_VERSION` (currently 5 to 5: paired runs for every
+name the binding writes on text, and quotes that hold paragraphs stored as
+containers). A new room records `SEED_LAYOUT` (currently 5) and no older
+layout. A room that records only an
 older layout opens read only (`'older'`) until it is migrated (see
 [Migrating stored documents](#migrating-stored-documents)).
 
-**Moving to layout 4.** This release reads and writes layout 4 only. A room
-stored at layout 1, 2 or 3 opens read only in it, showing its content, until
-it is migrated with `@lexical/y/migrate/3to4` (after
+**Moving to layout 5.** This release reads and writes layout 5 only. A room
+stored at layout 4 opens read only in it, showing its content, until it is
+migrated with `@lexical/y/migrate/4to5`, a whole-root step: each quote
+that holds paragraphs becomes the container layout 5 stores, keeping every
+block's type, fields, NodeState and block id (the paragraphs' text is
+written anew, since a Yjs item cannot move to another sequence), and every
+other part of the room is left as it is. The default step lists include it;
+a server that passes its own list adds `@lexical/y/migrate/4to5` after
+`@lexical/y/migrate/3to4`. Older clients open a layout 5 room read only
+(`'newer'`).
+
+**Moving to layout 4.** The release before this one read and wrote layout 4
+only. A room stored at layout 1, 2 or 3 opens read only, showing its
+content, until it is migrated with `@lexical/y/migrate/3to4` (after
 `@lexical/y/migrate/2to3` for layout 2, and `@lexical/y/migrate/1to2`
 before that for layout 1): the server that stores a room migrates it on load (see the
 [server guide](./y-server.md#migrating-stored-documents)). The step keeps every character, node and line marker with its Yjs
@@ -2211,7 +2237,7 @@ lists include it; a server that passes its own list to `migrateYState` or
   `MIN_LAYOUT` only through an explicitly selected target, and the default
   seed and target do not move to it (see [Layout upgrades](#layout-upgrades)).
 - **Changes that raise `MIN_LAYOUT`:** a release that stops reading older
-  layouts, as layout 3's and layout 4's did (their rooms are migrated,
+  layouts, as layout 3's, layout 4's and layout 5's did (their rooms are migrated,
   below). While
   `@lexical/y` is experimental, a later release may do it again: see
   [Layout upgrades](#layout-upgrades).
@@ -2261,7 +2287,7 @@ below the floor and also reports `UNSUPPORTED_CONFIG_WARNING`
 `LAYOUT_VERSION`, and releases usually keep reading the older ones. While
 the package is experimental, though, a release may stop reading an older
 layout (it raises `MIN_LAYOUT`), as layout 3's release did for layouts 1
-and 2 and layout 4's did for layout 3. Rooms stored in that layout then open read only until their server
+and 2, layout 4's did for layout 3 and layout 5's did for layout 4. Rooms stored in that layout then open read only until their server
 migrates them with the published steps (`@lexical/y/migrate`, see
 [Migrating stored documents](#migrating-stored-documents)). Such a release
 raises `SEED_LAYOUT` with it, so servers also issue new incarnations for
@@ -2281,8 +2307,8 @@ What does not change:
 - An app may raise its own floor. Its server migrates its rooms to layout
   N + 1 and stops admitting clients that cannot read N + 1 (the handshake's
   `layouts` says what a client reads).
-- Every published step and revision stays available, `1to2`, `2to3` and
-  `3to4` included (`@lexical/y/migrate/<n>to<n+1>`).
+- Every published step and revision stays available, `1to2`, `2to3`,
+  `3to4` and `4to5` included (`@lexical/y/migrate/<n>to<n+1>`).
 - A step's default revision never changes what it writes (see Migration
   identity below).
 

@@ -136,7 +136,7 @@ for (const extra of ['before removal', 'after removal'] as const) {
               expect(at).toBeGreaterThanOrEqual(0);
               root.format(at, 1, {
                 [KEY[kind]]:
-                  root.getAttr('lexical-y:4') === true
+                  root.getAttr('lexical-y:5') === true
                     ? [target.id.client, target.id.clock]
                     : null,
               });

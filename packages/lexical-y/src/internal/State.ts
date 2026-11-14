@@ -456,6 +456,21 @@ export class Roles {
       p === 'group' ||
       p === 'level' ||
       (p === 'container' && this.$kind(parent) === 'b');
+    if (
+      blocksAllowed &&
+      p !== 'group' &&
+      p !== 'level' &&
+      $isLine(node) &&
+      node.isShadowRoot()
+    ) {
+      // A shadow-root instance of a line class (a quote that holds
+      // paragraphs) is stored as a container of blocks (layout 5), as a
+      // table cell is. Invariant: never as a line whose blocks are nodes of
+      // their own in its inline content. Why: a split or a join of one of
+      // its paragraphs would move text from one node to another, and a
+      // collaborator's typing in the moved text would be lost.
+      return 'container';
+    }
     if (blocksAllowed && $isLine(node)) {
       if (p === 'group') {
         const spec = getGroupSpec(klassOf(parent))!;

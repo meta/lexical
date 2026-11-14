@@ -70,10 +70,6 @@ const LIMIT = 400;
 const NESTED_INLINE =
   'an inline element stored as a node of its own (`nested`, not a format): Enter inside it makes a second node and copies the text after the caret into it, so typing there stays in the first (open, found by #9905)';
 const OPEN: ReadonlyMap<string, string> = new Map([
-  [
-    'quote* > paragraph',
-    'a quote that is a shadow root is stored as a line whose paragraphs are nodes of their own (regressions/ShadowRootQuoteSplitJoin.test.ts); fixed by the follow-up layout 5 pull request',
-  ],
   ['paragraph > overflow', NESTED_INLINE],
   ['paragraph > autolink', NESTED_INLINE],
   ['paragraph > mark', NESTED_INLINE],
@@ -562,8 +558,7 @@ describe('C10: split and join of every line type ‖ typing in the moved text', 
 
 describe('C10: no line class is stored as a node of its own in a sequence', () => {
   for (const shape of NODE_SHAPES) {
-    const open = shape.name === 'quote/shadow-root';
-    (open ? test.fails : test)(shape.name, () => {
+    test(shape.name, () => {
       const {peers} = newPeers(1, () => {
         $getRoot().clear();
         $appendShapes([shape]);
@@ -578,7 +573,13 @@ describe('C10: no line class is stored as a node of its own in a sequence', () =
           }
           const name = child.name ?? '';
           const m = /^[bi]:(.*)$/.exec(name);
-          if (m !== null && kinds[m[1]] === 'line') {
+          // A line class stored as a container of lines (c = 'b', a quote
+          // that holds paragraphs) holds no line's text itself.
+          if (
+            m !== null &&
+            kinds[m[1]] === 'line' &&
+            child.getAttr('c') !== 'b'
+          ) {
             found.push(`${where} > ${name}`);
           }
           walk(child, `${where} > ${name}`);

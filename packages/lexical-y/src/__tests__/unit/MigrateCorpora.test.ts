@@ -35,6 +35,7 @@ import {getYLayoutInfo, migrateYState} from '../../migrate';
 import step1to2 from '../../migrate/1to2';
 import step2to3 from '../../migrate/2to3';
 import step3to4 from '../../migrate/3to4';
+import step4to5 from '../../migrate/4to5';
 import {$snapshot} from '../catalog/bind';
 import {blockIdsOf, withoutBlockIds} from '../utils/migrate2to3';
 import {layout4Problems} from '../utils/migrate3to4';
@@ -56,7 +57,7 @@ const DIRS = (
 const OUT = process.env.MIGRATE_2TO3_OUT ?? null;
 const SHARD = Number(process.env.MIGRATE_2TO3_SHARD ?? 0);
 const SHARDS = Number(process.env.MIGRATE_2TO3_SHARDS ?? 1);
-const STEPS = [step1to2, step2to3, step3to4];
+const STEPS = [step1to2, step2to3, step3to4, step4to5];
 
 type Entry = {
   name: string;

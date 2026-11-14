@@ -26,6 +26,8 @@ import {
   migrateYState,
   type YLayoutInfo,
   type YLayoutMigration,
+  type YLayoutRootMigration,
+  type YLayoutStep,
   type YMigrateOptions,
   type YMigrateStateOptions,
   YMigrationError,
@@ -57,13 +59,15 @@ export function loadYMigrationSteps(
   from: number,
   to: number = MIN_LAYOUT,
   {loaders = STEP_LOADERS}: YLoadYMigrationStepsOptions = {},
-): Promise<YLayoutMigration[]> {
+): Promise<YLayoutStep[]> {
   return loadStepsWith(loaders, from, to);
 }
 
 export type {
   YLayoutInfo,
   YLayoutMigration,
+  YLayoutRootMigration,
+  YLayoutStep,
   YMigrateOptions,
   YMigrateStateOptions,
   YMigrationEpoch,

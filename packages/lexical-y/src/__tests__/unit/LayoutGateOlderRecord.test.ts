@@ -71,18 +71,18 @@ for (const gc of [false, true]) {
       Y.applyUpdate(doc, Y.encodeStateAsUpdate(rdoc, sv), 'remote');
       rdoc.destroy();
     };
-    incoming(r => r.setAttr('lexical-y:4', true));
+    incoming(r => r.setAttr('lexical-y:5', true));
     expect(b.status).toBe('active');
     incoming(r => r.setAttr('lexical-y:999', true));
     expect(b.status).toBe('readonly');
     incoming(r => {
       r.deleteAttr('lexical-y:999');
-      r.deleteAttr('lexical-y:4');
+      r.deleteAttr('lexical-y:5');
     });
     await flush();
     expect(olderOf(warned)).toEqual([
-      [1, 4],
-      [1, 4],
+      [1, 5],
+      [1, 5],
     ]);
     b.dispose();
     doc.destroy();
@@ -95,7 +95,7 @@ for (const gc of [false, true]) {
       const sv = Y.encodeStateVector(remote);
       remote.transact(() => {
         // A new document records layout 4 only: the older record is set.
-        remote.get('lexical-y').deleteAttr('lexical-y:4');
+        remote.get('lexical-y').deleteAttr('lexical-y:5');
         remote.get('lexical-y').setAttr('lexical-y:' + layout, true);
       });
       Y.applyUpdate(t.a.doc, Y.encodeStateAsUpdate(remote, sv), t.a.net);
@@ -147,7 +147,7 @@ for (const gc of [false, true]) {
       b.undoManager?.redo();
       await flush();
       expect(b.status).toBe('readonly');
-      expect(olderOf(warnings)).toEqual([[layout, 4]]);
+      expect(olderOf(warnings)).toEqual([[layout, 5]]);
       expect(Y.encodeStateAsUpdate(doc)).toEqual(before);
       expect(() =>
         editYState(
@@ -168,14 +168,14 @@ for (const gc of [false, true]) {
     const t = await setup(() => $getRoot().append($p('abc')), {gc});
     const root = t.a.doc.get('lexical-y');
     t.a.doc.transact(() => {
-      root.deleteAttr('lexical-y:4');
+      root.deleteAttr('lexical-y:5');
       t.a.update(() => $getRoot().append($p('forbidden')));
     }, 'app');
     await flush();
     await t.sync();
     // The record is written again (a local transaction removed it, see
     // keepIdentityRecord); the edit made without it is not stored.
-    expect(root.getAttr('lexical-y:4')).toBe(true);
+    expect(root.getAttr('lexical-y:5')).toBe(true);
     expect(JSON.stringify(root.toJSON())).not.toContain('forbidden');
     expect(t.b.describe()).not.toContain('forbidden');
   });

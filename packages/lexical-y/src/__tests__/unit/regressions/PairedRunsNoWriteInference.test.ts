@@ -167,7 +167,7 @@ for (const gc of [false, true]) {
       $setSelection(null);
     });
     await t.sync();
-    expect(t.a.doc.get('lexical-y').getAttr('lexical-y:4')).toBe(true);
+    expect(t.a.doc.get('lexical-y').getAttr('lexical-y:5')).toBe(true);
     const raw = createYDoc(null, {gc});
     raw.clientID = 777;
     Y.applyUpdate(raw, Y.encodeStateAsUpdate(t.a.doc));
@@ -238,7 +238,7 @@ for (const gc of [false, true]) {
         $setSelection(null);
       });
       await t.sync();
-      expect(t.a.doc.get('lexical-y').getAttr('lexical-y:4')).toBe(true);
+      expect(t.a.doc.get('lexical-y').getAttr('lexical-y:5')).toBe(true);
       t.c.update(() => {
         const z = $createTextNode('Z');
         z.toggleFormat('bold');

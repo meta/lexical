@@ -31,23 +31,25 @@ export const LAYOUT_PREFIX = 'lexical-y:';
  */
 // Typed `number`, not its literal: a later release raises it, and code that
 // names its type must not stop compiling (so do MIN_LAYOUT and SEED_LAYOUT).
-export const LAYOUT_VERSION: number = 4;
+export const LAYOUT_VERSION: number = 5;
 /**
- * The layout every document this binding writes records (`lexical-y:4`):
+ * The layout every document this binding writes records (`lexical-y:5`):
  * every name the binding writes on text is stored as paired runs (an end
  * naming its opener, or a `[]` opener; see Ident), flat NodeState
- * (`s:<key>`) included. A new document records only this version; a
+ * (`s:<key>`) included (from layout 4), and a shadow-root instance of a
+ * line class at a block position is stored as a container of blocks (from
+ * layout 5, see Roles). A new document records only this version; a
  * migrated one keeps its earlier records beside it.
  */
-export const IDENTITY_LAYOUT_VERSION = 4;
+export const IDENTITY_LAYOUT_VERSION = 5;
 /**
  * @experimental The oldest layout version this binding reads and writes: layout
- * 4 only. A root below it binds read only (UNSUPPORTED_LAYOUT_WARNING,
+ * 5 only. A root below it binds read only (UNSUPPORTED_LAYOUT_WARNING,
  * `'older'`), showing its content, until it is migrated (see
- * @lexical/y/migrate, @lexical/y/migrate/3to4); the migration runner's default
+ * @lexical/y/migrate, @lexical/y/migrate/4to5); the migration runner's default
  * target.
  */
-export const MIN_LAYOUT: number = 4;
+export const MIN_LAYOUT: number = 5;
 /** The first layout version (the oldest a record can name). */
 export const BASE_LAYOUT_VERSION = 1;
 /**

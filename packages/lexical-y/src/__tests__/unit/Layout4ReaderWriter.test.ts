@@ -277,7 +277,7 @@ for (const gc of [false, true]) {
     doc.cleanupFormatting = false;
     doc.clientID = 7;
     const root = doc.get('c');
-    root.setAttr('lexical-y:4', true);
+    root.setAttr('lexical-y:5', true);
     doc.transact(tr =>
       new Cursor(tr, root, null, new Map()).insert(new Y.ContentString('ab'), {
         'f:bold': true,
@@ -292,7 +292,7 @@ for (const gc of [false, true]) {
     other.cleanupFormatting = false;
     other.clientID = 7;
     const target = other.get('c');
-    target.setAttr('lexical-y:4', true);
+    target.setAttr('lexical-y:5', true);
     target.insert(0, 'ab');
     other.transact(tr =>
       writeLayout4Formats(tr, target, [
@@ -322,7 +322,7 @@ for (const gc of [false, true]) {
     doc.cleanupFormatting = false;
     doc.clientID = 7;
     const root = doc.get('c');
-    root.setAttr('lexical-y:4', true);
+    root.setAttr('lexical-y:5', true);
     doc.transact(tr => {
       const c = new Cursor(tr, root, null, new Map());
       c.insert(new Y.ContentString('a'), {'f:bold': true});

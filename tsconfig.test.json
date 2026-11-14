@@ -370,6 +370,7 @@
       "@lexical/y/migrate/1to2": ["./packages/lexical-y/src/migrate/1to2.ts"],
       "@lexical/y/migrate/2to3": ["./packages/lexical-y/src/migrate/2to3.ts"],
       "@lexical/y/migrate/3to4": ["./packages/lexical-y/src/migrate/3to4.ts"],
+      "@lexical/y/migrate/4to5": ["./packages/lexical-y/src/migrate/4to5.ts"],
       "@lexical/y/offline": ["./packages/lexical-y/src/offline.ts"],
       "@lexical/y/server": ["./packages/lexical-y/src/server.ts"],
       "@lexical/yjs": ["./packages/lexical-yjs/src/index.ts"],

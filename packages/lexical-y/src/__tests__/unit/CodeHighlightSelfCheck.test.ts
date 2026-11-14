@@ -30,7 +30,7 @@ async function readCode(
   const root = doc.get('lexical-y');
   doc.transact(() => {
     root.setAttr('lexical-y:1', true);
-    root.setAttr('lexical-y:4', true);
+    root.setAttr('lexical-y:5', true);
     root.setAttr('k:code', 'line');
     let at = 0;
     for (const [text, attrs] of parts) {
@@ -86,7 +86,7 @@ test('a segment key left open over paragraphs: no self-check warning on a keystr
   const root = doc.get('lexical-y');
   doc.transact(() => {
     root.setAttr('lexical-y:1', true);
-    root.setAttr('lexical-y:4', true);
+    root.setAttr('lexical-y:5', true);
     let at = 0;
     for (const [text, attrs] of [
       ['first line', {}],

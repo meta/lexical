@@ -251,12 +251,13 @@ export function recordsIdentityLayout(root: {
 
 /**
  * The layout whose paired names apply to `root`'s stored ends, for the copy
- * repair (see repairCopies): 4 where it records layout 4; 3 where
- * it records layout 3 but not 4 (a layout 3 root a layout 4 runtime holds:
- * read only, nested, or on a server before its migration); null below.
+ * repair (see repairCopies): 4 where it records layout 4 or 5 (layout 5
+ * pairs the same names); 3 where it records layout 3 but neither (a layout
+ * 3 root a later runtime holds: read only, nested, or on a server before its
+ * migration); null below.
  */
 function pairedLayoutOf(root: {getAttr: (k: string) => unknown}): 3 | 4 | null {
-  if (recordsIdentityLayout(root)) {
+  if (recordsIdentityLayout(root) || root.getAttr(LAYOUT_PREFIX + 4) === true) {
     return 4;
   }
   return root.getAttr(LAYOUT_PREFIX + 3) === true ? 3 : null;

@@ -84,7 +84,7 @@ describe('@lexical/y storage', () => {
     );
     const root = t.a.binding.root;
     // A new document records layout 4, and no older layout.
-    expect(root.getAttr('lexical-y:4')).toBe(true);
+    expect(root.getAttr('lexical-y:5')).toBe(true);
     expect(root.getAttr('lexical-y:1')).toBeUndefined();
     expect(root.getAttr('lexical-y:2')).toBeUndefined();
     expect(root.getAttr('lexical-y:3')).toBeUndefined();
