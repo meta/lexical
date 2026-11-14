@@ -775,6 +775,132 @@ test.describe('HorizontalRule', () => {
       expect(isNodeSel).toBe(true);
     });
 
+    test.describe('Clicking the empty space beside a horizontal rule (#7758)', () => {
+      const getSelectionState = page =>
+        getPageOrFrame(page).evaluate(() => {
+          const state = window.lexicalEditor.getEditorState();
+          const sel = state._selection;
+          if (sel === null) {
+            return null;
+          }
+          if ('anchor' in sel) {
+            return {anchorType: sel.anchor.type, type: 'range'};
+          }
+          return {
+            type: 'node',
+            types: Array.from(sel._nodes).map(key =>
+              state._nodeMap.get(key).getType(),
+            ),
+          };
+        });
+
+      // The middle of the gap between the rule and the block above or below
+      // it, or of the rule's bottom margin when nothing follows it.
+      const getGapPoint = (page, side) =>
+        getPageOrFrame(page).evaluate(gapSide => {
+          const hr = document.querySelector('[contenteditable="true"] hr');
+          const rect = hr.getBoundingClientRect();
+          const sibling =
+            gapSide === 'above'
+              ? hr.previousElementSibling
+              : hr.nextElementSibling;
+          let y;
+          if (gapSide === 'above') {
+            y = (sibling.getBoundingClientRect().bottom + rect.top) / 2;
+          } else if (sibling !== null) {
+            y = (rect.bottom + sibling.getBoundingClientRect().top) / 2;
+          } else {
+            y = rect.bottom + parseFloat(getComputedStyle(hr).marginBottom) / 2;
+          }
+          return {x: Math.round(rect.left + rect.width / 2), y: Math.round(y)};
+        }, side);
+
+      const expectRuleSelected = async page => {
+        await expect
+          .poll(() => getSelectionState(page))
+          .toEqual({type: 'node', types: ['horizontalrule']});
+        await expect(getPageOrFrame(page).locator('hr')).toHaveClass(
+          /PlaygroundEditorTheme__hrSelected/,
+        );
+      };
+
+      test.beforeEach(async ({page}) => {
+        await focusEditor(page);
+        await page.keyboard.type('Above');
+        await selectFromInsertDropdown(page, '.horizontal-rule');
+        await waitForSelector(page, 'hr');
+        await page.keyboard.type('Below');
+      });
+
+      test('Clicking the gap above the rule selects it', async ({page}) => {
+        await click(page, 'p:has-text("Below")');
+        const {x, y} = await getGapPoint(page, 'above');
+        await page.mouse.click(x, y);
+        await expectRuleSelected(page);
+      });
+
+      test('Clicking the gap below the rule selects it', async ({page}) => {
+        await click(page, 'p:has-text("Above")');
+        const {x, y} = await getGapPoint(page, 'below');
+        await page.mouse.click(x, y);
+        await expectRuleSelected(page);
+      });
+
+      test('Clicking text next to the rule places a caret', async ({page}) => {
+        await click(page, 'p:has-text("Above")');
+        await expect
+          .poll(() => getSelectionState(page))
+          .toEqual({anchorType: 'text', type: 'range'});
+        await expect(getPageOrFrame(page).locator('hr')).not.toHaveClass(
+          /PlaygroundEditorTheme__hrSelected/,
+        );
+      });
+
+      test('Shift-clicking the gap extends the range selection', async ({
+        page,
+      }) => {
+        await click(page, 'p:has-text("Above")');
+        const {x, y} = await getGapPoint(page, 'below');
+        await page.keyboard.down('Shift');
+        await page.mouse.click(x, y);
+        await page.keyboard.up('Shift');
+        // The range now spans the rule instead of being replaced by a
+        // NodeSelection of it.
+        await expect
+          .poll(() =>
+            getPageOrFrame(page).evaluate(() => {
+              const sel = window.lexicalEditor.getEditorState()._selection;
+              return sel !== null && 'anchor' in sel && !sel.isCollapsed();
+            }),
+          )
+          .toBe(true);
+      });
+
+      test('Clicking below a rule that is the last block inserts a paragraph', async ({
+        page,
+      }) => {
+        await getPageOrFrame(page).evaluate(() => {
+          const editor = window.lexicalEditor;
+          editor.update(
+            () => {
+              const root = editor.getEditorState()._nodeMap.get('root');
+              root.getLastChild().remove();
+              root.getFirstChild().selectEnd();
+            },
+            {discrete: true},
+          );
+        });
+        const {x, y} = await getGapPoint(page, 'below');
+        await page.mouse.click(x, y);
+        await expect(
+          getPageOrFrame(page).locator('[contenteditable="true"] hr + p'),
+        ).toHaveCount(1);
+        await expect
+          .poll(() => getSelectionState(page))
+          .toEqual({anchorType: 'element', type: 'range'});
+      });
+    });
+
     test('Clicking between consecutive block decorators creates selection (#6775)', async ({
       page,
     }) => {
@@ -818,11 +944,13 @@ test.describe('HorizontalRule', () => {
       await page.mouse.click(clickPos.x, clickPos.y);
 
       // Without the fix, Firefox leaves selection as null (rangeCount === 0).
-      // The fix computes the correct child offset from click coordinates.
+      // The fix computes the correct child offset from click coordinates. A
+      // click in the rules' margins now selects the nearer rule (#7758).
       await expect
         .poll(() =>
           getPageOrFrame(page).evaluate(() => {
-            const sel = window.lexicalEditor.getEditorState()._selection;
+            const state = window.lexicalEditor.getEditorState();
+            const sel = state._selection;
             if (sel === null) {
               return null;
             }
@@ -833,10 +961,21 @@ test.describe('HorizontalRule', () => {
                 type: 'range',
               };
             }
-            return {type: 'node'};
+            return {
+              type: 'node',
+              types: Array.from(sel._nodes).map(key =>
+                state._nodeMap.get(key).getType(),
+              ),
+            };
           }),
         )
-        .toEqual({anchorKey: 'root', anchorType: 'element', type: 'range'});
+        .toEqual({type: 'node', types: ['horizontalrule']});
+
+      // Selecting a rule still lets the user add a paragraph between them.
+      await page.keyboard.press('Enter');
+      await expect(
+        getPageOrFrame(page).locator('[contenteditable="true"] hr + p + hr'),
+      ).toHaveCount(1);
     });
 
     test('ArrowDown from block cursor between shadow root and decorator selects the decorator', async ({
