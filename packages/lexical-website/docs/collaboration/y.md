@@ -953,9 +953,12 @@ What this means for your app:
   author's normalization gives its node that value too, and writes it.
 - **To keep blocks inside a container, make it hold blocks.** Declare
   `children: 'block'` on a custom container (a callout that holds
-  paragraphs; stray text in it is then wrapped in a paragraph), or use a
-  shadow-root quote, `$createQuoteNode({shadowRoot: true})`, which holds
-  paragraphs and is left alone.
+  paragraphs; stray text in it is then wrapped in a paragraph). For a quote,
+  use `QuoteContainerNode` (`@lexical/rich-text`, experimental), which
+  declares it and is stored as a container, as a table cell is. A
+  shadow-root quote, `$createQuoteNode({shadowRoot: true})`, also holds
+  paragraphs and is left alone, but its class declares inline content, so it
+  is stored as one line with its paragraphs as nodes inside it.
 
 ## Edits made by code (agents, tools)
 
@@ -1608,6 +1611,21 @@ not merge as a user might expect:
 - **NodeState on the root** is not stored and does not reach other clients:
   it stays on the editor that set it. An app that keeps document metadata
   there shares it itself.
+- **A shadow-root quote's paragraphs.** `$createQuoteNode({shadowRoot:
+  true})` declares inline content, so it is stored as one line, its
+  paragraphs as nodes inside that line. Enter in one of them writes the
+  paragraph's tail to a new node, and Backspace at the start of one moves its
+  text into the paragraph before: a collaborator's concurrent typing in the
+  text moved lands in the paragraph before the caret (Enter) or is lost
+  (Backspace), and an edit addressed by block id across a concurrent Enter
+  keeps the old word beside the new one. In the root, a table cell or a
+  `QuoteContainerNode` the same edits insert or delete one marker, and
+  nothing is lost: use `QuoteContainerNode` for a quote that holds blocks.
+- **An emptied `QuoteContainerNode`.** Its transform gives an empty
+  container a paragraph, on local edits only: two collaborators who each
+  remove a different one of its last blocks at once leave it empty (a read
+  of a collaborator's change runs no transforms). It stays editable: a caret
+  placed in it and typing make the paragraph.
 - **Moves.** Moving a block is a delete and a re-insert, so text a
   collaborator types into the moved block at the same time is lost or lands
   at its old position, a collaborator's caret in it stays at that position,

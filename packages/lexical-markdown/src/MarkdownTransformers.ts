@@ -24,20 +24,26 @@ import {
 } from '@lexical/list';
 import {
   $createHeadingNode,
+  $createQuoteContainerNode,
   $createQuoteNode,
   $isHeadingNode,
+  $isQuoteContainerNode,
   $isQuoteNode,
   HeadingNode,
   type HeadingTagType,
+  QuoteContainerNode,
   QuoteNode,
 } from '@lexical/rich-text';
 import {
   $createLineBreakNode,
+  $createParagraphNode,
   $createTextNode,
   $findMatchingParent,
   $generateNodesFromRawText,
   $getState,
+  $isElementNode,
   $isLineBreakNode,
+  $isParagraphNode,
   $isTextNode,
   $setState,
   type BaseSelection,
@@ -77,6 +83,15 @@ export type ElementTransformer = {
     // eslint-disable-next-line no-shadow
     traverseChildren: (node: ElementNode) => string,
     selection?: BaseSelection | null,
+    /**
+     * Exports the children of `node` as blocks, each with the element
+     * transformers of the export and separated by a blank line: what a node
+     * that holds blocks (a quote container) writes, where `traverseChildren`
+     * writes one line of inline content. Not given by callers written before
+     * it existed, so check for it.
+     */
+    // eslint-disable-next-line no-shadow
+    traverseBlocks?: (node: ElementNode) => string,
   ) => string | null;
   regExp: RegExp;
   /**
@@ -128,6 +143,13 @@ export type MultilineElementTransformer = {
     // eslint-disable-next-line no-shadow
     traverseChildren: (node: ElementNode) => string,
     selection?: BaseSelection | null,
+    /**
+     * Exports the children of `node` as blocks; see
+     * {@link ElementTransformer}'s `export`. Not given by callers written
+     * before it existed, so check for it.
+     */
+    // eslint-disable-next-line no-shadow
+    traverseBlocks?: (node: ElementNode) => string,
   ) => string | null;
   /**
    * This regex determines when to start matching
@@ -234,6 +256,21 @@ const UNORDERED_LIST_REGEX = /^(\s*)[-*+]\s/;
 const CHECK_LIST_REGEX = /^(\s*)(?:[-*+]\s)?\s?(\[(\s|x)?\])\s/i;
 const HEADING_REGEX = /^(#{1,6})\s/;
 const QUOTE_REGEX = /^>\s/;
+const QUOTE_BLANK_LINE_REGEX = /^>\s*$/;
+/**
+ * Whether `line` is a blank line of the quote `previous` is in: `>` alone (its
+ * space trimmed) right after a quote line.
+ */
+function isBlankQuoteLine(line: string, previous: string | undefined): boolean {
+  return (
+    QUOTE_BLANK_LINE_REGEX.test(line) &&
+    previous !== undefined &&
+    previous.startsWith('>')
+  );
+}
+
+/** A quote line, `>` and a space or `>` alone (see $replaceWithQuote). */
+const QUOTE_LINE_REGEX = /^>(\s|$)/;
 const CODE_START_REGEX = /^([ \t]*`{3,})([\w-]+)?[ \t]?/;
 const CODE_END_REGEX = /^[ \t]*`{3,}$/;
 const CODE_SINGLE_LINE_REGEX =
@@ -824,41 +861,171 @@ export const HEADING: ElementTransformer = {
   type: 'element',
 };
 
+function exportQuote(
+  node: LexicalNode,
+  exportChildren: (element: ElementNode) => string,
+  traverseBlocks?: (element: ElementNode) => string,
+): string | null {
+  if (!$isQuoteNode(node)) {
+    return null;
+  }
+
+  // A quote that holds blocks (a quote container, or a QuoteNode with the
+  // `shadowRoot` state) exports each as a block of its own (a paragraph, a
+  // list, a nested quote), a blank line between two. A caller that passes no
+  // block exporter gets the paragraphs' inline content.
+  const content = !node.isShadowRoot()
+    ? exportChildren(node)
+    : traverseBlocks
+      ? traverseBlocks(node)
+      : node
+          .getChildren()
+          .map(child => ($isElementNode(child) ? exportChildren(child) : ''))
+          .join('\n\n');
+  const lines = content.split('\n');
+  const output = [];
+  for (const line of lines) {
+    output.push('> ' + line);
+  }
+  return output.join('\n');
+}
+
+/**
+ * Puts the content of one `> ` line into `quote`, a quote container. Lines
+ * that follow one another are one paragraph, a line break between them, and
+ * an empty line (`> ` alone) ends the paragraph. Only paragraphs are read:
+ * this importer works line by line, so `> - item` is a paragraph of text, not
+ * a list (`@lexical/mdast` reads the blocks of a quote).
+ */
+function $appendQuoteContainerLine(
+  quote: QuoteContainerNode,
+  children: LexicalNode[],
+): void {
+  const last = quote.getLastChild();
+  const isBlank = children.every(
+    child => $isTextNode(child) && child.getTextContentSize() === 0,
+  );
+  if (!$isParagraphNode(last)) {
+    quote.append($createParagraphNode().append(...children));
+  } else if (isBlank) {
+    if (!last.isEmpty()) {
+      quote.append($createParagraphNode());
+    }
+  } else if (last.isEmpty()) {
+    last.append(...children);
+  } else {
+    last.append($createMarkdownLineBreakNode(last), ...children);
+  }
+}
+
+function $replaceWithQuote(
+  $createQuote: () => QuoteNode,
+  parentNode: ElementNode,
+  children: LexicalNode[],
+  match: string[],
+  isImport: boolean,
+): boolean | void {
+  if (match[0] === '>') {
+    // A bare `>` (CommonMark: a quote marker needs no space): the blank line
+    // between two blocks of a quote that holds blocks. A quote of inline
+    // content keeps reading it as text, as it always has. Typed (Enter after
+    // a lone `>`), nothing happens: the shortcut strips the marker only when
+    // `replace` succeeds, so the text is left as it is.
+    if (!isImport) {
+      return false;
+    }
+    const previousNode = parentNode.getPreviousSibling();
+    if (
+      !($isQuoteContainerNode(previousNode) || $createQuote().isShadowRoot())
+    ) {
+      for (const child of children) {
+        if ($isTextNode(child)) {
+          child.setTextContent('>' + child.getTextContent());
+          break;
+        }
+      }
+      return false;
+    }
+  }
+  if (isImport) {
+    const previousNode = parentNode.getPreviousSibling();
+    if ($isQuoteContainerNode(previousNode)) {
+      $appendQuoteContainerLine(previousNode, children);
+      parentNode.remove();
+      return;
+    }
+    if ($isQuoteNode(previousNode)) {
+      previousNode.splice(previousNode.getChildrenSize(), 0, [
+        $createMarkdownLineBreakNode(previousNode),
+        ...children,
+      ]);
+      parentNode.remove();
+      return;
+    }
+  }
+
+  const node = $createQuote();
+  if ($isQuoteContainerNode(node)) {
+    // A container holds blocks, so the line is a paragraph in it.
+    const paragraph = $createParagraphNode().append(...children);
+    parentNode.replace(node.append(paragraph));
+    if (!isImport) {
+      paragraph.select(0, 0);
+    }
+    return;
+  }
+  node.append(...children);
+  parentNode.replace(node);
+  if (!isImport) {
+    node.select(0, 0);
+  }
+}
+
 export const QUOTE: ElementTransformer = {
   dependencies: [QuoteNode],
-  export: (node, exportChildren) => {
-    if (!$isQuoteNode(node)) {
-      return null;
-    }
+  export: (node, exportChildren, _selection, traverseBlocks) =>
+    exportQuote(node, exportChildren, traverseBlocks),
+  regExp: QUOTE_LINE_REGEX,
+  // Where QuoteNode is replaced by QuoteContainerNode, $createQuoteNode()
+  // makes a container, and the quote is imported as one.
+  replace: (parentNode, children, match, isImport) =>
+    $replaceWithQuote($createQuoteNode, parentNode, children, match, isImport),
+  triggerOnEnter: true,
+  type: 'element',
+};
 
-    const lines = exportChildren(node).split('\n');
-    const output = [];
-    for (const line of lines) {
-      output.push('> ' + line);
-    }
-    return output.join('\n');
-  },
-  regExp: QUOTE_REGEX,
-  replace: (parentNode, children, _match, isImport) => {
-    if (isImport) {
-      const previousNode = parentNode.getPreviousSibling();
-      if ($isQuoteNode(previousNode)) {
-        previousNode.splice(previousNode.getChildrenSize(), 0, [
-          $createMarkdownLineBreakNode(previousNode),
-          ...children,
-        ]);
-        parentNode.remove();
-        return;
-      }
-    }
-
-    const node = $createQuoteNode();
-    node.append(...children);
-    parentNode.replace(node);
-    if (!isImport) {
-      node.select(0, 0);
-    }
-  },
+/**
+ * {@link QUOTE} for an editor that registers `QuoteContainerNode` next to
+ * `QuoteNode`: `> ` makes a quote container, a quote that holds blocks. Put
+ * it in place of `QUOTE` in the transformers; it exports both kinds of quote.
+ *
+ * An editor that replaces `QuoteNode` with `QuoteContainerNode`
+ * (`QuoteContainerReplacementExtension`) does not need it: there `QUOTE`
+ * makes a container already.
+ *
+ * Known limit: the importer reads a quote line by line, so it reads only
+ * paragraphs into a container (lines that follow one another are one
+ * paragraph, `> ` alone starts the next), and any other block inside the
+ * quote (`> - item`, `> # title`, a fenced code block) as a paragraph of
+ * text. Export writes every block. To import the blocks of a quote, use
+ * `@lexical/mdast` (`MdastQuoteContainerExtension`), which follows
+ * CommonMark: a block quote holds any blocks.
+ *
+ * @experimental
+ */
+export const QUOTE_CONTAINER: ElementTransformer = {
+  dependencies: [QuoteContainerNode],
+  export: (node, exportChildren, _selection, traverseBlocks) =>
+    exportQuote(node, exportChildren, traverseBlocks),
+  regExp: QUOTE_LINE_REGEX,
+  replace: (parentNode, children, match, isImport) =>
+    $replaceWithQuote(
+      $createQuoteContainerNode,
+      parentNode,
+      children,
+      match,
+      isImport,
+    ),
   triggerOnEnter: true,
   type: 'element',
 };
@@ -1482,6 +1649,14 @@ export function normalizeMarkdown(
       HEADING_REGEX.test(lastLine) ||
       HEADING_REGEX.test(line) ||
       QUOTE_REGEX.test(line) ||
+      // A blank quote line (`>`, its space trimmed) inside a quote separates
+      // two blocks of it: it is not text to merge, and nothing merges into it.
+      isBlankQuoteLine(line, lastLine) ||
+      (lastLine !== undefined &&
+        isBlankQuoteLine(
+          lastLine,
+          sanitizedLines[sanitizedLines.length - 2],
+        )) ||
       ORDERED_LIST_REGEX.test(line) ||
       UNORDERED_LIST_REGEX.test(line) ||
       CHECK_LIST_REGEX.test(line) ||
@@ -1498,11 +1673,15 @@ export function normalizeMarkdown(
       // When not merging, preserve trailing whitespace (e.g. hard line-break
       // markers "  " or non-breaking spaces). Whitespace-only lines still
       // collapse to '' because trimEnd() already reduced them, so they
-      // continue to act as paragraph separators.
+      // continue to act as paragraph separators. When merging, a blank quote
+      // line inside a quote keeps the form `QUOTE` reads (`> `): trimmed to
+      // `>`, it would read as text.
       sanitizedLines.push(
-        (!shouldMergeAdjacentLines && line !== '') || hardLineBreak !== null
-          ? rawLine
-          : line,
+        shouldMergeAdjacentLines && isBlankQuoteLine(line, lastLine)
+          ? '> '
+          : (!shouldMergeAdjacentLines && line !== '') || hardLineBreak !== null
+            ? rawLine
+            : line,
       );
     } else {
       sanitizedLines[sanitizedLines.length - 1] =

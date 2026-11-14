@@ -35,6 +35,7 @@ export {
   MdastHorizontalRuleExtension,
   MdastLinkExtension,
   MdastListExtension,
+  MdastQuoteContainerExtension,
   MdastRichTextExtension,
   MdastShadowRootQuoteExtension,
   MdastShortcutsExtension,

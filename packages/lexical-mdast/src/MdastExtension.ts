@@ -33,7 +33,7 @@ import {
 } from '@lexical/extension';
 import {LinkNode} from '@lexical/link';
 import {ListItemNode, ListNode} from '@lexical/list';
-import {HeadingNode, QuoteNode} from '@lexical/rich-text';
+import {HeadingNode, QuoteContainerNode, QuoteNode} from '@lexical/rich-text';
 import {
   $getState,
   $setState,
@@ -77,6 +77,7 @@ import {
   $importList,
   $importListItem,
   $importParagraph,
+  $importQuoteContainerBlockquote,
   $importShadowRootBlockquote,
   $importStrong,
   exportParagraph,
@@ -517,6 +518,40 @@ export const MdastShadowRootQuoteExtension = defineExtension({
     }),
   ],
   name: '@lexical/mdast/ShadowRootQuote',
+});
+
+/**
+ * Opt-in: import Markdown blockquotes as `QuoteContainerNode`s, quotes that
+ * hold blocks and declare it (`@lexical/rich-text`), so structured
+ * blockquotes (several paragraphs, nested lists, code blocks, nested quotes)
+ * round-trip, and tools that read the declaration, such as `@lexical/y`,
+ * treat the quote as the container it is.
+ *
+ * Not part of {@link MdastCommonMarkExtension}; add it alongside to opt in:
+ * ```ts
+ * dependencies: [MdastCommonMarkExtension, MdastQuoteContainerExtension]
+ * ```
+ * It registers `QuoteContainerNode`. An editor that replaces `QuoteNode`
+ * with it (`QuoteContainerReplacementExtension`) does not need this
+ * extension: there the default blockquote handler builds a container
+ * already. The quote export handler writes every kind of quote. It changes
+ * import only: a quote typed with the `> ` shortcut is still a `QuoteNode`;
+ * use the replacement to make typed quotes containers too.
+ * @experimental
+ */
+export const MdastQuoteContainerExtension = defineExtension({
+  dependencies: [
+    MdastBlockquoteExtension,
+    // Declared after (and depending on) MdastBlockquoteExtension so this
+    // blockquote rule merges later and takes priority over the default.
+    configExtension(MdastExtension, {
+      importRules: [
+        {$import: $importQuoteContainerBlockquote, type: 'blockquote'},
+      ],
+    }),
+  ],
+  name: '@lexical/mdast/QuoteContainer',
+  nodes: [QuoteContainerNode],
 });
 
 const $importThematicBreak: MdastImportHandler<ThematicBreak> = (node, ctx) => {

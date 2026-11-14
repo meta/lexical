@@ -63,6 +63,7 @@ Behavior and convenience bundles:
 | `MdastRichTextExtension` | bundle of heading + blockquote |
 | `MdastExtension` | core registry, Markdown import and export |
 | `MdastShadowRootQuoteExtension` | opt-in: blockquotes as block containers (full-fidelity nested content) |
+| `MdastQuoteContainerExtension` | opt-in: blockquotes as `QuoteContainerNode`s (`@lexical/rich-text`), quotes that hold blocks and declare it |
 | `MdastHtmlExtension` | opt-in: raw HTML routed through the `@lexical/html` DOM import rules; HTML-encoded export via `$exportViaDOM` / `rawHtmlBlock` |
 | `MdastShortcutsExtension` | streaming keyboard shortcuts |
 
