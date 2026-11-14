@@ -851,6 +851,11 @@ function $commitPendingUpdatesImpl(
   // editor (e.g. a discrete update), whose listeners run inside this block.
   const previouslyDispatching = editorsDispatchingCommitListeners.has(editor);
   editorsDispatchingCommitListeners.add(editor);
+  // A listener that throws does not stop the others (of its kind or of the
+  // kinds after it) from seeing this commit: the first error is rethrown once
+  // the update listeners have run. A collaboration binding is an update
+  // listener, and a commit it does not see is never stored.
+  const errors = new ListenerErrors();
   try {
     if (mutatedNodes !== null) {
       triggerMutationListeners(
@@ -859,6 +864,7 @@ function $commitPendingUpdatesImpl(
         tags,
         dirtyLeaves,
         currentEditorState,
+        errors,
       );
     }
     /**
@@ -868,7 +874,11 @@ function $commitPendingUpdatesImpl(
     if (pendingDecorators !== null) {
       editor._decorators = pendingDecorators;
       editor._pendingDecorators = null;
-      triggerListeners('decorator', editor, true, pendingDecorators);
+      try {
+        triggerListeners('decorator', editor, true, pendingDecorators);
+      } catch (error) {
+        errors.capture(error);
+      }
     }
 
     // If reconciler fails, we reset whole editor (so current editor state becomes empty)
@@ -876,20 +886,31 @@ function $commitPendingUpdatesImpl(
     // listeners, but instead use recoverEditorState which is current editor state before reset
     // This specifically important for collab that relies on prevEditorState from update
     // listener to calculate delta of changed nodes/properties
-    triggerTextContentListeners(
-      editor,
-      recoveryEditorState || currentEditorState,
-      pendingEditorState,
-    );
-    triggerListeners('update', editor, true, {
-      dirtyElements,
-      dirtyLeaves,
-      editorState: pendingEditorState,
-      mutatedNodes,
-      normalizedNodes,
-      prevEditorState: recoveryEditorState || currentEditorState,
-      tags,
-    });
+    try {
+      triggerTextContentListeners(
+        editor,
+        recoveryEditorState || currentEditorState,
+        pendingEditorState,
+      );
+    } catch (error) {
+      errors.capture(error);
+    }
+    try {
+      triggerListeners('update', editor, true, {
+        dirtyElements,
+        dirtyLeaves,
+        editorState: pendingEditorState,
+        mutatedNodes,
+        normalizedNodes,
+        prevEditorState: recoveryEditorState || currentEditorState,
+        tags,
+      });
+    } catch (error) {
+      errors.capture(error);
+    }
+    // Thrown where the first error stopped the commit before: its $onUpdate
+    // callbacks and the updates its listeners queued are left as they were.
+    errors.rethrow();
   } finally {
     if (!previouslyDispatching) {
       editorsDispatchingCommitListeners.delete(editor);
@@ -929,6 +950,7 @@ function triggerMutationListeners(
   updateTags: Set<string>,
   dirtyLeaves: Set<string>,
   prevEditorState: EditorState,
+  errors: ListenerErrors,
 ): void {
   const listeners = Array.from(editor._listeners.mutation);
   const listenersLength = listeners.length;
@@ -938,12 +960,36 @@ function triggerMutationListeners(
     for (const klass of klassSet) {
       const mutatedNodesByType = mutatedNodes.get(klass);
       if (mutatedNodesByType !== undefined) {
-        listener(mutatedNodesByType, {
-          dirtyLeaves,
-          prevEditorState,
-          updateTags,
-        });
+        try {
+          listener(mutatedNodesByType, {
+            dirtyLeaves,
+            prevEditorState,
+            updateTags,
+          });
+        } catch (error) {
+          errors.capture(error);
+        }
       }
+    }
+  }
+}
+
+/**
+ * The first error a run of listeners threw, kept while the others still run
+ * (see triggerListeners and $commitPendingUpdates).
+ */
+class ListenerErrors {
+  failed = false;
+  private first: unknown = undefined;
+  capture(error: unknown): void {
+    if (!this.failed) {
+      this.failed = true;
+      this.first = error;
+    }
+  }
+  rethrow(): void {
+    if (this.failed) {
+      throw this.first;
     }
   }
 }
@@ -963,20 +1009,60 @@ export function triggerListeners<T extends keyof MapListeners>(
       void | undefined | (() => void)
     >;
     const listeners = Array.from(listenerMap);
-    for (const [listener, unregister] of listeners) {
+    // Every listener is called, also after one (or its cleanup) throws: the
+    // first error is rethrown once all have run.
+    let errors: ListenerErrors | null = null;
+    for (const [listener] of listeners) {
+      // The listener's current cleanup (a nested dispatch may have run the
+      // one this dispatch started with, and installed another) runs once,
+      // also when it throws.
+      const unregister = listenerMap.get(listener);
       if (unregister) {
-        unregister();
+        listenerMap.set(listener, undefined);
+        try {
+          unregister();
+        } catch (error) {
+          errors = errors || new ListenerErrors();
+          errors.capture(error);
+        }
+      }
+      let result: unknown;
+      try {
+        result = listener(...payload);
+      } catch (error) {
+        errors = errors || new ListenerErrors();
+        errors.capture(error);
+        continue;
       }
       // TypeScript's void-return rule lets a `=> void` callback return any value,
       // so a listener like `() => arr.push(x)` hands back a number. Only a
       // function is an unregister callback.
-      const result = listener(...payload);
-      const nextUnregister = typeof result === 'function' ? result : undefined;
+      const nextUnregister =
+        typeof result === 'function' ? (result as () => void) : undefined;
       if (listenerMap.has(listener)) {
+        // A cleanup a nested dispatch inside this call installed is
+        // replaced: it runs now.
+        const replaced = listenerMap.get(listener);
         listenerMap.set(listener, nextUnregister);
+        if (replaced) {
+          try {
+            replaced();
+          } catch (error) {
+            errors = errors || new ListenerErrors();
+            errors.capture(error);
+          }
+        }
       } else if (nextUnregister) {
-        nextUnregister();
+        try {
+          nextUnregister();
+        } catch (error) {
+          errors = errors || new ListenerErrors();
+          errors.capture(error);
+        }
       }
+    }
+    if (errors !== null) {
+      errors.rethrow();
     }
   } finally {
     editor._updating = previouslyUpdating;
