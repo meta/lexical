@@ -13,6 +13,7 @@ import {$sliceSelectedTextNodeContent} from '@lexical/selection';
 import {
   $createParagraphNode,
   $createRangeSelection,
+  $createTabNode,
   $createTextNode,
   $getNodeByKey,
   $getRoot,
@@ -103,6 +104,52 @@ describe('$sliceSelectedTextNodeContent', () => {
     },
   );
   describe('clone', () => {
+    test('trims unselected tabs at range boundaries', () => {
+      const editor = createTestEditor();
+      editor.update(
+        () => {
+          $getRoot().append(
+            $createParagraphNode().append(
+              $createTextNode('before'),
+              $createTabNode(),
+              $createTextNode('after'),
+            ),
+          );
+        },
+        {discrete: true},
+      );
+      editor.read(() => {
+        const [before, tab, after] = $getRoot().getAllTextNodes();
+        const selection = $createRangeSelection();
+        selection.anchor.set(before.getKey(), 0, 'text');
+        selection.focus.set(tab.getKey(), 0, 'text');
+        expect(
+          $sliceSelectedTextNodeContent(
+            selection,
+            tab,
+            'clone',
+          ).getTextContent(),
+        ).toBe('');
+
+        selection.anchor.set(after.getKey(), 5, 'text');
+        selection.focus.set(tab.getKey(), 1, 'text');
+        expect(
+          $sliceSelectedTextNodeContent(
+            selection,
+            tab,
+            'clone',
+          ).getTextContent(),
+        ).toBe('');
+
+        selection.anchor.set(tab.getKey(), 0, 'text');
+        selection.focus.set(tab.getKey(), 1, 'text');
+        expect($sliceSelectedTextNodeContent(selection, tab, 'clone')).toBe(
+          tab,
+        );
+        expect(tab.getTextContent()).toBe('\t');
+        expect($getNodeByKey(tab.getKey())).toBe(tab);
+      });
+    });
     test('does not clone with full selection (both nodes)', () => {
       const editor = createInitializedEditor();
       editor.read(() => {
