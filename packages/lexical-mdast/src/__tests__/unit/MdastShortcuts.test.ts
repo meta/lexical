@@ -309,6 +309,37 @@ describe('@lexical/mdast streaming shortcuts', () => {
       expect(inlineFormats(editor).some(f => f !== 0)).toBe(true);
     });
 
+    // CommonMark reads `__init__` as a bold "init", but in a sentence it is
+    // a name, like Python's `__init__`, so typed it stays as typed, and it
+    // exports with the underscores that could open emphasis escaped.
+    it.each([
+      ['the __init__', 'the \\_\\_init\\_\\_'],
+      ['__main__', '\\_\\_main\\_\\_'],
+      ['obj.__init__', 'obj.\\_\\_init\\_\\_'],
+      ['__my_var__', '\\_\\_my_var\\_\\_'],
+    ])('a `__` run around one name leaves %s as text', (text, markdown) => {
+      using editor = createEditor();
+      type(editor, [text.slice(0, -1), text.slice(-1)]);
+      editor.read(() => {
+        expect($getRoot().getTextContent()).toBe(text);
+        expect($convertToMarkdownString().trim()).toBe(markdown);
+      });
+      expect(inlineFormats(editor).every(f => f === 0)).toBe(true);
+    });
+
+    it.each([
+      ['**init**', 'init'],
+      ['__two words__', 'two words'],
+      ['_init_', 'init'],
+    ])('%s still converts', (text, result) => {
+      using editor = createEditor();
+      type(editor, [text.slice(0, -1), text.slice(-1)]);
+      editor.read(() => {
+        expect($getRoot().getTextContent()).toBe(result);
+      });
+      expect(inlineFormats(editor).some(f => f !== 0)).toBe(true);
+    });
+
     it('*italic* applies italic', () => {
       using editor = createEditor();
       type(editor, ['*italic', '*']);

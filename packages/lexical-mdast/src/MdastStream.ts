@@ -204,6 +204,20 @@ export class MarkdownStreamScanner {
     ) {
       return null;
     }
+    // CommonMark reads `__init__` as a bold "init", but a `__` run around one
+    // word of ASCII letters, digits and underscores is more often a name, like
+    // Python's `__init__`, so typed it stays as typed. `**word**`,
+    // `__two words__` and `_word_` still convert.
+    if (
+      last.type === 'strong' &&
+      value[last.position.start.offset ?? 0] === '_' &&
+      last.children.length === 1
+    ) {
+      const only = last.children[0];
+      if (only.type === 'text' && /^[A-Za-z0-9_]+$/.test(only.value)) {
+        return null;
+      }
+    }
     // Guard against firing mid-delimiter: while typing `**bold*` the parser
     // briefly sees emphasis (`*bold*`) closing at the caret with a stray `*`
     // in front. If the opening delimiter is immediately preceded by the same
