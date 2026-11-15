@@ -52,6 +52,7 @@ import {
   openYOfflineStore,
   recoverYOfflineEdits,
   replayUnsyncedEdits,
+  wrapLeftoversAsQuote,
   Y_OFFLINE_DEFAULTS,
   Y_OFFLINE_STAGES,
   type YOfflineCapture,
@@ -64,6 +65,9 @@ import {catalogAppExtension, catalogHeadlessConfig} from '../catalog/bind';
 import {createFakeIndexedDB, type FakeIndexedDB} from '../utils/fakeIndexedDB';
 import {WITH_GC} from '../utils/harness';
 import {FLOOR, rawDoc, stamp} from '../utils/migrateSteps';
+
+// The app takes the blocks that cannot be replayed itself (its panel).
+const PANEL = {handle: () => {}};
 
 const DB = Y_OFFLINE_DEFAULTS.databaseName;
 const IDS = {blockIds: 'enabled'} as const;
@@ -533,10 +537,12 @@ describe('sync, then bind (the server document and epoch before the editor)', ()
     expect(tab.binding.status).toEqual({kind: 'active'});
     const recovered = unwrap(
       await recoverYOfflineEdits({
+        autoReplay: 'replayable',
         binding: tab.binding,
         config,
         epoch: 'e2',
         key: 'doc',
+        leftovers: PANEL,
         session,
         stage: 'replay',
         store,
@@ -623,10 +629,12 @@ describe("keep: 'unsynced' and writeDelay", () => {
     await flush();
     const recovered = unwrap(
       await recoverYOfflineEdits({
+        autoReplay: 'replayable',
         binding: fresh.binding,
         config,
         epoch: 'e2',
         key: 'doc',
+        leftovers: PANEL,
         stage: 'persist',
         store,
       }),
@@ -682,10 +690,12 @@ describe("keep: 'unsynced' and writeDelay", () => {
     await flush();
     const recovered = unwrap(
       await recoverYOfflineEdits({
+        autoReplay: 'replayable',
         binding: fresh.binding,
         config,
         epoch: 'e1',
         key: 'doc',
+        leftovers: PANEL,
         stage: 'replay',
         store,
       }),
@@ -774,10 +784,12 @@ describe('a moved epoch captures', () => {
     await flush();
     const recovered = unwrap(
       await recoverYOfflineEdits({
+        autoReplay: 'replayable',
         binding: fresh.binding,
         config,
         epoch: 'e2',
         key: 'doc',
+        leftovers: PANEL,
         stage: 'persist',
         store,
       }),
@@ -831,10 +843,12 @@ describe('a moved epoch captures', () => {
     await flush();
     const recovered = unwrap(
       await recoverYOfflineEdits({
+        autoReplay: 'replayable',
         binding: fresh.binding,
         config,
         epoch: 'e2',
         key: 'doc',
+        leftovers: PANEL,
         stage: 'replay',
         store,
       }),
@@ -900,10 +914,12 @@ describe('the report and the replay', () => {
     const before = fresh.blocks();
     const recovered = unwrap(
       await recoverYOfflineEdits({
+        autoReplay: 'replayable',
         binding: fresh.binding,
         config,
         epoch: 'e2',
         key: 'doc',
+        leftovers: PANEL,
         stage: 'persist',
         store,
       }),
@@ -933,16 +949,22 @@ describe('the report and the replay', () => {
     const before = fresh.blocks();
     const recovered = unwrap(
       await recoverYOfflineEdits({
+        autoReplay: 'replayable',
         binding: fresh.binding,
         config,
         epoch: 'e2',
         key: 'doc',
+        leftovers: PANEL,
         stage: 'replay',
         store,
       }),
     );
     expect(recovered[0].replay).toEqual({
       applied: ['b1', 'b4', 'b2'],
+      // The app's handler has b3, and nothing of it was written.
+      handled: ['b3'],
+      inserted: [],
+      leftovers: [],
       notApplied: [{id: 'b3', reason: 'not-replayable'}],
     });
     // b3 is theirs: never overwritten.
@@ -970,10 +992,12 @@ describe('the report and the replay', () => {
     const {fresh, next, store} = await moved(fake);
     unwrap(
       await recoverYOfflineEdits({
+        autoReplay: 'replayable',
         binding: fresh.binding,
         config,
         epoch: 'e2',
         key: 'doc',
+        leftovers: PANEL,
         stage: 'replay',
         store,
       }),
@@ -990,10 +1014,12 @@ describe('the report and the replay', () => {
     await flush();
     const recover = (c: Client, s: YOfflineStore) =>
       recoverYOfflineEdits({
+        autoReplay: 'replayable',
         binding: c.binding,
         config,
         epoch: 'e2',
         key: 'doc',
+        leftovers: PANEL,
         stage: 'replay',
         store: s,
       });
@@ -1023,18 +1049,26 @@ describe('the report and the replay', () => {
     const report = describeNow();
     // The panel's button for b4.
     expect(
-      replayUnsyncedEdits({binding: fresh.binding, only: ['b4'], report}),
-    ).toEqual({applied: ['b4'], notApplied: []});
+      replayUnsyncedEdits({
+        autoReplay: 'replayable',
+        binding: fresh.binding,
+        leftovers: PANEL,
+        only: ['b4'],
+        report,
+      }),
+    ).toMatchObject({applied: ['b4'], notApplied: []});
     expect(fresh.blocks().map(([id]) => id)).toEqual(['b1', 'b4', 'b2', 'b3']);
     // Someone changes b1 after the report was made.
     fresh.edit('b1', 'one, changed since');
     expect(
       replayUnsyncedEdits({
+        autoReplay: 'replayable',
         binding: fresh.binding,
+        leftovers: PANEL,
         only: ['b1', 'b3', 'nope'],
         report,
       }),
-    ).toEqual({
+    ).toMatchObject({
       applied: [],
       notApplied: [
         {id: 'nope', reason: 'not-in-report'},
@@ -1045,8 +1079,17 @@ describe('the report and the replay', () => {
     expect(fresh.blocks()[0]).toEqual(['b1', 'one, changed since']);
     // Replaying b4 again does nothing: it is in the document.
     expect(
-      replayUnsyncedEdits({binding: fresh.binding, only: ['b4'], report}),
-    ).toEqual({applied: [], notApplied: [{id: 'b4', reason: 'changed-since'}]});
+      replayUnsyncedEdits({
+        autoReplay: 'replayable',
+        binding: fresh.binding,
+        leftovers: PANEL,
+        only: ['b4'],
+        report,
+      }),
+    ).toMatchObject({
+      applied: [],
+      notApplied: [{id: 'b4', reason: 'in-document'}],
+    });
     // A new report no longer lists it.
     expect(describeNow().blocks.map(b => b.id)).toEqual(['b1', 'b3', 'b2']);
     expect(describeNow().inDocument).toEqual(['b4']);
@@ -1063,10 +1106,12 @@ describe('the report and the replay', () => {
     now.session.markSynced();
     const recover = (withSession: boolean) =>
       recoverYOfflineEdits({
+        autoReplay: 'replayable',
         binding: fresh.binding,
         config,
         epoch: 'e2',
         key: 'doc',
+        leftovers: PANEL,
         session: withSession ? now.session : undefined,
         stage: 'replay',
         store,
@@ -1110,10 +1155,12 @@ describe('the report and the replay', () => {
     await flush();
     const recovered = unwrap(
       await recoverYOfflineEdits({
+        autoReplay: 'replayable',
         binding: fresh.binding,
         config,
         epoch: 'e2',
         key: 'doc',
+        leftovers: PANEL,
         stage: 'replay',
         store,
       }),
@@ -1126,6 +1173,48 @@ describe('the report and the replay', () => {
     expect(unwrap(await store.captures('doc')).length).toBe(1);
     // The document keeps its order: a move is not replayed.
     expect(fresh.blocks().map(([id]) => id)).toEqual(['b1', 'b2', 'b3']);
+  });
+
+  test('blocks the user only moved, with wrap: the capture is resolved (this call says orderDiffers), and goes once the server holds the document', async () => {
+    const fake = createFakeIndexedDB();
+    const {room, session, store, tab} = await staleTab(fake);
+    tab.editor.update(
+      () => {
+        const first = $getRoot().getFirstChild()!;
+        $getRoot().append(first);
+      },
+      {discrete: true},
+    );
+    await session.serverEpoch('e2');
+    const fresh = client(Y.encodeStateAsUpdate(room.doc));
+    await flush();
+    const now = attach(fresh, store, {epoch: 'e2', persistEdits: false});
+    now.session.markSynced();
+    const recover = () =>
+      recoverYOfflineEdits({
+        autoReplay: 'replayable',
+        binding: fresh.binding,
+        config,
+        epoch: 'e2',
+        key: 'doc',
+        leftovers: {wrap: wrapLeftoversAsQuote('Offline edits')},
+        session: now.session,
+        stage: 'replay',
+        store,
+      });
+    const [entry] = unwrap(await recover());
+    expect(unwrap(entry.report).orderDiffers).toBe(true);
+    expect(entry.capture.resolved).toEqual({
+      at: expect.any(Number),
+      inserted: [],
+      vector: expect.any(Uint8Array),
+    });
+    // Nothing was written: a move is not replayed.
+    expect(fresh.blocks().map(([id]) => id)).toEqual(['b1', 'b2', 'b3']);
+    // The next call, with the server holding the document: it goes.
+    expect(unwrap(await recover())).toEqual([]);
+    expect(unwrap(await store.captures('doc'))).toEqual([]);
+    now.session.dispose();
   });
 
   test('an added block with none of its earlier neighbours left goes before the next one', async () => {
@@ -1144,8 +1233,13 @@ describe('the report and the replay', () => {
       }),
     );
     expect(
-      replayUnsyncedEdits({binding: next.binding, only: ['n1'], report})
-        .applied,
+      replayUnsyncedEdits({
+        autoReplay: 'replayable',
+        binding: next.binding,
+        leftovers: PANEL,
+        only: ['n1'],
+        report,
+      }).applied,
     ).toEqual(['n1']);
     expect(next.blocks().map(([id]) => id)).toEqual(['n1', 'b2', 'b3']);
   });
@@ -1160,7 +1254,14 @@ describe('the report and the replay', () => {
       }),
     );
     fresh.binding.freeze();
-    expect(() => replayUnsyncedEdits({binding: fresh.binding, report})).toThrow(
+    expect(() =>
+      replayUnsyncedEdits({
+        autoReplay: 'replayable',
+        binding: fresh.binding,
+        leftovers: PANEL,
+        report,
+      }),
+    ).toThrow(
       /needs an active binding \(it is readonly\): replay into the fresh document/,
     );
   });
@@ -1180,10 +1281,12 @@ describe('the report and the replay', () => {
     now.session.markSynced();
     const recovered = unwrap(
       await recoverYOfflineEdits({
+        autoReplay: 'replayable',
         binding: fresh.binding,
         config,
         epoch: 'e2',
         key: 'doc',
+        leftovers: PANEL,
         session: now.session,
         stage: 'replay',
         store,
@@ -1207,10 +1310,12 @@ describe('the report and the replay', () => {
     await flush();
     const recovered = unwrap(
       await recoverYOfflineEdits({
+        autoReplay: 'replayable',
         binding: fresh.binding,
         config,
         epoch: 'e2',
         key: 'doc',
+        leftovers: PANEL,
         stage: 'persist',
         store,
       }),
@@ -1230,7 +1335,12 @@ describe('the report and the replay', () => {
     expect(unwrap(await store.slots('doc'))).toEqual([]);
     // And it replays like any other.
     expect(
-      replayUnsyncedEdits({binding: fresh.binding, report}).applied,
+      replayUnsyncedEdits({
+        autoReplay: 'replayable',
+        binding: fresh.binding,
+        leftovers: PANEL,
+        report,
+      }).applied,
     ).toEqual(['b1', 'b4']);
     expect(fresh.blocks()).toEqual([
       ['b1', 'one, then the tab closed'],
@@ -1260,10 +1370,12 @@ describe('the report and the replay', () => {
     await flush();
     const recovered = unwrap(
       await recoverYOfflineEdits({
+        autoReplay: 'replayable',
         binding: fresh.binding,
         config: configNoIds,
         epoch: 'e2',
         key: 'doc',
+        leftovers: PANEL,
         stage: 'replay',
         store,
       }),
@@ -1304,10 +1416,12 @@ describe('stages', () => {
     expect(
       unwrap(
         await recoverYOfflineEdits({
+          autoReplay: 'replayable',
           binding: tab.binding,
           config,
           epoch: 'e2',
           key: 'doc',
+          leftovers: PANEL,
           stage: 'off',
           store,
         }),
@@ -1413,10 +1527,12 @@ describe('required choices fail with the fix', () => {
     ).rejects.toThrow(/reason is 'stale'/);
     await expect(
       recoverYOfflineEdits({
+        autoReplay: 'replayable',
         binding: tab.binding,
         config,
         epoch: 'e1',
         key: 'doc',
+        leftovers: PANEL,
         stage: 'on' as never,
         store,
       }),

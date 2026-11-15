@@ -29,6 +29,12 @@
 // and `describeUnsyncedEdits`: nothing here depends on a layout.
 
 import {
+  type BlockIdExtension,
+  blockIdState,
+  generateBlockId,
+  getPeerDependencyFromEditor,
+} from '@lexical/extension';
+import {
   encodeStateAsUpdate,
   encodeStateVector,
   mergeUpdates,
@@ -36,9 +42,17 @@ import {
 } from '@y/y';
 import {
   $getEditor,
+  $getNodeByKey,
   $getRoot,
   $getSelection,
+  $getSlot,
+  $getSlotNames,
+  $getState,
+  $isElementNode,
   $parseSerializedNode,
+  $setState,
+  getRegisteredNode,
+  type LexicalEditor,
   type LexicalNode,
   type SerializedEditorState,
   type SerializedLexicalNode,
@@ -53,6 +67,20 @@ import {
   type YUnsyncedBlock,
   type YUnsyncedReport,
 } from '../headless';
+import {
+  $parseWrapped,
+  $rawLeftover,
+  $storedBlockId,
+  autoReplays,
+  refuseWrapped,
+  requireAutoReplay,
+  requireLeftovers,
+  type YAutoReplayRequiredPassReplayableNoneOrMaxBaseAge,
+  type YLeftoverBlock,
+  type YLeftoversInserted,
+  type YLeftoversRequiredPassWrapOrHandle,
+  type YLeftoversWrapped,
+} from './OfflineLeftovers';
 import {
   offlineFail as fail,
   offlineOk as ok,
@@ -71,10 +99,11 @@ import {
  *   at once), so an app can ship the code dark;
  * - `'persist'`: every edit is stored on the device as it is made
  *   (`persistEdits`), and a document whose epoch moved (a reconnect to a
- *   replaced or upgraded room) is frozen and stored with its base, for the
- *   Offline edits panel;
+ *   replaced or upgraded room) is frozen and stored with its base. Nothing
+ *   is written into the new document: the edits stay stored;
  * - `'replay'`: as `'persist'`, and {@link recoverYOfflineEdits} applies the
- *   blocks that are replayable.
+ *   blocks that are replayable and, with `leftovers: {wrap}`, writes every
+ *   other block into the document.
  */
 export type YOfflineStage = 'off' | 'persist' | 'replay';
 
@@ -108,6 +137,8 @@ export interface YOfflineLoaded {
   readonly base: Uint8Array | null;
   /** Whether the stored document holds edits the server may lack. */
   readonly hasUnsyncedEdits: boolean;
+  /** When `base` was stored (Unix ms), or null when unknown. */
+  readonly baseAt: number | null;
   /** @internal The handle that read it (it owns the rows read). */
   readonly slot: YOfflineSlot | null;
 }
@@ -154,6 +185,7 @@ export async function loadYOffline(input: {
   if (found === undefined) {
     return ok({
       base: null,
+      baseAt: null,
       epoch: wanted === undefined ? null : wanted,
       hasUnsyncedEdits: false,
       slot: null,
@@ -168,6 +200,7 @@ export async function loadYOffline(input: {
   }
   return ok({
     base: stored.value === null ? null : stored.value.base,
+    baseAt: stored.value === null ? null : (stored.value.baseAt ?? null),
     epoch,
     hasUnsyncedEdits: stored.value !== null && stored.value.hasUnsyncedEdits,
     slot,
@@ -332,7 +365,7 @@ function requireStage(
 ): asserts stage is YOfflineStage {
   requireOption(
     Y_OFFLINE_STAGES.includes(stage as YOfflineStage),
-    `${entry} needs stage: 'off' (do nothing), 'persist' (store edits on this device, and keep edits that did not sync for the Offline edits panel) or 'replay' (also reapply the replayable ones); got ${String(
+    `${entry} needs stage: 'off' (do nothing), 'persist' (store edits on this device, and keep edits that did not sync stored) or 'replay' (also reapply the replayable ones, and give the rest to leftovers); got ${String(
       stage,
     )}.`,
   );
@@ -352,6 +385,8 @@ function newCaptureId(now: number): string {
 class Session implements YOfflineSession {
   private epochValue: string | null;
   private base: Uint8Array | null;
+  /** When `base` was confirmed (Unix ms), or null when unknown. */
+  private baseAt: number | null;
   /** The state vector of the base this session stored, once it has. */
   private storedBaseVector: Uint8Array | null = null;
   private unsynced: boolean;
@@ -361,7 +396,12 @@ class Session implements YOfflineSession {
   /** Updates not stored yet, oldest first. */
   private pending: Uint8Array[] = [];
   /** A confirmed state not stored yet: it replaces what was pending before it. */
-  private confirmed: {state: Uint8Array; vector: Uint8Array} | null = null;
+  private confirmed: {
+    state: Uint8Array;
+    vector: Uint8Array;
+    /** When the server was known to hold it (`baseAt`), stored with it. */
+    at: number | null;
+  } | null = null;
   /** The epoch a never-synced slot is moving to, until it has. */
   private adopting: string | null = null;
   private lastFailure: string | null = null;
@@ -392,6 +432,10 @@ class Session implements YOfflineSession {
     this.compactAfter = options.compactAfter ?? Y_OFFLINE_DEFAULTS.compactAfter;
     this.epochValue = options.epoch;
     this.base = loaded === undefined ? null : loaded.base;
+    this.baseAt =
+      loaded === undefined || loaded.base === null
+        ? null
+        : (loaded.baseAt ?? null);
     this.unsynced = loaded !== undefined && loaded.hasUnsyncedEdits;
     if (options.stage === 'off' || store === null) {
       return;
@@ -419,6 +463,8 @@ class Session implements YOfflineSession {
           // Loaded with nothing unsynced: the document is its base, stored
           // as one (a later load reports nothing unsynced).
           this.confirmed = {
+            // Stored again, not synced again: it keeps its age.
+            at: this.baseAt,
             state: encodeStateAsUpdate(doc),
             vector: encodeStateVector(doc),
           };
@@ -578,7 +624,9 @@ class Session implements YOfflineSession {
         // generation: its own start stays due.
         const generation = this.startGeneration;
         if (base !== null && vector !== null) {
-          result = await slot.confirm(base);
+          // The base of the last markSynced(), with its time: stored now,
+          // on the first edit after it, but no younger for that.
+          result = await slot.confirm(base, this.baseAt);
           if (result.ok) {
             this.storedBaseVector = vector;
             result = await slot.append(encodeStateAsUpdate(doc, vector));
@@ -592,7 +640,7 @@ class Session implements YOfflineSession {
       } else if (this.confirmed !== null) {
         const confirming = this.confirmed;
         this.confirmed = null;
-        result = await slot.confirm(confirming.state);
+        result = await slot.confirm(confirming.state, confirming.at);
         if (result.ok) {
           // Only now: a compaction is a diff against the stored base.
           this.storedBaseVector = confirming.vector;
@@ -719,6 +767,7 @@ class Session implements YOfflineSession {
     const doc = this.options.binding.binding.doc;
     const state = encodeStateAsUpdate(doc);
     this.base = state;
+    this.baseAt = this.now();
     this.unsynced = false;
     this.syncs++;
     if (this.slot !== null) {
@@ -733,7 +782,11 @@ class Session implements YOfflineSession {
         this.confirmed = null;
         this.clearing = true;
       } else {
-        this.confirmed = {state, vector: encodeStateVector(doc)};
+        this.confirmed = {
+          at: this.baseAt,
+          state,
+          vector: encodeStateVector(doc),
+        };
       }
       void this.write();
     }
@@ -825,6 +878,7 @@ class Session implements YOfflineSession {
       wasUnsynced || edits.differs
         ? {
             base: this.base,
+            baseAt: this.base === null ? null : this.baseAt,
             capturedAt: this.now(),
             claimed: false,
             differs: edits.differs,
@@ -950,8 +1004,9 @@ class Session implements YOfflineSession {
  *    document was frozen and captured;
  * 5. `session.markSynced()` when the server holds the document;
  * 6. on the document the page syncs (a fresh one after `'moved'`),
- *    `await recoverYOfflineEdits({...})` for the Offline edits panel (and
- *    the replay, at stage `'replay'`).
+ *    `await recoverYOfflineEdits({..., leftovers})`: at stage `'replay'` it
+ *    reapplies what did not sync and writes the rest into the document
+ *    (`leftovers: {wrap: wrapLeftoversAsQuote('…')}`).
  */
 export function attachYOfflineSession(
   options: YOfflineSessionOptions,
@@ -1015,6 +1070,12 @@ export function attachYOfflineSession(
 export interface YOfflineReport extends YUnsyncedReport {
   readonly captureId: string;
   /**
+   * When the copy the edits were made on was last known to be on the server
+   * (the capture's `baseAt`), or null when unknown: what `autoReplay`'s
+   * `maxBaseAge` reads.
+   */
+  readonly baseAt: number | null;
+  /**
    * The ids of the user's blocks, in their document's order (what places a
    * replayed added block).
    */
@@ -1027,6 +1088,48 @@ export interface YOfflineReport extends YUnsyncedReport {
    * says so, and a capture with it is kept until the user dismisses it.
    */
   readonly orderDiffers: boolean;
+}
+
+/**
+ * A Yjs state vector (`encodeStateVector`'s bytes: a count, then a client
+ * and its clock per entry, as lib0 varuints) as client to clock. Read here
+ * rather than with @y/y's decoder, which the binding's Yjs contract does
+ * not list.
+ */
+export function readStateVector(bytes: Uint8Array): Map<number, number> {
+  let at = 0;
+  const varuint = (): number => {
+    let value = 0;
+    let scale = 1;
+    while (at < bytes.length) {
+      const byte = bytes[at++];
+      value += (byte & 0x7f) * scale;
+      if (byte < 0x80) {
+        return value;
+      }
+      scale *= 0x80;
+    }
+    // Cut short (a store of your own that kept part of it): no more.
+    return -1;
+  };
+  const vector = new Map<number, number>();
+  const count = varuint();
+  if (count < 0) {
+    // Empty or cut short: read as a vector no document holds (below).
+    vector.set(0, Number.MAX_SAFE_INTEGER);
+  }
+  for (let n = count; n > 0; n--) {
+    const client = varuint();
+    const clock = varuint();
+    if (client < 0 || clock < 0) {
+      // Unreadable: read as a vector no document holds, so a resolution
+      // it records is never taken as held (the capture is kept).
+      vector.set(0, Number.MAX_SAFE_INTEGER);
+      break;
+    }
+    vector.set(client, clock);
+  }
+  return vector;
 }
 
 const sameJSON = (a: unknown, b: unknown) =>
@@ -1176,8 +1279,16 @@ export function describeYOfflineCapture(
   }
   const inDocument: string[] = [];
   const blocks: YUnsyncedBlock[] = [];
+  // Without block ids, blocks are paired by position: one block added or
+  // removed offline shifts every later one, which the current document
+  // still holds (found by content: `shifted`).
+  const shifted = new Set(report.shifted ?? []);
   for (const block of report.blocks) {
-    if (sameJSON(block.yours, block.now)) {
+    if (
+      block.id.startsWith('#') && report.shifted !== undefined
+        ? shifted.has(block.id)
+        : sameJSON(block.yours, block.now)
+    ) {
       inDocument.push(block.id);
     } else {
       blocks.push(block);
@@ -1185,6 +1296,7 @@ export function describeYOfflineCapture(
   }
   return ok({
     ...report,
+    baseAt: capture.base === null ? null : (capture.baseAt ?? null),
     blocks,
     captureId: capture.id,
     fragment: blocks.flatMap(block =>
@@ -1231,48 +1343,390 @@ export type YReplaySkipReason =
   | 'no-block-ids'
   /** The block's JSON does not parse with the editor's nodes. */
   | 'unreadable'
+  /** The document already holds the block as the user had it: nothing to do. */
+  | 'in-document'
   /** `only` named it, but the report does not hold it. */
   | 'not-in-report'
-  /** The editor update failed (the editor's onError has the error). */
+  /**
+   * Replayable, but `autoReplay` did not replay it (`'none'`, or a copy
+   * older than `maxBaseAge`): it went to `leftovers` (a block the user
+   * deleted stays as it is).
+   */
+  | 'not-auto-replayed'
+  /**
+   * The editor update failed (the editor's onError has the error): nothing
+   * was applied or inserted, and every block of the call has this reason.
+   */
   | 'not-written';
 
 /** @experimental What {@link replayUnsyncedEdits} did. */
 export interface YReplayResult {
   /** The ids of the blocks applied, in the order applied. */
   readonly applied: readonly string[];
-  /** The blocks left for the panel, with why. */
+  /**
+   * The blocks not applied, with why. Each is accounted for: written into
+   * the document (`leftovers`), given to the handler (`handled`), or with
+   * nothing to write (`'in-document'`, `'not-in-report'`, or a deletion of
+   * the user's, which leaves the current block). Only `'not-written'` (the
+   * update failed) leaves blocks neither applied nor accounted for.
+   */
   readonly notApplied: readonly {
     readonly id: string;
     readonly reason: YReplaySkipReason;
   }[];
+  /**
+   * The new ids of every top-level block written for the leftovers, in
+   * document order (all of `leftovers[].inserted`).
+   */
+  readonly inserted: readonly string[];
+  /** Each place leftover blocks were written at (`leftovers: {wrap}`). */
+  readonly leftovers: readonly YLeftoversInserted[];
+  /** The report's ids of the blocks given to `leftovers.handle`. */
+  readonly handled: readonly string[];
+}
+
+/** @experimental What {@link replayUnsyncedEdits} takes. */
+export type YReplayInput = {
+  readonly binding: YOfflineBinding;
+  readonly report: YOfflineReport | YUnsyncedReport;
+  /** Only these block ids (a panel's Reapply button). */
+  readonly only?: readonly string[];
+  /** The clock `autoReplay`'s `maxBaseAge` reads, for tests. @defaultValue `Date.now` */
+  readonly now?: () => number;
+} & YLeftoversRequiredPassWrapOrHandle &
+  YAutoReplayRequiredPassReplayableNoneOrMaxBaseAge;
+
+const hasContent = (block: YUnsyncedBlock): block is YLeftoverBlock =>
+  block.yours !== null;
+
+/** One place leftovers are written at, while the update runs. */
+interface Placing {
+  readonly anchor: LexicalNode | null;
+  readonly after: string | null;
+  readonly blocks: YLeftoverBlock[];
+  fallback: string | null;
+  keys: string[];
 }
 
 /**
- * @experimental Apply a report's replayable blocks to the bound editor, as
- * one editor update the binding writes and one undo step: a changed block
- * replaces the current one, an added block is inserted after the nearest
- * block before it that the document holds (before the nearest after it when
- * there is none; at the end for a plain `YUnsyncedReport`, which does not
- * carry the user's order), a deleted block is removed. Each
- * is checked again against the editor as it is now (the block still equals
- * the base, an added block's id is still absent), so a block someone else
- * changed is never overwritten: it comes back in `notApplied`.
+ * Every block id the document stores, with the top-level block it is in
+ * (itself, for a top-level block). A top-level block's own id wins over a
+ * nested block's.
+ */
+function $topLevelById(): Map<string, LexicalNode> {
+  const index = new Map<string, LexicalNode>();
+  const top = $getRoot().getChildren();
+  for (const node of top) {
+    const id = $storedBlockId(node);
+    if (id !== null && !index.has(id)) {
+      index.set(id, node);
+    }
+  }
+  const visit = (node: LexicalNode, within: LexicalNode) => {
+    if ($isElementNode(node)) {
+      for (const child of node.getChildren()) {
+        const id = $storedBlockId(child);
+        if (id !== null && !index.has(id)) {
+          index.set(id, within);
+        }
+        visit(child, within);
+      }
+    }
+  };
+  for (const node of top) {
+    visit(node, node);
+  }
+  return index;
+}
+
+/** Every block id under `nodes` (serialized), at any depth. */
+function idsUnder(nodes: readonly unknown[], into: Set<string>): Set<string> {
+  for (const node of nodes) {
+    if (typeof node === 'object' && node !== null) {
+      const id = blockIdOf(node as SerializedLexicalNode);
+      if (id !== null) {
+        into.add(id);
+      }
+      const {$slots, children} = node as {$slots?: unknown; children?: unknown};
+      if (typeof $slots === 'object' && $slots !== null) {
+        idsUnder(Object.values($slots), into);
+      }
+      if (Array.isArray(children)) {
+        idsUnder(children, into);
+      }
+    }
+  }
+  return into;
+}
+
+/**
+ * Gives every identified block under the nodes just written (in an editor
+ * update) a new id, with the editor's `generateId`: one no block of the
+ * document or of the report has (`taken`). Left to BlockIdExtension, a
+ * block written where the same update removed one would continue the
+ * removed block's id, which a collaborator's block may still have. Without
+ * BlockIdExtension (or with it disabled) nothing has an id.
+ */
+function $mintBlockIds(
+  editor: LexicalEditor,
+  nodes: readonly LexicalNode[],
+  taken: Set<string>,
+  preset: string[],
+): void {
+  const blockIds = getPeerDependencyFromEditor<typeof BlockIdExtension>(
+    editor,
+    '@lexical/extension/BlockId',
+  );
+  if (blockIds === undefined || blockIds.output.disabled.peek()) {
+    return;
+  }
+  const {generateId} = blockIds.config;
+  const fresh = (): string => {
+    // An id chosen before the update (recoverYOfflineEdits records it with
+    // its claim), first.
+    const chosen = preset.shift();
+    if (chosen !== undefined && !taken.has(chosen)) {
+      return chosen;
+    }
+    // As BlockIdExtension does: an id already used is made again.
+    for (let i = 0; i < 32; i++) {
+      const id = generateId();
+      if (typeof id === 'string' && id !== '' && !taken.has(id)) {
+        return id;
+      }
+    }
+    for (;;) {
+      const id = generateBlockId();
+      if (!taken.has(id)) {
+        return id;
+      }
+    }
+  };
+  const visit = (node: LexicalNode) => {
+    if (blockIds.output.$isIdentifiedBlock(node)) {
+      const id = fresh();
+      taken.add(id);
+      $setState(node, blockIdState, id);
+    }
+    // A host's slots (a wrapper's collapsible keeps its blocks in one).
+    for (const name of $getSlotNames(node)) {
+      const slot = $getSlot(node, name);
+      if (slot !== null) {
+        visit(slot);
+      }
+    }
+    if ($isElementNode(node)) {
+      node.getChildren().forEach(visit);
+    }
+  };
+  nodes.forEach(visit);
+}
+
+/**
+ * Write `blocks` into the document (in an editor update): grouped by the
+ * block each goes after, through `wrap`, or as they are where its output
+ * cannot be written.
+ */
+function $insertLeftovers(
+  editor: LexicalEditor,
+  preset: string[],
+  blocks: readonly YLeftoverBlock[],
+  leftovers: YLeftoversWrapped,
+  report: YOfflineReport | YUnsyncedReport,
+  taken: Set<string>,
+): Placing[] {
+  const placement = leftovers.placement ?? 'after-block';
+  // The user's order: what "the nearest block before it" is read from.
+  const order =
+    report.order ?? report.blocks.filter(hasContent).map(block => block.id);
+  const index = placement === 'top' ? null : $topLevelById();
+  const places = new Map<string, Placing>();
+  for (const block of blocks) {
+    let anchor: LexicalNode | null = null;
+    if (index !== null) {
+      anchor = index.get(block.id) ?? null;
+      for (
+        let i = order.indexOf(block.id) - 1;
+        anchor === null && i >= 0;
+        i--
+      ) {
+        anchor = index.get(order[i]) ?? null;
+      }
+    }
+    const key = anchor === null ? '' : anchor.getKey();
+    let place = places.get(key);
+    if (place === undefined) {
+      place = {
+        after: anchor === null ? null : $storedBlockId(anchor),
+        anchor,
+        blocks: [],
+        fallback: null,
+        keys: [],
+      };
+      places.set(key, place);
+    }
+    place.blocks.push(block);
+  }
+  const hasNode = (type: string) =>
+    getRegisteredNode(editor, type) !== undefined;
+  for (const place of places.values()) {
+    let nodes: LexicalNode[] | string;
+    try {
+      const output: unknown = leftovers.wrap(place.blocks, {
+        after: place.after,
+        capturedAt: report.capturedAt,
+        hasNode,
+        placement,
+        reason: report.reason,
+      });
+      nodes =
+        refuseWrapped(editor, place.blocks, output) ??
+        $parseWrapped(output as readonly SerializedLexicalNode[]);
+    } catch (error) {
+      nodes = `leftovers.wrap threw (${String(
+        error,
+      )}); it must return serialized blocks for any blocks it is given.`;
+    }
+    if (typeof nodes === 'string') {
+      // Never dropped: the blocks as the user had them.
+      place.fallback = `${nodes} The blocks were written as they are instead.`;
+      nodes = place.blocks.map(block => $rawLeftover(editor, block));
+    }
+    let last = place.anchor;
+    for (const node of nodes) {
+      if (last !== null) {
+        last.insertAfter(node);
+      } else {
+        const first = $getRoot().getFirstChild();
+        if (first !== null) {
+          first.insertBefore(node);
+        } else {
+          $getRoot().append(node);
+        }
+      }
+      last = node;
+      place.keys.push(node.getKey());
+    }
+    // Once attached: which blocks are identified depends on where they are.
+    $mintBlockIds(editor, nodes, taken, preset);
+  }
+  return [...places.values()];
+}
+
+/**
+ * @experimental Apply a report to the bound editor, as one editor update
+ * the binding writes and one undo step. Nothing of the report is dropped:
+ *
+ * - a replayable block is applied: a changed block replaces the current
+ *   one, an added block is inserted after the nearest block before it that
+ *   the document holds (before the nearest after it when there is none; at
+ *   the end for a report built by hand without `order`), a deleted block is
+ *   removed. Each is checked again against the
+ *   editor as it is now (the block still equals the base, an added block's
+ *   id is still absent), so a block someone else changed is never
+ *   overwritten;
+ * - every other block the user added or changed (both sides changed it, it
+ *   is gone, the report has no base or no ids, it changed since the report)
+ *   goes where the required `leftovers` says: with
+ *   `{wrap: wrapLeftoversAsQuote('…')}`, into the document in the same
+ *   update, through `wrap`, with new block ids (`inserted`); with
+ *   `{handle: blocks => …}`, to your handler, which is then the only place
+ *   they are.
  *
  * `only` limits it to those block ids (the panel's Reapply button). Call it
  * outside an editor update (not from an update listener or a command
- * handler): the edit must be written before it returns.
+ * handler): the edit must be written before it returns. With `wrap`, call
+ * it once per report: a second call (or a Reapply of a block it already
+ * wrote) writes the leftovers again, since nothing tells written copies
+ * from the user's (`recoverYOfflineEdits` keeps that record on the capture,
+ * `resolved`). It throws, with nothing written, when the editor update
+ * fails or the binding does not store it (it turns read only).
  *
  * @example
  * ```ts
- * const {applied, notApplied} = replayUnsyncedEdits({binding, report});
+ * const {applied, inserted} = replayUnsyncedEdits({
+ *   autoReplay: 'replayable',
+ *   binding,
+ *   report,
+ *   leftovers: {wrap: wrapLeftoversAsQuote('Offline edits that did not merge')},
+ * });
  * ```
  */
-export function replayUnsyncedEdits(input: {
-  readonly binding: YOfflineBinding;
-  readonly report: YOfflineReport | YUnsyncedReport;
-  readonly only?: readonly string[];
-}): YReplayResult {
-  const {binding, only, report} = input;
+export function replayUnsyncedEdits(input: YReplayInput): YReplayResult {
+  return replayWithIds(input, []);
+}
+
+/**
+ * Up to `count` new block ids from the editor's own `generateId` (the ids
+ * its leftovers get), or none when it gives no block ids or its generator
+ * fails: then nothing is recorded, and a retake writes again.
+ */
+function chooseBlockIds(
+  editor: LexicalEditor,
+  count: number,
+  report: YUnsyncedReport,
+): string[] {
+  const blockIds = getPeerDependencyFromEditor<typeof BlockIdExtension>(
+    editor,
+    '@lexical/extension/BlockId',
+  );
+  if (blockIds === undefined || blockIds.output.disabled.peek()) {
+    return [];
+  }
+  // No id the document or the report already has, as the write skips
+  // those (a counting generator gives the document's own ids again): a
+  // retake would find such an id in the document without the write.
+  const taken = idsUnder(
+    editor.read(() => editor.getEditorState().toJSON().root.children),
+    new Set<string>(),
+  );
+  for (const block of report.blocks) {
+    idsUnder([block.yours, block.base, block.now], taken);
+  }
+  const ids = new Set<string>();
+  try {
+    for (let i = 0; i < count * 4 && ids.size < count; i++) {
+      const id: unknown = blockIds.config.generateId();
+      if (typeof id === 'string' && id !== '' && !taken.has(id)) {
+        ids.add(id);
+      }
+    }
+  } catch {
+    return [];
+  }
+  return [...ids];
+}
+
+/** Whether the bound editor holds a block of id `id`, at any depth. */
+function holdsBlockId(editor: LexicalEditor, id: string): boolean {
+  return editor.read(() => {
+    const $holds = (node: LexicalNode): boolean =>
+      $getState(node, blockIdState) === id ||
+      $getSlotNames(node).some(name => {
+        const slot = $getSlot(node, name);
+        return slot !== null && $holds(slot);
+      }) ||
+      ($isElementNode(node) && node.getChildren().some($holds));
+    return $holds($getRoot());
+  });
+}
+
+/**
+ * replayUnsyncedEdits, with the first ids its leftovers are given chosen
+ * beforehand (`preset`, consumed): a recovery records the first with its
+ * claim, so a later retake can tell whether the write is in its document.
+ */
+function replayWithIds(input: YReplayInput, preset: string[]): YReplayResult {
+  // Before anything is read or written: without it, a JavaScript caller
+  // would drop the blocks that cannot be replayed.
+  requireLeftovers('replayUnsyncedEdits', input);
+  requireAutoReplay('replayUnsyncedEdits', input);
+  const {autoReplay, binding, leftovers, only, report} = input;
+  const auto = autoReplays(
+    autoReplay,
+    'baseAt' in report ? report.baseAt : null,
+    (input.now ?? Date.now)(),
+  );
   if (binding.status.kind !== 'active') {
     throw new Error(
       `@lexical/y/offline: replayUnsyncedEdits needs an active binding (it is ${
@@ -1306,25 +1760,62 @@ export function replayUnsyncedEdits(input: {
   if (hasIds) {
     liveIds.forEach((id, i) => liveIndex.set(id as string, i));
   }
-  const order = 'order' in report ? report.order : [];
+  const order = report.order ?? [];
   const todo: YUnsyncedBlock[] = [];
+  /** Not applied, and not in the document: written or handed over. */
+  const left: YUnsyncedBlock[] = [];
+  // Blocks paired by position (no block ids): the report says which of
+  // them the document holds by content (`shifted`: one block added or
+  // removed offline shifts every later one); a report built by hand is
+  // compared by position.
+  const shifted = report.shifted === undefined ? null : new Set(report.shifted);
   for (const block of candidates) {
-    if (!block.replayable) {
-      notApplied.push({id: block.id, reason: 'not-replayable'});
-    } else if (!hasIds) {
-      notApplied.push({id: block.id, reason: 'no-block-ids'});
+    const byPosition = block.id.startsWith('#');
+    const at = byPosition ? Number(block.id.slice(1)) : liveIndex.get(block.id);
+    const now = at === undefined ? null : (live[at] ?? null);
+    if (block.replayable && hasIds && sameJSON(now, block.base) && auto) {
+      todo.push(block);
+    } else if (
+      byPosition
+        ? shifted !== null
+          ? shifted.has(block.id)
+          : sameJSON(now, block.yours)
+        : hasIds && sameJSON(now, block.yours)
+    ) {
+      notApplied.push({id: block.id, reason: 'in-document'});
     } else {
-      const at = liveIndex.get(block.id);
-      const now = at === undefined ? null : live[at];
-      if (!sameJSON(now, block.base)) {
-        notApplied.push({id: block.id, reason: 'changed-since'});
-      } else {
-        todo.push(block);
-      }
+      notApplied.push({
+        id: block.id,
+        reason: !block.replayable
+          ? 'not-replayable'
+          : !hasIds
+            ? 'no-block-ids'
+            : !sameJSON(now, block.base)
+              ? 'changed-since'
+              : 'not-auto-replayed',
+      });
+      left.push(block);
     }
   }
-  if (todo.length === 0) {
-    return {applied, notApplied};
+  const wrapped = leftovers.wrap !== undefined ? leftovers : null;
+  const handOver = (): string[] => {
+    if (leftovers.handle === undefined || left.length === 0) {
+      return [];
+    }
+    leftovers.handle(left, {
+      captureId: 'captureId' in report ? report.captureId : null,
+      report,
+    });
+    return left.map(block => block.id);
+  };
+  if (todo.length === 0 && (wrapped === null || !left.some(hasContent))) {
+    return {
+      applied,
+      handled: handOver(),
+      inserted: [],
+      leftovers: [],
+      notApplied,
+    };
   }
   const um = binding.binding.undoManager;
   if (um !== null) {
@@ -1332,6 +1823,7 @@ export function replayUnsyncedEdits(input: {
   }
   // Pushed to `applied` once the update has committed.
   const done: string[] = [];
+  let places: Placing[] = [];
   let committed = false;
   editor.update(
     () => {
@@ -1349,6 +1841,7 @@ export function replayUnsyncedEdits(input: {
             made = $parseSerializedNode(block.yours);
           } catch {
             notApplied.push({id: block.id, reason: 'unreadable'});
+            left.push(block);
             continue;
           }
         }
@@ -1404,6 +1897,44 @@ export function replayUnsyncedEdits(input: {
         }
         done.push(block.id);
       }
+      // The rest, in the same update: after the replayed blocks are in
+      // place, so one of them can be what a leftover goes after.
+      if (wrapped !== null) {
+        // In the user's order (a block that failed to parse above was
+        // pushed last).
+        const position = new Map(
+          report.blocks.map((block, i) => [block.id, i]),
+        );
+        const content = left
+          .filter(hasContent)
+          .sort((a, b) => position.get(a.id)! - position.get(b.id)!);
+        if (content.length > 0) {
+          // No id of the document (as it was, and as it is now) or of
+          // the report is given to what is written.
+          const taken = idsUnder(live, new Set<string>());
+          const $visit = (node: LexicalNode) => {
+            const id = $storedBlockId(node);
+            if (id !== null) {
+              taken.add(id);
+            }
+            if ($isElementNode(node)) {
+              node.getChildren().forEach($visit);
+            }
+          };
+          $visit($getRoot());
+          for (const block of report.blocks) {
+            idsUnder([block.yours, block.base, block.now], taken);
+          }
+          places = $insertLeftovers(
+            editor,
+            preset,
+            content,
+            wrapped,
+            report,
+            taken,
+          );
+        }
+      }
     },
     {
       discrete: true,
@@ -1415,51 +1946,106 @@ export function replayUnsyncedEdits(input: {
   if (um !== null) {
     um.stopCapturing();
   }
-  if (committed) {
-    for (const id of done) {
-      applied.push(id);
+  // The editor committed it, but the binding may have refused to store it
+  // (it turns read only, e.g. `unstorable-change` for a node the document
+  // cannot store): then it is not in the document either.
+  // Read again (the update may have changed it; TypeScript keeps the
+  // narrowing of the check above).
+  const statusNow = (binding.status as {readonly kind: string}).kind;
+  const refused = committed && statusNow !== 'active';
+  if (!committed || refused) {
+    // Nothing was written. With wrap, a result would be the only place
+    // these blocks are: it fails instead, with the report unchanged for a
+    // later call (recoverYOfflineEdits keeps the capture).
+    if (wrapped !== null) {
+      throw new Error(
+        refused
+          ? `@lexical/y/offline: the binding did not store replayUnsyncedEdits' update (it is now ${statusNow}; see its warning), so nothing of the report is in the document: fix what the warning names (a wrapper's output the document cannot store), reload, and call it again, or pass leftovers: {handle} to take the blocks yourself.`
+          : `@lexical/y/offline: replayUnsyncedEdits' editor update failed (the editor's onError has the error), so nothing of the report was applied or inserted: call it again with the same report once the editor works, or pass leftovers: {handle} to take the blocks yourself.`,
+      );
     }
-  } else {
-    for (const id of done) {
-      notApplied.push({id, reason: 'not-written'});
+    // With handle: every block with content goes to the handler, the
+    // replayable ones too, since none was applied.
+    for (const block of todo) {
+      if (!left.includes(block)) {
+        left.push(block);
+      }
     }
+    return {
+      applied,
+      handled: handOver(),
+      inserted: [],
+      leftovers: [],
+      notApplied: [
+        ...notApplied
+          .filter(skip => skip.reason === 'not-in-report')
+          .map(skip => ({id: skip.id, reason: skip.reason})),
+        ...candidates.map(block => ({
+          id: block.id,
+          reason: 'not-written' as const,
+        })),
+      ],
+    };
   }
-  return {applied, notApplied};
+  for (const id of done) {
+    applied.push(id);
+  }
+  // The ids minted for what was written; positions in an editor without
+  // block ids.
+  const written = editor.read('latest', () =>
+    places.map(
+      (place): YLeftoversInserted => ({
+        after: place.after,
+        blocks: place.blocks.map(block => block.id),
+        fallback: place.fallback,
+        inserted: place.keys.flatMap(key => {
+          const node = $getNodeByKey(key);
+          return node === null
+            ? []
+            : [$storedBlockId(node) ?? `#${node.getIndexWithinParent()}`];
+        }),
+      }),
+    ),
+  );
+  return {
+    applied,
+    handled: handOver(),
+    inserted: written.flatMap(place => place.inserted),
+    leftovers: written,
+    notApplied,
+  };
 }
 
 /** @experimental One capture of {@link recoverYOfflineEdits}' result. */
 export interface YOfflineRecovered {
+  /** The capture; `resolved` is set once its leftovers are in the document. */
   readonly capture: YOfflineCapture;
-  /** What is left to show, or why the capture could not be read. */
+  /**
+   * What is left to show (nothing, for a capture whose leftovers were
+   * written into the document), or why the capture could not be read.
+   */
   readonly report: YOfflineResult<YOfflineReport>;
-  /** What the replay stage applied; null when it did not run for this capture. */
+  /**
+   * What the replay stage applied and inserted; null when it did not run
+   * for this capture in this call.
+   */
   readonly replay: YReplayResult | null;
 }
 
 /**
- * @experimental On a fresh document at the current epoch, after its first
- * sync: gather what did not sync and, at stage `'replay'`, reapply what is
- * safe. In order:
- *
- * 1. every slot of `key` left at another epoch (a tab that closed before it
- *    could freeze), or never synced (edits made on this device that never
- *    reached a server: their base is unknown, so nothing of them is
- *    replayable), becomes a capture;
- * 2. each capture is described against the document as it is now;
- * 3. at stage `'replay'`, each capture this call claims (once, across tabs)
- *    has its replayable blocks applied as one undo step;
- * 4. a capture with nothing left to show is deleted once the server holds
- *    the document: only with `session`, the document's offline session,
- *    reporting no unsynced edits (after its `markSynced()`). Without it,
- *    or while the document holds edits the server lacks (a replay that has
- *    not synced), such a capture is returned with no blocks, for the panel
- *    to dismiss: until the server holds what was reapplied, the capture may
- *    be its only stored copy.
- *
- * The result is the Offline edits panel's content. Stage `'off'` returns an
- * empty list and touches nothing.
+ * How long a claim that resolved nothing is left alone, in milliseconds: a
+ * replay is synchronous, so a claim this old is not one being written.
  */
-export async function recoverYOfflineEdits(input: {
+const STALE_CLAIM_MS = 60000;
+/**
+ * How many leftover block ids a claim chooses before its write: a retake
+ * finds the write by any of them, so a collaborator deleting the first
+ * (the label) does not make it write everything again.
+ */
+const CLAIMED_IDS = 16;
+
+/** @experimental What {@link recoverYOfflineEdits} takes. */
+export type YOfflineRecoverInput = {
   /** The fresh document's binding: active, synced, at `epoch`. */
   readonly binding: YOfflineBinding;
   readonly store: YOfflineStore | null;
@@ -1476,10 +2062,62 @@ export async function recoverYOfflineEdits(input: {
   readonly session?: YOfflineSession;
   /** The clock, for tests. @defaultValue `Date.now` */
   readonly now?: () => number;
-}): Promise<YOfflineResult<YOfflineRecovered[]>> {
+} & YLeftoversRequiredPassWrapOrHandle &
+  YAutoReplayRequiredPassReplayableNoneOrMaxBaseAge;
+
+/**
+ * @experimental On a fresh document at the current epoch, after its first
+ * sync: gather what did not sync and, at stage `'replay'`, put it back. In
+ * order:
+ *
+ * 1. every slot of `key` left at another epoch (a tab that closed before it
+ *    could freeze), or never synced (edits made on this device that never
+ *    reached a server: their base is unknown, so nothing of them is
+ *    replayable), becomes a capture;
+ * 2. each capture is described against the document as it is now;
+ * 3. at stage `'replay'`, each capture this call claims (once, across tabs)
+ *    is written in one editor update, one undo step: its replayable blocks
+ *    are applied, and with `leftovers: {wrap}` every other block the user
+ *    added or changed is written through `wrap` (see
+ *    {@link replayUnsyncedEdits}). The capture is then resolved
+ *    (`capture.resolved`): nothing of it is left to show. A capture claimed
+ *    more than a minute ago and never resolved (its tab closed, or its
+ *    blocks went to a handler) is taken again;
+ * 4. with `leftovers: {handle}`, the handler is called with the blocks each
+ *    capture has left (at `'persist'`, all of them; at `'replay'`, those
+ *    not applied), and the capture stays until your app deletes it;
+ * 5. a capture with nothing left to show is deleted once the server holds
+ *    the document: only with `session`, the document's offline session,
+ *    reporting no unsynced edits (after its `markSynced()`). Without it,
+ *    or while the document holds edits the server lacks (a replay that has
+ *    not synced), such a capture is returned with no blocks: until the
+ *    server holds what was written, the capture may be its only stored
+ *    copy.
+ *
+ * The result is the Offline edits panel's content: at `'replay'` with
+ * `wrap`, what was reapplied and where the rest was inserted. Stage `'off'`
+ * returns an empty list and touches nothing.
+ */
+export async function recoverYOfflineEdits(
+  input: YOfflineRecoverInput,
+): Promise<YOfflineResult<YOfflineRecovered[]>> {
   const entry = 'recoverYOfflineEdits';
+  // At every stage, 'off' included: a call shipped dark fails here, not on
+  // the day the stage is raised.
+  requireLeftovers(entry, input);
+  requireAutoReplay(entry, input);
   requireStage(entry, input.stage);
-  const {binding, config, epoch, key, migrate, stage, store} = input;
+  const {
+    autoReplay,
+    binding,
+    config,
+    epoch,
+    key,
+    leftovers,
+    migrate,
+    stage,
+    store,
+  } = input;
   if (stage === 'off' || store === null) {
     return ok([]);
   }
@@ -1505,6 +2143,7 @@ export async function recoverYOfflineEdits(input: {
       const staleEpoch = info.epoch;
       const made = await store.captureSlot(key, staleEpoch, stored => ({
         base: stored.base,
+        baseAt: stored.base === null ? null : (stored.baseAt ?? null),
         capturedAt: now(),
         claimed: false,
         differs: false,
@@ -1531,6 +2170,8 @@ export async function recoverYOfflineEdits(input: {
     if (stored.value !== null && stored.value.hasUnsyncedEdits) {
       const saved = await store.putCapture({
         base: stored.value.base,
+        baseAt:
+          stored.value.base === null ? null : (stored.value.baseAt ?? null),
         capturedAt: now(),
         claimed: false,
         differs: false,
@@ -1551,7 +2192,7 @@ export async function recoverYOfflineEdits(input: {
       return discarded;
     }
   }
-  // 2 to 4.
+  // 2 to 5.
   const captures = await store.captures(key);
   if (!captures.ok) {
     return captures;
@@ -1563,62 +2204,255 @@ export async function recoverYOfflineEdits(input: {
       current: encodeStateAsUpdate(doc),
       migrate,
     });
+  const wraps = leftovers.wrap !== undefined;
+  /**
+   * Whether this document holds the write that resolved `capture` (the
+   * state vector recorded with it): until then it may be only in the tab
+   * that wrote it.
+   */
+  const holdsResolution = (capture: YOfflineCapture): boolean => {
+    if (capture.resolved === undefined) {
+      return false;
+    }
+    const held = readStateVector(encodeStateVector(doc));
+    for (const [client, clock] of readStateVector(capture.resolved.vector)) {
+      if ((held.get(client) ?? 0) < clock) {
+        return false;
+      }
+    }
+    return true;
+  };
+  const resolve = async (
+    capture: YOfflineCapture,
+    inserted: readonly string[],
+  ): Promise<YOfflineResult<YOfflineCapture>> => {
+    const made: YOfflineCapture = {
+      ...capture,
+      claimed: true,
+      resolved: {at: now(), inserted, vector: encodeStateVector(doc)},
+    };
+    const saved = await store.putCapture(made);
+    return saved.ok ? ok(made) : saved;
+  };
+  /** Give the claim up: nothing was written. */
+  const release = (capture: YOfflineCapture) => {
+    const {claimedWrite: _written, ...rest} = capture;
+    return store.putCapture({...rest, claimed: false});
+  };
   const recovered: YOfflineRecovered[] = [];
-  for (const capture of captures.value) {
+  for (const stored of captures.value) {
+    let capture = stored;
     let report = describe(capture);
     let replay: YReplayResult | null = null;
+    // Taken by this call: a capture nobody claimed, or (with wrap) one
+    // claimed a minute ago or more whose write this document does not
+    // hold: by a tab that closed before it wrote the capture, or before
+    // what it wrote synced, or by a call that gave its blocks to a
+    // handler. With wrap nothing else would ever show these blocks. The
+    // retake is atomic across tabs (claimCapture's `retake`); what the
+    // first claim wrote and synced after all would then be in the
+    // document twice (seen twice, never not at all).
+    let taken = false;
     if (
       stage === 'replay' &&
       report.ok &&
-      !capture.claimed &&
       binding.status.kind === 'active' &&
-      report.value.blocks.some(block => block.replayable)
+      report.value.blocks.length > 0
     ) {
-      const claimed = await store.claimCapture(key, capture.id);
-      if (!claimed.ok) {
-        return claimed;
-      }
-      if (claimed.value) {
-        // Described again: the claim was awaited.
-        report = describe(capture);
-        if (report.ok) {
-          try {
-            replay = replayUnsyncedEdits({binding, report: report.value});
-            if (
-              replay.applied.length === 0 &&
-              replay.notApplied.some(skip => skip.reason === 'not-written')
-            ) {
-              // The editor update failed (its onError did not throw):
-              // nothing was applied, so the claim is released for a later
-              // call to replay it.
-              const released = await store.putCapture({
-                ...capture,
-                claimed: false,
-              });
-              if (!released.ok) {
-                return released;
+      const stale =
+        wraps &&
+        capture.claimed &&
+        !holdsResolution(capture) &&
+        now() -
+          (capture.resolved !== undefined
+            ? capture.resolved.at
+            : (capture.claimedAt ?? 0)) >=
+          STALE_CLAIM_MS;
+      const wanted =
+        !capture.claimed &&
+        // With wrap, every block is written; a handler's capture is claimed
+        // only for what can be applied.
+        (wraps ||
+          (autoReplays(autoReplay, report.value.baseAt, now()) &&
+            report.value.blocks.some(block => block.replayable)));
+      if (stale || wanted) {
+        const claimed = await store.claimCapture(
+          key,
+          capture.id,
+          stale ? {retake: {claimedAt: capture.claimedAt ?? null}} : undefined,
+        );
+        if (!claimed.ok) {
+          return claimed;
+        }
+        taken = claimed.value;
+        if (taken) {
+          const {resolved: _resolved, claimedWrite: written, ...rest} = capture;
+          capture = {...rest, claimed: true, claimedAt: now()};
+          if (
+            stale &&
+            written !== undefined &&
+            // A block it wrote for the leftovers is in this document.
+            written.ids.some(id => holdsBlockId(binding.binding.editor, id))
+          ) {
+            // The first claimant's write is in this document: its mark
+            // that everything was written was lost, not the write.
+            // Resolved, not written again.
+            const resolved = await resolve(capture, []);
+            if (!resolved.ok) {
+              return resolved;
+            }
+            capture = resolved.value;
+            report = describe(capture);
+            taken = false;
+          } else if (wraps) {
+            // The ids the first blocks it writes for the leftovers get,
+            // chosen before the write: a retake can tell the write is in its
+            // document if the mark after it is lost (by its content: the
+            // document's clock also moves for a write that failed, then for
+            // anything typed after). Only with wrap (a handler's claim
+            // writes only the replayable blocks) and block ids; without
+            // them a retake writes again: seen twice, never lost.
+            const ids = report.ok
+              ? chooseBlockIds(
+                  binding.binding.editor,
+                  CLAIMED_IDS,
+                  report.value,
+                )
+              : [];
+            if (ids.length > 0) {
+              capture = {...capture, claimedWrite: {ids}};
+              const recorded = await store.putCapture(capture);
+              if (!recorded.ok) {
+                return recorded;
               }
             }
-            report = describe(capture);
-          } catch (error) {
-            // Nothing was applied: the claim is released, so a later call
-            // replays it, and the failure is this capture's.
-            await store.putCapture({...capture, claimed: false});
-            report = fail({
-              cause: error,
-              code: 'failed',
-              message: `@lexical/y/offline: replaying this capture failed (${String(
-                error,
-              )}); nothing was applied and the capture is kept for a later call or the panel.`,
-            });
           }
         }
       }
     }
+    if (taken) {
+      // Described again: the claim was awaited.
+      report = describe(capture);
+      if (
+        !report.ok ||
+        (binding.status as {readonly kind: string}).kind !== 'active'
+      ) {
+        // The document went read only while the claim was awaited (or the
+        // capture cannot be read now): nothing is written, and the claim
+        // is given up for a later call rather than left to time out.
+        const released = await release(capture);
+        if (!released.ok) {
+          return released;
+        }
+        capture = {...capture, claimed: false};
+        taken = false;
+      }
+    }
+    if (taken && report.ok) {
+      try {
+        const preset =
+          capture.claimedWrite === undefined
+            ? []
+            : [...capture.claimedWrite.ids];
+        replay = replayWithIds(
+          {
+            autoReplay,
+            binding,
+            // A handler is called below, once, with what is left.
+            leftovers:
+              leftovers.wrap !== undefined ? leftovers : {handle: () => {}},
+            now,
+            report: report.value,
+          },
+          preset,
+        );
+        if (
+          !wraps &&
+          replay.notApplied.some(skip => skip.reason === 'not-written')
+        ) {
+          // The editor update failed (its onError did not throw): nothing
+          // was written, so the claim is released for a later call. (With
+          // wrap, the replay throws instead, below.)
+          const released = await release(capture);
+          if (!released.ok) {
+            return released;
+          }
+        } else if (wraps) {
+          // Everything of it is in the document: nothing is left to
+          // show, and it goes once the server holds the document.
+          const resolved = await resolve(capture, replay.inserted);
+          if (!resolved.ok) {
+            return resolved;
+          }
+          capture = resolved.value;
+        }
+        report = describe(capture);
+      } catch (error) {
+        // Nothing was applied: the claim is released, so a later call
+        // replays it, and the failure is this capture's.
+        await release(capture);
+        report = fail({
+          cause: error,
+          code: 'failed',
+          message: `@lexical/y/offline: replaying this capture failed (${String(
+            error,
+          )}); nothing was applied and the capture is kept for a later call or the panel.`,
+        });
+      }
+    }
+    if (
+      wraps &&
+      stage === 'replay' &&
+      report.ok &&
+      capture.resolved === undefined &&
+      binding.status.kind === 'active' &&
+      report.value.blocks.length === 0 &&
+      report.value.orderDiffers
+    ) {
+      // Only the block order differs: everything of it is in the document,
+      // and a move is not replayed (D125). With wrap there is no panel to
+      // dismiss it from, and a capture kept for ever counts against the
+      // store's limits, which refuse later writes: it is resolved, and this
+      // call's result still says orderDiffers.
+      const resolved = await resolve(capture, []);
+      if (!resolved.ok) {
+        return resolved;
+      }
+      capture = resolved.value;
+      recovered.push({capture, replay, report});
+      continue;
+    }
+    if (
+      report.ok &&
+      capture.resolved !== undefined &&
+      (holdsResolution(capture) || now() - capture.resolved.at < STALE_CLAIM_MS)
+    ) {
+      // Its blocks were applied or written into the document (a later
+      // change to one of them is the document's history, not an edit that
+      // did not sync), here or, a moment ago, in another tab whose write
+      // has not arrived yet. One whose write never arrives is taken again
+      // above, a minute on.
+      report = ok({...report.value, blocks: [], fragment: []});
+    }
+    if (
+      leftovers.handle !== undefined &&
+      report.ok &&
+      report.value.blocks.length > 0
+    ) {
+      // The only place these blocks go: the app's handler, every call.
+      leftovers.handle(report.value.blocks, {
+        captureId: capture.id,
+        report: report.value,
+      });
+      if (replay !== null) {
+        replay = {...replay, handled: report.value.blocks.map(b => b.id)};
+      }
+    }
     // Nothing left to show, and the server holds the document: the capture
     // goes. Not in the call that replayed it, not while the document holds
-    // edits the server lacks (what was reapplied may be in this page only),
-    // and not while its block order differs.
+    // edits the server lacks (what was written may be in this page only),
+    // and not while its block order differs, unless it is resolved (with
+    // wrap, nothing of it is left to show).
     const serverHolds =
       input.session !== undefined &&
       !input.session.ended &&
@@ -1629,7 +2463,11 @@ export async function recoverYOfflineEdits(input: {
       report.ok &&
       replay === null &&
       report.value.blocks.length === 0 &&
-      !report.value.orderDiffers
+      (capture.resolved !== undefined
+        ? // The write that resolved it is in this document, which the
+          // server holds: not just marked by another tab.
+          holdsResolution(capture)
+        : !report.value.orderDiffers)
     ) {
       const deleted = await store.deleteCapture(key, capture.id);
       if (!deleted.ok) {

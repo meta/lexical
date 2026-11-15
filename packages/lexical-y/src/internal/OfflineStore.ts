@@ -136,6 +136,12 @@ export interface YOfflineStored {
   readonly base: Uint8Array | null;
   /** Whether updates were stored after `base`: the server may lack them. */
   readonly hasUnsyncedEdits: boolean;
+  /**
+   * When the server was known to hold `base` (Unix ms): the session's
+   * `markSynced()` that made it, as passed to `confirm`. Null or absent
+   * when unknown (a store of your own may leave it out).
+   */
+  readonly baseAt?: number | null;
 }
 
 /** @experimental One slot of a key (see {@link YOfflineStore.slots}). */
@@ -162,6 +168,13 @@ export interface YOfflineCapture {
   readonly reason: 'stale' | 'legacy' | 'expired';
   /** When it was captured (Unix ms). */
   readonly capturedAt: number;
+  /**
+   * When the base (the document the edits were made against) was last
+   * known to be on the server (Unix ms): how old the copy the edits were
+   * made on is. Null or absent when unknown (a capture of an earlier
+   * release, or a store of your own); see `autoReplay`'s `maxBaseAge`.
+   */
+  readonly baseAt?: number | null;
   /** The whole document as the client held it (a Yjs update). */
   readonly state: Uint8Array;
   /**
@@ -181,6 +194,37 @@ export interface YOfflineCapture {
   readonly base: Uint8Array | null;
   /** Set once a replay stage took the capture (see claimCapture). */
   readonly claimed: boolean;
+  /**
+   * When the capture was claimed (Unix ms): set by `claimCapture` of the
+   * store of `openYOfflineStore`. A claim that is old and never resolved
+   * was made by a tab that is gone (see `recoverYOfflineEdits`).
+   */
+  readonly claimedAt?: number;
+  /**
+   * The ids the first blocks the claimant writes for the leftovers get,
+   * chosen before it writes (`recoverYOfflineEdits`, with block ids). A
+   * retake whose document holds any of them holds the write, and resolves
+   * the capture instead of writing it again.
+   */
+  readonly claimedWrite?: {readonly ids: readonly string[]};
+  /**
+   * Set once a recovery wrote everything of the capture into the document
+   * (`recoverYOfflineEdits` with `leftovers: {wrap}`): when (Unix ms), and
+   * the new ids of the top-level blocks written for the blocks that could
+   * not be replayed. Nothing of a resolved capture is left to show; it is
+   * deleted once the server holds the document.
+   */
+  readonly resolved?: {
+    readonly at: number;
+    readonly inserted: readonly string[];
+    /**
+     * The state vector of the document right after it was written: a
+     * recovery on another document deletes the capture only once that
+     * document holds this write, and takes it again when it still does not
+     * a minute later (the tab that wrote it closed before it synced).
+     */
+    readonly vector: Uint8Array;
+  };
 }
 
 /** @experimental One (key, epoch) of a {@link YOfflineStore}. */
@@ -203,8 +247,13 @@ export interface YOfflineSlot {
   /**
    * The server holds `state` (the whole document, which holds every row of
    * this handle): it becomes the base and this handle's rows are removed.
+   * `confirmedAt`: when the server was known to hold it (Unix ms), which
+   * `load` returns as `baseAt`; null or absent when unknown.
    */
-  confirm(state: Uint8Array): Promise<YOfflineResult<void>>;
+  confirm(
+    state: Uint8Array,
+    confirmedAt?: number | null,
+  ): Promise<YOfflineResult<void>>;
   /**
    * Replace this handle's `since` rows by one: `since` when given (what the
    * document holds beyond the base), else their merge.
@@ -254,9 +303,20 @@ export interface YOfflineStore {
   /**
    * Mark a capture as taken by a replay: true for the one caller that gets
    * it (a second tab, or a second call, gets false), so a capture is
-   * replayed automatically at most once.
+   * replayed automatically at most once. Set `claimedAt` to the time with
+   * it, so a claim whose tab closed before it wrote the capture can be told
+   * from one being written now (without it, such a claim counts as old).
+   *
+   * With `retake`, take a capture already claimed instead, only if its
+   * `claimedAt` is still the one given (null: none), in the same atomic
+   * step: set a new `claimedAt` and remove `resolved`. Of two tabs taking
+   * the same old claim again, one gets true.
    */
-  claimCapture(key: string, id: string): Promise<YOfflineResult<boolean>>;
+  claimCapture(
+    key: string,
+    id: string,
+    options?: {readonly retake?: {readonly claimedAt: number | null}},
+  ): Promise<YOfflineResult<boolean>>;
   deleteCapture(key: string, id: string): Promise<YOfflineResult<void>>;
   /**
    * Delete what is stored for `key`: one slot when `what.epoch` is given
@@ -356,6 +416,13 @@ interface Row {
   readonly h: number;
   /** When it was written (Unix ms). */
   readonly t: number;
+  /**
+   * A base row only: when the server was known to hold it (Unix ms), as
+   * `confirm` was told; absent when unknown. Not `t`: a base is stored
+   * again later (on the first edit after a sync with `persist` of unsynced
+   * edits only, or when a clean document is loaded) without a new sync.
+   */
+  readonly c?: number;
 }
 
 const ok = <T>(value: T): YOfflineResult<T> => ({ok: true, value});
@@ -403,6 +470,7 @@ function isRow(value: unknown): value is Row {
     isBytes(row.u) &&
     row.u.length > 0 &&
     typeof row.t === 'number' &&
+    (row.c === undefined || typeof row.c === 'number') &&
     row.h === checksum(row.u)
   );
 }
@@ -668,11 +736,15 @@ class Store implements YOfflineStore {
           }
           const base: Uint8Array[] = [];
           const since: Uint8Array[] = [];
+          let baseAt: number | null = null;
           let newer = 0;
           let unreadable = 0;
           for (const [rowKey, value] of rows) {
             if (isRow(value)) {
               (rowKey[2] === 'b' ? base : since).push(value.u);
+              if (rowKey[2] === 'b' && value.c !== undefined) {
+                baseAt = Math.max(baseAt ?? 0, value.c);
+              }
             } else if (isNewerRow(value)) {
               newer++;
             } else {
@@ -713,6 +785,7 @@ class Store implements YOfflineStore {
           }
           const capture = build({
             base: merge(base),
+            baseAt,
             hasUnsyncedEdits: true,
             state: merge([...base, ...since]) as Uint8Array,
           });
@@ -960,7 +1033,12 @@ class Store implements YOfflineStore {
     );
   }
 
-  claimCapture(key: string, id: string): Promise<YOfflineResult<boolean>> {
+  claimCapture(
+    key: string,
+    id: string,
+    options?: {readonly retake?: {readonly claimedAt: number | null}},
+  ): Promise<YOfflineResult<boolean>> {
+    const retake = options === undefined ? undefined : options.retake;
     return this.run<boolean>(
       [CAPTURES],
       'readwrite',
@@ -970,8 +1048,20 @@ class Store implements YOfflineStore {
         const request = store.get([key, id]);
         request.onsuccess = guard(() => {
           const capture: unknown = request.result;
-          if (isCapture(capture) && !capture.claimed) {
-            store.put({...capture, claimed: true}, [key, id]);
+          if (!isCapture(capture)) {
+            return;
+          }
+          if (
+            retake === undefined
+              ? !capture.claimed
+              : capture.claimed &&
+                (capture.claimedAt ?? null) === retake.claimedAt
+          ) {
+            const {resolved: _resolved, ...rest} = capture;
+            store.put({...rest, claimed: true, claimedAt: this.now()}, [
+              key,
+              id,
+            ]);
             out.value = true;
           }
         });
@@ -1157,13 +1247,14 @@ class Slot implements YOfflineSlot {
     return [this.key, epochKey(this.epochValue), kind, this.writer, this.n++];
   }
 
-  private row(update: Uint8Array): Row {
-    return {
+  private row(update: Uint8Array, confirmedAt: number | null = null): Row {
+    const row: Row = {
       h: checksum(update),
       t: this.store.now(),
       u: exact(update),
       v: ROW_VERSION,
     };
+    return confirmedAt === null ? row : {...row, c: confirmedAt};
   }
 
   async load(options?: {
@@ -1192,11 +1283,16 @@ class Slot implements YOfflineSlot {
     }
     const base: Uint8Array[] = [];
     const since: Uint8Array[] = [];
+    // When the newest base was confirmed (confirm()'s confirmedAt).
+    let baseAt: number | null = null;
     let unreadable = 0;
     let newer = 0;
     for (const [key, value] of read.value) {
       if (isRow(value)) {
         (key[2] === 'b' ? base : since).push(value.u);
+        if (key[2] === 'b' && value.c !== undefined) {
+          baseAt = Math.max(baseAt ?? 0, value.c);
+        }
       } else if (isNewerRow(value)) {
         newer++;
       } else {
@@ -1218,7 +1314,12 @@ class Slot implements YOfflineSlot {
       stored =
         state === null
           ? null
-          : {base: mergedBase, hasUnsyncedEdits: since.length > 0, state};
+          : {
+              base: mergedBase,
+              baseAt: mergedBase === null ? null : baseAt,
+              hasUnsyncedEdits: since.length > 0,
+              state,
+            };
     } catch (error) {
       cause = error;
       unreadable = read.value.length;
@@ -1272,12 +1373,16 @@ class Slot implements YOfflineSlot {
     return result;
   }
 
-  async confirm(state: Uint8Array): Promise<YOfflineResult<void>> {
+  async confirm(
+    state: Uint8Array,
+    confirmedAt?: number | null,
+  ): Promise<YOfflineResult<void>> {
     return this.replace(
       await this.removable(this.owned),
       'b',
       state,
       'the synced document',
+      confirmedAt ?? null,
     );
   }
 
@@ -1370,6 +1475,7 @@ class Slot implements YOfflineSlot {
     kind: RowKind,
     update: Uint8Array | null,
     doing: string,
+    confirmedAt: number | null = null,
   ): Promise<YOfflineResult<void>> {
     await this.hold();
     const key = this.nextKey(kind);
@@ -1388,7 +1494,7 @@ class Slot implements YOfflineSlot {
             }
           }
           if (value !== null) {
-            store.put(this.row(value), key);
+            store.put(this.row(value, confirmedAt), key);
           }
         };
         if (update !== null) {

@@ -212,6 +212,7 @@ test('public entries', () => {
     'openYOfflineStore',
     'recoverYOfflineEdits',
     'replayUnsyncedEdits',
+    'wrapLeftoversAsQuote',
   ]);
   expect(Object.keys(serverEntry).sort()).toEqual([
     'LAYOUT_VERSION',

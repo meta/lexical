@@ -48,6 +48,9 @@ import {
 } from '../../offline';
 import {catalogAppExtension, catalogHeadlessConfig} from '../catalog/bind';
 
+// The app takes the blocks that cannot be replayed itself (its panel).
+const PANEL = {handle: () => {}};
+
 const idb = {
   IDBKeyRange: globalThis.IDBKeyRange,
   indexedDB: globalThis.indexedDB,
@@ -419,10 +422,12 @@ describe('a session on a real IndexedDB', () => {
     const b = tab(state);
     const recover = (t: ReturnType<typeof tab>, s: YOfflineStore) =>
       recoverYOfflineEdits({
+        autoReplay: 'replayable',
         binding: t.binding,
         config,
         epoch: 'e2',
         key: 'doc',
+        leftovers: PANEL,
         stage: 'replay',
         store: s,
       });
@@ -483,10 +488,12 @@ describe('a session on a real IndexedDB', () => {
     const fresh = tab(state);
     const recovered = unwrap(
       await recoverYOfflineEdits({
+        autoReplay: 'replayable',
         binding: fresh.binding,
         config,
         epoch: 'e2',
         key: 'doc',
+        leftovers: PANEL,
         stage: 'replay',
         store,
       }),
