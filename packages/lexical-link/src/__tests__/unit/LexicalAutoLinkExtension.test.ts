@@ -415,50 +415,123 @@ describe('LexicalAutoLinkExtension tests', () => {
       // be a url, never a rel/target/title carried over from the same edit.
       expect(changes).toEqual([['https://b.com', 'https://a.com']]);
     });
+  });
 
-    test('formatting text next to an email followed by TLD continuation does not loop with text entity (#9746)', () => {
-      using editor = buildEditorFromExtensions({
-        $initialEditorState: null,
-        dependencies: [
-          TestLexicalAutoLinkExtension,
-          HashtagExtension,
-          configExtension(AutoLinkExtension, {
-            matchers: [autoLinkUrlMatcher, autoLinkEmailMatcher],
-          }),
-        ],
-        name: '[repro #9746]',
-      });
-      editor.update(
-        () => {
-          $getRoot()
-            .clear()
-            .append(
-              $createParagraphNode().append(
-                $createTextNode('%'),
-                $createTextNode('x@y').toggleFormat('italic'),
-                $createTextNode(' x@y.io'),
-                $createTextNode('.io').toggleFormat('italic'),
-                $createTextNode('%'),
-              ),
-            );
-        },
-        {discrete: true, skipTransforms: true},
-      );
-      expect(() => {
-        editor.update(
-          () => {
-            const node = (
-              $getRoot().getFirstChildOrThrow() as ElementNode
-            ).getChildAtIndex(1) as TextNode;
-            const selection = $createRangeSelection();
-            selection.anchor.set(node.getKey(), 1, 'text');
-            selection.focus.set(node.getKey(), 3, 'text');
-            $setSelection(selection);
-            selection.formatText('bold');
-          },
-          {discrete: true},
-        );
-      }).not.toThrow();
+  test('formatting text next to an email followed by TLD continuation does not loop with text entity (#9746)', () => {
+    using editor = buildEditorFromExtensions({
+      $initialEditorState: null,
+      dependencies: [
+        TestLexicalAutoLinkExtension,
+        HashtagExtension,
+        configExtension(AutoLinkExtension, {
+          matchers: [autoLinkUrlMatcher, autoLinkEmailMatcher],
+        }),
+      ],
+      name: '[repro #9746 email]',
+    });
+    editor.update(
+      () => {
+        $getRoot()
+          .clear()
+          .append(
+            $createParagraphNode().append(
+              $createTextNode('%'),
+              $createTextNode('x@y').toggleFormat('italic'),
+              $createTextNode(' x@y.io'),
+              $createTextNode('.io').toggleFormat('italic'),
+              $createTextNode('%'),
+            ),
+          );
+      },
+      {discrete: true, skipTransforms: true},
+    );
+    editor.update(
+      () => {
+        const node = (
+          $getRoot().getFirstChildOrThrow() as ElementNode
+        ).getChildAtIndex(1) as TextNode;
+        const selection = $createRangeSelection();
+        selection.anchor.set(node.getKey(), 1, 'text');
+        selection.focus.set(node.getKey(), 3, 'text');
+        $setSelection(selection);
+        selection.formatText('bold');
+      },
+      {discrete: true},
+    );
+    editor.read(() => {
+      const p = $getRoot().getFirstChildOrThrow() as ElementNode;
+      const children = p.getChildren().map(n => ({
+        format: $isTextNode(n) ? n.getFormat() : null,
+        text: n.getTextContent(),
+        type: n.getType(),
+      }));
+      expect(children).toEqual([
+        {format: 0, text: '%', type: 'text'},
+        {format: 2, text: 'x', type: 'text'},
+        {format: 3, text: '@y', type: 'text'},
+        {format: 0, text: ' x@y.io', type: 'text'},
+        {format: 2, text: '.io', type: 'text'},
+        {format: 0, text: '%', type: 'text'},
+      ]);
+    });
+  });
+
+  test('formatting text next to a URL followed by TLD continuation does not loop with text entity (#9746)', () => {
+    using editor = buildEditorFromExtensions({
+      $initialEditorState: null,
+      dependencies: [
+        TestLexicalAutoLinkExtension,
+        HashtagExtension,
+        configExtension(AutoLinkExtension, {
+          matchers: [autoLinkUrlMatcher, autoLinkEmailMatcher],
+        }),
+      ],
+      name: '[repro #9746 url]',
+    });
+    editor.update(
+      () => {
+        $getRoot()
+          .clear()
+          .append(
+            $createParagraphNode().append(
+              $createTextNode('%'),
+              $createTextNode('a.co').toggleFormat('italic'),
+              $createTextNode(' https://a.co'),
+              $createTextNode('.co').toggleFormat('italic'),
+              $createTextNode('%'),
+            ),
+          );
+      },
+      {discrete: true, skipTransforms: true},
+    );
+    editor.update(
+      () => {
+        const node = (
+          $getRoot().getFirstChildOrThrow() as ElementNode
+        ).getChildAtIndex(1) as TextNode;
+        const selection = $createRangeSelection();
+        selection.anchor.set(node.getKey(), 1, 'text');
+        selection.focus.set(node.getKey(), 4, 'text');
+        $setSelection(selection);
+        selection.formatText('bold');
+      },
+      {discrete: true},
+    );
+    editor.read(() => {
+      const p = $getRoot().getFirstChildOrThrow() as ElementNode;
+      const children = p.getChildren().map(n => ({
+        format: $isTextNode(n) ? n.getFormat() : null,
+        text: n.getTextContent(),
+        type: n.getType(),
+      }));
+      expect(children).toEqual([
+        {format: 0, text: '%', type: 'text'},
+        {format: 2, text: 'a', type: 'text'},
+        {format: 3, text: '.co', type: 'text'},
+        {format: 0, text: ' https://a.co', type: 'text'},
+        {format: 2, text: '.co', type: 'text'},
+        {format: 0, text: '%', type: 'text'},
+      ]);
     });
   });
 });

@@ -637,7 +637,16 @@ export function registerLexicalTextEntity<T extends TextNode>(
               if (!isEntityAfter(remainingText, nextSibling, false)) {
                 $replaceWithSimpleText(nextSibling);
               }
-            } else if (getMatch(nextSibling.getTextContent()) !== null) {
+            }
+
+            return;
+          } else if (match === null || nextMatch.start !== match.start) {
+            if (
+              match === null &&
+              nextMatch.start >= remainingText.length &&
+              $isTextNode(nextSibling) &&
+              nextSibling.isSimpleText()
+            ) {
               const updateState =
                 INTERNAL_getActiveEditorState() || editor.getEditorState();
               let marked = markedInUpdate.get(updateState);
@@ -651,8 +660,6 @@ export function registerLexicalTextEntity<T extends TextNode>(
               }
             }
 
-            return;
-          } else if (match === null || nextMatch.start !== match.start) {
             return;
           }
         }

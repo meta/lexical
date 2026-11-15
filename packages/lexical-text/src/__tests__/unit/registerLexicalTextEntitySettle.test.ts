@@ -619,9 +619,11 @@ describe('registerLexicalTextEntity between text nodes of other formats (#9637)'
           {discrete: true},
         ),
       ).not.toThrow();
+      // Retyping before the formatted node marks it dirty as its combined match starts in it.
       expect(read(editor)).toEqual([
         ['text', '# ', 0],
-        ['text', '#b ', B],
+        ['test-tag', '#b', B],
+        ['text', ' ', B],
       ]);
     }
   });
@@ -860,7 +862,8 @@ describe('registerLexicalTextEntity between text nodes of other formats (#9637)'
         {discrete: true},
       );
     }
-    expect(dirty).toEqual([1, 1, 1]);
+    // The typed node's trailing # touches the next node's #z, marking it dirty as the match starts in it.
+    expect(dirty).toEqual([2, 2, 2]);
   });
 
   test('typing that makes a match at the start of the next node one leaves it text until that node changes', () => {
@@ -1218,6 +1221,64 @@ describe('registerLexicalTextEntity between text nodes of other formats (#9637)'
       ['test-keyword', 'dog', 0],
       ['text', ' cat', 0],
       ['text', 'y', B],
+    ]);
+  });
+
+  test('retyping text before a plain node creates an entity with Hashtag + Keywords registered (#9746)', () => {
+    const editor = createEditor({
+      nodes: [KeywordNode, TagNode],
+      onError: e => {
+        throw e;
+      },
+    });
+    registerLexicalTextEntity(editor, tagMatch, TagNode, node =>
+      $create(TagNode).setTextContent(node.getTextContent()),
+    );
+    const congratsMatch = (text: string): null | EntityMatch => {
+      const m = /(^|[^a-z#])(congrats|cat)(?=[^a-z]|$)/.exec(text);
+      return m === null
+        ? null
+        : {
+            end: m.index + m[1].length + m[2].length,
+            start: m.index + m[1].length,
+          };
+    };
+    registerLexicalTextEntity(editor, congratsMatch, KeywordNode, node =>
+      $create(KeywordNode).setTextContent(node.getTextContent()),
+    );
+
+    setUp(editor, ['*x', 'congrats now']);
+    expect(read(editor)).toEqual([
+      ['text', 'x', B],
+      ['text', 'congrats now', 0],
+    ]);
+    editor.update(
+      () => {
+        ($paragraph().getChildAtIndex(0) as TextNode).setTextContent('x ');
+      },
+      {discrete: true},
+    );
+    expect(read(editor)).toEqual([
+      ['text', 'x ', B],
+      ['test-keyword', 'congrats', 0],
+      ['text', ' now', 0],
+    ]);
+
+    setUp(editor, ['*x', '#tag now']);
+    expect(read(editor)).toEqual([
+      ['text', 'x', B],
+      ['text', '#tag now', 0],
+    ]);
+    editor.update(
+      () => {
+        ($paragraph().getChildAtIndex(0) as TextNode).setTextContent('x ');
+      },
+      {discrete: true},
+    );
+    expect(read(editor)).toEqual([
+      ['text', 'x ', B],
+      ['test-tag', '#tag', 0],
+      ['text', ' now', 0],
     ]);
   });
 });

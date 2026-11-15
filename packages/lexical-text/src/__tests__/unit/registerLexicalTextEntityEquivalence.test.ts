@@ -132,12 +132,20 @@ function registerLexicalTextEntityBefore<T extends TextNode>(
           if (nextMatch === null) {
             if (isTargetNode(nextSibling)) {
               $replaceWithSimpleText(nextSibling);
-            } else if (getMatch(nextSibling.getTextContent()) !== null) {
-              nextSibling.markDirty();
             }
 
             return;
           } else if (match === null || nextMatch.start !== match.start) {
+            // Includes #9746 condition: mark next node when combined match starts in it
+            if (
+              match === null &&
+              nextMatch.start >= remainingText.length &&
+              $isTextNode(nextSibling) &&
+              nextSibling.isSimpleText()
+            ) {
+              nextSibling.markDirty();
+            }
+
             return;
           }
         }
