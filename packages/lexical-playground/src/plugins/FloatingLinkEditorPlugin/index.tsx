@@ -539,15 +539,27 @@ function useFloatingLinkEditorToolbar(
               const nativeSelection = getDOMSelection(
                 rootElement?.ownerDocument.defaultView ?? null,
               );
-              const domAnchorNode = nativeSelection
-                ? getDOMSelectionPoints(nativeSelection, rootElement).anchorNode
-                : null;
+              const {anchorNode: domAnchorNode, anchorOffset: domAnchorOffset} =
+                nativeSelection
+                  ? getDOMSelectionPoints(nativeSelection, rootElement)
+                  : {anchorNode: null, anchorOffset: 0};
               const linkElement = currentEditor.getElementByKey(
                 clickedLink.getKey(),
               );
               // A click can precede selectionchange; the DOM caret may be newer.
               if (!linkElement?.contains(domAnchorNode)) {
-                selection = anchorNode.isBefore(clickedLink)
+                let isBefore = anchorNode.isBefore(clickedLink);
+                if (
+                  linkElement &&
+                  domAnchorNode &&
+                  rootElement?.contains(domAnchorNode)
+                ) {
+                  const linkRange = linkElement.ownerDocument.createRange();
+                  linkRange.selectNodeContents(linkElement);
+                  isBefore =
+                    linkRange.comparePoint(domAnchorNode, domAnchorOffset) < 0;
+                }
+                selection = isBefore
                   ? clickedLink.selectStart()
                   : clickedLink.selectEnd();
               }

@@ -123,6 +123,76 @@ test.describe('Links', () => {
     });
   }
 
+  for (const boundary of ['before', 'after']) {
+    for (const anchorType of ['text', 'element']) {
+      test(`Clicking ${boundary} a link before selectionchange uses the live ${anchorType} caret`, async ({
+        page,
+      }) => {
+        await focusEditor(page);
+        await pasteFromClipboard(page, {
+          'text/html':
+            '<p>before <a href="https://example.org/long">longer link</a> after</p>',
+        });
+        if (boundary === 'before') {
+          await moveToLineEnd(page);
+          await assertCaret(page, 'p > span:last-child', 6);
+        } else {
+          await moveToLineBeginning(page);
+          await assertCaret(page, 'p > span:first-child', 0);
+        }
+
+        const frame = getPageOrFrame(page);
+        const editor = frame.locator('[contenteditable="true"]').first();
+        const link = editor.getByRole('link', {
+          exact: true,
+          name: 'longer link',
+        });
+        await link.evaluate(
+          (element, {anchorType: domAnchorType, boundary: domBoundary}) => {
+            const parent = element.parentNode;
+            const text = (
+              domBoundary === 'before'
+                ? element.previousElementSibling
+                : element.nextElementSibling
+            ).firstChild;
+            const anchor = domAnchorType === 'text' ? text : parent;
+            const offset =
+              domAnchorType === 'text'
+                ? domBoundary === 'before'
+                  ? text.textContent.length
+                  : 0
+                : Array.from(parent.childNodes).indexOf(element) +
+                  (domBoundary === 'after' ? 1 : 0);
+            const view = element.ownerDocument.defaultView;
+            view
+              .getSelection()
+              .setBaseAndExtent(anchor, offset, anchor, offset);
+            element.dispatchEvent(
+              new view.PointerEvent('click', {
+                bubbles: true,
+                button: 0,
+                composed: true,
+                detail: 1,
+                pointerType: 'mouse',
+              }),
+            );
+          },
+          {anchorType, boundary},
+        );
+
+        await page.keyboard.type('q');
+
+        await expect(editor).toHaveText(
+          boundary === 'before'
+            ? 'before qlonger link after'
+            : 'before longer linkq after',
+        );
+        await expect(link).toHaveText('longer link');
+        await expect(link).toHaveAttribute('href', 'https://example.org/long');
+      });
+    }
+  }
+
   test(`Can convert a text node into a link`, async ({page}) => {
     await focusEditor(page);
     await page.keyboard.type('Hello');
