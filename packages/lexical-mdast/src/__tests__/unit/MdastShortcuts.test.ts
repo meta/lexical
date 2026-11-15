@@ -376,6 +376,37 @@ describe('@lexical/mdast streaming shortcuts', () => {
       });
     });
 
+    // CommonMark opens a `*` or `~` run inside a word too, so `2*3*4` reads
+    // as emphasis on import. Typed, it is math or an identifier, so the
+    // shortcut leaves it alone; `_` runs never open inside a word anyway.
+    it.each(['2*3*', 'x*y*', 'mid*word*', 'foo**bar**', 'x~~y~~'])(
+      'a closing delimiter after a mid-word opener leaves %s as text',
+      text => {
+        using editor = createEditor();
+        type(editor, [text.slice(0, -1), text.slice(-1)]);
+        editor.read(() => {
+          expect($getRoot().getTextContent()).toBe(text);
+        });
+        expect(inlineFormats(editor).every(f => f === 0)).toBe(true);
+      },
+    );
+
+    it.each([
+      ['a *b*', 'a b'],
+      ['(*b*', '(b'],
+      ['中文*强调*', '中文强调'],
+    ])(
+      'still applies emphasis after a space, punctuation or CJK: %s',
+      (text, result) => {
+        using editor = createEditor();
+        type(editor, [text.slice(0, -1), text.slice(-1)]);
+        editor.read(() => {
+          expect($getRoot().getTextContent()).toBe(result);
+        });
+        expect(inlineFormats(editor).some(f => f !== 0)).toBe(true);
+      },
+    );
+
     it('only fires when the closing delimiter is at the caret', () => {
       using editor = createEditor();
       // A lone opening delimiter must not transform anything.
