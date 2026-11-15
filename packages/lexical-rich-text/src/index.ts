@@ -104,6 +104,7 @@ import {
   enumValue,
   FORMAT_ELEMENT_COMMAND,
   FORMAT_TEXT_COMMAND,
+  getComposedEventTarget,
   getDOMSelection,
   INDENT_CONTENT_COMMAND,
   INSERT_LINE_BREAK_COMMAND,
@@ -1331,6 +1332,7 @@ export function registerRichText(
       ((!event.ctrlKey && !event.altKey) ||
         event.getModifierState('AltGraph')) &&
       !$isEventFromEmbeddedInput(event) &&
+      !$isTargetWithinDecorator(getComposedEventTarget(event) as HTMLElement) &&
       $selectAfterBlockDecorator(selection)
     ) {
       event.preventDefault();
