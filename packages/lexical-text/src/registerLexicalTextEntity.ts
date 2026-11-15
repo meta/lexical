@@ -637,8 +637,18 @@ export function registerLexicalTextEntity<T extends TextNode>(
               if (!isEntityAfter(remainingText, nextSibling, false)) {
                 $replaceWithSimpleText(nextSibling);
               }
-            } else {
-              nextSibling.markDirty();
+            } else if (getMatch(nextSibling.getTextContent()) !== null) {
+              const updateState =
+                INTERNAL_getActiveEditorState() || editor.getEditorState();
+              let marked = markedInUpdate.get(updateState);
+              if (marked === undefined) {
+                marked = new Set();
+                markedInUpdate.set(updateState, marked);
+              }
+              if (!marked.has(nextSibling.getKey())) {
+                marked.add(nextSibling.getKey());
+                nextSibling.markDirty();
+              }
             }
 
             return;

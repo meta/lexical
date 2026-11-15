@@ -132,7 +132,7 @@ function registerLexicalTextEntityBefore<T extends TextNode>(
           if (nextMatch === null) {
             if (isTargetNode(nextSibling)) {
               $replaceWithSimpleText(nextSibling);
-            } else {
+            } else if (getMatch(nextSibling.getTextContent()) !== null) {
               nextSibling.markDirty();
             }
 

@@ -9,6 +9,7 @@
 // @vitest-environment node
 
 import {buildEditorFromExtensions} from '@lexical/extension';
+import {HashtagExtension} from '@lexical/hashtag';
 import {
   $isAutoLinkNode,
   AutoLinkExtension,
@@ -19,18 +20,26 @@ import {
 import {
   $create,
   $createParagraphNode,
+  $createRangeSelection,
   $createTextNode,
   $getRoot,
   $isParagraphNode,
   $isTextNode,
+  $setSelection,
   configExtension,
   defineExtension,
   ElementNode,
   type LexicalEditor,
   type LexicalNode,
+  type TextNode,
 } from 'lexical';
 import {$assertNodeType} from 'lexical/src/__tests__/utils';
 import {assert, describe, expect, test} from 'vitest';
+
+import {
+  autoLinkEmailMatcher,
+  autoLinkUrlMatcher,
+} from '../../LexicalAutoLinkExtension';
 
 class ExcludedParentNode extends ElementNode {
   $config() {
@@ -405,6 +414,51 @@ describe('LexicalAutoLinkExtension tests', () => {
       // ChangeHandler is documented as (url, prevUrl). Every reported pair must
       // be a url, never a rel/target/title carried over from the same edit.
       expect(changes).toEqual([['https://b.com', 'https://a.com']]);
+    });
+
+    test('formatting text next to an email followed by TLD continuation does not loop with text entity (#9746)', () => {
+      using editor = buildEditorFromExtensions({
+        $initialEditorState: null,
+        dependencies: [
+          TestLexicalAutoLinkExtension,
+          HashtagExtension,
+          configExtension(AutoLinkExtension, {
+            matchers: [autoLinkUrlMatcher, autoLinkEmailMatcher],
+          }),
+        ],
+        name: '[repro #9746]',
+      });
+      editor.update(
+        () => {
+          $getRoot()
+            .clear()
+            .append(
+              $createParagraphNode().append(
+                $createTextNode('%'),
+                $createTextNode('x@y').toggleFormat('italic'),
+                $createTextNode(' x@y.io'),
+                $createTextNode('.io').toggleFormat('italic'),
+                $createTextNode('%'),
+              ),
+            );
+        },
+        {discrete: true, skipTransforms: true},
+      );
+      expect(() => {
+        editor.update(
+          () => {
+            const node = (
+              $getRoot().getFirstChildOrThrow() as ElementNode
+            ).getChildAtIndex(1) as TextNode;
+            const selection = $createRangeSelection();
+            selection.anchor.set(node.getKey(), 1, 'text');
+            selection.focus.set(node.getKey(), 3, 'text');
+            $setSelection(selection);
+            selection.formatText('bold');
+          },
+          {discrete: true},
+        );
+      }).not.toThrow();
     });
   });
 });
