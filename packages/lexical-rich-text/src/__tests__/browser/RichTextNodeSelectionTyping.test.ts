@@ -104,6 +104,38 @@ function mountEditor(
 }
 
 describe('native typing after a selected block decorator', () => {
+  test.for([false, true])(
+    'inserts an AltGraph keydown with ctrlKey=%s after a selected divider',
+    async ctrlKey => {
+      const {editor, root} = mountEditor('after');
+      const divider = root.querySelector('hr')!;
+      await userEvent.click(divider);
+      await expect.element(divider).toHaveClass('selected');
+      const event = new KeyboardEvent('keydown', {
+        altKey: true,
+        bubbles: true,
+        cancelable: true,
+        ctrlKey,
+        key: '@',
+        modifierAltGraph: true,
+      });
+      expect(event.getModifierState('AltGraph')).toBe(true);
+
+      root.dispatchEvent(event);
+
+      expect(event.defaultPrevented).toBe(true);
+      expect(
+        editor.read(() =>
+          $getRoot()
+            .getChildren()
+            .map(node =>
+              $isHorizontalRuleNode(node) ? '<divider>' : node.getTextContent(),
+            ),
+        ),
+      ).toEqual(['before', '<divider>', '@', 'after']);
+    },
+  );
+
   test.for(['button', 'select'] as const)(
     "leaves keyboard input in a selected decorator's %s",
     async tag => {

@@ -32,7 +32,28 @@ import {
   $createTestDecoratorNode,
   TestDecoratorNode,
 } from 'lexical/src/__tests__/utils';
-import {assert, describe, expect, onTestFinished, test} from 'vitest';
+import {
+  afterEach,
+  assert,
+  describe,
+  expect,
+  onTestFinished,
+  test,
+  vi,
+} from 'vitest';
+
+const platform = vi.hoisted(() => ({apple: false}));
+
+vi.mock('lexical/src/environment', async importOriginal => ({
+  ...(await importOriginal<typeof import('lexical/src/environment')>()),
+  get IS_APPLE() {
+    return platform.apple;
+  },
+}));
+
+afterEach(() => {
+  platform.apple = false;
+});
 
 function createEditor(
   followedBy: string | null,
@@ -94,6 +115,65 @@ function texts(editor: LexicalEditor): string[] {
 }
 
 describe('typing while a block decorator is node-selected', () => {
+  test.for(['å', '©', 'ą', 'Å'])(
+    'inserts an Option-typed %s on Apple platforms',
+    key => {
+      platform.apple = true;
+      using editor = createEditor('after');
+      const event = new KeyboardEvent('keydown', {
+        altKey: true,
+        cancelable: true,
+        key,
+        shiftKey: key === 'Å',
+      });
+      expect(event.getModifierState('AltGraph')).toBe(false);
+      editor.update(() => editor.dispatchCommand(KEY_DOWN_COMMAND, event), {
+        discrete: true,
+      });
+
+      expect(texts(editor)).toEqual(['before', '<decorator>', key, 'after']);
+      expect(event.defaultPrevented).toBe(true);
+    },
+  );
+
+  test.for(['ctrlKey', 'metaKey'] as const)(
+    'leaves Option with %s to its Apple shortcut',
+    modifier => {
+      platform.apple = true;
+      using editor = createEditor('after');
+      const event = new KeyboardEvent('keydown', {
+        altKey: true,
+        cancelable: true,
+        key: 'å',
+        [modifier]: true,
+      });
+      editor.update(() => editor.dispatchCommand(KEY_DOWN_COMMAND, event), {
+        discrete: true,
+      });
+
+      expect(texts(editor)).toEqual(['before', '<decorator>', 'after']);
+      expect(event.defaultPrevented).toBe(false);
+    },
+  );
+
+  test.for([false, true])('inserts AltGraph text with ctrlKey=%s', ctrlKey => {
+    using editor = createEditor('after');
+    const event = new KeyboardEvent('keydown', {
+      altKey: true,
+      cancelable: true,
+      ctrlKey,
+      key: '@',
+      modifierAltGraph: true,
+    });
+    expect(event.getModifierState('AltGraph')).toBe(true);
+    editor.update(() => editor.dispatchCommand(KEY_DOWN_COMMAND, event), {
+      discrete: true,
+    });
+
+    expect(texts(editor)).toEqual(['before', '<decorator>', '@', 'after']);
+    expect(event.defaultPrevented).toBe(true);
+  });
+
   test.for(['altKey', 'ctrlKey', 'metaKey'] as const)(
     'leaves a printable key with %s to its modifier shortcut',
     modifier => {

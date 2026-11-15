@@ -111,6 +111,7 @@ import {
   INSERT_PARAGRAPH_COMMAND,
   INSERT_TAB_COMMAND,
   INTERNAL_$expandSelectionToWholeDocument,
+  IS_APPLE,
   IS_APPLE_WEBKIT,
   IS_IOS,
   IS_SAFARI,
@@ -1329,7 +1330,7 @@ export function registerRichText(
       $isNodeSelection(selection) &&
       event.key.length === 1 &&
       !event.metaKey &&
-      ((!event.ctrlKey && !event.altKey) ||
+      ((!event.ctrlKey && (!event.altKey || IS_APPLE)) ||
         event.getModifierState('AltGraph')) &&
       !$isEventFromEmbeddedInput(event) &&
       !$isTargetWithinDecorator(getComposedEventTarget(event) as HTMLElement) &&
