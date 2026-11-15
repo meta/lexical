@@ -26,6 +26,7 @@ import {
   type LexicalNode,
 } from 'lexical';
 
+import {nestListItemsByAriaLevel} from './ariaLevelNesting';
 import {
   $createListItemNode,
   $isListItemNode,
@@ -79,6 +80,7 @@ function $normalizeListChildren(
 
 const ListRule = defineImportRule({
   $import: (ctx, el) => {
+    nestListItemsByAriaLevel(el);
     let node;
     if (isElementOfTag(el, 'ol')) {
       node = $createListNode('number', el.start);

@@ -41,6 +41,7 @@ import {
 } from 'lexical';
 
 import {$createListItemNode, $isListItemNode} from '.';
+import {nestListItemsByAriaLevel} from './ariaLevelNesting';
 import {
   mergeNestedListsAtSeam,
   mergeNextSiblingListIfSameType,
@@ -453,6 +454,7 @@ function isHTMLOListElement(node: unknown): node is HTMLOListElement {
 function $convertListNode(
   domNode: HTMLOListElement | HTMLUListElement,
 ): DOMConversionOutput {
+  nestListItemsByAriaLevel(domNode);
   let node: ListNode;
   if (isHTMLOListElement(domNode)) {
     const start = domNode.start;

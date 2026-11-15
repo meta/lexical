@@ -13,7 +13,7 @@ import {
   HorizontalRuleExtension,
   NodeStructureExtension,
 } from '@lexical/extension';
-import {DOMImportExtension} from '@lexical/html';
+import {$generateNodesFromDOM, DOMImportExtension} from '@lexical/html';
 import {$isLinkNode, LinkExtension} from '@lexical/link';
 import {
   $isListItemNode,
@@ -24,6 +24,7 @@ import {
   WordListImportExtension,
 } from '@lexical/list';
 import {RichTextExtension} from '@lexical/rich-text';
+import {$findMatchingParent} from '@lexical/utils';
 import {JSDOM} from 'jsdom';
 import {
   $createParagraphNode,
@@ -533,5 +534,77 @@ describe('ListItemNode block flattening', () => {
       assert($isListNode(outer), 'expected a ListNode');
       expect(outer.getChildren().some(findNested)).toBe(true);
     });
+  });
+});
+
+// Google Docs writes a nested list as one flat list whose items carry their
+// depth in aria-level.
+const GOOGLE_DOCS_NESTED_LISTS =
+  '<ul>' +
+  '<li aria-level="1"><p>Level one A</p></li>' +
+  '<li aria-level="2"><p>Level two A</p></li>' +
+  '<li aria-level="3"><p>Level three A</p></li>' +
+  '<li aria-level="2"><p>Level two B</p></li>' +
+  '<li aria-level="1"><p>Level one B</p></li>' +
+  '</ul>' +
+  '<ol>' +
+  '<li aria-level="1"><p>Step</p></li>' +
+  '<li aria-level="2"><p>Sub-step</p></li>' +
+  '</ol>';
+
+function $outline(): [string, number, string][] {
+  return $getRoot()
+    .getAllTextNodes()
+    .map(text => {
+      const item = $findMatchingParent(text, $isListItemNode);
+      assert(item !== null, 'expected the text in a ListItemNode');
+      const list = item.getParentOrThrow();
+      assert($isListNode(list), 'expected the item in a ListNode');
+      return [text.getTextContent(), item.getIndent(), list.getListType()];
+    });
+}
+
+describe('Google Docs flat lists nest by aria-level', () => {
+  test.each([
+    ['DOMImportExtension', $generate],
+    [
+      '$generateNodesFromDOM',
+      (html: string) =>
+        $generateNodesFromDOM(
+          $getEditor(),
+          new DOMParser().parseFromString(html, 'text/html'),
+        ),
+    ],
+  ] as const)('through %s', (_, $import) => {
+    using editor = buildEditor();
+    editor.update(
+      () => {
+        $getRoot()
+          .clear()
+          .append(...$import(GOOGLE_DOCS_NESTED_LISTS));
+      },
+      {discrete: true},
+    );
+    expect(editor.read($outline)).toEqual([
+      ['Level one A', 0, 'bullet'],
+      ['Level two A', 1, 'bullet'],
+      ['Level three A', 2, 'bullet'],
+      ['Level two B', 1, 'bullet'],
+      ['Level one B', 0, 'bullet'],
+      ['Step', 0, 'number'],
+      ['Sub-step', 1, 'number'],
+    ]);
+  });
+
+  test('a list whose items share one aria-level stays flat', () => {
+    using editor = buildEditor();
+    importInto(
+      editor,
+      '<ul><li aria-level="1">a</li><li aria-level="1">b</li></ul>',
+    );
+    expect(editor.read($outline)).toEqual([
+      ['a', 0, 'bullet'],
+      ['b', 0, 'bullet'],
+    ]);
   });
 });
