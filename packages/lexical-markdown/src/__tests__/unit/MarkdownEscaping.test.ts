@@ -1857,6 +1857,7 @@ describe('one-pass numeric reference decoding', () => {
     ['&copy;', '&copy;'],
     ['&#0;', '\uFFFD'],
     ['&#xD800;', '\uFFFD'],
+    ['&#xDFFF;', '\uFFFD'],
     ['&#x110000;', '\uFFFD'],
   ])('decodes %j once', (source, expected) => {
     expect(unescapeText(source)).toBe(expected);
