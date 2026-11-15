@@ -14,18 +14,14 @@ import type {LexicalEditor} from 'lexical';
 import type {
   YBindingOptions,
   YCollabConfig,
-  YCollabInput,
+  YCollabOptions,
   YDoc,
-  YLayoutUpgradeHandle,
 } from '@lexical/y';
+import type {YLayoutUpgradeHandle} from '@lexical/y/server';
 
 import {Doc} from '@y/y';
-import {
-  createYCollabConfig,
-  createYDoc,
-  createYServerLayoutUpgrade,
-  YBinding,
-} from '@lexical/y';
+import {createYDoc, yCollab, YBinding} from '@lexical/y';
+import {createYServerLayoutUpgrade} from '@lexical/y/server';
 import {createYDoc as createRelayDoc} from '@lexical/y/headless';
 
 declare const editor: LexicalEditor;
@@ -77,35 +73,27 @@ const forged: YDoc = new Doc();
 // $FlowExpectedError[incompatible-type] a plain Y.Doc may clean up formats
 configOf(new Doc());
 
-// What an app writes: doc and schemaVersion, every other option optional.
-const input: YCollabInput = {doc, layoutUpgrade: null, schemaVersion: 1};
-const tuned: YCollabInput = {
-  captureTimeout: null,
+// What an app writes: doc, schemaVersion, synced and onStatus required.
+const onStatus = () => {};
+const input: YCollabOptions = {doc, onStatus, schemaVersion: 1, synced: false};
+const tuned: YCollabOptions = {
   doc,
-  layoutUpgrade: createYServerLayoutUpgrade(),
+  history: false,
+  onStatus,
+  root: 'lexical-y',
   schemaVersion: 2,
+  synced: true,
 };
-// $FlowExpectedError[incompatible-type] schemaVersion is required
-const unversioned: YCollabInput = {doc, layoutUpgrade: null};
-// $FlowExpectedError[incompatible-type] layoutUpgrade is required
-const undeclared: YCollabInput = {doc, schemaVersion: 1};
-// The factory: a handle or null.
-const configured = createYCollabConfig({doc, layoutUpgrade: null, schemaVersion: 1});
+// $FlowExpectedError[incompatible-type] synced is required
+const unsynced: YCollabOptions = {doc, onStatus, schemaVersion: 1};
+// $FlowExpectedError[incompatible-type] onStatus is required
+const silent: YCollabOptions = {doc, schemaVersion: 1, synced: false};
+const configured = yCollab(input);
 const handshake = createYServerLayoutUpgrade().handshake({
   generation: null,
   material: false,
 });
 const seed: number = handshake.seed;
-
-// N2: the collab input accepts a field this release does not know (a later
-// option, set through a variable).
-declare const inputWithExtra: {
-  doc: YDoc,
-  layoutUpgrade: YLayoutUpgradeHandle | null,
-  schemaVersion: number,
-  laterOption: boolean,
-};
-const extended: YCollabInput = inputWithExtra;
 
 // F3: the binding options and the extension's configuration accept a field
 // a later release adds (every such field is optional), set through a

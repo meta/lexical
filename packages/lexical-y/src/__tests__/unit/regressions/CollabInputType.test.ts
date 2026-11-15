@@ -16,12 +16,8 @@ import {buildEditorFromExtensions} from '@lexical/extension';
 import {configExtension, defineExtension} from 'lexical';
 import {expect, test} from 'vitest';
 
-import {
-  createYDoc,
-  type YCollabConfig,
-  YCollabExtension,
-  type YCollabInput,
-} from '../../..';
+import {createYDoc, type YCollabConfig, YCollabExtension} from '../../..';
+import {type YCollabInput} from '../../../internal/YExtension';
 
 // The keys an input must name: exactly doc, layoutUpgrade and
 // schemaVersion.

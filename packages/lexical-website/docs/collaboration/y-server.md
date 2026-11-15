@@ -903,10 +903,9 @@ never parse it; carry the incarnation explicitly (records do, in their
 `source`). A client keeps, beside its cached state and
 unsent edits, the generation they were made against, adopted only from the
 server's acknowledgement of a full sync or from bootstrapping a new
-document. Before any sync message it sends the version 1 handshake its
-layout upgrade handle builds, `layoutUpgrade.handshake({generation,
-material})` (the handle from `createYServerLayoutUpgrade()` that the client
-passed to `createYCollabConfig`): `{v: 1, generation, material, layouts:
+document. Before any sync message it sends the version 1 handshake the binding
+builds, `collab.handshake(generation)` (`createYHandshake({generation,
+hasLocalEdits})` where there is no binding): `{v: 1, generation, material, layouts:
 [MIN_LAYOUT, LAYOUT_VERSION], seed: SEED_LAYOUT, features}` (`generation`
 null when it has none, `'unknown'` for material from before the fence;
 `features` the features it implements, default none). Never build it by

@@ -8,12 +8,7 @@
  */
 
 import type {Doc} from '@y/y';
-import type {
-  YClientSession,
-  YDoc,
-  YDocOptions,
-  YLayoutUpgradeHandle,
-} from '@lexical/y';
+import type {YDoc, YDocOptions} from '@lexical/y';
 import type {
   YLayoutMigration,
   YMigrationReceipt,
@@ -267,7 +262,20 @@ declare export function createYQuarantineRecord(
 
 // The layout upgrade handle: @lexical/y's own declaration (opaque there),
 // imported and re-exported, never restated.
-export type {YClientSession, YLayoutUpgradeHandle};
+// What a client sends before any sync message (see checkYSession).
+export type YClientSession = {
+  readonly generation: string | null,
+  readonly material: boolean,
+  ...
+};
+// How documents below MIN_LAYOUT are upgraded. Opaque: only
+// createYServerLayoutUpgrade makes one (the runtime brands it with a
+// registered symbol); its public fields are readable.
+declare export opaque type YLayoutUpgradeHandle: {
+  readonly kind: string,
+  handshake(session: YClientSession): YSessionHandshake,
+  ...
+};
 declare export function createYServerLayoutUpgrade(): YLayoutUpgradeHandle;
 declare export function isYLayoutUpgradeHandle(
   value: unknown,

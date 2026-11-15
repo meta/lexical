@@ -38,8 +38,9 @@ import {
 } from 'lexical';
 import {expect, test} from 'vitest';
 
-import {createYCollabConfig, createYDoc} from '../../..';
+import {createYDoc} from '../../..';
 import {createYWriter, editYState, seedYState} from '../../../headless';
+import {createYCollabConfig} from '../../../internal/YExtension';
 import {flush} from '../../utils/harness';
 
 const EXTENSIONS = [RichTextExtension, TableExtension, MarkStateExtension];

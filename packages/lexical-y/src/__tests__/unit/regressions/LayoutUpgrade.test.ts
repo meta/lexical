@@ -19,20 +19,24 @@ import {configExtension, defineExtension} from 'lexical';
 import {afterEach, describe, expect, test} from 'vitest';
 
 import {
-  createYCollabConfig,
   createYDoc,
-  createYServerLayoutUpgrade,
-  isYLayoutUpgradeHandle,
   LAYOUT_VERSION,
   MIN_LAYOUT,
   SEED_LAYOUT,
   UNSUPPORTED_CONFIG_WARNING,
   UNSUPPORTED_LAYOUT_WARNING,
   YCollabExtension,
-  type YCollabInput,
-  type YLayoutUpgradeHandle,
 } from '../../..';
 import {setMinLayoutForTests} from '../../../internal/Binding';
+import {
+  createYServerLayoutUpgrade,
+  isYLayoutUpgradeHandle,
+  type YLayoutUpgradeHandle,
+} from '../../../internal/LayoutUpgrade';
+import {
+  createYCollabConfig,
+  type YCollabInput,
+} from '../../../internal/YExtension';
 import * as serverEntry from '../../../server';
 import {catalogAppExtension} from '../../catalog/bind';
 import {FLOOR, rawDoc} from '../../utils/migrateSteps';

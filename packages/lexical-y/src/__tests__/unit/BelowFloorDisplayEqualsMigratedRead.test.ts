@@ -32,8 +32,9 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import {describe, expect, test} from 'vitest';
 
-import {createYCollabConfig, createYDoc} from '../..';
+import {createYDoc} from '../..';
 import {type HeadlessYConfig, readYState, YHeadlessError} from '../../headless';
+import {createYCollabConfig} from '../../internal/YExtension';
 import {migrateYState} from '../../migrate';
 import step1to2 from '../../migrate/1to2';
 import step2to3 from '../../migrate/2to3';
