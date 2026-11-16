@@ -108,10 +108,10 @@ export function $isAtNodeEnd(point: Point): boolean {
 /**
  * Trims `delCount` characters of text content ending at the anchor, eg. to enforce a max length. Text just
  * before the anchor is removed first, then text from preceding nodes. Nodes left with no text are removed, and
- * an empty block counts as 2 characters (its line breaks). A grapheme (eg. an emoji) is never cut in half: it
- * is removed whole, so slightly more than `delCount` characters may be removed. This always trims;
- * rejecting a keystroke made at the limit is up to the caller (MaxLengthPlugin restores the previous
- * editor state in that case).
+ * an empty block counts as 2 characters (its line breaks). Where `Intl.Segmenter` is available, a grapheme
+ * (eg. an emoji) is never cut in half (without it, only surrogate pairs are kept whole): it is removed whole,
+ * so slightly more than `delCount` characters may be removed. This always trims; rejecting a keystroke made at
+ * the limit is up to the caller (MaxLengthPlugin restores the previous editor state in that case).
  * @param editor - Unused, kept for backwards compatibility.
  * @param anchor - The anchor of the current selection, where the selection should be pointing.
  * @param delCount - The amount of characters to delete. Useful as a dynamic variable eg. textContentSize - maxLength;
@@ -168,7 +168,13 @@ export function $trimTextContentFromAnchor(
     }
     const currentNodeSize = text.length;
 
-    if (!$isTextNode(currentNode) || remaining >= currentNodeSize) {
+    if (
+      !$isTextNode(currentNode) ||
+      remaining >= currentNodeSize ||
+      // The cut is inside the first grapheme of a node before the anchor's, so nothing of it is kept
+      (anchor.key !== currentNode.getKey() &&
+        getGraphemeStart(text, currentNodeSize - remaining) === 0)
+    ) {
       const parent = currentNode.getParent();
       currentNode.remove();
       if (

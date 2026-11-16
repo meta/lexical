@@ -186,8 +186,19 @@ describe('$trimTextContentFromAnchor (#3775)', () => {
     });
   });
 
+  test('removes an earlier node whose first grapheme the cut lands in', () => {
+    using editor = buildEditorFromExtensions({name: 'trim-test'});
+    expect(
+      pasteWithMaxLength(editor, ['ab', '💏c', 'x'], [2, 1], 'yz', 5),
+    ).toMatchObject({text: 'ab'});
+  });
+
   test('keeps surrogate pairs whole without Intl.Segmenter', () => {
-    vi.stubGlobal('Intl', {...Intl, Segmenter: undefined});
+    // Intl's members are not enumerable, so a spread would drop them all
+    vi.stubGlobal(
+      'Intl',
+      Object.assign(Object.create(Intl), {Segmenter: undefined}),
+    );
     try {
       using editor = buildEditorFromExtensions({name: 'trim-test'});
       expect(pasteWithMaxLength(editor, ['abc'], [0, 3], 'd💏', 5)).toEqual({
