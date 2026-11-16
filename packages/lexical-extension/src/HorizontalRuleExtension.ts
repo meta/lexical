@@ -237,10 +237,15 @@ export const HorizontalRuleExtension = defineExtension({
               return true;
             }
           }
-          // A shift-click in the gap extends the selection as usual.
-          const ruleAtClick = event.shiftKey
-            ? null
-            : $getHorizontalRuleAtClick(editor, event);
+          // A shift-click in the gap extends the selection as usual, and a
+          // drag released there keeps the range it selected: the browser
+          // fires its click on the common ancestor, at the release point.
+          const selection = $getSelection();
+          const ruleAtClick =
+            event.shiftKey ||
+            ($isRangeSelection(selection) && !selection.isCollapsed())
+              ? null
+              : $getHorizontalRuleAtClick(editor, event);
           if (ruleAtClick !== null) {
             const nodeSelection = $createNodeSelection();
             nodeSelection.add(ruleAtClick.getKey());

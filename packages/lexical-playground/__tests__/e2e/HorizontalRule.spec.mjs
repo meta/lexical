@@ -868,9 +868,46 @@ test.describe('HorizontalRule', () => {
         // NodeSelection of it.
         await expect
           .poll(() =>
+            getPageOrFrame(page).evaluate(() =>
+              window.lexicalEditor.getEditorState().read(() => {
+                const sel = window.lexicalEditor.getEditorState()._selection;
+                return (
+                  sel !== null &&
+                  'anchor' in sel &&
+                  sel.getNodes().some(n => n.getType() === 'horizontalrule')
+                );
+              }),
+            ),
+          )
+          .toBe(true);
+      });
+
+      test('A drag released in the gap keeps the dragged selection', async ({
+        page,
+      }) => {
+        const start = await getPageOrFrame(page).evaluate(() => {
+          const rect = document
+            .querySelector('[contenteditable="true"] p')
+            .getBoundingClientRect();
+          return {x: rect.left + 1, y: rect.top + rect.height / 2};
+        });
+        const {x, y} = await getGapPoint(page, 'above');
+        await page.mouse.move(start.x, start.y);
+        await page.mouse.down();
+        await page.mouse.move(x, y, {steps: 5});
+        await page.mouse.up();
+        // The dragged range survives, instead of being replaced by a
+        // NodeSelection of the rule.
+        await expect
+          .poll(() =>
             getPageOrFrame(page).evaluate(() => {
               const sel = window.lexicalEditor.getEditorState()._selection;
-              return sel !== null && 'anchor' in sel && !sel.isCollapsed();
+              return (
+                sel !== null &&
+                'anchor' in sel &&
+                sel.anchor.type === 'text' &&
+                !sel.isCollapsed()
+              );
             }),
           )
           .toBe(true);
