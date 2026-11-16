@@ -16,6 +16,7 @@ import {
 import {
   $getDocument,
   $getState,
+  $getStateChange,
   $setState,
   createState,
   type DOMExportOutput,
@@ -64,6 +65,10 @@ const dateTimeState = createState('dateTime', {
   unparse: v => v.toISOString(),
 });
 
+function getDateTimeAttribute(dateTime: Date): string {
+  return isNaN(dateTime.getTime()) ? '' : dateTime.toISOString();
+}
+
 export class DateTimeNode extends DecoratorTextNode {
   $config() {
     return this.config('datetime', {
@@ -92,7 +97,7 @@ export class DateTimeNode extends DecoratorTextNode {
     );
     element.setAttribute(
       'data-lexical-datetime',
-      this.getDateTime()?.toString() || '',
+      getDateTimeAttribute(this.getDateTime()),
     );
     element.appendChild(applyFormatToDom(this, textDom, tagToFormat));
 
@@ -103,13 +108,19 @@ export class DateTimeNode extends DecoratorTextNode {
     const element = $getDocument().createElement('span');
     element.setAttribute(
       'data-lexical-datetime',
-      this.getDateTime()?.toString() || '',
+      getDateTimeAttribute(this.getDateTime()),
     );
     element.style.display = 'inline-block';
     return element;
   }
 
-  updateDOM(): false {
+  updateDOM(prevNode: this, dom: HTMLElement): false {
+    if ($getStateChange(this, prevNode, dateTimeState)) {
+      dom.setAttribute(
+        'data-lexical-datetime',
+        getDateTimeAttribute(this.getDateTime()),
+      );
+    }
     return false;
   }
 

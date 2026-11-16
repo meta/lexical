@@ -1283,7 +1283,7 @@ export function getExpectedDateTimeHtml({selected = false, formats = []} = {}) {
     <span
       contenteditable="false"
       style="display: inline-block;"
-      data-lexical-datetime="${date.toString()}"
+      data-lexical-datetime="${date.toISOString()}"
       data-lexical-decorator="true">
       <div
         class="dateTimePill ${selected ? 'selected' : ''} ${formats
