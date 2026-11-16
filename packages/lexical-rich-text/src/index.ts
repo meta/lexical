@@ -1505,7 +1505,11 @@ export function registerRichText(
     ),
     editor.registerCommand(
       BEFORE_INPUT_COMMAND,
-      event => {
+      (event, fromEditor) => {
+        // Preparing a parent caret would redirect a nested editor's insertion.
+        if (fromEditor !== editor) {
+          return false;
+        }
         const selection = $getSelection();
         if ($isNodeSelection(selection) && event.inputType === 'insertText') {
           $selectAfterBlockDecorator(selection);

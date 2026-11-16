@@ -28,6 +28,7 @@ import {
   $setSelection,
   DecoratorNode,
   type ElementNode,
+  SKIP_DOM_SELECTION_TAG,
 } from 'lexical';
 import {describe, expect, onTestFinished, test} from 'vitest';
 import {userEvent} from 'vitest/browser';
@@ -104,6 +105,71 @@ function mountEditor(
 }
 
 describe('native typing after a selected block decorator', () => {
+  test.for(['q', ' '])(
+    'leaves a nested editor inside the selected decorator to handle %j',
+    async key => {
+      const {editor} = mountEditor(
+        'after',
+        $createParagraphNode,
+        () => new TestControlsNode(),
+      );
+      const hostKey = editor.read(() =>
+        $getRoot().getChildAtIndex(1)!.getKey(),
+      );
+      const nestedRoot = document.createElement('div');
+      nestedRoot.contentEditable = 'true';
+      editor.getElementByKey(hostKey)!.appendChild(nestedRoot);
+      const nested = buildEditorFromExtensions({
+        $initialEditorState: () => {
+          $getRoot().append(
+            $createParagraphNode().append($createTextNode('child')),
+          );
+        },
+        dependencies: [RichTextExtension],
+        name: 'nested-node-selection-typing',
+        parentEditor: editor,
+      });
+      nested.setRootElement(nestedRoot);
+      onTestFinished(() => {
+        nested.dispose();
+        nestedRoot.remove();
+      });
+      await userEvent.click(nestedRoot);
+      nested.update(() => $getRoot().selectEnd(), {discrete: true});
+      // Let the child's selectionchange settle before retaining the parent.
+      await new Promise(resolve => setTimeout(resolve, 0));
+      editor.update(
+        () => {
+          const selection = $createNodeSelection();
+          selection.add(hostKey);
+          $setSelection(selection);
+        },
+        {discrete: true, tag: SKIP_DOM_SELECTION_TAG},
+      );
+      expect(document.activeElement).toBe(nestedRoot);
+      expect(editor.read(() => $isNodeSelection($getSelection()))).toBe(true);
+      const original = editor.getEditorState().toJSON();
+      let parentSelectedAtKeyDown = false;
+      nestedRoot.addEventListener(
+        'keydown',
+        () => {
+          parentSelectedAtKeyDown = editor.read(() =>
+            $isNodeSelection($getSelection()),
+          );
+        },
+        {capture: true, once: true},
+      );
+
+      await userEvent.keyboard(key);
+
+      expect(parentSelectedAtKeyDown).toBe(true);
+      expect(nested.read(() => $getRoot().getTextContent())).toBe(
+        `child${key}`,
+      );
+      expect(editor.getEditorState().toJSON()).toEqual(original);
+    },
+  );
+
   test.for([false, true])(
     'inserts an AltGraph keydown with ctrlKey=%s after a selected divider',
     async ctrlKey => {
