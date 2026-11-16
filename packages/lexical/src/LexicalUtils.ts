@@ -333,7 +333,10 @@ export function getEditorPropertyFromDOMNode(node: Node | null): unknown {
   return node ? node.__lexicalEditor : null;
 }
 
-/** Returns the text direction ('ltr' or 'rtl') of the given string, or null if it contains no strong directional characters. */
+/**
+ * Returns the text direction ('ltr' or 'rtl') of the given string, or null if it contains no strong directional characters.
+ * Characters outside the Basic Multilingual Plane (eg. emoji) are treated as neutral.
+ */
 export function getTextDirection(text: string): 'ltr' | 'rtl' | null {
   if (RTL_REGEX.test(text)) {
     return 'rtl';
