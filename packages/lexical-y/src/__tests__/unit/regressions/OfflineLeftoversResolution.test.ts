@@ -46,12 +46,15 @@ import {
   replayUnsyncedEdits,
   wrapLeftoversAsQuote,
   type YOfflineCapture,
+  type YOfflinePersist,
   type YOfflineResult,
   type YOfflineSession,
+  type YOfflineSessionOptions,
   type YOfflineStore,
 } from '../../../offline';
 import {createFakeIndexedDB} from '../../utils/fakeIndexedDB';
 import {textIn} from '../../utils/offlineLeftovers';
+import {markSynced, trackVerdicts} from '../../utils/offlineSync';
 
 const config: HeadlessYConfig = {
   extensions: [BlockIdExtension],
@@ -125,19 +128,24 @@ function session(
   t: ReturnType<typeof tab>,
   store: YOfflineStore,
   clock: () => number,
-  extra: Partial<Parameters<typeof attachYOfflineSession>[0]> = {},
+  extra: Partial<Omit<YOfflineSessionOptions, 'offline'>> & {
+    persist?: YOfflinePersist;
+  } = {},
 ) {
-  const s = attachYOfflineSession({
-    binding: t.binding,
-    epoch: 'e2',
-    key: 'doc',
-    now: clock,
-    onError: () => {},
-    persistEdits: false,
-    stage: 'replay',
-    store,
-    ...extra,
-  });
+  const {persist = 'captures-only', ...rest} = extra;
+  const s = trackVerdicts(
+    attachYOfflineSession({
+      binding: t.binding,
+      epoch: 'e2',
+      key: 'doc',
+      loaded: null,
+      now: clock,
+      offline: {persist, stage: 'replay', store},
+      onError: () => {},
+      stopSync: () => {},
+      ...rest,
+    }),
+  );
   dispose.push(() => s.dispose());
   return s;
 }
@@ -186,9 +194,9 @@ test("P1: second synced tab must not delete another tab's unsynced resolved cont
   const b = tab(base);
   await tick();
   const sa = session(a, store, () => 1000);
-  sa.markSynced();
+  await markSynced(sa);
   const sb = session(b, store, () => 1000);
-  sb.markSynced();
+  await markSynced(sb);
   const first = unwrap(await recover(a, store, sa));
   expect(first[0].capture.resolved).toBeDefined();
   expect(a.text()).toContain('offline content');
@@ -215,7 +223,7 @@ test('P1: a fresh reload must recover resolved content that was never sent to th
   const next = tab(base);
   await tick();
   const sn = session(next, store, () => 2000);
-  sn.markSynced();
+  await markSynced(sn);
   // Within a minute the write may still be on its way from the tab that made it: nothing is shown, and nothing deleted.
   const soon = unwrap(await recover(next, store, sn));
   expect(next.text()).not.toContain('offline content');
@@ -239,12 +247,8 @@ test('P1: keep unsynced must retain markSynced baseAt rather than first-edit tim
   const base = state('server');
   const a = tab(base);
   await tick();
-  const s = session(a, store, clock, {
-    epoch: 'e1',
-    keep: 'unsynced',
-    persistEdits: true,
-  });
-  s.markSynced();
+  const s = session(a, store, clock, {epoch: 'e1', persist: 'unsynced'});
+  await markSynced(s);
   unwrap(await s.flush());
   now = 1000 + 7 * 24 * 3600 * 1000;
   a.editor.update(
@@ -275,7 +279,11 @@ test('P1: loading an unchanged stored base offline must not rejuvenate baseAt', 
   expect(loaded.baseAt).toBe(1000);
   const a = tab(loaded.state!);
   await tick();
-  const s = session(a, store, clock, {epoch: 'e1', loaded, persistEdits: true});
+  const s = session(a, store, clock, {
+    epoch: 'e1',
+    loaded,
+    persist: 'document',
+  });
   unwrap(await s.flush());
   const again = unwrap(await loadYOffline({epoch: 'e1', key: 'doc', store}));
   expect(

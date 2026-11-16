@@ -95,7 +95,11 @@ describe('a layout 2 document holding objects keyed by array indices', () => {
 
   for (const gc of [false, true]) {
     test(`migrates with 2to3 and reads as the same values on the live reader (gc ${gc ? 'on' : 'off'})`, () => {
-      const {state} = migrateYState(input, STEPS, {gc, to: 3});
+      const {state} = migrateYState(input, STEPS, {
+        gc,
+        pending: 'discard',
+        to: 3,
+      });
       expect(recordedLayout(createRawYDoc(state, {gc}))).toBe(3);
       expect(layout3Problems(state, gc)).toEqual([]);
       const root = createRawYDoc(state, {gc}).get('lexical-y');
@@ -103,7 +107,10 @@ describe('a layout 2 document holding objects keyed by array indices', () => {
       expect(asJSON(coreRead(root))).toEqual(before);
       // An editor reads the wrapper with its field (after 3to4: layout 3
       // is below this release's floor, and a headless read refuses it).
-      const four = migrateYState(state, [step3to4], {gc}).state;
+      const four = migrateYState(state, [step3to4], {
+        gc,
+        pending: 'discard',
+      }).state;
       const read = readYState(four, CONFIG, () => {
         const paragraph = $getRoot().getFirstChildOrThrow() as ElementNode;
         const wrapper = paragraph

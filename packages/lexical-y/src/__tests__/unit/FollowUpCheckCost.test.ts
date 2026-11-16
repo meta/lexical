@@ -61,7 +61,11 @@ function build(blocks: number): LexicalEditor {
   const editor = buildEditorFromExtensions(
     defineExtension({
       dependencies: [
-        configExtension(YCollabExtension, {doc, schemaVersion: 1}),
+        configExtension(YCollabExtension, {
+          doc,
+          onYStatus: null,
+          schemaVersion: 1,
+        }),
         BlockIdExtension,
       ],
       name: '@lexical/y/test/follow-up-cost',

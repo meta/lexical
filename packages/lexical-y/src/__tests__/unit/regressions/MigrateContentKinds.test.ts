@@ -64,7 +64,7 @@ describe.each([false, true])('content kinds and value types, gc %s', gc => {
       readBefore: looseRead,
     });
     const error = refusal(() =>
-      migrateYState(rawDoc(1, 'abc'), [morph], {gc, to: 2}),
+      migrateYState(rawDoc(1, 'abc'), [morph], {gc, pending: 'discard', to: 2}),
     );
     expect(error.code).toBe('post-condition');
     expect(error.problems.join('\n')).toMatch(/countable content changed/);
@@ -84,7 +84,9 @@ describe.each([false, true])('content kinds and value types, gc %s', gc => {
         return {deleted: 0, written: 0};
       },
     });
-    const error = refusal(() => migrateYState(state, [normalize], {gc, to: 2}));
+    const error = refusal(() =>
+      migrateYState(state, [normalize], {gc, pending: 'discard', to: 2}),
+    );
     expect(error.code).toBe('post-condition');
     expect(error.problems.join('\n')).toMatch(
       /container "application"\/root outside the root changed/,
@@ -112,7 +114,9 @@ describe.each([false, true])('content kinds and value types, gc %s', gc => {
         },
       });
       expect(
-        refusal(() => migrateYState(state, [swap], {gc, to: 2})).code,
+        refusal(() =>
+          migrateYState(state, [swap], {gc, pending: 'discard', to: 2}),
+        ).code,
       ).toBe('post-condition');
     }
   });
@@ -140,10 +144,16 @@ describe.each([false, true])('content kinds and value types, gc %s', gc => {
       },
     });
     expect(
-      refusal(() => migrateYState(state, [mutate], {gc, to: 2})).code,
+      refusal(() =>
+        migrateYState(state, [mutate], {gc, pending: 'discard', to: 2}),
+      ).code,
     ).toBe('post-condition');
     // Control: the same deep value unchanged migrates, and stays.
-    const result = migrateYState(state, [stamp(1)], {gc, to: 2});
+    const result = migrateYState(state, [stamp(1)], {
+      gc,
+      pending: 'discard',
+      to: 2,
+    });
     const out = createYDoc(result.state, {gc});
     expect(leafOf(out.get('application').getAttr('deep')).value).toBe(1);
     out.destroy();
@@ -162,9 +172,11 @@ describe.each([false, true])('content kinds and value types, gc %s', gc => {
         return {deleted: 0, written: 0};
       },
     });
-    expect(refusal(() => migrateYState(state, [grow], {gc, to: 2})).code).toBe(
-      'post-condition',
-    );
+    expect(
+      refusal(() =>
+        migrateYState(state, [grow], {gc, pending: 'discard', to: 2}),
+      ).code,
+    ).toBe('post-condition');
   });
 
   test('a value made to contain itself in place: post-condition, not equal', () => {
@@ -181,9 +193,11 @@ describe.each([false, true])('content kinds and value types, gc %s', gc => {
         return {deleted: 0, written: 0};
       },
     });
-    expect(refusal(() => migrateYState(state, [loop], {gc, to: 2})).code).toBe(
-      'post-condition',
-    );
+    expect(
+      refusal(() =>
+        migrateYState(state, [loop], {gc, pending: 'discard', to: 2}),
+      ).code,
+    ).toBe('post-condition');
   });
 
   test('control: a document with binary, embeds and split string items migrates', () => {
@@ -195,6 +209,7 @@ describe.each([false, true])('content kinds and value types, gc %s', gc => {
     root.format(2, 2, {'f:bold': true} as never);
     const result = migrateYState(Y.encodeStateAsUpdate(d), [stamp(1)], {
       gc,
+      pending: 'discard',
       to: 2,
     });
     expect(result.receipt.changed).toBe(true);

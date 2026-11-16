@@ -42,6 +42,7 @@ for (const gc of [false, true])
           onWarn: () => {},
         });
         const b = new YBinding(editor, doc, {
+          onStatus: null,
           root,
           schemaVersion: 1,
           selfCheck: true,

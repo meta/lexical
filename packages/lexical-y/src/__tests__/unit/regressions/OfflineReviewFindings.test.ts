@@ -75,6 +75,7 @@ import {
   type YOfflineBinding,
   type YOfflineCapture,
   type YOfflineError,
+  type YOfflinePersist,
   type YOfflineResult,
   type YOfflineSessionOptions,
   type YOfflineStore,
@@ -82,6 +83,8 @@ import {
 import {catalogAppExtension, catalogHeadlessConfig} from '../../catalog/bind';
 import {createFakeIndexedDB} from '../../utils/fakeIndexedDB';
 import {WITH_GC} from '../../utils/harness';
+import {corruptSlotError, offlineError} from '../../utils/offlineErrors';
+import {markSynced, trackVerdicts} from '../../utils/offlineSync';
 
 // The app takes the blocks that cannot be replayed itself (its panel).
 const PANEL = {handle: () => {}};
@@ -185,18 +188,24 @@ function client(state: Uint8Array | null) {
 function session(
   binding: YOfflineBinding,
   store: YOfflineStore,
-  options: Partial<YOfflineSessionOptions> = {},
+  options: Partial<Omit<YOfflineSessionOptions, 'offline'>> & {
+    readonly persist?: YOfflinePersist;
+  } = {},
 ) {
   const errors: YOfflineError[] = [];
-  const s = attachYOfflineSession({
-    binding,
-    epoch: 'e1',
-    key: 'doc',
-    onError: error => errors.push(error),
-    stage: 'persist',
-    store,
-    ...options,
-  });
+  const {persist = 'document', ...rest} = options;
+  const s = trackVerdicts(
+    attachYOfflineSession({
+      binding,
+      epoch: 'e1',
+      key: 'doc',
+      loaded: null,
+      offline: {persist, stage: 'persist', store},
+      onError: error => errors.push(error),
+      stopSync: () => {},
+      ...rest,
+    }),
+  );
   live.push(s);
   return {errors, s};
 }
@@ -238,14 +247,14 @@ test("1. keep 'unsynced': an edit after a sync that lands while the previous wri
       return typeof value === 'function' ? value.bind(target) : value;
     },
   });
-  const {errors, s} = session(c.binding, held, {keep: 'unsynced'});
-  s.markSynced();
+  const {errors, s} = session(c.binding, held, {persist: 'unsynced'});
+  await markSynced(s);
   unwrap(await s.flush());
   hold = true;
   c.text.insert(c.text.length, ' A');
   await inFlight;
   // A reached the server while its append was in flight; B did not.
-  s.markSynced();
+  await markSynced(s);
   c.text.insert(c.text.length, ' B');
   release();
   unwrap(await s.flush());
@@ -260,16 +269,16 @@ test('2. a capture whose blocks only this page reapplied stays until the server 
   const initial = seed();
   const stale = client(initial);
   const old = session(stale.binding, store);
-  old.s.markSynced();
+  await markSynced(old.s);
   stale.edit('mine');
   unwrap(await old.s.flush());
   await old.s.serverEpoch('e2');
   const fresh = client(initial);
   const now = session(fresh.binding, store, {
     epoch: 'e2',
-    persistEdits: false,
+    persist: 'captures-only',
   });
-  now.s.markSynced();
+  await markSynced(now.s);
   const recover = () =>
     recoverYOfflineEdits({
       autoReplay: 'replayable',
@@ -294,7 +303,7 @@ test("3. a tab whose epoch moved leaves a live tab's rows and the rows they buil
   const initial = seed();
   const first = client(initial);
   const a = session(first.binding, store);
-  a.s.markSynced();
+  await markSynced(a.s);
   unwrap(await a.s.flush());
   // Another tab loads what A stored, and edits offline.
   const loaded = unwrap(await loadYOffline({key: 'doc', store}));
@@ -335,7 +344,7 @@ test("3b. a tab that loaded a live tab's rows leaves them when its epoch moves",
   const initial = seed();
   const writer = client(initial);
   const b = session(writer.binding, store);
-  b.s.markSynced();
+  await markSynced(b.s);
   writer.edit('B, first');
   unwrap(await b.s.flush());
   // A loads B's rows (and so holds B's edit), then its epoch moves.
@@ -402,7 +411,7 @@ test('5. a capture put again under its id counts once against bytesPerKey', asyn
   unwrap(await store.putCapture({...capture, capturedAt: 2}));
   // A second capture does not fit.
   const second = await store.putCapture({...capture, id: 'other'});
-  expect(!second.ok && second.error.limit).toBe('bytes');
+  expect(offlineError(second, 'limit').limit).toBe('bytes');
 });
 
 test('6. a replay with the caret inside the replaced block applies it and moves the caret into it', async () => {
@@ -413,7 +422,7 @@ test('6. a replay with the caret inside the replaced block applies it and moves 
   ]);
   const stale = client(initial);
   const old = session(stale.binding, store);
-  old.s.markSynced();
+  await markSynced(old.s);
   stale.edit('one, mine');
   unwrap(await old.s.flush());
   await old.s.serverEpoch('e2');
@@ -457,7 +466,7 @@ test('6b. a replay that throws in a recovery is a typed failure, and the capture
   const initial = seed();
   const stale = client(initial);
   const old = session(stale.binding, store);
-  old.s.markSynced();
+  await markSynced(old.s);
   stale.edit('mine');
   unwrap(await old.s.flush());
   await old.s.serverEpoch('e2');
@@ -511,7 +520,7 @@ test('7. a replay whose editor update fails under a non-throwing onError release
   const initial = seed();
   const stale = client(initial);
   const old = session(stale.binding, store);
-  old.s.markSynced();
+  await markSynced(old.s);
   stale.edit('mine');
   unwrap(await old.s.flush());
   await old.s.serverEpoch('e2');
@@ -574,7 +583,7 @@ test("8. recovery leaves a live tab's rows at an older epoch, and captures them 
   const initial = seed();
   const left = client(initial);
   const old = session(left.binding, store);
-  old.s.markSynced();
+  await markSynced(old.s);
   left.edit('left open');
   unwrap(await old.s.flush());
   const fresh = client(initial);
@@ -604,7 +613,7 @@ test('9. a document loaded with nothing unsynced is stored as its base', async (
   const {store} = await open();
   const first = client(seed());
   const a = session(first.binding, store);
-  a.s.markSynced();
+  await markSynced(a.s);
   unwrap(await a.s.flush());
   a.s.dispose();
   await new Promise(resolve => setTimeout(resolve, 0));
@@ -630,7 +639,7 @@ test('10. two tabs recovering the same stale slot at once make one capture, repl
   const initial = seed();
   const left = client(initial);
   const old = session(left.binding, store);
-  old.s.markSynced();
+  await markSynced(old.s);
   left.edit('one, mine');
   unwrap(await old.s.flush());
   old.s.dispose();
@@ -677,7 +686,7 @@ test("11. a moved epoch's capture fits when it fits without the rows it replaces
   const state = seed();
   const sized = client(state);
   const p = session(sized.binding, probe);
-  p.s.markSynced();
+  await markSynced(p.s);
   sized.edit('one, mine');
   unwrap(await p.s.flush());
   const doc = Y.encodeStateAsUpdate(sized.doc).byteLength;
@@ -692,7 +701,7 @@ test("11. a moved epoch's capture fits when it fits without the rows it replaces
   );
   const tab = client(state);
   const s = session(tab.binding, store);
-  s.s.markSynced();
+  await markSynced(s.s);
   tab.edit('one, mine');
   unwrap(await s.s.flush());
   const verdict = await s.s.serverEpoch('e2');
@@ -713,7 +722,7 @@ test('12. a corrupt slot at another epoch fails recovery with its epoch, and cle
   const initial = seed();
   const left = client(initial);
   const old = session(left.binding, store);
-  old.s.markSynced();
+  await markSynced(old.s);
   left.edit('one, mine');
   unwrap(await old.s.flush());
   old.s.dispose();
@@ -733,14 +742,11 @@ test('12. a corrupt slot at another epoch fails recovery with its epoch, and cle
       store,
     });
   const failed = await recover();
-  expect(failed.ok).toBe(false);
-  if (!failed.ok) {
-    expect(failed.error.code).toBe('corrupt');
-    expect(failed.error.epoch).toBe('e1');
-    unwrap(
-      await store.clear('doc', {captures: false, epoch: failed.error.epoch}),
-    );
-  }
+  const error = corruptSlotError(failed);
+  expect(error.epoch).toBe('e1');
+  unwrap(
+    await store.clear('doc', {captures: 'none', slots: {epoch: error.epoch}}),
+  );
   expect(unwrap(await recover())).toEqual([]);
 });
 
@@ -812,7 +818,7 @@ test('13. a writeDelay timer pending when the epoch moves does not run during th
   );
   const tab = client(initial);
   const s = session(tab.binding, slow, {writeDelay: 8});
-  s.s.markSynced();
+  await markSynced(s.s);
   unwrap(await s.s.flush());
   tab.edit('one, mine');
   const verdict = await s.s.serverEpoch('e2');
@@ -829,7 +835,7 @@ test('14. a flush() called during the move writes nothing the move then leaves b
   const {slow, started} = slowMove(store, () => held);
   const tab = client(initial);
   const s = session(tab.binding, slow, {writeDelay: 8});
-  s.s.markSynced();
+  await markSynced(s.s);
   unwrap(await s.s.flush());
   tab.edit('one, mine');
   const moving = s.s.serverEpoch('e2');

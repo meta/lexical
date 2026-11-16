@@ -46,6 +46,7 @@ import {readYState, seedYState} from '../../../headless';
 
 const CONFIG = {
   extensions: [RichTextExtension, MarkStateExtension],
+  onWarn: null,
   schemaVersion: 1,
 };
 const PARAS = [
@@ -94,7 +95,9 @@ function clients() {
             // Undo steps end where the test says, whatever the runner's
             // speed (see step).
             captureTimeout: 2 ** 30,
+
             doc,
+            onYStatus: null,
             schemaVersion: 1,
             synced: true,
           }),

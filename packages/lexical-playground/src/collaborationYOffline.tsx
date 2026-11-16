@@ -273,7 +273,11 @@ export function createCollabYOffline(input: {
     binding,
     epoch: COLLAB_Y_EPOCH,
     key,
-    loaded: useStored && from.loaded !== null ? from.loaded : undefined,
+    loaded: useStored ? from.loaded : null,
+    offline:
+      store === null || COLLAB_Y_OFFLINE_STAGE === 'off'
+        ? {stage: 'off'}
+        : {persist: 'document', stage: COLLAB_Y_OFFLINE_STAGE, store},
     onError: error => {
       status.value = {
         ...status.peek(),
@@ -281,8 +285,8 @@ export function createCollabYOffline(input: {
         problem: error.message,
       };
     },
-    stage,
-    store,
+    // Called by the session when the epoch moved.
+    stopSync: input.stopSync,
   });
   const doc = binding.binding.doc;
   const refreshStatus = () => {
@@ -368,7 +372,7 @@ export function createCollabYOffline(input: {
       // The epoch is the room's (the provider is connected to it).
       void session.serverEpoch(COLLAB_Y_EPOCH).then(verdict => {
         if (verdict.kind === 'same' && !session.ended) {
-          session.markSynced();
+          verdict.markSynced();
           refreshStatus();
           recovering ??= recover();
         }

@@ -214,7 +214,10 @@ export type YBindingOptions = {
   schemaVersion: number,
   root?: YNode,
   captureTimeout?: number | null,
-  onStatus?: (status: YBindingStatus) => void,
+  // Required: shows the user the status (a read-only document may hold
+  // edits only the editor has); null where the app's own code reads
+  // binding.status.
+  onStatus: ((status: YBindingStatus) => void) | null,
   selfCheck?: boolean,
   selfCheckSample?: number,
   convert?: boolean,
@@ -351,8 +354,9 @@ declare export function describeStorage(
   },
 ): {[type: string]: StorageKind | 'text'};
 
-// What an app writes: doc and schemaVersion required, every option with a
-// default optional (later options are additive). Type configs with it.
+// What an app writes: doc, layoutUpgrade, schemaVersion, synced and
+// onYStatus required, every other option optional (later options are
+// additive). Type configs with it.
 export type YCollabInput = {
   readonly doc: YDoc,
   // Required: how documents below MIN_LAYOUT are upgraded (see y.md "Layout
@@ -362,13 +366,17 @@ export type YCollabInput = {
   // fields and NodeState. Bump it when you add, remove or change one, not on
   // every release.
   readonly schemaVersion: number,
+  // Required: true when the document already holds what the server has,
+  // false to initialize after the provider's first sync.
+  readonly synced: boolean,
+  // Required: shows the user the status and the cause of a read-only one;
+  // null where the app reads the extension's yStatus signal instead.
+  readonly onYStatus: ((status: YStatus) => void) | null,
   readonly root?: YNode | null,
-  readonly synced?: boolean,
   readonly captureTimeout?: number | null,
   readonly selfCheck?: boolean | null,
   readonly selfCheckSample?: number | null,
   readonly convert?: boolean,
-  readonly onYStatus?: ((status: YStatus) => void) | null,
   ...
 };
 
@@ -388,6 +396,8 @@ export type YCollabConfig = {
   selfCheckSample: number | null,
   convert: boolean,
   layoutUpgrade?: YLayoutUpgradeHandle | null,
+  // Required at build (the extension throws without it): a function, or
+  // null where the app reads the yStatus output signal.
   onYStatus?: ((status: YStatus) => void) | null,
   // Inexact: a field a later release adds is optional (see above).
   ...
@@ -396,7 +406,12 @@ export type YCollabConfig = {
 declare export var YCollabExtension: LexicalExtension<
   YCollabConfig,
   '@lexical/y/Collab',
-  {binding: YBinding, collab: YCollabBinding, status: ReadonlySignal<YBindingStatus>},
+  {
+    binding: YBinding,
+    collab: YCollabBinding,
+    status: ReadonlySignal<YBindingStatus>,
+    yStatus: ReadonlySignal<YStatus>,
+  },
   unknown,
 >;
 
@@ -426,7 +441,12 @@ declare export function createYCollabConfig(
 ): NormalizedLexicalExtensionArgument<
   YCollabConfig,
   '@lexical/y/Collab',
-  {binding: YBinding, collab: YCollabBinding, status: ReadonlySignal<YBindingStatus>},
+  {
+    binding: YBinding,
+    collab: YCollabBinding,
+    status: ReadonlySignal<YBindingStatus>,
+    yStatus: ReadonlySignal<YStatus>,
+  },
   unknown,
 >;
 
@@ -510,6 +530,11 @@ declare export function yCollab(
 ): NormalizedLexicalExtensionArgument<
   YCollabConfig,
   '@lexical/y/Collab',
-  {binding: YBinding, collab: YCollabBinding, status: ReadonlySignal<YBindingStatus>},
+  {
+    binding: YBinding,
+    collab: YCollabBinding,
+    status: ReadonlySignal<YBindingStatus>,
+    yStatus: ReadonlySignal<YStatus>,
+  },
   unknown,
 >;

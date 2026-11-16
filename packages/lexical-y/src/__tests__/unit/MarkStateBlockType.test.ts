@@ -53,6 +53,7 @@ function buildEditor(doc: YDoc) {
         MarkStateExtension,
         configExtension(YCollabExtension, {
           doc,
+          onYStatus: null,
           schemaVersion: 1,
           selfCheck: true,
         }),

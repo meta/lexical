@@ -74,7 +74,7 @@ import {
 
 // The tests turn the binding's self-check on (it is off by default): a
 // mismatch is a warning, so the tests that expect none catch it.
-const config = {nodes: NODES, schemaVersion: 1, selfCheck: true};
+const config = {nodes: NODES, onWarn: null, schemaVersion: 1, selfCheck: true};
 
 /** Run microtasks collected by a spy; the messages of those that throw. */
 function rethrown(tasks: (() => void)[]): string[] {
@@ -118,6 +118,7 @@ const BidExtension = defineExtension({
 });
 const bidConfig = {
   extensions: [BidExtension],
+  onWarn: null,
   schemaVersion: 1,
   selfCheck: true,
 };
@@ -277,7 +278,11 @@ describe('@lexical/y/headless', () => {
       defineExtension({
         $initialEditorState: null,
         dependencies: [
-          configExtension(YCollabExtension, {doc, schemaVersion: 1}),
+          configExtension(YCollabExtension, {
+            doc,
+            onYStatus: null,
+            schemaVersion: 1,
+          }),
         ],
         name: 'client',
         nodes: NODES,
@@ -509,6 +514,7 @@ describe('@lexical/y/headless', () => {
           AppNodes,
           configExtension(YCollabExtension, {
             doc: createYDoc(),
+            onYStatus: null,
             schemaVersion: 1,
           }),
           BlockIdExtension,
@@ -518,6 +524,7 @@ describe('@lexical/y/headless', () => {
     );
     const handle = createHeadlessYEditor({
       extensions: [AppNodes, BlockIdExtension],
+      onWarn: null,
       schemaVersion: 1,
     });
     try {
@@ -564,40 +571,43 @@ describe('@lexical/y/headless', () => {
       }
       return least;
     };
-    const big = seedYState({nodes: NODES, schemaVersion: 1}, () => {
-      for (let i = 0; i < 1000; i++) {
-        $getRoot().append($p(`paragraph ${i} with some text in it`));
-      }
-    });
+    const big = seedYState(
+      {nodes: NODES, onWarn: null, schemaVersion: 1},
+      () => {
+        for (let i = 0; i < 1000; i++) {
+          $getRoot().append($p(`paragraph ${i} with some text in it`));
+        }
+      },
+    );
     // A writer keeps client ids and clocks, never a document.
     const writer = createYWriter('agent');
     let written = big;
     // One round of the calls first, so that the code they compile and the
     // type feedback they gather are in the baseline, not in the difference.
-    readYState(big, {nodes: NODES, schemaVersion: 1}, () =>
+    readYState(big, {nodes: NODES, onWarn: null, schemaVersion: 1}, () =>
       $getRoot().getTextContentSize(),
     );
     editYState(
       big,
-      {nodes: NODES, schemaVersion: 1},
+      {nodes: NODES, onWarn: null, schemaVersion: 1},
       () => $getRoot().append($p('x')),
       {writer: null},
     );
     editYState(
       big,
-      {nodes: NODES, schemaVersion: 1},
+      {nodes: NODES, onWarn: null, schemaVersion: 1},
       () => $getRoot().append($p('y')),
       {writer: createYWriter('warm-up')},
     );
     const start = heap();
     // No await: nothing Lexical scheduled in a microtask has run.
     for (let i = 0; i < 20; i++) {
-      readYState(big, {nodes: NODES, schemaVersion: 1}, () =>
+      readYState(big, {nodes: NODES, onWarn: null, schemaVersion: 1}, () =>
         $getRoot().getTextContentSize(),
       );
       editYState(
         big,
-        {nodes: NODES, schemaVersion: 1},
+        {nodes: NODES, onWarn: null, schemaVersion: 1},
         () => $getRoot().append($p('x')),
         {
           writer: null,
@@ -605,7 +615,7 @@ describe('@lexical/y/headless', () => {
       );
       written = editYState(
         written,
-        {nodes: NODES, schemaVersion: 1},
+        {nodes: NODES, onWarn: null, schemaVersion: 1},
         () => $getRoot().append($p('y')),
         {writer},
       ).state;
@@ -614,7 +624,7 @@ describe('@lexical/y/headless', () => {
     // binding) until the loop yielded: over 100 MB here.
     expect(heap() - start).toBeLessThan(10e6);
     expect(
-      readYState(written, {nodes: NODES, schemaVersion: 1}, () =>
+      readYState(written, {nodes: NODES, onWarn: null, schemaVersion: 1}, () =>
         $getRoot().getChildrenSize(),
       ),
     ).toBe(1020);
@@ -709,7 +719,12 @@ describe('@lexical/y/headless', () => {
         };
       },
     });
-    const tracked = {extensions: [Tracked], schemaVersion: 1, selfCheck: true};
+    const tracked = {
+      extensions: [Tracked],
+      onWarn: null,
+      schemaVersion: 1,
+      selfCheck: true,
+    };
     const destroyed: Y.Doc[] = [];
     const destroy = Y.Doc.prototype.destroy;
     vi.spyOn(Y.Doc.prototype, 'destroy').mockImplementation(function (
@@ -1279,6 +1294,7 @@ describe('@lexical/y/headless', () => {
       }),
     );
     const binding = new YBinding(editor, blocked, {
+      onStatus: null,
       schemaVersion: 1,
       selfCheck: true,
     });
@@ -1322,6 +1338,7 @@ describe('@lexical/y/headless', () => {
     const state = seedYState(
       {
         extensions: [{dependencies: [], name: 'app', nodes: NODES}],
+        onWarn: null,
         schemaVersion: 1,
       },
       () => {

@@ -104,7 +104,11 @@ function createPeer(clientID: number): Peer {
       dependencies: [
         RichTextExtension,
         configExtension(TableExtension, {hasHorizontalScroll: false}),
-        configExtension(YCollabExtension, {doc, schemaVersion: 1}),
+        configExtension(YCollabExtension, {
+          doc,
+          onYStatus: null,
+          schemaVersion: 1,
+        }),
       ],
       name: 'table-pad-on-collaborator-read',
       nodes: () => [BadgeNode],
@@ -140,6 +144,7 @@ const stored = (peer: Peer) =>
           configExtension(TableExtension, {hasHorizontalScroll: false}),
         ],
         nodes: [BadgeNode],
+        onWarn: null,
         schemaVersion: 1,
       },
       () => $getEditor().getEditorState().toJSON(),

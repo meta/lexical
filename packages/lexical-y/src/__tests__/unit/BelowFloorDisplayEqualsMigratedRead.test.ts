@@ -102,6 +102,7 @@ async function boundRead(input: Input, gc: boolean): Promise<unknown> {
       createYCollabConfig({
         doc,
         layoutUpgrade: null,
+        onYStatus: null,
         root: input.root === 'lexical-y' ? null : doc.get(input.root),
         schemaVersion: input.config.schemaVersion,
         synced: true,
@@ -128,6 +129,7 @@ async function check(input: Input, gc: boolean): Promise<string | null> {
   const config = {...input.config, root: input.root};
   const migrated = migrateYState(input.state, STEPS, {
     gc,
+    pending: 'discard',
     roots: [input.root],
   }).state;
   // A fresh bound reader of the migrated document (a headless read leaves a
@@ -348,7 +350,10 @@ describe('a document below the floor shows what its migration would make of it',
       expect(valueOf(shown)).toBeUndefined();
       // After 2to3: the value, as the release before read it (the frozen
       // read the golden pins).
-      const migrated = migrateYState(input.state, STEPS, {gc}).state;
+      const migrated = migrateYState(input.state, STEPS, {
+        gc,
+        pending: 'discard',
+      }).state;
       const read = plain(readYState(migrated, input.config, $snapshot));
       expect(valueOf(read)).toEqual([1, 2]);
       expect(read).toEqual(plain(golden.main));

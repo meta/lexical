@@ -791,11 +791,15 @@ export interface YBindingOptions {
   /** Undo capture timeout in ms (default 500); null disables undo. */
   captureTimeout?: number | null;
   /**
-   * Called when `status` changes, once the binding's work is done and Yjs is
-   * idle (like warnings, never inside a Yjs observer or transaction). Several
-   * changes in one such step report the last.
+   * Required: called when `status` changes, once the binding's work is done
+   * and Yjs is idle (like warnings, never inside a Yjs observer or
+   * transaction). Several changes in one such step report the last. Show
+   * the user a read-only document: one read only because the editor made a
+   * change the layout cannot store holds that change in the editor alone,
+   * until the app takes it with `quiesce()`. `null` only where code of the
+   * app's own reads `binding.status` (a headless tool, a test).
    */
-  onStatus?: (status: YBindingStatus) => void;
+  onStatus: ((status: YBindingStatus) => void) | null;
   /**
    * Read every line a local write touched back from Yjs and compare it with
    * the editor; mismatches are reported to the editor's `onWarn` (see
@@ -2219,6 +2223,11 @@ export class YBinding {
       options != null && isSchemaVersion(options.schemaVersion),
       "@lexical/y: YBinding needs options.schemaVersion (got %s): start at 1 and increase it whenever a node's stored fields or node types change",
       String(options == null ? undefined : options.schemaVersion),
+    );
+    invariant(
+      options.onStatus === null || typeof options.onStatus === 'function',
+      '@lexical/y: YBinding needs options.onStatus (got %s): a function that shows the user the status (a read-only document holds edits only the editor has), or null where code of your own reads binding.status',
+      typeof options.onStatus,
     );
     this._editor = editor;
     this._doc = doc;

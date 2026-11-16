@@ -49,6 +49,7 @@ function client(doc: Y.Doc, root: Y.Node, text: string | null) {
     );
   }
   const binding = new YBinding(editor, doc as never, {
+    onStatus: null,
     root,
     schemaVersion: 1,
     selfCheck: true,

@@ -53,6 +53,7 @@ function bind(gc: boolean) {
   );
   const binding = new YBinding(editor, doc, {
     captureTimeout: 0,
+    onStatus: null,
     schemaVersion: 1,
   });
   binding.start();
@@ -174,7 +175,10 @@ describe.each([false, true])('admission after beforeTransaction, gc %s', gc => {
         onWarn: () => {},
       }),
     );
-    const binding = new YBinding(editor, doc, {schemaVersion: 1});
+    const binding = new YBinding(editor, doc, {
+      onStatus: null,
+      schemaVersion: 1,
+    });
     binding.start();
     doc.transact(() => {
       append(editor, 'seed');

@@ -70,6 +70,7 @@ function peer(id: number, state: Uint8Array, blockIds: boolean) {
           : []),
         configExtension(YCollabExtension, {
           doc,
+          onYStatus: null,
           schemaVersion: 1,
           selfCheck: true,
           synced: true,

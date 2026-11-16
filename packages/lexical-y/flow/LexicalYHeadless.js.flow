@@ -52,7 +52,10 @@ export type HeadlessYConfig = {
   extensions?: ReadonlyArray<AnyLexicalExtensionArgument>,
   nodes?: CreateEditorArgs['nodes'],
   root?: string,
-  onWarn?: (warning: LexicalWarning) => void,
+  // Required: every warning (a NodeState value not stored, a fallback),
+  // which seedYState and readYState return nowhere else; null logs them
+  // outside production only.
+  onWarn: ((warning: LexicalWarning) => void) | null,
   selfCheck?: boolean,
 };
 

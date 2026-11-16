@@ -30,7 +30,7 @@ for (const gc of [false, true])
       },
       onWarn: () => {},
     });
-    const b = new YBinding(e, doc, {schemaVersion: 1});
+    const b = new YBinding(e, doc, {onStatus: null, schemaVersion: 1});
     b.start();
     e.update(() => $getRoot().append($p('abc')), {discrete: true});
     const app = new Y.UndoManager(root, {
@@ -56,7 +56,7 @@ for (const gc of [false, true])
       },
       onWarn: () => {},
     });
-    const b2 = new YBinding(e2, doc, {schemaVersion: 1});
+    const b2 = new YBinding(e2, doc, {onStatus: null, schemaVersion: 1});
     b2.start();
     b2.initialize();
     expect(b2.status).toBe('readonly');

@@ -93,15 +93,19 @@ export interface HeadlessYConfig {
   /** The name of the shared root (default `'lexical-y'`). */
   root?: string;
   /**
-   * Called with every warning, as a `LexicalWarning` (the same ones the
-   * result's `warnings` lists): the binding's (`@lexical/y/...` codes), the
-   * editor's (it replaces an `onWarn` of the extensions; other errors come
-   * as {@link EDITOR_WARNING}), and {@link FOLLOW_UPS_EXHAUSTED_WARNING}.
-   * Warnings never refuse an edit, in any environment, and a throwing
-   * handler does not either. Default: `console.warn` outside production,
-   * nothing in production.
+   * Required: called with every warning, as a `LexicalWarning` (the same
+   * ones `editYState`'s result lists): the binding's (`@lexical/y/...`
+   * codes), the editor's (it replaces an `onWarn` of the extensions; other
+   * errors come as {@link EDITOR_WARNING}), and
+   * {@link FOLLOW_UPS_EXHAUSTED_WARNING}. Some say that content was not
+   * stored as the editor had it (a NodeState value that is not JSON,
+   * `UNSYNCED_VALUE_WARNING`): `seedYState` and `readYState` return their
+   * warnings nowhere else, so send them where someone sees them. `null`:
+   * `console.warn` outside production, nothing in production. Warnings
+   * never refuse an edit, in any environment, and a throwing handler does
+   * not either.
    */
-  onWarn?: (warning: LexicalWarning) => void;
+  onWarn: ((warning: LexicalWarning) => void) | null;
   /**
    * The binding's self-check of its own writes (see `YBindingOptions`).
    * Default: off.
@@ -378,6 +382,11 @@ export function openHeadlessYEditor(
     "@lexical/y/headless: the config needs schemaVersion (got %s): start at 1 and increase it whenever a node's stored fields or node types change, as the clients' YCollabExtension does",
     String(options == null ? undefined : options.schemaVersion),
   );
+  invariant(
+    options.onWarn === null || typeof options.onWarn === 'function',
+    '@lexical/y/headless: the config needs onWarn (got %s): a function that sends the warnings where someone sees them (seedYState and readYState return them nowhere else, and some say content was not stored), or null to log them outside production only',
+    typeof options.onWarn,
+  );
   // No garbage collection, only so that the root check of an edit's update
   // (editYState) can resolve deleted items: this document is temporary, and
   // the states the helpers return are garbage collected. No format cleanup either, as on every document the
@@ -516,6 +525,9 @@ export function openHeadlessYEditor(
       // binding with no declaration adds (its advice, createYCollabConfig,
       // has no headless counterpart).
       layoutUpgrade: null,
+      // A status nobody shows: the helpers check it after each step and
+      // refuse a read-only document with a typed error.
+      onStatus: null,
       root: doc.get(options.root || DEFAULT_ROOT_NAME),
       schemaVersion: options.schemaVersion,
       selfCheck: options.selfCheck,

@@ -53,6 +53,7 @@ import {readYState, seedYState} from '../../../headless';
 
 const CONFIG = {
   extensions: [RichTextExtension, MarkStateExtension],
+  onWarn: null,
   schemaVersion: 1,
 };
 const PARAS = [
@@ -102,7 +103,9 @@ function clients(gc: boolean, ids: [number, number]) {
           configExtension(YCollabExtension, {
             // Undo steps end where the test says (see step).
             captureTimeout: 2 ** 30,
+
             doc,
+            onYStatus: null,
             schemaVersion: 1,
             synced: true,
           }),

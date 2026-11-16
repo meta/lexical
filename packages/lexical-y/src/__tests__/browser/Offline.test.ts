@@ -47,6 +47,8 @@ import {
   type YOfflineStoreOptions,
 } from '../../offline';
 import {catalogAppExtension, catalogHeadlessConfig} from '../catalog/bind';
+import {corruptSlotError, offlineError} from '../utils/offlineErrors';
+import {markSynced, trackVerdicts} from '../utils/offlineSync';
 
 // The app takes the blocks that cannot be replayed itself (its panel).
 const PANEL = {handle: () => {}};
@@ -227,12 +229,9 @@ describe('the store on a real IndexedDB', () => {
     });
     db.close();
     const loaded = await store.slot('doc', 'e1').load();
-    expect(loaded.ok).toBe(false);
-    if (!loaded.ok) {
-      expect(loaded.error.code).toBe('corrupt');
-      expect(loaded.error.salvage!.unreadableRows).toBe(1);
-      expect(textOf(loaded.error.salvage!.state!)).toBe('kept');
-    }
+    const error = corruptSlotError(loaded);
+    expect(error.salvage.unreadableRows).toBe(1);
+    expect(textOf(error.salvage.state!)).toBe('kept');
   });
 
   test('a request callback that throws is reported with its cause, and the rows stay', async () => {
@@ -267,12 +266,12 @@ describe('the store on a real IndexedDB', () => {
     type('x');
     unwrap(await store.slot('alice|1', 'e1').append(updates[0]));
     const refused = await store.slot('alice|2', 'e1').append(updates[0]);
-    expect(!refused.ok && refused.error.limit).toBe('keys');
+    expect(offlineError(refused, 'limit').limit).toBe('keys');
     unwrap(await store.slot('bob|1', 'e1').append(updates[0]));
     const big = await store
       .slot('alice|1', 'e1')
       .append(new Uint8Array(3000).fill(7));
-    expect(!big.ok && big.error.limit).toBe('bytes');
+    expect(offlineError(big, 'limit').limit).toBe('bytes');
     expect(unwrap(await store.keys())).toEqual(['alice|1', 'bob|1']);
   });
 
@@ -358,34 +357,39 @@ describe('a session on a real IndexedDB', () => {
     const store = await open(name);
     const state = seed();
     const writer = tab(state);
-    const b = attachYOfflineSession({
-      binding: writer.binding,
-      epoch: 'e1',
-      key: 'doc',
-      onError: error => {
-        throw new Error(error.message);
-      },
-      stage: 'persist',
-      store,
-    });
-    b.markSynced();
+    const b = trackVerdicts(
+      attachYOfflineSession({
+        binding: writer.binding,
+        epoch: 'e1',
+        key: 'doc',
+        loaded: null,
+        offline: {persist: 'document', stage: 'persist', store: store},
+        onError: error => {
+          throw new Error(error.message);
+        },
+        stopSync: () => {},
+      }),
+    );
+    await markSynced(b);
     writer.edit('b1', 'B, first');
     unwrap(await b.flush());
     // Another tab loads B's rows, then its epoch moves.
     const other = await open(name);
     const loaded = unwrap(await loadYOffline({key: 'doc', store: other}));
     const reader = tab(loaded.state);
-    const a = attachYOfflineSession({
-      binding: reader.binding,
-      epoch: loaded.epoch,
-      key: 'doc',
-      loaded,
-      onError: error => {
-        throw new Error(error.message);
-      },
-      stage: 'persist',
-      store: other,
-    });
+    const a = trackVerdicts(
+      attachYOfflineSession({
+        binding: reader.binding,
+        epoch: loaded.epoch,
+        key: 'doc',
+        loaded,
+        offline: {persist: 'document', stage: 'persist', store: other},
+        onError: error => {
+          throw new Error(error.message);
+        },
+        stopSync: () => {},
+      }),
+    );
     unwrap(await a.flush());
     expect((await a.serverEpoch('e2')).kind).toBe('moved');
     // B is live: it edits again, then closes.
@@ -402,17 +406,20 @@ describe('a session on a real IndexedDB', () => {
     const store = await open(name);
     const state = seed();
     const left = tab(state);
-    const old = attachYOfflineSession({
-      binding: left.binding,
-      epoch: 'e1',
-      key: 'doc',
-      onError: error => {
-        throw new Error(error.message);
-      },
-      stage: 'replay',
-      store,
-    });
-    old.markSynced();
+    const old = trackVerdicts(
+      attachYOfflineSession({
+        binding: left.binding,
+        epoch: 'e1',
+        key: 'doc',
+        loaded: null,
+        offline: {persist: 'document', stage: 'replay', store: store},
+        onError: error => {
+          throw new Error(error.message);
+        },
+        stopSync: () => {},
+      }),
+    );
+    await markSynced(old);
     left.edit('b1', 'one, mine');
     unwrap(await old.flush());
     old.dispose();
@@ -444,18 +451,21 @@ describe('a session on a real IndexedDB', () => {
     const state = seed();
     const first = tab(state);
     let store = await open(name);
-    const session = attachYOfflineSession({
-      binding: first.binding,
-      epoch: 'e1',
-      key: 'doc',
-      onError: error => {
-        throw new Error(error.message);
-      },
-      stage: 'replay',
-      store,
-    });
-    expect(await session.serverEpoch('e1')).toEqual({kind: 'same'});
-    session.markSynced();
+    const session = trackVerdicts(
+      attachYOfflineSession({
+        binding: first.binding,
+        epoch: 'e1',
+        key: 'doc',
+        loaded: null,
+        offline: {persist: 'document', stage: 'replay', store: store},
+        onError: error => {
+          throw new Error(error.message);
+        },
+        stopSync: () => {},
+      }),
+    );
+    expect(await session.serverEpoch('e1')).toMatchObject({kind: 'same'});
+    await markSynced(session);
     first.edit('b1', 'one, offline');
     unwrap(await session.flush());
     session.dispose();
@@ -470,17 +480,19 @@ describe('a session on a real IndexedDB', () => {
       ['b1', 'one, offline'],
       ['b2', 'two'],
     ]);
-    const again = attachYOfflineSession({
-      binding: second.binding,
-      epoch: loaded.epoch,
-      key: 'doc',
-      loaded,
-      onError: error => {
-        throw new Error(error.message);
-      },
-      stage: 'replay',
-      store,
-    });
+    const again = trackVerdicts(
+      attachYOfflineSession({
+        binding: second.binding,
+        epoch: loaded.epoch,
+        key: 'doc',
+        loaded,
+        offline: {persist: 'document', stage: 'replay', store: store},
+        onError: error => {
+          throw new Error(error.message);
+        },
+        stopSync: () => {},
+      }),
+    );
     // The room was replaced while the page was away.
     const verdict = await again.serverEpoch('e2');
     expect(verdict.kind).toBe('moved');

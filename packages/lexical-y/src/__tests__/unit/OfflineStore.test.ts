@@ -25,6 +25,7 @@ import {
 } from '../../offline';
 import {createFakeIndexedDB, type FakeIndexedDB} from '../utils/fakeIndexedDB';
 import {WITH_GC} from '../utils/harness';
+import {corruptSlotError, offlineError} from '../utils/offlineErrors';
 
 const DB = Y_OFFLINE_DEFAULTS.databaseName;
 
@@ -141,7 +142,7 @@ describe('openYOfflineStore', () => {
       /String\(epoch\) for a number/,
     );
     expect(() => store.clear('doc', {} as never)).toThrow(
-      /needs what\.captures/,
+      /needs what\.slots .*what\.captures/,
     );
   });
 });
@@ -319,10 +320,10 @@ describe('a slot', () => {
       unwrap(await store.slot(key, epoch).append(a.updates[0]));
     }
     unwrap(await store.putCapture(capture('doc', 'c1')));
-    unwrap(await store.clear('doc', {captures: false, epoch: 'e1'}));
+    unwrap(await store.clear('doc', {captures: 'none', slots: {epoch: 'e1'}}));
     expect(unwrap(await store.slots('doc')).map(s => s.epoch)).toEqual(['e2']);
     expect(unwrap(await store.captures('doc')).length).toBe(1);
-    unwrap(await store.clear('doc', {captures: true}));
+    unwrap(await store.clear('doc', {captures: 'all', slots: 'all'}));
     expect(unwrap(await store.slots('doc'))).toEqual([]);
     expect(unwrap(await store.captures('doc'))).toEqual([]);
     // Another key is untouched.
@@ -395,7 +396,7 @@ describe('keys and limits', () => {
     // Clear every viewer but alice.
     for (const key of unwrap(await store.keys())) {
       if (!key.startsWith('alice|')) {
-        unwrap(await store.clear(key, {captures: true}));
+        unwrap(await store.clear(key, {captures: 'all', slots: 'all'}));
       }
     }
     expect(unwrap(await store.keys())).toEqual(['alice|d1|s', 'alice|d2|s']);
@@ -418,13 +419,11 @@ describe('keys and limits', () => {
     unwrap(await store.slot('bob|d1', 'e1').append(update));
     const refused = await store.slot('alice|d3', 'e1').append(update);
     expect(refused.ok).toBe(false);
-    if (!refused.ok) {
-      expect(refused.error.code).toBe('limit');
-      expect(refused.error.limit).toBe('keys');
-      expect(refused.error.message).toMatch(/nothing was evicted/);
-    }
+    const keysError = offlineError(refused, 'limit');
+    expect(keysError.limit).toBe('keys');
+    expect(keysError.message).toMatch(/nothing was evicted/);
     const capRefused = await store.putCapture(capture('alice|d4', 'c', 1));
-    expect(!capRefused.ok && capRefused.error.limit).toBe('keys');
+    expect(offlineError(capRefused, 'limit').limit).toBe('keys');
     // An existing key still writes.
     unwrap(await store.slot('alice|d1', 'e1').append(update));
     expect(unwrap(await store.keys())).toEqual([
@@ -432,7 +431,7 @@ describe('keys and limits', () => {
       'alice|d2',
       'bob|d1',
     ]);
-    unwrap(await store.clear('alice|d2', {captures: true}));
+    unwrap(await store.clear('alice|d2', {captures: 'all', slots: 'all'}));
     unwrap(await store.slot('alice|d3', 'e1').append(update));
   });
 
@@ -458,22 +457,21 @@ describe('keys and limits', () => {
       ...capture('doc', 'c', 1),
       state: big,
     });
-    expect(!refused.ok && refused.error.code).toBe('limit');
-    expect(!refused.ok && refused.error.limit).toBe('bytes');
+    expect(offlineError(refused, 'limit').limit).toBe('bytes');
     expect(unwrap(await store.captures('doc'))).toEqual([]);
     // Neither does an update past it; the rows stay.
     const tooBig = await slot.append(new Uint8Array(300).fill(1));
-    expect(!tooBig.ok && tooBig.error.limit).toBe('bytes');
+    expect(offlineError(tooBig, 'limit').limit).toBe('bytes');
     expect(textOf(unwrap(await slot.load())!.state)).toBe(
       'a'.repeat(300) + 'b',
     );
     // Another handle (another tab) sees the same stored bytes.
     const other = store.slot('doc', 'e1');
     const refusedToo = await other.append(new Uint8Array(300).fill(1));
-    expect(!refusedToo.ok && refusedToo.error.limit).toBe('bytes');
+    expect(offlineError(refusedToo, 'limit').limit).toBe('bytes');
     // A compaction replaces rows by fewer bytes: allowed.
     unwrap(await slot.compact());
-    unwrap(await store.clear('doc', {captures: true}));
+    unwrap(await store.clear('doc', {captures: 'all', slots: 'all'}));
     unwrap(await store.slot('doc', 'e1').append(big));
   });
 });
@@ -555,19 +553,21 @@ describe('errors as typed results', () => {
       const records = fake.records(DB, 'updates');
       records[1].value = damage(records[1].value as {u: Uint8Array});
       const loaded = await (await open(fake)).slot('doc', 'e1').load();
-      expect(loaded.ok).toBe(false);
-      if (!loaded.ok) {
-        expect(loaded.error.code).toBe('corrupt');
-        expect(loaded.error.epoch).toBe('e1');
-        expect(loaded.error.message).toMatch(/store\.clear\(key/);
-        expect(loaded.error.salvage).toMatchObject({
-          readableRows: 1,
-          unreadableRows: 1,
-        });
-        expect(textOf(loaded.error.salvage!.state!)).toBe('good');
-      }
+      const error = corruptSlotError(loaded);
+      expect(error.epoch).toBe('e1');
+      expect(error.message).toMatch(/store\.clear\(key/);
+      expect(error.salvage).toMatchObject({
+        readableRows: 1,
+        unreadableRows: 1,
+      });
+      expect(textOf(error.salvage.state!)).toBe('good');
       // Clearing it is the way out.
-      unwrap(await store.clear('doc', {captures: false, epoch: 'e1'}));
+      unwrap(
+        await store.clear('doc', {
+          captures: 'none',
+          slots: {epoch: error.epoch},
+        }),
+      );
       expect(unwrap(await store.slot('doc', 'e1').load())).toBeNull();
     },
   );
@@ -585,13 +585,10 @@ describe('errors as typed results', () => {
     const records = fake.records(DB, 'updates');
     records[1].value = {...(records[1].value as object), v: 99};
     const loaded = await (await open(fake)).slot('doc', 'e1').load();
-    expect(loaded.ok).toBe(false);
-    if (!loaded.ok) {
-      expect(loaded.error.code).toBe('newer');
-      expect(loaded.error.epoch).toBe('e1');
-      expect(loaded.error.message).toMatch(/Keep them \(do not clear/);
-      expect(loaded.error.salvage).toBeUndefined();
-    }
+    const error = offlineError(loaded, 'newer');
+    expect(error.epoch).toBe('e1');
+    expect(error.message).toMatch(/Keep them \(do not clear/);
+    expect('salvage' in error).toBe(false);
     // Nothing was removed.
     expect(fake.records(DB, 'updates').length).toBe(2);
   });
@@ -610,8 +607,7 @@ describe('errors as typed results', () => {
     fake.records(DB, 'updates')[0].value = 'damaged';
     unwrap(await slot.compact());
     const loaded = await store.slot('doc', 'e1').load();
-    expect(!loaded.ok && loaded.error.code).toBe('corrupt');
-    expect(!loaded.ok && loaded.error.salvage!.unreadableRows).toBe(1);
+    expect(corruptSlotError(loaded).salvage.unreadableRows).toBe(1);
   });
 
   test('a closed store: closed', async () => {

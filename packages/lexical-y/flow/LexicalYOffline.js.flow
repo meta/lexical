@@ -42,14 +42,41 @@ export type YOfflineSalvage = {
   readonly readableRows: number,
   readonly unreadableRows: number,
 };
-export type YOfflineError = {
-  readonly code: YOfflineErrorCode,
-  readonly message: string,
-  readonly cause?: unknown,
-  readonly salvage?: YOfflineSalvage,
-  readonly limit?: 'keys' | 'bytes',
-  readonly epoch?: string | null,
-};
+// A union by `code` (and `where`, for 'corrupt'): narrow on it to reach the
+// fields that code carries. One variant per code, so Flow refines each.
+export type YOfflineError =
+  | {
+      readonly code: 'corrupt',
+      readonly where: 'slot',
+      readonly epoch: string | null,
+      readonly salvage: YOfflineSalvage,
+      readonly message: string,
+      readonly cause?: unknown,
+    }
+  | {
+      readonly code: 'corrupt',
+      readonly where: 'captures',
+      readonly unreadable: number,
+      readonly message: string,
+      readonly cause?: unknown,
+    }
+  | {
+      readonly code: 'newer',
+      readonly epoch: string | null,
+      readonly message: string,
+      readonly cause?: unknown,
+    }
+  | {
+      readonly code: 'limit',
+      readonly limit: 'keys' | 'bytes',
+      readonly message: string,
+      readonly cause?: unknown,
+    }
+  | {readonly code: 'unavailable', readonly message: string, readonly cause?: unknown}
+  | {readonly code: 'blocked', readonly message: string, readonly cause?: unknown}
+  | {readonly code: 'quota', readonly message: string, readonly cause?: unknown}
+  | {readonly code: 'closed', readonly message: string, readonly cause?: unknown}
+  | {readonly code: 'failed', readonly message: string, readonly cause?: unknown};
 export type YOfflineLimits = {
   readonly keys?: number,
   readonly bytesPerKey?: number,
@@ -107,6 +134,8 @@ export interface YOfflineSlot {
   ): Promise<YOfflineResult<void>>;
   compact(since?: Uint8Array): Promise<YOfflineResult<void>>;
   discard(): Promise<YOfflineResult<void>>;
+  // Only the rows this handle wrote; the rows it loaded stay.
+  discardWritten?: () => Promise<YOfflineResult<void>>;
   readonly rowsSinceCompaction: number;
   adopt(epoch: string): Promise<YOfflineResult<void>>;
   close(): void;
@@ -114,6 +143,13 @@ export interface YOfflineSlot {
     capture: YOfflineCapture | null,
   ) => Promise<YOfflineResult<void>>;
 }
+// What store.clear deletes: slots ({epoch} one, 'all' every one of the key,
+// unsynced edits included, 'none') and captures ('all', 'unreadable' only
+// the ones this release cannot read, 'none'). Both required.
+export type YOfflineClear = {
+  readonly slots: {readonly epoch: string | null} | 'all' | 'none',
+  readonly captures: 'all' | 'unreadable' | 'none',
+};
 export interface YOfflineStore {
   slot(key: string, epoch: string | null): YOfflineSlot;
   slots(key: string): Promise<YOfflineResult<Array<YOfflineSlotInfo>>>;
@@ -125,10 +161,7 @@ export interface YOfflineStore {
     options?: {readonly retake?: {readonly claimedAt: number | null}},
   ): Promise<YOfflineResult<boolean>>;
   deleteCapture(key: string, id: string): Promise<YOfflineResult<void>>;
-  clear(
-    key: string,
-    what: {readonly epoch?: string | null, readonly captures: boolean},
-  ): Promise<YOfflineResult<void>>;
+  clear(key: string, what: YOfflineClear): Promise<YOfflineResult<void>>;
   captureSlot?: (
     key: string,
     epoch: string | null,
@@ -175,6 +208,9 @@ export type YOfflineLoaded = {
   readonly base: Uint8Array | null,
   readonly hasUnsyncedEdits: boolean,
   readonly baseAt: number | null,
+  // Every unsynced edit loaded is in rows a tab still open holds: that tab
+  // captures them, this page's session does not unless it edits.
+  readonly unsyncedInLiveTabs: boolean,
   readonly slot: YOfflineSlot | null,
 };
 declare export function loadYOffline(input: {
@@ -183,23 +219,39 @@ declare export function loadYOffline(input: {
   readonly epoch?: string,
 }): Promise<YOfflineResult<YOfflineLoaded>>;
 
+// What is kept on the device: the whole document, only while it holds
+// unsynced edits, or nothing as it is made (unsynced edits in the tab
+// alone).
+export type YOfflinePersist = 'document' | 'unsynced' | 'captures-only';
+// The stage and the store it uses, as one value.
+export type YOfflineMode =
+  | {readonly stage: 'off'}
+  | {
+      readonly stage: 'persist' | 'replay',
+      readonly store: YOfflineStore,
+      readonly persist: YOfflinePersist,
+    };
 export type YOfflineSessionOptions = {
   readonly binding: YOfflineBinding,
-  readonly store: YOfflineStore | null,
   readonly key: string,
   readonly epoch: string | null,
-  readonly stage: YOfflineStage,
-  readonly persistEdits?: boolean,
-  readonly keep?: 'document' | 'unsynced',
-  readonly writeDelay?: number,
+  // Required: what loadYOffline returned, or null for a document that was
+  // not created from it.
+  readonly loaded: YOfflineLoaded | null,
+  readonly offline: YOfflineMode,
   readonly onError: (error: YOfflineError) => void,
-  readonly loaded?: YOfflineLoaded,
+  // Required: stops this document's provider for good; the session calls
+  // it when the epoch moved.
+  readonly stopSync: () => void,
+  readonly writeDelay?: number,
   readonly compactAfter?: number,
   readonly now?: () => number,
 };
 export type YOfflineVerdict =
   | {readonly kind: 'off'}
-  | {readonly kind: 'same'}
+  // markSynced: the server holds everything the document holds (only a
+  // confirmed epoch carries it).
+  | {readonly kind: 'same', readonly markSynced: () => void}
   | {
       readonly kind: 'moved',
       readonly capture: YOfflineCapture | null,
@@ -216,7 +268,6 @@ export interface YOfflineSession {
     options?: {readonly reason?: YUnsyncedReason},
   ): Promise<YOfflineVerdict>;
   freeze(options?: {readonly reason?: YUnsyncedReason}): Promise<YOfflineVerdict>;
-  markSynced(): void;
   flush(): Promise<YOfflineResult<void>>;
   dispose(): void;
 }

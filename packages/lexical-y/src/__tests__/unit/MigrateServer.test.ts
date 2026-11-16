@@ -47,6 +47,7 @@ import {
 } from '../../server';
 import {$snapshot, catalogHeadlessConfig, seedShapes} from '../catalog/bind';
 import {NODE_SHAPES, shapesWith} from '../catalog/nodes';
+import {flatRoom} from '../utils/migrateResults';
 import {SEED, STAMP} from '../utils/migrateSteps';
 
 const CFG = {blockIds: 'absent'} as const;
@@ -179,21 +180,25 @@ describe.each([false, true])('@lexical/y/server, gc %s', gc => {
   });
 
   test('prepareYRoom: a root below the target migrates (state, generation, base, receipt); otherwise nothing', () => {
-    const none = prepareYRoom(LAYOUT1, {
-      gc,
-      incarnation: INC,
-      steps: [STAMP],
-    });
+    const none = flatRoom(
+      prepareYRoom(LAYOUT1, {
+        gc,
+        incarnation: INC,
+        steps: [STAMP],
+      }),
+    );
     expect(none.changed).toBe(false);
     expect(none.state).toBe(LAYOUT1);
     expect(none.base).toBeNull();
     expect(none.generation).toBe(G0);
-    const room = prepareYRoom(LAYOUT1, {
-      gc,
-      incarnation: INC,
-      steps: [STAMP],
-      to: SEED + 1,
-    });
+    const room = flatRoom(
+      prepareYRoom(LAYOUT1, {
+        gc,
+        incarnation: INC,
+        steps: [STAMP],
+        to: SEED + 1,
+      }),
+    );
     expect(room.changed).toBe(true);
     expect(room.base).toEqual({generation: G0, state: LAYOUT1});
     expect(room.generation).toBe(getYGeneration(docOf(room.state), INC));
@@ -206,12 +211,14 @@ describe.each([false, true])('@lexical/y/server, gc %s', gc => {
       ).toEqual(readYState(LAYOUT1, catalogHeadlessConfig(CFG), $snapshot));
     }
     // Idempotent: the migrated room is served as is.
-    const again = prepareYRoom(room.state, {
-      gc,
-      incarnation: INC,
-      steps: [STAMP],
-      to: SEED + 1,
-    });
+    const again = flatRoom(
+      prepareYRoom(room.state, {
+        gc,
+        incarnation: INC,
+        steps: [STAMP],
+        to: SEED + 1,
+      }),
+    );
     expect(again.changed).toBe(false);
     expect(again.generation).toBe(room.generation);
     // A refusal throws: store nothing.
@@ -235,12 +242,14 @@ describe.each([false, true])('@lexical/y/server, gc %s', gc => {
     author.get('other').insert(1, 'b');
     const held = docOf(LAYOUT1);
     Y.applyUpdate(held, updates[1]);
-    const room = prepareYRoom(Y.encodeStateAsUpdate(held), {
-      gc,
-      incarnation: INC,
-      steps: [STAMP],
-      to: SEED + 1,
-    });
+    const room = flatRoom(
+      prepareYRoom(Y.encodeStateAsUpdate(held), {
+        gc,
+        incarnation: INC,
+        steps: [STAMP],
+        to: SEED + 1,
+      }),
+    );
     expect(room.changed).toBe(true);
     expect(room.pending).not.toBeNull();
     expect(docOf(room.state).store.pendingStructs).toBeNull();
