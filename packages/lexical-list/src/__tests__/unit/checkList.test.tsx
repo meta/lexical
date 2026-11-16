@@ -382,6 +382,27 @@ describe('CheckListExtension mobile tap toggle', () => {
       expect(readChecked(editor, 0)).toBe(true);
     });
 
+    it('still toggles on a click with no press after a cancelled press on the content', () => {
+      using editor = buildEditor();
+      const li = getCheckListItem(0);
+      const init = {bubbles: true, cancelable: true, clientY: 5};
+      li.dispatchEvent(
+        new PointerEvent('pointerdown', {
+          ...init,
+          clientX: CONTENT_X,
+          pointerType: 'touch',
+        }),
+      );
+      // eg. the touch turned into a scroll
+      li.dispatchEvent(
+        new PointerEvent('pointercancel', {...init, pointerType: 'touch'}),
+      );
+      li.dispatchEvent(
+        new MouseEvent('click', {...init, clientX: CHECK_MARK_X}),
+      );
+      expect(readChecked(editor, 0)).toBe(true);
+    });
+
     it('does not carry over to a later check mark press', () => {
       using editor = buildEditor();
       const li = getCheckListItem(0);
