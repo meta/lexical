@@ -553,10 +553,16 @@ describe('@lexical/y/headless', () => {
   test('a synchronous loop of calls holds no document it opened', () => {
     setFlagsFromString('--expose-gc');
     const gc = runInNewContext('gc') as () => void;
+    // The heap after collection: the least of a few samples, each after a
+    // full collection, so what one collection left for the next (or swept
+    // late, on a loaded machine) is not counted as held.
     const heap = () => {
-      gc();
-      gc();
-      return process.memoryUsage().heapUsed;
+      let least = Infinity;
+      for (let i = 0; i < 3; i++) {
+        gc();
+        least = Math.min(least, process.memoryUsage().heapUsed);
+      }
+      return least;
     };
     const big = seedYState({nodes: NODES, schemaVersion: 1}, () => {
       for (let i = 0; i < 1000; i++) {
@@ -566,6 +572,23 @@ describe('@lexical/y/headless', () => {
     // A writer keeps client ids and clocks, never a document.
     const writer = createYWriter('agent');
     let written = big;
+    // One round of the calls first, so that the code they compile and the
+    // type feedback they gather are in the baseline, not in the difference.
+    readYState(big, {nodes: NODES, schemaVersion: 1}, () =>
+      $getRoot().getTextContentSize(),
+    );
+    editYState(
+      big,
+      {nodes: NODES, schemaVersion: 1},
+      () => $getRoot().append($p('x')),
+      {writer: null},
+    );
+    editYState(
+      big,
+      {nodes: NODES, schemaVersion: 1},
+      () => $getRoot().append($p('y')),
+      {writer: createYWriter('warm-up')},
+    );
     const start = heap();
     // No await: nothing Lexical scheduled in a microtask has run.
     for (let i = 0; i < 20; i++) {
