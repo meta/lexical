@@ -16,6 +16,14 @@ import {
 } from '@lexical/markdown';
 import {RichTextExtension} from '@lexical/rich-text';
 import {
+  $isTableCellNode,
+  $isTableNode,
+  $isTableRowNode,
+  TableCellNode,
+  TableNode,
+  TableRowNode,
+} from '@lexical/table';
+import {
   $createParagraphNode,
   $createTextNode,
   $getRoot,
@@ -39,16 +47,7 @@ import {
   EQUATION,
   IMAGE,
   PLAYGROUND_TRANSFORMERS,
-  TABLE,
 } from '../../src/plugins/MarkdownTransformers';
-import {
-  $isTableCellNode,
-  $isTableNode,
-  $isTableRowNode,
-  TableCellNode,
-  TableNode,
-  TableRowNode,
-} from '@lexical/table';
 
 const EQUATION_TRANSFORMERS = [BLOCK_EQUATION, EQUATION];
 const MarkdownShortcutTestExtension = defineExtension({
@@ -346,6 +345,39 @@ describe('playground TABLE markdown transformer', () => {
     });
   });
 
+  it('imports table cell with soft line break before > as text rather than a quote block', () => {
+    using editor = buildEditorFromExtensions(TableMarkdownTestExtension);
+
+    editor.update(
+      () => {
+        $convertFromMarkdownString('|a\\n>b|x|', PLAYGROUND_TRANSFORMERS);
+      },
+      {discrete: true},
+    );
+
+    editor.read(() => {
+      const table = $getRoot().getFirstChildOrThrow();
+      expect($isTableNode(table)).toBe(true);
+      if (!$isTableNode(table)) {
+        return;
+      }
+      const row = table.getFirstChildOrThrow();
+      expect($isTableRowNode(row)).toBe(true);
+      if (!$isTableRowNode(row)) {
+        return;
+      }
+      const cell = row.getFirstChildOrThrow();
+      expect($isTableCellNode(cell)).toBe(true);
+      if (!$isTableCellNode(cell)) {
+        return;
+      }
+      expect(cell.getChildrenSize()).toBe(1);
+      const paragraph = cell.getFirstChildOrThrow();
+      expect($isParagraphNode(paragraph)).toBe(true);
+      expect(paragraph.getTextContent()).toBe('a\n>b');
+    });
+  });
+
   it('exports table cell starting with > as escaped markdown rather than a quote line', () => {
     using editor = buildEditorFromExtensions(TableMarkdownTestExtension);
 
@@ -363,4 +395,3 @@ describe('playground TABLE markdown transformer', () => {
     expect(markdown).toBe('| \\>100ms | x |');
   });
 });
-
