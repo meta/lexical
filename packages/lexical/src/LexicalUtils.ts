@@ -32,8 +32,6 @@ import {
   HISTORY_MERGE_TAG,
   type LineBreakNode,
   normalizeClassNames,
-  SKIP_DOM_SELECTION_TAG,
-  SKIP_SELECTION_FOCUS_TAG,
   type UpdateTag,
 } from '.';
 import {$detachNode} from './caret/LexicalCaretTree';
@@ -132,6 +130,7 @@ import {
   isCurrentlyReadOnlyMode,
   triggerCommandListeners,
 } from './LexicalUpdates';
+import {REVALIDATE_UNFOCUSED_TAG} from './LexicalUpdateTags';
 import {
   $createParagraphNode,
   type ParagraphNode,
@@ -806,11 +805,7 @@ export function markNodesWithTypesAsDirty(
             ? HISTORY_MERGE_TAG
             : // This is not a user edit, so it must not move focus or the
               // DOM selection into an editor that does not have focus (#5016)
-              [
-                HISTORY_MERGE_TAG,
-                SKIP_DOM_SELECTION_TAG,
-                SKIP_SELECTION_FOCUS_TAG,
-              ],
+              [HISTORY_MERGE_TAG, REVALIDATE_UNFOCUSED_TAG],
         }
       : undefined,
   );

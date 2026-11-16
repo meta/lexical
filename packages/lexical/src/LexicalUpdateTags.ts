@@ -80,6 +80,14 @@ export const SKIP_DOM_SELECTION_TAG = 'skip-dom-selection';
 export const SKIP_SELECTION_FOCUS_TAG = 'skip-selection-focus';
 
 /**
+ * @internal
+ * The update re-validates existing nodes for a newly registered transform
+ * while the editor does not have focus. Unless the selection also changes in
+ * the same batch, it does not move the DOM selection or focus into the editor.
+ */
+export const REVALIDATE_UNFOCUSED_TAG = 'revalidate-unfocused';
+
+/**
  * The update was triggered by editor.focus()
  */
 export const FOCUS_TAG = 'focus';

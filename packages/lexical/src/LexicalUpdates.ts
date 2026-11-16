@@ -63,6 +63,7 @@ import {
   type RangeSelection,
 } from './LexicalSelection';
 import {$isSlotHost, $setSlot} from './LexicalSlot';
+import {REVALIDATE_UNFOCUSED_TAG} from './LexicalUpdateTags';
 import {
   $getCompositionKey,
   $updateDOMBlockCursorElement,
@@ -817,7 +818,15 @@ function $commitPendingUpdatesImpl(
       pendingSelection.dirty ||
       !pendingSelection.is(currentSelection)) &&
     rootElement !== null &&
-    !tags.has(SKIP_DOM_SELECTION_TAG)
+    !tags.has(SKIP_DOM_SELECTION_TAG) &&
+    // Tags last for the whole batch, so decide here: a later update in it
+    // that moved the selection (eg. editor.focus()) still gets it applied
+    !(
+      tags.has(REVALIDATE_UNFOCUSED_TAG) &&
+      pendingSelection !== null &&
+      !pendingSelection.dirty &&
+      pendingSelection.is(currentSelection)
+    )
   ) {
     activeEditor = editor;
     activeEditorState = pendingEditorState;
