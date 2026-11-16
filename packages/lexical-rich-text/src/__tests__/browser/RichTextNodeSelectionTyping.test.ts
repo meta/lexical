@@ -26,8 +26,11 @@ import {
   $getSelection,
   $isNodeSelection,
   $setSelection,
+  COMMAND_PRIORITY_HIGH,
   DecoratorNode,
   type ElementNode,
+  KEY_DOWN_COMMAND,
+  KEY_SPACE_COMMAND,
   SKIP_DOM_SELECTION_TAG,
 } from 'lexical';
 import {describe, expect, onTestFinished, test} from 'vitest';
@@ -105,6 +108,39 @@ function mountEditor(
 }
 
 describe('native typing after a selected block decorator', () => {
+  test.for([
+    {command: KEY_DOWN_COMMAND, key: 'q', name: 'keydown letter'},
+    {command: KEY_DOWN_COMMAND, key: ' ', name: 'keydown Space'},
+    {command: KEY_SPACE_COMMAND, key: ' ', name: 'Space command'},
+  ])(
+    'honors a cancelled $name after a selected divider',
+    async ({command, key}) => {
+      const {editor, root} = mountEditor('after');
+      const divider = root.querySelector('hr')!;
+      await userEvent.click(divider);
+      await expect.element(divider).toHaveClass('selected');
+      const original = editor.getEditorState().toJSON();
+      let cancellations = 0;
+      onTestFinished(
+        editor.registerCommand(
+          command,
+          event => {
+            cancellations++;
+            event.preventDefault();
+            return false;
+          },
+          COMMAND_PRIORITY_HIGH,
+        ),
+      );
+
+      await userEvent.keyboard(key);
+
+      expect(cancellations).toBe(1);
+      expect(editor.getEditorState().toJSON()).toEqual(original);
+      expect(editor.read(() => $isNodeSelection($getSelection()))).toBe(true);
+    },
+  );
+
   test.for(['q', ' '])(
     'leaves a nested editor inside the selected decorator to handle %j',
     async key => {

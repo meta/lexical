@@ -1328,6 +1328,7 @@ export function registerRichText(
     // Firefox and WebKit need a DOM caret before they emit beforeinput.
     if (
       $isNodeSelection(selection) &&
+      !event.defaultPrevented &&
       event.key.length === 1 &&
       !event.metaKey &&
       ((!event.ctrlKey && (!event.altKey || IS_APPLE)) ||
