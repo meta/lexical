@@ -379,10 +379,7 @@ describe('a replaced type stored another way', () => {
 
   test('editYState and readYState refuse the room, naming the replacement', async () => {
     const state = await storedRoom($quoteRoom);
-    const config = {
-      nodes: REPLACED_QUOTE,
-      schemaVersion: 1,
-    };
+    const config = {nodes: REPLACED_QUOTE, onWarn: null, schemaVersion: 1};
     expect(() =>
       editYState(
         state,
@@ -555,10 +552,7 @@ describe('a replaced type stored another way', () => {
       await new Promise(resolve => setTimeout(resolve, 0));
       const stored = readYState(
         Y.encodeStateAsUpdate(peer.doc),
-        {
-          nodes: c.nodes,
-          schemaVersion: 1,
-        },
+        {nodes: c.nodes, onWarn: null, schemaVersion: 1},
         () => $getRoot().getTextContent(),
       );
       expect(stored).toBe(c.expected);

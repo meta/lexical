@@ -137,7 +137,7 @@ describe('a layout 1 root container with more units than a call takes as argumen
     });
     for (const gc of [false, true]) {
       test(`${name}: migrates to layout 4 and reads the same (gc ${gc ? 'on' : 'off'})`, () => {
-        const result = migrateYState(input, STEPS, {gc});
+        const result = migrateYState(input, STEPS, {gc, pending: 'discard'});
         expect(result.receipt.changed).toBe(true);
         expect(result.receipt.roots[0].steps.map(s => s.id)).toEqual([
           'lexical-y/layout/1to2',
@@ -169,6 +169,7 @@ function layout3Document(
 ): Uint8Array {
   const three = migrateYState(layout1Document(lines, text), STEPS, {
     gc: false,
+    pending: 'discard',
     to: 3,
   }).state;
   if (every === null) {
@@ -222,7 +223,10 @@ describe('3to4 on a layout 3 root container with more units than a call takes', 
         test(`${name}, ${what}: migrates to layout 4, reads the same, and edits (gc ${gc ? 'on' : 'off'})`, () => {
           expect(recordedLayout(createRawYDoc(input))).toBe(3);
           expect(rootLength(input)).toBeGreaterThan(limit);
-          const result = migrateYState(input, [step3to4], {gc});
+          const result = migrateYState(input, [step3to4], {
+            gc,
+            pending: 'discard',
+          });
           expect(result.receipt.roots[0].steps.map(s => s.id)).toEqual([
             'lexical-y/layout/3to4',
           ]);
@@ -268,7 +272,7 @@ describe('3to4 on a layout 3 root container with more units than a call takes', 
 /** The error `migrateYState` throws on `steps`, or null. */
 function migrationError(steps: YLayoutMigration[]): unknown {
   try {
-    migrateYState(layout1Document(1, 'abc'), steps);
+    migrateYState(layout1Document(1, 'abc'), steps, {pending: 'discard'});
   } catch (error) {
     return error;
   }

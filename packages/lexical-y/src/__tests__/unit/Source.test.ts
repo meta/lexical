@@ -61,6 +61,8 @@ test('shipped source reads no process.env but NODE_ENV', () => {
 // `clearAttrs`, `applyDelta`), called or not, and every call shaped like
 // Y.Node's `delete(index, length)` or `format(index, length, attrs)`, by
 // the function it is in and its first argument.
+// Parses the package's source with the TypeScript compiler: a few hundred
+// ms alone, past vitest's default 5 s on a loaded machine.
 test('internal writes of node attributes go through Seen', () => {
   const ATTR_WRITES = new Set([
     'setAttr',
@@ -160,7 +162,7 @@ test('internal writes of node attributes go through Seen', () => {
     'Binding.ts recordPins: root.setAttr(PIN_PREFIX + type)',
     'Ident.ts writeIdentityRecord: root.setAttr(LAYOUT_PREFIX + IDENTITY_LAYOUT_VERSION)',
   ]);
-});
+}, 60_000);
 
 // The constants a client or server may want come from the main entry, with
 // `createYDoc`, the document every client binds and a relay loads a state
@@ -212,6 +214,7 @@ test('public entries', () => {
     'openYOfflineStore',
     'recoverYOfflineEdits',
     'replayUnsyncedEdits',
+    'wrapLeftoversAsQuote',
   ]);
   expect(Object.keys(serverEntry).sort()).toEqual([
     'LAYOUT_VERSION',
@@ -368,6 +371,8 @@ test('YBinding does not offer flushPending', () => {
 // runner, the steps and the server entry never load Lexical or the
 // binding: their module graphs, followed through relative imports, stay
 // apart.
+// Parses the package's source with the TypeScript compiler: a few hundred
+// ms alone, past vitest's default 5 s on a loaded machine.
 test('the core, the runner, the steps and the server entry stay apart', () => {
   const src = path.resolve(__dirname, '../..');
   const graph = (entry: string): {files: Set<string>; bare: Set<string>} => {
@@ -483,4 +488,4 @@ test('the core, the runner, the steps and the server entry stay apart', () => {
       ),
     ).toEqual([]);
   }
-});
+}, 60_000);

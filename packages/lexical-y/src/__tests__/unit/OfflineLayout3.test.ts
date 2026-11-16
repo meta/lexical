@@ -47,6 +47,7 @@ import {
 } from '../../offline';
 import {catalogAppExtension, catalogHeadlessConfig} from '../catalog/bind';
 import {createFakeIndexedDB} from '../utils/fakeIndexedDB';
+import {trackVerdicts} from '../utils/offlineSync';
 
 type Golden = {
   name: string;
@@ -73,7 +74,8 @@ const fixtures = (
 const RAW = /^raw\//;
 
 const flush = () => new Promise(resolve => setTimeout(resolve, 0));
-const migrate = (state: Uint8Array) => migrateYState(state, [step3to4]).state;
+const migrate = (state: Uint8Array) =>
+  migrateYState(state, [step3to4], {pending: 'discard'}).state;
 
 function unwrap<T>(
   result: {ok: true; value: T} | {ok: false; error: {message: string}},
@@ -130,18 +132,19 @@ describe.each([false, true])('layout 3 documents, gc %s', gc => {
         expect(collab.status).toMatchObject({
           cause: {code: 'layout-older', layout: 3},
         });
-        const session = attachYOfflineSession({
-          binding: collab,
-          epoch: loaded.epoch,
-          key: 'doc',
-          loaded,
-          onError: error => {
-            throw new Error(error.message);
-          },
-          persistEdits: true,
-          stage: 'persist',
-          store,
-        });
+        const session = trackVerdicts(
+          attachYOfflineSession({
+            binding: collab,
+            epoch: loaded.epoch,
+            key: 'doc',
+            loaded,
+            offline: {persist: 'document', stage: 'persist', store: store},
+            onError: error => {
+              throw new Error(error.message);
+            },
+            stopSync: () => {},
+          }),
+        );
         // The server migrated the room: nothing unsynced, nothing kept.
         const verdict = await session.serverEpoch('e2');
         expect(verdict).toMatchObject({capture: null, kind: 'moved'});

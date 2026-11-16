@@ -409,6 +409,22 @@ export interface YUnsyncedReport {
   readonly blocks: readonly YUnsyncedBlock[];
   /** Every block the user added or changed, as they saw it. */
   readonly fragment: readonly SerializedLexicalNode[];
+  /**
+   * The ids of all the user's blocks, in their document's order
+   * (`'#<index>'` where blocks have no ids): what places a replayed added
+   * block, and a block that cannot be replayed, next to its neighbours.
+   * `describeUnsyncedEdits` always sets it; a report without it (one built
+   * by hand) places by the order of `blocks`.
+   */
+  readonly order?: readonly string[];
+  /**
+   * Without block ids only: the ids of `blocks` the current document holds
+   * as the user had them, found by content (each current block counted
+   * once, the user's unchanged blocks first). Paired by position, one block
+   * added or removed offline makes every later one an entry; a replay does
+   * not write these again.
+   */
+  readonly shifted?: readonly string[];
 }
 
 /** What a node is to the block merge (see NodeKinds). */
@@ -428,6 +444,28 @@ function $kindOf(node: LexicalNode): NodeKind {
               ? 'inline-leaf'
               : 'block-leaf'
             : 'mixed';
+}
+
+/** A serialized block's id (BlockIdExtension's `blockId` NodeState), or null. */
+function blockIdOf(node: SerializedLexicalNode): string | null {
+  const state = (node as {$?: {blockId?: unknown}}).$;
+  const id = state === undefined ? undefined : state.blockId;
+  return typeof id === 'string' && id !== '' ? id : null;
+}
+
+/** `blocks` by id, or null when any block lacks one. */
+function byId(
+  blocks: readonly SerializedLexicalNode[],
+): Map<string, SerializedLexicalNode> | null {
+  const map = new Map<string, SerializedLexicalNode>();
+  for (const block of blocks) {
+    const id = blockIdOf(block);
+    if (id === null || map.has(id)) {
+      return null;
+    }
+    map.set(id, block);
+  }
+  return map;
 }
 
 /**
@@ -524,6 +562,40 @@ export function describeUnsyncedEdits(input: {
     now,
     yours,
   });
+  const against = base ?? now;
+  const yoursById = byId(yours);
+  // Without block ids, blocks are paired by position (as describeBlocks
+  // pairs them).
+  const byPosition =
+    yoursById === null || byId(against) === null || byId(now) === null;
+  let shifted: string[] | null = null;
+  if (byPosition) {
+    // Which of them the current document holds, by content: as many copies
+    // of a block as the user had, the user's unchanged blocks first (an
+    // added copy of a block that is there once is not there).
+    const pool = new Map<string, number>();
+    for (const block of now) {
+      const json = JSON.stringify(block);
+      pool.set(json, (pool.get(json) ?? 0) + 1);
+    }
+    const take = (block: SerializedLexicalNode): boolean => {
+      const json = JSON.stringify(block);
+      const n = pool.get(json) ?? 0;
+      if (n > 0) {
+        pool.set(json, n - 1);
+      }
+      return n > 0;
+    };
+    const listed = new Set(blocks.map(block => block.id));
+    yours.forEach((block, i) => {
+      if (!listed.has(`#${i}`)) {
+        take(block);
+      }
+    });
+    shifted = blocks.flatMap(block =>
+      block.yours !== null && take(block.yours) ? [block.id] : [],
+    );
+  }
   return {
     baseAvailable: base !== null,
     blocks,
@@ -531,6 +603,9 @@ export function describeUnsyncedEdits(input: {
     fragment: blocks.flatMap(block =>
       block.yours === null ? [] : [block.yours],
     ),
+    order:
+      yoursById !== null ? [...yoursById.keys()] : yours.map((_, i) => `#${i}`),
     reason: input.reason,
+    ...(shifted !== null ? {shifted} : null),
   };
 }

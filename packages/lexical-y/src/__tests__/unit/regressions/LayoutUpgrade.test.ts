@@ -49,13 +49,26 @@ afterEach(() => {
 export function typeCells(doc: YCollabInput['doc']): unknown[] {
   return [
     // @ts-expect-error layoutUpgrade is required
-    createYCollabConfig({doc, schemaVersion: 1}),
+    createYCollabConfig({
+      doc,
+      onYStatus: null,
+      schemaVersion: 1,
+      synced: false,
+    }),
     createYCollabConfig({
       doc,
       layoutUpgrade: createYServerLayoutUpgrade(),
+      onYStatus: null,
       schemaVersion: 1,
+      synced: false,
     }),
-    createYCollabConfig({doc, layoutUpgrade: null, schemaVersion: 1}),
+    createYCollabConfig({
+      doc,
+      layoutUpgrade: null,
+      onYStatus: null,
+      schemaVersion: 1,
+      synced: false,
+    }),
   ];
 }
 
@@ -115,6 +128,7 @@ describe.each([false, true])('layoutUpgrade, gc %s', gc => {
         createYCollabConfig({
           doc,
           layoutUpgrade: createYServerLayoutUpgrade(),
+          onYStatus: null,
           schemaVersion: 1,
           synced: true,
         }),
@@ -127,6 +141,7 @@ describe.each([false, true])('layoutUpgrade, gc %s', gc => {
         createYCollabConfig({
           doc,
           layoutUpgrade: null,
+          onYStatus: null,
           schemaVersion: 1,
           synced: true,
         }),
@@ -138,6 +153,7 @@ describe.each([false, true])('layoutUpgrade, gc %s', gc => {
       doc =>
         configExtension(YCollabExtension, {
           doc,
+          onYStatus: null,
           schemaVersion: 1,
           synced: true,
         }),
@@ -273,7 +289,13 @@ describe('the handle', () => {
     const doc = createYDoc();
     const fake = {handshake: () => null, kind: 'server'} as never;
     expect(() =>
-      createYCollabConfig({doc, layoutUpgrade: fake, schemaVersion: 1}),
+      createYCollabConfig({
+        doc,
+        layoutUpgrade: fake,
+        onYStatus: null,
+        schemaVersion: 1,
+        synced: false,
+      }),
     ).toThrow(/layoutUpgrade/);
     expect(() =>
       buildEditorFromExtensions(
@@ -283,6 +305,7 @@ describe('the handle', () => {
             configExtension(YCollabExtension, {
               doc,
               layoutUpgrade: fake,
+              onYStatus: null,
               schemaVersion: 1,
             }),
           ],

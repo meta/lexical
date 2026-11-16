@@ -283,6 +283,7 @@ test('an extension that registers a transform while editable: setEditable(true) 
         EditableOnlyTransform,
         configExtension(YCollabExtension, {
           doc,
+          onYStatus: null,
           schemaVersion: 1,
           selfCheck: false,
         }),

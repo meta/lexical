@@ -51,6 +51,7 @@ import {
   sourceView,
 } from '../../../server';
 import {catalogAppExtension, catalogHeadlessConfig} from '../../catalog/bind';
+import {flat, flatRoom} from '../../utils/migrateResults';
 import {rawDoc, SEED, STAMP} from '../../utils/migrateSteps';
 import {textOf} from '../../utils/splitFixtures';
 
@@ -184,18 +185,26 @@ describe.each([false, true])('loading across a clock gap, gc %s', gc => {
     const t = gapScenario(gc);
     // The runner migrates the integrated prefix and splits out what follows
     // a gap (`pending`, for the quarantine): the two together show it.
-    const migrated = migrateYState(t.state, [STAMP], {gc, to: SEED + 1});
+    const migrated = flat(
+      migrateYState(t.state, [STAMP], {
+        gc,
+        pending: 'return',
+        to: SEED + 1,
+      }),
+    );
     expect(migrated.pending).not.toBeNull();
     const doc = createYDoc(migrated.state, {gc});
     applyStoredState(doc, migrated.pending!);
     expect(textOf(doc.get('lexical-y'))).toBe(t.shown);
     doc.destroy();
-    const room = prepareYRoom(t.state, {
-      gc,
-      incarnation: 'inc-1',
-      steps: [STAMP],
-      to: SEED + 1,
-    });
+    const room = flatRoom(
+      prepareYRoom(t.state, {
+        gc,
+        incarnation: 'inc-1',
+        steps: [STAMP],
+        to: SEED + 1,
+      }),
+    );
     expect(room.changed).toBe(true);
     expect(room.pending).not.toBeNull();
     const served = createYDoc(room.state, {gc});
@@ -286,6 +295,7 @@ describe.each([false, true])('loading across a clock gap, gc %s', gc => {
       {discrete: true},
     );
     const binding = new YBinding(editor, doc, {
+      onStatus: null,
       root: doc.get('notes'),
       schemaVersion: 1,
     });

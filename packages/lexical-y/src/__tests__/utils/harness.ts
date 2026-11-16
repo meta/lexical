@@ -610,6 +610,7 @@ export function createBoundEditor(
       onWarn: config.onWarn,
     });
     const binding = new YBinding(editor, doc, {
+      onStatus: null,
       schemaVersion: config.schemaVersion ?? 1,
       selfCheck: config.selfCheck,
     });
@@ -620,6 +621,7 @@ export function createBoundEditor(
       dependencies: [
         configExtension(YCollabExtension, {
           doc,
+          onYStatus: null,
           schemaVersion: config.schemaVersion ?? 1,
           selfCheck: config.selfCheck,
         }),

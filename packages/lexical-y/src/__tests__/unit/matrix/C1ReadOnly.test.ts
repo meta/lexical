@@ -92,6 +92,7 @@ const WARNING: Record<Cause, string> = {
 function stateFor(cause: Cause, shapes: readonly NodeShape[]): Uint8Array {
   const base = {
     extensions: [catalogAppExtension(DEFAULT_CONFIG)],
+    onWarn: null,
     schemaVersion: 1,
   };
   if (cause === 'schema') {

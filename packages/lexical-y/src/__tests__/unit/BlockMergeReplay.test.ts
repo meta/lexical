@@ -125,6 +125,9 @@ const describeStates = (
     reason: 'stale',
   });
 
+/** The panel: nothing of a report is written over the document by itself. */
+const PANEL = {handle: () => {}};
+
 const isMerge = (block: YUnsyncedBlock) =>
   block.resolution === 'merged' &&
   block.merged != null &&
@@ -183,7 +186,12 @@ describe('block merge: the corpus as stored documents', () => {
       // The replay writes the merges (and the whole blocks) through the
       // binding, in one update.
       const tab = client(now);
-      const result = replayUnsyncedEdits({binding: tab.binding, report});
+      const result = replayUnsyncedEdits({
+        autoReplay: 'replayable',
+        binding: tab.binding,
+        leftovers: PANEL,
+        report,
+      });
       for (const skipped of result.notApplied) {
         counts.notApplied[skipped.reason] =
           (counts.notApplied[skipped.reason] || 0) + 1;
@@ -219,7 +227,12 @@ describe('block merge: the corpus as stored documents', () => {
         expect(canonical(entry!.merged)).toBe(canonical(entry!.now));
       }
       expect(
-        replayUnsyncedEdits({binding: tab.binding, report: again}).applied,
+        replayUnsyncedEdits({
+          autoReplay: 'replayable',
+          binding: tab.binding,
+          leftovers: PANEL,
+          report: again,
+        }).applied,
       ).toEqual([]);
     });
   }
@@ -309,7 +322,12 @@ describe('block merge: every node shape of the catalog', () => {
       expect(merged.split('§').length).toBe(2);
       expect(merged.replace('¥', '').replace('§', '')).toBe(textOf(block.base));
       const tab = client(now);
-      const result = replayUnsyncedEdits({binding: tab.binding, report});
+      const result = replayUnsyncedEdits({
+        autoReplay: 'replayable',
+        binding: tab.binding,
+        leftovers: PANEL,
+        report,
+      });
       outcomes[shape.name] =
         result.applied.length > 0
           ? 'merged and replayed'

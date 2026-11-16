@@ -684,7 +684,11 @@ test.fails(
         $initialEditorState: null,
         dependencies: [
           ...extensions,
-          configExtension(YCollabExtension, {doc, schemaVersion: 1}),
+          configExtension(YCollabExtension, {
+            doc,
+            onYStatus: null,
+            schemaVersion: 1,
+          }),
         ],
         name: 'bound',
       }),

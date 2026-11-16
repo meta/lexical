@@ -83,6 +83,7 @@ function client(doc: YDoc): LexicalEditor {
         MarkStateExtension,
         configExtension(YCollabExtension, {
           doc,
+          onYStatus: null,
           schemaVersion: 1,
           selfCheck: true,
         }),

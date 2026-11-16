@@ -40,7 +40,7 @@ import {YCollabExtension} from '../..';
 import {createYDoc, seedYState} from '../../headless';
 
 const extensions = [RichTextExtension, LinkExtension, MarkExtension];
-const config = {extensions, schemaVersion: 1};
+const config = {extensions, onWarn: null, schemaVersion: 1};
 
 function $build(): void {
   $getRoot()
@@ -64,7 +64,11 @@ function client(seed: Uint8Array, id: number) {
       $initialEditorState: null,
       dependencies: [
         ...extensions,
-        configExtension(YCollabExtension, {doc, schemaVersion: 1}),
+        configExtension(YCollabExtension, {
+          doc,
+          onYStatus: null,
+          schemaVersion: 1,
+        }),
       ],
       name: `nested-${id}`,
     }),

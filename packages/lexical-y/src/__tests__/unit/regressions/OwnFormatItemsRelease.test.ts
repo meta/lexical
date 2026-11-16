@@ -39,7 +39,11 @@ function bound(doc: YDoc, captureTimeout: number | null = 0) {
     },
     onWarn: () => {},
   });
-  const binding = new YBinding(editor, doc, {captureTimeout, schemaVersion: 1});
+  const binding = new YBinding(editor, doc, {
+    captureTimeout,
+    onStatus: null,
+    schemaVersion: 1,
+  });
   const stop = binding.start();
   return {binding, doc, editor, stop};
 }

@@ -16,9 +16,11 @@ import {createYWriter, editYState} from '@lexical/y/headless';
 
 declare const state: Uint8Array;
 
-const config: HeadlessYConfig = {schemaVersion: 1};
+const config: HeadlessYConfig = {onWarn: null, schemaVersion: 1};
 // $FlowExpectedError[incompatible-type] schemaVersion is required
-const unversioned: HeadlessYConfig = {};
+const unversioned: HeadlessYConfig = {onWarn: null};
+// $FlowExpectedError[incompatible-type] onWarn is required
+const unhandled: HeadlessYConfig = {schemaVersion: 1};
 const $edit = () => {};
 const writer = createYWriter('agent');
 const author: string = writer.author;

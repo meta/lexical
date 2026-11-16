@@ -86,6 +86,7 @@ function seed(): Uint8Array {
   doc.clientID = 7;
   const binding = new YBinding(editor, doc, {
     captureTimeout: null,
+    onStatus: null,
     schemaVersion: 1,
   });
   binding.start();
@@ -105,6 +106,7 @@ function openY(state: Uint8Array): LexicalEditor {
         configExtension(YCollabExtension, {
           captureTimeout: 0,
           doc,
+          onYStatus: null,
           schemaVersion: 1,
         }),
       ],

@@ -58,6 +58,7 @@ const STEP_END = Number(process.env.US_STEP_END ?? 0.1);
 const BLOCKS = 6;
 const CONFIG = {
   extensions: [RichTextExtension, MarkStateExtension],
+  onWarn: null,
   schemaVersion: 1,
 };
 
@@ -213,7 +214,9 @@ for (let seed = START; seed < START + SEEDS; seed++) {
               // Undo steps end where the script says, whatever the
               // runner's speed (see below).
               captureTimeout: 2 ** 30,
+
               doc,
+              onYStatus: null,
               schemaVersion: 1,
               synced: true,
             }),

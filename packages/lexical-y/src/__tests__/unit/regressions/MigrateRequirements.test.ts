@@ -65,7 +65,7 @@ function bind(state: Uint8Array | null, gc: boolean) {
       },
     }),
   );
-  const binding = new YBinding(editor, doc, {schemaVersion: 1});
+  const binding = new YBinding(editor, doc, {onStatus: null, schemaVersion: 1});
   binding.start();
   binding.initialize();
   const append = (s: string) =>
@@ -188,7 +188,11 @@ describe.each([false, true])('feature requirements, gc %s', gc => {
     const unsupported = withAttrs(gc, {'lexical-y-require:acme.x': true});
     let error: unknown = null;
     try {
-      migrateYState(unsupported, [stamp(SEED)], {gc, to: SEED + 1});
+      migrateYState(unsupported, [stamp(SEED)], {
+        gc,
+        pending: 'discard',
+        to: SEED + 1,
+      });
     } catch (e) {
       error = e;
     }
@@ -200,10 +204,18 @@ describe.each([false, true])('feature requirements, gc %s', gc => {
     });
     const malformedState = withAttrs(gc, {'lexical-y-require:acme.x': 'yes'});
     expect(() =>
-      migrateYState(malformedState, [stamp(SEED)], {gc, to: SEED + 1}),
+      migrateYState(malformedState, [stamp(SEED)], {
+        gc,
+        pending: 'discard',
+        to: SEED + 1,
+      }),
     ).toThrow(expect.objectContaining({code: 'malformed'}));
     // At the target: no step runs, and the root is returned unchanged.
-    const through = migrateYState(unsupported, [stamp(SEED)], {gc, to: SEED});
+    const through = migrateYState(unsupported, [stamp(SEED)], {
+      gc,
+      pending: 'discard',
+      to: SEED,
+    });
     expect(through.update).toBeNull();
     expect(through.receipt.changed).toBe(false);
     expect(Buffer.from(through.state)).toEqual(Buffer.from(unsupported));
@@ -217,6 +229,7 @@ describe.each([false, true])('feature requirements, gc %s', gc => {
     expect(() =>
       migrateYState(two, [stamp(SEED)], {
         gc,
+        pending: 'discard',
         roots: ['b', 'lexical-y'],
         to: SEED + 1,
       }),
@@ -245,15 +258,24 @@ describe.each([false, true])('feature requirements, gc %s', gc => {
     }
     const counted = wrapped as unknown as YLayoutMigration;
     expect(() =>
-      migrateYState(state, [counted], {gc, roots: ['a', 'b'], to: SEED + 1}),
+      migrateYState(state, [counted], {
+        gc,
+        pending: 'discard',
+        roots: ['a', 'b'],
+        to: SEED + 1,
+      }),
     ).toThrow(
       expect.objectContaining({code: 'unsupported-feature', root: 'b'}),
     );
     expect(calls).toBe(0);
     // Control: without the refused root, the same counted step runs on 'a'.
     expect(
-      migrateYState(state, [counted], {gc, roots: ['a'], to: SEED + 1}).receipt
-        .changed,
+      migrateYState(state, [counted], {
+        gc,
+        pending: 'discard',
+        roots: ['a'],
+        to: SEED + 1,
+      }).receipt.changed,
     ).toBe(true);
     expect(calls).toBeGreaterThan(0);
   });

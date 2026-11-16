@@ -108,7 +108,8 @@ as a relay either (see
 ## Usage
 
 See [Start here](#start-here). The earlier setup (`createYCollabConfig`,
-`binding.initialize()`) keeps working; [the guide](https://lexical.dev/docs/collaboration/y)
+which requires `synced` and `onYStatus` too, and `binding.initialize()`)
+keeps working; [the guide](https://lexical.dev/docs/collaboration/y)
 covers both.
 
 ## Documentation
@@ -124,7 +125,12 @@ covers both.
   (EXPERIMENTAL): `@lexical/y/offline`, a local store for Yjs 14 documents
   on IndexedDB (`openYOfflineStore`) and the offline session
   (`attachYOfflineSession`, `recoverYOfflineEdits`, `replayUnsyncedEdits`)
-  with its rollout stages `'off'`, `'persist'` and `'replay'`.
+  with its rollout stages `'off'`, `'persist'` and `'replay'`. A replay
+  takes a required `leftovers`: the blocks it cannot apply are written into
+  the document (`{wrap: wrapLeftoversAsQuote('…')}`) or given to your
+  handler (`{handle}`), never dropped; and a required `autoReplay`
+  (`'replayable'`, `'none'` or `{maxBaseAge}`), so an app chooses whether an
+  old copy is merged by itself.
 - Layout migrations (EXPERIMENTAL): `@lexical/y/migrate` (the runner) and
   one frozen step per layout (`@lexical/y/migrate/1to2`); see
   [Changing the layout and migrating](https://lexical.dev/docs/collaboration/y#changing-the-layout-and-migrating).

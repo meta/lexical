@@ -239,7 +239,11 @@ describe('C9: a highlighted code line made again with one token changed', () => 
         $initialEditorState: null,
         dependencies: [
           CodePrismExtension,
-          configExtension(YCollabExtension, {doc, schemaVersion: 1}),
+          configExtension(YCollabExtension, {
+            doc,
+            onYStatus: null,
+            schemaVersion: 1,
+          }),
         ],
         name: `c9-code/${id}`,
         onError: (e: Error) => {

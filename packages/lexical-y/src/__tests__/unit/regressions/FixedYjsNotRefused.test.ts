@@ -64,9 +64,12 @@ test('the entry points run on a @y/y with yjs/yjs#824 fixed, and the check warns
   const doc = createYDoc();
   expect(getGapRepairStatus()).toBe('retirable');
   expect(warn.mock.calls).toEqual([[GAP_REPAIR_RETIRABLE_WARNING]]);
-  const binding = new YBinding(createEditor(), doc, {schemaVersion: 1});
+  const binding = new YBinding(createEditor(), doc, {
+    onStatus: null,
+    schemaVersion: 1,
+  });
   binding.dispose();
-  const config: HeadlessYConfig = {schemaVersion: 1};
+  const config: HeadlessYConfig = {onWarn: null, schemaVersion: 1};
   const state = seedYState(config, () => {
     $getRoot().append($createParagraphNode().append($createTextNode('kept')));
   });

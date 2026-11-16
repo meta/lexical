@@ -52,7 +52,11 @@ for (const gc of [false, true])
   test(`canonical stored formats survive a constructor-dependent declaration gc=${gc}`, async () => {
     const doc = createYDoc(null, {gc});
     const e = editor();
-    const b = new YBinding(e, doc, {schemaVersion: 1, selfCheck: true});
+    const b = new YBinding(e, doc, {
+      onStatus: null,
+      schemaVersion: 1,
+      selfCheck: true,
+    });
     b.start();
     e.update(
       () =>

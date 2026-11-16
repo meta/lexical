@@ -87,6 +87,7 @@ function client(
   doc.on('update', (update: Uint8Array) => updates.push(update));
   const binding = new YBinding(editor, doc, {
     captureTimeout: null,
+    onStatus: null,
     schemaVersion,
     selfCheck: true,
     ...options,
@@ -783,7 +784,12 @@ describe('schema version: required', () => {
     expect(() =>
       buildEditorFromExtensions(
         defineExtension({
-          dependencies: [configExtension(YCollabExtension, {schemaVersion: 1})],
+          dependencies: [
+            configExtension(YCollabExtension, {
+              onYStatus: null,
+              schemaVersion: 1,
+            }),
+          ],
           name: 'test-doc-required',
         }),
       ),
@@ -821,6 +827,7 @@ describe('schema version: required', () => {
         dependencies: [
           configExtension(YCollabExtension, {
             doc: createYDoc(),
+            onYStatus: null,
             schemaVersion: 7,
             synced: true,
           }),
@@ -840,12 +847,14 @@ describe('schema version: required', () => {
     expect(() => new YBinding(editor, createYDoc())).toThrow(
       `YBinding needs options.schemaVersion (got undefined): ${FIX}`,
     );
-    // @ts-expect-error schemaVersion is required
-    expect(() => new YBinding(editor, createYDoc(), {selfCheck: true})).toThrow(
-      FIX,
-    );
     expect(
-      () => new YBinding(editor, createYDoc(), {schemaVersion: 0}),
+      () =>
+        // @ts-expect-error schemaVersion is required
+        new YBinding(editor, createYDoc(), {onStatus: null, selfCheck: true}),
+    ).toThrow(FIX);
+    expect(
+      () =>
+        new YBinding(editor, createYDoc(), {onStatus: null, schemaVersion: 0}),
     ).toThrow(FIX);
     // @ts-expect-error schemaVersion is required
     const bare: HeadlessYConfig = {nodes: NODES};

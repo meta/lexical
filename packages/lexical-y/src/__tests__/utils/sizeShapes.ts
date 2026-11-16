@@ -326,6 +326,7 @@ export function describeMigration(lines: number, text: string): void {
         const input = layout1Document(lines, text);
         const result = migrateYState(input, [step1to2, step2to3, step3to4], {
           gc,
+          pending: 'discard',
         });
         expect(result.receipt.changed).toBe(true);
         const read = readYState(result.state, CONFIG, () =>
@@ -349,7 +350,7 @@ function layout3Document(lines: number, text: string): Uint8Array {
   const three = migrateYState(
     layout1Document(lines, text),
     [step1to2, step2to3],
-    {gc: false, to: 3},
+    {gc: false, pending: 'discard', to: 3},
   ).state;
   const doc = createRawYDoc(three, {gc: false});
   doc.clientID = 4244;
@@ -380,7 +381,10 @@ export function describeMigration3to4(lines: number, text: string): void {
     const input = layout3Document(lines, text);
     for (const gc of [false, true]) {
       test(`${name}, flat NodeState (gc ${gc ? 'on' : 'off'})`, () => {
-        const result = migrateYState(input, [step3to4], {gc});
+        const result = migrateYState(input, [step3to4], {
+          gc,
+          pending: 'discard',
+        });
         expect(result.receipt.roots[0].steps.map(s => s.id)).toEqual([
           'lexical-y/layout/3to4',
         ]);

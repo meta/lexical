@@ -38,6 +38,7 @@ import {catalogHeadlessConfig, seedShapes} from '../catalog/bind';
 import {$appendShapes, NODE_SHAPES, shapesWith} from '../catalog/nodes';
 import {CORE_OPS} from '../catalog/ops';
 import {mulberry32} from '../utils/fuzz';
+import {flat} from '../utils/migrateResults';
 import {
   containersOf,
   insertFormatAfter,
@@ -215,23 +216,34 @@ describe.each([false, true])('migration runner, gc %s', gc => {
     test('the default target is MIN_LAYOUT (nothing runs on a seed); one layout up runs the stamp, two run the stamp then the rewrite', () => {
       const state = stateOf(RSEED);
       expect(recordedLayout(docOf(state))).toBe(SEED);
-      const none = migrateYState(state, [REWRITE, STAMP], {gc});
+      const none = flat(
+        migrateYState(state, [REWRITE, STAMP], {
+          gc,
+          pending: 'return',
+        }),
+      );
       expect(none.state).toBe(state);
       expect(none.update).toBeNull();
       expect(none.pending).toBeNull();
       expect(none.receipt).toMatchObject({changed: false});
-      const two = migrateYState(state, [REWRITE, STAMP], {
-        gc,
-        to: SEED + 1,
-      });
+      const two = flat(
+        migrateYState(state, [REWRITE, STAMP], {
+          gc,
+          pending: 'return',
+          to: SEED + 1,
+        }),
+      );
       expect(two.receipt.roots.map(r => r.steps.map(s => s.id))).toEqual([
         [`lexical-y/layout/${SEED}to${SEED + 1}`],
       ]);
       expect(recordedLayout(docOf(two.state))).toBe(SEED + 1);
-      const three = migrateYState(state, [REWRITE, STAMP], {
-        gc,
-        to: SEED + 2,
-      });
+      const three = flat(
+        migrateYState(state, [REWRITE, STAMP], {
+          gc,
+          pending: 'return',
+          to: SEED + 2,
+        }),
+      );
       expect(three.receipt.roots[0]).toMatchObject({
         changed: true,
         from: SEED,
@@ -244,25 +256,40 @@ describe.each([false, true])('migration runner, gc %s', gc => {
       ]);
       expect(recordedLayout(docOf(three.state))).toBe(SEED + 2);
       // The order the steps are given in does not matter.
-      const again = migrateYState(state, [STAMP, REWRITE], {
-        gc,
-        to: SEED + 2,
-      });
+      const again = flat(
+        migrateYState(state, [STAMP, REWRITE], {
+          gc,
+          pending: 'return',
+          to: SEED + 2,
+        }),
+      );
       expect(same(again.state, three.state)).toBe(true);
     });
 
     test('a chain of two writes the same bytes as each step in turn', () => {
       for (const seed of [RSEED, RSEED + 1, RSEED + 2]) {
         const state = stateOf(seed);
-        const chained = migrateYState(state, [STAMP, REWRITE], {
-          gc,
-          to: SEED + 2,
-        });
-        const first = migrateYState(state, [STAMP], {gc, to: SEED + 1});
-        const second = migrateYState(first.state, [REWRITE], {
-          gc,
-          to: SEED + 2,
-        });
+        const chained = flat(
+          migrateYState(state, [STAMP, REWRITE], {
+            gc,
+            pending: 'return',
+            to: SEED + 2,
+          }),
+        );
+        const first = flat(
+          migrateYState(state, [STAMP], {
+            gc,
+            pending: 'return',
+            to: SEED + 1,
+          }),
+        );
+        const second = flat(
+          migrateYState(first.state, [REWRITE], {
+            gc,
+            pending: 'return',
+            to: SEED + 2,
+          }),
+        );
         expect(same(second.state, chained.state)).toBe(true);
         expect(second.receipt.roots[0].epoch).toEqual(
           chained.receipt.roots[0].epoch,
@@ -273,7 +300,12 @@ describe.each([false, true])('migration runner, gc %s', gc => {
     test("a step whose target layout needs a rewrite fails through the step's checkAfter when it only stamps, the re-read included", () => {
       const state = stateOf(RSEED + 3);
       expectRefused(
-        () => migrateYState(state, [STAMP, NO_OP_REWRITE], {gc, to: SEED + 2}),
+        () =>
+          migrateYState(state, [STAMP, NO_OP_REWRITE], {
+            gc,
+            pending: 'return',
+            to: SEED + 2,
+          }),
         'post-condition',
         'not rewritten',
       );
@@ -288,14 +320,18 @@ describe.each([false, true])('migration runner, gc %s', gc => {
         },
       });
       const e = expectRefused(
-        () => migrateYState(state, [flaky], {gc, to: SEED + 1}),
+        () =>
+          migrateYState(state, [flaky], {gc, pending: 'return', to: SEED + 1}),
         'post-condition',
         're-read: container',
       );
       expect(e.problems.some(p => p.startsWith('result:'))).toBe(false);
       expect(
-        migrateYState(state, [STAMP, REWRITE], {gc, to: SEED + 2}).receipt
-          .changed,
+        migrateYState(state, [STAMP, REWRITE], {
+          gc,
+          pending: 'return',
+          to: SEED + 2,
+        }).receipt.changed,
       ).toBe(true);
     });
 
@@ -345,7 +381,7 @@ describe.each([false, true])('migration runner, gc %s', gc => {
         ];
       for (const [steps, to, code, problem] of cases) {
         expectRefused(
-          () => migrateYState(state, steps, {gc, to}),
+          () => migrateYState(state, steps, {gc, pending: 'return', to}),
           code,
           problem,
         );
@@ -366,9 +402,21 @@ describe.each([false, true])('migration runner, gc %s', gc => {
 
     test('a root at or above the target is not migrated (the same bytes back)', () => {
       const state = stateOf(RSEED);
-      const once = migrateYState(state, [STAMP], {gc, to: SEED + 1});
+      const once = flat(
+        migrateYState(state, [STAMP], {
+          gc,
+          pending: 'return',
+          to: SEED + 1,
+        }),
+      );
       expect(once.update).not.toBeNull();
-      const twice = migrateYState(once.state, [STAMP], {gc, to: SEED + 1});
+      const twice = flat(
+        migrateYState(once.state, [STAMP], {
+          gc,
+          pending: 'return',
+          to: SEED + 1,
+        }),
+      );
       expect(twice.state).toBe(once.state);
       expect(twice.update).toBeNull();
       expect(twice.receipt).toMatchObject({changed: false});
@@ -406,7 +454,7 @@ describe.each([false, true])('migration runner, gc %s', gc => {
       } as unknown as YLayoutMigration;
       const state = stateOf(RSEED);
       expectRefused(
-        () => migrateYState(state, [later], {gc, ...TO2}),
+        () => migrateYState(state, [later], {gc, pending: 'return', ...TO2}),
         'invalid-steps',
         'step contract 2',
       );
@@ -418,7 +466,13 @@ describe.each([false, true])('migration runner, gc %s', gc => {
       expect(calls).toEqual([]);
       // Returning nothing (void) is a step's ordinary shape.
       const quiet = stamp(SEED, {migrateContainer: () => undefined});
-      const out = migrateYState(state, [quiet], {gc, ...TO2});
+      const out = flat(
+        migrateYState(state, [quiet], {
+          gc,
+          pending: 'return',
+          ...TO2,
+        }),
+      );
       expect(out.receipt.changed).toBe(true);
       expect(recordedLayout(docOf(out.state))).toBe(SEED + 1);
     });
@@ -470,7 +524,12 @@ describe.each([false, true])('migration runner, gc %s', gc => {
       const raw = new Y.Doc({gc});
       raw.get(ROOT).insert(0, 'text');
       expectRefused(
-        () => migrateYState(Y.encodeStateAsUpdate(raw), [STAMP], {gc, ...TO2}),
+        () =>
+          migrateYState(Y.encodeStateAsUpdate(raw), [STAMP], {
+            gc,
+            pending: 'return',
+            ...TO2,
+          }),
         'missing',
       );
       const pinned = new Y.Doc({gc});
@@ -479,6 +538,7 @@ describe.each([false, true])('migration runner, gc %s', gc => {
         () =>
           migrateYState(Y.encodeStateAsUpdate(pinned), [STAMP], {
             gc,
+            pending: 'return',
             ...TO2,
           }),
         'missing',
@@ -487,6 +547,7 @@ describe.each([false, true])('migration runner, gc %s', gc => {
       other.get('other').insert(0, 'x');
       const absent = migrateYState(Y.encodeStateAsUpdate(other), [STAMP], {
         gc,
+        pending: 'return',
         ...TO2,
       });
       expect(absent.receipt.changed).toBe(false);
@@ -498,6 +559,7 @@ describe.each([false, true])('migration runner, gc %s', gc => {
       expect(
         migrateYState(Y.encodeStateAsUpdate(emptied), [STAMP], {
           gc,
+          pending: 'return',
           ...TO2,
         }).receipt.changed,
       ).toBe(false);
@@ -540,6 +602,7 @@ describe.each([false, true])('migration runner, gc %s', gc => {
           () =>
             migrateYState(Y.encodeStateAsUpdate(doc), [STAMP], {
               gc,
+              pending: 'return',
               ...TO2,
             }),
           'malformed',
@@ -552,7 +615,13 @@ describe.each([false, true])('migration runner, gc %s', gc => {
       doc.get(ROOT).setAttr(`lexical-y:${LAYOUT_VERSION + 7}`, true);
       const newer = Y.encodeStateAsUpdate(doc);
       for (const steps of [[], [STAMP], [STAMP, REWRITE]]) {
-        const result = migrateYState(newer, steps, {gc, to: SEED + 2});
+        const result = flat(
+          migrateYState(newer, steps, {
+            gc,
+            pending: 'return',
+            to: SEED + 2,
+          }),
+        );
         expect(result.update).toBeNull();
         expect(Buffer.from(result.state)).toEqual(Buffer.from(newer));
         expect(result.receipt.roots[0]).toMatchObject({
@@ -596,7 +665,9 @@ describe.each([false, true])('migration runner, gc %s', gc => {
       expect(held.store.pendingStructs).not.toBeNull();
       expect(held.store.pendingDs).not.toBeNull();
       const input = Y.encodeStateAsUpdate(held);
-      const r = migrateYState(input, [STAMP], {gc, ...TO2});
+      const r = flat(
+        migrateYState(input, [STAMP], {gc, pending: 'return', ...TO2}),
+      );
       expect(r.receipt.changed).toBe(true);
       expect(r.pending).not.toBeNull();
       const out = docOf(r.state);
@@ -617,7 +688,7 @@ describe.each([false, true])('migration runner, gc %s', gc => {
       expect(origins).toEqual([]);
       expect(recordedLayout(held)).toBe(SEED);
       // A document that does not migrate is a no-op whatever it holds.
-      const none = migrateYState(input, [STAMP], {gc});
+      const none = flat(migrateYState(input, [STAMP], {gc, pending: 'return'}));
       expect(none.state).toBe(input);
       expect(none.pending).toBeNull();
     });
@@ -675,7 +746,13 @@ describe.each([false, true])('migration runner, gc %s', gc => {
         expect(relay.store.skips.isEmpty()).toBe(false);
         expect(relay.store.pendingStructs).toBeNull();
         const input = Y.encodeStateAsUpdate(relay);
-        const r = migrateYState(input, [STAMP], {gc, ...TO2});
+        const r = flat(
+          migrateYState(input, [STAMP], {
+            gc,
+            pending: 'return',
+            ...TO2,
+          }),
+        );
         expect(r.receipt.changed).toBe(true);
         expect(r.pending).not.toBeNull();
         const out = docOf(r.state);
@@ -716,10 +793,13 @@ describe.each([false, true])('migration runner, gc %s', gc => {
       Y.applyUpdate(relay, more[1]);
       expect(relay.store.pendingStructs).not.toBeNull();
       expect(relay.store.skips.isEmpty()).toBe(false);
-      const r = migrateYState(Y.encodeStateAsUpdate(relay), [STAMP], {
-        gc,
-        ...TO2,
-      });
+      const r = flat(
+        migrateYState(Y.encodeStateAsUpdate(relay), [STAMP], {
+          gc,
+          pending: 'return',
+          ...TO2,
+        }),
+      );
       const out = docOf(r.state);
       expect(out.store.skips.isEmpty()).toBe(true);
       expect(out.store.pendingStructs).toBeNull();
@@ -744,7 +824,13 @@ describe.each([false, true])('migration runner, gc %s', gc => {
         state: out,
         update,
         receipt,
-      } = migrateYState(state, [STAMP, REWRITE], {gc, to: SEED + 2});
+      } = flat(
+        migrateYState(state, [STAMP, REWRITE], {
+          gc,
+          pending: 'return',
+          to: SEED + 2,
+        }),
+      );
       expect(receipt.v).toBe(1);
       expect(receipt.changed).toBe(true);
       expect(receipt.bytesBefore).toBe(state.length);
@@ -808,11 +894,14 @@ describe.each([false, true])('migration runner, gc %s', gc => {
         $appendShapes([NODE_SHAPES[3], shapesWith('table')[0]]),
       );
       const both = Y.mergeUpdates([a, b] as Uint8Array<ArrayBuffer>[]);
-      const r = migrateYState(both, [STAMP], {
-        gc,
-        roots: [ROOT, 'B', ROOT],
-        ...TO2,
-      });
+      const r = flat(
+        migrateYState(both, [STAMP], {
+          gc,
+          pending: 'return',
+          roots: [ROOT, 'B', ROOT],
+          ...TO2,
+        }),
+      );
       expect(r.receipt.roots.map(x => [x.root, x.from, x.to])).toEqual([
         ['B', SEED, SEED + 1],
         [ROOT, SEED, SEED + 1],
@@ -827,6 +916,7 @@ describe.each([false, true])('migration runner, gc %s', gc => {
         () =>
           migrateYState(Y.encodeStateAsUpdate(bad), [STAMP], {
             gc,
+            pending: 'return',
             roots: [ROOT, 'B'],
             ...TO2,
           }),
@@ -878,6 +968,7 @@ describe.each([false, true])('migration runner, gc %s', gc => {
           return 1000 + seen.length;
         },
         gc,
+        pending: 'return',
         to: SEED + 2,
       });
       expect(own.receipt.roots[0].steps.map(s => s.client)).toEqual([
@@ -903,6 +994,7 @@ describe.each([false, true])('migration runner, gc %s', gc => {
           migrateYState(state, [STAMP], {
             clientID: () => taken,
             gc,
+            pending: 'return',
             ...TO2,
           }),
         'post-condition',
@@ -913,6 +1005,7 @@ describe.each([false, true])('migration runner, gc %s', gc => {
           migrateYState(state, [STAMP], {
             clientID: () => 0.5,
             gc,
+            pending: 'return',
             ...TO2,
           }),
         'post-condition',
@@ -952,8 +1045,20 @@ describe.each([false, true])('migration runner, gc %s', gc => {
       for (const seed of [RSEED + 5, RSEED + 6, RSEED + 7]) {
         const state = stateOf(seed);
         const steps = [STAMP, REWRITE];
-        const x = migrateYState(state, steps, {gc, to: SEED + 2});
-        const y = migrateYState(state.slice(), steps, {gc, to: SEED + 2});
+        const x = flat(
+          migrateYState(state, steps, {
+            gc,
+            pending: 'return',
+            to: SEED + 2,
+          }),
+        );
+        const y = flat(
+          migrateYState(state.slice(), steps, {
+            gc,
+            pending: 'return',
+            to: SEED + 2,
+          }),
+        );
         expect(same(x.state, y.state)).toBe(true);
         const a = docOf(state);
         const b = docOf(state);
@@ -965,7 +1070,13 @@ describe.each([false, true])('migration runner, gc %s', gc => {
         expect(same(Y.encodeStateAsUpdate(a), x.state)).toBe(true);
         expect(same(Y.encodeStateAsUpdate(b), x.state)).toBe(true);
         // A migrated document writes nothing.
-        const again = migrateYState(x.state, steps, {gc, to: SEED + 2});
+        const again = flat(
+          migrateYState(x.state, steps, {
+            gc,
+            pending: 'return',
+            to: SEED + 2,
+          }),
+        );
         expect(again.state).toBe(x.state);
       }
     });
@@ -1005,7 +1116,7 @@ describe.each([false, true])('migration runner, gc %s', gc => {
         migrateYState(
           state,
           [stamp(SEED, {readAfter: faithful, readBefore: faithful})],
-          {gc, to: SEED + 1},
+          {gc, pending: 'return', to: SEED + 1},
         ).receipt.changed,
       ).toBe(true);
       expectRefused(
@@ -1018,7 +1129,7 @@ describe.each([false, true])('migration runner, gc %s', gc => {
                 readBefore: faithful,
               }),
             ],
-            {gc, to: SEED + 1},
+            {gc, pending: 'return', to: SEED + 1},
           ),
         'post-condition',
         'reads differently at unit 1',
@@ -1034,7 +1145,7 @@ describe.each([false, true])('migration runner, gc %s', gc => {
                 readBefore: node => faithful(node).slice(0, 2),
               }),
             ],
-            {gc, to: SEED + 1},
+            {gc, pending: 'return', to: SEED + 1},
           ),
         'post-condition',
         '2 strings for 4 units',
@@ -1065,7 +1176,7 @@ describe.each([false, true])('migration runner, gc %s', gc => {
         rewrites: key => key === 'f:zz',
       });
       const state = stateOf(RSEED);
-      const r = migrateYState(state, [split], {gc, ...TO2});
+      const r = migrateYState(state, [split], {gc, pending: 'return', ...TO2});
       expect(r.receipt.roots[0].steps[0].written).toBeGreaterThan(2);
     });
   });
@@ -1244,7 +1355,7 @@ describe.each([false, true])('migration runner, gc %s', gc => {
     test.each(cases)('a step that %s', (_name, make, problem) => {
       const state = nested();
       expectRefused(
-        () => migrateYState(state, [make()], {gc, ...TO2}),
+        () => migrateYState(state, [make()], {gc, pending: 'return', ...TO2}),
         'post-condition',
         problem,
       );

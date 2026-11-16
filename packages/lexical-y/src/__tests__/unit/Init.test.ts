@@ -80,6 +80,7 @@ function client(doc: YDoc, text: string | null, root?: Y.Node) {
     editor.update(() => $getRoot().clear().append($p(text)), {discrete: true});
   }
   const binding = new YBinding(editor, doc, {
+    onStatus: null,
     root,
     schemaVersion: 1,
     selfCheck: true,
@@ -337,6 +338,7 @@ describe('@lexical/y initialization', () => {
               ]),
           configExtension(YCollabExtension, {
             doc,
+            onYStatus: null,
             schemaVersion: 1,
             selfCheck: false,
           }),
@@ -787,6 +789,7 @@ describe('@lexical/y initialization', () => {
         {discrete: true},
       );
       const binding = new YBinding(editor, doc, {
+        onStatus: null,
         schemaVersion: 1,
         selfCheck: true,
       });
@@ -862,6 +865,7 @@ describe('@lexical/y initialization', () => {
           configExtension(YCollabExtension, {
             convert: true,
             doc,
+            onYStatus: null,
             schemaVersion: 1,
             selfCheck: false,
             selfCheckSample: 0.25,
@@ -908,7 +912,11 @@ describe('@lexical/y initialization', () => {
     const editor = buildEditorFromExtensions(
       defineExtension({
         dependencies: [
-          configExtension(YCollabExtension, {doc, schemaVersion: 1}),
+          configExtension(YCollabExtension, {
+            doc,
+            onYStatus: null,
+            schemaVersion: 1,
+          }),
         ],
         name: 'app',
         nodes: NODES,
@@ -941,6 +949,7 @@ describe('@lexical/y initialization', () => {
           dependencies: [
             configExtension(YCollabExtension, {
               doc: createYDoc(),
+              onYStatus: null,
               schemaVersion: 1,
             }),
             HistoryExtension,
