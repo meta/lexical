@@ -20,6 +20,7 @@ import {
   $createTextNode,
   $getRoot,
   $getSelection,
+  $isElementNode,
   $isLineBreakNode,
   $isParagraphNode,
   $isRangeSelection,
@@ -384,17 +385,21 @@ describe('useCharacterLimit', () => {
             ),
           );
       });
+      const $getOverflow = () =>
+        $assertNodeType(
+          $assertNodeType(
+            $getRoot().getFirstChildOrThrow(),
+            $isElementNode,
+          ).getLastChild(),
+          $isOverflowNode,
+        );
       const rootElement = editor.getRootElement();
       assert(rootElement !== null);
       expect(
         rootElement.querySelector('br[data-lexical-managed-linebreak]'),
       ).toBe(null);
       await editor.update(() => {
-        const overflow = $assertNodeType(
-          $getRoot().getFirstChildOrThrow<ParagraphNode>().getLastChild(),
-          $isOverflowNode,
-        );
-        overflow.append($createLineBreakNode());
+        $getOverflow().append($createLineBreakNode());
       });
       const p = rootElement.querySelector('p');
       assert(p !== null);
@@ -402,10 +407,7 @@ describe('useCharacterLimit', () => {
         p.lastElementChild?.matches('br[data-lexical-managed-linebreak]'),
       ).toBe(true);
       await editor.update(() => {
-        $getRoot()
-          .getFirstChildOrThrow<ParagraphNode>()
-          .getLastChildOrThrow<OverflowNode>()
-          .append($createTextNode('7'));
+        $getOverflow().append($createTextNode('7'));
       });
       expect(
         rootElement.querySelector('br[data-lexical-managed-linebreak]'),
