@@ -83,6 +83,9 @@ import {catalogAppExtension, catalogHeadlessConfig} from '../../catalog/bind';
 import {createFakeIndexedDB} from '../../utils/fakeIndexedDB';
 import {WITH_GC} from '../../utils/harness';
 
+// The app takes the blocks that cannot be replayed itself (its panel).
+const PANEL = {handle: () => {}};
+
 const IDS = {blockIds: 'enabled'} as const;
 const config = catalogHeadlessConfig(IDS, {onWarn: () => {}});
 
@@ -269,10 +272,12 @@ test('2. a capture whose blocks only this page reapplied stays until the server 
   now.s.markSynced();
   const recover = () =>
     recoverYOfflineEdits({
+      autoReplay: 'replayable',
       binding: fresh.binding,
       config,
       epoch: 'e2',
       key: 'doc',
+      leftovers: PANEL,
       session: now.s,
       stage: 'replay',
       store,
@@ -426,10 +431,12 @@ test('6. a replay with the caret inside the replaced block applies it and moves 
   );
   const recovered = unwrap(
     await recoverYOfflineEdits({
+      autoReplay: 'replayable',
       binding: fresh.binding,
       config,
       epoch: 'e2',
       key: 'doc',
+      leftovers: PANEL,
       stage: 'replay',
       store,
     }),
@@ -481,10 +488,12 @@ test('6b. a replay that throws in a recovery is a typed failure, and the capture
   } as YOfflineBinding;
   const recover = () =>
     recoverYOfflineEdits({
+      autoReplay: 'replayable',
       binding,
       config,
       epoch: 'e2',
       key: 'doc',
+      leftovers: PANEL,
       stage: 'replay',
       store,
     });
@@ -541,10 +550,12 @@ test('7. a replay whose editor update fails under a non-throwing onError release
   } as YOfflineBinding;
   const recover = () =>
     recoverYOfflineEdits({
+      autoReplay: 'replayable',
       binding,
       config,
       epoch: 'e2',
       key: 'doc',
+      leftovers: PANEL,
       stage: 'replay',
       store,
     });
@@ -569,10 +580,12 @@ test("8. recovery leaves a live tab's rows at an older epoch, and captures them 
   const fresh = client(initial);
   const recover = () =>
     recoverYOfflineEdits({
+      autoReplay: 'replayable',
       binding: fresh.binding,
       config,
       epoch: 'e2',
       key: 'doc',
+      leftovers: PANEL,
       stage: 'persist',
       store,
     });
@@ -629,10 +642,12 @@ test('10. two tabs recovering the same stale slot at once make one capture, repl
   const b = client(initial);
   const recover = (c: ReturnType<typeof client>, s: YOfflineStore) =>
     recoverYOfflineEdits({
+      autoReplay: 'replayable',
       binding: c.binding,
       config,
       epoch: 'e2',
       key: 'doc',
+      leftovers: PANEL,
       stage: 'replay',
       store: s,
     });
@@ -708,10 +723,12 @@ test('12. a corrupt slot at another epoch fails recovery with its epoch, and cle
   const fresh = client(initial);
   const recover = () =>
     recoverYOfflineEdits({
+      autoReplay: 'replayable',
       binding: fresh.binding,
       config,
       epoch: 'e2',
       key: 'doc',
+      leftovers: PANEL,
       stage: 'persist',
       store,
     });
@@ -771,10 +788,12 @@ async function expectNothingLeftAndOneCapture(
   const fresh = client(initial);
   const recovered = unwrap(
     await recoverYOfflineEdits({
+      autoReplay: 'replayable',
       binding: fresh.binding,
       config,
       epoch: 'e2',
       key: 'doc',
+      leftovers: PANEL,
       stage: 'persist',
       store,
     }),

@@ -12,6 +12,21 @@
 // ./internal (OfflineStore, OfflineSession) and is bundled into this entry; `@lexical/y` and
 // `@lexical/y/headless` stay external siblings.
 import {
+  wrapLeftoversAsQuote,
+  type YAutoReplay,
+  type YAutoReplayRequiredPassReplayableNoneOrMaxBaseAge,
+  type YLeftoverBlock,
+  type YLeftovers,
+  type YLeftoversContext,
+  type YLeftoversHandle,
+  type YLeftoversHandled,
+  type YLeftoversInserted,
+  type YLeftoversPlacement,
+  type YLeftoversRequiredPassWrapOrHandle,
+  type YLeftoversWrap,
+  type YLeftoversWrapped,
+} from './internal/OfflineLeftovers';
+import {
   attachYOfflineSession,
   describeYOfflineCapture,
   loadYOffline,
@@ -22,11 +37,13 @@ import {
   type YOfflineDescribeOptions,
   type YOfflineLoaded,
   type YOfflineRecovered,
+  type YOfflineRecoverInput,
   type YOfflineReport,
   type YOfflineSession,
   type YOfflineSessionOptions,
   type YOfflineStage,
   type YOfflineVerdict,
+  type YReplayInput,
   type YReplayResult,
   type YReplaySkipReason,
 } from './internal/OfflineSession';
@@ -48,6 +65,18 @@ import {
 } from './internal/OfflineStore';
 
 export type {
+  YAutoReplay,
+  YAutoReplayRequiredPassReplayableNoneOrMaxBaseAge,
+  YLeftoverBlock,
+  YLeftovers,
+  YLeftoversContext,
+  YLeftoversHandle,
+  YLeftoversHandled,
+  YLeftoversInserted,
+  YLeftoversPlacement,
+  YLeftoversRequiredPassWrapOrHandle,
+  YLeftoversWrap,
+  YLeftoversWrapped,
   YOfflineBinding,
   YOfflineCapture,
   YOfflineDescribeOptions,
@@ -57,6 +86,7 @@ export type {
   YOfflineLoaded,
   YOfflineLocks,
   YOfflineRecovered,
+  YOfflineRecoverInput,
   YOfflineReport,
   YOfflineResult,
   YOfflineSalvage,
@@ -69,6 +99,7 @@ export type {
   YOfflineStored,
   YOfflineStoreOptions,
   YOfflineVerdict,
+  YReplayInput,
   YReplayResult,
   YReplaySkipReason,
 };
@@ -79,6 +110,7 @@ export {
   openYOfflineStore,
   recoverYOfflineEdits,
   replayUnsyncedEdits,
+  wrapLeftoversAsQuote,
   Y_OFFLINE_DEFAULTS,
   Y_OFFLINE_STAGES,
 };

@@ -13,10 +13,16 @@
 //   with no connection and keeps what was typed (the toolbar's connect
 //   button takes the page offline);
 // - on reconnect at the same epoch it syncs as usual;
-// - when the epoch moved, the page's copy is frozen and captured, the page
-//   opens the room's new document, and the Offline edits panel shows what
-//   did not sync, block by block, with Copy and Reapply (at stage `replay`,
-//   the default, the replayable blocks are reapplied at once).
+// - when the epoch moved, the page's copy is frozen and captured, and the
+//   page opens the room's new document. At stage `replay` (the default)
+//   what did not sync is put back at once, in one undo step: the blocks
+//   nobody changed since are reapplied, and every other block is inserted
+//   after the block it conflicts with, in a collapsible "Offline edits that
+//   did not merge" (`leftovers: {wrap}`, required by the API, so no edit is
+//   left only in a panel an app could forget). The Offline edits panel
+//   says what was reapplied and inserted. At stage `persist` nothing is
+//   written until the panel's buttons are used: Reapply for a block nobody
+//   changed, Insert for one someone did.
 //
 // The playground's relay has no epochs, so `?collabYEpoch=<n>` stands in for
 // what a server would say: each epoch is its own room, and the panel's
@@ -34,7 +40,10 @@ import {
   openYOfflineStore,
   recoverYOfflineEdits,
   replayUnsyncedEdits,
+  wrapLeftoversAsQuote,
   Y_OFFLINE_STAGES,
+  type YAutoReplay,
+  type YLeftovers,
   type YOfflineCapture,
   type YOfflineLoaded,
   type YOfflineRecovered,
@@ -44,6 +53,7 @@ import {
 } from '@lexical/y/offline';
 import {WebsocketProvider} from '@y/websocket';
 import {encodeStateAsUpdate} from '@y/y';
+import {type SerializedLexicalNode} from 'lexical';
 import {type JSX, useCallback} from 'react';
 
 const params = new URLSearchParams(window.location.search);
@@ -58,6 +68,76 @@ export const COLLAB_Y_OFFLINE_STAGE: YOfflineStage = Y_OFFLINE_STAGES.includes(
 )
   ? (requestedStage as YOfflineStage)
   : 'replay';
+
+/**
+ * `?collabYAutoReplay=none` sends every block to the collapsible section,
+ * and `?collabYAutoReplay=<ms>` does so for a copy older than that; by
+ * default the blocks nobody changed are reapplied.
+ */
+const requestedAutoReplay = params.get('collabYAutoReplay');
+const COLLAB_Y_AUTO_REPLAY: YAutoReplay =
+  requestedAutoReplay === 'none'
+    ? 'none'
+    : requestedAutoReplay !== null && /^\d+$/.test(requestedAutoReplay)
+      ? {maxBaseAge: Number(requestedAutoReplay)}
+      : 'replayable';
+
+const LEFTOVERS_LABEL = 'Offline edits that did not merge';
+const labelFor = ({capturedAt}: {capturedAt: number}) =>
+  `${LEFTOVERS_LABEL} · ${new Date(capturedAt).toLocaleString()}`;
+const asQuote = wrapLeftoversAsQuote(labelFor);
+
+/**
+ * What the playground does with the blocks a replay cannot apply: it writes
+ * them into the document, in a collapsible section after the block they
+ * conflict with, as the user had them. An editor without the collapsible
+ * nodes gets the default wrapper (a bold label and quotes).
+ */
+const LEFTOVERS: YLeftovers = {
+  wrap: (blocks, context) =>
+    ['collapsible-container', 'collapsible-title', 'collapsible-content'].every(
+      type => context.hasNode(type),
+    )
+      ? [
+          {
+            children: [
+              {
+                children: [
+                  {
+                    detail: 0,
+                    format: 0,
+                    mode: 'normal',
+                    style: '',
+                    text: labelFor(context),
+                    type: 'text',
+                    version: 1,
+                  },
+                ],
+                direction: null,
+                format: '',
+                indent: 0,
+                type: 'collapsible-title',
+                version: 1,
+              },
+              {
+                children: blocks.map(block => block.yours),
+                direction: null,
+                format: '',
+                indent: 0,
+                type: 'collapsible-content',
+                version: 1,
+              },
+            ],
+            direction: null,
+            format: '',
+            indent: 0,
+            open: true,
+            type: 'collapsible-container',
+            version: 1,
+          } as SerializedLexicalNode,
+        ]
+      : asQuote(blocks, context),
+};
 
 /** The room of a document at an epoch: epoch 1 is the room without it. */
 export function roomAtEpoch(room: string, epoch: string): string {
@@ -124,6 +204,12 @@ export interface CollabYOffline {
   /** The provider finished a sync: confirm it, then gather what did not sync. */
   onSynced(): void;
   reapply(captureId: string, blockId: string): Promise<void>;
+  /**
+   * The blocks of a capture its Insert wrote into the document: a second
+   * write would insert them again (a replay with wrap writes a report's
+   * leftovers each time it is called), so the panel stops offering them.
+   */
+  inserted(captureId: string): ReadonlySet<string>;
   dismiss(captureId: string): Promise<void>;
   /** Play the server: move the room to the next epoch (see the note above). */
   simulateReplaced(): Promise<void>;
@@ -168,6 +254,20 @@ export function createCollabYOffline(input: {
     problem: from.problem,
   });
   const recovered = signal<YOfflineRecovered[] | null>(null);
+  // Kept across reloads (this page's storage), so a reload at stage
+  // 'persist' does not offer a block again; Insert deletes a capture once
+  // everything of it is in the document, so a recovery at 'replay' does not
+  // write it again.
+  const insertedKey = (captureId: string) =>
+    `lexical-playground:collab-y-inserted:${key}:${captureId}`;
+  const insertedOf = (captureId: string): Set<string> => {
+    try {
+      const stored = window.localStorage.getItem(insertedKey(captureId));
+      return new Set(stored === null ? [] : (JSON.parse(stored) as string[]));
+    } catch {
+      return new Set();
+    }
+  };
   const useStored = storedStateFor(from) !== null;
   const session: YOfflineSession = attachYOfflineSession({
     binding,
@@ -213,10 +313,12 @@ export function createCollabYOffline(input: {
     }
     try {
       const result = await recoverYOfflineEdits({
+        autoReplay: COLLAB_Y_AUTO_REPLAY,
         binding,
         config,
         epoch: COLLAB_Y_EPOCH,
         key,
+        leftovers: LEFTOVERS,
         session,
         stage,
         store,
@@ -258,6 +360,7 @@ export function createCollabYOffline(input: {
     },
     epoch: COLLAB_Y_EPOCH,
     frozen: () => session.ended,
+    inserted: insertedOf,
     onSynced: () => {
       if (session.ended) {
         return;
@@ -276,11 +379,41 @@ export function createCollabYOffline(input: {
         r => r.capture.id === captureId,
       );
       if (entry !== undefined && entry.report.ok) {
-        replayUnsyncedEdits({
-          binding,
-          only: [blockId],
-          report: entry.report.value,
-        });
+        // A block nobody changed is put back; one someone changed is
+        // inserted after it, in the collapsible section.
+        try {
+          const result = replayUnsyncedEdits({
+            // The user asked for this block: it is put back whatever its age.
+            autoReplay: 'replayable',
+            binding,
+            leftovers: LEFTOVERS,
+            only: [blockId],
+            report: entry.report.value,
+          });
+          if (result.inserted.length > 0) {
+            const written = insertedOf(captureId);
+            written.add(blockId);
+            window.localStorage.setItem(
+              insertedKey(captureId),
+              JSON.stringify([...written]),
+            );
+            // What of it is still only in the capture: a block with content
+            // neither inserted here nor in the document (a replayable block
+            // reapplied before is no longer in the report).
+            const rest = entry.report.value.blocks.filter(
+              block => block.yours !== null && !written.has(block.id),
+            );
+            if (rest.length === 0 && store !== null) {
+              // Everything of it with content is in the document now.
+              await store.deleteCapture(key, captureId);
+              window.localStorage.removeItem(insertedKey(captureId));
+            }
+          }
+        } catch (error) {
+          // Nothing was written (the editor update failed, or the binding
+          // did not store it): the block stays offered.
+          console.error(error);
+        }
       }
       await recover();
     },
@@ -409,15 +542,39 @@ function CaptureView({
   offline: CollabYOffline;
 }): JSX.Element {
   const capture: YOfflineCapture = entry.capture;
-  const blocks = entry.report.ok ? entry.report.value.blocks : [];
+  // Without the blocks this page's Insert already wrote.
+  const written = offline.inserted(capture.id);
+  const blocks = entry.report.ok
+    ? entry.report.value.blocks.filter(block => !written.has(block.id))
+    : [];
   const applied = entry.replay === null ? 0 : entry.replay.applied.length;
+  // The blocks written for what did not merge: by this call, or (after a
+  // refresh) as the capture records them.
+  const inserted =
+    entry.replay !== null
+      ? entry.replay.inserted.length
+      : capture.resolved !== undefined
+        ? capture.resolved.inserted.length
+        : 0;
+  const fallbacks =
+    entry.replay === null
+      ? []
+      : entry.replay.leftovers.flatMap(place =>
+          place.fallback === null ? [] : [place.fallback],
+        );
   return (
     <section
       className="collab-y-offline-capture"
       data-test-id="collab-y-offline-capture">
       <div className="collab-y-offline-capture-title">
         <strong>Offline edits</strong> from epoch {capture.epoch ?? 'none'}
-        {applied > 0 ? ` · ${applied} reapplied (undo to revert)` : ''}
+        {applied > 0 ? ` · ${applied} reapplied` : ''}
+        {inserted > 0
+          ? ` · ${inserted} block${inserted === 1 ? '' : 's'} inserted under "${LEFTOVERS_LABEL}"`
+          : ''}
+        {applied > 0 || (inserted > 0 && entry.replay !== null)
+          ? ' (undo to revert)'
+          : ''}
         {capture.text !== null ? (
           <button
             type="button"
@@ -433,6 +590,11 @@ function CaptureView({
           Dismiss
         </button>
       </div>
+      {fallbacks.map(fallback => (
+        <div key={fallback} className="collab-y-offline-problem">
+          {fallback}
+        </div>
+      ))}
       {!entry.report.ok ? (
         <div className="collab-y-offline-problem">
           These edits could not be compared with the document; their text is
@@ -442,7 +604,9 @@ function CaptureView({
         <div className="collab-y-offline-empty">
           {entry.report.value.orderDiffers
             ? 'Your copy has its blocks in another order; the rest is in the document.'
-            : 'Everything is in the document.'}
+            : inserted > 0
+              ? 'Everything is in the document: what did not merge is in a collapsible section after the block it conflicts with.'
+              : 'Everything is in the document.'}
         </div>
       ) : (
         blocks.map(block => {
@@ -464,14 +628,16 @@ function CaptureView({
               <button
                 type="button"
                 data-test-id="collab-y-offline-reapply"
-                disabled={!block.replayable}
                 title={
                   block.replayable
                     ? 'Put this block back as you had it'
-                    : 'Someone changed this block since: copy your text instead'
+                    : block.yours === null
+                      ? 'Someone changed this block since, so it stays'
+                      : `Someone changed this block since: insert yours after it, under "${LEFTOVERS_LABEL}"`
                 }
+                disabled={!block.replayable && block.yours === null}
                 onClick={() => void offline.reapply(capture.id, block.id)}>
-                Reapply
+                {block.replayable ? 'Reapply' : 'Insert'}
               </button>
             </div>
           );
