@@ -94,7 +94,11 @@ function check(
   const t0 = performance.now();
   let result;
   try {
-    result = migrateYState(state, STEPS, {gc, roots: [root]});
+    result = migrateYState(state, STEPS, {
+      gc,
+      pending: 'discard',
+      roots: [root],
+    });
   } catch (e) {
     return `${id}: migrate threw ${String(e).slice(0, 400)}`;
   }
@@ -106,7 +110,11 @@ function check(
   if (problems.length > 0) {
     return `${id}: checkAfter ${problems.slice(0, 3).join('; ')}`;
   }
-  const again = migrateYState(result.state, STEPS, {gc, roots: [root]});
+  const again = migrateYState(result.state, STEPS, {
+    gc,
+    pending: 'discard',
+    roots: [root],
+  });
   if (again.receipt.changed || again.update !== null) {
     return `${id}: a second migration changed it`;
   }

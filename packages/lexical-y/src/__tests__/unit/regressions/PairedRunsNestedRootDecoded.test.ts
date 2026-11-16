@@ -53,7 +53,11 @@ function bind(doc: Y.Doc, root: Y.Node, init?: () => void): LexicalEditor {
   if (init !== undefined) {
     editor.update(init, {discrete: true});
   }
-  const binding = new YBinding(editor, doc as never, {root, schemaVersion: 1});
+  const binding = new YBinding(editor, doc as never, {
+    onStatus: null,
+    root,
+    schemaVersion: 1,
+  });
   bindings.push(binding);
   binding.start();
   if (init !== undefined) {

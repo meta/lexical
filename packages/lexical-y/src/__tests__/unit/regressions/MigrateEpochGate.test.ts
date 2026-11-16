@@ -129,7 +129,7 @@ function bind(state: Uint8Array, gc: boolean) {
       },
     }),
   );
-  const binding = new YBinding(editor, doc, {schemaVersion: 1});
+  const binding = new YBinding(editor, doc, {onStatus: null, schemaVersion: 1});
   binding.start();
   binding.initialize();
   const append = (s: string) =>
@@ -221,7 +221,11 @@ describe.each([false, true])('malformed epochs, gc %s', gc => {
       ),
     ).toThrow(YHeadlessError);
     expect(() =>
-      migrateYState(state, [stamp(SEED)], {gc, to: SEED + 1}),
+      migrateYState(state, [stamp(SEED)], {
+        gc,
+        pending: 'discard',
+        to: SEED + 1,
+      }),
     ).toThrow(/epoch/);
     const doc = createYDoc(state, {gc});
     expect(
@@ -257,7 +261,11 @@ describe.each([false, true])('malformed epochs, gc %s', gc => {
       ).toEqual([]);
       doc.destroy();
       expect(
-        migrateYState(state, [stamp(SEED)], {gc, to: SEED + 1}).receipt.changed,
+        migrateYState(state, [stamp(SEED)], {
+          gc,
+          pending: 'discard',
+          to: SEED + 1,
+        }).receipt.changed,
       ).toBe(true);
     },
   );
@@ -268,6 +276,7 @@ describe.each([false, true])('malformed epochs, gc %s', gc => {
     t.dispose();
     const migrated = migrateYState(rawDoc(SEED), [stamp(SEED)], {
       gc,
+      pending: 'discard',
       to: SEED + 1,
     }).state;
     const m = bind(migrated, gc);

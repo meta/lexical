@@ -55,7 +55,7 @@ function client(id: number, state?: Uint8Array) {
       throw e;
     },
   });
-  const binding = new YBinding(editor, doc, {schemaVersion: 1});
+  const binding = new YBinding(editor, doc, {onStatus: null, schemaVersion: 1});
   return {binding, doc, editor, stop: binding.start()};
 }
 

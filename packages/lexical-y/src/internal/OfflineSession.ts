@@ -12,18 +12,21 @@
 //   const loaded = await loadYOffline({store, key});         // offline mode
 //   const doc = createYDoc(loaded.state);
 //   const binding = createYBinding(editor, {doc, ...});
-//   const session = attachYOfflineSession({binding, store, key,
-//     epoch: loaded.epoch, loaded, stage, onError});
+//   const session = attachYOfflineSession({binding, key,
+//     epoch: loaded.epoch, loaded,
+//     offline: {stage, store, persist: 'document'}, onError,
+//     stopSync: () => provider.destroy()});
 //
 //   // 1. the server said which epoch the room is at: before syncing, on
 //   //    every connect, and on a "replaced" event (a reload or a layout
 //   //    upgrade of the room is the same signal: a new epoch):
 //   const verdict = await session.serverEpoch(epoch);
-//   //    'same': sync this document. 'moved': it is frozen and captured;
-//   //    open a fresh document at the new epoch, then
-//   //    recoverYOfflineEdits() there.
-//   // 2. the server holds everything the document holds:
-//   session.markSynced();
+//   //    'same': sync this document. 'moved': it is frozen and captured,
+//   //    and `stopSync` was called; open a fresh document at the new
+//   //    epoch, then recoverYOfflineEdits() there.
+//   // 2. the server holds everything the document holds (only a 'same'
+//   //    verdict, from a confirmed epoch, can say so):
+//   verdict.markSynced();
 //
 // It uses the binding's public API only (`freeze()`, `status`, the editor)
 // and `describeUnsyncedEdits`: nothing here depends on a layout.
@@ -97,10 +100,11 @@ import {
  * of every call that takes it:
  * - `'off'`: nothing is persisted, captured or replayed (the calls return
  *   at once), so an app can ship the code dark;
- * - `'persist'`: every edit is stored on the device as it is made
- *   (`persistEdits`), and a document whose epoch moved (a reconnect to a
- *   replaced or upgraded room) is frozen and stored with its base. Nothing
- *   is written into the new document: the edits stay stored;
+ * - `'persist'`: edits are stored on the device as `offline.persist`
+ *   says (every edit as it is made, with `'document'`), and a document whose
+ *   epoch moved (a reconnect to a replaced or upgraded room) is frozen and
+ *   stored with its base. Nothing is written into the new document: the
+ *   edits stay stored;
  * - `'replay'`: as `'persist'`, and {@link recoverYOfflineEdits} applies the
  *   blocks that are replayable and, with `leftovers: {wrap}`, writes every
  *   other block into the document.
@@ -139,6 +143,13 @@ export interface YOfflineLoaded {
   readonly hasUnsyncedEdits: boolean;
   /** When `base` was stored (Unix ms), or null when unknown. */
   readonly baseAt: number | null;
+  /**
+   * Whether every one of those edits is in rows a tab still open holds
+   * (another tab of the document, offline): that tab syncs them, or
+   * captures them when it learns its epoch moved, so this page's session
+   * does not capture them as its own unless it edits too.
+   */
+  readonly unsyncedInLiveTabs: boolean;
   /** @internal The handle that read it (it owns the rows read). */
   readonly slot: YOfflineSlot | null;
 }
@@ -155,11 +166,15 @@ export interface YOfflineLoaded {
  *   Apply its `state` to the server's document (the same lineage, so it
  *   merges: the edits that did not sync go out on the next sync), and bind.
  *   A slot at another epoch is never loaded: {@link recoverYOfflineEdits}
- *   turns it into a capture. There is nothing to ask `serverEpoch` until
- *   the server replaces the room.
+ *   turns it into a capture. Call `session.serverEpoch(epoch)` once after
+ *   attaching (it answers `'same'` at once): its verdict's `markSynced()`
+ *   is how the session learns the server holds the document.
  *
- * A key has more than one slot only when a tab was left at an earlier
- * epoch.
+ * Rows of a tab still open (with its writer lock) are read too, so a page
+ * shows what another tab of the document holds; where they are the only
+ * unsynced edits (`unsyncedInLiveTabs`), the session does not capture them
+ * as this page's when the epoch moved (that tab does). A key has more than
+ * one slot only when a tab was left at an earlier epoch.
  */
 export async function loadYOffline(input: {
   readonly store: YOfflineStore;
@@ -190,6 +205,7 @@ export async function loadYOffline(input: {
       hasUnsyncedEdits: false,
       slot: null,
       state: null,
+      unsyncedInLiveTabs: false,
     });
   }
   const {epoch} = found;
@@ -198,19 +214,72 @@ export async function loadYOffline(input: {
   if (!stored.ok) {
     return stored;
   }
+  // Which of the unsynced edits are only in rows a tab still open holds
+  // (it syncs or captures them itself): a moved epoch must not capture
+  // them again as this page's, on every page load. Then the session's
+  // handle is one that read only the rows whose writer is gone: it owns,
+  // and may replace, those, never the live tab's.
+  let unsyncedInLiveTabs = false;
+  let handle = slot;
+  if (stored.value !== null && stored.value.hasUnsyncedEdits) {
+    const probe = input.store.slot(input.key, epoch);
+    const gone = await probe.load({writers: 'gone'});
+    unsyncedInLiveTabs =
+      gone.ok && (gone.value === null || !gone.value.hasUnsyncedEdits);
+    if (unsyncedInLiveTabs) {
+      slot.close();
+      handle = probe;
+    } else {
+      probe.close();
+    }
+  }
   return ok({
     base: stored.value === null ? null : stored.value.base,
     baseAt: stored.value === null ? null : (stored.value.baseAt ?? null),
     epoch,
     hasUnsyncedEdits: stored.value !== null && stored.value.hasUnsyncedEdits,
-    slot,
+    slot: handle,
     state: stored.value === null ? null : stored.value.state,
+    unsyncedInLiveTabs,
   });
 }
 
 /**
- * @experimental Options of {@link attachYOfflineSession}: `binding`, `store`,
- * `key`, `epoch`, `stage` and `onError` are required.
+ * @experimental What `persist` keeps on the device (see
+ * {@link YOfflineMode}):
+ * - `'document'`: every update as it is made, the whole document (its base
+ *   and what came since), so the page can open it with no connection
+ *   (`loadYOffline`) and a later page captures what did not sync;
+ * - `'unsynced'`: the same, but only while the document holds edits the
+ *   server lacks: nothing is stored while it is synced, the first local
+ *   edit stores the base and what came since, and the verdict's
+ *   `markSynced()` deletes them;
+ * - `'captures-only'`: no edit is stored as it is made, only a capture when
+ *   the epoch moves while the tab is open. Unsynced edits live in the tab
+ *   alone: a reload, a crash or a closed tab with no connection loses them.
+ */
+export type YOfflinePersist = 'document' | 'unsynced' | 'captures-only';
+
+/**
+ * @experimental The offline layer's mode: one value, so a store is there
+ * exactly when the stage uses it. Build it in one expression:
+ * `opened.ok ? {persist: 'document', stage, store: opened.value} : {stage: 'off'}`.
+ */
+export type YOfflineMode =
+  /** Nothing is persisted, captured or replayed (see {@link YOfflineStage}). */
+  | {readonly stage: 'off'}
+  | {
+      readonly stage: 'persist' | 'replay';
+      /** From `openYOfflineStore`. */
+      readonly store: YOfflineStore;
+      /** What is kept on the device (see {@link YOfflinePersist}). */
+      readonly persist: YOfflinePersist;
+    };
+
+/**
+ * @experimental Options of {@link attachYOfflineSession}: every choice an
+ * app must make is required (`binding`, `key`, `epoch`, `loaded`,
+ * `offline`, `onError`, `stopSync`).
  */
 export interface YOfflineSessionOptions {
   /**
@@ -218,8 +287,6 @@ export interface YOfflineSessionOptions {
    * `collab`, or any {@link YOfflineBinding}.
    */
   readonly binding: YOfflineBinding;
-  /** From `openYOfflineStore`; null only with stage `'off'`. */
-  readonly store: YOfflineStore | null;
   /** The document's name in your app (its id). */
   readonly key: string;
   /**
@@ -228,37 +295,17 @@ export interface YOfflineSessionOptions {
    * server's for one fetched from it, null for one that never synced.
    */
   readonly epoch: string | null;
-  /** The rollout stage (see {@link YOfflineStage}). */
-  readonly stage: YOfflineStage;
   /**
-   * `true` (the default): every update is stored as it is made, so the
-   * document survives a reload, a crash or a closed tab with no connection,
-   * and a later page captures what did not sync. `false`: only captures
-   * are stored (a moved epoch while the tab is open); unsynced edits live
-   * in the tab until it syncs, and adds no `update` listener. Whether the
-   * editor is editable before the server answers (offline editing) is the
-   * app's choice, made when it binds (`synced`), not this one.
-   * @defaultValue `true`
+   * What {@link loadYOffline} returned when the document was created from
+   * it (its base, its unsynced edits and its stored rows continue here),
+   * or null for a document that was not (fetched from the server, or new).
+   * Required: a document created from a load but attached without it would
+   * start with no base and no unsynced edits, so a moved epoch would
+   * capture nothing of what it holds.
    */
-  readonly persistEdits?: boolean;
-  /**
-   * What `persistEdits` keeps on the device:
-   * - `'document'` (the default): the whole document, always (its base and
-   *   what came since), so the page can open it with no connection
-   *   (`loadYOffline`);
-   * - `'unsynced'`: only while the document holds edits the server lacks.
-   *   Nothing is stored while it is synced; the first local edit stores the
-   *   base and what came since, and `markSynced()` deletes them.
-   * @defaultValue `'document'`
-   */
-  readonly keep?: 'document' | 'unsynced';
-  /**
-   * Milliseconds to wait for updates to pause before storing them (0:
-   * store each at once). While they do not pause, they are stored at least
-   * every ten times this. `flush()` stores at once; call it on `pagehide`.
-   * @defaultValue `0`
-   */
-  readonly writeDelay?: number;
+  readonly loaded: YOfflineLoaded | null;
+  /** The stage, and the store it uses (see {@link YOfflineMode}). */
+  readonly offline: YOfflineMode;
   /**
    * Called with every storage failure (a full quota, a closed store): tell
    * the user their edits are not saved on this device. Editing goes on, and
@@ -266,10 +313,21 @@ export interface YOfflineSessionOptions {
    */
   readonly onError: (error: YOfflineError) => void;
   /**
-   * What {@link loadYOffline} returned, when the document was created from
-   * it: its base and its stored rows continue here.
+   * Stop syncing this document for good: disconnect or destroy its
+   * provider. The session calls it when the epoch moved (`serverEpoch` or
+   * `freeze` answering `'moved'`), right after it froze the binding and
+   * before the capture is stored, so the frozen document never syncs into
+   * the room that replaced it, whatever the app does with the verdict.
    */
-  readonly loaded?: YOfflineLoaded;
+  readonly stopSync: () => void;
+  /**
+   * Milliseconds to wait for updates to pause before storing them (0:
+   * store each at once). While they do not pause, they are stored at least
+   * every ten times this. `flush()` stores at once; call it on `pagehide`:
+   * what a delay holds back is lost with a closed tab.
+   * @defaultValue `0`
+   */
+  readonly writeDelay?: number;
   /**
    * Stored updates before they are compacted into one.
    * @defaultValue `Y_OFFLINE_DEFAULTS.compactAfter`
@@ -283,11 +341,38 @@ export interface YOfflineSessionOptions {
 export type YOfflineVerdict =
   /** Stage `'off'`: nothing was done. Handle the epoch as the app did before. */
   | {readonly kind: 'off'}
-  /** The document belongs to this epoch (or just adopted it): sync it. */
-  | {readonly kind: 'same'}
   /**
-   * The room moved on. The binding is frozen and the session has ended:
-   * never sync this document. Open a fresh one at the new epoch and call
+   * The document belongs to this epoch (or just adopted it): sync it, and
+   * call `markSynced()` once the server holds everything it holds.
+   */
+  | {
+      readonly kind: 'same';
+      /**
+       * The authoritative copy holds everything this document holds: the
+       * document as it is now becomes the base later edits are judged
+       * against, and what is stored since is replaced by it (with
+       * `persist: 'unsynced'`, deleted). Only a `'same'` verdict carries
+       * it, so it cannot run before the session confirmed the room's
+       * epoch: on a document of a replaced room it would make its unsynced
+       * edits the base, and the capture would hold none of them.
+       *
+       * "Holds" means persisted by the copy a reload or replace of the room
+       * is seeded from: for a relay in front of a product's store (a
+       * connector), the product's save, not the relay's acknowledgement.
+       * Call it only when that copy holds every update this document has
+       * (nothing newer since): an edit made after what was persisted would
+       * fold into the base, and a later capture would not list it. With a
+       * relay that acknowledges nothing, call it when the provider has
+       * synced; that leaves a window (an edit sent in that sync that never
+       * arrived is in the base). A verdict stays callable after a
+       * reconnect: call the one from the connection that synced. Once the
+       * session has ended (a moved epoch, `dispose()`) it does nothing.
+       */
+      readonly markSynced: () => void;
+    }
+  /**
+   * The room moved on. The binding is frozen, `stopSync` was called and
+   * the session has ended: never sync this document. Open a fresh one at the new epoch and call
    * {@link recoverYOfflineEdits} there. `capture` is what was kept (null
    * when the document held nothing the server lacked); `saved` says whether
    * it reached the store (when not, `capture` is all there is: keep the tab
@@ -312,9 +397,12 @@ export interface YOfflineSession {
   readonly ended: boolean;
   /**
    * Tell the session the epoch the server's room is at: call it before the
-   * provider syncs this document (on every connect), and when the server
-   * says the room was replaced. The binding is frozen before this returns
-   * its promise, so nothing typed after a `'moved'` is lost or written.
+   * provider syncs this document (on every connect, and once right after
+   * attaching a document the page fetched from the server), and when the
+   * server says the room was replaced. The binding is frozen and
+   * `stopSync` called before this returns its promise, so nothing typed
+   * after a `'moved'` is lost or written. A `'same'` verdict carries
+   * `markSynced()`.
    */
   serverEpoch(
     epoch: string,
@@ -330,21 +418,6 @@ export interface YOfflineSession {
   freeze(options?: {
     readonly reason?: YOfflineCapture['reason'];
   }): Promise<YOfflineVerdict>;
-  /**
-   * The authoritative copy holds everything this document holds: the
-   * document as it is now becomes the base later edits are judged against,
-   * and what is stored since is replaced by it (with `keep: 'unsynced'`,
-   * deleted). "Holds" means persisted by the copy a reload or replace of
-   * the room is seeded from: for a relay in front of a product's store
-   * (a connector), the product's save, not the relay's acknowledgement. A
-   * reload drops what the relay holds above that copy. Call it only when
-   * that copy holds every update this document has (nothing newer since):
-   * an edit made after what was persisted would fold into the base, and a
-   * later capture would not list it. With a relay that acknowledges
-   * nothing, call it when the provider has synced; that leaves a window (an
-   * edit sent in that sync that never arrived is in the base).
-   */
-  markSynced(): void;
   /** Resolves once everything queued so far is stored (or failed to be). */
   flush(): Promise<YOfflineResult<void>>;
   /** Stop listening. What is stored stays (use `store.clear` to drop it). */
@@ -390,6 +463,19 @@ class Session implements YOfflineSession {
   /** The state vector of the base this session stored, once it has. */
   private storedBaseVector: Uint8Array | null = null;
   private unsynced: boolean;
+  /**
+   * The unsynced edits loaded are only a live tab's (see
+   * `YOfflineLoaded.unsyncedInLiveTabs`), and this page has written none
+   * since: a moved epoch captures nothing of them.
+   */
+  private onlyLiveTabEdits: boolean;
+  /**
+   * The load's unsynced edits were only a live tab's, so the first row
+   * waits for the page's first own edit (or a markSynced(), which stores
+   * the base); see the constructor.
+   */
+  private readonly deferredFirstRow: boolean;
+  private firstRowWritten = false;
   private isEnded = false;
   private isPersisted = true;
   private slot: YOfflineSlot | null = null;
@@ -409,53 +495,68 @@ class Session implements YOfflineSession {
   private stop: () => void = () => {};
   private readonly now: () => number;
   private readonly compactAfter: number;
+  /** The store, at a stage that uses one. */
+  private readonly store: YOfflineStore | null;
   private readonly persistEdits: boolean;
   private readonly keepUnsyncedOnly: boolean;
   private readonly writeDelay: number;
-  /** With `keep: 'unsynced'`: whether the slot holds the base and since. */
+  /** With `persist: 'unsynced'`: whether the slot holds the base and since. */
   private started: boolean;
-  /** With `keep: 'unsynced'`: the slot's rows are to be deleted (synced). */
+  /** With `persist: 'unsynced'`: the slot's rows are to be deleted (synced). */
   private clearing = false;
-  /** With `keep: 'unsynced'`: the state vector of the base in memory. */
+  /** With `persist: 'unsynced'`: the state vector of the base in memory. */
   private baseVector: Uint8Array | null = null;
   private timer: ReturnType<typeof setTimeout> | null = null;
   private firstDelayed = 0;
 
   constructor(private readonly options: YOfflineSessionOptions) {
-    const {binding, loaded, store} = options;
-    this.persistEdits = options.persistEdits ?? true;
-    this.keepUnsyncedOnly = options.keep === 'unsynced';
+    const {binding, loaded, offline} = options;
+    this.store = offline.stage === 'off' ? null : offline.store;
+    this.persistEdits =
+      offline.stage !== 'off' && offline.persist !== 'captures-only';
+    this.keepUnsyncedOnly =
+      offline.stage !== 'off' && offline.persist === 'unsynced';
     this.writeDelay = options.writeDelay ?? 0;
     this.started =
-      loaded !== undefined && loaded.state !== null && loaded.hasUnsyncedEdits;
+      loaded !== null && loaded.state !== null && loaded.hasUnsyncedEdits;
     this.now = options.now ?? Date.now;
     this.compactAfter = options.compactAfter ?? Y_OFFLINE_DEFAULTS.compactAfter;
     this.epochValue = options.epoch;
-    this.base = loaded === undefined ? null : loaded.base;
+    this.base = loaded === null ? null : loaded.base;
     this.baseAt =
-      loaded === undefined || loaded.base === null
-        ? null
-        : (loaded.baseAt ?? null);
-    this.unsynced = loaded !== undefined && loaded.hasUnsyncedEdits;
-    if (options.stage === 'off' || store === null) {
+      loaded === null || loaded.base === null ? null : (loaded.baseAt ?? null);
+    this.unsynced = loaded !== null && loaded.hasUnsyncedEdits;
+    this.onlyLiveTabEdits = loaded !== null && loaded.unsyncedInLiveTabs;
+    this.deferredFirstRow = this.onlyLiveTabEdits;
+    const store = this.store;
+    if (store === null) {
       return;
     }
     const doc = binding.binding.doc;
     if (this.persistEdits) {
+      // A load whose unsynced edits are only a live tab's hands over a
+      // handle that owns only the rows whose writer was already gone (see
+      // loadYOffline): the live tab's rows stay that tab's, or, if it
+      // closes first, the next recovery's to capture.
       this.slot =
-        loaded !== undefined && loaded.slot !== null
+        loaded !== null && loaded.slot !== null
           ? loaded.slot
           : store.slot(options.key, options.epoch);
       // This handle's first row is the whole document, so its later rows
       // build only on rows it wrote: another tab may replace the rows it
-      // loaded. With keep 'unsynced', only when it loaded unsynced rows
+      // loaded. With persist 'unsynced', only when it loaded unsynced rows
       // (otherwise its first local edit stores the base and since).
+      // Not while the only unsynced edits loaded are a live tab's: that
+      // row would be a copy of them, read as a closed tab's edits once this
+      // page is gone (it may close without dispose()). The page's first own
+      // edit writes it (see onUpdate), or markSynced() stores the base.
       if (
         doc.store.clients.size > 0 &&
-        (!this.keepUnsyncedOnly || this.started)
+        (!this.keepUnsyncedOnly || this.started) &&
+        !this.onlyLiveTabEdits
       ) {
         if (
-          loaded !== undefined &&
+          loaded !== null &&
           loaded.state !== null &&
           !loaded.hasUnsyncedEdits &&
           loaded.base !== null
@@ -488,15 +589,28 @@ class Session implements YOfflineSession {
             (tr.origin as {binding?: unknown}).binding === yBinding))
       ) {
         this.unsynced = true;
+        this.onlyLiveTabEdits = false;
       }
     };
     doc.on('afterTransaction', onTransaction);
     let offUpdate = () => {};
     if (this.persistEdits) {
       // Every update, a peer's too: the slot is the whole document. With
-      // keep 'unsynced', only once a local edit made it unsynced (the
+      // persist 'unsynced', only once a local edit made it unsynced (the
       // transaction's afterTransaction, which marks it, runs first).
       const onUpdate = (update: Uint8Array) => {
+        if (this.firstRowDeferred()) {
+          if (this.onlyLiveTabEdits) {
+            // Still only a live tab's edits: nothing of this page to store.
+            return;
+          }
+          // The page's first own edit: its first row is the whole document
+          // (this update included), so its later rows build on it.
+          this.firstRowWritten = true;
+          this.pending.push(encodeStateAsUpdate(doc));
+          this.schedule();
+          return;
+        }
         if (this.keepUnsyncedOnly && !this.started) {
           if (!this.unsynced) {
             return;
@@ -523,7 +637,7 @@ class Session implements YOfflineSession {
   }
 
   get stage(): YOfflineStage {
-    return this.options.stage;
+    return this.options.offline.stage;
   }
   get epoch(): string | null {
     return this.epochValue;
@@ -608,14 +722,14 @@ class Session implements YOfflineSession {
           this.adopting = null;
         }
       } else if (this.clearing) {
-        // keep 'unsynced', synced: the stored base and since go.
+        // persist 'unsynced', synced: the stored base and since go.
         this.clearing = false;
         result = await slot.discard();
         if (!result.ok && !this.clearing) {
           this.clearing = true;
         }
       } else if (this.needsStart()) {
-        // keep 'unsynced', first edit since a sync: the base, then what the
+        // persist 'unsynced', first edit since a sync: the base, then what the
         // document holds beyond it (null base: the whole document).
         const doc = this.options.binding.binding.doc;
         const base = this.base;
@@ -695,9 +809,9 @@ class Session implements YOfflineSession {
   private moveDone: Promise<void> | null = null;
   /** Counts markSynced() calls: a batch whose append failed across one is covered. */
   private syncs = 0;
-  /** keep 'unsynced': the slot's first write since a sync is due. */
+  /** persist 'unsynced': the slot's first write since a sync is due. */
   private startPending = false;
-  /** keep 'unsynced': counts starts, so an old one's end clears no new one. */
+  /** persist 'unsynced': counts starts, so an old one's end clears no new one. */
   private startGeneration = 0;
   private needsStart(): boolean {
     return this.keepUnsyncedOnly && this.startPending;
@@ -755,20 +869,27 @@ class Session implements YOfflineSession {
     );
   }
 
-  markSynced(): void {
-    if (this.options.stage === 'off' || this.isEnded) {
+  /** A `'same'` verdict, whose `markSynced` the session confirmed. */
+  private same(): YOfflineVerdict {
+    return {kind: 'same', markSynced: () => this.confirmSynced()};
+  }
+
+  /**
+   * What the `'same'` verdict's `markSynced()` does: only reachable once
+   * `serverEpoch` confirmed the epoch (so `epochValue` is set).
+   */
+  private confirmSynced(): void {
+    if (this.store === null || this.isEnded) {
       return;
-    }
-    if (this.epochValue === null) {
-      throw new Error(
-        "@lexical/y/offline: markSynced() before the session knows the room's epoch. Call await session.serverEpoch(epoch) when the server names its epoch (before the provider syncs), then markSynced() after the sync.",
-      );
     }
     const doc = this.options.binding.binding.doc;
     const state = encodeStateAsUpdate(doc);
     this.base = state;
     this.baseAt = this.now();
     this.unsynced = false;
+    this.onlyLiveTabEdits = false;
+    // The base this stores is the whole document: later rows build on it.
+    this.firstRowWritten = true;
     this.syncs++;
     if (this.slot !== null) {
       // The state holds everything queued before it.
@@ -809,7 +930,7 @@ class Session implements YOfflineSession {
         reason,
       )}.`,
     );
-    if (this.options.stage === 'off') {
+    if (this.options.offline.stage === 'off') {
       return {kind: 'off'};
     }
     if (this.isEnded) {
@@ -818,7 +939,7 @@ class Session implements YOfflineSession {
       );
     }
     if (this.epochValue === epoch) {
-      return {kind: 'same'};
+      return this.same();
     }
     if (this.epochValue === null) {
       // A document that never synced belongs to the first epoch it meets.
@@ -828,7 +949,7 @@ class Session implements YOfflineSession {
         this.adopting = epoch;
         await this.flush();
       }
-      return {kind: 'same'};
+      return this.same();
     }
     return this.moveOn(reason);
   }
@@ -843,7 +964,7 @@ class Session implements YOfflineSession {
         reason,
       )}.`,
     );
-    if (this.options.stage === 'off') {
+    if (this.options.offline.stage === 'off') {
       return {kind: 'off'};
     }
     if (this.isEnded) {
@@ -861,10 +982,22 @@ class Session implements YOfflineSession {
     // Freeze first, synchronously: from here nothing is written to the
     // document, and what the editor holds is in the capture.
     const from = this.epochValue;
-    const {binding, key, store} = this.options;
+    const {binding, key} = this.options;
+    const store = this.store;
     const edits = binding.freeze();
-    // Read after the freeze: it commits what the editor still held.
-    const wasUnsynced = this.unsynced;
+    // Then the provider: the frozen document never syncs into the room
+    // that replaced it, whatever the app does with the verdict. A throw is
+    // rethrown apart, so the capture is still made.
+    try {
+      this.options.stopSync();
+    } catch (error) {
+      queueMicrotask(() => {
+        throw error;
+      });
+    }
+    // Read after the freeze: it commits what the editor still held. Edits
+    // only a live tab's rows hold are that tab's to capture.
+    const wasUnsynced = this.unsynced && !this.onlyLiveTabEdits;
     this.isEnded = true;
     this.stop();
     // No write may run while the rows are moved into the capture (a
@@ -923,7 +1056,16 @@ class Session implements YOfflineSession {
       // What is still queued (what the freeze committed) stays queued
       // until the capture is in.
       await this.writing;
-      saved = await slot.moveIntoCapture(capture);
+      // Nothing captured because the only unsynced edits loaded are a live
+      // tab's: the rows read stay (that tab's recovery may build on a base
+      // row of a gone writer), only this page's go.
+      saved =
+        capture === null &&
+        this.unsynced &&
+        this.onlyLiveTabEdits &&
+        slot.discardWritten !== undefined
+          ? await slot.discardWritten()
+          : await slot.moveIntoCapture(capture);
       if (saved.ok) {
         this.pending = [];
         this.confirmed = null;
@@ -972,6 +1114,11 @@ class Session implements YOfflineSession {
     return {capture, kind: 'moved', saved};
   }
 
+  /** The first row still waits for the page's first own edit. */
+  private firstRowDeferred(): boolean {
+    return this.deferredFirstRow && !this.firstRowWritten;
+  }
+
   dispose(): void {
     this.isEnded = true;
     this.stop();
@@ -996,13 +1143,16 @@ class Session implements YOfflineSession {
  * 1. `const opened = await openYOfflineStore({idb: {indexedDB, IDBKeyRange}})`;
  * 2. `const loaded = await loadYOffline({store, key})`, and create the
  *    document from `loaded.state` (null: none stored, fetch it);
- * 3. `const session = attachYOfflineSession({binding, store, key, epoch:
- *    loaded.epoch, loaded, stage, onError})`;
- * 4. `await session.serverEpoch(epoch)` whenever the server names its epoch:
- *    before the provider syncs (every connect and reconnect), and when the
- *    room is replaced or upgraded. `'same'` means sync, `'moved'` means the
- *    document was frozen and captured;
- * 5. `session.markSynced()` when the server holds the document;
+ * 3. `const session = attachYOfflineSession({binding, key, epoch:
+ *    loaded.epoch, loaded, offline: {stage, store, persist: 'document'},
+ *    onError, stopSync})`;
+ * 4. `const verdict = await session.serverEpoch(epoch)` whenever the server
+ *    names its epoch: before the provider syncs (every connect and
+ *    reconnect), and when the room is replaced or upgraded. `'same'` means
+ *    sync, `'moved'` means the document was frozen and captured and
+ *    `stopSync` was called;
+ * 5. `verdict.markSynced()` (a `'same'` verdict's) when the server holds the
+ *    document;
  * 6. on the document the page syncs (a fresh one after `'moved'`),
  *    `await recoverYOfflineEdits({..., leftovers})`: at stage `'replay'` it
  *    reapplies what did not sync and writes the rest into the document
@@ -1014,9 +1164,29 @@ export function attachYOfflineSession(
   const entry = 'attachYOfflineSession';
   requireOption(
     typeof options === 'object' && options !== null,
-    `${entry} needs options: {binding, store, key, epoch, stage, onError}.`,
+    `${entry} needs options: {binding, key, epoch, loaded, offline, onError, stopSync}.`,
   );
-  requireStage(entry, options.stage);
+  const offline: unknown = options.offline;
+  requireOption(
+    typeof offline === 'object' && offline !== null,
+    `${entry} needs offline: {stage: 'off'}, or {stage: 'persist' | 'replay', store, persist: 'document' | 'unsynced' | 'captures-only'} (it replaces the stage, store, persistEdits and keep options).`,
+  );
+  const mode = offline as YOfflineMode;
+  requireStage(entry, mode.stage);
+  if (mode.stage !== 'off') {
+    requireOption(
+      typeof mode.store === 'object' && mode.store !== null,
+      `${entry} needs offline.store at stage '${mode.stage}': pass the value of openYOfflineStore({idb}) (when it failed, use offline: {stage: 'off'} and tell the user).`,
+    );
+    requireOption(
+      mode.persist === 'document' ||
+        mode.persist === 'unsynced' ||
+        mode.persist === 'captures-only',
+      `${entry} needs offline.persist: 'document' (store the whole document, to open it with no connection), 'unsynced' (store it only while the server lacks edits) or 'captures-only' (store nothing as it is made: unsynced edits live in the tab alone); got ${String(
+        mode.persist,
+      )}.`,
+    );
+  }
   requireOption(
     typeof options.binding === 'object' &&
       options.binding !== null &&
@@ -1033,19 +1203,17 @@ export function attachYOfflineSession(
     `${entry} needs epoch: the epoch (generation) the document was made against as a string (String(epoch) for a number; loaded.epoch for a document from loadYOffline), or null for a document that never synced.`,
   );
   requireOption(
-    options.persistEdits === undefined ||
-      typeof options.persistEdits === 'boolean',
-    `${entry}'s persistEdits is true (the default: store every edit as it is made, so the document survives a reload with no connection) or false (store only captures); got ${typeof options.persistEdits}.`,
+    options.loaded === null ||
+      (typeof options.loaded === 'object' && options.loaded !== undefined),
+    `${entry} needs loaded: what loadYOffline returned when the document was created from it, or null for a document that was not (without it, a document from the store would start with no base and no unsynced edits, and a moved epoch would capture nothing).`,
   );
   requireOption(
     typeof options.onError === 'function',
     `${entry} needs onError: a function that tells the user their edits are not saved on this device (a full quota, a closed store), so a storage failure is never silent.`,
   );
   requireOption(
-    options.keep === undefined ||
-      options.keep === 'document' ||
-      options.keep === 'unsynced',
-    `${entry}'s keep is 'document' (the default: store the whole document, to open it with no connection) or 'unsynced' (store only while the server lacks edits; markSynced() deletes them); got ${String(options.keep)}.`,
+    typeof options.stopSync === 'function',
+    `${entry} needs stopSync: a function that disconnects this document's provider for good (provider.destroy()); the session calls it when the room moved on, so the frozen document never syncs into the room that replaced it.`,
   );
   requireOption(
     options.writeDelay === undefined ||
@@ -1053,11 +1221,7 @@ export function attachYOfflineSession(
     `${entry}'s writeDelay is the milliseconds to wait for updates to pause before storing them (0 or more); got ${String(options.writeDelay)}.`,
   );
   requireOption(
-    options.store !== null || options.stage === 'off',
-    `${entry} needs store at stage '${options.stage}': pass the value of openYOfflineStore({idb}) (when it failed, run this session at stage 'off' and tell the user).`,
-  );
-  requireOption(
-    options.loaded === undefined || options.loaded.epoch === options.epoch,
+    options.loaded === null || options.loaded.epoch === options.epoch,
     `${entry} got a loaded document of another epoch: pass epoch: loaded.epoch (the server's epoch goes to session.serverEpoch(epoch), which captures the document when they differ).`,
   );
   return new Session(options);
@@ -2088,7 +2252,8 @@ export type YOfflineRecoverInput = {
  *    not applied), and the capture stays until your app deletes it;
  * 5. a capture with nothing left to show is deleted once the server holds
  *    the document: only with `session`, the document's offline session,
- *    reporting no unsynced edits (after its `markSynced()`). Without it,
+ *    reporting no unsynced edits (after its `'same'` verdict's
+ *    `markSynced()`). Without it,
  *    or while the document holds edits the server lacks (a replay that has
  *    not synced), such a capture is returned with no blocks: until the
  *    server holds what was written, the capture may be its only stored

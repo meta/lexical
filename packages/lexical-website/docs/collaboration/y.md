@@ -208,15 +208,19 @@ const editor = buildEditorFromExtensions(
     dependencies: [
       RichTextExtension,
       ListExtension,
-      // schemaVersion and layoutUpgrade are required: see "Versioning your
-      // schema" and "Layout upgrades". null: no server migrates this
-      // provider's stored documents, so one below the floor opens read
-      // only. An app whose server migrates passes
-      // createYServerLayoutUpgrade() and sends its handshake.
+      // schemaVersion, layoutUpgrade, synced and onYStatus are required:
+      // see "Versioning your schema" and "Layout upgrades". layoutUpgrade
+      // null: no server migrates this provider's stored documents, so one
+      // below the floor opens read only. An app whose server migrates
+      // passes createYServerLayoutUpgrade() and sends its handshake.
       createYCollabConfig({
         doc,
         layoutUpgrade: null,
+        // Show the user a read-only document and its cause.
+        onYStatus: status => showStatus(status),
         schemaVersion: 1,
+        // binding.initialize() after the provider's first sync.
+        synced: false,
       }),
     ],
     name: 'my-app/editor',
@@ -328,18 +332,24 @@ content with random values" in [Limits](#limits)).
   [Server-side editing](./y-server.md)).
 
 Configure the extension with `createYCollabConfig(input)`, whose input
-(`YCollabInput`) requires `doc`, `schemaVersion` and `layoutUpgrade`; every
-other option is optional, so options a later release adds never break it.
-(`YCollabConfig`, what `configExtension(YCollabExtension, ...)` takes,
-keeps its fields; any field a later release adds to it is optional too.)
+(`YCollabInput`) requires `doc`, `schemaVersion`, `layoutUpgrade`, `synced`
+and `onYStatus`; every other option is optional, so options a later release
+adds never break it. (`YCollabConfig`, what
+`configExtension(YCollabExtension, ...)` takes, keeps its fields; any field
+a later release adds to it is optional too. A config's fields cannot be
+required by its type, so the extension throws at build when `onYStatus` is
+left out, and the `@lexical/y-collab-status` rule of
+`@lexical/eslint-plugin`, in its recommended config, reports
+`configExtension(YCollabExtension, {doc, ...})` without it.)
 
 | Option | Default | |
 | -- | -- | -- |
 | `doc` | (required) | The Yjs document, from `createYDoc`. |
 | `layoutUpgrade` | (required) | How documents below `MIN_LAYOUT` are upgraded: `createYServerLayoutUpgrade()` (the document's server migrates them on load) or `null` (they stay read only). See [Layout upgrades](#layout-upgrades). |
 | `schemaVersion` | (required) | The version of your editor's nodes: registered node classes, their fields and NodeState. Bump it when you add, remove or change one, not on every release. An integer from 1: see [Versioning your schema](#versioning-your-schema). The extension throws without one. |
+| `synced` | (required) | `true`: initialize as soon as the binding starts (the document already holds what the server has: headless, tests, loaded from storage). `false`: call `binding.initialize()` after the provider's first sync; until then the editor is not editable. Never `true` to make a pending editor editable: the editor's initial content would be written into a document that has not synced, and duplicate on merge. (`configExtension(YCollabExtension, ...)` keeps `false` as its default.) |
+| `onYStatus` | (required) | Called with the binding's `YStatus` when it changes, the cause of a read-only status included: show it to the user. Read only with `unstorable-change`, the editor holds an edit the document does not, until the app takes it (`collab.freeze()`). `null` only where the app reads the extension's `yStatus` output signal instead (the same value). |
 | `root` | `doc.get('lexical-y')` | The shared root to bind. |
-| `synced` | `false` | Initialize as soon as the binding starts. |
 | `captureTimeout` | `500` | Undo capture timeout in ms; `null` turns collaborative undo off. |
 | `selfCheck` | `false` | Reads every local write (and every container a remote change rebuilt) back from Yjs and compares it with the editor; a mismatch is a `'@lexical/y/self-check'` [warning](#warnings). A debugging aid: turn it on in tests and development builds. |
 | `selfCheckSample` | `1` | The fraction of changes the self-check samples: local writes, and remote changes (where a sampled check that finds the editor differing from the shared content also reads those containers again). |
@@ -417,7 +427,9 @@ it shows. Every client reads these the same
 way, and the next edit there stores them.
 
 Without the extension API, `new YBinding(editor, doc, options)` does the
-same (`options.schemaVersion` is required there too): call `binding.start()` to connect it once the editor has its initial
+same (`options.schemaVersion` is required there too, and so is
+`options.onStatus`: a function that shows the user the status, or `null`
+where code of your own reads `binding.status`): call `binding.start()` to connect it once the editor has its initial
 state (an update made after it, on a document that has content, is an
 edit), `binding.initialize()` after the first sync, and `binding.undo()` /
 `binding.redo()` for undo. An undo puts back the selection from before the
@@ -1321,15 +1333,21 @@ here (`String(epoch)` for a number); two are compared, never parsed.
    once per page. A browser without IndexedDB returns `'unavailable'`.
 2. `const loaded = await loadYOffline({store, key})`, and create the
    document from `loaded.state` when there is one.
-3. `const session = attachYOfflineSession({binding, store, key, epoch:
-   loaded.epoch, loaded, stage, onError})`. At `'persist'` and `'replay'`
-   every edit is stored as it is made.
-4. `await session.serverEpoch(epoch)` whenever the server names its epoch:
-   before the provider syncs, on every connect and reconnect, and when the
-   server says the room was replaced or upgraded. `'same'`: sync. `'moved'`:
-   the document is frozen and captured.
-5. `session.markSynced()` when the server holds everything the document
-   holds.
+3. `const session = attachYOfflineSession({binding, key, epoch:
+   loaded.epoch, loaded, offline: {stage, store, persist: 'document'},
+   onError, stopSync})`. `loaded` is required (null for a document not
+   created from a load), and so is `stopSync`, which disconnects the
+   document's provider for good. At `'persist'` and `'replay'` every edit is
+   stored as it is made.
+4. `const verdict = await session.serverEpoch(epoch)` whenever the server
+   names its epoch: before the provider syncs, on every connect and
+   reconnect, and when the server says the room was replaced or upgraded.
+   `'same'`: sync. `'moved'`: the document is frozen and captured, and
+   `stopSync` was called.
+5. `verdict.markSynced()` (a `'same'` verdict's) when the server holds
+   everything the document holds. Only a confirmed epoch carries it: on a
+   document of a replaced room it would make the unsynced edits the base,
+   and the capture would hold none of them.
 6. On the document the page syncs (a fresh one after a `'moved'`):
    `await recoverYOfflineEdits({..., autoReplay, leftovers})`. At
    `'replay'` it puts back what did not sync: with `autoReplay:
@@ -1341,7 +1359,8 @@ here (`String(epoch)` for a number); two are compared, never parsed.
 That order binds, then syncs: the page starts from the store and learns the
 epoch from the server afterwards. An app that syncs, then binds (it has the
 server's document and epoch before the editor exists) asks for the slot at
-that epoch instead, and never meets a moved epoch at attach:
+that epoch instead, and never meets a moved epoch at attach. It still
+confirms the epoch once, for the verdict's `markSynced()`:
 
 ```ts
 const loaded = await loadYOffline({epoch: serverEpoch, key, store});
@@ -1355,11 +1374,16 @@ const session = attachYOfflineSession({
   binding,
   epoch: serverEpoch,
   key,
-  loaded: loaded.ok ? loaded.value : undefined,
+  loaded: loaded.ok ? loaded.value : null,
+  offline: {persist: 'document', stage, store},
   onError,
-  stage,
-  store,
+  stopSync: () => provider.destroy(),
 });
+// 'same' at once: its markSynced() is the one to call on every save.
+const verdict = await session.serverEpoch(serverEpoch);
+if (verdict.kind === 'same') {
+  provider.on('saved', verdict.markSynced);
+}
 // A slot at an older epoch was not loaded: it becomes a capture here.
 const recovered = await recoverYOfflineEdits({
   /* ... */
@@ -1403,7 +1427,7 @@ const opened = await openYOfflineStore({
 });
 const store = opened.ok ? opened.value : null; // null: tell the user, run at 'off'
 const loaded = store === null ? null : await loadYOffline({key, store});
-const stored = loaded !== null && loaded.ok ? loaded.value : undefined;
+const stored = loaded !== null && loaded.ok ? loaded.value : null;
 
 // Start from the stored document; editable at once here (your choice).
 const doc = createYDoc(stored?.state);
@@ -1418,26 +1442,39 @@ const session = attachYOfflineSession({
   epoch: stored?.epoch ?? null,
   key,
   loaded: stored,
+  // One value: a store exactly where the stage uses one.
+  offline:
+    store === null || stage === 'off'
+      ? {stage: 'off'}
+      : {persist: 'document', stage, store},
   onError: error => showNotSavedOnThisDevice(error.message),
-  stage: store === null ? 'off' : stage,
-  store,
+  // Called by the session when the epoch moved: the frozen document never
+  // syncs again, whatever the app does with the verdict.
+  stopSync: () => provider.destroy(),
 });
+
+// When the server holds everything (an acknowledgement of every update),
+// the base advances: only a 'same' verdict can say so, so keep its
+// markSynced (the latest one) for the provider's acknowledgements.
+let markSynced: (() => void) | null = null;
+provider.on('saved', () => markSynced?.());
 
 // The server names its epoch (in your handshake, before any sync message,
 // and again in a "replaced" event):
 async function onServerEpoch(epoch: string) {
   const verdict = await session.serverEpoch(epoch);
   if (verdict.kind === 'moved') {
-    // This document is frozen and stored as a capture. Never sync it: stop
-    // its provider, open a fresh document at `epoch`, and recover there.
+    // This document is frozen and stored as a capture, and its provider
+    // stopped: open a fresh document at `epoch`, and recover there.
     openFreshDocument(epoch);
-  } else {
-    provider.connect(); // 'same' (or 'off': do what the app did before)
+    return;
   }
+  if (verdict.kind === 'same') {
+    markSynced = verdict.markSynced;
+  }
+  provider.connect(); // 'same' (or 'off': do what the app did before)
 }
 provider.on('sync', () => binding.markSynced());
-// When the server holds everything (an acknowledgement of every update):
-provider.on('saved', () => session.markSynced());
 
 // On the fresh document, after its first sync:
 const recovered = await recoverYOfflineEdits({
@@ -1470,17 +1507,24 @@ Every call that acts takes the stage, so one flag rolls the feature out:
 | `'persist'` | Stores every edit as it is made, and freezes and stores a capture when the epoch moved       | Lists each capture with its report, and writes nothing: the captures stay stored (a handler is called with their blocks) |
 | `'replay'`  | The same                                                                                     | Also writes each capture into the document, once across tabs, as one undo step: its replayable blocks are applied, and every other block goes to `leftovers` |
 
-Three options shape what `'persist'` stores:
+`offline` is the stage and the store it uses, one value: `{stage: 'off'}`,
+or `{stage: 'persist' | 'replay', store, persist}`, where the required
+`persist` says what is stored:
 
-- `persistEdits` (default `true`): `false` stores only captures (a moved
-  epoch while the tab is open), and adds no `update` listener;
-- `keep` (default `'document'`): the whole document always, so the page can
-  open it with no connection. `'unsynced'` stores only while the document
-  holds edits the server lacks: nothing while synced, the base and what came
-  since from the first local edit, deleted by `markSynced()`;
-- `writeDelay` (default `0`): milliseconds to wait for updates to pause
-  before storing them (at least every ten delays while they do not).
-  `flush()` stores at once; call it on `pagehide`.
+- `'document'`: the whole document always, so the page can open it with no
+  connection;
+- `'unsynced'`: only while the document holds edits the server lacks:
+  nothing while synced, the base and what came since from the first local
+  edit, deleted by the verdict's `markSynced()`;
+- `'captures-only'`: no edit as it is made (no `update` listener), only a
+  capture when the epoch moves while the tab is open. Unsynced edits live in
+  the tab alone: a reload, a crash or a closed tab with no connection loses
+  them.
+
+`writeDelay` (default `0`): milliseconds to wait for updates to pause before
+storing them (at least every ten delays while they do not). `flush()` stores
+at once; call it on `pagehide`: what a delay holds back is lost with a
+closed tab.
 
 An app that builds its own `YBinding` (not `createYBinding` or
 `YCollabExtension`) passes `{binding, status, freeze}` as the binding
@@ -1491,7 +1535,7 @@ while the room is editable.
 ### What is stored
 
 A slot per `(key, epoch)` holds a **base** (the state the server is known to
-hold, written by `markSynced()`) and the updates **since**. The document is
+hold, written by the verdict's `markSynced()`) and the updates **since**. The document is
 their merge; `hasUnsyncedEdits` is true while anything is stored since the
 base. Rows are written one per update (updates that arrive while a write is
 in flight go in one row), compacted into one after
@@ -1502,11 +1546,23 @@ moves to the first epoch the server names.
 A key is any non-empty string your app chooses; put what separates
 documents in it (`viewer|document|space`). `store.keys()` lists every key
 stored, so an app clears another viewer's documents at sign-in with
-`store.clear(key, {captures: true})` for each key that is not theirs.
+`store.clear(key, {slots: 'all', captures: 'all'})` for each key that is
+not theirs.
 `openYOfflineStore`'s `limits` cap the store by refusing writes, never by
 evicting: `keys` per group (`group: key => key.split('|')[0]` counts per
 viewer) and `bytesPerKey` (rows and captures). A write past one answers
-`'limit'`, with `error.limit` naming which. Each connection counts a key's
+`'limit'`, with `error.limit` naming which.
+
+A load reads a tab's rows while that tab is still open too, so a page shows
+what another tab of the document holds. Where those are the only unsynced
+edits loaded (`loaded.unsyncedInLiveTabs`), they stay that tab's: it syncs
+them, or captures them when it learns its epoch moved, and this page's
+session captures nothing of them on a moved epoch unless it edits too. So
+a tab left open offline at an earlier epoch is captured once, by itself,
+not again by every page that opens the document meanwhile. After a
+`'moved'`, load the fresh document with the new epoch
+(`loadYOffline({epoch, key, store})`): without it the newest slot is still
+the old epoch's, and the page would bind to it again. Each connection counts a key's
 bytes from its last read of the key plus what it wrote since, so tabs
 writing at once can pass `bytesPerKey` by what the others wrote since.
 
@@ -1522,14 +1578,15 @@ until the app clears them.
 
 Nothing here throws for a storage failure. Every call returns
 `{ok: true, value}` or `{ok: false, error}`, and `error.code` says what
-happened:
+happened. The error is a union by `code` (and `where`, for `'corrupt'`):
+narrow on it to reach the fields that code carries.
 
 | Code            | When                                                              | What to do                                                                                             |
 | --------------- | ----------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
 | `'unavailable'` | No IndexedDB (a private window, Node without a fake), or the open did not answer within `openTimeout` (10 s) | Run at stage `'off'` and tell the user edits live in this tab only                                     |
 | `'blocked'`     | Another tab holds an older version of the database                | Ask the user to close the other tabs, then open the store again                                        |
 | `'quota'`       | The origin's storage is full                                      | Tell the user edits are not saved on this device; editing goes on and the next write stores everything |
-| `'corrupt'`     | A stored row is not what the store wrote, or does not decode      | Offer `error.salvage.state` (the readable rows), then `store.clear(key, {epoch: error.epoch, captures: false})`     |
+| `'corrupt'`     | `where: 'slot'`: a stored row is not what the store wrote, or does not decode; `where: 'captures'`: stored captures are not readable (`error.unreadable` of them) | A slot: offer `error.salvage.state` (the readable rows), then `store.clear(key, {slots: {epoch: error.epoch}, captures: 'none'})`. Captures: `store.clear(key, {slots: 'none', captures: 'unreadable'})` |
 | `'closed'`      | `store.close()` ran, or another tab deleted the database          | Open a new store                                                                                       |
 | `'limit'`       | The write would pass one of the store's `limits` (`error.limit`)  | Tell the user edits are not saved on this device, or clear documents no longer needed                  |
 | `'newer'`       | A stored row was written by a newer release (`error.epoch` names its slot) | Keep it: this tab runs an older release; reload to update it                                           |
@@ -1537,14 +1594,17 @@ happened:
 
 The session passes each failure to `onError` and keeps what it could not
 write queued, so nothing typed is dropped from the page.
-`store.clear(key, {captures})` deletes a document's slots (and its captures
-with `captures: true`).
+`store.clear(key, {slots, captures})` deletes what it names, both choices
+required: `slots` is `{epoch}` (one slot, `null` naming the never-synced
+one), `'all'` (every slot of the key, other epochs' and other tabs'
+unsynced edits included) or `'none'`; `captures` is `'all'`,
+`'unreadable'` or `'none'`.
 
 ### The base, and what counts as unsynced
 
 A capture's report compares three documents: the user's, the **base** their
 edits were made against, and the current one. The session's base is the
-document at the last `markSynced()`: call it whenever the server is known to
+document at the last `markSynced()` of a `'same'` verdict: call it whenever the server is known to
 hold everything the document holds: persisted by the copy a reload or
 replace of the room is seeded from (for a relay in front of a product's
 store, the product's save, not the relay's acknowledgement), with nothing
@@ -1746,7 +1806,7 @@ from each entry's `replay`), or, with `{handle}`, its own list.
 
 The store keeps bytes, so it holds a document of any layout. A report reads
 its states with this release, which refuses one below `MIN_LAYOUT`: pass
-`migrate` (`state => migrateYState(state, steps).state` with your steps from
+`migrate` (`state => migrateYState(state, steps, {pending: 'discard'}).state` with your steps from
 `@lexical/y/migrate`) to `describeYOfflineCapture` or `recoverYOfflineEdits`
 and such a base or capture is read after migrating. Without it, a base below
 the floor is reported as gone (`baseAvailable: false`, nothing replayable)
@@ -2541,10 +2601,15 @@ never imports, `@lexical/y/migrate/<n>to<n+1>` (a default export), and the
 runner is `@lexical/y/migrate`:
 
 - `migrateYState(state, steps, options)`: migrates a stored state (for a
-  server); returns `{state, update, pending, receipt}`, or the input bytes
-  with `update: null` when no root is below the target (`to`, default
-  `MIN_LAYOUT`). Pending updates and skipped ranges come back apart, in
-  `pending`, never in `state`.
+  server). Pending updates and skipped ranges are never in the migrated
+  state, so `options.pending` is required: `'return'` (to store them) or
+  `'discard'` (a copy nothing stores; the receipt's `pendingBytes` says how
+  much was dropped). The result is a union on `split`: unsplit,
+  `{state, update, receipt}`, the input bytes with `update: null` when no
+  root is below the target (`to`, default `MIN_LAYOUT`); split (only with
+  `'return'`), `{integrated, pending, update, receipt}`, so the migrated
+  bytes are reached only after narrowing, beside the material to store
+  (a `pending` quarantine record).
 - `loadYMigrationSteps(from, to = MIN_LAYOUT, {loaders?})`: loads only the
   steps a document needs, by default the published ones (each its own
   chunk), or from your own `loaders` (one `() => import(...)` per layout).

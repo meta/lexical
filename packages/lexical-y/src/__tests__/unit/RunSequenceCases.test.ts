@@ -49,7 +49,11 @@ function client(seed: Uint8Array, id: number) {
       $initialEditorState: null,
       dependencies: [
         ...extensions,
-        configExtension(YCollabExtension, {doc, schemaVersion: 1}),
+        configExtension(YCollabExtension, {
+          doc,
+          onYStatus: null,
+          schemaVersion: 1,
+        }),
       ],
       name: 'c' + id,
     }),

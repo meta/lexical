@@ -110,6 +110,7 @@ function headlessConfig(
       }),
       ...(blockIds === 'enabled' ? [countedIds()] : []),
     ],
+    onWarn: null,
     schemaVersion: 1,
   };
 }
@@ -202,7 +203,11 @@ describe('a relabeled seed stores the bytes of a seed written twice', () => {
                 marks,
               }),
               ...(blockIds === 'enabled' ? [countedIds()] : []),
-              configExtension(YCollabExtension, {doc, schemaVersion: 1}),
+              configExtension(YCollabExtension, {
+                doc,
+                onYStatus: null,
+                schemaVersion: 1,
+              }),
             ],
             name: 'seed-relabel-init',
             onError: (e: Error) => {

@@ -72,10 +72,25 @@ const incomplete: YLayoutMigration = {
 };
 
 const steps: ReadonlyArray<YLayoutMigration> = [step1to2];
-const result: YMigrationResult = migrateYState(stored, steps, {gc: true, to: 2});
+const result: YMigrationResult = migrateYState(stored, steps, {
+  gc: true,
+  pending: 'return',
+  to: 2,
+});
 const update: Uint8Array | null = result.update;
 // $FlowExpectedError[incompatible-type] update is null when nothing ran
 const always: Uint8Array = result.update;
+// The migrated bytes are reached after narrowing on split (D135).
+// $FlowExpectedError[prop-missing] a split result has no state
+void result.state;
+const migrated: Uint8Array = result.split ? result.integrated : result.state;
+const material: Uint8Array | null = result.split ? result.pending : null;
+// 'discard' is never split: its state reads at once.
+const read: Uint8Array = migrateYState(stored, steps, {pending: 'discard'}).state;
+// $FlowExpectedError[incompatible-type] the pending choice is required
+migrateYState(stored, steps, {gc: true});
+// $FlowExpectedError[incompatible-type] and so are the options
+migrateYState(stored, steps);
 const error = new YMigrationError('missing-step', 'no step');
 // Codes are open: a later release may refuse with a code this one does not
 // name.
@@ -84,9 +99,14 @@ const laterCode: string = later.code;
 const doc = createYDoc(stored);
 const generation: string = getYGeneration(doc, 'incarnation');
 const room = prepareYRoom(stored, {incarnation: 'i', steps});
+// What to store is reached after narrowing on changed (D135).
+// $FlowExpectedError[prop-missing] an unchanged room has nothing to write
+void room.write;
+const served: string = room.changed ? room.write.generation : room.generation;
+const quarantined: Uint8Array | null = room.changed ? room.write.pending : null;
 const verdict: YSessionVerdict = checkYSession(
   {
-    generation: room.generation,
+    generation: served,
     hasMigration: false,
     incarnation: 'i',
     inherited: false,
@@ -136,14 +156,15 @@ declare const newerReceipt: {
   readonly changed: boolean,
   readonly bytesBefore: number,
   readonly bytesAfter: number,
+  readonly pendingBytes: number,
   readonly ms: number,
   readonly signature: string,
 };
 const olderReceipt: YMigrationReceipt = newerReceipt;
 declare const newerResult: {
+  readonly split: false,
   readonly state: Uint8Array,
   readonly update: Uint8Array | null,
-  readonly pending: Uint8Array | null,
   readonly receipt: YMigrationReceipt,
   readonly timings: unknown,
 };
@@ -151,6 +172,7 @@ const olderResult: YMigrationResult = newerResult;
 declare const newerOptions: {
   readonly gc: boolean,
   readonly to: number,
+  readonly pending: 'return',
   readonly note: string,
 };
 const options: YMigrateStateOptions = newerOptions;

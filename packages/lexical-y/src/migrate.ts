@@ -20,6 +20,7 @@
 
 import {MIN_LAYOUT} from './internal/constants';
 import {type YMigrationEpoch} from './internal/Layouts';
+import {type YPendingMaterial} from './internal/Pending';
 import {
   getYLayoutInfo,
   loadStepsWith,
@@ -74,5 +75,6 @@ export type {
   YMigrationRootReceipt,
   YMigrationStepInput,
   YMigrationStepReceipt,
+  YPendingMaterial,
 };
 export {getYLayoutInfo, migrateYState, YMigrationError};

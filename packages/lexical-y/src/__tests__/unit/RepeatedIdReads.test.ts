@@ -70,6 +70,7 @@ function peer(id: number, stored: Uint8Array | null = null) {
         }),
         configExtension(YCollabExtension, {
           doc,
+          onYStatus: null,
           schemaVersion: 1,
           selfCheck: false,
         }),

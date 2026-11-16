@@ -303,6 +303,7 @@ describe('@lexical/y storage', () => {
       onWarn: e => warnings.push(e.message),
     });
     const binding = new YBinding(editor, doc, {
+      onStatus: null,
       schemaVersion: 1,
       selfCheck: true,
     });
@@ -324,6 +325,7 @@ describe('@lexical/y storage', () => {
       onWarn: e => warnings.push(e.message),
     });
     const binding = new YBinding(editor, doc, {
+      onStatus: null,
       schemaVersion: 1,
       selfCheck: true,
     });
@@ -342,6 +344,7 @@ describe('@lexical/y storage', () => {
       },
     });
     const binding = new YBinding(editor, doc, {
+      onStatus: null,
       schemaVersion: 1,
       selfCheck: true,
     });
@@ -377,6 +380,7 @@ describe('@lexical/y storage', () => {
         dependencies: [
           configExtension(YCollabExtension, {
             doc: peerDoc,
+            onYStatus: null,
             schemaVersion: 1,
             synced: true,
           }),

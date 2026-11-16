@@ -93,6 +93,7 @@ async function readEdit(gc: boolean, failFirstWrite: boolean) {
   a.binding.dispose();
   const upgraded = new YBinding(a.editor, a.doc, {
     captureTimeout: 0,
+    onStatus: null,
     schemaVersion: 2,
     selfCheck: true,
   });

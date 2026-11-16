@@ -19,10 +19,7 @@ import {editYState, readYState, seedYState} from '../../headless';
 import {createHeadlessYEditor} from '../../internal/HeadlessEditor';
 import {$block, $p, NODES} from '../utils/harness';
 
-const config = {
-  nodes: NODES,
-  schemaVersion: 1,
-};
+const config = {nodes: NODES, onWarn: null, schemaVersion: 1};
 
 function measure(blocks: number) {
   let t = performance.now();

@@ -113,15 +113,18 @@ test('baseAt policy: seven-day-old keep-unsynced base must not qualify for three
   const s = attachYOfflineSession({
     binding: a.binding,
     epoch: 'e1',
-    keep: 'unsynced',
     key: 'doc',
+    loaded: null,
     now: clock,
+    offline: {persist: 'unsynced', stage: 'persist', store},
     onError: () => {},
-    stage: 'persist',
-    store,
+    stopSync: () => {},
   });
   clean.push(() => s.dispose());
-  s.markSynced();
+  const confirmed = await s.serverEpoch('e1');
+  if (confirmed.kind === 'same') {
+    confirmed.markSynced();
+  }
   unwrap(await s.flush());
   now += 7 * 24 * 3600 * 1000;
   a.editor.update(

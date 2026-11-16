@@ -26,6 +26,7 @@ export function writeEditorToYDoc(
   const binding = new YBinding(editor, doc, {
     captureTimeout: null,
     convert: true,
+    onStatus: null,
     root: options.root,
     schemaVersion: 1,
   });

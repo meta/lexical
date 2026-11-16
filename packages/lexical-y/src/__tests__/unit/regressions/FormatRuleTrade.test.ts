@@ -42,7 +42,11 @@ import {expect, test} from 'vitest';
 import {createYDoc, YCollabExtension} from '../../..';
 import {seedYState} from '../../../headless';
 
-const CONFIG = {extensions: [RichTextExtension], schemaVersion: 1};
+const CONFIG = {
+  extensions: [RichTextExtension],
+  onWarn: null,
+  schemaVersion: 1,
+};
 type F = 'b' | 'i' | 's';
 const FMT: Record<F, TextFormatType> = {
   b: 'bold',
@@ -124,6 +128,7 @@ function run(
           configExtension(YCollabExtension, {
             captureTimeout: 2 ** 30,
             doc,
+            onYStatus: null,
             schemaVersion: 1,
             synced: true,
           }),

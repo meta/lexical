@@ -108,7 +108,8 @@ as a relay either (see
 ## Usage
 
 See [Start here](#start-here). The earlier setup (`createYCollabConfig`,
-`binding.initialize()`) keeps working; [the guide](https://lexical.dev/docs/collaboration/y)
+which requires `synced` and `onYStatus` too, and `binding.initialize()`)
+keeps working; [the guide](https://lexical.dev/docs/collaboration/y)
 covers both.
 
 ## Documentation

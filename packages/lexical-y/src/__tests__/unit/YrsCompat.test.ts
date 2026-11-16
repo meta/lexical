@@ -48,6 +48,7 @@ function session(yrs: Yrs, options: {doc?: YDoc}) {
   });
   editor.update(() => $getRoot().append($p('hello')), {discrete: true});
   const binding = new YBinding(editor, doc, {
+    onStatus: null,
     schemaVersion: 1,
     selfCheck: true,
   });
@@ -96,7 +97,7 @@ describe('@lexical/y/headless with yrs relays', () => {
       .join(' / ');
 
   function roundTrip(yrs: Yrs, direct: boolean) {
-    const config = {nodes: NODES, schemaVersion: 1};
+    const config = {nodes: NODES, onWarn: null, schemaVersion: 1};
     const relay = new yrs.YDoc({}) as never;
     // The server seeds the document into the relay.
     yrs.applyUpdate(
@@ -119,6 +120,7 @@ describe('@lexical/y/headless with yrs relays', () => {
       },
     });
     const binding = new YBinding(editor, doc, {
+      onStatus: null,
       schemaVersion: 1,
       selfCheck: true,
     });
@@ -151,7 +153,7 @@ describe('@lexical/y/headless with yrs relays', () => {
   }
 
   test("a writer continues its client id on a ywasm 0.28 relay's state", () => {
-    const config = {nodes: NODES, schemaVersion: 1};
+    const config = {nodes: NODES, onWarn: null, schemaVersion: 1};
     const relay = new yrs028.YDoc({}) as never;
     yrs028.applyUpdate(
       relay,

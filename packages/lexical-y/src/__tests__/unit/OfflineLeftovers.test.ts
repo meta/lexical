@@ -84,6 +84,7 @@ import {
   expectNothingDropped,
   textIn,
 } from '../utils/offlineLeftovers';
+import {markSynced, trackVerdicts} from '../utils/offlineSync';
 
 const IDS = {blockIds: 'enabled'} as const;
 const catalog = {
@@ -1344,15 +1345,18 @@ describe('the capture', () => {
       binding: tab.binding,
       epoch: 'e1',
       key: 'doc',
+      loaded: null,
       now: clock,
+      offline: {persist: 'document', stage: 'persist', store},
       onError: error => {
         throw new Error(error.message);
       },
-      stage: 'persist',
-      store,
+      stopSync: () => {},
     });
-    await session.serverEpoch('e1');
-    session.markSynced();
+    const confirmed = await session.serverEpoch('e1');
+    if (confirmed.kind === 'same') {
+      confirmed.markSynced();
+    }
     edit(tab, () => {
       $block('b1').replace($p('one, mine', 'b1'));
       $block('b1').insertAfter($p('four, mine', 'b4'));
@@ -1443,16 +1447,18 @@ describe('the capture', () => {
         ...blocks.map(block => block.yours),
       ],
     };
-    const session = attachYOfflineSession({
-      binding: fresh.binding,
-      epoch: 'e2',
-      key: 'doc',
-      onError: () => {},
-      persistEdits: false,
-      stage: 'replay',
-      store,
-    });
-    session.markSynced();
+    const session = trackVerdicts(
+      attachYOfflineSession({
+        binding: fresh.binding,
+        epoch: 'e2',
+        key: 'doc',
+        loaded: null,
+        offline: {persist: 'captures-only', stage: 'replay', store},
+        onError: () => {},
+        stopSync: () => {},
+      }),
+    );
+    await markSynced(session);
     const recovered = unwrap(
       await recoverYOfflineEdits({
         autoReplay: 'replayable',
@@ -1715,16 +1721,18 @@ describe('the capture', () => {
 
   test('wrap: a second call writes nothing again, and the capture goes once the server holds the document', async () => {
     const {fresh, next, store} = await moved();
-    const now = attachYOfflineSession({
-      binding: fresh.binding,
-      epoch: 'e2',
-      key: 'doc',
-      onError: () => {},
-      persistEdits: false,
-      stage: 'replay',
-      store,
-    });
-    now.markSynced();
+    const now = trackVerdicts(
+      attachYOfflineSession({
+        binding: fresh.binding,
+        epoch: 'e2',
+        key: 'doc',
+        loaded: null,
+        offline: {persist: 'captures-only', stage: 'replay', store},
+        onError: () => {},
+        stopSync: () => {},
+      }),
+    );
+    await markSynced(now);
     const recover = () =>
       recoverYOfflineEdits({
         autoReplay: 'replayable',
@@ -1756,7 +1764,7 @@ describe('the capture', () => {
     edit(next, () => $block('b1').replace($p('one, theirs later', 'b1')));
     sync(fresh.doc, next.doc);
     await flush();
-    now.markSynced();
+    await markSynced(now);
     // The server holds it: nothing is left in storage.
     expect(unwrap(await recover())).toEqual([]);
     expect(unwrap(await store.captures('doc'))).toEqual([]);
@@ -1781,9 +1789,10 @@ describe('the capture', () => {
       binding: tab.binding,
       epoch: null,
       key: 'doc',
+      loaded: null,
+      offline: {persist: 'document', stage: 'persist', store},
       onError: () => {},
-      stage: 'persist',
-      store,
+      stopSync: () => {},
     });
     unwrap(await session.flush());
     session.dispose();
@@ -2012,18 +2021,21 @@ describe('the capture', () => {
       );
       const tab = client(stored($three));
       await flush();
-      const session = attachYOfflineSession({
-        binding: tab.binding,
-        epoch: 'e1',
-        key: 'doc',
-        onError: error => {
-          throw new Error(error.message);
-        },
-        stage: 'persist',
-        store,
-      });
+      const session = trackVerdicts(
+        attachYOfflineSession({
+          binding: tab.binding,
+          epoch: 'e1',
+          key: 'doc',
+          loaded: null,
+          offline: {persist: 'document', stage: 'persist', store},
+          onError: error => {
+            throw new Error(error.message);
+          },
+          stopSync: () => {},
+        }),
+      );
       const before = Date.now();
-      session.markSynced();
+      await markSynced(session);
       unwrap(await session.flush());
       const after = Date.now();
       edit(tab, () => $block('b1').replace($p('one, mine', 'b1')));
