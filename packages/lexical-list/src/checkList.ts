@@ -367,6 +367,9 @@ export function registerCheckList(
               mousedown: configHandleSelectDefaults,
               pointercancel: event => {
                 touchStarts.delete(event.pointerId);
+                // No release or click follows a cancelled press, so it must
+                // not veto a later click that has no press of its own.
+                lastPress = releasedPress = 'none';
               },
               pointerdown: event => {
                 recordTouchStart(event);
