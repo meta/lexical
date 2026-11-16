@@ -65,24 +65,37 @@ const DateTimeRule = defineImportRule({
 
 const GoogleDocsDateRule = defineImportRule({
   $import: (_ctx, el, $next) => {
-    let parsed: {dat_df?: {dfie_ts?: {tv?: {tv_s?: number}}; dfie_dt?: string}};
+    let parsed: {
+      dat_df?: {
+        dfie_dt?: string;
+        dfie_tpt?: number;
+        dfie_ts?: {tv?: {tv_s?: number}};
+      } | null;
+    };
     try {
       parsed = JSON.parse(el.getAttribute('data-rich-links') ?? '{}');
     } catch {
       return $next();
     }
-    if (parsed?.dat_df === undefined) {
+    const {dat_df} = parsed;
+    if (dat_df == null) {
       return $next();
     }
-    const parsedDate =
-      (parsed.dat_df.dfie_ts?.tv?.tv_s ?? 0) * 1000 ||
-      Date.parse(parsed.dat_df.dfie_dt ?? '');
-    if (isNaN(parsedDate)) {
+    const seconds = dat_df.dfie_ts?.tv?.tv_s;
+    const date = new Date(
+      (seconds ?? 0) * 1000 || Date.parse(dat_df.dfie_dt ?? ''),
+    );
+    if (isNaN(date.getTime())) {
       return $next();
     }
-    return [
-      applyFormatFromStyle($createDateTimeNode(new Date(parsedDate)), el.style),
-    ];
+    // Google Docs stores a date without a time (dfie_tpt 0) as noon UTC of
+    // that day, so its UTC date is the day the chip shows
+    const year = date.getUTCFullYear();
+    const node =
+      (dat_df.dfie_tpt === 0 && seconds && year >= 0 && year <= 9999
+        ? $createDateTimeNodeFromValue(date.toISOString().slice(0, 10))
+        : null) ?? $createDateTimeNode(date);
+    return [applyFormatFromStyle(node, el.style)];
   },
   match: sel.tag('span').attr('data-rich-links', /"type"\s*:\s*"date"/),
   name: '@lexical/playground/datetime-google-docs',
