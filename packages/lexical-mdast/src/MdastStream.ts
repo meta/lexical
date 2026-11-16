@@ -217,6 +217,21 @@ export class MarkdownStreamScanner {
     ) {
       return null;
     }
+    // CommonMark also opens a `*` or `~` run inside a word, so `2*3*4` and
+    // `x*y*z` read as emphasis. Typed, they are math or names, so emphasis,
+    // strong and strikethrough convert only at the start of a word. (`_` runs
+    // never open inside a word.) Only ASCII letters and digits count, so text
+    // without spaces between words, such as Chinese or Japanese, still
+    // converts.
+    if (
+      start > 0 &&
+      (last.type === 'emphasis' ||
+        last.type === 'strong' ||
+        last.type === 'delete') &&
+      /[A-Za-z0-9]/.test(value[start - 1])
+    ) {
+      return null;
+    }
     return last;
   }
 }
