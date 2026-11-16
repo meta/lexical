@@ -34,7 +34,7 @@ import {
 } from 'lexical';
 
 import {namedSignals} from './namedSignals';
-import {effect, type ReadonlySignal} from './signals';
+import {effect, type ReadonlySignal, untracked} from './signals';
 
 function $indentOverTab(selection: RangeSelection): boolean {
   // const handled = new Set();
@@ -75,10 +75,11 @@ function $defaultCanIndent(node: ElementNode) {
 /**
  * Indentation from anywhere other than the indent command must stay below
  * maxIndent too (#5170), so clamp it with a transform on every block element
- * type that may be indented. This applies to all content, not only pastes:
- * the initial or loaded editor state, `setEditorState`, collaboration
- * updates and nodes inserted from code. Registering marks every element
- * dirty, so the whole document is checked (and clamped) once at that point.
+ * type that may be indented. This applies to local edits, not only pastes:
+ * the initial editor state, a parsed state passed to `setEditorState` and
+ * nodes inserted from code. Remote collaboration updates skip transforms, so
+ * they are not clamped. Registering marks every element dirty, so the whole
+ * document is checked (and clamped) once at that point.
  */
 function registerMaxIndentTransforms(
   editor: LexicalEditor,
@@ -105,9 +106,10 @@ function registerMaxIndentTransforms(
  * Registers a `KEY_TAB_COMMAND` handler that makes Tab and Shift+Tab indent and
  * outdent block elements (and otherwise insert a tab). Pass `maxIndent` to cap
  * the indent depth (indents below `maxIndent`), and `$canIndent` to control
- * which elements may be indented. The `maxIndent` cap applies to any content,
- * including pastes, loaded state, `setEditorState` and collaboration updates;
- * deeper indents already in the document are clamped once on registration.
+ * which elements may be indented. The `maxIndent` cap applies to local edits,
+ * pastes, the initial state and parsed states passed to `setEditorState`;
+ * remote collaboration updates are not clamped. Deeper indents already in the
+ * document are clamped once on registration.
  *
  * @returns A cleanup function that unregisters the handler.
  */
@@ -129,10 +131,10 @@ export function registerTabIndentation(
     unregisterClamp = effect(() => {
       const currentMaxIndent = maxIndent.value;
       if (currentMaxIndent) {
-        return registerMaxIndentTransforms(
-          editor,
-          currentMaxIndent,
-          $getCanIndent,
+        // Untracked, so a signal read by a transform that runs while
+        // registering does not become a dependency of this effect
+        return untracked(() =>
+          registerMaxIndentTransforms(editor, currentMaxIndent, $getCanIndent),
         );
       }
     });
