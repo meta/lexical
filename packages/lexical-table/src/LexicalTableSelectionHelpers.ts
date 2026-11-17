@@ -318,19 +318,24 @@ export function registerTableWindowHandlers(
       });
     };
 
-    const clearTouchTap = () => {
+    // Keydown and blur clear pending interaction state in the capture
+    // phase, before any key handler can extend the selection or stop
+    // propagation: a later keyboard selection is not a tap, and a keydown
+    // that does not move the caret (Alt+ArrowDown does not on Linux and
+    // Windows) must not leave a pending vertical exit armed for the next,
+    // unrelated selection change to correct.
+    const clearPendingInteraction = () => {
       tableObservers.touchTapCellKey = null;
+      tableObservers.pendingVerticalExit = null;
     };
     return mergeRegister(
       registerEventListener(editorWindow, 'pointerdown', pointerDownCallback),
-      // Clear before a key handler can extend the selection, including when
-      // that handler stops propagation. A later keyboard selection is not a tap.
       registerEventListeners(
         editorWindow,
-        {blur: clearTouchTap, keydown: clearTouchTap},
+        {blur: clearPendingInteraction, keydown: clearPendingInteraction},
         {capture: true},
       ),
-      clearTouchTap,
+      clearPendingInteraction,
     );
   });
 }

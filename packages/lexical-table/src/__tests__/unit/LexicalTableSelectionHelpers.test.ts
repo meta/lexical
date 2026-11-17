@@ -534,8 +534,8 @@ describe('LexicalTableSelectionHelpers', () => {
     // ambiguous soft wrap boundary and consumed by the next selection
     // change. If the deferred native movement never happened (a modifier
     // combo that does not move the caret), the next selection change is
-    // unrelated and must not be corrected: any pointer interaction
-    // invalidates the armed intent.
+    // unrelated and must not be corrected: any pointer interaction, or a
+    // keydown or blur before the movement, invalidates the armed intent.
     test('pointerdown clears the pending vertical exit', () => {
       using editor = buildEditorFromExtensions(TableTestThemeExtension);
       const container = document.createElement('div');
@@ -553,6 +553,26 @@ describe('LexicalTableSelectionHelpers', () => {
         y: 1,
       });
       window.dispatchEvent(new MouseEvent('pointerdown'));
+      expect(tableObservers.getAndClearPendingVerticalExit()).toBeNull();
+    });
+
+    test('keydown clears the pending vertical exit', () => {
+      using editor = buildEditorFromExtensions(TableTestThemeExtension);
+      const container = document.createElement('div');
+      document.body.append(container);
+      onTestFinished(() => container.remove());
+      editor.setRootElement(container);
+      const tableObservers = new TableObservers();
+      onTestFinished(registerTableWindowHandlers(editor, tableObservers));
+
+      tableObservers.setPendingVerticalExit({
+        cellKey: '2',
+        direction: 'down',
+        tableKey: '1',
+        x: 0,
+        y: 1,
+      });
+      window.dispatchEvent(new KeyboardEvent('keydown', {key: 'Tab'}));
       expect(tableObservers.getAndClearPendingVerticalExit()).toBeNull();
     });
   });
