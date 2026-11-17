@@ -145,15 +145,32 @@ async function setUpWithC4(): Promise<{c4Key: string; editor: LexicalEditor}> {
     c4Key = c4TextKey;
   });
   editor.focus();
-  // Let the initial reconcile and layout settle before measuring line boxes.
-  await new Promise(resolve => setTimeout(resolve, 60));
   return {c4Key, editor};
 }
 
-async function press(key: string): Promise<void> {
+/**
+ * A promise that resolves exactly when Lexical has committed its next
+ * update. The listener fires after SELECTION_CHANGE_COMMAND handlers run,
+ * so a pending vertical exit correction is part of the committed state.
+ */
+function nextUpdate(editor: LexicalEditor): Promise<void> {
+  return new Promise(resolve => {
+    const unregister = editor.registerUpdateListener(() => {
+      unregister();
+      resolve();
+    });
+    onTestFinished(unregister);
+  });
+}
+
+async function press(editor: LexicalEditor, key: string): Promise<void> {
+  // The key's effect reaches the editor state through the engine's
+  // selectionchange, in a later task. Waiting for the next update is exact:
+  // if the keystroke never produces one, the test fails at its timeout
+  // instead of asserting an unprocessed state.
+  const processed = nextUpdate(editor);
   await userEvent.keyboard(key);
-  // Let the engine's selectionchange (and Lexical's reconcile of it) settle.
-  await new Promise(resolve => setTimeout(resolve, 60));
+  await processed;
 }
 
 /** The text of the node the caret is anchored in, or a description of a
@@ -249,7 +266,6 @@ async function setUpC4Caret(
     {discrete: true},
   );
   editor.focus();
-  await new Promise(resolve => setTimeout(resolve, 60));
   expect(anchorText(editor)).toBe(C4_TEXT);
 }
 
@@ -285,9 +301,12 @@ async function setUpC4CaretAtEndOfFirstLine(
     return;
   }
   await setUpC4Caret(editor, c4Key, 2);
+  const processed = nextUpdate(editor);
   domSelection.modify('move', 'forward', 'lineboundary');
-  // Let the resulting selectionchange reconcile into the editor state.
-  await new Promise(resolve => setTimeout(resolve, 60));
+  // Selection.modify moves the DOM selection; the resulting selectionchange
+  // reconciles into the editor state in a later task, and processed
+  // resolves exactly then.
+  await processed;
   expect(anchorText(editor)).toBe(C4_TEXT);
 }
 
@@ -310,10 +329,11 @@ async function probeKeyboardDelivery(ctx: {
     window.addEventListener('keydown', onKey, true);
     try {
       await userEvent.keyboard('{Shift}');
-      await new Promise(resolve => setTimeout(resolve, 30));
     } finally {
       window.removeEventListener('keydown', onKey, true);
     }
+    // A keydown dispatch runs its listeners synchronously: the flag is set
+    // by the time userEvent.keyboard resolves, with no settle wait.
     keyboardDelivery = delivered;
   }
   ctx.skip(
@@ -338,7 +358,7 @@ describe('arrow keys across soft-wrapped cell text', () => {
     // Without the visual line detection the caret's stale rect reads as "on
     // the previous line": Chromium lets the native movement run, which lands
     // in c5 (the cell to the right), while the caret must exit below to c7.
-    await press('{ArrowDown}');
+    await press(editor, '{ArrowDown}');
     expect(anchorText(editor)).toBe('c7');
   });
 
@@ -354,7 +374,7 @@ describe('arrow keys across soft-wrapped cell text', () => {
     // previous line", so every engine used to hijack the caret out of the
     // table (to the header cell above) instead of letting it move up one
     // visual line within c4.
-    await press('{ArrowUp}');
+    await press(editor, '{ArrowUp}');
     expect(anchorText(editor)).toBe(C4_TEXT);
   });
 
@@ -386,14 +406,13 @@ describe('arrow keys across soft-wrapped cell text', () => {
       c4Key = c4TextKey;
     });
     editor.focus();
-    await new Promise(resolve => setTimeout(resolve, 60));
     const offset = findLastLineStartOffset(getDomText(editor, c4Key));
     await setUpC4Caret(editor, c4Key, offset);
 
     // The native movement descends into the nested table, which is inside
     // the original cell: the correction must keep it, like a same-column
     // landing, instead of pulling the caret to the cell below the table.
-    await press('{ArrowDown}');
+    await press(editor, '{ArrowDown}');
     expect(anchorText(editor)).toBe('nested');
   });
 
@@ -407,7 +426,7 @@ describe('arrow keys across soft-wrapped cell text', () => {
     // lines. The ambiguity must let the native movement run, which moves
     // down one visual line within c4; forcing the adjacent character's line
     // instead would treat the caret as on the second line and exit to c7.
-    await press('{ArrowDown}');
+    await press(editor, '{ArrowDown}');
     expect(anchorText(editor)).toBe(C4_TEXT);
   });
 
@@ -420,7 +439,7 @@ describe('arrow keys across soft-wrapped cell text', () => {
     // leave the cell to c1. Chromium's native movement lands in c3 (the
     // previous line box in document order) and must be corrected to the
     // cell the exit detection would have chosen.
-    await press('{ArrowUp}');
+    await press(editor, '{ArrowUp}');
     expect(anchorText(editor)).toBe('c1');
   });
 
@@ -437,7 +456,7 @@ describe('arrow keys across soft-wrapped cell text', () => {
     expect(offset).toBeGreaterThan(2);
     await setUpC4Caret(editor, c4Key, 2);
 
-    await press('{ArrowDown}');
+    await press(editor, '{ArrowDown}');
     expect(anchorText(editor)).toBe(C4_TEXT);
   });
 
@@ -448,7 +467,7 @@ describe('arrow keys across soft-wrapped cell text', () => {
     // must keep working.
     await setUpC4Caret(editor, c4Key, C4_TEXT.length);
 
-    await press('{ArrowDown}');
+    await press(editor, '{ArrowDown}');
     expect(anchorText(editor)).toBe('c7');
   });
 
@@ -459,7 +478,7 @@ describe('arrow keys across soft-wrapped cell text', () => {
     // cell must keep working.
     await setUpC4Caret(editor, c4Key, 0);
 
-    await press('{ArrowUp}');
+    await press(editor, '{ArrowUp}');
     expect(anchorText(editor)).toBe('c1');
   });
 
