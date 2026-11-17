@@ -11,6 +11,7 @@ import {RichTextExtension} from '@lexical/rich-text';
 import {
   $createTableNodeWithDimensions,
   $isTableCellNode,
+  $isTableNode,
   $isTableRowNode,
   TableExtension,
 } from '@lexical/table';
@@ -460,5 +461,78 @@ describe('arrow keys across soft-wrapped cell text', () => {
 
     await press('{ArrowUp}');
     expect(anchorText(editor)).toBe('c1');
+  });
+
+  test('a code-driven selection change is not corrected after Alt+ArrowDown moved nothing', async () => {
+    const {c4Key, editor} = await setUpWithC4();
+    const domText = getDomText(editor, c4Key);
+    expect(visualLineTops(domText).length).toBeGreaterThanOrEqual(2);
+    const offset = findLastLineStartOffset(domText);
+    await setUpC4Caret(editor, c4Key, offset);
+
+    // Alt+ArrowDown reaches the table handler (core dispatches the command
+    // with Alt held) but moves no caret on Linux and Windows; an untrusted
+    // event has no default movement on any platform. The armed exit covers
+    // only the selection change its deferred movement causes: a change
+    // made by code or a collaborator commits while the DOM selection still
+    // sits at the armed caret, and must not be corrected. A discrete
+    // update commits synchronously, so the assertion is deterministic.
+    editor.getRootElement()!.dispatchEvent(
+      new KeyboardEvent('keydown', {
+        altKey: true,
+        bubbles: true,
+        key: 'ArrowDown',
+      }),
+    );
+    editor.update(
+      () => {
+        const c5 = $getRoot()
+          .getAllTextNodes()
+          .find(node => node.getTextContent() === 'c5');
+        if (c5 === undefined) {
+          throw new Error('no c5 text node');
+        }
+        c5.select(0, 0);
+      },
+      {discrete: true},
+    );
+    expect(anchorText(editor)).toBe('c5');
+  });
+
+  test('a code-driven update that removes the armed cell is not discarded by the exit correction', async () => {
+    const {c4Key, editor} = await setUpWithC4();
+    const offset = findLastLineStartOffset(getDomText(editor, c4Key));
+    await setUpC4Caret(editor, c4Key, offset);
+    editor.getRootElement()!.dispatchEvent(
+      new KeyboardEvent('keydown', {
+        altKey: true,
+        bubbles: true,
+        key: 'ArrowDown',
+      }),
+    );
+    // Removing the armed cell's row (and the one below, so the
+    // correction's target grid is stale too) must not make the
+    // SELECTION_CHANGE_COMMAND handler throw and discard the update. A
+    // discrete update commits synchronously, so the assertion is
+    // deterministic.
+    editor.update(
+      () => {
+        const table = $getRoot().getFirstChild();
+        if (!$isTableNode(table)) {
+          throw new Error('no table');
+        }
+        for (const row of table.getChildren().slice(1)) {
+          if (!$isTableRowNode(row)) {
+            throw new Error('malformed table');
+          }
+          row.remove();
+        }
+      },
+      {discrete: true},
+    );
+    editor.read(() => {
+      const table = $getRoot().getFirstChild();
+      expect($isTableNode(table) && table.getChildrenSize()).toBe(1);
+    });
   });
 });

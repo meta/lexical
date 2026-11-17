@@ -1361,20 +1361,42 @@ export function $handleTableSelectionChangeCommand(
     $isRangeSelection(selection) &&
     selection.isCollapsed()
   ) {
+    // The correction is only for the selection change the deferred native
+    // movement causes: the engine moves the DOM selection before Lexical
+    // dispatches the command for it, while a selection change made by code
+    // or a collaborator dispatches before reconciliation writes the DOM
+    // selection. When the DOM selection still sits at the armed caret, the
+    // native movement never happened (a modifier combo that moves nothing,
+    // for example) and the intent is void.
+    const domSelection = getDOMSelection(getEditorWindow(editor));
+    const domRange =
+      domSelection === null || domSelection.rangeCount === 0
+        ? null
+        : getDOMSelectionRange(domSelection, editor.getRootElement());
+    const nativeMovement =
+      domRange !== null &&
+      (domRange.startContainer !== pendingVerticalExit.domAnchorNode ||
+        domRange.startOffset !== pendingVerticalExit.domAnchorOffset);
     // The table may have been removed before this selection change was
-    // dispatched, in which case there is nothing to correct
+    // dispatched, in which case there is nothing to correct. A grid whose
+    // armed cell is gone is stale: correcting from its coordinates would
+    // throw or land at a wrong cell.
     const tableNode = $getNodeByKey(pendingVerticalExit.tableKey);
     const observerAndTable = tableObservers.observers.get(
       pendingVerticalExit.tableKey,
     );
-    if ($isTableNode(tableNode) && observerAndTable !== undefined) {
+    const originCellNode = $getNodeByKey(pendingVerticalExit.cellKey);
+    if (
+      nativeMovement &&
+      $isTableNode(tableNode) &&
+      observerAndTable !== undefined &&
+      $isTableCellNode(originCellNode)
+    ) {
       const [tableObserver] = observerAndTable;
       // A native landing inside the armed cell's own subtree (a nested
       // table under the cell's text, for example) is a line of the same
       // cell: trust it like a same-column landing.
-      const originCellNode = $getNodeByKey(pendingVerticalExit.cellKey);
       const anchorInOriginCell =
-        $isTableCellNode(originCellNode) &&
         $findMatchingParent(selection.anchor.getNode(), node =>
           node.is(originCellNode),
         ) !== null;
@@ -2808,6 +2830,8 @@ function $handleArrowKey(
           tableObservers.setPendingVerticalExit({
             cellKey: anchorCellNode.getKey(),
             direction,
+            domAnchorNode: range.startContainer,
+            domAnchorOffset: range.startOffset,
             tableKey: tableNode.getKey(),
             x: cords.x,
             y: cords.y,

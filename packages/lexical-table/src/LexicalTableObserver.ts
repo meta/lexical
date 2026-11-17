@@ -100,6 +100,16 @@ export type TableNextFocus = {
  * original cell's column it must be corrected to the cell at x,y.
  */
 export type TablePendingVerticalExit = {
+  /**
+   * The DOM position of the caret when the exit was armed. The correction
+   * only applies to the selection change the deferred native movement
+   * causes, and that movement is the one that takes the DOM selection away
+   * from this position: a selection change made by code or a collaborator
+   * dispatches while the DOM selection still sits here, so it must not be
+   * corrected.
+   */
+  domAnchorNode: Node;
+  domAnchorOffset: number;
   direction: 'up' | 'down';
   tableKey: NodeKey;
   /** The cell the arrow key was pressed in. */

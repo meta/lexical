@@ -548,6 +548,8 @@ describe('LexicalTableSelectionHelpers', () => {
       tableObservers.setPendingVerticalExit({
         cellKey: '2',
         direction: 'down',
+        domAnchorNode: document.createTextNode(''),
+        domAnchorOffset: 0,
         tableKey: '1',
         x: 0,
         y: 1,
@@ -568,6 +570,8 @@ describe('LexicalTableSelectionHelpers', () => {
       tableObservers.setPendingVerticalExit({
         cellKey: '2',
         direction: 'down',
+        domAnchorNode: document.createTextNode(''),
+        domAnchorOffset: 0,
         tableKey: '1',
         x: 0,
         y: 1,
