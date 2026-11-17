@@ -2097,6 +2097,27 @@ const SHIFT_KEY_ANY = {shiftKey: 'any'} as const;
 const ALT_SHIFT_KEY_ANY = {altKey: 'any', shiftKey: 'any'} as const;
 
 /**
+ * Returns true if a keydown comes from an input embedded in a node's DOM that
+ * takes text: a `<textarea>`, a foreign contentEditable, or an `<input>` of a
+ * type the user types into. The browser's own editing shortcuts (delete word,
+ * select all, undo) apply there, so the editor's must not run. A checkbox or a
+ * button has no action of its own for them and keeps the editor's (#3761).
+ */
+function $isEventFromEmbeddedTextInput(event: KeyboardEvent): boolean {
+  const target = getComposedEventTarget(event);
+  return (
+    $isEventFromEmbeddedInput(event) &&
+    !(
+      isHTMLElement(target) &&
+      target.nodeName === 'INPUT' &&
+      /^(button|checkbox|color|file|image|radio|range|reset|submit)$/.test(
+        (target as HTMLInputElement).type,
+      )
+    )
+  );
+}
+
+/**
  * The keydown shortcuts that the editor handles natively, compiled to
  * dispatch by the pressed key and modifiers in O(1). Each shortcut's mask
  * is exclusive of every other mask on the same key, so at most one entry
@@ -2116,8 +2137,8 @@ function buildKeyDownShortcuts(): KeyDownShortcut[] {
     },
   });
   /**
-   * preventDefault() and dispatch the command with a fixed payload, unless an
-   * input embedded in a node's DOM has the focus (#3761): the browser's action
+   * preventDefault() and dispatch the command with a fixed payload, unless a
+   * text input embedded in a node's DOM has the focus (#3761): the browser's action
    * (eg. deleting a word in the input) is the right one there.
    */
   const prevent = <T>(
@@ -2129,7 +2150,7 @@ function buildKeyDownShortcuts(): KeyDownShortcut[] {
     key,
     modifiers,
     onMatch: (event, editor) => {
-      if ($isEventFromEmbeddedInput(event)) {
+      if ($isEventFromEmbeddedTextInput(event)) {
         return;
       }
       event.preventDefault();
@@ -2213,7 +2234,7 @@ function buildKeyDownShortcuts(): KeyDownShortcut[] {
             key: 'o',
             modifiers: CTRL_KEY,
             onMatch: (event: KeyboardEvent, editor: LexicalEditor) => {
-              if ($isEventFromEmbeddedInput(event)) {
+              if ($isEventFromEmbeddedTextInput(event)) {
                 return;
               }
               event.preventDefault();
@@ -2250,7 +2271,7 @@ function buildKeyDownShortcuts(): KeyDownShortcut[] {
       key: 'a',
       modifiers: CONTROL_OR_META,
       onMatch: (event, editor) => {
-        if ($isEventFromEmbeddedInput(event)) {
+        if ($isEventFromEmbeddedTextInput(event)) {
           return;
         }
         event.preventDefault();

@@ -146,17 +146,25 @@ describe('Shortcuts in a decorator input (#3761)', () => {
     });
   }
 
-  // Only an input takes the shortcut: a button has no action of its own for it.
-  test('Mod+Z on a button in the decorator still runs the command', () => {
-    const {editor, input} = createEditor();
-    const button = document.createElement('button');
-    input.after(button);
-    button.focus();
-    const spy = spyOn(editor, UNDO_COMMAND);
-    const event = keyDown(button, {[MOD]: true, key: 'z'});
-    expect(event.defaultPrevented).toBe(true);
-    expect(spy).toHaveBeenCalledTimes(1);
-  });
+  // Only a text input takes the shortcut: a button or a checkbox has no
+  // action of its own for it.
+  for (const control of ['button', 'checkbox'] as const) {
+    test(`Mod+Z on a ${control} in the decorator still runs the command`, () => {
+      const {editor, input} = createEditor();
+      const element = document.createElement(
+        control === 'button' ? 'button' : 'input',
+      );
+      if (control === 'checkbox') {
+        element.setAttribute('type', 'checkbox');
+      }
+      input.after(element);
+      element.focus();
+      const spy = spyOn(editor, UNDO_COMMAND);
+      const event = keyDown(element, {[MOD]: true, key: 'z'});
+      expect(event.defaultPrevented).toBe(true);
+      expect(spy).toHaveBeenCalledTimes(1);
+    });
+  }
 
   test('a real Ctrl/Alt+Backspace deletes a word in the input', async () => {
     const {editor, input} = createEditor();
