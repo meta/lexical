@@ -264,6 +264,16 @@ describe('DateTimeComponent', () => {
     expect(readValue()).toBe(localInstantOn(day, 0));
   });
 
+  it('(r) makes a chip at local midnight all-day by checking and unchecking the time box', async () => {
+    await mountChip(localInstant(2026, 11, 4));
+    await openPicker();
+    expect(readPicker()).toEqual([false, '']);
+    await clickCheckbox();
+    expect(readValue()).toBe(localInstant(2026, 11, 4));
+    await clickCheckbox();
+    expect(readValue()).toBe('2026-11-04');
+  });
+
   it('(d) keeps the stored time when the time field is empty', async () => {
     await mountChip(localInstant(2026, 11, 4, 9));
     await openPicker();
