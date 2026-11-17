@@ -243,6 +243,27 @@ describe('DateTimeComponent', () => {
     expect(readValue()).toBe(localInstant(2026, 11, 4));
   });
 
+  // An instant at local midnight shows without a time, but it can be a time
+  // set in another time zone (09:00 in Seoul is 00:00 in London) or a typed
+  // 00:00, so picking a day must not turn it into an all-day date
+  it('(p) keeps a timed chip at local midnight timed when a day is picked', async () => {
+    await mountChip(localInstant(2026, 11, 4));
+    await openPicker();
+    const day = await pickOtherDay();
+    expect(readValue()).toBe(localInstantOn(day, 0));
+  });
+
+  it('(q) keeps a typed 00:00 when a day is picked after reopening', async () => {
+    await mountChip('2026-11-04');
+    await openPicker();
+    await clickCheckbox();
+    await typeTime('00:00');
+    await closePicker();
+    await openPicker();
+    const day = await pickOtherDay();
+    expect(readValue()).toBe(localInstantOn(day, 0));
+  });
+
   it('(d) keeps the stored time when the time field is empty', async () => {
     await mountChip(localInstant(2026, 11, 4, 9));
     await openPicker();

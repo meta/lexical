@@ -188,14 +188,18 @@ export default function DateTimeComponent({
     if (date === undefined) {
       return;
     }
-    // A typed time, or else the time the chip already has; with neither the
-    // day is all-day
+    // A typed time, or else the time the chip already has. An instant shown
+    // without a time is at local midnight, which can be a time set in another
+    // time zone or a typed 00:00, so it keeps that midnight. Only an all-day
+    // date or a chip without a date stays all-day.
     const time = parseTime(timeValue) ?? parseTime(storedTime);
     withDateTimeNode(node => {
-      if (time === null) {
+      if (time !== null) {
+        node.setDateTime(withTime(date, time));
+      } else if (node.isAllDay() || node.getDateTimeValue() === '') {
         node.setAllDayDate(date);
       } else {
-        node.setDateTime(withTime(date, time));
+        node.setDateTime(withTime(date, [0, 0]));
       }
     });
   };
