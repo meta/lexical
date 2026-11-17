@@ -214,6 +214,26 @@ These \$functions are considered safe to call from anywhere, generally
 these functions are runtime type checks that do not depend on any other
 state.
 
+## `@lexical/y-collab-status`
+
+In the recommended config, as an error. Reports
+`configExtension(YCollabExtension, {doc, ...})` without `onYStatus`: an
+extension's config is partial, so TypeScript accepts it, and the editor
+throws when it is built. Pass a function that shows the user why the
+document is read only, or `null` when the app reads the status another way
+(the extension's `yStatus` output, `binding.status`); the rule suggests
+`onYStatus: null`. A config without `doc` (an override of a `yCollab(...)`
+or `createYCollabConfig(...)` dependency, which brings its own handler), one
+with a spread, and one that is not an object literal are not reported.
+
+```js
+// Invalid
+configExtension(YCollabExtension, {doc, schemaVersion: 1, synced: true});
+// Valid
+configExtension(YCollabExtension, {doc, onYStatus: null, schemaVersion: 1, synced: true});
+configExtension(YCollabExtension, {captureTimeout: null});
+```
+
 ## Testing
 
 To verify that the plugin works with different ESLint versions, run the integration tests:

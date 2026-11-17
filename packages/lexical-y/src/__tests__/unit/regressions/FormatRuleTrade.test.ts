@@ -10,8 +10,8 @@
 
 // Rare sequences in which a format ends up on text nobody formatted, made
 // wrong by the rules that fixed #9671 and #9599: a trade recorded as D95
-// (#9690). Each passed before those rules. `test.fails` until stored
-// provenance can tell a range's end from a removal's start.
+// (#9690). Each passed before those rules. Layout 3 fixes them: an end names
+// its opener, which tells a range's end from a removal's start.
 // B makes its steps (each its own undo step), A types a plain character, B
 // undoes everything. Expected: every original letter keeps exactly its
 // original formats and B's "Z" is gone (A's character is left out of the
@@ -42,7 +42,11 @@ import {expect, test} from 'vitest';
 import {createYDoc, YCollabExtension} from '../../..';
 import {seedYState} from '../../../headless';
 
-const CONFIG = {extensions: [RichTextExtension], schemaVersion: 1};
+const CONFIG = {
+  extensions: [RichTextExtension],
+  onWarn: null,
+  schemaVersion: 1,
+};
 type F = 'b' | 'i' | 's';
 const FMT: Record<F, TextFormatType> = {
   b: 'bold',
@@ -124,6 +128,7 @@ function run(
           configExtension(YCollabExtension, {
             captureTimeout: 2 ** 30,
             doc,
+            onYStatus: null,
             schemaVersion: 1,
             synced: true,
           }),
@@ -221,7 +226,7 @@ const CASES: {
 
 for (const c of CASES) {
   for (const gc of [false, true]) {
-    test.fails(`${c.name} (gc ${gc ? 'on' : 'off'}, ids ${c.ids})`, () => {
+    test(`${c.name} (gc ${gc ? 'on' : 'off'}, ids ${c.ids})`, () => {
       const orig = c.words
         .flatMap(([w, fs]) =>
           [...w].map(

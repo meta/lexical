@@ -153,7 +153,12 @@ export class PackageMetadata {
       const sourceBaseNames =
         name === npmName
           ? ['index']
-          : [name.replace(/^.*\//, ''), outputFileName];
+          : [
+              name.replace(/^.*\//, ''),
+              outputFileName,
+              // a sub-entry: src/<entry>/<name> (see updateVersion)
+              name.slice(npmName.length + 1),
+            ];
       const sourceCandidates = sourceBaseNames.flatMap(sourceBaseName =>
         ['.ts', '.tsx'].map(ext => sourceBaseName + ext),
       );

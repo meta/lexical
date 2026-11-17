@@ -11,13 +11,14 @@
 import {noDocumentInDomMethods} from './rules/no-document-in-dom-methods.js';
 import {noNestedEditorUpdates} from './rules/no-nested-editor-updates.js';
 import {rulesOfLexical} from './rules/rules-of-lexical.js';
+import {yCollabStatus} from './rules/y-collab-status.js';
 import {SOURCE_VERSION} from './version.js';
 
 /**
  * @typedef {import('eslint').Rule.RuleModule} RuleModule
- * @typedef {{plugins: {'@lexical': Plugin}; rules: {'@lexical/no-nested-editor-updates': 'warn' | 'error' | 'off'; '@lexical/rules-of-lexical': 'warn' | 'error' | 'off'}}} FlatConfig
+ * @typedef {{plugins: {'@lexical': Plugin}; rules: {'@lexical/no-nested-editor-updates': 'warn' | 'error' | 'off'; '@lexical/rules-of-lexical': 'warn' | 'error' | 'off'; '@lexical/y-collab-status': 'warn' | 'error' | 'off'}}} FlatConfig
  * @typedef {{meta: {name: string; version: string}; rules: Rules; configs: Configs}} Plugin
- * @typedef {{'no-document-in-dom-methods': RuleModule; 'no-nested-editor-updates': RuleModule; 'rules-of-lexical': RuleModule}} Rules
+ * @typedef {{'no-document-in-dom-methods': RuleModule; 'no-nested-editor-updates': RuleModule; 'rules-of-lexical': RuleModule; 'y-collab-status': RuleModule}} Rules
  * @typedef {{all: FlatConfig; recommended: FlatConfig; 'flat/all': FlatConfig; 'flat/recommended': FlatConfig}} Configs
  */
 
@@ -69,6 +70,8 @@ function createConfigs(pluginMeta, pluginRules) {
     rules: {
       '@lexical/no-nested-editor-updates': 'warn',
       '@lexical/rules-of-lexical': 'warn',
+      // Fires only on configExtension(YCollabExtension, {doc, ...}).
+      '@lexical/y-collab-status': 'error',
     },
   };
   // Flat configs (ESLint 9+). `flat/all` and `flat/recommended` are the
@@ -92,6 +95,7 @@ export const rules = {
   'no-document-in-dom-methods': noDocumentInDomMethods,
   'no-nested-editor-updates': noNestedEditorUpdates,
   'rules-of-lexical': rulesOfLexical,
+  'y-collab-status': yCollabStatus,
 };
 
 export const configs = createConfigs(meta, rules);

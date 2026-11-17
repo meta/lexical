@@ -378,6 +378,7 @@ export {
   $parseSerializedNode,
   INTERNAL_getActiveEditorState,
   isCurrentlyReadOnlyMode,
+  isDispatchingCommitListeners,
 } from './LexicalUpdates';
 export {
   $addUpdateTag,

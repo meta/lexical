@@ -56,6 +56,7 @@ function client(id: number, state?: Uint8Array) {
     onWarn: e => warnings.push(String(e)),
   });
   const binding = new YBinding(editor, doc, {
+    onStatus: null,
     schemaVersion: 1,
     selfCheck: true,
   });

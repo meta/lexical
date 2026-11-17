@@ -77,6 +77,8 @@ import {
 import * as Y13 from 'yjs';
 
 import {createYDoc, type YBinding, type YDoc} from '../..';
+import {setFullStackChecks} from '../../internal/Ident';
+import {setUnitLeftChecks} from '../../internal/Seen';
 import {
   $createBoxNode,
   BoxNode,
@@ -87,6 +89,10 @@ import {
   describeNode,
   NODES,
 } from './harness';
+
+// Test harnesses check every run stack push in full (see Ident, Rule 4).
+setFullStackChecks(true);
+setUnitLeftChecks(true);
 
 // ---------------------------------------------------------------------------
 // Script
@@ -1632,6 +1638,8 @@ export type RunResult = {
   trace?: string[];
   metrics: World['metrics'];
   layout: Layout;
+  /** Each peer's final state, when asked for (see runScript). */
+  states?: Uint8Array[];
 };
 
 function $init(seed: number) {
@@ -1662,7 +1670,12 @@ function $init(seed: number) {
   );
 }
 
-export function runScript(script: Script, trace = false): RunResult {
+export function runScript(
+  script: Script,
+  trace = false,
+  /** Return each peer's final state too (`states`). */
+  withStates = false,
+): RunResult {
   const t0 = performance.now();
   const world = new World();
   if (trace) {
@@ -1752,6 +1765,9 @@ export function runScript(script: Script, trace = false): RunResult {
     nodes,
     ops,
     seed: script.seed,
+    states: withStates
+      ? world.peers.map(p => p.Y.encodeStateAsUpdate(p.doc as never))
+      : undefined,
     textLen,
     trace: world.trace ?? undefined,
   };

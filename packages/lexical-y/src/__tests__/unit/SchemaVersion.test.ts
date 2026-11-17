@@ -35,6 +35,7 @@ import {afterEach, describe, expect, test, vi} from 'vitest';
 
 import {
   createYDoc,
+  RAW_YJS_WRITE_WARNING,
   RECOVERED_READ_WARNING,
   UNSUPPORTED_EDIT_WARNING,
   UNSUPPORTED_SCHEMA_WARNING,
@@ -86,6 +87,7 @@ function client(
   doc.on('update', (update: Uint8Array) => updates.push(update));
   const binding = new YBinding(editor, doc, {
     captureTimeout: null,
+    onStatus: null,
     schemaVersion,
     selfCheck: true,
     ...options,
@@ -353,7 +355,12 @@ describe('schema version gate', () => {
     b.doc.get('lexical-y').setAttr(SCHEMA + 'two', true);
     b.binding.initialize();
     expect(b.binding.status).toBe('readonly');
-    expect(b.warnings.map(w => [w.code, w.data])).toEqual([
+    // The record was written raw (reported as such in development).
+    expect(
+      b.warnings
+        .filter(w => w.code !== RAW_YJS_WRITE_WARNING)
+        .map(w => [w.code, w.data]),
+    ).toEqual([
       [
         UNSUPPORTED_SCHEMA_WARNING,
         {found: true, key: SCHEMA + 'two', reason: 'malformed', supported: 5},
@@ -777,7 +784,12 @@ describe('schema version: required', () => {
     expect(() =>
       buildEditorFromExtensions(
         defineExtension({
-          dependencies: [configExtension(YCollabExtension, {schemaVersion: 1})],
+          dependencies: [
+            configExtension(YCollabExtension, {
+              onYStatus: null,
+              schemaVersion: 1,
+            }),
+          ],
           name: 'test-doc-required',
         }),
       ),
@@ -815,6 +827,7 @@ describe('schema version: required', () => {
         dependencies: [
           configExtension(YCollabExtension, {
             doc: createYDoc(),
+            onYStatus: null,
             schemaVersion: 7,
             synced: true,
           }),
@@ -834,12 +847,14 @@ describe('schema version: required', () => {
     expect(() => new YBinding(editor, createYDoc())).toThrow(
       `YBinding needs options.schemaVersion (got undefined): ${FIX}`,
     );
-    // @ts-expect-error schemaVersion is required
-    expect(() => new YBinding(editor, createYDoc(), {selfCheck: true})).toThrow(
-      FIX,
-    );
     expect(
-      () => new YBinding(editor, createYDoc(), {schemaVersion: 0}),
+      () =>
+        // @ts-expect-error schemaVersion is required
+        new YBinding(editor, createYDoc(), {onStatus: null, selfCheck: true}),
+    ).toThrow(FIX);
+    expect(
+      () =>
+        new YBinding(editor, createYDoc(), {onStatus: null, schemaVersion: 0}),
     ).toThrow(FIX);
     // @ts-expect-error schemaVersion is required
     const bare: HeadlessYConfig = {nodes: NODES};

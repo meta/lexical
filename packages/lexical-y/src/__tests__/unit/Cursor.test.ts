@@ -12,6 +12,12 @@ import * as Y from '@y/y';
 import {describe, expect, test} from 'vitest';
 
 import {Cursor} from '../../internal/Cursor';
+import {
+  isNullRunValue,
+  isShadowKey,
+  stepFormat,
+  STORED_FOLD,
+} from '../../internal/Ident';
 
 // The binding's write cursor reimplements Yjs' text-position operations on
 // items (Yjs exports no way to start them from a known item). It must stay
@@ -103,6 +109,37 @@ function viaCursor(doc: Y.Doc, ops: Op[]) {
   }
 }
 
+/** Each live character with the formats it shows: paired fold or plain. */
+function shownChars(doc: Y.Doc, paired: boolean): string[] {
+  const formats = new Map<string, unknown>();
+  const out: string[] = [];
+  for (let it = doc.get('t')._start; it !== null; it = it.right) {
+    if (it.deleted) {
+      continue;
+    }
+    if (it.content instanceof Y.ContentFormat) {
+      if (paired) {
+        stepFormat(formats, it, STORED_FOLD);
+      } else if (it.content.value === null) {
+        formats.delete(it.content.key);
+      } else {
+        formats.set(it.content.key, it.content.value);
+      }
+    } else if (it.content instanceof Y.ContentString) {
+      const shown: Record<string, unknown> = {};
+      for (const [k, v] of [...formats].sort(([x], [y]) => (x < y ? -1 : 1))) {
+        if (!isShadowKey(k) && v !== null && !isNullRunValue(v)) {
+          shown[k] = v;
+        }
+      }
+      for (const ch of it.content.str) {
+        out.push(ch + JSON.stringify(shown));
+      }
+    }
+  }
+  return out;
+}
+
 const liveFormatItems = (doc: Y.Doc) => {
   let n = 0;
   for (let it = doc.get('t')._start; it !== null; it = it.right) {
@@ -124,9 +161,9 @@ describe('@lexical/y write cursor', () => {
       b.clientID = 7;
       viaApplyDelta(a, ops);
       viaCursor(b, ops);
-      expect(b.get('t').toDelta().toJSON()).toEqual(
-        a.get('t').toDelta().toJSON(),
-      );
+      // Layout 3: the cursor writes paired runs, so its document shows (read
+      // by the paired fold) what applyDelta's shows by Yjs's plain fold.
+      expect(shownChars(b, true)).toEqual(shownChars(a, false));
       expect(liveFormatItems(b)).toBeGreaterThanOrEqual(liveFormatItems(a));
     },
   );
@@ -175,9 +212,12 @@ describe('a format change then a delete on one cursor', () => {
       Y.applyUpdate(peer, Y.encodeStateAsUpdate(doc));
       doc.transact(tr => {
         const cursor = new Cursor(tr, text, start, new Map([['K', old]]));
-        cursor.format(1, {F: true});
-        expect(cursor.formats.get('K') ?? null).toBe(next);
+        // Layout 4: a format change writes paired runs of covered names
+        // only, and stops right after its range's ends; the delete walks
+        // past the items of `K`, a name the binding does not own.
+        cursor.format(1, {'f:bold': true});
         cursor.delete(1);
+        expect(cursor.formats.get('K') ?? null).toBe(next);
       });
       expect(ks.map(it => !it.deleted)).toEqual([true, true, true, true, true]);
       // A peer that types after the first item, offline, keeps its value.

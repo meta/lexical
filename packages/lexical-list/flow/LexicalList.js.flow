@@ -61,7 +61,7 @@ declare export class ListItemNode extends ElementNode {
   getValue(): number;
   setValue(value: number): void;
   getChecked(): boolean | void;
-  setChecked(boolean): this;
+  setChecked(v: boolean): this;
   toggleChecked(): void;
   // Both forms, because a Flow object property is invariant: `SerializedPartial`
   // makes each property optional, and an optional property is not a supertype

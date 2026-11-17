@@ -26,6 +26,7 @@ export interface FlatConfig {
   rules: {
     '@lexical/no-nested-editor-updates': 'warn' | 'error' | 'off';
     '@lexical/rules-of-lexical': 'warn' | 'error' | 'off';
+    '@lexical/y-collab-status': 'warn' | 'error' | 'off';
   };
 }
 
@@ -38,6 +39,7 @@ export interface Plugin {
     'no-document-in-dom-methods': Rule.RuleModule;
     'no-nested-editor-updates': Rule.RuleModule;
     'rules-of-lexical': Rule.RuleModule;
+    'y-collab-status': Rule.RuleModule;
   };
   configs: {
     all: FlatConfig;
