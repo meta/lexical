@@ -529,6 +529,20 @@ describe('arrow keys across soft-wrapped cell text', () => {
         key: 'ArrowDown',
       }),
     );
+    // Move the DOM selection off the armed caret first, the way any real
+    // selection change would: with it still at the armed caret the
+    // nativeMovement check alone voids the correction, and the stale-grid
+    // guard in the consumer would go unexercised.
+    const c5Key = editor.getEditorState().read(() =>
+      $getRoot()
+        .getAllTextNodes()
+        .find(node => node.getTextContent() === 'c5')
+        ?.getKey(),
+    );
+    if (c5Key === undefined) {
+      throw new Error('no c5 text node');
+    }
+    window.getSelection()!.collapse(getDomText(editor, c5Key), 0);
     // Removing the armed cell's row (and the one below, so the
     // correction's target grid is stale too) must not make the
     // SELECTION_CHANGE_COMMAND handler throw and discard the update. A
