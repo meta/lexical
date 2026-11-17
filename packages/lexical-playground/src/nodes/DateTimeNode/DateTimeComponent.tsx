@@ -24,7 +24,6 @@ import {
 } from '@floating-ui/react';
 import {useLexicalComposerContext} from '@lexical/react/LexicalComposerContext';
 import {useLexicalNodeSelection} from '@lexical/react/useLexicalNodeSelection';
-import {setHours, setMinutes} from 'date-fns';
 import {
   $getNodeByKey,
   IS_BOLD,
@@ -39,7 +38,7 @@ import * as React from 'react';
 import {type JSX, useEffect, useRef, useState} from 'react';
 import {DayPicker} from 'react-day-picker';
 
-import {$isDateTimeNode, type DateTimeNode} from './DateTimeNode';
+import {$isDateTimeNode, type DateTimeNode, getTimeValue} from './DateTimeNode';
 
 const FORMAT_CLASSES = [
   [IS_BOLD, 'bold'],
@@ -51,40 +50,55 @@ const FORMAT_CLASSES = [
 
 const userTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
 
+// [hours, minutes] of a complete `HH:MM` from the time input, or null
+function parseTime(time: string): [number, number] | null {
+  const match = /^(\d{2}):(\d{2})/.exec(time);
+  return match === null ? null : [Number(match[1]), Number(match[2])];
+}
+
+function withTime(date: Date, [hours, minutes]: [number, number]): Date {
+  const dateTime = new Date(date);
+  dateTime.setHours(hours, minutes, 0, 0);
+  return dateTime;
+}
+
 export default function DateTimeComponent({
   dateTime,
   format,
   nodeKey,
+  text,
+  value,
 }: {
-  dateTime: Date | undefined;
+  dateTime: Date;
   format: number;
   nodeKey: NodeKey;
+  text: string;
+  value: string;
 }): JSX.Element {
   const [editor] = useLexicalComposerContext();
   const [isOpen, setIsOpen] = useState(false);
   const ref = useRef(null);
-  const [selected, setSelected] = useState(dateTime);
-  const [includeTime, setIncludeTime] = useState(() => {
-    if (dateTime === undefined) {
-      return false;
+  // The picker is drawn from the node's value on every render. The only local
+  // state is what the user did that the node does not hold yet: a checked
+  // time box with no time, and the text of the time input.
+  const [isTimeChecked, setIsTimeChecked] = useState(false);
+  const [typedTime, setTypedTime] = useState<string | null>(null);
+  // The value this component last wrote, to tell its own change coming back
+  // from an outside one (undo, redo, a collaborator)
+  const [ownValue, setOwnValue] = useState<string | null>(null);
+  const [prevValue, setPrevValue] = useState(value);
+  if (value !== prevValue) {
+    setPrevValue(value);
+    setOwnValue(null);
+    if (value !== ownValue) {
+      setIsTimeChecked(false);
+      setTypedTime(null);
     }
-    const hours = dateTime?.getHours();
-    const minutes = dateTime?.getMinutes();
-    return hours !== 0 || minutes !== 0;
-  });
-  const [timeValue, setTimeValue] = useState(() => {
-    if (dateTime === undefined) {
-      return '00:00';
-    }
-    const hours = dateTime?.getHours();
-    const minutes = dateTime?.getMinutes();
-    if (hours !== 0 || minutes !== 0) {
-      return `${hours?.toString().padStart(2, '0')}:${minutes
-        ?.toString()
-        .padStart(2, '0')}`;
-    }
-    return '00:00';
-  });
+  }
+  const storedTime = getTimeValue(value);
+  const includeTime = isTimeChecked || storedTime !== '';
+  const timeValue = typedTime ?? storedTime;
+  const selected = isNaN(dateTime.getTime()) ? undefined : dateTime;
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [isNodeSelected, setNodeSelected, clearNodeSelection] =
     useLexicalNodeSelection(nodeKey);
@@ -100,7 +114,12 @@ export default function DateTimeComponent({
       }),
       shift({padding: 10}),
     ],
-    onOpenChange: setIsOpen,
+    onOpenChange: open => {
+      setIsOpen(open);
+      if (!open) {
+        setTypedTime(null);
+      }
+    },
     open: isOpen,
     placement: 'bottom-start',
     strategy: 'fixed',
@@ -124,71 +143,60 @@ export default function DateTimeComponent({
       : () => {};
   }, [refs, editor]);
 
-  const withDateTimeNode = (
-    cb: (node: DateTimeNode) => void,
-    onUpdate?: () => void,
-  ): void => {
-    editor.update(
-      () => {
-        const node = $getNodeByKey(nodeKey);
-        if ($isDateTimeNode(node)) {
-          cb(node);
+  const withDateTimeNode = (cb: (node: DateTimeNode) => void): void => {
+    editor.update(() => {
+      const node = $getNodeByKey(nodeKey);
+      if ($isDateTimeNode(node)) {
+        const before = node.getDateTimeValue();
+        cb(node);
+        const after = node.getDateTimeValue();
+        if (after !== before) {
+          setOwnValue(after);
         }
-      },
-      {onUpdate},
-    );
+      }
+    });
   };
 
   const handleCheckboxChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.checked) {
+      setIsTimeChecked(true);
+      return;
+    }
+    setIsTimeChecked(false);
+    setTypedTime(null);
     withDateTimeNode(node => {
-      if (e.target.checked) {
-        setIncludeTime(true);
-      } else {
-        if (selected) {
-          const newSelectedDate = setHours(setMinutes(selected, 0), 0);
-          node.setDateTime(newSelectedDate);
-        }
-        setIncludeTime(false);
-        setTimeValue('00:00');
+      // An all-day date stays as it is: going through a Date could move a day
+      // that the local time zone skipped
+      if (!node.isAllDay()) {
+        node.setAllDayDate(dateTime);
       }
     });
   };
 
   const handleTimeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    withDateTimeNode(node => {
-      const time = e.target.value;
-      if (!selected) {
-        setTimeValue(time);
-        return;
-      }
-      const [hours, minutes] = time
-        .split(':')
-        .map((str: string) => parseInt(str, 10));
-      const newSelectedDate = setHours(setMinutes(selected, minutes), hours);
-      setSelected(newSelectedDate);
-      node.setDateTime(newSelectedDate);
-      setTimeValue(time);
-    });
+    const time = e.target.value;
+    setTypedTime(time);
+    const parsed = parseTime(time);
+    if (parsed === null || selected === undefined) {
+      return;
+    }
+    setIsTimeChecked(true);
+    withDateTimeNode(node => node.setDateTime(withTime(selected, parsed)));
   };
 
   const handleDaySelect = (date: Date | undefined) => {
+    if (date === undefined) {
+      return;
+    }
+    // A typed time, or else the time the chip already has; with neither the
+    // day is all-day
+    const time = parseTime(timeValue) ?? parseTime(storedTime);
     withDateTimeNode(node => {
-      if (!timeValue || !date) {
-        setSelected(date);
-        return;
+      if (time === null) {
+        node.setAllDayDate(date);
+      } else {
+        node.setDateTime(withTime(date, time));
       }
-      const [hours, minutes] = timeValue
-        .split(':')
-        .map(str => parseInt(str, 10));
-      const newDate = new Date(
-        date.getFullYear(),
-        date.getMonth(),
-        date.getDate(),
-        hours,
-        minutes,
-      );
-      node.setDateTime(newDate);
-      setSelected(newDate);
     });
   };
 
@@ -204,8 +212,7 @@ export default function DateTimeComponent({
 
   return (
     <div className={classNames.join(' ')} ref={ref}>
-      {dateTime?.toDateString() + (includeTime ? ' ' + timeValue : '') ||
-        'Invalid Date'}
+      {text}
       {isOpen && (
         <FloatingPortal>
           <FloatingOverlay lockScroll={true}>

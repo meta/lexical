@@ -15,6 +15,7 @@ import {
 } from '@lexical/html';
 import {$insertNodeIntoLeaf, $wrapNodeInElement} from '@lexical/utils';
 import {
+  $create,
   $createParagraphNode,
   $getSelection,
   $isRangeSelection,
@@ -29,10 +30,13 @@ import {
 
 import {
   $createDateTimeNode,
+  $createDateTimeNodeFromValue,
   DateTimeNode,
 } from '../../nodes/DateTimeNode/DateTimeNode';
 
 type CommandPayload = {
+  /** Insert the local calendar date of `dateTime` as an all-day date */
+  allDay?: boolean;
   dateTime: Date;
 };
 
@@ -41,16 +45,14 @@ export const INSERT_DATETIME_COMMAND: LexicalCommand<CommandPayload> =
 
 const DateTimeRule = defineImportRule({
   $import: (ctx, el, $next) => {
-    const dateTimeValue = el.getAttribute('data-lexical-datetime')!;
-    const parsedDate = Date.parse(dateTimeValue);
-    // An unparseable attribute would build a node around an Invalid Date,
-    // whose dateTime state cannot be serialized (toISOString throws). Fall
-    // through and keep the element's own content instead, the same way
-    // GoogleDocsDateRule below does.
-    if (isNaN(parsedDate)) {
+    // An unparseable attribute falls through and keeps the element's own
+    // content, the same way GoogleDocsDateRule below does.
+    const node = $createDateTimeNodeFromValue(
+      el.getAttribute('data-lexical-datetime')!,
+    );
+    if (node === null) {
       return $next();
     }
-    const node = $createDateTimeNode(new Date(parsedDate));
     const [firstChild] = ctx.$importChildren(el);
     if ($isTextNode(firstChild)) {
       node.setFormat(firstChild.getFormat());
@@ -104,8 +106,10 @@ export const DateTimeExtension = defineExtension({
     editor.registerCommand(
       INSERT_DATETIME_COMMAND,
       payload => {
-        const {dateTime} = payload;
-        const dateTimeNode = $createDateTimeNode(dateTime);
+        const {allDay, dateTime} = payload;
+        const dateTimeNode = allDay
+          ? $create(DateTimeNode).setAllDayDate(dateTime)
+          : $createDateTimeNode(dateTime);
 
         const selection = $getSelection();
         if ($isRangeSelection(selection)) {
