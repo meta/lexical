@@ -88,13 +88,22 @@ const GoogleDocsDateRule = defineImportRule({
     if (isNaN(date.getTime())) {
       return $next();
     }
-    // Google Docs stores a date without a time (dfie_tpt 0) as noon UTC of
-    // that day, so its UTC date is the day the chip shows
+    // Google Docs writes what some chips show as UTC: noon of the day for a
+    // date without a time (dfie_tpt 0), and the wall clock time for a time
+    // without a time zone (dfie_tpt 1). The time is kept without an offset,
+    // so it is read as local time where it is pasted.
     const year = date.getUTCFullYear();
+    const shown =
+      seconds && year >= 0 && year <= 9999 ? date.toISOString() : '';
+    const value =
+      dat_df.dfie_tpt === 0
+        ? shown.slice(0, 10)
+        : dat_df.dfie_tpt === 1
+          ? shown.slice(0, 19)
+          : '';
     const node =
-      (dat_df.dfie_tpt === 0 && seconds && year >= 0 && year <= 9999
-        ? $createDateTimeNodeFromValue(date.toISOString().slice(0, 10))
-        : null) ?? $createDateTimeNode(date);
+      (value !== '' ? $createDateTimeNodeFromValue(value) : null) ??
+      $createDateTimeNode(date);
     return [applyFormatFromStyle(node, el.style)];
   },
   match: sel.tag('span').attr('data-rich-links', /"type"\s*:\s*"date"/),

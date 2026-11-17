@@ -176,9 +176,16 @@ describe('DateTime HTML import', () => {
       '2026-11-17T12:00:00.000Z',
     ],
     [
-      'a chip with another time type',
-      {...GOOGLE_DOCS_DATE, dfie_tpt: 1},
-      '2026-11-17T12:00:00.000Z',
+      // A 12:00 chip with its time zone hidden copies the same whether it was
+      // set in Seoul or in UTC: Google keeps only the wall clock time, written
+      // as UTC
+      'a chip at 12:00 without a time zone',
+      {
+        ...GOOGLE_DOCS_DATE,
+        dfie_dt: '2026년 11월 17일 오후 12:00',
+        dfie_tpt: 1,
+      },
+      new Date(2026, 10, 17, 12).toISOString(),
     ],
     [
       'a date chip whose timestamp is 0',
