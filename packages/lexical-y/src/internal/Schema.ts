@@ -950,18 +950,6 @@ function setMemberOfEntry(stored: string): string {
 }
 
 /**
- * Whether a stored format or attribute name is a member entry (`s:`, then a
- * key and U+001F): what a document that has one needs layout
- * SET_MEMBERS_LAYOUT_VERSION for.
- */
-export function isSetMemberEntryName(name: string): boolean {
-  return (
-    name.startsWith(STATE_PREFIX) &&
-    name.indexOf(SET_MEMBER_SEPARATOR, STATE_PREFIX.length) >= 0
-  );
-}
-
-/**
  * The keys of sets no StateConfig knows that the reader joined from member
  * entries, per node type of an editor (its shared node state): the writer
  * stores an array under such a key one entry per member again, whatever
@@ -995,7 +983,7 @@ export function isSetStateConfig(config: AnyStateConfig | undefined): boolean {
   );
 }
 
-function isStringArray(value: unknown): value is string[] {
+export function isStringArray(value: unknown): value is string[] {
   return Array.isArray(value) && value.every(v => typeof v === 'string');
 }
 
@@ -1973,7 +1961,7 @@ export function eachOuterLevel(
  * equal fields (two links to the same URL), which would otherwise read as
  * one.
  */
-const INSTANCE_KEY = '#';
+export const INSTANCE_KEY = '#';
 
 /**
  * Wrapper values (see $wrapperAttrs) of wrappers that hold text: their text

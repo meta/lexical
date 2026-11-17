@@ -24,9 +24,11 @@ import {
 
 import {HeadingAnnounceExtension} from './HeadingAnnounceExtension';
 import {
+  $createQuoteContainerNode,
   defaultShouldHandlePasteAsFiles,
   type EscapeFormatTriggerConfig,
   HeadingNode,
+  QuoteContainerNode,
   QuoteNode,
   registerRichText,
   type ShouldHandlePasteAsFiles,
@@ -138,4 +140,45 @@ export const RichTextExtension = defineExtension({
         shouldHandlePasteAsFiles,
       );
     }),
+});
+
+/**
+ * Registers {@link QuoteContainerNode}, a quote that holds blocks, next to
+ * {@link QuoteNode}. Nothing creates one on its own: `$createQuoteNode()`,
+ * the `<blockquote>` import and the Markdown `>` still build a `QuoteNode`.
+ * Create containers with `$createQuoteContainerNode()`, import them with
+ * {@link QuoteContainerRule}, or use
+ * {@link QuoteContainerReplacementExtension} to make every quote a container.
+ *
+ * @experimental
+ */
+export const QuoteContainerExtension = defineExtension({
+  dependencies: [RichTextExtension],
+  name: '@lexical/rich-text/QuoteContainer',
+  nodes: () => [QuoteContainerNode],
+});
+
+/**
+ * Makes every quote of the editor a {@link QuoteContainerNode}, with a node
+ * replacement of {@link QuoteNode}: `$createQuoteNode()`, the `<blockquote>`
+ * import (HTML and paste), the Markdown `>` and JSON of type `'quote'` all
+ * build a container, which then serializes as `'quote-container'`. A `quote`
+ * that held inline content loads with that content in a paragraph, and one
+ * that was a shadow root (`shadowRoot: true`) with the blocks it had.
+ *
+ * Loading rewrites the type, so JSON saved afterwards cannot be read by an
+ * editor that does not register `QuoteContainerNode`.
+ *
+ * @experimental
+ */
+export const QuoteContainerReplacementExtension = defineExtension({
+  dependencies: [QuoteContainerExtension],
+  name: '@lexical/rich-text/QuoteContainerReplacement',
+  nodes: () => [
+    {
+      replace: QuoteNode,
+      with: () => $createQuoteContainerNode(),
+      withKlass: QuoteContainerNode,
+    },
+  ],
 });

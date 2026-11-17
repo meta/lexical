@@ -127,6 +127,7 @@ for (const marks of [false, true]) {
         dependencies: [
           configExtension(YCollabExtension, {
             doc,
+            onYStatus: null,
             schemaVersion: 1,
             selfCheck: true,
           }),
@@ -233,6 +234,7 @@ test('a text node holding 300,000 line feeds', async () => {
     const doc = createYDoc(null, {gc: false});
     doc.clientID = id;
     const binding = new YBinding(editor, doc, {
+      onStatus: null,
       schemaVersion: 1,
       selfCheck: false,
     });

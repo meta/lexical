@@ -9,9 +9,47 @@
 import type {MdastConfig} from './MdastExtension';
 import type {CompiledMdast, MdastExportHandler, MdastExportRule} from './types';
 import type {LexicalEditor} from 'lexical';
+import type {Extension as MicromarkExtension} from 'micromark-util-types';
 
 import invariant from '@lexical/internal/invariant';
 import {getStaticNodeConfig, iterStaticNodeConfigChain} from 'lexical';
+import {gfmStrikethrough} from 'micromark-extension-gfm-strikethrough';
+
+import {
+  cjkFriendlyEmphasis,
+  cjkFriendlyStrikethrough,
+  probeLayout,
+  strictEmphasis,
+} from './cjkFriendly';
+
+// The key under which a micromark extension holds the factory of the one a
+// CJK-friendly import uses in its place. Not enumerable, so micromark does
+// not read it as a hook.
+const CJK_FRIENDLY_VARIANT = '__lexicalCjkFriendlyVariant';
+
+/**
+ * The GFM strikethrough syntax that `MdastStrikethroughExtension`
+ * contributes, which a CJK-friendly import swaps for its own.
+ *
+ * @internal
+ * @__NO_SIDE_EFFECTS__
+ */
+export function getStrikethroughSyntax(): MicromarkExtension {
+  const syntax = gfmStrikethrough();
+  return Object.defineProperty(syntax, CJK_FRIENDLY_VARIANT, {
+    value: () => cjkFriendlyStrikethrough(syntax),
+  });
+}
+
+/** The extension a CJK-friendly import uses in place of `extension`. */
+function toCjkFriendlyVariant(
+  extension: MicromarkExtension,
+): MicromarkExtension {
+  const variant = (
+    extension as {[CJK_FRIENDLY_VARIANT]?: () => MicromarkExtension}
+  )[CJK_FRIENDLY_VARIANT];
+  return variant ? variant() : extension;
+}
 
 function getExportRuleType(klass: MdastExportRule['type']): string {
   if (typeof klass === 'string') {
@@ -83,13 +121,30 @@ export function compileMdast(
     }
   }
 
+  // Reads CJK-friendly by default, and any other mode strictly, as in
+  // @lexical/markdown.
+  const cjkFriendly =
+    config.importPunctuation === undefined ||
+    config.importPunctuation === 'cjk-friendly';
+  if (cjkFriendly) {
+    probeLayout();
+  }
   return {
     exportHandlers,
+    exportPunctuation: config.exportPunctuation,
     importHandlers,
     inlineShortcutTriggers: new Set(config.inlineShortcutTriggers),
     inlineShortcutTypes: new Set(config.inlineShortcutTypes),
     mdastExtensions: [...config.mdastExtensions],
-    micromarkExtensions: [...config.micromarkExtensions],
+    // micromark tries the constructs of later extensions first, so the
+    // emphasis goes first, before the extensions of the config, which may
+    // handle markers of their own.
+    micromarkExtensions: cjkFriendly
+      ? [
+          cjkFriendlyEmphasis(),
+          ...config.micromarkExtensions.map(toCjkFriendlyVariant),
+        ]
+      : [strictEmphasis(), ...config.micromarkExtensions],
     toMarkdownExtensions: [...config.toMarkdownExtensions],
   };
 }

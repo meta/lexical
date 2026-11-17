@@ -19,6 +19,7 @@ import {
   type NodeMap,
 } from 'lexical';
 
+import {pushAll} from './Arrays';
 import {
   keptStretches,
   setTextEnds,
@@ -1642,7 +1643,7 @@ export class TextReplay {
             if (j < before.length && filled[i] === before[j]) {
               next.push(kept[j++]);
             } else {
-              next.push(...toLeft([filled[i]], runs));
+              pushAll(next, toLeft([filled[i]], runs));
             }
           }
           // Between what that keeps, what the made text's alignment of

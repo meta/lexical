@@ -12,6 +12,7 @@
 
 export * from './bind';
 export * from './configs';
+export * from './coveredValues';
 export * from './downstream';
 export * from './ids';
 export * from './nodes';

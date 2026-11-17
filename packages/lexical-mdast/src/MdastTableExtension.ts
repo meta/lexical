@@ -59,6 +59,7 @@ import {gfmTableFromMarkdown, gfmTableToMarkdown} from 'mdast-util-gfm-table';
 import {gfmTable} from 'micromark-extension-gfm-table';
 
 import {$append, $isBlockLevelNode, inlineMarker} from './handlers';
+import {getExportedLengths} from './MdastExport';
 import {MdastExtension} from './MdastExtension';
 
 /**
@@ -613,52 +614,60 @@ const cellLine = (value: string) =>
  * @__NO_SIDE_EFFECTS__
  */
 function gfmTableCellsToMarkdown(): ToMarkdownExtension {
-  const extension = gfmTableToMarkdown();
+  const extension = gfmTableToMarkdown({
+    stringLength: value => getExportedLengths([value])[0],
+  });
   const handlers = extension.handlers || {};
-  const handleTable = handlers.table as Handle;
   const table: Handle = (node: Table, parent, state, info) => {
     const exit = state.enter('phrasing');
+    const lines: string[] = [];
     const children = node.children.map(row => ({
       ...row,
       children: row.children.map(cell => {
-        const line = cellLine(
-          state
-            .containerPhrasing(
-              {
-                ...cell,
-                // A line ending in text is written as the space it reads
-                // as, before the text is escaped for where it is.
-                children: mapPhrasing(cell.children, child =>
-                  child.type === 'break'
-                    ? [cellLine('<br>')]
-                    : child.type === 'text' && /[\r\n]/.test(child.value)
-                      ? [
-                          {
-                            ...child,
-                            value: child.value.replace(LINE_ENDING, ' '),
-                          },
-                        ]
-                      : undefined,
-                ),
-              },
-              {...info, after: ' ', before: ' '},
-            )
-            .replace(LINE_ENDING, ' ')
-            .replace(/^[\t ]/, encodeSpace)
-            // A backslash before the last space would escape its `&`.
-            .replace(
-              /(\\*)([\t ])$/,
-              (_, slashes: string, space: string) =>
-                `${slashes}${slashes.length % 2 ? '\\' : ''}${encodeSpace(space)}`,
-            )
-            .replace(/(\\*)\|/g, (pipe, slashes: string) =>
-              slashes.length % 2 ? pipe : `${slashes}\\|`,
-            ),
-        );
-        return {...cell, children: [line]};
+        const line = state
+          .containerPhrasing(
+            {
+              ...cell,
+              // A line ending in text is written as the space it reads
+              // as, before the text is escaped for where it is.
+              children: mapPhrasing(cell.children, child =>
+                child.type === 'break'
+                  ? [cellLine('<br>')]
+                  : child.type === 'text' && /[\r\n]/.test(child.value)
+                    ? [
+                        {
+                          ...child,
+                          value: child.value.replace(LINE_ENDING, ' '),
+                        },
+                      ]
+                    : undefined,
+              ),
+            },
+            {...info, after: ' ', before: ' '},
+          )
+          .replace(LINE_ENDING, ' ')
+          .replace(/^[\t ]/, encodeSpace)
+          // A backslash before the last space would escape its `&`.
+          .replace(
+            /(\\*)([\t ])$/,
+            (_, slashes: string, space: string) =>
+              `${slashes}${slashes.length % 2 ? '\\' : ''}${encodeSpace(space)}`,
+          )
+          .replace(/(\\*)\|/g, (pipe, slashes: string) =>
+            slashes.length % 2 ? pipe : `${slashes}\\|`,
+          );
+        lines.push(line);
+        return {...cell, children: [cellLine(line)]};
       }),
     }));
     exit();
+    // Measured all at once, which is cheaper than one at a time.
+    const lengths = getExportedLengths(lines);
+    const cellLengths = new Map(lines.map((line, i) => [line, lengths[i]]));
+    const handleTable = gfmTableToMarkdown({
+      stringLength: value =>
+        cellLengths.get(value) ?? getExportedLengths([value])[0],
+    }).handlers!.table as Handle;
     return handleTable({...node, children}, parent, state, info);
   };
   return {

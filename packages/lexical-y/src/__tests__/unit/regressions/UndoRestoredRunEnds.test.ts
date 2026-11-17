@@ -147,6 +147,7 @@ function $marked(value: Value): string[] {
 
 const CONFIG = {
   extensions: [RichTextExtension, MarkStateExtension],
+  onWarn: null,
   schemaVersion: 1,
 };
 
@@ -171,6 +172,7 @@ function clients(gc: boolean, ids: number[]) {
           configExtension(YCollabExtension, {
             captureTimeout: 0,
             doc,
+            onYStatus: null,
             schemaVersion: 1,
             synced: true,
           }),
@@ -281,19 +283,14 @@ const REMOVALS: Removal[] = [
 ];
 
 /**
- * The cells that still fail, pinned as test.fails until their fix lands:
- * where the removal took part of the word, the author's undo leaves the rest
+ * Where the removal took part of the word, the author's undo left the rest
  * of the word with the value the removal restated after that part (D64,
- * #9560), and the removal's undo gives the whole word back. With garbage
- * collection on, the restored value ran on past its end (#9623) until the
- * binding kept its own format items from collection while they are undoable.
+ * #9560). Paired runs end the restored value where it ended: for text
+ * formats, styles and comments from layout 3 on, and for a NodeState value
+ * from layout 4 on (D120; its cells were pinned as test.fails before: the
+ * restore ran two characters past the word).
  */
-function testOnMain(name: string, fn: () => void) {
-  const fails =
-    name.includes('its author undoes it first') &&
-    name.includes('part of the word');
-  (fails ? test.fails : test)(name, fn);
-}
+const testOnMain = test;
 
 describe('an undo that brings back a value ends its run where it ended (#9623)', () => {
   for (const gc of [false, true]) {

@@ -131,7 +131,12 @@ function clients(
         dependencies: [
           RichTextExtension,
           ListExtension,
-          configExtension(YCollabExtension, {doc, schemaVersion: 1, selfCheck}),
+          configExtension(YCollabExtension, {
+            doc,
+            onYStatus: null,
+            schemaVersion: 1,
+            selfCheck,
+          }),
           ...(blockIds ? [BlockIdExtension] : []),
         ],
         name: `@lexical/y/test/drift-${i}`,
@@ -933,7 +938,15 @@ test.each(['a raw Yjs delete', 'a peer deleting its text'])(
     // A raw delete applied to A's document as a remote change (not relayed).
     for (const peer of how === 'a raw Yjs delete' ? [t.a] : t.peers) {
       expect(peer.describe()).toBe('paragraph("prepost")');
-      expect(peer.warnings).toEqual([]);
+      // The raw delete itself is reported (development builds); nothing
+      // else is, and a peer's delete is not reported at all.
+      expect(
+        how === 'a raw Yjs delete'
+          ? peer.warnings.filter(
+              w => !w.includes('unsupported for direct writes'),
+            )
+          : peer.warnings,
+      ).toEqual([]);
     }
     for (const peer of t.peers) {
       peer.stop();

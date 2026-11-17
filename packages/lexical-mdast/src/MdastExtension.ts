@@ -13,6 +13,7 @@ import type {
   MdastExportRule,
   MdastImportHandler,
   MdastImportRule,
+  MdastPunctuationMode,
   MicromarkExtension,
   ToMarkdownExtension,
 } from './types';
@@ -32,7 +33,7 @@ import {
 } from '@lexical/extension';
 import {LinkNode} from '@lexical/link';
 import {ListItemNode, ListNode} from '@lexical/list';
-import {HeadingNode, QuoteNode} from '@lexical/rich-text';
+import {HeadingNode, QuoteContainerNode, QuoteNode} from '@lexical/rich-text';
 import {
   $getState,
   $setState,
@@ -57,10 +58,9 @@ import {
   gfmTaskListItemToMarkdown,
 } from 'mdast-util-gfm-task-list-item';
 import {gfmAutolinkLiteral} from 'micromark-extension-gfm-autolink-literal';
-import {gfmStrikethrough} from 'micromark-extension-gfm-strikethrough';
 import {gfmTaskListItem} from 'micromark-extension-gfm-task-list-item';
 
-import {compileMdast} from './compile';
+import {compileMdast, getStrikethroughSyntax} from './compile';
 import {
   $exportCode,
   $exportHeading,
@@ -77,6 +77,7 @@ import {
   $importList,
   $importListItem,
   $importParagraph,
+  $importQuoteContainerBlockquote,
   $importShadowRootBlockquote,
   $importStrong,
   exportParagraph,
@@ -125,6 +126,30 @@ export interface MdastConfig {
    * (e.g. `'='` for `==highlight==`).
    */
   readonly inlineShortcutTriggers: readonly string[];
+  /**
+   * How import reads emphasis and strikethrough markers beside punctuation.
+   * Defaults to `'cjk-friendly'`, which reads Markdown such as
+   * `**你好。**世界` as its CJK writer meant and everything else as
+   * CommonMark does.
+   */
+  readonly importPunctuation?: MdastPunctuationMode;
+  /**
+   * Which readers export writes emphasis and strikethrough markers for.
+   * Defaults to `'strict-commonmark'`, which writes a character reference where
+   * a marker beside punctuation would otherwise not open or close
+   * (`**你好。**&#x4E16;界`), so that every CommonMark, GFM and CJK-friendly reader
+   * reads it the same way, but for a run of three or more markers that a pair
+   * uses only part of (`***a*b*c***`, `***x****y*`), which commonmark.js and markdown-it read
+   * differently from micromark, and a selector after a tab, a line ending, a
+   * vertical tab or a form feed that ends a run (`**。\v︎**`), which
+   * `markdown-it-cjk-friendly` reads as that whitespace, leaving those
+   * markers literal, and a vertical tab beside a marker (`p\v**.**\vq`),
+   * which cmark and cmark-gfm don't read as whitespace and no reference can
+   * stand for. `'cjk-friendly'` writes such CJK text as typed
+   * (`**你好。**世界`, `**你好。**abc`), for readers that follow the
+   * CJK-friendly amendment, such as a CJK-friendly import.
+   */
+  readonly exportPunctuation?: MdastPunctuationMode;
 }
 
 /**
@@ -269,7 +294,9 @@ export const MdastExtension = defineExtension<
     };
   },
   config: safeCast<MdastConfig>({
+    exportPunctuation: 'strict-commonmark',
     exportRules: CORE_EXPORT_RULES,
+    importPunctuation: 'cjk-friendly',
     importRules: CORE_IMPORT_RULES,
     // Core CommonMark inline formatting; feature extensions contribute
     // their own types/triggers (links add 'link'/')', strikethrough adds
@@ -292,7 +319,9 @@ export const MdastExtension = defineExtension<
       return contributed ? [...contributed, ...existing] : existing;
     }
     return shallowMergeConfig(config, {
+      exportPunctuation: partial.exportPunctuation || config.exportPunctuation,
       exportRules: mergeArray(partial.exportRules, config.exportRules),
+      importPunctuation: partial.importPunctuation || config.importPunctuation,
       importRules: mergeArray(partial.importRules, config.importRules),
       inlineShortcutTriggers: mergeArray(
         partial.inlineShortcutTriggers,
@@ -491,6 +520,40 @@ export const MdastShadowRootQuoteExtension = defineExtension({
   name: '@lexical/mdast/ShadowRootQuote',
 });
 
+/**
+ * Opt-in: import Markdown blockquotes as `QuoteContainerNode`s, quotes that
+ * hold blocks and declare it (`@lexical/rich-text`), so structured
+ * blockquotes (several paragraphs, nested lists, code blocks, nested quotes)
+ * round-trip, and tools that read the declaration, such as `@lexical/y`,
+ * treat the quote as the container it is.
+ *
+ * Not part of {@link MdastCommonMarkExtension}; add it alongside to opt in:
+ * ```ts
+ * dependencies: [MdastCommonMarkExtension, MdastQuoteContainerExtension]
+ * ```
+ * It registers `QuoteContainerNode`. An editor that replaces `QuoteNode`
+ * with it (`QuoteContainerReplacementExtension`) does not need this
+ * extension: there the default blockquote handler builds a container
+ * already. The quote export handler writes every kind of quote. It changes
+ * import only: a quote typed with the `> ` shortcut is still a `QuoteNode`;
+ * use the replacement to make typed quotes containers too.
+ * @experimental
+ */
+export const MdastQuoteContainerExtension = defineExtension({
+  dependencies: [
+    MdastBlockquoteExtension,
+    // Declared after (and depending on) MdastBlockquoteExtension so this
+    // blockquote rule merges later and takes priority over the default.
+    configExtension(MdastExtension, {
+      importRules: [
+        {$import: $importQuoteContainerBlockquote, type: 'blockquote'},
+      ],
+    }),
+  ],
+  name: '@lexical/mdast/QuoteContainer',
+  nodes: [QuoteContainerNode],
+});
+
 const $importThematicBreak: MdastImportHandler<ThematicBreak> = (node, ctx) => {
   const hr = $createHorizontalRuleNode();
   // Preserve the marker character (`---` vs `***` vs `___`).
@@ -546,7 +609,7 @@ export const MdastStrikethroughExtension = defineExtension({
       inlineShortcutTriggers: ['~'],
       inlineShortcutTypes: ['delete'],
       mdastExtensions: [/* @__PURE__ */ gfmStrikethroughFromMarkdown()],
-      micromarkExtensions: [/* @__PURE__ */ gfmStrikethrough()],
+      micromarkExtensions: [getStrikethroughSyntax()],
       toMarkdownExtensions: [/* @__PURE__ */ gfmStrikethroughToMarkdown()],
     }),
   ],

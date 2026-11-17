@@ -46,7 +46,6 @@
     "@vercel/speed-insights": "^2.0.0",
     "@y/websocket": "4.0.0-rc.2",
     "@y/y": "14.0.0-rc.29",
-    "date-fns": "^4.4.0",
     "katex": "^0.16.10",
     "lexical": "workspace:*",
     "lodash-es": "^4.18.1",

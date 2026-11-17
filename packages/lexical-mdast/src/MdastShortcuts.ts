@@ -194,9 +194,16 @@ function $applyBlock(paragraph: ElementNode, match: MdastBlockMatch): boolean {
     target = heading;
     selectInto = heading;
   } else if (match.kind === 'blockquote') {
-    const quote = $append($createQuoteNode(), remaining);
+    const quote = $createQuoteNode();
     target = quote;
-    selectInto = quote;
+    if (quote.isShadowRoot()) {
+      // QuoteNode is replaced by QuoteContainerNode, which holds blocks: the
+      // line is a paragraph in it.
+      selectInto = $append($createParagraphNode(), remaining);
+      $append(quote, [selectInto]);
+    } else {
+      selectInto = $append(quote, remaining);
+    }
   } else {
     const listNode = match.node;
     const listType = $listTypeFromMdast(listNode);

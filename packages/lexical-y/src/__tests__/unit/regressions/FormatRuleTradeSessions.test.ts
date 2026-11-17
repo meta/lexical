@@ -82,7 +82,7 @@ async function session(
   );
 }
 
-test.fails('#9690: session 107991: the sentinel line stays plain', async () => {
+test('#9690: session 107991: the sentinel line stays plain', async () => {
   const sentinel = await session(
     [
       [
@@ -123,7 +123,7 @@ test.fails('#9690: session 107991: the sentinel line stays plain', async () => {
   expect(sentinel).toEqual([[0, '']]);
 });
 
-test.fails('#9690: session 111874: the sentinel line stays plain', async () => {
+test('#9690: session 111874: the sentinel line stays plain', async () => {
   const sentinel = await session(
     [
       ['w0ab', 'w1abc', 'w2abcd', 'w3a', 'w4a', 'w5ab', 'w6abc'],
@@ -149,7 +149,7 @@ test.fails('#9690: session 111874: the sentinel line stays plain', async () => {
   expect(sentinel).toEqual([[0, '']]);
 });
 
-test.fails('#9690: session 110073: the sentinel line stays plain', async () => {
+test('#9690: session 110073: the sentinel line stays plain', async () => {
   const sentinel = await session(
     [
       ['w0abc', 'w1abc', 'w2abc', 'w3ab'],
@@ -188,42 +188,39 @@ test.fails('#9690: session 110073: the sentinel line stays plain', async () => {
 // typed after "bb", and three undos take the bold off "cc", which none of the
 // undone steps touched (the restore-side rule of #9671; #9690).
 for (const ids of [[1], [1, 2], [2, 1]]) {
-  test.fails(
-    `#9690: one client undoing its own steps keeps "cc" bold (ids ${ids})`,
-    async () => {
-      const t = await setup(
-        () =>
-          $getRoot().append(
-            $createParagraphNode().append($createTextNode('aa bb cc dd ee ff')),
-          ),
-        {ids, prepare},
-      );
-      const $bold = (from: number, to: number) => {
-        for (const n of $selectIn([0], from, to).extract()) {
-          if ($isTextNode(n) && !n.hasFormat('bold')) {
-            n.toggleFormat('bold');
-          }
+  test(`#9690: one client undoing its own steps keeps "cc" bold (ids ${ids})`, async () => {
+    const t = await setup(
+      () =>
+        $getRoot().append(
+          $createParagraphNode().append($createTextNode('aa bb cc dd ee ff')),
+        ),
+      {ids, prepare},
+    );
+    const $bold = (from: number, to: number) => {
+      for (const n of $selectIn([0], from, to).extract()) {
+        if ($isTextNode(n) && !n.hasFormat('bold')) {
+          n.toggleFormat('bold');
         }
-      };
-      const $typePlain = (at: number, text: string) => {
-        const s = $selectIn([0], at);
-        s.format = 0;
-        s.insertText(text);
-      };
-      t.a.update(() => $bold(0, 8));
-      await t.sync();
-      for (const p of t.peers) {
-        p.binding.undoManager?.clear();
       }
-      t.a.update(() => $typePlain(2, 'YZ'));
-      t.a.update(() => $bold(0, 4));
-      t.a.update(() => $typePlain(7, 'YZ'));
-      for (let k = 0; k < 3; k++) {
-        t.a.undo();
-      }
-      await t.sync();
-      await expectConverged(t.peers);
-      expect(t.a.describe()).toBe('paragraph("aa bb cc"{1} " dd ee ff")');
-    },
-  );
+    };
+    const $typePlain = (at: number, text: string) => {
+      const s = $selectIn([0], at);
+      s.format = 0;
+      s.insertText(text);
+    };
+    t.a.update(() => $bold(0, 8));
+    await t.sync();
+    for (const p of t.peers) {
+      p.binding.undoManager?.clear();
+    }
+    t.a.update(() => $typePlain(2, 'YZ'));
+    t.a.update(() => $bold(0, 4));
+    t.a.update(() => $typePlain(7, 'YZ'));
+    for (let k = 0; k < 3; k++) {
+      t.a.undo();
+    }
+    await t.sync();
+    await expectConverged(t.peers);
+    expect(t.a.describe()).toBe('paragraph("aa bb cc"{1} " dd ee ff")');
+  });
 }

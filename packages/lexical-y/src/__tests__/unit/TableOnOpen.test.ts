@@ -53,11 +53,19 @@ test.each(['YCollabExtension', 'TableExtension'] as const)(
   first => {
     const doc = createYDoc(
       seedYState(
-        {extensions: [RichTextExtension, TableExtension], schemaVersion: 1},
+        {
+          extensions: [RichTextExtension, TableExtension],
+          onWarn: null,
+          schemaVersion: 1,
+        },
         $appendTable,
       ),
     );
-    const collab = configExtension(YCollabExtension, {doc, schemaVersion: 1});
+    const collab = configExtension(YCollabExtension, {
+      doc,
+      onYStatus: null,
+      schemaVersion: 1,
+    });
     const editor = buildEditorFromExtensions(
       defineExtension({
         dependencies:

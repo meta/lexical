@@ -37,11 +37,13 @@ import {
 import {
   characterAt,
   characterBefore,
+  flankingBefore,
   getPortableEmphasisSides,
   isEmptyParagraph,
   isEscaped,
   isLetterForSomeReader,
   isPortablyFlankedBy,
+  isVariationSelector,
   toCharacterReference,
   transformersByType,
 } from './utils';
@@ -72,34 +74,14 @@ export function createMarkdownExport(
 
   return node =>
     withBracketContext(byType.textMatch, () => {
-      const output = [];
-      const children = (node || $getRoot()).getChildren();
-
-      for (let i = 0; i < children.length; i++) {
-        const child = children[i];
-        const result = $exportTopLevelElements(
-          child,
-          elementTransformers,
-          textFormatTransformers,
-          byType.textMatch,
-          shouldPreserveNewLines,
-        );
-
-        if (result != null) {
-          output.push(
-            // separate consecutive group of texts with a line break: eg. ["hello", "world"] -> ["hello", "/nworld"]
-            isNewlineDelimited &&
-              i > 0 &&
-              !isEmptyParagraph(child) &&
-              !isEmptyParagraph(children[i - 1])
-              ? '\n'.concat(result)
-              : result,
-          );
-        }
-      }
-      // Ensure consecutive groups of texts are at least \n\n apart while each empty paragraph render as a newline.
-      // Eg. ["hello", "", "", "hi", "\nworld"] -> "hello\n\n\nhi\n\nworld"
-      return output.join('\n');
+      return $exportBlocks(
+        (node || $getRoot()).getChildren(),
+        elementTransformers,
+        textFormatTransformers,
+        byType.textMatch,
+        shouldPreserveNewLines,
+        isNewlineDelimited,
+      );
     });
 }
 
@@ -137,37 +119,102 @@ export function createSelectionMarkdownExport(
       if ($isRangeSelection(selection)) {
         selection._cachedIsBackward = exportedSelection.isBackward();
       }
-      const output = [];
-      // The separator depends on the previously *emitted* block, not on the
-      // previous root child: unselected children produce no output, so keying
-      // off the child index would prefix a newline to the first emitted block
-      // whenever the selection starts below the top of the document.
-      let previousExported: LexicalNode | null = null;
-
-      for (const child of $getRoot().getChildren()) {
-        const {shouldInclude, markdown} = $processNodeForSelection(
-          child,
-          selection,
-          elementTransformers,
-          textFormatTransformers,
-          byType.textMatch,
-          shouldPreserveNewLines,
-        );
-
-        if (shouldInclude && markdown != null) {
-          output.push(
-            isNewlineDelimited &&
-              previousExported !== null &&
-              !isEmptyParagraph(child) &&
-              !isEmptyParagraph(previousExported)
-              ? '\n'.concat(markdown)
-              : markdown,
-          );
-          previousExported = child;
-        }
-      }
-      return output.join('\n');
+      return $exportBlocksForSelection(
+        $getRoot().getChildren(),
+        selection,
+        elementTransformers,
+        textFormatTransformers,
+        byType.textMatch,
+        shouldPreserveNewLines,
+        isNewlineDelimited,
+      ).markdown;
     });
+}
+
+/**
+ * Exports a run of sibling blocks: the children of the root, or of a block
+ * that holds blocks (what an element transformer's `traverseBlocks` is
+ * given).
+ */
+function $exportBlocks(
+  children: LexicalNode[],
+  elementTransformers: (ElementTransformer | MultilineElementTransformer)[],
+  textFormatTransformers: TextFormatTransformer[],
+  textMatchTransformers: TextMatchTransformer[],
+  shouldPreserveNewLines: boolean,
+  isNewlineDelimited: boolean,
+): string {
+  const output = [];
+  for (let i = 0; i < children.length; i++) {
+    const child = children[i];
+    const result = $exportTopLevelElements(
+      child,
+      elementTransformers,
+      textFormatTransformers,
+      textMatchTransformers,
+      shouldPreserveNewLines,
+    );
+
+    if (result != null) {
+      output.push(
+        // separate consecutive group of texts with a line break: eg. ["hello", "world"] -> ["hello", "/nworld"]
+        isNewlineDelimited &&
+          i > 0 &&
+          !isEmptyParagraph(child) &&
+          !isEmptyParagraph(children[i - 1])
+          ? '\n'.concat(result)
+          : result,
+      );
+    }
+  }
+  // Ensure consecutive groups of texts are at least \n\n apart while each empty paragraph render as a newline.
+  // Eg. ["hello", "", "", "hi", "\nworld"] -> "hello\n\n\nhi\n\nworld"
+  return output.join('\n');
+}
+
+/** {@link $exportBlocks}, keeping only what `selection` covers. */
+function $exportBlocksForSelection(
+  children: LexicalNode[],
+  selection: BaseSelection,
+  elementTransformers: (ElementTransformer | MultilineElementTransformer)[],
+  textFormatTransformers: TextFormatTransformer[],
+  textMatchTransformers: TextMatchTransformer[],
+  shouldPreserveNewLines: boolean,
+  isNewlineDelimited: boolean,
+): {shouldInclude: boolean; markdown: string} {
+  const output = [];
+  // The separator depends on the previously *emitted* block, not on the
+  // previous sibling: unselected children produce no output, so keying
+  // off the child index would prefix a newline to the first emitted block
+  // whenever the selection starts below the top of the document.
+  let previousExported: LexicalNode | null = null;
+
+  for (const child of children) {
+    const {shouldInclude, markdown} = $processNodeForSelection(
+      child,
+      selection,
+      elementTransformers,
+      textFormatTransformers,
+      textMatchTransformers,
+      shouldPreserveNewLines,
+    );
+
+    if (shouldInclude && markdown != null) {
+      output.push(
+        isNewlineDelimited &&
+          previousExported !== null &&
+          !isEmptyParagraph(child) &&
+          !isEmptyParagraph(previousExported)
+          ? '\n'.concat(markdown)
+          : markdown,
+      );
+      previousExported = child;
+    }
+  }
+  return {
+    markdown: output.join('\n'),
+    shouldInclude: previousExported !== null,
+  };
 }
 
 function $processNodeForSelection(
@@ -198,6 +245,16 @@ function $processNodeForSelection(
           ).pieces,
         ),
       selection,
+      node_ =>
+        $exportBlocksForSelection(
+          node_.getChildren(),
+          selection,
+          elementTransformers,
+          textFormatTransformers,
+          textMatchTransformers,
+          shouldPreserveNewLines,
+          true,
+        ).markdown,
     );
 
     if (result != null) {
@@ -387,15 +444,27 @@ function $exportTopLevelElements(
     if (!transformer.export) {
       continue;
     }
-    const result = transformer.export(node, _node =>
-      $exportChildren(
-        _node,
-        textTransformersIndex,
-        textMatchTransformers,
-        undefined,
-        undefined,
-        shouldPreserveNewLines,
-      ),
+    const result = transformer.export(
+      node,
+      _node =>
+        $exportChildren(
+          _node,
+          textTransformersIndex,
+          textMatchTransformers,
+          undefined,
+          undefined,
+          shouldPreserveNewLines,
+        ),
+      undefined,
+      _node =>
+        $exportBlocks(
+          _node.getChildren(),
+          elementTransformers,
+          textTransformersIndex,
+          textMatchTransformers,
+          shouldPreserveNewLines,
+          true,
+        ),
     );
 
     if (result != null) {
@@ -810,6 +879,15 @@ const UNREFERENCEABLE = /[\p{Cc}\p{Cs}\p{Noncharacter_Code_Point}]/u;
 
 /** Whether a character reference can stand in for `character` beside a marker. */
 function isReferenceable(character: string | undefined): boolean {
+  // Of a variation selector after the character it varies, the reference
+  // is to the selector.
+  if (
+    character !== undefined &&
+    character.length > 1 &&
+    isVariationSelector(character[character.length - 1])
+  ) {
+    character = character[character.length - 1];
+  }
   return (
     character !== undefined &&
     isLetterForSomeReader(character) &&
@@ -1102,8 +1180,22 @@ function decideReferences(
     }
   }
   const firstChar = (index: number) => characterAt(values[index], 0)!;
-  const lastChar = (index: number) =>
-    characterBefore(values[index], values[index].length)!;
+  const isLoneSelector = (index: number) =>
+    values[index].length === 1 && isVariationSelector(values[index]);
+  // A variation selector that starts a piece varies what ends the piece
+  // before it. Only the last character of that is read, which for a piece
+  // that is a selector too is the selector, so the lookup stops there rather
+  // than walk a chain of such pieces at every call.
+  const lastChar = (index: number): string =>
+    flankingBefore(
+      values[index],
+      values[index].length,
+      index > 0 && isLoneSelector(index)
+        ? isLoneSelector(index - 1) && !isEncoded(index - 1)
+          ? values[index - 1]
+          : endChar(index - 1)
+        : undefined,
+    )!;
   // A one-character piece written as a reference reads as punctuation at
   // both ends: `&#97;`.
   const isOneCharacter = (index: number) =>
@@ -1116,12 +1208,20 @@ function decideReferences(
       : encodeStart[index] || isEncoded(index)
         ? '&'
         : firstChar(index);
+  // A piece of a character and a variation selector whose first character
+  // goes out as a reference: the selector then varies the reference's `;`.
+  const isVariedByStart = (index: number) =>
+    encodeStart[index] === 1 &&
+    values[index].length === firstChar(index).length + 1 &&
+    isVariationSelector(values[index].slice(-1));
   const endChar = (index: number) =>
     index < 0
       ? undefined
       : encodeEnd[index] || isEncoded(index)
         ? ';'
-        : lastChar(index);
+        : isVariedByStart(index)
+          ? flankingBefore(values[index].slice(-1), 1, ';')!
+          : lastChar(index);
   // Whether the last (or first) character of the piece at `index` can go out
   // as a reference.
   const canReference = (index: number, atEnd: boolean): boolean =>
@@ -1166,6 +1266,7 @@ function decideReferences(
         isPortablyFlankedBy(
           leftward ? '&' : ';',
           leftward ? endChar(next) : startChar(next),
+          leftward,
         )
       ) {
         break;
@@ -1220,8 +1321,15 @@ function decideReferences(
     if (kinds[i] === TEXT) {
       if (
         isMarker(kinds[i + 1]) &&
-        value[value.length - 1] === values[i + 1][0] &&
-        !isEscaped(value, value.length - 1)
+        ((value[value.length - 1] === values[i + 1][0] &&
+          !isEscaped(value, value.length - 1)) ||
+          // micromark-extension-cjk-friendly-gfm-strikethrough reads a
+          // selector before `~` as a letter, not as what it varies, and so
+          // never closes the run there, but reads its reference as every
+          // reader does.
+          (kinds[i + 1] === CLOSER &&
+            values[i + 1][0] === '~' &&
+            isVariationSelector(value[value.length - 1])))
       ) {
         encodeEnd[i] = 1;
       }
@@ -1254,7 +1362,10 @@ function decideReferences(
       if (opens && afterFirst === undefined) {
         pending.push(index);
       }
-      if (isEncoded(after) && runAfter[after] !== -1) {
+      if (
+        (isEncoded(after) || isVariedByStart(after)) &&
+        runAfter[after] !== -1
+      ) {
         pending.push(runAfter[after]);
       }
     }

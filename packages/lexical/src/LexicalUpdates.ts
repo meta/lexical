@@ -102,6 +102,19 @@ const editorsWithPendingSelectionChange = new Set<LexicalEditor>();
 const editorsDispatchingCommitListeners = new Set<LexicalEditor>();
 let infiniteTransformCount = 0;
 
+/**
+ * Pending editor states an update made with `skipTransforms`, until they
+ * commit: the revert of recorded DOM mutations that joins one runs no
+ * transforms either (see flushMutations).
+ */
+const pendingStatesSkippingTransforms =
+  /* @__PURE__ */ new WeakSet<EditorState>();
+
+/** Whether an update made pending `state` with `skipTransforms`. */
+export function isPendingStateSkippingTransforms(state: EditorState): boolean {
+  return pendingStatesSkippingTransforms.has(state);
+}
+
 const observerOptions = {
   characterData: true,
   childList: true,
@@ -113,6 +126,8 @@ const observerOptions = {
  * content, and update listeners of a commit. Committing another update at that
  * point would notify the remaining listeners of the current commit after the
  * listeners of the newer one, with an editor state that is no longer current.
+ *
+ * @internal
  */
 export function isDispatchingCommitListeners(editor: LexicalEditor): boolean {
   return editorsDispatchingCommitListeners.has(editor);
@@ -739,6 +754,7 @@ function $commitPendingUpdatesImpl(
 
   if (!pendingEditorState._readOnly) {
     pendingEditorState._readOnly = true;
+    pendingStatesSkippingTransforms.delete(pendingEditorState);
     if (__DEV__) {
       handleDEVOnlyPendingUpdateGuarantees(pendingEditorState);
       if ($isRangeSelection(pendingSelection)) {
@@ -1394,6 +1410,9 @@ function $beginUpdate(
     const startingCompositionKey = editor._compositionKey;
     updateFn();
     skipTransforms = $processNestedUpdates(editor, skipTransforms);
+    if (skipTransforms) {
+      pendingStatesSkippingTransforms.add(pendingEditorState);
+    }
     if ($isRangeSelection(pendingEditorState._selection)) {
       $clampTextPoints(
         pendingEditorState._selection,
