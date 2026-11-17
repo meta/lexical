@@ -25,7 +25,6 @@ import {
   type LexicalCommand,
   type LexicalEditor,
   SELECT_ALL_COMMAND,
-  type TextNode,
   UNDO_COMMAND,
 } from 'lexical';
 import {assert, describe, expect, onTestFinished, test, vi} from 'vitest';
@@ -136,7 +135,7 @@ describe('Shortcuts in a decorator input (#3761)', () => {
       root.focus();
       editor.update(
         () => {
-          $getRoot().getFirstDescendant<TextNode>()!.select(6, 6);
+          $getRoot().selectStart();
         },
         {discrete: true},
       );
