@@ -13,6 +13,7 @@ import {
   $create,
   $createParagraphNode,
   $createTextNode,
+  $getEditor,
   $getRoot,
   $isCompactExport,
   $isElementNode,
@@ -26,6 +27,7 @@ import {
   type SerializedLexicalNode,
   type SerializedPartial,
   type SerializedRootNode,
+  type SerializedTextNode,
   TextNode,
   withAccessors,
 } from 'lexical';
@@ -411,5 +413,64 @@ describe('$withCompactExport refuses an asynchronous callback', () => {
     void (() => $withCompactExport(true, async () => 1));
     // …and a synchronous callback still infers its return type.
     expectTypeOf($withCompactExport(true, () => 1)).toEqualTypeOf<number>();
+  });
+});
+
+// exportJSON can depend on the editor, e.g. to read an extension's config
+// (https://github.com/meta/lexical/issues/9934).
+class EditorReadingTextNode extends TextNode {
+  $config() {
+    return this.config('editor-reading-text', {extends: TextNode});
+  }
+
+  exportJSON(): SerializedTextNode {
+    return {...super.exportJSON(), text: $getEditor().getKey()};
+  }
+}
+
+describe('export with the editor active', () => {
+  test('exports with the editor active', () => {
+    using editor = buildEditorFromExtensions(
+      defineExtension({
+        name: 'editor-reading-export',
+        nodes: [EditorReadingTextNode],
+      }),
+    );
+    editor.update(
+      () => {
+        $getRoot()
+          .clear()
+          .append(
+            $createParagraphNode().append($create(EditorReadingTextNode)),
+          );
+      },
+      {discrete: true},
+    );
+    const [paragraph] = childrenOf(editor.toJSON().editorState.root);
+    expect(childrenOf(paragraph)[0]).toMatchObject({text: editor.getKey()});
+  });
+
+  test('EditorState.toJSON exports with the editor of a read of that state', () => {
+    using editor = buildEditorFromExtensions(
+      defineExtension({
+        name: 'editor-reading-state-export',
+        nodes: [EditorReadingTextNode],
+      }),
+    );
+    editor.update(
+      () => {
+        $getRoot()
+          .clear()
+          .append(
+            $createParagraphNode().append($create(EditorReadingTextNode)),
+          );
+      },
+      {discrete: true},
+    );
+    const editorState = editor.getEditorState();
+    const [paragraph] = childrenOf(
+      editorState.read(() => editorState.toJSON(), {editor}).root,
+    );
+    expect(childrenOf(paragraph)[0]).toMatchObject({text: editor.getKey()});
   });
 });

@@ -11,6 +11,7 @@ import {
   $create,
   $createParagraphNode,
   $createTextNode,
+  $getEditor,
   $getRoot,
   $removeSlot,
   $setSlot,
@@ -270,3 +271,66 @@ describe.each([CustomSizedParagraphNode, CustomUnsizedParagraphNode])(
     });
   },
 );
+
+class EditorReadingParagraphNode extends ParagraphNode {
+  $config() {
+    return this.config('editor-reading-paragraph', {extends: ParagraphNode});
+  }
+
+  getTextContent(): string {
+    return `${$getEditor().getKey()}:${super.getTextContent()}`;
+  }
+}
+
+describe('custom getTextContent', () => {
+  // https://github.com/meta/lexical/issues/9934
+  test('has the active editor when text content listeners are triggered', () => {
+    const editor = buildEditorFromExtensions(
+      defineExtension({
+        name: 'EditorReadingTextContent',
+        nodes: [EditorReadingParagraphNode],
+      }),
+    );
+    onTestFinished(() => editor.dispose());
+    const seen: string[] = [];
+    onTestFinished(
+      editor.registerTextContentListener(text => {
+        seen.push(text);
+      }),
+    );
+    editor.update(
+      () => {
+        $getRoot()
+          .clear()
+          .append(
+            $create(EditorReadingParagraphNode).append($createTextNode('a')),
+          );
+      },
+      {discrete: true},
+    );
+    expect(seen).toEqual([`${editor.getKey()}:a`]);
+  });
+});
+
+describe('editor.read(editorState, fn)', () => {
+  test('reads the given state with the editor active, without flushing', () => {
+    using editor = createEditor();
+    const $setText = (text: string) => () => {
+      $getRoot()
+        .clear()
+        .append($createParagraphNode().append($createTextNode(text)));
+    };
+    editor.update($setText('a'), {discrete: true});
+    const before = editor.getEditorState();
+    editor.update($setText('b'), {discrete: true});
+    editor.update($setText('c'));
+    const read = (state: typeof before) =>
+      editor.read(state, () => {
+        expect($getEditor()).toBe(editor);
+        return $getRoot().getTextContent();
+      });
+    expect(read(before)).toBe('a');
+    expect(read(editor.getEditorState())).toBe('b');
+    expect(editor.read(() => $getRoot().getTextContent())).toBe('c');
+  });
+});

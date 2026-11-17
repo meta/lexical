@@ -31,7 +31,7 @@ import {
   cloneEditorState,
   type CompactSerializedEditorState,
   createEmptyEditorState,
-  type EditorState,
+  EditorState,
   type ParsableSerializedEditorState,
   type SerializedEditorState,
 } from './LexicalEditorState';
@@ -1949,9 +1949,22 @@ export class LexicalEditor {
    * @param callbackFn - A function that has access to read-only editor state.
    */
   read<T>(mode: EditorReadMode, callbackFn: () => T): T;
-  read<T>(...args: [() => T] | [EditorReadMode, () => T]): T {
-    const [mode, callbackFn]: [EditorReadMode, () => T] =
+  /**
+   * Reads `editorState` with this editor active, without flushing anything:
+   * use it for a state of this editor that is not its current one, such as
+   * the `editorState` and `prevEditorState` an update listener receives. Node
+   * methods called in the read can use `$getEditor()`.
+   * @param editorState - The state to read, one of this editor's.
+   * @param callbackFn - A function that has access to read-only editor state.
+   */
+  read<T>(editorState: EditorState, callbackFn: () => T): T;
+  read<T>(...args: [() => T] | [EditorReadMode | EditorState, () => T]): T {
+    const [modeOrState, callbackFn]: [EditorReadMode | EditorState, () => T] =
       args.length === 1 ? ['force-commit', args[0]] : args;
+    if (modeOrState instanceof EditorState) {
+      return modeOrState.read(callbackFn, {editor: this});
+    }
+    const mode = modeOrState;
     if (mode === 'force-commit') {
       if (!isDispatchingCommitListeners(this)) {
         $commitPendingUpdates(this);
@@ -1962,8 +1975,8 @@ export class LexicalEditor {
             `update was not committed early, so that listeners observe ` +
             `commits in order, and the read observed the state being ` +
             `committed. Inside listeners, read with ` +
-            `editor.getEditorState().read(fn, {editor}) or ` +
-            `editor.read('latest', fn) instead.`,
+            `editor.read(editorState, fn) or editor.read('latest', fn) ` +
+            `instead.`,
         );
       }
     }
@@ -2091,13 +2104,16 @@ export class LexicalEditor {
    *
    * The form is passed on explicitly rather than picked up by the call below:
    * `EditorState.toJSON()` with no argument always writes the legacy form, so
-   * that its return type is true of what it returns.
+   * that its return type is true of what it returns. The state is read with
+   * this editor active, so its nodes' exportJSON can call $getEditor().
    *
    * @returns A JSON-serializable javascript object
    */
   toJSON(): SerializedEditor {
     return {
-      editorState: this._editorState.toJSON($isCompactExport()),
+      editorState: this.read(this._editorState, () =>
+        this._editorState.toJSON($isCompactExport()),
+      ),
     };
   }
 }

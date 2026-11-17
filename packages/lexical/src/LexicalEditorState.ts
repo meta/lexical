@@ -22,7 +22,11 @@ import invariant from '@lexical/internal/invariant';
 import {cloneMap} from './LexicalGenMap';
 import {$exportNodeJSON, $withCompactExport} from './LexicalSerializedExport';
 import {$getSlot, $getSlotNames} from './LexicalSlot';
-import {readEditorState} from './LexicalUpdates';
+import {
+  internalGetActiveEditor,
+  internalGetActiveEditorState,
+  readEditorState,
+} from './LexicalUpdates';
 import {$getRoot, INTERNAL_$withExportMemo} from './LexicalUtils';
 import {
   $isElementNode,
@@ -304,6 +308,13 @@ export class EditorState {
    * A nested editor still follows the document containing it, because
    * {@link LexicalEditor.toJSON} passes the enclosing form on explicitly
    * rather than leaving it to be picked up here.
+   *
+   * An EditorState does not know its editor. Its nodes are exported with the
+   * editor of the read or update it is called in, when that is of this state, and
+   * otherwise with no editor active: a node whose exportJSON calls
+   * $getEditor() needs {@link LexicalEditor.toJSON},
+   * `editor.read(editorState, () => editorState.toJSON())` or
+   * `editorState.read(() => editorState.toJSON(), {editor})`.
    */
   toJSON(compact?: false): SerializedEditorState;
   /**
@@ -321,10 +332,16 @@ export class EditorState {
     // write the compact form for the latter. Anything that is not a stated
     // form is the legacy one, which is what both overloads promise.
     return $withCompactExport(typeof compact === 'boolean' && compact, () =>
-      readEditorState(null, this, () =>
-        INTERNAL_$withExportMemo(() => ({
-          root: $exportNodeToJSON($getRoot()) as SerializedRootNode,
-        })),
+      readEditorState(
+        // Inside a read or update of this state, that editor owns it.
+        internalGetActiveEditorState() === this
+          ? internalGetActiveEditor()
+          : null,
+        this,
+        () =>
+          INTERNAL_$withExportMemo(() => ({
+            root: $exportNodeToJSON($getRoot()) as SerializedRootNode,
+          })),
       ),
     );
   }

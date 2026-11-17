@@ -917,8 +917,14 @@ function triggerTextContentListeners(
   if (editor._listeners.textcontent.size === 0) {
     return;
   }
-  const currentTextContent = getEditorStateTextContent(currentEditorState);
-  const latestTextContent = getEditorStateTextContent(pendingEditorState);
+  const currentTextContent = getEditorStateTextContent(
+    currentEditorState,
+    editor,
+  );
+  const latestTextContent = getEditorStateTextContent(
+    pendingEditorState,
+    editor,
+  );
 
   if (currentTextContent !== latestTextContent) {
     triggerListeners('textcontent', editor, true, latestTextContent);

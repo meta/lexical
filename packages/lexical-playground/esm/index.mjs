@@ -41,5 +41,9 @@ mergeRegister(
 editor.update(prepopulatedRichText, {tag: HISTORY_MERGE_TAG});
 
 editor.registerUpdateListener(({editorState}) => {
-  stateRef.value = JSON.stringify(editorState.toJSON(), undefined, 2);
+  stateRef.value = JSON.stringify(
+    editor.read(editorState, () => editorState.toJSON()),
+    undefined,
+    2,
+  );
 });

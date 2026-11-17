@@ -367,7 +367,7 @@ export function syncLexicalUpdateToYjs(
   tags: Set<string>,
 ): void {
   syncWithTransaction(binding, () => {
-    currEditorState.read(() => {
+    binding.editor.read(currEditorState, () => {
       // We check if the update has come from a origin where the origin
       // was the collaboration binding previously. This can help us
       // prevent unnecessarily re-diffing and possible re-applying
@@ -595,7 +595,7 @@ export function syncLexicalUpdateToYjsV2__EXPERIMENTAL(
   });
 
   syncWithTransaction(binding, () => {
-    currEditorState.read(() => {
+    binding.editor.read(currEditorState, () => {
       if (dirtyElements.has('root')) {
         const nextLexicalRoot = $getRoot();
         // A DecoratorNode slot value lands in dirtyLeaves (only ElementNodes
