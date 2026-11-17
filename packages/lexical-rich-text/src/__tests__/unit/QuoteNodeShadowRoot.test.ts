@@ -11,17 +11,22 @@
 import {buildEditorFromExtensions} from '@lexical/extension';
 import {
   $createQuoteNode,
+  $isQuoteNode,
   QuoteNode,
   RichTextExtension,
 } from '@lexical/rich-text';
 import {
   $createParagraphNode,
+  $createRangeSelection,
   $createTextNode,
   $getRoot,
+  $getSelection,
   $isParagraphNode,
+  $isRangeSelection,
+  $setSelection,
   defineExtension,
 } from 'lexical';
-import {describe, expect, test} from 'vitest';
+import {assert, describe, expect, test} from 'vitest';
 
 function buildEditor() {
   return buildEditorFromExtensions(
@@ -114,5 +119,179 @@ describe('QuoteNode shadow root opt-in', () => {
       },
       {discrete: true},
     );
+  });
+
+  // A pasted <blockquote>text</blockquote> is a quote of inline content; an
+  // app that makes every quote a shadow root leaves the wrapping to the
+  // transform, with the caret where the paste left it, after the quote's text.
+  test.each([
+    ['at the end of', 16],
+    ['inside', 6],
+  ])(
+    'the caret stays %s text the transform wraps in a paragraph',
+    (_, offset) => {
+      using editor = buildEditor();
+      editor.update(
+        () => {
+          const text = $createTextNode('Quoted bare text');
+          $getRoot()
+            .clear()
+            .append(
+              $createParagraphNode().append($createTextNode('Intro line.')),
+              $createQuoteNode().append(text),
+            );
+          text.select(offset, offset);
+        },
+        {discrete: true},
+      );
+      editor.update(
+        () => {
+          const quote = $getRoot().getLastChild();
+          assert($isQuoteNode(quote), 'Expected a QuoteNode');
+          quote.setIsShadowRoot(true);
+        },
+        {discrete: true},
+      );
+      editor.read(() => {
+        const quote = $getRoot().getLastChild();
+        assert($isQuoteNode(quote), 'Expected a QuoteNode');
+        const paragraph = quote.getFirstChildOrThrow();
+        expect($isParagraphNode(paragraph)).toBe(true);
+        expect(paragraph.getTextContent()).toBe('Quoted bare text');
+        const selection = $getSelection();
+        assert($isRangeSelection(selection), 'Expected a RangeSelection');
+        expect(selection.isCollapsed()).toBe(true);
+        expect(selection.anchor.type).toBe('text');
+        expect(selection.anchor.getNode().getTextContent()).toBe(
+          'Quoted bare text',
+        );
+        expect(selection.anchor.offset).toBe(offset);
+      });
+    },
+  );
+
+  test('a range from the first child of a run to a later child stays on the text', () => {
+    using editor = buildEditor();
+    editor.update(
+      () => {
+        const first = $createTextNode('aaa');
+        const second = $createTextNode('bbb').toggleFormat('bold');
+        $getRoot().clear().append($createQuoteNode().append(first, second));
+        const selection = first.select(1, 1);
+        selection.focus.set(second.getKey(), 2, 'text');
+      },
+      {discrete: true},
+    );
+    editor.update(
+      () => {
+        const quote = $getRoot().getFirstChild();
+        assert($isQuoteNode(quote), 'Expected a QuoteNode');
+        quote.setIsShadowRoot(true);
+      },
+      {discrete: true},
+    );
+    editor.read(() => {
+      const selection = $getSelection();
+      assert($isRangeSelection(selection), 'Expected a RangeSelection');
+      const {anchor, focus} = selection;
+      expect([
+        anchor.type,
+        anchor.getNode().getTextContent(),
+        anchor.offset,
+      ]).toEqual(['text', 'aaa', 1]);
+      expect([
+        focus.type,
+        focus.getNode().getTextContent(),
+        focus.offset,
+      ]).toEqual(['text', 'bbb', 2]);
+    });
+  });
+
+  test('the caret stays in the first child of a run that follows a block', () => {
+    using editor = buildEditor();
+    editor.update(
+      () => {
+        const text = $createTextNode('ddd');
+        $getRoot()
+          .clear()
+          .append(
+            $createQuoteNode()
+              .setIsShadowRoot(true)
+              .append(
+                $createParagraphNode().append($createTextNode('ppp')),
+                text,
+              ),
+          );
+        text.select(2, 2);
+      },
+      {discrete: true},
+    );
+    editor.read(() => {
+      const quote = $getRoot().getFirstChild();
+      assert($isQuoteNode(quote), 'Expected a QuoteNode');
+      expect(
+        quote
+          .getChildren()
+          .map(child => [child.getType(), child.getTextContent()]),
+      ).toEqual([
+        ['paragraph', 'ppp'],
+        ['paragraph', 'ddd'],
+      ]);
+      const selection = $getSelection();
+      assert($isRangeSelection(selection), 'Expected a RangeSelection');
+      const {anchor} = selection;
+      expect([
+        anchor.type,
+        anchor.getNode().getTextContent(),
+        anchor.offset,
+      ]).toEqual(['text', 'ddd', 2]);
+    });
+  });
+
+  // An element point on the quote counts its children, which the transform
+  // regroups: it stays in the same gap, now inside the new paragraph.
+  test.each([
+    ['between two children of the run', 1],
+    ['after the last child of the run', 3],
+  ])('an element point on the quote %s stays in place', (_, offset) => {
+    using editor = buildEditor();
+    editor.update(
+      () => {
+        const quote = $createQuoteNode().append(
+          $createTextNode('aaa'),
+          $createTextNode('bbb').toggleFormat('bold'),
+          $createTextNode('ccc').toggleFormat('italic'),
+        );
+        $getRoot().clear().append(quote);
+        const selection = $createRangeSelection();
+        selection.anchor.set(quote.getKey(), offset, 'element');
+        selection.focus.set(quote.getKey(), offset, 'element');
+        $setSelection(selection);
+      },
+      {discrete: true},
+    );
+    editor.update(
+      () => {
+        const quote = $getRoot().getFirstChild();
+        assert($isQuoteNode(quote), 'Expected a QuoteNode');
+        quote.setIsShadowRoot(true);
+      },
+      {discrete: true},
+    );
+    editor.read(() => {
+      const quote = $getRoot().getFirstChild();
+      assert($isQuoteNode(quote), 'Expected a QuoteNode');
+      const paragraph = quote.getFirstChildOrThrow();
+      expect($isParagraphNode(paragraph)).toBe(true);
+      const selection = $getSelection();
+      assert($isRangeSelection(selection), 'Expected a RangeSelection');
+      for (const point of [selection.anchor, selection.focus]) {
+        expect([point.type, point.key, point.offset]).toEqual([
+          'element',
+          paragraph.getKey(),
+          offset,
+        ]);
+      }
+    });
   });
 });

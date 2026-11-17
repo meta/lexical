@@ -20,6 +20,8 @@ import {PUBLISHED_STEPS} from '../../internal/StepTable';
 import * as migrateEntry from '../../migrate';
 import * as step1to2Entry from '../../migrate/1to2';
 import * as step2to3Entry from '../../migrate/2to3';
+import * as step3to4Entry from '../../migrate/3to4';
+import * as offlineEntry from '../../offline';
 import * as serverEntry from '../../server';
 
 // Bundlers replace only process.env.NODE_ENV: any other process.env read in
@@ -59,6 +61,8 @@ test('shipped source reads no process.env but NODE_ENV', () => {
 // `clearAttrs`, `applyDelta`), called or not, and every call shaped like
 // Y.Node's `delete(index, length)` or `format(index, length, attrs)`, by
 // the function it is in and its first argument.
+// Parses the package's source with the TypeScript compiler: a few hundred
+// ms alone, past vitest's default 5 s on a loaded machine.
 test('internal writes of node attributes go through Seen', () => {
   const ATTR_WRITES = new Set([
     'setAttr',
@@ -154,13 +158,11 @@ test('internal writes of node attributes go through Seen', () => {
   }
   expect(found).toEqual([
     'Binding.ts recordSchema: root.setAttr(key)',
-    'Binding.ts recordLayout: root.setAttr(key)',
-    'Binding.ts $writeInitial: root.setAttr(LAYOUT_PREFIX + BASE_LAYOUT_VERSION)',
     'Binding.ts $writeInitial: root.setAttr(SCHEMA_PREFIX + this.options.schemaVersion)',
     'Binding.ts recordPins: root.setAttr(PIN_PREFIX + type)',
     'Ident.ts writeIdentityRecord: root.setAttr(LAYOUT_PREFIX + IDENTITY_LAYOUT_VERSION)',
   ]);
-});
+}, 60_000);
 
 // The constants a client or server may want come from the main entry, with
 // `createYDoc`, the document every client binds and a relay loads a state
@@ -172,6 +174,7 @@ test('internal writes of node attributes go through Seen', () => {
 // `@lexical/y/migrate` (the runner), one frozen step per layout
 // (`@lexical/y/migrate/<n>to<n+1>`, a default export), and
 // `@lexical/y/server` (the authority's side of the fence).
+// `@lexical/y/offline`: the local store and the offline session.
 test('public entries', () => {
   const pkg = JSON.parse(
     fs.readFileSync(path.resolve(__dirname, '../../../package.json'), 'utf8'),
@@ -186,6 +189,10 @@ test('public entries', () => {
     './migrate/1to2.js',
     './migrate/2to3',
     './migrate/2to3.js',
+    './migrate/3to4',
+    './migrate/3to4.js',
+    './offline',
+    './offline.js',
     './server',
     './server.js',
   ]);
@@ -197,6 +204,18 @@ test('public entries', () => {
   ]);
   expect(Object.keys(step1to2Entry)).toEqual(['default']);
   expect(Object.keys(step2to3Entry)).toEqual(['default']);
+  expect(Object.keys(step3to4Entry)).toEqual(['default']);
+  expect(Object.keys(offlineEntry).sort()).toEqual([
+    'Y_OFFLINE_DEFAULTS',
+    'Y_OFFLINE_STAGES',
+    'attachYOfflineSession',
+    'describeYOfflineCapture',
+    'loadYOffline',
+    'openYOfflineStore',
+    'recoverYOfflineEdits',
+    'replayUnsyncedEdits',
+    'wrapLeftoversAsQuote',
+  ]);
   expect(Object.keys(serverEntry).sort()).toEqual([
     'LAYOUT_VERSION',
     'MIN_LAYOUT',
@@ -238,13 +257,18 @@ test('public entries', () => {
     'YBinding',
     'YCollabExtension',
     'YUnsupportedYjsError',
+    'Y_DEFAULTS',
+    'createYBinding',
     'createYCollabConfig',
     'createYDoc',
+    'createYHandshake',
     'createYServerLayoutUpgrade',
     'describeStorage',
     'isYLayoutUpgradeHandle',
     'isYWarning',
     'onYMigrationEpoch',
+    'parseYGeneration',
+    'yCollab',
   ]);
   expect(Object.keys(headlessEntry).sort()).toEqual([
     'EDITOR_WARNING',
@@ -254,6 +278,7 @@ test('public entries', () => {
     'YUnsupportedYjsError',
     'createYDoc',
     'createYWriter',
+    'describeUnsyncedEdits',
     'editYState',
     'readYState',
     'seedYState',
@@ -285,16 +310,18 @@ test('the layout constants are typed number, in the core and the server entry', 
   }
 });
 
-test('policy: the floor never rises past layout 3, and the runner targets it by default', () => {
-  // After the one-time break to layout 3, MIN_LAYOUT stays put: layouts are
-  // only added, the package never drops a reader or a step, and an app
-  // that wants a higher floor raises its own (its server stops admitting
-  // clients that cannot read the next layout).
-  expect(mainEntry.MIN_LAYOUT).toBeLessThanOrEqual(3);
+test('policy: raising the floor is deliberate, and the runner targets it by default', () => {
+  // While @lexical/y is experimental a release may raise MIN_LAYOUT and stop
+  // reading an older layout (y.md "Layout upgrades", D110): its rooms open
+  // read only until their server migrates them. Such a release updates this
+  // bound, the docs and its changelog together. Published steps stay
+  // published either way, and an app may raise its own floor (its server
+  // stops admitting clients that cannot read the next layout).
+  expect(mainEntry.MIN_LAYOUT).toBeLessThanOrEqual(4);
   expect(serverEntry.MIN_LAYOUT).toBe(mainEntry.MIN_LAYOUT);
   // Published steps stay published: this list only grows (add a step here
   // when you publish it; removing one fails).
-  const everPublished = ['1to2'];
+  const everPublished = ['1to2', '2to3', '3to4'];
   const manifest = JSON.parse(
     fs.readFileSync(
       path.resolve(__dirname, '../../migrate/manifest.json'),
@@ -344,6 +371,8 @@ test('YBinding does not offer flushPending', () => {
 // runner, the steps and the server entry never load Lexical or the
 // binding: their module graphs, followed through relative imports, stay
 // apart.
+// Parses the package's source with the TypeScript compiler: a few hundred
+// ms alone, past vitest's default 5 s on a loaded machine.
 test('the core, the runner, the steps and the server entry stay apart', () => {
   const src = path.resolve(__dirname, '../..');
   const graph = (entry: string): {files: Set<string>; bare: Set<string>} => {
@@ -407,6 +436,7 @@ test('the core, the runner, the steps and the server entry stay apart', () => {
     'migrate.ts',
     'migrate/1to2.ts',
     'migrate/2to3.ts',
+    'migrate/3to4.ts',
     'server.ts',
   ]) {
     const {files, bare} = graph(entry);
@@ -414,7 +444,12 @@ test('the core, the runner, the steps and the server entry stay apart', () => {
     // own entries (never inlined); the runner loads them on demand.
     expect([...bare].sort()).toEqual(
       entry === 'server.ts'
-        ? ['@lexical/y/migrate/1to2', '@lexical/y/migrate/2to3', '@y/y']
+        ? [
+            '@lexical/y/migrate/1to2',
+            '@lexical/y/migrate/2to3',
+            '@lexical/y/migrate/3to4',
+            '@y/y',
+          ]
         : ['@y/y'],
     );
     expect(files.has('internal/Binding.ts')).toBe(false);
@@ -446,11 +481,11 @@ test('the core, the runner, the steps and the server entry stay apart', () => {
   // Core's createYDoc builds on the Yjs-only factory.
   expect(graph('internal/YDoc.ts').files.has('internal/RawYDoc.ts')).toBe(true);
   // A step imports nothing of the package but its own frozen sources.
-  for (const step of ['1to2', '2to3']) {
+  for (const step of ['1to2', '2to3', '3to4']) {
     expect(
       [...graph(`migrate/${step}.ts`).files].filter(
         f => !f.startsWith(`migrate/${step}`),
       ),
     ).toEqual([]);
   }
-});
+}, 60_000);

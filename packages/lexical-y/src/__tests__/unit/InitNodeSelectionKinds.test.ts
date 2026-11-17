@@ -141,6 +141,7 @@ for (const used of [false, true]) {
         root.deleteAttr('probe');
       }
       const binding = new YBinding(a.editor, doc, {
+        onStatus: null,
         schemaVersion: 1,
         selfCheck: true,
       });

@@ -7,6 +7,7 @@
  */
 
 import type {Hidden} from './Hidden';
+import type {YStorageMismatchData} from './Warnings';
 
 import invariant from '@lexical/internal/invariant';
 import {ContentType, type Doc, type Item, type Node as YNode} from '@y/y';
@@ -131,7 +132,12 @@ export function typeOf(it: Item): YNode {
 
 /** Mutable state shared by the read and write paths. */
 export class State {
-  readonly containers = new WeakMap<YNode, CS>();
+  /**
+   * The container of each shared node. A WeakMap, which cannot be cleared:
+   * clear() replaces it (and keyByY), so that a binding started again reads
+   * the document into new containers, mapped to the editor's nodes.
+   */
+  containers = new WeakMap<YNode, CS>();
   readonly csByKey = new Map<NodeKey, CS>();
   readonly unitByEnd = new Map<Item, Unit>();
   readonly unitByKey = new Map<NodeKey, Unit>();
@@ -142,7 +148,7 @@ export class State {
   readonly holders = new Set<NodeKey>();
   /** Stored nodes (b: and i:) by Lexical key, and back. */
   readonly yByKey = new Map<NodeKey, YNode>();
-  readonly keyByY = new WeakMap<YNode, NodeKey>();
+  keyByY = new WeakMap<YNode, NodeKey>();
   /** Segment keys of text nodes Lexical would not merge. */
   readonly segments = new Map<NodeKey, string>();
   private segmentCounter = 0;
@@ -167,6 +173,16 @@ export class State {
    * unknownTypes, the binding goes read only.
    */
   readonly unreadable = new Map<string, unknown>();
+  /**
+   * Stored types whose nodes this editor builds as a class that cannot be
+   * stored that way (a node replacement; see Reader#$lineFromMarker): edits
+   * to them could not be written, so, as with unknownTypes, the binding
+   * goes read only.
+   */
+  readonly replacedStorage = new Map<
+    string,
+    Extract<YStorageMismatchData, {reason: 'declaration-changed'}>
+  >();
   /**
    * Of unknownTypes, the slots that are not a block node: a slot's key, or
    * the type of the inline node in it (see Slots).
@@ -204,7 +220,8 @@ export class State {
     return (
       this.hidden !== null ||
       this.unknownTypes.size > 0 ||
-      this.unreadable.size > 0
+      this.unreadable.size > 0 ||
+      this.replacedStorage.size > 0
     );
   }
 
@@ -226,7 +243,9 @@ export class State {
    * client's clock (each written key comes before the items written after
    * it, so a later state of this client, an editor bound again to the same
    * document or a read recovery, never reuses one) and above every key of
-   * this client read (see setSegment).
+   * this client read (see setSegment). A value derived from the client id
+   * must also be relabeled in SeedRelabel's relabelSeed (seeds are written
+   * under client 1, then relabeled).
    */
   newSegment(key: NodeKey): string {
     const n = Math.max(
@@ -383,6 +402,14 @@ export class State {
   }
 
   clear(): void {
+    this.containers = new WeakMap();
+    this.keyByY = new WeakMap();
+    // What a read found it could not read: the read a binding started
+    // again makes finds it anew (read only again where it is still there).
+    this.unknownTypes.clear();
+    this.unreadable.clear();
+    this.replacedStorage.clear();
+    this.malformedSlots.clear();
     this.csByKey.clear();
     this.unitByEnd.clear();
     this.unitByKey.clear();

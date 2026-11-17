@@ -228,6 +228,8 @@ export class Peer {
   pending = new Map<Peer, Uint8Array[]>();
   errors: unknown[] = [];
   warnings: string[] = [];
+  /** The warnings themselves (a `LexicalWarning`'s code and data). */
+  warningEvents: unknown[] = [];
   stop: () => void;
 
   constructor(
@@ -251,6 +253,7 @@ export class Peer {
       },
       onWarn: e => {
         this.warnings.push(String(e && (e as Error).message));
+        this.warningEvents.push(e);
       },
       // The binding's warnings go to the editor's onWarn (above). The tests
       // turn the self-check on (it is off by default), so that a mismatch
@@ -607,6 +610,7 @@ export function createBoundEditor(
       onWarn: config.onWarn,
     });
     const binding = new YBinding(editor, doc, {
+      onStatus: null,
       schemaVersion: config.schemaVersion ?? 1,
       selfCheck: config.selfCheck,
     });
@@ -617,6 +621,7 @@ export function createBoundEditor(
       dependencies: [
         configExtension(YCollabExtension, {
           doc,
+          onYStatus: null,
           schemaVersion: config.schemaVersion ?? 1,
           selfCheck: config.selfCheck,
         }),

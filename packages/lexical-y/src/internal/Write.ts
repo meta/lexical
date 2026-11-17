@@ -23,9 +23,12 @@ import {
   $getNodeByKey,
   $getSelection,
   $isElementNode,
+  $isLexicalNode,
+  $isLineBreakNode,
   $isParagraphNode,
   $isRangeSelection,
   $isTextNode,
+  type AnyStateConfig,
   type EditorState,
   type ElementNode,
   type LexicalNode,
@@ -35,14 +38,13 @@ import {
 
 import {pushAll} from './Arrays';
 import {$withoutLevelId, innerBlockIds, NO_IDS} from './BlockIds';
-import {Cursor, equalFormatValue, type Formats, isLiveContent} from './Cursor';
+import {Cursor, equalFormatValue, type Formats} from './Cursor';
 import {groupKeySig, groupSig} from './Groups';
 import {$heldDecision, type HeldDecision, ownerTextKeys} from './HoldGuard';
 import {isShadowKey} from './Ident';
 import {
   $pushInline,
   Atoms,
-  countLive,
   type DesiredContext,
   diffAtoms,
   hasLoneSurrogate,
@@ -51,6 +53,7 @@ import {
   type Run,
   setTextStretches,
   snapToWords,
+  toWellFormed,
 } from './Inline';
 import {asOwner} from './Owned';
 import {
@@ -65,6 +68,7 @@ import {
   $textAttrs,
   type Attrs,
   BLOCK_PREFIX,
+  decodeFormatValue,
   eachOuterLevel,
   equalValue,
   FIELD_PREFIX,
@@ -77,6 +81,8 @@ import {
   type GroupSpec,
   INLINE_PREFIX,
   isMergeableText,
+  isSetStateConfig,
+  isStringArray,
   isTextFieldKey,
   isTextHoldingWrapperValue,
   KIND_KEY,
@@ -92,6 +98,7 @@ import {
   ownsMember,
   ownsNodeAttr,
   RUN_END,
+  SET_MEMBER_SEPARATOR,
   stableStringify,
   STATE_PREFIX,
   storedTypeOf,
@@ -112,15 +119,21 @@ import {
   deletions,
   Folder,
   frontierOf,
-  isGoneIn,
-  isShownEndIn,
   noteFolded,
-  prevLiveEnd,
   setAttrIn,
   skipsProtected,
-  unheldLength,
   withProtected,
 } from './Seen';
+import {
+  $isLeftOutInline,
+  countShown,
+  isGoneIn,
+  isHeldInPart,
+  isShownEndIn,
+  type LeftOut,
+  prevShownEnd,
+  shownLengthIn,
+} from './Shown';
 import {$writeSlots} from './Slots';
 import {
   type CS,
@@ -254,7 +267,7 @@ function $runsWithNeighbour(node: TextNode): boolean {
  * a delete empties the element (from the text removed). See
  * Writer#keepsStored.
  */
-function $holdsText(el: ElementNode): boolean {
+export function $holdsText(el: ElementNode): boolean {
   for (let c = el.getFirstChild(); c !== null; c = c.getNextSibling()) {
     if ($isTextNode(c) || ($isElementNode(c) && $holdsText(c))) {
       return true;
@@ -696,6 +709,14 @@ export class Writer {
         this.prevState,
         this.remoteUnread,
       );
+      if (this.heldDecided.quiet) {
+        // The line composed in, which a transform re-typed (see
+        // $heldDecision), is not written as a line; the binding reads it
+        // again. What the update changed on its characters that kept their
+        // type is written (see $writeSkippedLine).
+        this.plan.lines.delete(hidden.ownerKey);
+        this.skippedLine = hidden.ownerKey;
+      }
       held = this.heldTypes(hidden);
       for (const key of this.heldDecided.allow) {
         const y = this.state.yByKey.get(key);
@@ -711,8 +732,13 @@ export class Writer {
           ? 'skip'
           : this.neverStop ||
               (this.heldDecided !== null && this.heldDecided.inserts),
-        () => this.$runWrites(),
-        hidden === null ? null : item => hidden.overlaps(item),
+        () => {
+          this.$runWrites();
+          if (this.skippedLine !== null) {
+            this.$writeSkippedLine(this.skippedLine);
+          }
+        },
+        hidden === null ? null : item => isHeldInPart(item, hidden),
       ),
     );
   }
@@ -2357,7 +2383,7 @@ export class Writer {
       if (nextUnit === undefined) {
         return;
       }
-      const left = prevLiveEnd(view, unit.end, this.state.hidden);
+      const left = prevShownEnd(view, unit.end, this.state.hidden);
       // From the unit's stored start (a split half of the line being
       // composed shows another, see Hidden#starts). (Before the copy: a
       // stale start is folded again, see frontierOf.)
@@ -2652,10 +2678,21 @@ export class Writer {
       const from = own !== null && own !== left ? own.right : startItem;
       if (from !== startItem) {
         cursor.advance(
-          countLive(this.view, startItem, from, this.state.hidden),
+          countShown(
+            this.view,
+            startItem,
+            from,
+            this.state.hidden,
+            this.leftOut,
+          ),
         );
       }
-      cursor.delete(countLive(this.view, from, stop, this.state.hidden));
+      // Sized as the cursor moves: without what readers leave out (see
+      // leftOut), which it does not count (and deletes with the line, see
+      // Cursor#delete).
+      cursor.delete(
+        countShown(this.view, from, stop, this.state.hidden, this.leftOut),
+      );
     }
     if (idx + 1 < old.length) {
       old[idx + 1].start = copyStart(u.start);
@@ -2777,6 +2814,11 @@ export class Writer {
         const c = this.cursor(cs.y, left, startFormats);
         this.frontier = null;
         c.advance(atoms.length);
+        // The old content's elements no editor shows after its last unit go
+        // (as a rewrite of the line deleted them): left there, they would
+        // follow the end item, as a line of their own the editor does not
+        // have.
+        c.deleteLeftOutBefore(oldStop);
         const lastD = desired[lines[lines.length - 1]];
         items.set(
           atoms.length,
@@ -2978,8 +3020,32 @@ export class Writer {
       this.view,
     );
     c.hidden = this.state.hidden;
+    c.leftOut = this.leftOut;
     return c;
   }
+
+  /**
+   * Whether live item `it` is a stored inline element the editor does not
+   * show (see $isLeftOutInline): one this write did not make. Invariant: the
+   * writer counts exactly what the reader counts: it does not count such an
+   * element, and deletes one only where a delete meets it before its last
+   * unit (see Cursor#delete) or past the end of content it ends (see
+   * Cursor#deleteLeftOutBefore). Why: text
+   * written beside such an element was placed by positions that counted it
+   * while the editor's did not. The self-check reads with it too (see
+   * $checkWrite).
+   */
+  readonly leftOut = (it: Item): boolean =>
+    $isLeftOutInline(
+      this.view,
+      it,
+      this.state.keyByY,
+      this.prevState._nodeMap,
+      this.made,
+    );
+
+  /** Whether this write inserted `it` (never left out, see leftOut). */
+  private readonly made = (it: Item): boolean => this.tr.insertSet.hasId(it.id);
 
   /** Formats in effect right after `item` (an end item, or null). */
   private formatsAfter(item: Item | null): Formats {
@@ -2987,7 +3053,7 @@ export class Writer {
       return EMPTY_FORMATS;
     }
     const unit = this.state.unitByEnd.get(item);
-    const start = prevLiveEnd(this.view, item, this.state.hidden);
+    const start = prevShownEnd(this.view, item, this.state.hidden);
     const atoms = new Atoms();
     // The stored formats after it (see readAtoms), from the unit's stored
     // start (see storedStart).
@@ -3200,6 +3266,165 @@ export class Writer {
     return k === null;
   }
 
+  /**
+   * The line composed in, left out of the write because a transform re-typed
+   * its text (see skippedLine): of what the update changed there, only what
+   * it changed on the nodes it kept (and the parts split off one) is written,
+   * as formats of their characters: a NodeState value or a format the user or
+   * the app set on an existing token in the update that ends the composition.
+   * The characters in nodes the update made (the transform's tokens) keep
+   * what is stored, as do the line's marker and its text, which the update
+   * did not change. Nothing is written where the line's content does not
+   * match what is stored (its characters, inline nodes and line breaks, in
+   * order).
+   */
+  private $writeSkippedLine(key: NodeKey): void {
+    const unit = this.state.unitByKey.get(key);
+    const node = $getNodeByKey(key);
+    if (
+      unit === undefined ||
+      unit.end === null ||
+      isGoneIn(this.view, unit.end) ||
+      !$isElementNode(node) ||
+      !node.isAttached() ||
+      this.roles.$role(node) !== 'line'
+    ) {
+      return;
+    }
+    const atoms = new Atoms();
+    $pushInline(atoms, $lineChildren(this.$lineDesired(node)), this.$ctx(true));
+    const left = prevShownEnd(this.view, unit.end, this.state.hidden);
+    const startFormats = unit.start || EMPTY_FORMATS;
+    const frontier = frontierOf(this.view, unit.start, left, unit.cs.y, null);
+    const old = new Atoms();
+    const ids: string[] = [];
+    old.ids = ids;
+    readAtoms(
+      this.view,
+      left === null ? unit.cs.y._start : left.right,
+      unit.end,
+      startFormats,
+      old,
+      this.state.hidden,
+      frontier,
+      // Without what readers leave out, as the desired atoms and the
+      // format pass (see leftOut).
+      null,
+      startFormats,
+      this.leftOut,
+    );
+    if (old.text !== atoms.text) {
+      return;
+    }
+    // The line's characters, by their stored ids: once the hold ends, the
+    // line is read as stored and its transforms run again (see heldIds).
+    for (const id of ids) {
+      if (id !== undefined) {
+        this.heldIds.add(id);
+      }
+    }
+    // The nodes holding the line's atoms that the update kept (or split off
+    // one it kept), with their type: what changed on them is the update's
+    // own. The transform's tokens are nodes it made.
+    const prevMap = this.prevState._nodeMap;
+    const splits = this.plan.splits;
+    const kept = (k: NodeKey): boolean => {
+      const now = $getNodeByKey(k);
+      const from =
+        prevMap.get(k) ??
+        (splits === undefined || splits === null
+          ? undefined
+          : (() => {
+              const split = splits.get(k);
+              return split === undefined ? undefined : prevMap.get(split[0]);
+            })());
+      return (
+        now !== null && from !== undefined && from.getType() === now.getType()
+      );
+    };
+    const ranges: [number, number, boolean][] = [];
+    for (const [a, b, k] of atoms.textNodes) {
+      ranges.push([a, b, kept(k)]);
+    }
+    for (const [at, k] of atoms.nodes) {
+      ranges.push([at, at + 1, kept(k)]);
+    }
+    ranges.sort((x, y) => x[0] - y[0]);
+    // How the class of the type of `attrs` stores a NodeState key: flat (at
+    // the top level of its JSON, stored as a field `p:<key>`, see
+    // $textAttrs; another field of the same name is an ordinary one), and
+    // with what StateConfig.
+    const nodes = this.state.editor._nodes;
+    const infoOf = (attrs: Attrs) => {
+      const type = attrs[TYPE_KEY];
+      return nodes.get(typeof type === 'string' ? type : 'text');
+    };
+    const layout: StateLayout = {
+      config: (attrs, k) => {
+        const info = infoOf(attrs);
+        return info === undefined
+          ? undefined
+          : info.sharedNodeState.sharedConfigMap.get(k);
+      },
+      flat: (attrs, k) => {
+        const info = infoOf(attrs);
+        return info !== undefined && info.sharedNodeState.flatKeys.has(k);
+      },
+    };
+    // The NodeState and formats of each character of the line in the editor
+    // before this update (the line held the same atoms then): on the nodes
+    // the transform made, a value that changed in this update is the
+    // update's own (a value the user or the app set, which a tokenizer
+    // carried onto its tokens), see keepMadeAsStored. In the atoms' terms
+    // (see $pushInline): a text node's text, a line break's newline, a
+    // wrapper's content, one atom for any other node (an inline decorator).
+    const before = this.prevState.read(() => {
+      const prev = $getNodeByKey(key);
+      if (!$isElementNode(prev)) {
+        return null;
+      }
+      const runs: Run[] = [];
+      let text = '';
+      const visit = (children: readonly LexicalNode[]) => {
+        for (const n of children) {
+          if ($isTextNode(n)) {
+            const shown = toWellFormed(n.getTextContent());
+            if (shown.length > 0) {
+              runs.push({
+                attrs: carriedState($textAttrs(n, null), layout),
+                end: text.length + shown.length,
+                start: text.length,
+              });
+              text += shown;
+            }
+          } else if ($isLineBreakNode(n)) {
+            text += '\n';
+          } else if ($isWrapper(n)) {
+            visit((n as ElementNode).getChildren());
+          } else {
+            text += '\ufffc';
+          }
+        }
+      };
+      visit(prev.getChildren());
+      return {runs, text};
+    });
+    atoms.runs = keepMadeAsStored(
+      atoms.runs,
+      old.runs,
+      ranges,
+      atoms.length,
+      before !== null && before.text === atoms.text ? before.runs : null,
+      layout,
+    );
+    this.frontier = frontier;
+    try {
+      this.$formatPass(unit.cs.y, left, startFormats, atoms);
+    } finally {
+      this.frontier = null;
+    }
+  }
+
   /** Rewrite one line (its content and marker) on its own. */
   $writeLineAlone(u: Unit, d: Desired): void {
     // A rewrite after a failed write diffs the line against the document:
@@ -3213,7 +3438,7 @@ export class Writer {
     let stop: Item | null;
     let frontier: Item | null;
     if (u.end !== null) {
-      left = prevLiveEnd(this.view, u.end, this.state.hidden);
+      left = prevShownEnd(this.view, u.end, this.state.hidden);
       stop = u.end.right;
       frontier = frontierOf(this.view, u.start, left, u.cs.y, null);
     } else {
@@ -3249,6 +3474,9 @@ export class Writer {
         );
         const c = this.cursor(u.cs.y, left, u.start || EMPTY_FORMATS);
         c.advance(at);
+        // As for a sequence's open tail: the elements no editor shows after
+        // the content's last unit go, or they would follow the marker.
+        c.deleteLeftOutBefore(stop);
         end = c.insertPlain(new ContentType(new YNode(MARKER)));
       } finally {
         this.frontier = null;
@@ -3379,7 +3607,7 @@ export class Writer {
       }
     }
     if (writes.length > 0) {
-      const left = prevLiveEnd(this.view, u.end!, this.state.hidden);
+      const left = prevShownEnd(this.view, u.end!, this.state.hidden);
       this.frontier = frontierOf(this.view, u.start, left, u.cs.y, null);
       const c = this.cursor(u.cs.y, left, u.start || EMPTY_FORMATS);
       this.frontier = null;
@@ -3513,6 +3741,7 @@ export class Writer {
     now: string,
     hunks: readonly Hunk[],
     insert: (cursor: Cursor, from: number, to: number) => void,
+    oldStop?: Item | null,
   ): number {
     let pos = 0;
     let end = 0;
@@ -3529,6 +3758,13 @@ export class Writer {
       c.advance(at - pos);
       if (del > 0) {
         c.delete(del);
+        if (oldStop !== undefined && at + del === old.length) {
+          // A delete that reaches the end of the old content (a line
+          // without a marker, before a block node) takes the elements no
+          // editor shows after its last unit, up to that end, along: no end
+          // item follows for it to meet (see Cursor#delete).
+          c.deleteLeftOutBefore(oldStop);
+        }
       }
       if (to > from) {
         insert(c, from, to);
@@ -3541,6 +3777,309 @@ export class Writer {
 
   // -------------------------------------------------------------------------
   // Sequences
+
+  /**
+   * Which old line markers a desired line may keep, where a sequence holds
+   * more than one marker on either side (one line written on its own keeps
+   * its marker): null where there is no choice. Invariant: an old marker is
+   * kept only by the line that continues the line it ended (see D118), the
+   * first of:
+   * - the line whose last atom is the old line's last atom (a character, or
+   *   an inline node kept), by Lexical's record of text edits (`record`, see
+   *   $exactAtoms): the tail of a split (Enter in the middle of a line: the
+   *   new line keeps the marker after the tail and the old line, holding the
+   *   head, gets a new one, so no character moves), or the line a join or a
+   *   range delete across lines ends with the joined text (it keeps the
+   *   marker after that text, and its own goes);
+   * - where the old line stays: the one new line after it ending with what
+   *   it lost from its end (a split the record does not explain: app code
+   *   that sets the head's text and adds a line holding the tail); else, where
+   *   a new line follows it, any line by position, as before (lines pasted at
+   *   its end, Enter or a paste over a selection reaching its end); else that
+   *   line itself;
+   * - where it is gone: the lines holding a node it held before this update
+   *   (a line Lexical replaced, `$setBlocksType`, or one joined into another),
+   *   else the one line ending with all of its text (with several, any line
+   *   by position);
+   * - else, where no line continues it, any line, by position as before.
+   * Why: a marker matched any marker, so where a collaborator replaced a
+   * line and added another after it, the common suffix gave the old marker
+   * to the new line; every reader keys a line by its marker, so the old
+   * line's node, and a composition in it, moved to the new line (and the
+   * composer's highlighter re-tokenized it, or its typing landed there).
+   */
+  private $markerContinues(
+    old: Atoms,
+    atoms: Atoms,
+    record: {of: Int32Array; kept: Int32Array} | null,
+  ): {
+    match: (i: number, j: number) => boolean;
+    anchored: Set<number>;
+  } | null {
+    const oldAt: number[] = [];
+    const newAt: number[] = [];
+    old.specials.forEach((sp, i) => {
+      if (sp.kind === 'marker') {
+        oldAt.push(i);
+      }
+    });
+    atoms.specials.forEach((sp, j) => {
+      if (sp.kind === 'marker') {
+        newAt.push(j);
+      }
+    });
+    if (oldAt.length <= 1 && newAt.length <= 1) {
+      return null;
+    }
+    oldAt.sort((x, y) => x - y);
+    newAt.sort((x, y) => x - y);
+    const prevMap = this.prevState._nodeMap;
+    // The text of the line ending at the `k`th marker (from the one before),
+    // and the atom before that marker where it is in that line (else -1).
+    const textOf = (a: Atoms, at: number[], k: number) =>
+      a.text.slice(k === 0 ? 0 : at[k - 1] + 1, at[k]);
+    const lastOf = (at: number[], k: number) =>
+      at[k] - 1 >= (k === 0 ? 0 : at[k - 1] + 1) ? at[k] - 1 : -1;
+    const newLines = newAt.map((j, k) => {
+      const d = (atoms.specials.get(j) as {ref: unknown}).ref as Desired;
+      const to = d.key === null ? null : lineOfUnit(d.key);
+      return {
+        isNew: to !== null && !prevMap.has(to),
+        j,
+        now: textOf(atoms, newAt, k),
+        to,
+      };
+    });
+    // The desired lines (or parts of one, see $pushLine) of each line key.
+    const lines = new Map<NodeKey, number[]>();
+    // The last desired line new in this update (-1: none).
+    let lastNew = -1;
+    newLines.forEach((n, k) => {
+      if (n.isNew) {
+        lastNew = k;
+      }
+    });
+    // Which desired lines hold each node.
+    const holders = new Map<NodeKey, number[]>();
+    const add = <K>(m: Map<K, number[]>, k: K, v: number) => {
+      const l = m.get(k);
+      if (l === undefined) {
+        m.set(k, [v]);
+      } else if (l[l.length - 1] !== v) {
+        l.push(v);
+      }
+    };
+    newLines.forEach((n, k) => {
+      if (n.to !== null) {
+        add(lines, n.to, k);
+      }
+    });
+    // The desired line whose last character Lexical's record says is old
+    // atom `i`.
+    const recorded = new Map<number, number>();
+    if (record !== null) {
+      newAt.forEach((_, k) => {
+        const nj = lastOf(newAt, k);
+        if (nj >= 0 && record.of[nj] >= 0) {
+          recorded.set(record.of[nj], k);
+        }
+      });
+    }
+    // Built when a line that is gone is looked for (see below).
+    let indexed = false;
+    const $indexHolders = () => {
+      indexed = true;
+      newLines.forEach((n, k) => {
+        const d = (atoms.specials.get(n.j) as {ref: unknown}).ref as Desired;
+        const stack: (LexicalNode | null | undefined)[] = [...$lineChildren(d)];
+        while (stack.length > 0) {
+          const node = stack.pop();
+          if (!$isLexicalNode(node)) {
+            continue;
+          }
+          add(holders, node.getKey(), k);
+          if ($isElementNode(node)) {
+            pushAll(stack, node.getChildren());
+          }
+        }
+      });
+    };
+    const $heldBefore = (line: NodeKey): NodeKey[] => {
+      const out: NodeKey[] = [];
+      const stack = [line];
+      while (stack.length > 0) {
+        const n = prevMap.get(stack.pop()!);
+        if (n !== undefined && $isElementNode(n)) {
+          let c = n.__first;
+          while (c !== null) {
+            out.push(c);
+            stack.push(c);
+            const next = prevMap.get(c);
+            c = next === undefined ? null : next.__next;
+          }
+        }
+      }
+      return out;
+    };
+    // The desired lines ending with `text` (all of it): their texts reversed
+    // and sorted, so the lines ending with a text are those whose reversed
+    // text starts with it reversed, a range found by binary search (the cost
+    // does not grow with how many lines share an ending).
+    let reversed: [string, number][] | null = null;
+    const reverse = (x: string) => {
+      let out = '';
+      for (let i = x.length - 1; i >= 0; i--) {
+        out += x[i];
+      }
+      return out;
+    };
+    const endingWith = (text: string, limit = Infinity): number[] => {
+      if (reversed === null) {
+        reversed = newLines.map((n, k): [string, number] => [
+          reverse(n.now),
+          k,
+        ]);
+        reversed.sort((x, y) =>
+          x[0] < y[0] ? -1 : x[0] > y[0] ? 1 : x[1] - y[1],
+        );
+      }
+      const r = reverse(text);
+      let lo = 0;
+      let hi = reversed.length;
+      while (lo < hi) {
+        const mid = (lo + hi) >> 1;
+        if (reversed[mid][0] < r) {
+          lo = mid + 1;
+        } else {
+          hi = mid;
+        }
+      }
+      const out: number[] = [];
+      for (
+        let i = lo;
+        i < reversed.length &&
+        out.length < limit &&
+        reversed[i][0].startsWith(r);
+        i++
+      ) {
+        out.push(reversed[i][1]);
+      }
+      return out.sort((x, y) => x - y);
+    };
+    const ANY = null;
+    // Lines without a key: kept as before by a marker no line claims.
+    // The desired lines with the strongest claim on each old marker (ANY:
+    // every line, where the marker's line is not known), see the rules
+    // above. A line that stays keeps its marker unless the record gives its
+    // last character to another line (the tail of a split).
+    const best = new Map<number, Set<number> | null>();
+    // Old markers the record gives a line (see withMarkerIslands).
+    const anchored = new Set<number>();
+    oldAt.forEach((i, ki) => {
+      const owner = this.ownerBefore(
+        (old.specials.get(i) as {ref: unknown}).ref as Item,
+      );
+      if (owner === null) {
+        best.set(i, ANY);
+        return;
+      }
+      const oi = lastOf(oldAt, ki);
+      // A character, or an inline node kept (an equation the line ends
+      // with), see $exactAtoms.
+      const lastSpecial = oi < 0 ? undefined : old.specials.get(oi);
+      const lastKind =
+        oi < 0
+          ? null
+          : lastSpecial === undefined
+            ? undefined
+            : lastSpecial.kind;
+      const byRecord =
+        oi >= 0 && (lastKind === undefined || lastKind === 'oldNode')
+          ? recorded.get(oi)
+          : undefined;
+      const from = lineOfUnit(owner);
+      let set = new Set<number>();
+      if (byRecord !== undefined) {
+        set.add(byRecord);
+        anchored.add(i);
+      } else if (lines.has(from)) {
+        // The line stays: it keeps its marker, unless a new line ends with
+        // what it lost from its end (a split the record does not explain,
+        // app code that sets the head's text and adds a line holding the
+        // tail), which keeps the marker after that text.
+        const own = lines.get(from)!;
+        const was = textOf(old, oldAt, ki);
+        const head = newLines[own[0]].now;
+        let n = 0;
+        while (n < was.length && n < head.length && was[n] === head[n]) {
+          n++;
+        }
+        const tail = was.slice(n);
+        const tails =
+          tail.length > 0 && head.length < was.length
+            ? endingWith(tail).filter(
+                // A split's tail comes after its head.
+                k => newLines[k].isNew && k > own[own.length - 1],
+              )
+            : [];
+        set = new Set(tails.length === 1 ? tails : own);
+        if (tails.length !== 1 && lastNew > own[own.length - 1]) {
+          // With a new line after it and no line holding its old end (lines
+          // pasted at its end, Enter or a paste over a selection that reaches
+          // its end, app code that adds a line after it): by position, as
+          // before (the last new line keeps the marker, which the common
+          // suffix gives it). Kept by that line alone, the marker could not
+          // stay (only the common prefix or suffix keeps such a marker), so
+          // it was deleted: a composition there lost its line, and a
+          // collaborator's concurrent change of the line, or a Delete at its
+          // end, was dropped.
+          set = new Set();
+        }
+      } else {
+        if (!indexed) {
+          $indexHolders();
+        }
+        for (const key of $heldBefore(from)) {
+          for (const k of holders.get(key) ?? []) {
+            set.add(k);
+          }
+        }
+        if (set.size === 0) {
+          const was = textOf(old, oldAt, ki);
+          if (was.length > 0) {
+            // Only where one line does: several lines ending with it (lines
+            // remade as they were, many alike) are kept by position, as
+            // before, so a claim is never a set of many lines.
+            const ends = endingWith(was, 2);
+            set = new Set(ends.length === 1 ? ends : []);
+          }
+        }
+      }
+      // A marker no line continues (its line is gone, and no line holds
+      // what it held or ends with its text) is kept by position, as before,
+      // by any line. Why: deleted with its line, text a collaborator typed
+      // into that line at the same time lost the marker after it and joined
+      // the next line's text or showed as a line of its own; and a client
+      // composing in that line had its composition moved into the line the
+      // deletion joined it with (the line after it) instead of the line
+      // that took its marker.
+      best.set(i, set.size > 0 ? set : ANY);
+    });
+    // The desired marker positions each old marker may go to (none: any).
+    const at = new Map<number, Set<number>>();
+    best.forEach((set, i) => {
+      if (set !== ANY) {
+        at.set(i, new Set([...set].map(k => newLines[k].j)));
+      }
+    });
+    return {
+      anchored,
+      match: (i, j) => {
+        const set = at.get(i);
+        return set === undefined || set.has(j);
+      },
+    };
+  }
 
   /**
    * Make the items after `left` up to `oldStop` (exclusive) hold `atoms`:
@@ -3568,6 +4107,9 @@ export class Writer {
       old,
       this.state.hidden,
       this.frontier,
+      null,
+      startFormats,
+      this.leftOut,
     );
     const state = this.state;
     // Types of the new inline nodes (those without a shared node yet): a
@@ -3580,10 +4122,24 @@ export class Writer {
         newTypes.add(sp.node.getType());
       }
     });
+    // Lexical's record of which old atom each desired atom is (see
+    // $exactAtoms), where it explains the whole content.
+    const record =
+      oldOrigins !== null &&
+      (atoms.origins.length > 0 || atoms.nodes.length > 0) &&
+      oldOrigins[oldOrigins.length - 1][1] === old.length
+        ? this.$exactAtoms(oldOrigins, atoms, old)
+        : null;
+    const continues = this.$markerContinues(old, atoms, record);
     const matchSpecial = (i: number, j: number): boolean => {
       const a = old.specials.get(i)!;
       const b = atoms.specials.get(j)!;
-      if (a.kind === 'marker' || a.kind === 'runEnd') {
+      if (a.kind === 'marker') {
+        return (
+          b.kind === 'marker' && (continues === null || continues.match(i, j))
+        );
+      }
+      if (a.kind === 'runEnd') {
         return a.kind === b.kind;
       }
       if (a.kind === 'oldNode' && b.kind === 'inline') {
@@ -3633,7 +4189,7 @@ export class Writer {
     ) {
       const total = oldOrigins[oldOrigins.length - 1][1];
       if (total === old.length) {
-        exact = this.$exactAtoms(oldOrigins, atoms, old);
+        exact = record;
         const oldKey = keysAt(oldOrigins, old.length);
         const newKey = this.$sameTextLineage(old, atoms, oldOrigins)
           ? oldKey
@@ -3804,7 +4360,43 @@ export class Writer {
         }
       }
     }
+    // A marker the record gives the line that continues its line (see
+    // $markerContinues: the line ending with its line's last character),
+    // where that line is between the prefix and the suffix (a join or a split
+    // with a line added after it): kept as an island where it falls between
+    // the atoms kept there, in order. Only these: a client that joins the
+    // same lines concurrently keeps the same marker (the one after the joined
+    // text); a line's own marker, or one a replaced line's holder claims, may
+    // be deleted by a concurrent join on another client, which would leave
+    // the line without a boundary (a new marker is safe). Why:
+    // only the prefix and the suffix kept markers, so a marker whose line
+    // was not at either end was deleted and written again, and a
+    // collaborator's concurrent change of the line's attributes was lost.
+    if (continues !== null && continues.anchored.size > 0) {
+      kept = this.withMarkerIslands(
+        kept,
+        old,
+        atoms,
+        prefix,
+        suffix,
+        (i, j) => continues.anchored.has(i) && matchSpecial(i, j),
+      );
+    }
     const items = new Map<number, Item>();
+    for (const [ki, kj] of kept) {
+      const it = old.items.get(ki);
+      const a = old.specials.get(ki);
+      const b = atoms.specials.get(kj);
+      if (
+        it !== undefined &&
+        a !== undefined &&
+        a.kind === 'marker' &&
+        b !== undefined &&
+        b.kind === 'marker'
+      ) {
+        items.set(kj, it);
+      }
+    }
     for (let i = 0; i < prefix; i++) {
       const it = old.items.get(i);
       if (it !== undefined && atoms.specials.has(i)) {
@@ -3848,9 +4440,97 @@ export class Writer {
       atoms.text,
       hunks,
       (cursor, from, to) => this.$insertAtoms(cursor, atoms, from, to, items),
+      oldStop,
     );
     this.$formatPass(y, left, startFormats, atoms);
     return items;
+  }
+
+  /**
+   * `kept` (old and desired atoms kept between the prefix and the suffix,
+   * in order) with the markers `matchSpecial` keeps for a line there added
+   * where each falls between two kept atoms on both sides.
+   */
+  private withMarkerIslands(
+    kept: [number, number][],
+    old: Atoms,
+    atoms: Atoms,
+    prefix: number,
+    suffix: number,
+    matchSpecial: (i: number, j: number) => boolean,
+  ): [number, number][] {
+    const oldEnd = old.length - suffix;
+    const newEnd = atoms.length - suffix;
+    const newMarkers: number[] = [];
+    atoms.specials.forEach((sp, j) => {
+      if (sp.kind === 'marker' && j >= prefix && j < newEnd) {
+        newMarkers.push(j);
+      }
+    });
+    if (newMarkers.length === 0) {
+      return kept;
+    }
+    newMarkers.sort((x, y) => x - y);
+    const oldMarkers: number[] = [];
+    old.specials.forEach((sp, i) => {
+      if (sp.kind === 'marker' && i >= prefix && i < oldEnd) {
+        oldMarkers.push(i);
+      }
+    });
+    oldMarkers.sort((x, y) => x - y);
+    const used = new Set<number>();
+    for (const [, kj] of kept) {
+      used.add(kj);
+    }
+    // One pass over the old markers and the kept atoms, in order.
+    const added: [number, number][] = [];
+    let at = 0;
+    let last = prefix - 1;
+    for (const i of oldMarkers) {
+      while (at < kept.length && kept[at][0] < i) {
+        at++;
+      }
+      if (at < kept.length && kept[at][0] === i) {
+        continue;
+      }
+      const lo = Math.max(at === 0 ? prefix - 1 : kept[at - 1][1], last);
+      const hi = at === kept.length ? newEnd : kept[at][1];
+      // The first desired marker after `lo` (binary search).
+      let l = 0;
+      let h = newMarkers.length;
+      while (l < h) {
+        const m = (l + h) >> 1;
+        if (newMarkers[m] <= lo) {
+          l = m + 1;
+        } else {
+          h = m;
+        }
+      }
+      for (let k = l; k < newMarkers.length && newMarkers[k] < hi; k++) {
+        const j = newMarkers[k];
+        if (!used.has(j) && matchSpecial(i, j)) {
+          added.push([i, j]);
+          used.add(j);
+          last = j;
+          break;
+        }
+      }
+    }
+    if (added.length === 0) {
+      return kept;
+    }
+    const out: [number, number][] = [];
+    let x = 0;
+    for (const pair of added) {
+      while (x < kept.length && kept[x][0] < pair[0]) {
+        out.push(kept[x++]);
+      }
+      out.push(pair);
+    }
+    while (x < kept.length) {
+      out.push(kept[x++]);
+    }
+    return out;
   }
 
   /**
@@ -4201,12 +4881,135 @@ export class Writer {
         }
       }
       const attrs = run ? run.attrs : {};
+      // While a composition holds changes back: text of a node new in this
+      // update (see freshTextNode), written apart from the text around it.
+      let fresh = false;
+      if (this.state.hidden !== null) {
+        const nodes = atoms.textNodes;
+        let k = textNodeAfter(nodes, i);
+        if (k < nodes.length && nodes[k][0] <= i) {
+          // The node `i` is in: fresh text stops where it ends.
+          fresh = this.freshTextNode(atoms, k);
+          if (fresh) {
+            j = Math.min(j, nodes[k][1]);
+          }
+          k++;
+        }
+        // Then up to the first node after `i` that is not as fresh (only the
+        // nodes that start before `j`).
+        for (; k < nodes.length && nodes[k][0] < j; k++) {
+          if (this.freshTextNode(atoms, k) !== fresh) {
+            j = nodes[k][0];
+            break;
+          }
+        }
+      }
       cursor.insert(
         new ContentString(atoms.text.slice(i, j)),
         this.inheritUnknown(cursor, attrs),
+        fresh,
       );
       i = j;
     }
+  }
+
+  /**
+   * The characters of text this update removed or cut from text nodes that
+   * existed before it (see freshTextNode): the whole old text of each one it
+   * removed; of each one it kept, the ranges its record of text edits says
+   * were deleted, and its whole old text where that is not all of it (its
+   * old text no longer in it in order). Computed once per write, while a
+   * composition holds changes back only. Conservative by construction: what
+   * may have been removed is counted.
+   */
+  private removedChars: Set<string> | null = null;
+
+  private $removedChars(): Set<string> {
+    if (this.removedChars === null) {
+      const out = new Set<string>();
+      const add = (text: string) => {
+        for (const ch of text) {
+          out.add(ch);
+        }
+      };
+      for (const e of this.plan.textEdits ?? []) {
+        if (e[0] === 'splice' && e[3] > 0) {
+          add(e[5].slice(e[2], e[2] + e[3]));
+        } else if (e[0] === 'set' && e[2] !== '' && e[2] !== e[3]) {
+          add(e[2]);
+        } else if (e[0] === 'move') {
+          add(e[4].slice(0, e[3]));
+        }
+      }
+      for (const [key, prev] of this.prevState._nodeMap) {
+        if (!$isTextNode(prev) || prev.__text === '') {
+          continue;
+        }
+        const old = prev.__text;
+        const now = $getNodeByKey(key);
+        if (now === null || !now.isAttached() || !$isTextNode(now)) {
+          add(old);
+        } else if (!isSubsequence(old, now.getTextContent())) {
+          add(old);
+        }
+      }
+      this.removedChars = out;
+    }
+    return this.removedChars;
+  }
+
+  /**
+   * Whether text node `k` of desired atoms `atoms` (its entry in
+   * atoms.textNodes) is a node new in this update that carries no old text
+   * on: not a node that existed (merged into or not), not a part split off
+   * one, and sharing no character with text the update removed or cut (see
+   * removedChars), so a node replaced by one with a new key, a copy, a
+   * split's tail, text cut out into a node of its own, an app's re-keying in
+   * a read are never fresh, whatever text they add. When in doubt, not
+   * fresh: written as before.
+   */
+  private freshTextNode(atoms: Atoms, k: number): boolean {
+    const [a, b, key] = atoms.textNodes[k];
+    const splits = this.plan.splits;
+    if (
+      this.prevState._nodeMap.has(key) ||
+      (splits !== undefined && splits !== null && splits.has(key)) ||
+      this.splitPart(key)
+    ) {
+      return false;
+    }
+    const removed = this.$removedChars();
+    for (const ch of atoms.text.slice(a, b)) {
+      if (removed.has(ch)) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  /**
+   * The nodes the update's record of text edits says were split off (each
+   * part of a split but the node split), computed once per write, while a
+   * composition holds changes back only (see freshTextNode).
+   */
+  private splitParts: Set<NodeKey> | null = null;
+
+  /** Whether the update's record of text edits says `key` was split off. */
+  private splitPart(key: NodeKey): boolean {
+    if (this.splitParts === null) {
+      const out = new Set<NodeKey>();
+      for (const e of this.plan.textEdits ?? []) {
+        if (e[0] === 'split') {
+          for (const part of e[2]) {
+            if (part !== e[1]) {
+              out.add(part);
+            }
+          }
+        }
+      }
+      this.splitParts = out;
+    }
+    return this.splitParts.has(key);
   }
 
   /** Format the atoms after `left` whose owned formats differ. */
@@ -4226,6 +5029,7 @@ export class Writer {
       atoms.length,
       actual,
       this.state.hidden,
+      this.leftOut,
     );
     // Kept for $fixStartsAfter while nothing is written.
     this.passFold =
@@ -5080,6 +5884,24 @@ export class Writer {
   }
 
   /**
+   * The line composed in, where the hold shows it as a block its shared
+   * counterpart no longer is and the update only re-typed its text (see
+   * $heldDecision): not written, so that what a transform made of the shown
+   * line does not land on what is stored there. The binding reads it again,
+   * ends the hold, and runs its transforms again on what is stored (see
+   * heldIds).
+   */
+  skippedLine: NodeKey | null = null;
+
+  /**
+   * The characters of the skipped line (see skippedLine), by their stored
+   * ids (see Atoms.ids), where its content matches what is stored: once the
+   * hold ends, the line is read as stored and its transforms run again, as
+   * the author's own edit (see YBinding#heldIds).
+   */
+  readonly heldIds = new Set<string>();
+
+  /**
    * Decide as `decision` (the recovery of a write taken under it): an update
    * that inserts no character stays one, whatever the failed write left.
    */
@@ -5406,11 +6228,11 @@ function unitLeft(
 ): Item | null {
   const u = units[idx];
   if (u.end !== null) {
-    return prevLiveEnd(view, u.end, hidden);
+    return prevShownEnd(view, u.end, hidden);
   }
   let e = idx > 0 ? units[idx - 1].end : null;
   while (e !== null && isGoneIn(view, e)) {
-    e = prevLiveEnd(view, e, hidden);
+    e = prevShownEnd(view, e, hidden);
   }
   return e;
 }
@@ -5436,13 +6258,12 @@ function readAtomsLimited(
   limit: number,
   out: Atoms,
   hidden: Hidden | null,
+  leftOut: LeftOut = null,
 ): PassFold {
   let stop: Item | null = start;
   let n = 0;
   while (stop !== null && n < limit) {
-    if (isLiveContent(view, stop)) {
-      n += unheldLength(stop, hidden);
-    }
+    n += shownLengthIn(view, stop, hidden, leftOut);
     stop = stop.right;
   }
   const end = {folded: frontier};
@@ -5455,6 +6276,8 @@ function readAtomsLimited(
     hidden,
     frontier,
     end,
+    formats,
+    leftOut,
   );
   return {
     after,
@@ -5466,12 +6289,29 @@ function readAtomsLimited(
   };
 }
 
-/** Whether `end` is `from` or lies after it, walking right. */
-function reaches(from: Item, end: Item): boolean {
-  for (let it: Item | null = from; it !== null; it = it.right) {
-    if (it === end) {
+/**
+ * Whether `end` is `from` or lies after it, walking right. Walks right from
+ * both items in step: where `from` lies after `end`, the walk from `end`
+ * meets it, so the answer costs about twice the distance between them, not
+ * a walk to the end of the container (a document's root holds every deleted
+ * item a long history left between its lines). Never more than twice the
+ * items the walk from `from` alone reads. Exported for its tests.
+ */
+export function reaches(from: Item, end: Item): boolean {
+  let a: Item | null = from;
+  let b: Item | null = end;
+  while (a !== null) {
+    if (a === end) {
       return true;
     }
+    if (b !== null) {
+      // `from` lies after `end`: the walk from `from` never meets it.
+      if (b === from) {
+        return false;
+      }
+      b = b.right;
+    }
+    a = a.right;
   }
   return false;
 }
@@ -5926,4 +6766,370 @@ function followUpWarning(what: string, node: LexicalNode): void {
       `@lexical/y: a follow-up update changed ${what} a ${node.getType()} node; follow-ups (the binding's refresh, BlockIdExtension's naming, the update that runs a newly registered transform over the document) may only set attributes or delete, so this change is not written and the editor reads that content again.`,
     );
   }
+}
+
+/**
+ * The index of the first of the text nodes of desired atoms (in order and
+ * apart, see Atoms#textNodes) that ends after atom `i`: the node `i` is in,
+ * or else the first node after it.
+ */
+function textNodeAfter(
+  nodes: readonly (readonly [number, number, NodeKey])[],
+  i: number,
+): number {
+  let lo = 0;
+  let hi = nodes.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >>> 1;
+    if (nodes[mid][1] <= i) {
+      lo = mid + 1;
+    } else {
+      hi = mid;
+    }
+  }
+  return lo;
+}
+
+/** Whether `a`'s characters are in `b`, in order (not necessarily together). */
+function isSubsequence(a: string, b: string): boolean {
+  let j = 0;
+  for (let i = 0; i < b.length && j < a.length; i++) {
+    if (b[i] === a[j]) {
+      j++;
+    }
+  }
+  return j === a.length;
+}
+
+/**
+ * Whether a character in `[from, to)` had value `value` for key `key` before
+ * the update (`before`: the runs of the characters' NodeState entries).
+ */
+function hadValue(
+  before: readonly Run[],
+  from: number,
+  to: number,
+  key: string,
+  value: unknown,
+): boolean {
+  // The first run that ends after `from` (the runs are in order).
+  let lo = 0;
+  let hi = before.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >>> 1;
+    if (before[mid].end <= from) {
+      lo = mid + 1;
+    } else {
+      hi = mid;
+    }
+  }
+  let covered = from;
+  for (let i = lo; i < before.length && before[i].start < to; i++) {
+    const run = before[i];
+    if (run.start > covered) {
+      // Characters no run holds (none here before): no value.
+      if (value === null || value === undefined) {
+        return true;
+      }
+    }
+    covered = Math.max(covered, run.end);
+    if (equalFormatValue(run.attrs[key] ?? null, value)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/** How text classes store NodeState keys (see scalarState). */
+interface StateLayout {
+  /** The StateConfig the class of the type of `attrs` has for `key`. */
+  config(attrs: Attrs, key: string): AnyStateConfig | undefined;
+  /** Whether the class of the type of `attrs` reads `key` flat (a field). */
+  flat(attrs: Attrs, key: string): boolean;
+}
+
+/**
+ * The scalar NodeState values of a text node's attributes (see $textAttrs),
+ * whatever the layout its class stores them in, as `s:<key>` = value: a key
+ * its class reads flat (`p:<key>`, see StateLayout) included, and a key
+ * whose name holds U+001F that is registered whole. A set-valued state (one
+ * entry per member, `s:<key>\u001f<member>`, see setMemberEntry, or an
+ * array) and an object are left out: they are not written onto a node the
+ * update made (see keepMadeAsStored). Its ordinary fields are not NodeState.
+ */
+function scalarState(attrs: Attrs, layout: StateLayout): Attrs {
+  const state: Attrs = {};
+  for (const k in attrs) {
+    let key: string;
+    if (k.startsWith(STATE_PREFIX)) {
+      key = k.slice(STATE_PREFIX.length);
+    } else if (
+      k.startsWith(FIELD_PREFIX) &&
+      layout.flat(attrs, k.slice(FIELD_PREFIX.length))
+    ) {
+      key = k.slice(FIELD_PREFIX.length);
+    } else {
+      continue;
+    }
+    const value = attrs[k];
+    if (k.startsWith(STATE_PREFIX) && isSetMember(attrs, key, layout)) {
+      continue;
+    }
+    const plain = decodeFormatValue(value);
+    if (typeof plain === 'object' && plain !== null) {
+      continue;
+    }
+    state[STATE_PREFIX + key] = value;
+  }
+  return state;
+}
+
+/**
+ * What of a text node's attributes (see $textAttrs) a node a transform made
+ * can carry onto what is stored (see keepMadeAsStored): its scalar NodeState
+ * values (see scalarState) and its format bits (`f:<name>` = true).
+ */
+function carriedState(attrs: Attrs, layout: StateLayout): Attrs {
+  const state = scalarState(attrs, layout);
+  for (const k in attrs) {
+    if (k.startsWith(TEXT_FORMAT_PREFIX) && attrs[k] === true) {
+      state[k] = true;
+    }
+  }
+  return state;
+}
+
+/**
+ * Whether nested entry `key` of `attrs` is a member of a set-valued state,
+ * read as joinSetMembers reads it (see namesSetMember).
+ */
+function isSetMember(attrs: Attrs, key: string, layout: StateLayout): boolean {
+  return (
+    attrs[STATE_PREFIX + key] === true && namesSetMember(attrs, key, layout)
+  );
+}
+
+/**
+ * Whether the class of the type of `attrs` reads `true` under nested name
+ * `key` as a member of a set-valued state, as joinSetMembers does: a name
+ * holding U+001F that no StateConfig of the class has whole, after the key of
+ * a set its class has (or, with no StateConfig for that key, one that is no
+ * other value).
+ */
+function namesSetMember(
+  attrs: Attrs,
+  key: string,
+  layout: StateLayout,
+): boolean {
+  const i = key.indexOf(SET_MEMBER_SEPARATOR);
+  if (i < 0 || layout.config(attrs, key) !== undefined) {
+    return false;
+  }
+  const base = key.slice(0, i);
+  const config = layout.config(attrs, base);
+  if (config !== undefined) {
+    return isSetStateConfig(config);
+  }
+  const whole = attrs[STATE_PREFIX + base];
+  return whole === undefined || isStringArray(decodeFormatValue(whole));
+}
+
+/**
+ * Whether the class of the stored type of `attrs` would read scalar `value`
+ * under NodeState `key` as part of a set-valued state instead: `key` is a set
+ * there, the entries stored under it include members it reads of a set no
+ * StateConfig of the class knows (see isSetMember: which a value of another
+ * kind would end), or `value` is `true` under a name it reads as a set's
+ * member (see namesSetMember). Such a value cannot be written there without
+ * changing the set, and stays as stored.
+ */
+function readsAsSet(
+  attrs: Attrs,
+  key: string,
+  value: unknown,
+  layout: StateLayout,
+): boolean {
+  const config = layout.config(attrs, key);
+  if (config !== undefined) {
+    return isSetStateConfig(config);
+  }
+  if (key.indexOf(SET_MEMBER_SEPARATOR) < 0) {
+    // A member's set is its name up to the first U+001F, so only a key
+    // without one holds members.
+    const prefix = STATE_PREFIX + key + SET_MEMBER_SEPARATOR;
+    for (const n in attrs) {
+      if (
+        n.startsWith(prefix) &&
+        isSetMember(attrs, n.slice(STATE_PREFIX.length), layout)
+      ) {
+        return true;
+      }
+    }
+  }
+  return value === true && namesSetMember(attrs, key, layout);
+}
+
+/**
+ * Write in `attrs` (a stored run's attributes, of its type's class) the
+ * scalar value `value` of NodeState `key`, which an update set on a node it
+ * made, as the stored type's class reads the key: a field where it reads
+ * the key flat, its nested entry removed; else the nested entry. A field of
+ * the same name the class does not read flat is an ordinary one, and stays.
+ */
+function putScalarAsStored(
+  attrs: Attrs,
+  key: string,
+  value: unknown,
+  layout: StateLayout,
+): void {
+  if (layout.flat(attrs, key)) {
+    attrs[FIELD_PREFIX + key] = value;
+    delete attrs[STATE_PREFIX + key];
+  } else {
+    attrs[STATE_PREFIX + key] = value;
+  }
+}
+
+/**
+ * Runs of desired atoms (`runs`) where the atoms of each node the update made
+ * (`ranges`: the atom range of each node holding the line's atoms, and
+ * whether the update kept it, see Writer#$writeSkippedLine) take the stored
+ * attributes instead (`stored`, the same atoms as stored): what a transform
+ * made of the line is left as stored, and what changed on the nodes the
+ * update kept is written. On a node the update made, a scalar NodeState
+ * value that is not a default and that none of its characters had before
+ * the update, and a format bit its characters did not have before it
+ * (`before`, their NodeState entries and format bits, or null where not
+ * known), are written too: what the user or the app set in this update,
+ * which the tokenizer carried onto its tokens; a format bit the node no
+ * longer has stays as stored. A value is compared
+ * whatever layout each class stores it in (see scalarState: flat or nested),
+ * and written as the stored type's class reads it (see putScalarAsStored). A
+ * set-valued or object value stays as stored there, as does a value the
+ * stored type's class would read as part of a set (see readsAsSet) and an
+ * ordinary field (a node's style, a property of its JSON), which is never
+ * taken for NodeState.
+ */
+function keepMadeAsStored(
+  runs: readonly Run[],
+  stored: readonly Run[],
+  ranges: readonly [number, number, boolean][],
+  length: number,
+  before: readonly Run[] | null,
+  layout: StateLayout,
+): Run[] {
+  const cuts = new Set<number>([0, length]);
+  for (const list of before === null
+    ? [runs, stored]
+    : [runs, stored, before]) {
+    for (const r of list) {
+      cuts.add(r.start);
+      cuts.add(r.end);
+    }
+  }
+  for (const [a, b] of ranges) {
+    cuts.add(a);
+    cuts.add(b);
+  }
+  const sorted = [...cuts].filter(c => c <= length).sort((x, y) => x - y);
+  const out: Run[] = [];
+  let a = 0;
+  let b = 0;
+  let r = 0;
+  let hadRange = -1;
+  const had = new Map<string, boolean>();
+  // What each run's attributes can carry, once (see carriedState).
+  const scalars = new Map<Attrs, Attrs>();
+  const scalarsOf = (of: Attrs): Attrs => {
+    let found = scalars.get(of);
+    if (found === undefined) {
+      found = carriedState(of, layout);
+      scalars.set(of, found);
+    }
+    return found;
+  };
+  for (let c = 0; c < sorted.length - 1; c++) {
+    const start = sorted[c];
+    const end = sorted[c + 1];
+    while (a < runs.length && runs[a].end <= start) {
+      a++;
+    }
+    while (b < stored.length && stored[b].end <= start) {
+      b++;
+    }
+    while (r < ranges.length && ranges[r][1] <= start) {
+      r++;
+    }
+    const run = a < runs.length && runs[a].start <= start ? runs[a] : null;
+    if (run === null) {
+      // No desired run (a special atom without attributes): none written.
+      continue;
+    }
+    const was =
+      b < stored.length && stored[b].start <= start ? stored[b] : null;
+    const made = r < ranges.length && ranges[r][0] <= start && !ranges[r][2];
+    let attrs = made && was !== null ? was.attrs : run.attrs;
+    if (made && was !== null && before !== null) {
+      // On a node the transform made: what is stored, but for each scalar
+      // NodeState value (not a default, which JSON leaves out) that no
+      // character of that node had before this update, and each format bit
+      // these characters did not have before it: set in this update, by the
+      // user or the app, and carried by the tokenizer. A value some of its
+      // characters had before may have been spread over the others by the
+      // transform (a token made of several nodes), and is left as stored, as
+      // is a set-valued or object value, and a format bit the node no longer
+      // has. The node's type and style stay as stored (the highlighter's).
+      const [ra, rb] = ranges[r];
+      // Once per node, entry and value: a node the transform made of many
+      // nodes is cut at each of their ends.
+      if (r !== hadRange) {
+        hadRange = r;
+        had.clear();
+      }
+      const desired = scalarsOf(run.attrs);
+      const kept = scalarsOf(was.attrs);
+      for (const name in desired) {
+        const value = desired[name];
+        if (name in kept && equalFormatValue(kept[name], value)) {
+          continue;
+        }
+        if (name.startsWith(TEXT_FORMAT_PREFIX)) {
+          // A format bit these characters did not have before this update:
+          // set in it, by the user or the app (a transform's token keeps the
+          // format of the text it replaces, or has none, as a code
+          // highlighter's does). Judged per character, as main writes it.
+          if (!hadValue(before, start, end, name, value)) {
+            if (attrs === was.attrs) {
+              attrs = {...was.attrs};
+            }
+            attrs[name] = true;
+          }
+          continue;
+        }
+        const id = name + '\u0000' + JSON.stringify(value);
+        let wasThere = had.get(id);
+        if (wasThere === undefined) {
+          wasThere = hadValue(before, ra, rb, name, value);
+          had.set(id, wasThere);
+        }
+        if (wasThere) {
+          continue;
+        }
+        const key = name.slice(STATE_PREFIX.length);
+        if (!readsAsSet(was.attrs, key, value, layout)) {
+          if (attrs === was.attrs) {
+            attrs = {...was.attrs};
+          }
+          putScalarAsStored(attrs, key, value, layout);
+        }
+      }
+    }
+    const last = out[out.length - 1];
+    if (last !== undefined && last.end === start && last.attrs === attrs) {
+      last.end = end;
+    } else {
+      out.push({attrs, end, start});
+    }
+  }
+  return out;
 }

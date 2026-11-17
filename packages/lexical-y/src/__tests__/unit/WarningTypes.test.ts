@@ -133,6 +133,9 @@ function banner(value: unknown): string {
       case 'held-composition':
         // The binding stays active: no read-only banner.
         return '';
+      case 'unstorable':
+        // Written; the editor reads the empty node back.
+        return '';
       case 'other':
         return `other:${data.detailCode}`;
       default: {
@@ -283,6 +286,15 @@ describe('typed warnings', () => {
       banner(
         new LexicalWarning(UNSUPPORTED_EDIT_WARNING, 'm', {
           reason: 'held-composition',
+        }),
+      ),
+    ).toBe('');
+    // An empty node the document does not store, read back: written, no
+    // banner.
+    expect(
+      banner(
+        new LexicalWarning(UNSUPPORTED_EDIT_WARNING, 'm', {
+          reason: 'unstorable',
         }),
       ),
     ).toBe('');

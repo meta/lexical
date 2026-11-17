@@ -77,7 +77,7 @@ const states = (e: LexicalEditor) =>
       .join('|'),
   );
 const records = (p: Peer) =>
-  p.doc.get('lexical-y').getAttr('lexical-y:3') === true;
+  p.doc.get('lexical-y').getAttr('lexical-y:4') === true;
 function $text(token: string): TextNode {
   const n = $getRoot()
     .getAllTextNodes()
@@ -186,6 +186,7 @@ for (const gc of [false, true]) {
         {discrete: true},
       );
       const binding = new YBinding(editor, doc as never, {
+        onStatus: null,
         root: child,
         schemaVersion: 1,
         selfCheck: true,
@@ -217,7 +218,7 @@ for (const gc of [false, true]) {
       initUm.undo();
       initUm.destroy();
       expect(child.getAttr('lexical-y:1')).toBeUndefined();
-      expect(child.getAttr('lexical-y:3')).toBe(true);
+      expect(child.getAttr('lexical-y:4')).toBe(true);
       const encoded = Y.encodeStateAsUpdate(doc as never);
       binding.dispose();
       const d = createYDoc(null, {gc});
@@ -244,6 +245,7 @@ for (const gc of [false, true]) {
         },
       });
       const b1 = new YBinding(e1, d as never, {
+        onStatus: null,
         root: c,
         schemaVersion: 1,
         selfCheck: true,
@@ -258,6 +260,7 @@ for (const gc of [false, true]) {
         },
       });
       const b3 = new YBinding(e3, d3 as never, {
+        onStatus: null,
         root: d3.get('app').getAttr('editor') as any,
         schemaVersion: 1,
         selfCheck: true,

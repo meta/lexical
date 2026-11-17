@@ -55,7 +55,7 @@ describe.each([false, true])('binding lifecycle edges, gc %s', gc => {
     const warnings: Warning[] = [];
     const editor = editorOf(warnings);
     const doc = createYDoc(rawDoc(SEED), {gc});
-    const first = new YBinding(editor, doc, {schemaVersion: 1});
+    const first = new YBinding(editor, doc, {onStatus: null, schemaVersion: 1});
     first.start();
     first.initialize();
     expect(first.status).toBe('active');
@@ -63,7 +63,10 @@ describe.each([false, true])('binding lifecycle edges, gc %s', gc => {
     expect(editor.isEditable()).toBe(true);
     first.quiesce();
     expect(editor.isEditable()).toBe(true);
-    const second = new YBinding(editor, doc, {schemaVersion: 1});
+    const second = new YBinding(editor, doc, {
+      onStatus: null,
+      schemaVersion: 1,
+    });
     second.start();
     second.initialize();
     expect(second.status).toBe('active');
@@ -107,7 +110,10 @@ describe.each([false, true])('binding lifecycle edges, gc %s', gc => {
       {discrete: true},
     );
     const doc = createYDoc(state, {gc});
-    const binding = new YBinding(editor, doc, {schemaVersion: 1});
+    const binding = new YBinding(editor, doc, {
+      onStatus: null,
+      schemaVersion: 1,
+    });
     binding.start();
     binding.initialize();
     expect(binding.status).toBe('readonly');

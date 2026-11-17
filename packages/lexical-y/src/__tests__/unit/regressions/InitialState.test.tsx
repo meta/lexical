@@ -123,6 +123,7 @@ function open(
         ListExtension,
         configExtension(YCollabExtension, {
           doc,
+          onYStatus: null,
           schemaVersion: 1,
           selfCheck: true,
           synced: options.synced ?? false,
@@ -169,7 +170,10 @@ function stored(doc: Y.Doc): string {
       throw error;
     },
   });
-  const binding = new YBinding(editor, copy, {schemaVersion: 1});
+  const binding = new YBinding(editor, copy, {
+    onStatus: null,
+    schemaVersion: 1,
+  });
   const stop = binding.start();
   try {
     binding.initialize();
@@ -218,6 +222,7 @@ async function documentWithContent(
 /** The configuration of the seeds, as the clients' extensions. */
 const SEED_CONFIG = {
   extensions: [RichTextExtension, ListExtension],
+  onWarn: null,
   schemaVersion: 1,
 };
 
@@ -295,7 +300,10 @@ describe('S7-23: the initial state on a document that has content', () => {
         throw error;
       },
     });
-    const binding = new YBinding(editor, doc, {schemaVersion: 1});
+    const binding = new YBinding(editor, doc, {
+      onStatus: null,
+      schemaVersion: 1,
+    });
     const stop = binding.start();
     // A provider whose first sync lands in a listener of the next commit.
     let synced = false;
@@ -328,7 +336,10 @@ describe('S7-23: the initial state on a document that has content', () => {
         warned.push(isYWarning(warning) ? warning.code : warning.message);
       },
     });
-    const binding = new YBinding(editor, doc, {schemaVersion: 1});
+    const binding = new YBinding(editor, doc, {
+      onStatus: null,
+      schemaVersion: 1,
+    });
     const stop = binding.start();
     let synced = false;
     const unregister = editor.registerUpdateListener(() => {
@@ -440,6 +451,7 @@ describe('S7-23: the initial state on a document that has content', () => {
         ListExtension,
         configExtension(YCollabExtension, {
           doc,
+          onYStatus: null,
           schemaVersion: 1,
           selfCheck: true,
           synced: true,

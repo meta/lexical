@@ -149,6 +149,7 @@ function client(id: number, state?: Uint8Array) {
     onWarn: () => {},
   });
   const binding = new YBinding(editor, doc, {
+    onStatus: null,
     schemaVersion: 1,
     selfCheck: true,
   });

@@ -21,7 +21,10 @@ import {
 import {expect, test} from 'vitest';
 
 import {createYDoc, YBinding} from '../..';
-import {readLayout3Formats, writeLayout3Formats} from '../../internal/Layout3';
+import {
+  readLayout4Formats,
+  writeLayout4Formats,
+} from '../../migrate/3to4/frozen/layout4';
 import {flush} from '../utils/harness';
 
 class Enabled extends TextNode {
@@ -49,7 +52,11 @@ for (const gc of [false, true])
   test(`canonical stored formats survive a constructor-dependent declaration gc=${gc}`, async () => {
     const doc = createYDoc(null, {gc});
     const e = editor();
-    const b = new YBinding(e, doc, {schemaVersion: 1, selfCheck: true});
+    const b = new YBinding(e, doc, {
+      onStatus: null,
+      schemaVersion: 1,
+      selfCheck: true,
+    });
     b.start();
     e.update(
       () =>
@@ -63,9 +70,9 @@ for (const gc of [false, true])
     b.initialize();
     await flush();
     const root = b.root;
-    const values = readLayout3Formats(root);
+    const values = readLayout4Formats(root);
     doc.transact(tr =>
-      writeLayout3Formats(
+      writeLayout4Formats(
         tr,
         root,
         values.map((v, i) =>

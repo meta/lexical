@@ -22,6 +22,7 @@ import {
   diffUpdateV2,
   Doc,
   encodeStateAsUpdate,
+  encodeStateAsUpdateV2,
   encodeStateVector,
   findIndexSS,
   findRootTypeKey,
@@ -31,6 +32,7 @@ import {
   type IdSet,
   Item,
   iterateStructsByIdSet,
+  mergeIdSets,
   mergeUpdates,
   mergeUpdatesV2,
   Node as YNode,
@@ -103,11 +105,13 @@ export const YJS_EXPORTS = [
   'decodeUpdateV2',
   'diffUpdateV2',
   'encodeStateAsUpdate',
+  'encodeStateAsUpdateV2',
   'encodeStateVector',
   'findIndexSS',
   'findRootTypeKey',
   'getItemCleanStart',
   'iterateStructsByIdSet',
+  'mergeIdSets',
   'mergeUpdates',
   'mergeUpdatesV2',
   'relativePositionToJSON',
@@ -250,6 +254,7 @@ export function yjsMembers() {
       clients: (s: StructStore) => isMap(s.clients),
       getClock: (s: StructStore) => isFunction(s.getClock),
       getItem: (s: StructStore) => isFunction(s.getItem),
+      pendingDs: (s: StructStore) => isSet(s.pendingDs),
       pendingStructs: (s: StructStore) => isSet(s.pendingStructs),
     },
     // The gap repair (LoadFully) reads a pending update in format V2.
@@ -268,15 +273,19 @@ export function yjsMembers() {
     UndoManager: {
       canRedo: (u: UndoManager) => isFunction(u.canRedo),
       canUndo: (u: UndoManager) => isFunction(u.canUndo),
+      captureTimeout: (u: UndoManager) => typeof u.captureTimeout === 'number',
       clear: (u: UndoManager) => isFunction(u.clear),
       currStackItem: (u: UndoManager) => u.currStackItem === null,
       destroy: (u: UndoManager) => isFunction(u.destroy),
       doc: (u: UndoManager) => isObject(u.doc),
       emit: (u: UndoManager) => isFunction(u.emit),
+      lastChange: (u: UndoManager) => typeof u.lastChange === 'number',
+      off: (u: UndoManager) => isFunction(u.off),
       on: (u: UndoManager) => isFunction(u.on),
       redo: (u: UndoManager) => isFunction(u.redo),
       redoStack: (u: UndoManager) => Array.isArray(u.redoStack),
       redoing: (u: UndoManager) => u.redoing === false,
+      stopCapturing: (u: UndoManager) => isFunction(u.stopCapturing),
       undo: (u: UndoManager) => isFunction(u.undo),
       undoStack: (u: UndoManager) => Array.isArray(u.undoStack),
       undoing: (u: UndoManager) => u.undoing === false,
@@ -320,6 +329,29 @@ const GAP_PROBE_KINDS: ReadonlySet<string> = new Set([
   'StructStore.pendingStructs',
   'decodeUpdateV2',
 ]);
+
+/**
+ * What the development probe found about the @y/y encoding problem the
+ * loader repair (LoadFully, D112) works around: `'needed'` while @y/y holds a
+ * batched struct pending behind a blocked struct of its client, `'retirable'`
+ * once it integrates that struct itself (D114).
+ */
+export type GapRepairStatus = 'needed' | 'retirable';
+
+/** The last probe's {@link GapRepairStatus}; undefined until one ran it. */
+let gapRepair: GapRepairStatus | undefined;
+
+/**
+ * @internal What the last development probe found (YjsContract.test);
+ * undefined until one ran, and always in production builds.
+ */
+export function getGapRepairStatus(): GapRepairStatus | undefined {
+  return gapRepair;
+}
+
+/** Logged (development builds only) when the probe finds a fixed @y/y. */
+export const GAP_REPAIR_RETIRABLE_WARNING =
+  "@lexical/y: the @y/y the app loaded appears to have the fix for yjs/yjs#824: it loads a struct stored behind a missing one of its client, which @lexical/y's loader repair otherwise does. The loader repair stays on.";
 
 const PROBE_GUID = '@lexical/y/yjs-probe';
 /** The undo manager options the probe passes, checked on what it kept. */
@@ -432,11 +464,13 @@ function yjsExports() {
     decodeUpdateV2,
     diffUpdateV2,
     encodeStateAsUpdate,
+    encodeStateAsUpdateV2,
     encodeStateVector,
     findIndexSS,
     findRootTypeKey,
     getItemCleanStart,
     iterateStructsByIdSet,
+    mergeIdSets,
     mergeUpdates,
     mergeUpdatesV2,
     relativePositionToJSON,
@@ -483,13 +517,24 @@ export function probeYjs(y: YjsExports = yjsExports()): string[] {
  * converging, byte for byte, with one that got every update once the
  * missing ones arrive. Upstream: "encodeStateAsUpdate drops text the doc
  * shows after it integrated a struct across a clock gap" (@y/y
- * 14.0.0-rc.29).
+ * 14.0.0-rc.29; yjs/yjs#824).
+ *
+ * Feature detection (D114): a @y/y that integrates the batched struct
+ * itself (yjs/yjs#827) no longer needs the repair. That is not a contract
+ * change, so it is not refused: the probe checks that it behaves as a fixed
+ * encoding does (only the blocked structs pending, the document reloads from
+ * its own encoding as it shows, the repair runs on it without throwing,
+ * convergence), records `'retirable'` and logs
+ * {@link GAP_REPAIR_RETIRABLE_WARNING}. The
+ * contract test fails on it, which is the cue to remove the repair: the
+ * steps are in LoadFully's module header.
  */
 function probeGapLoad(
   y: YjsExports,
   sample: (kind: string, value: unknown) => void,
   found: string[],
 ): void {
+  gapRepair = undefined;
   const docs: Doc[] = [];
   const make = (clientID: number) => {
     const d = new y.Doc({gc: false, guid: PROBE_GUID});
@@ -540,10 +585,37 @@ function probeGapLoad(
         updates[1][2],
       ]),
     );
+    // Once the missing updates arrive, `loaded` ends byte-identical to a
+    // document that got every update.
+    const converges = () => {
+      const whole = make(5);
+      y.applyUpdate(whole, y.encodeStateAsUpdate(base));
+      for (const own of updates) {
+        for (const u of own) {
+          y.applyUpdate(whole, u);
+        }
+      }
+      y.applyUpdate(loaded, updates[0][0]);
+      y.applyUpdate(loaded, updates[1][0]);
+      const a = y.encodeStateAsUpdate(loaded);
+      const b = y.encodeStateAsUpdate(whole);
+      return (
+        loaded.store.pendingStructs === null &&
+        a.length === b.length &&
+        a.every((byte, i) => byte === b[i])
+      );
+    };
     const pending = loaded.store.pendingStructs;
-    if (pending === null || text(loaded) !== 'AB') {
+    const loadedText = text(loaded);
+    // A @y/y with the encoding problem fixed integrates "z" and "w" itself
+    // and holds only the blocked "y" and "v" (feature detection, below).
+    const integratesPastGap =
+      loadedText.includes('z') &&
+      loadedText.includes('w') &&
+      !/[xyuv]/.test(loadedText);
+    if (pending === null || (loadedText !== 'AB' && !integratesPastGap)) {
       found.push(
-        'gap repair: a batched struct behind a blocked one is not held pending',
+        'gap repair: a batched struct behind a blocked one is neither held pending nor integrated',
       );
       return;
     }
@@ -556,6 +628,36 @@ function probeGapLoad(
         .map(s => s.id.clock)
         .sort((a, b) => a - b)
         .join();
+    if (integratesPastGap) {
+      // The encoding problem looks fixed (upstream: yjs/yjs#824, fixed by
+      // yjs/yjs#827): the decode held only the blocked structs, the
+      // document reloads from its own encoding as it shows, and it
+      // converges once the missing updates arrive. Not a contract change
+      // (D114). Only bytes this @y/y encoded are decoded here: D112's
+      // removal condition (states stored with the old batching) is checked
+      // when the repair is removed (LoadFully's header).
+      const reload = make(9);
+      y.applyUpdate(reload, y.encodeStateAsUpdate(loaded));
+      // The loaders still run the repair on such a @y/y (rethrowing in
+      // development builds): it must not throw, and must leave the document
+      // converging.
+      integrateHeldBehindGapsWith(y, loaded, undefined, true);
+      if (
+        clocks(decoded.structs, 2) !== '1' ||
+        clocks(decoded.structs, 3) !== '1' ||
+        text(reload) !== loadedText ||
+        !converges()
+      ) {
+        found.push(
+          'gap repair: @y/y integrates a batched struct past a blocked one, but not as a fixed encoding does',
+        );
+        return;
+      }
+      gapRepair = 'retirable';
+      console.warn(GAP_REPAIR_RETIRABLE_WARNING);
+      return;
+    }
+    gapRepair = 'needed';
     if (
       clocks(decoded.structs, 2) !== '1,2' ||
       clocks(decoded.structs, 3) !== '1,2' ||
@@ -640,7 +742,7 @@ function probeGapLoad(
     }
     // The repair itself: "z" and "w" are integrated past the blocked "y"
     // and "v", which are pending again.
-    integrateHeldBehindGapsWith(y, loaded);
+    const repaired = integrateHeldBehindGapsWith(y, loaded, undefined, false);
     const shown = text(loaded);
     if (
       !shown.includes('z') ||
@@ -653,24 +755,59 @@ function probeGapLoad(
       );
       return;
     }
-    // Once the missing updates arrive, it converges with a document that
-    // got every update.
-    const whole = make(5);
-    y.applyUpdate(whole, y.encodeStateAsUpdate(base));
-    for (const own of updates) {
-      for (const u of own) {
-        y.applyUpdate(whole, u);
+    // The repair plans each suffix's run from the dependency rules it
+    // relies on; a run that integrates otherwise means they changed.
+    if (repaired.failedCuts !== 0) {
+      found.push('gap repair: @y/y no longer integrates as the plan predicts');
+      return;
+    }
+    // A format item: its key read on a decoded struct, and the format rule
+    // (an opener whose closer stays blocked is held back with it).
+    const formatBase = make(6);
+    formatBase.get('t').insert(0, 'abcd');
+    const formatter = make(7);
+    y.applyUpdate(formatter, y.encodeStateAsUpdate(formatBase));
+    const formatUpdates: Uint8Array<ArrayBuffer>[] = [];
+    formatter.on('update', (u: Uint8Array) =>
+      formatUpdates.push(new Uint8Array(u)),
+    );
+    const ft = formatter.get('t');
+    // Lost: "L" after "c". Then one update: "M" after "L" (blocked), and
+    // a format over "b".."L" (its opener after "a", integrable once "M" is
+    // passed; its closer after "L", blocked), held behind "M".
+    formatter.transact(() => ft.insert(3, 'L'));
+    formatter.transact(() => {
+      ft.insert(4, 'M');
+      ft.format(1, 3, {probe: true});
+    });
+    const formatted = make(8);
+    y.applyUpdate(formatted, y.encodeStateAsUpdate(formatBase));
+    y.applyUpdate(formatted, formatUpdates[1]);
+    const held = formatted.store.pendingStructs;
+    const keys =
+      held === null
+        ? []
+        : y
+            .decodeUpdateV2(held.update)
+            .structs.map(s => (s as {content?: unknown}).content)
+            .filter(c => c instanceof y.ContentFormat)
+            .map(c => (c as ContentFormat).key);
+    if (keys.join() !== 'probe,probe') {
+      found.push('gap repair: a format item read on a decoded struct changed');
+      return;
+    }
+    integrateHeldBehindGapsWith(y, formatted, undefined, false);
+    for (let it = formatted.get('t')._start; it !== null; it = it.right) {
+      if (it.content instanceof y.ContentFormat) {
+        found.push(
+          'gap repair: a format item was integrated while its closer stays blocked',
+        );
+        return;
       }
     }
-    y.applyUpdate(loaded, updates[0][0]);
-    y.applyUpdate(loaded, updates[1][0]);
-    const a = y.encodeStateAsUpdate(loaded);
-    const b = y.encodeStateAsUpdate(whole);
-    if (
-      loaded.store.pendingStructs !== null ||
-      a.length !== b.length ||
-      a.some((byte, i) => byte !== b[i])
-    ) {
+    // Once the missing updates arrive, it converges with a document that
+    // got every update.
+    if (!converges()) {
       found.push('gap repair: the repaired document does not converge');
     }
   } catch (error) {

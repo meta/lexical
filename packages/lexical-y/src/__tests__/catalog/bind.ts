@@ -97,6 +97,7 @@ export function catalogHeadlessConfig(
     extensions: [catalogAppExtension(config)],
     schemaVersion: 1,
     ...extra,
+    onWarn: extra.onWarn ?? null,
   };
 }
 
@@ -215,7 +216,11 @@ export function bindFresh(
     cleanups.push(() => built.dispose());
     editor = built;
     mount(editor);
-    binding = new YBinding(editor, doc, {schemaVersion, selfCheck: true});
+    binding = new YBinding(editor, doc, {
+      onStatus: null,
+      schemaVersion,
+      selfCheck: true,
+    });
     cleanups.push(binding.start());
     binding.initialize();
   } else {
@@ -227,6 +232,7 @@ export function bindFresh(
           ...prepared,
           configExtension(YCollabExtension, {
             doc,
+            onYStatus: null,
             schemaVersion,
             selfCheck: true,
             synced: mode === 'extension',

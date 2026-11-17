@@ -74,34 +74,14 @@ export function createMarkdownExport(
 
   return node =>
     withBracketContext(byType.textMatch, () => {
-      const output = [];
-      const children = (node || $getRoot()).getChildren();
-
-      for (let i = 0; i < children.length; i++) {
-        const child = children[i];
-        const result = $exportTopLevelElements(
-          child,
-          elementTransformers,
-          textFormatTransformers,
-          byType.textMatch,
-          shouldPreserveNewLines,
-        );
-
-        if (result != null) {
-          output.push(
-            // separate consecutive group of texts with a line break: eg. ["hello", "world"] -> ["hello", "/nworld"]
-            isNewlineDelimited &&
-              i > 0 &&
-              !isEmptyParagraph(child) &&
-              !isEmptyParagraph(children[i - 1])
-              ? '\n'.concat(result)
-              : result,
-          );
-        }
-      }
-      // Ensure consecutive groups of texts are at least \n\n apart while each empty paragraph render as a newline.
-      // Eg. ["hello", "", "", "hi", "\nworld"] -> "hello\n\n\nhi\n\nworld"
-      return output.join('\n');
+      return $exportBlocks(
+        (node || $getRoot()).getChildren(),
+        elementTransformers,
+        textFormatTransformers,
+        byType.textMatch,
+        shouldPreserveNewLines,
+        isNewlineDelimited,
+      );
     });
 }
 
@@ -139,37 +119,102 @@ export function createSelectionMarkdownExport(
       if ($isRangeSelection(selection)) {
         selection._cachedIsBackward = exportedSelection.isBackward();
       }
-      const output = [];
-      // The separator depends on the previously *emitted* block, not on the
-      // previous root child: unselected children produce no output, so keying
-      // off the child index would prefix a newline to the first emitted block
-      // whenever the selection starts below the top of the document.
-      let previousExported: LexicalNode | null = null;
-
-      for (const child of $getRoot().getChildren()) {
-        const {shouldInclude, markdown} = $processNodeForSelection(
-          child,
-          selection,
-          elementTransformers,
-          textFormatTransformers,
-          byType.textMatch,
-          shouldPreserveNewLines,
-        );
-
-        if (shouldInclude && markdown != null) {
-          output.push(
-            isNewlineDelimited &&
-              previousExported !== null &&
-              !isEmptyParagraph(child) &&
-              !isEmptyParagraph(previousExported)
-              ? '\n'.concat(markdown)
-              : markdown,
-          );
-          previousExported = child;
-        }
-      }
-      return output.join('\n');
+      return $exportBlocksForSelection(
+        $getRoot().getChildren(),
+        selection,
+        elementTransformers,
+        textFormatTransformers,
+        byType.textMatch,
+        shouldPreserveNewLines,
+        isNewlineDelimited,
+      ).markdown;
     });
+}
+
+/**
+ * Exports a run of sibling blocks: the children of the root, or of a block
+ * that holds blocks (what an element transformer's `traverseBlocks` is
+ * given).
+ */
+function $exportBlocks(
+  children: LexicalNode[],
+  elementTransformers: (ElementTransformer | MultilineElementTransformer)[],
+  textFormatTransformers: TextFormatTransformer[],
+  textMatchTransformers: TextMatchTransformer[],
+  shouldPreserveNewLines: boolean,
+  isNewlineDelimited: boolean,
+): string {
+  const output = [];
+  for (let i = 0; i < children.length; i++) {
+    const child = children[i];
+    const result = $exportTopLevelElements(
+      child,
+      elementTransformers,
+      textFormatTransformers,
+      textMatchTransformers,
+      shouldPreserveNewLines,
+    );
+
+    if (result != null) {
+      output.push(
+        // separate consecutive group of texts with a line break: eg. ["hello", "world"] -> ["hello", "/nworld"]
+        isNewlineDelimited &&
+          i > 0 &&
+          !isEmptyParagraph(child) &&
+          !isEmptyParagraph(children[i - 1])
+          ? '\n'.concat(result)
+          : result,
+      );
+    }
+  }
+  // Ensure consecutive groups of texts are at least \n\n apart while each empty paragraph render as a newline.
+  // Eg. ["hello", "", "", "hi", "\nworld"] -> "hello\n\n\nhi\n\nworld"
+  return output.join('\n');
+}
+
+/** {@link $exportBlocks}, keeping only what `selection` covers. */
+function $exportBlocksForSelection(
+  children: LexicalNode[],
+  selection: BaseSelection,
+  elementTransformers: (ElementTransformer | MultilineElementTransformer)[],
+  textFormatTransformers: TextFormatTransformer[],
+  textMatchTransformers: TextMatchTransformer[],
+  shouldPreserveNewLines: boolean,
+  isNewlineDelimited: boolean,
+): {shouldInclude: boolean; markdown: string} {
+  const output = [];
+  // The separator depends on the previously *emitted* block, not on the
+  // previous sibling: unselected children produce no output, so keying
+  // off the child index would prefix a newline to the first emitted block
+  // whenever the selection starts below the top of the document.
+  let previousExported: LexicalNode | null = null;
+
+  for (const child of children) {
+    const {shouldInclude, markdown} = $processNodeForSelection(
+      child,
+      selection,
+      elementTransformers,
+      textFormatTransformers,
+      textMatchTransformers,
+      shouldPreserveNewLines,
+    );
+
+    if (shouldInclude && markdown != null) {
+      output.push(
+        isNewlineDelimited &&
+          previousExported !== null &&
+          !isEmptyParagraph(child) &&
+          !isEmptyParagraph(previousExported)
+          ? '\n'.concat(markdown)
+          : markdown,
+      );
+      previousExported = child;
+    }
+  }
+  return {
+    markdown: output.join('\n'),
+    shouldInclude: previousExported !== null,
+  };
 }
 
 function $processNodeForSelection(
@@ -200,6 +245,16 @@ function $processNodeForSelection(
           ).pieces,
         ),
       selection,
+      node_ =>
+        $exportBlocksForSelection(
+          node_.getChildren(),
+          selection,
+          elementTransformers,
+          textFormatTransformers,
+          textMatchTransformers,
+          shouldPreserveNewLines,
+          true,
+        ).markdown,
     );
 
     if (result != null) {
@@ -389,15 +444,27 @@ function $exportTopLevelElements(
     if (!transformer.export) {
       continue;
     }
-    const result = transformer.export(node, _node =>
-      $exportChildren(
-        _node,
-        textTransformersIndex,
-        textMatchTransformers,
-        undefined,
-        undefined,
-        shouldPreserveNewLines,
-      ),
+    const result = transformer.export(
+      node,
+      _node =>
+        $exportChildren(
+          _node,
+          textTransformersIndex,
+          textMatchTransformers,
+          undefined,
+          undefined,
+          shouldPreserveNewLines,
+        ),
+      undefined,
+      _node =>
+        $exportBlocks(
+          _node.getChildren(),
+          elementTransformers,
+          textTransformersIndex,
+          textMatchTransformers,
+          shouldPreserveNewLines,
+          true,
+        ),
     );
 
     if (result != null) {

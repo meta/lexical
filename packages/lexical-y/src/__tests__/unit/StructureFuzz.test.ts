@@ -68,24 +68,27 @@ function rng(seed: number) {
   };
 }
 
-const SEEDED = seedYState({extensions: EXTENSIONS, schemaVersion: 1}, () => {
-  const $cell = (text: string) =>
-    $createTableCellNode(0).append(
-      $createParagraphNode().append($createTextNode(text)),
-    );
-  $getRoot()
-    .clear()
-    .append(
-      $createParagraphNode().append($createTextNode('alpha beta gamma')),
-      $createTableNode().append(
-        $createTableRowNode().append(
-          $cell('one two three'),
-          $cell('four five six'),
+const SEEDED = seedYState(
+  {extensions: EXTENSIONS, onWarn: null, schemaVersion: 1},
+  () => {
+    const $cell = (text: string) =>
+      $createTableCellNode(0).append(
+        $createParagraphNode().append($createTextNode(text)),
+      );
+    $getRoot()
+      .clear()
+      .append(
+        $createParagraphNode().append($createTextNode('alpha beta gamma')),
+        $createTableNode().append(
+          $createTableRowNode().append(
+            $cell('one two three'),
+            $cell('four five six'),
+          ),
         ),
-      ),
-      $createParagraphNode().append($createTextNode('delta epsilon zeta')),
-    );
-});
+        $createParagraphNode().append($createTextNode('delta epsilon zeta')),
+      );
+  },
+);
 
 function $paragraphs(): ElementNode[] {
   const out: ElementNode[] = [];
@@ -168,6 +171,7 @@ for (let seed = FIRST; seed < FIRST + SEEDS; seed++) {
             ...EXTENSIONS,
             configExtension(YCollabExtension, {
               doc,
+              onYStatus: null,
               schemaVersion: 1,
               synced: true,
             }),

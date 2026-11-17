@@ -703,10 +703,7 @@ describe('Markdown', () => {
       skipExport: true,
     },
     {
-      html:
-        '<pre spellcheck="false" data-language="javascript"><span style="white-space: pre-wrap;">Incomplete multiline\n' +
-        '\n' +
-        'Tag</span></pre>',
+      html: '<pre spellcheck="false" data-language="javascript"><span style="white-space: pre-wrap;">Incomplete multiline</span><br><br><span style="white-space: pre-wrap;">Tag</span></pre>',
       md: '```javascript Incomplete multiline\n\nTag',
       skipExport: true,
     },
@@ -784,7 +781,7 @@ describe('Markdown', () => {
     {
       customTransformers: [CODE_TAG_COUNTER_EXAMPLE],
       // Ensure special ``` code block supports nested code blocks
-      html: '<pre spellcheck="false" data-language="ts"><span style="white-space: pre-wrap;">Code\n```ts\nSub Code\n```</span></pre>',
+      html: '<pre spellcheck="false" data-language="ts"><span style="white-space: pre-wrap;">Code</span><br><span style="white-space: pre-wrap;">```ts</span><br><span style="white-space: pre-wrap;">Sub Code</span><br><span style="white-space: pre-wrap;">```</span></pre>',
       md: '```ts\nCode\n```ts\nSub Code\n```\n```',
       skipExport: true,
     },

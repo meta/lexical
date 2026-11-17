@@ -126,6 +126,7 @@ describe.each([false, true])('getYLayoutInfo, gc %s', gc => {
   test('after a migration: ready, with the epoch it recorded', () => {
     const {state} = migrateYState(rawDoc(SEED), [stamp(SEED)], {
       gc,
+      pending: 'discard',
       to: SEED + 1,
     });
     const info = getYLayoutInfo(createYDoc(state, {gc}));

@@ -11,6 +11,6 @@ import type {Transformer} from '@lexical/markdown';
 
 declare export var DEFAULT_TRANSFORMERS: Transformer[];
 
-declare export function MarkdownShortcutPlugin({
+declare export function MarkdownShortcutPlugin(v: {
   transformers?: Transformer[],
 }): React.Node;

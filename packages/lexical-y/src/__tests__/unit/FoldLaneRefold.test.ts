@@ -8,7 +8,7 @@
 
 // @vitest-environment node
 
-// Property test: a start formats map folded in a lane (see Seen.FoldLane)
+// Property test: a start formats map folded in a lane (see Shown.FoldLane)
 // and folded again once its fold point went stale (see Seen.frontierOf)
 // equals a fold from scratch in the same lane. Random layout 3 runs (bold
 // and italic, some paired, some plain), some of their items deleted and
@@ -21,9 +21,10 @@ import {expect, test} from 'vitest';
 
 import {Hidden} from '../../internal/Hidden';
 import {stepFormat} from '../../internal/Ident';
-import {writeLayout3Formats} from '../../internal/Layout3';
-import {type FoldLane, frontierOf, noteFolded} from '../../internal/Seen';
+import {frontierOf, noteFolded} from '../../internal/Seen';
+import {type FoldLane} from '../../internal/Shown';
 import {emptyView, type View} from '../../internal/Unread';
+import {writeLayout4Formats} from '../../migrate/3to4/frozen/layout4';
 
 const SEEDS = Number(process.env.FL_SEEDS ?? 200);
 
@@ -80,7 +81,7 @@ for (let seed = 1; seed <= SEEDS; seed++) {
     const r = rng(seed);
     const doc = new Y.Doc({gc: r.chance(0.5)});
     const root = doc.get('lexical-y');
-    root.setAttr('lexical-y:3', true);
+    root.setAttr('lexical-y:4', true);
     const n = r.int(6, 14);
     root.insert(0, 'abcdefghijklmnop'.slice(0, n));
     // Block boundaries (stored nodes) at random places.
@@ -112,7 +113,7 @@ for (let seed = 1; seed <= SEEDS; seed++) {
       }
       values.push(m);
     }
-    doc.transact(tr => writeLayout3Formats(tr, root, values));
+    doc.transact(tr => writeLayout4Formats(tr, root, values));
     const formats: Y.Item[] = [];
     for (let it = root._start; it !== null; it = it.right as Y.Item | null) {
       if (!it.deleted && it.content instanceof Y.ContentFormat) {

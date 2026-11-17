@@ -11,3 +11,5 @@ Migration: upgrade every client of a room together. A server migrates each store
 Detect: rooms whose root records `lexical-y:1` or `lexical-y:2` but not `lexical-y:3`; `UNSUPPORTED_LAYOUT_WARNING` with `reason: 'older'`; server step lists of your own without `@lexical/y/migrate/2to3`; code that calls `format()` or inserts with attributes on the `lexical-y` root's text.
 
 Verify: open a stored layout 2 room after migrating it on the server: it is editable and reads as before; without the migration it opens read only and nothing is written.
+
+Layout 4, in the same release, raises the floor again (see its entry): a room at layout 3 then migrates with `@lexical/y/migrate/3to4` too.

@@ -384,10 +384,11 @@ describe('a JSON copy of a commented text node', () => {
   // node's JSON back into it, as a generic JSON round trip does.
   const FULL = {
     extensions: [MarkStateExtension],
+    onWarn: null,
     schemaVersion: 1,
     selfCheck: true,
   };
-  const BARE = {nodes: [], schemaVersion: 1, selfCheck: true};
+  const BARE = {nodes: [], onWarn: null, schemaVersion: 1, selfCheck: true};
   const $text = (): TextNode => {
     const node = $getRoot().getFirstDescendant();
     if (!$isTextNode(node)) {

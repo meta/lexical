@@ -57,7 +57,11 @@ test('a commit while a table selection spans a short row is stored', async () =>
         RichTextExtension,
         TableExtension,
         MarkStateExtension,
-        configExtension(YCollabExtension, {doc, schemaVersion: 1}),
+        configExtension(YCollabExtension, {
+          doc,
+          onYStatus: null,
+          schemaVersion: 1,
+        }),
       ],
       name: 'ragged-table-selection-commit',
       onError: (e: Error) => {
@@ -131,7 +135,11 @@ test('a commit while a table selection spans a short row is stored', async () =>
   const fresh = JSON.stringify(
     readYState(
       Y.encodeStateAsUpdate(doc),
-      {extensions: [MarkStateExtension, TableExtension], schemaVersion: 1},
+      {
+        extensions: [MarkStateExtension, TableExtension],
+        onWarn: null,
+        schemaVersion: 1,
+      },
       () => $getEditor().getEditorState().toJSON(),
     ),
   );

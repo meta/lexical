@@ -8,19 +8,22 @@
 
 // @vitest-environment node
 
-// A document below the floor (layout 1 or 2) opens read only, and the live
-// reader shows it as it is: the layout 3 reader holds no code for older
-// layouts, as an older document holds no run ends. Pinned here: what it
-// shows equals a fresh read of the same document after 2to3 by a bound
-// editor, gc off and on. (A headless read refuses a document
-// it cannot write: `readYState` throws a `'read-only'` YHeadlessError
-// there, pinned too.)
+// A document below the floor (layout 1, 2 or 3) opens read only, and the
+// live reader shows it as it is: the layout 4 reader holds no code for older
+// layouts, as a layout 1 or 2 document holds no run ends and a layout 3
+// document's flat NodeState items have none (they read as unpaired values,
+// which is how layout 3 read them). Pinned here: what it shows equals a
+// fresh read of the same document after the migration (1to2, 2to3, 3to4) by
+// a bound editor, gc off and on. (A headless
+// read refuses a document it cannot write: `readYState` throws a
+// `'read-only'` YHeadlessError there, pinned too.)
 //
 // Inputs: every layout 1 and 2 state of the 2to3 golden fixtures, and of
 // the 1to2 golden fixtures (their inputs, and the layout 2 states 1to2 makes
-// of them, gc off and on); and, where BELOW_FLOOR_CORPORA lists corpus
-// directories (the stored corpora of Migrate2to3Corpora), of their entries
-// that record a layout below 3: BELOW_FLOOR_SAMPLE of them chosen by seed
+// of them, gc off and on); every layout 3 state of the 3to4 golden
+// fixtures; and, where BELOW_FLOOR_CORPORA lists corpus directories (the
+// stored corpora of MigrateCorpora), of their entries that record a
+// layout below 4: BELOW_FLOOR_SAMPLE of them chosen by seed
 // BELOW_FLOOR_SEED (default 1), or else every BELOW_FLOOR_EVERY-th (default
 // 10, by sorted file name).
 
@@ -34,11 +37,12 @@ import {type HeadlessYConfig, readYState, YHeadlessError} from '../../headless';
 import {migrateYState} from '../../migrate';
 import step1to2 from '../../migrate/1to2';
 import step2to3 from '../../migrate/2to3';
+import step3to4 from '../../migrate/3to4';
 import {$snapshot, catalogHeadlessConfig, snapshot} from '../catalog/bind';
 import {flush} from '../utils/harness';
 import {type CorpusConfig, corpusConfig} from '../utils/noteApp';
 
-const STEPS = [step1to2, step2to3];
+const STEPS = [step1to2, step2to3, step3to4];
 
 /**
  * The one exception (D103): a raw array stored under a covered name (here a
@@ -51,6 +55,20 @@ const STEPS = [step1to2, step2to3];
 const KNOWN: Readonly<Record<string, string>> = {
   'l2-comment-raw': 'a raw array under a covered name',
 };
+/**
+ * The same exception at layout 3, for the name layout 4 newly covers: an
+ * array a raw writer stored under a flat NodeState name is a value in layout
+ * 3 (3to4 stores it as one, `{json}`), and the layout 4 reader reads an
+ * array there as an end (one naming nothing: a clearer).
+ */
+const KNOWN_3TO4: Readonly<Record<string, string>> = {
+  'raw/flat-array-value': 'a raw array under a flat NodeState name',
+  'raw/flat-arrays': 'a raw array under a flat NodeState name',
+  'raw/reserved-shapes': 'a raw array under a flat NodeState name',
+  'raw/reserved-shapes-flat-and-format':
+    'a raw array under a flat NodeState name',
+};
+const GOLDEN_3TO4 = path.join(__dirname, 'golden', 'migrate-3to4-r1.json');
 const GOLDEN = path.join(__dirname, 'golden', 'migrate-2to3-r1.json');
 const GOLDEN_1TO2 = path.join(__dirname, 'golden', 'migrate-1to2-r1.json');
 /**
@@ -84,6 +102,7 @@ async function boundRead(input: Input, gc: boolean): Promise<unknown> {
       createYCollabConfig({
         doc,
         layoutUpgrade: null,
+        onYStatus: null,
         root: input.root === 'lexical-y' ? null : doc.get(input.root),
         schemaVersion: input.config.schemaVersion,
         synced: true,
@@ -110,6 +129,7 @@ async function check(input: Input, gc: boolean): Promise<string | null> {
   const config = {...input.config, root: input.root};
   const migrated = migrateYState(input.state, STEPS, {
     gc,
+    pending: 'discard',
     roots: [input.root],
   }).state;
   // A fresh bound reader of the migrated document (a headless read leaves a
@@ -157,6 +177,19 @@ function goldenInputs(): Input[] {
       root: 'lexical-y',
       state: new Uint8Array(Buffer.from(f.input, 'base64')),
     }));
+}
+
+/** The 3to4 golden fixtures: every input, layout 3. */
+function goldenInputs3to4(): Input[] {
+  const fixtures = JSON.parse(fs.readFileSync(GOLDEN_3TO4, 'utf8')) as Golden[];
+  return fixtures.map(f => ({
+    config: catalogHeadlessConfig(f.cfg),
+    gcs: [false, true],
+    layout: f.layout,
+    name: f.name,
+    root: 'lexical-y',
+    state: new Uint8Array(Buffer.from(f.input, 'base64')),
+  }));
 }
 
 type Golden1to2 = {
@@ -241,7 +274,7 @@ function corpusInputs(): Input[] {
       const entry = JSON.parse(
         fs.readFileSync(path.join(dir, file), 'utf8'),
       ) as Entry;
-      if (entry.layout !== null && entry.layout < 3) {
+      if (entry.layout !== null && entry.layout < 4) {
         below.push({dir, entry, file});
       }
     }
@@ -286,7 +319,7 @@ async function run(inputs: Input[]): Promise<{n: number; failures: string[]}> {
   return {failures, n};
 }
 
-describe('a document below the floor shows what 2to3 would make of it', () => {
+describe('a document below the floor shows what its migration would make of it', () => {
   test("its one exception, l2-comment-raw: the read only display omits the raw array's value, the migrated read keeps it", async () => {
     const fixtures = JSON.parse(fs.readFileSync(GOLDEN, 'utf8')) as Golden[];
     const golden = fixtures.find(f => f.name === 'l2-comment-raw')!;
@@ -317,7 +350,10 @@ describe('a document below the floor shows what 2to3 would make of it', () => {
       expect(valueOf(shown)).toBeUndefined();
       // After 2to3: the value, as the release before read it (the frozen
       // read the golden pins).
-      const migrated = migrateYState(input.state, STEPS, {gc}).state;
+      const migrated = migrateYState(input.state, STEPS, {
+        gc,
+        pending: 'discard',
+      }).state;
       const read = plain(readYState(migrated, input.config, $snapshot));
       expect(valueOf(read)).toEqual([1, 2]);
       expect(read).toEqual(plain(golden.main));
@@ -328,6 +364,8 @@ describe('a document below the floor shows what 2to3 would make of it', () => {
     }
   });
 
+  // Binds an editor to every fixture and migrates it, gc off and on: about
+  // 1 s alone, past vitest's default 5 s on a loaded machine.
   test('the 2to3 golden fixtures', async () => {
     const inputs = goldenInputs();
     expect(inputs.length).toBeGreaterThan(0);
@@ -341,14 +379,41 @@ describe('a document below the floor shows what 2to3 would make of it', () => {
       ),
       n: inputs.length * 2,
     });
-  });
+  }, 60_000);
 
+  // Binds an editor to every fixture and migrates it, gc off and on: about
+  // 1 s alone, past vitest's default 5 s on a loaded machine.
+  test('the 3to4 golden fixtures (layout 3)', async () => {
+    const inputs = goldenInputs3to4();
+    expect(inputs.length).toBeGreaterThan(30);
+    expect(inputs.every(i => i.layout === 3)).toBe(true);
+    const {n, failures} = await run(inputs);
+    expect({failures, n}).toEqual({
+      // (In fixture order.)
+      failures: inputs
+        .map(i => i.name)
+        .filter(name => name in KNOWN_3TO4)
+        .flatMap(name =>
+          [false, true].map(
+            gc =>
+              `${name} gc ${gc ? 'on' : 'off'}: the bound editor's read only display differs from the migrated read`,
+          ),
+        ),
+      n: inputs.length * 2,
+    });
+    expect(inputs.filter(i => i.name in KNOWN_3TO4).length).toBe(
+      Object.keys(KNOWN_3TO4).length,
+    );
+  }, 60_000);
+
+  // Binds an editor to every fixture and migrates it, gc off and on: about
+  // 1 s alone, past vitest's default 5 s on a loaded machine.
   test('the 1to2 golden fixtures and the layout 2 states 1to2 makes of them', async () => {
     const inputs = goldenInputs1to2();
     expect(inputs.length).toBe(21);
     const {n, failures} = await run(inputs);
     expect({failures, n}).toEqual({failures: [], n: 28});
-  });
+  }, 60_000);
 
   test.skipIf(DIRS.length === 0)(
     'a sample of the stored corpora',

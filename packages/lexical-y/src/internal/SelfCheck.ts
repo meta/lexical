@@ -10,7 +10,7 @@ import type {View} from './Unread';
 import type {Writer} from './Write';
 
 import {buildEditorFromExtensions, LexicalBuilder} from '@lexical/extension';
-import {ContentType, type Item, type Node as YNode} from '@y/y';
+import {type ContentType, type Item} from '@y/y';
 import {
   $getNodeByKey,
   $getRoot,
@@ -21,7 +21,7 @@ import {
   $parseSerializedNode,
   createEditor,
   type EditorState,
-  ElementNode,
+  type ElementNode,
   getDeclaredNodeStructure,
   type LexicalEditor,
   type LexicalNode,
@@ -42,7 +42,6 @@ import {
   getContainerGroupSpec,
   getGroupSpec,
   getWrapperSpec,
-  INLINE_PREFIX,
   isSetStateConfig,
   MARKER,
   ownsFormat,
@@ -55,7 +54,8 @@ import {
   TYPE_KEY,
   WRAPPER_PREFIX,
 } from './Schema';
-import {Folder, frontierOf, prevLiveEnd} from './Seen';
+import {Folder, frontierOf} from './Seen';
+import {prevShownEnd} from './Shown';
 import {type CS, EMPTY_FORMATS, State} from './State';
 
 // The opt-in self-check (YBindingOptions.selfCheck): the lines a local
@@ -75,49 +75,6 @@ import {type CS, EMPTY_FORMATS, State} from './State';
 // reads again a container where it finds a difference (see
 // YBinding#$checkFollowUp). It changes nothing either; the binding acts on
 // its result.
-
-/**
- * The shared text without stored elements a reader does not show (an
- * element that cannot be empty, emptied by peers).
- */
-function $shownText(writer: Writer, atoms: Atoms): string {
-  let out = '';
-  for (let i = 0; i < atoms.text.length; i++) {
-    const sp = atoms.specials.get(i);
-    if (
-      sp !== undefined &&
-      sp.kind === 'oldNode' &&
-      sp.item.content instanceof ContentType
-    ) {
-      const y = sp.item.content.type as YNode;
-      const name = typeof y.name === 'string' ? y.name : '';
-      const info = name.startsWith(INLINE_PREFIX)
-        ? writer.state.editor._nodes.get(name.slice(INLINE_PREFIX.length))
-        : undefined;
-      if (
-        info !== undefined &&
-        info.klass.prototype instanceof ElementNode &&
-        !(info.klass.prototype as ElementNode).canBeEmpty.call(
-          Object.create(info.klass.prototype),
-        ) &&
-        !hasLiveContent(y)
-      ) {
-        continue;
-      }
-    }
-    out += atoms.text[i];
-  }
-  return out;
-}
-
-function hasLiveContent(y: YNode): boolean {
-  for (let it = y._start; it !== null; it = it.right) {
-    if (!it.deleted && it.countable) {
-      return true;
-    }
-  }
-  return false;
-}
 
 /**
  * Development self-check of a local write: every line the write touched is
@@ -174,7 +131,7 @@ export function $checkWrite(writer: Writer): string[] {
       get: key => writer.state.segments.get(key),
     };
     $pushInline(want, nodes, ctx);
-    const left = prevLiveEnd(writer.view, end, writer.state.hidden);
+    const left = prevShownEnd(writer.view, end, writer.state.hidden);
     const have = new Atoms();
     readAtoms(
       writer.view,
@@ -184,15 +141,16 @@ export function $checkWrite(writer: Writer): string[] {
       have,
       writer.state.hidden,
       frontierOf(writer.view, unit.start, left, unit.cs.y, null),
+      null,
+      unit.start || EMPTY_FORMATS,
+      // Without the stored elements readers leave out, as the writer counts
+      // (see Writer#leftOut): their formats are compared too.
+      writer.leftOut,
     );
-    if (want.text !== have.text && want.text !== $shownText(writer, have)) {
+    if (want.text !== have.text) {
       problems.push(
         `line ${String(unit.key)}: text ${JSON.stringify(have.text)} != ${JSON.stringify(want.text)}`,
       );
-      continue;
-    }
-    if (want.text !== have.text) {
-      // Equal once stored elements the reader hides are left out.
       continue;
     }
     let ra = 0;

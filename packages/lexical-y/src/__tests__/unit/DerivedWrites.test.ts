@@ -91,6 +91,7 @@ function client(id: number, state?: Uint8Array): Client {
     }
   });
   const binding = new YBinding(editor, doc, {
+    onStatus: null,
     schemaVersion: 1,
     selfCheck: true,
   });
@@ -170,7 +171,7 @@ function initialized(
     onWarn: e => warnings.push(String(e)),
   });
   editor.update($init, {discrete: true});
-  const binding = new YBinding(editor, doc, {schemaVersion: 1});
+  const binding = new YBinding(editor, doc, {onStatus: null, schemaVersion: 1});
   const stop = binding.start();
   binding.initialize();
   return {

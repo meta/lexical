@@ -8,10 +8,10 @@
 
 // @vitest-environment node
 
-// The covered names are the frozen list (design section 4): `f:*`, `w:*`,
-// `t`, `k`, `p:*` and `s:` names holding U+001F. Coverage was every name
-// but a flat `s:` one, so a raw writer's own key (`foreign`) read as paired
-// runs in a layout 3 document.
+// The covered names are the frozen list: `f:*`, `w:*`, `t`, `k`, `p:*` and,
+// from layout 4 on (D120), every `s:*` name, a flat NodeState value as well
+// as a member entry (layout 3 covered only `s:` names holding U+001F). Any
+// other name, a raw writer's own key (`foreign`), keeps the plain fold.
 
 import {$getRoot, $setSelection} from 'lexical';
 import {expect, test} from 'vitest';
@@ -34,13 +34,16 @@ test('covered names are the frozen list', () => {
     'p:style',
     's:markIds\u001fc1',
     's:odd\u001fset',
+    's:markIds',
+    's:anchor:ns:1',
+    's:',
   ]) {
     expect([key, covered(key)]).toEqual([key, true]);
   }
   for (const key of [
     'foreign',
-    's:markIds',
-    's:anchor:ns:1',
+    's',
+    'sx',
     'm:c1',
     'tt',
     'kk',
@@ -54,7 +57,7 @@ test('covered names are the frozen list', () => {
 });
 
 for (const gc of [false, true]) {
-  test(`a raw writer's own key in a layout 3 document keeps the plain fold (gc ${gc ? 'on' : 'off'})`, async () => {
+  test(`a raw writer's own key keeps the plain fold (gc ${gc ? 'on' : 'off'})`, async () => {
     const t = await setup(() => $getRoot().append($p('abc')), {gc});
     t.a.update(() => {
       $selectIn([0], 2, 3).formatText('bold');
@@ -62,7 +65,7 @@ for (const gc of [false, true]) {
     });
     await t.sync();
     const root = t.a.doc.get('lexical-y');
-    expect(root.getAttr('lexical-y:3')).toBe(true);
+    expect(root.getAttr('lexical-y:4')).toBe(true);
     // An array on a name the list does not cover is a plain value: stored
     // as written, and the null after "a" ends it.
     t.a.doc.transact(() => root.format(0, 1, {foreign: [1]}), 'raw');

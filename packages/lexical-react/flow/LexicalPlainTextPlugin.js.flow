@@ -19,7 +19,7 @@ type InitialEditorStateType =
   | EditorState
   | ((editor: LexicalEditor) => void);
 
-declare export function PlainTextPlugin({
+declare export function PlainTextPlugin(v: {
   contentEditable: React.Node,
   placeholder?:
   | ((isEditable: boolean) => null | React.Node)
