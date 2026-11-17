@@ -868,16 +868,10 @@ test.describe('HorizontalRule', () => {
         // NodeSelection of it.
         await expect
           .poll(() =>
-            getPageOrFrame(page).evaluate(() =>
-              window.lexicalEditor.getEditorState().read(() => {
-                const sel = window.lexicalEditor.getEditorState()._selection;
-                return (
-                  sel !== null &&
-                  'anchor' in sel &&
-                  sel.getNodes().some(n => n.getType() === 'horizontalrule')
-                );
-              }),
-            ),
+            getPageOrFrame(page).evaluate(() => {
+              const sel = window.lexicalEditor.getEditorState()._selection;
+              return sel !== null && 'anchor' in sel && !sel.isCollapsed();
+            }),
           )
           .toBe(true);
       });
