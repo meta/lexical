@@ -579,5 +579,27 @@ describe('LexicalTableSelectionHelpers', () => {
       window.dispatchEvent(new KeyboardEvent('keydown', {key: 'Tab'}));
       expect(tableObservers.getAndClearPendingVerticalExit()).toBeNull();
     });
+
+    test('blur clears the pending vertical exit', () => {
+      using editor = buildEditorFromExtensions(TableTestThemeExtension);
+      const container = document.createElement('div');
+      document.body.append(container);
+      onTestFinished(() => container.remove());
+      editor.setRootElement(container);
+      const tableObservers = new TableObservers();
+      onTestFinished(registerTableWindowHandlers(editor, tableObservers));
+
+      tableObservers.setPendingVerticalExit({
+        cellKey: '2',
+        direction: 'down',
+        domAnchorNode: document.createTextNode(''),
+        domAnchorOffset: 0,
+        tableKey: '1',
+        x: 0,
+        y: 1,
+      });
+      window.dispatchEvent(new FocusEvent('blur'));
+      expect(tableObservers.getAndClearPendingVerticalExit()).toBeNull();
+    });
   });
 });
