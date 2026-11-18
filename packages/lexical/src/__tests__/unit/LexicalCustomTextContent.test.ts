@@ -18,7 +18,7 @@ import {
   ParagraphNode,
   type TextNode,
 } from 'lexical';
-import {describe, expect, onTestFinished, test} from 'vitest';
+import {describe, expect, onTestFinished, test, vi} from 'vitest';
 
 import {$createTestElementNode, TestElementNode} from '../utils';
 
@@ -334,17 +334,33 @@ describe('editor.read(editorState, fn)', () => {
     expect(editor.read(() => $getRoot().getTextContent())).toBe('c');
   });
 
-  test('throws when the first argument is not recognized', () => {
+  test('throws for a foreign state, warns for an unknown mode', () => {
     using editor = createEditor();
+    editor.update(
+      () => {
+        $getRoot()
+          .clear()
+          .append($createParagraphNode().append($createTextNode('a')));
+      },
+      {discrete: true},
+    );
     // e.g. an EditorState from another copy of Lexical
     const foreignState = {...editor.getEditorState()};
     expect(() =>
       editor.read(foreignState as unknown as 'latest', () => {}),
-    ).toThrow(/first argument \(object\) is neither an EditorState/);
-    expect(() => editor.read('lastest' as 'latest', () => {})).toThrow(
-      /first argument \('lastest'\)/,
-    );
+    ).toThrow(/is an object but not an EditorState/);
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    onTestFinished(() => warn.mockRestore());
+    // e.g. undefined forwarded from an optional mode: the committed state
+    expect(
+      editor.read(undefined as unknown as 'latest', () =>
+        $getRoot().getTextContent(),
+      ),
+    ).toBe('a');
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn.mock.calls[0][0]).toMatch(/not a read mode/);
     expect(editor.read('latest', () => 1)).toBe(1);
     expect(editor.read(editor.getEditorState(), () => 2)).toBe(2);
+    expect(warn).toHaveBeenCalledTimes(1);
   });
 });
