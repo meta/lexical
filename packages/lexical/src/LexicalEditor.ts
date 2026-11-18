@@ -14,6 +14,7 @@ import type {ElementNode} from './nodes/LexicalElementNode';
 import devInvariant from '@lexical/internal/devInvariant';
 import invariant from '@lexical/internal/invariant';
 import {LEXICAL_VERSION} from '@lexical/internal/version';
+import warnOnlyOnce from '@lexical/internal/warnOnlyOnce';
 
 import {
   $createParagraphNode,
@@ -177,6 +178,13 @@ export type EditorSetOptions = {
  *   updates, equivalent to `editor.getEditorState().read(callbackFn, {editor})`.
  */
 export type EditorReadMode = 'force-commit' | 'pending' | 'latest';
+
+const unrecognizedReadArgumentWarning = warnOnlyOnce(
+  `editor.read() was called with a first argument that is neither an ` +
+    `EditorState from this copy of Lexical nor a read mode, so it read the ` +
+    `editor's committed state without flushing pending updates. Pass a state ` +
+    `of this editor, or one of 'force-commit', 'pending' or 'latest'.`,
+);
 
 export interface EditorFocusOptions {
   /**
@@ -1970,6 +1978,14 @@ export class LexicalEditor {
       return modeOrState.read(callbackFn, {editor: this});
     }
     const mode = modeOrState;
+    if (
+      __DEV__ &&
+      mode !== 'force-commit' &&
+      mode !== 'pending' &&
+      mode !== 'latest'
+    ) {
+      unrecognizedReadArgumentWarning();
+    }
     if (mode === 'force-commit') {
       if (!isDispatchingCommitListeners(this)) {
         $commitPendingUpdates(this);

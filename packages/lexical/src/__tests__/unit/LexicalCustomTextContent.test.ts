@@ -18,7 +18,7 @@ import {
   ParagraphNode,
   type TextNode,
 } from 'lexical';
-import {describe, expect, onTestFinished, test} from 'vitest';
+import {describe, expect, onTestFinished, test, vi} from 'vitest';
 
 import {$createTestElementNode, TestElementNode} from '../utils';
 
@@ -332,5 +332,31 @@ describe('editor.read(editorState, fn)', () => {
     expect(read(before)).toBe('a');
     expect(read(editor.getEditorState())).toBe('b');
     expect(editor.read(() => $getRoot().getTextContent())).toBe('c');
+  });
+
+  test('warns in development when the first argument is not recognized', () => {
+    using editor = createEditor();
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    onTestFinished(() => warn.mockRestore());
+    // e.g. an EditorState from another copy of Lexical
+    editor.update(
+      () => {
+        $getRoot()
+          .clear()
+          .append($createParagraphNode().append($createTextNode('a')));
+      },
+      {discrete: true},
+    );
+    const foreignState = {...editor.getEditorState()};
+    expect(
+      editor.read(foreignState as unknown as 'latest', () =>
+        $getRoot().getTextContent(),
+      ),
+    ).toBe('a');
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn.mock.calls[0][0]).toMatch(/neither an EditorState/);
+    editor.read('latest', () => {});
+    editor.read(editor.getEditorState(), () => {});
+    expect(warn).toHaveBeenCalledTimes(1);
   });
 });
