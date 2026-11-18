@@ -88,7 +88,7 @@ describe('no-nested-editor-updates', () => {
           errors: [
             {
               message:
-                '$followUpDifference is named as a Lexical $function but calls editor.update. If editor.update targets the editor this $function runs in, apply `discrete` with `$flushSyncAfterUpdate` in the current context and remove the update wrapper. If this function intentionally starts the update, remove the $ prefix.',
+                '$followUpDifference is named as a Lexical $function but calls editor.update. If editor.update targets the editor this $function runs in, apply `discrete` with `$flushSyncAfterUpdate` (only when `discrete` is true) in the current context and remove the update wrapper. If this function intentionally starts the update, remove the $ prefix.',
             },
           ],
         },
@@ -127,7 +127,8 @@ describe('no-nested-editor-updates', () => {
               data: {
                 callee: 'editor.update',
                 context: '$updateSomething',
-                migrations: '`discrete` with `$flushSyncAfterUpdate`',
+                migrations:
+                  '`discrete` with `$flushSyncAfterUpdate` (only when `discrete` is true)',
               },
               messageId: 'dollarFunctionUpdateWithOptions',
             },
@@ -184,7 +185,7 @@ describe('no-nested-editor-updates', () => {
           code: `editor.update(() => {
   editor.update(() => {}, {
     tag: ['a', 'b'],
-    discrete: true,
+    discrete: isSync,
     onUpdate() {},
   });
 });`,
@@ -194,7 +195,7 @@ describe('no-nested-editor-updates', () => {
                 callee: 'editor.update',
                 context: 'editor.update callback',
                 migrations:
-                  '`tag` with `$addUpdateTag`, `discrete` with `$flushSyncAfterUpdate`, and `onUpdate` with `$onUpdate`',
+                  '`tag` with `$addUpdateTag`, `discrete` with `$flushSyncAfterUpdate` (only when `discrete` is true), and `onUpdate` with `$onUpdate`',
               },
               messageId: 'noNestedEditorUpdatesWithOptions',
             },

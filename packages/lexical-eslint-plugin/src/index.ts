@@ -24,7 +24,7 @@ export interface FlatConfig {
     '@lexical': Plugin;
   };
   rules: {
-    '@lexical/no-nested-editor-updates': 'warn' | 'error' | 'off';
+    '@lexical/no-nested-editor-updates'?: 'warn' | 'error' | 'off';
     '@lexical/rules-of-lexical': 'warn' | 'error' | 'off';
     '@lexical/y-collab-status': 'warn' | 'error' | 'off';
   };
@@ -37,7 +37,7 @@ export interface Plugin {
   };
   rules: {
     'no-document-in-dom-methods': Rule.RuleModule;
-    'no-nested-editor-updates': Rule.RuleModule;
+    'no-nested-editor-updates'?: Rule.RuleModule;
     'rules-of-lexical': Rule.RuleModule;
     'y-collab-status': Rule.RuleModule;
   };
@@ -50,7 +50,7 @@ export interface Plugin {
   };
 }
 
-const plugin: Plugin = jsPlugin;
+const plugin = jsPlugin satisfies Plugin;
 
 // Named exports so that a CommonJS consumer can use what require() returns
 // from the ESM build as the plugin: require(esm) hands back the module

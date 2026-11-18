@@ -127,9 +127,11 @@ function getUpdateOptionMigrations(node) {
  * @returns {string}
  */
 function formatUpdateOptionMigrations(migrations) {
-  const items = migrations.map(
-    ({helper, option}) => `\`${option}\` with \`${helper}\``,
-  );
+  const items = migrations.map(({helper, option}) => {
+    const condition =
+      option === 'discrete' ? ' (only when `discrete` is true)' : '';
+    return `\`${option}\` with \`${helper}\`${condition}`;
+  });
   if (items.length < 2) {
     return items[0] || '';
   }
