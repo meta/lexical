@@ -71,6 +71,7 @@ import {
   getTransformSetFromKlass,
   HISTORY_MERGE_TAG,
   INTERNAL_$normalizeNodeStructure,
+  INTERNAL_getActiveEditorState,
   isCurrentlyReadOnlyMode,
   isDispatchingCommitListeners,
   type Klass,
@@ -1647,6 +1648,8 @@ export class YBinding {
   private _status: YBindingStatus = 'pending';
   private readonly _pins = new Map<string, Pin>();
   private _undoManager: UndoManager | null = null;
+  /** Whether the binding is writing a commit in a read (see readToWrite). */
+  private inWrite = false;
   private state: State;
   private readonly options: YBindingOptions;
   private disposers: (() => void)[] = [];
@@ -2204,7 +2207,7 @@ export class YBinding {
     ) {
       // The new transaction runs after this one's cleanup (Yjs queues it).
       const root = this._root;
-      this._doc.transact(own => {
+      this.transact(own => {
         // Development builds: the binding's own write (see noteRawWrite).
         if (__DEV__) {
           markBindingWrite(own);
@@ -3076,7 +3079,7 @@ export class YBinding {
         // the seed's bytes unchanged (see Ident.protectRecordAfter). Outside
         // one, the initialization's own origin is never tracked.
         const outer = this._doc._transaction;
-        this._doc.transact(tr => {
+        this.transact(tr => {
           if (
             this.rootPristine() &&
             sameSchemaRecords(this.schemaRecords(), seedSchema)
@@ -3103,7 +3106,7 @@ export class YBinding {
         this.evaluate(seed.cursor, kept);
         return;
       }
-      this._doc.transact(tr => {
+      this.transact(tr => {
         if (
           this.rootPristine() &&
           sameSchemaRecords(this.schemaRecords(), seedSchema)
@@ -4274,6 +4277,55 @@ export class YBinding {
     return this._status === 'readonly' ? this._readOnlyWarning : null;
   }
 
+  /**
+   * Reads `editorState` with the editor active to write it: the write's
+   * transactions are opened through transact.
+   */
+  private readToWrite<T>(editorState: EditorState, fn: () => T): T {
+    const outer = this.inWrite;
+    this.inWrite = true;
+    try {
+      return this._editor.read(editorState, fn);
+    } finally {
+      this.inWrite = outer;
+    }
+  }
+
+  /**
+   * A transaction of the document. Opened directly in the read the binding
+   * writes a commit in (see readToWrite), or a read it opens there, its body
+   * runs in that read, and Yjs's callbacks around it (observers,
+   * `beforeTransaction`, `afterTransaction`, the undo manager's events) run
+   * in a read of the same state without the editor, as they did before #9934
+   * (D137): a command one of them dispatches would otherwise start an update
+   * inside a read-only context. One joined to a transaction under way is
+   * that transaction's, and one queued behind a transaction being cleaned up
+   * runs its end callbacks in that cleanup.
+   */
+  private transact<T>(fn: (tr: Transaction) => T, origin: unknown): T {
+    const doc = this._doc;
+    const state = INTERNAL_getActiveEditorState();
+    if (
+      !this.inWrite ||
+      state === null ||
+      !isCurrentlyReadOnlyMode() ||
+      doc._transaction !== null
+    ) {
+      return doc.transact(fn, origin);
+    }
+    // Not the write's read while its callbacks run.
+    this.inWrite = false;
+    try {
+      return state.read(
+        () =>
+          doc.transact(tr => this._editor.read(state, () => fn(tr)), origin),
+        {editor: null},
+      );
+    } finally {
+      this.inWrite = true;
+    }
+  }
+
   /** Run the binding's own work; queued warnings are passed on after it. */
   private guard<T>(fn: () => T): T {
     this.busy++;
@@ -4805,7 +4857,7 @@ export class YBinding {
     const doc = this._doc;
     // What no one else keeps (an UndoManager, the binding's own format
     // items) and the app's filter lets go.
-    doc.transact(t => tryGc(t, tr.deleteSet, doc.gcFilter), this.scanOrigin);
+    this.transact(t => tryGc(t, tr.deleteSet, doc.gcFilter), this.scanOrigin);
     const filters = this.gcFilters;
     if (this.heldUnread.size === 0 && filters !== null) {
       // Unless something replaced or wrapped it since: the binding's holds
@@ -5923,7 +5975,7 @@ export class YBinding {
     );
     this.readEditLog = heldLog;
     try {
-      this._editor.read(editorState, () =>
+      this.readToWrite(editorState, () =>
         this.$writeCommit(
           state,
           commit,
@@ -6870,7 +6922,7 @@ export class YBinding {
     // there is one (see Unread and guard).
     this.writeGrace = grace;
     try {
-      this._editor.read(editorState, () =>
+      this.readToWrite(editorState, () =>
         this.$writeCommit(
           state,
           commit,
@@ -7774,7 +7826,7 @@ export class YBinding {
     // The clock ranges this write's own mutations made (see Owned.ts).
     const ownedRanges: OwnedRanges = [];
     try {
-      this._doc.transact(
+      this.transact(
         tr =>
           collectOwned(state, ownedRanges, () => {
             clockBefore = this._doc.store.getClock(this._doc.clientID);
@@ -7945,7 +7997,7 @@ export class YBinding {
         return null;
       }
       if (!commit.followUp) {
-        this._doc.transact(tr => {
+        this.transact(tr => {
           // Admitted inside its own transaction too (see the write's): a
           // record that stopped admitting writes gets no pin, and is read
           // (see readChange).
@@ -7990,7 +8042,7 @@ export class YBinding {
       let recoveryRefused: 'layout' | 'schema' | null = null;
       const failed = writer as Writer | null;
       try {
-        this._doc.transact(tr => {
+        this.transact(tr => {
           // Admitted inside its own transaction, as the write it recovers.
           recoveryRefused = this.refusalIn(after);
           if (recoveryRefused !== null) {
@@ -9712,7 +9764,7 @@ export class YBinding {
       const name = nameOf(s);
       return name !== MARKER && name !== RUN_END;
     };
-    this._doc.transact(tr => {
+    this.transact(tr => {
       iterateStructsByIdSet(tr, top.deletes, s => {
         if (isStored(s)) {
           names.add(nameOf(s));
@@ -9781,7 +9833,7 @@ export class YBinding {
     }
     let cursor: YCursor | null = null;
     try {
-      doc.transact(tr => {
+      this.transact(tr => {
         this.splitting = tr;
         cursor = take(tr);
       }, this.scanOrigin);
@@ -9822,7 +9874,7 @@ export class YBinding {
     }
     let result: T | undefined;
     try {
-      this._doc.transact(tr => {
+      this.transact(tr => {
         this.splitting = tr;
         this.splitAtUnread(tr);
         result = fn();

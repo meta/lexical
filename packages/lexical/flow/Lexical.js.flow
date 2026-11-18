@@ -320,8 +320,8 @@ declare export class LexicalEditor {
     updateFn?: () => void,
   ): EditorState;
   read<V>(callbackFn: () => V): V;
-  read<V>(mode: EditorReadMode, callbackFn: () => V): V;
   read<V>(editorState: EditorState, callbackFn: () => V): V;
+  read<V>(mode: EditorReadMode, callbackFn: () => V): V;
   update(updateFn: () => void, options?: EditorUpdateOptions): boolean;
   focus(callbackFn?: () => void, options?: EditorFocusOptions): void;
   blur(): void;

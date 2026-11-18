@@ -1943,21 +1943,26 @@ export class LexicalEditor {
    */
   read<T>(callbackFn: () => T): T;
   /**
+   * Reads `editorState` with this editor active, without flushing anything:
+   * use it for a state of this editor that is not its current one, such as
+   * the `editorState` and `prevEditorState` an update listener receives. Node
+   * methods called in the read can use `$getEditor()`.
+   *
+   * Releases before this overload read the editor's current state instead of
+   * `editorState` (or throw, on the oldest). Code that may run on such a
+   * release (a library whose peer range includes one) should use
+   * `editorState.read(callbackFn, {editor})` instead.
+   * @param editorState - The state to read, one of this editor's.
+   * @param callbackFn - A function that has access to read-only editor state.
+   */
+  read<T>(editorState: EditorState, callbackFn: () => T): T;
+  /**
    * Executes a read of the editor's state in the given `mode`, with the editor
    * context available. See {@link EditorReadMode} for the available modes.
    * @param mode - Which editor state to read and whether to flush first.
    * @param callbackFn - A function that has access to read-only editor state.
    */
   read<T>(mode: EditorReadMode, callbackFn: () => T): T;
-  /**
-   * Reads `editorState` with this editor active, without flushing anything:
-   * use it for a state of this editor that is not its current one, such as
-   * the `editorState` and `prevEditorState` an update listener receives. Node
-   * methods called in the read can use `$getEditor()`.
-   * @param editorState - The state to read, one of this editor's.
-   * @param callbackFn - A function that has access to read-only editor state.
-   */
-  read<T>(editorState: EditorState, callbackFn: () => T): T;
   read<T>(...args: [() => T] | [EditorReadMode | EditorState, () => T]): T {
     const [modeOrState, callbackFn]: [EditorReadMode | EditorState, () => T] =
       args.length === 1 ? ['force-commit', args[0]] : args;
