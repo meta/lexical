@@ -6,4 +6,4 @@
 
 The overload changes no existing call: its first parameter is an `EditorState`, which no earlier call passes. Only code that re-declares `read`, such as a subclass that overrides `LexicalEditor.read` or an object typed as `Pick<LexicalEditor, 'read'>`, has to accept the new shape.
 
-Verify: in development, `editor.read()` with a first argument that is neither an `EditorState` from this copy of Lexical nor a read mode (for example a state from a duplicated copy of `lexical`) now logs a warning once; as before, it reads the committed state without flushing.
+Verify: `editor.read()` with a first argument that is neither an `EditorState` from this copy of Lexical nor a read mode (for example a state from a duplicated copy of `lexical`, or `undefined` forwarded from an optional mode) now throws. It used to read the committed state without flushing, which for a state returned the wrong data.
