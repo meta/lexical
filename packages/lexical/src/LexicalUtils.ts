@@ -52,11 +52,11 @@ import {
   DOM_TEXT_TYPE,
   ELEMENT_TYPE_TO_FORMAT,
   HAS_DIRTY_NODES,
-  LTR_REGEX,
   NO_DIRTY_NODES,
   NODE_STATE_KEY,
   PROTOTYPE_CONFIG_METHOD,
   RTL_REGEX,
+  STRONG_DIRECTION_REGEX,
   TEXT_TYPE_TO_FORMAT,
 } from './LexicalConstants';
 import {type DOMSlot, ElementDOMSlot} from './LexicalDOMSlot';
@@ -333,15 +333,18 @@ export function getEditorPropertyFromDOMNode(node: Node | null): unknown {
   return node ? node.__lexicalEditor : null;
 }
 
-/** Returns the text direction ('ltr' or 'rtl') of the given string, or null if it contains no strong directional characters. */
+/**
+ * Returns the direction of the first strong directional character in the
+ * text. This is the direction that the browser gives an element with
+ * `dir="auto"`. Characters with no strong direction before it (digits,
+ * punctuation, spaces, emoji) are skipped.
+ */
 export function getTextDirection(text: string): 'ltr' | 'rtl' | null {
-  if (RTL_REGEX.test(text)) {
-    return 'rtl';
+  const strong = STRONG_DIRECTION_REGEX.exec(text);
+  if (strong === null) {
+    return null;
   }
-  if (LTR_REGEX.test(text)) {
-    return 'ltr';
-  }
-  return null;
+  return RTL_REGEX.test(strong[0]) ? 'rtl' : 'ltr';
 }
 
 /**
