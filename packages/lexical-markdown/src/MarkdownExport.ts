@@ -664,22 +664,24 @@ function $exportTextFormat(
         output.replace(
           /[*_`~\\<&]/g,
           (character, offset: number, text: string) =>
-            /[*_`~\\]/.test(character)
-              ? `\\${character}`
-              : (
-                    character === '<'
-                      ? $opensMarkup(
-                          text.slice(offset + 1),
-                          $nextChar,
-                          $following,
-                        )
-                      : $opensCharacterReference(
-                          text.slice(offset + 1),
-                          $nextChar,
-                        )
-                  )
-                ? toCharacterReference(character)
-                : character,
+            character === '_' && isIntrawordUnderscore(text, offset)
+              ? character
+              : /[*_`~\\]/.test(character)
+                ? `\\${character}`
+                : (
+                      character === '<'
+                        ? $opensMarkup(
+                            text.slice(offset + 1),
+                            $nextChar,
+                            $following,
+                          )
+                        : $opensCharacterReference(
+                            text.slice(offset + 1),
+                            $nextChar,
+                          )
+                    )
+                  ? toCharacterReference(character)
+                  : character,
         ),
         selection,
       );
@@ -1371,6 +1373,22 @@ function decideReferences(
     }
   }
   return [encodeStart, encodeEnd];
+}
+
+/**
+ * Whether the `_` at `offset` sits between two ASCII letters or digits of the
+ * same text, as in `snake_case` or `/wiki/Albert_Einstein`. Such an
+ * underscore is both left- and right-flanking with an alphanumeric on either
+ * side, so it can neither open nor close emphasis
+ * (https://spec.commonmark.org/0.31.2/#can-open-emphasis) and needs no
+ * escape. Leaving it as typed keeps GFM autolink literals working: GFM reads
+ * a bare URL from the source, so a `\_` in it stays in the link's target.
+ */
+function isIntrawordUnderscore(text: string, offset: number): boolean {
+  return (
+    /[A-Za-z0-9]/.test(text[offset - 1] || '') &&
+    /[A-Za-z0-9]/.test(text[offset + 1] || '')
+  );
 }
 
 /**

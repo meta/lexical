@@ -1041,7 +1041,7 @@ describe('Markdown', () => {
     {
       html: '<p><span style="white-space: pre-wrap;">_foo_bar</span></p>',
       md: '_foo_bar',
-      mdAfterExport: '\\_foo\\_bar',
+      mdAfterExport: '\\_foo_bar',
     },
     {
       html: '<p><b><strong style="white-space: pre-wrap;">Hello </strong></b><s><b><strong style="white-space: pre-wrap;">world</strong></b></s><span style="white-space: pre-wrap;">!</span></p>',
@@ -5224,7 +5224,7 @@ describe('emphasis next to Unicode punctuation and symbols', () => {
         ['see x_www.example.co', 0],
         ['\u201cx\u201d', TEXT_TYPE_TO_FORMAT.bold],
       ],
-      'see x\\_www&#46;example.c&#111;**\u201cx\u201d**',
+      'see x_www&#46;example.c&#111;**\u201cx\u201d**',
     ],
     [
       'a URL with a Unicode host',

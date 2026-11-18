@@ -1723,7 +1723,63 @@ describe('brackets that cannot become Markdown syntax', () => {
         '[a&#93;: /url',
       );
     });
+
+    it('keeps the underscores of an autolink as typed', () => {
+      // GFM reads a bare URL from the source, so a `\_` would stay in the
+      // link's target.
+      const url = 'https://en.wikipedia.org/wiki/Albert_Einstein';
+      using editor = buildEditorFromExtensions(
+        MarkdownTestExtension,
+        AutoLinkNodeExtension,
+      );
+      editor.update(
+        () =>
+          $getRoot()
+            .clear()
+            .append(
+              $createParagraphNode().append(
+                $createTextNode('see '),
+                $createAutoLinkNode(url).append($createTextNode(url)),
+              ),
+            ),
+        {discrete: true},
+      );
+      expect(editor.read(() => $convertToMarkdownString())).toBe(`see ${url}`);
+    });
   });
+
+  it.each([
+    ['snake_case_word', 'snake_case_word'],
+    ['a__b', 'a\\_\\_b'],
+    ['_a_b', '\\_a_b'],
+    ['a_ b', 'a\\_ b'],
+    ['a _b', 'a \\_b'],
+    ['x_a_y_', 'x_a_y\\_'],
+    ['a\\_b', 'a\\\\\\_b'],
+  ])(
+    'escapes %s only where an underscore can open or close emphasis',
+    (text, markdown) => {
+      using editor = buildEditorFromExtensions([MarkdownTestExtension]);
+      editor.update(
+        () =>
+          $getRoot()
+            .clear()
+            .append($createParagraphNode().append($createTextNode(text))),
+        {discrete: true},
+      );
+      expect(editor.read(() => $convertToMarkdownString())).toBe(markdown);
+      editor.update(() => $convertFromMarkdownString(markdown), {
+        discrete: true,
+      });
+      expect(
+        editor.read(() =>
+          $getRoot()
+            .getAllTextNodes()
+            .map(node => [node.getTextContent(), node.getFormat()]),
+        ),
+      ).toEqual([[text, 0]]);
+    },
+  );
 
   it.each([
     ['- [x] done', '- [x&#93; done'],
