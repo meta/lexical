@@ -452,7 +452,7 @@ describe('export with the editor active', () => {
     expect(childrenOf(paragraph)[0]).toMatchObject({text: editor.getKey()});
   });
 
-  test('EditorState.toJSON exports with the editor of a read of that state', () => {
+  test('EditorState.toJSON exports with the editor of the read it is in', () => {
     using editor = buildEditorFromExtensions(
       defineExtension({
         name: 'editor-reading-state-export',
@@ -474,6 +474,12 @@ describe('export with the editor active', () => {
       editorState.read(() => editorState.toJSON(), {editor}).root,
     );
     expect(childrenOf(paragraph)[0]).toMatchObject({text: editor.getKey()});
+    // Also a state other than the one read, such as a listener's
+    // prevEditorState read inside editor.read().
+    editor.update(() => $getRoot().clear(), {discrete: true});
+    expect(editor.read(() => editorState.toJSON())).toEqual(
+      editorState.toJSON({editor}),
+    );
   });
 });
 
@@ -510,7 +516,7 @@ describe('EditorState.toJSON options', () => {
       editorState.read(() => editorState.toJSON(true), {editor}),
     );
     expect(compact).not.toEqual(legacy);
-    // Without `editor`, the editor of an enclosing read of the state.
+    // Without `editor`, the editor of the read it is called in.
     expect(
       editor.read(editorState, () => editorState.toJSON({compact: true})),
     ).toEqual(compact);

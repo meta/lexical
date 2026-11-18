@@ -44,8 +44,8 @@ export function serializedDocumentFromEditorState(
   }> = Object.freeze({}),
 ): SerializedDocument {
   return {
-    // Without an editor, toJSON uses the editor of an enclosing read of
-    // editorState.
+    // Without an editor, toJSON uses the editor of an enclosing read or
+    // update, if any.
     editorState: editorState.toJSON({editor: config.editor}),
     lastSaved: config.lastSaved || Date.now(),
     source: config.source || 'Lexical',

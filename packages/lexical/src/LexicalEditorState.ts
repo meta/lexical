@@ -22,11 +22,7 @@ import invariant from '@lexical/internal/invariant';
 import {cloneMap} from './LexicalGenMap';
 import {$exportNodeJSON, $withCompactExport} from './LexicalSerializedExport';
 import {$getSlot, $getSlotNames} from './LexicalSlot';
-import {
-  internalGetActiveEditor,
-  internalGetActiveEditorState,
-  readEditorState,
-} from './LexicalUpdates';
+import {internalGetActiveEditor, readEditorState} from './LexicalUpdates';
 import {$getRoot, INTERNAL_$withExportMemo} from './LexicalUtils';
 import {
   $isElementNode,
@@ -150,7 +146,7 @@ export interface EditorStateToJSONOptions {
   /**
    * The editor this state belongs to, active while its nodes are exported, so
    * a node whose exportJSON calls $getEditor() can. When omitted or null, the
-   * editor of an enclosing read or update of this state, or none.
+   * editor of the read or update toJSON is called in, if any.
    */
   editor?: LexicalEditor | null;
 }
@@ -315,8 +311,8 @@ export class EditorState {
   // such as `Parameters` resolve to, is still the boolean one.
   /**
    * This document's JSON, with its nodes exported with `options.editor`
-   * active (by default, the editor of an enclosing read or update of this
-   * state, or none), in the compact form when `options.compact` is true and
+   * active (by default, the editor of the read or update it is called in, if
+   * any), in the compact form when `options.compact` is true and
    * otherwise in the legacy form.
    * @param options - The form and the editor to export with.
    */
@@ -338,9 +334,8 @@ export class EditorState {
    * rather than leaving it to be picked up here.
    *
    * An EditorState does not know its editor. Its nodes are exported with the
-   * editor of the read or update it is called in, when that is of this state, and
-   * otherwise with no editor active: a node whose exportJSON calls
-   * $getEditor() needs {@link LexicalEditor.toJSON} or
+   * editor of the read or update it is called in, if any: outside one, a node
+   * whose exportJSON calls $getEditor() needs {@link LexicalEditor.toJSON} or
    * `editorState.toJSON({editor})`.
    */
   toJSON(compact?: false): SerializedEditorState;
@@ -368,11 +363,8 @@ export class EditorState {
     const editor = options ? options.editor : undefined;
     return $withCompactExport(compact, () =>
       readEditorState(
-        editor ||
-          // Inside a read or update of this state, that editor owns it.
-          (internalGetActiveEditorState() === this
-            ? internalGetActiveEditor()
-            : null),
+        // Without one given, the active editor stays active.
+        editor || internalGetActiveEditor(),
         this,
         () =>
           INTERNAL_$withExportMemo(() => ({
