@@ -241,10 +241,9 @@ if (OUT) {
             // With the editor active: node methods may call $getEditor().
             s.hashes.states.update(
               text(
-                (editorState as unknown as EditorState).read(
-                  () => editorState.toJSON(),
-                  {editor: this},
-                ),
+                (editorState as unknown as EditorState).toJSON({
+                  editor: this,
+                }),
               ),
             );
             const selection = editorState._selection as null | {

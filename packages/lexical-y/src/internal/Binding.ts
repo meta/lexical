@@ -2840,7 +2840,7 @@ export class YBinding {
     const held = editor._pendingEditorState;
     const heldText =
       held !== null
-        ? draftText(() => editor.read(held, () => held.toJSON()), 'preflight')
+        ? draftText(() => held.toJSON({editor}), 'preflight')
         : null;
     // With nothing pending, the draft is what the editor shows (or the
     // state the drain builds from it): before anything changes, it must be
@@ -2850,10 +2850,7 @@ export class YBinding {
     // is not checked: a value the pending update replaces is no reason to
     // refuse.
     if (held === null) {
-      draftText(
-        () => editor.read('latest', () => editor.getEditorState().toJSON()),
-        'preflight',
-      );
+      draftText(() => editor.getEditorState().toJSON({editor}), 'preflight');
     }
     const refusalsBefore = this.refusals;
     if (this.started) {
@@ -2885,10 +2882,7 @@ export class YBinding {
         : // App code may have made the state unserializable during the
           // drain (an update listener's update): this throws after local
           // work was written, before anything is kept (see draftText).
-          draftText(
-            () => editor.read('latest', () => editor.getEditorState().toJSON()),
-            'final',
-          );
+          draftText(() => editor.getEditorState().toJSON({editor}), 'final');
     // What the editor shows and the document does not hold: local changes
     // the binding refused and has not read back yet, or keeps, or held
     // uncommitted when quiesce() began and could not write.

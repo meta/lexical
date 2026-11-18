@@ -43,13 +43,10 @@ export function serializedDocumentFromEditorState(
     editor?: LexicalEditor;
   }> = Object.freeze({}),
 ): SerializedDocument {
-  const {editor} = config;
   return {
-    // Without an editor, toJSON keeps the editor of an enclosing read of
-    // editorState, which a read with no editor would hide.
-    editorState: editor
-      ? editor.read(editorState, () => editorState.toJSON())
-      : editorState.toJSON(),
+    // Without an editor, toJSON uses the editor of an enclosing read of
+    // editorState.
+    editorState: editorState.toJSON({editor: config.editor}),
     lastSaved: config.lastSaved || Date.now(),
     source: config.source || 'Lexical',
     version,

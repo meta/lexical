@@ -481,7 +481,12 @@ export interface EditorState {
   // shape came back. `EditorState` is not extended anywhere, so the
   // override-check limitation that keeps `exportJSON` to one signature does not
   // reach here: a Flow caller passing `true` gets the partial form, in which
-  // every property a compact export may omit is optional.
+  // every property a compact export may omit is optional. The options form
+  // follows `compact` the same way.
+  toJSON(
+    options: {...EditorStateToJSONOptions, compact?: false},
+  ): SerializedEditorState;
+  toJSON(options: EditorStateToJSONOptions): CompactSerializedEditorState;
   toJSON(compact?: false): SerializedEditorState;
   toJSON(compact: boolean): CompactSerializedEditorState;
   clone(selection?: BaseSelection | null): EditorState;
@@ -489,6 +494,10 @@ export interface EditorState {
 type EditorStateReadOptions = {
   editor?: LexicalEditor | null;
 }
+export type EditorStateToJSONOptions = {
+  compact?: boolean;
+  editor?: LexicalEditor | null;
+};
 
 /**
  * LexicalNode

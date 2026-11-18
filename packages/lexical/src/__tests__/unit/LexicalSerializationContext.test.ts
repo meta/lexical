@@ -19,10 +19,12 @@ import {
   $isElementNode,
   $setSlot,
   $withCompactExport,
+  type CompactSerializedEditorState,
   createEditor,
   type LexicalEditor,
   nodeSchema,
   rawValue,
+  type SerializedEditorState,
   type SerializedElementNode,
   type SerializedLexicalNode,
   type SerializedPartial,
@@ -472,5 +474,48 @@ describe('export with the editor active', () => {
       editorState.read(() => editorState.toJSON(), {editor}).root,
     );
     expect(childrenOf(paragraph)[0]).toMatchObject({text: editor.getKey()});
+  });
+});
+
+describe('EditorState.toJSON options', () => {
+  test('exports with the given editor, in the form `compact` states', () => {
+    using editor = buildEditorFromExtensions(
+      defineExtension({
+        name: 'editor-reading-state-options',
+        nodes: [EditorReadingTextNode],
+      }),
+    );
+    editor.update(
+      () => {
+        $getRoot()
+          .clear()
+          .append(
+            $createParagraphNode().append($create(EditorReadingTextNode)),
+          );
+      },
+      {discrete: true},
+    );
+    const editorState = editor.getEditorState();
+    const legacy = editorState.toJSON({editor});
+    expectTypeOf(legacy).toEqualTypeOf<SerializedEditorState>();
+    expect(legacy).toEqual(
+      editorState.read(() => editorState.toJSON(), {editor}),
+    );
+    expect(childrenOf(childrenOf(legacy.root)[0])[0]).toMatchObject({
+      text: editor.getKey(),
+    });
+    const compact = editorState.toJSON({compact: true, editor});
+    expectTypeOf(compact).toEqualTypeOf<CompactSerializedEditorState>();
+    expect(compact).toEqual(
+      editorState.read(() => editorState.toJSON(true), {editor}),
+    );
+    expect(compact).not.toEqual(legacy);
+    // Without `editor`, the editor of an enclosing read of the state.
+    expect(
+      editor.read(editorState, () => editorState.toJSON({compact: true})),
+    ).toEqual(compact);
+    expect(
+      editor.read(editorState, () => editorState.toJSON({editor: null})),
+    ).toEqual(legacy);
   });
 });

@@ -2121,9 +2121,10 @@ export class LexicalEditor {
    */
   toJSON(): SerializedEditor {
     return {
-      editorState: this.read(this._editorState, () =>
-        this._editorState.toJSON($isCompactExport()),
-      ),
+      editorState: this._editorState.toJSON({
+        compact: $isCompactExport(),
+        editor: this,
+      }),
     };
   }
 }

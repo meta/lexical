@@ -140,6 +140,21 @@ export interface EditorStateReadOptions {
   editor?: LexicalEditor | null;
 }
 
+/** Options of {@link EditorState.toJSON}. */
+export interface EditorStateToJSONOptions {
+  /**
+   * Write the compact form, which omits from every node the properties
+   * parsing restores on its own. Defaults to the legacy form.
+   */
+  compact?: boolean;
+  /**
+   * The editor this state belongs to, active while its nodes are exported, so
+   * a node whose exportJSON calls $getEditor() can. When omitted or null, the
+   * editor of an enclosing read or update of this state, or none.
+   */
+  editor?: LexicalEditor | null;
+}
+
 /**
  * An entry of EditorState#_textEdits, one change of a text node's text:
  * - `splice`: the node, the offset, the number of characters deleted there,
@@ -296,6 +311,19 @@ export class EditorState {
 
     return editorState;
   }
+  // The options overloads come first so that the last one, which type helpers
+  // such as `Parameters` resolve to, is still the boolean one.
+  /**
+   * This document's JSON, with its nodes exported with `options.editor`
+   * active (by default, the editor of an enclosing read or update of this
+   * state, or none), in the compact form when `options.compact` is true and
+   * otherwise in the legacy form.
+   * @param options - The form and the editor to export with.
+   */
+  toJSON(
+    options: EditorStateToJSONOptions & {compact?: false},
+  ): SerializedEditorState;
+  toJSON(options: EditorStateToJSONOptions): CompactSerializedEditorState;
   /**
    * This document's JSON, in the legacy form that writes every property.
    *
@@ -312,9 +340,8 @@ export class EditorState {
    * An EditorState does not know its editor. Its nodes are exported with the
    * editor of the read or update it is called in, when that is of this state, and
    * otherwise with no editor active: a node whose exportJSON calls
-   * $getEditor() needs {@link LexicalEditor.toJSON},
-   * `editor.read(editorState, () => editorState.toJSON())` or
-   * `editorState.read(() => editorState.toJSON(), {editor})`.
+   * $getEditor() needs {@link LexicalEditor.toJSON} or
+   * `editorState.toJSON({editor})`.
    */
   toJSON(compact?: false): SerializedEditorState;
   /**
@@ -324,19 +351,28 @@ export class EditorState {
    *   return type say which shape it is.
    */
   toJSON(compact: boolean): CompactSerializedEditorState;
-  toJSON(compact?: unknown): CompactSerializedEditorState {
-    // `typeof compact === 'boolean'`, not a truthy test, because
-    // `JSON.stringify` invokes this hook with the *property name* the value is
-    // under: `''` at the top level, but `'state'` for
-    // `JSON.stringify({state: editorState})`. A truthy check would silently
-    // write the compact form for the latter. Anything that is not a stated
-    // form is the legacy one, which is what both overloads promise.
-    return $withCompactExport(typeof compact === 'boolean' && compact, () =>
+  toJSON(compactOrOptions?: unknown): CompactSerializedEditorState {
+    // `=== true`, not a truthy test, because `JSON.stringify` invokes this
+    // hook with the *property name* the value is under: `''` at the top
+    // level, but `'state'` for `JSON.stringify({state: editorState})`. A
+    // truthy check would silently write the compact form for the latter.
+    // Anything that is not a stated form is the legacy one, which is what the
+    // overloads promise.
+    const options =
+      typeof compactOrOptions === 'object' && compactOrOptions !== null
+        ? (compactOrOptions as EditorStateToJSONOptions)
+        : null;
+    const compact = options
+      ? options.compact === true
+      : compactOrOptions === true;
+    const editor = options ? options.editor : undefined;
+    return $withCompactExport(compact, () =>
       readEditorState(
-        // Inside a read or update of this state, that editor owns it.
-        internalGetActiveEditorState() === this
-          ? internalGetActiveEditor()
-          : null,
+        editor ||
+          // Inside a read or update of this state, that editor owns it.
+          (internalGetActiveEditorState() === this
+            ? internalGetActiveEditor()
+            : null),
         this,
         () =>
           INTERNAL_$withExportMemo(() => ({
