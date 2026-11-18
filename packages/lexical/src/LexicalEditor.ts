@@ -28,10 +28,11 @@ import {
 import {FULL_RECONCILE, NO_DIRTY_NODES} from './LexicalConstants';
 import {DequeSet} from './LexicalDequeSet';
 import {
+  $isEditorState,
   cloneEditorState,
   type CompactSerializedEditorState,
   createEmptyEditorState,
-  EditorState,
+  type EditorState,
   type ParsableSerializedEditorState,
   type SerializedEditorState,
 } from './LexicalEditorState';
@@ -1966,7 +1967,7 @@ export class LexicalEditor {
   read<T>(...args: [() => T] | [EditorReadMode | EditorState, () => T]): T {
     const [modeOrState, callbackFn]: [EditorReadMode | EditorState, () => T] =
       args.length === 1 ? ['force-commit', args[0]] : args;
-    if (modeOrState instanceof EditorState) {
+    if ($isEditorState(modeOrState)) {
       return modeOrState.read(callbackFn, {editor: this});
     }
     const mode = modeOrState;
