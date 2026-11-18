@@ -45,6 +45,7 @@ import {CollabElementNode} from './CollabElementNode';
 import {CollabTextNode} from './CollabTextNode';
 import {
   $syncLocalCursorPosition,
+  selectionAwarenessUpdate,
   syncCursorPositions,
   type SyncCursorPositionsFn,
   syncLexicalSelectionToYjs,
@@ -367,7 +368,7 @@ export function syncLexicalUpdateToYjs(
   tags: Set<string>,
 ): void {
   syncWithTransaction(binding, () => {
-    binding.editor.read(currEditorState, () => {
+    const setLocalState = binding.editor.read(currEditorState, () => {
       // We check if the update has come from a origin where the origin
       // was the collaboration binding previously. This can help us
       // prevent unnecessarily re-diffing and possible re-applying
@@ -380,7 +381,7 @@ export function syncLexicalUpdateToYjs(
           $handleNormalizationMergeConflicts(binding, normalizedNodes);
         }
 
-        return;
+        return null;
       }
 
       if (dirtyElements.has('root')) {
@@ -431,10 +432,17 @@ export function syncLexicalUpdateToYjs(
         }
       }
 
-      const selection = $getSelection();
-      const prevSelection = prevEditorState._selection;
-      syncLexicalSelectionToYjs(binding, provider, prevSelection, selection);
+      return selectionAwarenessUpdate(
+        binding,
+        provider,
+        prevEditorState._selection,
+        $getSelection(),
+      );
     });
+    // After the read, so awareness listeners do not run inside it.
+    if (setLocalState !== null) {
+      setLocalState();
+    }
   });
 }
 
@@ -595,7 +603,7 @@ export function syncLexicalUpdateToYjsV2__EXPERIMENTAL(
   });
 
   syncWithTransaction(binding, () => {
-    binding.editor.read(currEditorState, () => {
+    const setLocalState = binding.editor.read(currEditorState, () => {
       if (dirtyElements.has('root')) {
         const nextLexicalRoot = $getRoot();
         // A DecoratorNode slot value lands in dirtyLeaves (only ElementNodes
@@ -623,9 +631,16 @@ export function syncLexicalUpdateToYjsV2__EXPERIMENTAL(
         }
       }
 
-      const selection = $getSelection();
-      const prevSelection = prevEditorState._selection;
-      syncLexicalSelectionToYjs(binding, provider, prevSelection, selection);
+      return selectionAwarenessUpdate(
+        binding,
+        provider,
+        prevEditorState._selection,
+        $getSelection(),
+      );
     });
+    // After the read, so awareness listeners do not run inside it.
+    if (setLocalState !== null) {
+      setLocalState();
+    }
   });
 }
