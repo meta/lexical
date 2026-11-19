@@ -143,6 +143,20 @@ const result = withDOM(() => {
       const dateTime = node.getDateTime();
       return [dateTime.getDate(), dateTime.getHours()];
     }),
+    // A Google Docs date chip: noon UTC, which is the next day from UTC+12 east
+    googleDocsImport: importHtmlValue(
+      `<p><span data-rich-links='{"type":"date","dat_df":{"dfie_ts":{"tv":{"tv_s":1794916800}},"dfie_tpt":0}}'>x</span></p>`,
+    ),
+    // A Google Docs 12:00 chip without a time zone pastes as 12:00 here, and
+    // one with a time zone keeps its instant
+    googleDocsTime: [
+      ...importHtmlValue(
+        `<p><span data-rich-links='{"type":"date","dat_df":{"dfie_ts":{"tv":{"tv_s":1794916800}},"dfie_tpt":1}}'>x</span></p>`,
+      ).map(value => [getTimeValue(value), new Date(value).getDate()]),
+      importHtmlValue(
+        `<p><span data-rich-links='{"type":"date","dat_df":{"dfie_ts":{"tv":{"tv_s":1794884400}},"dfie_tpt":2}}'>x</span></p>`,
+      ),
+    ],
     htmlImport: importHtmlValue(
       '<p><span data-lexical-datetime="2011-12-30">x</span></p>',
     ),

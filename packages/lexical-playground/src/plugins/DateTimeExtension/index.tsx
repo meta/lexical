@@ -65,24 +65,46 @@ const DateTimeRule = defineImportRule({
 
 const GoogleDocsDateRule = defineImportRule({
   $import: (_ctx, el, $next) => {
-    let parsed: {dat_df?: {dfie_ts?: {tv?: {tv_s?: number}}; dfie_dt?: string}};
+    let parsed: {
+      dat_df?: {
+        dfie_dt?: string;
+        dfie_tpt?: number;
+        dfie_ts?: {tv?: {tv_s?: number}};
+      } | null;
+    };
     try {
       parsed = JSON.parse(el.getAttribute('data-rich-links') ?? '{}');
     } catch {
       return $next();
     }
-    if (parsed?.dat_df === undefined) {
+    const {dat_df} = parsed;
+    if (dat_df == null) {
       return $next();
     }
-    const parsedDate =
-      (parsed.dat_df.dfie_ts?.tv?.tv_s ?? 0) * 1000 ||
-      Date.parse(parsed.dat_df.dfie_dt ?? '');
-    if (isNaN(parsedDate)) {
+    const seconds = dat_df.dfie_ts?.tv?.tv_s;
+    const date = new Date(
+      (seconds ?? 0) * 1000 || Date.parse(dat_df.dfie_dt ?? ''),
+    );
+    if (isNaN(date.getTime())) {
       return $next();
     }
-    return [
-      applyFormatFromStyle($createDateTimeNode(new Date(parsedDate)), el.style),
-    ];
+    // Google Docs writes what some chips show as UTC: noon of the day for a
+    // date without a time (dfie_tpt 0), and the wall clock time for a time
+    // without a time zone (dfie_tpt 1). The time is kept without an offset,
+    // so it is read as local time where it is pasted.
+    const year = date.getUTCFullYear();
+    const shown =
+      seconds && year >= 0 && year <= 9999 ? date.toISOString() : '';
+    const value =
+      dat_df.dfie_tpt === 0
+        ? shown.slice(0, 10)
+        : dat_df.dfie_tpt === 1
+          ? shown.slice(0, 19)
+          : '';
+    const node =
+      (value !== '' ? $createDateTimeNodeFromValue(value) : null) ??
+      $createDateTimeNode(date);
+    return [applyFormatFromStyle(node, el.style)];
   },
   match: sel.tag('span').attr('data-rich-links', /"type"\s*:\s*"date"/),
   name: '@lexical/playground/datetime-google-docs',

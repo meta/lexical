@@ -21,6 +21,8 @@ interface ChildResult {
   exportedText: string[];
   getDateTime: number[];
   getDateTime1942: number[];
+  googleDocsImport: string[];
+  googleDocsTime: [[string, number], string[]];
   htmlImport: string[];
   offsetless: [string, string];
   setAllDayDate: string[];
@@ -68,6 +70,11 @@ describe('DateTimeNode in other time zones', () => {
     expect(result.text).toEqual(ALL_DAY_TEXT);
     expect(result.exportedText).toEqual(ALL_DAY_TEXT);
     expect(result.htmlImport).toEqual(['2011-12-30']);
+    expect(result.googleDocsImport).toEqual(['2026-11-17']);
+    expect(result.googleDocsTime).toEqual([
+      ['12:00', 17],
+      ['2026-11-17T03:00:00.000Z'],
+    ]);
     expect(result.setAllDayDate).toEqual(['2026-11-04', '2027-01-01']);
     expect(result.decoratedDateTime).toEqual([2026, 10, 4]);
     expect(result.e2eDateValue).toEqual(['2026-11-04', '2027-01-01']);
