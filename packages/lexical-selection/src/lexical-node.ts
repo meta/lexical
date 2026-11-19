@@ -15,6 +15,7 @@ import {
   $getPreviousSelection,
   $getSelection,
   $getTextPointCaretSliceForNode,
+  $hasUpdateTag,
   $isElementNode,
   $isRangeSelection,
   $isRootNode,
@@ -22,6 +23,7 @@ import {
   $isTokenOrSegmented,
   $splitTextPointCaretSlice,
   type BaseSelection,
+  COMPOSITION_END_TAG,
   type ElementNode,
   getStyleObjectFromCSS,
   type LexicalEditor,
@@ -181,14 +183,19 @@ export function $trimTextContentFromAnchor(
       currentNode = nextNode;
     } else {
       const key = currentNode.getKey();
-      // See if we can just revert it to what was in the last editor state
-      const prevTextContent: string | null = editor.read('latest', () => {
-        const prevNode = $getNodeByKey(key);
-        if ($isTextNode(prevNode) && prevNode.isSimpleText()) {
-          return prevNode.getTextContent();
-        }
-        return null;
-      });
+      // See if we can just revert it to what was in the last editor state.
+      // When this update commits a composition, that state holds the text
+      // still being composed (or the placeholder inserted for it), which the
+      // user never wrote, so the committed text is trimmed instead.
+      const prevTextContent: string | null = $hasUpdateTag(COMPOSITION_END_TAG)
+        ? null
+        : editor.read('latest', () => {
+            const prevNode = $getNodeByKey(key);
+            if ($isTextNode(prevNode) && prevNode.isSimpleText()) {
+              return prevNode.getTextContent();
+            }
+            return null;
+          });
       const offset = currentNodeSize - remaining;
       const slicedText = text.slice(0, offset);
       if (prevTextContent !== null && prevTextContent !== text) {
