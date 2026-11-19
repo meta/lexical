@@ -858,6 +858,10 @@ describe('Mdast punctuation modes', () => {
         markdown,
       );
     }
+    // A CJK-friendly import reads it back as the same runs.
+    expect(
+      importRuns(createEditor(undefined, 'cjk-friendly'), markdown),
+    ).toEqual(runs);
   });
 
   it.each<[string, boolean | undefined, string, string]>([
