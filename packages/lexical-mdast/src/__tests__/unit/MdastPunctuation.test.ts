@@ -503,9 +503,10 @@ describe('Mdast punctuation modes', () => {
   // closes before, or opens after, a CJK character, an ideographic
   // variation selector or punctuation outside the BMP only in a
   // CJK-friendly import.
-  it.each<[markdown: string, strict: Runs, cjkFriendly: Runs]>([
+  it.each<[name: string, markdown: string, strict: Runs, cjkFriendly: Runs]>([
     // The last ideographic variation selector, and the code point after it.
     [
+      'U+E01EF',
       '\u{e01ef}**“x”**',
       [['\u{e01ef}**“x”**', 0]],
       [
@@ -513,9 +514,15 @@ describe('Mdast punctuation modes', () => {
         ['“x”', bold],
       ],
     ],
-    ['\u{e01f0}**“x”**', [['\u{e01f0}**“x”**', 0]], [['\u{e01f0}**“x”**', 0]]],
+    [
+      'U+E01F0',
+      '\u{e01f0}**“x”**',
+      [['\u{e01f0}**“x”**', 0]],
+      [['\u{e01f0}**“x”**', 0]],
+    ],
     // Ideographs whose second halves are U+DC00 and U+DFFF.
     [
+      'U+20000',
       '\u{20000}**“x”**',
       [['\u{20000}**“x”**', 0]],
       [
@@ -524,6 +531,7 @@ describe('Mdast punctuation modes', () => {
       ],
     ],
     [
+      'U+203FF',
       '\u{203ff}**“x”**',
       [['\u{203ff}**“x”**', 0]],
       [
@@ -534,6 +542,7 @@ describe('Mdast punctuation modes', () => {
     // Punctuation whose first half is U+D800, which the strict import reads
     // as a letter, as micromark reads it.
     [
+      'U+10100',
       '**“x”**\u{10100}',
       [['**“x”**\u{10100}', 0]],
       [
@@ -544,6 +553,7 @@ describe('Mdast punctuation modes', () => {
     // A selector after CJK punctuation after U+FFFF, the last code point of
     // the BMP.
     [
+      'U+FFFF',
       '\uffff。\ufe00**“x”**',
       [['\uffff。\ufe00**“x”**', 0]],
       [
@@ -552,8 +562,8 @@ describe('Mdast punctuation modes', () => {
       ],
     ],
   ])(
-    'reads %j by the code point at the end of a range',
-    (markdown, strict, cjkFriendly) => {
+    'reads %s by the code point at the end of a range',
+    (_, markdown, strict, cjkFriendly) => {
       expect(
         importRuns(createEditor(undefined, 'strict-commonmark'), markdown),
       ).toEqual(strict);
@@ -654,6 +664,7 @@ describe('Mdast punctuation modes', () => {
     // micromark lets a `*` run beside a marker of another construct open or
     // close on that side, as beside a letter, so the run beside `~` both
     // opens and closes, and a run of one and a run of two do not match.
+    // CommonMark reads these as `~<em>x</em>*` and `*<em>x</em>~`.
     ['~*x**', [['~*x**', 0]]],
     ['**x*~', [['**x*~', 0]]],
     // An escaped marker.
