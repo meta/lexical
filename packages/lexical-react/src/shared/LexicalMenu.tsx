@@ -311,6 +311,7 @@ export function LexicalMenu<TOption extends MenuOption>({
   editor,
   anchorElementRef,
   resolution,
+  latestResolutionRef,
   options,
   menuRenderFn: menuRenderFnProp,
   onSelectOption,
@@ -322,6 +323,9 @@ export function LexicalMenu<TOption extends MenuOption>({
   editor: LexicalEditor;
   anchorElementRef: RefObject<HTMLElement | null>;
   resolution: MenuResolution;
+  // Can be newer than `resolution` while its render is pending. Picking an
+  // option splits the text with its match, the query as typed now.
+  latestResolutionRef?: RefObject<MenuResolution | null>;
   options: TOption[];
   shouldSplitNodeWithQuery?: boolean;
   menuRenderFn?: MenuRenderFn<TOption>;
@@ -353,20 +357,29 @@ export function LexicalMenu<TOption extends MenuOption>({
   const selectOptionAndCleanUp = useCallback(
     (selectedEntry: TOption) => {
       editor.update(() => {
+        const {match} =
+          (latestResolutionRef && latestResolutionRef.current) || resolution;
         const textNodeContainingQuery =
-          resolution.match != null && shouldSplitNodeWithQuery
-            ? $splitNodeContainingQuery(resolution.match)
+          match != null && shouldSplitNodeWithQuery
+            ? $splitNodeContainingQuery(match)
             : null;
 
         onSelectOption(
           selectedEntry,
           textNodeContainingQuery,
           close,
-          resolution.match ? resolution.match.matchingString : '',
+          match ? match.matchingString : '',
         );
       });
     },
-    [editor, shouldSplitNodeWithQuery, resolution.match, onSelectOption, close],
+    [
+      editor,
+      shouldSplitNodeWithQuery,
+      latestResolutionRef,
+      resolution,
+      onSelectOption,
+      close,
+    ],
   );
 
   const updateSelectedIndex = useCallback(
