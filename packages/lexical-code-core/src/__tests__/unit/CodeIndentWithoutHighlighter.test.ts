@@ -15,7 +15,9 @@ import {
   $createTabNode,
   $createTextNode,
   $getRoot,
+  $getSelection,
   $isLineBreakNode,
+  $isRangeSelection,
   $isTabNode,
   $setSelection,
   configExtension,
@@ -110,6 +112,18 @@ describe('CodeIndentExtension without a highlighter', () => {
     editor.read(() => {
       expect($getCodeText()).toBe('\tone\n\ttwo');
       expect($everyLineStartsWithATab()).toBe(true);
+      // The selection still spans both lines, now from the first new tab.
+      const selection = $getSelection();
+      assert($isRangeSelection(selection), 'expected a RangeSelection');
+      const children = $getCodeChildren();
+      expect([selection.anchor.key, selection.anchor.offset]).toEqual([
+        children[0].getKey(),
+        0,
+      ]);
+      expect([selection.focus.key, selection.focus.offset]).toEqual([
+        children[4].getKey(),
+        3,
+      ]);
     });
   });
 
@@ -140,6 +154,36 @@ describe('CodeIndentExtension without a highlighter', () => {
 
     editor.read(() => {
       expect($getCodeText()).toBe('one');
+    });
+  });
+
+  // A caret at offset 0 of a line ends the selection at the start of that
+  // line, so $getCodeLines drops it and the line is outdented at the caret.
+  it('outdents the line of a caret at its start with Shift+Tab', () => {
+    using editor = buildEditor(
+      [() => [$createTabNode(), $createTextNode('one')]],
+      [1, 0],
+    );
+
+    pressTab(editor, true);
+
+    editor.read(() => {
+      expect($getCodeText()).toBe('one');
+    });
+  });
+
+  it('strips leading spaces at a caret at the start of the line when tabSize is configured', () => {
+    using editor = buildEditor(
+      [() => [$createTextNode('    one')]],
+      [0, 0],
+      [0, 0],
+      2,
+    );
+
+    pressTab(editor, true);
+
+    editor.read(() => {
+      expect($getCodeText()).toBe('  one');
     });
   });
 
