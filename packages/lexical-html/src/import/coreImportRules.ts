@@ -29,6 +29,7 @@ import {
   IS_UNDERLINE,
   isBlockDomNode,
   isDOMTextNode,
+  isHTMLElement,
   isLastChildInBlockNode,
   isOnlyChildInBlockNode,
   type LexicalNode,
@@ -303,6 +304,19 @@ function isInsidePreserveWhitespace(
   return false;
 }
 
+// A known block tag, or any element with a non-inline display, ends the line,
+// unless the whitespace config says otherwise.
+function isLineBreakingNode(
+  node: Node,
+  wsConfig: WhitespaceImportConfig,
+): boolean {
+  return (
+    isHTMLElement(node) &&
+    !wsConfig.isInline(node) &&
+    (node.style.display !== '' || isBlockDomNode(node))
+  );
+}
+
 function findAdjacentTextOnLine(
   text: Text,
   forward: boolean,
@@ -315,7 +329,8 @@ function findAdjacentTextOnLine(
       (sibling = forward ? node.nextSibling : node.previousSibling) === null
     ) {
       const parent: Node | null = node.parentNode;
-      if (parent === null) {
+      // Leaving a block ends the line, whatever inline content comes next
+      if (parent === null || isLineBreakingNode(parent, wsConfig)) {
         return null;
       }
       node = parent;
@@ -327,6 +342,10 @@ function findAdjacentTextOnLine(
     let descendant: Node | null = node;
     while ((descendant = forward ? node.firstChild : node.lastChild) !== null) {
       node = descendant;
+      // Entering a block nested in an inline starts a new line
+      if (isLineBreakingNode(node, wsConfig)) {
+        return null;
+      }
     }
     if (isDOMTextNode(node)) {
       return node;

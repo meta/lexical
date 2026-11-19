@@ -82,6 +82,7 @@ import {
   $setCompositionKey,
   getCachedClassNameArray,
   internalMarkSiblingsAsDirty,
+  isBlockDomNode,
   isDOMTextNode,
   isHTMLElement,
   isInlineDomNode,
@@ -1682,6 +1683,12 @@ function $convertTextDOMNode(domNode: Node): DOMConversionOutput {
   return {node: $createTextNode(textContent)};
 }
 
+// A known block tag, or any element with a non-inline display, ends the line.
+function isLineBreakingDomNode(node: HTMLElement): boolean {
+  const display = node.style.display;
+  return display === '' ? isBlockDomNode(node) : !display.startsWith('inline');
+}
+
 function findTextInLine(text: Text, forward: boolean): null | Text {
   let node: Node = text;
 
@@ -1691,7 +1698,8 @@ function findTextInLine(text: Text, forward: boolean): null | Text {
       (sibling = forward ? node.nextSibling : node.previousSibling) === null
     ) {
       const parentElement = node.parentElement;
-      if (parentElement === null) {
+      // Leaving a block ends the line, whatever inline content comes next
+      if (parentElement === null || isLineBreakingDomNode(parentElement)) {
         return null;
       }
       node = parentElement;
@@ -1709,6 +1717,10 @@ function findTextInLine(text: Text, forward: boolean): null | Text {
     let descendant: null | Node = node;
     while ((descendant = forward ? node.firstChild : node.lastChild) !== null) {
       node = descendant;
+      // Entering a block nested in an inline starts a new line
+      if (isHTMLElement(node) && isLineBreakingDomNode(node)) {
+        return null;
+      }
     }
     if (isDOMTextNode(node)) {
       return node;
