@@ -7,6 +7,7 @@
  */
 
 import {RovingTabIndexExtension} from '@lexical/a11y';
+import {$createLinkNode, LinkExtension} from '@lexical/link';
 import {useLexicalComposerContext} from '@lexical/react/LexicalComposerContext';
 import {LexicalExtensionComposer} from '@lexical/react/LexicalExtensionComposer';
 import {RichTextExtension} from '@lexical/rich-text';
@@ -14,6 +15,7 @@ import {
   $createParagraphNode,
   $createTextNode,
   $getRoot,
+  $isElementNode,
   $selectAll,
   defineExtension,
   type LexicalEditor,
@@ -31,7 +33,7 @@ const ToolbarTestExtension = defineExtension({
       .clear()
       .append($createParagraphNode().append($createTextNode('hello')));
   },
-  dependencies: [RichTextExtension, RovingTabIndexExtension],
+  dependencies: [RichTextExtension, RovingTabIndexExtension, LinkExtension],
   name: '[test-floating-toolbar]',
 });
 
@@ -91,6 +93,29 @@ describe('FloatingTextFormatToolbarPlugin', () => {
       '.floating-text-format-popup button[aria-label^="Format text"]',
     ).length;
   }
+
+  it('hides the text toolbar when an entire linked paragraph is selected', async () => {
+    await act(async () => {
+      editor.update(
+        () => {
+          const paragraph = $getRoot().getFirstChildOrThrow();
+          if (!$isElementNode(paragraph)) {
+            throw new Error('Expected paragraph');
+          }
+          paragraph
+            .clear()
+            .append(
+              $createLinkNode('https://lexical.dev').append(
+                $createTextNode('hello'),
+              ),
+            );
+          paragraph.select(0, 1);
+        },
+        {discrete: true},
+      );
+    });
+    expect(anchorElem.querySelector('.floating-text-format-popup')).toBe(null);
+  });
 
   it('hides its format buttons when the editor becomes read-only', async () => {
     expect(anchorElem.querySelector('.floating-text-format-popup')).not.toBe(
