@@ -1257,11 +1257,12 @@ function classifyBeyond(
     return classifyCode(0x4e16);
   }
   const pair = step === -1 ? markdown.codePointAt(index - 1) : undefined;
-  return classifyCode(
+  const code =
     pair !== undefined && pair > 0xffff
       ? pair
-      : (markdown.codePointAt(index) ?? null),
-  );
+      : (markdown.codePointAt(index) ?? null);
+  // Every reader reads U+0000 as the U+FFFD that replaces it.
+  return classifyCode(code === 0 ? 0xfffd : code);
 }
 
 /**
