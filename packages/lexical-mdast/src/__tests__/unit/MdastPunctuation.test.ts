@@ -628,6 +628,49 @@ describe('Mdast punctuation modes', () => {
     }
   });
 
+  it.each<[name: string, runs: Runs, markdown: string]>([
+    [
+      'before bold',
+      [
+        ['世', 0],
+        ['\0', bold],
+      ],
+      '世**\0**',
+    ],
+    [
+      'after bold',
+      [
+        ['\0', bold],
+        ['世', 0],
+      ],
+      '**\0**世',
+    ],
+    [
+      'before strikethrough',
+      [
+        ['世', 0],
+        ['\0', strikethrough],
+      ],
+      '世~~\0~~',
+    ],
+    [
+      'after strikethrough',
+      [
+        ['\0', strikethrough],
+        ['世', 0],
+      ],
+      '~~\0~~世',
+    ],
+  ])(
+    'writes a CJK character %s with U+0000 at its edge as typed',
+    (_, runs, markdown) => {
+      expect(roundTrip(runs, 'cjk-friendly')).toEqual([
+        markdown,
+        runs.map(([text, format]) => [text.replace('\0', '\ufffd'), format]),
+      ]);
+    },
+  );
+
   it('writes no reference beside `~` without strikethrough', () => {
     const editor = buildEditorFromExtensions(
       defineExtension({dependencies: [MdastExtension], name: '[root]'}),
