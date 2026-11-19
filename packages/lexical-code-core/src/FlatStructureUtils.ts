@@ -564,9 +564,10 @@ export function $keepCodeNodeState(
 }
 
 /**
- * Strip up to `tabSize` leading spaces from a {@link CodeHighlightNode} that
- * starts a code line, to support outdenting space-indented code lines (e.g.
- * code formatted with prettier). Returns true if any spaces were stripped.
+ * Strip up to `tabSize` leading spaces from the text node that starts a code
+ * line (a {@link CodeHighlightNode}, or a plain TextNode when no highlighter
+ * is registered), to support outdenting space-indented code lines (e.g. code
+ * formatted with prettier). Returns true if any spaces were stripped.
  *
  * Best-effort: a line with fewer than `tabSize` leading spaces has all of
  * them stripped, matching VS Code / IntelliJ behavior.
@@ -578,7 +579,7 @@ export function $keepCodeNodeState(
  * them up explicitly.
  */
 export function $outdentLeadingSpaces(
-  node: CodeHighlightNode,
+  node: TextNode,
   tabSize: number,
   selection: RangeSelection,
 ): boolean {
