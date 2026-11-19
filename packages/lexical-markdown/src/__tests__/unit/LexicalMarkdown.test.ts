@@ -23,11 +23,13 @@ import {
   $convertSelectionToMarkdownString,
   $convertToMarkdownString,
   $generateNodesFromMarkdownString,
+  BOLD_STAR,
   CHECK_LIST,
   CODE,
   type ElementTransformer,
   HEADING,
   ITALIC_STAR,
+  ITALIC_UNDERSCORE,
   LINK,
   type MultilineElementTransformer,
   registerMarkdownShortcuts,
@@ -5422,6 +5424,15 @@ describe('emphasis next to Unicode punctuation and symbols', () => {
       ],
       'http&#58;//a.co/x&#64;y.c&#111;**!**',
     ],
+    [
+      'underscores between letters or digits, beside a reference',
+      [
+        ['Note:', TEXT_TYPE_TO_FORMAT.bold],
+        ['x_axis and y_2', 0],
+        ['(!)', TEXT_TYPE_TO_FORMAT.bold],
+      ],
+      '**Note:**&#120;\\_axis and y\\_&#50;**(!)**',
+    ],
   ])(
     'exports formatting beside %s, which both importers read back',
     (_name, runs, markdown) => {
@@ -5470,6 +5481,49 @@ describe('emphasis next to Unicode punctuation and symbols', () => {
       expect(mdastEditor.read('latest', $runs)).toEqual(runs);
     },
   );
+
+  // With `_` for italic, the underscore beside the reference would close the
+  // italic early.
+  it('escapes an underscore beside a reference inside underscore italic', () => {
+    const transformers = [BOLD_STAR, ITALIC_UNDERSCORE];
+    const runs: [string, TextFormatType[]][] = [
+      ['foo a_b', ['italic']],
+      ['(x)', ['bold', 'italic']],
+    ];
+    const editor = createTestEditor();
+    editor.update(
+      () =>
+        $getRoot().append(
+          $createParagraphNode().append(
+            ...runs.map(([text, formats]) => {
+              const node = $createTextNode(text);
+              formats.forEach(format => node.toggleFormat(format));
+              return node;
+            }),
+          ),
+        ),
+      {discrete: true},
+    );
+    const markdown = editor.read('latest', () =>
+      $convertToMarkdownString(transformers),
+    );
+    expect(markdown).toBe('_foo a\\_&#98;**(x)**_');
+    editor.update(() => $convertFromMarkdownString(markdown, transformers), {
+      discrete: true,
+    });
+    expect(
+      editor.read('latest', () =>
+        $getRoot()
+          .getAllTextNodes()
+          .map(node => [
+            node.getTextContent(),
+            (['bold', 'italic'] as const).filter(format =>
+              node.hasFormat(format),
+            ),
+          ]),
+      ),
+    ).toEqual(runs);
+  });
 
   // GFM links none of these: a mention is not Markdown, an email needs a dot
   // in its domain, and a URL needs `http`, `https` or `ftp` for its scheme.

@@ -950,18 +950,60 @@ function joinPieces({kinds, values}: MarkdownPieces): string {
     isReference.fill(1, base + end, (base += value.length));
   }
   spoilLinks(kinds, values, isReference);
+  markUnderscoresBesideReferences(kinds, values, isReference);
   let markdown = '';
   let from = 0;
-  for (
-    let at = isReference.indexOf(1);
-    at !== -1;
-    at = isReference.indexOf(1, from)
-  ) {
-    const character = characterAt(text, at)!;
-    markdown += text.slice(from, at) + toCharacterReference(character);
-    from = at + character.length;
+  for (let at = 0; at < text.length; at++) {
+    if (isReference[at] === ESCAPED_UNDERSCORE) {
+      markdown += text.slice(from, at) + '\\';
+      from = at;
+    } else if (isReference[at]) {
+      const character = characterAt(text, at)!;
+      markdown += text.slice(from, at) + toCharacterReference(character);
+      from = at + character.length;
+      at = from - 1;
+    }
   }
   return markdown + text.slice(from);
+}
+
+// Marks, in `isReference`, an underscore that goes out escaped.
+const ESCAPED_UNDERSCORE = 2;
+
+/**
+ * Text leaves an underscore between two ASCII letters or digits unescaped
+ * (see `isIntrawordUnderscore`). A letter or digit beside it that goes out as
+ * a reference leaves it beside the reference's `&` or `;`, which are
+ * punctuation, so it could open or close emphasis there:
+ * `**Note:**&#120;_axis and y_&#50;**(!)**` reads as an italic `axis and y`.
+ * Such an underscore is marked to go out escaped.
+ */
+function markUnderscoresBesideReferences(
+  kinds: PieceKind[],
+  values: string[],
+  isReference: Uint8Array,
+): void {
+  if (!isReference.includes(1)) {
+    return;
+  }
+  for (let index = 0, base = 0; index < kinds.length; index++) {
+    const value = values[index];
+    if (kinds[index] === TEXT) {
+      for (
+        let at = value.indexOf('_');
+        at !== -1;
+        at = value.indexOf('_', at + 1)
+      ) {
+        if (
+          isIntrawordUnderscore(value, at) &&
+          (isReference[base + at - 1] === 1 || isReference[base + at + 1] === 1)
+        ) {
+          isReference[base + at] = ESCAPED_UNDERSCORE;
+        }
+      }
+    }
+    base += value.length;
+  }
 }
 
 // What a backslash before it escapes: ASCII punctuation or a line ending.
@@ -1383,6 +1425,8 @@ function decideReferences(
  * (https://spec.commonmark.org/0.31.2/#can-open-emphasis) and needs no
  * escape. Leaving it as typed keeps GFM autolink literals working: GFM reads
  * a bare URL from the source, so a `\_` in it stays in the link's target.
+ * `markUnderscoresBesideReferences` escapes it after all when a neighbour goes
+ * out as a numeric reference.
  */
 function isIntrawordUnderscore(text: string, offset: number): boolean {
   return (
