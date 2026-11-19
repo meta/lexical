@@ -36,8 +36,12 @@ function editorHTML(editor: LexicalEditor, editorState: EditorState): string {
   return editorState.read(() => $generateHtmlFromNodes(editor, null), {editor});
 }
 
-function editorJSON(_editor: LexicalEditor, editorState: EditorState): string {
-  return JSON.stringify(editorState.toJSON(true), null, 2);
+function editorJSON(editor: LexicalEditor, editorState: EditorState): string {
+  return JSON.stringify(
+    editorState.read(() => editorState.toJSON(true), {editor}),
+    null,
+    2,
+  );
 }
 
 const langs = {

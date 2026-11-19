@@ -81,6 +81,9 @@ jobs:
           CHANNEL: ${{ inputs.channel }}
           LATEST_RELEASE: ${{ steps.latest.outputs.release }}
           DRY_RUN: ${{ inputs.dry-run && '1' || '' }}
+          # Lets update-changelog look up pull requests and contributor
+          # logins that git history does not show (read-only API calls).
+          GITHUB_TOKEN: ${{ github.token }}
 
   publish:
     if: ${{ inputs.publish && !cancelled() && !failure() }}
@@ -92,6 +95,8 @@ jobs:
       # package on npmjs.com is configured to trust this workflow file
       # via the GitHub Actions OIDC `workflow_ref` claim.
       id-token: write
+    outputs:
+      ref: ${{ steps.release-commit.outputs.sha }}
     env:
       DRY_RUN_ARG: ${{ inputs.dry-run && '--dry-run' || '' }}
       IGNORE_PREVIOUSLY_PUBLISHED_ARG: ${{ inputs.ignore-previously-published && '--ignore-previously-published' || '' }}
@@ -99,9 +104,24 @@ jobs:
       - uses: actions/checkout@v7
         with:
           ref: ${{ needs.increment-version.outputs.tag-ref || inputs.ref }}
+      - name: Record npm release commit
+        id: release-commit
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
       - uses: ./.github/actions/setup-pnpm
         with:
           node-version: 24.x
           registry-url: 'https://registry.npmjs.org'
       - run: pnpm run prepare-release
       - run: node ./scripts/npm/release.mjs --non-interactive $DRY_RUN_ARG $IGNORE_PREVIOUSLY_PUBLISHED_ARG --channel='${{ inputs.channel }}'
+
+  publish-extensions:
+    needs: [publish]
+    # A skipped version bump is valid for an existing production release tag.
+    # Require a successful real npm publish before submitting to the stores.
+    if: ${{ !cancelled() && !failure() && needs.publish.result == 'success' && inputs.publish && !inputs.dry-run && inputs.channel == 'latest' && github.repository_owner == 'meta' }}
+    permissions:
+      contents: read
+    uses: ./.github/workflows/devtools-extension-publish.yml
+    with:
+      ref: ${{ needs.publish.outputs.ref }}
+    secrets: inherit

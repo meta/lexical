@@ -15,13 +15,13 @@ import {
   test,
 } from '../utils/index.mjs';
 
+test.skip(({isRichText}) => isRichText, 'Requires plain text');
+
 test.describe('Regression test #1113', () => {
   test.beforeEach(({isCollab, page}) => initialize({isCollab, page}));
   test(`Selects new line when inserting a new line at the end of a link`, async ({
-    isRichText,
     page,
   }) => {
-    test.skip(isRichText);
     await focusEditor(page);
 
     await page.keyboard.type('https://www.example.com');

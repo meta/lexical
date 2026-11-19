@@ -9,6 +9,7 @@
 import type {Doc} from 'yjs';
 
 import devInvariant from '@lexical/internal/devInvariant';
+import {CAN_USE_DOM} from 'lexical';
 import {createContext, useContext} from 'react';
 
 /**
@@ -45,9 +46,15 @@ const entries = [
 // Picked on first use rather than at module scope, where the `Math.random()`
 // call is a side effect to bundlers that would pin this module (and the
 // table above) into every bundle importing it. It is still picked once and
-// shared by every context created afterwards, as before.
+// shared by every context created afterwards, as before. Without a DOM
+// (server rendering) the first entry is used instead: frameworks such as
+// Next.js fail a prerender that reads `Math.random()` (#9318), and the
+// browser picks its own entry when it creates its context.
 let randomEntry: undefined | (typeof entries)[number];
 function getRandomEntry(): (typeof entries)[number] {
+  if (!CAN_USE_DOM) {
+    return entries[0];
+  }
   if (randomEntry === undefined) {
     randomEntry = entries[Math.floor(Math.random() * entries.length)];
   }

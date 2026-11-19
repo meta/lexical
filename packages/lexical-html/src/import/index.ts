@@ -49,10 +49,7 @@ export {
   type DOMImportConfig,
   DOMImportExtension,
 } from './DOMImportExtension';
-export {
-  HorizontalRuleImportExtension,
-  HorizontalRuleImportRules,
-} from './HorizontalRuleImportExtension';
+export {HorizontalRuleImportRules} from './HorizontalRuleImportExtension';
 export {
   $getImportContextValue,
   $withImportContext,

@@ -6,7 +6,7 @@
 `@experimental` and may change between any two Lexical releases —
 including breaking renames, signature changes, or behavior changes —
 until the API stabilizes. We track issues and proposals in the
-[GitHub repo](https://github.com/facebook/lexical); breaking changes
+[GitHub repo](https://github.com/meta/lexical); breaking changes
 will be called out in release notes. Apps that depend on this
 extension should pin their Lexical version and treat upgrades as
 intentional.

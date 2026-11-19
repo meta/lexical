@@ -17,12 +17,14 @@ import {
 } from '../utils/index.mjs';
 
 /* eslint-disable sort-keys-fix/sort-keys-fix */
+test.skip(({isPlainText}) => isPlainText, 'Requires rich text');
+
 test.describe('SelectionAlwaysOnDisplay', () => {
   test.beforeEach(({isCollab, page}) =>
     initialize({isCollab, page, selectionAlwaysOnDisplay: true}),
   );
-  test(`retain selection works`, async ({page, isPlainText, browserName}) => {
-    test.skip(isPlainText); // Fixed in #6873
+  test(`retain selection works`, async ({page}) => {
+    // Fixed in #6873
     await focusEditor(page);
     await page.keyboard.type('Lexical');
     await selectAll(page);
@@ -59,12 +61,8 @@ test.describe('SelectionAlwaysOnDisplay', () => {
     await expect(heightDifference).toBeLessThanOrEqual(5);
   });
 
-  test(`retain selection works with reverse selection`, async ({
-    page,
-    isPlainText,
-    browserName,
-  }) => {
-    test.skip(isPlainText); // Fixed in #6873
+  test(`retain selection works with reverse selection`, async ({page}) => {
+    // Fixed in #6873
     await focusEditor(page);
     await page.keyboard.type('Lexical');
 

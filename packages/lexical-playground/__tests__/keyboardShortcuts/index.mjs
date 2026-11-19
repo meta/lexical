@@ -14,6 +14,7 @@ import {
   keyUpCtrlOrAlt,
   keyUpCtrlOrMeta,
   sleep,
+  waitForTimerTick,
 } from '../utils/index.mjs';
 
 /**
@@ -23,9 +24,7 @@ export const STANDARD_KEYPRESS_DELAY_MS = 100;
 
 export async function moveToLineBeginning(page) {
   if (IS_MAC) {
-    await keyDownCtrlOrMeta(page);
-    await page.keyboard.press('ArrowLeft');
-    await keyUpCtrlOrMeta(page);
+    await page.keyboard.press('ControlOrMeta+ArrowLeft');
   } else {
     await page.keyboard.press('Home');
   }
@@ -33,9 +32,7 @@ export async function moveToLineBeginning(page) {
 
 export async function moveToLineEnd(page) {
   if (IS_MAC) {
-    await keyDownCtrlOrMeta(page);
-    await page.keyboard.press('ArrowRight');
-    await keyUpCtrlOrMeta(page);
+    await page.keyboard.press('ControlOrMeta+ArrowRight');
   } else {
     await page.keyboard.press('End');
   }
@@ -43,9 +40,7 @@ export async function moveToLineEnd(page) {
 
 export async function moveToEditorBeginning(page) {
   if (IS_MAC) {
-    await keyDownCtrlOrMeta(page);
-    await page.keyboard.press('ArrowUp');
-    await keyUpCtrlOrMeta(page);
+    await page.keyboard.press('ControlOrMeta+ArrowUp');
   } else {
     await page.keyboard.press('PageUp');
     if (E2E_BROWSER === 'firefox') {
@@ -56,9 +51,7 @@ export async function moveToEditorBeginning(page) {
 
 export async function moveToEditorEnd(page) {
   if (IS_MAC) {
-    await keyDownCtrlOrMeta(page);
-    await page.keyboard.press('ArrowDown');
-    await keyUpCtrlOrMeta(page);
+    await page.keyboard.press('ControlOrMeta+ArrowDown');
   } else {
     await page.keyboard.press('PageDown');
     if (E2E_BROWSER === 'firefox') {
@@ -105,35 +98,28 @@ export async function deleteLineBackward(page) {
   if (!IS_MAC) {
     throw new Error('deleteLineBackward is only supported on Mac');
   }
-  await page.keyboard.down('Meta');
-  await page.keyboard.press('Backspace');
-  await page.keyboard.up('Meta');
+  await page.keyboard.press('Meta+Backspace');
 }
 
 export async function deleteLineForward(page) {
   if (!IS_MAC) {
     throw new Error('deleteLineForward is only supported on Mac');
   }
-  await page.keyboard.down('Meta');
-  await page.keyboard.press('Delete');
-  await page.keyboard.up('Meta');
+  await page.keyboard.press('Meta+Delete');
 }
 
 export async function deleteBackward(page) {
   if (IS_MAC) {
-    await page.keyboard.down('Control');
-    await page.keyboard.press('h');
-    await page.keyboard.up('Control');
+    await page.keyboard.press('Control+h');
   } else {
     await page.keyboard.press('Backspace');
   }
+  await waitForTimerTick(page);
 }
 
 export async function deleteForward(page) {
   if (IS_MAC) {
-    await page.keyboard.down('Control');
-    await page.keyboard.press('d');
-    await page.keyboard.up('Control');
+    await page.keyboard.press('Control+d');
   } else {
     await page.keyboard.press('Delete');
   }
@@ -160,28 +146,21 @@ export async function moveToParagraphEnd(page) {
 }
 
 export async function selectAll(page) {
-  await keyDownCtrlOrMeta(page);
-  await page.keyboard.press('a');
-  await keyUpCtrlOrMeta(page);
+  await page.keyboard.press('ControlOrMeta+a');
+  await waitForTimerTick(page);
 }
 
 export async function undo(page) {
-  await keyDownCtrlOrMeta(page);
-  await page.keyboard.press('z');
-  await keyUpCtrlOrMeta(page);
+  await page.keyboard.press('ControlOrMeta+z');
 }
 
 export async function redo(page) {
   if (IS_MAC) {
     await page.keyboard.down('Meta');
-    await page.keyboard.down('Shift');
-    await page.keyboard.press('z');
-    await page.keyboard.up('Shift');
+    await page.keyboard.press('Shift+z');
     await page.keyboard.up('Meta');
   } else {
-    await page.keyboard.down('Control');
-    await page.keyboard.press('y');
-    await page.keyboard.up('Control');
+    await page.keyboard.press('Control+y');
   }
 }
 
@@ -238,21 +217,15 @@ export async function selectCharacters(page, direction, numCharacters = 1) {
 }
 
 export async function toggleBold(page) {
-  await keyDownCtrlOrMeta(page);
-  await page.keyboard.press('b');
-  await keyUpCtrlOrMeta(page);
+  await page.keyboard.press('ControlOrMeta+b');
 }
 
 export async function toggleUnderline(page) {
-  await keyDownCtrlOrMeta(page);
-  await page.keyboard.press('u');
-  await keyUpCtrlOrMeta(page);
+  await page.keyboard.press('ControlOrMeta+u');
 }
 
 export async function toggleItalic(page) {
-  await keyDownCtrlOrMeta(page);
-  await page.keyboard.press('i');
-  await keyUpCtrlOrMeta(page);
+  await page.keyboard.press('ControlOrMeta+i');
 }
 
 export async function toggleInsertCodeBlock(page) {
@@ -296,16 +269,12 @@ export async function toggleStrikethrough(page) {
 }
 
 export async function pressShiftEnter(page) {
-  await page.keyboard.down('Shift');
-  await page.keyboard.press('Enter');
-  await page.keyboard.up('Shift');
+  await page.keyboard.press('Shift+Enter');
 }
 
 export async function moveToStart(page) {
   if (IS_MAC) {
-    await page.keyboard.down('Meta');
-    await page.keyboard.press('ArrowLeft');
-    await page.keyboard.up('Meta');
+    await page.keyboard.press('Meta+ArrowLeft');
   } else {
     await page.keyboard.press('Home');
   }
@@ -313,36 +282,26 @@ export async function moveToStart(page) {
 
 export async function moveToEnd(page) {
   if (IS_MAC) {
-    await page.keyboard.down('Meta');
-    await page.keyboard.press('ArrowRight');
-    await page.keyboard.up('Meta');
+    await page.keyboard.press('Meta+ArrowRight');
   } else {
     await page.keyboard.press('End');
   }
 }
 
 export async function paste(page) {
-  await keyDownCtrlOrMeta(page);
-  await page.keyboard.press('KeyV');
-  await keyUpCtrlOrMeta(page);
+  await page.keyboard.press('ControlOrMeta+KeyV');
 }
 
 export async function toggleSubscript(page) {
-  await keyDownCtrlOrMeta(page);
-  await page.keyboard.press(',');
-  await keyUpCtrlOrMeta(page);
+  await page.keyboard.press('ControlOrMeta+,');
 }
 
 export async function toggleSuperscript(page) {
-  await keyDownCtrlOrMeta(page);
-  await page.keyboard.press('.');
-  await keyUpCtrlOrMeta(page);
+  await page.keyboard.press('ControlOrMeta+.');
 }
 
 export async function clearFormatting(page) {
-  await keyDownCtrlOrMeta(page);
-  await page.keyboard.press('\\');
-  await keyUpCtrlOrMeta(page);
+  await page.keyboard.press('ControlOrMeta+\\');
 }
 
 export async function leftAlign(page) {
@@ -379,17 +338,13 @@ export async function justifyAlign(page) {
 
 export async function outdent(page, times = 1) {
   for (let i = 0; i < times; i++) {
-    await keyDownCtrlOrMeta(page);
-    await page.keyboard.press('[');
-    await keyUpCtrlOrMeta(page);
+    await page.keyboard.press('ControlOrMeta+[');
   }
 }
 
 export async function indent(page, times = 1) {
   for (let i = 0; i < times; i++) {
-    await keyDownCtrlOrMeta(page);
-    await page.keyboard.press(']');
-    await keyUpCtrlOrMeta(page);
+    await page.keyboard.press('ControlOrMeta+]');
   }
 }
 

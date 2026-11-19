@@ -10,8 +10,6 @@ import {
   moveLeft,
   moveToEditorBeginning,
   moveToEditorEnd,
-  moveToEnd,
-  moveToStart,
   pressShiftEnter,
   selectAll,
   selectCharacters,
@@ -118,180 +116,177 @@ test.describe('CodeBlock', () => {
     }
   });
 
-  test('Can select multiple paragraphs and convert to code block', async ({
-    page,
-    isPlainText,
-  }) => {
-    test.skip(isPlainText);
-    await focusEditor(page);
-    await page.keyboard.type('foo');
-    await page.keyboard.press('Enter');
-    await page.keyboard.type('bar');
-    await page.keyboard.press('Enter');
-    await page.keyboard.type('yar');
-    await page.keyboard.press('Enter');
-    await page.keyboard.press('Enter');
-    await page.keyboard.type('meh');
-
-    await selectAll(page);
-
-    await assertHTML(
+  test.describe(() => {
+    test.skip(({isPlainText}) => isPlainText);
+    test('Can select multiple paragraphs and convert to code block', async ({
       page,
-      html`
-        <p class="PlaygroundEditorTheme__paragraph" dir="auto">
-          <span data-lexical-text="true">foo</span>
-        </p>
-        <p class="PlaygroundEditorTheme__paragraph" dir="auto">
-          <span data-lexical-text="true">bar</span>
-        </p>
-        <p class="PlaygroundEditorTheme__paragraph" dir="auto">
-          <span data-lexical-text="true">yar</span>
-        </p>
-        <p class="PlaygroundEditorTheme__paragraph" dir="auto">
-          <br data-lexical-managed-linebreak="true" />
-        </p>
-        <p class="PlaygroundEditorTheme__paragraph" dir="auto">
-          <span data-lexical-text="true">meh</span>
-        </p>
-      `,
-    );
+    }) => {
+      await focusEditor(page);
+      await page.keyboard.type('foo');
+      await page.keyboard.press('Enter');
+      await page.keyboard.type('bar');
+      await page.keyboard.press('Enter');
+      await page.keyboard.type('yar');
+      await page.keyboard.press('Enter');
+      await page.keyboard.press('Enter');
+      await page.keyboard.type('meh');
 
-    await toggleCodeBlock(page);
+      await selectAll(page);
 
-    await assertHTML(
+      await assertHTML(
+        page,
+        html`
+          <p class="PlaygroundEditorTheme__paragraph" dir="auto">
+            <span data-lexical-text="true">foo</span>
+          </p>
+          <p class="PlaygroundEditorTheme__paragraph" dir="auto">
+            <span data-lexical-text="true">bar</span>
+          </p>
+          <p class="PlaygroundEditorTheme__paragraph" dir="auto">
+            <span data-lexical-text="true">yar</span>
+          </p>
+          <p class="PlaygroundEditorTheme__paragraph" dir="auto">
+            <br data-lexical-managed-linebreak="true" />
+          </p>
+          <p class="PlaygroundEditorTheme__paragraph" dir="auto">
+            <span data-lexical-text="true">meh</span>
+          </p>
+        `,
+      );
+
+      await toggleCodeBlock(page);
+
+      await assertHTML(
+        page,
+        html`
+          <code
+            class="PlaygroundEditorTheme__code"
+            dir="auto"
+            spellcheck="false"
+            data-gutter="12345">
+            <span data-lexical-text="true">foo</span>
+            <br />
+            <span data-lexical-text="true">bar</span>
+            <br />
+            <span data-lexical-text="true">yar</span>
+            <br />
+            <br />
+            <span data-lexical-text="true">meh</span>
+          </code>
+        `,
+      );
+    });
+
+    test('Can select partial paragraphs and convert to code block', async ({
       page,
-      html`
-        <code
-          class="PlaygroundEditorTheme__code"
-          dir="auto"
-          spellcheck="false"
-          data-gutter="12345">
-          <span data-lexical-text="true">foo</span>
-          <br />
-          <span data-lexical-text="true">bar</span>
-          <br />
-          <span data-lexical-text="true">yar</span>
-          <br />
-          <br />
-          <span data-lexical-text="true">meh</span>
-        </code>
-      `,
-    );
-  });
+    }) => {
+      await focusEditor(page);
+      await page.keyboard.type('foo');
+      await page.keyboard.press('Enter');
+      await page.keyboard.type('bar');
+      await page.keyboard.press('Enter');
+      await page.keyboard.type('yar');
+      await page.keyboard.press('Enter');
+      await page.keyboard.press('Enter');
+      await page.keyboard.type('meh');
+      await page.keyboard.down('Shift');
+      await moveLeft(page, 10);
+      await page.keyboard.up('Shift');
 
-  test('Can select partial paragraphs and convert to code block', async ({
-    page,
-    isPlainText,
-  }) => {
-    test.skip(isPlainText);
-    await focusEditor(page);
-    await page.keyboard.type('foo');
-    await page.keyboard.press('Enter');
-    await page.keyboard.type('bar');
-    await page.keyboard.press('Enter');
-    await page.keyboard.type('yar');
-    await page.keyboard.press('Enter');
-    await page.keyboard.press('Enter');
-    await page.keyboard.type('meh');
-    await page.keyboard.down('Shift');
-    await moveLeft(page, 10);
-    await page.keyboard.up('Shift');
+      await assertHTML(
+        page,
+        html`
+          <p class="PlaygroundEditorTheme__paragraph" dir="auto">
+            <span data-lexical-text="true">foo</span>
+          </p>
+          <p class="PlaygroundEditorTheme__paragraph" dir="auto">
+            <span data-lexical-text="true">bar</span>
+          </p>
+          <p class="PlaygroundEditorTheme__paragraph" dir="auto">
+            <span data-lexical-text="true">yar</span>
+          </p>
+          <p class="PlaygroundEditorTheme__paragraph" dir="auto">
+            <br data-lexical-managed-linebreak="true" />
+          </p>
+          <p class="PlaygroundEditorTheme__paragraph" dir="auto">
+            <span data-lexical-text="true">meh</span>
+          </p>
+        `,
+      );
 
-    await assertHTML(
+      await toggleCodeBlock(page);
+
+      await assertHTML(
+        page,
+        html`
+          <p class="PlaygroundEditorTheme__paragraph" dir="auto">
+            <span data-lexical-text="true">foo</span>
+          </p>
+          <p class="PlaygroundEditorTheme__paragraph" dir="auto">
+            <span data-lexical-text="true">ba</span>
+          </p>
+          <code
+            class="PlaygroundEditorTheme__code"
+            dir="auto"
+            spellcheck="false"
+            data-gutter="1234">
+            <span data-lexical-text="true">r</span>
+            <br />
+            <span data-lexical-text="true">yar</span>
+            <br />
+            <br />
+            <span data-lexical-text="true">meh</span>
+          </code>
+        `,
+      );
+    });
+
+    test('Can select a line within line breaks and convert to code block', async ({
       page,
-      html`
-        <p class="PlaygroundEditorTheme__paragraph" dir="auto">
-          <span data-lexical-text="true">foo</span>
-        </p>
-        <p class="PlaygroundEditorTheme__paragraph" dir="auto">
-          <span data-lexical-text="true">bar</span>
-        </p>
-        <p class="PlaygroundEditorTheme__paragraph" dir="auto">
-          <span data-lexical-text="true">yar</span>
-        </p>
-        <p class="PlaygroundEditorTheme__paragraph" dir="auto">
-          <br data-lexical-managed-linebreak="true" />
-        </p>
-        <p class="PlaygroundEditorTheme__paragraph" dir="auto">
-          <span data-lexical-text="true">meh</span>
-        </p>
-      `,
-    );
+    }) => {
+      await focusEditor(page);
+      await page.keyboard.type('aaa');
+      await pressShiftEnter(page);
+      await page.keyboard.type('bbb');
+      await pressShiftEnter(page);
+      await page.keyboard.type('ccc');
+      await moveLeft(page, 4);
+      await selectCharacters(page, 'left', 3);
 
-    await toggleCodeBlock(page);
+      await assertHTML(
+        page,
+        html`
+          <p class="PlaygroundEditorTheme__paragraph" dir="auto">
+            <span data-lexical-text="true">aaa</span>
+            <br />
+            <span data-lexical-text="true">bbb</span>
+            <br />
+            <span data-lexical-text="true">ccc</span>
+          </p>
+        `,
+      );
 
-    await assertHTML(
-      page,
-      html`
-        <p class="PlaygroundEditorTheme__paragraph" dir="auto">
-          <span data-lexical-text="true">foo</span>
-        </p>
-        <p class="PlaygroundEditorTheme__paragraph" dir="auto">
-          <span data-lexical-text="true">ba</span>
-        </p>
-        <code
-          class="PlaygroundEditorTheme__code"
-          dir="auto"
-          spellcheck="false"
-          data-gutter="1234">
-          <span data-lexical-text="true">r</span>
-          <br />
-          <span data-lexical-text="true">yar</span>
-          <br />
-          <br />
-          <span data-lexical-text="true">meh</span>
-        </code>
-      `,
-    );
-  });
+      await toggleCodeBlock(page);
 
-  test('Can select a line within line breaks and convert to code block', async ({
-    page,
-    isPlainText,
-  }) => {
-    test.skip(isPlainText);
-    await focusEditor(page);
-    await page.keyboard.type('aaa');
-    await pressShiftEnter(page);
-    await page.keyboard.type('bbb');
-    await pressShiftEnter(page);
-    await page.keyboard.type('ccc');
-    await moveLeft(page, 4);
-    await selectCharacters(page, 'left', 3);
-
-    await assertHTML(
-      page,
-      html`
-        <p class="PlaygroundEditorTheme__paragraph" dir="auto">
-          <span data-lexical-text="true">aaa</span>
-          <br />
-          <span data-lexical-text="true">bbb</span>
-          <br />
-          <span data-lexical-text="true">ccc</span>
-        </p>
-      `,
-    );
-
-    await toggleCodeBlock(page);
-
-    await assertHTML(
-      page,
-      html`
-        <p class="PlaygroundEditorTheme__paragraph" dir="auto">
-          <span data-lexical-text="true">aaa</span>
-        </p>
-        <code
-          class="PlaygroundEditorTheme__code"
-          dir="auto"
-          spellcheck="false"
-          data-gutter="1">
-          <span data-lexical-text="true">bbb</span>
-        </code>
-        <p class="PlaygroundEditorTheme__paragraph" dir="auto">
-          <span data-lexical-text="true">ccc</span>
-        </p>
-      `,
-    );
+      await assertHTML(
+        page,
+        html`
+          <p class="PlaygroundEditorTheme__paragraph" dir="auto">
+            <span data-lexical-text="true">aaa</span>
+          </p>
+          <code
+            class="PlaygroundEditorTheme__code"
+            dir="auto"
+            spellcheck="false"
+            data-gutter="1">
+            <span data-lexical-text="true">bbb</span>
+          </code>
+          <p class="PlaygroundEditorTheme__paragraph" dir="auto">
+            <span data-lexical-text="true">ccc</span>
+          </p>
+        `,
+      );
+    });
   });
 
   test('Can switch highlighting language in a toolbar', async ({
@@ -358,451 +353,167 @@ test.describe('CodeBlock', () => {
     }
   });
 
-  test('Can maintain indent when creating new lines', async ({
-    page,
-    isRichText,
-    isPlainText,
-  }) => {
-    test.skip(isPlainText);
-    await focusEditor(page);
-    await page.keyboard.type('``` alert(1);');
-    await page.keyboard.press('Enter');
-    await click(page, '.toolbar-item.alignment');
-    await click(page, 'button:has-text("Indent")');
-    await page.keyboard.type('alert(2);');
-    await page.keyboard.press('Enter');
-    await page.keyboard.type(';');
-    await assertHTML(
-      page,
-      html`
-        <code
-          class="PlaygroundEditorTheme__code"
-          dir="auto"
-          spellcheck="false"
-          data-gutter="123">
-          <span data-lexical-text="true">alert(1);</span>
-          <br />
-          <span
-            class="PlaygroundEditorTheme__tabNode"
-            data-lexical-text="true"></span>
-          <span data-lexical-text="true">alert(2);</span>
-          <br />
-          <span
-            class="PlaygroundEditorTheme__tabNode"
-            data-lexical-text="true"></span>
-          <span data-lexical-text="true">;</span>
-        </code>
-      `,
-    );
-  });
-
-  test('Can indent text via tab when selecting the line with Shift+Down', async ({
-    page,
-    isRichText,
-    isPlainText,
-  }) => {
-    test.skip(isPlainText);
-    await focusEditor(page);
-    await page.keyboard.type('``` alert(1);');
-    await page.keyboard.press('Enter');
-    await page.keyboard.press('Enter');
-    await page.keyboard.type('alert(2);');
-    await moveToStart(page);
-    await page.keyboard.press('ArrowUp');
-    await page.keyboard.press('ArrowUp');
-    await page.keyboard.down('Shift');
-    await page.keyboard.press('ArrowDown');
-    await page.keyboard.up('Shift');
-    await page.keyboard.press('Tab');
-    await assertHTML(
-      page,
-      html`
-        <code
-          class="PlaygroundEditorTheme__code"
-          dir="auto"
-          spellcheck="false"
-          data-gutter="123">
-          <span
-            class="PlaygroundEditorTheme__tabNode"
-            data-lexical-text="true"></span>
-          <span data-lexical-text="true">alert(1);</span>
-          <br />
-          <br />
-          <span data-lexical-text="true">alert(2);</span>
-        </code>
-      `,
-    );
-  });
-
-  test('Can (un)indent multiple lines at once', async ({
-    page,
-    isRichText,
-    isPlainText,
-  }) => {
-    test.skip(isPlainText);
-    await focusEditor(page);
-    await page.keyboard.type('``` if (x) {');
-    await page.keyboard.press('Enter');
-    await click(page, '.toolbar-item.alignment');
-    await click(page, 'button:has-text("Indent")');
-    await page.keyboard.type('x();');
-    await page.keyboard.press('Enter');
-    await page.keyboard.press('Backspace');
-    await page.keyboard.type('}');
-    await assertHTML(
-      page,
-      html`
-        <code
-          class="PlaygroundEditorTheme__code"
-          dir="auto"
-          spellcheck="false"
-          data-gutter="123">
-          <span data-lexical-text="true">if (x) {</span>
-          <br />
-          <span
-            class="PlaygroundEditorTheme__tabNode"
-            data-lexical-text="true"></span>
-          <span data-lexical-text="true">x();</span>
-          <br />
-          <span data-lexical-text="true">}</span>
-        </code>
-      `,
-    );
-    await page.keyboard.down('Shift');
-    await page.keyboard.press('ArrowUp');
-    await page.keyboard.press('ArrowUp');
-    await page.keyboard.up('Shift');
-    await click(page, '.toolbar-item.alignment');
-    await click(page, 'button:has-text("Indent")');
-    await click(page, '.toolbar-item.alignment');
-    await click(page, 'button:has-text("Indent")');
-    await assertHTML(
-      page,
-      html`
-        <code
-          class="PlaygroundEditorTheme__code"
-          dir="auto"
-          spellcheck="false"
-          data-gutter="123">
-          <span
-            class="PlaygroundEditorTheme__tabNode"
-            data-lexical-text="true"></span>
-          <span
-            class="PlaygroundEditorTheme__tabNode"
-            data-lexical-text="true"></span>
-          <span data-lexical-text="true">if (x) {</span>
-          <br />
-          <span
-            class="PlaygroundEditorTheme__tabNode"
-            data-lexical-text="true"></span>
-          <span
-            class="PlaygroundEditorTheme__tabNode"
-            data-lexical-text="true"></span>
-          <span
-            class="PlaygroundEditorTheme__tabNode"
-            data-lexical-text="true"></span>
-          <span data-lexical-text="true">x();</span>
-          <br />
-          <span
-            class="PlaygroundEditorTheme__tabNode"
-            data-lexical-text="true"></span>
-          <span
-            class="PlaygroundEditorTheme__tabNode"
-            data-lexical-text="true"></span>
-          <span data-lexical-text="true">}</span>
-        </code>
-      `,
-    );
-    await page.keyboard.down('Shift');
-    await click(page, '.toolbar-item.alignment');
-    await click(page, 'button:has-text("Outdent")');
-    await page.keyboard.up('Shift');
-    await assertHTML(
-      page,
-      html`
-        <code
-          class="PlaygroundEditorTheme__code"
-          dir="auto"
-          spellcheck="false"
-          data-gutter="123">
-          <span
-            class="PlaygroundEditorTheme__tabNode"
-            data-lexical-text="true"></span>
-          <span data-lexical-text="true">if (x) {</span>
-          <br />
-          <span
-            class="PlaygroundEditorTheme__tabNode"
-            data-lexical-text="true"></span>
-          <span
-            class="PlaygroundEditorTheme__tabNode"
-            data-lexical-text="true"></span>
-          <span data-lexical-text="true">x();</span>
-          <br />
-          <span
-            class="PlaygroundEditorTheme__tabNode"
-            data-lexical-text="true"></span>
-          <span data-lexical-text="true">}</span>
-        </code>
-      `,
-    );
-    await click(page, '.toolbar-item.alignment');
-    await click(page, 'button:has-text("Outdent")');
-    await click(page, '.toolbar-item.alignment');
-    await click(page, 'button:has-text("Outdent")');
-    await assertHTML(
-      page,
-      html`
-        <code
-          class="PlaygroundEditorTheme__code"
-          dir="auto"
-          spellcheck="false"
-          data-gutter="123">
-          <span data-lexical-text="true">if (x) {</span>
-          <br />
-          <span data-lexical-text="true">x();</span>
-          <br />
-          <span data-lexical-text="true">}</span>
-        </code>
-      `,
-    );
-  });
-
-  test('Can move around lines with option+arrow keys', async ({
-    page,
-    isPlainText,
-  }) => {
-    test.skip(isPlainText);
-    const abcHTML = html`
-      <code
-        class="PlaygroundEditorTheme__code"
-        dir="auto"
-        spellcheck="false"
-        data-gutter="123">
-        <span data-lexical-text="true">a();</span>
-        <br />
-        <span data-lexical-text="true">b();</span>
-        <br />
-        <span data-lexical-text="true">c();</span>
-      </code>
-    `;
-    const bcaHTML = html`
-      <code
-        class="PlaygroundEditorTheme__code"
-        dir="auto"
-        spellcheck="false"
-        data-gutter="123">
-        <span data-lexical-text="true">b();</span>
-        <br />
-        <span data-lexical-text="true">c();</span>
-        <br />
-        <span data-lexical-text="true">a();</span>
-      </code>
-    `;
-    const endOfFirstLine = {
-      anchorOffset: 4,
-      anchorPath: [0, 0, 0],
-      focusOffset: 4,
-      focusPath: [0, 0, 0],
-    };
-    const endOfLastLine = {
-      anchorOffset: 4,
-      anchorPath: [0, 4, 0],
-      focusOffset: 4,
-      focusPath: [0, 4, 0],
-    };
-    await focusEditor(page);
-    await page.keyboard.type('``` a();\nb();\nc();');
-    await assertHTML(page, abcHTML);
-    await assertSelection(page, endOfLastLine);
-    await page.keyboard.press('ArrowUp');
-    await page.keyboard.press('ArrowUp');
-    // Workaround for #1173: just insert and remove a space to fix Firefox losing the selection
-    await page.keyboard.type(' ');
-    await page.keyboard.press('Backspace');
-    await assertSelection(page, endOfFirstLine);
-    // End workaround
-    // Ensure attempting to move a line up at the top of a codeblock no-ops
-    await page.keyboard.down('Alt');
-    await page.keyboard.press('ArrowUp');
-    await assertSelection(page, endOfFirstLine);
-    await assertHTML(page, abcHTML);
-    await page.keyboard.press('ArrowDown');
-    await page.keyboard.press('ArrowDown');
-    await assertSelection(page, endOfLastLine);
-    // Can't move a line down and out of codeblock
-    await assertHTML(page, bcaHTML);
-    await page.keyboard.press('ArrowDown');
-    await assertSelection(page, endOfLastLine);
-    await assertHTML(page, bcaHTML);
-  });
-
-  test('should not prevent selection and typing outside code block boundaries if block has siblings', async ({
-    page,
-    isPlainText,
-  }) => {
-    test.skip(isPlainText);
-
-    await focusEditor(page);
-
-    // make three paragraphs and move on to the middle one
-    await page.keyboard.press('Enter');
-    await page.keyboard.press('Enter');
-    await page.keyboard.press('ArrowUp');
-
-    await page.keyboard.type('console.log("test");');
-    await toggleCodeBlock(page);
-
-    // Selection must at start of the previous paragraph when pressing up
-    await moveToStart(page);
-    await page.keyboard.press('ArrowUp');
-    await assertSelection(page, {
-      anchorOffset: 0,
-      anchorPath: [0],
-      focusOffset: 0,
-      focusPath: [0],
+  test.describe(() => {
+    test.skip(({isPlainText}) => isPlainText);
+    test('Can maintain indent when creating new lines', async ({page}) => {
+      await focusEditor(page);
+      await page.keyboard.type('``` alert(1);');
+      await page.keyboard.press('Enter');
+      await click(page, '.toolbar-item.alignment');
+      await click(page, 'button:has-text("Indent")');
+      await page.keyboard.type('alert(2);');
+      await page.keyboard.press('Enter');
+      await page.keyboard.type(';');
+      await assertHTML(
+        page,
+        html`
+          <code
+            class="PlaygroundEditorTheme__code"
+            dir="auto"
+            spellcheck="false"
+            data-gutter="123">
+            <span data-lexical-text="true">alert(1);</span>
+            <br />
+            <span
+              class="PlaygroundEditorTheme__tabNode"
+              data-lexical-text="true"></span>
+            <span data-lexical-text="true">alert(2);</span>
+            <br />
+            <span
+              class="PlaygroundEditorTheme__tabNode"
+              data-lexical-text="true"></span>
+            <span data-lexical-text="true">;</span>
+          </code>
+        `,
+      );
     });
 
-    await page.keyboard.type('Hello');
-
-    await assertHTML(
-      page,
-      html`
-        <p class="PlaygroundEditorTheme__paragraph" dir="auto">
-          <span data-lexical-text="true">Hello</span>
-        </p>
-        <code
-          class="PlaygroundEditorTheme__code"
-          dir="auto"
-          spellcheck="false"
-          data-gutter="1">
-          <span data-lexical-text="true">console.log("test");</span>
-        </code>
-        <p class="PlaygroundEditorTheme__paragraph" dir="auto">
-          <br data-lexical-managed-linebreak="true" />
-        </p>
-      `,
-    );
-
-    await page.keyboard.press('ArrowDown');
-    await moveToEnd(page);
-
-    // Selection must at the end of code block
-    await assertSelection(page, {
-      anchorOffset: 20,
-      anchorPath: [1, 0, 0],
-      focusOffset: 20,
-      focusPath: [1, 0, 0],
-    });
-
-    // Selection must at the start of next paragraph after another when pressing down
-    await page.keyboard.press('ArrowDown');
-    await assertSelection(page, {
-      anchorOffset: 0,
-      anchorPath: [2],
-      focusOffset: 0,
-      focusPath: [2],
-    });
-
-    await page.keyboard.type('world');
-
-    await assertHTML(
-      page,
-      html`
-        <p class="PlaygroundEditorTheme__paragraph" dir="auto">
-          <span data-lexical-text="true">Hello</span>
-        </p>
-        <code
-          class="PlaygroundEditorTheme__code"
-          dir="auto"
-          spellcheck="false"
-          data-gutter="1">
-          <span data-lexical-text="true">console.log("test");</span>
-        </code>
-        <p class="PlaygroundEditorTheme__paragraph" dir="auto">
-          <span data-lexical-text="true">world</span>
-        </p>
-      `,
-    );
-  });
-
-  test('When pressing CMD/Ctrl + Left, CMD/Ctrl + Right, the cursor should go to the start of the code', async ({
-    page,
-    isPlainText,
-  }) => {
-    test.skip(isPlainText);
-    await focusEditor(page);
-    await page.keyboard.type('``` ');
-    await page.keyboard.press('Space');
-    await click(page, '.toolbar-item.alignment');
-    await click(page, 'button:has-text("Indent")');
-    await page.keyboard.type('a b');
-    await page.keyboard.press('Space');
-    await page.keyboard.press('Enter');
-    await page.keyboard.type('c d');
-    await page.keyboard.press('Space');
-    await assertHTML(
-      page,
-      `
-      <code
-        class="PlaygroundEditorTheme__code"
-        dir="auto"
-        spellcheck="false"
-        data-gutter="12">
-        <span class="PlaygroundEditorTheme__tabNode" data-lexical-text="true"></span>
-        <span data-lexical-text="true">a b</span>
-        <br />
-        <span class="PlaygroundEditorTheme__tabNode" data-lexical-text="true"></span>
-        <span data-lexical-text="true">c d</span>
-      </code>
-    `,
-    );
-
-    await selectCharacters(page, 'left', 11);
-    await assertSelection(page, {
-      anchorOffset: 5,
-      anchorPath: [0, 4, 0],
-      focusOffset: 1,
-      focusPath: [0, 1, 0],
-    });
-
-    await moveToStart(page);
-    await assertSelection(page, {
-      anchorOffset: 0,
-      anchorPath: [0, 0, 0],
-      focusOffset: 0,
-      focusPath: [0, 0, 0],
-    });
-
-    await moveToEnd(page);
-    await assertSelection(page, {
-      anchorOffset: 5,
-      anchorPath: [0, 1, 0],
-      focusOffset: 5,
-      focusPath: [0, 1, 0],
-    });
-
-    await moveToStart(page);
-    await assertSelection(page, {
-      anchorOffset: 1,
-      anchorPath: [0, 1, 0],
-      focusOffset: 1,
-      focusPath: [0, 1, 0],
-    });
-
-    await selectCharacters(page, 'right', 11);
-    await assertSelection(page, {
-      anchorOffset: 1,
-      anchorPath: [0, 1, 0],
-      focusOffset: 5,
-      focusPath: [0, 4, 0],
-    });
-
-    await moveToEnd(page);
-    await assertSelection(page, {
-      anchorOffset: 5,
-      anchorPath: [0, 4, 0],
-      focusOffset: 5,
-      focusPath: [0, 4, 0],
+    test('Can (un)indent multiple lines at once', async ({page}) => {
+      await focusEditor(page);
+      await page.keyboard.type('``` if (x) {');
+      await page.keyboard.press('Enter');
+      await click(page, '.toolbar-item.alignment');
+      await click(page, 'button:has-text("Indent")');
+      await page.keyboard.type('x();');
+      await page.keyboard.press('Enter');
+      await page.keyboard.press('Backspace');
+      await page.keyboard.type('}');
+      await assertHTML(
+        page,
+        html`
+          <code
+            class="PlaygroundEditorTheme__code"
+            dir="auto"
+            spellcheck="false"
+            data-gutter="123">
+            <span data-lexical-text="true">if (x) {</span>
+            <br />
+            <span
+              class="PlaygroundEditorTheme__tabNode"
+              data-lexical-text="true"></span>
+            <span data-lexical-text="true">x();</span>
+            <br />
+            <span data-lexical-text="true">}</span>
+          </code>
+        `,
+      );
+      await page.keyboard.down('Shift');
+      await page.keyboard.press('ArrowUp');
+      await page.keyboard.press('ArrowUp');
+      await page.keyboard.up('Shift');
+      await click(page, '.toolbar-item.alignment');
+      await click(page, 'button:has-text("Indent")');
+      await click(page, '.toolbar-item.alignment');
+      await click(page, 'button:has-text("Indent")');
+      await assertHTML(
+        page,
+        html`
+          <code
+            class="PlaygroundEditorTheme__code"
+            dir="auto"
+            spellcheck="false"
+            data-gutter="123">
+            <span
+              class="PlaygroundEditorTheme__tabNode"
+              data-lexical-text="true"></span>
+            <span
+              class="PlaygroundEditorTheme__tabNode"
+              data-lexical-text="true"></span>
+            <span data-lexical-text="true">if (x) {</span>
+            <br />
+            <span
+              class="PlaygroundEditorTheme__tabNode"
+              data-lexical-text="true"></span>
+            <span
+              class="PlaygroundEditorTheme__tabNode"
+              data-lexical-text="true"></span>
+            <span
+              class="PlaygroundEditorTheme__tabNode"
+              data-lexical-text="true"></span>
+            <span data-lexical-text="true">x();</span>
+            <br />
+            <span
+              class="PlaygroundEditorTheme__tabNode"
+              data-lexical-text="true"></span>
+            <span
+              class="PlaygroundEditorTheme__tabNode"
+              data-lexical-text="true"></span>
+            <span data-lexical-text="true">}</span>
+          </code>
+        `,
+      );
+      await page.keyboard.down('Shift');
+      await click(page, '.toolbar-item.alignment');
+      await click(page, 'button:has-text("Outdent")');
+      await page.keyboard.up('Shift');
+      await assertHTML(
+        page,
+        html`
+          <code
+            class="PlaygroundEditorTheme__code"
+            dir="auto"
+            spellcheck="false"
+            data-gutter="123">
+            <span
+              class="PlaygroundEditorTheme__tabNode"
+              data-lexical-text="true"></span>
+            <span data-lexical-text="true">if (x) {</span>
+            <br />
+            <span
+              class="PlaygroundEditorTheme__tabNode"
+              data-lexical-text="true"></span>
+            <span
+              class="PlaygroundEditorTheme__tabNode"
+              data-lexical-text="true"></span>
+            <span data-lexical-text="true">x();</span>
+            <br />
+            <span
+              class="PlaygroundEditorTheme__tabNode"
+              data-lexical-text="true"></span>
+            <span data-lexical-text="true">}</span>
+          </code>
+        `,
+      );
+      await click(page, '.toolbar-item.alignment');
+      await click(page, 'button:has-text("Outdent")');
+      await click(page, '.toolbar-item.alignment');
+      await click(page, 'button:has-text("Outdent")');
+      await assertHTML(
+        page,
+        html`
+          <code
+            class="PlaygroundEditorTheme__code"
+            dir="auto"
+            spellcheck="false"
+            data-gutter="123">
+            <span data-lexical-text="true">if (x) {</span>
+            <br />
+            <span data-lexical-text="true">x();</span>
+            <br />
+            <span data-lexical-text="true">}</span>
+          </code>
+        `,
+      );
     });
   });
 
@@ -992,113 +703,113 @@ test.describe('CodeBlock', () => {
   });
 
   for (const key of ['ArrowRight', 'ArrowDown']) {
-    test(`${key} key should exit from the code block inside the layout`, async ({
-      page,
-      isPlainText,
-      isCollab,
-    }) => {
-      test.skip(isPlainText || isCollab);
-      await initialize({page});
-      await focusEditor(page);
-
-      await page.keyboard.type('/');
-      await click(page, '.typeahead-popover .icon.columns');
-      await click(page, '.Modal__modal .Modal__content .Button__root');
-
-      // remove empty paragraphs around the layout
-      await moveToEditorEnd(page);
-      await page.keyboard.press('Backspace');
-      await moveToEditorBeginning(page);
-      await page.keyboard.press('Backspace');
-
-      // Focus on first column
-      await click(
+    test.describe(() => {
+      test.skip(({isCollab, isPlainText}) => isPlainText || isCollab);
+      test(`${key} key should exit from the code block inside the layout`, async ({
         page,
-        '.PlaygroundEditorTheme__layoutContainer .PlaygroundEditorTheme__layoutItem:nth-child(1)',
-      );
-      await page.keyboard.type('```');
-      await page.keyboard.press('Enter');
+      }) => {
+        await initialize({page});
+        await focusEditor(page);
 
-      // selection at the code
-      await assertSelection(page, {
-        anchorOffset: 0,
-        anchorPath: [0, 0, 0],
-        focusOffset: 0,
-        focusPath: [0, 0, 0],
-      });
-      await assertHTML(
-        page,
-        html`
-          <div
-            class="PlaygroundEditorTheme__layoutContainer"
-            dir="auto"
-            style="grid-template-columns: 1fr 1fr">
+        await page.keyboard.type('/');
+        await click(page, '.typeahead-popover .icon.columns');
+        await click(page, '.Modal__modal .Modal__content .Button__root');
+
+        // remove empty paragraphs around the layout
+        await moveToEditorEnd(page);
+        await page.keyboard.press('Backspace');
+        await moveToEditorBeginning(page);
+        await page.keyboard.press('Backspace');
+
+        // Focus on first column
+        await click(
+          page,
+          '.PlaygroundEditorTheme__layoutContainer .PlaygroundEditorTheme__layoutItem:nth-child(1)',
+        );
+        await page.keyboard.type('```');
+        await page.keyboard.press('Enter');
+
+        // selection at the code
+        await assertSelection(page, {
+          anchorOffset: 0,
+          anchorPath: [0, 0, 0],
+          focusOffset: 0,
+          focusPath: [0, 0, 0],
+        });
+        await assertHTML(
+          page,
+          html`
             <div
-              class="PlaygroundEditorTheme__layoutItem"
+              class="PlaygroundEditorTheme__layoutContainer"
               dir="auto"
-              data-lexical-layout-item="true">
-              <code
-                class="PlaygroundEditorTheme__code"
+              style="grid-template-columns: 1fr 1fr">
+              <div
+                class="PlaygroundEditorTheme__layoutItem"
                 dir="auto"
-                spellcheck="false"
-                data-gutter="1">
-                <br data-lexical-managed-linebreak="true" />
-              </code>
-            </div>
-            <div
-              class="PlaygroundEditorTheme__layoutItem"
-              dir="auto"
-              data-lexical-layout-item="true">
-              <p class="PlaygroundEditorTheme__paragraph" dir="auto">
-                <br data-lexical-managed-linebreak="true" />
-              </p>
-            </div>
-          </div>
-        `,
-      );
-
-      await page.keyboard.press(key);
-
-      // selection at the new paragraph but inside the layout
-      await assertSelection(page, {
-        anchorOffset: 0,
-        anchorPath: [0, 0, 1],
-        focusOffset: 0,
-        focusPath: [0, 0, 1],
-      });
-      await assertHTML(
-        page,
-        html`
-          <div
-            class="PlaygroundEditorTheme__layoutContainer"
-            dir="auto"
-            style="grid-template-columns: 1fr 1fr">
-            <div
-              class="PlaygroundEditorTheme__layoutItem"
-              dir="auto"
-              data-lexical-layout-item="true">
-              <code
-                class="PlaygroundEditorTheme__code"
+                data-lexical-layout-item="true">
+                <code
+                  class="PlaygroundEditorTheme__code"
+                  dir="auto"
+                  spellcheck="false"
+                  data-gutter="1">
+                  <br data-lexical-managed-linebreak="true" />
+                </code>
+              </div>
+              <div
+                class="PlaygroundEditorTheme__layoutItem"
                 dir="auto"
-                spellcheck="false"
-                data-gutter="1">
-                <br data-lexical-managed-linebreak="true" />
-              </code>
-              <p class="PlaygroundEditorTheme__paragraph" dir="auto">
-                <br data-lexical-managed-linebreak="true" />
-              </p>
+                data-lexical-layout-item="true">
+                <p class="PlaygroundEditorTheme__paragraph" dir="auto">
+                  <br data-lexical-managed-linebreak="true" />
+                </p>
+              </div>
             </div>
+          `,
+        );
+
+        await page.keyboard.press(key);
+
+        // selection at the new paragraph but inside the layout
+        await assertSelection(page, {
+          anchorOffset: 0,
+          anchorPath: [0, 0, 1],
+          focusOffset: 0,
+          focusPath: [0, 0, 1],
+        });
+        await assertHTML(
+          page,
+          html`
             <div
-              class="PlaygroundEditorTheme__layoutItem"
+              class="PlaygroundEditorTheme__layoutContainer"
               dir="auto"
-              data-lexical-layout-item="true">
-              <p class="PlaygroundEditorTheme__paragraph" dir="auto">
-                <br data-lexical-managed-linebreak="true" />
-              </p>
+              style="grid-template-columns: 1fr 1fr">
+              <div
+                class="PlaygroundEditorTheme__layoutItem"
+                dir="auto"
+                data-lexical-layout-item="true">
+                <code
+                  class="PlaygroundEditorTheme__code"
+                  dir="auto"
+                  spellcheck="false"
+                  data-gutter="1">
+                  <br data-lexical-managed-linebreak="true" />
+                </code>
+                <p class="PlaygroundEditorTheme__paragraph" dir="auto">
+                  <br data-lexical-managed-linebreak="true" />
+                </p>
+              </div>
+              <div
+                class="PlaygroundEditorTheme__layoutItem"
+                dir="auto"
+                data-lexical-layout-item="true">
+                <p class="PlaygroundEditorTheme__paragraph" dir="auto">
+                  <br data-lexical-managed-linebreak="true" />
+                </p>
+              </div>
             </div>
-          </div>
-        `,
-      );
+          `,
+        );
+      });
     });
   }
 });

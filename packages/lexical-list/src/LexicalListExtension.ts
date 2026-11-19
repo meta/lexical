@@ -89,17 +89,3 @@ export const CheckListExtension = defineExtension({
   register: (editor, config, state) =>
     registerCheckList(editor, state.getOutput()),
 });
-
-/**
- * Bundles {@link ListImportRules} together with the runtime
- * {@link ListExtension}.
- *
- * @experimental
- * @deprecated {@link ListExtension} now registers
- * {@link ListImportRules} (and `CoreImportExtension`) itself — depend on
- * it directly instead.
- */
-export const ListImportExtension = defineExtension({
-  dependencies: [ListExtension],
-  name: '@lexical/list/Import',
-});

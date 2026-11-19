@@ -40,7 +40,7 @@ const links: CommunityLinkData[] = [
         GitHub
       </Translate>
     ),
-    url: 'https://github.com/facebook/lexical',
+    url: 'https://github.com/meta/lexical',
   },
   {
     description: (

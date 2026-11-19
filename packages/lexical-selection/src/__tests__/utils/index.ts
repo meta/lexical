@@ -89,11 +89,11 @@ if (!Selection.prototype.modify) {
   Selection.prototype.modify = function (alter, direction, granularity) {
     // This is not a thorough implementation, it was more to get tests working
     // given the refactor to use this selection method.
-    const symbol = Object.getOwnPropertySymbols(this)[0];
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const impl = (this as any)[symbol];
-    const focus = impl._focus;
-    const anchor = impl._anchor;
+    if (this.anchorNode === null || this.focusNode === null) {
+      return;
+    }
+    const focus = {node: this.focusNode, offset: this.focusOffset};
+    const anchor = {node: this.anchorNode, offset: this.anchorOffset};
 
     if (granularity === 'character') {
       let anchorNode = anchor.node;
@@ -102,10 +102,10 @@ if (!Selection.prototype.modify) {
 
       if (anchorNode.nodeType === 3) {
         _$isTextNode = true;
-        anchorNode = anchorNode.parentElement;
+        anchorNode = anchorNode.parentElement!;
       } else if (anchorNode.nodeName === 'BR') {
-        const parentNode = anchorNode.parentElement;
-        const childNodes = Array.from(parentNode.childNodes);
+        const parentNode = anchorNode.parentElement!;
+        const childNodes = Array.from<Node>(parentNode.childNodes);
         anchorOffset = childNodes.indexOf(anchorNode);
         anchorNode = parentNode;
       }
@@ -116,50 +116,48 @@ if (!Selection.prototype.modify) {
 
           if (prevSibling === null) {
             prevSibling =
-              anchorNode.parentElement.previousSibling?.lastChild ?? null;
+              anchorNode.parentElement!.previousSibling?.lastChild ?? null;
           }
           if (prevSibling) {
             if (prevSibling.nodeName === 'P') {
-              prevSibling = prevSibling.firstChild;
+              prevSibling = prevSibling.firstChild!;
             }
 
             if (prevSibling.nodeName === 'BR') {
               anchor.node = prevSibling;
               anchor.offset = 0;
             } else {
-              anchor.node = prevSibling.firstChild;
-              anchor.offset = anchor.node.nodeValue.length - 1;
+              anchor.node = prevSibling.firstChild!;
+              anchor.offset = anchor.node.nodeValue!.length - 1;
             }
           }
         } else if (!_$isTextNode) {
           anchor.node = anchorNode.childNodes[anchorOffset - 1];
-          anchor.offset = anchor.node.nodeValue.length - 1;
+          anchor.offset = anchor.node.nodeValue!.length - 1;
         } else {
           anchor.offset--;
         }
       } else {
         if (
-          (_$isTextNode && anchorOffset === anchorNode.textContent.length) ||
+          (_$isTextNode && anchorOffset === anchorNode.textContent!.length) ||
           (!_$isTextNode &&
             (anchorNode.childNodes.length === anchorOffset ||
               (anchorNode.childNodes.length === 1 &&
-                anchorNode.firstChild.nodeName === 'BR')))
+                anchorNode.firstChild!.nodeName === 'BR')))
         ) {
-          let nextSibling = anchorNode.nextSibling;
-
-          if (nextSibling === null) {
-            nextSibling = anchorNode.parentElement.nextSibling.lastChild;
-          }
+          let nextSibling =
+            anchorNode.nextSibling ??
+            anchorNode.parentElement!.nextSibling!.lastChild!;
 
           if (nextSibling.nodeName === 'P') {
-            nextSibling = nextSibling.lastChild;
+            nextSibling = nextSibling.lastChild!;
           }
 
           if (nextSibling.nodeName === 'BR') {
             anchor.node = nextSibling;
             anchor.offset = 0;
           } else {
-            anchor.node = nextSibling.firstChild;
+            anchor.node = nextSibling.firstChild!;
             anchor.offset = 0;
           }
         } else {
@@ -218,6 +216,7 @@ if (!Selection.prototype.modify) {
       focus.offset = anchor.offset;
       focus.node = anchor.node;
     }
+    this.setBaseAndExtent(anchor.node, anchor.offset, focus.node, focus.offset);
   };
 }
 

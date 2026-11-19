@@ -21,7 +21,7 @@ export type HistoryState = {
   undoStack: HistoryStateEntry[],
 };
 
-declare export function HistoryPlugin({
+declare export function HistoryPlugin(v: {
   externalHistoryState?: HistoryState,
 }): React.Node;
 

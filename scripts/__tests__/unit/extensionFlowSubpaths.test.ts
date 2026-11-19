@@ -35,7 +35,9 @@ function flowExports(filename: string) {
 
 describe('extension Flow subpaths', () => {
   for (const {name, sourceFileName} of pkg.getExportedNpmModuleEntries()) {
-    it(`declares all exports of ${name}`, () => {
+    // The first test starts the TypeScript checker: about 2.5 s alone, over
+    // vitest's default 5 s limit when the whole suite runs.
+    it(`declares all exports of ${name}`, {timeout: 30_000}, () => {
       const source = project.addSourceFileAtPath(
         pkg.resolve('src', sourceFileName),
       );

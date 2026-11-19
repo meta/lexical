@@ -22,16 +22,15 @@ import {
   toggleRowHeader,
 } from '../utils/index.mjs';
 
+test.skip(({isPlainText}) => isPlainText, 'Requires rich text');
+
 test.describe('Regression test #7266', () => {
   test.beforeEach(({isCollab, page}) => initialize({isCollab, page}));
 
   test('toggling column header with merged column cells should only apply column header to the selected column', async ({
     page,
-    isPlainText,
     isCollab,
   }) => {
-    test.skip(isPlainText);
-
     await initialize({isCollab, page});
 
     await focusEditor(page);
@@ -176,11 +175,8 @@ test.describe('Regression test #7266', () => {
 
   test('toggling column header applies to the grid column of the clicked cell, not its index among its row children', async ({
     page,
-    isPlainText,
     isCollab,
   }) => {
-    test.skip(isPlainText);
-
     await initialize({isCollab, page});
 
     await focusEditor(page);
@@ -223,11 +219,8 @@ test.describe('Regression test #7266', () => {
 
   test('toggling row header with merged row cells should only apply row header to the selected row', async ({
     page,
-    isPlainText,
     isCollab,
   }) => {
-    test.skip(isPlainText);
-
     await initialize({isCollab, page});
 
     await focusEditor(page);

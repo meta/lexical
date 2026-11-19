@@ -6,6 +6,8 @@
  *
  */
 
+// @vitest-environment node
+
 import {$firstToLastIterator, $lastToFirstIterator} from '@lexical/utils';
 import {
   $createParagraphNode,

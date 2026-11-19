@@ -32,6 +32,7 @@ import {
   SELECTION_CHANGE_COMMAND,
 } from 'lexical';
 import {assert, expect, onTestFinished, test, vi} from 'vitest';
+import {userEvent} from 'vitest/browser';
 
 function mount() {
   const root = document.createElement('div');
@@ -49,6 +50,71 @@ function mount() {
   });
   return {editor, root};
 }
+
+function mountTable() {
+  const fixture = mount();
+  fixture.editor.update(
+    () => {
+      const table = $createTableNodeWithDimensions(2, 2);
+      table.setColWidths([92, 92]);
+      $getRoot()
+        .clear()
+        .append($createParagraphNode(), table, $createParagraphNode());
+      table.selectStart();
+    },
+    {discrete: true},
+  );
+  window.focus();
+  fixture.root.focus();
+  return fixture;
+}
+
+test('a DOM caret on a col element resolves into the first cell', async () => {
+  const {root} = mountTable();
+  await userEvent.keyboard('{Tab}{Tab}{Tab}last');
+  const cells = root.querySelectorAll('th, td');
+  expect(cells[3].textContent).toBe('last');
+  const col = root.querySelector('table > colgroup > col');
+  assert(col !== null);
+  window.getSelection()!.setBaseAndExtent(col, 0, col, 0);
+  await expect
+    .poll(() => window.getSelection()?.anchorNode?.nodeName ?? null)
+    .not.toMatch(/^COL(GROUP)?$/);
+  await userEvent.keyboard('X');
+  expect(cells[0].textContent).toBe('X');
+  expect(cells[3].textContent).toBe('last');
+});
+
+test('converts TableSelection to RangeSelection when DOM focus extends onto the editor root (#8584)', async () => {
+  const {editor, root} = mountTable();
+  editor.update(
+    () => {
+      const table = $getRoot().getChildAtIndex(1);
+      assert($isTableNode(table));
+      const rows = table.getChildren();
+      assert(rows.every($isTableRowNode));
+      const cells = rows.flatMap(row => row.getChildren());
+      const first = cells[0];
+      const last = cells[3];
+      assert($isTableCellNode(first) && $isTableCellNode(last));
+      $setSelection($createTableSelectionFrom(table, first, last));
+    },
+    {discrete: true},
+  );
+  expect(editor.read(() => $isTableSelection($getSelection()))).toBe(true);
+  const firstCell = root.querySelector('th, td')!;
+  window
+    .getSelection()!
+    .setBaseAndExtent(firstCell, 0, root, root.childNodes.length);
+  await expect
+    .poll(() =>
+      editor.read(() => ({
+        isRange: $isRangeSelection($getSelection()),
+        isTable: $isTableSelection($getSelection()),
+      })),
+    )
+    .toEqual({isRange: true, isTable: false});
+});
 
 test.each(['caret', 'range', 'table'])(
   'selects a newly created table before its DOM exists (%s)',

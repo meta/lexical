@@ -78,7 +78,7 @@ function buildLexicalWebpackAliases() {
 }
 
 const TITLE = 'Lexical';
-const GITHUB_REPO_URL = 'https://github.com/facebook/lexical'; // TODO: Update when repo name updated
+const GITHUB_REPO_URL = 'https://github.com/meta/lexical';
 const DISCORD_URL = 'https://discord.gg/KmG4wQnnD9';
 
 function sourceLinkOptions() {
@@ -331,7 +331,7 @@ function getCloudflareRepository(): string[] {
       // Direct uploads may have no git checkout; keep the canonical fallback.
     }
   }
-  return ['facebook', 'lexical'];
+  return ['meta', 'lexical'];
 }
 
 const [repoOwner, repoSlug] = getCloudflareRepository();
@@ -379,15 +379,33 @@ const config: Config = {
     parseFrontMatter,
     preprocessor: ({fileContent}: {fileContent: string}) =>
       fileContent.replaceAll(
-        'https://stackblitz.com/github/facebook/lexical/tree/main/',
+        'https://stackblitz.com/github/meta/lexical/tree/main/',
         STACKBLITZ_PREFIX,
       ),
   },
 
   onBrokenAnchors: 'throw',
   onBrokenLinks: 'throw',
-  organizationName: 'facebook',
+  organizationName: 'meta',
+  // These are the parts of @docusaurus/preset-classic this site uses, listed
+  // directly. The preset would also install theme-search-algolia (and its
+  // @docsearch/* and AI SDK dependencies) even though search comes from
+  // @easyops-cn/docusaurus-search-local below.
   plugins: [
+    [
+      '@docusaurus/plugin-content-docs',
+      {
+        beforeDefaultRemarkPlugins: [slugifyPlugin],
+        editUrl: `${GITHUB_REPO_URL}/tree/main/packages/lexical-website/`,
+        path: 'docs',
+        sidebarItemsGenerator,
+        sidebarPath: require.resolve('./sidebars.js'),
+      } satisfies DocsPluginOptions,
+    ],
+    '@docusaurus/plugin-content-pages',
+    ['@docusaurus/plugin-google-gtag', {trackingID: 'G-7C6YYBYBBT'}],
+    process.env.NODE_ENV === 'production' ? '@docusaurus/plugin-sitemap' : null,
+    '@docusaurus/plugin-svgr',
     process.env.FB_INTERNAL
       ? null
       : [
@@ -495,34 +513,12 @@ const config: Config = {
         redirects: [
           {
             from: '/2024-recap',
-            to: 'https://github.com/facebook/lexical/discussions/7220',
+            to: 'https://github.com/meta/lexical/discussions/7220',
           },
         ],
       },
     ],
   ].filter(plugin => plugin != null),
-  presets: [
-    [
-      'classic',
-      {
-        blog: false,
-        docs: {
-          beforeDefaultRemarkPlugins: [slugifyPlugin],
-          editUrl: `${GITHUB_REPO_URL}/tree/main/packages/lexical-website/`,
-          path: 'docs',
-          sidebarItemsGenerator,
-          sidebarPath: require.resolve('./sidebars.js'),
-        },
-        gtag: {
-          trackingID: 'G-7C6YYBYBBT',
-        },
-        theme: {
-          customCss: require.resolve('./src/css/custom.css'),
-        },
-      },
-    ],
-  ],
-
   // Usually your GitHub org/user name.
   projectName: 'lexical',
 
@@ -595,6 +591,10 @@ const config: Config = {
   },
 
   themes: [
+    [
+      '@docusaurus/theme-classic',
+      {customCss: require.resolve('./src/css/custom.css')},
+    ],
     '@docusaurus/theme-mermaid',
     [
       require.resolve('@easyops-cn/docusaurus-search-local'),

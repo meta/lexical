@@ -6,6 +6,8 @@
  *
  */
 
+// @vitest-environment node
+
 import {generateContent} from '@lexical/devtools-core';
 import {buildEditorFromExtensions, defineExtension} from '@lexical/extension';
 import {

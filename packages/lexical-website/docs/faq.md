@@ -30,7 +30,7 @@ This is when we decided to leverage the "lexical" scope instead to perform `Edit
 ```js
 editor.update(() => ...);
 editor.registerNodeTransform(FooNode, () => ...);
-editor.getEditorState().read(...);
+editor.read('latest', ...);
 ```
 
 If you've used React Hooks before, you can think of `$` functions as being something that follows a similar pattern. These are functions that show their intent as to where they can or cannot be used. This makes it possible for a developer to create their own functions that give the same signal, by simply prefixing the function with the dollar.

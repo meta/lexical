@@ -6,4 +6,4 @@ A rich text editor configured with one root extension. It composes `RichTextExte
 
 **Run it locally:** `pnpm i && pnpm run dev`
 
-[![Open in StackBlitz](https://developer.stackblitz.com/img/open_in_stackblitz.svg)](https://stackblitz.com/github/facebook/lexical/tree/main/examples/vanilla-js?file=src/main.ts)
+[![Open in StackBlitz](https://developer.stackblitz.com/img/open_in_stackblitz.svg)](https://stackblitz.com/github/meta/lexical/tree/main/examples/vanilla-js?file=src/main.ts)

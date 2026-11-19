@@ -6,7 +6,7 @@
 `@experimental` and may change between any two Lexical releases —
 including breaking renames, signature changes, or behavior changes —
 until the API stabilizes. We track issues and proposals in the
-[GitHub repo](https://github.com/facebook/lexical); breaking changes
+[GitHub repo](https://github.com/meta/lexical); breaking changes
 will be called out in release notes. Apps that depend on this
 pipeline should pin their Lexical version and treat upgrades as
 intentional.
@@ -97,11 +97,6 @@ baseline comes along automatically. The rules are inert unless the
 editor actually routes HTML through the pipeline (the legacy paste
 path is unchanged), and an extension's rules merge above its
 dependencies' rules, so app-registered rules still win dispatch.
-
-The standalone `RichTextImportExtension` / `ListImportExtension` /
-`LinkImportExtension` / `TableImportExtension` / `CodeImportExtension`
-/ `HorizontalRuleImportExtension` bundles from earlier versions still
-exist as deprecated aliases for the corresponding runtime extensions.
 
 :::tip
 
@@ -577,9 +572,10 @@ whitespace if its `nodeName` is `'PRE'` or its inline `style.whiteSpace`
 starts with `'pre'`; an element is inline if its inline `style.display`
 starts with `'inline'` or its tag name is in the standard inline-tag
 set used by lexical core's `isInlineDomNode` / `isBlockDomNode`
-helpers (`a`, `abbr`, `acronym`, `b`, `cite`, `code`, `del`, `em`,
-`i`, `ins`, `kbd`, `label`, `mark`, `output`, `q`, `ruby`, `s`,
-`samp`, `span`, `strong`, `sub`, `sup`, `time`, `u`, `tt`, `var`).
+helpers (`a`, `abbr`, `acronym`, `b`, `bdi`, `bdo`, `big`, `cite`,
+`code`, `data`, `del`, `dfn`, `em`, `font`, `i`, `ins`, `kbd`, `label`,
+`mark`, `nobr`, `output`, `q`, `ruby`, `s`, `samp`, `small`, `span`,
+`strike`, `strong`, `sub`, `sup`, `time`, `u`, `tt`, `var`).
 The canonical list lives in `packages/lexical/src/LexicalUtils.ts` —
 see the module-private `INLINE_TAG_RE` / `BLOCK_TAG_RE` constants if you
 want to inspect the defaults.
@@ -925,7 +921,7 @@ defineExtension({
 
 See `packages/lexical-list/src/__tests__/unit/ListImportExtension.test.ts`
 ("MS Word paste — preprocess-installed overlay") for a worked unit
-test, and [`dev-examples/dom-import`](https://github.com/facebook/lexical/tree/main/dev-examples/dom-import)
+test, and [`dev-examples/dom-import`](https://github.com/meta/lexical/tree/main/dev-examples/dom-import)
 for a running editor that exercises the same overlay end-to-end (a
 reduced rich-text editor with lists, tables, code blocks, markdown
 shortcuts, and an "Import HTML" dialog so you can paste raw HTML
@@ -961,6 +957,15 @@ export interface ClipboardImportConfig {
 - `priority` — a per-MIME-type weight map (`Record<string, number>`,
   lower runs first). Composable: each extension contributes weights
   for its own MIME types without coordinating with others.
+
+`$next(data?, selection?)` can replace the data, selection, or both for the
+remaining handlers in the same MIME-type stack. Omitted arguments retain
+the values received by the current handler, so `$next()`
+is equivalent to `$next(data, selection)`. For example, `$next(cleanedData)`
+changes only the data, and `$next(data, otherSelection)` changes only
+the selection. An empty string is forwarded as-is; it does not automatically
+fall back to another MIME type. These replacements do not modify the original
+`DataTransfer` or the arguments used when trying another MIME type.
 
 ```ts
 configExtension(ClipboardImportExtension, {
@@ -1002,44 +1007,45 @@ defineExtension({
 });
 ```
 
-If you need to customize the per-MIME stack (e.g. inspect the HTML
-before walking, or pre-strip a known wrapper), stack your own handler
-manually via `configExtension(ClipboardImportExtension, …)` instead:
+Apps that don't configure `ClipboardImportExtension` keep the legacy
+behavior — `$insertDataTransferForRichText` falls back to the same
+defaults the legacy code path uses, including the legacy
+`$generateNodesFromDOM` for HTML.
+
+### Transforming pasted HTML
+
+:::tip
+
+Use HTML transforms when integrating libraries that accept and return HTML
+strings. For DOM-based normalization, prefer a [DOM import preprocessor](#preprocessors).
+It works directly on the parsed DOM, avoiding an extra serialization and parse.
+See [`WordListImportExtension`](#walk-wide-overlays-installed-by-a-preprocessor)
+and [`$inlineStylesFromStyleSheets`](#inlinestylesfromstylesheets) for examples.
+
+:::
+
+Use extension dependencies to enforce handler ordering. A transform's
+configuration is applied after its dependencies, so its handler runs first.
+
+**To use `ClipboardDOMImportExtension`**, declare it as a dependency of your
+transform extension:
 
 ```ts
-import {$getEditor, configExtension, defineExtension} from 'lexical';
 import {
+  ClipboardDOMImportExtension,
   ClipboardImportExtension,
-  $insertGeneratedNodes,
 } from '@lexical/clipboard';
-import {
-  $generateNodesFromDOMViaExtension,
-  contextValue,
-  CoreImportExtension,
-  DOMImportExtension,
-  ImportSource,
-  ImportSourceDataTransfer,
-} from '@lexical/html';
+import {configExtension, defineExtension} from 'lexical';
+import {normalizePastedHTML} from './normalizePastedHTML';
 
-defineExtension({
-  name: 'app',
+const TransformPastedHTMLExtension = defineExtension({
+  name: 'app/TransformPastedHTML',
   dependencies: [
-    CoreImportExtension,
+    ClipboardDOMImportExtension,
     configExtension(ClipboardImportExtension, {
       $importMimeType: {
         'text/html': [
-          (html, selection, _$next, dataTransfer) => {
-            const parser = new DOMParser();
-            const dom = parser.parseFromString(html, 'text/html');
-            const nodes = $generateNodesFromDOMViaExtension(dom, {
-              context: [
-                contextValue(ImportSource, 'paste'),
-                contextValue(ImportSourceDataTransfer, dataTransfer),
-              ],
-            });
-            $insertGeneratedNodes($getEditor(), nodes, selection);
-            return true;
-          },
+          (html, _selection, $next) => $next(normalizePastedHTML(html)),
         ],
       },
     }),
@@ -1047,16 +1053,51 @@ defineExtension({
 });
 ```
 
-Apps that don't configure `ClipboardImportExtension` keep the legacy
-behavior — `$insertDataTransferForRichText` falls back to the same
-defaults the legacy code path uses, including the legacy
-`$generateNodesFromDOM` for HTML.
+Add `TransformPastedHTMLExtension` to your root dependencies. This includes
+`ClipboardDOMImportExtension` and guarantees that the transform runs before
+its HTML importer, passing the transformed HTML to it through `$next`.
+
+**To support either importer**, declare `ClipboardDOMImportExtension` as an
+optional peer dependency:
+
+```ts
+import {
+  type ClipboardDOMImportExtension,
+  ClipboardImportExtension,
+} from '@lexical/clipboard';
+import {configExtension, declarePeerDependency, defineExtension} from 'lexical';
+import {normalizePastedHTML} from './normalizePastedHTML';
+
+const TransformPastedHTMLForEitherImporterExtension = defineExtension({
+  name: 'app/TransformPastedHTMLForEitherImporter',
+  dependencies: [
+    configExtension(ClipboardImportExtension, {
+      $importMimeType: {
+        'text/html': [
+          (html, _selection, $next) => $next(normalizePastedHTML(html)),
+        ],
+      },
+    }),
+  ],
+  peerDependencies: [
+    declarePeerDependency<typeof ClipboardDOMImportExtension>(
+      '@lexical/clipboard/DOMImport',
+    ),
+  ],
+});
+```
+
+Add `TransformPastedHTMLForEitherImporterExtension` to your root dependencies.
+When the editor includes `ClipboardDOMImportExtension`, the peer dependency
+makes this extension's clipboard configuration apply after the DOM importer's
+configuration, so the transform runs first. Otherwise, the transform runs
+before the legacy default HTML importer.
 
 ### `ImportSourceDataTransfer`
 
 A builtin `ImportStateConfig<DataTransfer | null>` slot for surfacing
 the original paste/drop `DataTransfer` to import rules and
-preprocessors. The clipboard handler shown above forwards it via
+preprocessors. `ClipboardDOMImportExtension` forwards it via
 `context`; rules can then read it during the walk:
 
 ```ts
@@ -1183,7 +1224,7 @@ attaches them via the normal `ElementNode.splice` primitive.
 ### Concrete example: playground
 
 The lexical-playground application was migrated in
-[#8590](https://github.com/facebook/lexical/pull/8590), which should
+[#8590](https://github.com/meta/lexical/pull/8590), which should
 be a good example of what it would take to move an entire application
 from `importDOM` to `DOMImportExtension` (while adding test coverage).
 

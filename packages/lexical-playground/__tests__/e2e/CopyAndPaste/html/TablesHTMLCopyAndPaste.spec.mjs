@@ -17,810 +17,269 @@ import {
   test,
 } from '../../../utils/index.mjs';
 
+test.skip(({isPlainText}) => isPlainText, 'Requires rich text');
+
 test.describe('HTML Tables CopyAndPaste', () => {
   test.beforeEach(({isCollab, page}) =>
     initialize({isCollab, page, tableHorizontalScroll: false}),
   );
 
-  test('Copy + paste (Table - Google Docs)', async ({
-    page,
-    isPlainText,
-    isCollab,
-  }) => {
-    test.skip(isPlainText);
-
+  test.describe(() => {
     test.fixme(
-      isCollab,
+      ({isCollab}) => isCollab,
       'Table selection styles are not properly synced to the right hand frame',
     );
+    test('Copy + paste (Table - Google Docs)', async ({page}) => {
+      await focusEditor(page);
 
-    await focusEditor(page);
+      const clipboard = {
+        'text/html': `<meta charset='utf-8'><meta charset="utf-8"><b style="font-weight:normal;" id="docs-internal-guid-225f7a7a-7fff-443e-8b2c-f0b1bb6cdc1c"><div dir="ltr" style="margin-left:0pt;" align="left"><table style="border:none;border-collapse:collapse;table-layout:fixed;width:468pt"><colgroup><col /><col /><col /></colgroup><tbody><tr style="height:0pt"><td style="border-left:solid #000000 1pt;border-right:solid #000000 1pt;border-bottom:solid #000000 1pt;border-top:solid #000000 1pt;vertical-align:top;padding:5pt 5pt 5pt 5pt;overflow:hidden;overflow-wrap:break-word;"><p dir="ltr" style="line-height:1.2;margin-top:0pt;margin-bottom:0pt;"><span style="font-size:11pt;font-family:Arial;color:#000000;background-color:transparent;font-weight:400;font-style:normal;font-variant:normal;text-decoration:none;vertical-align:baseline;white-space:pre;white-space:pre-wrap;">a</span></p></td><td style="border-left:solid #000000 1pt;border-right:solid #000000 1pt;border-bottom:solid #000000 1pt;border-top:solid #000000 1pt;vertical-align:top;padding:5pt 5pt 5pt 5pt;overflow:hidden;overflow-wrap:break-word;"><p dir="ltr" style="line-height:1.2;margin-top:0pt;margin-bottom:0pt;"><span style="font-size:11pt;font-family:Arial;color:#000000;background-color:transparent;font-weight:400;font-style:normal;font-variant:normal;text-decoration:none;vertical-align:baseline;white-space:pre;white-space:pre-wrap;">b</span></p><p dir="ltr" style="line-height:1.2;margin-top:0pt;margin-bottom:0pt;"><span style="font-size:11pt;font-family:Arial;color:#000000;background-color:transparent;font-weight:400;font-style:normal;font-variant:normal;text-decoration:none;vertical-align:baseline;white-space:pre;white-space:pre-wrap;">b</span></p></td><td style="border-left:solid #000000 1pt;border-right:solid #000000 1pt;border-bottom:solid #000000 1pt;border-top:solid #000000 1pt;vertical-align:top;padding:5pt 5pt 5pt 5pt;overflow:hidden;overflow-wrap:break-word;"><p dir="ltr" style="line-height:1.2;margin-top:0pt;margin-bottom:0pt;"><span style="font-size:11pt;font-family:Arial;color:#000000;background-color:transparent;font-weight:400;font-style:normal;font-variant:normal;text-decoration:none;vertical-align:baseline;white-space:pre;white-space:pre-wrap;">c</span></p></td></tr><tr style="height:0pt"><td style="border-left:solid #000000 1pt;border-right:solid #000000 1pt;border-bottom:solid #000000 1pt;border-top:solid #000000 1pt;vertical-align:top;padding:5pt 5pt 5pt 5pt;overflow:hidden;overflow-wrap:break-word;"><p dir="ltr" style="line-height:1.2;margin-top:0pt;margin-bottom:0pt;"><span style="font-size:11pt;font-family:Arial;color:#000000;background-color:transparent;font-weight:400;font-style:normal;font-variant:normal;text-decoration:none;vertical-align:baseline;white-space:pre;white-space:pre-wrap;">d</span></p></td><td style="border-left:solid #000000 1pt;border-right:solid #000000 1pt;border-bottom:solid #000000 1pt;border-top:solid #000000 1pt;vertical-align:top;padding:5pt 5pt 5pt 5pt;overflow:hidden;overflow-wrap:break-word;"><p dir="ltr" style="line-height:1.2;margin-top:0pt;margin-bottom:0pt;"><span style="font-size:11pt;font-family:Arial;color:#000000;background-color:transparent;font-weight:400;font-style:normal;font-variant:normal;text-decoration:none;vertical-align:baseline;white-space:pre;white-space:pre-wrap;">e</span></p></td><td style="border-left:solid #000000 1pt;border-right:solid #000000 1pt;border-bottom:solid #000000 1pt;border-top:solid #000000 1pt;vertical-align:top;padding:5pt 5pt 5pt 5pt;overflow:hidden;overflow-wrap:break-word;"><p dir="ltr" style="line-height:1.2;margin-top:0pt;margin-bottom:0pt;"><span style="font-size:11pt;font-family:Arial;color:#000000;background-color:transparent;font-weight:400;font-style:normal;font-variant:normal;text-decoration:none;vertical-align:baseline;white-space:pre;white-space:pre-wrap;">f</span></p></td></tr></tbody></table></div></b>`,
+      };
 
-    const clipboard = {
-      'text/html': `<meta charset='utf-8'><meta charset="utf-8"><b style="font-weight:normal;" id="docs-internal-guid-225f7a7a-7fff-443e-8b2c-f0b1bb6cdc1c"><div dir="ltr" style="margin-left:0pt;" align="left"><table style="border:none;border-collapse:collapse;table-layout:fixed;width:468pt"><colgroup><col /><col /><col /></colgroup><tbody><tr style="height:0pt"><td style="border-left:solid #000000 1pt;border-right:solid #000000 1pt;border-bottom:solid #000000 1pt;border-top:solid #000000 1pt;vertical-align:top;padding:5pt 5pt 5pt 5pt;overflow:hidden;overflow-wrap:break-word;"><p dir="ltr" style="line-height:1.2;margin-top:0pt;margin-bottom:0pt;"><span style="font-size:11pt;font-family:Arial;color:#000000;background-color:transparent;font-weight:400;font-style:normal;font-variant:normal;text-decoration:none;vertical-align:baseline;white-space:pre;white-space:pre-wrap;">a</span></p></td><td style="border-left:solid #000000 1pt;border-right:solid #000000 1pt;border-bottom:solid #000000 1pt;border-top:solid #000000 1pt;vertical-align:top;padding:5pt 5pt 5pt 5pt;overflow:hidden;overflow-wrap:break-word;"><p dir="ltr" style="line-height:1.2;margin-top:0pt;margin-bottom:0pt;"><span style="font-size:11pt;font-family:Arial;color:#000000;background-color:transparent;font-weight:400;font-style:normal;font-variant:normal;text-decoration:none;vertical-align:baseline;white-space:pre;white-space:pre-wrap;">b</span></p><p dir="ltr" style="line-height:1.2;margin-top:0pt;margin-bottom:0pt;"><span style="font-size:11pt;font-family:Arial;color:#000000;background-color:transparent;font-weight:400;font-style:normal;font-variant:normal;text-decoration:none;vertical-align:baseline;white-space:pre;white-space:pre-wrap;">b</span></p></td><td style="border-left:solid #000000 1pt;border-right:solid #000000 1pt;border-bottom:solid #000000 1pt;border-top:solid #000000 1pt;vertical-align:top;padding:5pt 5pt 5pt 5pt;overflow:hidden;overflow-wrap:break-word;"><p dir="ltr" style="line-height:1.2;margin-top:0pt;margin-bottom:0pt;"><span style="font-size:11pt;font-family:Arial;color:#000000;background-color:transparent;font-weight:400;font-style:normal;font-variant:normal;text-decoration:none;vertical-align:baseline;white-space:pre;white-space:pre-wrap;">c</span></p></td></tr><tr style="height:0pt"><td style="border-left:solid #000000 1pt;border-right:solid #000000 1pt;border-bottom:solid #000000 1pt;border-top:solid #000000 1pt;vertical-align:top;padding:5pt 5pt 5pt 5pt;overflow:hidden;overflow-wrap:break-word;"><p dir="ltr" style="line-height:1.2;margin-top:0pt;margin-bottom:0pt;"><span style="font-size:11pt;font-family:Arial;color:#000000;background-color:transparent;font-weight:400;font-style:normal;font-variant:normal;text-decoration:none;vertical-align:baseline;white-space:pre;white-space:pre-wrap;">d</span></p></td><td style="border-left:solid #000000 1pt;border-right:solid #000000 1pt;border-bottom:solid #000000 1pt;border-top:solid #000000 1pt;vertical-align:top;padding:5pt 5pt 5pt 5pt;overflow:hidden;overflow-wrap:break-word;"><p dir="ltr" style="line-height:1.2;margin-top:0pt;margin-bottom:0pt;"><span style="font-size:11pt;font-family:Arial;color:#000000;background-color:transparent;font-weight:400;font-style:normal;font-variant:normal;text-decoration:none;vertical-align:baseline;white-space:pre;white-space:pre-wrap;">e</span></p></td><td style="border-left:solid #000000 1pt;border-right:solid #000000 1pt;border-bottom:solid #000000 1pt;border-top:solid #000000 1pt;vertical-align:top;padding:5pt 5pt 5pt 5pt;overflow:hidden;overflow-wrap:break-word;"><p dir="ltr" style="line-height:1.2;margin-top:0pt;margin-bottom:0pt;"><span style="font-size:11pt;font-family:Arial;color:#000000;background-color:transparent;font-weight:400;font-style:normal;font-variant:normal;text-decoration:none;vertical-align:baseline;white-space:pre;white-space:pre-wrap;">f</span></p></td></tr></tbody></table></div></b>`,
-    };
+      await pasteFromClipboard(page, clipboard);
 
-    await pasteFromClipboard(page, clipboard);
-
-    await assertHTML(
-      page,
-      html`
-        <table class="PlaygroundEditorTheme__table" dir="auto">
-          <colgroup>
-            <col style="width: 92px" />
-            <col style="width: 92px" />
-            <col style="width: 92px" />
-          </colgroup>
-          <tr dir="auto">
-            <td class="PlaygroundEditorTheme__tableCell" dir="auto">
-              <p class="PlaygroundEditorTheme__paragraph" dir="ltr">
-                <span style="font-size: 11pt" data-lexical-text="true">a</span>
-              </p>
-            </td>
-            <td class="PlaygroundEditorTheme__tableCell" dir="auto">
-              <p class="PlaygroundEditorTheme__paragraph" dir="ltr">
-                <span style="font-size: 11pt" data-lexical-text="true">b</span>
-              </p>
-              <p class="PlaygroundEditorTheme__paragraph" dir="ltr">
-                <span style="font-size: 11pt" data-lexical-text="true">b</span>
-              </p>
-            </td>
-            <td class="PlaygroundEditorTheme__tableCell" dir="auto">
-              <p class="PlaygroundEditorTheme__paragraph" dir="ltr">
-                <span style="font-size: 11pt" data-lexical-text="true">c</span>
-              </p>
-            </td>
-          </tr>
-          <tr dir="auto">
-            <td class="PlaygroundEditorTheme__tableCell" dir="auto">
-              <p class="PlaygroundEditorTheme__paragraph" dir="ltr">
-                <span style="font-size: 11pt" data-lexical-text="true">d</span>
-              </p>
-            </td>
-            <td class="PlaygroundEditorTheme__tableCell" dir="auto">
-              <p class="PlaygroundEditorTheme__paragraph" dir="ltr">
-                <span style="font-size: 11pt" data-lexical-text="true">e</span>
-              </p>
-            </td>
-            <td class="PlaygroundEditorTheme__tableCell" dir="auto">
-              <p class="PlaygroundEditorTheme__paragraph" dir="ltr">
-                <span style="font-size: 11pt" data-lexical-text="true">f</span>
-              </p>
-            </td>
-          </tr>
-        </table>
-      `,
-    );
+      await assertHTML(
+        page,
+        html`
+          <table class="PlaygroundEditorTheme__table" dir="auto">
+            <colgroup>
+              <col style="width: 92px" />
+              <col style="width: 92px" />
+              <col style="width: 92px" />
+            </colgroup>
+            <tr dir="auto">
+              <td class="PlaygroundEditorTheme__tableCell" dir="auto">
+                <p class="PlaygroundEditorTheme__paragraph" dir="ltr">
+                  <span style="font-size: 11pt" data-lexical-text="true">
+                    a
+                  </span>
+                </p>
+              </td>
+              <td class="PlaygroundEditorTheme__tableCell" dir="auto">
+                <p class="PlaygroundEditorTheme__paragraph" dir="ltr">
+                  <span style="font-size: 11pt" data-lexical-text="true">
+                    b
+                  </span>
+                </p>
+                <p class="PlaygroundEditorTheme__paragraph" dir="ltr">
+                  <span style="font-size: 11pt" data-lexical-text="true">
+                    b
+                  </span>
+                </p>
+              </td>
+              <td class="PlaygroundEditorTheme__tableCell" dir="auto">
+                <p class="PlaygroundEditorTheme__paragraph" dir="ltr">
+                  <span style="font-size: 11pt" data-lexical-text="true">
+                    c
+                  </span>
+                </p>
+              </td>
+            </tr>
+            <tr dir="auto">
+              <td class="PlaygroundEditorTheme__tableCell" dir="auto">
+                <p class="PlaygroundEditorTheme__paragraph" dir="ltr">
+                  <span style="font-size: 11pt" data-lexical-text="true">
+                    d
+                  </span>
+                </p>
+              </td>
+              <td class="PlaygroundEditorTheme__tableCell" dir="auto">
+                <p class="PlaygroundEditorTheme__paragraph" dir="ltr">
+                  <span style="font-size: 11pt" data-lexical-text="true">
+                    e
+                  </span>
+                </p>
+              </td>
+              <td class="PlaygroundEditorTheme__tableCell" dir="auto">
+                <p class="PlaygroundEditorTheme__paragraph" dir="ltr">
+                  <span style="font-size: 11pt" data-lexical-text="true">
+                    f
+                  </span>
+                </p>
+              </td>
+            </tr>
+          </table>
+        `,
+      );
+    });
   });
 
-  test('Copy + paste (Table - Google Docs with custom widths)', async ({
-    page,
-    isPlainText,
-    isCollab,
-  }) => {
-    test.skip(isPlainText || isCollab);
-    await focusEditor(page);
-    const clipboard = {
-      'text/html': `<meta charset='utf-8'><meta charset="utf-8"><b style="font-weight:normal;" id="docs-internal-guid-dd8626d9-7fff-78d6-4aad-a0d248a19533"><div dir="ltr" style="margin-left:0pt;" align="center"><table style="border:none;border-collapse:collapse;"><colgroup><col width="78" /><col width="405" /><col width="233" /></colgroup><tbody><tr style="height:0pt"><td style="border-left:solid #000000 1pt;border-right:solid #000000 1pt;border-bottom:solid #000000 1pt;border-top:solid #000000 1pt;vertical-align:top;padding:5pt 5pt 5pt 5pt;overflow:hidden;overflow-wrap:break-word;"><p dir="ltr" style="line-height:1.2;margin-top:0pt;margin-bottom:0pt;"><span style="font-size:11pt;font-family:Arial,sans-serif;color:#000000;background-color:transparent;font-weight:400;font-style:normal;font-variant:normal;text-decoration:none;vertical-align:baseline;white-space:pre;white-space:pre-wrap;">short</span></p></td><td style="border-left:solid #000000 1pt;border-right:solid #000000 1pt;border-bottom:solid #000000 1pt;border-top:solid #000000 1pt;vertical-align:top;padding:5pt 5pt 5pt 5pt;overflow:hidden;overflow-wrap:break-word;"><p dir="ltr" style="line-height:1.2;margin-top:0pt;margin-bottom:0pt;"><span style="font-size:11pt;font-family:Arial,sans-serif;color:#000000;background-color:transparent;font-weight:400;font-style:normal;font-variant:normal;text-decoration:none;vertical-align:baseline;white-space:pre;white-space:pre-wrap;">wide</span></p></td><td style="border-left:solid #000000 1pt;border-right:solid #000000 1pt;border-bottom:solid #000000 1pt;border-top:solid #000000 1pt;vertical-align:top;padding:5pt 5pt 5pt 5pt;overflow:hidden;overflow-wrap:break-word;"><p dir="ltr" style="line-height:1.2;margin-top:0pt;margin-bottom:0pt;"><span style="font-size:11pt;font-family:Arial,sans-serif;color:#000000;background-color:transparent;font-weight:400;font-style:normal;font-variant:normal;text-decoration:none;vertical-align:baseline;white-space:pre;white-space:pre-wrap;">default</span></p></td></tr><tr style="height:0pt"><td style="border-left:solid #000000 1pt;border-right:solid #000000 1pt;border-bottom:solid #000000 1pt;border-top:solid #000000 1pt;vertical-align:top;padding:5pt 5pt 5pt 5pt;overflow:hidden;overflow-wrap:break-word;"><p dir="ltr" style="line-height:1.2;margin-top:0pt;margin-bottom:0pt;"><span style="font-size:11pt;font-family:Arial,sans-serif;color:#000000;background-color:transparent;font-weight:400;font-style:normal;font-variant:normal;text-decoration:none;vertical-align:baseline;white-space:pre;white-space:pre-wrap;">a</span></p></td><td style="border-left:solid #000000 1pt;border-right:solid #000000 1pt;border-bottom:solid #000000 1pt;border-top:solid #000000 1pt;vertical-align:top;padding:5pt 5pt 5pt 5pt;overflow:hidden;overflow-wrap:break-word;"><p dir="ltr" style="line-height:1.2;margin-top:0pt;margin-bottom:0pt;"><span style="font-size:11pt;font-family:Arial,sans-serif;color:#000000;background-color:transparent;font-weight:400;font-style:normal;font-variant:normal;text-decoration:none;vertical-align:baseline;white-space:pre;white-space:pre-wrap;">b</span></p></td><td style="border-left:solid #000000 1pt;border-right:solid #000000 1pt;border-bottom:solid #000000 1pt;border-top:solid #000000 1pt;vertical-align:top;padding:5pt 5pt 5pt 5pt;overflow:hidden;overflow-wrap:break-word;"><p dir="ltr" style="line-height:1.2;margin-top:0pt;margin-bottom:0pt;"><span style="font-size:11pt;font-family:Arial,sans-serif;color:#000000;background-color:transparent;font-weight:400;font-style:normal;font-variant:normal;text-decoration:none;vertical-align:baseline;white-space:pre;white-space:pre-wrap;">c</span></p></td></tr></tbody></table></div><br data-lexical-managed-linebreak="true" /></b>`,
-    };
-    await pasteFromClipboard(page, clipboard);
-    await assertHTML(
-      page,
-      html`
-        <table class="PlaygroundEditorTheme__table" dir="auto">
-          <colgroup>
-            <col style="width: 78px;" />
-            <col style="width: 405px;" />
-            <col style="width: 233px;" />
-          </colgroup>
-          <tr dir="auto">
-            <td class="PlaygroundEditorTheme__tableCell" dir="auto">
-              <p class="PlaygroundEditorTheme__paragraph" dir="ltr">
-                <span style="font-size: 11pt" data-lexical-text="true">
-                  short
-                </span>
-              </p>
-            </td>
-            <td class="PlaygroundEditorTheme__tableCell" dir="auto">
-              <p class="PlaygroundEditorTheme__paragraph" dir="ltr">
-                <span style="font-size: 11pt" data-lexical-text="true">
-                  wide
-                </span>
-              </p>
-            </td>
-            <td class="PlaygroundEditorTheme__tableCell" dir="auto">
-              <p class="PlaygroundEditorTheme__paragraph" dir="ltr">
-                <span style="font-size: 11pt" data-lexical-text="true">
-                  default
-                </span>
-              </p>
-            </td>
-          </tr>
-          <tr dir="auto">
-            <td class="PlaygroundEditorTheme__tableCell" dir="auto">
-              <p class="PlaygroundEditorTheme__paragraph" dir="ltr">
-                <span style="font-size: 11pt" data-lexical-text="true">a</span>
-              </p>
-            </td>
-            <td class="PlaygroundEditorTheme__tableCell" dir="auto">
-              <p class="PlaygroundEditorTheme__paragraph" dir="ltr">
-                <span style="font-size: 11pt" data-lexical-text="true">b</span>
-              </p>
-            </td>
-            <td class="PlaygroundEditorTheme__tableCell" dir="auto">
-              <p class="PlaygroundEditorTheme__paragraph" dir="ltr">
-                <span style="font-size: 11pt" data-lexical-text="true">c</span>
-              </p>
-            </td>
-          </tr>
-        </table>
-        <p class="PlaygroundEditorTheme__paragraph" dir="auto">
-          <br data-lexical-managed-linebreak="true" />
-        </p>
-      `,
-    );
-  });
-
-  test('Copy + paste (Table - Quip)', async ({page, isPlainText}) => {
-    test.skip(isPlainText);
-
-    await focusEditor(page);
-
-    const clipboard = {
-      'text/html': `<meta charset='utf-8'><table style="border-collapse: collapse;"><col style="width: 90px;"><col style="width: 90px;"><col style="width: 90px;"><tr><td style="border: 1px solid rgb(230, 230, 230); text-align: left;">a</td><td style="border: 1px solid rgb(230, 230, 230); text-align: left;">b<br>b</td><td style="border: 1px solid rgb(230, 230, 230); text-align: left;">c</td></tr><tr><td style="border: 1px solid rgb(230, 230, 230); text-align: left;">d</td><td style="border: 1px solid rgb(230, 230, 230); text-align: left;">e</td><td style="border: 1px solid rgb(230, 230, 230); text-align: left;">f</td></tr></table>`,
-    };
-    await pasteFromClipboard(page, clipboard);
-
-    await assertHTML(
-      page,
-      html`
-        <table class="PlaygroundEditorTheme__table" dir="auto">
-          <colgroup>
-            <col style="width: 90px" />
-            <col style="width: 90px" />
-            <col style="width: 90px" />
-          </colgroup>
-          <tr dir="auto">
-            <td class="PlaygroundEditorTheme__tableCell" dir="auto">
-              <p
-                class="PlaygroundEditorTheme__paragraph"
-                dir="auto"
-                style="text-align: left;">
-                <span data-lexical-text="true">a</span>
-              </p>
-            </td>
-            <td class="PlaygroundEditorTheme__tableCell" dir="auto">
-              <p
-                class="PlaygroundEditorTheme__paragraph"
-                dir="auto"
-                style="text-align: left;">
-                <span data-lexical-text="true">b</span>
-                <br />
-                <span data-lexical-text="true">b</span>
-              </p>
-            </td>
-            <td class="PlaygroundEditorTheme__tableCell" dir="auto">
-              <p
-                class="PlaygroundEditorTheme__paragraph"
-                dir="auto"
-                style="text-align: left;">
-                <span data-lexical-text="true">c</span>
-              </p>
-            </td>
-          </tr>
-          <tr dir="auto">
-            <td class="PlaygroundEditorTheme__tableCell" dir="auto">
-              <p
-                class="PlaygroundEditorTheme__paragraph"
-                dir="auto"
-                style="text-align: left;">
-                <span data-lexical-text="true">d</span>
-              </p>
-            </td>
-            <td class="PlaygroundEditorTheme__tableCell" dir="auto">
-              <p
-                class="PlaygroundEditorTheme__paragraph"
-                dir="auto"
-                style="text-align: left;">
-                <span data-lexical-text="true">e</span>
-              </p>
-            </td>
-            <td class="PlaygroundEditorTheme__tableCell" dir="auto">
-              <p
-                class="PlaygroundEditorTheme__paragraph"
-                dir="auto"
-                style="text-align: left;">
-                <span data-lexical-text="true">f</span>
-              </p>
-            </td>
-          </tr>
-        </table>
-      `,
-    );
-  });
-
-  test('Copy + paste (Table - Google Sheets)', async ({page, isPlainText}) => {
-    test.skip(isPlainText);
-
-    await focusEditor(page);
-
-    const clipboard = {
-      'text/html': `<meta charset='utf-8'><google-sheets-html-origin><style type="text/css"><!--td {border: 1px solid #ccc;}br {mso-data-placement:same-cell;}--></style><table xmlns="http://www.w3.org/1999/xhtml" cellspacing="0" cellpadding="0" dir="ltr" border="1" style="table-layout:fixed;font-size:10pt;font-family:Arial;width:0px;border-collapse:collapse;border:none"><colgroup><col width="100"/><col width="100"/><col width="100"/></colgroup><tbody><tr style="height:21px;"><td style="overflow:hidden;padding:2px 3px 2px 3px;vertical-align:bottom;" data-sheets-value="{&quot;1&quot;:2,&quot;2&quot;:&quot;a&quot;}">a</td><td style="overflow:hidden;padding:2px 3px 2px 3px;vertical-align:bottom;" data-sheets-value="{&quot;1&quot;:2,&quot;2&quot;:&quot;b\nb&quot;}">b<br/>b</td><td style="overflow:hidden;padding:2px 3px 2px 3px;vertical-align:bottom;" data-sheets-value="{&quot;1&quot;:2,&quot;2&quot;:&quot;c&quot;}">c</td></tr><tr style="height:21px;"><td style="overflow:hidden;padding:2px 3px 2px 3px;vertical-align:bottom;" data-sheets-value="{&quot;1&quot;:2,&quot;2&quot;:&quot;d&quot;}">d</td><td style="overflow:hidden;padding:2px 3px 2px 3px;vertical-align:bottom;" data-sheets-value="{&quot;1&quot;:2,&quot;2&quot;:&quot;e&quot;}">e</td><td style="overflow:hidden;padding:2px 3px 2px 3px;vertical-align:bottom;" data-sheets-value="{&quot;1&quot;:2,&quot;2&quot;:&quot;f&quot;}">f</td></tr></tbody></table>`,
-    };
-
-    await pasteFromClipboard(page, clipboard);
-
-    await assertHTML(
-      page,
-      html`
-        <table class="PlaygroundEditorTheme__table" dir="auto">
-          <colgroup>
-            <col style="width: 100px" />
-            <col style="width: 100px" />
-            <col style="width: 100px" />
-          </colgroup>
-          <tr dir="auto" style="height: 21px">
-            <td
-              class="PlaygroundEditorTheme__tableCell"
-              dir="auto"
-              style="vertical-align: bottom">
-              <p class="PlaygroundEditorTheme__paragraph" dir="auto">
-                <span data-lexical-text="true">a</span>
-              </p>
-            </td>
-            <td
-              class="PlaygroundEditorTheme__tableCell"
-              dir="auto"
-              style="vertical-align: bottom">
-              <p class="PlaygroundEditorTheme__paragraph" dir="auto">
-                <span data-lexical-text="true">b</span>
-                <br />
-                <span data-lexical-text="true">b</span>
-              </p>
-            </td>
-            <td
-              class="PlaygroundEditorTheme__tableCell"
-              dir="auto"
-              style="vertical-align: bottom">
-              <p class="PlaygroundEditorTheme__paragraph" dir="auto">
-                <span data-lexical-text="true">c</span>
-              </p>
-            </td>
-          </tr>
-          <tr dir="auto" style="height: 21px">
-            <td
-              class="PlaygroundEditorTheme__tableCell"
-              dir="auto"
-              style="vertical-align: bottom">
-              <p class="PlaygroundEditorTheme__paragraph" dir="auto">
-                <span data-lexical-text="true">d</span>
-              </p>
-            </td>
-            <td
-              class="PlaygroundEditorTheme__tableCell"
-              dir="auto"
-              style="vertical-align: bottom">
-              <p class="PlaygroundEditorTheme__paragraph" dir="auto">
-                <span data-lexical-text="true">e</span>
-              </p>
-            </td>
-            <td
-              class="PlaygroundEditorTheme__tableCell"
-              dir="auto"
-              style="vertical-align: bottom">
-              <p class="PlaygroundEditorTheme__paragraph" dir="auto">
-                <span data-lexical-text="true">f</span>
-              </p>
-            </td>
-          </tr>
-        </table>
-      `,
-    );
-  });
-
-  test('Copy + paste - Merge Grids', async ({page, isPlainText, isCollab}) => {
-    test.skip(isPlainText);
+  test.describe(() => {
     test.fixme(
-      isCollab,
+      ({isCollab}) => isCollab,
       'Table selection styles are not properly selected/deselected',
     );
+    test('Copy + paste - Merge Grids', async ({page}) => {
+      await focusEditor(page);
+      await insertTable(page, 4, 4);
 
-    await focusEditor(page);
-    await insertTable(page, 4, 4);
+      const clipboard = {
+        'text/html': `<meta charset='utf-8'><table class="PlaygroundEditorTheme__table"><colgroup><col><col><col><col><col></colgroup><tbody><tr><th class="PlaygroundEditorTheme__tableCell PlaygroundEditorTheme__tableCellHeader" style="border: 1px solid black; width: 140px; vertical-align: top; text-align: start; background-color: rgb(242, 243, 245);"><p class="PlaygroundEditorTheme__paragraph"><span>a</span></p></th><th class="PlaygroundEditorTheme__tableCell PlaygroundEditorTheme__tableCellHeader" style="border: 1px solid black; width: 140px; vertical-align: top; text-align: start; background-color: rgb(242, 243, 245);"><p class="PlaygroundEditorTheme__paragraph"><span>b</span></p></th></tr><tr><th class="PlaygroundEditorTheme__tableCell PlaygroundEditorTheme__tableCellHeader" style="border: 1px solid black; width: 140px; vertical-align: top; text-align: start; background-color: rgb(242, 243, 245);"><p class="PlaygroundEditorTheme__paragraph"><span>c</span></p></th><td class="PlaygroundEditorTheme__tableCell" style="border: 1px solid black; width: 140px; vertical-align: top; text-align: start;"><p class="PlaygroundEditorTheme__paragraph"><span>d</span></p></td></tr></tbody></table>`,
+      };
 
-    const clipboard = {
-      'text/html': `<meta charset='utf-8'><table class="PlaygroundEditorTheme__table"><colgroup><col><col><col><col><col></colgroup><tbody><tr><th class="PlaygroundEditorTheme__tableCell PlaygroundEditorTheme__tableCellHeader" style="border: 1px solid black; width: 140px; vertical-align: top; text-align: start; background-color: rgb(242, 243, 245);"><p class="PlaygroundEditorTheme__paragraph"><span>a</span></p></th><th class="PlaygroundEditorTheme__tableCell PlaygroundEditorTheme__tableCellHeader" style="border: 1px solid black; width: 140px; vertical-align: top; text-align: start; background-color: rgb(242, 243, 245);"><p class="PlaygroundEditorTheme__paragraph"><span>b</span></p></th></tr><tr><th class="PlaygroundEditorTheme__tableCell PlaygroundEditorTheme__tableCellHeader" style="border: 1px solid black; width: 140px; vertical-align: top; text-align: start; background-color: rgb(242, 243, 245);"><p class="PlaygroundEditorTheme__paragraph"><span>c</span></p></th><td class="PlaygroundEditorTheme__tableCell" style="border: 1px solid black; width: 140px; vertical-align: top; text-align: start;"><p class="PlaygroundEditorTheme__paragraph"><span>d</span></p></td></tr></tbody></table>`,
-    };
+      await selectCellsFromTableCords(
+        page,
+        {x: 0, y: 0},
+        {x: 3, y: 3},
+        true,
+        false,
+      );
 
-    await selectCellsFromTableCords(
-      page,
-      {x: 0, y: 0},
-      {x: 3, y: 3},
-      true,
-      false,
-    );
+      await pasteFromClipboard(page, clipboard);
+      // Pasting preserves the whole-table selection, including cells whose
+      // imported background color caused their DOM to be replaced.
+      await assertTableSelectionCoordinates(page, {
+        anchor: {x: 0, y: 0},
+        focus: {x: 3, y: 3},
+      });
 
-    await pasteFromClipboard(page, clipboard);
-    // Pasting preserves the whole-table selection, including cells whose
-    // imported background color caused their DOM to be replaced.
-    await assertTableSelectionCoordinates(page, {
-      anchor: {x: 0, y: 0},
-      focus: {x: 3, y: 3},
-    });
-
-    await assertHTML(
-      page,
-      html`
-        <p class="PlaygroundEditorTheme__paragraph" dir="auto">
-          <br data-lexical-managed-linebreak="true" />
-        </p>
-        <table
-          class="PlaygroundEditorTheme__table PlaygroundEditorTheme__tableSelection"
-          dir="auto">
-          <colgroup>
-            <col style="width: 92px" />
-            <col style="width: 92px" />
-            <col style="width: 92px" />
-            <col style="width: 92px" />
-          </colgroup>
-          <tr dir="auto">
-            <th
-              class="PlaygroundEditorTheme__tableCell PlaygroundEditorTheme__tableCellHeader PlaygroundEditorTheme__tableCellSelected"
-              dir="auto"
-              style="background-color: rgb(242, 243, 245)">
-              <p class="PlaygroundEditorTheme__paragraph" dir="auto">
-                <span data-lexical-text="true">a</span>
-              </p>
-            </th>
-            <th
-              class="PlaygroundEditorTheme__tableCell PlaygroundEditorTheme__tableCellHeader PlaygroundEditorTheme__tableCellSelected"
-              dir="auto"
-              style="background-color: rgb(242, 243, 245)">
-              <p class="PlaygroundEditorTheme__paragraph" dir="auto">
-                <span data-lexical-text="true">b</span>
-              </p>
-            </th>
-            <th
-              class="PlaygroundEditorTheme__tableCell PlaygroundEditorTheme__tableCellHeader PlaygroundEditorTheme__tableCellSelected"
-              dir="auto">
-              <p class="PlaygroundEditorTheme__paragraph" dir="auto">
-                <br data-lexical-managed-linebreak="true" />
-              </p>
-            </th>
-            <th
-              class="PlaygroundEditorTheme__tableCell PlaygroundEditorTheme__tableCellHeader PlaygroundEditorTheme__tableCellSelected"
-              dir="auto">
-              <p class="PlaygroundEditorTheme__paragraph" dir="auto">
-                <br data-lexical-managed-linebreak="true" />
-              </p>
-            </th>
-          </tr>
-          <tr dir="auto">
-            <th
-              class="PlaygroundEditorTheme__tableCell PlaygroundEditorTheme__tableCellHeader PlaygroundEditorTheme__tableCellSelected"
-              dir="auto"
-              style="background-color: rgb(242, 243, 245)">
-              <p class="PlaygroundEditorTheme__paragraph" dir="auto">
-                <span data-lexical-text="true">c</span>
-              </p>
-            </th>
-            <td
-              class="PlaygroundEditorTheme__tableCell PlaygroundEditorTheme__tableCellSelected"
-              dir="auto">
-              <p
-                class="PlaygroundEditorTheme__paragraph"
+      await assertHTML(
+        page,
+        html`
+          <p class="PlaygroundEditorTheme__paragraph" dir="auto">
+            <br data-lexical-managed-linebreak="true" />
+          </p>
+          <table
+            class="PlaygroundEditorTheme__table PlaygroundEditorTheme__tableSelection"
+            dir="auto">
+            <colgroup>
+              <col style="width: 92px" />
+              <col style="width: 92px" />
+              <col style="width: 92px" />
+              <col style="width: 92px" />
+            </colgroup>
+            <tr dir="auto">
+              <th
+                class="PlaygroundEditorTheme__tableCell PlaygroundEditorTheme__tableCellHeader PlaygroundEditorTheme__tableCellSelected"
                 dir="auto"
-                style="text-align: start">
-                <span data-lexical-text="true">d</span>
-              </p>
-            </td>
-            <td
-              class="PlaygroundEditorTheme__tableCell PlaygroundEditorTheme__tableCellSelected"
-              dir="auto">
-              <p class="PlaygroundEditorTheme__paragraph" dir="auto">
-                <br data-lexical-managed-linebreak="true" />
-              </p>
-            </td>
-            <td
-              class="PlaygroundEditorTheme__tableCell PlaygroundEditorTheme__tableCellSelected"
-              dir="auto">
-              <p class="PlaygroundEditorTheme__paragraph" dir="auto">
-                <br data-lexical-managed-linebreak="true" />
-              </p>
-            </td>
-          </tr>
-          <tr dir="auto">
-            <th
-              class="PlaygroundEditorTheme__tableCell PlaygroundEditorTheme__tableCellHeader PlaygroundEditorTheme__tableCellSelected"
-              dir="auto">
-              <p class="PlaygroundEditorTheme__paragraph" dir="auto">
-                <br data-lexical-managed-linebreak="true" />
-              </p>
-            </th>
-            <td
-              class="PlaygroundEditorTheme__tableCell PlaygroundEditorTheme__tableCellSelected"
-              dir="auto">
-              <p class="PlaygroundEditorTheme__paragraph" dir="auto">
-                <br data-lexical-managed-linebreak="true" />
-              </p>
-            </td>
-            <td
-              class="PlaygroundEditorTheme__tableCell PlaygroundEditorTheme__tableCellSelected"
-              dir="auto">
-              <p class="PlaygroundEditorTheme__paragraph" dir="auto">
-                <br data-lexical-managed-linebreak="true" />
-              </p>
-            </td>
-            <td
-              class="PlaygroundEditorTheme__tableCell PlaygroundEditorTheme__tableCellSelected"
-              dir="auto">
-              <p class="PlaygroundEditorTheme__paragraph" dir="auto">
-                <br data-lexical-managed-linebreak="true" />
-              </p>
-            </td>
-          </tr>
-          <tr dir="auto">
-            <th
-              class="PlaygroundEditorTheme__tableCell PlaygroundEditorTheme__tableCellHeader PlaygroundEditorTheme__tableCellSelected"
-              dir="auto">
-              <p class="PlaygroundEditorTheme__paragraph" dir="auto">
-                <br data-lexical-managed-linebreak="true" />
-              </p>
-            </th>
-            <td
-              class="PlaygroundEditorTheme__tableCell PlaygroundEditorTheme__tableCellSelected"
-              dir="auto">
-              <p class="PlaygroundEditorTheme__paragraph" dir="auto">
-                <br data-lexical-managed-linebreak="true" />
-              </p>
-            </td>
-            <td
-              class="PlaygroundEditorTheme__tableCell PlaygroundEditorTheme__tableCellSelected"
-              dir="auto">
-              <p class="PlaygroundEditorTheme__paragraph" dir="auto">
-                <br data-lexical-managed-linebreak="true" />
-              </p>
-            </td>
-            <td
-              class="PlaygroundEditorTheme__tableCell PlaygroundEditorTheme__tableCellSelected"
-              dir="auto">
-              <p class="PlaygroundEditorTheme__paragraph" dir="auto">
-                <br data-lexical-managed-linebreak="true" />
-              </p>
-            </td>
-          </tr>
-        </table>
-        <p class="PlaygroundEditorTheme__paragraph" dir="auto">
-          <br data-lexical-managed-linebreak="true" />
-        </p>
-      `,
-    );
-  });
-
-  test('Copy + paste nested block and inline html in a table', async ({
-    page,
-    isPlainText,
-    isCollab,
-  }) => {
-    test.skip(isPlainText);
-
-    test.fixme(
-      isCollab,
-      'Table selection styles are not properly synced to the right hand frame',
-    );
-
-    await focusEditor(page);
-
-    const clipboard = {
-      'text/html': html`
-      123
-      <table>
-        <tbody>
-          <tr>
-            <td>
-              <span>456<span>
-            </td>
-            <td>
-              789
-              <div>
-                000
-              </div>
-            </td>
-          </tr>
-          <tr>
-            <td>
-              ABC
-              <div>
-                000
-                <div>
-                  000
-                </div>
-              </div>
-            </td>
-            <td>
-              DEF
-            </td>
-          </tr>
-        </tbody>
-      </table>
-      `,
-    };
-
-    await pasteFromClipboard(page, clipboard);
-
-    await assertHTML(
-      page,
-      html`
-        <p class="PlaygroundEditorTheme__paragraph" dir="auto">
-          <span data-lexical-text="true">123</span>
-        </p>
-        <table class="PlaygroundEditorTheme__table" dir="auto">
-          <colgroup>
-            <col style="width: 92px" />
-            <col style="width: 92px" />
-          </colgroup>
-          <tr dir="auto">
-            <td class="PlaygroundEditorTheme__tableCell" dir="auto">
-              <p class="PlaygroundEditorTheme__paragraph" dir="auto">
-                <span data-lexical-text="true">456</span>
-              </p>
-            </td>
-            <td class="PlaygroundEditorTheme__tableCell" dir="auto">
-              <p class="PlaygroundEditorTheme__paragraph" dir="auto">
-                <span data-lexical-text="true">789</span>
-              </p>
-              <p class="PlaygroundEditorTheme__paragraph" dir="auto">
-                <span data-lexical-text="true">000</span>
-              </p>
-            </td>
-          </tr>
-          <tr dir="auto">
-            <td class="PlaygroundEditorTheme__tableCell" dir="auto">
-              <p class="PlaygroundEditorTheme__paragraph" dir="auto">
-                <span data-lexical-text="true">ABC</span>
-              </p>
-              <p class="PlaygroundEditorTheme__paragraph" dir="auto">
-                <span data-lexical-text="true">000</span>
-              </p>
-              <p class="PlaygroundEditorTheme__paragraph" dir="auto">
-                <span data-lexical-text="true">000</span>
-              </p>
-            </td>
-            <td class="PlaygroundEditorTheme__tableCell" dir="auto">
-              <p class="PlaygroundEditorTheme__paragraph" dir="auto">
-                <span data-lexical-text="true">DEF</span>
-              </p>
-            </td>
-          </tr>
-        </table>
-      `,
-    );
-  });
-
-  test('Copy + paste table with merged cells and unequal number of cells in rows', async ({
-    page,
-    isPlainText,
-    isCollab,
-  }) => {
-    test.skip(isPlainText);
-
-    await focusEditor(page);
-    const clipboard = {
-      'text/html': html`
-        123
-        <table>
-          <tr>
-            <td colspan="2">
-              <p>
-                <span>1</span>
-              </p>
-            </td>
-            <td>
-              <p>
-                <span>2</span>
-              </p>
-            </td>
-            <td>
-              <p>
-                <span>3</span>
-              </p>
-            </td>
-            <td>
-              <p>
-                <span>4</span>
-              </p>
-            </td>
-          </tr>
-          <tr>
-            <td rowspan="4">
-              <p>
-                <span>7</span>
-              </p>
-            </td>
-          </tr>
-          <tr>
-            <td>
-              <p>
-                <span>8</span>
-              </p>
-            </td>
-            <td rowspan="2">
-              <p>
-                <span>9</span>
-              </p>
-            </td>
-          </tr>
-          <tr>
-            <td>
-              <p>
-                <span>0</span>
-              </p>
-            </td>
-          </tr>
-        </table>
-      `,
-    };
-
-    await pasteFromClipboard(page, clipboard);
-
-    await assertHTML(
-      page,
-      html`
-        <p class="PlaygroundEditorTheme__paragraph" dir="auto">
-          <span data-lexical-text="true">123</span>
-        </p>
-        <table class="PlaygroundEditorTheme__table" dir="auto">
-          <colgroup>
-            <col style="width: 92px" />
-            <col style="width: 92px" />
-            <col style="width: 92px" />
-            <col style="width: 92px" />
-            <col style="width: 92px" />
-          </colgroup>
-          <tr dir="auto">
-            <td class="PlaygroundEditorTheme__tableCell" colspan="2" dir="auto">
-              <p class="PlaygroundEditorTheme__paragraph" dir="auto">
-                <span data-lexical-text="true">1</span>
-              </p>
-            </td>
-            <td class="PlaygroundEditorTheme__tableCell" dir="auto">
-              <p class="PlaygroundEditorTheme__paragraph" dir="auto">
-                <span data-lexical-text="true">2</span>
-              </p>
-            </td>
-            <td class="PlaygroundEditorTheme__tableCell" dir="auto">
-              <p class="PlaygroundEditorTheme__paragraph" dir="auto">
-                <span data-lexical-text="true">3</span>
-              </p>
-            </td>
-            <td class="PlaygroundEditorTheme__tableCell" dir="auto">
-              <p class="PlaygroundEditorTheme__paragraph" dir="auto">
-                <span data-lexical-text="true">4</span>
-              </p>
-            </td>
-          </tr>
-          <tr dir="auto">
-            <td class="PlaygroundEditorTheme__tableCell" dir="auto" rowspan="4">
-              <p class="PlaygroundEditorTheme__paragraph" dir="auto">
-                <span data-lexical-text="true">7</span>
-              </p>
-            </td>
-            <td class="PlaygroundEditorTheme__tableCell" dir="auto">
-              <p class="PlaygroundEditorTheme__paragraph" dir="auto">
-                <br data-lexical-managed-linebreak="true" />
-              </p>
-            </td>
-            <td class="PlaygroundEditorTheme__tableCell" dir="auto">
-              <p class="PlaygroundEditorTheme__paragraph" dir="auto">
-                <br data-lexical-managed-linebreak="true" />
-              </p>
-            </td>
-            <td class="PlaygroundEditorTheme__tableCell" dir="auto">
-              <p class="PlaygroundEditorTheme__paragraph" dir="auto">
-                <br data-lexical-managed-linebreak="true" />
-              </p>
-            </td>
-            <td class="PlaygroundEditorTheme__tableCell" dir="auto">
-              <p class="PlaygroundEditorTheme__paragraph" dir="auto">
-                <br data-lexical-managed-linebreak="true" />
-              </p>
-            </td>
-          </tr>
-          <tr dir="auto">
-            <td class="PlaygroundEditorTheme__tableCell" dir="auto">
-              <p class="PlaygroundEditorTheme__paragraph" dir="auto">
-                <span data-lexical-text="true">8</span>
-              </p>
-            </td>
-            <td class="PlaygroundEditorTheme__tableCell" dir="auto" rowspan="2">
-              <p class="PlaygroundEditorTheme__paragraph" dir="auto">
-                <span data-lexical-text="true">9</span>
-              </p>
-            </td>
-            <td class="PlaygroundEditorTheme__tableCell" dir="auto">
-              <p class="PlaygroundEditorTheme__paragraph" dir="auto">
-                <br data-lexical-managed-linebreak="true" />
-              </p>
-            </td>
-            <td class="PlaygroundEditorTheme__tableCell" dir="auto">
-              <p class="PlaygroundEditorTheme__paragraph" dir="auto">
-                <br data-lexical-managed-linebreak="true" />
-              </p>
-            </td>
-          </tr>
-          <tr dir="auto">
-            <td class="PlaygroundEditorTheme__tableCell" dir="auto">
-              <p class="PlaygroundEditorTheme__paragraph" dir="auto">
-                <span data-lexical-text="true">0</span>
-              </p>
-            </td>
-            <td class="PlaygroundEditorTheme__tableCell" dir="auto">
-              <p class="PlaygroundEditorTheme__paragraph" dir="auto">
-                <br data-lexical-managed-linebreak="true" />
-              </p>
-            </td>
-            <td class="PlaygroundEditorTheme__tableCell" dir="auto">
-              <p class="PlaygroundEditorTheme__paragraph" dir="auto">
-                <br data-lexical-managed-linebreak="true" />
-              </p>
-            </td>
-          </tr>
-        </table>
-      `,
-    );
-  });
-
-  test('Copy + paste table with empty row', async ({
-    page,
-    isPlainText,
-    isCollab,
-  }) => {
-    test.skip(isPlainText);
-
-    await focusEditor(page);
-
-    const clipboard = {
-      'text/html': html`
-        <table>
-          <tr><td>1</td></tr>
-          <tr></tr>
-          <tr><td>2</td></tr>
-        </table>
-      `,
-    };
-
-    await pasteFromClipboard(page, clipboard);
-
-    await assertHTML(
-      page,
-      html`
-        <table class="PlaygroundEditorTheme__table" dir="auto">
-          <colgroup>
-            <col style="width: 92px" />
-          </colgroup>
-          <tr dir="auto">
-            <td class="PlaygroundEditorTheme__tableCell" dir="auto">
-              <p class="PlaygroundEditorTheme__paragraph" dir="auto">
-                <span data-lexical-text="true">1</span>
-              </p>
-            </td>
-          </tr>
-          <tr dir="auto">
-            <td class="PlaygroundEditorTheme__tableCell" dir="auto">
-              <p class="PlaygroundEditorTheme__paragraph" dir="auto">
-                <br data-lexical-managed-linebreak="true" />
-              </p>
-            </td>
-          </tr>
-          <tr dir="auto">
-            <td class="PlaygroundEditorTheme__tableCell" dir="auto">
-              <p class="PlaygroundEditorTheme__paragraph" dir="auto">
-                <span data-lexical-text="true">2</span>
-              </p>
-            </td>
-          </tr>
-        </table>
-      `,
-    );
+                style="background-color: rgb(242, 243, 245)">
+                <p class="PlaygroundEditorTheme__paragraph" dir="auto">
+                  <span data-lexical-text="true">a</span>
+                </p>
+              </th>
+              <th
+                class="PlaygroundEditorTheme__tableCell PlaygroundEditorTheme__tableCellHeader PlaygroundEditorTheme__tableCellSelected"
+                dir="auto"
+                style="background-color: rgb(242, 243, 245)">
+                <p class="PlaygroundEditorTheme__paragraph" dir="auto">
+                  <span data-lexical-text="true">b</span>
+                </p>
+              </th>
+              <th
+                class="PlaygroundEditorTheme__tableCell PlaygroundEditorTheme__tableCellHeader PlaygroundEditorTheme__tableCellSelected"
+                dir="auto">
+                <p class="PlaygroundEditorTheme__paragraph" dir="auto">
+                  <br data-lexical-managed-linebreak="true" />
+                </p>
+              </th>
+              <th
+                class="PlaygroundEditorTheme__tableCell PlaygroundEditorTheme__tableCellHeader PlaygroundEditorTheme__tableCellSelected"
+                dir="auto">
+                <p class="PlaygroundEditorTheme__paragraph" dir="auto">
+                  <br data-lexical-managed-linebreak="true" />
+                </p>
+              </th>
+            </tr>
+            <tr dir="auto">
+              <th
+                class="PlaygroundEditorTheme__tableCell PlaygroundEditorTheme__tableCellHeader PlaygroundEditorTheme__tableCellSelected"
+                dir="auto"
+                style="background-color: rgb(242, 243, 245)">
+                <p class="PlaygroundEditorTheme__paragraph" dir="auto">
+                  <span data-lexical-text="true">c</span>
+                </p>
+              </th>
+              <td
+                class="PlaygroundEditorTheme__tableCell PlaygroundEditorTheme__tableCellSelected"
+                dir="auto">
+                <p
+                  class="PlaygroundEditorTheme__paragraph"
+                  dir="auto"
+                  style="text-align: start">
+                  <span data-lexical-text="true">d</span>
+                </p>
+              </td>
+              <td
+                class="PlaygroundEditorTheme__tableCell PlaygroundEditorTheme__tableCellSelected"
+                dir="auto">
+                <p class="PlaygroundEditorTheme__paragraph" dir="auto">
+                  <br data-lexical-managed-linebreak="true" />
+                </p>
+              </td>
+              <td
+                class="PlaygroundEditorTheme__tableCell PlaygroundEditorTheme__tableCellSelected"
+                dir="auto">
+                <p class="PlaygroundEditorTheme__paragraph" dir="auto">
+                  <br data-lexical-managed-linebreak="true" />
+                </p>
+              </td>
+            </tr>
+            <tr dir="auto">
+              <th
+                class="PlaygroundEditorTheme__tableCell PlaygroundEditorTheme__tableCellHeader PlaygroundEditorTheme__tableCellSelected"
+                dir="auto">
+                <p class="PlaygroundEditorTheme__paragraph" dir="auto">
+                  <br data-lexical-managed-linebreak="true" />
+                </p>
+              </th>
+              <td
+                class="PlaygroundEditorTheme__tableCell PlaygroundEditorTheme__tableCellSelected"
+                dir="auto">
+                <p class="PlaygroundEditorTheme__paragraph" dir="auto">
+                  <br data-lexical-managed-linebreak="true" />
+                </p>
+              </td>
+              <td
+                class="PlaygroundEditorTheme__tableCell PlaygroundEditorTheme__tableCellSelected"
+                dir="auto">
+                <p class="PlaygroundEditorTheme__paragraph" dir="auto">
+                  <br data-lexical-managed-linebreak="true" />
+                </p>
+              </td>
+              <td
+                class="PlaygroundEditorTheme__tableCell PlaygroundEditorTheme__tableCellSelected"
+                dir="auto">
+                <p class="PlaygroundEditorTheme__paragraph" dir="auto">
+                  <br data-lexical-managed-linebreak="true" />
+                </p>
+              </td>
+            </tr>
+            <tr dir="auto">
+              <th
+                class="PlaygroundEditorTheme__tableCell PlaygroundEditorTheme__tableCellHeader PlaygroundEditorTheme__tableCellSelected"
+                dir="auto">
+                <p class="PlaygroundEditorTheme__paragraph" dir="auto">
+                  <br data-lexical-managed-linebreak="true" />
+                </p>
+              </th>
+              <td
+                class="PlaygroundEditorTheme__tableCell PlaygroundEditorTheme__tableCellSelected"
+                dir="auto">
+                <p class="PlaygroundEditorTheme__paragraph" dir="auto">
+                  <br data-lexical-managed-linebreak="true" />
+                </p>
+              </td>
+              <td
+                class="PlaygroundEditorTheme__tableCell PlaygroundEditorTheme__tableCellSelected"
+                dir="auto">
+                <p class="PlaygroundEditorTheme__paragraph" dir="auto">
+                  <br data-lexical-managed-linebreak="true" />
+                </p>
+              </td>
+              <td
+                class="PlaygroundEditorTheme__tableCell PlaygroundEditorTheme__tableCellSelected"
+                dir="auto">
+                <p class="PlaygroundEditorTheme__paragraph" dir="auto">
+                  <br data-lexical-managed-linebreak="true" />
+                </p>
+              </td>
+            </tr>
+          </table>
+          <p class="PlaygroundEditorTheme__paragraph" dir="auto">
+            <br data-lexical-managed-linebreak="true" />
+          </p>
+        `,
+      );
+    });
   });
 });

@@ -23,29 +23,28 @@ import {
 
 test.describe('CodeActionMenu', () => {
   test.beforeEach(({isCollab, page}) => initialize({isCollab, page}));
-  test('Can copy code, when click `Copy` button', async ({
-    page,
-    context,
-    isPlainText,
-    browserName,
-  }) => {
+  test.describe(() => {
     test.skip(true);
-
-    await focusEditor(page);
-    await page.keyboard.type('``` ');
-    await page.keyboard.press('Space');
-    await page.keyboard.type(`const a = 'Hello'`);
-    await page.keyboard.press('Enter');
-    await page.keyboard.press('Space');
-    await page.keyboard.press('Space');
-    await page.keyboard.type(`const b = 'World'`);
-    await page.keyboard.press('Enter');
-    await page.keyboard.press('Backspace');
-    await page.keyboard.press('Backspace');
-
-    await assertHTML(
+    test('Can copy code, when click `Copy` button', async ({
       page,
-      `
+      context,
+      browserName,
+    }) => {
+      await focusEditor(page);
+      await page.keyboard.type('``` ');
+      await page.keyboard.press('Space');
+      await page.keyboard.type(`const a = 'Hello'`);
+      await page.keyboard.press('Enter');
+      await page.keyboard.press('Space');
+      await page.keyboard.press('Space');
+      await page.keyboard.type(`const b = 'World'`);
+      await page.keyboard.press('Enter');
+      await page.keyboard.press('Backspace');
+      await page.keyboard.press('Backspace');
+
+      await assertHTML(
+        page,
+        `
         <code
           class="PlaygroundEditorTheme__code"
           dir="ltr"
@@ -81,41 +80,41 @@ test.describe('CodeActionMenu', () => {
           <span data-lexical-text="true"></span>
         </code>
       `,
-    );
+      );
 
-    await mouseMoveToSelector(page, 'code.PlaygroundEditorTheme__code');
+      await mouseMoveToSelector(page, 'code.PlaygroundEditorTheme__code');
 
-    await withExclusiveClipboardAccess(async () => {
-      if (browserName === 'chromium') {
-        await context.grantPermissions(['clipboard-write']);
-        await click(page, 'button[aria-label=copy]');
-        await paste(page);
-        await context.clearPermissions();
-      } else {
-        await waitForSelector(page, 'button[aria-label=copy]');
+      await withExclusiveClipboardAccess(async () => {
+        if (browserName === 'chromium') {
+          await context.grantPermissions(['clipboard-write']);
+          await click(page, 'button[aria-label=copy]');
+          await paste(page);
+          await context.clearPermissions();
+        } else {
+          await waitForSelector(page, 'button[aria-label=copy]');
 
-        const copiedText = await evaluate(page, () => {
-          let text = null;
+          const copiedText = await evaluate(page, () => {
+            let text = null;
 
-          navigator.clipboard._writeText = navigator.clipboard.writeText;
-          navigator.clipboard.writeText = function (data) {
-            text = data;
-            this._writeText(data);
-          };
-          document.querySelector('button[aria-label=copy]').click();
+            navigator.clipboard._writeText = navigator.clipboard.writeText;
+            navigator.clipboard.writeText = function (data) {
+              text = data;
+              this._writeText(data);
+            };
+            document.querySelector('button[aria-label=copy]').click();
 
-          return text;
-        });
+            return text;
+          });
 
-        await pasteFromClipboard(page, {
-          'text/plain': copiedText,
-        });
-      }
-    });
+          await pasteFromClipboard(page, {
+            'text/plain': copiedText,
+          });
+        }
+      });
 
-    await assertHTML(
-      page,
-      `
+      await assertHTML(
+        page,
+        `
           <code
           class="PlaygroundEditorTheme__code"
           dir="ltr"
@@ -177,24 +176,24 @@ test.describe('CodeActionMenu', () => {
           <span data-lexical-text="true"></span>
         </code>
       `,
-    );
+      );
+    });
   });
 
-  test('In the case of syntactically correct code, when the `prettier` button is clicked, the code needs to be properly formatted', async ({
-    page,
-    isCollab,
-    isPlainText,
-  }) => {
-    test.skip(isCollab);
-    test.skip(isPlainText);
-    await focusEditor(page);
-    await page.keyboard.type('``` ');
-    await page.keyboard.press('Space');
-    await page.keyboard.type(`const  luci  =  'Hello World'`);
-
-    await assertHTML(
+  test.describe(() => {
+    test.skip(({isCollab, isPlainText}) => isCollab);
+    test.skip(({isCollab, isPlainText}) => isPlainText);
+    test('In the case of syntactically correct code, when the `prettier` button is clicked, the code needs to be properly formatted', async ({
       page,
-      `
+    }) => {
+      await focusEditor(page);
+      await page.keyboard.type('``` ');
+      await page.keyboard.press('Space');
+      await page.keyboard.type(`const  luci  =  'Hello World'`);
+
+      await assertHTML(
+        page,
+        `
         <code
           class="PlaygroundEditorTheme__code"
           dir="auto"
@@ -203,22 +202,22 @@ test.describe('CodeActionMenu', () => {
           <span data-lexical-text="true">const luci = 'Hello World'</span>
         </code>
       `,
-    );
+      );
 
-    await mouseMoveToSelector(page, 'code.PlaygroundEditorTheme__code');
-    await click(page, 'button[aria-label=prettier]');
+      await mouseMoveToSelector(page, 'code.PlaygroundEditorTheme__code');
+      await click(page, 'button[aria-label=prettier]');
 
-    // Prettier loads and formats asynchronously; wait for the reformatted
-    // result instead of a fixed timeout. Formatting turns the single input
-    // line into multiple lines, so a <br> inside the code block is a reliable
-    // "prettier finished" signal (attached, not visible: <br> has no box).
-    await waitForSelector(page, 'code.PlaygroundEditorTheme__code br', {
-      state: 'attached',
-    });
+      // Prettier loads and formats asynchronously; wait for the reformatted
+      // result instead of a fixed timeout. Formatting turns the single input
+      // line into multiple lines, so a <br> inside the code block is a reliable
+      // "prettier finished" signal (attached, not visible: <br> has no box).
+      await waitForSelector(page, 'code.PlaygroundEditorTheme__code br', {
+        state: 'attached',
+      });
 
-    await assertHTML(
-      page,
-      `
+      await assertHTML(
+        page,
+        `
         <code
         class="PlaygroundEditorTheme__code"
         dir="auto"
@@ -229,24 +228,20 @@ test.describe('CodeActionMenu', () => {
           <br data-lexical-managed-linebreak="true" />
         </code>
       `,
-    );
-  });
+      );
+    });
 
-  test('If the code syntax is incorrect, an error message should be displayed', async ({
-    page,
-    isCollab,
-    isPlainText,
-  }) => {
-    test.skip(isCollab);
-    test.skip(isPlainText);
-    await focusEditor(page);
-    await page.keyboard.type('``` ');
-    await page.keyboard.press('Space');
-    await page.keyboard.type(`cons  luci  =  'Hello World'`);
-
-    await assertHTML(
+    test('If the code syntax is incorrect, an error message should be displayed', async ({
       page,
-      `
+    }) => {
+      await focusEditor(page);
+      await page.keyboard.type('``` ');
+      await page.keyboard.press('Space');
+      await page.keyboard.type(`cons  luci  =  'Hello World'`);
+
+      await assertHTML(
+        page,
+        `
         <code
           class="PlaygroundEditorTheme__code"
           dir="auto"
@@ -255,29 +250,30 @@ test.describe('CodeActionMenu', () => {
           <span data-lexical-text="true">cons luci = 'Hello World'</span>
         </code>
       `,
-    );
+      );
 
-    await mouseMoveToSelector(page, 'code.PlaygroundEditorTheme__code');
-    await click(page, 'button[aria-label=prettier]');
+      await mouseMoveToSelector(page, 'code.PlaygroundEditorTheme__code');
+      await click(page, 'button[aria-label=prettier]');
 
-    // Prettier reports invalid syntax asynchronously; wait for the error badge
-    // to appear instead of a fixed timeout (the assertions below do not retry).
-    await waitForSelector(page, 'i.format.prettier-error');
+      // Prettier reports invalid syntax asynchronously; wait for the error badge
+      // to appear instead of a fixed timeout (the assertions below do not retry).
+      await waitForSelector(page, 'i.format.prettier-error');
 
-    expect(await page.$('i.format.prettier-error')).toBeTruthy();
+      expect(await page.$('i.format.prettier-error')).toBeTruthy();
 
-    const errorTips = await page.$('pre.code-error-tips');
+      const errorTips = await page.$('pre.code-error-tips');
 
-    expect(errorTips).toBeTruthy();
+      expect(errorTips).toBeTruthy();
 
-    const tips = await evaluate(page, () => {
-      return document.querySelector('pre.code-error-tips').innerText;
+      const tips = await evaluate(page, () => {
+        return document.querySelector('pre.code-error-tips').innerText;
+      });
+
+      expect(tips).toBe(
+        'Missing semicolon. (1:6)\n' +
+          "> 1 |  cons  luci  =  'Hello World'\n" +
+          '    |      ^',
+      );
     });
-
-    expect(tips).toBe(
-      'Missing semicolon. (1:6)\n' +
-        "> 1 |  cons  luci  =  'Hello World'\n" +
-        '    |      ^',
-    );
   });
 });

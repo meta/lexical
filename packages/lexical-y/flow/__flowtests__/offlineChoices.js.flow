@@ -1,0 +1,78 @@
+/**
+ * Copyright (c) Meta Platforms, Inc. and affiliates.
+ *
+ * This source code is licensed under the MIT license found in the
+ * LICENSE file in the root directory of this source tree.
+ *
+ * @flow strict
+ */
+
+// Checked by `pnpm run flow` (not shipped): the offline layer's choices are
+// made by its types (D135).
+
+import type {
+  YOfflineBinding,
+  YOfflineError,
+  YOfflineSession,
+  YOfflineSessionOptions,
+  YOfflineStore,
+} from '@lexical/y/offline';
+
+import {attachYOfflineSession} from '@lexical/y/offline';
+
+declare const binding: YOfflineBinding;
+declare const store: YOfflineStore;
+declare const session: YOfflineSession;
+
+const options: YOfflineSessionOptions = {
+  binding,
+  epoch: null,
+  key: 'doc',
+  loaded: null,
+  offline: {persist: 'document', stage: 'persist', store},
+  onError: () => {},
+  stopSync: () => {},
+};
+const off: YOfflineSessionOptions = {
+  ...options,
+  offline: {stage: 'off'},
+};
+attachYOfflineSession(options);
+const storeless: YOfflineSessionOptions = {
+  ...options,
+  // $FlowExpectedError[incompatible-type] a stage that stores needs the store
+  offline: {persist: 'document', stage: 'persist'},
+};
+const stored: YOfflineSessionOptions = {
+  ...options,
+  offline: {persist: 'document', stage: 'persist', store},
+};
+const {loaded: _loaded, ...noLoaded} = options;
+// $FlowExpectedError[incompatible-type] loaded is required: the load, or null
+const unloaded: YOfflineSessionOptions = noLoaded;
+
+// markSynced is a 'same' verdict's, not the session's.
+// $FlowExpectedError[prop-missing]
+session.markSynced();
+async function confirm(): Promise<void> {
+  const verdict = await session.serverEpoch('e1');
+  if (verdict.kind === 'same') {
+    verdict.markSynced();
+  }
+}
+
+// Fields are reached after narrowing on code.
+function salvageOf(error: YOfflineError): ?Uint8Array {
+  // $FlowExpectedError[incompatible-use] only a corrupt slot has a salvage
+  void error.salvage.state;
+  if (error.code === 'corrupt' && error.where === 'slot') {
+    return error.salvage.state;
+  }
+  return null;
+}
+
+// clear names what it deletes.
+store.clear('doc', {captures: 'none', slots: {epoch: 'e1'}});
+store.clear('doc', {captures: 'unreadable', slots: 'none'});
+// $FlowExpectedError[incompatible-type] slots is required
+store.clear('doc', {captures: 'none'});

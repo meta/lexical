@@ -6,6 +6,8 @@
  *
  */
 
+// @vitest-environment node
+
 import {
   $isTableNode,
   INSERT_TABLE_COMMAND,
