@@ -499,6 +499,70 @@ describe('Mdast punctuation modes', () => {
     ]);
   });
 
+  // markdown, strict import, CJK-friendly import. A run of punctuation
+  // closes before, or opens after, a CJK character, an ideographic
+  // variation selector or punctuation outside the BMP only in a
+  // CJK-friendly import.
+  it.each<[markdown: string, strict: Runs, cjkFriendly: Runs]>([
+    // The last ideographic variation selector, and the code point after it.
+    [
+      '\u{e01ef}**“x”**',
+      [['\u{e01ef}**“x”**', 0]],
+      [
+        ['\u{e01ef}', 0],
+        ['“x”', bold],
+      ],
+    ],
+    ['\u{e01f0}**“x”**', [['\u{e01f0}**“x”**', 0]], [['\u{e01f0}**“x”**', 0]]],
+    // Ideographs whose second halves are U+DC00 and U+DFFF.
+    [
+      '\u{20000}**“x”**',
+      [['\u{20000}**“x”**', 0]],
+      [
+        ['\u{20000}', 0],
+        ['“x”', bold],
+      ],
+    ],
+    [
+      '\u{203ff}**“x”**',
+      [['\u{203ff}**“x”**', 0]],
+      [
+        ['\u{203ff}', 0],
+        ['“x”', bold],
+      ],
+    ],
+    // Punctuation whose first half is U+D800, which the strict import reads
+    // as a letter, as micromark reads it.
+    [
+      '**“x”**\u{10100}',
+      [['**“x”**\u{10100}', 0]],
+      [
+        ['“x”', bold],
+        ['\u{10100}', 0],
+      ],
+    ],
+    // A selector after CJK punctuation after U+FFFF, the last code point of
+    // the BMP.
+    [
+      '\uffff。\ufe00**“x”**',
+      [['\uffff。\ufe00**“x”**', 0]],
+      [
+        ['\uffff。\ufe00', 0],
+        ['“x”', bold],
+      ],
+    ],
+  ])(
+    'reads %j by the code point at the end of a range',
+    (markdown, strict, cjkFriendly) => {
+      expect(
+        importRuns(createEditor(undefined, 'strict-commonmark'), markdown),
+      ).toEqual(strict);
+      expect(
+        importRuns(createEditor(undefined, 'cjk-friendly'), markdown),
+      ).toEqual(cjkFriendly);
+    },
+  );
+
   it('reads a selector after a code of its own in a chunk of its own', () => {
     const editor = createEditor(undefined, 'cjk-friendly');
     const read = (markdown: string) => importRuns(editor, markdown);
@@ -575,23 +639,71 @@ describe('Mdast punctuation modes', () => {
     );
   });
 
-  it('reads a `*` run beside a `_` run alike in both import modes', () => {
-    for (const importPunctuation of [
-      'strict-commonmark',
-      'cjk-friendly',
-    ] as const) {
-      expect(
-        importRuns(
-          createEditor(undefined, importPunctuation),
-          'foo**_bar_**baz',
-        ),
-      ).toEqual([
+  it.each<[markdown: string, runs: Runs]>([
+    // A `*` run beside a `_` run.
+    [
+      'foo**_bar_**baz',
+      [
         ['foo**', 0],
         ['bar', italic],
         ['**baz', 0],
-      ]);
-    }
-  });
+      ],
+    ],
+    // A `_` run inside a word.
+    ['a__x__', [['a__x__', 0]]],
+    // micromark lets a `*` run beside a marker of another construct open or
+    // close on that side, as beside a letter, so the run beside `~` both
+    // opens and closes, and a run of one and a run of two do not match.
+    ['~*x**', [['~*x**', 0]]],
+    ['**x*~', [['**x*~', 0]]],
+    // An escaped marker.
+    [
+      '\\**x**',
+      [
+        ['*', 0],
+        ['x', italic],
+        ['*', 0],
+      ],
+    ],
+    // The `~` runs below read as the strict import and
+    // micromark-extension-gfm-strikethrough read them.
+    ['~~x~~~', [['~~x~~~', 0]]],
+    [
+      '\\~~~x~~',
+      [
+        ['~', 0],
+        ['x', strikethrough],
+      ],
+    ],
+    ['b~~~a~~~b', [['b~~~a~~~b', 0]]],
+    // A `~~` that emphasis or a link label holds does not match one outside.
+    [
+      '*~~a*~~',
+      [
+        ['~~a', italic],
+        ['~~', 0],
+      ],
+    ],
+    [
+      '~~[a~~](b)',
+      [
+        ['~~', 0],
+        ['a~~', 0],
+      ],
+    ],
+  ])(
+    'reads %j without CJK characters alike in both import modes',
+    (markdown, runs) => {
+      for (const importPunctuation of [
+        'strict-commonmark',
+        'cjk-friendly',
+      ] as const) {
+        expect(
+          importRuns(createEditor(undefined, importPunctuation), markdown),
+        ).toEqual(runs);
+      }
+    },
+  );
 
   it('keeps backslashes before a reference and a leading U+FEFF', () => {
     for (const runs of [
