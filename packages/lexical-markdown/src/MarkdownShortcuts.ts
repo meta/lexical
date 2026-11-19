@@ -19,16 +19,19 @@ import {
   $isRangeSelection,
   $isTextNode,
   $setSelection,
+  BEFORE_INPUT_COMMAND,
   COLLABORATION_TAG,
   COMMAND_PRIORITY_LOW,
   COMPOSITION_END_TAG,
   type ElementNode,
   HISTORIC_TAG,
   HISTORY_PUSH_TAG,
+  INPUT_COMMAND,
   KEY_ENTER_COMMAND,
   type LexicalEditor,
   type LexicalNode,
   mergeRegister,
+  PASTE_TAG,
   type PointType,
   TEXT_TYPE_TO_FORMAT,
   type TextNode,
@@ -50,6 +53,19 @@ import {
   isPunctuationOrSpace,
   transformersByType,
 } from './utils';
+
+const MARKDOWN_INPUT_TAG = 'markdown-input';
+
+function $markTextInput(event: InputEvent): false {
+  if (
+    !event.isComposing &&
+    (event.inputType === 'insertText' ||
+      event.inputType === 'insertReplacementText')
+  ) {
+    $addUpdateTag(MARKDOWN_INPUT_TAG);
+  }
+  return false;
+}
 
 function runElementTransformers(
   parentNode: ElementNode,
@@ -589,10 +605,20 @@ export function registerMarkdownShortcuts(
   };
 
   return mergeRegister(
+    editor.registerCommand(
+      BEFORE_INPUT_COMMAND,
+      $markTextInput,
+      COMMAND_PRIORITY_LOW,
+    ),
+    editor.registerCommand(INPUT_COMMAND, $markTextInput, COMMAND_PRIORITY_LOW),
     editor.registerUpdateListener(
       ({tags, dirtyLeaves, editorState, prevEditorState}) => {
         // Ignore updates from collaboration and undo/redo (as changes already calculated)
-        if (tags.has(COLLABORATION_TAG) || tags.has(HISTORIC_TAG)) {
+        if (
+          tags.has(COLLABORATION_TAG) ||
+          tags.has(HISTORIC_TAG) ||
+          tags.has(PASTE_TAG)
+        ) {
           return;
         }
 
@@ -607,6 +633,7 @@ export function registerMarkdownShortcuts(
         // typed-character heuristics so a trailing trigger character can still
         // fire its transform.
         const isCompositionEnd = tags.has(COMPOSITION_END_TAG);
+        const isTextInput = tags.has(MARKDOWN_INPUT_TAG);
 
         const selection = editor.read(editorState, $getSelection);
         const prevSelection = editor.read(prevEditorState, $getSelection);
@@ -633,6 +660,7 @@ export function registerMarkdownShortcuts(
 
         if (
           !isCompositionEnd &&
+          !isTextInput &&
           anchorOffset !== 1 &&
           editor.read(editorState, () => $getOffsetInParent(selection.anchor)) >
             editor.read(prevEditorState, () =>
