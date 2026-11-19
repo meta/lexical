@@ -14,6 +14,7 @@ import type {Extension as MicromarkExtension} from 'micromark-util-types';
 
 import {buildEditorFromExtensions} from '@lexical/extension';
 import {$createLinkNode} from '@lexical/link';
+import {$createListItemNode, $createListNode, $isListNode} from '@lexical/list';
 import {
   $createParagraphNode,
   $createTextNode,
@@ -837,6 +838,178 @@ describe('Mdast punctuation modes', () => {
     );
   });
 
+  it.each<[string, Runs, string]>([
+    [
+      'a CJK character after `-`',
+      [
+        ['-世', 0],
+        ['!', bold],
+      ],
+      '-世**!**',
+    ],
+    [
+      'a CJK character before `.`',
+      [
+        ['!', bold],
+        ['世.', 0],
+      ],
+      '**!**世.',
+    ],
+    [
+      'a CJK character after `+`',
+      [
+        ['+世', 0],
+        ['!', bold],
+      ],
+      '+世**!**',
+    ],
+    [
+      'a letter after `-`',
+      [
+        ['-a', 0],
+        ['。', bold],
+      ],
+      '-a**。**',
+    ],
+    [
+      'a letter before `.`',
+      [
+        ['。', bold],
+        ['a.', 0],
+      ],
+      '**。**a.',
+    ],
+    [
+      'a letter after `+`',
+      [
+        ['+a', 0],
+        ['。', bold],
+      ],
+      '+a**。**',
+    ],
+  ])('writes %s as typed in GFM', (_, runs, markdown) => {
+    // An email literal, which these start, needs an `@` that the export
+    // escapes, so the autolink literal syntax reads the character as it
+    // reads the reference.
+    for (const importPunctuation of [
+      'cjk-friendly',
+      'strict-commonmark',
+    ] as const) {
+      const editor = createEditor('cjk-friendly', importPunctuation);
+      editor.update(() => $appendRuns(runs), {discrete: true});
+      expect(editor.read('latest', () => $convertToMarkdownString())).toBe(
+        markdown,
+      );
+    }
+    // A CJK-friendly import reads it back as the same runs.
+    expect(
+      importRuns(createEditor(undefined, 'cjk-friendly'), markdown),
+    ).toEqual(runs);
+  });
+
+  it.each<[string, boolean | undefined, string, string]>([
+    ['in a paragraph', undefined, '世', '[世**。**](u)'],
+    ['in a checked item', true, '世', '- [x] [世**。**](u)'],
+    ['in a bullet item', false, 'x', '- [x**。**](u)'],
+  ])(
+    "writes the character after a link's `[` %s",
+    (_, checked, text, markdown) => {
+      const editor = createEditor('cjk-friendly');
+      editor.update(
+        () => {
+          const link = $createLinkNode('u').append(
+            $createTextNode(text),
+            $createTextNode('。').setFormat(bold),
+          );
+          $getRoot()
+            .clear()
+            .append(
+              checked === undefined
+                ? $createParagraphNode().append(link)
+                : $createListNode(checked ? 'check' : 'bullet').append(
+                    $createListItemNode(checked || undefined).append(link),
+                  ),
+            );
+        },
+        {discrete: true},
+      );
+      expect(editor.read('latest', () => $convertToMarkdownString())).toBe(
+        markdown,
+      );
+      // A check needs its `]` right after the character, where the run is,
+      // so the link's `[` makes no check.
+      editor.update(() => $convertFromMarkdownString(markdown), {
+        discrete: true,
+      });
+      expect(
+        editor.read('latest', () => {
+          const list = $getRoot().getFirstChild();
+          return $isListNode(list) ? list.getListType() : null;
+        }),
+      ).toBe(checked === undefined ? null : checked ? 'check' : 'bullet');
+    },
+  );
+
+  it("writes the character before a link's `[`", () => {
+    const editor = createEditor('cjk-friendly');
+    editor.update(
+      () =>
+        $getRoot()
+          .clear()
+          .append(
+            $createParagraphNode().append(
+              $createTextNode('。').setFormat(bold),
+              $createTextNode('世'),
+              $createLinkNode('u').append($createTextNode('a')),
+            ),
+          ),
+      {discrete: true},
+    );
+    expect(editor.read('latest', () => $convertToMarkdownString())).toBe(
+      '**。**世[a](u)',
+    );
+  });
+
+  it('keeps a reference beside a GFM marker that an unmarked extension also starts its syntax with', () => {
+    // Which syntax is marked counts, not which markers it starts with, before
+    // or after the marked syntax among the extensions.
+    const syntax: MicromarkExtension = {
+      text: {46: {tokenize: (_effects, _ok, nok) => nok}},
+    };
+    const after = buildEditorFromExtensions(
+      defineExtension({
+        dependencies: [
+          defineExtension({
+            dependencies: [
+              configExtension(MdastExtension, {micromarkExtensions: [syntax]}),
+            ],
+            name: '[syntax]',
+          }),
+          MdastGfmExtension,
+          configExtension(MdastExtension, {exportPunctuation: 'cjk-friendly'}),
+        ],
+        name: '[root]',
+      }),
+    );
+    onTestFinished(() => after.dispose());
+    for (const editor of [
+      createEditor('cjk-friendly', undefined, {micromarkExtensions: [syntax]}),
+      after,
+    ]) {
+      editor.update(
+        () =>
+          $appendRuns([
+            ['你好。', bold],
+            ['世.', 0],
+          ]),
+        {discrete: true},
+      );
+      expect(editor.read('latest', () => $convertToMarkdownString())).toBe(
+        '**你好。**&#x4E16;.',
+      );
+    }
+  });
+
   it.each([
     // Written as its character, the run would close as well as open.
     [
@@ -1106,14 +1279,17 @@ describe('Mdast punctuation modes', () => {
     editor.update(
       () =>
         $convertFromMarkdownString(
-          '| a | b |\n| - | - |\n| **你好。**世界 | x |',
+          '| a | b |\n| - | - |\n| **你好。**世界 | x |\n| **"다르게"**다. | y |',
         ),
       {discrete: true},
     );
     const lines = editor
       .read('latest', () => $convertToMarkdownString())
       .split('\n');
-    expect(lines[2]).toBe('| **你好。**世界 | x |');
+    expect(lines.slice(2)).toEqual([
+      '| **你好。**世界   | x |',
+      '| **"다르게"**다. | y |',
+    ]);
     expect(lines.map(line => line.length)).toEqual(
       lines.map(() => lines[2].length),
     );

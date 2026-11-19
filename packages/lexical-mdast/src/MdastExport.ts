@@ -62,6 +62,7 @@ import {
   PUNCTUATION,
   WHITESPACE,
 } from './cjkFriendly';
+import {isReferenceAgnostic} from './compile';
 import {
   $exportLineBreak,
   $isBlockLevelNode,
@@ -1064,7 +1065,8 @@ const REFERENCE = /(\\\\)?&#(?:(\d+)|[xX]([\da-fA-F]+));/g;
  * `&` or `;` of the reference, so those references are written as the
  * characters they stand for. A run of `_` does not open or close between two
  * letters for any reader, so a reference beside one stays, as does one beside
- * the markers that another syntax adds.
+ * the markers that another syntax adds, unless that syntax is marked by
+ * `referenceAgnostic`.
  */
 function toCjkFriendly(markdown: string, compiled: CompiledMdast): string {
   // Parse only when there is a reference to rewrite.
@@ -1091,9 +1093,16 @@ function toCjkFriendly(markdown: string, compiled: CompiledMdast): string {
   const cjk = new Map<number, number>();
   // The markers of other runs, such as `_`, which open and close beside the
   // reference other than beside its character: those that a syntax
-  // extension adds, or the ASCII punctuation that starts its inline syntax.
+  // extension adds, or the ASCII punctuation that starts its inline syntax,
+  // but for a syntax marked by `referenceAgnostic`: its micromark tokenizers
+  // match beside either alike in what the export writes, and its mdast
+  // transforms read the decoded text, where the two are the same.
   const others = new Set(['_']);
-  for (const {attentionMarkers, text} of compiled.micromarkExtensions) {
+  for (const extension of compiled.micromarkExtensions) {
+    if (isReferenceAgnostic(extension)) {
+      continue;
+    }
+    const {attentionMarkers, text} = extension;
     for (const code of [
       ...((attentionMarkers && attentionMarkers.null) || []),
       ...Object.keys(text || {}).map(Number),
