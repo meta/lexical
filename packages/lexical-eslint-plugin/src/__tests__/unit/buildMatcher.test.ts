@@ -6,6 +6,8 @@
  *
  */
 
+// @vitest-environment node
+
 import type {Identifier} from 'estree';
 
 import {describe, expect, it} from 'vitest';

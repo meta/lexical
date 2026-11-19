@@ -36,15 +36,19 @@ import {
 } from './clipboard';
 
 /**
- * A middleware function in a per-MIME-type clipboard-import stack. Mirrors
- * the shape of {@link ExportMimeTypeFunction} on the export side.
+ * A middleware function in a per-MIME-type clipboard-import stack.
  *
- * - `data` is the non-empty string returned by `DataTransfer.getData(mime)`
- *   for this MIME type.
- * - `selection` is the current editor selection at the insertion point.
+ * - `data` is initially the non-empty string returned by
+ *   `DataTransfer.getData(mime)` for this MIME type. Earlier middleware may
+ *   replace it, including with an empty string.
+ * - `selection` is the selection at the insertion point, which earlier
+ *   middleware may replace. It must reference nodes in the active editor state.
  * - `$next` defers to the next-lower handler in the stack (i.e. the handler
- *   that was registered earlier). Returns `true` if that handler claimed
- *   the data; `false` if no handler accepted it.
+ *   that was registered earlier). Pass optional `data` and `selection`
+ *   arguments to replace what the remaining handlers receive. Omitted
+ *   arguments default to this handler's arguments, so `$next()`
+ *   is equivalent to `$next(data, selection)`. Returns `true` if that
+ *   handler claimed the data; `false` if no handler accepted it.
  * - `dataTransfer` is the full {@link DataTransfer} the paste/drop came
  *   from, so a handler can inspect companion MIME types or attached
  *   files in addition to the slot it was invoked for (e.g. peek at
@@ -59,15 +63,14 @@ import {
  * stops trying further handlers for this MIME type and does not move on to
  * the next MIME type). Return `$next()` to delegate. Return `false` if the
  * function decided not to handle the data after inspecting it (e.g. the
- * JSON namespace didn't match) so a lower-priority handler — or the next
- * MIME type — gets a chance.
+ * JSON namespace didn't match) so the next MIME type gets a chance.
  *
  * @experimental
  */
 export type ImportMimeTypeFunction = (
   data: string,
   selection: BaseSelection,
-  $next: () => boolean,
+  $next: (nextData?: string, nextSelection?: BaseSelection) => boolean,
   dataTransfer: DataTransfer,
 ) => boolean;
 
@@ -84,6 +87,9 @@ export type ImportMimeTypeFunction = (
  * functions are appended to the existing array for each MIME type, so
  * later-registered handlers run before earlier ones (including the
  * defaults) and may delegate to them via `next()`.
+ * To transform HTML before {@link ClipboardDOMImportExtension} handles it,
+ * declare it as a dependency or optional peer dependency of the extension
+ * providing the transform, so its configuration is merged first.
  *
  * @experimental
  */
@@ -314,11 +320,21 @@ function $callImportMimeTypeFunctionStack(
   if (!fns) {
     return false;
   }
-  const callAt = (i: number): boolean =>
+  const callAt = (
+    i: number,
+    currentData: string,
+    currentSelection: BaseSelection,
+  ): boolean =>
     fns[i]
-      ? fns[i](data, selection, callAt.bind(null, i - 1), dataTransfer)
+      ? fns[i](
+          currentData,
+          currentSelection,
+          (nextData = currentData, nextSelection = currentSelection) =>
+            callAt(i - 1, nextData, nextSelection),
+          dataTransfer,
+        )
       : false;
-  return callAt(fns.length - 1);
+  return callAt(fns.length - 1, data, selection);
 }
 
 /**

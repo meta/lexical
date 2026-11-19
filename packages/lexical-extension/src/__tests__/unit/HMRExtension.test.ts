@@ -23,9 +23,11 @@ import {
   SharedHistoryExtension,
 } from '@lexical/history';
 import {
+  $create,
   $createNodeSelection,
   $createParagraphNode,
   $createTextNode,
+  $getEditor,
   $getRoot,
   $getSelection,
   $getState,
@@ -41,6 +43,7 @@ import {
   HISTORY_PUSH_TAG,
   type LexicalEditor,
   REDO_COMMAND,
+  type SerializedTextNode,
   TextNode,
   UNDO_COMMAND,
 } from 'lexical';
@@ -87,13 +90,21 @@ function $readRangeSelection() {
 }
 
 /**
+ * Builds an editor standing in for a previous module instance's editor. The
+ * caller disposes it.
+ */
+function createDetachedEditor() {
+  return buildEditorFromExtensions(
+    defineExtension({name: 'detached-editor-state-source'}),
+  );
+}
+
+/**
  * Builds an EditorState detached from any live editor, standing in for the
  * state that a previous module instance would have stashed in `hot.data`.
  */
 function createDetachedEditorState(): EditorState {
-  using editor = buildEditorFromExtensions(
-    defineExtension({name: 'detached-editor-state-source'}),
-  );
+  using editor = createDetachedEditor();
   return editor.getEditorState();
 }
 
@@ -199,8 +210,11 @@ function historyStateOf(editor: LexicalEditor) {
 }
 
 /** The payload shape a snapshot of a single, historyless state produces. */
-function serializeEmptyState(editorState: EditorState) {
-  return {family: serializeEditorStateFamily([editorState]), history: null};
+function serializeEmptyState(editor: LexicalEditor) {
+  return {
+    family: serializeEditorStateFamily([editor.getEditorState()], editor),
+    history: null,
+  };
 }
 
 function savedSnapshot(hot: HotContext, key = TEST_HMR_KEY) {
@@ -239,7 +253,57 @@ function createEditorNoInitialState(hot: HotContext) {
   );
 }
 
+// exportJSON can depend on the editor, e.g. to read an extension's config
+// (https://github.com/meta/lexical/issues/9934).
+class EditorReadingTextNode extends TextNode {
+  $config() {
+    return this.config('editor-reading-text', {extends: TextNode});
+  }
+
+  exportJSON(): SerializedTextNode {
+    $getEditor();
+    return super.exportJSON();
+  }
+}
+
 describe('HMRExtension', () => {
+  test('serializes nodes with the active editor', () => {
+    const hot = createMockHotContext();
+    const create = () =>
+      buildEditorFromExtensions(
+        defineExtension({
+          $initialEditorState: () => $setupContent('initial'),
+          dependencies: [configExtension(HMRExtension, {hot})],
+          name: 'hmr-editor-reading-test',
+          namespace: TEST_NAMESPACE,
+          nodes: [EditorReadingTextNode],
+        }),
+      );
+
+    {
+      using editor = create();
+      editor.update(
+        () => {
+          $getRoot()
+            .clear()
+            .append(
+              $createParagraphNode().append(
+                $create(EditorReadingTextNode).setTextContent('custom'),
+              ),
+            );
+        },
+        {discrete: true},
+      );
+    }
+
+    {
+      using editor = create();
+      editor.read(() => {
+        expect($getRoot().getTextContent()).toBe('custom');
+      });
+    }
+  });
+
   test('preserves editor content through HMR cycle', () => {
     const hot = createMockHotContext();
 
@@ -382,11 +446,14 @@ describe('HMRExtension', () => {
   test('uses initial state when saved editorState is empty', () => {
     const hot = createMockHotContext();
 
-    const empty = createDetachedEditorState();
+    // A state left behind by a previous module instance's editor.
+    const previous = createDetachedEditor();
+    onTestFinished(() => previous.dispose());
+    const empty = previous.getEditorState();
     hot.data[TEST_HMR_KEY] = {
       editable: false,
       editorState: empty,
-      serialize: () => serializeEmptyState(empty),
+      serialize: () => serializeEmptyState(previous),
     };
 
     using editor = createEditor(hot);

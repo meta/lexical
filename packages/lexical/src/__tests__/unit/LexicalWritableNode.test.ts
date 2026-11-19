@@ -6,6 +6,8 @@
  *
  */
 
+// @vitest-environment node
+
 import {describe, expect, test, vi} from 'vitest';
 
 import {
@@ -242,6 +244,62 @@ describe('writable node reuse', () => {
         expect(selection.getCachedNodes()).not.toBeNull();
         expect(text.getWritable()).toBe(text);
         expect(selection.getCachedNodes()).toBeNull();
+      },
+      {discrete: true},
+    );
+  });
+});
+
+describe('stale node references', () => {
+  function $staleMessage(node: TextNode) {
+    return (
+      `Lexical node does not exist in active editor state (key ${node.getKey()}, type text). ` +
+      'The reference was probably kept from another read or update, for example in a closure, event handler or component state, ' +
+      'and the node has since been removed or is not part of this editor state. ' +
+      'Before using a node reference that may be stale, check node.isAttached() or look the node up again with ' +
+      '$getNodeByKey(node.getKey()), inside the read or update where it is used.'
+    );
+  }
+
+  function createRemovedTextNode() {
+    const editor = createHeadlessEditor();
+    let text!: TextNode;
+    editor.update(
+      () => {
+        text = $createTextNode('removed');
+        $getRoot().append($createParagraphNode().append(text));
+      },
+      {discrete: true},
+    );
+    editor.update(() => text.getParentOrThrow().remove(), {discrete: true});
+    return {editor, text};
+  }
+
+  test('explains how to guard a stale reference when reading', () => {
+    const {editor, text} = createRemovedTextNode();
+    editor.read(() => {
+      expect(() => text.getTextContent()).toThrow($staleMessage(text));
+    });
+  });
+
+  test('explains how to guard a stale reference when writing', () => {
+    const {editor, text} = createRemovedTextNode();
+    editor.update(
+      () => {
+        expect(() => text.setTextContent('changed')).toThrow(
+          $staleMessage(text),
+        );
+      },
+      {discrete: true},
+    );
+  });
+
+  test('the suggested guards do not throw for a stale reference', () => {
+    const {editor, text} = createRemovedTextNode();
+    editor.update(
+      () => {
+        expect(text.isAttached()).toBe(false);
+        expect($getNodeByKey(text.getKey())).toBeNull();
       },
       {discrete: true},
     );

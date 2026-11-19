@@ -55,6 +55,7 @@ export class ParagraphNode extends ElementNode {
 
   $config() {
     return this.config('paragraph', {
+      children: 'inline',
       extends: ElementNode,
       generated: GENERATED_PARAGRAPH,
       importDOM: {

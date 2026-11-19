@@ -25,4 +25,4 @@ type Props = Readonly<{
   }>,
 }>;
 
-declare export function BlockWithAlignableContents(Props): React.Node;
+declare export function BlockWithAlignableContents(v: Props): React.Node;

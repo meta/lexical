@@ -16,6 +16,12 @@ import {
   test,
 } from '../utils/index.mjs';
 
+test.skip(
+  ({browserName, isPlainText, isCollab}) =>
+    browserName !== 'webkit' || isPlainText || !!isCollab,
+  'Requires WebKit rich text without collaboration',
+);
+
 /**
  * Safari fires compositionend before keydown (unlike Chrome/Firefox).
  * Dispatching this event sets isSafariEndingComposition = true in LexicalEvents.ts,
@@ -38,14 +44,7 @@ test.describe('Regression #8153', () => {
 
   test('Can delete all text selected with Cmd+A after IME composition end on Safari', async ({
     page,
-    browserName,
-    isPlainText,
-    isCollab,
   }) => {
-    test.skip(browserName !== 'webkit');
-    test.skip(isPlainText);
-    test.skip(isCollab);
-
     await focusEditor(page);
     await page.keyboard.type('Hello');
     await page.keyboard.press('Enter');
@@ -74,14 +73,7 @@ test.describe('Regression #8153', () => {
 
   test('Can delete multi-paragraph selection with Shift+ArrowUp after IME composition end on Safari', async ({
     page,
-    browserName,
-    isPlainText,
-    isCollab,
   }) => {
-    test.skip(browserName !== 'webkit');
-    test.skip(isPlainText);
-    test.skip(isCollab);
-
     await focusEditor(page);
     await page.keyboard.type('Hello');
     await page.keyboard.press('Enter');

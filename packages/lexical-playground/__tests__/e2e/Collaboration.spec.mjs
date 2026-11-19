@@ -34,17 +34,12 @@ async function toggleCheckList(page) {
   await click(page, '.dropdown .icon.check-list');
 }
 
+test.skip(({isCollab}) => !isCollab, 'Requires collaboration');
+
 test.describe('Collaboration', () => {
   test.beforeEach(({isCollab, page}) => initialize({isCollab, page}));
 
-  test('Undo with collaboration on', async ({
-    isRichText,
-    page,
-    isCollab,
-    browserName,
-  }) => {
-    test.skip(!isCollab);
-
+  test('Undo with collaboration on', async ({page, isCollab}) => {
     await focusEditor(page);
     // The two `undo`s below each expect to revert an entire edit group as a unit
     // (the "hello world again" burst, then the whole checklist). Disable the Yjs
@@ -178,7 +173,7 @@ test.describe('Collaboration', () => {
         focusOffset: 5,
         focusPath: [0, 0, 0],
       });
-    } else {
+    } else if (isCollab === 2) {
       await assertSelection(page, {
         anchorOffset: 1,
         anchorPath: [0],
@@ -187,7 +182,18 @@ test.describe('Collaboration', () => {
       });
     }
 
-    await page.keyboard.press('ArrowDown');
+    if (isCollab === 'y') {
+      // Collab Y does not restore the selection an undo step was made with:
+      // the caret is mapped through the change like through a remote one, so
+      // it moves out of the removed list. Put it back in the empty paragraph.
+      await page
+        .frameLocator('iframe[name="left"]')
+        .locator('[data-lexical-editor="true"] > p')
+        .nth(1)
+        .click();
+    } else {
+      await page.keyboard.press('ArrowDown');
+    }
     await page.keyboard.type('Some bold text');
 
     // Move caret to end of 'bold'
@@ -227,13 +233,9 @@ test.describe('Collaboration', () => {
   });
 
   test('Remove dangling text from YJS when there is no preceding text node', async ({
-    isRichText,
     page,
     isCollab,
-    browserName,
   }) => {
-    test.skip(!isCollab);
-
     // Left collaborator types two paragraphs of text
     await focusEditor(page);
     // The undo below expects to revert the whole "This is a test. " burst as a
@@ -278,45 +280,37 @@ test.describe('Collaboration', () => {
     await expect(undoButton).toBeEnabled();
     await undoButton.click();
 
-    // The undo also removed the text node from YJS.
-    // Check that the dangling text from right user was also removed.
-    await assertHTML(
-      page,
-      html`
-        <p class="PlaygroundEditorTheme__paragraph" dir="auto">
-          <span data-lexical-text="true">Line 1</span>
-        </p>
-        <p class="PlaygroundEditorTheme__paragraph" dir="auto">
-          <br data-lexical-managed-linebreak="true" />
-        </p>
-      `,
-    );
+    // Collab v1/v2: the undo also removed the text node from YJS, and with it
+    // the dangling text from the right user. Collab Y: an undo only removes
+    // what its own client wrote, so the right user's text stays.
+    const afterUndo =
+      isCollab === 'y'
+        ? html`
+            <p class="PlaygroundEditorTheme__paragraph" dir="auto">
+              <span data-lexical-text="true">Line 1</span>
+            </p>
+            <p class="PlaygroundEditorTheme__paragraph" dir="auto">
+              <span data-lexical-text="true">Word</span>
+            </p>
+          `
+        : html`
+            <p class="PlaygroundEditorTheme__paragraph" dir="auto">
+              <span data-lexical-text="true">Line 1</span>
+            </p>
+            <p class="PlaygroundEditorTheme__paragraph" dir="auto">
+              <br data-lexical-managed-linebreak="true" />
+            </p>
+          `;
+    await assertHTML(page, afterUndo);
 
     // Left collaborator refreshes their page
     await reloadCollabFrame(page, 'left');
 
     // Page content should be the same as before the refresh
-    await assertHTML(
-      page,
-      html`
-        <p class="PlaygroundEditorTheme__paragraph" dir="auto">
-          <span data-lexical-text="true">Line 1</span>
-        </p>
-        <p class="PlaygroundEditorTheme__paragraph" dir="auto">
-          <br data-lexical-managed-linebreak="true" />
-        </p>
-      `,
-    );
+    await assertHTML(page, afterUndo);
   });
 
-  test('Merge dangling text into preceding text node', async ({
-    isRichText,
-    page,
-    isCollab,
-    browserName,
-  }) => {
-    test.skip(!isCollab);
-
+  test('Merge dangling text into preceding text node', async ({page}) => {
     // Left collaborator types two pieces of text in the same paragraph, but with different styling.
     await focusEditor(page);
     // The undo below expects to revert the bold format *and* the "bold" burst
@@ -406,13 +400,10 @@ test.describe('Collaboration', () => {
   });
 
   test('Undo/redo where text node is split by formatting change', async ({
-    isRichText,
     page,
     isCollab,
     browserName,
   }) => {
-    test.skip(!isCollab);
-
     // Left collaborator types two words, sets the second one to bold.
     await focusEditor(page);
     await page.keyboard.type('normal bold');
@@ -530,13 +521,9 @@ test.describe('Collaboration', () => {
   });
 
   test('Undo/redo where text node is split by inline element node', async ({
-    isRichText,
     page,
     isCollab,
-    browserName,
   }) => {
-    test.skip(!isCollab);
-
     // Left collaborator types some text, then splits the text nodes with an element node.
     await focusEditor(page);
     await page.keyboard.type('Check out the website!');
@@ -603,6 +590,17 @@ test.describe('Collaboration', () => {
           </p>
         `,
       );
+    } else if (isCollab === 'y') {
+      // The undo removes the link; the right user's text stays where it was
+      // typed.
+      await assertHTML(
+        page,
+        html`
+          <p class="PlaygroundEditorTheme__paragraph" dir="auto">
+            <span data-lexical-text="true">Check out the website now!</span>
+          </p>
+        `,
+      );
     } else {
       // The undo causes the YText node to be removed.
       await assertHTML(
@@ -661,10 +659,7 @@ test.describe('Collaboration', () => {
 
   test('$handleNormalizationMergeConflicts handles nodes that have been reparented', async ({
     page,
-    isCollab,
   }) => {
-    test.skip(!isCollab);
-
     // Add paragraph, type ABC into second paragraph, bold the B, backspace text into the first paragraph to reparent the text nodes
     await focusEditor(page);
     await page.keyboard.press('Enter');

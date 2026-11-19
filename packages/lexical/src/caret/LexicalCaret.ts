@@ -11,10 +11,11 @@ import type {TextNode} from '../nodes/LexicalTextNode';
 import devInvariant from '@lexical/internal/devInvariant';
 import invariant from '@lexical/internal/invariant';
 
-import {$getSlotHostKey} from '../LexicalSlot';
+import {$getSlotHost, $getSlotHostKey, $getSlotMap} from '../LexicalSlot';
 import {$getRoot, $isRootOrShadowRoot} from '../LexicalUtils';
 import {$isElementNode, type ElementNode} from '../nodes/LexicalElementNode';
 import {$isRootNode} from '../nodes/LexicalRootNode';
+import {$setTextContentSpliced} from '../nodes/LexicalTextNode';
 
 /**
  * The direction of a caret, 'next' points towards the end of the document
@@ -1089,9 +1090,8 @@ class TextPointCaretSliceImpl<
       caret: {origin, direction},
     } = this;
     const [indexStart, indexEnd] = this.getSliceIndices();
-    const text = origin.getTextContent();
     return $getTextPointCaret(
-      origin.setTextContent(text.slice(0, indexStart) + text.slice(indexEnd)),
+      $setTextContentSpliced(origin, indexStart, indexEnd - indexStart, ''),
       direction,
       indexStart,
     );
@@ -1282,19 +1282,7 @@ export function $comparePointCaretNext(
   );
   switch (compare.type) {
     case 'same': {
-      const aIsText = a.type === 'text';
-      const bIsText = b.type === 'text';
-      return aIsText && bIsText
-        ? compareNumber(a.offset, b.offset)
-        : a.type === b.type
-          ? 0
-          : aIsText
-            ? -1
-            : bIsText
-              ? 1
-              : a.type === 'child'
-                ? -1
-                : 1;
+      return $compareSameOriginCarets(a, b);
     }
     case 'ancestor': {
       return a.type === 'child' ? -1 : 1;
@@ -1306,6 +1294,147 @@ export function $comparePointCaretNext(
       return $getCommonAncestorResultBranchOrder(compare);
     }
   }
+}
+
+/**
+ * The result of {@link $getCommonAncestorAcrossSlots}: like
+ * {@link CommonAncestorResult}, except that the common ancestor may be a
+ * DecoratorNode slot host, and the child on either side may be one of its
+ * slot values rather than a child.
+ *
+ * @internal @experimental named-slots
+ */
+export type CommonAncestorAcrossSlotsResult =
+  | {readonly type: 'same'; readonly commonAncestor: LexicalNode}
+  | {
+      readonly type: 'ancestor';
+      readonly commonAncestor: LexicalNode;
+      readonly b: LexicalNode;
+    }
+  | {
+      readonly type: 'descendant';
+      readonly commonAncestor: LexicalNode;
+      readonly a: LexicalNode;
+    }
+  | {
+      readonly type: 'branch';
+      readonly commonAncestor: LexicalNode;
+      readonly a: LexicalNode;
+      readonly b: LexicalNode;
+    };
+
+/**
+ * Like {@link $getCommonAncestor}, but a slot value's parent is its host, so
+ * nodes on either side of a slot boundary have a common ancestor. Returns
+ * null when there is none.
+ *
+ * @internal @experimental named-slots
+ */
+export function $getCommonAncestorAcrossSlots(
+  a: LexicalNode,
+  b: LexicalNode,
+): null | CommonAncestorAcrossSlotsResult {
+  // Node key -> the child (or slot value) on the path down to a.
+  const aPath = new Map<NodeKey, LexicalNode | null>();
+  for (
+    let child: LexicalNode | null = null, node: LexicalNode | null = a;
+    node !== null;
+    child = node, node = $getParentAcrossSlots(node)
+  ) {
+    aPath.set(node.getKey(), child);
+  }
+  for (
+    let child: LexicalNode | null = null, node: LexicalNode | null = b;
+    node !== null;
+    child = node, node = $getParentAcrossSlots(node)
+  ) {
+    const aChild = aPath.get(node.getKey());
+    if (aChild === undefined) {
+      continue;
+    }
+    const commonAncestor = node.getLatest();
+    return aChild === null
+      ? child === null
+        ? {commonAncestor, type: 'same'}
+        : {b: child, commonAncestor, type: 'ancestor'}
+      : child === null
+        ? {a: aChild, commonAncestor, type: 'descendant'}
+        : {a: aChild, b: child, commonAncestor, type: 'branch'};
+  }
+  return null;
+}
+
+function $getParentAcrossSlots(node: LexicalNode): LexicalNode | null {
+  return node.getParent() || $getSlotHost(node);
+}
+
+/**
+ * Like {@link $comparePointCaretNext}, but orders points on either side of a
+ * slot boundary in the default slots-before-children rendering order: a
+ * host's slot values, in slot order, come after any point before the host and
+ * before its children. A ChildCaret on the host, the point before its first
+ * child, therefore comes after them. An app can mount slot DOM elsewhere, so
+ * this need not match the DOM order. Returns null when a and b have no common
+ * ancestor.
+ *
+ * @internal @experimental named-slots
+ */
+export function $comparePointCaretNextAcrossSlots(
+  a: PointCaret<'next'>,
+  b: PointCaret<'next'>,
+): null | -1 | 0 | 1 {
+  const compare = $getCommonAncestorAcrossSlots(a.origin, b.origin);
+  if (compare === null) {
+    return null;
+  }
+  switch (compare.type) {
+    case 'same':
+      return $compareSameOriginCarets(a, b);
+    case 'ancestor':
+      return a.type === 'child' && $getSlotHostKey(compare.b) === null ? -1 : 1;
+    case 'descendant':
+      return b.type === 'child' && $getSlotHostKey(compare.a) === null ? 1 : -1;
+    case 'branch': {
+      const aSlotKey = $getSlotHostKey(compare.a) && compare.a.getKey();
+      const bSlotKey = $getSlotHostKey(compare.b) && compare.b.getKey();
+      if (aSlotKey && bSlotKey) {
+        // Two slot values of one host: slot order.
+        for (const key of $getSlotMap(compare.commonAncestor).values()) {
+          if (key === aSlotKey || key === bSlotKey) {
+            return key === aSlotKey ? -1 : 1;
+          }
+        }
+      }
+      // By default a slot value renders before the host's children.
+      return aSlotKey
+        ? -1
+        : bSlotKey
+          ? 1
+          : compare.a.isBefore(compare.b)
+            ? -1
+            : 1;
+    }
+  }
+}
+
+// The order of two carets with the same origin.
+function $compareSameOriginCarets(
+  a: PointCaret<'next'>,
+  b: PointCaret<'next'>,
+): -1 | 0 | 1 {
+  const aIsText = a.type === 'text';
+  const bIsText = b.type === 'text';
+  return aIsText && bIsText
+    ? compareNumber(a.offset, b.offset)
+    : a.type === b.type
+      ? 0
+      : aIsText
+        ? -1
+        : bIsText
+          ? 1
+          : a.type === 'child'
+            ? -1
+            : 1;
 }
 
 /**

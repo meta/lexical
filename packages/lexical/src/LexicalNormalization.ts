@@ -16,6 +16,8 @@ import {
 } from '.';
 import {nodeStatesAreEquivalent} from './LexicalNodeState';
 import {getActiveEditor} from './LexicalUpdates';
+import {DEFER_COMPOSITION_MERGE_TAG} from './LexicalUpdateTags';
+import {$isEmptyCompositionTarget} from './LexicalUtils';
 
 function $canSimpleTextNodesBeMerged(
   node1: TextNode,
@@ -52,10 +54,38 @@ function $mergeTextNodes(node1: TextNode, node2: TextNode): TextNode {
 export function $normalizeTextNode(textNode: TextNode): void {
   let node = textNode;
 
+  if ($isEmptyCompositionTarget(node)) {
+    return;
+  }
+
   if (node.__text === '' && node.isSimpleText() && !node.isUnmergeable()) {
     node.remove();
     return;
   }
+
+  // An update tagged DEFER_COMPOSITION_MERGE_TAG never merges text into or
+  // out of the node being composed: merging rewrites its DOM text node, and
+  // the browser's composition range would take in the merged text. Once such
+  // a merge was held back, later updates of the same composition hold it back
+  // too (each composition step marks the composed node dirty). The nodes merge
+  // when the composition ends. Without the tag, text merges as before.
+  const editor = getActiveEditor();
+  const compositionKey = editor._compositionKey;
+  const holdComposition =
+    compositionKey !== null &&
+    (editor._compositionMergeHeld === compositionKey ||
+      editor._updateTags.has(DEFER_COMPOSITION_MERGE_TAG));
+  const $holdsMerge = (node1: TextNode, node2: TextNode) => {
+    if (
+      holdComposition &&
+      (node1.__key === compositionKey || node2.__key === compositionKey) &&
+      $canSimpleTextNodesBeMerged(node1, node2)
+    ) {
+      editor._compositionMergeHeld = compositionKey;
+      return true;
+    }
+    return false;
+  };
 
   // Backward
   let previousNode;
@@ -66,8 +96,13 @@ export function $normalizeTextNode(textNode: TextNode): void {
     previousNode.isSimpleText() &&
     !previousNode.isUnmergeable()
   ) {
+    if ($isEmptyCompositionTarget(previousNode)) {
+      break;
+    }
     if (previousNode.__text === '') {
       previousNode.remove();
+    } else if ($holdsMerge(previousNode, node)) {
+      break;
     } else if ($canSimpleTextNodesBeMerged(previousNode, node)) {
       node = $mergeTextNodes(previousNode, node);
       break;
@@ -85,8 +120,13 @@ export function $normalizeTextNode(textNode: TextNode): void {
     nextNode.isSimpleText() &&
     !nextNode.isUnmergeable()
   ) {
+    if ($isEmptyCompositionTarget(nextNode)) {
+      break;
+    }
     if (nextNode.__text === '') {
       nextNode.remove();
+    } else if ($holdsMerge(node, nextNode)) {
+      break;
     } else if ($canSimpleTextNodesBeMerged(node, nextNode)) {
       node = $mergeTextNodes(node, nextNode);
       break;

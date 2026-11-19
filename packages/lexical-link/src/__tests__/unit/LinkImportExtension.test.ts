@@ -11,14 +11,8 @@ import {
   getExtensionDependencyFromEditor,
 } from '@lexical/extension';
 import {DOMImportExtension} from '@lexical/html';
-import {
-  $isLinkNode,
-  LinkExtension,
-  LinkImportExtension,
-  type LinkNode,
-} from '@lexical/link';
+import {$isLinkNode, LinkExtension, type LinkNode} from '@lexical/link';
 import {$isHeadingNode, RichTextExtension} from '@lexical/rich-text';
-import {JSDOM} from 'jsdom';
 import {
   $getEditor,
   $getRoot,
@@ -44,8 +38,11 @@ function buildEditor() {
 function $generate(html: string): LexicalNode[] {
   const editor = $getEditor();
   const dep = getExtensionDependencyFromEditor(editor, DOMImportExtension);
-  const dom = new JSDOM(`<!doctype html><html><body>${html}</body></html>`);
-  return dep.output.$generateNodesFromDOM(dom.window.document);
+  const dom = new DOMParser().parseFromString(
+    `<!doctype html><html><body>${html}</body></html>`,
+    'text/html',
+  );
+  return dep.output.$generateNodesFromDOM(dom);
 }
 
 function importInto(editor: LexicalEditor, html: string): void {
@@ -101,19 +98,6 @@ describe('LinkImportExtension', () => {
       const para = $getRoot().getFirstChild();
       assert($isParagraphNode(para), 'expected paragraph');
       expect(para.getTextContent()).toBe('beforeafter');
-    });
-  });
-
-  test('deprecated LinkImportExtension alias still imports <a>', () => {
-    using editor = buildEditorFromExtensions(
-      defineExtension({
-        dependencies: [LinkImportExtension],
-        name: 'link-alias-host',
-      }),
-    );
-    importInto(editor, '<p><a href="https://example.com">click</a></p>');
-    editor.read(() => {
-      expect($firstLink().getURL()).toBe('https://example.com');
     });
   });
 });

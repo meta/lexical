@@ -18,6 +18,16 @@ import type {
  * Rich Text
  */
 
+export type ImportMimeTypeFunction = (
+  data: string,
+  selection: BaseSelection,
+  $next: (
+    nextData?: string | void,
+    nextSelection?: BaseSelection | void,
+  ) => boolean,
+  dataTransfer: DataTransfer,
+) => boolean;
+
 declare export function $insertDataTransferForRichText(
   dataTransfer: DataTransfer,
   selection: BaseSelection,
@@ -76,7 +86,7 @@ declare export function $writeDragSourceToDataTransfer(
 // name for it.
 export interface BaseSerializedNode {
   children?: BaseSerializedNode[];
-  $slots?: {[string]: BaseSerializedNode};
+  $slots?: {[key: string]: BaseSerializedNode};
   type: string;
   // Deprecated: ignored when parsing, and omitted by a compact export.
   version?: number;

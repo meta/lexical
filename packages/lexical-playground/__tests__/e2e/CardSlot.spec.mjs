@@ -155,8 +155,8 @@ async function selectStartAfterCard(page) {
 }
 
 test.describe('Card slot deletion boundaries', () => {
-  test.beforeEach(async ({isCollab, isPlainText, page}) => {
-    test.skip(isPlainText);
+  test.skip(({isPlainText}) => isPlainText, 'Requires rich text');
+  test.beforeEach(async ({isCollab, page}) => {
     await initialize({isCollab, page});
   });
 
@@ -317,8 +317,8 @@ test.describe('Card slot deletion boundaries', () => {
 });
 
 test.describe('Card HTML serialization round-trip', () => {
-  test.beforeEach(async ({isCollab, isPlainText, page}) => {
-    test.skip(isPlainText);
+  test.skip(({isPlainText}) => isPlainText, 'Requires rich text');
+  test.beforeEach(async ({isCollab, page}) => {
     await initialize({isCollab, page});
   });
 
@@ -357,8 +357,8 @@ test.describe('Card HTML serialization round-trip', () => {
 });
 
 test.describe('Card host data-selected mirroring', () => {
-  test.beforeEach(async ({isCollab, isPlainText, page}) => {
-    test.skip(isPlainText);
+  test.skip(({isPlainText}) => isPlainText, 'Requires rich text');
+  test.beforeEach(async ({isCollab, page}) => {
     await initialize({isCollab, page});
   });
 
@@ -387,8 +387,8 @@ test.describe('Card host data-selected mirroring', () => {
 // keyless, so without the explicit guard $getNearestNodeFromDOMNode would walk
 // past it to the Card and the CLICK_COMMAND would promote.
 test.describe('Card slot wrapper click does not promote', () => {
-  test.beforeEach(async ({isCollab, isPlainText, page}) => {
-    test.skip(isPlainText);
+  test.skip(({isPlainText}) => isPlainText, 'Requires rich text');
+  test.beforeEach(async ({isCollab, page}) => {
     await initialize({isCollab, page});
   });
 
@@ -411,8 +411,8 @@ test.describe('Card slot wrapper click does not promote', () => {
 // placeholders shown only while a field is empty (no seeded TextNodes), so
 // they never appear in the serialized model or in copied text.
 test.describe('Card empty-field placeholders', () => {
-  test.beforeEach(async ({isCollab, isPlainText, page}) => {
-    test.skip(isPlainText);
+  test.skip(({isPlainText}) => isPlainText, 'Requires rich text');
+  test.beforeEach(async ({isCollab, page}) => {
     await initialize({isCollab, page});
   });
 
@@ -553,8 +553,8 @@ test.describe('Card empty-field placeholders', () => {
 // $getSlotNameWithinHost, so a future refactor could regress the caret
 // bridge in either direction without affecting any other surface.
 test.describe('Card Tab / Shift+Tab slot caret navigation', () => {
-  test.beforeEach(async ({isCollab, isPlainText, page}) => {
-    test.skip(isPlainText);
+  test.skip(({isPlainText}) => isPlainText, 'Requires rich text');
+  test.beforeEach(async ({isCollab, page}) => {
     await initialize({isCollab, page});
   });
 
@@ -596,8 +596,8 @@ test.describe('Card Tab / Shift+Tab slot caret navigation', () => {
 // implementation decisions). Typing a single character after Cmd+A in the
 // title slot must replace only the title text, leaving the body intact.
 test.describe('Card SELECT_ALL stays slot-scoped', () => {
-  test.beforeEach(async ({isCollab, isPlainText, page}) => {
-    test.skip(isPlainText);
+  test.skip(({isPlainText}) => isPlainText, 'Requires rich text');
+  test.beforeEach(async ({isCollab, page}) => {
     await initialize({isCollab, page});
   });
 

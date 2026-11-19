@@ -8,7 +8,6 @@
 
 import type {LexicalEditor} from './LexicalEditor';
 import type {EditorState} from './LexicalEditorState';
-import type {LexicalPrivateDOM} from './LexicalNode';
 import type {BaseSelection} from './LexicalSelection';
 
 import {
@@ -22,10 +21,12 @@ import {
 } from '.';
 import {IS_FIREFOX} from './environment';
 import {isDecoratorBoundaryAnchorDOM} from './LexicalDOMSlot';
-import {updateEditorSync} from './LexicalUpdates';
+import {
+  isPendingStateSkippingTransforms,
+  updateEditorSync,
+} from './LexicalUpdates';
 import {
   $getNodeByKey,
-  $getNodeFromDOMNode,
   $updateTextNodeFromDOMContent,
   getDOMSelection,
   getDOMSelectionPoints,
@@ -47,31 +48,18 @@ export function getIsProcessingMutations(): boolean {
   return isProcessingMutations;
 }
 
-function updateTimeStamp(event: Event) {
-  lastTextEntryTimeStamp = event.timeStamp;
+function updateTimeStamp() {
+  lastTextEntryTimeStamp = performance.now();
 }
 
 function initTextEntryListener(editor: LexicalEditor): void {
-  if (lastTextEntryTimeStamp === 0) {
-    getWindow(editor).addEventListener('textInput', updateTimeStamp, true);
-  }
+  getWindow(editor).addEventListener('textInput', updateTimeStamp, true);
 }
 
-// True when `dom` is a line break the editor is actively managing in the
-// live DOM — identified by the `__lexicalLineBreak` slot reference or by
-// having a node key.
-function isEditorManagedLineBreak(
-  dom: Node,
-  target: Node & LexicalPrivateDOM,
-  editor: LexicalEditor,
-): boolean {
-  const isBR = dom.nodeName === 'BR';
-  const lexicalLineBreak = target.__lexicalLineBreak;
+// A node of an element's managed line break (ElementDOMSlot).
+function isManagedLineBreakDOM(dom: Node): boolean {
   return (
-    (lexicalLineBreak &&
-      (dom === lexicalLineBreak ||
-        (isBR && dom.previousSibling === lexicalLineBreak))) ||
-    (isBR && getNodeKeyFromDOMNode(dom, editor) !== undefined)
+    isHTMLElement(dom) && dom.hasAttribute('data-lexical-managed-linebreak')
   );
 }
 
@@ -144,198 +132,266 @@ function $getNearestManagedNodePairFromDOMNode(
   }
 }
 
+/**
+ * Whether a change to `dom`'s text is one the revert applies: the text of a
+ * TextNode the editor renders, not DOM a decorator renders or DOM marked
+ * unmanaged, which it leaves alone.
+ */
+function isManagedTextDOM(dom: Node, editor: LexicalEditor): boolean {
+  const nodeMap = editor._editorState._nodeMap;
+  for (
+    let el: Node | null = dom;
+    el && !isDOMUnmanaged(el);
+    el = getParentElement(el)
+  ) {
+    const key = getNodeKeyFromDOMNode(el, editor);
+    const node = key === undefined ? undefined : nodeMap.get(key);
+    if (node !== undefined) {
+      return $isTextNode(node) && isHTMLElement(el);
+    }
+  }
+  return false;
+}
+
 function flushMutations(
   editor: LexicalEditor,
   mutations: MutationRecord[],
   observer: MutationObserver,
+  rerenderText?: boolean,
 ): void {
   isProcessingMutations = true;
   const shouldFlushTextMutations =
+    // Not while the browser makes an insertion the editor left to it: the
+    // editor's input listener reads that text, and an input listener that
+    // runs before it (React has one above the root) lets this run first,
+    // however long after the text entry.
+    editor._inputState.unprocessedBeforeInputData === null &&
     performance.now() - lastTextEntryTimeStamp > TEXT_MUTATION_VARIANCE;
+  // The revert's update joins a pending state when there is one (whether a
+  // commit, the observer or setEditorState starts it). After an update made
+  // with skipTransforms, it runs none either: they would run over what that
+  // update left untransformed. Not when it applies a change to the text of a
+  // TextNode's DOM (spellcheck, autocorrect, an IME), which the transforms
+  // would otherwise never see.
+  const pending = editor._pendingEditorState;
+  const skipTransforms =
+    !editor._updating &&
+    pending !== null &&
+    isPendingStateSkippingTransforms(pending) &&
+    !(
+      shouldFlushTextMutations &&
+      !rerenderText &&
+      mutations.some(
+        mutation =>
+          mutation.type === 'characterData' &&
+          isDOMTextNode(mutation.target) &&
+          isManagedTextDOM(mutation.target, editor),
+      )
+    );
   try {
-    updateEditorSync(editor, () => {
-      const selection = $getSelection() || getLastSelection(editor);
-      const badDOMTargets = new Map<HTMLElement, LexicalNode>();
-      // We use the current editor state, as that reflects what is
-      // actually "on screen".
-      const currentEditorState = editor._editorState;
-      const blockCursorElement = editor._blockCursorElement;
-      let shouldRevertSelection = false;
-      let possibleTextForFirefoxPaste = '';
+    updateEditorSync(
+      editor,
+      () => {
+        const selection = $getSelection() || getLastSelection(editor);
+        const badDOMTargets = new Map<HTMLElement, LexicalNode>();
+        // We use the current editor state, as that reflects what is
+        // actually "on screen".
+        const currentEditorState = editor._editorState;
+        const blockCursorElement = editor._blockCursorElement;
+        let shouldRevertSelection = false;
+        let possibleTextForFirefoxPaste = '';
 
-      for (let i = 0; i < mutations.length; i++) {
-        const mutation = mutations[i];
-        const type = mutation.type;
-        const targetDOM = mutation.target;
-        const pair = $getNearestManagedNodePairFromDOMNode(
-          targetDOM,
-          editor,
-          currentEditorState,
-        );
-        if (!pair) {
-          continue;
-        }
-        const [nodeDOM, targetNode] = pair;
-
-        if (type === 'characterData') {
-          // Text mutations are deferred and passed to mutation listeners to be
-          // processed outside of the Lexical engine.
-          if (
-            // TODO there is an edge case here if a mutation happens too quickly
-            //      after text input, it may never be handled since we do not
-            //      track the ignored mutations in any way
-            shouldFlushTextMutations &&
-            $isTextNode(targetNode) &&
-            isDOMTextNode(targetDOM) &&
-            shouldUpdateTextNodeFromMutation(selection, targetDOM, targetNode)
-          ) {
-            $handleTextMutation(targetDOM, targetNode, editor);
+        for (const mutation of mutations) {
+          const type = mutation.type;
+          const targetDOM = mutation.target;
+          const pair = $getNearestManagedNodePairFromDOMNode(
+            targetDOM,
+            editor,
+            currentEditorState,
+          );
+          if (!pair) {
+            continue;
           }
-        } else if (type === 'childList') {
-          shouldRevertSelection = true;
-          // We attempt to "undo" any changes that have occurred outside
-          // of Lexical. We want Lexical's editor state to be source of truth.
-          // To the user, these will look like no-ops.
-          const addedDOMs = mutation.addedNodes;
+          const [nodeDOM, targetNode] = pair;
 
-          for (let s = 0; s < addedDOMs.length; s++) {
-            const addedDOM = addedDOMs[s];
-            const node = $getNodeFromDOMNode(addedDOM);
-            const parentDOM = addedDOM.parentNode;
-
-            if (
-              parentDOM != null &&
-              addedDOM !== blockCursorElement &&
-              node === null &&
-              !isEditorManagedLineBreak(addedDOM, parentDOM, editor) &&
-              // The zero-size selection anchors the reconciler parks outside
-              // a leading / trailing block decorator (#8922) are keyless
-              // scaffolding, like the managed line break — don't evict them
-              // as foreign DOM.
-              !isDecoratorBoundaryAnchorDOM(addedDOM) &&
-              // @experimental named-slots. Slot containers are keyless
-              // reconciler scaffolding: a flush that observes one being
-              // parked in its host or relocated by an explicit mount must
-              // not evict it as foreign DOM. Gated on the editor slot latch so
-              // a non-slot editor still evicts foreign DOM that happens to
-              // carry a `data-lexical-slot` attribute.
-              !(
-                editor._slotsUsed &&
-                isHTMLElement(addedDOM) &&
-                addedDOM.hasAttribute('data-lexical-slot')
-              ) &&
-              // Skip externally-added DOM that's explicitly opted out of
-              // mutation tracking (e.g. an extension-rendered decoration
-              // inside a TextNode's span, like the autocomplete ghost).
-              !isDOMUnmanaged(addedDOM)
-            ) {
-              if (IS_FIREFOX) {
-                const possibleText =
-                  (isHTMLElement(addedDOM) ? addedDOM.innerText : null) ||
-                  addedDOM.nodeValue;
-
-                if (possibleText) {
-                  possibleTextForFirefoxPaste += possibleText;
-                }
+          if (type === 'characterData') {
+            if (rerenderText) {
+              // The editor applied this input itself, so the text the browser
+              // also changed is rendered again from the editor state.
+              if ($isTextNode(targetNode) && targetNode.isAttached()) {
+                targetNode.markDirty();
               }
-
-              parentDOM.removeChild(addedDOM);
+            } else if (
+              // Text mutations are deferred and passed to mutation listeners to
+              // be processed outside of the Lexical engine.
+              // TODO there is an edge case here if a mutation happens too quickly
+              //      after text input, it may never be handled since we do not
+              //      track the ignored mutations in any way
+              shouldFlushTextMutations &&
+              $isTextNode(targetNode) &&
+              isDOMTextNode(targetDOM) &&
+              shouldUpdateTextNodeFromMutation(selection, targetDOM, targetNode)
+            ) {
+              $handleTextMutation(targetDOM, targetNode, editor);
             }
-          }
-
-          const removedDOMs = mutation.removedNodes;
-          const removedDOMsLength = removedDOMs.length;
-
-          if (removedDOMsLength > 0) {
-            let unremovedBRs = 0;
-
-            for (let s = 0; s < removedDOMsLength; s++) {
-              const removedDOM = removedDOMs[s];
+          } else {
+            // childList, the only other type the observer records
+            shouldRevertSelection = true;
+            // We attempt to "undo" any changes that have occurred outside
+            // of Lexical. We want Lexical's editor state to be source of truth.
+            // To the user, these will look like no-ops.
+            for (const addedDOM of mutation.addedNodes) {
+              const key = getNodeKeyFromDOMNode(addedDOM, editor);
 
               if (
-                isEditorManagedLineBreak(removedDOM, targetDOM, editor) ||
-                blockCursorElement === removedDOM
+                addedDOM !== blockCursorElement &&
+                // Not when it has moved on: scaffolding is put back below.
+                addedDOM.parentNode === targetDOM &&
+                // Keyed DOM stays only when it is the DOM its node renders
+                // to: a stale copy (of a removed node, or from before a node
+                // was rendered anew) is evicted like foreign DOM. So is a node
+                // of a managed line break: an edit that moved one took it from
+                // an element that reconcileObservedMutation puts back together.
+                // The reconciler adds a decorator boundary anchor (#8922) only
+                // while nothing observes, so one added here was moved or copied
+                // by something else and is evicted too.
+                (key
+                  ? editor.getElementByKey(key) !== addedDOM
+                  : // @experimental named-slots. Slot containers are keyless
+                    // reconciler scaffolding: a flush that observes one being
+                    // parked in its host or relocated by an explicit mount must
+                    // not evict it as foreign DOM. Gated on the editor slot
+                    // latch so a non-slot editor still evicts foreign DOM that
+                    // happens to carry a `data-lexical-slot` attribute.
+                    !(
+                      editor._slotsUsed &&
+                      isHTMLElement(addedDOM) &&
+                      addedDOM.hasAttribute('data-lexical-slot')
+                    ) &&
+                    // Skip externally-added DOM that's explicitly opted out of
+                    // mutation tracking (e.g. an extension-rendered decoration
+                    // inside a TextNode's span, like the autocomplete ghost).
+                    !isDOMUnmanaged(addedDOM))
               ) {
-                targetDOM.appendChild(removedDOM);
-                unremovedBRs++;
-              } else if (isDecoratorBoundaryAnchorDOM(removedDOM)) {
-                // Position matters for these (leading vs trailing), so don't
-                // blindly re-append — the next reconcile of this element puts
-                // a fresh anchor on the right edge.
-                unremovedBRs++;
+                if (IS_FIREFOX) {
+                  const possibleText =
+                    (isHTMLElement(addedDOM) ? addedDOM.innerText : null) ||
+                    addedDOM.nodeValue;
+
+                  if (possibleText) {
+                    possibleTextForFirefoxPaste += possibleText;
+                  }
+                }
+
+                targetDOM.removeChild(addedDOM);
               }
             }
 
-            if (removedDOMsLength !== unremovedBRs) {
-              badDOMTargets.set(nodeDOM, targetNode);
+            for (const removedDOM of mutation.removedNodes) {
+              const isBlockCursor = blockCursorElement === removedDOM;
+              if (
+                isBlockCursor ||
+                isDecoratorBoundaryAnchorDOM(removedDOM) ||
+                isManagedLineBreakDOM(removedDOM)
+              ) {
+                // Back in its place, wherever the edit put it, which matters for
+                // the scaffolding and for DOM an extension keeps beside the
+                // line break: after its previous sibling when a later record
+                // took the next one.
+                const next = mutation.nextSibling;
+                const prev = mutation.previousSibling;
+                targetDOM.insertBefore(
+                  removedDOM,
+                  !next || next.parentNode === targetDOM
+                    ? next
+                    : !prev
+                      ? targetDOM.firstChild
+                      : prev.parentNode === targetDOM
+                        ? prev.nextSibling
+                        : null,
+                );
+              }
+              if (!isBlockCursor) {
+                // A removed child is put back, and a line break that is no
+                // longer whole or a decorator boundary anchor that is gone (a
+                // later record evicts one the edit moved within its element) is
+                // rebuilt, by reconcileObservedMutation once every record has
+                // been seen, since a later record can still move what it would
+                // sit next to.
+                badDOMTargets.set(nodeDOM, targetNode);
+              }
             }
           }
         }
-      }
 
-      // Now we process each of the unique target nodes, attempting
-      // to restore their contents back to the source of truth, which
-      // is Lexical's "current" editor state. This is basically like
-      // an internal revert on the DOM.
-      if (badDOMTargets.size > 0) {
+        // Now we process each of the unique target nodes, attempting
+        // to restore their contents back to the source of truth, which
+        // is Lexical's "current" editor state. This is basically like
+        // an internal revert on the DOM.
         for (const [nodeDOM, targetNode] of badDOMTargets) {
           targetNode.reconcileObservedMutation(nodeDOM, editor);
         }
-      }
 
-      // Capture all the mutations made during this function. This
-      // also prevents us having to process them on the next cycle
-      // of onMutation, as these mutations were made by us.
-      const records = observer.takeRecords();
+        // Capture all the mutations made during this function. This
+        // also prevents us having to process them on the next cycle
+        // of onMutation, as these mutations were made by us.
+        const records = observer.takeRecords();
 
-      // Check for any random auto-added <br> elements, and remove them.
-      // These get added by the browser when we undo the above mutations
-      // and this can lead to a broken UI.
-      if (records.length > 0) {
-        for (let i = 0; i < records.length; i++) {
-          const record = records[i];
-          const addedNodes = record.addedNodes;
-          const target = record.target;
-
-          for (let s = 0; s < addedNodes.length; s++) {
-            const addedDOM = addedNodes[s];
-            const parentDOM = addedDOM.parentNode;
-
+        // Check for any random auto-added <br> elements, and remove them.
+        // These get added by the browser when we undo the above mutations
+        // and this can lead to a broken UI.
+        for (const record of records) {
+          for (const addedDOM of record.addedNodes) {
+            // Keep the line breaks the revert put back: a LineBreakNode's
+            // and the managed one.
             if (
-              parentDOM != null &&
               addedDOM.nodeName === 'BR' &&
-              !isEditorManagedLineBreak(addedDOM, target, editor)
+              !getNodeKeyFromDOMNode(addedDOM, editor) &&
+              !isManagedLineBreakDOM(addedDOM)
             ) {
-              parentDOM.removeChild(addedDOM);
+              (addedDOM as Element).remove();
             }
           }
         }
 
         // Clear any of those removal mutations
         observer.takeRecords();
-      }
 
-      if (selection !== null) {
-        if (shouldRevertSelection) {
-          $setSelection(selection);
-        }
+        if (selection !== null) {
+          if (shouldRevertSelection) {
+            $setSelection(selection);
+          }
 
-        if (IS_FIREFOX && isFirefoxClipboardEvents(editor)) {
-          selection.insertRawText(possibleTextForFirefoxPaste);
+          if (IS_FIREFOX && isFirefoxClipboardEvents(editor)) {
+            selection.insertRawText(possibleTextForFirefoxPaste);
+          }
         }
-      }
-    });
+      },
+      skipTransforms ? {skipTransforms} : undefined,
+    );
   } finally {
     isProcessingMutations = false;
   }
 }
 
-export function flushRootMutations(editor: LexicalEditor): void {
+/**
+ * Revert the DOM changes the observer has recorded but not reported yet.
+ * With `ifRecorded` nothing runs when there are none, for a commit that is
+ * about to disconnect the observer, which drops them: a change made inside an
+ * update, or in the same task as an update whose commit was queued first.
+ */
+export function flushRootMutations(
+  editor: LexicalEditor,
+  rerenderText?: boolean,
+  ifRecorded?: boolean,
+): void {
   const observer = editor._observer;
 
   if (observer !== null) {
     const mutations = observer.takeRecords();
-    flushMutations(editor, mutations, observer);
+    if (!ifRecorded || mutations.length > 0) {
+      flushMutations(editor, mutations, observer, rerenderText);
+    }
   }
 }
 

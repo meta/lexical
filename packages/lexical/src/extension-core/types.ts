@@ -419,6 +419,8 @@ export interface InitialEditorConfig {
    * from. Mirrors {@link onError} but at warn severity, so embedders can route
    * the condition to telemetry without raising an error alarm. Defaults to a
    * handler that throws in development and only `console.warn`s in production.
+   * Packages that report a condition with a stable code pass a
+   * `LexicalWarning`, which has a `code` and `data`.
    *
    * @param error - The Error object describing the recovered condition
    * @param editor - The editor that this warning came from

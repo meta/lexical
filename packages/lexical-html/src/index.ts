@@ -40,18 +40,15 @@ import {
   type LexicalNode,
 } from 'lexical';
 
-import {contextValue} from './ContextRecord';
 import {$inlineStylesFromStyleSheetsDOM} from './import/inlineStylesFromStyleSheets';
+import {contextValue} from './internal/ContextRecord';
 import {
   $getSessionDOMRenderConfig,
   $withRenderContext,
   RenderContextExport,
   RenderContextRoot,
-} from './RenderContext';
+} from './internal/RenderContext';
 
-export {contextUpdater, contextValue} from './ContextRecord';
-export {domOverride} from './domOverride';
-export {DOMRenderExtension} from './DOMRenderExtension';
 export type {
   AnyDOMImportRule,
   AttrMatchOptions,
@@ -94,7 +91,6 @@ export {
   defineOverlayRules,
   type DOMImportConfig,
   DOMImportExtension,
-  HorizontalRuleImportExtension,
   HorizontalRuleImportRules,
   ImportOverlays,
   ImportSource,
@@ -113,6 +109,9 @@ export {
   sel,
   type WhitespaceImportConfig,
 } from './import';
+export {contextUpdater, contextValue} from './internal/ContextRecord';
+export {domOverride} from './internal/domOverride';
+export {DOMRenderExtension} from './internal/DOMRenderExtension';
 export {
   $getRenderContextValue,
   $getSessionDOMRenderConfig,
@@ -122,7 +121,7 @@ export {
   createRenderState,
   RenderContextExport,
   RenderContextRoot,
-} from './RenderContext';
+} from './internal/RenderContext';
 export type {
   AnyDOMRenderMatch,
   AnyRenderStateConfig,
@@ -136,7 +135,7 @@ export type {
   NodeMatch,
   RenderContextReader,
   RenderStateConfig,
-} from './types';
+} from './internal/types';
 
 const IGNORE_TAGS = new Set(['STYLE', 'SCRIPT']);
 
@@ -533,7 +532,20 @@ function $createNodesFromDOM(
     }
 
     if (transformOutput.forChild != null) {
-      forChildMap.set(node.nodeName, transformOutput.forChild);
+      // Keep the conversions of every enclosing element. Keyed by tag name,
+      // a <span> inside a <span> would otherwise replace its parent's, and
+      // the text would lose the formats the outer span set.
+      const forChild = transformOutput.forChild;
+      const enclosingForChild = forChildMap.get(node.nodeName);
+      forChildMap.set(
+        node.nodeName,
+        enclosingForChild
+          ? (lexicalNode, parentNode) => {
+              const result = enclosingForChild(lexicalNode, parentNode);
+              return result ? forChild(result, parentNode) : result;
+            }
+          : forChild,
+      );
     }
   }
 

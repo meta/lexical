@@ -21,8 +21,7 @@ function Footer() {
       }}>
       <div className="flex flex-col items-center gap-2 px-6 py-10">
         <div className="pt-6 text-center text-sm">
-          Copyright ©{new Date().getFullYear()} Meta Platforms, Inc. Built with
-          Docusaurus.
+          Copyright © Meta Platforms, Inc. Built with Docusaurus.
         </div>
         <div className="space-x-4">
           <Link href={'https://opensource.fb.com/legal/privacy/'}>

@@ -19,17 +19,15 @@ import {
   test,
 } from '../utils/index.mjs';
 
+test.skip(({isPlainText}) => isPlainText, 'Requires rich text');
+
 test.describe('Regression test #4661', () => {
   test.beforeEach(({isCollab, page}) =>
     initialize({isCollab, page, tableHorizontalScroll: false}),
   );
   test('inserting 2 columns before inserts before selection', async ({
     page,
-    isPlainText,
-    isCollab,
   }) => {
-    test.skip(isPlainText);
-
     await focusEditor(page);
 
     await insertTable(page, 2, 2);
@@ -120,13 +118,7 @@ test.describe('Regression test #4661', () => {
     );
   });
 
-  test('inserting 2 columns after inserts after selection', async ({
-    page,
-    isPlainText,
-    isCollab,
-  }) => {
-    test.skip(isPlainText);
-
+  test('inserting 2 columns after inserts after selection', async ({page}) => {
     await focusEditor(page);
 
     await insertTable(page, 2, 2);

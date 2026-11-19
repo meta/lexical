@@ -6,6 +6,8 @@
  *
  */
 
+// @vitest-environment node
+
 import {describe, expect, test} from 'vitest';
 
 import {sanitizeUrl, validateUrl} from '../../utils/url';

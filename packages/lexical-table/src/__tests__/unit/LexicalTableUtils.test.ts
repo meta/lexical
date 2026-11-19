@@ -6,6 +6,8 @@
  *
  */
 
+// @vitest-environment node
+
 import {buildEditorFromExtensions} from '@lexical/extension';
 import {
   $computeTableMapSkipCellCheck,
@@ -21,6 +23,7 @@ import {
   $moveTableRow,
   $setTableColumnIsHeader,
   $setTableRowIsHeader,
+  $unmergeCellNode,
   TableCellHeaderStates,
   type TableCellNode,
   TableExtension,
@@ -92,6 +95,63 @@ beforeEach(() => {
 
 afterEach(() => {
   editor.dispose();
+});
+
+describe('$unmergeCellNode', () => {
+  test('restores cells to the correct rows below the first row (#4876)', () => {
+    editor.update(() => $getRoot().append($createTestTable(4, 4)), {
+      discrete: true,
+    });
+
+    editor.update(
+      () => {
+        const table = $assertNodeType($getRoot().getFirstChild(), $isTableNode);
+        const cells = table
+          .getChildren()
+          .slice(1)
+          .flatMap(row =>
+            $assertNodeType(row, $isTableRowNode)
+              .getChildren()
+              .slice(0, 2)
+              .map(cell => $assertNodeType(cell, $isTableCellNode)),
+          );
+        $mergeCells(cells);
+      },
+      {discrete: true},
+    );
+
+    editor.update(
+      () => {
+        const table = $assertNodeType($getRoot().getFirstChild(), $isTableNode);
+        const row = $assertNodeType(table.getChildAtIndex(1), $isTableRowNode);
+        const merged = $assertNodeType(row.getFirstChild(), $isTableCellNode);
+        expect(merged.getColSpan()).toBe(2);
+        expect(merged.getRowSpan()).toBe(3);
+        $unmergeCellNode(merged);
+      },
+      {discrete: true},
+    );
+
+    editor.read(() => {
+      const table = $assertNodeType($getRoot().getFirstChild(), $isTableNode);
+      expect($getTableCellTexts(table)).toEqual([
+        ['r0c0', 'r0c1', 'r0c2', 'r0c3'],
+        ['r1c0\n\nr1c1\n\nr2c0\n\nr2c1\n\nr3c0\n\nr3c1', '', 'r1c2', 'r1c3'],
+        ['', '', 'r2c2', 'r2c3'],
+        ['', '', 'r3c2', 'r3c3'],
+      ]);
+      for (const row of table.getChildren()) {
+        for (const cell of $assertNodeType(
+          row,
+          $isTableRowNode,
+        ).getChildren()) {
+          const tableCell = $assertNodeType(cell, $isTableCellNode);
+          expect(tableCell.getColSpan()).toBe(1);
+          expect(tableCell.getRowSpan()).toBe(1);
+        }
+      }
+    });
+  });
 });
 
 describe('$moveTableColumn', () => {

@@ -52,6 +52,8 @@ export interface BaseBinding {
 }
 
 export interface Binding extends BaseBinding {
+  /** @internal Movement hints for the editor-state transition being synced. */
+  _movedNodeKeys?: Set<NodeKey>;
   collabNodeMap: Map<
     NodeKey,
     | CollabElementNode
@@ -155,8 +157,16 @@ export function createYjsBinding({
     'root',
   );
   root._key = 'root';
+  const baseBinding = createBaseBinding(
+    editor,
+    id,
+    doc,
+    docMap,
+    excludedProperties,
+  );
+  editor._recordNodeMoves = true;
   return {
-    ...createBaseBinding(editor, id, doc, docMap, excludedProperties),
+    ...baseBinding,
     collabNodeMap: new Map(),
     root,
   };

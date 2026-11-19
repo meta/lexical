@@ -28,10 +28,14 @@ import {
 const IGNORE = {ignoreClasses: true, ignoreDir: true, ignoreInlineStyles: true};
 
 test.describe('Shadow DOM', () => {
-  test.beforeEach(({isCollab, isPlainText, page}) => {
+  test.skip(
+    ({isCollab, isPlainText}) => isPlainText || isCollab,
+    'Requires rich text without collaboration',
+  );
+  test.beforeEach(({page}) => {
     // Rich-text-only; collab renders in split iframes which is an orthogonal
     // concern to shadow root encapsulation.
-    test.skip(isPlainText || isCollab);
+
     return initialize({isShadowDOM: true, page});
   });
 
@@ -117,43 +121,47 @@ test.describe('Shadow DOM', () => {
     expect(text).toContain('world');
   });
 
-  test('clicking a table cell creates a range selection inside the cell', async ({
-    page,
-    browserName,
-  }) => {
-    // Webkit's headless pointer dispatch is flaky on the table cell hit-test;
-    // the underlying handler is exercised by the chromium/firefox runs.
-    test.skip(browserName === 'webkit');
-    await focusEditor(page);
-    // Manual sequence — `insertTable` from utils opens the Insert dropdown
-    // via click() but the dropdown's outside-click handler also runs against
-    // the same synthetic click event in the shadow-mounted toolbar; explicit
-    // steps with waitFor between them keep the dropdown open long enough to
-    // pick the Table item.
-    await page
-      .locator('.toolbar-item[aria-label="Insert specialized editor node"]')
-      .click();
-    const tableItem = page.locator('.dropdown .item .table');
-    await tableItem.waitFor();
-    await tableItem.click();
-    await page.locator('input[data-test-id="table-modal-rows"]').fill('2');
-    await page.locator('input[data-test-id="table-modal-columns"]').fill('2');
-    await page
-      .locator('div[data-test-id="table-model-confirm-insert"] > .Button__root')
-      .click();
-    await page.locator('table').waitFor();
-    // Clicking a cell goes through the window-attached pointerdown listener
-    // in lexical-table; without getComposedEventTarget the event.target is
-    // retargeted to the shadow host and the rootElement.contains() gate
-    // rejects the click. Type into a non-first cell to assert the click
-    // actually placed the caret inside that cell.
-    // InsertTableDialog defaults to includeHeaders=true, so 3 of the 4 cells
-    // are <th>; pick the only <td> as the non-first cell.
-    const targetCell = page.locator('table td').last();
-    await targetCell.click();
-    await page.keyboard.type('typed');
-    const cellText = await targetCell.textContent();
-    expect(cellText).toContain('typed');
+  test.describe(() => {
+    test.skip(({browserName}) => browserName === 'webkit');
+    test('clicking a table cell creates a range selection inside the cell', async ({
+      page,
+    }) => {
+      // Webkit's headless pointer dispatch is flaky on the table cell hit-test;
+      // the underlying handler is exercised by the chromium/firefox runs.
+
+      await focusEditor(page);
+      // Manual sequence — `insertTable` from utils opens the Insert dropdown
+      // via click() but the dropdown's outside-click handler also runs against
+      // the same synthetic click event in the shadow-mounted toolbar; explicit
+      // steps with waitFor between them keep the dropdown open long enough to
+      // pick the Table item.
+      await page
+        .locator('.toolbar-item[aria-label="Insert specialized editor node"]')
+        .click();
+      const tableItem = page.locator('.dropdown .item .table');
+      await tableItem.waitFor();
+      await tableItem.click();
+      await page.locator('input[data-test-id="table-modal-rows"]').fill('2');
+      await page.locator('input[data-test-id="table-modal-columns"]').fill('2');
+      await page
+        .locator(
+          'div[data-test-id="table-model-confirm-insert"] > .Button__root',
+        )
+        .click();
+      await page.locator('table').waitFor();
+      // Clicking a cell goes through the window-attached pointerdown listener
+      // in lexical-table; without getComposedEventTarget the event.target is
+      // retargeted to the shadow host and the rootElement.contains() gate
+      // rejects the click. Type into a non-first cell to assert the click
+      // actually placed the caret inside that cell.
+      // InsertTableDialog defaults to includeHeaders=true, so 3 of the 4 cells
+      // are <th>; pick the only <td> as the non-first cell.
+      const targetCell = page.locator('table td').last();
+      await targetCell.click();
+      await page.keyboard.type('typed');
+      const cellText = await targetCell.textContent();
+      expect(cellText).toContain('typed');
+    });
   });
 
   test('component picker opens, navigates and inserts a heading', async ({
@@ -624,12 +632,16 @@ test.describe('Shadow DOM', () => {
 });
 
 test.describe('Shadow DOM (collab)', () => {
-  test.beforeEach(({isCollab, isPlainText, page}) => {
+  test.skip(
+    ({isCollab, isPlainText}) => isPlainText || !isCollab,
+    'Requires rich text with collaboration',
+  );
+  test.beforeEach(({isCollab, page}) => {
     // The split view's two clients both render through ShadowDomWrapper
     // when the playground's shadow toggle is on. Rich-text-only mirrors
     // the non-collab block above; this describe only runs when the suite
     // is invoked in a collab mode.
-    test.skip(isPlainText || !isCollab);
+
     return initialize({isCollab, isShadowDOM: true, page});
   });
 

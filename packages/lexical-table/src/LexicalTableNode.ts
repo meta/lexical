@@ -273,14 +273,21 @@ export function attachStickyScrollbarListeners(
     scrollable.style.scrollbarWidth = 'auto';
     return () => {};
   }
+  // A scroll event comes a frame after its scroll, so one that reports only
+  // the position last copied onto its element must not copy it back over a
+  // newer scroll of the other (drag auto-scroll scrolls every frame).
+  let wrapperLeft = scrollable.scrollLeft;
+  let scrollbarLeft = scrollbar.scrollLeft;
   const onWrapperScroll = () => {
-    if (scrollbar.scrollLeft !== scrollable.scrollLeft) {
-      scrollbar.scrollLeft = scrollable.scrollLeft;
+    if (scrollable.scrollLeft !== wrapperLeft) {
+      scrollbar.scrollLeft = wrapperLeft = scrollable.scrollLeft;
+      scrollbarLeft = scrollbar.scrollLeft;
     }
   };
   const onScrollbarScroll = () => {
-    if (scrollable.scrollLeft !== scrollbar.scrollLeft) {
-      scrollable.scrollLeft = scrollbar.scrollLeft;
+    if (scrollbar.scrollLeft !== scrollbarLeft) {
+      scrollable.scrollLeft = scrollbarLeft = scrollbar.scrollLeft;
+      wrapperLeft = scrollable.scrollLeft;
     }
   };
   scrollable.addEventListener('scroll', onWrapperScroll, {
@@ -660,6 +667,9 @@ export class TableNode extends ElementNode {
         >();
         for (const mapRow of tableMap) {
           for (const mapValue of mapRow) {
+            if (mapValue === undefined) {
+              continue; // no cell here in a ragged table
+            }
             const key = mapValue.cell.getKey();
             if (!cellValues.has(key)) {
               cellValues.set(key, {

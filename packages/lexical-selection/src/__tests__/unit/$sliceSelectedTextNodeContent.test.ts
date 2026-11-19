@@ -6,6 +6,8 @@
  *
  */
 
+// @vitest-environment node
+
 import {$createLinkNode, LinkNode} from '@lexical/link';
 import {$sliceSelectedTextNodeContent} from '@lexical/selection';
 import {

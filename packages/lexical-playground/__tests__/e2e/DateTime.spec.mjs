@@ -6,25 +6,28 @@
  *
  */
 
+import {expect} from '@playwright/test';
+
 import {moveLeft, selectAll, toggleBold} from '../keyboardShortcuts/index.mjs';
 import {
   assertHTML,
   click,
   focusEditor,
+  getLocalDateValue,
   html,
   initialize,
+  locate,
   selectFromInsertDropdown,
   test,
+  waitForTypeaheadMenuOption,
 } from '../utils/index.mjs';
+
+test.skip(({isPlainText}) => isPlainText, 'Requires rich text');
 
 test.describe('DateTime', () => {
   test.beforeEach(({isCollab, page}) => initialize({isCollab, page}));
 
-  test('can insert a DateTime node via the Insert dropdown', async ({
-    page,
-    isPlainText,
-  }) => {
-    test.skip(isPlainText);
+  test('can insert a DateTime node via the Insert dropdown', async ({page}) => {
     await focusEditor(page);
     // Insert DateTime using the Insert dropdown
     await selectFromInsertDropdown(page, '.item .calendar');
@@ -59,11 +62,7 @@ test.describe('DateTime', () => {
     );
   });
 
-  test('Datetime should be inserted into the link', async ({
-    page,
-    isPlainText,
-  }) => {
-    test.skip(isPlainText);
+  test('Datetime should be inserted into the link', async ({page}) => {
     await focusEditor(page);
     await page.keyboard.type('Hello world');
     await selectAll(page);
@@ -111,11 +110,7 @@ test.describe('DateTime', () => {
     );
   });
 
-  test('Datetime should apply the current selection format', async ({
-    page,
-    isPlainText,
-  }) => {
-    test.skip(isPlainText);
+  test('Datetime should apply the current selection format', async ({page}) => {
     await focusEditor(page);
     await toggleBold(page);
 
@@ -147,5 +142,49 @@ test.describe('DateTime', () => {
             'data-lexical-datetime="*"',
           ),
     );
+  });
+
+  for (const [option, dayOffset] of [
+    ['Date', 0],
+    ['Today', 0],
+    ['Tomorrow', 1],
+    ['Yesterday', -1],
+  ]) {
+    test(`inserts an all-day date from the ${option} option`, async ({
+      page,
+    }) => {
+      await focusEditor(page);
+      await page.keyboard.type(`/${option.toLowerCase()}`);
+      await waitForTypeaheadMenuOption(page, option);
+      await page.keyboard.press('Enter');
+
+      const expected = new Date();
+      expected.setDate(expected.getDate() + dayOffset);
+      await expect(locate(page, '[data-lexical-datetime]')).toHaveAttribute(
+        'data-lexical-datetime',
+        getLocalDateValue(expected),
+      );
+    });
+  }
+
+  test('keeps a day picked by click or keyboard all-day', async ({page}) => {
+    await focusEditor(page);
+    await selectFromInsertDropdown(page, '.item .calendar');
+    const chip = locate(page, '[data-lexical-datetime]');
+    const otherDay = locate(
+      page,
+      // Days outside the month keep data-day but have no button
+      '.dateTimePicker [data-day]:has(button):not([aria-selected="true"])',
+    );
+
+    await click(page, '.dateTimePill');
+    const clickedDay = await otherDay.first().getAttribute('data-day');
+    await otherDay.first().locator('button').click();
+    await expect(chip).toHaveAttribute('data-lexical-datetime', clickedDay);
+
+    const enteredDay = await otherDay.last().getAttribute('data-day');
+    await otherDay.last().locator('button').focus();
+    await page.keyboard.press('Enter');
+    await expect(chip).toHaveAttribute('data-lexical-datetime', enteredDay);
   });
 });

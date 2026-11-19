@@ -6,7 +6,7 @@
  *
  */
 
-import type {Plugin} from 'esbuild';
+import type {OnLoadResult, Plugin} from 'esbuild';
 
 import {glob} from 'glob';
 import * as fs from 'node:fs';
@@ -47,16 +47,28 @@ const KNOWN_SIDE_EFFECTS = new Map([
  * Vite plugin and a consumer of the `source` export condition do, so that the
  * factory calls carry the annotations the build would give them.
  */
+const compiledSources = new Map<
+  string,
+  {source: string; result: OnLoadResult}
+>();
 const lexicalCompiler: Plugin = {
   name: 'lexical-compiler',
   setup(build) {
     build.onLoad({filter: /\.[cm]?[jt]sx?$/}, args => {
       const code = fs.readFileSync(args.path, 'utf8');
+      // Each entry builds its own dependency graph, but most dependencies
+      // recur across entries. Reuse their transforms without sharing builds:
+      // each entry still has to override sideEffects independently. Check the
+      // source as well as the path so edits cannot leave stale watch results.
+      const cached = compiledSources.get(args.path);
+      if (cached?.source === code) {
+        return cached.result;
+      }
       const result = transformPureAnnotations(code, {
         filename: args.path,
         inline: true,
       });
-      return {
+      const compiled: OnLoadResult = {
         contents: result === null ? code : result.code,
         loader: /\.[cm]?js$/.test(args.path)
           ? 'js'
@@ -64,6 +76,8 @@ const lexicalCompiler: Plugin = {
             ? 'tsx'
             : 'ts',
       };
+      compiledSources.set(args.path, {result: compiled, source: code});
+      return compiled;
     });
   },
 };

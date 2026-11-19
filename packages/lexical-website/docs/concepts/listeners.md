@@ -14,10 +14,14 @@ const removeUpdateListener = editor.registerUpdateListener(({editorState}) => {
   // The latest EditorState can be found as `editorState`.
   // To read the contents of the EditorState, use the following API:
 
-  editorState.read(() => {
-    // Just like editor.update(), .read() expects a closure where you can use
-    // the $ prefixed helper functions.
-  });
+  editorState.read(
+    () => {
+      // Just like editor.update(), .read() expects a closure where you can use
+      // the $ prefixed helper functions.
+    },
+    // Passing the editor keeps $getEditor() and extension lookups working.
+    {editor},
+  );
 });
 
 // Do not forget to unregister the listener when no longer needed!
@@ -45,9 +49,12 @@ listener, as shown below:
 ```js
 editor.registerUpdateListener(({editorState}) => {
   // Read the editorState and maybe get some value.
-  editorState.read(() => {
-    // ...
-  });
+  editorState.read(
+    () => {
+      // ...
+    },
+    {editor},
+  );
 
   // Then schedule another update.
   editor.update(() => {

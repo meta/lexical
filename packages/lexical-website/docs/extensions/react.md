@@ -254,6 +254,6 @@ While this does mean your application will include the React runtime, you
 don't have to use JSX or have any other React infrastructure in your app.
 
 See
-[extension-vanilla-react-plugin-host](https://github.com/facebook/lexical/blob/main/examples/extension-vanilla-react-plugin-host/src/main.ts)
-[![Open in StackBlitz](https://developer.stackblitz.com/img/open_in_stackblitz.svg)](https://stackblitz.com/github/facebook/lexical/tree/main/examples/?file=src%2Fmain.ts)
+[extension-vanilla-react-plugin-host](https://github.com/meta/lexical/blob/main/examples/extension-vanilla-react-plugin-host/src/main.ts)
+[![Open in StackBlitz](https://developer.stackblitz.com/img/open_in_stackblitz.svg)](https://stackblitz.com/github/meta/lexical/tree/main/examples/?file=src%2Fmain.ts)
 for usage of this extension and its API

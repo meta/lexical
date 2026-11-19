@@ -6,6 +6,8 @@
  *
  */
 
+// @vitest-environment node
+
 import {buildEditorFromExtensions} from '@lexical/extension';
 import {
   $create,
@@ -26,9 +28,8 @@ import {describe, expect, it} from 'vitest';
 import {
   $convertSelectionToMarkdownString,
   $convertToMarkdownString,
-  MdastExportExtension,
   type MdastExportRule,
-  MdastImportExtension,
+  MdastExtension,
 } from '../../index';
 
 class CustomTextNode extends TextNode {
@@ -60,11 +61,7 @@ class UntypedLegacyTextNode extends LegacyTextNode {}
 function createEditor(exportRules: readonly MdastExportRule[]) {
   return buildEditorFromExtensions(
     defineExtension({
-      dependencies: [
-        // Exercise configuration through the deprecated alias as well.
-        configExtension(MdastImportExtension, {exportRules}),
-        MdastExportExtension,
-      ],
+      dependencies: [configExtension(MdastExtension, {exportRules})],
       name: '[root]',
       // The intermediate CustomTextNode deliberately is not registered.
       nodes: [DerivedTextNode, LegacyTextNode],

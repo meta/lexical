@@ -7,6 +7,6 @@
  * @flow strict
  */
 
-declare export function ClickableLinkPlugin({
+declare export function ClickableLinkPlugin(v: {
   newTab?: boolean,
 }): null;

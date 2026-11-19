@@ -5,8 +5,8 @@
  * LICENSE file in the root directory of this source tree.
  *
  */
-import type {TextNode} from 'lexical';
 
+// @vitest-environment node
 import {buildEditorFromExtensions} from '@lexical/extension';
 import {$patchStyleText} from '@lexical/selection';
 import {
@@ -16,8 +16,10 @@ import {
   $createTextNode,
   $getRoot,
   $getSelection,
+  $isTextNode,
   $setSelection,
 } from 'lexical';
+import {$assertNodeType} from 'lexical/src/__tests__/utils';
 import {expect, test} from 'vitest';
 
 const ACTIVE_SELECTIONS = ['none', 'collapsed', 'range'] as const;
@@ -64,7 +66,10 @@ test.each(
         end.set(text.getKey(), partial ? 4 : 6, 'text');
         const expectedText = partial ? 'cd' : 'abcdef';
         $patchStyleText(selection, {color: 'red'});
-        const styled = paragraph.getChildAtIndex<TextNode>(partial ? 1 : 0)!;
+        const styled = $assertNodeType(
+          paragraph.getChildAtIndex(partial ? 1 : 0),
+          $isTextNode,
+        );
         // The iterator preserves its existing forward single-text convention.
         expect(selection.anchor).toMatchObject({
           key: styled.getKey(),
@@ -83,10 +88,18 @@ test.each(
         expect(selection.getTextContent()).toBe(expectedText);
         expect(paragraph.getTextContent()).toBe('abcdef');
         if (partial) {
-          expect(paragraph.getFirstChildOrThrow<TextNode>().getStyle()).toBe(
-            '',
-          );
-          expect(paragraph.getLastChildOrThrow<TextNode>().getStyle()).toBe('');
+          expect(
+            $assertNodeType(
+              paragraph.getFirstChildOrThrow(),
+              $isTextNode,
+            ).getStyle(),
+          ).toBe('');
+          expect(
+            $assertNodeType(
+              paragraph.getLastChildOrThrow(),
+              $isTextNode,
+            ).getStyle(),
+          ).toBe('');
         }
         $expectActiveUnchanged();
       },

@@ -224,11 +224,16 @@ export async function compose(
       dispatchCompositionEvent(rootElement, 'compositionstart', '');
       await flush();
 
-      // Re-read the cursor position AFTER compositionstart: Lexical may
-      // have inserted a ZWSP (format mismatch, element anchor, etc.),
-      // shifting the actual composing start offset.
+      // Re-read the range AFTER compositionstart: Lexical may have prepared
+      // a text node and selected a temporary character. Match the browser's
+      // replacement of that range instead of inserting after it.
       const sel = document.getSelection();
-      composingStart = sel ? sel.focusOffset : 0;
+      if (sel && sel.anchorNode === sel.focusNode) {
+        composingStart = Math.min(sel.anchorOffset, sel.focusOffset);
+        previousComposingLength = Math.abs(sel.focusOffset - sel.anchorOffset);
+      } else {
+        composingStart = sel ? sel.focusOffset : 0;
+      }
     }
 
     dispatchCompositionEvent(rootElement, 'compositionupdate', text);

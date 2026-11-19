@@ -37,6 +37,7 @@ import {assert, describe, expect, test} from 'vitest';
 function $generate(html: string): LexicalNode[] {
   const editor = $getEditor();
   const dep = getExtensionDependencyFromEditor(editor, DOMImportExtension);
+  // CSS inlining needs styleSheets, which jsdom's DOMParser does not populate.
   const dom = new JSDOM(`<!doctype html><html><body>${html}</body></html>`);
   return dep.output.$generateNodesFromDOM(dom.window.document);
 }

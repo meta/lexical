@@ -22,13 +22,13 @@ async function toggleBulletList(page) {
   await click(page, '.block-controls');
   await click(page, '.dropdown .icon.bullet-list');
 }
+test.skip(({isPlainText}) => isPlainText, 'Requires rich text');
+
 test.describe('Regression test #5251', () => {
   test.beforeEach(({isCollab, page}) => initialize({isCollab, page}));
   test(`Element node in the middle of a bullet list and selecting doesn't crash`, async ({
     page,
-    isPlainText,
   }) => {
-    test.skip(isPlainText);
     await focusEditor(page);
 
     page.on('console', msg => {

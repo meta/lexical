@@ -92,156 +92,155 @@ async function dragSelectionToOffset(page, sourceText, clientTextOffset) {
 test.describe('Text drag and drop', () => {
   test.beforeEach(({isCollab, page}) => initialize({isCollab, page}));
 
-  test('moves a selected word forward within the same block (rich text)', async ({
-    page,
-    isPlainText,
-  }) => {
-    test.skip(isPlainText);
-    await focusEditor(page);
-    await page.keyboard.type('abcFOOdef');
-
-    // Select "FOO" (characters 3-6).
-    await moveToEditorBeginning(page);
-    await moveRight(page, 6);
-    await selectCharacters(page, 'left', 3);
-
-    // Drop at offset 9 (end of the text).
-    await dragSelectionToOffset(page, 'FOO', 9);
-
-    await assertHTML(
+  test.describe(() => {
+    test.skip(({isPlainText}) => isPlainText);
+    test('moves a selected word forward within the same block (rich text)', async ({
       page,
-      html`
-        <p class="PlaygroundEditorTheme__paragraph" dir="auto">
-          <span data-lexical-text="true">abcdefFOO</span>
-        </p>
-      `,
-    );
+    }) => {
+      await focusEditor(page);
+      await page.keyboard.type('abcFOOdef');
+
+      // Select "FOO" (characters 3-6).
+      await moveToEditorBeginning(page);
+      await moveRight(page, 6);
+      await selectCharacters(page, 'left', 3);
+
+      // Drop at offset 9 (end of the text).
+      await dragSelectionToOffset(page, 'FOO', 9);
+
+      await assertHTML(
+        page,
+        html`
+          <p class="PlaygroundEditorTheme__paragraph" dir="auto">
+            <span data-lexical-text="true">abcdefFOO</span>
+          </p>
+        `,
+      );
+    });
+
+    test('moves a selected word backward within the same block (rich text)', async ({
+      page,
+    }) => {
+      await focusEditor(page);
+      await page.keyboard.type('abcFOOdef');
+
+      await moveToEditorBeginning(page);
+      await moveRight(page, 6);
+      await selectCharacters(page, 'left', 3);
+
+      // Drop at offset 0 (beginning of the text).
+      await dragSelectionToOffset(page, 'FOO', 0);
+
+      await assertHTML(
+        page,
+        html`
+          <p class="PlaygroundEditorTheme__paragraph" dir="auto">
+            <span data-lexical-text="true">FOOabcdef</span>
+          </p>
+        `,
+      );
+    });
+
+    test('dropping inside the source range is a no-op (rich text)', async ({
+      page,
+    }) => {
+      await focusEditor(page);
+      await page.keyboard.type('abcFOOdef');
+
+      await moveToEditorBeginning(page);
+      await moveRight(page, 6);
+      await selectCharacters(page, 'left', 3);
+
+      // Drop inside the "FOO" selection (offset 4 lands between F and O).
+      await dragSelectionToOffset(page, 'FOO', 4);
+
+      await assertHTML(
+        page,
+        html`
+          <p class="PlaygroundEditorTheme__paragraph" dir="auto">
+            <span data-lexical-text="true">abcFOOdef</span>
+          </p>
+        `,
+      );
+    });
   });
 
-  test('moves a selected word backward within the same block (rich text)', async ({
-    page,
-    isPlainText,
-  }) => {
-    test.skip(isPlainText);
-    await focusEditor(page);
-    await page.keyboard.type('abcFOOdef');
-
-    await moveToEditorBeginning(page);
-    await moveRight(page, 6);
-    await selectCharacters(page, 'left', 3);
-
-    // Drop at offset 0 (beginning of the text).
-    await dragSelectionToOffset(page, 'FOO', 0);
-
-    await assertHTML(
+  test.describe(() => {
+    test.skip(({isPlainText}) => !isPlainText);
+    test('moves a selected word forward within the same block (plain text)', async ({
       page,
-      html`
-        <p class="PlaygroundEditorTheme__paragraph" dir="auto">
-          <span data-lexical-text="true">FOOabcdef</span>
-        </p>
-      `,
-    );
+    }) => {
+      await focusEditor(page);
+      await page.keyboard.type('abcFOOdef');
+
+      await moveToEditorBeginning(page);
+      await moveRight(page, 6);
+      await selectCharacters(page, 'left', 3);
+
+      await dragSelectionToOffset(page, 'FOO', 9);
+
+      await assertHTML(
+        page,
+        html`
+          <p class="PlaygroundEditorTheme__paragraph" dir="auto">
+            <span data-lexical-text="true">abcdefFOO</span>
+          </p>
+        `,
+      );
+    });
   });
 
-  test('dropping inside the source range is a no-op (rich text)', async ({
-    page,
-    isPlainText,
-  }) => {
-    test.skip(isPlainText);
-    await focusEditor(page);
-    await page.keyboard.type('abcFOOdef');
-
-    await moveToEditorBeginning(page);
-    await moveRight(page, 6);
-    await selectCharacters(page, 'left', 3);
-
-    // Drop inside the "FOO" selection (offset 4 lands between F and O).
-    await dragSelectionToOffset(page, 'FOO', 4);
-
-    await assertHTML(
+  test.describe(() => {
+    test.skip(({browserName, isCollab}) => browserName !== 'chromium');
+    test.skip(({browserName, isCollab}) => !!isCollab);
+    test('native drop of text from a non-Lexical drag source inserts it', async ({
       page,
-      html`
-        <p class="PlaygroundEditorTheme__paragraph" dir="auto">
-          <span data-lexical-text="true">abcFOOdef</span>
-        </p>
-      `,
-    );
-  });
+    }) => {
+      // The other tests dispatch synthetic drag events, which never run the
+      // browser's default actions and so can't detect a handler that breaks
+      // native drop handling (e.g. an unconditional preventDefault() on
+      // dragover tells the browser the page owns the drop, suppressing the
+      // native editable insertFromDrop that external text drops rely on).
+      // Playwright's mouse API composes a real drag through the browser's
+      // drag controller, but only Chromium supports that interception.
 
-  test('moves a selected word forward within the same block (plain text)', async ({
-    page,
-    isPlainText,
-  }) => {
-    test.skip(!isPlainText);
-    await focusEditor(page);
-    await page.keyboard.type('abcFOOdef');
+      await focusEditor(page);
+      await page.keyboard.type('hello world');
 
-    await moveToEditorBeginning(page);
-    await moveRight(page, 6);
-    await selectCharacters(page, 'left', 3);
-
-    await dragSelectionToOffset(page, 'FOO', 9);
-
-    await assertHTML(
-      page,
-      html`
-        <p class="PlaygroundEditorTheme__paragraph" dir="auto">
-          <span data-lexical-text="true">abcdefFOO</span>
-        </p>
-      `,
-    );
-  });
-
-  test('native drop of text from a non-Lexical drag source inserts it', async ({
-    page,
-    browserName,
-    isCollab,
-  }) => {
-    // The other tests dispatch synthetic drag events, which never run the
-    // browser's default actions and so can't detect a handler that breaks
-    // native drop handling (e.g. an unconditional preventDefault() on
-    // dragover tells the browser the page owns the drop, suppressing the
-    // native editable insertFromDrop that external text drops rely on).
-    // Playwright's mouse API composes a real drag through the browser's
-    // drag controller, but only Chromium supports that interception.
-    test.skip(browserName !== 'chromium');
-    test.skip(!!isCollab);
-    await focusEditor(page);
-    await page.keyboard.type('hello world');
-
-    // Inject a draggable element that is not part of any Lexical editor.
-    await evaluate(page, () => {
-      const source = document.createElement('div');
-      source.id = 'external-drag-source';
-      source.textContent = 'DRAG ME';
-      source.draggable = true;
-      source.style.cssText =
-        'position:fixed;top:4px;left:4px;z-index:99999;padding:8px;';
-      source.addEventListener('dragstart', e => {
-        e.dataTransfer.setData('text/plain', 'EXTERNAL');
+      // Inject a draggable element that is not part of any Lexical editor.
+      await evaluate(page, () => {
+        const source = document.createElement('div');
+        source.id = 'external-drag-source';
+        source.textContent = 'DRAG ME';
+        source.draggable = true;
+        source.style.cssText =
+          'position:fixed;top:4px;left:4px;z-index:99999;padding:8px;';
+        source.addEventListener('dragstart', e => {
+          e.dataTransfer.setData('text/plain', 'EXTERNAL');
+        });
+        document.body.appendChild(source);
       });
-      document.body.appendChild(source);
+
+      const source = await page.locator('#external-drag-source').boundingBox();
+      const target = await page
+        .locator('div[contenteditable="true"]')
+        .first()
+        .boundingBox();
+
+      await page.mouse.move(
+        source.x + source.width / 2,
+        source.y + source.height / 2,
+      );
+      await page.mouse.down();
+      await page.mouse.move(source.x + 40, source.y + 40, {steps: 5});
+      await page.mouse.move(target.x + target.width / 2, target.y + 20, {
+        steps: 15,
+      });
+      await page.mouse.up();
+
+      await expect(
+        page.locator('div[contenteditable="true"]').first(),
+      ).toContainText('EXTERNAL');
     });
-
-    const source = await page.locator('#external-drag-source').boundingBox();
-    const target = await page
-      .locator('div[contenteditable="true"]')
-      .first()
-      .boundingBox();
-
-    await page.mouse.move(
-      source.x + source.width / 2,
-      source.y + source.height / 2,
-    );
-    await page.mouse.down();
-    await page.mouse.move(source.x + 40, source.y + 40, {steps: 5});
-    await page.mouse.move(target.x + target.width / 2, target.y + 20, {
-      steps: 15,
-    });
-    await page.mouse.up();
-
-    await expect(
-      page.locator('div[contenteditable="true"]').first(),
-    ).toContainText('EXTERNAL');
   });
 });

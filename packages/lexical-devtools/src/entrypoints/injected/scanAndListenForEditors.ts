@@ -6,9 +6,8 @@
  *
  */
 
-import type {ExtensionState} from '../../store';
+import type {InjectedTabState} from './InjectedTabState';
 import type {LexicalEditor} from 'lexical';
-import type {StoreApi} from 'zustand';
 
 import {
   type LexicalCommandLog,
@@ -18,36 +17,41 @@ import {
 import {serializeEditorState} from '../../serializeEditorState';
 import queryLexicalNodes from './utils/queryLexicalNodes';
 
+/**
+ * Find the Lexical editors on this page and keep reporting them.
+ *
+ * Everything collected here describes this page alone and is held by this
+ * page's `InjectedTabState`, which sends content onward only while the
+ * DevTools panel for this tab is open.
+ */
 export default function scanAndListenForEditors(
-  tabID: number,
-  extensionStore: StoreApi<ExtensionState>,
+  tabState: InjectedTabState,
   commandLog: WeakMap<LexicalEditor, LexicalCommandLog>,
 ) {
-  const {setStatesForTab, lexicalState} = extensionStore.getState();
-  const states = lexicalState[tabID] ?? {};
-
   const editors = queryLexicalNodes().map(node => node.__lexicalEditor);
 
-  setStatesForTab(
-    tabID,
+  tabState.replaceStates(
     Object.fromEntries(
-      editors.map(e => {
-        return [e._key, serializeEditorState(e.getEditorState())];
-      }),
+      editors.map(e => [e._key, serializeEditorState(e.getEditorState())]),
     ),
   );
 
   editors.forEach(editor => {
-    if (states[editor._key] !== undefined) {
-      // already registered
+    if (tabState.isListening(editor._key)) {
       return;
     }
+    tabState.markListening(editor._key);
+
     editor.registerUpdateListener(event => {
-      const oldVal = extensionStore.getState().lexicalState[tabID];
-      setStatesForTab(tabID, {
-        ...oldVal,
-        [editor._key]: serializeEditorState(event.editorState),
-      });
+      tabState.setState(
+        editor._key,
+        serializeEditorState(event.editorState, {
+          // The panel attached to this page is the only destination, and the
+          // state is only sent while it is open -- the tree the user asked
+          // to look at. Masked otherwise, belt and braces.
+          obfuscateText: !tabState.isPanelOpen(),
+        }),
+      );
     });
     // TODO: validate that this will be garbage collected when the editor node is destroyed
     registerLexicalCommandLogger(editor, setter => {

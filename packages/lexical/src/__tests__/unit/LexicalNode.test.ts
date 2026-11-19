@@ -14,14 +14,17 @@ import {
   $createRangeSelection,
   $createTabNode,
   $createTextNode,
+  $findMatchingParent,
   $getNodeByKey,
   $getNodeByKeyOrThrow,
   $getRoot,
   $getSelection,
   $isDecoratorNode,
   $isElementNode,
+  $isParagraphNode,
   $isRangeSelection,
   $isTabNode,
+  $isTextNode,
   $setSelection,
   createEditor,
   DecoratorNode,
@@ -52,6 +55,7 @@ import {
   LexicalNode,
 } from '../../LexicalNode';
 import {
+  $assertNodeType,
   $createTestElementNode,
   $createTestInlineElementNode,
   initializeUnitTest,
@@ -3267,13 +3271,11 @@ describe('LexicalNode.$config() without registration', () => {
     );
   });
 
-  test('traversal methods return base node types unless explicitly cast', () => {
-    // The type parameters on the traversal methods are deprecated unchecked
-    // casts. Calls without a type argument must resolve to the base node
-    // types rather than inferring the type parameter from context.
+  test('traversal methods require guards to narrow base node types', () => {
     const $checkTraversalTypes = (node: LexicalNode, element: ElementNode) => {
       expectTypeOf(node.getParent()).toEqualTypeOf<ElementNode | null>();
       expectTypeOf(node.getParentOrThrow()).toEqualTypeOf<ElementNode>();
+      expectTypeOf(node.getParents()).toEqualTypeOf<ElementNode[]>();
       expectTypeOf(
         node.getPreviousSibling(),
       ).toEqualTypeOf<LexicalNode | null>();
@@ -3303,25 +3305,34 @@ describe('LexicalNode.$config() without registration', () => {
       expectTypeOf(
         $getNodeByKeyOrThrow(node.getKey()),
       ).toEqualTypeOf<LexicalNode>();
-      // The deprecated generic overloads remain callable so that existing
-      // code continues to compile during migration.
-      expectTypeOf(
-        node.getParent<ParagraphNode>(),
-      ).toEqualTypeOf<ParagraphNode | null>();
-      expectTypeOf(
-        element.getFirstChild<TextNode>(),
-      ).toEqualTypeOf<TextNode | null>();
-      expectTypeOf(
-        $getNodeByKey<TextNode>(node.getKey()),
-      ).toEqualTypeOf<TextNode | null>();
-      expectTypeOf(
-        $getNodeByKeyOrThrow<TextNode>(node.getKey()),
-      ).toEqualTypeOf<TextNode>();
-      // The type parameter is no longer inferred from the contextual type,
-      // so this implicit unchecked cast is a compile error.
+      // Contextual return types cannot establish the node type either.
       // @ts-expect-error - getFirstChild() returns LexicalNode | null
       const child: TextNode | null = element.getFirstChild();
-      return child;
+      void child;
+      const parent = node.getParent();
+      if ($isParagraphNode(parent)) {
+        expectTypeOf(parent).toEqualTypeOf<ParagraphNode>();
+      }
+      expectTypeOf(element.getChildren().filter($isTextNode)).toEqualTypeOf<
+        TextNode[]
+      >();
+      expectTypeOf(
+        $findMatchingParent(node, $isParagraphNode),
+      ).toEqualTypeOf<ParagraphNode | null>();
+      const firstChild = element.getFirstChild();
+      if ($isTextNode(firstChild)) {
+        expectTypeOf(firstChild).toEqualTypeOf<TextNode>();
+        expectTypeOf(firstChild.getLatest()).toEqualTypeOf<TextNode>();
+        expectTypeOf(firstChild.getWritable()).toEqualTypeOf<TextNode>();
+        expectTypeOf(
+          $cloneWithProperties(firstChild),
+        ).toEqualTypeOf<TextNode>();
+      }
+      const found = $getNodeByKeyOrThrow(node.getKey());
+      if ($isTextNode(found)) {
+        expectTypeOf(found).toEqualTypeOf<TextNode>();
+      }
+      return firstChild;
     };
 
     const editor = createEditor({
@@ -3360,7 +3371,10 @@ describe('a setter returns the version it wrote to', () => {
       // getWritable() hands back the same object, so the two never diverge.
       editor.update(
         () => {
-          const paragraph = $getRoot().getFirstChildOrThrow<ParagraphNode>();
+          const paragraph = $assertNodeType(
+            $getRoot().getFirstChildOrThrow(),
+            $isParagraphNode,
+          );
           const afterIndent = paragraph.setIndent(2);
           expect(afterIndent).not.toBe(paragraph);
           expect(afterIndent).toBe(paragraph.getLatest());
