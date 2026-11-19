@@ -14,7 +14,9 @@ import {
 } from './formatList';
 import {
   $createListItemNode,
+  $getTaskListItemChecked,
   $isListItemNode,
+  $setTaskListItemChecked,
   ListItemNode,
   type SerializedListItemNode,
 } from './LexicalListItemNode';
@@ -33,7 +35,6 @@ export {
   CheckListExtension,
   type ListConfig,
   ListExtension,
-  ListImportExtension,
 } from './LexicalListExtension';
 export {ListImportRules, ListSchema} from './ListImportExtension';
 export {
@@ -51,11 +52,13 @@ export {
   $createListItemNode,
   $createListNode,
   $getListDepth,
+  $getTaskListItemChecked,
   $handleListInsertParagraph,
   $insertList,
   $isListItemNode,
   $isListNode,
   $removeList,
+  $setTaskListItemChecked,
   INSERT_CHECK_LIST_COMMAND,
   ListItemNode,
   ListNode,

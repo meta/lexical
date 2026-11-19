@@ -45,6 +45,7 @@ import {CollabElementNode} from './CollabElementNode';
 import {CollabTextNode} from './CollabTextNode';
 import {
   $syncLocalCursorPosition,
+  selectionAwarenessUpdate,
   syncCursorPositions,
   type SyncCursorPositionsFn,
   syncLexicalSelectionToYjs,
@@ -367,7 +368,7 @@ export function syncLexicalUpdateToYjs(
   tags: Set<string>,
 ): void {
   syncWithTransaction(binding, () => {
-    currEditorState.read(() => {
+    const setLocalState = binding.editor.read(currEditorState, () => {
       // We check if the update has come from a origin where the origin
       // was the collaboration binding previously. This can help us
       // prevent unnecessarily re-diffing and possible re-applying
@@ -380,7 +381,7 @@ export function syncLexicalUpdateToYjs(
           $handleNormalizationMergeConflicts(binding, normalizedNodes);
         }
 
-        return;
+        return null;
       }
 
       if (dirtyElements.has('root')) {
@@ -392,23 +393,31 @@ export function syncLexicalUpdateToYjs(
           nextLexicalRoot,
           prevNodeMap,
         );
-        collabRoot.syncChildrenFromLexical(
-          binding,
-          nextLexicalRoot,
-          prevNodeMap,
-          dirtyElements,
-          dirtyLeaves,
-        );
-        // Slots live outside the linked-list children channel, so the root's
-        // own slot map needs its dedicated diff too (child hosts get theirs
-        // via _syncChildFromLexical).
-        collabRoot.syncSlotsFromLexical(
-          binding,
-          nextLexicalRoot,
-          prevNodeMap,
-          dirtyElements,
-          dirtyLeaves,
-        );
+        const prevMovedNodeKeys = binding._movedNodeKeys;
+        const movedNodes = currEditorState._movedNodes;
+        binding._movedNodeKeys =
+          movedNodes === null ? undefined : movedNodes.get(prevNodeMap);
+        try {
+          collabRoot.syncChildrenFromLexical(
+            binding,
+            nextLexicalRoot,
+            prevNodeMap,
+            dirtyElements,
+            dirtyLeaves,
+          );
+          // Slots live outside the linked-list children channel, so the root's
+          // own slot map needs its dedicated diff too (child hosts get theirs
+          // via _syncChildFromLexical).
+          collabRoot.syncSlotsFromLexical(
+            binding,
+            nextLexicalRoot,
+            prevNodeMap,
+            dirtyElements,
+            dirtyLeaves,
+          );
+        } finally {
+          binding._movedNodeKeys = prevMovedNodeKeys;
+        }
         // If a local edit emptied the root, schedule recovery outside the
         // collaboration/historic tag so the paragraph syncs back to Yjs.
         // Mirrors the $ensureEditorNotEmpty call in syncYjsChangesToLexical's onUpdate.
@@ -423,10 +432,17 @@ export function syncLexicalUpdateToYjs(
         }
       }
 
-      const selection = $getSelection();
-      const prevSelection = prevEditorState._selection;
-      syncLexicalSelectionToYjs(binding, provider, prevSelection, selection);
+      return selectionAwarenessUpdate(
+        binding,
+        provider,
+        prevEditorState._selection,
+        $getSelection(),
+      );
     });
+    // After the read, so awareness listeners do not run inside it.
+    if (setLocalState !== null) {
+      setLocalState();
+    }
   });
 }
 
@@ -587,7 +603,7 @@ export function syncLexicalUpdateToYjsV2__EXPERIMENTAL(
   });
 
   syncWithTransaction(binding, () => {
-    currEditorState.read(() => {
+    const setLocalState = binding.editor.read(currEditorState, () => {
       if (dirtyElements.has('root')) {
         const nextLexicalRoot = $getRoot();
         // A DecoratorNode slot value lands in dirtyLeaves (only ElementNodes
@@ -615,9 +631,16 @@ export function syncLexicalUpdateToYjsV2__EXPERIMENTAL(
         }
       }
 
-      const selection = $getSelection();
-      const prevSelection = prevEditorState._selection;
-      syncLexicalSelectionToYjs(binding, provider, prevSelection, selection);
+      return selectionAwarenessUpdate(
+        binding,
+        provider,
+        prevEditorState._selection,
+        $getSelection(),
+      );
     });
+    // After the read, so awareness listeners do not run inside it.
+    if (setLocalState !== null) {
+      setLocalState();
+    }
   });
 }

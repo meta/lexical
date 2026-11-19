@@ -42,6 +42,83 @@ import {
 
 type IntentionallyMarkedAsDirtyElement = boolean;
 
+// Keep all siblings that were not detached during this update, then maximize
+// the number of other keys that retain their relative order. Final child lists
+// alone cannot distinguish which child of an adjacent pair actually moved.
+// Without movement hints (e.g. setEditorState), this is an ordinary longest
+// increasing subsequence. Yjs has no native move, so keys outside this set are
+// deleted and/or re-created, while stable keys retain their Yjs identities.
+function getStableChildKeys(
+  prevChildren: readonly NodeKey[],
+  prevStart: number,
+  nextChildren: readonly NodeKey[],
+  nextStart: number,
+  movedKeys: undefined | Set<NodeKey>,
+): Set<NodeKey> {
+  const prevPositions = new Map<NodeKey, number>();
+  for (let i = prevStart; i < prevChildren.length; i++) {
+    prevPositions.set(prevChildren[i], i);
+  }
+  const keys: NodeKey[] = [];
+  const positions: number[] = [];
+  for (let i = nextStart; i < nextChildren.length; i++) {
+    const position = prevPositions.get(nextChildren[i]);
+    if (position !== undefined) {
+      keys.push(nextChildren[i]);
+      positions.push(position);
+    }
+  }
+  // A prefix-maximum Fenwick tree finds a weighted increasing subsequence in
+  // O(n log n). One untouched sibling outweighs all moved siblings combined:
+  // untouched siblings retain their mutual order, so all of them can be kept.
+  // A bulk splice that detaches every child still chooses a maximum-length
+  // subsequence, preserving the minimum-recreation behavior for reorders.
+  const tree: number[] = new Array(prevChildren.length + 1).fill(-1);
+  const scores: number[] = [];
+  const predecessors: number[] = new Array(positions.length);
+  const untouchedWeight = positions.length + 1;
+  let best = -1;
+  const isBetter = (candidate: number, current: number) =>
+    candidate !== -1 &&
+    (current === -1 ||
+      scores[candidate] > scores[current] ||
+      (scores[candidate] === scores[current] &&
+        positions[candidate] < positions[current]));
+
+  for (let i = 0; i < positions.length; i++) {
+    const position = positions[i];
+    let predecessor = -1;
+    for (let index = position; index > 0; index -= index & -index) {
+      if (isBetter(tree[index], predecessor)) {
+        predecessor = tree[index];
+      }
+    }
+    predecessors[i] = predecessor;
+    scores[i] =
+      (predecessor === -1 ? 0 : scores[predecessor]) +
+      (movedKeys !== undefined && !movedKeys.has(keys[i])
+        ? untouchedWeight
+        : 1);
+    for (
+      let index = position + 1;
+      index < tree.length;
+      index += index & -index
+    ) {
+      if (isBetter(i, tree[index])) {
+        tree[index] = i;
+      }
+    }
+    if (isBetter(i, best)) {
+      best = i;
+    }
+  }
+  const stableKeys = new Set<NodeKey>();
+  for (let i = best; i >= 0; i = predecessors[i]) {
+    stableKeys.add(keys[i]);
+  }
+  return stableKeys;
+}
+
 export class CollabElementNode {
   _key: NodeKey;
   _children: (
@@ -549,8 +626,7 @@ export class CollabElementNode {
     const prevEndIndex = prevChildren.length - 1;
     const nextEndIndex = nextChildren.length - 1;
     const collabNodeMap = binding.collabNodeMap;
-    let prevChildrenSet: Set<NodeKey> | undefined;
-    let nextChildrenSet: Set<NodeKey> | undefined;
+    let stableKeys: Set<NodeKey> | undefined;
     let prevIndex = 0;
     let nextIndex = 0;
 
@@ -558,8 +634,48 @@ export class CollabElementNode {
       const prevKey = prevChildren[prevIndex];
       const nextKey = nextChildren[nextIndex];
 
-      if (prevKey === nextKey) {
-        // Nove move, create or remove
+      if (stableKeys === undefined) {
+        if (prevKey === nextKey) {
+          this._syncChildFromLexical(
+            binding,
+            nextIndex,
+            nextKey,
+            prevNodeMap,
+            dirtyElements,
+            dirtyLeaves,
+          );
+
+          prevIndex++;
+          nextIndex++;
+          continue;
+        }
+        stableKeys = getStableChildKeys(
+          prevChildren,
+          prevIndex,
+          nextChildren,
+          nextIndex,
+          binding._movedNodeKeys,
+        );
+      }
+
+      if (!stableKeys.has(prevKey)) {
+        // Removed, or moved elsewhere (re-created at its new position)
+        this.splice(binding, nextIndex, 1);
+        prevIndex++;
+      } else if (!stableKeys.has(nextKey)) {
+        // Created, or moved here (its old collab node is deleted when
+        // prevIndex reaches it)
+        const nextChildNode = $getNodeByKeyOrThrow(nextKey);
+        const collabNode = $createCollabNodeFromLexicalNode(
+          binding,
+          nextChildNode,
+          this,
+        );
+        collabNodeMap.set(nextKey, collabNode);
+        this.splice(binding, nextIndex, 0, collabNode);
+        nextIndex++;
+      } else {
+        // Both stable, so prevKey === nextKey
         this._syncChildFromLexical(
           binding,
           nextIndex,
@@ -571,41 +687,6 @@ export class CollabElementNode {
 
         prevIndex++;
         nextIndex++;
-      } else {
-        if (prevChildrenSet === undefined) {
-          prevChildrenSet = new Set(prevChildren);
-        }
-
-        if (nextChildrenSet === undefined) {
-          nextChildrenSet = new Set(nextChildren);
-        }
-
-        const nextHasPrevKey = nextChildrenSet.has(prevKey);
-        const prevHasNextKey = prevChildrenSet.has(nextKey);
-
-        if (!nextHasPrevKey) {
-          // Remove
-          this.splice(binding, nextIndex, 1);
-          prevIndex++;
-        } else {
-          // Create or replace
-          const nextChildNode = $getNodeByKeyOrThrow(nextKey);
-          const collabNode = $createCollabNodeFromLexicalNode(
-            binding,
-            nextChildNode,
-            this,
-          );
-          collabNodeMap.set(nextKey, collabNode);
-
-          if (prevHasNextKey) {
-            this.splice(binding, nextIndex, 1, collabNode);
-            prevIndex++;
-            nextIndex++;
-          } else {
-            this.splice(binding, nextIndex, 0, collabNode);
-            nextIndex++;
-          }
-        }
       }
     }
 

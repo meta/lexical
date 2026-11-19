@@ -6,6 +6,8 @@
  *
  */
 
+// @vitest-environment node
+
 import {
   $generateJSONFromSelectedNodes,
   type BaseSerializedNode,

@@ -10,19 +10,27 @@ import {buildEditorFromExtensions} from '@lexical/extension';
 import {HistoryExtension} from '@lexical/history';
 import {RichTextExtension} from '@lexical/rich-text';
 import {
+  $create,
   $createParagraphNode,
   $createTextNode,
   $getRoot,
   $getSelection,
+  $getState,
+  $isParagraphNode,
   $isRangeSelection,
+  $setState,
   COMPOSITION_END_COMMAND,
   COMPOSITION_END_TAG,
   COMPOSITION_START_TAG,
+  createState,
   type LexicalEditor,
+  type LexicalNodeConfig,
+  TextNode,
   UNDO_COMMAND,
 } from 'lexical';
 import {assert, describe, expect, onTestFinished, test} from 'vitest';
 
+import {$assertNodeType} from '../utils/assertNodeType';
 import {compose, korean} from './utils/compose';
 
 const IS_FIREFOX =
@@ -30,9 +38,10 @@ const IS_FIREFOX =
 
 function createEditor(opts?: {
   initialState?: () => void;
+  nodes?: LexicalNodeConfig[];
   withHistory?: boolean;
 }): LexicalEditor {
-  const {initialState, withHistory} = opts ?? {};
+  const {initialState, nodes, withHistory} = opts ?? {};
   const dependencies = withHistory
     ? [RichTextExtension, HistoryExtension]
     : [RichTextExtension];
@@ -44,6 +53,7 @@ function createEditor(opts?: {
       }),
     dependencies,
     name: 'test',
+    nodes,
   });
   const root = document.createElement('div');
   root.contentEditable = 'true';
@@ -602,4 +612,105 @@ describe('Firefox deferred compositionend', () => {
       ).toBe(true);
     },
   );
+});
+
+const idState = createState('id', {
+  parse: value => (typeof value === 'string' ? value : ''),
+});
+
+class HighlightNode extends TextNode {
+  $config() {
+    return this.config('highlight', {extends: TextNode});
+  }
+}
+
+function $createHighlightNode(text: string): HighlightNode {
+  return $create(HighlightNode).setTextContent(text);
+}
+
+describe('Composition into a TextNode subclass (#9289)', () => {
+  test.each([
+    ['in the middle', 3, 'wor仮名ld'],
+    ['at the end', 5, 'world仮名'],
+  ])(
+    'composing %s keeps its type, key and node state',
+    async (_where, offset, expected) => {
+      let key = '';
+      const editor = createEditor({
+        initialState: () => {
+          const highlight = $createHighlightNode('world');
+          $setState(highlight, idState, 'h1');
+          key = highlight.getKey();
+          $getRoot().append(
+            $createParagraphNode().append($createTextNode('hello '), highlight),
+          );
+        },
+        nodes: [HighlightNode],
+      });
+      const rootElement = editor.getRootElement()!;
+      await waitForRender();
+      const highlightText = editor.getElementByKey(key)!.firstChild;
+      assert(highlightText instanceof Text);
+      rootElement.focus();
+      document.getSelection()!.collapse(highlightText, offset);
+
+      await compose(
+        {editor, rootElement},
+        {
+          commitText: '仮名',
+          steps: [{text: 'か'}, {text: 'かな'}, {text: '仮名'}],
+        },
+      );
+
+      editor.read(() => {
+        const children = $assertNodeType(
+          $getRoot().getFirstChildOrThrow(),
+          $isParagraphNode,
+        ).getChildren();
+        expect(children.map(node => node.getType())).toEqual([
+          'text',
+          'highlight',
+        ]);
+        const composed = children[1];
+        expect(composed.getKey()).toBe(key);
+        expect(composed.getTextContent()).toBe(expected);
+        expect($getState(composed, idState)).toBe('h1');
+      });
+    },
+  );
+
+  test('composing in the middle of a segmented subclass still ends as plain text', async () => {
+    let key = '';
+    const editor = createEditor({
+      initialState: () => {
+        const mention = $createHighlightNode('JohnSmith').setMode('segmented');
+        key = mention.getKey();
+        $getRoot().append($createParagraphNode().append(mention));
+      },
+      nodes: [HighlightNode],
+    });
+    const rootElement = editor.getRootElement()!;
+    await waitForRender();
+    const mentionText = editor.getElementByKey(key)!.firstChild;
+    assert(mentionText instanceof Text);
+    rootElement.focus();
+    document.getSelection()!.collapse(mentionText, 4);
+
+    await compose(
+      {editor, rootElement},
+      {
+        commitText: '仮名',
+        steps: [{text: 'か'}, {text: 'かな'}, {text: '仮名'}],
+      },
+    );
+
+    editor.read(() => {
+      const children = $assertNodeType(
+        $getRoot().getFirstChildOrThrow(),
+        $isParagraphNode,
+      ).getChildren();
+      expect(children.map(node => node.getType())).toEqual(['text']);
+      expect(children[0].getTextContent()).toBe('John仮名Smith');
+    });
+  });
 });

@@ -6,6 +6,8 @@
  *
  */
 
+// @vitest-environment node
+
 import {createRefCountedRegistry} from 'lexical';
 import {describe, expect, test, vi} from 'vitest';
 

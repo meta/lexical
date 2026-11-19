@@ -1,0 +1,9 @@
+---
+'@lexical/markdown': patch
+---
+
+[fix] Markdown export escapes a literal bracket only where it would otherwise start a link, an image, a link reference definition or a check list item, so text such as `[1]`, `done [x]` or `array[0]` exports as typed again
+
+Since v0.53.0 every literal `[` and `]` exported as `&#91;` and `&#93;`. Outside a link, a `]` is now escaped only when it is followed by `(`, when it closes a label followed by `:`, or when it closes a `[ ]`, `[x]` or `[]` followed by whitespace, where that label or marker starts a line or follows a block marker such as `- `, `1. ` or `> `. A `[` is escaped only when the label it starts would close at a `]` inside inline code followed by `:`. Import now starts a link at the `[` that really opens its text, and never reads a link whose brackets or parentheses fall inside a code span, so formatting, code spans and earlier brackets before a link on the same line import as they do elsewhere (`[1] **bold** [link](url)` keeps its bold). The text on either side of the bracket is read the way it is exported: across text nodes and inline elements such as comment marks, with links that are not written as `[text](url)` (autolinks, or every link when `LINK` is not among the transformers) read as their text, and a bracket next to a decorator, or next to a node a text match transformer writes in its own syntax, is escaped. Inside link text, matched brackets stay as typed and only unmatched brackets, or a pair followed by `(`, are escaped. Markdown written by v0.53.0 still imports unchanged.
+
+Verify: Markdown export snapshots of text containing `[` or `]`, and that such text imports again with its formatting and links. Export now also calls each text match transformer's `export` with placeholder callbacks to learn whether it writes a node in its own syntax, so a transformer that keeps state across `export` calls (numbering links, say) should keep `export` free of side effects.

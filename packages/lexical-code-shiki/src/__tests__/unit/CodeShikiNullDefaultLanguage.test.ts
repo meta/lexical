@@ -6,6 +6,8 @@
  *
  */
 
+// @vitest-environment node
+
 import {$createCodeNode, type CodeNode} from '@lexical/code';
 import {CodeShikiExtension, ShikiTokenizer} from '@lexical/code-shiki';
 import {buildEditorFromExtensions, configExtension} from '@lexical/extension';

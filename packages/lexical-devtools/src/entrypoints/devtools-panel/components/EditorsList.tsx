@@ -18,6 +18,7 @@ import * as React from 'react';
 import {useEffect, useMemo, useRef, useState} from 'react';
 
 import {useExtensionStore} from '../../../store';
+import {usePanelStore} from '../panelStore';
 
 interface Props {
   tabID: number;
@@ -27,8 +28,9 @@ interface Props {
 export function EditorsList({tabID, setErrorMessage}: Props) {
   const tabRefs = useRef(new Map<number, HTMLDivElement | null>());
   const [expandedItems, setExpandedItems] = useState<string[]>(['0']);
-  const {lexicalState, selectedEditorKey} = useExtensionStore();
-  const states = lexicalState[tabID] ?? {};
+  const {selectedEditorKey} = useExtensionStore();
+  // This panel's own copy of its own tab's state, pushed by the background.
+  const states = usePanelStore(panel => panel.states);
   const selectedEditorIdx = Object.keys(states).findIndex(
     key => key === selectedEditorKey[tabID],
   );
@@ -98,7 +100,13 @@ export function EditorsList({tabID, setErrorMessage}: Props) {
                   .catch(e => setErrorMessage(e.stack))
               }
               generateContent={exportDOM =>
-                injectedPegasusService.generateTreeViewContent(key, exportDOM)
+                // The panel is open, so the user is deliberately inspecting
+                // this editor: ask for its text unmasked.
+                injectedPegasusService.generateTreeViewContent(
+                  key,
+                  exportDOM,
+                  false,
+                )
               }
             />
           </Accordion.ItemContent>

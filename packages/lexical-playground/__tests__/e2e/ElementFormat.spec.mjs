@@ -18,14 +18,13 @@ import {
 } from '../utils/index.mjs';
 
 test.describe('Element format', () => {
-  test.beforeEach(({isCollab, isPlainText, page}) => {
-    test.skip(isPlainText);
+  test.skip(({isPlainText}) => isPlainText, 'Requires rich text');
+  test.beforeEach(({isCollab, page}) => {
     return initialize({isCollab, page});
   });
 
   test('Can indent/align paragraph when caret is within link', async ({
     page,
-    isPlainText,
   }) => {
     await focusEditor(page);
     await page.keyboard.type('Hello https://lexical.io world');
@@ -56,7 +55,7 @@ test.describe('Element format', () => {
     );
   });
 
-  test('Can center align an empty paragraph', async ({page, isPlainText}) => {
+  test('Can center align an empty paragraph', async ({page}) => {
     await focusEditor(page);
     await click(page, '.alignment');
     await click(page, '.center-align');

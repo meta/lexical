@@ -8,37 +8,38 @@
 
 import {
   $getEditor,
+  $getElementAndOffsetForPoint,
   $isRootNode,
   $isTextNode,
   type ElementNode,
+  getDOMTextNode,
   getRootOwnerDocument,
   getStyleObjectFromCSS,
   type LexicalEditor,
   type LexicalNode,
 } from 'lexical';
 
-function getDOMTextNode(element: Node | null): Text | null {
-  let node = element;
-
-  while (node != null) {
-    if (node.nodeType === Node.TEXT_NODE) {
-      return node as Text;
-    }
-
-    node = node.firstChild;
+/**
+ * The DOM point for the point at `offset` in `node`: in its text, before a
+ * line break, or where the editor puts its own DOM selection in an element.
+ */
+function getDOMPoint(
+  editor: LexicalEditor,
+  node: LexicalNode,
+  offset: number,
+): [Node | null, number] {
+  const dom = editor.getElementByKey(node.getKey());
+  if (dom === null || $isTextNode(node)) {
+    return [getDOMTextNode(dom), offset];
   }
-
-  return null;
-}
-
-function getDOMIndexWithinParent(node: ChildNode): [ParentNode, number] {
-  const parent = node.parentNode;
-
-  if (parent == null) {
-    throw new Error('Should never happen');
+  const parent = dom.parentNode;
+  if (parent && dom.nodeName === 'BR') {
+    return [parent, Array.from(parent.childNodes).indexOf(dom)];
   }
-
-  return [parent, Array.from(parent.childNodes).indexOf(node)];
+  // createDOMRange is also called outside a read, as by collab cursors.
+  return editor.read('latest', () =>
+    $getElementAndOffsetForPoint(editor, node, offset),
+  );
 }
 
 /**
@@ -57,39 +58,23 @@ export function createDOMRange(
   focusNode: LexicalNode,
   _focusOffset: number,
 ): Range | null {
-  const anchorKey = anchorNode.getKey();
-  const focusKey = focusNode.getKey();
   // Resolve through the editor's own document so iframe / shadow-mounted
   // editors don't end up with a Range bound to the wrong realm.
   const range = getRootOwnerDocument(editor.getRootElement()).createRange();
-  let anchorDOM: Node | Text | null = editor.getElementByKey(anchorKey);
-  let focusDOM: Node | Text | null = editor.getElementByKey(focusKey);
-  let anchorOffset = _anchorOffset;
-  let focusOffset = _focusOffset;
+  const [anchorDOM, anchorOffset] = getDOMPoint(
+    editor,
+    anchorNode,
+    _anchorOffset,
+  );
+  const [focusDOM, domFocusOffset] = getDOMPoint(
+    editor,
+    focusNode,
+    _focusOffset,
+  );
+  let focusOffset = domFocusOffset;
 
-  if ($isTextNode(anchorNode)) {
-    anchorDOM = getDOMTextNode(anchorDOM);
-  }
-
-  if ($isTextNode(focusNode)) {
-    focusDOM = getDOMTextNode(focusDOM);
-  }
-
-  if (
-    anchorNode === undefined ||
-    focusNode === undefined ||
-    anchorDOM === null ||
-    focusDOM === null
-  ) {
+  if (anchorDOM === null || focusDOM === null) {
     return null;
-  }
-
-  if (anchorDOM.nodeName === 'BR') {
-    [anchorDOM, anchorOffset] = getDOMIndexWithinParent(anchorDOM as ChildNode);
-  }
-
-  if (focusDOM.nodeName === 'BR') {
-    [focusDOM, focusOffset] = getDOMIndexWithinParent(focusDOM as ChildNode);
   }
 
   const firstChild = anchorDOM.firstChild;
@@ -113,7 +98,7 @@ export function createDOMRange(
 
   if (
     range.collapsed &&
-    (anchorOffset !== focusOffset || anchorKey !== focusKey)
+    (anchorOffset !== focusOffset || !anchorNode.is(focusNode))
   ) {
     // Range is backwards, we need to reverse it
     range.setStart(focusDOM, focusOffset);

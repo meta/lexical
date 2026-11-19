@@ -2,7 +2,7 @@
   "name": "lexical-link-source-mode",
   "private": true,
   "type": "module",
-  "version": "0.52.0",
+  "version": "0.53.0",
   "description": "Integration fixture: consume lexical, @lexical/rich-text and @lexical/extension via pnpm's link: protocol and the `source` export condition (TypeScript source, no build required, and no consumer-side aliases). Importing several packages confirms source-mode resolution links every package (and their transitive @lexical/* deps) against each other.",
   "scripts": {
     "build": "vite build",

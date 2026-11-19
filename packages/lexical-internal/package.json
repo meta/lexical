@@ -8,10 +8,10 @@
     "internal"
   ],
   "license": "MIT",
-  "version": "0.52.0",
+  "version": "0.53.0",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/facebook/lexical.git",
+    "url": "git+https://github.com/meta/lexical.git",
     "directory": "packages/lexical-internal"
   },
   "sideEffects": false,
@@ -159,6 +159,22 @@
       "development": "./dist/LexicalInternalInvariant.dev.js",
       "production": "./dist/LexicalInternalInvariant.prod.js",
       "default": "./dist/LexicalInternalInvariant.js"
+    },
+    "./isCjkCharacter": {
+      "source": "./src/isCjkCharacter.ts",
+      "types@<5.2": "./dist/typescript-too-old.d.ts",
+      "types": "./dist/isCjkCharacter.d.ts",
+      "development": "./dist/LexicalInternalIsCjkCharacter.dev.js",
+      "production": "./dist/LexicalInternalIsCjkCharacter.prod.js",
+      "default": "./dist/LexicalInternalIsCjkCharacter.js"
+    },
+    "./isCjkCharacter.js": {
+      "source": "./src/isCjkCharacter.ts",
+      "types@<5.2": "./dist/typescript-too-old.d.ts",
+      "types": "./dist/isCjkCharacter.d.ts",
+      "development": "./dist/LexicalInternalIsCjkCharacter.dev.js",
+      "production": "./dist/LexicalInternalIsCjkCharacter.prod.js",
+      "default": "./dist/LexicalInternalIsCjkCharacter.js"
     },
     "./version": {
       "source": "./src/version.ts",

@@ -5,6 +5,8 @@
  * LICENSE file in the root directory of this source tree.
  *
  */
+
+// @vitest-environment node
 import {buildEditorFromExtensions} from '@lexical/extension';
 import {$createLinkNode, LinkExtension} from '@lexical/link';
 import {

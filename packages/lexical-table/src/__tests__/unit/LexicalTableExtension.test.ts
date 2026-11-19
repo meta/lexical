@@ -1023,7 +1023,7 @@ describe('TableExtension', () => {
       // root element is mounted. Regression test for the bug where the
       // pointerdown listener on editorWindow was never attached because
       // editor.getRootElement() was null at register() time, breaking drag
-      // selection. See https://github.com/facebook/lexical/issues/8491
+      // selection. See https://github.com/meta/lexical/issues/8491
       const container = document.createElement('div');
       document.body.appendChild(container);
       try {
@@ -1084,6 +1084,69 @@ describe('TableExtension', () => {
         editor.setRootElement(null);
         document.body.removeChild(container);
       }
+    });
+  });
+
+  describe('triple click in a cell', () => {
+    let container: HTMLDivElement;
+
+    beforeEach(() => {
+      container = document.createElement('div');
+      container.contentEditable = 'true';
+      document.body.appendChild(container);
+      editor.setRootElement(container);
+    });
+
+    afterEach(() => {
+      editor.setRootElement(null);
+      container.remove();
+    });
+
+    it('selects the paragraph with text points, as a native selection of it resolves', () => {
+      let firstKey = '';
+      let lastKey = '';
+      editor.update(
+        () => {
+          const table = $createTableNodeWithDimensions(1, 2, false);
+          $getRoot().clear().append(table);
+          const row = $assertNodeType(table.getFirstChild(), $isTableRowNode);
+          const cell = $assertNodeType(row.getLastChild(), $isTableCellNode);
+          const paragraph = $assertNodeType(
+            cell.getFirstChild(),
+            $isParagraphNode,
+          );
+          const first = $createTextNode('Foo');
+          const last = $createTextNode('Bar').toggleFormat('bold');
+          paragraph.append(first, last);
+          firstKey = first.getKey();
+          lastKey = last.getKey();
+        },
+        {discrete: true},
+      );
+      const target = editor.getElementByKey(lastKey);
+      assert(target !== null, 'Expected the clicked text to be rendered');
+
+      // The third click's click event, with detail 3. The table cancels that
+      // click's mousedown, so the browser makes no selection of its own.
+      target.dispatchEvent(
+        new MouseEvent('click', {bubbles: true, cancelable: true, detail: 3}),
+      );
+
+      editor.read('force-commit', () => {
+        const selection = $getSelection();
+        assert($isRangeSelection(selection), 'Expected a RangeSelection');
+        const {anchor, focus} = selection;
+        expect([anchor.key, anchor.offset, anchor.type]).toEqual([
+          firstKey,
+          0,
+          'text',
+        ]);
+        expect([focus.key, focus.offset, focus.type]).toEqual([
+          lastKey,
+          3,
+          'text',
+        ]);
+      });
     });
   });
 

@@ -7,16 +7,19 @@
  */
 
 import {
+  deleteLineBackward,
   moveToLineBeginning,
   moveToLineEnd,
   selectAll,
 } from '../keyboardShortcuts/index.mjs';
 import {
+  assertCaret,
   click,
   evaluate,
   expect,
   focusEditor,
   initialize,
+  IS_MAC,
   sleep,
   test,
   waitForSelector,
@@ -87,9 +90,42 @@ async function caretInSelector(page, selector) {
   );
 }
 
+async function selectionInSlot(page, name, collapsed) {
+  return evaluate(
+    page,
+    ({slotName, isCollapsed}) => {
+      const slot = document.querySelector(`[data-lexical-slot="${slotName}"]`);
+      const editor = window.lexicalEditor;
+      const selection = editor.getEditorState()._selection;
+      const domSelection = window.getSelection();
+      return (
+        slot !== null &&
+        selection?.anchor !== undefined &&
+        selection.isCollapsed() === isCollapsed &&
+        slot.contains(editor.getElementByKey(selection.anchor.key)) &&
+        slot.contains(editor.getElementByKey(selection.focus.key)) &&
+        domSelection !== null &&
+        domSelection.isCollapsed === isCollapsed &&
+        slot.contains(domSelection.anchorNode) &&
+        slot.contains(domSelection.focusNode)
+      );
+    },
+    {isCollapsed: collapsed, slotName: name},
+  );
+}
+
+async function selectSlotText(page, name) {
+  // The native click and Lexical's selectionchange handler settle separately.
+  // Select-all must see the slot selection before replacing its content.
+  await click(page, `[data-lexical-slot="${name}"] p`);
+  await expect.poll(() => selectionInSlot(page, name, true)).toBe(true);
+  await selectAll(page);
+  await expect.poll(() => selectionInSlot(page, name, false)).toBe(true);
+}
+
 test.describe('PullQuote slot host', () => {
-  test.beforeEach(async ({isCollab, isPlainText, page}) => {
-    test.skip(isPlainText);
+  test.skip(({isPlainText}) => isPlainText, 'Requires rich text');
+  test.beforeEach(async ({isCollab, page}) => {
     await initialize({isCollab, page});
   });
 
@@ -108,14 +144,10 @@ test.describe('PullQuote slot host', () => {
     await focusEditor(page);
     await insertPullQuote(page);
 
-    await click(page, '[data-lexical-slot="quote"] p');
-    await sleep(100);
-    await selectAll(page);
-    await sleep(120);
+    await selectSlotText(page, 'quote');
     await page.keyboard.type('A new quote');
-    await sleep(120);
 
-    expect(await slotText(page, 'quote')).toBe('A new quote');
+    await expect.poll(() => slotText(page, 'quote')).toBe('A new quote');
     expect(await slotText(page, 'attribution')).toBe('Arthur C. Clarke');
   });
 
@@ -125,14 +157,10 @@ test.describe('PullQuote slot host', () => {
     await focusEditor(page);
     await insertPullQuote(page);
 
-    await click(page, '[data-lexical-slot="attribution"] p');
-    await sleep(100);
-    await selectAll(page);
-    await sleep(120);
+    await selectSlotText(page, 'attribution');
     await page.keyboard.type('Someone Else');
-    await sleep(120);
 
-    expect(await slotText(page, 'attribution')).toBe('Someone Else');
+    await expect.poll(() => slotText(page, 'attribution')).toBe('Someone Else');
     expect(await slotText(page, 'quote')).toContain('discover the limits');
   });
 
@@ -150,24 +178,65 @@ test.describe('PullQuote slot host', () => {
 
     // Replace the long seed with a short word first: the seed can wrap
     // across visual lines, which would make moveToLineEnd ambiguous.
-    await click(page, '[data-lexical-slot="quote"] p');
-    await sleep(100);
-    await selectAll(page);
-    await sleep(120);
+    await selectSlotText(page, 'quote');
     await page.keyboard.type('QUOTE');
-    await sleep(120);
+    await expect.poll(() => slotText(page, 'quote')).toBe('QUOTE');
     await moveToLineEnd(page);
+    await assertCaret(page, '[data-lexical-slot="quote"] p > span', 5);
     await page.keyboard.press('Enter');
     await page.keyboard.type('SECOND');
-    await sleep(120);
     // Two paragraphs in the quote slot before the merge.
-    expect(await slotText(page, 'quote')).toBe(`QUOTE${PARA}SECOND`);
+    await expect.poll(() => slotText(page, 'quote')).toBe(`QUOTE${PARA}SECOND`);
     await moveToLineBeginning(page);
+    await assertCaret(
+      page,
+      '[data-lexical-slot="quote"] p:last-child > span',
+      0,
+    );
     await page.keyboard.press('Backspace');
-    await sleep(120);
-    expect(await slotText(page, 'quote')).toBe('QUOTESECOND');
+    await expect.poll(() => slotText(page, 'quote')).toBe('QUOTESECOND');
     expect(await slotText(page, 'attribution')).toBe('Arthur C. Clarke');
     expect(await pullquoteCount(page)).toBe(1);
+  });
+
+  // At the end of a slot Chromium's native forward delete covers the whole
+  // line before the caret, so Delete there must not empty the slot (#9363).
+  test('Delete inside the attribution slot deletes one character', async ({
+    page,
+  }) => {
+    await focusEditor(page);
+    await insertPullQuote(page);
+
+    await click(page, '[data-lexical-slot="attribution"] p');
+    await expect
+      .poll(() => selectionInSlot(page, 'attribution', true))
+      .toBe(true);
+    await moveToLineEnd(page);
+    await page.keyboard.press('Delete');
+    await moveToLineBeginning(page);
+    await page.keyboard.press('Delete');
+    await expect
+      .poll(() => slotText(page, 'attribution'))
+      .toBe('rthur C. Clarke');
+    expect(await slotText(page, 'quote')).toContain('discover the limits');
+  });
+
+  // Cmd+Backspace deletes the line, not one character (#9363).
+  test('deleteLineBackward inside the quote slot deletes the line', async ({
+    page,
+  }) => {
+    test.skip(!IS_MAC, 'deleteLineBackward is only bound on Mac');
+    await focusEditor(page);
+    await insertPullQuote(page);
+
+    await selectSlotText(page, 'quote');
+    await page.keyboard.type('QUOTE');
+    await page.keyboard.press('Enter');
+    await page.keyboard.type('SECOND');
+    await expect.poll(() => slotText(page, 'quote')).toBe(`QUOTE${PARA}SECOND`);
+    await deleteLineBackward(page);
+    await expect.poll(() => slotText(page, 'quote')).toBe(`QUOTE${PARA}`);
+    expect(await slotText(page, 'attribution')).toBe('Arthur C. Clarke');
   });
 
   // The attribution slot's value is a bare ParagraphNode — the slot link
@@ -276,23 +345,17 @@ test.describe('PullQuote slot host', () => {
     await focusEditor(page);
     await insertPullQuote(page);
 
-    // Clear both seeded slots (select-all is slot-scoped inside each).
-    await click(page, '[data-lexical-slot="quote"] p');
-    await selectAll(page);
-    await page.keyboard.press('Backspace');
-    await sleep(80);
-    await click(page, '[data-lexical-slot="attribution"] p');
-    await selectAll(page);
-    await page.keyboard.press('Backspace');
-    await sleep(80);
-    expect(await slotText(page, 'quote')).toBe('');
-    expect(await slotText(page, 'attribution')).toBe('');
+    for (const name of ['quote', 'attribution']) {
+      await selectSlotText(page, name);
+      await page.keyboard.press('Backspace');
+      await expect.poll(() => slotText(page, name)).toBe('');
+    }
 
     // Now backspace from the start of the (empty) quote deletes the whole box.
     await click(page, '[data-lexical-slot="quote"] p');
+    await expect.poll(() => selectionInSlot(page, 'quote', true)).toBe(true);
     await moveToLineBeginning(page);
     await page.keyboard.press('Backspace');
-    await sleep(120);
-    expect(await pullquoteCount(page)).toBe(0);
+    await expect.poll(() => pullquoteCount(page)).toBe(0);
   });
 });

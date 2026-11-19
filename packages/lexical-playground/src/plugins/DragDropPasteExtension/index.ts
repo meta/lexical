@@ -26,6 +26,9 @@ export const DragDropPasteExtension = defineExtension({
     editor.registerCommand(
       DRAG_DROP_PASTE,
       files => {
+        if (!files.some(file => isMimeType(file, ACCEPTABLE_IMAGE_TYPES))) {
+          return false;
+        }
         (async () => {
           const filesResult = await mediaFileReader(
             files,

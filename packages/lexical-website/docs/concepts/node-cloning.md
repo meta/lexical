@@ -81,18 +81,18 @@ With the modern APIs you usually don't write one at all:
   only in NodeState needs nothing.
 
 ```ts
+// At module scope, above the class, so TypeScript checks it against the class
+const calloutSchema = nodeSchema<CalloutNode>()({
+  label: withField(stringValue(), {field: '__label'}),
+});
+
 class CalloutNode extends ElementNode {
   __label: string = '';
 
-  // No afterCloneFrom: `__label` is declared as a field below, so it is
-  // carried across every clone.
+  // No afterCloneFrom: `__label` is declared as a field in calloutSchema, so
+  // it is carried across every clone.
   $config() {
-    return this.config('callout', {
-      extends: ElementNode,
-      json: nodeSchema<CalloutNode>()({
-        label: withField(stringValue(), {field: '__label'}),
-      }),
-    });
+    return this.config('callout', {extends: ElementNode, json: calloutSchema});
   }
 }
 ```

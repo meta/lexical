@@ -259,6 +259,11 @@ Use [TableExtension](/docs/api/modules/lexical_table#tableextension) when using 
 
 :::
 
+Table commands (inserting or deleting rows and columns, merging and
+unmerging cells, pasting a table into a table) first pad the short rows of a
+ragged table, such as one left by concurrent collaborative edits, with empty
+cells; see [`$padTableRows`](/docs/api/modules/lexical_table#padtablerows).
+
 ### `LexicalHorizontalRulePlugin`
 
 Registers a command handler for `INSERT_HORIZONTAL_RULE_COMMAND`. When dispatched, it inserts a `HorizontalRuleNode` at the current selection.
@@ -379,6 +384,18 @@ const YouTubeEmbedConfig = {
     new AutoEmbedOption('Embed', {onSelect: embedFn}),
     new AutoEmbedOption('Dismiss', {onSelect: dismissFn}),
   ]}
+/>
+```
+
+The optional `$disableMenuFor` predicate suppresses the menu for specific locations, e.g. inside nodes that only accept inline content. It receives the matched `AutoLinkNode`; when it returns true the menu is not shown and the pasted link is left as-is. The predicate can inspect the node's ancestors, e.g. with `$getNearestNodeOfType` from `@lexical/utils`.
+
+```jsx
+<LexicalAutoEmbedPlugin
+  embedConfigs={[YouTubeEmbedConfig]}
+  $disableMenuFor={(linkNode) =>
+    $getNearestNodeOfType(linkNode, InlineOnlyNode) !== null
+  }
+  // ...
 />
 ```
 

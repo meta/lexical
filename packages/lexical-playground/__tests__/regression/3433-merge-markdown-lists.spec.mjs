@@ -14,13 +14,13 @@ import {
   test,
 } from '../utils/index.mjs';
 
+test.skip(({isPlainText}) => isPlainText, 'Requires rich text');
+
 test.describe('Regression test #3433', () => {
   test.beforeEach(({isCollab, page}) => initialize({isCollab, page}));
   test('can merge markdown lists created immediately before existing lists', async ({
     page,
-    isPlainText,
   }) => {
-    test.skip(isPlainText);
     await focusEditor(page);
     await page.keyboard.press('Enter');
     await page.keyboard.type('- one');

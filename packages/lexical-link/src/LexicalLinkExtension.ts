@@ -184,17 +184,3 @@ export const LinkExtension = defineExtension({
     return registerLink(editor, state.getOutput());
   },
 });
-
-/**
- * Bundles {@link LinkImportRules} together with the runtime
- * {@link LinkExtension}.
- *
- * @experimental
- * @deprecated {@link LinkExtension} now registers
- * {@link LinkImportRules} (and `CoreImportExtension`) itself — depend on
- * it directly instead.
- */
-export const LinkImportExtension = defineExtension({
-  dependencies: [LinkExtension],
-  name: '@lexical/link/Import',
-});

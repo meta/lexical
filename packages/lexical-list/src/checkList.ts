@@ -39,7 +39,12 @@ import {
 } from 'lexical';
 
 import {$insertList} from './formatList';
-import {$isListItemNode, type ListItemNode} from './LexicalListItemNode';
+import {
+  $getTaskListItemChecked,
+  $isListItemNode,
+  $setTaskListItemChecked,
+  type ListItemNode,
+} from './LexicalListItemNode';
 import {$isListNode} from './LexicalListNode';
 
 // What a focused check list item's own key handlers use: Space toggles it,
@@ -122,8 +127,29 @@ export function registerCheckList(
     }
     handleClick(event, peekDisableTakeFocusOnClick());
   };
+  // Where each touch went down. Only a tap toggles: a finger that moves more
+  // than TAP_SLOP_PX along either axis before it lifts was a swipe, like
+  // scrolling through the list, even when it started on a check mark. This is
+  // the same test as core's tap detection. Touch pointers are captured by the
+  // item they went down on, so that pointerup still reaches it.
+  const TAP_SLOP_PX = 10;
+  const touchStarts = new Map<number, {x: number; y: number}>();
+  const recordTouchStart = (event: PointerEvent) => {
+    if (event.pointerType === 'touch') {
+      touchStarts.set(event.pointerId, {x: event.clientX, y: event.clientY});
+    }
+  };
   const configHandlePointerUp = (event: PointerEvent) => {
     if (event.pointerType !== 'touch') {
+      return;
+    }
+    const start = touchStarts.get(event.pointerId);
+    touchStarts.delete(event.pointerId);
+    if (
+      start !== undefined &&
+      (Math.abs(event.clientX - start.x) > TAP_SLOP_PX ||
+        Math.abs(event.clientY - start.y) > TAP_SLOP_PX)
+    ) {
       return;
     }
     if (isWithinDedupWindow(event)) {
@@ -206,7 +232,7 @@ export function registerCheckList(
 
             if ($isListItemNode(listItemNode)) {
               event.preventDefault();
-              listItemNode.toggleChecked();
+              $toggleTaskListItem(listItemNode);
             }
           });
           return true;
@@ -246,7 +272,8 @@ export function registerCheckList(
                 const parent = elementNode.getParent();
                 if (
                   $isListNode(parent) &&
-                  parent.getListType() === 'check' &&
+                  // A check list item, or a task item of a bullet or number list
+                  $getTaskListItemChecked(elementNode) !== undefined &&
                   (isElement || elementNode.getFirstDescendant() === anchorNode)
                 ) {
                   const domNode = editor.getElementByKey(elementNode.__key);
@@ -317,14 +344,25 @@ export function registerCheckList(
               // checkbox, the caret-moving arrows above all: the caret leaves
               // the check mark behind, so the focus has to follow it. Text
               // entry arrives here too, but not all of it comes from a key,
-              // which is why beforeinput covers that separately.
+              // which is why beforeinput covers that separately. A Space is
+              // text too while the caret is in another block, as it is after
+              // a click on a check mark.
               keydown: event => {
-                if (!CHECKBOX_KEYS.has(event.key)) {
+                if (
+                  !CHECKBOX_KEYS.has(event.key) ||
+                  (event.key === ' ' && isSelectionOutsideActiveItem(editor))
+                ) {
                   returnFocusToRoot(editor);
                 }
               },
               mousedown: configHandleSelectDefaults,
-              pointerdown: configHandleSelectDefaults,
+              pointercancel: event => {
+                touchStarts.delete(event.pointerId);
+              },
+              pointerdown: event => {
+                recordTouchStart(event);
+                configHandleSelectDefaults(event);
+              },
             },
             {capture: true},
           ),
@@ -367,10 +405,7 @@ function handleCheckItemEvent(
     return;
   }
 
-  const parentNode = target.parentNode;
-
-  // @ts-ignore internal field
-  if (!parentNode || parentNode.__lexicalListType !== 'check') {
+  if (!isCheckListItem(target)) {
     return;
   }
   let clientX: number | null = null;
@@ -441,7 +476,7 @@ function handleClick(
             } else {
               domNode.focus();
             }
-            node.toggleChecked();
+            $toggleTaskListItem(node);
           }
         });
       }
@@ -494,6 +529,25 @@ function returnFocusToRoot(editor: LexicalEditor): void {
   }
 }
 
+/**
+ * Ticks or unticks an item with a checkbox: an item of a check list, or a task
+ * item of a bullet or number list.
+ */
+function $toggleTaskListItem(listItem: ListItemNode): void {
+  const parent = listItem.getParent();
+  if ($isListNode(parent) && parent.getListType() === 'check') {
+    // As before, so a ListItemNode subclass that overrides toggleChecked()
+    // still sees the toggle.
+    listItem.toggleChecked();
+  } else {
+    $setTaskListItemChecked(listItem, !$getTaskListItemChecked(listItem));
+  }
+}
+
+/**
+ * Whether `dom` is an item with a checkbox: an item of a check list, or a task
+ * item in any other list, which gets `aria-checked` the same way.
+ */
 function isCheckListItem(dom: HTMLElement): boolean {
   const parentNode = dom.parentNode;
 
@@ -501,8 +555,38 @@ function isCheckListItem(dom: HTMLElement): boolean {
     dom.tagName === 'LI' &&
     parentNode != null &&
     // @ts-ignore internal field
-    parentNode.__lexicalListType === 'check'
+    (parentNode.__lexicalListType === 'check' ||
+      dom.hasAttribute('aria-checked'))
   );
+}
+
+// A click on a check mark focuses its item but leaves the selection where it
+// was, often in another block. Space then belongs to that selection, not to
+// the item. This turns on where the selection is, not on how the item got the
+// focus: focus moved onto the item without moving the selection, for example
+// by assistive technology, also leaves Space to the selection. Both ends are
+// checked, so a selection that reaches into the item from either direction
+// gets the same answer.
+function isSelectionOutsideActiveItem(editor: LexicalEditor): boolean {
+  const activeItem = getActiveCheckListItem(editor);
+
+  if (activeItem === null) {
+    return false;
+  }
+
+  return editor.read('latest', () => {
+    const item = $getNearestNodeFromDOMNode(activeItem);
+    const selection = $getSelection();
+
+    if (!$isListItemNode(item) || !$isRangeSelection(selection)) {
+      return false;
+    }
+
+    return [selection.anchor, selection.focus].some(point => {
+      const node = point.getNode();
+      return !node.is(item) && !item.isParentOf(node);
+    });
+  });
 }
 
 function getActiveCheckListItem(editor: LexicalEditor): HTMLElement | null {

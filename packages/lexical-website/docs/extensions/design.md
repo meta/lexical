@@ -1,6 +1,6 @@
 # Design Doc
 
-See also the initial PR [#7706](https://github.com/facebook/lexical/pull/7706)
+See also the initial PR [#7706](https://github.com/meta/lexical/pull/7706)
 
 ## Guiding principles
 

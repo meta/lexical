@@ -9,7 +9,9 @@
 import {nodeArbitrary} from '@lexical/fast-check';
 import * as fc from 'fast-check';
 import {
+  $getState,
   aliasedValue,
+  arraySetValue,
   arrayValue,
   createEditor,
   createState,
@@ -393,6 +395,67 @@ describe('a flat NodeState is generated as the JSON that carries it', () => {
       expect(value === undefined || typeof value === 'string').toBe(true);
       expect(timestamp.parse(value)).toBeInstanceOf(Date);
     }
+  });
+});
+
+describe('a flat set-valued NodeState', () => {
+  const tags = createState('tags', {
+    parse: arraySetValue(enumValue(['a', 'b', 'c'])),
+  });
+
+  class TaggedNode extends TextNode {
+    $config() {
+      return this.config('fast-check-tagged', {
+        extends: TextNode,
+        stateConfigs: [{flat: true, stateConfig: tags}],
+      });
+    }
+  }
+
+  test('is generated as any array of its items, which import makes a set', () => {
+    const samples = fc.sample(nodeArbitrary(TaggedNode), {
+      numRuns: 300,
+      seed: 1,
+    });
+    const editor = createEditor({
+      nodes: [TaggedNode],
+      onError: error => {
+        throw error;
+      },
+    });
+    let present = 0;
+    let notCanonical = 0;
+    for (const sample of samples) {
+      const {tags: value} = sample as {tags?: unknown};
+      if (value === undefined) {
+        continue;
+      }
+      present++;
+      // The input domain of the set: an array of items, in any order and
+      // with duplicates
+      expect(Array.isArray(value)).toBe(true);
+      const items = value as string[];
+      for (const item of items) {
+        expect(['a', 'b', 'c']).toContain(item);
+      }
+      const canonical = Array.from(new Set(items)).sort();
+      if (JSON.stringify(canonical) !== JSON.stringify(items)) {
+        notCanonical++;
+      }
+      editor.update(
+        () => {
+          const node = TaggedNode.importJSON({
+            ...new TaggedNode().exportJSON(),
+            ...sample,
+            type: 'fast-check-tagged',
+          } as Parameters<typeof TaggedNode.importJSON>[0]);
+          expect($getState(node, tags)).toEqual(canonical);
+        },
+        {discrete: true},
+      );
+    }
+    expect(present).toBeGreaterThan(100);
+    expect(notCanonical).toBeGreaterThan(0);
   });
 });
 

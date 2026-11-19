@@ -14,7 +14,6 @@ import {
 } from '@lexical/html';
 import {$createLinkNode, LinkExtension} from '@lexical/link';
 import {RichTextExtension} from '@lexical/rich-text';
-import {JSDOM} from 'jsdom';
 import {
   $createLineBreakNode,
   $createParagraphNode,
@@ -53,8 +52,10 @@ function exportHtml(editor: LexicalEditor): string {
 }
 
 function parse(html: string): Document {
-  return new JSDOM(`<!doctype html><html><body>${html}</body></html>`).window
-    .document;
+  return new DOMParser().parseFromString(
+    `<!doctype html><html><body>${html}</body></html>`,
+    'text/html',
+  );
 }
 
 /** The node types of the first paragraph's children, e.g. `['text', 'linebreak']`. */

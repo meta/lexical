@@ -8,39 +8,46 @@ on:
         required: true
         default: 0
         type: number
+  workflow_call:
+    inputs:
+      ref:
+        description: 'Exact npm release commit to build'
+        required: true
+        type: string
+      build_version:
+        description: 'Build version'
+        required: false
+        default: 0
+        type: number
 
 permissions: {}
 
-concurrency:
-  group: ${{ github.workflow }}
-  cancel-in-progress: false
-
 jobs:
   release:
-    if: github.repository_owner == 'facebook'
+    if: github.repository_owner == 'meta'
     runs-on: ubuntu-latest
+    concurrency:
+      # Manual and npm release calls must not publish to the stores concurrently.
+      group: devtools-extension-publish
+      cancel-in-progress: false
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref }}
       - uses: ./.github/actions/setup-pnpm
         with:
           node-version: 24.x
       - name: Zip & submit to stores
         run: pnpm run publish-extension
         env:
-          EDGE_ACCESS_TOKEN_URL: ${{ secrets.EXTENSION_EDGE_ACCESS_TOKEN_URL }}
-          EDGE_CLIENT_SECRET: ${{ secrets.EXTENSION_EDGE_CLIENT_SECRET }}
-          EDGE_PRODUCT_ID: ${{ secrets.EXTENSION_EDGE_PRODUCT_ID }}
-          EDGE_CLIENT_ID: ${{ secrets.EXTENSION_EDGE_CLIENT_ID }}
           FIREFOX_EXTENSION_ID: ${{ secrets.EXTENSION_FIREFOX_EXTENSION_ID }}
           FIREFOX_JWT_ISSUER: ${{ secrets.EXTENSION_FIREFOX_JWT_ISSUER }}
           FIREFOX_JWT_SECRET: ${{ secrets.EXTENSION_FIREFOX_JWT_SECRET }}
-          # FBK-SWAT project within EPAM GCP
-          # https://console.cloud.google.com/apis/credentials?project=hl2-fbk-swat-t1iylu&supportedpurview=project
-          # OAuth 2.0 Client that is authorized to access "Chrome Web Store API" for "vladlen_fedosov@epam.con"
-          # https://console.cloud.google.com/apis/credentials/oauthclient/720442356639-lb8144papds2t60uh2iu3vhvit4gb2fe.apps.googleusercontent.com?project=hl2-fbk-swat-t1iylu&supportedpurview=project
+          # Chrome Web Store API v2 setup: packages/lexical-devtools/README.md
           CHROME_EXTENSION_ID: ${{ secrets.EXTENSION_CHROME_EXTENSION_ID }}
-          CHROME_CLIENT_ID: ${{ secrets.EXTENSION_CHROME_CLIENT_ID }}
-          CHROME_CLIENT_SECRET: ${{ secrets.EXTENSION_CHROME_CLIENT_SECRET }}
-          CHROME_REFRESH_TOKEN: ${{ secrets.EXTENSION_CHROME_REFRESH_TOKEN }}
-          CHROME_PUBLISH_TARGET: ${{ secrets.EXTENSION_CHROME_PUBLISH_TARGET }}
+          CHROME_PUBLISHER_ID: ${{ vars.EXTENSION_CHROME_PUBLISHER_ID }}
+          CHROME_SERVICE_ACCOUNT_CLIENT_EMAIL: ${{ vars.EXTENSION_CHROME_SERVICE_ACCOUNT_CLIENT_EMAIL }}
+          CHROME_SERVICE_ACCOUNT_PRIVATE_KEY: ${{ secrets.EXTENSION_CHROME_SERVICE_ACCOUNT_PRIVATE_KEY }}
           BUILD_VERSION: ${{ inputs.build_version }}

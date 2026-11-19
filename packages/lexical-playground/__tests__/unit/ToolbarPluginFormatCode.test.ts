@@ -6,6 +6,8 @@
  *
  */
 
+// @vitest-environment node
+
 import {CodeNode} from '@lexical/code';
 import {buildEditorFromExtensions} from '@lexical/extension';
 import {$createHeadingNode, RichTextExtension} from '@lexical/rich-text';
