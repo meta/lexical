@@ -184,7 +184,11 @@ class LexicalEditorElement extends HTMLElement {
 
   get value() {
     return this.editor
-      ? JSON.stringify(this.editor.getEditorState().toJSON())
+      ? JSON.stringify(
+          this.editor.read('latest', () =>
+            this.editor.getEditorState().toJSON(),
+          ),
+        )
       : '';
   }
 

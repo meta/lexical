@@ -6,10 +6,13 @@
  *
  */
 
+import {buildEditorFromExtensions} from '@lexical/extension';
 import {useLexicalIsTextContentEmpty} from '@lexical/react/useLexicalIsTextContentEmpty';
 import {
+  $create,
   $createParagraphNode,
   $createTextNode,
+  $getEditor,
   $getRoot,
   createEditor,
   type LexicalEditor,
@@ -18,7 +21,28 @@ import {
 import * as React from 'react';
 import {act, createRef} from 'react';
 import {createRoot, type Root} from 'react-dom/client';
-import {afterEach, beforeEach, describe, expect, test, vi} from 'vitest';
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  onTestFinished,
+  test,
+  vi,
+} from 'vitest';
+
+// getTextContent can depend on the editor, e.g. to read an extension's config
+// (https://github.com/meta/lexical/issues/9934).
+class EditorReadingParagraphNode extends ParagraphNode {
+  $config() {
+    return this.config('editor-reading-paragraph', {extends: ParagraphNode});
+  }
+
+  getTextContent(): string {
+    $getEditor();
+    return super.getTextContent();
+  }
+}
 
 describe('useLexicalIsTextContentEmpty', () => {
   let container: HTMLDivElement | null = null;
@@ -91,5 +115,42 @@ describe('useLexicalIsTextContentEmpty', () => {
         hasText = true;
       });
     });
+  });
+
+  // The editor has no root element, so no reconciled text is cached and the
+  // read reaches the paragraph's own getTextContent.
+  test('reads the text of an update with the active editor', async () => {
+    const editor = buildEditorFromExtensions({
+      name: 'test',
+      nodes: [EditorReadingParagraphNode],
+    });
+    onTestFinished(() => editor.dispose());
+    let isEmpty: boolean | undefined;
+
+    function Test() {
+      isEmpty = useLexicalIsTextContentEmpty(editor);
+      return null;
+    }
+
+    await act(async () => {
+      reactRoot.render(<Test />);
+    });
+    expect(isEmpty).toBe(true);
+
+    await act(async () => {
+      editor.update(
+        () => {
+          $getRoot()
+            .clear()
+            .append(
+              $create(EditorReadingParagraphNode).append(
+                $createTextNode('foo'),
+              ),
+            );
+        },
+        {discrete: true},
+      );
+    });
+    expect(isEmpty).toBe(false);
   });
 });

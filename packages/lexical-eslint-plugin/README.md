@@ -178,7 +178,7 @@ methods (the heuristic only considers the method name):
 ```js
 function validUsesEditorOrState(editor) {
   editor.update(() => $getRoot());
-  editor.getLatestState().read(() => $getRoot());
+  editor.getEditorState().read(() => $getRoot(), {editor});
 }
 ```
 

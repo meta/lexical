@@ -191,6 +191,7 @@ export type {
   CompactSerializedEditorState,
   EditorState,
   EditorStateReadOptions,
+  EditorStateToJSONOptions,
   ParsableSerializedEditorState,
   SerializedEditorState,
 } from './LexicalEditorState';

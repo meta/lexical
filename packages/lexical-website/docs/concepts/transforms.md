@@ -132,7 +132,7 @@ editor.registerNodeTransform(TextNode, textNode => {
 })
 // App
 editor.registerUpdateListener(({editorState}) => {
-  const text = editorState.read(() => $getRoot().getTextContent());
+  const text = editorState.read(() => $getRoot().getTextContent(), {editor});
   // text === 're-modified'
 });
 ```

@@ -357,6 +357,7 @@ export default function ActionsPlugin({
         onClick={() =>
           shareDoc(
             serializedDocumentFromEditorState(editor.getEditorState(), {
+              editor,
               source: 'Playground',
             }),
           ).then(

@@ -186,7 +186,7 @@ export function TableOfContentsPlugin({children}: Props): JSX.Element {
 
     const removeRootUpdateListener = editor.registerUpdateListener(
       ({editorState, dirtyElements}) => {
-        editorState.read(() => {
+        editor.read(editorState, () => {
           const updateChildHeadings = (node: ElementNode) => {
             for (const child of node.getChildren()) {
               if ($isHeadingNode(child)) {

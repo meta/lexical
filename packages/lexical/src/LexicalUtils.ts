@@ -733,8 +733,11 @@ export function cloneDecorators(
   return pendingDecorators;
 }
 
-export function getEditorStateTextContent(editorState: EditorState): string {
-  return editorState.read(() => $getRoot().getTextContent());
+export function getEditorStateTextContent(
+  editorState: EditorState,
+  editor: LexicalEditor,
+): string {
+  return editor.read(editorState, () => $getRoot().getTextContent());
 }
 
 export function markNodesWithTypesAsDirty(

@@ -792,7 +792,8 @@ import {createYDoc, seedYState} from '@lexical/y/headless';
 import {applyUpdate, encodeStateAsUpdate} from '@y/y';
 import {$getRoot, $parseSerializedNode} from 'lexical';
 
-// `old`: the old editor's `getEditorState().toJSON()`.
+// `old`: the old editor's
+// `editor.read('latest', () => editor.getEditorState().toJSON())`.
 const seed = seedYState(config, () => {
   for (const child of old.root.children) {
     $getRoot().append($parseSerializedNode(child));

@@ -53,7 +53,11 @@ export const AppExtension = defineExtension({
 
     return mergeRegister(
       editor.registerUpdateListener(({editorState}) => {
-        json.value = JSON.stringify(editorState.toJSON(true), null, 2);
+        json.value = JSON.stringify(
+          editorState.read(() => editorState.toJSON(true), {editor}),
+          null,
+          2,
+        );
       }),
       registerEventListeners(toggle, {
         click: () =>

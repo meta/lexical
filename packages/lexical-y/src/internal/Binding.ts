@@ -71,6 +71,7 @@ import {
   getTransformSetFromKlass,
   HISTORY_MERGE_TAG,
   INTERNAL_$normalizeNodeStructure,
+  INTERNAL_getActiveEditorState,
   isCurrentlyReadOnlyMode,
   isDispatchingCommitListeners,
   type Klass,
@@ -103,7 +104,7 @@ import {
   SCHEMA_PREFIX,
 } from './constants';
 import {$canonicalizeGroup, $switchesWrapper} from './Groups';
-import {$heldDecision} from './HoldGuard';
+import {$heldDecision, $readPrev} from './HoldGuard';
 import {
   attrsOf,
   endsOf,
@@ -1133,7 +1134,7 @@ function $sameAsBefore(key: NodeKey, prevEditorState: EditorState): boolean {
   }
   const now = JSON.stringify($subtreeJSON(node));
   return (
-    prevEditorState.read(() => {
+    $readPrev(prevEditorState, () => {
       const prev = $getNodeByKey(key);
       return prev === null ? null : JSON.stringify($subtreeJSON(prev));
     }) === now
@@ -1188,7 +1189,7 @@ function $sameStructure(
   };
   const now = JSON.stringify(shape(node));
   return (
-    prevEditorState.read(() => {
+    $readPrev(prevEditorState, () => {
       const prev = $getNodeByKey(key);
       return prev === null ? null : JSON.stringify(shape(prev));
     }) === now
@@ -1281,7 +1282,7 @@ function $staysInLines(
     if (!$isElementNode(line) || !line.isAttached()) {
       return false;
     }
-    const was = prevEditorState.read(() => {
+    const was = $readPrev(prevEditorState, () => {
       const prev = $getNodeByKey(key);
       return $isElementNode(prev)
         ? {content: contentOf(prev), holders: holders(prev)}
@@ -1348,7 +1349,7 @@ function $reordersTextOfBefore(
   // The text nodes of before in the lines, by the element they were in, in
   // their order there.
   const before = new Map<NodeKey, NodeKey[]>();
-  prevEditorState.read(() => {
+  $readPrev(prevEditorState, () => {
     const visit = (el: ElementNode) => {
       const texts: NodeKey[] = [];
       for (const child of el.getChildren()) {
@@ -1612,7 +1613,7 @@ function $leavesUnstoredTextFields(
       ];
     };
     const [own, derived] = fields(node);
-    const before = prevEditorState.read(() => {
+    const before = $readPrev(prevEditorState, () => {
       const prev = $getNodeByKey(key);
       return $isElementNode(prev) ? fields(prev) : null;
     });
@@ -1647,6 +1648,8 @@ export class YBinding {
   private _status: YBindingStatus = 'pending';
   private readonly _pins = new Map<string, Pin>();
   private _undoManager: UndoManager | null = null;
+  /** Whether the binding is writing a commit in a read (see readToWrite). */
+  private inWrite = false;
   private state: State;
   private readonly options: YBindingOptions;
   private disposers: (() => void)[] = [];
@@ -2204,7 +2207,7 @@ export class YBinding {
     ) {
       // The new transaction runs after this one's cleanup (Yjs queues it).
       const root = this._root;
-      this._doc.transact(own => {
+      this.transact(own => {
         // Development builds: the binding's own write (see noteRawWrite).
         if (__DEV__) {
           markBindingWrite(own);
@@ -2373,7 +2376,7 @@ export class YBinding {
           }
           if (
             hidden !== null &&
-            !payload.editorState.read(() => this.$holds(hidden))
+            !this._editor.read(payload.editorState, () => this.$holds(hidden))
           ) {
             this.pending.add('hidden');
           }
@@ -2836,7 +2839,9 @@ export class YBinding {
     // so a serializer that reuses its output objects cannot change it.
     const held = editor._pendingEditorState;
     const heldText =
-      held !== null ? draftText(() => held.toJSON(), 'preflight') : null;
+      held !== null
+        ? draftText(() => held.toJSON({editor}), 'preflight')
+        : null;
     // With nothing pending, the draft is what the editor shows (or the
     // state the drain builds from it): before anything changes, it must be
     // JSON too (a state that is not throws here, having changed nothing).
@@ -2845,7 +2850,7 @@ export class YBinding {
     // is not checked: a value the pending update replaces is no reason to
     // refuse.
     if (held === null) {
-      draftText(() => editor.getEditorState().toJSON(), 'preflight');
+      draftText(() => editor.getEditorState().toJSON({editor}), 'preflight');
     }
     const refusalsBefore = this.refusals;
     if (this.started) {
@@ -2877,7 +2882,7 @@ export class YBinding {
         : // App code may have made the state unserializable during the
           // drain (an update listener's update): this throws after local
           // work was written, before anything is kept (see draftText).
-          draftText(() => editor.getEditorState().toJSON(), 'final');
+          draftText(() => editor.getEditorState().toJSON({editor}), 'final');
     // What the editor shows and the document does not hold: local changes
     // the binding refused and has not read back yet, or keeps, or held
     // uncommitted when quiesce() began and could not write.
@@ -3048,7 +3053,7 @@ export class YBinding {
       // What the cursor leaves out of the selection (a range's typing format
       // and style, a node selection), kept too: a node selection by the
       // items written for its nodes (see $restoreSelectionState).
-      const kept = editorState.read($selectionState);
+      const kept = this._editor.read(editorState, $selectionState);
       const selected = kept !== null && kept.kind === 'node' ? kept.keys : [];
       const seed = this.seedUpdate(editorState, selected);
       // The root is checked again inside the seed's own transaction, after
@@ -3068,7 +3073,7 @@ export class YBinding {
         // the seed's bytes unchanged (see Ident.protectRecordAfter). Outside
         // one, the initialization's own origin is never tracked.
         const outer = this._doc._transaction;
-        this._doc.transact(tr => {
+        this.transact(tr => {
           if (
             this.rootPristine() &&
             sameSchemaRecords(this.schemaRecords(), seedSchema)
@@ -3095,7 +3100,7 @@ export class YBinding {
         this.evaluate(seed.cursor, kept);
         return;
       }
-      this._doc.transact(tr => {
+      this.transact(tr => {
         if (
           this.rootPristine() &&
           sameSchemaRecords(this.schemaRecords(), seedSchema)
@@ -3121,7 +3126,7 @@ export class YBinding {
         return;
       }
       if (kept !== null && kept.kind === 'node') {
-        kept.items = editorState.read(() =>
+        kept.items = this._editor.read(editorState, () =>
           this.$selectedAnchors(this.state, selected),
         );
       }
@@ -3131,7 +3136,7 @@ export class YBinding {
       // container, as the nodes the write stored keep their content otherwise
       // (a table cell's text).
       this.evaluate(
-        editorState.read(() => this.$cursorBeforeRead()),
+        this._editor.read(editorState, () => this.$cursorBeforeRead()),
         kept,
         true,
       );
@@ -3161,7 +3166,7 @@ export class YBinding {
     // be a scratch document's: this._pins is filled when the real one is
     // read).
     this.recordPins(root, editorState, null, new Map());
-    editorState.read(() => {
+    this._editor.read(editorState, () => {
       const roles = new Roles(state);
       const cs = state.newCS(root, 'root', 'b');
       const writer = new Writer(
@@ -3282,8 +3287,10 @@ export class YBinding {
       scratch,
       sstate,
     }: ReturnType<typeof scratchFor>) => {
-      const cursor = editorState.read(() => this.$cursorBeforeRead(sstate));
-      const items = editorState.read(() =>
+      const cursor = this._editor.read(editorState, () =>
+        this.$cursorBeforeRead(sstate),
+      );
+      const items = this._editor.read(editorState, () =>
         this.$selectedAnchors(sstate, selected),
       );
       const bytes = encode();
@@ -3785,7 +3792,9 @@ export class YBinding {
           // (see Writer#$pushLine): the editor differs from the shared
           // content there until it runs. The read below brings it in line,
           // which is no reader bug.
-          if (!editorState.read(() => this.$holdsWrittenLines(cs))) {
+          if (
+            !this._editor.read(editorState, () => this.$holdsWrittenLines(cs))
+          ) {
             pushAll(problems, found);
           }
         }
@@ -3867,7 +3876,7 @@ export class YBinding {
     editorState: EditorState,
     keys: Iterable<NodeKey> | null,
   ): boolean {
-    const types = editorState.read(() =>
+    const types = this._editor.read(editorState, () =>
       $unstorableSlotHosts(new Roles(this.state), keys, editorState._nodeMap),
     );
     if (types.length === 0) {
@@ -4260,6 +4269,55 @@ export class YBinding {
    */
   get readOnlyWarning(): LexicalWarning | null {
     return this._status === 'readonly' ? this._readOnlyWarning : null;
+  }
+
+  /**
+   * Reads `editorState` with the editor active to write it: the write's
+   * transactions are opened through transact.
+   */
+  private readToWrite<T>(editorState: EditorState, fn: () => T): T {
+    const outer = this.inWrite;
+    this.inWrite = true;
+    try {
+      return this._editor.read(editorState, fn);
+    } finally {
+      this.inWrite = outer;
+    }
+  }
+
+  /**
+   * A transaction of the document. Opened directly in the read the binding
+   * writes a commit in (see readToWrite), or a read it opens there, its body
+   * runs in that read, and Yjs's callbacks around it (observers,
+   * `beforeTransaction`, `afterTransaction`, the undo manager's events) run
+   * in a read of the same state without the editor, as they did before #9934
+   * (D137): a command one of them dispatches would otherwise start an update
+   * inside a read-only context. One joined to a transaction under way is
+   * that transaction's, and one queued behind a transaction being cleaned up
+   * runs its end callbacks in that cleanup.
+   */
+  private transact<T>(fn: (tr: Transaction) => T, origin: unknown): T {
+    const doc = this._doc;
+    const state = INTERNAL_getActiveEditorState();
+    if (
+      !this.inWrite ||
+      state === null ||
+      !isCurrentlyReadOnlyMode() ||
+      doc._transaction !== null
+    ) {
+      return doc.transact(fn, origin);
+    }
+    // Not the write's read while its callbacks run.
+    this.inWrite = false;
+    try {
+      return state.read(
+        () =>
+          doc.transact(tr => this._editor.read(state, () => fn(tr)), origin),
+        {editor: null},
+      );
+    } finally {
+      this.inWrite = true;
+    }
   }
 
   /** Run the binding's own work; queued warnings are passed on after it. */
@@ -4793,7 +4851,7 @@ export class YBinding {
     const doc = this._doc;
     // What no one else keeps (an UndoManager, the binding's own format
     // items) and the app's filter lets go.
-    doc.transact(t => tryGc(t, tr.deleteSet, doc.gcFilter), this.scanOrigin);
+    this.transact(t => tryGc(t, tr.deleteSet, doc.gcFilter), this.scanOrigin);
     const filters = this.gcFilters;
     if (this.heldUnread.size === 0 && filters !== null) {
       // Unless something replaced or wrapped it since: the binding's holds
@@ -4934,9 +4992,9 @@ export class YBinding {
     if (takePairingChanges(this._doc)) {
       // The selection is put back where it was (a caret, a composition's
       // caret included): the read gives the lines it is in other nodes.
-      const cursor = this._editor
-        .getEditorState()
-        .read(() => this.$cursorBeforeRead());
+      const cursor = this._editor.read('latest', () =>
+        this.$cursorBeforeRead(),
+      );
       this.readAll(cursor, null, true);
       return;
     }
@@ -5319,8 +5377,9 @@ export class YBinding {
         key,
         payload.tags.has(COLLABORATION_TAG),
         () =>
-          payload.editorState.read(() => this.$composingOwner()) ===
-          hidden.ownerKey,
+          this._editor.read(payload.editorState, () =>
+            this.$composingOwner(),
+          ) === hidden.ownerKey,
       )
     ) {
       hidden.missed = true;
@@ -5844,7 +5903,8 @@ export class YBinding {
         : (editorState._textEdits.get(prevEditorState._nodeMap) ?? null);
     if (
       hidden !== null &&
-      editorState.read(
+      this._editor.read(
+        editorState,
         () =>
           $heldDecision(
             this.state,
@@ -5909,7 +5969,7 @@ export class YBinding {
     );
     this.readEditLog = heldLog;
     try {
-      editorState.read(() =>
+      this.readToWrite(editorState, () =>
         this.$writeCommit(
           state,
           commit,
@@ -6006,60 +6066,53 @@ export class YBinding {
     editorState: EditorState,
     readState: EditorState,
   ): boolean {
-    const editor = this._editor;
     const tops = (state: EditorState, keys: Iterable<NodeKey>) =>
-      state.read(
-        () => {
-          const out = new Set<NodeKey>();
-          for (const key of keys) {
-            const node = $getNodeByKey(key);
-            if (node === null) {
-              continue;
-            }
-            if ($isRootNode(node)) {
-              out.add('root');
-              continue;
-            }
-            // The root's child it is in, by its parents (or slot hosts): the
-            // read's update runs no transforms, so it can leave a shape
-            // getTopLevelElement throws on (inline content right under a
-            // shadow root).
-            let at: LexicalNode | null = node;
-            while (at !== null) {
-              const parent: NodeKey | null =
-                at.__parent ??
-                (at as {__slotHost?: null | NodeKey}).__slotHost ??
-                null;
-              if (parent === 'root') {
-                out.add(at.getKey());
-                break;
-              }
-              at = parent === null ? null : $getNodeByKey(parent);
-            }
+      this._editor.read(state, () => {
+        const out = new Set<NodeKey>();
+        for (const key of keys) {
+          const node = $getNodeByKey(key);
+          if (node === null) {
+            continue;
           }
-          return out;
-        },
-        {editor},
-      );
+          if ($isRootNode(node)) {
+            out.add('root');
+            continue;
+          }
+          // The root's child it is in, by its parents (or slot hosts): the
+          // read's update runs no transforms, so it can leave a shape
+          // getTopLevelElement throws on (inline content right under a
+          // shadow root).
+          let at: LexicalNode | null = node;
+          while (at !== null) {
+            const parent: NodeKey | null =
+              at.__parent ??
+              (at as {__slotHost?: null | NodeKey}).__slotHost ??
+              null;
+            if (parent === 'root') {
+              out.add(at.getKey());
+              break;
+            }
+            at = parent === null ? null : $getNodeByKey(parent);
+          }
+        }
+        return out;
+      });
     const keys = [...dirtyElements.keys(), ...dirtyLeaves];
     const blocks = new Set([
       ...tops(editorState, keys),
       ...tops(readState, keys),
     ]);
     const shown = (state: EditorState, key: NodeKey) =>
-      state.read(
-        () => {
-          const node = $getNodeByKey(key);
-          if (node === null || !node.isAttached()) {
-            return null;
-          }
-          if ($isRootNode(node)) {
-            return JSON.stringify(node.getChildrenKeys());
-          }
-          return JSON.stringify($deepJSON(node, null, null, true));
-        },
-        {editor},
-      );
+      this._editor.read(state, () => {
+        const node = $getNodeByKey(key);
+        if (node === null || !node.isAttached()) {
+          return null;
+        }
+        if ($isRootNode(node)) {
+          return JSON.stringify(node.getChildrenKeys());
+        }
+        return JSON.stringify($deepJSON(node, null, null, true));
+      });
     for (const key of blocks) {
       if (shown(editorState, key) !== shown(readState, key)) {
         return true;
@@ -6863,7 +6916,7 @@ export class YBinding {
     // there is one (see Unread and guard).
     this.writeGrace = grace;
     try {
-      editorState.read(() =>
+      this.readToWrite(editorState, () =>
         this.$writeCommit(
           state,
           commit,
@@ -6910,7 +6963,7 @@ export class YBinding {
     const capped = this.rereads > MAX_REREADS;
     const empty: NodeKey[] = [];
     const composing = this._editor._compositionKey;
-    editorState.read(() => {
+    this._editor.read(editorState, () => {
       const selection = $getSelection();
       const caret =
         $isRangeSelection(selection) && selection.isCollapsed()
@@ -7008,7 +7061,7 @@ export class YBinding {
   ): Set<NodeKey> {
     const localKeys = new Set<NodeKey>();
     const prevMap = prevEditorState._nodeMap;
-    editorState.read(() => {
+    this._editor.read(editorState, () => {
       for (const [key, intentional] of dirtyElements) {
         if (!intentional) {
           continue;
@@ -7050,7 +7103,7 @@ export class YBinding {
     marked: ReadonlySet<NodeKey>,
   ): boolean {
     let untransformed = false;
-    editorState.read(() => {
+    this._editor.read(editorState, () => {
       for (const [key, intentional] of dirtyElements) {
         if (!intentional || transformed.has(key)) {
           continue;
@@ -7195,7 +7248,7 @@ export class YBinding {
     this.writeCursor =
       origin === this && this._undoManager !== null
         ? this.splitWhileUnread(() =>
-            prevEditorState.read(() => {
+            this._editor.read(prevEditorState, () => {
               try {
                 return this.$captureCursor();
               } catch (_e) {
@@ -7567,8 +7620,8 @@ export class YBinding {
         prev === undefined ||
         now === undefined ||
         prev.__parent !== now.__parent ||
-        prevEditorState.read(() => shallow(prev)) !==
-          editorState.read(() => shallow(now)) ||
+        this._editor.read(prevEditorState, () => shallow(prev)) !==
+          this._editor.read(editorState, () => shallow(now)) ||
         kids(prev, c => prevMap.get(c)) !==
           kids(now, c => nowMap.get(c) ?? prevMap.get(c))
       ) {
@@ -7767,7 +7820,7 @@ export class YBinding {
     // The clock ranges this write's own mutations made (see Owned.ts).
     const ownedRanges: OwnedRanges = [];
     try {
-      this._doc.transact(
+      this.transact(
         tr =>
           collectOwned(state, ownedRanges, () => {
             clockBefore = this._doc.store.getClock(this._doc.clientID);
@@ -7938,7 +7991,7 @@ export class YBinding {
         return null;
       }
       if (!commit.followUp) {
-        this._doc.transact(tr => {
+        this.transact(tr => {
           // Admitted inside its own transaction too (see the write's): a
           // record that stopped admitting writes gets no pin, and is read
           // (see readChange).
@@ -7983,7 +8036,7 @@ export class YBinding {
       let recoveryRefused: 'layout' | 'schema' | null = null;
       const failed = writer as Writer | null;
       try {
-        this._doc.transact(tr => {
+        this.transact(tr => {
           // Admitted inside its own transaction, as the write it recovers.
           recoveryRefused = this.refusalIn(after);
           if (recoveryRefused !== null) {
@@ -8300,7 +8353,7 @@ export class YBinding {
       return false;
     }
     let found = false;
-    editorState.read(() => {
+    this._editor.read(editorState, () => {
       const roles = new Roles(this.state);
       for (const key of dirtyElements.keys()) {
         if (
@@ -8905,7 +8958,7 @@ export class YBinding {
           // $rereadRefused).
           if (
             this.pending.has('reread') &&
-            this._editor.getEditorState().read(() => this.$releasesWithReread())
+            this._editor.read('latest', () => this.$releasesWithReread())
           ) {
             this.rereadRefused();
           }
@@ -9705,7 +9758,7 @@ export class YBinding {
       const name = nameOf(s);
       return name !== MARKER && name !== RUN_END;
     };
-    this._doc.transact(tr => {
+    this.transact(tr => {
       iterateStructsByIdSet(tr, top.deletes, s => {
         if (isStored(s)) {
           names.add(nameOf(s));
@@ -9774,7 +9827,7 @@ export class YBinding {
     }
     let cursor: YCursor | null = null;
     try {
-      doc.transact(tr => {
+      this.transact(tr => {
         this.splitting = tr;
         cursor = take(tr);
       }, this.scanOrigin);
@@ -9815,7 +9868,7 @@ export class YBinding {
     }
     let result: T | undefined;
     try {
-      this._doc.transact(tr => {
+      this.transact(tr => {
         this.splitting = tr;
         this.splitAtUnread(tr);
         result = fn();
@@ -9827,7 +9880,7 @@ export class YBinding {
   }
 
   private readCursor(): YCursor | null {
-    return this._editor.getEditorState().read(() => {
+    return this._editor.read('latest', () => {
       try {
         return this.$captureCursor();
       } catch (_e) {

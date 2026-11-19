@@ -214,6 +214,7 @@ function getChangeType(
 }
 
 function isTextNodeUnchanged(
+  editor: LexicalEditor,
   key: NodeKey,
   prevEditorState: EditorState,
   nextEditorState: EditorState,
@@ -241,8 +242,10 @@ function isTextNodeUnchanged(
     // content did not change, which should normally be safe given
     // the manner in which nodes and exportJSON are typically implemented.
     return (
-      JSON.stringify(prevEditorState.read(() => prevNode.exportJSON())) ===
-      JSON.stringify(nextEditorState.read(() => nextNode.exportJSON()))
+      JSON.stringify(
+        editor.read(prevEditorState, () => prevNode.exportJSON()),
+      ) ===
+      JSON.stringify(editor.read(nextEditorState, () => nextNode.exportJSON()))
     );
   }
   return false;
@@ -256,6 +259,7 @@ function $serializeNode(node: LexicalNode): string {
 }
 
 function areNodesUnchanged(
+  editor: LexicalEditor,
   keys: Set<NodeKey>,
   prevEditorState: EditorState,
   nextEditorState: EditorState,
@@ -269,8 +273,8 @@ function areNodesUnchanged(
     if (
       !prevNode ||
       !nextNode ||
-      prevEditorState.read(() => $serializeNode(prevNode)) !==
-        nextEditorState.read(() => $serializeNode(nextNode))
+      editor.read(prevEditorState, () => $serializeNode(prevNode)) !==
+        editor.read(nextEditorState, () => $serializeNode(nextNode))
     ) {
       return false;
     }
@@ -372,6 +376,7 @@ function createMergeActionGetter(
         isSameEditor &&
         !shouldPushHistory &&
         areNodesUnchanged(
+          editor,
           compositionDirtyKeys,
           compositionStartState,
           nextEditorState,
@@ -424,7 +429,12 @@ function createMergeActionGetter(
       if (!shouldPushHistory && dirtyLeaves.size === 1) {
         const dirtyLeafKey = Array.from(dirtyLeaves)[0];
         if (
-          isTextNodeUnchanged(dirtyLeafKey, prevEditorState, nextEditorState)
+          isTextNodeUnchanged(
+            editor,
+            dirtyLeafKey,
+            prevEditorState,
+            nextEditorState,
+          )
         ) {
           return HISTORY_MERGE;
         }

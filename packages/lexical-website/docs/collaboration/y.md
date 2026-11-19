@@ -2727,7 +2727,8 @@ flowchart LR
    that: a write synced to the old room after you read it would otherwise
    be lost. Then read the sealed state with the binding that wrote it:
    `readYState` for an `@lexical/y` room, or an editor with `@lexical/yjs`
-   for a `@lexical/yjs` room, then `editor.getEditorState().toJSON()`. Use
+   for a `@lexical/yjs` room, then
+   `editor.read('latest', () => editor.getEditorState().toJSON())`. Use
    Lexical JSON from your database only if it holds everything the sealed
    room holds.
 2. **Seed the new room** with the same extensions as the clients:
