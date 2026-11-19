@@ -150,7 +150,10 @@ function nextFrame(): Promise<void> {
   return new Promise(resolve => requestAnimationFrame(() => resolve()));
 }
 
-// Whether the line the DOM caret is in lies inside the root's visible box.
+// Whether the line the DOM caret is in lies inside the root's visible box,
+// within a pixel: lines can sit on half pixels while scrollTop is whole, so a
+// line scrolled to the bottom edge can end 0.5px past it (Firefox, and WebKit
+// on macOS).
 function isCaretInView(root: HTMLElement): boolean {
   const anchor = getDOMSelection(window)!.anchorNode!;
   const line = (
@@ -158,7 +161,7 @@ function isCaretInView(root: HTMLElement): boolean {
   ) as HTMLElement;
   const caret = line.getBoundingClientRect();
   const view = root.getBoundingClientRect();
-  return caret.top >= view.top && caret.bottom <= view.bottom;
+  return caret.top >= view.top - 1 && caret.bottom <= view.bottom + 1;
 }
 
 describe('scrolling a caret moved in an update into view (#9279)', () => {
@@ -181,7 +184,7 @@ describe('scrolling a caret moved in an update into view (#9279)', () => {
     expect(isCaretInView(root)).toBe(true);
     editor.update(
       () => {
-        $getNodeByKey<ParagraphNode>(targetKey)!.selectEnd();
+        $getNodeByKey(targetKey)!.selectEnd();
       },
       {discrete: true},
     );
