@@ -55,7 +55,8 @@ export function $sliceSelectedTextNodeContent<T extends TextNode>(
     points !== null &&
     (points[0].key === textNode.__key || points[1].key === textNode.__key) &&
     textNode.isSelected(selection) &&
-    !$isTokenOrSegmented(textNode)
+    !textNode.isToken() &&
+    !textNode.isSegmented()
   ) {
     const [start, end] = selection.isBackward()
       ? [points[1], points[0]]
