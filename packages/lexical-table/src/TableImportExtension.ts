@@ -252,7 +252,7 @@ const TableCellRule = defineImportRule({
       ctx.$importChildren(el, {context: branchContext}),
     );
     // Only `<td>` propagates `text-align` onto its block children —
-    // mirroring legacy `wrapContinuousInlines`, which runs only for
+    // mirroring legacy `$wrapContinuousInlines`, which runs only for
     // `isBlockDomNode` elements. `<th>` is intentionally absent from
     // the block-tag set (see `BLOCK_TAG_RE` in `LexicalUtils.ts`), so a
     // `<th style="text-align: start">` wrapping a bare `<p>` leaves the
