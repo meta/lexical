@@ -127,6 +127,7 @@ import {
   isCurrentlyReadOnlyMode,
   triggerCommandListeners,
 } from './LexicalUpdates';
+import {REVALIDATE_UNFOCUSED_TAG} from './LexicalUpdateTags';
 import {
   $createParagraphNode,
   type ParagraphNode,
@@ -777,9 +778,24 @@ export function markNodesWithTypesAsDirty(
     },
     editor._pendingEditorState === null
       ? {
-          tag: HISTORY_MERGE_TAG,
+          tag: rootElementHasFocus(editor)
+            ? HISTORY_MERGE_TAG
+            : // This is not a user edit, so it must not move focus or the
+              // DOM selection into an editor that does not have focus (#5016)
+              [HISTORY_MERGE_TAG, REVALIDATE_UNFOCUSED_TAG],
         }
       : undefined,
+  );
+}
+
+function rootElementHasFocus(editor: LexicalEditor): boolean {
+  const rootElement = editor.getRootElement();
+  const activeElement =
+    rootElement !== null ? getActiveElement(rootElement) : null;
+  return (
+    rootElement !== null &&
+    activeElement !== null &&
+    rootElement.contains(activeElement)
   );
 }
 
