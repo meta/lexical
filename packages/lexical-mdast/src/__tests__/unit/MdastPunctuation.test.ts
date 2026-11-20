@@ -9,12 +9,13 @@
 // @vitest-environment node
 
 import type {MdastConfig, MdastPunctuationMode} from '../../index';
-import type {Paragraph} from 'mdast';
+import type {Paragraph, Text} from 'mdast';
 import type {Extension as MicromarkExtension} from 'micromark-util-types';
 
 import {buildEditorFromExtensions} from '@lexical/extension';
 import {$createLinkNode, $isLinkNode} from '@lexical/link';
 import {$createListItemNode, $createListNode, $isListNode} from '@lexical/list';
+import {$createMarkNode, $isMarkNode, MarkNode} from '@lexical/mark';
 import {
   $createParagraphNode,
   $createTextNode,
@@ -22,7 +23,9 @@ import {
   $isTextNode,
   configExtension,
   defineExtension,
+  type Klass,
   type LexicalEditor,
+  type LexicalNode,
   ParagraphNode,
   TEXT_TYPE_TO_FORMAT,
   TextNode,
@@ -46,6 +49,7 @@ function createEditor(
   exportPunctuation?: MdastPunctuationMode,
   importPunctuation?: MdastPunctuationMode,
   config: Partial<MdastConfig> = {},
+  nodes: Klass<LexicalNode>[] = [],
 ): LexicalEditor {
   const editor = buildEditorFromExtensions(
     defineExtension({
@@ -58,6 +62,7 @@ function createEditor(
         }),
       ],
       name: '[root]',
+      nodes,
     }),
   );
   onTestFinished(() => editor.dispose());
@@ -1027,6 +1032,199 @@ describe('Mdast punctuation modes', () => {
       expect(x.getTextContent()).toBe('x');
       expect(link.getURL()).toBe('u');
     });
+  });
+
+  // punctuation mode, export.
+  it.each<[MdastPunctuationMode, string]>([
+    ['strict-commonmark', 'see www\\.&#x4E16;**!**'],
+    ['cjk-friendly', 'see www\\.世**!**'],
+  ])(
+    'keeps the characters after a `www.` a mark splits (%s)',
+    (mode, markdown) => {
+      const editor = createEditor(mode, mode, {}, [MarkNode]);
+      editor.update(
+        () => {
+          $getRoot()
+            .clear()
+            .append(
+              $createParagraphNode().append(
+                $createTextNode('see ww'),
+                $createMarkNode(['id']).append($createTextNode('w.世')),
+                $createTextNode('!').setFormat(bold),
+              ),
+            );
+        },
+        {discrete: true},
+      );
+      // The mark has no export rule, so its text goes out beside the text
+      // before it.
+      expect(editor.read('latest', () => $convertToMarkdownString())).toBe(
+        markdown,
+      );
+      expect(mergeRuns(importRuns(editor, markdown))).toEqual([
+        ['see www.世', 0],
+        ['!', bold],
+      ]);
+    },
+  );
+
+  it.each<[MdastPunctuationMode, string]>([
+    ['strict-commonmark', '1\\. x'],
+    ['cjk-friendly', '1\\. x'],
+  ])('escapes text a mark splits as one text (%s)', (mode, markdown) => {
+    const editor = createEditor(mode, mode, {}, [MarkNode]);
+    editor.update(
+      () => {
+        $getRoot()
+          .clear()
+          .append(
+            $createParagraphNode().append(
+              $createTextNode('1'),
+              $createMarkNode(['id']).append($createTextNode('. x')),
+            ),
+          );
+      },
+      {discrete: true},
+    );
+    // `1. x` would start an ordered list.
+    expect(editor.read('latest', () => $convertToMarkdownString())).toBe(
+      markdown,
+    );
+    expect(importRuns(editor, markdown)).toEqual([['1. x', 0]]);
+  });
+
+  const position = {
+    end: {column: 2, line: 1},
+    start: {column: 1, line: 1},
+  };
+  // what the export rule sets on the text `a`, and on `b`, export.
+  it.each<[string, Partial<Text>, Partial<Text>, string]>([
+    ['data', {data: {}}, {data: {}}, '[a][b]'],
+    ['a position', {position}, {position}, '[a][b]'],
+    ['data on the first', {data: {}}, {}, '[a]<b>'],
+    ['data on the second', {}, {data: {}}, '<a>[b]'],
+    // A field that is `undefined` counts as not set.
+    ['undefined data', {data: undefined}, {data: undefined}, '<ab>'],
+  ])(
+    'joins a text beside another only with nothing set (%s)',
+    (_, first, second, markdown) => {
+      const editor = createEditor(
+        undefined,
+        undefined,
+        {
+          exportRules: [
+            {
+              $export: node =>
+                $isTextNode(node)
+                  ? {
+                      type: 'text',
+                      value: node.getTextContent(),
+                      ...(node.getTextContent() === 'a' ? first : second),
+                    }
+                  : null,
+              type: TextNode,
+            },
+          ],
+          toMarkdownExtensions: [
+            {
+              handlers: {
+                text: (node: Text) =>
+                  node.data || node.position
+                    ? `[${node.value}]`
+                    : `<${node.value}>`,
+              },
+            },
+          ],
+        },
+        [MarkNode],
+      );
+      editor.update(
+        () => {
+          $getRoot()
+            .clear()
+            .append(
+              $createParagraphNode().append(
+                $createTextNode('a'),
+                $createMarkNode(['id']).append($createTextNode('b')),
+              ),
+            );
+        },
+        {discrete: true},
+      );
+      expect(editor.read('latest', () => $convertToMarkdownString())).toBe(
+        markdown,
+      );
+    },
+  );
+
+  it('keeps a text with a symbol key apart from the text beside it', () => {
+    // A symbol an export rule may key its own data with.
+    const tag = Symbol('tag');
+    const editor = createEditor(
+      undefined,
+      undefined,
+      {
+        exportRules: [
+          {
+            $export: node =>
+              $isMarkNode(node)
+                ? [{[tag]: true, type: 'text', value: node.getTextContent()}]
+                : null,
+            type: MarkNode,
+          },
+        ],
+        toMarkdownExtensions: [
+          {
+            handlers: {
+              text: (node: Text) =>
+                tag in node ? `[${node.value}]` : `<${node.value}>`,
+            },
+          },
+        ],
+      },
+      [MarkNode],
+    );
+    editor.update(
+      () => {
+        $getRoot()
+          .clear()
+          .append(
+            $createParagraphNode().append(
+              $createTextNode('a'),
+              $createMarkNode(['id']).append($createTextNode('b')),
+            ),
+          );
+      },
+      {discrete: true},
+    );
+    expect(editor.read('latest', () => $convertToMarkdownString())).toBe(
+      '<a>[b]',
+    );
+  });
+
+  it.each<[MdastPunctuationMode, string]>([
+    ['strict-commonmark', 'see www\\.&#x4E16;**!**'],
+    ['cjk-friendly', 'see www\\.世**!**'],
+  ])('joins three texts a mark splits (%s)', (mode, markdown) => {
+    const editor = createEditor(mode, mode, {}, [MarkNode]);
+    editor.update(
+      () => {
+        $getRoot()
+          .clear()
+          .append(
+            $createParagraphNode().append(
+              $createTextNode('see w'),
+              $createMarkNode(['id']).append($createTextNode('w')),
+              $createTextNode('w.世'),
+              $createTextNode('!').setFormat(bold),
+            ),
+          );
+      },
+      {discrete: true},
+    );
+    expect(editor.read('latest', () => $convertToMarkdownString())).toBe(
+      markdown,
+    );
   });
 
   it.each<[string, boolean | undefined, string, string]>([
