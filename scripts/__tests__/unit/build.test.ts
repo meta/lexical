@@ -14,6 +14,7 @@ import * as path from 'node:path';
 import {describe, expect, it, test} from 'vitest';
 
 import {packagesManager} from '../../shared/packagesManager';
+import {SUB_ENTRIES, subEntriesOf} from '../../shared/subEntries.mjs';
 import {
   MIN_TYPESCRIPT_VERSION,
   tooOldStubPath,
@@ -28,6 +29,12 @@ const monorepoPackageJson = (
 
 const publicNpmNames = new Set(
   packagesManager.getPublicPackages().map(pkg => pkg.getNpmName()),
+);
+
+const publicPackageJsons = new Map(
+  packagesManager
+    .getPublicPackages()
+    .map(pkg => [pkg.getNpmName(), pkg.packageJson]),
 );
 
 describe('standalone projects are their own pnpm workspace root', () => {
@@ -51,6 +58,22 @@ describe('standalone projects are their own pnpm workspace root', () => {
       ).toBe(true);
     });
   }
+});
+
+describe('sub-entry opt-in list (shared/subEntries)', () => {
+  it('names public packages and entries that exist', () => {
+    const publics = new Map(
+      packagesManager.getPublicPackages().map(pkg => [pkg.getNpmName(), pkg]),
+    );
+    for (const [name, entries] of Object.entries(SUB_ENTRIES)) {
+      const pkg = publics.get(name);
+      expect(pkg).toBeDefined();
+      for (const entry of entries) {
+        expect(fs.existsSync(pkg!.resolve('src', `${entry}.ts`))).toBe(true);
+        expect(fs.existsSync(pkg!.resolve('src', entry))).toBe(true);
+      }
+    }
+  });
 });
 
 describe('public package.json audits (`pnpm run update-packages` to fix most issues)', () => {
@@ -94,6 +117,35 @@ describe('public package.json audits (`pnpm run update-packages` to fix most iss
           Object.keys(peerDependencies).filter(dep => publicNpmNames.has(dep)),
         ).toEqual([]);
       });
+      it('keeps its optional peerDependencies optional in the monorepo packages it depends on', () => {
+        // A peer marked optional here is required again by any monorepo
+        // package in this package's dependency tree that declares the same
+        // peer without marking it optional (e.g. @lexical/react depends on
+        // @lexical/yjs, which declares yjs).
+        const optionalPeers = Object.keys(peerDependencies).filter(
+          dep => packageJson.peerDependenciesMeta?.[dep]?.optional === true,
+        );
+        const requiredBelow: string[] = [];
+        const seen = new Set<string>([npmName]);
+        const queue = Object.keys(dependencies);
+        for (let dep = queue.shift(); dep !== undefined; dep = queue.shift()) {
+          const depJson = publicPackageJsons.get(dep);
+          if (seen.has(dep) || !depJson) {
+            continue;
+          }
+          seen.add(dep);
+          for (const peer of optionalPeers) {
+            if (
+              depJson.peerDependencies?.[peer] !== undefined &&
+              depJson.peerDependenciesMeta?.[peer]?.optional !== true
+            ) {
+              requiredBelow.push(`${dep} requires ${peer}`);
+            }
+          }
+          queue.push(...Object.keys(depJson.dependencies || {}));
+        }
+        expect(requiredBelow).toEqual([]);
+      });
       it('monorepo dependencies must use workspace:* as the version', () => {
         Object.entries(dependencies).forEach(([dep, version]) => {
           if (publicNpmNames.has(dep)) {
@@ -101,15 +153,37 @@ describe('public package.json audits (`pnpm run update-packages` to fix most iss
           }
         });
       });
+      it('exports sub-entries only of the entries that opt in (shared/subEntries), each source file of those', () => {
+        // `<npm name>/<entry>/<name>`: an opted-in entry's src/<entry>/*.ts.
+        const subExports = exportedModules
+          .map(m => m.slice(npmName.length + 1))
+          .filter(m => m.includes('/'));
+        const expected = subEntriesOf(npmName).flatMap(entry => {
+          const dir = pkg.resolve('src', entry);
+          return fs.existsSync(dir)
+            ? fs
+                .readdirSync(dir)
+                .filter(f => /^[^.]+\.ts$/.test(f))
+                .map(f => `${entry}/${f.replace(/\.ts$/, '')}`)
+            : [];
+        });
+        expect(subExports.sort()).toEqual(expected.sort());
+      });
       it('must export at least one module', () => {
         expect(exportedModules.length).toBeGreaterThanOrEqual(1);
       });
       test.each(exportedModules)(
         `should have a source file for exported module %s`,
         exportedModule => {
-          expect(sourceFiles).toContain(
-            exportedModule.slice(npmName.length + 1) || 'index',
-          );
+          // src/<name>.tsx?, or src/<entry>/<name>.tsx? for a sub-entry
+          // (`<npm name>/<entry>/<name>`, see PackageMetadata and
+          // updateVersion).
+          const name = exportedModule.slice(npmName.length + 1) || 'index';
+          expect(
+            ['.ts', '.tsx']
+              .map(ext => `src/${name}${ext}`)
+              .filter(file => fs.existsSync(pkg.resolve(file))),
+          ).not.toEqual([]);
         },
       );
       describe('TypeScript "too old" guard (clear error for stale TypeScript)', () => {

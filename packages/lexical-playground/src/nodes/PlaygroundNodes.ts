@@ -15,7 +15,7 @@ import {AutoLinkNode, LinkNode} from '@lexical/link';
 import {ListItemNode, ListNode} from '@lexical/list';
 import {MarkNode} from '@lexical/mark';
 import {OverflowNode} from '@lexical/overflow';
-import {HeadingNode, QuoteNode} from '@lexical/rich-text';
+import {HeadingNode, QuoteContainerNode, QuoteNode} from '@lexical/rich-text';
 import {TableCellNode, TableNode, TableRowNode} from '@lexical/table';
 
 import {CardNode} from '../plugins/CardExtension/CardNode';
@@ -47,6 +47,7 @@ const PlaygroundNodes: Klass<LexicalNode>[] = [
   ListNode,
   ListItemNode,
   QuoteNode,
+  QuoteContainerNode,
   CodeNode,
   TableNode,
   TableCellNode,

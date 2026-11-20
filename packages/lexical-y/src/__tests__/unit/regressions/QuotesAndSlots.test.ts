@@ -30,9 +30,8 @@ import {expectConverged, freshReader, setup} from '../../utils/harness';
 // deletes the first quote: its write must delete only that quote's text. It
 // deleted and inserted the second quote's paragraph again, so a peer's
 // concurrent typing there was lost and its delete undone. Open for the
-// runs that reach the second quote (in Known open issues; `@lexical/y`'s own
-// writers do not leave such runs); the run inside the first quote is a
-// control.
+// runs that reach the second quote (#9571; `@lexical/y`'s own writers do
+// not leave such runs); the run inside the first quote is a control.
 describe('S4-8: an outside link run over two quotes, then a client deletes the first quote', () => {
   const runs = [
     'title to second quote end',

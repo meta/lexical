@@ -189,7 +189,9 @@ for (const ids of [
       ]);
     });
 
-    test('control: an empty line that keeps its marker filled by a peer: the caret stays at its end (identity)', async () => {
+    // A caret in an empty line was after no text there: it stays at the
+    // line's start, offset 0, as for a replaced line (#9517).
+    test('control: an empty line that keeps its marker filled by a peer: the caret stays at its start', async () => {
       const {a, b, sync} = await setup(
         () => {
           $getRoot().append(
@@ -213,7 +215,7 @@ for (const ids of [
       type(b, 'Z');
       await sync();
       await expectConverged([a, b]);
-      expect(lines(a)).toEqual(['Q3 review', 'FilledZ', 'after']);
+      expect(lines(a)).toEqual(['Q3 review', 'ZFilled', 'after']);
     });
 
     test('control: a peer edits the line keeping its characters: the caret stays after the same text', async () => {
@@ -268,7 +270,7 @@ for (const ids of [
 }
 
 // A styled line replaced: the delete of its text leaves the format items that
-// bounded its runs live (see Cursor#collapseGap), and those show nothing. The
+// bounded its runs live (see Cursor#delete), and those show nothing. The
 // caret took them for what the line still showed and went to the start of
 // the new line.
 for (const ids of [

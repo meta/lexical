@@ -96,7 +96,7 @@ function $followUp(r: () => number, k: number): string {
     return `textStyle ${e.getType()}`;
   }
   // No update stores a link's own alignment, indent and direction, nor a
-  // list's own indent (Known limits): not set there.
+  // list's own indent (Known limits in #9400): not set there.
   const blocky = elements.filter(n => !n.isInline());
   if (op === 2 && blocky.length > 0) {
     const e = pick(blocky);

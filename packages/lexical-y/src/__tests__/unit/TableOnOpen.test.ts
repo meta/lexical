@@ -10,9 +10,10 @@
 
 // An editor bound to a document that already holds a table opens with the
 // table, wherever YCollabExtension and TableExtension sit in its
-// dependencies. The binding reads the document when it registers, so with
-// YCollabExtension listed first the table is in the editor state before
-// TableExtension registers, and before there is a root element.
+// dependencies. The binding starts, and reads the document, in
+// YCollabExtension's afterRegistration, once every extension has registered,
+// so in either order TableExtension's transforms are registered before the
+// table is read, and there is no root element yet.
 
 import {buildEditorFromExtensions} from '@lexical/extension';
 import {RichTextExtension} from '@lexical/rich-text';
@@ -52,11 +53,19 @@ test.each(['YCollabExtension', 'TableExtension'] as const)(
   first => {
     const doc = createYDoc(
       seedYState(
-        {extensions: [RichTextExtension, TableExtension], schemaVersion: 1},
+        {
+          extensions: [RichTextExtension, TableExtension],
+          onWarn: null,
+          schemaVersion: 1,
+        },
         $appendTable,
       ),
     );
-    const collab = configExtension(YCollabExtension, {doc, schemaVersion: 1});
+    const collab = configExtension(YCollabExtension, {
+      doc,
+      onYStatus: null,
+      schemaVersion: 1,
+    });
     const editor = buildEditorFromExtensions(
       defineExtension({
         dependencies:

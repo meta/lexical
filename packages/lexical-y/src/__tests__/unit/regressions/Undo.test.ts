@@ -12,7 +12,7 @@
 // selection from before the step, but a step that started from a node
 // selection (a selected image or chip) or a table selection comes back as a
 // caret. HistoryExtension does the same (its snapshot holds the selection of
-// the last content change). Open, in Known open issues.
+// the last content change). Open (#9572).
 
 import {
   buildEditorFromExtensions,
@@ -86,6 +86,7 @@ function seed(): Uint8Array {
   doc.clientID = 7;
   const binding = new YBinding(editor, doc, {
     captureTimeout: null,
+    onStatus: null,
     schemaVersion: 1,
   });
   binding.start();
@@ -105,6 +106,7 @@ function openY(state: Uint8Array): LexicalEditor {
         configExtension(YCollabExtension, {
           captureTimeout: 0,
           doc,
+          onYStatus: null,
           schemaVersion: 1,
         }),
       ],

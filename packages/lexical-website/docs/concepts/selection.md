@@ -79,9 +79,12 @@ editor.update(() => {
   const selection = $getSelection();
 });
 
-editorState.read(() => {
-  const selection = $getSelection();
-});
+editorState.read(
+  () => {
+    const selection = $getSelection();
+  },
+  {editor},
+);
 
 // SELECTION_CHANGE_COMMAND runs before reconciliation in the pending update.
 editor.registerCommand(SELECTION_CHANGE_COMMAND, () => {

@@ -7,6 +7,7 @@
  */
 
 import type {Hidden} from './Hidden';
+import type {YStorageMismatchData} from './Warnings';
 
 import invariant from '@lexical/internal/invariant';
 import {ContentType, type Doc, type Item, type Node as YNode} from '@y/y';
@@ -31,7 +32,6 @@ import {
   $isLine,
   $isWrapper,
   $nestedGroupOf,
-  type Attrs,
   BLOCK_PREFIX,
   getGroupSpec,
   getLineSpec,
@@ -40,7 +40,6 @@ import {
   MARKER,
   RUN_END,
 } from './Schema';
-import {isGone} from './Unread';
 
 // The state the reader and the writer share for one binding (State): the
 // containers (the root, and every node stored as its own Y.Node) and their
@@ -85,6 +84,8 @@ export type Unit = {
   sig: string;
   /** Formats in effect at the start of the unit (null: none). */
   start: Formats | null;
+  /** Its index in its container's units when last looked up (a hint). */
+  at?: number;
 };
 
 type Role =
@@ -119,49 +120,6 @@ export function isEndItem(it: Item): boolean {
   );
 }
 
-/**
- * Whether `it` ends a unit as the editor shows its container: a live end
- * item that is not held back (see Hidden).
- */
-export function isShownEnd(it: Item, hidden: Hidden | null): boolean {
-  return !isGone(it) && isEndItem(it) && (hidden === null || !hidden.hides(it));
-}
-
-/**
- * Marker `end`'s attributes as the editor shows them: those a held change
- * set have the values they had (see Hidden#marker).
- */
-export function shownAttrs(end: Item, hidden: Hidden | null): Attrs {
-  const attrs = typeOf(end).getAttrs() as Attrs;
-  const held = hidden === null ? null : hidden.marker;
-  if (held !== null && held.ends.has(end)) {
-    for (const [k, v] of held.was) {
-      if (v === undefined) {
-        delete attrs[k];
-      } else {
-        attrs[k] = v;
-      }
-    }
-  }
-  return attrs;
-}
-
-/**
- * The end item before `it` in its container that the editor shows (see
- * isShownEnd), or null.
- */
-export function prevLiveEnd(
-  it: Item | null,
-  hidden: Hidden | null,
-): Item | null {
-  for (let p = it === null ? null : it.left; p !== null; p = p.left) {
-    if (isShownEnd(p, hidden)) {
-      return p;
-    }
-  }
-  return null;
-}
-
 export function nameOf(it: Item): string {
   return it.content instanceof ContentType
     ? ((it.content.type.name as string) ?? '')
@@ -174,7 +132,12 @@ export function typeOf(it: Item): YNode {
 
 /** Mutable state shared by the read and write paths. */
 export class State {
-  readonly containers = new WeakMap<YNode, CS>();
+  /**
+   * The container of each shared node. A WeakMap, which cannot be cleared:
+   * clear() replaces it (and keyByY), so that a binding started again reads
+   * the document into new containers, mapped to the editor's nodes.
+   */
+  containers = new WeakMap<YNode, CS>();
   readonly csByKey = new Map<NodeKey, CS>();
   readonly unitByEnd = new Map<Item, Unit>();
   readonly unitByKey = new Map<NodeKey, Unit>();
@@ -185,7 +148,7 @@ export class State {
   readonly holders = new Set<NodeKey>();
   /** Stored nodes (b: and i:) by Lexical key, and back. */
   readonly yByKey = new Map<NodeKey, YNode>();
-  readonly keyByY = new WeakMap<YNode, NodeKey>();
+  keyByY = new WeakMap<YNode, NodeKey>();
   /** Segment keys of text nodes Lexical would not merge. */
   readonly segments = new Map<NodeKey, string>();
   private segmentCounter = 0;
@@ -211,6 +174,16 @@ export class State {
    */
   readonly unreadable = new Map<string, unknown>();
   /**
+   * Stored types whose nodes this editor builds as a class that cannot be
+   * stored that way (a node replacement; see Reader#$lineFromMarker): edits
+   * to them could not be written, so, as with unknownTypes, the binding
+   * goes read only.
+   */
+  readonly replacedStorage = new Map<
+    string,
+    Extract<YStorageMismatchData, {reason: 'declaration-changed'}>
+  >();
+  /**
    * Of unknownTypes, the slots that are not a block node: a slot's key, or
    * the type of the inline node in it (see Slots).
    */
@@ -234,6 +207,25 @@ export class State {
   ) {}
 
   /**
+   * Whether the editor may show something other than the document on
+   * purpose, for a reason this state holds: remote content held back for a
+   * composition (see Hidden), or node types the editor cannot show or read
+   * (unknownTypes, unreadable: the binding is read only). A comparison of
+   * the two (the self-check, the follow-up check) is skipped then: a
+   * difference it found would be no bug. Not a test of whether they differ;
+   * a binding that failed closed differs too, and its own checks skip it
+   * (see YBinding#writesEdits).
+   */
+  differsOnPurpose(): boolean {
+    return (
+      this.hidden !== null ||
+      this.unknownTypes.size > 0 ||
+      this.unreadable.size > 0 ||
+      this.replacedStorage.size > 0
+    );
+  }
+
+  /**
    * A new state for `doc` and `root` with this one's configuration (what the
    * binding sets when it starts: `blockIds`, `blockIdHolder`), which writes
    * what this one would write.
@@ -251,7 +243,9 @@ export class State {
    * client's clock (each written key comes before the items written after
    * it, so a later state of this client, an editor bound again to the same
    * document or a read recovery, never reuses one) and above every key of
-   * this client read (see setSegment).
+   * this client read (see setSegment). A value derived from the client id
+   * must also be relabeled in SeedRelabel's relabelSeed (seeds are written
+   * under client 1, then relabeled).
    */
   newSegment(key: NodeKey): string {
     const n = Math.max(
@@ -283,6 +277,9 @@ export class State {
     this.inlineRunStart.delete(key);
     const cs = this.containers.get(y);
     if (cs !== undefined) {
+      if (cs.key !== key && this.csByKey.get(cs.key) === cs) {
+        this.csByKey.delete(cs.key);
+      }
       cs.key = key;
       this.csByKey.set(key, cs);
     }
@@ -343,6 +340,60 @@ export class State {
     });
   }
 
+  /**
+   * What the maps between keys, shared nodes and units hold now, and a
+   * function that puts them back (see the recovery of a write that failed
+   * part way while a hold is on, in Binding). Segment numbers stay as they
+   * went on (never reused).
+   */
+  snapshotMaps(): () => void {
+    const yByKey = new Map(this.yByKey);
+    const csByKey = new Map(this.csByKey);
+    const unitByEnd = new Map(this.unitByEnd);
+    const unitByKey = new Map(this.unitByKey);
+    const holders = new Set(this.holders);
+    const segments = new Map(this.segments);
+    const refresh = new Set(this.refresh);
+    const inlineRunStart = new Map(this.inlineRunStart);
+    const containers: [CS, NodeKey, Unit[]][] = [];
+    const units: [Unit, Unit][] = [];
+    for (const cs of csByKey.values()) {
+      containers.push([cs, cs.key, [...cs.units]]);
+      for (const u of cs.units) {
+        units.push([u, {...u}]);
+      }
+    }
+    const ids = this.ids.snapshot();
+    const refill = <K, V>(map: Map<K, V>, from: Map<K, V>) => {
+      map.clear();
+      from.forEach((v, k) => map.set(k, v));
+    };
+    const refillSet = <V>(set: Set<V>, from: Set<V>) => {
+      set.clear();
+      from.forEach(v => set.add(v));
+    };
+    return () => {
+      refill(this.yByKey, yByKey);
+      refill(this.csByKey, csByKey);
+      refill(this.unitByEnd, unitByEnd);
+      refill(this.unitByKey, unitByKey);
+      refillSet(this.holders, holders);
+      refill(this.segments, segments);
+      refillSet(this.refresh, refresh);
+      refill(this.inlineRunStart, inlineRunStart);
+      yByKey.forEach((y, key) => this.keyByY.set(y, key));
+      for (const [cs, key, list] of containers) {
+        cs.key = key;
+        cs.units = [...list];
+        this.containers.set(cs.y, cs);
+      }
+      for (const [u, saved] of units) {
+        Object.assign(u, saved);
+      }
+      ids();
+    };
+  }
+
   newCS(y: YNode, key: NodeKey, kind: Kind): CS {
     const cs: CS = {key, kind, units: [], y};
     this.containers.set(y, cs);
@@ -351,6 +402,14 @@ export class State {
   }
 
   clear(): void {
+    this.containers = new WeakMap();
+    this.keyByY = new WeakMap();
+    // What a read found it could not read: the read a binding started
+    // again makes finds it anew (read only again where it is still there).
+    this.unknownTypes.clear();
+    this.unreadable.clear();
+    this.replacedStorage.clear();
+    this.malformedSlots.clear();
     this.csByKey.clear();
     this.unitByEnd.clear();
     this.unitByKey.clear();

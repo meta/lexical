@@ -245,7 +245,7 @@ function FloatingLinkEditor({
   useEffect(() => {
     return mergeRegister(
       editor.registerUpdateListener(({editorState}) => {
-        editorState.read(() => {
+        editor.read(editorState, () => {
           $updateLinkEditor();
         });
       }),
@@ -495,7 +495,7 @@ function useFloatingLinkEditorToolbar(
         }
       }),
       editor.registerUpdateListener(({editorState}) => {
-        editorState.read(() => {
+        editor.read(editorState, () => {
           $updateToolbar();
         });
       }),

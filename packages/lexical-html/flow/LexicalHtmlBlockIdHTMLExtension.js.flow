@@ -12,8 +12,13 @@ import type {Signal} from '@lexical/extension/signals';
 
 declare export var BLOCK_ID_ATTRIBUTE: 'data-block-id';
 
+declare export var BLOCK_HANDLE_ATTRIBUTE: 'data-block-handle';
+
+declare export var BLOCK_WRAPPER_ID_ATTRIBUTE: 'data-block-wrapper-id';
+
 export type BlockIdHTMLConfig = {
   export: boolean,
+  handles?: boolean,
   import: boolean,
 };
 
@@ -22,6 +27,7 @@ declare export var BlockIdHTMLExtension: LexicalExtension<
   '@lexical/html/BlockIdHTML',
   {
     export: Signal<boolean>,
+    handles: Signal<boolean>,
     import: Signal<boolean>,
   },
   unknown,

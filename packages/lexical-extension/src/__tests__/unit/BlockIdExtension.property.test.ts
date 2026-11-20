@@ -51,6 +51,7 @@ import {
 import {
   $createParagraphNode,
   $createTextNode,
+  $deepCopy,
   $getRoot,
   $getSelection,
   $getSlot,
@@ -59,7 +60,6 @@ import {
   $isParagraphNode,
   $isRangeSelection,
   $isTextNode,
-  $parseSerializedNode,
   $setSelection,
   configExtension,
   DELETE_CHARACTER_COMMAND,
@@ -73,7 +73,6 @@ import {
   OUTDENT_CONTENT_COMMAND,
   REDO_COMMAND,
   type SerializedEditorState,
-  type SerializedElementNode,
   type SerializedLexicalNode,
   UNDO_COMMAND,
 } from 'lexical';
@@ -111,17 +110,6 @@ function build(): LexicalEditorWithDispose {
 
 function $p(text: string): ElementNode {
   return $createParagraphNode().append($createTextNode(text));
-}
-
-function $deepCopy<T extends LexicalNode>(node: T): T {
-  const serialize = (n: LexicalNode): SerializedLexicalNode => {
-    const json = n.exportJSON();
-    if ($isElementNode(n)) {
-      (json as SerializedElementNode).children = n.getChildren().map(serialize);
-    }
-    return json;
-  };
-  return $parseSerializedNode(serialize(node)) as T;
 }
 
 /** Every node below the root in document order (slots before children). */

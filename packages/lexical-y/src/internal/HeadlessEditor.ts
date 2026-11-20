@@ -14,7 +14,7 @@ import {
   buildEditorFromExtensions,
 } from '@lexical/extension';
 import invariant from '@lexical/internal/invariant';
-import {applyUpdate, type Doc} from '@y/y';
+import {type Doc} from '@y/y';
 import {
   type AnyLexicalExtensionArgument,
   type CreateEditorArgs,
@@ -26,7 +26,6 @@ import {
 } from 'lexical';
 
 import {
-  type ClientIDRange,
   createYDoc,
   DEFAULT_ROOT_NAME,
   isYWarning,
@@ -34,6 +33,7 @@ import {
   type YWarning,
   type YWarningCode,
 } from '..';
+import {applyStoredState} from './LoadFully';
 import {
   leaseWriterClientID,
   type WRITER_NEW_CLIENT_ID_WARNING,
@@ -77,9 +77,10 @@ export type YHeadlessWarningCode =
  */
 export interface HeadlessYConfig {
   /**
-   * The version of the app's document schema, as on the clients
-   * (`YCollabExtension`'s `schemaVersion`): the version of the code that
-   * runs here. Required. A document a newer version wrote to is read only
+   * The version of your editor's nodes: registered node classes, their
+   * fields and NodeState. Bump it when you add, remove or change one, not on
+   * every release. As on the clients (`YCollabExtension`'s
+   * `schemaVersion`), for the code that runs here. Required. A document a newer version wrote to is read only
    * here: `editYState` and `readYState` refuse it (`'read-only'`, with an
    * `UNSUPPORTED_SCHEMA_WARNING`), and a seed or an edit records this
    * version.
@@ -92,20 +93,19 @@ export interface HeadlessYConfig {
   /** The name of the shared root (default `'lexical-y'`). */
   root?: string;
   /**
-   * The range of the client ids the server writes with (default
-   * `'uint53'`). Use `'uint32'` when updates pass through yrs before 0.28.
+   * Required: called with every warning, as a `LexicalWarning` (the same
+   * ones `editYState`'s result lists): the binding's (`@lexical/y/...`
+   * codes), the editor's (it replaces an `onWarn` of the extensions; other
+   * errors come as {@link EDITOR_WARNING}), and
+   * {@link FOLLOW_UPS_EXHAUSTED_WARNING}. Some say that content was not
+   * stored as the editor had it (a NodeState value that is not JSON,
+   * `UNSYNCED_VALUE_WARNING`): `seedYState` and `readYState` return their
+   * warnings nowhere else, so send them where someone sees them. `null`:
+   * `console.warn` outside production, nothing in production. Warnings
+   * never refuse an edit, in any environment, and a throwing handler does
+   * not either.
    */
-  clientIDRange?: ClientIDRange;
-  /**
-   * Called with every warning, as a `LexicalWarning` (the same ones the
-   * result's `warnings` lists): the binding's (`@lexical/y/...` codes), the
-   * editor's (it replaces an `onWarn` of the extensions; other errors come
-   * as {@link EDITOR_WARNING}), and {@link FOLLOW_UPS_EXHAUSTED_WARNING}.
-   * Warnings never refuse an edit, in any environment, and a throwing
-   * handler does not either. Default: `console.warn` outside production,
-   * nothing in production.
-   */
-  onWarn?: (warning: LexicalWarning) => void;
+  onWarn: ((warning: LexicalWarning) => void) | null;
   /**
    * The binding's self-check of its own writes (see `YBindingOptions`).
    * Default: off.
@@ -161,14 +161,24 @@ export class YHeadlessError extends Error {
 }
 
 /**
- * A `'read-only'` {@link YHeadlessError}: a short message, and the binding's
- * warnings (the reasons) as data.
+ * A `'read-only'` {@link YHeadlessError}: a short message followed by the
+ * binding's warnings' messages (the reasons, which say what to do), and the
+ * warnings themselves as data.
  */
 export function readOnlyError(
   message: string,
   warnings: readonly LexicalWarning[],
 ): YHeadlessError {
-  return new YHeadlessError('read-only', message, warnings.filter(isYWarning));
+  const reasons = warnings.filter(isYWarning);
+  // The message names the reasons too, so that an uncaught error says why
+  // and what to do; programs read `warnings` (code and data) instead.
+  return new YHeadlessError(
+    'read-only',
+    reasons.length > 0
+      ? `@lexical/y: ${message}: ${reasons.map(w => w.message).join('; ')}`
+      : `@lexical/y: ${message}`,
+    reasons,
+  );
 }
 
 /**
@@ -372,17 +382,29 @@ export function openHeadlessYEditor(
     "@lexical/y/headless: the config needs schemaVersion (got %s): start at 1 and increase it whenever a node's stored fields or node types change, as the clients' YCollabExtension does",
     String(options == null ? undefined : options.schemaVersion),
   );
-  const warnings: LexicalWarning[] = [];
-  const {editor, report, sink} = buildHeadlessEditor(options, warnings);
+  invariant(
+    options.onWarn === null || typeof options.onWarn === 'function',
+    '@lexical/y/headless: the config needs onWarn (got %s): a function that sends the warnings where someone sees them (seedYState and readYState return them nowhere else, and some say content was not stored), or null to log them outside production only',
+    typeof options.onWarn,
+  );
   // No garbage collection, only so that the root check of an edit's update
   // (editYState) can resolve deleted items: this document is temporary, and
-  // the states the helpers return are garbage collected. The binding keeps
-  // the client id in range (`clientIDRange`) from `start()`; nothing is
-  // written before that. No format cleanup either, as on every document the
+  // the states the helpers return are garbage collected. No format cleanup either, as on every document the
   // binding writes (see createYDoc): loading the state would otherwise
   // delete format items the clients keep, and those deletions would be in
-  // the returned state but not in the update.
+  // the returned state but not in the update. Made before the editor, so
+  // that createYDoc's check of the app's @y/y refuses before any extension
+  // is built or registered.
   const doc = createYDoc(null, {gc: false});
+  const warnings: LexicalWarning[] = [];
+  let built: ReturnType<typeof buildHeadlessEditor>;
+  try {
+    built = buildHeadlessEditor(options, warnings);
+  } catch (error) {
+    doc.destroy();
+    throw error;
+  }
+  const {editor, report, sink} = built;
   const writes: Uint8Array<ArrayBuffer>[] = [];
   const collect = (update: Uint8Array) => {
     writes.push(new Uint8Array(update));
@@ -481,17 +503,14 @@ export function openHeadlessYEditor(
   let lease: WriterLease | null = null;
   try {
     if (options.state) {
-      applyUpdate(doc, options.state);
+      // What the document that encoded the state showed (see LoadFully).
+      applyStoredState(doc, options.state);
     }
     if (writer !== null) {
       // After the state is loaded (Yjs draws a new client id when it loads
       // writes under the document's own) and before anything is written,
       // opening included.
-      lease = leaseWriterClientID(
-        writer,
-        doc,
-        options.clientIDRange || 'uint53',
-      );
+      lease = leaseWriterClientID(writer, doc);
       if (lease.warning !== null) {
         report(lease.warning);
       }
@@ -501,7 +520,14 @@ export function openHeadlessYEditor(
     }
     const bound = new YBinding(editor, doc, {
       captureTimeout: null,
-      clientIDRange: options.clientIDRange,
+      // Headless never migrates: a document below MIN_LAYOUT is read only
+      // here (refused), and declared so, without the config warning a
+      // binding with no declaration adds (its advice, createYCollabConfig,
+      // has no headless counterpart).
+      layoutUpgrade: null,
+      // A status nobody shows: the helpers check it after each step and
+      // refuse a read-only document with a typed error.
+      onStatus: null,
       root: doc.get(options.root || DEFAULT_ROOT_NAME),
       schemaVersion: options.schemaVersion,
       selfCheck: options.selfCheck,

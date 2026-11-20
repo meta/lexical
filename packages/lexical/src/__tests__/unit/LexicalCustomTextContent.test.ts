@@ -11,13 +11,14 @@ import {
   $create,
   $createParagraphNode,
   $createTextNode,
+  $getEditor,
   $getRoot,
   $removeSlot,
   $setSlot,
   ParagraphNode,
   type TextNode,
 } from 'lexical';
-import {describe, expect, onTestFinished, test} from 'vitest';
+import {describe, expect, onTestFinished, test, vi} from 'vitest';
 
 import {$createTestElementNode, TestElementNode} from '../utils';
 
@@ -270,3 +271,96 @@ describe.each([CustomSizedParagraphNode, CustomUnsizedParagraphNode])(
     });
   },
 );
+
+class EditorReadingParagraphNode extends ParagraphNode {
+  $config() {
+    return this.config('editor-reading-paragraph', {extends: ParagraphNode});
+  }
+
+  getTextContent(): string {
+    return `${$getEditor().getKey()}:${super.getTextContent()}`;
+  }
+}
+
+describe('custom getTextContent', () => {
+  // https://github.com/meta/lexical/issues/9934
+  test('has the active editor when text content listeners are triggered', () => {
+    const editor = buildEditorFromExtensions(
+      defineExtension({
+        name: 'EditorReadingTextContent',
+        nodes: [EditorReadingParagraphNode],
+      }),
+    );
+    onTestFinished(() => editor.dispose());
+    const seen: string[] = [];
+    onTestFinished(
+      editor.registerTextContentListener(text => {
+        seen.push(text);
+      }),
+    );
+    editor.update(
+      () => {
+        $getRoot()
+          .clear()
+          .append(
+            $create(EditorReadingParagraphNode).append($createTextNode('a')),
+          );
+      },
+      {discrete: true},
+    );
+    expect(seen).toEqual([`${editor.getKey()}:a`]);
+  });
+});
+
+describe('editor.read(editorState, fn)', () => {
+  test('reads the given state with the editor active, without flushing', () => {
+    using editor = createEditor();
+    const $setText = (text: string) => () => {
+      $getRoot()
+        .clear()
+        .append($createParagraphNode().append($createTextNode(text)));
+    };
+    editor.update($setText('a'), {discrete: true});
+    const before = editor.getEditorState();
+    editor.update($setText('b'), {discrete: true});
+    editor.update($setText('c'));
+    const read = (state: typeof before) =>
+      editor.read(state, () => {
+        expect($getEditor()).toBe(editor);
+        return $getRoot().getTextContent();
+      });
+    expect(read(before)).toBe('a');
+    expect(read(editor.getEditorState())).toBe('b');
+    expect(editor.read(() => $getRoot().getTextContent())).toBe('c');
+  });
+
+  test('throws for a foreign state, warns for an unknown mode', () => {
+    using editor = createEditor();
+    editor.update(
+      () => {
+        $getRoot()
+          .clear()
+          .append($createParagraphNode().append($createTextNode('a')));
+      },
+      {discrete: true},
+    );
+    // e.g. an EditorState from another copy of Lexical
+    const foreignState = {...editor.getEditorState()};
+    expect(() =>
+      editor.read(foreignState as unknown as 'latest', () => {}),
+    ).toThrow(/is an object but not an EditorState/);
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    onTestFinished(() => warn.mockRestore());
+    // e.g. undefined forwarded from an optional mode: the committed state
+    expect(
+      editor.read(undefined as unknown as 'latest', () =>
+        $getRoot().getTextContent(),
+      ),
+    ).toBe('a');
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn.mock.calls[0][0]).toMatch(/not a read mode/);
+    expect(editor.read('latest', () => 1)).toBe(1);
+    expect(editor.read(editor.getEditorState(), () => 2)).toBe(2);
+    expect(warn).toHaveBeenCalledTimes(1);
+  });
+});

@@ -48,6 +48,7 @@ function peer(id: number) {
       dependencies: [
         configExtension(YCollabExtension, {
           doc,
+          onYStatus: null,
           schemaVersion: 1,
           selfCheck: true,
         }),

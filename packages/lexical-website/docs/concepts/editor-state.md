@@ -119,7 +119,9 @@ editor.setRootElement(document.getElementById('editor'));
 
 // Store the content (e.g. when the user submits a form)
 async function onSubmit() {
-  await saveContent(JSON.stringify(editor.getEditorState()));
+  await saveContent(
+    JSON.stringify(editor.read('latest', () => editor.getEditorState().toJSON())),
+  );
 }
 ```
 
@@ -137,7 +139,11 @@ function SaveButton() {
   const [editor] = useLexicalComposerContext();
   return (
     <button
-      onClick={() => saveContent(JSON.stringify(editor.getEditorState()))}>
+      onClick={() =>
+        saveContent(
+          JSON.stringify(editor.read('latest', () => editor.getEditorState().toJSON())),
+        )
+      }>
       Save
     </button>
   );
@@ -405,7 +411,7 @@ editor.update(() => {
   // manipulate the state...
 });
 
-saveToDatabase(editor.getEditorState().toJSON());
+saveToDatabase(editor.read('latest', () => editor.getEditorState().toJSON()));
 ```
 
 This code will not work as expected, because the `saveToDatabase` call will happen before the state has been committed.
@@ -418,7 +424,7 @@ editor.update(() => {
   // manipulate the state...
 }, {discrete: true});
 
-saveToDatabase(editor.getEditorState().toJSON());
+saveToDatabase(editor.read('latest', () => editor.getEditorState().toJSON()));
 ```
 
 ### Cloning state

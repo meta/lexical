@@ -7,14 +7,10 @@
  */
 
 import {
-  ContentAny,
-  ContentBinary,
-  ContentType,
-  createID,
   createIdSet,
   type IdSet,
-  Item,
-  Node as YNode,
+  type Item,
+  type Node as YNode,
   type Transaction,
 } from '@y/y';
 
@@ -40,11 +36,19 @@ import {
  *
  * A binding sees the document this way from the moment Yjs starts applying
  * a change until the binding has read it (see YBinding#noteChange), in all
- * its work (see seenBy): the writes and the selections it takes in between
+ * its work (the view it passes, see View): the writes and the selections it takes in between
  * are its editor's, which shows none of the changes it has not read, its
  * own writes excepted. Another binding of the document sees it as its own
  * editor shows it, and only items under a binding's root are seen through
  * its view.
+ *
+ * The helpers that read or write the document as a binding's editor shows it
+ * (see Shown and Seen) take that view as a parameter (View), and a fold the view and
+ * the hold it reads in (Ident.FoldIn): the binding hands its own to its
+ * readers, writers and walks (`YBinding#seer`, read at each step, see
+ * Reader#liveView), the Reader the hold of the line being composed
+ * (Reader#held). There is no running work's view: a second binding of the
+ * same document passes its own.
  */
 
 /**
@@ -58,57 +62,41 @@ export interface Unread {
   readonly root: YNode;
   /** What the changes deleted that the writes since deleted too. */
   readonly removed: IdSet;
-  /** Whether each type is under the root (see viewOf). */
+  /** Whether each type is under the root (see scopedView). */
   readonly under: Map<YNode, boolean>;
-}
-
-/** The view of the binding whose work is running (see seenBy). */
-let seer: (() => Unread | null) | null = null;
-
-/** The document under `root` as it was before any change. */
-export function emptyView(root: YNode): Unread {
-  return {changes: [], removed: createIdSet(), root, under: new Map()};
-}
-
-/** Whether one of the changes of `view` inserted `item`. */
-function inserted(view: Unread, item: Item): boolean {
-  for (const change of view.changes) {
-    if (change.insertSet.hasId(item.id)) {
-      return true;
-    }
-  }
-  return false;
-}
-
-/** Whether one of the changes of `view` deleted `item`. */
-function deleted(view: Unread, item: Item): boolean {
-  for (const change of view.changes) {
-    if (change.deleteSet.hasId(item.id)) {
-      return true;
-    }
-  }
-  return false;
+  /**
+   * Whether a deleted item is one the editor still shows: a format item a
+   * held change deleted in the line being composed (see Hidden#keeps).
+   */
+  readonly keeps: ((item: Item) => boolean) | null;
+  /**
+   * A write deleted `item` again, a deleted item the editor showed (see
+   * keeps): the editor no longer shows it (see Hidden#drop).
+   */
+  readonly dropKept: ((item: Item) => void) | null;
+  /**
+   * For a hold's view, which stays until the hold ends (see
+   * YBinding#heldView): whether it keeps nothing now, so that it reads and
+   * writes exactly as no view does (see scopedView). Null otherwise.
+   */
+  readonly lapsed: (() => boolean) | null;
 }
 
 /**
- * Run `fn`, a binding's work, on the document as that binding's editor shows
- * it: `view()` is the changes it has not read yet, if any (it can change
- * while `fn` runs). Work of another binding nested in `fn` runs on that
- * binding's view.
+ * What one binding's work sees of the shared document, passed to the
+ * helpers that read or write it (see Shown and Seen): today the changes the binding
+ * has not read yet and the hold's kept items, as Unread. Null: Yjs as it
+ * is.
  */
-export function seenBy<T>(view: () => Unread | null, fn: () => T): T {
-  const prev = seer;
-  seer = view;
-  try {
-    return fn();
-  } finally {
-    seer = prev;
-  }
-}
+export type View = Unread;
 
-/** The view the running work sees the items of `type` in, if any. */
-function viewOf(type: YNode): Unread | null {
-  const view = seer === null ? null : seer();
+/**
+ * The part of `view` that applies to the items of `type`, as the helpers
+ * that read or write them use it (see Shown and Seen): `view` itself where `type` is
+ * under its root, else null (Yjs as it is: another binding's root, or
+ * none); none either for a hold's view that keeps nothing (see lapsed).
+ */
+export function scopedView(view: View | null, type: YNode): View | null {
   if (view === null) {
     return null;
   }
@@ -123,170 +111,43 @@ function viewOf(type: YNode): Unread | null {
     }
     view.under.set(type, under);
   }
-  return under ? view : null;
+  return under && (view.lapsed === null || !view.lapsed()) ? view : null;
 }
 
-/** Whether `item` is deleted, in the document the write sees. */
-export function isGone(item: Item): boolean {
-  const view = viewOf(item.parent as YNode);
-  if (view === null) {
-    return item.deleted;
-  }
-  if (inserted(view, item)) {
-    return true;
-  }
-  if (!item.deleted) {
-    return false;
-  }
-  return !deleted(view, item) || view.removed.hasId(item.id);
+/** The document under `root` as it was before any change. */
+export function emptyView(
+  root: YNode,
+  keeps: ((item: Item) => boolean) | null = null,
+  dropKept: ((item: Item) => void) | null = null,
+  lapsed: (() => boolean) | null = null,
+): Unread {
+  return {
+    changes: [],
+    dropKept,
+    keeps,
+    lapsed,
+    removed: createIdSet(),
+    root,
+    under: new Map(),
+  };
 }
 
-/** What each write only noted as deleted (see deleteItem), by transaction. */
-const notedIn = new WeakMap<Transaction, IdSet>();
-
-/**
- * Delete `item` (not gone, see isGone): an item an unread change deleted is
- * only noted as deleted by this write.
- */
-export function deleteItem(item: Item, tr: Transaction): void {
-  if (item.deleted) {
-    const view = viewOf(item.parent as YNode);
-    if (view !== null) {
-      view.removed.add(item.id.client, item.id.clock, item.length);
-      let noted = notedIn.get(tr);
-      if (noted === undefined) {
-        noted = createIdSet();
-        notedIn.set(tr, noted);
-      }
-      noted.add(item.id.client, item.id.clock, item.length);
-      return;
+/** Whether one of the changes of `view` inserted `item`. */
+export function inserted(view: Unread, item: Item): boolean {
+  for (const change of view.changes) {
+    if (change.insertSet.hasId(item.id)) {
+      return true;
     }
   }
-  item.delete(tr);
+  return false;
 }
 
-/**
- * The item holding attribute `key` of `y` before the unread changes (the
- * current one, or one they replaced), or null.
- */
-function attrItem(y: YNode, view: Unread, key: string): Item | null {
-  let v: Item | null = y._map.get(key) ?? null;
-  while (v !== null && inserted(view, v)) {
-    v = v.left;
-  }
-  return v;
-}
-
-/** The value of attribute `key` of `y`, in the document the write sees. */
-export function attrOf(y: YNode, key: string): unknown {
-  const view = viewOf(y);
-  if (view === null) {
-    return y.getAttr(key);
-  }
-  const v = attrItem(y, view, key);
-  if (v === null || isGone(v)) {
-    return undefined;
-  }
-  const content = v.content.getContent();
-  return content[content.length - 1];
-}
-
-/** The attributes of `y`, in the document the write sees. */
-export function attrsOf(y: YNode): Record<string, unknown> {
-  if (viewOf(y) === null) {
-    return y.getAttrs() as Record<string, unknown>;
-  }
-  const out: Record<string, unknown> = {};
-  y._map.forEach((_item, key) => {
-    const value = attrOf(y, key);
-    if (value !== undefined) {
-      out[key] = value;
+/** Whether one of the changes of `view` deleted `item`. */
+export function deleted(view: Unread, item: Item): boolean {
+  for (const change of view.changes) {
+    if (change.deleteSet.hasId(item.id)) {
+      return true;
     }
-  });
-  return out;
-}
-
-/**
- * The attributes `y` had before transaction `tr`, in the document the write
- * sees: of each name, the value of its latest item that neither `tr` nor an
- * unread change inserted, unless that item was gone before `tr`. Yjs keeps
- * the content of the items `tr` deletes until `tr` ends, so this also reads
- * a node `tr` deleted (a block it moved). With nothing unread, these are the
- * values every other client still has.
- */
-export function attrsBefore(
-  y: YNode,
-  tr: Transaction,
-): Record<string, unknown> {
-  const view = viewOf(y);
-  const out: Record<string, unknown> = {};
-  y._map.forEach((latest, key) => {
-    let v: Item | null = latest;
-    while (
-      v !== null &&
-      (tr.insertSet.hasId(v.id) || (view !== null && inserted(view, v)))
-    ) {
-      v = v.left;
-    }
-    // Deleted by `tr`, or only noted as deleted by it where an unread change
-    // deleted it too (see deleteItem): there before `tr`. What an earlier
-    // write noted was gone before it.
-    const noted = notedIn.get(tr);
-    if (
-      v !== null &&
-      (!isGone(v) ||
-        tr.deleteSet.hasId(v.id) ||
-        (noted !== undefined && noted.hasId(v.id)))
-    ) {
-      const content = v.content.getContent();
-      out[key] = content[content.length - 1];
-    }
-  });
-  return out;
-}
-
-/** Set attribute `key` of `y`, after its value in the document seen. */
-export function setAttr(
-  y: YNode,
-  key: string,
-  value: unknown,
-  tr: Transaction,
-): void {
-  const view = viewOf(y);
-  const left = view === null ? null : attrItem(y, view, key);
-  if (view === null || left === (y._map.get(key) ?? null)) {
-    y.setAttr(key, value as never);
-    return;
   }
-  // As Y.Node#setAttr, after the value the write sees.
-  const doc = tr.doc;
-  const content =
-    value instanceof YNode
-      ? new ContentType(value)
-      : value instanceof Uint8Array
-        ? new ContentBinary(value)
-        : new ContentAny([value]);
-  new Item(
-    createID(doc.clientID, doc.store.getClock(doc.clientID)),
-    left,
-    left && left.lastId,
-    null,
-    null,
-    y,
-    key,
-    content,
-  ).integrate(tr, 0);
-}
-
-/** Delete attribute `key` of `y`: its value in the document seen. */
-export function deleteAttr(y: YNode, key: string, tr: Transaction): void {
-  const view = viewOf(y);
-  if (view === null) {
-    y.deleteAttr(key);
-    return;
-  }
-  const v = attrItem(y, view, key);
-  if (v !== null && !isGone(v)) {
-    deleteItem(v, tr);
-  }
+  return false;
 }

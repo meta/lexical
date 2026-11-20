@@ -4,6 +4,15 @@ sidebar_position: 1
 
 # React
 
+:::note
+
+This page uses `@lexical/yjs`, the Yjs 13 binding. For a new editor on Yjs
+14, see [Yjs 14 (`@lexical/y`)](./y.md): a separate binding with its own
+document layout, set up as an extension (`YCollabExtension`) rather than
+with `LexicalCollaborationPlugin`. A document uses one binding or the other.
+
+:::
+
 Lexical provides `LexicalCollaborationPlugin` and `useCollaborationContext` hook within `@lexical/react` to accelerate creation of the collaborative React backed editors.
 This is on top of the Yjs bindings provided by `@lexical/yjs`.
 

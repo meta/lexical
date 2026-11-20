@@ -1701,6 +1701,15 @@ function $handleInput(event: InputEvent): boolean {
   const data = event.data;
   const targetRange = getTargetRange(event);
 
+  // Mobile Safari on iOS 26 commits a composition by deleting the composed
+  // text (deleteCompositionText) and inserting it again
+  // (insertFromComposition). Once the text is deleted, that insertion is not
+  // the redundant one hadOrphanedCompositionEvents skips: skipped, the
+  // composed word would be lost.
+  if (event.inputType === 'deleteCompositionText') {
+    inputState.hadOrphanedCompositionEvents = false;
+  }
+
   let handled = false;
   let rerenderText = false;
   if (data != null && $isRangeSelection(selection)) {
@@ -2042,9 +2051,12 @@ function onKeyDown(event: KeyboardEvent, editor: LexicalEditor): void {
     // The virtual keyboard emits Shift events for manual toggles, but not for
     // automatic capitalization. Other key events may clear this state, never
     // set it, since their shiftKey flag also reflects automatic capitalization.
+    // Opening the #+= symbols plane sends the same Shift keydown and keeps
+    // shiftKey set through the symbols until after the next Return, so Shift
+    // only counts for an Enter pressed right after it: any other key clears it.
     inputState.isShiftKeyDown =
       event.key === 'Shift' ||
-      (inputState.isShiftKeyDown && event.shiftKey && event.key !== 'CapsLock');
+      (inputState.isShiftKeyDown && event.shiftKey && event.key === 'Enter');
   }
   inputState.lastKeyDownTimeStamp = event.timeStamp;
   inputState.lastKeyCode = event.key;

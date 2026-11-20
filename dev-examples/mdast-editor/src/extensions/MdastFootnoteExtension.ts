@@ -298,7 +298,7 @@ function renderBacklinks(
  */
 export function registerFootnoteAnchors(editor: LexicalEditor): () => void {
   return editor.registerUpdateListener(({editorState}) => {
-    editorState.read(() => {
+    editor.read(editorState, () => {
       const refsByLabel = $collectFootnoteRefsByLabel();
       for (const [label, refs] of refsByLabel) {
         refs.forEach((ref, index) => {
@@ -1131,39 +1131,36 @@ function registerFootnoteShortcut(editor: LexicalEditor): () => void {
     ) {
       return;
     }
-    const match = editorState.read(
-      () => {
-        const selection = $getSelection();
-        if (
-          !$isRangeSelection(selection) ||
-          !selection.isCollapsed() ||
-          selection.anchor.type !== 'text'
-        ) {
-          return null;
-        }
-        const node = selection.anchor.getNode();
-        const offset = selection.anchor.offset;
-        if (
-          !$isTextNode(node) ||
-          !node.isSimpleText() ||
-          node.hasFormat('code') ||
-          !dirtyLeaves.has(node.getKey()) ||
-          node.getTextContent().charAt(offset - 1) !== ']'
-        ) {
-          return null;
-        }
-        const found = SHORTCUT_RE.exec(node.getTextContent().slice(0, offset));
-        return found === null
-          ? null
-          : {
-              end: offset,
-              key: node.getKey(),
-              label: found[1],
-              start: offset - found[0].length,
-            };
-      },
-      {editor},
-    );
+    const match = editor.read(editorState, () => {
+      const selection = $getSelection();
+      if (
+        !$isRangeSelection(selection) ||
+        !selection.isCollapsed() ||
+        selection.anchor.type !== 'text'
+      ) {
+        return null;
+      }
+      const node = selection.anchor.getNode();
+      const offset = selection.anchor.offset;
+      if (
+        !$isTextNode(node) ||
+        !node.isSimpleText() ||
+        node.hasFormat('code') ||
+        !dirtyLeaves.has(node.getKey()) ||
+        node.getTextContent().charAt(offset - 1) !== ']'
+      ) {
+        return null;
+      }
+      const found = SHORTCUT_RE.exec(node.getTextContent().slice(0, offset));
+      return found === null
+        ? null
+        : {
+            end: offset,
+            key: node.getKey(),
+            label: found[1],
+            start: offset - found[0].length,
+          };
+    });
     if (match === null) {
       return;
     }

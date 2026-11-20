@@ -40,6 +40,15 @@ import {
   setup,
 } from '../utils/harness';
 
+/** The text of the last line when it ends with `tail line`, else null. */
+function tailLine(described: string): string | null {
+  const start = described.lastIndexOf('paragraph("');
+  const end = 'tail line")';
+  return start === -1 || !described.endsWith(end)
+    ? null
+    : described.slice(start + 'paragraph("'.length, -end.length);
+}
+
 // Local updates made without `discrete: true` commit, and are written, in a
 // microtask. A remote change a provider applies in the same task, before
 // that commit, is integrated into the document first; the local edit is
@@ -225,12 +234,8 @@ describe('the invariant, over random batched edits', () => {
         await expectConverged(t.peers);
         // Each peer's, once.
         const fresh = await freshReader(t.a);
-        const tail = fresh.describe().match(/paragraph\("(.*)tail line"\)$/);
-        expect(tail && tail[1].match(/\d>/g)?.sort()).toEqual([
-          '1>',
-          '2>',
-          '3>',
-        ]);
+        const tail = tailLine(fresh.describe());
+        expect(tail?.match(/\d>/g)?.sort()).toEqual(['1>', '2>', '3>']);
       } catch (error) {
         failures.push(
           `seed ${seed}: ${log.join(' ')}\n${error}\n` +
@@ -287,6 +292,7 @@ describe('another binding writing meanwhile', () => {
         onWarn: e => void warnings.push(String(e)),
       });
       const binding = new YBinding(editor, doc, {
+        onStatus: null,
         root: doc.get(name),
         schemaVersion: 1,
         selfCheck: true,
@@ -364,6 +370,7 @@ test('another editor on the same root keeps its selection', async () => {
         onWarn: e => void warnings.push(String(e)),
       });
       const binding = new YBinding(editor, doc, {
+        onStatus: null,
         root,
         schemaVersion: 1,
         selfCheck: true,
@@ -419,6 +426,7 @@ test('a change another binding writes while the remote change is applied is not 
       onWarn: e => void warnings.push(String(e)),
     });
     const binding = new YBinding(editor, doc, {
+      onStatus: null,
       root: doc.get('root'),
       schemaVersion: 1,
       selfCheck: true,
@@ -461,13 +469,13 @@ test('a change another binding writes while the remote change is applied is not 
   b.binding.dispose();
 });
 
-// Known limit: a binding's read of a change shows what the changes applied
+// Open (#9579): a binding's read of a change shows what the changes applied
 // since did to the lines it reads, but the binding goes on seeing those
 // changes as unread until it reads them in turn. A selection taken of its
 // editor in between (another binding's listener asking for it) is taken
-// on a document without them.
+// on a document without them, one character off here.
 test.fails(
-  "a selection taken between reads of two changes is the editor's (known limit)",
+  "a selection taken between reads of two changes is the editor's (#9579)",
   async () => {
     const doc = createYDoc(null, {gc: false});
     doc.clientID = 1;
@@ -480,6 +488,7 @@ test.fails(
         },
       });
       const binding = new YBinding(editor, doc, {
+        onStatus: null,
         root: doc.get('root'),
         schemaVersion: 1,
         selfCheck: true,

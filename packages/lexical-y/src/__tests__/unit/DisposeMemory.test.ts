@@ -24,10 +24,16 @@ import {writeEditorToYDoc} from '../utils/headless';
 test('40 editors bound, edited and disposed in a synchronous loop hold no document', () => {
   setFlagsFromString('--expose-gc');
   const gc = runInNewContext('gc') as () => void;
+  // The heap after collection: the least of a few samples, each after a
+  // full collection, so what one collection left for the next (or swept
+  // late, on a loaded machine) is not counted as held.
   const heap = () => {
-    gc();
-    gc();
-    return process.memoryUsage().heapUsed;
+    let least = Infinity;
+    for (let i = 0; i < 3; i++) {
+      gc();
+      least = Math.min(least, process.memoryUsage().heapUsed);
+    }
+    return least;
   };
   const source = createEditor({
     nodes: NODES,
@@ -46,9 +52,7 @@ test('40 editors bound, edited and disposed in a synchronous loop hold no docume
   const seedDoc = createYDoc();
   writeEditorToYDoc(source, seedDoc);
   const stored = Y.encodeStateAsUpdate(seedDoc);
-  const start = heap();
-  // No await: nothing scheduled in a microtask runs in the loop.
-  for (let i = 0; i < 40; i++) {
+  const cycle = () => {
     const doc = createYDoc();
     Y.applyUpdate(doc, stored);
     const editor = createEditor({
@@ -57,13 +61,27 @@ test('40 editors bound, edited and disposed in a synchronous loop hold no docume
         throw e;
       },
     });
-    const binding = new YBinding(editor, doc, {schemaVersion: 1});
+    const binding = new YBinding(editor, doc, {
+      onStatus: null,
+      schemaVersion: 1,
+    });
     const stop = binding.start();
     editor.update(() => $getRoot().append($p('x')), {discrete: true});
     stop();
     doc.destroy();
+  };
+  // Two cycles first, so that the code they compile and the type feedback
+  // they gather (about 1 MB) are in the baseline, not in the difference.
+  cycle();
+  cycle();
+  const start = heap();
+  // No await: nothing scheduled in a microtask runs in the loop.
+  for (let i = 0; i < 40; i++) {
+    cycle();
   }
   // Each editor held about 1.8 MB (the editor, the document and the
   // binding) until the loop yielded.
   expect(heap() - start).toBeLessThan(8e6);
-});
+  // About 3 s alone (forty 1,000-line documents), over vitest's default 5 s
+  // limit when the whole suite runs.
+}, 30_000);

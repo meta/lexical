@@ -1779,7 +1779,9 @@ describe('S7-11: content of a type a client does not register opens the room rea
     author.binding.initialize();
     await flush();
     expect(old.binding.status).toBe('readonly');
-    expect(old.warnings).toEqual([`unregistered node types: ${type}`]);
+    expect(old.warnings).toEqual([
+      `unregistered node types: ${type}. This editor is read only: register the same node classes (or extensions) as the clients that wrote them`,
+    ]);
     const before = docJSON(author);
     const vector = Y.encodeStateVector(old.doc);
     // An edit of the old client is not written.
@@ -1982,7 +1984,7 @@ describe('S7-21: a read that throws on every attempt fails closed', () => {
     expect(b.errors).toEqual([]);
     expect(b.binding.status).toBe('readonly');
     expect(warned(b)).toEqual([
-      'the document cannot be read: simulated reader failure',
+      'the document cannot be read: simulated reader failure. This editor is read only until it is built again: data.error holds what the read threw; fix that, then reload the editor',
     ]);
     expect(b.describe()).toBe('paragraph("hello")');
     // It reads nothing more.
@@ -2011,7 +2013,7 @@ describe('S7-21: a read that throws on every attempt fails closed', () => {
     expect(b.errors).toEqual([]);
     expect(b.binding.status).toBe('readonly');
     expect(warned(b)).toEqual([
-      'the document cannot be read: simulated reader failure',
+      'the document cannot be read: simulated reader failure. This editor is read only until it is built again: data.error holds what the read threw; fix that, then reload the editor',
     ]);
     expect(b.describe()).toBe('');
   });
@@ -2063,7 +2065,9 @@ describe('S7-21: a read that throws on every attempt fails closed', () => {
         expect(Y.encodeStateVector(b.doc)).toEqual(vector);
         expect(
           b.warnings.filter(w => w.includes('not written while read only')),
-        ).toEqual(['a local change is not written while read only']);
+        ).toEqual([
+          "a local change is not written while read only: an earlier warning says why the binding is read only. Edit only while binding.status is 'active'",
+        ]);
       } finally {
         process.off('uncaughtException', onUncaught);
         proto.$apply = $apply;
@@ -2540,8 +2544,8 @@ describe('R4-2: an update listener that throws on the commit after an editable l
       expect(b.binding.status).toBe('readonly');
       expect(b.describe()).toBe('paragraph("hello")');
       expect(b.warnings).toEqual([
-        'the document cannot be read: simulated reader failure',
-        'a local change is not written while read only',
+        'the document cannot be read: simulated reader failure. This editor is read only until it is built again: data.error holds what the read threw; fix that, then reload the editor',
+        "a local change is not written while read only: an earlier warning says why the binding is read only. Edit only while binding.status is 'active'",
       ]);
     },
   );
@@ -2741,8 +2745,8 @@ describe('R2-3: an edit an editable listener makes when the binding fails closed
       expect(b.describe()).toBe(shown);
       expect(written()).toBe(before);
       expect(b.warnings).toEqual([
-        'the document cannot be read: simulated reader failure',
-        'a local change is not written while read only',
+        'the document cannot be read: simulated reader failure. This editor is read only until it is built again: data.error holds what the read threw; fix that, then reload the editor',
+        "a local change is not written while read only: an earlier warning says why the binding is read only. Edit only while binding.status is 'active'",
       ]);
     },
   );
@@ -2876,7 +2880,7 @@ describe('S7-21 (MF-2): every read goes through the one fail-closed path', () =>
         expect(b.binding.status).toBe('active');
       } else {
         expect(b.warnings).toEqual([
-          'the document cannot be read: simulated reader failure',
+          'the document cannot be read: simulated reader failure. This editor is read only until it is built again: data.error holds what the read threw; fix that, then reload the editor',
         ]);
         expect(b.binding.status).toBe('readonly');
       }
@@ -2909,7 +2913,7 @@ describe('S7-21 (MF-2): every read goes through the one fail-closed path', () =>
     await flush();
     expect(b.binding.status).toBe('readonly');
     expect(b.warnings).toEqual([
-      'the document cannot be read: a value that cannot be shown as text',
+      'the document cannot be read: a value that cannot be shown as text. This editor is read only until it is built again: data.error holds what the read threw; fix that, then reload the editor',
     ]);
   });
 });
@@ -2923,7 +2927,9 @@ function expectUnreadable(peer: Peer, type: string, shown: string | null) {
   expect(peer.binding.status).toBe('readonly');
   expect(
     peer.warnings.filter(w => !w.includes('stored as a nested node')),
-  ).toEqual([`stored content the editor's classes cannot read: ${type}`]);
+  ).toEqual([
+    `stored content the editor's classes cannot read: ${type}. Their classes threw on the stored values (data.error), so this editor is read only: make them accept what another version of your app wrote, and bump schemaVersion when a class changes what it stores`,
+  ]);
   if (shown !== null) {
     expect(peer.describe()).toBe(shown);
   }

@@ -572,9 +572,10 @@ whitespace if its `nodeName` is `'PRE'` or its inline `style.whiteSpace`
 starts with `'pre'`; an element is inline if its inline `style.display`
 starts with `'inline'` or its tag name is in the standard inline-tag
 set used by lexical core's `isInlineDomNode` / `isBlockDomNode`
-helpers (`a`, `abbr`, `acronym`, `b`, `cite`, `code`, `del`, `em`,
-`i`, `ins`, `kbd`, `label`, `mark`, `output`, `q`, `ruby`, `s`,
-`samp`, `span`, `strong`, `sub`, `sup`, `time`, `u`, `tt`, `var`).
+helpers (`a`, `abbr`, `acronym`, `b`, `bdi`, `bdo`, `big`, `cite`,
+`code`, `data`, `del`, `dfn`, `em`, `font`, `i`, `ins`, `kbd`, `label`,
+`mark`, `nobr`, `output`, `q`, `ruby`, `s`, `samp`, `small`, `span`,
+`strike`, `strong`, `sub`, `sup`, `time`, `u`, `tt`, `var`).
 The canonical list lives in `packages/lexical/src/LexicalUtils.ts` —
 see the module-private `INLINE_TAG_RE` / `BLOCK_TAG_RE` constants if you
 want to inspect the defaults.

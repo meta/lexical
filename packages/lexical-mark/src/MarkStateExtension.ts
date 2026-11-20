@@ -48,6 +48,7 @@ import {
   COLLABORATION_TAG,
   COMMAND_PRIORITY_CRITICAL,
   COMPOSITION_START_COMMAND,
+  COMPOSITION_START_TAG,
   configExtension,
   CONTROLLED_TEXT_INSERTION_COMMAND,
   createState,
@@ -1055,6 +1056,9 @@ function registerMarkState(
   // with `compositionBase` would then take that update's text for composed
   // text
   let compositionTainted = false;
+  // The selection the composition started with, once its first update is
+  // seen to have replaced it (see $getCompositionReplacedRange)
+  let compositionReplaced: null | readonly [PointLike, PointLike] = null;
   const edit: PendingEdits = {
     removed: new Set(),
     replaced: null,
@@ -1172,6 +1176,13 @@ function registerMarkState(
           if (!editor.isComposing()) {
             compositionBase = null;
             compositionTainted = false;
+            compositionReplaced = null;
+          } else if (tags.has(COMPOSITION_START_TAG)) {
+            compositionReplaced = $getCompositionReplacedRange(
+              editor,
+              compositionBase,
+              editorState,
+            );
           } else if (!compositionTainted && tags.has(COLLABORATION_TAG)) {
             compositionTainted = editorState.read(
               () => {
@@ -1274,17 +1285,23 @@ function registerMarkState(
       }
       if (compositionBase !== null) {
         // The end of a composition: the composed text is compared with the
-        // document from before it, and replaces the selection it had
+        // document from before it, and replaces the selection it had. The
+        // composed text is written into the TextNode the caret was in, which
+        // may be one that existed, so a selection that the composition's
+        // first update was seen to replace is known to be replaced
         if (!compositionTainted) {
           $applyInsertedTextMarkIDs(
             flavor,
             editor,
             compositionBase,
-            compositionBase.read(() => $getReplacedRange($getSelection()), {
-              editor,
-            }),
+            compositionReplaced !== null
+              ? compositionReplaced
+              : compositionBase.read(() => $getReplacedRange($getSelection()), {
+                  editor,
+                }),
             edit.removed,
             splits,
+            compositionReplaced !== null,
           );
         }
         return;
@@ -1305,6 +1322,7 @@ function registerMarkState(
         // compared with the document from before the composition once it ends
         compositionBase = editor.getEditorState();
         compositionTainted = false;
+        compositionReplaced = null;
         return false;
       },
       COMMAND_PRIORITY_CRITICAL,
@@ -1325,6 +1343,7 @@ function registerMarkState(
     () => {
       disposed = true;
       compositionBase = null;
+      compositionReplaced = null;
       forgetEdits(edit);
       if (flavor.editsByEditor.get(editor) === edit) {
         flavor.editsByEditor.delete(editor);
@@ -1475,6 +1494,183 @@ function $getReplacedRange(
     ? [selection.focus, selection.anchor]
     : [selection.anchor, selection.focus];
   return [toPointLike(start), toPointLike(end)];
+}
+
+/**
+ * The text a composition puts in place of the selection it replaces until
+ * the input method writes: nothing, or the core's placeholder (a zero width
+ * or a non-breaking space, depending on the browser).
+ */
+const COMPOSITION_PLACEHOLDERS = ['', '\u200b', '\u00a0'];
+
+/** How {@link $childrenText} writes a child that is not text: one unit. */
+const NON_TEXT_UNIT = '\ufffc';
+
+/**
+ * The text of `block`'s children as {@link $offsetInBlock} counts it: an
+ * inline element's text is its children's, and a child that is not text (a
+ * decorator, a line break) is one unit, whatever its `getTextContent` (often
+ * empty for a decorator, which would let a selection of it span nothing).
+ * `getTextContent` would also put the text of the block's named slots in
+ * front, and an inline element can add text of its own to its
+ * `getTextContent`, neither of which a point in the children counts.
+ */
+function $childrenText(block: ElementNode): string {
+  let text = '';
+  for (const child of block.getChildren()) {
+    if ($isElementNode(child)) {
+      text += child.isInline() ? $childrenText(child) : child.getTextContent();
+    } else {
+      text += $isTextNode(child) ? child.getTextContent() : NON_TEXT_UNIT;
+    }
+  }
+  return text;
+}
+
+/** The size of a leaf in {@link $childrenText}. */
+function $unitSize(node: LexicalNode): number {
+  return $isTextNode(node) ? node.getTextContentSize() : 1;
+}
+
+/**
+ * The offset of `point` in the text of `block`'s children (see
+ * {@link $childrenText}), or -1 when `block` holds a nested block before it
+ * or does not hold the point.
+ */
+function $offsetInBlock(block: ElementNode, point: PointLike): number {
+  let offset = 0;
+  const $walk = (element: ElementNode): boolean => {
+    if (point.type === 'element' && point.key === element.getKey()) {
+      const children = element.getChildren();
+      for (let i = 0; i < point.offset && i < children.length; i++) {
+        if (!$add(children[i])) {
+          return false;
+        }
+      }
+      return true;
+    }
+    for (
+      let child = element.getFirstChild();
+      child !== null;
+      child = child.getNextSibling()
+    ) {
+      if ($isTextNode(child) && child.getKey() === point.key) {
+        offset += point.offset;
+        return true;
+      }
+      if ($isElementNode(child)) {
+        if (!child.isInline()) {
+          offset = -1;
+          return true;
+        }
+        if ($walk(child)) {
+          return true;
+        }
+      } else {
+        offset += $unitSize(child);
+      }
+    }
+    return false;
+  };
+  const $add = (node: LexicalNode): boolean => {
+    if ($isElementNode(node)) {
+      if (!node.isInline()) {
+        return false;
+      }
+      for (const child of node.getChildren()) {
+        if (!$add(child)) {
+          return false;
+        }
+      }
+      return true;
+    }
+    offset += $unitSize(node);
+    return true;
+  };
+  return $walk(block) ? offset : -1;
+}
+
+/**
+ * The selection a composition started with (in `base`, the state from
+ * before the composition), when the update that started it (`started`)
+ * replaced it: its block's text is the text from before it without the
+ * selection, with nothing or the core's placeholder in its place, and the
+ * caret after that or the placeholder selected. Otherwise `null`, as for a
+ * selection that was not
+ * replaced (an application handler moved the caret, or handled the
+ * composition's insertion another way) or that spans blocks.
+ */
+function $getCompositionReplacedRange(
+  editor: LexicalEditor,
+  base: EditorState,
+  started: EditorState,
+): null | readonly [PointLike, PointLike] {
+  const before = base.read(
+    () => {
+      const range = $getReplacedRange($getSelection());
+      if (range === null) {
+        return null;
+      }
+      const startNode = $getNodeByKey(range[0].key);
+      const endNode = $getNodeByKey(range[1].key);
+      const block = startNode !== null ? $getBlock(startNode) : null;
+      if (block === null || endNode === null || !block.is($getBlock(endNode))) {
+        return null;
+      }
+      const start = $offsetInBlock(block, range[0]);
+      const end = $offsetInBlock(block, range[1]);
+      return start < 0 || end < start
+        ? null
+        : {
+            block: block.getKey(),
+            end,
+            range,
+            start,
+            text: $childrenText(block),
+          };
+    },
+    {editor},
+  );
+  if (before === null) {
+    return null;
+  }
+  return started.read(
+    () => {
+      const selection = $getSelection();
+      const block = $getNodeByKey(before.block);
+      if (
+        !$isRangeSelection(selection) ||
+        !$isElementNode(block) ||
+        !block.isAttached()
+      ) {
+        return null;
+      }
+      const anchor = $offsetInBlock(block, toPointLike(selection.anchor));
+      const focus = $offsetInBlock(block, toPointLike(selection.focus));
+      const text = $childrenText(block);
+      const head = before.text.slice(0, before.start);
+      const tail = before.text.slice(before.end);
+      const selected = before.text.slice(before.start, before.end);
+      for (const placeholder of COMPOSITION_PLACEHOLDERS) {
+        // A selection that is the placeholder itself, kept by a start that
+        // wrote nothing, would look replaced: leave it to the comparison
+        if (placeholder !== '' && placeholder === selected) {
+          continue;
+        }
+        const end = before.start + placeholder.length;
+        if (
+          text === head + placeholder + tail &&
+          Math.max(anchor, focus) === end &&
+          (Math.min(anchor, focus) === end ||
+            Math.min(anchor, focus) === before.start)
+        ) {
+          return before.range;
+        }
+      }
+      return null;
+    },
+    {editor},
+  );
 }
 
 function $collectSegments(
@@ -2009,7 +2205,12 @@ function getInsertedRange(
  * was last dispatched, or the one a composition started with. It is only
  * used when the text in its place is in new TextNodes, as the core inserts
  * it, so a handler that wrapped the selection instead is not taken for one
- * that replaced it. Without it (text replaced by code that dispatches no
+ * that replaced it, or when `replacedForSure` says that it was replaced
+ * (the selection a composition started with, which the update that started
+ * the composition was seen to replace, see
+ * {@link $getCompositionReplacedRange}: the composed text is then written
+ * into the TextNode the caret is in, often one that existed).
+ * Without it (text replaced by code that dispatches no
  * command), the longest common subsequence of the two sides of the change
  * tells the units that were kept from those that were inserted or deleted.
  *
@@ -2025,6 +2226,7 @@ function $applyInsertedTextMarkIDs(
   replaced: null | readonly [PointLike, PointLike],
   removed: ReadonlySet<string>,
   splits: SplitOrigins,
+  replacedForSure = false,
 ): void {
   const selection = $getSelection();
   if (!$isRangeSelection(selection) || !selection.isCollapsed()) {
@@ -2327,12 +2529,13 @@ function $applyInsertedTextMarkIDs(
   // The replaced selection, when the text in its place is new text: the
   // core puts the text that replaces a selection in a new TextNode, so a
   // handler that wrapped the selection instead is not mistaken for one
+  // (unless it is known to be replaced, see `replacedForSure`)
   let replacedSelection = false;
   if (replaced !== null) {
     const [start, end] = before.points;
     if (start >= 0 && end > start && end === e && start <= s) {
       replacedSelection = true;
-      for (let i = start; i < c && replacedSelection; i++) {
+      for (let i = start; i < c && replacedSelection && !replacedForSure; i++) {
         replacedSelection = after.kinds[i] > LEAF || $isNewText(after.nodes[i]);
       }
       if (replacedSelection) {

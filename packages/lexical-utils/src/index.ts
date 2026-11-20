@@ -45,6 +45,7 @@ import {
   $getSlotNames,
   $getState,
   $insertNodeToNearestRootAtCaret,
+  $isBlockContainer,
   $isChildCaret,
   $isElementNode,
   $isRangeSelection,
@@ -706,21 +707,34 @@ export function $restoreEditorState(
 
 /**
  * Determine whether anything follows the given caret before the end of its
- * nearest root (see {@link lexical!$isRootOrShadowRoot}).
+ * nearest block container (see {@link lexical!$isBlockContainer}).
  */
 function $hasContentAfter(caret: PointCaret<'next'>): boolean {
-  return (
-    $isExtendableTextPointCaret(caret) ||
-    $getAdjacentSiblingOrParentSiblingCaret(
-      $isTextPointCaret(caret) ? caret.getSiblingCaret() : caret,
-      'shadowRoot',
-    ) !== null
-  );
+  if ($isExtendableTextPointCaret(caret)) {
+    return true;
+  }
+  for (
+    let c: null | NodeCaret<'next'> = $isTextPointCaret(caret)
+      ? caret.getSiblingCaret()
+      : caret;
+    c !== null;
+    c = c.getParentCaret('shadowRoot')
+  ) {
+    if (c.getNodeAtCaret() !== null) {
+      return true;
+    }
+    const parent = $isChildCaret(c) ? c.origin : c.origin.getParent();
+    if ($isBlockContainer(parent)) {
+      return false;
+    }
+  }
+  return false;
 }
 
 /**
- * If the selected insertion area is the root/shadow root node (see {@link lexical!$isRootOrShadowRoot}),
- * the node will be appended there, otherwise, it will be inserted before the insertion area.
+ * If the selected insertion area is a block container (the root, a shadow root
+ * or a declared container, see {@link lexical!$isBlockContainer}), the node
+ * will be appended there, otherwise, it will be inserted before the insertion area.
  * If there is no selection where the node is to be inserted, it will be appended after any current nodes
  * within the tree, as a child of the root node. A paragraph will then be added after the inserted node and selected.
  * @param node - The node to be inserted

@@ -374,6 +374,145 @@ describe('HTML', () => {
     });
   });
 
+  test.each([
+    'bdi',
+    'bdo',
+    'big',
+    'data',
+    'dfn',
+    'font',
+    'nobr',
+    'small',
+    'strike',
+  ])('$generateNodesFromDOM keeps the spaces around an inline <%s>', tag => {
+    const editor = createHeadlessEditor();
+    const dom = new DOMParser().parseFromString(
+      `<p>is <${tag}>old</${tag}> now</p>`,
+      'text/html',
+    );
+    editor.update(
+      () => {
+        const nodes = $generateNodesFromDOM(editor, dom);
+        $insertGeneratedNodes(editor, nodes, $getRoot().select(0));
+      },
+      {discrete: true},
+    );
+    expect(editor.read(() => $getRoot().getTextContent())).toBe('is old now');
+  });
+
+  test('$generateNodesFromDOM breaks the line at an empty block between two inline <font>s, as between two <span>s', () => {
+    const lines = (html: string) => {
+      const editor = createHeadlessEditor();
+      const dom = new DOMParser().parseFromString(html, 'text/html');
+      editor.update(
+        () => {
+          const nodes = $generateNodesFromDOM(editor, dom);
+          $insertGeneratedNodes(editor, nodes, $getRoot().select(0));
+        },
+        {discrete: true},
+      );
+      return editor.read(() => $getRoot().getTextContent());
+    };
+    expect(lines('<div><span>a</span><div></div><span>b</span></div>')).toBe(
+      'a\nb',
+    );
+    expect(lines('<div><font>a</font><div></div><font>b</font></div>')).toBe(
+      'a\nb',
+    );
+  });
+
+  // Word for the web writes each run as a styled <span> around another
+  // <span> holding the text.
+  test.each([
+    ['font-weight: bold', 'bold'],
+    ['font-style: italic', 'italic'],
+    ['text-decoration: underline', 'underline'],
+    ['text-decoration: line-through', 'strikethrough'],
+  ] as const)(
+    '$generateNodesFromDOM keeps %s from a <span> around another <span>',
+    (style, format) => {
+      const editor = createHeadlessEditor();
+      const dom = new DOMParser().parseFromString(
+        `<p>a <span style="${style}"><span class="run">b</span></span> c</p>`,
+        'text/html',
+      );
+      editor.update(
+        () => {
+          const nodes = $generateNodesFromDOM(editor, dom);
+          $insertGeneratedNodes(editor, nodes, $getRoot().select(0));
+        },
+        {discrete: true},
+      );
+      expect(
+        editor.read(() =>
+          $getRoot()
+            .getAllTextNodes()
+            .map(node => [node.getTextContent(), node.hasFormat(format)]),
+        ),
+      ).toEqual([
+        ['a ', false],
+        ['b', true],
+        [' c', false],
+      ]);
+    },
+  );
+
+  test('$generateNodesFromDOM combines the formats of nested <span>s', () => {
+    const editor = createHeadlessEditor();
+    const dom = new DOMParser().parseFromString(
+      '<p><span style="font-style: italic"><span style="font-weight: bold">b</span></span></p>',
+      'text/html',
+    );
+    editor.update(
+      () => {
+        const nodes = $generateNodesFromDOM(editor, dom);
+        $insertGeneratedNodes(editor, nodes, $getRoot().select(0));
+      },
+      {discrete: true},
+    );
+    expect(
+      editor.read(() => {
+        const [text] = $getRoot().getAllTextNodes();
+        return [text.hasFormat('italic'), text.hasFormat('bold')];
+      }),
+    ).toEqual([true, true]);
+  });
+
+  // An inner element only adds formats, as it does across different tags,
+  // and the formats of one span do not reach the span next to it.
+  test.each([
+    [
+      'an inner font-weight: normal keeps the outer bold',
+      '<span style="font-weight: bold"><span style="font-weight: normal">x</span></span>',
+      [['x', true]],
+    ],
+    [
+      'the next span does not take the bold',
+      '<span style="font-weight: bold"><span>a</span></span><span><span>b</span></span>',
+      [
+        ['a', true],
+        ['b', false],
+      ],
+    ],
+  ])('$generateNodesFromDOM with nested <span>s: %s', (_, html, expected) => {
+    const editor = createHeadlessEditor();
+    const dom = new DOMParser().parseFromString(`<p>${html}</p>`, 'text/html');
+    editor.update(
+      () => {
+        const nodes = $generateNodesFromDOM(editor, dom);
+        $insertGeneratedNodes(editor, nodes, $getRoot().select(0));
+      },
+      {discrete: true},
+    );
+    expect(
+      editor.read(() =>
+        $getRoot()
+          .getAllTextNodes()
+          .map(node => [node.getTextContent(), node.hasFormat('bold')]),
+      ),
+    ).toEqual(expected);
+  });
+
   describe('importDOM preserves dir attribute', () => {
     function importAndGetDirection(html: string): string | null {
       const editor = createHeadlessEditor({

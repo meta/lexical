@@ -28,6 +28,7 @@ import {
   createCommand,
   DRAGSTART_COMMAND,
   getActiveElement,
+  HISTORIC_TAG,
   KEY_ENTER_COMMAND,
   KEY_ESCAPE_COMMAND,
   type LexicalCommand,
@@ -44,6 +45,7 @@ import {
   Suspense,
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -72,7 +74,7 @@ export const RIGHT_CLICK_IMAGE_COMMAND: LexicalCommand<MouseEvent> =
 function DisableCaptionOnBlur({
   setShowCaption,
 }: {
-  setShowCaption: (show: boolean) => void;
+  setShowCaption: (show: boolean, skipHistory?: boolean) => void;
 }) {
   const [editor] = useLexicalComposerContext();
   useEffect(() =>
@@ -80,12 +82,72 @@ function DisableCaptionOnBlur({
       BLUR_COMMAND,
       () => {
         if ($isCaptionEditorEmpty()) {
-          setShowCaption(false);
+          // Hiding an empty caption on blur is not an edit. In the shared
+          // history it would push an entry and clear the redo stack, so a
+          // click on the toolbar's Redo button would lose what it was about
+          // to redo.
+          setShowCaption(false, true);
         }
         return false;
       },
       COMMAND_PRIORITY_EDITOR,
     ),
+  );
+  return null;
+}
+
+/**
+ * The caption shares its parent's history, so an undo pressed inside the
+ * caption can hide it. If the focused caption is removed, focus falls to the
+ * document body, where keyboard shortcuts such as redo no longer reach the
+ * editor. Hand focus back to the parent editor once the caption is gone.
+ *
+ * `containerRef` holds the last mounted caption container. A plain object ref
+ * would not work here: this effect is set up before the container's ref is
+ * attached, and torn down after it is detached. The check waits for the
+ * commit to finish because the cleanup also runs when StrictMode replays the
+ * effect, and the container is only disconnected on a real unmount.
+ */
+function ReturnFocusOnUnmount({
+  containerRef,
+}: {
+  containerRef: React.RefObject<HTMLDivElement | null>;
+}) {
+  const [editor] = useLexicalComposerContext();
+  useLayoutEffect(
+    () => () => {
+      const container = containerRef.current;
+      if (
+        container === null ||
+        !container.contains(getActiveElement(container))
+      ) {
+        return;
+      }
+      queueMicrotask(() => {
+        const rootElement = editor.getRootElement();
+        if (container.isConnected || rootElement === null) {
+          return;
+        }
+        const activeElement = getActiveElement(rootElement);
+        if (
+          activeElement === null ||
+          activeElement === rootElement.ownerDocument.body
+        ) {
+          // Focus inside an update, as $onEscape does, so the reconciler
+          // redraws the restored selection. Chromium can still show its own
+          // caret from the key event that ran the undo; typing then behaves as
+          // it does after a plain click on the image.
+          editor.update(() => {
+            rootElement.focus({preventScroll: true});
+            const selection = $getSelection();
+            if (selection !== null) {
+              $setSelection(selection.clone());
+            }
+          });
+        }
+      });
+    },
+    [containerRef, editor],
   );
   return null;
 }
@@ -260,6 +322,14 @@ export default function ImageComponent({
 }): JSX.Element {
   const imageRef = useRef<null | HTMLImageElement>(null);
   const buttonRef = useRef<HTMLButtonElement | null>(null);
+  const captionContainerRef = useRef<HTMLDivElement | null>(null);
+  const setCaptionContainer = useCallback((node: HTMLDivElement | null) => {
+    // Keep the last container on detach so ReturnFocusOnUnmount can still
+    // see where focus was.
+    if (node !== null) {
+      captionContainerRef.current = node;
+    }
+  }, []);
   const [isSelected, setSelected, clearSelection] =
     useLexicalNodeSelection(nodeKey);
   const [isResizing, setIsResizing] = useState<boolean>(false);
@@ -424,20 +494,25 @@ export default function ImageComponent({
     );
   }, [editor, $onEnter, $onEscape, onClick, onRightClick]);
 
-  const setShowCaption = (show: boolean) => {
-    editor.update(() => {
-      const node = $getNodeByKey(nodeKey);
-      if ($isImageNode(node)) {
-        node.setShowCaption(show);
-        if (show) {
-          node.__caption.update(() => {
-            if (!$getSelection()) {
-              $getRoot().selectEnd();
-            }
-          });
+  const setShowCaption = (show: boolean, skipHistory = false) => {
+    editor.update(
+      () => {
+        const node = $getNodeByKey(nodeKey);
+        if ($isImageNode(node)) {
+          node.setShowCaption(show);
+          if (show) {
+            node.__caption.update(() => {
+              if (!$getSelection()) {
+                $getRoot().selectEnd();
+              }
+            });
+          }
         }
-      }
-    });
+      },
+      // HISTORIC_TAG also keeps the change out of Yjs, and collab does not use
+      // this history (the Yjs undo manager does), so only skip it locally.
+      skipHistory && !isCollabActive ? {tag: HISTORIC_TAG} : undefined,
+    );
   };
 
   const onResizeEnd = (
@@ -494,10 +569,12 @@ export default function ImageComponent({
 
         {showCaption && (
           <div
+            ref={setCaptionContainer}
             className="image-caption-container"
             title={
               isCaptionReadOnly ? COLLAB_Y_NESTED_EDITOR_NOTICE : undefined
             }>
+            <ReturnFocusOnUnmount containerRef={captionContainerRef} />
             <LexicalExtensionEditorComposer initialEditor={caption}>
               <DisableCaptionOnBlur setShowCaption={setShowCaption} />
               {isCollabActive ? (

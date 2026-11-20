@@ -101,6 +101,7 @@ test('a remote format change in a table this client deleted: no format cleanup, 
 describe('a document that loads a stored state before the binding (S7-14)', () => {
   const config: HeadlessYConfig = {
     extensions: [MarkStateExtension],
+    onWarn: null,
     schemaVersion: 1,
   };
 
@@ -166,6 +167,7 @@ describe('a document that loads a stored state before the binding (S7-14)', () =
           MarkStateExtension,
           configExtension(YCollabExtension, {
             doc,
+            onYStatus: null,
             schemaVersion: 1,
             selfCheck: true,
             synced: true,
@@ -227,7 +229,7 @@ describe('a document that loads a stored state before the binding (S7-14)', () =
       [UNSUPPORTED_CONFIG_WARNING, {reason: 'cleanup-formatting'}],
     ]);
     expect((c.warnings[0] as LexicalWarning).message).toBe(
-      'the document cleans up formats: create it with createYDoc',
+      'the document cleans up formats: create it with createYDoc() instead of new Y.Doc(). Nothing is written until then',
     );
     // It still shows the document, and writes nothing.
     Y.applyUpdate(plain, insert);
@@ -328,12 +330,20 @@ describe('a document that loads a stored state before the binding (S7-14)', () =
     const editor = createEditor({});
     expect(() =>
       // @ts-expect-error - a plain Y.Doc may have run Yjs's format cleanup
-      new YBinding(editor, new Y.Doc(), {schemaVersion: 1}).dispose(),
+      new YBinding(editor, new Y.Doc(), {
+        onStatus: null,
+        schemaVersion: 1,
+      }).dispose(),
     ).not.toThrow();
     expect(() =>
       buildEditorFromExtensions(
-        // @ts-expect-error - a plain Y.Doc may have run Yjs's format cleanup
-        configExtension(YCollabExtension, {doc: new Y.Doc(), schemaVersion: 1}),
+        configExtension(YCollabExtension, {
+          // @ts-expect-error - a plain Y.Doc may have run Yjs's format cleanup
+          doc: new Y.Doc(),
+
+          onYStatus: null,
+          schemaVersion: 1,
+        }),
       ).dispose(),
     ).not.toThrow();
     // @ts-expect-error - a Y.Doc is not a YDoc without createYDoc

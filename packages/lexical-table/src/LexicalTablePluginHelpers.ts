@@ -19,6 +19,7 @@ import {
 import {
   $createParagraphNode,
   $findMatchingParent,
+  $getEditor,
   $getNearestNodeFromDOMNode,
   $getPreviousSelection,
   $getRoot,
@@ -33,6 +34,7 @@ import {
   COMMAND_PRIORITY_HIGH,
   COMMAND_PRIORITY_LOW,
   type CommandPayloadType,
+  type EditorState,
   type ElementNode,
   isDOMNode,
   type LexicalEditor,
@@ -107,24 +109,104 @@ function $insertTable(
   return true;
 }
 
+/**
+ * Per update (its pending editor state), by table, the rows that lost cells
+ * in the update (see $tableRowTransform): what the table's transform pads
+ * when the update did not change the table's rows (see $tableTransform).
+ */
+const rowsLost = new WeakMap<EditorState, Map<NodeKey, Set<NodeKey>>>();
+
+/** The rows of `table` that lost cells in the running update, if any. */
+function $rowsLost(table: TableNode): Set<NodeKey> | undefined {
+  const pending = $getEditor()._pendingEditorState;
+  const tables = pending === null ? undefined : rowsLost.get(pending);
+  return tables === undefined ? undefined : tables.get(table.getKey());
+}
+
 function $tableCellTransform(node: TableCellNode) {
-  if (!$isTableRowNode(node.getParent())) {
+  const row = node.getParent();
+  if (!$isTableRowNode(row)) {
     // TableCellNode must be a child of TableRowNode.
     node.remove();
-  } else if (node.isEmpty()) {
+    return;
+  }
+  if (node.isEmpty()) {
     // TableCellNode should never be empty
     node.append($createParagraphNode());
+  }
+  // A cell changed (its span raised) after rows of its table lost cells in
+  // this update: the table's width may have changed, so the table's
+  // transform pads those rows again.
+  const table = row.getParent();
+  if ($isTableNode(table) && $rowsLost(table) !== undefined) {
+    table.markDirty();
   }
 }
 
 function $tableRowTransform(node: TableRowNode) {
-  if (!$isTableNode(node.getParent())) {
+  const table = node.getParent();
+  if (!$isTableNode(table)) {
     // TableRowNode must be a child of TableNode.
     // TODO: Future support of tbody/thead/tfoot may change this
     node.remove();
   } else {
     $unwrapAndFilterDescendants(node, $isTableCellNode);
+    // A row that lost cells (a delete across cells removes some) can be
+    // shorter than the table. The table's transform pads it, and Lexical
+    // runs that only on a table marked dirty itself, which a change to one
+    // of its rows does not do. A row that gained cells (a column insert, an
+    // app's own padding of its rows, which may count cells where the table
+    // counts grid positions) is left as its author made it: padding it to
+    // the table's width had two clients that each pad the rows they created
+    // pad each other's rows again without end. A row that changed after
+    // rows lost cells in this update (it grew) marks the table again, so
+    // those rows are padded to the width the table has now.
+    const editor = $getEditor();
+    const pending = editor._pendingEditorState;
+    const previous = editor._editorState._nodeMap.get(node.getKey());
+    if (
+      pending !== null &&
+      $isTableRowNode(previous) &&
+      node.getChildrenSize() < previous.__size
+    ) {
+      let tables = rowsLost.get(pending);
+      if (tables === undefined) {
+        tables = new Map();
+        rowsLost.set(pending, tables);
+      }
+      let rows = tables.get(table.getKey());
+      if (rows === undefined) {
+        rows = new Set();
+        tables.set(table.getKey(), rows);
+      }
+      rows.add(node.getKey());
+      table.markDirty();
+    } else if ($rowsLost(table) !== undefined) {
+      table.markDirty();
+    }
   }
+}
+
+/**
+ * Whether the running update left the rows of `table` as they were (the
+ * same rows in the same order, in a table that was there before it).
+ */
+function $sameRows(table: TableNode): boolean {
+  const before = $getEditor()._editorState._nodeMap;
+  const previous = before.get(table.getKey());
+  if (!$isTableNode(previous)) {
+    return false;
+  }
+  const keys = table.getChildrenKeys();
+  let key = previous.__first;
+  for (const current of keys) {
+    if (key !== current) {
+      return false;
+    }
+    const row = before.get(key);
+    key = row === undefined ? null : row.__next;
+  }
+  return key === null;
 }
 
 function $tableTransform(node: TableNode) {
@@ -132,7 +214,20 @@ function $tableTransform(node: TableNode) {
   // TODO: Future support of tbody/thead/tfoot/caption may change this
   $unwrapAndFilterDescendants(node, $isTableRowNode);
 
-  $padTableRows(node);
+  // A new table, or one whose rows the update changed (a row added,
+  // removed or moved), gets all its rows padded. One whose rows are the ones
+  // it had gets the rows that lost cells padded, and no other, also when
+  // the update changed only the table itself (its striping): the other
+  // short rows (a table ragged by collaborators' concurrent row and column
+  // inserts) are their authors' to pad, and a client padding them at the
+  // same time as their authors duplicates cells, which makes the other rows
+  // short in turn.
+  const rows = $rowsLost(node);
+  if (!$sameRows(node)) {
+    $padTableRows(node);
+  } else if (rows !== undefined) {
+    $padTableRows(node, row => rows.has(row.getKey()));
+  }
   const colWidths = node.getColWidths();
   const columnCount = node.getColumnCount();
   if (colWidths && colWidths.length !== columnCount) {

@@ -191,6 +191,7 @@ export type {
   CompactSerializedEditorState,
   EditorState,
   EditorStateReadOptions,
+  EditorStateToJSONOptions,
   ParsableSerializedEditorState,
   SerializedEditorState,
 } from './LexicalEditorState';
@@ -364,8 +365,10 @@ export {
 } from './LexicalSlot';
 export type {DeclaredNodeStructure} from './LexicalStructure';
 export {
+  $isBlockContainer,
   getDeclaredNodeStructure,
   INTERNAL_$normalizeNodeStructure,
+  INTERNAL_isInlineContent,
   INTERNAL_isNodeStructureEnforced,
   INTERNAL_registerNodeStructure,
 } from './LexicalStructure';
@@ -374,7 +377,9 @@ export {
   $flushSyncAfterUpdate,
   $fullReconcile,
   $parseSerializedNode,
+  INTERNAL_getActiveEditorState,
   isCurrentlyReadOnlyMode,
+  isDispatchingCommitListeners,
 } from './LexicalUpdates';
 export {
   $addUpdateTag,
@@ -384,6 +389,7 @@ export {
   $copyNode,
   $create,
   $createChildrenArray,
+  $deepCopy,
   $findMatchingParent,
   $getAdjacentNode,
   $getDocument,
@@ -446,6 +452,7 @@ export {
   getStaticNodeConfig,
   getTextDirection,
   INTERNAL_$isBlock,
+  INTERNAL_$withExportMemo,
   isBlockDomNode,
   isDocumentFragment,
   isDOMCapturingSelection,
