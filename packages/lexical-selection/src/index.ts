@@ -20,6 +20,10 @@ export {
   $trimTextContentFromAnchor,
 } from './lexical-node';
 export {
+  $convertContiguousNodeSelection,
+  $exitNodeSelectionToward,
+} from './node-selection';
+export {
   $copyBlockFormatIndent,
   $getSelectionStyleValueForProperty,
   $isAtEdgeOfElement,

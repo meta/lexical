@@ -18,6 +18,9 @@ import {
   NormalizeTripleClickSelectionExtension,
 } from '@lexical/extension';
 import {
+  $convertContiguousNodeSelection,
+  $exitNodeSelectionToward,
+  $isParentRTL,
   $moveCharacter,
   $shouldOverrideDefaultCharacterSelection,
 } from '@lexical/selection';
@@ -26,9 +29,11 @@ import {
   $getSelection,
   $getSlotFrame,
   $isEventFromEmbeddedInput,
+  $isNodeSelection,
   $isRangeSelection,
   $selectAll,
   CAN_USE_BEFORE_INPUT,
+  type CaretDirection,
   COMMAND_PRIORITY_EDITOR,
   type CommandPayloadType,
   CONTROLLED_TEXT_INSERTION_COMMAND,
@@ -46,18 +51,43 @@ import {
   IS_APPLE_WEBKIT,
   IS_IOS,
   IS_SAFARI,
+  KEY_ARROW_DOWN_COMMAND,
   KEY_ARROW_LEFT_COMMAND,
   KEY_ARROW_RIGHT_COMMAND,
+  KEY_ARROW_UP_COMMAND,
   KEY_BACKSPACE_COMMAND,
   KEY_DELETE_COMMAND,
   KEY_ENTER_COMMAND,
   type LexicalEditor,
   mergeRegister,
+  type NodeSelection,
   PASTE_COMMAND,
   PASTE_TAG,
   REMOVE_TEXT_COMMAND,
   SELECT_ALL_COMMAND,
 } from 'lexical';
+
+/**
+ * Answers an arrow key for a NodeSelection as rich text does. With Shift, a
+ * contiguous NodeSelection becomes the range it covers, for the key to extend
+ * (false); otherwise the caret moves to the node's side in `direction` (true).
+ */
+function $exitNodeSelection(
+  event: KeyboardEvent,
+  selection: NodeSelection,
+  direction: CaretDirection,
+): boolean {
+  const nodes = selection.getNodes();
+  if (nodes.length === 0) {
+    return false;
+  }
+  if (event.shiftKey && $convertContiguousNodeSelection(selection, direction)) {
+    return false;
+  }
+  event.preventDefault();
+  $exitNodeSelectionToward(nodes[0], direction);
+  return true;
+}
 
 function onCopyForPlainText(
   event: CommandPayloadType<typeof COPY_COMMAND>,
@@ -252,13 +282,23 @@ export function registerPlainText(editor: LexicalEditor): () => void {
     editor.registerCommand(
       KEY_ARROW_LEFT_COMMAND,
       payload => {
-        const selection = $getSelection();
+        let selection = $getSelection();
+        const event = payload;
+
+        if ($isNodeSelection(selection)) {
+          const [node] = selection.getNodes();
+          const direction =
+            node !== undefined && $isParentRTL(node) ? 'next' : 'previous';
+          if ($exitNodeSelection(event, selection, direction)) {
+            return true;
+          }
+          selection = $getSelection();
+        }
 
         if (!$isRangeSelection(selection)) {
           return false;
         }
 
-        const event = payload;
         const isHoldingShift = event.shiftKey;
 
         if ($shouldOverrideDefaultCharacterSelection(selection, true)) {
@@ -274,13 +314,23 @@ export function registerPlainText(editor: LexicalEditor): () => void {
     editor.registerCommand(
       KEY_ARROW_RIGHT_COMMAND,
       payload => {
-        const selection = $getSelection();
+        let selection = $getSelection();
+        const event = payload;
+
+        if ($isNodeSelection(selection)) {
+          const [node] = selection.getNodes();
+          const direction =
+            node !== undefined && $isParentRTL(node) ? 'previous' : 'next';
+          if ($exitNodeSelection(event, selection, direction)) {
+            return true;
+          }
+          selection = $getSelection();
+        }
 
         if (!$isRangeSelection(selection)) {
           return false;
         }
 
-        const event = payload;
         const isHoldingShift = event.shiftKey;
 
         if ($shouldOverrideDefaultCharacterSelection(selection, false)) {
@@ -290,6 +340,28 @@ export function registerPlainText(editor: LexicalEditor): () => void {
         }
 
         return false;
+      },
+      COMMAND_PRIORITY_EDITOR,
+    ),
+    editor.registerCommand(
+      KEY_ARROW_UP_COMMAND,
+      event => {
+        const selection = $getSelection();
+        return (
+          $isNodeSelection(selection) &&
+          $exitNodeSelection(event, selection, 'previous')
+        );
+      },
+      COMMAND_PRIORITY_EDITOR,
+    ),
+    editor.registerCommand(
+      KEY_ARROW_DOWN_COMMAND,
+      event => {
+        const selection = $getSelection();
+        return (
+          $isNodeSelection(selection) &&
+          $exitNodeSelection(event, selection, 'next')
+        );
       },
       COMMAND_PRIORITY_EDITOR,
     ),
