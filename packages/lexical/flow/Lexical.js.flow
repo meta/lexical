@@ -1353,6 +1353,11 @@ declare export function $splitNode(
   node: ElementNode,
   offset: number,
 ): [ElementNode | null, ElementNode];
+/** @internal */
+declare export function $appendAll(
+  parent: ElementNode,
+  nodes: ReadonlyArray<LexicalNode>,
+): void;
 declare export function $setDirectionFromDOM<T extends ElementNode>(
   node: T,
   domNode: HTMLElement,

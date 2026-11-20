@@ -279,7 +279,7 @@ export interface ImportNodeOpts {
 /**
  * A {@link ChildSchema} encodes which lexical nodes a parent accepts as
  * children and how to package or reject the rest. The legacy
- * `wrapContinuousInlines` / `ArtificialNode__DO_NOT_USE` logic is the
+ * `$wrapContinuousInlines` / `ArtificialNode__DO_NOT_USE` logic is the
  * `BlockSchema` and `NestedBlockSchema` cases of this primitive.
  *
  * A schema only controls how the *children* are assembled before being
