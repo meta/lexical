@@ -33,6 +33,7 @@ import {$setBlocksType} from '@lexical/selection';
 import {
   $createParagraphNode,
   $createTextNode,
+  $deepCopy,
   $getRoot,
   $getSelection,
   $isElementNode,
@@ -45,7 +46,6 @@ import {afterEach, describe, expect, test} from 'vitest';
 import {
   $block,
   $caretAt,
-  $deepCopy,
   $enter,
   $join,
   $type,

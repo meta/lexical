@@ -515,11 +515,11 @@ class CollabBinding implements YCollabBinding {
   private textOf(json: SerializedEditorState): string {
     const editor = this.binding.editor;
     try {
-      return editor
-        .parseEditorState(json)
-        .read(() => $getRoot().getTextContent());
+      return editor.read(editor.parseEditorState(json), () =>
+        $getRoot().getTextContent(),
+      );
     } catch {
-      return editor.getEditorState().read(() => $getRoot().getTextContent());
+      return editor.read('latest', () => $getRoot().getTextContent());
     }
   }
 

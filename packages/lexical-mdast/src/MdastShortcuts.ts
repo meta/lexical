@@ -441,8 +441,8 @@ export function registerMarkdownShortcuts(
         // character heuristics below.
         const isCompositionEnd = tags.has(COMPOSITION_END_TAG);
 
-        const selection = editorState.read($getSelection);
-        const prevSelection = prevEditorState.read($getSelection);
+        const selection = editor.read(editorState, $getSelection);
+        const prevSelection = editor.read(prevEditorState, $getSelection);
         if (
           !$isRangeSelection(selection) ||
           !$isRangeSelection(prevSelection) ||
@@ -472,7 +472,9 @@ export function registerMarkdownShortcuts(
         ) {
           return;
         }
-        const textContent = editorState.read(() => anchorNode.getTextContent());
+        const textContent = editor.read(editorState, () =>
+          anchorNode.getTextContent(),
+        );
         const typedChar = textContent[anchorOffset - 1];
         if (isCompositionEnd && !compositionEndTriggers.has(typedChar)) {
           return;

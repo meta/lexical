@@ -60,7 +60,11 @@ import {
 import {gfmAutolinkLiteral} from 'micromark-extension-gfm-autolink-literal';
 import {gfmTaskListItem} from 'micromark-extension-gfm-task-list-item';
 
-import {compileMdast, getStrikethroughSyntax} from './compile';
+import {
+  compileMdast,
+  getStrikethroughSyntax,
+  referenceAgnostic,
+} from './compile';
 import {
   $exportCode,
   $exportHeading,
@@ -424,7 +428,12 @@ export const MdastTaskListExtension = defineExtension({
     MdastListExtension,
     configExtension(MdastExtension, {
       mdastExtensions: [/* @__PURE__ */ gfmTaskListItemFromMarkdown()],
-      micromarkExtensions: [/* @__PURE__ */ gfmTaskListItem()],
+      // A check is `[` at the start of a list item, then whitespace, `x` or
+      // `X`, then `]` right after it, and the export escapes a `[` that
+      // opens no link. A reference rewritten after a link's `[` has a run
+      // right after it, where a check needs its `]`, and one before the `[`
+      // leaves the `[` where it was.
+      micromarkExtensions: [referenceAgnostic(gfmTaskListItem)],
       toMarkdownExtensions: [/* @__PURE__ */ gfmTaskListItemToMarkdown()],
     }),
   ],
@@ -486,7 +495,11 @@ export const MdastAutolinkLiteralExtension = defineExtension({
     MdastLinkExtension,
     configExtension(MdastExtension, {
       mdastExtensions: [/* @__PURE__ */ gfmAutolinkLiteralFromMarkdown()],
-      micromarkExtensions: [/* @__PURE__ */ gfmAutolinkLiteral()],
+      // Its `+ - . _` start only an email literal, which needs an `@` that
+      // the export escapes outside a link's text, where micromark starts no
+      // literal, and gfmAutolinkLiteralFromMarkdown finds literals in the
+      // decoded text, where a reference is its character.
+      micromarkExtensions: [referenceAgnostic(gfmAutolinkLiteral)],
       toMarkdownExtensions: [/* @__PURE__ */ gfmAutolinkLiteralToMarkdown()],
     }),
   ],

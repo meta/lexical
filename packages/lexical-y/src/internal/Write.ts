@@ -1146,6 +1146,7 @@ export class Writer {
               ? {key: selection.anchor.key, offset: selection.anchor.offset}
               : null,
             editor._compositionKey !== null,
+            editor,
           )
         : null;
     }
@@ -3378,7 +3379,7 @@ export class Writer {
     // carried onto its tokens), see keepMadeAsStored. In the atoms' terms
     // (see $pushInline): a text node's text, a line break's newline, a
     // wrapper's content, one atom for any other node (an inline decorator).
-    const before = this.prevState.read(() => {
+    const before = this.state.editor.read(this.prevState, () => {
       const prev = $getNodeByKey(key);
       if (!$isElementNode(prev)) {
         return null;
@@ -5984,10 +5985,12 @@ export class Writer {
     const owner = $getNodeByKey(hidden.ownerKey);
     const textKept =
       (owner !== null && owner.isAttached()) ||
-      ownerTextKeys(this.prevState, hidden.ownerKey).some(key => {
-        const text = $getNodeByKey(key);
-        return text !== null && text.isAttached();
-      });
+      ownerTextKeys(this.state.editor, this.prevState, hidden.ownerKey).some(
+        key => {
+          const text = $getNodeByKey(key);
+          return text !== null && text.isAttached();
+        },
+      );
     hidden.missed = true;
     if (__DEV__ && textKept) {
       console.warn(

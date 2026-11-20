@@ -175,13 +175,17 @@ describe('LexicalTextNode tests', () => {
           return root.__cachedText;
         }),
       );
-      expect(getEditorStateTextContent(editor.getEditorState())).toBe('Text');
+      expect(getEditorStateTextContent(editor.getEditorState(), editor)).toBe(
+        'Text',
+      );
 
       // Make sure that the editor content is still set after further reconciliations
       await update(() => {
         $getNodeByKey(nodeKey)!.markDirty();
       });
-      expect(getEditorStateTextContent(editor.getEditorState())).toBe('Text');
+      expect(getEditorStateTextContent(editor.getEditorState(), editor)).toBe(
+        'Text',
+      );
     });
 
     test('prepend node', async () => {
@@ -201,7 +205,7 @@ describe('LexicalTextNode tests', () => {
         previousTextNode.insertBefore(textNode);
       });
 
-      expect(getEditorStateTextContent(editor.getEditorState())).toBe(
+      expect(getEditorStateTextContent(editor.getEditorState(), editor)).toBe(
         'Hello World',
       );
     });
@@ -1048,6 +1052,8 @@ describe('LexicalTextNode tests', () => {
       expect(selection.focus.offset).toBe(1);
     });
 
-    expect(getEditorStateTextContent(editor.getEditorState())).toBe('123');
+    expect(getEditorStateTextContent(editor.getEditorState(), editor)).toBe(
+      '123',
+    );
   });
 });

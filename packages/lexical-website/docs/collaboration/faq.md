@@ -80,7 +80,7 @@ no-op provider for Yjs:
       applyUpdate(binding.doc, yDocState, {isUpdateRemote: true});
       editor.update(() => {}, {discrete: true});
 
-      return editor.getEditorState().toJSON();
+      return editor.read('latest', () => editor.getEditorState().toJSON());
     });
   }
 

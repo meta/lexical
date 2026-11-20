@@ -515,7 +515,7 @@ export function checkContainer(
   if (state.differsOnPurpose()) {
     return [];
   }
-  const live = editorState.read(() => {
+  const live = state.editor.read(editorState, () => {
     const node = $getNodeByKey(cs.key);
     return $isElementNode(node) && node.isAttached()
       ? $deepJSON(node, $runNodes(state))

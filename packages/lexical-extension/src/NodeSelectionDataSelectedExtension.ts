@@ -101,7 +101,7 @@ export const NodeSelectionDataSelectedExtension = defineExtension({
     const marked = new Map<NodeKey, HTMLElement>();
     const syncFromEditorState = (editorState: EditorState) => {
       const nextKeys = new Set<NodeKey>();
-      editorState.read(() => {
+      editor.read(editorState, () => {
         const selection = $getSelection();
         if ($isNodeSelection(selection)) {
           for (const node of selection.getNodes()) {
