@@ -19,14 +19,17 @@ import {
 } from '@lexical/react/LexicalTypeaheadMenuPlugin';
 import {
   $createParagraphNode,
+  $createTextNode,
   $getRoot,
   $getSelection,
   $isRangeSelection,
   $isTextNode,
   $setCompositionKey,
   DELETE_CHARACTER_COMMAND,
+  KEY_ENTER_COMMAND,
   type LexicalEditor,
   ParagraphNode,
+  type RangeSelection,
   type TextNode,
 } from 'lexical';
 import * as React from 'react';
@@ -785,6 +788,109 @@ describe('LexicalTypeaheadMenuPlugin', () => {
       expect(
         document.querySelector('[data-testid="custom-typeahead"]'),
       ).toBeNull();
+    });
+  });
+
+  describe('picking an option before the latest query renders', () => {
+    beforeEach(() => {
+      class ResizeObserverMock {
+        constructor(_callback: unknown) {}
+        observe() {}
+        unobserve() {}
+        disconnect() {}
+      }
+      vi.stubGlobal('ResizeObserver', ResizeObserverMock);
+    });
+
+    afterEach(() => {
+      vi.unstubAllGlobals();
+    });
+
+    // The menu renders each new query in a transition. act() holds every render
+    // until its callback returns, so the pick happens while the menu still
+    // shows the previous query.
+    async function pickAfterEdit(
+      text: string,
+      edit: (selection: RangeSelection) => void,
+    ) {
+      const editorRef = React.createRef<LexicalEditor>();
+      const onSelectOption = vi.fn(
+        (
+          option: TestMenuOption,
+          nodeToReplace: TextNode | null,
+          closeMenu: () => void,
+          _matchingString: string,
+        ) => {
+          nodeToReplace?.replace($createTextNode(`[${option.title}]`));
+          closeMenu();
+        },
+      );
+      function Harness() {
+        const triggerFn = useBasicTypeaheadTriggerMatch('/', {minLength: 0});
+        return (
+          <LexicalTypeaheadMenuPlugin<TestMenuOption>
+            onQueryChange={vi.fn()}
+            onSelectOption={onSelectOption}
+            triggerFn={triggerFn}
+            options={TEST_OPTIONS}
+          />
+        );
+      }
+      const App = createApp(
+        <>
+          <EditorRefPlugin editorRef={editorRef} />
+          <Harness />
+        </>,
+      );
+      await act(async () => {
+        reactRoot.render(<App />);
+      });
+      const editor = editorRef.current!;
+      await act(async () => {
+        editor.update(() => {
+          $getRoot()
+            .clear()
+            .append($createParagraphNode())
+            .select()
+            .insertText(text);
+        });
+      });
+      expect(document.querySelector('.typeahead-popover')).not.toBeNull();
+
+      await act(async () => {
+        editor.update(
+          () => {
+            const selection = $getSelection();
+            assert($isRangeSelection(selection), 'expected a range selection');
+            edit(selection);
+          },
+          {discrete: true},
+        );
+        editor.dispatchCommand(KEY_ENTER_COMMAND, null);
+      });
+
+      expect(onSelectOption).toHaveBeenCalledTimes(1);
+      return {
+        matchingString: onSelectOption.mock.calls[0][3],
+        text: editor.read(() => $getRoot().getTextContent()),
+      };
+    }
+
+    it('replaces the whole query after more was typed', async () => {
+      const result = await pickAfterEdit('hello /al', selection =>
+        selection.insertText('ph'),
+      );
+      expect(result).toEqual({matchingString: 'alph', text: 'hello [Alpha]'});
+    });
+
+    it('keeps the text before the query after characters were deleted', async () => {
+      const result = await pickAfterEdit('hello /alpha', selection => {
+        const {offset} = selection.anchor;
+        const node = selection.anchor.getNode();
+        assert($isTextNode(node), 'expected a text node');
+        node.spliceText(offset - 3, 3, '', true);
+      });
+      expect(result).toEqual({matchingString: 'al', text: 'hello [Alpha]'});
     });
   });
 

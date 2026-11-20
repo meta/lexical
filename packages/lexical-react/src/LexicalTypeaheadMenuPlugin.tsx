@@ -167,7 +167,10 @@ export function LexicalTypeaheadMenuPlugin<TOption extends MenuOption>({
 }: TypeaheadMenuPluginProps<TOption>): JSX.Element | null {
   const [editor] = useLexicalComposerContext();
   const [resolution, setResolution] = useState<MenuResolution | null>(null);
-  const openGenerationRef = useRef(0);
+  // The resolution last passed to openTypeahead, ahead of `resolution` until
+  // its transition renders. Picking an option splits the text with its match.
+  // A pending close compares it to detect a newer open.
+  const latestResolutionRef = useRef<MenuResolution | null>(null);
   // Whether the menu is open as far as onOpen/onClose are concerned. Unlike
   // `resolution`, this sees an open whose transition has not rendered yet and
   // a close whose onClose promise is still pending.
@@ -177,9 +180,9 @@ export function LexicalTypeaheadMenuPlugin<TOption extends MenuOption>({
       return;
     }
     isOpenRef.current = false;
-    const openGeneration = openGenerationRef.current;
+    const closingResolution = latestResolutionRef.current;
     const finish = () => {
-      if (openGenerationRef.current === openGeneration) {
+      if (latestResolutionRef.current === closingResolution) {
         setResolution(null);
       }
     };
@@ -198,7 +201,7 @@ export function LexicalTypeaheadMenuPlugin<TOption extends MenuOption>({
   const openTypeahead = useCallback(
     (res: MenuResolution) => {
       // Track pending opens before their transition has rendered.
-      openGenerationRef.current++;
+      latestResolutionRef.current = res;
       setResolution(res);
       if (!isOpenRef.current) {
         isOpenRef.current = true;
@@ -318,6 +321,7 @@ export function LexicalTypeaheadMenuPlugin<TOption extends MenuOption>({
     <LexicalMenu
       close={closeTypeahead}
       resolution={resolution}
+      latestResolutionRef={latestResolutionRef}
       editor={editor}
       anchorElementRef={anchorElementRef}
       options={options}
