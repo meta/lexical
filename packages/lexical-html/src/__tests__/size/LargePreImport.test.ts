@@ -8,10 +8,10 @@
 
 // @vitest-environment jsdom
 
-// A `<pre>` of plain text with more lines than a call can take as arguments,
-// imported with `$generateNodesFromDOM`. The text converter turns the text
-// into a TextNode per line and a LineBreakNode per line feed, so the one
-// block it ends up in holds about twice as many nodes as lines. The
+// A `<pre>` of plain text with enough lines to hold more nodes than a call can
+// take as arguments, imported with `$generateNodesFromDOM`. The text converter
+// turns the text into a TextNode per line and a LineBreakNode per line feed, so
+// the one block it ends up in holds about twice as many nodes as lines. The
 // `unit-size` project runs this file on a child process's main thread, whose
 // argument limit (roughly 100,000 to 125,000 on Node) is the one production
 // code runs under; spreading such a list into `push(...)` or `append(...)`
