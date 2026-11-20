@@ -13,7 +13,7 @@ import type {Paragraph} from 'mdast';
 import type {Extension as MicromarkExtension} from 'micromark-util-types';
 
 import {buildEditorFromExtensions} from '@lexical/extension';
-import {$createLinkNode} from '@lexical/link';
+import {$createLinkNode, $isLinkNode} from '@lexical/link';
 import {$createListItemNode, $createListNode, $isListNode} from '@lexical/list';
 import {
   $createParagraphNode,
@@ -117,6 +117,23 @@ function exportRaw(markdown: string): string {
 function importRuns(editor: LexicalEditor, markdown: string): Runs {
   editor.update(() => $convertFromMarkdownString(markdown), {discrete: true});
   return editor.read('latest', $getRuns);
+}
+
+/**
+ * `runs` with each run joined to the run just before it when the two have
+ * the same format.
+ */
+function mergeRuns(runs: Runs): Runs {
+  const merged: Runs = [];
+  for (const [text, format] of runs) {
+    const last = merged[merged.length - 1];
+    if (last && last[1] === format) {
+      last[0] += text;
+    } else {
+      merged.push([text, format]);
+    }
+  }
+  return merged;
 }
 
 describe('Mdast punctuation modes', () => {
@@ -905,6 +922,102 @@ describe('Mdast punctuation modes', () => {
     expect(
       importRuns(createEditor(undefined, 'cjk-friendly'), markdown),
     ).toEqual(runs);
+  });
+
+  // runs, export for strict readers, export for CJK-friendly readers.
+  it.each<[runs: Runs, strict: string, cjkFriendly: string]>([
+    [
+      [
+        ['www.世', 0],
+        ['!', bold],
+      ],
+      'www\\.&#x4E16;**!**',
+      'www\\.世**!**',
+    ],
+    [
+      [
+        ['www.世', 0],
+        ['。', bold],
+      ],
+      'www\\.&#x4E16;**。**',
+      'www\\.世**。**',
+    ],
+    // Only the `.` of `www.` is escaped.
+    [
+      [
+        ['aww. www.世', 0],
+        ['!', bold],
+      ],
+      'aww. www\\.&#x4E16;**!**',
+      'aww. www\\.世**!**',
+    ],
+    [
+      [
+        ['WWW.é', 0],
+        ['!', bold],
+      ],
+      'WWW\\.&#xE9;**!**',
+      'WWW\\.&#xE9;**!**',
+    ],
+    [
+      [
+        ['www.', 0],
+        ['x', bold],
+      ],
+      'www\\.**x**',
+      'www\\.**x**',
+    ],
+    [
+      [
+        ['www.', bold],
+        ['x', 0],
+      ],
+      '**www\\.**&#x78;',
+      '**www\\.**&#x78;',
+    ],
+    [[['www.*x', 0]], 'www\\.\\*x', 'www\\.\\*x'],
+    [[['www.&#x4E16; now', 0]], 'www\\.\\&#x4E16; now', 'www\\.\\&#x4E16; now'],
+  ])('keeps the characters after `www.` in %j', (runs, strict, cjkFriendly) => {
+    // micromark starts a literal on `www.` before a reference, an escape
+    // or a marker, which then reads as part of the link.
+    for (const [mode, markdown] of [
+      ['strict-commonmark', strict],
+      ['cjk-friendly', cjkFriendly],
+    ] as const) {
+      const [exported, imported] = roundTrip(runs, mode, mode);
+      expect(exported).toBe(markdown);
+      // The import still links the decoded text, which may split a run.
+      expect(mergeRuns(imported)).toEqual(runs);
+    }
+  });
+
+  it('keeps a link after `www.`', () => {
+    const editor = createEditor();
+    editor.update(
+      () => {
+        $getRoot()
+          .clear()
+          .append(
+            $createParagraphNode().append(
+              $createTextNode('www.'),
+              $createLinkNode('u').append($createTextNode('x')),
+            ),
+          );
+      },
+      {discrete: true},
+    );
+    const markdown = editor.read('latest', () => $convertToMarkdownString());
+    expect(markdown).toBe('www\\.[x](u)');
+    editor.update(() => $convertFromMarkdownString(markdown), {discrete: true});
+    editor.read('latest', () => {
+      const x = $getRoot().getAllTextNodes().at(-1);
+      assert(x !== undefined);
+      const link = x.getParent();
+      assert($isLinkNode(link));
+      expect($getRoot().getTextContent()).toBe('www.x');
+      expect(x.getTextContent()).toBe('x');
+      expect(link.getURL()).toBe('u');
+    });
   });
 
   it.each<[string, boolean | undefined, string, string]>([

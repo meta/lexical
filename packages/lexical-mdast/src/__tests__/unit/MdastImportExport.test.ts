@@ -772,6 +772,9 @@ describe('@lexical/mdast import/export', () => {
       'visit www.example.com now',
       // A CommonMark autolink stays wrapped even with the literal grammar on.
       'wrapped <https://lexical.dev> stays',
+      // The `.` of `www.` is escaped in text only.
+      '[x](http://www.x.com "www.t")',
+      '```www.x\ncode\n```',
     ]) {
       expect(roundTrip(markdown)).toBe(markdown);
     }
