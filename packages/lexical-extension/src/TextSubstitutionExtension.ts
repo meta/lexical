@@ -122,8 +122,8 @@ function registerTextSubstitution(
         if (!editor.isEditable() || editor.isComposing()) {
           return;
         }
-        const selection = editorState.read($getSelection);
-        const prevSelection = prevEditorState.read($getSelection);
+        const selection = editorState.read($getSelection, {editor});
+        const prevSelection = prevEditorState.read($getSelection, {editor});
         if (
           !$isRangeSelection(selection) ||
           !$isRangeSelection(prevSelection) ||
@@ -140,10 +140,10 @@ function registerTextSubstitution(
         const anchorKey = selection.anchor.key;
         const anchorOffset = selection.anchor.offset;
         const anchorNode = editorState._nodeMap.get(anchorKey);
-        // Node reads need an active editor-state context, which the
-        // update listener does not provide — read through editorState.
+        // Node reads need an active editor, which the update listener
+        // does not provide — read through editorState with {editor}.
         const anchorText = $isTextNode(anchorNode)
-          ? editorState.read(() => anchorNode.getTextContent())
+          ? editorState.read(() => anchorNode.getTextContent(), {editor})
           : null;
         if (
           anchorText === null ||
