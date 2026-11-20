@@ -70,6 +70,7 @@ import {
   type YUnsyncedBlock,
   type YUnsyncedReport,
 } from '../headless';
+import {canonical} from './BlockMerge';
 import {
   $parseWrapped,
   $rawLeftover,
@@ -1329,13 +1330,21 @@ export interface YOfflineDescribeOptions {
    * (nothing replayable) and such a capture without JSON cannot be read.
    */
   readonly migrate?: (state: Uint8Array) => Uint8Array;
+  /**
+   * Whether a block both sides changed is merged three ways where their
+   * changes do not overlap (see `describeUnsyncedEdits`). `false`: every
+   * such block is a conflict, as before the merge existed.
+   * @defaultValue true
+   */
+  readonly blockMerge?: boolean;
 }
 
 /**
  * @experimental What a capture changed, block by block
  * (`describeUnsyncedEdits`), against the document as it is now. Blocks the
  * document already holds as the user had them are left out (an edit that
- * did reach the server, or one already reapplied): an empty `blocks` with
+ * did reach the server, or one already reapplied, whole or merged into
+ * what someone else made of the block): an empty `blocks` with
  * `orderDiffers` false means the capture can be deleted.
  */
 export function describeYOfflineCapture(
@@ -1349,6 +1358,7 @@ export function describeYOfflineCapture(
   ) =>
     describeUnsyncedEdits({
       base: against,
+      blockMerge: options.blockMerge,
       capturedAt: capture.capturedAt,
       config,
       current,
@@ -1448,10 +1458,14 @@ export function describeYOfflineCapture(
   // still holds (found by content: `shifted`).
   const shifted = new Set(report.shifted ?? []);
   for (const block of report.blocks) {
+    // As the user had it, or holding their changes beside someone else's
+    // (the merge of the three is the block as it is).
     if (
       block.id.startsWith('#') && report.shifted !== undefined
         ? shifted.has(block.id)
-        : sameJSON(block.yours, block.now)
+        : sameJSON(block.yours, block.now) ||
+          (block.resolution === 'merged' &&
+            canonical(block.merged) === canonical(block.now))
     ) {
       inDocument.push(block.id);
     } else {
@@ -1555,6 +1569,8 @@ export type YReplayInput = {
   readonly report: YOfflineReport | YUnsyncedReport;
   /** Only these block ids (a panel's Reapply button). */
   readonly only?: readonly string[];
+  /** Whether the report's merged blocks are applied. @defaultValue true */
+  readonly blockMerge?: boolean;
   /** The clock `autoReplay`'s `maxBaseAge` reads, for tests. @defaultValue `Date.now` */
   readonly now?: () => number;
 } & YLeftoversRequiredPassWrapOrHandle &
@@ -1785,11 +1801,15 @@ function $insertLeftovers(
  *   one, an added block is inserted after the nearest block before it that
  *   the document holds (before the nearest after it when there is none; at
  *   the end for a report built by hand without `order`), a deleted block is
- *   removed. Each is checked again against the
- *   editor as it is now (the block still equals the base, an added block's
+ *   removed. A block the report merged (resolution `'merged'`: both sides
+ *   changed it, and their changes do not overlap) is replaced by the
+ *   merge. Each is checked again against the
+ *   editor as it is now (the block still equals the base, or for a merge
+ *   the block the merge was made from; an added block's
  *   id is still absent), so a block someone else changed is never
  *   overwritten;
- * - every other block the user added or changed (both sides changed it, it
+ * - every other block the user added or changed (both sides changed it and
+ *   the merge did not resolve it or `blockMerge: false` turned it off, it
  *   is gone, the report has no base or no ids, it changed since the report)
  *   goes where the required `leftovers` says: with
  *   `{wrap: wrapLeftoversAsQuote('…')}`, into the document in the same
@@ -1925,7 +1945,10 @@ function replayWithIds(input: YReplayInput, preset: string[]): YReplayResult {
     liveIds.forEach((id, i) => liveIndex.set(id as string, i));
   }
   const order = report.order ?? [];
-  const todo: YUnsyncedBlock[] = [];
+  // What to write for each block: the user's (null: remove it), or the
+  // merge of theirs and the document's.
+  const todo: {block: YUnsyncedBlock; write: SerializedLexicalNode | null}[] =
+    [];
   /** Not applied, and not in the document: written or handed over. */
   const left: YUnsyncedBlock[] = [];
   // Blocks paired by position (no block ids): the report says which of
@@ -1937,26 +1960,48 @@ function replayWithIds(input: YReplayInput, preset: string[]): YReplayResult {
     const byPosition = block.id.startsWith('#');
     const at = byPosition ? Number(block.id.slice(1)) : liveIndex.get(block.id);
     const now = at === undefined ? null : (live[at] ?? null);
+    // A block both sides changed that the report merged: the merge, unless
+    // the document already holds it (`held`), and never with
+    // `blockMerge: false`.
+    const mergedBlock =
+      block.resolution === 'merged' && block.merged != null
+        ? block.merged
+        : null;
+    const held =
+      mergedBlock !== null && canonical(mergedBlock) === canonical(now);
+    const merged = input.blockMerge !== false && !held ? mergedBlock : null;
     if (block.replayable && hasIds && sameJSON(now, block.base) && auto) {
-      todo.push(block);
+      todo.push({block, write: block.yours});
+    } else if (
+      !block.replayable &&
+      merged !== null &&
+      hasIds &&
+      !byPosition &&
+      sameJSON(now, block.now) &&
+      auto
+    ) {
+      // The merge is written over the block it was made from, checked as
+      // a whole block is.
+      todo.push({block, write: merged});
     } else if (
       byPosition
         ? shifted !== null
           ? shifted.has(block.id)
           : sameJSON(now, block.yours)
-        : hasIds && sameJSON(now, block.yours)
+        : hasIds && (sameJSON(now, block.yours) || held)
     ) {
       notApplied.push({id: block.id, reason: 'in-document'});
     } else {
       notApplied.push({
         id: block.id,
-        reason: !block.replayable
-          ? 'not-replayable'
-          : !hasIds
-            ? 'no-block-ids'
-            : !sameJSON(now, block.base)
-              ? 'changed-since'
-              : 'not-auto-replayed',
+        reason:
+          !block.replayable && merged === null
+            ? 'not-replayable'
+            : !hasIds
+              ? 'no-block-ids'
+              : !sameJSON(now, block.replayable ? block.base : block.now)
+                ? 'changed-since'
+                : 'not-auto-replayed',
       });
       left.push(block);
     }
@@ -1998,11 +2043,11 @@ function replayWithIds(input: YReplayInput, preset: string[]): YReplayResult {
           byId.set(id as string, nodes[i]);
         }
       });
-      for (const block of todo) {
+      for (const {block, write} of todo) {
         let made: LexicalNode | null = null;
-        if (block.yours !== null) {
+        if (write !== null) {
           try {
-            made = $parseSerializedNode(block.yours);
+            made = $parseSerializedNode(write);
           } catch {
             notApplied.push({id: block.id, reason: 'unreadable'});
             left.push(block);
@@ -2130,7 +2175,7 @@ function replayWithIds(input: YReplayInput, preset: string[]): YReplayResult {
     }
     // With handle: every block with content goes to the handler, the
     // replayable ones too, since none was applied.
-    for (const block of todo) {
+    for (const {block} of todo) {
       if (!left.includes(block)) {
         left.push(block);
       }
@@ -2220,6 +2265,12 @@ export type YOfflineRecoverInput = {
   readonly config: HeadlessYConfig;
   readonly migrate?: (state: Uint8Array) => Uint8Array;
   /**
+   * Whether a block both sides changed is merged three ways and replayed
+   * where their changes do not overlap. `false`: it stays in the panel.
+   * @defaultValue true
+   */
+  readonly blockMerge?: boolean;
+  /**
    * The fresh document's offline session: with it, a capture the server
    * already holds (its session reports no unsynced edits) is deleted.
    */
@@ -2240,8 +2291,9 @@ export type YOfflineRecoverInput = {
  *    replayable), becomes a capture;
  * 2. each capture is described against the document as it is now;
  * 3. at stage `'replay'`, each capture this call claims (once, across tabs)
- *    is written in one editor update, one undo step: its replayable blocks
- *    are applied, and with `leftovers: {wrap}` every other block the user
+ *    is written in one editor update, one undo step: its replayable blocks,
+ *    and the blocks merged with someone else's changes, are applied, and
+ *    with `leftovers: {wrap}` every other block the user
  *    added or changed is written through `wrap` (see
  *    {@link replayUnsyncedEdits}). The capture is then resolved
  *    (`capture.resolved`): nothing of it is left to show. A capture claimed
@@ -2365,6 +2417,7 @@ export async function recoverYOfflineEdits(
   const doc = binding.binding.doc;
   const describe = (capture: YOfflineCapture) =>
     describeYOfflineCapture(capture, {
+      blockMerge: input.blockMerge,
       config,
       current: encodeStateAsUpdate(doc),
       migrate,
@@ -2439,7 +2492,11 @@ export async function recoverYOfflineEdits(
         // only for what can be applied.
         (wraps ||
           (autoReplays(autoReplay, report.value.baseAt, now()) &&
-            report.value.blocks.some(block => block.replayable)));
+            report.value.blocks.some(
+              block =>
+                block.replayable ||
+                (input.blockMerge !== false && block.resolution === 'merged'),
+            )));
       if (stale || wanted) {
         const claimed = await store.claimCapture(
           key,
@@ -2523,6 +2580,7 @@ export async function recoverYOfflineEdits(
           {
             autoReplay,
             binding,
+            blockMerge: input.blockMerge,
             // A handler is called below, once, with what is left.
             leftovers:
               leftovers.wrap !== undefined ? leftovers : {handle: () => {}},

@@ -701,7 +701,8 @@ describe('where leftovers are written', () => {
 describe('ids', () => {
   test('everything written has a new id: none of the document, none of the capture', () => {
     // You changed a list (its items have ids) and a paragraph; so did
-    // someone else.
+    // someone else, inside the same item and the same word, so neither
+    // block merges and both are written as leftovers.
     const s = scenario({
       base: () => [
         $p('one', 'b1'),
@@ -714,7 +715,7 @@ describe('ids', () => {
         $p('one, theirs', 'b1'),
         $list('l1', [
           ['a, theirs', 'i1'],
-          ['b', 'i2'],
+          ['b, theirs', 'i2'],
         ]),
       ],
       yours: () => [

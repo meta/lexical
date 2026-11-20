@@ -490,8 +490,9 @@ describe('offline mode: edits persist and merge at the same epoch', () => {
 async function staleTab(
   fake: FakeIndexedDB,
   options: Partial<AttachOptions> = {},
+  blocks: [string, string][] = THREE,
 ) {
-  const room = client(seed(THREE));
+  const room = client(seed(blocks));
   await flush();
   const store = await open(fake);
   const tab = client(Y.encodeStateAsUpdate(room.doc));
@@ -1407,6 +1408,251 @@ describe('the report and the replay', () => {
       ['#1', 'changed', false],
     ]);
     expect(fresh.text()).not.toContain('mine');
+  });
+});
+
+describe('a block both sides changed is merged where their changes do not overlap', () => {
+  const LINES: [string, string][] = [
+    ['The quick brown fox jumps over the lazy dog', 'b1'],
+    ['Pack my box with five dozen jugs', 'b2'],
+    ['three', 'b3'],
+  ];
+  const MERGED = 'The quick red fox jumps over the sleepy dog!';
+  const textOf = (block: unknown) =>
+    (block as {children: {text: string}[]}).children
+      .map(child => child.text)
+      .join('');
+
+  /**
+   * The stale tab changed all three blocks; in the new epoch someone else
+   * changed b1 elsewhere in the line, and the same word of b2.
+   */
+  async function moved(fake: FakeIndexedDB) {
+    const {room, session, store, tab} = await staleTab(fake, {}, LINES);
+    tab.edit('b1', 'The quick red fox jumps over the lazy dog');
+    tab.edit('b2', 'Pack my box with six dozen jugs');
+    tab.edit('b3', 'three, mine');
+    const verdict = await session.serverEpoch('e2');
+    if (verdict.kind !== 'moved' || verdict.capture === null) {
+      throw new Error('expected a capture');
+    }
+    const next = client(Y.encodeStateAsUpdate(room.doc));
+    await flush();
+    next.edit('b1', 'The quick brown fox jumps over the sleepy dog!');
+    next.edit('b2', 'Pack my box with seven dozen jugs');
+    const fresh = client(Y.encodeStateAsUpdate(next.doc));
+    await flush();
+    return {capture: verdict.capture, fresh, next, store};
+  }
+  const recover = (
+    fresh: Client,
+    store: YOfflineStore,
+    stage: 'persist' | 'replay',
+    extra: {blockMerge?: boolean; session?: YOfflineSession} = {},
+  ) =>
+    recoverYOfflineEdits({
+      autoReplay: 'replayable',
+      binding: fresh.binding,
+      config,
+      epoch: 'e2',
+      key: 'doc',
+      leftovers: PANEL,
+      stage,
+      store,
+      ...extra,
+    });
+
+  test('persist stage: the report says which blocks are merged, whole and in conflict; nothing is applied', async () => {
+    const fake = createFakeIndexedDB();
+    const {fresh, store} = await moved(fake);
+    const before = fresh.blocks();
+    const recovered = unwrap(await recover(fresh, store, 'persist'));
+    const report = unwrap(recovered[0].report);
+    expect(
+      report.blocks.map(b => [b.id, b.resolution, b.replayable, b.conflict]),
+    ).toEqual([
+      ['b1', 'merged', false, undefined],
+      ['b2', 'conflict', false, 'overlap'],
+      ['b3', 'whole', true, undefined],
+    ]);
+    expect(textOf(report.blocks[0].merged)).toBe(MERGED);
+    expect(report.blocks[1].merged).toBeNull();
+    expect(recovered[0].replay).toBeNull();
+    expect(fresh.blocks()).toEqual(before);
+  });
+
+  test('replay stage: the merge is applied with the whole blocks, as one undo step; the conflict stays in the panel', async () => {
+    const fake = createFakeIndexedDB();
+    const {fresh, next, store} = await moved(fake);
+    const before = fresh.blocks();
+    const recovered = unwrap(await recover(fresh, store, 'replay'));
+    expect(recovered[0].replay).toEqual({
+      applied: ['b1', 'b3'],
+      // The app's handler has the conflict, and nothing of it was written.
+      handled: ['b2'],
+      inserted: [],
+      leftovers: [],
+      notApplied: [{id: 'b2', reason: 'not-replayable'}],
+    });
+    expect(fresh.blocks()).toEqual([
+      ['b1', MERGED],
+      ['b2', 'Pack my box with seven dozen jugs'],
+      ['b3', 'three, mine'],
+    ]);
+    // What is left for the panel: b2 alone. The merged block is one the
+    // document holds.
+    const left = unwrap(recovered[0].report);
+    expect(left.blocks.map(b => [b.id, b.resolution])).toEqual([
+      ['b2', 'conflict'],
+    ]);
+    expect([...left.inDocument].sort()).toEqual(['b1', 'b3']);
+    // It reaches the room like any edit.
+    sync(fresh.doc, next.doc);
+    await flush();
+    expect(next.blocks()).toEqual(fresh.blocks());
+    // One undo step takes all of it back.
+    expect(fresh.binding.history!.undo()).toBe(true);
+    await flush();
+    expect(fresh.blocks()).toEqual(before);
+    expect(fresh.binding.history!.canUndo).toBe(false);
+  });
+
+  test('blockMerge: false: the block stays in the panel, as before the merge', async () => {
+    const fake = createFakeIndexedDB();
+    const {fresh, store} = await moved(fake);
+    const recovered = unwrap(
+      await recover(fresh, store, 'replay', {blockMerge: false}),
+    );
+    expect(recovered[0].replay).toEqual({
+      applied: ['b3'],
+      handled: ['b1', 'b2'],
+      inserted: [],
+      leftovers: [],
+      notApplied: [
+        {id: 'b1', reason: 'not-replayable'},
+        {id: 'b2', reason: 'not-replayable'},
+      ],
+    });
+    expect(fresh.blocks()[0]).toEqual([
+      'b1',
+      'The quick brown fox jumps over the sleepy dog!',
+    ]);
+    const left = unwrap(recovered[0].report);
+    expect(left.blocks.map(b => [b.id, b.resolution, b.conflict])).toEqual([
+      ['b1', 'conflict', 'block-merge-off'],
+      ['b2', 'conflict', 'block-merge-off'],
+    ]);
+  });
+
+  test('a capture whose blocks were merged is deleted once the server holds them', async () => {
+    const fake = createFakeIndexedDB();
+    const {room, session, store, tab} = await staleTab(fake, {}, LINES);
+    tab.edit('b1', 'The quick red fox jumps over the lazy dog');
+    await session.serverEpoch('e2');
+    const next = client(Y.encodeStateAsUpdate(room.doc));
+    await flush();
+    next.edit('b1', 'The quick brown fox jumps over the sleepy dog!');
+    const fresh = client(Y.encodeStateAsUpdate(next.doc));
+    await flush();
+    const now = attach(fresh, store, {epoch: 'e2', persist: 'captures-only'});
+    await markSynced(now.session);
+    const first = unwrap(
+      await recover(fresh, store, 'replay', {session: now.session}),
+    );
+    expect(first[0].replay!.applied).toEqual(['b1']);
+    expect(unwrap(first[0].report).blocks).toEqual([]);
+    // Only this page holds the merge yet: the capture is kept.
+    expect(unwrap(await store.captures('doc')).length).toBe(1);
+    sync(fresh.doc, next.doc);
+    await markSynced(now.session);
+    expect(
+      unwrap(await recover(fresh, store, 'replay', {session: now.session})),
+    ).toEqual([]);
+    expect(unwrap(await store.captures('doc'))).toEqual([]);
+    expect(fresh.blocks()[0]).toEqual(['b1', MERGED]);
+    expect(next.blocks()[0]).toEqual(['b1', MERGED]);
+    now.session.dispose();
+  });
+
+  test('Reapply a merged block; a block that changed since the merge was made is refused', async () => {
+    const fake = createFakeIndexedDB();
+    const {capture, fresh} = await moved(fake);
+    const describeNow = () =>
+      unwrap(
+        describeYOfflineCapture(capture, {
+          config,
+          current: Y.encodeStateAsUpdate(fresh.doc),
+        }),
+      );
+    const report = describeNow();
+    // The caller can leave merges out of a replay.
+    expect(
+      replayUnsyncedEdits({
+        autoReplay: 'replayable',
+        binding: fresh.binding,
+        blockMerge: false,
+        leftovers: PANEL,
+        only: ['b1'],
+        report,
+      }),
+    ).toMatchObject({
+      applied: [],
+      notApplied: [{id: 'b1', reason: 'not-replayable'}],
+    });
+    // The panel's button for b1.
+    expect(
+      replayUnsyncedEdits({
+        autoReplay: 'replayable',
+        binding: fresh.binding,
+        leftovers: PANEL,
+        only: ['b1'],
+        report,
+      }),
+    ).toMatchObject({applied: ['b1'], notApplied: []});
+    expect(fresh.blocks()[0]).toEqual(['b1', MERGED]);
+    // The same report again: the merge is what the document holds, so
+    // there is nothing to write and nothing to leave over.
+    expect(
+      replayUnsyncedEdits({
+        autoReplay: 'replayable',
+        binding: fresh.binding,
+        leftovers: PANEL,
+        only: ['b1'],
+        report,
+      }),
+    ).toMatchObject({
+      applied: [],
+      notApplied: [{id: 'b1', reason: 'in-document'}],
+    });
+    // A new report holds it as in the document, with nothing to write.
+    const next = describeNow();
+    expect(next.inDocument).toEqual(['b1']);
+    expect(next.blocks.map(b => b.id)).toEqual(['b2', 'b3']);
+    // Someone changes the block after a report merged it: never overwritten.
+    const other = await moved(createFakeIndexedDB());
+    const stale = unwrap(
+      describeYOfflineCapture(other.capture, {
+        config,
+        current: Y.encodeStateAsUpdate(other.fresh.doc),
+      }),
+    );
+    other.fresh.edit('b1', 'The slow brown fox jumps over the sleepy dog!');
+    expect(
+      replayUnsyncedEdits({
+        autoReplay: 'replayable',
+        binding: other.fresh.binding,
+        leftovers: PANEL,
+        only: ['b1'],
+        report: stale,
+      }),
+    ).toMatchObject({
+      applied: [],
+      notApplied: [{id: 'b1', reason: 'changed-since'}],
+    });
+    expect(other.fresh.blocks()[0]).toEqual([
+      'b1',
+      'The slow brown fox jumps over the sleepy dog!',
+    ]);
   });
 });
 

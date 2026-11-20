@@ -127,6 +127,18 @@ declare export function readYState<T>(
 // block by block, against the document they were made against (base, null
 // when gone) and the document now.
 export type YUnsyncedReason = 'stale' | 'legacy' | 'expired';
+export type YUnsyncedResolution = 'whole' | 'merged' | 'conflict';
+export type YUnsyncedConflict =
+  | 'no-base'
+  | 'no-block-ids'
+  | 'block-merge-off'
+  | 'added-or-deleted'
+  | 'overlap'
+  | 'format'
+  | 'property'
+  | 'structure'
+  | 'unsupported'
+  | 'unverified';
 export type YUnsyncedBlock = {
   readonly id: string,
   readonly change: 'added' | 'changed' | 'deleted',
@@ -134,6 +146,10 @@ export type YUnsyncedBlock = {
   readonly base: SerializedLexicalNode | null,
   readonly now: SerializedLexicalNode | null,
   readonly replayable: boolean,
+  readonly resolution?: YUnsyncedResolution,
+  readonly merged?: SerializedLexicalNode | null,
+  readonly conflict?: YUnsyncedConflict,
+  readonly conflictDetail?: string,
 };
 export type YUnsyncedReport = {
   readonly reason: YUnsyncedReason,
@@ -153,4 +169,5 @@ declare export function describeUnsyncedEdits(input: {
   readonly config: HeadlessYConfig,
   readonly reason: YUnsyncedReason,
   readonly capturedAt: number,
+  readonly blockMerge?: boolean,
 }): YUnsyncedReport;
