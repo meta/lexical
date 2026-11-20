@@ -38,7 +38,7 @@ import {
   MdastGfmExtension,
 } from '../../index';
 
-const {bold, italic, strikethrough} = TEXT_TYPE_TO_FORMAT;
+const {bold, code, italic, strikethrough} = TEXT_TYPE_TO_FORMAT;
 
 type Runs = [text: string, format: number][];
 
@@ -974,6 +974,15 @@ describe('Mdast punctuation modes', () => {
       ],
       '**www\\.**&#x78;',
       '**www\\.**&#x78;',
+    ],
+    [
+      [
+        ['see www.', 0],
+        ['x', code],
+        [' now', 0],
+      ],
+      'see www\\.`x` now',
+      'see www\\.`x` now',
     ],
     [[['www.*x', 0]], 'www\\.\\*x', 'www\\.\\*x'],
     [[['www.&#x4E16; now', 0]], 'www\\.\\&#x4E16; now', 'www\\.\\&#x4E16; now'],
