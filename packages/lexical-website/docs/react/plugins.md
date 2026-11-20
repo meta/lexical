@@ -596,10 +596,13 @@ const triggerMatch = useBasicTypeaheadTriggerMatch('@', {minLength: 1});
   menuRenderFn={(anchorRef, {options, selectedIndex, selectOptionAndCleanUp}) =>
     anchorRef.current
       ? createPortal(
-          <ul className="typeahead-menu">
+          <ul className="typeahead-menu" role="listbox" aria-label="Mentions">
             {options.map((opt, i) => (
               <li
                 key={opt.key}
+                id={`typeahead-item-${i}`}
+                role="option"
+                aria-selected={i === selectedIndex}
                 className={i === selectedIndex ? 'selected' : ''}
                 onClick={() => selectOptionAndCleanUp(opt)}>
                 {opt.name}
@@ -612,6 +615,10 @@ const triggerMatch = useBasicTypeaheadTriggerMatch('@', {minLength: 1});
   }
 />
 ```
+
+A custom menu draws its own list, so it sets the roles and labels itself. Giving each option `role="option"` and an id of `typeahead-item-` followed by its index lets the editor point a screen reader at the highlighted option. `MenuOption.ariaLabel` is applied only by the default renderer.
+
+Menus say how many suggestions there are, "Loading" while a lookup runs and "No results" when it finishes empty. Pass `loading` while a lookup is running so an empty menu says "Loading" and not "No results". `getStatusMessage` replaces the spoken line for translation, and returning `null` from it keeps the menu silent.
 
 ### `LexicalSelectionAlwaysOnDisplay`
 

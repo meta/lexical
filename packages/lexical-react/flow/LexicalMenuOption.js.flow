@@ -15,6 +15,7 @@ declare export class MenuOption {
   ref?: RefObject<HTMLElement | null>;
   icon?: React.MixedElement;
   title?: React.MixedElement | string;
+  ariaLabel?: string;
   constructor(key: string): void;
   setRefElement(element: HTMLElement | null): void;
 }
