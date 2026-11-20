@@ -38,8 +38,10 @@ import {
 import {
   $createListItemNode,
   $createListNode,
+  $getTaskListItemChecked,
   $isListItemNode,
   $isListNode,
+  $setTaskListItemChecked,
   ListItemNode,
   type ListNode,
 } from './';
@@ -77,6 +79,25 @@ function $newListFrom(list: ElementNode, listType: ListType): ListNode {
   return $isListNode(list)
     ? $copyNode(list).setListType(listType)
     : $createListNode(listType);
+}
+
+/**
+ * A list command makes the whole list one kind. In a check list every item is
+ * a task (the ListItemNode transform keeps the ticks of former task items);
+ * any other list makes its task items plain items.
+ */
+function $resetTaskItems(list: ListNode): void {
+  if (list.getListType() === 'check') {
+    return;
+  }
+  for (const child of list.getChildren()) {
+    if (
+      $isListItemNode(child) &&
+      $getTaskListItemChecked(child) !== undefined
+    ) {
+      $setTaskListItemChecked(child, undefined);
+    }
+  }
 }
 
 /**
@@ -127,6 +148,7 @@ export function $insertList(listType: ListType): void {
           if ($getSlotHost(parent) === null) {
             const list = $newListFrom(parent, listType);
             append(list, parent.getChildren());
+            $resetTaskItems(list);
             parent.replace(list);
           }
         }
@@ -177,6 +199,7 @@ export function $insertList(listType: ListType): void {
           if (!handled.has(parentKey) && $getSlotHost(parent) === null) {
             const newListNode = $newListFrom(parent, listType);
             append(newListNode, parent.getChildren());
+            $resetTaskItems(newListNode);
             parent.replace(newListNode);
             handled.add(parentKey);
           }

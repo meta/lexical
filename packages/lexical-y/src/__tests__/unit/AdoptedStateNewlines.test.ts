@@ -153,6 +153,7 @@ for (const [name, $make] of SHAPES) {
       const warnings: string[] = [];
       const editor = newEditor(warnings);
       const binding = new YBinding(editor, doc, {
+        onStatus: null,
         schemaVersion: 1,
         selfCheck: true,
       });
@@ -196,7 +197,11 @@ for (const [name, $make] of SHAPES) {
       const d2 = createYDoc();
       Y.applyUpdate(d2, Y.encodeStateAsUpdate(doc));
       const e2 = newEditor();
-      const b2 = new YBinding(e2, d2, {schemaVersion: 1, selfCheck: false});
+      const b2 = new YBinding(e2, d2, {
+        onStatus: null,
+        schemaVersion: 1,
+        selfCheck: false,
+      });
       b2.start();
       await flush();
       expect(show(editor)).toBe(show(e2));

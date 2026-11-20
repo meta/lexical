@@ -112,33 +112,55 @@ export interface YPrepareRoomOptions {
   }) => number;
 }
 
-/** @experimental What prepareYRoom returns. */
-export interface YPreparedRoom {
-  /** Whether the state was migrated (store the result) or not (store nothing). */
-  readonly changed: boolean;
-  /** The state to serve: the stored bytes themselves when nothing changed. */
-  readonly state: Uint8Array;
-  /** Its generation (see getYGeneration). */
-  readonly generation: string;
-  /**
-   * When changed: the stored state and its generation, to keep as the
-   * immutable base of that generation (`bases[generation] = state`).
-   */
-  readonly base: {
-    readonly generation: string;
-    readonly state: Uint8Array;
-  } | null;
-  /** Pending material split out of the stored state, for a `pending` record. */
-  readonly pending: Uint8Array | null;
-  readonly receipt: YMigrationReceipt;
-}
+/**
+ * @experimental What prepareYRoom returns: a union on `changed`, so what to
+ * store is reached only after narrowing on it, as one object (`write`)
+ * stored in one transaction.
+ */
+export type YPreparedRoom =
+  | {
+      /** Nothing was migrated: store nothing, serve `state`. */
+      readonly changed: false;
+      /** The state to serve: the stored bytes themselves. */
+      readonly state: Uint8Array;
+      /** Its generation (see getYGeneration). */
+      readonly generation: string;
+      readonly receipt: YMigrationReceipt;
+    }
+  | {
+      /** The state was migrated: store all of `write`, atomically. */
+      readonly changed: true;
+      readonly write: {
+        /** The migrated state, to store and serve. */
+        readonly state: Uint8Array;
+        /** Its generation (see getYGeneration). */
+        readonly generation: string;
+        /**
+         * The stored state and its generation, to keep as the immutable
+         * base of that generation (`bases[generation] = state`).
+         */
+        readonly base: {
+          readonly generation: string;
+          readonly state: Uint8Array;
+        };
+        /**
+         * Pending material split out of the stored state (null when there
+         * was none): store it as a `pending` record
+         * ({@link createYQuarantineRecord}), or the edits it holds are lost
+         * once the base is pruned.
+         */
+        readonly pending: Uint8Array | null;
+      };
+      readonly receipt: YMigrationReceipt;
+    };
 
 /**
  * @experimental The load-time migration of a stored document, minus
  * storage (y-server.md "Migrating stored documents", steps 2 to 4): run it
- * behind the room's barrier with every session out, then store `{state,
- * generation}`, `bases[base.generation] = base.state` and a `pending`
- * record, atomically, compare-and-set on the version read. Throws a
+ * behind the room's barrier with every session out, then, when `changed`,
+ * store all of `write` atomically (`{state, generation}`,
+ * `bases[base.generation] = base.state` and, when `pending` is not null, a
+ * `pending` record), compare-and-set on the version read. Throws a
  * YMigrationError when a root is refused or a check fails: store nothing,
  * leave the room stuck (it applies nothing) and alert.
  */
@@ -151,6 +173,8 @@ export function prepareYRoom(
   const result = migrateYState(stored, options.steps ?? PUBLISHED_STEPS, {
     clientID: options.clientID,
     gc,
+    // The authority's store path: the material is returned, always.
+    pending: 'return',
     roots,
     to: options.to ?? MIN_LAYOUT,
   });
@@ -164,21 +188,22 @@ export function prepareYRoom(
   };
   if (!result.receipt.changed) {
     return {
-      base: null,
       changed: false,
       generation: generation(stored),
-      pending: null,
       receipt: result.receipt,
       state: stored,
     };
   }
+  const state = result.split ? result.integrated : result.state;
   return {
-    base: {generation: generation(stored), state: stored},
     changed: true,
-    generation: generation(result.state),
-    pending: result.pending,
     receipt: result.receipt,
-    state: result.state,
+    write: {
+      base: {generation: generation(stored), state: stored},
+      generation: generation(state),
+      pending: result.split ? result.pending : null,
+      state,
+    },
   };
 }
 

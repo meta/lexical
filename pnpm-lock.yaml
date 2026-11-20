@@ -1289,9 +1289,6 @@ importers:
       '@y/y':
         specifier: 14.0.0-rc.29
         version: 14.0.0-rc.29
-      date-fns:
-        specifier: ^4.4.0
-        version: 4.4.0
       katex:
         specifier: ^0.16.10
         version: 0.16.27

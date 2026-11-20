@@ -27,6 +27,7 @@ import {
   createYQuarantineRecord,
   type YRecordSource,
 } from '../../../server';
+import {flat} from '../../utils/migrateResults';
 import {rawDoc, SEED} from '../../utils/migrateSteps';
 import {textOf, unitDump} from '../../utils/splitFixtures';
 
@@ -50,14 +51,14 @@ function base(gc: boolean): Uint8Array {
   return out;
 }
 
-const firstClient = (r: ReturnType<typeof migrateYState>) =>
+const firstClient = (r: Pick<ReturnType<typeof migrateYState>, 'receipt'>) =>
   r.receipt.roots[0].steps[0].client;
 
 describe.skipIf(SEED !== 1)('cut client ids', () => {
   for (const gc of [false, true]) {
     test(`gc ${gc}: the hash of the kept prefix, held by cut material, is not taken`, () => {
       const S = base(gc);
-      const options = {gc, to: 2};
+      const options = {gc, pending: 'return', to: 2} as const;
       const oldClient = firstClient(migrateYState(S, [step1to2], options));
       const author = createYDoc(S, {gc});
       author.clientID = oldClient;
@@ -76,7 +77,7 @@ describe.skipIf(SEED !== 1)('cut client ids', () => {
       more.forEach(u => Y.applyUpdate(stored, u));
       expect(stored.store.skips.isEmpty()).toBe(false);
       const input = Y.encodeStateAsUpdate(stored);
-      const result = migrateYState(input, [step1to2], options);
+      const result = flat(migrateYState(input, [step1to2], options));
       const client = firstClient(result);
       expect(client).not.toBe(oldClient);
       expect(stored.store.clients.has(client)).toBe(false);
@@ -96,7 +97,7 @@ describe.skipIf(SEED !== 1)('cut client ids', () => {
 
     test(`gc ${gc}: a completed pending record of the cut client is actionable against the migrated state`, () => {
       const S = base(gc);
-      const options = {gc, to: 2};
+      const options = {gc, pending: 'return', to: 2} as const;
       const oldClient = firstClient(migrateYState(S, [step1to2], options));
       const author = createYDoc(S, {gc});
       author.clientID = oldClient;
@@ -107,7 +108,7 @@ describe.skipIf(SEED !== 1)('cut client ids', () => {
       const stored = createYDoc(S, {gc});
       Y.applyUpdate(stored, updates[1]);
       const input = Y.encodeStateAsUpdate(stored);
-      const result = migrateYState(input, [step1to2], options);
+      const result = flat(migrateYState(input, [step1to2], options));
       expect(firstClient(result)).not.toBe(oldClient);
       const completed = createYQuarantineRecord(
         {
@@ -139,6 +140,7 @@ describe.skipIf(SEED !== 1)('cut client ids', () => {
         migrateYState(Y.encodeStateAsUpdate(stored), [step1to2], {
           clientID: () => 4242,
           gc,
+          pending: 'return',
           to: 2,
         }),
       ).toThrow(/not a free client id/);
@@ -147,7 +149,7 @@ describe.skipIf(SEED !== 1)('cut client ids', () => {
 
     test(`gc ${gc}: a client only the pending delete set names is not taken, by the hash or an allocator`, () => {
       const S = rawDoc(1);
-      const options = {gc, to: 2};
+      const options = {gc, pending: 'return', to: 2} as const;
       const oldClient = firstClient(migrateYState(S, [step1to2], options));
       const author = createYDoc(null, {gc});
       author.clientID = oldClient;
@@ -173,7 +175,7 @@ describe.skipIf(SEED !== 1)('cut client ids', () => {
 
     test(`gc ${gc}: a client only a pending struct's parent names is not taken, by the hash or an allocator`, () => {
       const S = rawDoc(1);
-      const options = {gc, to: 2};
+      const options = {gc, pending: 'return', to: 2} as const;
       const parentClient = firstClient(migrateYState(S, [step1to2], options));
       const author = createYDoc(null, {gc});
       author.clientID = parentClient;
@@ -201,7 +203,7 @@ describe.skipIf(SEED !== 1)('cut client ids', () => {
 
     test(`gc ${gc}: a client only a pending struct's origin names is not taken`, () => {
       const S = rawDoc(1);
-      const options = {gc, to: 2};
+      const options = {gc, pending: 'return', to: 2} as const;
       const originClient = firstClient(migrateYState(S, [step1to2], options));
       const author = createYDoc(S, {gc});
       author.clientID = originClient;

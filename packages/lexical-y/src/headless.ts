@@ -412,6 +412,22 @@ export interface YUnsyncedReport {
   readonly blocks: readonly YUnsyncedBlock[];
   /** Every block the user added or changed, as they saw it. */
   readonly fragment: readonly SerializedLexicalNode[];
+  /**
+   * The ids of all the user's blocks, in their document's order
+   * (`'#<index>'` where blocks have no ids): what places a replayed added
+   * block, and a block that cannot be replayed, next to its neighbours.
+   * `describeUnsyncedEdits` always sets it; a report without it (one built
+   * by hand) places by the order of `blocks`.
+   */
+  readonly order?: readonly string[];
+  /**
+   * Without block ids only: the ids of `blocks` the current document holds
+   * as the user had them, found by content (each current block counted
+   * once, the user's unchanged blocks first). Paired by position, one block
+   * added or removed offline makes every later one an entry; a replay does
+   * not write these again.
+   */
+  readonly shifted?: readonly string[];
 }
 
 /** The top-level blocks of a state, as JSON. */
@@ -497,6 +513,7 @@ export function describeUnsyncedEdits(input: {
   const now = blocksOfState(input.current, config);
   const against = base ?? now;
   const blocks: YUnsyncedBlock[] = [];
+  let shifted: string[] | null = null;
   const yoursById = byId(yours);
   const againstById = byId(against);
   const nowById = byId(now);
@@ -546,6 +563,31 @@ export function describeUnsyncedEdits(input: {
         });
       }
     }
+    // Which of them the current document holds, by content: as many copies
+    // of a block as the user had, the user's unchanged blocks first (an
+    // added copy of a block that is there once is not there).
+    const pool = new Map<string, number>();
+    for (const block of now) {
+      const json = JSON.stringify(block);
+      pool.set(json, (pool.get(json) ?? 0) + 1);
+    }
+    const take = (block: SerializedLexicalNode): boolean => {
+      const json = JSON.stringify(block);
+      const n = pool.get(json) ?? 0;
+      if (n > 0) {
+        pool.set(json, n - 1);
+      }
+      return n > 0;
+    };
+    const listed = new Set(blocks.map(block => block.id));
+    yours.forEach((block, i) => {
+      if (!listed.has(`#${i}`)) {
+        take(block);
+      }
+    });
+    shifted = blocks.flatMap(block =>
+      block.yours !== null && take(block.yours) ? [block.id] : [],
+    );
   }
   return {
     baseAvailable: base !== null,
@@ -554,6 +596,9 @@ export function describeUnsyncedEdits(input: {
     fragment: blocks.flatMap(block =>
       block.yours === null ? [] : [block.yours],
     ),
+    order:
+      yoursById !== null ? [...yoursById.keys()] : yours.map((_, i) => `#${i}`),
     reason: input.reason,
+    ...(shifted !== null ? {shifted} : null),
   };
 }

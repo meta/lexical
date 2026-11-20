@@ -58,6 +58,7 @@ const deps = (container: Container) => [
 ];
 const config = (container: Container) => ({
   extensions: deps(container),
+  onWarn: null,
   schemaVersion: 1,
 });
 
@@ -83,7 +84,11 @@ function peer(container: Container, seed: Uint8Array, id: number): Peer {
       $initialEditorState: null,
       dependencies: [
         ...deps(container),
-        configExtension(YCollabExtension, {doc, schemaVersion: 1}),
+        configExtension(YCollabExtension, {
+          doc,
+          onYStatus: null,
+          schemaVersion: 1,
+        }),
       ],
       name: `paste-remade-${id}`,
       onError: (e: Error) => {

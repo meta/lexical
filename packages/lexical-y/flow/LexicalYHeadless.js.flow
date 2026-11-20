@@ -52,7 +52,10 @@ export type HeadlessYConfig = {
   extensions?: ReadonlyArray<AnyLexicalExtensionArgument>,
   nodes?: CreateEditorArgs['nodes'],
   root?: string,
-  onWarn?: (warning: LexicalWarning) => void,
+  // Required: every warning (a NodeState value not stored, a fallback),
+  // which seedYState and readYState return nowhere else; null logs them
+  // outside production only.
+  onWarn: ((warning: LexicalWarning) => void) | null,
   selfCheck?: boolean,
 };
 
@@ -138,6 +141,10 @@ export type YUnsyncedReport = {
   readonly baseAvailable: boolean,
   readonly blocks: ReadonlyArray<YUnsyncedBlock>,
   readonly fragment: ReadonlyArray<SerializedLexicalNode>,
+  // The ids of all the user's blocks, in their document's order; always
+  // set by describeUnsyncedEdits.
+  readonly order?: ReadonlyArray<string>,
+  readonly shifted?: ReadonlyArray<string>,
 };
 declare export function describeUnsyncedEdits(input: {
   readonly edits: {readonly json: SerializedEditorState, ...} | {readonly state: Uint8Array, ...},

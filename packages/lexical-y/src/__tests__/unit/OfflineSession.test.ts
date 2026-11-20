@@ -52,18 +52,26 @@ import {
   openYOfflineStore,
   recoverYOfflineEdits,
   replayUnsyncedEdits,
+  wrapLeftoversAsQuote,
   Y_OFFLINE_DEFAULTS,
   Y_OFFLINE_STAGES,
   type YOfflineCapture,
   type YOfflineError,
+  type YOfflineLoaded,
+  type YOfflinePersist,
   type YOfflineSession,
   type YOfflineSessionOptions,
+  type YOfflineStage,
   type YOfflineStore,
 } from '../../offline';
 import {catalogAppExtension, catalogHeadlessConfig} from '../catalog/bind';
 import {createFakeIndexedDB, type FakeIndexedDB} from '../utils/fakeIndexedDB';
 import {WITH_GC} from '../utils/harness';
 import {FLOOR, rawDoc, stamp} from '../utils/migrateSteps';
+import {markSynced, trackVerdicts} from '../utils/offlineSync';
+
+// The app takes the blocks that cannot be replayed itself (its panel).
+const PANEL = {handle: () => {}};
 
 const DB = Y_OFFLINE_DEFAULTS.databaseName;
 const IDS = {blockIds: 'enabled'} as const;
@@ -202,20 +210,37 @@ function sync(a: Y.Doc, b: Y.Doc): void {
   Y.applyUpdate(a, toA, 'provider');
 }
 
+/** The options of {@link attach}: the session's, with its mode spread out. */
+type AttachOptions = Partial<
+  Omit<YOfflineSessionOptions, 'offline' | 'loaded'>
+> & {
+  readonly epoch: string | null;
+  readonly loaded?: YOfflineLoaded | null;
+  readonly stage?: YOfflineStage;
+  readonly persist?: YOfflinePersist;
+};
+
 function attach(
   c: Client,
   store: YOfflineStore | null,
-  options: Partial<YOfflineSessionOptions> & {epoch: string | null},
+  options: AttachOptions,
 ): {session: YOfflineSession; errors: YOfflineError[]} {
   const errors: YOfflineError[] = [];
-  const session = attachYOfflineSession({
-    binding: c.binding,
-    key: 'doc',
-    onError: error => errors.push(error),
-    stage: 'persist',
-    store,
-    ...options,
-  });
+  const {stage = 'persist', persist = 'document', ...rest} = options;
+  const session = trackVerdicts(
+    attachYOfflineSession({
+      binding: c.binding,
+      key: 'doc',
+      loaded: null,
+      offline:
+        stage === 'off'
+          ? {stage}
+          : {persist, stage, store: store as YOfflineStore},
+      onError: error => errors.push(error),
+      stopSync: () => {},
+      ...rest,
+    }),
+  );
   return {errors, session};
 }
 
@@ -234,8 +259,8 @@ describe('offline mode: edits persist and merge at the same epoch', () => {
     const tab = client(Y.encodeStateAsUpdate(room.doc));
     await flush();
     const {session} = attach(tab, await open(fake), {epoch: 'e1'});
-    expect(await session.serverEpoch('e1')).toEqual({kind: 'same'});
-    session.markSynced();
+    expect(await session.serverEpoch('e1')).toMatchObject({kind: 'same'});
+    await markSynced(session);
     expect(session.hasUnsyncedEdits).toBe(false);
     // Offline: the tab edits, someone else edits the room.
     tab.edit('b1', 'one, offline');
@@ -264,9 +289,9 @@ describe('offline mode: edits persist and merge at the same epoch', () => {
     reloaded.edit('b2', 'two, offline too');
 
     // Reconnect: the room is still at e1, so the documents merge.
-    expect(await again.session.serverEpoch('e1')).toEqual({kind: 'same'});
+    expect(await again.session.serverEpoch('e1')).toMatchObject({kind: 'same'});
     sync(reloaded.doc, room.doc);
-    again.session.markSynced();
+    await markSynced(again.session);
     await flush();
     const merged = [
       ['b1', 'one, offline'],
@@ -301,12 +326,12 @@ describe('offline mode: edits persist and merge at the same epoch', () => {
     tab.add('a new note', 'n1');
     unwrap(await session.flush());
     expect(unwrap(await store.slots('doc')).map(s => s.epoch)).toEqual([null]);
-    expect(() => session.markSynced()).toThrow(
-      /Call await session\.serverEpoch\(epoch\)/,
-    );
-    expect(await session.serverEpoch('e1')).toEqual({kind: 'same'});
+    // No epoch confirmed, so nothing can mark it synced (D135: only a
+    // 'same' verdict carries markSynced).
+    expect('markSynced' in session).toBe(false);
+    expect(await session.serverEpoch('e1')).toMatchObject({kind: 'same'});
     expect(session.epoch).toBe('e1');
-    session.markSynced();
+    await markSynced(session);
     unwrap(await session.flush());
     expect(unwrap(await store.slots('doc'))).toMatchObject([
       {epoch: 'e1', hasUnsyncedEdits: false},
@@ -324,7 +349,7 @@ describe('offline mode: edits persist and merge at the same epoch', () => {
     await flush();
     const {session} = attach(tab, store, {compactAfter: 4, epoch: 'e1'});
     await session.serverEpoch('e1');
-    session.markSynced();
+    await markSynced(session);
     for (let i = 0; i < 30; i++) {
       tab.edit('b2', `two, edit ${i}`);
       unwrap(await session.flush());
@@ -353,8 +378,8 @@ describe('offline mode: edits persist and merge at the same epoch', () => {
     const sa = attach(a, await open(fake), {epoch: 'e1'}).session;
     const sb = attach(b, await open(fake), {epoch: 'e1'}).session;
     await Promise.all([sa.serverEpoch('e1'), sb.serverEpoch('e1')]);
-    sa.markSynced();
-    sb.markSynced();
+    await markSynced(sa);
+    await markSynced(sb);
     a.edit('b1', 'one, tab a');
     b.edit('b3', 'three, tab b');
     await Promise.all([sa.flush(), sb.flush()]);
@@ -362,7 +387,7 @@ describe('offline mode: edits persist and merge at the same epoch', () => {
     const room = client(state);
     await flush();
     sync(a.doc, room.doc);
-    sa.markSynced();
+    await markSynced(sa);
     unwrap(await sa.flush());
     const loaded = unwrap(
       await loadYOffline({key: 'doc', store: await open(fake)}),
@@ -384,7 +409,7 @@ describe('offline mode: edits persist and merge at the same epoch', () => {
     await flush();
     const {errors, session} = attach(tab, store, {epoch: 'e1'});
     await session.serverEpoch('e1');
-    session.markSynced();
+    await markSynced(session);
     unwrap(await session.flush());
     fake.setQuota(1);
     for (let i = 0; i < 5; i++) {
@@ -393,7 +418,7 @@ describe('offline mode: edits persist and merge at the same epoch', () => {
     }
     expect(errors.map(e => e.code)).toEqual(['quota']);
     // The provider syncs while the store is still full, then space returns.
-    session.markSynced();
+    await markSynced(session);
     await session.flush();
     fake.setQuota(Infinity);
     unwrap(await session.flush());
@@ -438,7 +463,7 @@ describe('offline mode: edits persist and merge at the same epoch', () => {
     await flush();
     const {errors, session} = attach(tab, store, {epoch: 'e1'});
     await session.serverEpoch('e1');
-    session.markSynced();
+    await markSynced(session);
     unwrap(await session.flush());
     fake.setQuota(1);
     tab.edit('b1', 'one, not stored yet');
@@ -464,7 +489,7 @@ describe('offline mode: edits persist and merge at the same epoch', () => {
 /** A tab at e1 with offline edits, and the room it lost. */
 async function staleTab(
   fake: FakeIndexedDB,
-  options: Partial<YOfflineSessionOptions> = {},
+  options: Partial<AttachOptions> = {},
 ) {
   const room = client(seed(THREE));
   await flush();
@@ -473,7 +498,7 @@ async function staleTab(
   await flush();
   const attached = attach(tab, store, {epoch: 'e1', ...options});
   await attached.session.serverEpoch('e1');
-  attached.session.markSynced();
+  await markSynced(attached.session);
   return {...attached, room, store, tab};
 }
 
@@ -487,7 +512,7 @@ describe('sync, then bind (the server document and epoch before the editor)', ()
     const earlier = client(Y.encodeStateAsUpdate(room.doc));
     await flush();
     const first = attach(earlier, store, {epoch: 'e1'});
-    first.session.markSynced();
+    await markSynced(first.session);
     earlier.edit('b1', 'one, offline');
     unwrap(await first.session.flush());
     first.session.dispose();
@@ -504,9 +529,9 @@ describe('sync, then bind (the server document and epoch before the editor)', ()
     const {session} = attach(tab, store, {epoch: loaded.epoch, loaded});
     expect(tab.binding.status).toEqual({kind: 'active'});
     expect(tab.blocks()[0]).toEqual(['b1', 'one, offline']);
-    expect(await session.serverEpoch('e1')).toEqual({kind: 'same'});
+    expect(await session.serverEpoch('e1')).toMatchObject({kind: 'same'});
     sync(tab.doc, room.doc);
-    session.markSynced();
+    await markSynced(session);
     expect(room.blocks()[0]).toEqual(['b1', 'one, offline']);
     session.dispose();
   });
@@ -518,7 +543,7 @@ describe('sync, then bind (the server document and epoch before the editor)', ()
     const earlier = client(state);
     await flush();
     const first = attach(earlier, store, {epoch: 'e1'});
-    first.session.markSynced();
+    await markSynced(first.session);
     earlier.edit('b2', 'two, offline');
     unwrap(await first.session.flush());
     first.session.dispose();
@@ -529,14 +554,16 @@ describe('sync, then bind (the server document and epoch before the editor)', ()
     const tab = client(state);
     await flush();
     const {session} = attach(tab, store, {epoch: loaded.epoch, loaded});
-    session.markSynced();
+    await markSynced(session);
     expect(tab.binding.status).toEqual({kind: 'active'});
     const recovered = unwrap(
       await recoverYOfflineEdits({
+        autoReplay: 'replayable',
         binding: tab.binding,
         config,
         epoch: 'e2',
         key: 'doc',
+        leftovers: PANEL,
         session,
         stage: 'replay',
         store,
@@ -557,17 +584,17 @@ describe('sync, then bind (the server document and epoch before the editor)', ()
   });
 });
 
-describe("keep: 'unsynced' and writeDelay", () => {
-  test("keep 'unsynced': nothing stored while synced, base and since from the first local edit, deleted on markSynced", async () => {
+describe("persist: 'unsynced' and writeDelay", () => {
+  test("persist 'unsynced': nothing stored while synced, base and since from the first local edit, deleted on markSynced", async () => {
     const fake = createFakeIndexedDB();
     const store = await open(fake);
     const room = client(seed(THREE));
     await flush();
     const tab = client(Y.encodeStateAsUpdate(room.doc));
     await flush();
-    const {session} = attach(tab, store, {epoch: 'e1', keep: 'unsynced'});
-    expect(await session.serverEpoch('e1')).toEqual({kind: 'same'});
-    session.markSynced();
+    const {session} = attach(tab, store, {epoch: 'e1', persist: 'unsynced'});
+    expect(await session.serverEpoch('e1')).toMatchObject({kind: 'same'});
+    await markSynced(session);
     unwrap(await session.flush());
     expect(fake.records(DB, 'updates')).toEqual([]);
     // A peer's edit while synced stores nothing.
@@ -591,7 +618,7 @@ describe("keep: 'unsynced' and writeDelay", () => {
       ['b3', 'three, by a peer'],
     ]);
     // Acknowledged: the rows go.
-    session.markSynced();
+    await markSynced(session);
     unwrap(await session.flush());
     expect(fake.records(DB, 'updates')).toEqual([]);
     // And the next edit starts again from the new base.
@@ -607,14 +634,14 @@ describe("keep: 'unsynced' and writeDelay", () => {
     session.dispose();
   });
 
-  test("keep 'unsynced': a moved epoch captures from what is stored after the tab closed", async () => {
+  test("persist 'unsynced': a moved epoch captures from what is stored after the tab closed", async () => {
     const fake = createFakeIndexedDB();
     const store = await open(fake);
     const tab = client(seed(THREE));
     await flush();
-    const {session} = attach(tab, store, {epoch: 'e1', keep: 'unsynced'});
+    const {session} = attach(tab, store, {epoch: 'e1', persist: 'unsynced'});
     await session.serverEpoch('e1');
-    session.markSynced();
+    await markSynced(session);
     tab.edit('b2', 'two, unsynced');
     unwrap(await session.flush());
     session.dispose();
@@ -623,10 +650,12 @@ describe("keep: 'unsynced' and writeDelay", () => {
     await flush();
     const recovered = unwrap(
       await recoverYOfflineEdits({
+        autoReplay: 'replayable',
         binding: fresh.binding,
         config,
         epoch: 'e2',
         key: 'doc',
+        leftovers: PANEL,
         stage: 'persist',
         store,
       }),
@@ -645,7 +674,7 @@ describe("keep: 'unsynced' and writeDelay", () => {
     await flush();
     const {session} = attach(tab, store, {epoch: 'e1', writeDelay: 40});
     await session.serverEpoch('e1');
-    session.markSynced();
+    await markSynced(session);
     unwrap(await session.flush());
     const rows = () => fake.records(DB, 'updates').length;
     const base = rows();
@@ -682,10 +711,12 @@ describe("keep: 'unsynced' and writeDelay", () => {
     await flush();
     const recovered = unwrap(
       await recoverYOfflineEdits({
+        autoReplay: 'replayable',
         binding: fresh.binding,
         config,
         epoch: 'e1',
         key: 'doc',
+        leftovers: PANEL,
         stage: 'replay',
         store,
       }),
@@ -751,7 +782,7 @@ describe('a moved epoch captures', () => {
 
   test('a replaced event while connected takes the same path, with its reason', async () => {
     const fake = createFakeIndexedDB();
-    const {session, tab} = await staleTab(fake, {persistEdits: false});
+    const {session, tab} = await staleTab(fake, {persist: 'captures-only'});
     tab.edit('b2', 'two, typed as the room was replaced');
     const verdict = await session.serverEpoch('e2', {reason: 'expired'});
     expect(verdict.kind === 'moved' && verdict.capture!.reason).toBe('expired');
@@ -774,10 +805,12 @@ describe('a moved epoch captures', () => {
     await flush();
     const recovered = unwrap(
       await recoverYOfflineEdits({
+        autoReplay: 'replayable',
         binding: fresh.binding,
         config,
         epoch: 'e2',
         key: 'doc',
+        leftovers: PANEL,
         stage: 'persist',
         store,
       }),
@@ -812,8 +845,8 @@ describe('a moved epoch captures', () => {
     const sa = attach(a, store, {epoch: 'e1'}).session;
     const sb = attach(b, await open(fake), {epoch: 'e1'}).session;
     await Promise.all([sa.serverEpoch('e1'), sb.serverEpoch('e1')]);
-    sa.markSynced();
-    sb.markSynced();
+    await markSynced(sa);
+    await markSynced(sb);
     a.edit('b1', 'one, tab a');
     b.edit('b3', 'three, tab b');
     await Promise.all([sa.flush(), sb.flush()]);
@@ -831,10 +864,12 @@ describe('a moved epoch captures', () => {
     await flush();
     const recovered = unwrap(
       await recoverYOfflineEdits({
+        autoReplay: 'replayable',
         binding: fresh.binding,
         config,
         epoch: 'e2',
         key: 'doc',
+        leftovers: PANEL,
         stage: 'replay',
         store,
       }),
@@ -900,10 +935,12 @@ describe('the report and the replay', () => {
     const before = fresh.blocks();
     const recovered = unwrap(
       await recoverYOfflineEdits({
+        autoReplay: 'replayable',
         binding: fresh.binding,
         config,
         epoch: 'e2',
         key: 'doc',
+        leftovers: PANEL,
         stage: 'persist',
         store,
       }),
@@ -933,16 +970,22 @@ describe('the report and the replay', () => {
     const before = fresh.blocks();
     const recovered = unwrap(
       await recoverYOfflineEdits({
+        autoReplay: 'replayable',
         binding: fresh.binding,
         config,
         epoch: 'e2',
         key: 'doc',
+        leftovers: PANEL,
         stage: 'replay',
         store,
       }),
     );
     expect(recovered[0].replay).toEqual({
       applied: ['b1', 'b4', 'b2'],
+      // The app's handler has b3, and nothing of it was written.
+      handled: ['b3'],
+      inserted: [],
+      leftovers: [],
       notApplied: [{id: 'b3', reason: 'not-replayable'}],
     });
     // b3 is theirs: never overwritten.
@@ -970,10 +1013,12 @@ describe('the report and the replay', () => {
     const {fresh, next, store} = await moved(fake);
     unwrap(
       await recoverYOfflineEdits({
+        autoReplay: 'replayable',
         binding: fresh.binding,
         config,
         epoch: 'e2',
         key: 'doc',
+        leftovers: PANEL,
         stage: 'replay',
         store,
       }),
@@ -990,10 +1035,12 @@ describe('the report and the replay', () => {
     await flush();
     const recover = (c: Client, s: YOfflineStore) =>
       recoverYOfflineEdits({
+        autoReplay: 'replayable',
         binding: c.binding,
         config,
         epoch: 'e2',
         key: 'doc',
+        leftovers: PANEL,
         stage: 'replay',
         store: s,
       });
@@ -1023,18 +1070,26 @@ describe('the report and the replay', () => {
     const report = describeNow();
     // The panel's button for b4.
     expect(
-      replayUnsyncedEdits({binding: fresh.binding, only: ['b4'], report}),
-    ).toEqual({applied: ['b4'], notApplied: []});
+      replayUnsyncedEdits({
+        autoReplay: 'replayable',
+        binding: fresh.binding,
+        leftovers: PANEL,
+        only: ['b4'],
+        report,
+      }),
+    ).toMatchObject({applied: ['b4'], notApplied: []});
     expect(fresh.blocks().map(([id]) => id)).toEqual(['b1', 'b4', 'b2', 'b3']);
     // Someone changes b1 after the report was made.
     fresh.edit('b1', 'one, changed since');
     expect(
       replayUnsyncedEdits({
+        autoReplay: 'replayable',
         binding: fresh.binding,
+        leftovers: PANEL,
         only: ['b1', 'b3', 'nope'],
         report,
       }),
-    ).toEqual({
+    ).toMatchObject({
       applied: [],
       notApplied: [
         {id: 'nope', reason: 'not-in-report'},
@@ -1045,8 +1100,17 @@ describe('the report and the replay', () => {
     expect(fresh.blocks()[0]).toEqual(['b1', 'one, changed since']);
     // Replaying b4 again does nothing: it is in the document.
     expect(
-      replayUnsyncedEdits({binding: fresh.binding, only: ['b4'], report}),
-    ).toEqual({applied: [], notApplied: [{id: 'b4', reason: 'changed-since'}]});
+      replayUnsyncedEdits({
+        autoReplay: 'replayable',
+        binding: fresh.binding,
+        leftovers: PANEL,
+        only: ['b4'],
+        report,
+      }),
+    ).toMatchObject({
+      applied: [],
+      notApplied: [{id: 'b4', reason: 'in-document'}],
+    });
     // A new report no longer lists it.
     expect(describeNow().blocks.map(b => b.id)).toEqual(['b1', 'b3', 'b2']);
     expect(describeNow().inDocument).toEqual(['b4']);
@@ -1059,14 +1123,16 @@ describe('the report and the replay', () => {
     await session.serverEpoch('e2');
     const fresh = client(Y.encodeStateAsUpdate(room.doc));
     await flush();
-    const now = attach(fresh, store, {epoch: 'e2', persistEdits: false});
-    now.session.markSynced();
+    const now = attach(fresh, store, {epoch: 'e2', persist: 'captures-only'});
+    await markSynced(now.session);
     const recover = (withSession: boolean) =>
       recoverYOfflineEdits({
+        autoReplay: 'replayable',
         binding: fresh.binding,
         config,
         epoch: 'e2',
         key: 'doc',
+        leftovers: PANEL,
         session: withSession ? now.session : undefined,
         stage: 'replay',
         store,
@@ -1084,7 +1150,7 @@ describe('the report and the replay', () => {
     expect(unwrap(await store.captures('doc')).length).toBe(1);
     // Without the session nothing tells it the server holds the document.
     sync(fresh.doc, room.doc);
-    now.session.markSynced();
+    await markSynced(now.session);
     expect(unwrap(await recover(false)).length).toBe(1);
     // With it, after the sync: it goes.
     expect(unwrap(await recover(true))).toEqual([]);
@@ -1110,10 +1176,12 @@ describe('the report and the replay', () => {
     await flush();
     const recovered = unwrap(
       await recoverYOfflineEdits({
+        autoReplay: 'replayable',
         binding: fresh.binding,
         config,
         epoch: 'e2',
         key: 'doc',
+        leftovers: PANEL,
         stage: 'replay',
         store,
       }),
@@ -1126,6 +1194,48 @@ describe('the report and the replay', () => {
     expect(unwrap(await store.captures('doc')).length).toBe(1);
     // The document keeps its order: a move is not replayed.
     expect(fresh.blocks().map(([id]) => id)).toEqual(['b1', 'b2', 'b3']);
+  });
+
+  test('blocks the user only moved, with wrap: the capture is resolved (this call says orderDiffers), and goes once the server holds the document', async () => {
+    const fake = createFakeIndexedDB();
+    const {room, session, store, tab} = await staleTab(fake);
+    tab.editor.update(
+      () => {
+        const first = $getRoot().getFirstChild()!;
+        $getRoot().append(first);
+      },
+      {discrete: true},
+    );
+    await session.serverEpoch('e2');
+    const fresh = client(Y.encodeStateAsUpdate(room.doc));
+    await flush();
+    const now = attach(fresh, store, {epoch: 'e2', persist: 'captures-only'});
+    await markSynced(now.session);
+    const recover = () =>
+      recoverYOfflineEdits({
+        autoReplay: 'replayable',
+        binding: fresh.binding,
+        config,
+        epoch: 'e2',
+        key: 'doc',
+        leftovers: {wrap: wrapLeftoversAsQuote('Offline edits')},
+        session: now.session,
+        stage: 'replay',
+        store,
+      });
+    const [entry] = unwrap(await recover());
+    expect(unwrap(entry.report).orderDiffers).toBe(true);
+    expect(entry.capture.resolved).toEqual({
+      at: expect.any(Number),
+      inserted: [],
+      vector: expect.any(Uint8Array),
+    });
+    // Nothing was written: a move is not replayed.
+    expect(fresh.blocks().map(([id]) => id)).toEqual(['b1', 'b2', 'b3']);
+    // The next call, with the server holding the document: it goes.
+    expect(unwrap(await recover())).toEqual([]);
+    expect(unwrap(await store.captures('doc'))).toEqual([]);
+    now.session.dispose();
   });
 
   test('an added block with none of its earlier neighbours left goes before the next one', async () => {
@@ -1144,8 +1254,13 @@ describe('the report and the replay', () => {
       }),
     );
     expect(
-      replayUnsyncedEdits({binding: next.binding, only: ['n1'], report})
-        .applied,
+      replayUnsyncedEdits({
+        autoReplay: 'replayable',
+        binding: next.binding,
+        leftovers: PANEL,
+        only: ['n1'],
+        report,
+      }).applied,
     ).toEqual(['n1']);
     expect(next.blocks().map(([id]) => id)).toEqual(['n1', 'b2', 'b3']);
   });
@@ -1160,7 +1275,14 @@ describe('the report and the replay', () => {
       }),
     );
     fresh.binding.freeze();
-    expect(() => replayUnsyncedEdits({binding: fresh.binding, report})).toThrow(
+    expect(() =>
+      replayUnsyncedEdits({
+        autoReplay: 'replayable',
+        binding: fresh.binding,
+        leftovers: PANEL,
+        report,
+      }),
+    ).toThrow(
       /needs an active binding \(it is readonly\): replay into the fresh document/,
     );
   });
@@ -1177,13 +1299,15 @@ describe('the report and the replay', () => {
     const fresh = client(Y.encodeStateAsUpdate(room.doc));
     await flush();
     const now = attach(fresh, store, {epoch: 'e2'});
-    now.session.markSynced();
+    await markSynced(now.session);
     const recovered = unwrap(
       await recoverYOfflineEdits({
+        autoReplay: 'replayable',
         binding: fresh.binding,
         config,
         epoch: 'e2',
         key: 'doc',
+        leftovers: PANEL,
         session: now.session,
         stage: 'replay',
         store,
@@ -1207,10 +1331,12 @@ describe('the report and the replay', () => {
     await flush();
     const recovered = unwrap(
       await recoverYOfflineEdits({
+        autoReplay: 'replayable',
         binding: fresh.binding,
         config,
         epoch: 'e2',
         key: 'doc',
+        leftovers: PANEL,
         stage: 'persist',
         store,
       }),
@@ -1230,7 +1356,12 @@ describe('the report and the replay', () => {
     expect(unwrap(await store.slots('doc'))).toEqual([]);
     // And it replays like any other.
     expect(
-      replayUnsyncedEdits({binding: fresh.binding, report}).applied,
+      replayUnsyncedEdits({
+        autoReplay: 'replayable',
+        binding: fresh.binding,
+        leftovers: PANEL,
+        report,
+      }).applied,
     ).toEqual(['b1', 'b4']);
     expect(fresh.blocks()).toEqual([
       ['b1', 'one, then the tab closed'],
@@ -1248,7 +1379,7 @@ describe('the report and the replay', () => {
     await flush();
     const {session} = attach(tab, store, {epoch: 'e1'});
     await session.serverEpoch('e1');
-    session.markSynced();
+    await markSynced(session);
     tab.editor.update(
       () => {
         $getRoot().getLastChild()!.replace($paragraph('two, mine'));
@@ -1260,10 +1391,12 @@ describe('the report and the replay', () => {
     await flush();
     const recovered = unwrap(
       await recoverYOfflineEdits({
+        autoReplay: 'replayable',
         binding: fresh.binding,
         config: configNoIds,
         epoch: 'e2',
         key: 'doc',
+        leftovers: PANEL,
         stage: 'replay',
         store,
       }),
@@ -1296,7 +1429,8 @@ describe('stages', () => {
     // No store is needed at this stage.
     const {session} = attach(tab, null, {epoch: 'e1', stage: 'off'});
     expect(observers()).toEqual(before);
-    session.markSynced();
+    // Nothing to mark synced: an 'off' verdict carries no markSynced.
+    expect(await session.serverEpoch('e1')).toEqual({kind: 'off'});
     tab.edit('b1', 'one, edited');
     expect(await session.serverEpoch('e2')).toEqual({kind: 'off'});
     expect(tab.binding.status).toEqual({kind: 'active'});
@@ -1304,10 +1438,12 @@ describe('stages', () => {
     expect(
       unwrap(
         await recoverYOfflineEdits({
+          autoReplay: 'replayable',
           binding: tab.binding,
           config,
           epoch: 'e2',
           key: 'doc',
+          leftovers: PANEL,
           stage: 'off',
           store,
         }),
@@ -1317,13 +1453,13 @@ describe('stages', () => {
     expect(fake.records(DB, 'captures')).toEqual([]);
   });
 
-  test('persist stores every edit by default (persistEdits left out)', async () => {
+  test("persist 'document' stores every edit", async () => {
     const fake = createFakeIndexedDB();
     const store = await open(fake);
     const tab = client(seed(THREE));
     await flush();
     const {session} = attach(tab, store, {epoch: 'e1'});
-    session.markSynced();
+    await markSynced(session);
     tab.edit('b1', 'one, edited');
     unwrap(await session.flush());
     const loaded = unwrap(await loadYOffline({key: 'doc', store}));
@@ -1333,7 +1469,7 @@ describe('stages', () => {
     session.dispose();
   });
 
-  test('persist without persistEdits adds no update listener', async () => {
+  test("persist 'captures-only' adds no update listener", async () => {
     const fake = createFakeIndexedDB();
     const tab = client(seed(THREE));
     await flush();
@@ -1346,7 +1482,7 @@ describe('stages', () => {
     const before = updateListeners();
     const {session} = attach(tab, await open(fake), {
       epoch: 'e1',
-      persistEdits: false,
+      persist: 'captures-only',
     });
     expect(updateListeners()).toBe(before);
     session.dispose();
@@ -1354,49 +1490,79 @@ describe('stages', () => {
 });
 
 describe('required choices fail with the fix', () => {
+  const STORED = {
+    base: null,
+    epoch: 'e0',
+    hasUnsyncedEdits: false,
+    slot: null,
+    state: null,
+  };
   test.each([
-    ['no stage', {stage: undefined}, /needs stage: 'off' \(do nothing\)/],
+    [
+      'no offline (the options before D135)',
+      {offline: undefined, stage: 'persist'},
+      /needs offline: \{stage: 'off'\}.*replaces the stage, store, persistEdits and keep options/,
+    ],
+    [
+      'no stage',
+      {offline: {stage: undefined}},
+      /needs stage: 'off' \(do nothing\)/,
+    ],
     ['no binding', {binding: undefined}, /needs binding: what createYBinding/],
     ['no key', {key: ''}, /needs key/],
     ['a numeric epoch', {epoch: 3}, /String\(epoch\) for a number/],
-    ['an unknown keep', {keep: 'all'}, /keep is 'document' \(the default/],
+    [
+      'no persist',
+      {offline: {stage: 'persist', store: 'STORE'}},
+      /needs offline\.persist: 'document'.*'captures-only'/,
+    ],
     [
       'a negative writeDelay',
       {writeDelay: -1},
       /writeDelay is the milliseconds/,
     ],
-    [
-      'a persistEdits that is not a boolean',
-      {persistEdits: 'yes'},
-      /persistEdits is true \(the default/,
-    ],
     ['no onError', {onError: undefined}, /needs onError/],
-    ['no store', {store: null}, /needs store at stage 'persist'/],
+    [
+      'no stopSync',
+      {stopSync: undefined},
+      /needs stopSync: a function that disconnects/,
+    ],
+    [
+      'no loaded (undefined, not null)',
+      {loaded: undefined},
+      /needs loaded: what loadYOffline returned/,
+    ],
+    [
+      'no store',
+      {offline: {persist: 'document', stage: 'persist', store: null}},
+      /needs offline\.store at stage 'persist'/,
+    ],
     [
       'a loaded document of another epoch',
-      {
-        loaded: {
-          base: null,
-          epoch: 'e0',
-          hasUnsyncedEdits: false,
-          slot: null,
-          state: null,
-        },
-      },
+      {loaded: STORED},
       /pass epoch: loaded\.epoch/,
     ],
   ])('%s', async (_name, options, message) => {
     const tab = client(null);
     const store = await open(createFakeIndexedDB());
+    const resolved = Object.fromEntries(
+      Object.entries(options).map(([name, value]) => [
+        name,
+        typeof value === 'object' && value !== null && 'store' in value
+          ? {...value, store: value.store === 'STORE' ? store : value.store}
+          : value,
+      ]),
+    );
     expect(() =>
       attachYOfflineSession({
         binding: tab.binding,
         epoch: 'e1',
         key: 'doc',
+        loaded: null,
+        offline: {persist: 'document', stage: 'persist', store},
         onError: () => {},
-        stage: 'persist',
-        store,
-        ...(options as object),
+        stopSync: () => {},
+        ...resolved,
       } as never),
     ).toThrow(message);
   });
@@ -1413,10 +1579,12 @@ describe('required choices fail with the fix', () => {
     ).rejects.toThrow(/reason is 'stale'/);
     await expect(
       recoverYOfflineEdits({
+        autoReplay: 'replayable',
         binding: tab.binding,
         config,
         epoch: 'e1',
         key: 'doc',
+        leftovers: PANEL,
         stage: 'on' as never,
         store,
       }),
@@ -1446,7 +1614,7 @@ describe('a base below the floor', () => {
     text: null,
   });
   const migrate = (state: Uint8Array) =>
-    migrateYState(state, [stamp(FLOOR - 1)]).state;
+    migrateYState(state, [stamp(FLOOR - 1)], {pending: 'discard'}).state;
   const plain = catalogHeadlessConfig(NO_IDS, {onWarn: () => {}});
 
   test('without migrate: reported as gone, nothing replayable, the edits still listed', async () => {
@@ -1514,6 +1682,9 @@ describe('a base below the floor', () => {
     const vector = Y.encodeStateVector(edited);
     edited.get('lexical-y').insert(3, ' more');
     unwrap(await slot.append(Y.encodeStateAsUpdate(edited, vector)));
+    // That page is gone (its rows are not a live tab's).
+    slot.close();
+    await flush();
     // This release loads it: read only (its server must migrate it).
     const loaded = unwrap(
       await loadYOffline({key: 'doc', store: await open(fake)}),

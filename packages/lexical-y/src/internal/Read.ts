@@ -76,7 +76,9 @@ import {
   $wrapperAttrs,
   type Attrs,
   BLOCK_PREFIX,
+  canStoreAs,
   decodeFormatValue,
+  deriveStorageKind,
   eachOuterLevel,
   equalValue,
   FIELD_PREFIX,
@@ -2412,7 +2414,7 @@ export class Reader {
       return existing.getLatest();
     }
     const json = lineJSON(attrs, derived, type as string);
-    return this.$readStored(
+    const line = this.$readStored(
       type as string,
       () =>
         $parseSerializedNode(
@@ -2428,6 +2430,34 @@ export class Reader {
           ) as unknown as SerializedLexicalNode,
         ) as ElementNode,
     );
+    this.$noteReplacedLine(type as string, line);
+    return line;
+  }
+
+  /**
+   * A line of a stored `type` that this editor built as another class (a
+   * node replacement) which cannot be stored as a line: the binding could
+   * not write edits to it (its content would be written as another kind's,
+   * which the document does not hold), so the binding goes read only (see
+   * State#replacedStorage). The class is the one built, whatever the
+   * replacement declares (`withKlass`, a chain, or `with` alone).
+   */
+  private $noteReplacedLine(type: string, line: LexicalNode): void {
+    const built = line.getType();
+    if (built === type || this.state.replacedStorage.has(type)) {
+      return;
+    }
+    const klass = line.constructor as Klass<LexicalNode>;
+    if (canStoreAs(klass, 'line')) {
+      return;
+    }
+    this.state.replacedStorage.set(type, {
+      declared: {kind: deriveStorageKind(klass)},
+      reason: 'declaration-changed',
+      replacement: built,
+      stored: {kind: 'line'},
+      type,
+    });
   }
 
   /**

@@ -109,6 +109,49 @@ test.describe('Collab Y: offline mode', () => {
       .toEqual(['paragraph:one', 'paragraph:two']);
   });
 
+  test('autoReplay none: the offline edit is not written over the block, but inserted after it in the collapsible section, as one undo step', async ({
+    browser,
+  }) => {
+    const {clients} = await openClients(browser, {
+      n: 1,
+      params: {...OFFLINE, collabYAutoReplay: 'none'},
+    });
+    const [a] = clients;
+    await seed(clients, ['one', 'two']);
+    await stored(a, {unsynced: false});
+    await a.setOnline(false);
+    await a.caret('one');
+    await a.type(' mine');
+    await stored(a, {unsynced: true});
+
+    await a.page.locator('[data-test-id="collab-y-offline-replace"]').click();
+    await a.page.waitForURL(/collabYEpoch=2/);
+    a.offline = false;
+    await a.waitReady();
+    await expect
+      .poll(
+        async () =>
+          (await a.blocks()).map(block =>
+            // The label names the time it was captured.
+            block.replace(/ · [^|]*\|/, ' · <time>|'),
+          ),
+        {timeout: 20000},
+      )
+      .toEqual([
+        'paragraph:one',
+        'collapsible-container:Offline edits that did not merge · <time>|one mine',
+        'paragraph:two',
+      ]);
+    await expect(
+      a.page.locator('[data-test-id="collab-y-offline-capture"]'),
+    ).toContainText('1 block inserted');
+    await a.editor.focus();
+    await a.undo();
+    await expect
+      .poll(() => a.blocks())
+      .toEqual(['paragraph:one', 'paragraph:two']);
+  });
+
   test('stage persist: nothing is applied until Reapply', async ({browser}) => {
     const {clients} = await openClients(browser, {
       n: 1,

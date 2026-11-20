@@ -43,7 +43,7 @@ import {createYWriter, editYState, seedYState} from '../../../headless';
 import {flush} from '../../utils/harness';
 
 const EXTENSIONS = [RichTextExtension, TableExtension, MarkStateExtension];
-const CONFIG = {extensions: EXTENSIONS, schemaVersion: 1};
+const CONFIG = {extensions: EXTENSIONS, onWarn: null, schemaVersion: 1};
 
 /** Comment `id` on `token` in the text node that holds it. */
 function $markToken(token: string, id: string): void {
@@ -87,6 +87,7 @@ function bound(
         createYCollabConfig({
           doc,
           layoutUpgrade: null,
+          onYStatus: null,
           schemaVersion: 1,
           synced: true,
         }),

@@ -117,8 +117,14 @@ function load(): Golden[] {
         const input = unb64(f.input);
         const roots = rootsOf(f);
         f.output = {
-          gcOff: b64(migrateYState(input, STEPS, {gc: false, roots}).state),
-          gcOn: b64(migrateYState(input, STEPS, {gc: true, roots}).state),
+          gcOff: b64(
+            migrateYState(input, STEPS, {gc: false, pending: 'discard', roots})
+              .state,
+          ),
+          gcOn: b64(
+            migrateYState(input, STEPS, {gc: true, pending: 'discard', roots})
+              .state,
+          ),
         };
       }
     }
@@ -129,7 +135,11 @@ function load(): Golden[] {
 
 const FIXTURES = load();
 const migrate = (f: Golden, gc: boolean, steps = STEPS) =>
-  migrateYState(unb64(f.input), steps, {gc, roots: rootsOf(f)}).state;
+  migrateYState(unb64(f.input), steps, {
+    gc,
+    pending: 'discard',
+    roots: rootsOf(f),
+  }).state;
 
 /** What a reader of `state`'s root `root` shows, as JSON. */
 function readOf(state: Uint8Array, f: Golden, root?: string): unknown {
@@ -433,7 +443,11 @@ describe('@lexical/y/migrate/3to4 golden fixtures', () => {
       test('idempotent: a migrated document is a no-op', () => {
         for (const f of FIXTURES) {
           const out = migrate(f, gc);
-          const again = migrateYState(out, STEPS, {gc, roots: rootsOf(f)});
+          const again = migrateYState(out, STEPS, {
+            gc,
+            pending: 'discard',
+            roots: rootsOf(f),
+          });
           expect(again.receipt.changed, f.name).toBe(false);
           expect(again.update, f.name).toBeNull();
           expect(again.state, f.name).toBe(out);
@@ -454,12 +468,21 @@ describe('@lexical/y/migrate/3to4 golden fixtures', () => {
         const input = unb64(f.input);
         const three = migrateYState(input, [step1to2, step2to3], {
           gc,
+          pending: 'discard',
           to: 3,
         }).state;
-        const four = migrateYState(three, [step3to4], {gc}).state;
+        const four = migrateYState(three, [step3to4], {
+          gc,
+          pending: 'discard',
+        }).state;
         expect(recordedLayout(createRawYDoc(four, {gc})), f.name).toBe(4);
         expect(
-          b64(migrateYState(input, [step1to2, step2to3, step3to4], {gc}).state),
+          b64(
+            migrateYState(input, [step1to2, step2to3, step3to4], {
+              gc,
+              pending: 'discard',
+            }).state,
+          ),
           f.name,
         ).toBe(b64(four));
         expect(layout4Problems(four, gc), f.name).toEqual([]);
@@ -482,7 +505,7 @@ describe('@lexical/y/migrate/3to4 golden fixtures', () => {
         `for (const f of fixtures) {`,
         `  const roots = f.mainNotes === undefined ? undefined : ['lexical-y', 'notes'];`,
         `  for (const gc of [false, true]) {`,
-        `    h.update(migrateYState(new Uint8Array(Buffer.from(f.input, 'base64')), [step3to4], {gc, roots}).state);`,
+        `    h.update(migrateYState(new Uint8Array(Buffer.from(f.input, 'base64')), [step3to4], {gc, pending: 'discard', roots}).state);`,
         `  }`,
         `}`,
         `process.stdout.write(h.digest('hex'));`,

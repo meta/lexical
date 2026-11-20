@@ -862,7 +862,7 @@ afterEach(() => {
   vi.resetModules();
 });
 
-const config = {schemaVersion: 1};
+const config = {onStatus: null, onWarn: null, schemaVersion: 1};
 
 function seeded(): Uint8Array {
   // A stored state, made with the installed @y/y before any change.
@@ -1013,6 +1013,7 @@ describe.each(CHANGES)('with %s', (_, change, found) => {
           dependencies: [
             extension.configExtension(lexicalY.YCollabExtension, {
               doc: ydoc,
+              onYStatus: null,
               schemaVersion: 1,
             }),
           ],
@@ -1049,6 +1050,7 @@ describe.each(CHANGES)('with %s', (_, change, found) => {
           },
         }),
       ],
+      onWarn: null,
       schemaVersion: 1,
     };
     expect(headless.YUnsupportedYjsError).toBe(lexicalY.YUnsupportedYjsError);
@@ -1128,6 +1130,7 @@ describe('with the supported @y/y', () => {
         dependencies: [
           extension.configExtension(lexicalY.YCollabExtension, {
             doc,
+            onYStatus: null,
             schemaVersion: 1,
           }),
         ],
@@ -1196,6 +1199,7 @@ describe('with the supported @y/y', () => {
     expect(
       () =>
         new lexicalY.YBinding(editor, doc, {
+          onStatus: null,
           root: {} as unknown as Y.Node,
           schemaVersion: 1,
         }),

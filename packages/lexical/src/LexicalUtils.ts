@@ -52,11 +52,11 @@ import {
   DOM_TEXT_TYPE,
   ELEMENT_TYPE_TO_FORMAT,
   HAS_DIRTY_NODES,
-  LTR_REGEX,
   NO_DIRTY_NODES,
   NODE_STATE_KEY,
   PROTOTYPE_CONFIG_METHOD,
   RTL_REGEX,
+  STRONG_DIRECTION_REGEX,
   TEXT_TYPE_TO_FORMAT,
 } from './LexicalConstants';
 import {type DOMSlot, ElementDOMSlot} from './LexicalDOMSlot';
@@ -111,13 +111,16 @@ import {
   type PointType,
   type RangeSelection,
 } from './LexicalSelection';
+import {$exportNodeJSON} from './LexicalSerializedExport';
 import {
   $getSlot,
   $getSlotHostKey,
+  $getSlotNames,
   $isSlotChild,
   $isSlotHost,
 } from './LexicalSlot';
 import {
+  $parseSerializedNode,
   errorOnInfiniteTransforms,
   errorOnReadOnly,
   getActiveEditor,
@@ -333,15 +336,18 @@ export function getEditorPropertyFromDOMNode(node: Node | null): unknown {
   return node ? node.__lexicalEditor : null;
 }
 
-/** Returns the text direction ('ltr' or 'rtl') of the given string, or null if it contains no strong directional characters. */
+/**
+ * Returns the direction of the first strong directional character in the
+ * text. This is the direction that the browser gives an element with
+ * `dir="auto"`. Characters with no strong direction before it (digits,
+ * punctuation, spaces, emoji) are skipped.
+ */
 export function getTextDirection(text: string): 'ltr' | 'rtl' | null {
-  if (RTL_REGEX.test(text)) {
-    return 'rtl';
+  const strong = STRONG_DIRECTION_REGEX.exec(text);
+  if (strong === null) {
+    return null;
   }
-  if (LTR_REGEX.test(text)) {
-    return 'ltr';
-  }
-  return null;
+  return RTL_REGEX.test(strong[0]) ? 'rtl' : 'ltr';
 }
 
 /**
@@ -733,8 +739,11 @@ export function cloneDecorators(
   return pendingDecorators;
 }
 
-export function getEditorStateTextContent(editorState: EditorState): string {
-  return editorState.read(() => $getRoot().getTextContent());
+export function getEditorStateTextContent(
+  editorState: EditorState,
+  editor: LexicalEditor,
+): string {
+  return editor.read(editorState, () => $getRoot().getTextContent());
 }
 
 export function markNodesWithTypesAsDirty(
@@ -2101,6 +2110,78 @@ export function $copyNode<T extends LexicalNode>(
     copy.resetOnCopyNodeFrom(node);
   }
   return copy;
+}
+
+/**
+ * Returns a deep copy of node: the node itself, its children and its named
+ * slots, recursively, all with new keys. The copy is built by serializing the
+ * subtree and parsing it back, so it keeps everything a Lexical-JSON paste
+ * keeps (including NodeState). Like {@link $copyNode}, the copy is detached
+ * and must be separately added to the document.
+ *
+ * Unlike {@link $copyNode}, the copy is not reset: `resetOnCopyNodeFrom` is
+ * not called and NodeState declared with `resetOnCopyNode` keeps its value
+ * (a block id, a checked task), just as it would in a pasted copy. Properties
+ * that `exportJSON` does not write are not copied.
+ *
+ * A descendant ElementNode whose `excludeFromCopy('clone')` returns true is
+ * left out and its children take its place, as with the clipboard; its own
+ * NodeState and slots are not copied. The node passed in, and the value of
+ * each slot, are always copied.
+ *
+ * @param node - The node to be copied. It must not be the RootNode, which
+ * cannot be copied (copy its children instead).
+ * @returns The copy of the node and its subtree.
+ */
+export function $deepCopy<T extends LexicalNode>(node: T): T {
+  // RootNode.importJSON returns the existing root rather than a new node, so
+  // parsing would append the copied children to the live document.
+  invariant(
+    !$isRootNode(node),
+    '$deepCopy: the RootNode cannot be copied, copy its children instead',
+  );
+  return $parseSerializedNode($serializeForDeepCopy(node)) as T;
+}
+
+// The same walk as $exportNodeToJSON in LexicalEditorState, plus the
+// excludeFromCopy splice the clipboard export does; keep them in step.
+function $serializeForDeepCopy(node: LexicalNode): SerializedLexicalNode {
+  const serializedNode = $exportNodeJSON(node) as SerializedLexicalNode;
+  if ($isElementNode(node)) {
+    const children: SerializedLexicalNode[] = [];
+    $appendDeepCopyChildren(node, children);
+    (serializedNode as SerializedLexicalNode & {children: unknown}).children =
+      children;
+  }
+  const slotNames = $getSlotNames(node);
+  if (slotNames.length > 0) {
+    const slots: Record<string, SerializedLexicalNode> = {};
+    for (const name of slotNames) {
+      const slotNode = $getSlot(node, name);
+      invariant(
+        slotNode !== null,
+        '$deepCopy: Node %s has slot "%s" but it resolved to no node',
+        node.constructor.name,
+        name,
+      );
+      slots[name] = $serializeForDeepCopy(slotNode);
+    }
+    serializedNode.$slots = slots;
+  }
+  return serializedNode;
+}
+
+function $appendDeepCopyChildren(
+  parent: ElementNode,
+  target: SerializedLexicalNode[],
+): void {
+  for (const child of parent.getChildren()) {
+    if ($isElementNode(child) && child.excludeFromCopy('clone')) {
+      $appendDeepCopyChildren(child, target);
+    } else {
+      target.push($serializeForDeepCopy(child));
+    }
+  }
 }
 
 /** Applies any registered node replacement for the given node's type, returning the replacement node or the original if none is registered. */

@@ -49,7 +49,11 @@ function client(doc: YDoc, attached: boolean) {
     defineExtension({
       $initialEditorState: null,
       dependencies: [
-        configExtension(YCollabExtension, {doc, schemaVersion: 1}),
+        configExtension(YCollabExtension, {
+          doc,
+          onYStatus: null,
+          schemaVersion: 1,
+        }),
         BlockIdExtension,
       ],
       name: 'regressions-follow-ups',

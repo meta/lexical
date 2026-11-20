@@ -117,7 +117,7 @@ for (const gc of [false, true]) {
       },
       onWarn: () => {},
     });
-    const b = new YBinding(e, doc, {root, schemaVersion: 1});
+    const b = new YBinding(e, doc, {onStatus: null, root, schemaVersion: 1});
     const before = Y.encodeStateAsUpdate(doc);
     b.start();
     b.initialize();

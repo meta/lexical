@@ -147,6 +147,7 @@ function $marked(value: Value): string[] {
 
 const CONFIG = {
   extensions: [RichTextExtension, MarkStateExtension],
+  onWarn: null,
   schemaVersion: 1,
 };
 
@@ -171,6 +172,7 @@ function clients(gc: boolean, ids: number[]) {
           configExtension(YCollabExtension, {
             captureTimeout: 0,
             doc,
+            onYStatus: null,
             schemaVersion: 1,
             synced: true,
           }),

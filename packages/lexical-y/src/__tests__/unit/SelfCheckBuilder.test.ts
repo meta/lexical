@@ -80,6 +80,7 @@ function build(doc: YDoc, warnings: string[]) {
         RichTextExtension,
         configExtension(YCollabExtension, {
           doc,
+          onYStatus: null,
           schemaVersion: 1,
           selfCheck: true,
           synced: true,

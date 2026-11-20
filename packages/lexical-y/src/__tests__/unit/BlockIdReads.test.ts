@@ -71,6 +71,7 @@ function peer(id: number, update: Uint8Array | null, blockIds: boolean) {
           : []),
         configExtension(YCollabExtension, {
           doc,
+          onYStatus: null,
           schemaVersion: 1,
           selfCheck: true,
         }),

@@ -204,6 +204,20 @@ export class MarkdownStreamScanner {
     ) {
       return null;
     }
+    // CommonMark reads `__init__` as a bold "init", but a `__` run around one
+    // word of ASCII letters, digits and underscores is more often a name, like
+    // Python's `__init__`, so typed it stays as typed. `**word**`,
+    // `__two words__` and `_word_` still convert.
+    if (
+      last.type === 'strong' &&
+      value[last.position.start.offset ?? 0] === '_' &&
+      last.children.length === 1
+    ) {
+      const only = last.children[0];
+      if (only.type === 'text' && /^[A-Za-z0-9_]+$/.test(only.value)) {
+        return null;
+      }
+    }
     // Guard against firing mid-delimiter: while typing `**bold*` the parser
     // briefly sees emphasis (`*bold*`) closing at the caret with a stray `*`
     // in front. If the opening delimiter is immediately preceded by the same
@@ -214,6 +228,21 @@ export class MarkdownStreamScanner {
       start > 0 &&
       value[start - 1] === openChar &&
       this.compiled.inlineShortcutTriggers.has(openChar)
+    ) {
+      return null;
+    }
+    // CommonMark also opens a `*` or `~` run inside a word, so `2*3*4` and
+    // `x*y*z` read as emphasis. Typed, they are math or names, so emphasis,
+    // strong and strikethrough convert only at the start of a word. (`_` runs
+    // never open inside a word.) Only ASCII letters and digits count, so text
+    // without spaces between words, such as Chinese or Japanese, still
+    // converts.
+    if (
+      start > 0 &&
+      (last.type === 'emphasis' ||
+        last.type === 'strong' ||
+        last.type === 'delete') &&
+      /[A-Za-z0-9]/.test(value[start - 1])
     ) {
       return null;
     }

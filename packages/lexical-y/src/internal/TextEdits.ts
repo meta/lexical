@@ -14,6 +14,7 @@ import {
   $isLineBreakNode,
   $isTextNode,
   type EditorState,
+  type LexicalEditor,
   type LexicalNode,
   type NodeKey,
   type NodeMap,
@@ -400,6 +401,8 @@ export class TextReplay {
     /** The caret of the new state, where it is in a text node. */
     private readonly caret: {key: NodeKey; offset: number} | null,
     private readonly composing: boolean,
+    /** The editor whose update this replays, active in reads of prevState. */
+    private readonly editor: LexicalEditor,
   ) {
     this.prevMap = prevState._nodeMap;
     if (log !== null) {
@@ -870,7 +873,9 @@ export class TextReplay {
    * update removed no longer has.
    */
   private oldKind(node: LexicalNode | undefined): Kind | null {
-    return node === undefined ? null : this.prevState.read(() => kindOf(node));
+    return node === undefined
+      ? null
+      : this.editor.read(this.prevState, () => kindOf(node));
   }
 
   /** An old text node's runs: its whole old text. Null if not a text node. */

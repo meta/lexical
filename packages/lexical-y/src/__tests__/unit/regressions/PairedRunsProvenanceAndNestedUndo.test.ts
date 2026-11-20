@@ -186,6 +186,7 @@ for (const gc of [false, true]) {
         {discrete: true},
       );
       const binding = new YBinding(editor, doc as never, {
+        onStatus: null,
         root: child,
         schemaVersion: 1,
         selfCheck: true,
@@ -244,6 +245,7 @@ for (const gc of [false, true]) {
         },
       });
       const b1 = new YBinding(e1, d as never, {
+        onStatus: null,
         root: c,
         schemaVersion: 1,
         selfCheck: true,
@@ -258,6 +260,7 @@ for (const gc of [false, true]) {
         },
       });
       const b3 = new YBinding(e3, d3 as never, {
+        onStatus: null,
         root: d3.get('app').getAttr('editor') as any,
         schemaVersion: 1,
         selfCheck: true,

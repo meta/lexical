@@ -1961,7 +1961,7 @@ export function eachOuterLevel(
  * equal fields (two links to the same URL), which would otherwise read as
  * one.
  */
-const INSTANCE_KEY = '#';
+export const INSTANCE_KEY = '#';
 
 /**
  * Wrapper values (see $wrapperAttrs) of wrappers that hold text: their text

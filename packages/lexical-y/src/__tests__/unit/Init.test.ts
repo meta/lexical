@@ -80,6 +80,7 @@ function client(doc: YDoc, text: string | null, root?: Y.Node) {
     editor.update(() => $getRoot().clear().append($p(text)), {discrete: true});
   }
   const binding = new YBinding(editor, doc, {
+    onStatus: null,
     root,
     schemaVersion: 1,
     selfCheck: true,
@@ -95,6 +96,14 @@ function client(doc: YDoc, text: string | null, root?: Y.Node) {
  * alone, and an older client opens a layout 4 document read only anyway).
  */
 const PRISTINE_SEED_ID = 1240003256392311;
+
+/**
+ * The id a layout 4 client derives for 'Same seed' written into a root that
+ * held text, deleted since, by client 5 (see the test that uses it): the
+ * hash covers the document's state vector and the seed's bytes, so a change
+ * to either part of the hash would make two versions write such a root twice.
+ */
+const REUSED_ROOT_SEED_ID = 4230486353891027;
 
 const text = (editor: ReturnType<typeof createEditor>) =>
   editor.getEditorState().read(() => $getRoot().getTextContent());
@@ -253,6 +262,24 @@ describe('@lexical/y initialization', () => {
     });
   }
 
+  test('a root that held text, deleted since, is still written under the same id', () => {
+    // The room's own writes under a fixed client id, so that its state
+    // vector, which the id is derived from with the seed's bytes, is fixed.
+    const base = createYDoc(null, {gc: false});
+    base.clientID = 5;
+    const root = base.get('lexical-y');
+    root.insert(0, 'gone');
+    root.delete(0, 4);
+    const doc = createYDoc(null, {gc: false});
+    Y.applyUpdate(doc, Y.encodeStateAsUpdate(base));
+    const c = client(doc, 'Same seed');
+    c.binding.initialize();
+    const ids = [...doc.store.clients.keys()].filter(
+      id => id !== doc.clientID && id !== base.clientID,
+    );
+    expect(ids).toEqual([REUSED_ROOT_SEED_ID]);
+  });
+
   test('a pristine root is still written under the same id (every layout 4 client shares it)', () => {
     const doc = createYDoc();
     const c = client(doc, 'Same seed');
@@ -311,6 +338,7 @@ describe('@lexical/y initialization', () => {
               ]),
           configExtension(YCollabExtension, {
             doc,
+            onYStatus: null,
             schemaVersion: 1,
             selfCheck: false,
           }),
@@ -761,6 +789,7 @@ describe('@lexical/y initialization', () => {
         {discrete: true},
       );
       const binding = new YBinding(editor, doc, {
+        onStatus: null,
         schemaVersion: 1,
         selfCheck: true,
       });
@@ -836,6 +865,7 @@ describe('@lexical/y initialization', () => {
           configExtension(YCollabExtension, {
             convert: true,
             doc,
+            onYStatus: null,
             schemaVersion: 1,
             selfCheck: false,
             selfCheckSample: 0.25,
@@ -882,7 +912,11 @@ describe('@lexical/y initialization', () => {
     const editor = buildEditorFromExtensions(
       defineExtension({
         dependencies: [
-          configExtension(YCollabExtension, {doc, schemaVersion: 1}),
+          configExtension(YCollabExtension, {
+            doc,
+            onYStatus: null,
+            schemaVersion: 1,
+          }),
         ],
         name: 'app',
         nodes: NODES,
@@ -915,6 +949,7 @@ describe('@lexical/y initialization', () => {
           dependencies: [
             configExtension(YCollabExtension, {
               doc: createYDoc(),
+              onYStatus: null,
               schemaVersion: 1,
             }),
             HistoryExtension,

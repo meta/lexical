@@ -90,6 +90,7 @@ function view(doc: YDoc, root: Y.Node, initialize: boolean): View {
     );
   }
   const binding = new YBinding(editor, doc, {
+    onStatus: null,
     root,
     schemaVersion: 1,
     selfCheck: true,

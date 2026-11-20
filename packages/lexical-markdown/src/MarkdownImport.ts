@@ -7,7 +7,7 @@
  */
 
 import {$isListItemNode, $isListNode, type ListItemNode} from '@lexical/list';
-import {$isQuoteNode} from '@lexical/rich-text';
+import {$isQuoteContainerNode, $isQuoteNode} from '@lexical/rich-text';
 import {
   $createParagraphNode,
   $createTabNode,
@@ -271,6 +271,13 @@ function $importBlocks(
         } else {
           targetNode = $findMatchingParent(lastDescendant, $isListItemNode);
         }
+      }
+
+      if ($isQuoteContainerNode(previousNode)) {
+        // A quote container holds blocks: a line that continues the quote
+        // continues its last paragraph.
+        const lastChild = previousNode.getLastChild();
+        targetNode = $isParagraphNode(lastChild) ? lastChild : null;
       }
 
       if (targetNode != null && targetNode.getTextContentSize() > 0) {

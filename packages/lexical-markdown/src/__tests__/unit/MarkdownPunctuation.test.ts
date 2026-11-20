@@ -157,6 +157,12 @@ describe('Markdown punctuation modes', () => {
       ],
       [['葛\u{e0100}**(a)**', 0]],
     ],
+    // After a marker, it does not.
+    [
+      'x **(b)**\u{e0100}',
+      [['x **(b)**\u{e0100}', 0]],
+      [['x **(b)**\u{e0100}', 0]],
+    ],
     // Before a marker, a variation selector reads as what it varies.
     [
       'a“︀**(b)**',
@@ -165,6 +171,49 @@ describe('Markdown punctuation modes', () => {
         ['(b)', bold],
       ],
       [['a“︀**(b)**', 0]],
+    ],
+    // U+FE01 asks a quotation mark to show full width, as CJK punctuation;
+    // another selector leaves it punctuation that is not CJK.
+    [
+      '**y“\ufe01**b',
+      [
+        ['y“\ufe01', bold],
+        ['b', 0],
+      ],
+      [
+        ['y“\ufe01', bold],
+        ['b', 0],
+      ],
+    ],
+    [
+      '**y“\ufe00**b',
+      [['**y“\ufe00**b', 0]],
+      [
+        ['y“\ufe00', bold],
+        ['b', 0],
+      ],
+    ],
+    // A selector after a character outside the Basic Multilingual Plane
+    // varies all of it.
+    [
+      '\u{20000}\ufe0e**(y**',
+      [
+        ['\u{20000}\ufe0e', 0],
+        ['(y', bold],
+      ],
+      [['\u{20000}\ufe0e**(y**', 0]],
+    ],
+    // A selector that starts the line varies nothing.
+    [
+      '\ufe0e**y**',
+      [
+        ['\ufe0e', 0],
+        ['y', bold],
+      ],
+      [
+        ['\ufe0e', 0],
+        ['y', bold],
+      ],
     ],
     // `_` still opens and closes inside a word only beside punctuation, and
     // text that is not CJK reads as CommonMark reads it.
@@ -252,6 +301,16 @@ describe('Markdown punctuation modes', () => {
     ],
     ['__「a」__世', [['__「a」__世', 0]], [['__「a」__世', 0]]],
     ['a**“b”**c', [['a**“b”**c', 0]], [['a**“b”**c', 0]]],
+    // U+1100, the first Hangul jamo, is CJK.
+    [
+      'x **(b)**\u1100',
+      [
+        ['x ', 0],
+        ['(b)', bold],
+        ['\u1100', 0],
+      ],
+      [['x **(b)**\u1100', 0]],
+    ],
   ])('imports %j', (markdown, cjkFriendly, strict) => {
     expect(importRuns(markdown)).toEqual(cjkFriendly);
     expect(importRuns(markdown, 'cjk-friendly')).toEqual(cjkFriendly);
@@ -509,6 +568,17 @@ describe('Markdown punctuation modes', () => {
       '~~a&&#65038;~~#65;',
       '~~a&&#65038;~~#65;',
     ],
+    // micromark without the CJK-friendly extension reads a character
+    // outside the Basic Multilingual Plane as two letters.
+    [
+      [
+        ['x\u{1F600}', 0],
+        ['。y', bold],
+        ['z', 0],
+      ],
+      'x&#128512;**。y**z',
+      'x\u{1F600}**。y**z',
+    ],
   ])('exports %j', (runs, strict, cjkFriendly) => {
     expect(exportRuns(runs)).toBe(strict);
     expect(exportRuns(runs, 'strict-commonmark')).toBe(strict);
@@ -568,6 +638,23 @@ describe('Markdown punctuation modes', () => {
         expect(importRuns(markdown, punctuation)).toEqual(runs);
       }
     }
+  });
+
+  it('writes U+0000 and a selector before CJK punctuation as typed', () => {
+    const runs: Runs = [
+      ['x\0\ufe0e', 0],
+      ['。y', bold],
+    ];
+    const markdown = exportRuns(runs, 'cjk-friendly');
+    // Both CJK-friendly readings open the run after the selector, so the
+    // selector is written as typed rather than as a reference.
+    expect(markdown).toBe('x\0\ufe0e**。y**');
+    expect(importRuns(markdown)).toEqual(runs);
+    // @lexical/mdast imports U+0000 as U+FFFD.
+    expect(importMdastRuns(markdown, 'cjk-friendly')).toEqual([
+      ['x\ufffd\ufe0e', 0],
+      ['。y', bold],
+    ]);
   });
 
   it('varies the syntax before link text read with its escapes out', () => {

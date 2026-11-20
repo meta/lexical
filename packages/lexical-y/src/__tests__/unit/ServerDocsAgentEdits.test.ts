@@ -522,7 +522,11 @@ describe('server page: agent edits', () => {
   });
 
   test('a replacement of words refuses words that appear twice in the block or across nodes, and finds the block read by id', async () => {
-    const config = {extensions: [BlockIdExtension], schemaVersion: 1};
+    const config = {
+      extensions: [BlockIdExtension],
+      onWarn: null,
+      schemaVersion: 1,
+    };
     const {ids, seen} = seedLines(config, [
       'The red fox and the red hen.',
       'A red fox.',
@@ -600,7 +604,11 @@ describe('server page: agent edits', () => {
   });
 
   test('step 3 refuses the whole answer when a target is gone, moved, replaced, typed in, formatted or styled since the read', async () => {
-    const config = {extensions: [BlockIdExtension], schemaVersion: 1};
+    const config = {
+      extensions: [BlockIdExtension],
+      onWarn: null,
+      schemaVersion: 1,
+    };
     // "Keep me." is not next to anything the collaborator changes (a block
     // after an inserted, deleted or moved block in its container goes back
     // too).
@@ -716,7 +724,11 @@ describe('server page: agent edits', () => {
   });
 
   test('a batch whose earlier edit changes a later target is refused whole: changed words, words now twice, a block named twice', async () => {
-    const config = {extensions: [BlockIdExtension], schemaVersion: 1};
+    const config = {
+      extensions: [BlockIdExtension],
+      onWarn: null,
+      schemaVersion: 1,
+    };
     // Each check passes on the stored state, but the first edit changes what
     // the second names: nothing may be stored.
     for (const [name, lines, edits, reason] of [
@@ -881,7 +893,11 @@ describe('server page: agent edits', () => {
   });
 
   test('a format on words the agent names is checked like a replacement and applied where they are on the latest state', async () => {
-    const config = {extensions: [BlockIdExtension], schemaVersion: 1};
+    const config = {
+      extensions: [BlockIdExtension],
+      onWarn: null,
+      schemaVersion: 1,
+    };
     const {ids, seen} = seedLines(config, ['t61z t62z t63z', 'spacer']);
     // Strikethrough on the words, found on the latest state.
     const strike = (store: DocStore, word: string) =>
@@ -942,7 +958,11 @@ describe('server page: agent edits', () => {
   });
 
   test('a lost race starts over on the newer state: applied when the check still holds there, refused when not, never the older edit', async () => {
-    const config = {extensions: [BlockIdExtension], schemaVersion: 1};
+    const config = {
+      extensions: [BlockIdExtension],
+      onWarn: null,
+      schemaVersion: 1,
+    };
     const {ids, seen} = seedLines(config, ['The quick fox.', 'Spacer.']);
     // The states stored by someone else, each once, just before the store.
     const raced: Uint8Array[] = [];
@@ -1046,7 +1066,11 @@ describe('server page: agent edits', () => {
   });
 
   test('replacing a line keeps what a collaborator typed at the same time, at the start of the new text (typed at the end, possibly at the end)', () => {
-    const config = {extensions: [BlockIdExtension], schemaVersion: 1};
+    const config = {
+      extensions: [BlockIdExtension],
+      onWarn: null,
+      schemaVersion: 1,
+    };
     const seen = seedYState(config, () =>
       $getRoot().append(
         $createParagraphNode().append($createTextNode('The quick brown fox.')),
@@ -1106,6 +1130,7 @@ describe('server page: agent edits', () => {
   test('step 3 sends back a target moved between table cells, or in a table a collaborator moved', () => {
     const config = {
       extensions: [TableExtension, BlockIdExtension],
+      onWarn: null,
       schemaVersion: 1,
     };
     // A table whose cells hold "Target" and "Dest", after a paragraph.
